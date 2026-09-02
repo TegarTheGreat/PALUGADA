@@ -135,12 +135,32 @@ export class Engine {
             name,
             kind,
             input,
-            // Re-checked after the side effect: a stop pressed mid-step must
-            // not leave a committed step behind.
+            // Re-checked after the side effect and before the journal write.
+            // Two things can have changed while the step was in flight, and
+            // both must stop it being committed:
+            //
+            //   - The owner pressed stop (F5.8), so an in-flight external
+            //     action must not become a committed step the task builds on.
+            //   - The task itself is no longer running. Something ended it
+            //     out from under this worker: a parent's awaitChild timeout,
+            //     a freeze, a cancellation, another worker. Without this
+            //     check the abandoned execution keeps going and keeps
+            //     committing steps against a task the system considers
+            //     finished -- spending budget, and potentially touching the
+            //     outside world, on work nobody is waiting for any more.
             beforeCommit: async () => {
               if (await isStopAllRequested()) {
                 controller.abort();
                 throw new PalugadaError('platform.stopped', 'stop requested during step', {});
+              }
+              const current = await withTenant(companyId, (tx) => getTask(tx, taskId));
+              if (!current || isTerminal(current.status)) {
+                controller.abort();
+                throw new PalugadaError(
+                  'task.invalid_transition',
+                  `task ended as ${current?.status ?? 'missing'} while a step was in flight`,
+                  { taskId, status: current?.status ?? null },
+                );
               }
             },
           },
@@ -265,6 +285,16 @@ export class Engine {
       // about what it is about to read.
       validateContract('output', task.roleId, roleSlug, contract.output, output);
       await this.#finishAgentRun(companyId, agentRunId, 'succeeded');
+
+      // An abandoned run can still arrive here: its caller gave up, something
+      // ended the task, and the handler finished anyway. The task's recorded
+      // outcome wins -- overwriting it would let a run nobody is waiting for
+      // resurrect itself as completed.
+      const settled = await withTenant(companyId, (tx) => getTask(tx, taskId));
+      if (settled && isTerminal(settled.status)) {
+        return { status: settled.status as RunOutcome['status'], reason: settled.haltReason ?? 'already settled' };
+      }
+
       await transition(companyId, taskId, 'completed', { output });
       return { status: 'completed', output };
     } catch (error) {
@@ -283,6 +313,23 @@ export class Engine {
    */
   async #classifyFailure(companyId: string, taskId: string, error: unknown): Promise<RunOutcome> {
     const code = error instanceof PalugadaError ? error.code : null;
+
+    // Nothing to classify if the task already has an outcome, or has gone
+    // entirely. Both are the abandoned-run path: a caller gave up, the task
+    // was settled or removed, and the handler carried on to its own end. The
+    // recorded outcome wins, and a run whose task no longer exists writes
+    // nothing at all -- an event referring to a task that is not there is not
+    // an audit record, it is noise that trains people to ignore the log.
+    const settled = await withTenant(companyId, (tx) => getTask(tx, taskId));
+    if (!settled) {
+      return { status: 'cancelled', reason: 'task no longer exists' };
+    }
+    if (isTerminal(settled.status)) {
+      return {
+        status: settled.status as RunOutcome['status'],
+        reason: settled.haltReason ?? (error as Error).message,
+      };
+    }
 
     if (code === 'approval.required') {
       return { status: 'waiting_approval', reason: code };

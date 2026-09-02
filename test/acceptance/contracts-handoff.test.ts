@@ -243,6 +243,54 @@ test('a child that overruns its timeout is halted, not left running', async () =
   assert.equal(child.halt_reason, 'deadline_passed');
 });
 
+test('an abandoned run stops committing once its task has ended', async () => {
+  // The timeout in awaitChild marks the child halted, but the child's handler
+  // is still executing: Promise.race abandons a promise, it does not cancel
+  // one. Without a guard the orphan keeps journalling steps against a task the
+  // system considers finished -- spending budget, and potentially touching the
+  // outside world, for a caller that gave up long ago.
+  const fixture = await createCompany('abandoned-run');
+  await addRole(fixture, 'slow-writer');
+
+  let stepsAttempted = 0;
+  const engine = engineWith({
+    worker: async (ctx) => ({ result: await ctx.awaitChild('slow-writer', {}, { timeoutMs: 100 }) }),
+    'slow-writer': async (ctx) => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      stepsAttempted += 1;
+      await ctx.step('late-write', 'internal', { n: 1 }, async () => ({ wrote: true }));
+      return { done: true };
+    },
+  });
+
+  const task = await rootTask(fixture, fixture.roleId, {});
+  const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(outcome.status, 'halted');
+
+  // Let the abandoned child run past its sleep and try to commit.
+  await new Promise((resolve) => setTimeout(resolve, 700));
+
+  assert.equal(stepsAttempted, 1, 'the orphaned handler does keep executing');
+
+  const child = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ id: string; status: string }>(
+      'SELECT id, status FROM tasks WHERE parent_task_id = $1',
+      [task.id],
+    );
+    return rows[0]!;
+  });
+  assert.equal(child.status, 'halted', 'the outcome recorded at timeout still stands');
+
+  const committed = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM task_steps WHERE task_id = $1 AND status = 'committed'",
+      [child.id],
+    );
+    return Number(rows[0]!.count);
+  });
+  assert.equal(committed, 0, 'no step may be committed against a task that has already ended');
+});
+
 test('no agent-to-agent messaging primitive exists (F6.1)', async () => {
   // F6.1 is a statement about what the codebase must NOT contain, so it is
   // checked against the source rather than against behaviour. A test that only

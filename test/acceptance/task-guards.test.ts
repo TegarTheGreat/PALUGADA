@@ -1,0 +1,211 @@
+/**
+ * PRD F5.5, F5.6, F6.5, F6.6 -- bounding the delegation tree.
+ *
+ * Acceptance criterion F6.6: role A spawns role B which spawns role A with the
+ * same input; the third sub-task is refused with cycle_detected.
+ */
+import { test, before, beforeEach, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { withTenant } from '../../src/db/tenant.ts';
+import { closePools } from '../../src/db/pool.ts';
+import { createRootTask, createSubTask, getTask } from '../../src/engine/tasks.ts';
+import { Engine } from '../../src/engine/engine.ts';
+import { CapabilityRegistry } from '../../src/broker/registry.ts';
+import { CapabilityBroker } from '../../src/broker/broker.ts';
+import { RecordingLlmClient } from '../../src/llm/client.ts';
+import { isPalugadaError } from '../../src/errors.ts';
+import { assertTransition, canTransition, isTerminal } from '../../src/domain/task.ts';
+import { createCompany, addRole, type Fixture } from '../helpers/fixtures.ts';
+import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
+
+before(ensureSchema);
+beforeEach(resetData);
+after(async () => {
+  await closePools();
+  await closeSetup();
+});
+
+function base(fixture: Fixture, goal: string) {
+  return {
+    companyId: fixture.companyId,
+    projectId: fixture.projectId,
+    divisionId: fixture.divisionId,
+    roleId: fixture.roleId,
+    input: { goal },
+    reserveTokens: 1_000,
+  };
+}
+
+test('delegation stops at hop_max', async () => {
+  const fixture = await createCompany('hops');
+  const root = await createRootTask({
+    ...base(fixture, 'root'),
+    budgetAccountId: fixture.budgetAccountId,
+    createdBy: 'owner',
+    hopMax: 2,
+  });
+
+  const first = await createSubTask(root.id, { ...base(fixture, 'depth-1'), hopMax: 2 });
+  assert.equal(first.hopDepth, 1);
+  const second = await createSubTask(first.id, { ...base(fixture, 'depth-2'), hopMax: 2 });
+  assert.equal(second.hopDepth, 2);
+
+  await assert.rejects(
+    () => createSubTask(second.id, { ...base(fixture, 'depth-3'), hopMax: 2 }),
+    (error: unknown) => isPalugadaError(error, 'hop.exceeded'),
+    'a delegation deeper than hop_max must be refused',
+  );
+});
+
+test('a repeated role and input in the ancestor chain is refused', async () => {
+  const fixture = await createCompany('cycles');
+  const roleA = fixture.roleId;
+  const roleB = await addRole(fixture, 'reviewer');
+  const sharedInput = { goal: 'review the same thing' };
+
+  const rootA = await createRootTask({
+    companyId: fixture.companyId,
+    projectId: fixture.projectId,
+    divisionId: fixture.divisionId,
+    roleId: roleA,
+    budgetAccountId: fixture.budgetAccountId,
+    input: sharedInput,
+    createdBy: 'owner',
+    reserveTokens: 1_000,
+    hopMax: 5,
+  });
+
+  // A -> B is fine: different role.
+  const childB = await createSubTask(rootA.id, {
+    companyId: fixture.companyId,
+    projectId: fixture.projectId,
+    divisionId: fixture.divisionId,
+    roleId: roleB,
+    input: sharedInput,
+    reserveTokens: 1_000,
+    hopMax: 5,
+  });
+
+  // B -> A with the same input closes the loop and must be refused.
+  await assert.rejects(
+    () => createSubTask(childB.id, {
+      companyId: fixture.companyId,
+      projectId: fixture.projectId,
+      divisionId: fixture.divisionId,
+      roleId: roleA,
+      input: sharedInput,
+      reserveTokens: 1_000,
+      hopMax: 5,
+    }),
+    (error: unknown) => isPalugadaError(error, 'cycle.detected'),
+    'handing identical work back to an ancestor role must be refused',
+  );
+
+  // The same role with *different* input is legitimate work, not a cycle.
+  const progress = await createSubTask(childB.id, {
+    companyId: fixture.companyId,
+    projectId: fixture.projectId,
+    divisionId: fixture.divisionId,
+    roleId: roleA,
+    input: { goal: 'something genuinely different' },
+    reserveTokens: 1_000,
+    hopMax: 5,
+  });
+  assert.equal(progress.hopDepth, 2);
+});
+
+test('fan-out is capped per task', async () => {
+  const fixture = await createCompany('fanout');
+  const root = await createRootTask({
+    ...base(fixture, 'root'),
+    budgetAccountId: fixture.budgetAccountId,
+    createdBy: 'owner',
+  });
+
+  for (let i = 0; i < 5; i += 1) {
+    await createSubTask(root.id, { ...base(fixture, `child-${i}`), fanOutMax: 5 });
+  }
+
+  await assert.rejects(
+    () => createSubTask(root.id, { ...base(fixture, 'child-6'), fanOutMax: 5 }),
+    /fan-out limit/,
+  );
+});
+
+test('a task past its deadline halts instead of continuing', async () => {
+  const fixture = await createCompany('deadline');
+  const task = await createRootTask({
+    ...base(fixture, 'late'),
+    budgetAccountId: fixture.budgetAccountId,
+    createdBy: 'owner',
+    deadlineAt: new Date(Date.now() - 1_000),
+  });
+
+  const engine = new Engine({
+    broker: new CapabilityBroker(new CapabilityRegistry()),
+    llm: new RecordingLlmClient(),
+    handlers: new Map([['worker', async () => ({ done: true })]]),
+  });
+
+  const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(outcome.status, 'halted');
+  assert.equal(outcome.reason, 'deadline.exceeded');
+
+  const stored = await withTenant(fixture.companyId, (tx) => getTask(tx, task.id));
+  assert.equal(stored!.status, 'halted');
+  assert.equal(stored!.haltReason, 'deadline_passed');
+});
+
+test('the state machine refuses transitions the PRD does not allow', () => {
+  // halted is terminal on purpose: section 6.3 says a task stopped by budget,
+  // hop, deadline or verification is never resumed automatically.
+  assert.ok(isTerminal('halted'));
+  assert.equal(canTransition('halted', 'running'), false);
+  assert.equal(canTransition('completed', 'running'), false);
+  assert.equal(canTransition('pending', 'completed'), false);
+
+  assert.equal(canTransition('running', 'waiting_approval'), true);
+  assert.equal(canTransition('waiting_approval', 'running'), true);
+  assert.equal(canTransition('waiting_approval', 'cancelled'), true);
+
+  assert.throws(
+    () => assertTransition('halted', 'running'),
+    (error: unknown) => isPalugadaError(error, 'task.invalid_transition'),
+  );
+});
+
+test('a sub-division may not nest more than two levels deep', async () => {
+  const fixture = await createCompany('depth');
+  await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ id: string }>(
+      `INSERT INTO divisions (company_id, parent_division_id, slug, name)
+       VALUES ($1, $2, 'sub', 'Sub') RETURNING id`,
+      [fixture.companyId, fixture.divisionId],
+    );
+    const subId = rows[0]!.id;
+
+    await assert.rejects(
+      () => tx.query(
+        `INSERT INTO divisions (company_id, parent_division_id, slug, name)
+         VALUES ($1, $2, 'subsub', 'Sub sub')`,
+        [fixture.companyId, subId],
+      ),
+      /divisions_depth_within_two_levels|divisions_parent_matches_depth/,
+      'a third level must be refused by the database, not by convention',
+    );
+  });
+});
+
+test('a role may not be configured with more than twelve tools', async () => {
+  const fixture = await createCompany('tools');
+  await withTenant(fixture.companyId, async (tx) => {
+    await assert.rejects(
+      () => tx.query(
+        `INSERT INTO roles (company_id, division_id, slug, system_prompt, model, tools)
+         VALUES ($1, $2, 'overloaded', 'p', 'm', $3)`,
+        [fixture.companyId, fixture.divisionId, Array.from({ length: 13 }, (_, i) => `tool.${i}`)],
+      ),
+      /roles_at_most_twelve_tools/,
+    );
+  });
+});

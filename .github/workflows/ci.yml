@@ -1,0 +1,54 @@
+# PRD section 10 requires these checks to pass before a deploy: tenant
+# isolation, durability under crash, policy enforcement and cycle detection.
+# They are the reason the suite exists, so CI runs the whole of it rather than
+# a subset.
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PALUGADA_SUPERUSER_URL: postgres://postgres:postgres@localhost:5432/postgres
+      PALUGADA_APP_URL: postgres://palugada_app:dev_app@localhost:5432/palugada
+      PALUGADA_ADMIN_URL: postgres://palugada_admin:dev_admin@localhost:5432/palugada
+      PALUGADA_OWNER_URL: postgres://palugada_owner:dev_owner@localhost:5432/palugada
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Provision database
+        run: npm run db:setup
+
+      - name: Apply migrations
+        run: npm run db:migrate
+
+      - name: Acceptance tests
+        run: npm test

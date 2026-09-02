@@ -13,7 +13,9 @@
 import { withTenant } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
-import { getTask, transition, type TaskRow } from './tasks.ts';
+import { createSubTask, getTask, transition, type TaskRow } from './tasks.ts';
+import { validateContract } from './contracts.ts';
+import { isTerminal } from '../domain/task.ts';
 import { runStep, type StepKind } from './journal.ts';
 import { isCompanyFrozen, isStopAllRequested } from './control.ts';
 import * as budget from './budget.ts';
@@ -30,6 +32,19 @@ export interface TaskContext {
   callCapability<I, O>(name: string, input: I): Promise<O>;
   /** Calls the model, charging tokens against the inherited budget. */
   llm(request: Omit<LlmRequest, 'model'> & { model?: string }): Promise<string>;
+  /**
+   * Runs another role and waits for its typed output (PRD F6.4).
+   *
+   * The only synchronous path between roles, and it goes through the engine
+   * rather than between agents. `timeoutMs` is required, not optional: a
+   * blocking call with no deadline is how one stuck sub-task quietly holds a
+   * parent's budget reservation open for ever.
+   */
+  awaitChild(
+    roleSlug: string,
+    input: Record<string, unknown>,
+    options: { timeoutMs: number; reserveTokens?: number },
+  ): Promise<Record<string, unknown>>;
 }
 
 export type TaskHandler = (ctx: TaskContext) => Promise<Record<string, unknown>>;
@@ -41,9 +56,18 @@ export interface EngineOptions {
 }
 
 export interface RunOutcome {
-  status: 'completed' | 'failed' | 'halted' | 'cancelled' | 'waiting_approval';
+  status:
+    | 'completed'
+    | 'failed'
+    | 'halted'
+    | 'cancelled'
+    | 'waiting_approval'
+    | 'waiting_review'
+    | 'waiting_window';
   output?: Record<string, unknown>;
   reason?: string;
+  /** Set when the outcome is `waiting_window`: when to try again (F9.2). */
+  waitUntil?: Date | null;
 }
 
 export class Engine {
@@ -63,7 +87,23 @@ export class Engine {
     const blocked = await this.#checkGuards(task);
     if (blocked) return blocked;
 
-    if (task.status === 'pending' || task.status === 'waiting_approval') {
+    // F6.2: the contract is checked before the run starts. A run that begins
+    // on malformed input spends tokens discovering what a schema could have
+    // said for free.
+    const contract = await this.#loadContract(companyId, task.roleId);
+    try {
+      validateContract('input', task.roleId, roleSlug, contract.input, task.input);
+    } catch (error) {
+      // Halted rather than failed. A retry cannot help: the input is what it
+      // is, so this is terminal work for the owner's inbox rather than another
+      // attempt against the same malformed payload. An *output* violation is
+      // the opposite case -- the model produced it, and a retry may well fix
+      // it -- so that one stays on the ordinary retry path.
+      await transition(companyId, taskId, 'halted', { haltReason: 'contract_violation' });
+      return { status: 'halted', reason: (error as Error).message };
+    }
+
+    if (['pending', 'waiting_approval', 'waiting_review', 'waiting_window'].includes(task.status)) {
       await transition(companyId, taskId, 'running');
     }
 
@@ -123,6 +163,78 @@ export class Engine {
         });
       },
 
+      awaitChild: async (childRoleSlug, childInput, childOptions) => {
+        if (!Number.isFinite(childOptions.timeoutMs) || childOptions.timeoutMs <= 0) {
+          throw new Error('awaitChild requires a positive timeoutMs (PRD F6.4)');
+        }
+
+        return ctx.step(
+          `await:${childRoleSlug}`,
+          'internal',
+          { role: childRoleSlug, input: childInput },
+          async () => {
+            const childRoleId = await withTenant(companyId, async (tx) => {
+              const { rows } = await tx.query<{ id: string }>(
+                'SELECT id FROM roles WHERE slug = $1',
+                [childRoleSlug],
+              );
+              return rows[0]?.id ?? null;
+            });
+            if (!childRoleId) throw new Error(`no role named ${childRoleSlug}`);
+
+            // The deadline is written onto the child as well as raced here, so
+            // a child that outlives this process is still bounded by its own
+            // record rather than by a timer that died with the caller.
+            const child = await createSubTask(taskId, {
+              companyId,
+              projectId: task.projectId,
+              divisionId: task.divisionId,
+              roleId: childRoleId,
+              input: childInput,
+              createdBy: 'agent_run',
+              deadlineAt: new Date(Date.now() + childOptions.timeoutMs),
+              ...(childOptions.reserveTokens === undefined
+                ? {}
+                : { reserveTokens: childOptions.reserveTokens }),
+            });
+
+            let timer: NodeJS.Timeout | undefined;
+            const timeout = new Promise<never>((_resolve, reject) => {
+              timer = setTimeout(
+                () => reject(new PalugadaError('deadline.exceeded', `child ${childRoleSlug} timed out`, {
+                  childTaskId: child.id,
+                  timeoutMs: childOptions.timeoutMs,
+                })),
+                childOptions.timeoutMs,
+              );
+            });
+
+            try {
+              const outcome = await Promise.race([
+                this.runTask(companyId, child.id, childRoleSlug),
+                timeout,
+              ]);
+              if (outcome.status !== 'completed') {
+                throw new PalugadaError(
+                  'task.invalid_transition',
+                  `child ${childRoleSlug} ended as ${outcome.status}`,
+                  { childTaskId: child.id, status: outcome.status, reason: outcome.reason },
+                );
+              }
+              return outcome.output ?? {};
+            } catch (error) {
+              const current = await withTenant(companyId, (tx) => getTask(tx, child.id));
+              if (current && !isTerminal(current.status)) {
+                await transition(companyId, child.id, 'halted', { haltReason: 'deadline_passed' });
+              }
+              throw error;
+            } finally {
+              if (timer) clearTimeout(timer);
+            }
+          },
+        );
+      },
+
       llm: async (request) => {
         return ctx.step('llm', 'llm', request, async () => {
           const response = await this.#options.llm.complete(
@@ -148,6 +260,10 @@ export class Engine {
 
     try {
       const output = await handler(ctx);
+      // F6.2, F6.3: validated before the task is marked complete, because a
+      // downstream task triggered by `task.completed` has no other guarantee
+      // about what it is about to read.
+      validateContract('output', task.roleId, roleSlug, contract.output, output);
       await this.#finishAgentRun(companyId, agentRunId, 'succeeded');
       await transition(companyId, taskId, 'completed', { output });
       return { status: 'completed', output };
@@ -172,6 +288,21 @@ export class Engine {
       return { status: 'waiting_approval', reason: code };
     }
 
+    // F9.2: a closed window is not a failure. The action is permitted, just not
+    // at this hour, so the task parks with a wake-up time instead of burning an
+    // attempt or escalating to the owner.
+    if (code === 'window.closed') {
+      const reopensAt = (error as PalugadaError).details.reopensAt;
+      const waitUntil = typeof reopensAt === 'string' ? new Date(reopensAt) : null;
+      await transition(companyId, taskId, 'waiting_window', { waitUntil });
+      return { status: 'waiting_window', reason: code, waitUntil };
+    }
+
+    if (code === 'review.required') {
+      await transition(companyId, taskId, 'waiting_review');
+      return { status: 'waiting_review', reason: code };
+    }
+
     if (code === 'platform.stopped' || code === 'company.frozen') {
       const current = await withTenant(companyId, (tx) => getTask(tx, taskId));
       if (current && current.status !== 'cancelled') {
@@ -180,7 +311,14 @@ export class Engine {
       return { status: 'cancelled', reason: code };
     }
 
-    const haltCodes: Record<string, 'budget_exhausted' | 'hop_limit' | 'deadline_passed' | 'verification_failed' | 'cycle_detected'> = {
+    const haltCodes: Record<
+      string,
+      'policy_denied' | 'budget_exhausted' | 'hop_limit' | 'deadline_passed'
+        | 'verification_failed' | 'cycle_detected'
+    > = {
+      // A denial is terminal rather than retryable: the same call would be
+      // refused again, and retrying it only burns the attempt budget.
+      'policy.denied': 'policy_denied',
       'budget.exceeded': 'budget_exhausted',
       'budget.reservation_refused': 'budget_exhausted',
       'hop.exceeded': 'hop_limit',
@@ -237,6 +375,20 @@ export class Engine {
       return { status: 'halted', reason: 'deadline.exceeded' };
     }
     return null;
+  }
+
+  async #loadContract(
+    companyId: string,
+    roleId: string,
+  ): Promise<{ input: Record<string, unknown>; output: Record<string, unknown> }> {
+    return withTenant(companyId, async (tx) => {
+      const { rows } = await tx.query<{
+        input_schema: Record<string, unknown>;
+        output_schema: Record<string, unknown>;
+      }>('SELECT input_schema, output_schema FROM roles WHERE id = $1', [roleId]);
+      const row = rows[0];
+      return { input: row?.input_schema ?? {}, output: row?.output_schema ?? {} };
+    });
   }
 
   async #startAgentRun(task: TaskRow): Promise<string> {

@@ -86,6 +86,13 @@ export interface CreateTaskInput {
   hopMax?: number | undefined;
   attemptMax?: number | undefined;
   reserveTokens?: number | undefined;
+  /**
+   * Overrides the derived key. A scheduled run supplies one built from the
+   * schedule and the occurrence it fires for, which is what makes a restart
+   * between claiming an occurrence and creating its task produce the same task
+   * rather than a second one.
+   */
+  idempotencyKey?: string | undefined;
 }
 
 /**
@@ -97,6 +104,14 @@ export interface CreateTaskInput {
  */
 export async function createRootTask(input: CreateTaskInput): Promise<TaskRow> {
   return withTenant(input.companyId, async (tx) => {
+    // An explicit key means the caller can retry safely. Returning the
+    // existing task rather than reserving again keeps a retry from quietly
+    // consuming a second allowance.
+    if (input.idempotencyKey) {
+      const existing = await findByIdempotencyKey(tx, input.idempotencyKey);
+      if (existing) return existing;
+    }
+
     const reserveTokens = input.reserveTokens ?? DEFAULT_TASK_RESERVE_TOKENS;
     const granted = await budget.reserve(tx, input.budgetAccountId, reserveTokens);
     if (!granted) {
@@ -106,8 +121,32 @@ export async function createRootTask(input: CreateTaskInput): Promise<TaskRow> {
         { budgetAccountId: input.budgetAccountId, reserveTokens },
       );
     }
-    return insertTask(tx, input, { parentTaskId: null, hopDepth: 0, reserveTokens });
+
+    try {
+      return await insertTask(tx, input, { parentTaskId: null, hopDepth: 0, reserveTokens });
+    } catch (error) {
+      // Two workers raced for the same occurrence. The unique constraint on
+      // (company_id, idempotency_key) settled it; this side gives its
+      // reservation back and adopts the winner's task.
+      if ((error as { code?: string }).code === '23505' && input.idempotencyKey) {
+        await budget.release(tx, input.budgetAccountId, reserveTokens);
+        const existing = await findByIdempotencyKey(tx, input.idempotencyKey);
+        if (existing) return existing;
+      }
+      throw error;
+    }
   });
+}
+
+async function findByIdempotencyKey(
+  tx: TenantClient,
+  idempotencyKey: string,
+): Promise<TaskRow | null> {
+  const { rows } = await tx.query<RawTask>(
+    `${SELECT_TASK} WHERE idempotency_key = $1`,
+    [idempotencyKey],
+  );
+  return rows[0] ? toTask(rows[0]) : null;
 }
 
 /**
@@ -210,7 +249,7 @@ async function insertTask(
   meta: { parentTaskId: string | null; hopDepth: number; reserveTokens: number },
 ): Promise<TaskRow> {
   const inputHash = hashInput(input.input);
-  const key = `${input.roleId}:${inputHash}:${meta.parentTaskId ?? 'root'}`;
+  const key = input.idempotencyKey ?? `${input.roleId}:${inputHash}:${meta.parentTaskId ?? 'root'}`;
   const { rows } = await tx.query<RawTask>(
     `INSERT INTO tasks (
        company_id, project_id, division_id, role_id, parent_task_id,
@@ -241,11 +280,38 @@ async function insertTask(
 }
 
 /** Moves a task to a new status, refusing transitions the PRD does not allow. */
+/**
+ * Tasks whose window has reopened (F9.2).
+ *
+ * A task parked on a closed window would otherwise sit there for ever: nothing
+ * else wakes it, because nothing failed.
+ */
+export async function claimReadyWindowTasks(
+  companyId: string,
+  now = new Date(),
+): Promise<TaskRow[]> {
+  return withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<RawTask>(
+      `${SELECT_TASK}
+        WHERE status = 'waiting_window'
+          AND (wait_until IS NULL OR wait_until <= $1)
+        ORDER BY created_at`,
+      [now],
+    );
+    return rows.map(toTask);
+  });
+}
+
 export async function transition(
   companyId: string,
   taskId: string,
   to: TaskStatus,
-  options: { haltReason?: HaltReason; output?: Record<string, unknown> } = {},
+  options: {
+    haltReason?: HaltReason;
+    output?: Record<string, unknown>;
+    /** When a task parked on a closed window may be picked up again (F9.2). */
+    waitUntil?: Date | null;
+  } = {},
 ): Promise<void> {
   await withTenant(companyId, async (tx) => {
     const task = await getTask(tx, taskId);
@@ -257,12 +323,21 @@ export async function transition(
           SET status = $2,
               halt_reason = COALESCE($3, halt_reason),
               output = COALESCE($4::jsonb, output),
+              wait_until = CASE WHEN $5::timestamptz IS NOT NULL THEN $5::timestamptz
+                                WHEN $2 = 'running' THEN NULL
+                                ELSE wait_until END,
               started_at = CASE WHEN $2 = 'running' AND started_at IS NULL
                                 THEN now() ELSE started_at END,
               finished_at = CASE WHEN $2 IN ('completed','failed','halted','cancelled')
                                  THEN now() ELSE finished_at END
         WHERE id = $1`,
-      [taskId, to, options.haltReason ?? null, options.output ? JSON.stringify(options.output) : null],
+      [
+        taskId,
+        to,
+        options.haltReason ?? null,
+        options.output ? JSON.stringify(options.output) : null,
+        options.waitUntil ?? null,
+      ],
     );
 
     // A task that will never run again must not keep holding an allowance its

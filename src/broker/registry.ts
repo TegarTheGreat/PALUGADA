@@ -32,6 +32,20 @@ export interface Capability<I = unknown, O = unknown> {
    * requested. Required for tier >= 1.
    */
   verify?(input: I, result: O, ctx: CapabilityContext): Promise<boolean>;
+  /**
+   * Reports the destination and cost of a call so policy conditions can
+   * reference them (PRD F3.4).
+   *
+   * The capability declares this rather than the broker inspecting the input
+   * object for likely field names. Guessing would break silently the day a
+   * capability renamed a field, and a policy that quietly stops matching is a
+   * policy that has stopped protecting.
+   */
+  describe?(input: I): {
+    moneyCents?: number;
+    recipientDomain?: string | null;
+    urlHost?: string | null;
+  };
 }
 
 export class CapabilityRegistry {

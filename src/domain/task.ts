@@ -13,6 +13,7 @@ export const TASK_STATUSES = [
   'completed',
   'waiting_approval',
   'waiting_review',
+  'waiting_window',
   'failed',
   'halted',
   'cancelled',
@@ -34,9 +35,16 @@ const TRANSITIONS: Record<TaskStatus, readonly TaskStatus[]> = {
   // means the owner stopped the work, while a halt is a task that stopped
   // itself and owes the owner an inbox item. Worth reconciling in the PRD.
   pending: ['running', 'halted', 'cancelled'],
-  running: ['completed', 'waiting_approval', 'waiting_review', 'failed', 'halted', 'cancelled'],
+  running: [
+    'completed', 'waiting_approval', 'waiting_review', 'waiting_window',
+    'failed', 'halted', 'cancelled',
+  ],
   waiting_approval: ['running', 'cancelled'],
   waiting_review: ['running', 'failed', 'cancelled'],
+  // F9.2. Waiting for a window is not a failure: the action is permitted, just
+  // not at this hour, so the task resumes rather than being retried from
+  // scratch or escalated.
+  waiting_window: ['running', 'cancelled', 'halted'],
   completed: [],
   failed: [],
   halted: [],
@@ -65,6 +73,8 @@ export function assertTransition(from: TaskStatus, to: TaskStatus): void {
 
 /** Why a task stopped. Surfaced to the owner inbox verbatim. */
 export type HaltReason =
+  | 'contract_violation'
+  | 'policy_denied'
   | 'budget_exhausted'
   | 'hop_limit'
   | 'deadline_passed'

@@ -31,13 +31,33 @@ export async function withTenant<T>(
     await client.query('BEGIN');
     await client.query('SELECT set_config($1, $2, true)', ['app.company_id', companyId]);
     const result = await fn({ query: (text, values) => client.query(text, values) });
-    await client.query('COMMIT');
+    await commitOrFail(client);
     return result;
   } catch (error) {
     await client.query('ROLLBACK').catch(() => undefined);
     throw error;
   } finally {
     client.release();
+  }
+}
+
+/**
+ * Commits, and refuses to pretend a discarded transaction succeeded.
+ *
+ * In PostgreSQL any error aborts the surrounding transaction, and a COMMIT
+ * issued afterwards does not fail -- it quietly performs a ROLLBACK and
+ * reports the tag `ROLLBACK`. So a caller that catches an error inside its
+ * callback and carries on gets a clean return value and loses every write it
+ * made, with nothing anywhere saying so. That is silent data loss, which is
+ * the one outcome G1 rules out, so it is turned into a loud failure here.
+ */
+async function commitOrFail(client: pg.PoolClient): Promise<void> {
+  const result = await client.query('COMMIT');
+  if (result.command === 'ROLLBACK') {
+    throw new Error(
+      'transaction was aborted before COMMIT and has been rolled back; ' +
+        'an error was raised inside the transaction and swallowed, so no write survived',
+    );
   }
 }
 
@@ -53,7 +73,7 @@ export async function withControlPlane<T>(fn: (tx: TenantClient) => Promise<T>):
   try {
     await client.query('BEGIN');
     const result = await fn({ query: (text, values) => client.query(text, values) });
-    await client.query('COMMIT');
+    await commitOrFail(client);
     return result;
   } catch (error) {
     await client.query('ROLLBACK').catch(() => undefined);

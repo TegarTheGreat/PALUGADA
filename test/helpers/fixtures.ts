@@ -65,14 +65,38 @@ export async function createCompany(
   });
 }
 
-export async function addRole(fixture: Fixture, slug: string): Promise<string> {
+export async function addRole(
+  fixture: Fixture,
+  slug: string,
+  schemas: { input?: Record<string, unknown>; output?: Record<string, unknown> } = {},
+): Promise<string> {
   return withTenant(fixture.companyId, async (tx) => {
     const { rows } = await tx.query<{ id: string }>(
-      `INSERT INTO roles (company_id, division_id, slug, system_prompt, model)
-       VALUES ($1, $2, $3, 'You are a worker.', 'test-model') RETURNING id`,
-      [fixture.companyId, fixture.divisionId, slug],
+      `INSERT INTO roles (company_id, division_id, slug, system_prompt, model,
+                          input_schema, output_schema)
+       VALUES ($1, $2, $3, 'You are a worker.', 'test-model', $4, $5) RETURNING id`,
+      [
+        fixture.companyId,
+        fixture.divisionId,
+        slug,
+        JSON.stringify(schemas.input ?? {}),
+        JSON.stringify(schemas.output ?? {}),
+      ],
     );
     return rows[0]!.id;
+  });
+}
+
+export async function setRoleSchemas(
+  fixture: Fixture,
+  roleId: string,
+  schemas: { input?: Record<string, unknown>; output?: Record<string, unknown> },
+): Promise<void> {
+  await withTenant(fixture.companyId, async (tx) => {
+    await tx.query(
+      'UPDATE roles SET input_schema = $2, output_schema = $3 WHERE id = $1',
+      [roleId, JSON.stringify(schemas.input ?? {}), JSON.stringify(schemas.output ?? {})],
+    );
   });
 }
 

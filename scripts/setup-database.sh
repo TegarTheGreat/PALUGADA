@@ -49,6 +49,20 @@ run_sql "CREATE ROLE palugada_admin LOGIN PASSWORD 'dev_admin' NOSUPERUSER NOCRE
 echo "==> Creating database ${DB_NAME}"
 run_sql "CREATE DATABASE ${DB_NAME} OWNER palugada_owner"
 
+echo "==> Installing extensions"
+# Extensions are an infrastructure concern, not a migration one: pgvector is
+# not a trusted extension, so only a superuser may install it. Migrations run
+# as palugada_owner and merely assert that it is present.
+run_db_sql() {
+  if [ -n "$SUPERUSER_URL" ]; then
+    psql "${SUPERUSER_URL%/*}/${DB_NAME}" -v ON_ERROR_STOP=1 -q -c "$1"
+  else
+    su postgres -c "psql -d ${DB_NAME} -v ON_ERROR_STOP=1 -q -c \"$1\""
+  fi
+}
+run_db_sql "CREATE EXTENSION IF NOT EXISTS pgcrypto"
+run_db_sql "CREATE EXTENSION IF NOT EXISTS vector"
+
 echo "==> Role attributes"
 query "SELECT rolname || ' super=' || rolsuper || ' bypassrls=' || rolbypassrls FROM pg_roles WHERE rolname LIKE 'palugada%' ORDER BY rolname"
 

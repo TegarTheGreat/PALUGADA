@@ -176,36 +176,64 @@ test('the state machine refuses transitions the PRD does not allow', () => {
 
 test('a sub-division may not nest more than two levels deep', async () => {
   const fixture = await createCompany('depth');
-  await withTenant(fixture.companyId, async (tx) => {
+
+  const subId = await withTenant(fixture.companyId, async (tx) => {
     const { rows } = await tx.query<{ id: string }>(
       `INSERT INTO divisions (company_id, parent_division_id, slug, name)
        VALUES ($1, $2, 'sub', 'Sub') RETURNING id`,
       [fixture.companyId, fixture.divisionId],
     );
-    const subId = rows[0]!.id;
-
-    await assert.rejects(
-      () => tx.query(
-        `INSERT INTO divisions (company_id, parent_division_id, slug, name)
-         VALUES ($1, $2, 'subsub', 'Sub sub')`,
-        [fixture.companyId, subId],
-      ),
-      /divisions_depth_within_two_levels|divisions_parent_matches_depth/,
-      'a third level must be refused by the database, not by convention',
-    );
+    return rows[0]!.id;
   });
+
+  // The rejected insert gets its own transaction. A failed statement aborts
+  // the surrounding transaction in PostgreSQL, so sharing one with the insert
+  // above would have discarded it.
+  await assert.rejects(
+    () =>
+      withTenant(fixture.companyId, (tx) =>
+        tx.query(
+          `INSERT INTO divisions (company_id, parent_division_id, slug, name)
+           VALUES ($1, $2, 'subsub', 'Sub sub')`,
+          [fixture.companyId, subId],
+        ),
+      ),
+    /divisions_depth_within_two_levels|divisions_parent_matches_depth/,
+    'a third level must be refused by the database, not by convention',
+  );
+
+  // The legitimate second level is still there: the refusal above did not take
+  // it down with it.
+  const depths = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ depth: number }>(
+      'SELECT depth FROM divisions ORDER BY depth',
+    );
+    return rows.map((r) => r.depth);
+  });
+  assert.deepEqual(depths, [0, 1]);
 });
 
 test('a role may not be configured with more than twelve tools', async () => {
   const fixture = await createCompany('tools');
-  await withTenant(fixture.companyId, async (tx) => {
-    await assert.rejects(
-      () => tx.query(
-        `INSERT INTO roles (company_id, division_id, slug, system_prompt, model, tools)
-         VALUES ($1, $2, 'overloaded', 'p', 'm', $3)`,
-        [fixture.companyId, fixture.divisionId, Array.from({ length: 13 }, (_, i) => `tool.${i}`)],
+
+  await assert.rejects(
+    () =>
+      withTenant(fixture.companyId, (tx) =>
+        tx.query(
+          `INSERT INTO roles (company_id, division_id, slug, system_prompt, model, tools)
+           VALUES ($1, $2, 'overloaded', 'p', 'm', $3)`,
+          [fixture.companyId, fixture.divisionId, Array.from({ length: 13 }, (_, i) => `tool.${i}`)],
+        ),
       ),
-      /roles_at_most_twelve_tools/,
+    /roles_at_most_twelve_tools/,
+  );
+
+  // Twelve is accepted, so the constraint is a ceiling rather than a ban.
+  await withTenant(fixture.companyId, async (tx) => {
+    await tx.query(
+      `INSERT INTO roles (company_id, division_id, slug, system_prompt, model, tools)
+       VALUES ($1, $2, 'at-the-limit', 'p', 'm', $3)`,
+      [fixture.companyId, fixture.divisionId, Array.from({ length: 12 }, (_, i) => `tool.${i}`)],
     );
   });
 });

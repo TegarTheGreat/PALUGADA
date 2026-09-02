@@ -15,10 +15,12 @@ of that document.
 
 ## Status
 
-Phase 0 of the roadmap (PRD section 13) is implemented and tested: tenant
-isolation, the durable execution engine, the capability broker, the event log
-and the owner's emergency controls. There is no agent runtime, no scheduler and
-no owner UI yet — see [Not built yet](#not-built-yet).
+Phases 0 and 1 of the roadmap (PRD section 13) are implemented and tested.
+Phase 0 covers tenant isolation, the durable execution engine, the capability
+broker, the event log and the owner's emergency controls. Phase 1 adds the
+charter and policy engine, scoped memory, typed contracts and handoff, durable
+scheduling with external and owner windows, and credentials. There is no agent
+runtime and no owner UI yet — see [Not built yet](#not-built-yet).
 
 Seven questions in [PRD section 14](docs/PRD.md#14-pertanyaan-terbuka) are still
 open. Two of them (the monthly cost ceiling, and which durable engine to adopt)
@@ -26,7 +28,8 @@ set defaults across the whole system.
 
 ## Quick start
 
-Requires Node 22.18+ (for native TypeScript execution) and PostgreSQL 16.
+Requires Node 22.18+ (for native TypeScript execution) and PostgreSQL 16 with
+[pgvector](https://github.com/pgvector/pgvector).
 
 ```bash
 npm install
@@ -35,9 +38,11 @@ npm run db:migrate
 npm test
 ```
 
-`db:setup` connects as a superuser. Set `PALUGADA_SUPERUSER_URL` to point at
-one, or leave it unset to use a local peer-authenticated `postgres` account.
-Connection settings are listed in [`.env.example`](.env.example).
+`db:setup` connects as a superuser, because it installs pgvector — which is not
+a trusted extension — alongside the roles and the database. Set
+`PALUGADA_SUPERUSER_URL` to point at a superuser, or leave it unset to use a
+local peer-authenticated `postgres` account. Connection settings are listed in
+[`.env.example`](.env.example).
 
 ## Layout
 
@@ -48,8 +53,14 @@ src/
   config.ts        connection strings, one per role
   db/              connection pools and tenant-scoped access
   domain/          task state machine, reversibility tiers
-  engine/          step journal, budgets, task admission, the runner
+  engine/          step journal, budgets, task admission, contracts, handoff
   broker/          capability registry and the broker
+  policy/          declarative conditions and the policy engine
+  governance/      charter and policy administration, audited
+  memory/          the four memory kinds and scoped retrieval
+  context/         prompt assembly, charter first
+  scheduler/       durable cron, capability windows, the owner window
+  secrets/         secret references and redaction
   inbox/           owner inbox: approvals, incidents, emergency controls
   audit/           append-only event log, security events
   llm/             model interface and a recording test double
@@ -74,6 +85,27 @@ test/acceptance/   one file per PRD acceptance criterion
 | F8.6 rate limits, F8.8 kill switch | `src/broker/broker.ts`, `src/engine/control.ts` | `capability-broker.test.ts` |
 | F10.1–F10.4, F10.8 owner inbox | `src/inbox/inbox.ts` | `owner-inbox.test.ts` |
 | Section 7.4 append-only event log | `db/migrations/0004_audit_and_governance.sql` | `tenant-isolation.test.ts` |
+
+## What Phase 1 adds
+
+| Requirement | Where | Verified by |
+|---|---|---|
+| F3.1, F3.2 charter, injected first | `src/context/builder.ts` | `charter-context.test.ts` |
+| F3.3, F3.4 declarative policy | `src/policy/` | `policy-engine.test.ts` |
+| F3.5 lower scopes may only tighten | `db/migrations/0005_*.sql`, `src/policy/engine.ts` | `policy-engine.test.ts` |
+| F3.6 charter and policy edits audited with a diff | `src/governance/store.ts` | `policy-engine.test.ts`, `charter-context.test.ts` |
+| F3.8 audit-mode policies | `src/policy/engine.ts` | `policy-engine.test.ts` |
+| F4.1, F4.3 versioned facts, superseded not deleted | `src/memory/store.ts` | `memory-scope.test.ts` |
+| F4.2 scope filtered before similarity | `src/memory/store.ts` | `memory-scope.test.ts` (1,000 facts) |
+| F4.6 memory scoping per project and division | `src/memory/store.ts` | `memory-scope.test.ts` |
+| F6.1, F6.2 typed contracts both ways | `src/engine/contracts.ts` | `contracts-handoff.test.ts` |
+| F6.3 handoff triggered by completion | `src/engine/handoff.ts` | `contracts-handoff.test.ts` |
+| F6.4 `awaitChild` with a mandatory timeout | `src/engine/engine.ts` | `contracts-handoff.test.ts` |
+| F8.9 external content marked as data | `src/context/builder.ts` | `charter-context.test.ts` |
+| F9.1 durable cron | `src/scheduler/scheduler.ts` | `scheduling-windows.test.ts` |
+| F9.2 external windows, deferring not failing | `src/scheduler/windows.ts`, `src/broker/broker.ts` | `scheduling-windows.test.ts` |
+| F9.3 owner window, incidents excepted | `src/scheduler/windows.ts` | `scheduling-windows.test.ts` |
+| F12.1, F12.2, F12.4 secret references, scope, redaction | `src/secrets/manager.ts` | `credentials.test.ts` |
 
 ## Decisions worth knowing
 
@@ -103,6 +135,34 @@ hop, deadline or a failed read-back never resumes automatically (PRD section
 **Silence is safe.** An unanswered approval expires into a cancellation, never
 into an execution.
 
+**Policy is a second gate, not the first.** Capability grants and reversibility
+tiers run before it, so an unmatched action is allowed rather than denied. The
+strictest match wins across scopes, and a policy can never lower a tier 3
+action below owner approval.
+
+**A required review fails closed.** Adversarial reviewer roles arrive in Phase
+2, so until then a `require_review` policy escalates to the owner. A policy
+author who asked for a second pair of eyes did not ask for none.
+
+**A closed window defers, it does not fail.** The action is permitted, just not
+at this hour, so the task parks in `waiting_window` with a wake-up time instead
+of burning an attempt.
+
+**A schedule backlog collapses, and says so.** After a day of downtime an
+hourly schedule owes twenty-four runs; executing them would spend a day of
+budget in a minute. One catch-up run happens and the count of dropped
+occurrences goes into the event, because a silently skipped night looks
+identical to a quiet one.
+
+**Embeddings carry the model that produced them.** Vectors from different
+models are not comparable, and mixing them yields confident nonsense rather
+than an error, so retrieval filters on the model.
+
+**An aborted transaction never reports success.** PostgreSQL turns a COMMIT
+after an error into a rollback and says nothing; `withTenant` detects that and
+throws, so a caller that swallows an error inside a transaction cannot lose
+every write believing it succeeded.
+
 ## Deviations from the PRD found while building
 
 Both are marked in the code and are worth reconciling in the document.
@@ -121,11 +181,14 @@ Both are marked in the code and are worth reconciling in the document.
 
 ## Not built yet
 
-Phase 1 and beyond, in PRD order: the charter and policy engine (F3), the four
-memory types and semantic retrieval (F4, which needs pgvector), the scheduler
-and external/owner windows (F9), adversarial review and decision records (F7),
-LLM tracing to a collector (F11.1 stores traces but nothing reads them yet),
-secret manager integration (F12), and the owner UI.
+Phase 2 and beyond, in PRD order: memory distillation and candidate SOPs
+(F4.4, F4.5), adversarial review and decision records (F7), company templates
+(F2.5), the daily digest and weekly retro (F9.4, F10.6), the cost dashboard and
+alerts (F11.3, F11.4), and the owner UI. LLM traces are stored (F11.1) but
+nothing reads them yet.
+
+Until F7 lands, a `require_review` policy escalates to the owner rather than
+routing to a reviewer role.
 
 `src/llm/client.ts` deliberately ships only an interface and a test double. The
 PRD leaves model-per-tier calibration open (section 14.4) and asks for

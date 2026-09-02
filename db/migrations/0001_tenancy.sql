@@ -6,7 +6,7 @@
 -- cannot silently ship without protection.
 
 
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
+-- pgcrypto (gen_random_uuid) is installed by provisioning.
 
 CREATE SCHEMA IF NOT EXISTS app;
 GRANT USAGE ON SCHEMA app TO palugada_app, palugada_admin;

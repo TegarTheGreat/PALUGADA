@@ -14,6 +14,7 @@
 import { withTenant, withControlPlane } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { transition } from '../engine/tasks.ts';
+import { notifyAfterFor } from '../scheduler/windows.ts';
 import type { Tier } from '../domain/tier.ts';
 
 /** F10.4. The owner is one person and may be asleep, travelling or ill. */
@@ -51,20 +52,25 @@ export interface InboxItem {
 
 export async function requestApproval(input: ApprovalInput): Promise<string> {
   const ttl = input.ttlHours ?? DEFAULT_APPROVAL_TTL_HOURS;
+  // F9.3: a tier 3 approval may wake the owner; anything gentler waits for
+  // their window. The item is created either way -- only the moment they are
+  // told about it moves.
+  const notifyAfter = await notifyAfterFor('approval', { tier: input.tier });
 
   const itemId = await withTenant(input.companyId, async (tx) => {
     const { rows } = await tx.query<{ id: string }>(
       `INSERT INTO inbox_items (
          company_id, task_id, kind, title, action_summary, rationale, tier,
          estimated_cost_cents, consequence_if_denied, capability_name, payload,
-         expires_at)
-       VALUES ($1,$2,'approval',$3,$4,$5,$6,$7,$8,$9,$10, now() + make_interval(hours => $11))
+         expires_at, notify_after)
+       VALUES ($1,$2,'approval',$3,$4,$5,$6,$7,$8,$9,$10,
+               now() + make_interval(hours => $11), $12)
        RETURNING id`,
       [
         input.companyId, input.taskId, input.actionSummary, input.actionSummary,
         input.rationale, input.tier, input.estimatedCostCents ?? 0,
         input.consequenceIfDenied, input.capabilityName,
-        JSON.stringify(input.payload ?? {}), ttl,
+        JSON.stringify(input.payload ?? {}), ttl, notifyAfter,
       ],
     );
     const id = rows[0]!.id;
@@ -92,8 +98,8 @@ export async function raiseIncident(input: {
     const { rows } = await tx.query<{ id: string }>(
       `INSERT INTO inbox_items
          (company_id, task_id, kind, title, action_summary, rationale,
-          consequence_if_denied)
-       VALUES ($1,$2,'incident',$3,$3,$4,'')
+          consequence_if_denied, notify_after)
+       VALUES ($1,$2,'incident',$3,$3,$4,'', now())
        RETURNING id`,
       [input.companyId, input.taskId ?? null, input.title, input.detail],
     );
@@ -102,6 +108,46 @@ export async function raiseIncident(input: {
       companyId: input.companyId,
       taskId: input.taskId,
       type: 'incident.raised',
+      actor: 'system',
+      payload: { inboxItemId: id, title: input.title },
+    });
+    return id;
+  });
+}
+
+/**
+ * Raises an escalation: something the owner must decide that is not an
+ * approval for a specific action.
+ *
+ * Unlike an incident this waits for the owner's window (F9.3). Nothing is
+ * currently on fire -- work is blocked pending a judgement -- and waking
+ * someone at 03:00 for a decision that keeps until morning is exactly the
+ * noise principle 1 exists to prevent.
+ */
+export async function raiseEscalation(input: {
+  companyId: string;
+  taskId?: string | undefined;
+  title: string;
+  detail: string;
+  tier?: Tier | undefined;
+}): Promise<string> {
+  const notifyAfter = await notifyAfterFor('escalation', { tier: input.tier ?? null });
+
+  return withTenant(input.companyId, async (tx) => {
+    const { rows } = await tx.query<{ id: string }>(
+      `INSERT INTO inbox_items
+         (company_id, task_id, kind, title, action_summary, rationale,
+          consequence_if_denied, tier, notify_after)
+       VALUES ($1,$2,'escalation',$3,$3,$4,'The task stays blocked until you decide.',$5,$6)
+       RETURNING id`,
+      [input.companyId, input.taskId ?? null, input.title, input.detail,
+       input.tier ?? null, notifyAfter],
+    );
+    const id = rows[0]!.id;
+    await appendEvent(tx, {
+      companyId: input.companyId,
+      taskId: input.taskId,
+      type: 'escalation.raised',
       actor: 'system',
       payload: { inboxItemId: id, title: input.title },
     });

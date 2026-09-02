@@ -15,7 +15,8 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        # Carries pgvector, which the stock postgres image does not.
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_PASSWORD: postgres
         ports: ['5432:5432']

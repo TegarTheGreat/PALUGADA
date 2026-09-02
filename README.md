@@ -15,12 +15,19 @@ of that document.
 
 ## Status
 
-Phases 0 and 1 of the roadmap (PRD section 13) are implemented and tested.
-Phase 0 covers tenant isolation, the durable execution engine, the capability
-broker, the event log and the owner's emergency controls. Phase 1 adds the
-charter and policy engine, scoped memory, typed contracts and handoff, durable
-scheduling with external and owner windows, and credentials. There is no agent
-runtime and no owner UI yet — see [Not built yet](#not-built-yet).
+Phases 0, 1 and 2 of the roadmap (PRD section 13) are implemented and tested,
+with 113 acceptance tests running against a real PostgreSQL 16 with pgvector.
+
+- **Phase 0** — tenant isolation, the durable execution engine, the capability
+  broker, the event log, the owner's emergency controls.
+- **Phase 1** — charter and policy engine, scoped memory, typed contracts and
+  handoff, durable scheduling with external and owner windows, credentials.
+- **Phase 2** — memory distillation and candidate SOPs, adversarial review and
+  decision records, company templates, cost reporting, alerts, digest and retro.
+
+Phase 2's completion criterion is met: two companies built from one template
+run concurrently with the isolation tests green. There is no agent runtime and
+no owner UI yet — see [Not built yet](#not-built-yet).
 
 Seven questions in [PRD section 14](docs/PRD.md#14-pertanyaan-terbuka) are still
 open. Two of them (the monthly cost ceiling, and which durable engine to adopt)
@@ -57,7 +64,10 @@ src/
   broker/          capability registry and the broker
   policy/          declarative conditions and the policy engine
   governance/      charter and policy administration, audited
-  memory/          the four memory kinds and scoped retrieval
+  review/          adversarial review and decision records
+  memory/          the four memory kinds, scoped retrieval, distillation
+  templates/       building a company from a stored shape
+  reporting/       cost, alerts, daily digest, weekly retro
   context/         prompt assembly, charter first
   scheduler/       durable cron, capability windows, the owner window
   secrets/         secret references and redaction
@@ -106,6 +116,23 @@ test/acceptance/   one file per PRD acceptance criterion
 | F9.2 external windows, deferring not failing | `src/scheduler/windows.ts`, `src/broker/broker.ts` | `scheduling-windows.test.ts` |
 | F9.3 owner window, incidents excepted | `src/scheduler/windows.ts` | `scheduling-windows.test.ts` |
 | F12.1, F12.2, F12.4 secret references, scope, redaction | `src/secrets/manager.ts` | `credentials.test.ts` |
+
+## What Phase 2 adds
+
+| Requirement | Where | Verified by |
+|---|---|---|
+| F1.1, F2.5 a company from a template, no deploy | `src/templates/company.ts` | `company-template.test.ts` |
+| F4.4 episodic → semantic, semantic → procedural | `src/memory/distillation.ts` | `distillation.test.ts` |
+| F4.5 candidate SOPs need the owner | `src/memory/store.ts`, `src/inbox/inbox.ts` | `distillation.test.ts` |
+| F7.1 review gates the action | `src/review/review.ts`, `src/broker/broker.ts` | `adversarial-review.test.ts` |
+| F7.2 two revisions, then the owner | `src/review/review.ts` | `adversarial-review.test.ts` |
+| F7.3 a different role, its own working memory | `db/migrations/0006_*.sql`, `src/review/review.ts` | `adversarial-review.test.ts` |
+| F7.4, F7.5 decision records, remembered as decisions | `src/review/review.ts` | `adversarial-review.test.ts` |
+| F7.6 no scheduled reviews | — (asserted absent) | `adversarial-review.test.ts` |
+| F9.4, F10.6 daily digest, weekly retro | `src/reporting/digest.ts` | `reporting.test.ts` |
+| F11.3 cost per project, division, role, capability | `src/reporting/cost.ts` | `reporting.test.ts` |
+| F11.4 alerts on cost, failure rate, denials, verification | `src/reporting/alerts.ts` | `reporting.test.ts` |
+| Phase 2 exit: two companies in parallel, isolation green | — | `company-template.test.ts` |
 
 ## Decisions worth knowing
 
@@ -163,6 +190,27 @@ after an error into a rollback and says nothing; `withTenant` detects that and
 throws, so a caller that swallows an error inside a transaction cannot lose
 every write believing it succeeded.
 
+**An approval covers one action, not a mood.** A review is granted against a
+fingerprint of the capability and its input, so a proposer that comes back with
+a different amount or recipient is asking a new question.
+
+**The distiller never reads its own output.** A run records that it ran; without
+excluding those events the next run would distil its own housekeeping into
+"facts", and each retelling would look like fresh corroboration.
+
+**Watermarks are compared inside the database.** PostgreSQL timestamps hold
+microseconds and a JavaScript Date holds milliseconds, so a watermark that
+round-trips through the application is rounded down and reopens a window that
+was already consumed.
+
+**An unreadable verdict is not consent.** A reviewer that crashes or answers in
+prose escalates to the owner; treating it as approval would make the gate
+decorative in exactly the case it exists for.
+
+**Alerts fire once per condition per day.** A sweep every minute against a
+standing overspend would fill the inbox, and an owner who has learned to scroll
+past the inbox is worse off than one with no alerts.
+
 ## Deviations from the PRD found while building
 
 Both are marked in the code and are worth reconciling in the document.
@@ -181,14 +229,21 @@ Both are marked in the code and are worth reconciling in the document.
 
 ## Not built yet
 
-Phase 2 and beyond, in PRD order: memory distillation and candidate SOPs
-(F4.4, F4.5), adversarial review and decision records (F7), company templates
-(F2.5), the daily digest and weekly retro (F9.4, F10.6), the cost dashboard and
-alerts (F11.3, F11.4), and the owner UI. LLM traces are stored (F11.1) but
-nothing reads them yet.
+Phase 3, in PRD order: routine chaos testing, dry-run replay (F5.9), a sandbox
+for code-executing capabilities (F8.10), secret rotation (F12.3), audit export
+(F11.6) and retention (F11.5). Plus the owner UI, the agent runtime, and the
+automatic role freeze on repeated policy violations (F3.7).
 
-Until F7 lands, a `require_review` policy escalates to the owner rather than
-routing to a reviewer role.
+Two limits worth stating plainly rather than discovering later:
+
+- Per-capability cost is an **estimate** from the registry, labelled as such in
+  the reporting API. Measured external spend arrives with F8.5's cost-drift
+  tracking.
+- Semantic retrieval uses exact search. That is correct at Phase 2 volumes and
+  is what makes F4.2's "filter before similarity" literally true, but the scale
+  in section 9 will need pgvector's iterative scans or per-scope partial
+  indexes — not an ANN index bolted on, which would silently invert the filter
+  order.
 
 `src/llm/client.ts` deliberately ships only an interface and a test double. The
 PRD leaves model-per-tier calibration open (section 14.4) and asks for

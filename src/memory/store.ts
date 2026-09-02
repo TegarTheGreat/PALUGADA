@@ -22,6 +22,17 @@ import type { TenantClient } from '../db/tenant.ts';
 
 export type MemoryType = 'working' | 'episodic' | 'semantic' | 'procedural';
 export type ScopeType = 'agent_run' | 'task' | 'project' | 'division' | 'company' | 'platform';
+export type FactKind = 'observation' | 'decision' | 'sop_candidate';
+
+/**
+ * Whether an item may be relied upon (F4.5).
+ *
+ * A distilled SOP starts as `candidate` and stays out of every agent's context
+ * until the owner approves it. A pattern the system noticed three times is a
+ * hypothesis, and a company that promotes its own hypotheses to procedure is
+ * one that teaches itself its mistakes.
+ */
+export type ApprovalState = 'active' | 'candidate' | 'rejected';
 
 export interface MemoryItem {
   id: string;
@@ -34,6 +45,8 @@ export interface MemoryItem {
   shared: boolean;
   validFrom: Date;
   supersededBy: string | null;
+  approvalState: ApprovalState;
+  factKind: FactKind | null;
   distance?: number;
 }
 
@@ -50,6 +63,8 @@ export interface RememberInput {
   embedding?: number[] | undefined;
   embeddingModel?: string | undefined;
   validFrom?: Date | undefined;
+  factKind?: FactKind | undefined;
+  approvalState?: ApprovalState | undefined;
 }
 
 /** pgvector accepts a bracketed list; sending an array literal would not parse. */
@@ -68,8 +83,9 @@ export async function remember(tx: TenantClient, input: RememberInput): Promise<
   const { rows } = await tx.query<{ id: string }>(
     `INSERT INTO memories
        (company_id, memory_type, scope_type, scope_id, body, confidence, source,
-        shared, source_event_id, embedding, embedding_model, valid_from)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, COALESCE($12, now()))
+        shared, source_event_id, embedding, embedding_model, valid_from,
+        fact_kind, approval_state)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, COALESCE($12, now()), $13, $14)
      RETURNING id`,
     [
       input.companyId,
@@ -84,6 +100,8 @@ export async function remember(tx: TenantClient, input: RememberInput): Promise<
       input.embedding ? toVectorLiteral(input.embedding) : null,
       input.embeddingModel ?? null,
       input.validFrom ?? null,
+      input.factKind ?? null,
+      input.approvalState ?? 'active',
     ],
   );
   return rows[0]!.id;
@@ -122,6 +140,12 @@ export interface RecallOptions {
    * whatever superseded it only became valid afterwards.
    */
   asOf?: Date | undefined;
+  /**
+   * Defaults to 'active'. Candidates are only ever fetched deliberately, by
+   * the code that shows them to the owner -- never by context assembly.
+   */
+  approvalState?: ApprovalState | undefined;
+  factKind?: FactKind | undefined;
 }
 
 interface RawMemory {
@@ -135,6 +159,8 @@ interface RawMemory {
   shared: boolean;
   valid_from: Date;
   superseded_by: string | null;
+  approval_state: ApprovalState;
+  fact_kind: FactKind | null;
   distance: number | null;
 }
 
@@ -155,8 +181,13 @@ export async function recall(
     throw new Error('an embedding query must name the model that produced it');
   }
 
-  const params: unknown[] = [companyId, options.memoryType];
-  const where: string[] = ['m.company_id = $1', 'm.memory_type = $2'];
+  const params: unknown[] = [companyId, options.memoryType, options.approvalState ?? 'active'];
+  const where: string[] = ['m.company_id = $1', 'm.memory_type = $2', 'm.approval_state = $3'];
+
+  if (options.factKind) {
+    params.push(options.factKind);
+    where.push(`m.fact_kind = $${params.length}`);
+  }
 
   if (options.asOf) {
     params.push(options.asOf);
@@ -204,7 +235,8 @@ export async function recall(
 
   const { rows } = await tx.query<RawMemory>(
     `SELECT m.id, m.body, m.memory_type, m.scope_type, m.scope_id, m.confidence,
-            m.source, m.shared, m.valid_from, m.superseded_by, ${distance}
+            m.source, m.shared, m.valid_from, m.superseded_by,
+            m.approval_state, m.fact_kind, ${distance}
        FROM memories m
       WHERE ${where.join(' AND ')}
       ORDER BY ${orderBy}
@@ -223,6 +255,32 @@ export async function recall(
     shared: row.shared,
     validFrom: row.valid_from,
     supersededBy: row.superseded_by,
+    approvalState: row.approval_state,
+    factKind: row.fact_kind,
     ...(row.distance === null ? {} : { distance: row.distance }),
   }));
+}
+
+/**
+ * Activates a candidate the owner approved (F4.5).
+ *
+ * Only a candidate can be activated. Re-approving something already active, or
+ * resurrecting a rejection, would let the inbox quietly rewrite standing
+ * procedure.
+ */
+export async function approveCandidate(tx: TenantClient, memoryId: string): Promise<boolean> {
+  const { rowCount } = await tx.query(
+    `UPDATE memories SET approval_state = 'active', approved_at = now()
+      WHERE id = $1 AND approval_state = 'candidate'`,
+    [memoryId],
+  );
+  return rowCount === 1;
+}
+
+export async function rejectCandidate(tx: TenantClient, memoryId: string): Promise<boolean> {
+  const { rowCount } = await tx.query(
+    `UPDATE memories SET approval_state = 'rejected' WHERE id = $1 AND approval_state = 'candidate'`,
+    [memoryId],
+  );
+  return rowCount === 1;
 }

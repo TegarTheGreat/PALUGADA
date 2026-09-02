@@ -31,6 +31,8 @@ export interface PolicyInput {
   companyId?: string | undefined;
   divisionId?: string | undefined;
   mode?: 'enforce' | 'log_only';
+  /** Effect arguments, e.g. { reviewer_role: 'qa-reviewer' } for a review. */
+  params?: Record<string, unknown>;
 }
 
 /** Field-level diff, so an audit entry says what changed rather than restating the row. */
@@ -154,8 +156,9 @@ export async function putPolicy(input: PolicyInput): Promise<string> {
       effect: PolicyEffect;
       condition: Condition;
       mode: string;
+      params: Record<string, unknown>;
     }>(
-      `SELECT id, effect, condition, mode FROM policies
+      `SELECT id, effect, condition, mode, params FROM policies
         WHERE slug = $1
           AND company_id IS NOT DISTINCT FROM $2
           AND division_id IS NOT DISTINCT FROM $3`,
@@ -164,12 +167,13 @@ export async function putPolicy(input: PolicyInput): Promise<string> {
     const existing = existingRows[0];
 
     const { rows } = await tx.query<{ id: string }>(
-      `INSERT INTO policies (company_id, division_id, slug, effect, condition, mode)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO policies (company_id, division_id, slug, effect, condition, mode, params)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (company_id, division_id, slug) DO UPDATE
          SET effect = EXCLUDED.effect,
              condition = EXCLUDED.condition,
-             mode = EXCLUDED.mode
+             mode = EXCLUDED.mode,
+             params = EXCLUDED.params
        RETURNING id`,
       [
         input.companyId ?? null,
@@ -178,6 +182,7 @@ export async function putPolicy(input: PolicyInput): Promise<string> {
         input.effect,
         JSON.stringify(input.condition),
         input.mode ?? 'enforce',
+        JSON.stringify(input.params ?? {}),
       ],
     );
     const id = rows[0]!.id;
@@ -189,9 +194,19 @@ export async function putPolicy(input: PolicyInput): Promise<string> {
       divisionId: input.divisionId,
       action: existing ? 'updated' : 'created',
       before: existing
-        ? { effect: existing.effect, condition: existing.condition, mode: existing.mode }
+        ? {
+            effect: existing.effect,
+            condition: existing.condition,
+            mode: existing.mode,
+            params: existing.params,
+          }
         : null,
-      after: { effect: input.effect, condition: input.condition, mode: input.mode ?? 'enforce' },
+      after: {
+        effect: input.effect,
+        condition: input.condition,
+        mode: input.mode ?? 'enforce',
+        params: input.params ?? {},
+      },
     });
 
     return id;

@@ -38,6 +38,7 @@ import type { ActionFacts } from '../policy/condition.ts';
 import { capabilityWindow, isWithin, localTimeIn, nextOpening } from '../scheduler/windows.ts';
 import * as inbox from '../inbox/inbox.ts';
 import { redactor } from '../secrets/manager.ts';
+import { fingerprintAction, isApproved, openReview } from '../review/review.ts';
 import type { CapabilityRegistry } from './registry.ts';
 
 export interface InvokeContext {
@@ -45,6 +46,8 @@ export interface InvokeContext {
   projectId: string;
   divisionId: string;
   taskId: string;
+  /** The proposing role. Needed so a reviewer is never the proposer (F7.3). */
+  roleId: string;
   idempotencyKey: string;
   signal?: AbortSignal | undefined;
 }
@@ -181,23 +184,57 @@ export class CapabilityBroker {
       );
     }
 
-    // F7 has not landed yet, so a required review escalates to the owner rather
-    // than passing. Failing closed is the only safe reading: a policy author
-    // who asked for a second pair of eyes did not ask for none.
+    // F7.1: a policy that demands review gates this exact action until a
+    // different role has judged it against explicit criteria.
     if (policy.effect === 'require_review') {
-      await inbox.raiseEscalation({
-        companyId: ctx.companyId,
-        taskId: ctx.taskId,
-        title: `Review required before ${name}`,
-        detail:
-          `Policy ${policy.matched.map((m) => m.slug).join(', ')} requires an adversarial review ` +
-          'of this action. Reviewer roles arrive in Phase 2, so it is escalated to you.',
-        tier,
-      });
-      throw new PalugadaError('review.required', `policy requires review before ${name}`, {
-        name,
-        policies: policy.matched.map((m) => m.slug),
-      });
+      const fingerprint = fingerprintAction(name, input);
+      const alreadyApproved = await withTenant(ctx.companyId, (tx) =>
+        isApproved(tx, ctx.taskId, fingerprint),
+      );
+
+      if (!alreadyApproved) {
+        const reviewPolicy = policy.matched.find((m) => m.effect === 'require_review')!;
+        const reviewerRoleSlug = String(reviewPolicy.params.reviewer_role ?? '');
+        const criteria = String(
+          reviewPolicy.params.criteria ??
+            `Policy ${reviewPolicy.slug} requires this action to be justified before it runs.`,
+        );
+
+        const review = await openReview({
+          companyId: ctx.companyId,
+          projectId: ctx.projectId,
+          divisionId: ctx.divisionId,
+          proposerTaskId: ctx.taskId,
+          proposerRoleId: ctx.roleId,
+          reviewerRoleSlug,
+          capabilityName: name,
+          actionFingerprint: fingerprint,
+          proposal: { capability: name, tier, input: redactor.redactDeep(input) as unknown },
+          criteria,
+        });
+
+        if (review.outcome === 'rejected') {
+          // A rejection is an answer, not a delay. Retrying it would be asking
+          // the same reviewer the same question.
+          await withTenant(ctx.companyId, (tx) =>
+            recordDenial(tx, ctx, name, 'policy.denied', policy),
+          );
+          throw new PalugadaError(
+            'policy.denied',
+            `review rejected ${name}`,
+            { name, reviewRequestId: review.reviewRequestId },
+          );
+        }
+
+        if (review.outcome !== 'already_approved') {
+          throw new PalugadaError('review.required', `policy requires review before ${name}`, {
+            name,
+            policies: policy.matched.map((m) => m.slug),
+            reviewRequestId: 'reviewRequestId' in review ? review.reviewRequestId : null,
+            escalated: review.outcome === 'escalated',
+          });
+        }
+      }
     }
 
     if (requiresOwnerApproval(tier) || policy.effect === 'require_approval') {

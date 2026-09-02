@@ -15,6 +15,7 @@ import { withTenant, withControlPlane } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { transition } from '../engine/tasks.ts';
 import { notifyAfterFor } from '../scheduler/windows.ts';
+import { approveCandidate, rejectCandidate } from '../memory/store.ts';
 import type { Tier } from '../domain/tier.ts';
 
 /** F10.4. The owner is one person and may be asleep, travelling or ill. */
@@ -155,6 +156,71 @@ export async function raiseEscalation(input: {
   });
 }
 
+/**
+ * Puts a distilled SOP in front of the owner (F4.5).
+ *
+ * Waits for the owner's window like any other non-urgent item: a proposed
+ * procedure is never the reason to wake someone. The occurrence count travels
+ * with it so the decision rests on evidence rather than on how plausible the
+ * text reads.
+ */
+export async function proposeSop(input: {
+  companyId: string;
+  memoryId: string;
+  title: string;
+  body: string;
+  occurrences: number;
+}): Promise<string> {
+  const notifyAfter = await notifyAfterFor('sop_candidate', {});
+
+  return withTenant(input.companyId, async (tx) => {
+    const { rows } = await tx.query<{ id: string }>(
+      `INSERT INTO inbox_items
+         (company_id, kind, title, action_summary, rationale, consequence_if_denied,
+          payload, notify_after)
+       VALUES ($1,'sop_candidate',$2,$2,$3,
+               'Nothing changes; the pattern stays undocumented and agents keep improvising.',
+               $4,$5)
+       RETURNING id`,
+      [
+        input.companyId,
+        input.title,
+        `Observed in ${input.occurrences} completed tasks.\n\n${input.body}`,
+        JSON.stringify({ memoryId: input.memoryId, occurrences: input.occurrences }),
+        notifyAfter,
+      ],
+    );
+    return rows[0]!.id;
+  });
+}
+
+/**
+ * Raises a budget or calibration alert (F11.4).
+ *
+ * Waits for the owner's window. Money already spent is not an emergency: it is
+ * a number that will be just as true at breakfast, and treating it as urgent
+ * is how the inbox stops meaning anything.
+ */
+export async function raiseBudgetAlert(input: {
+  companyId: string;
+  title: string;
+  detail: string;
+}): Promise<string> {
+  const notifyAfter = await notifyAfterFor('budget_alert', {});
+
+  return withTenant(input.companyId, async (tx) => {
+    const { rows } = await tx.query<{ id: string }>(
+      `INSERT INTO inbox_items
+         (company_id, kind, title, action_summary, rationale, consequence_if_denied,
+          notify_after)
+       VALUES ($1,'budget_alert',$2,$2,$3,'',$4)
+       RETURNING id`,
+      [input.companyId, input.title, input.detail, notifyAfter],
+    );
+    return rows[0]!.id;
+  });
+}
+
 export async function listOpen(companyId: string): Promise<InboxItem[]> {
   return withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
@@ -190,15 +256,19 @@ export async function decide(
   decision: Decision,
   note = '',
 ): Promise<void> {
-  const taskId = await withTenant(companyId, async (tx) => {
-    const { rows } = await tx.query<{ task_id: string | null }>(
+  const item = await withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<{
+      task_id: string | null;
+      kind: InboxKind;
+      payload: Record<string, unknown>;
+    }>(
       `UPDATE inbox_items
           SET decision = $2,
               decided_at = now(),
               owner_note = $3,
               status = CASE WHEN $2 = 'ask' THEN 'open' ELSE 'decided' END
         WHERE id = $1 AND status = 'open'
-        RETURNING task_id`,
+        RETURNING task_id, kind, payload`,
       [itemId, decision, note],
     );
     const row = rows[0];
@@ -209,13 +279,32 @@ export async function decide(
       taskId: row.task_id ?? undefined,
       type: 'owner.decided',
       actor: 'owner',
-      payload: { inboxItemId: itemId, decision, note },
+      payload: { inboxItemId: itemId, kind: row.kind, decision, note },
     });
-    return row.task_id;
+
+    // F4.5: approving a candidate is what makes it usable. Until this moment
+    // the SOP exists but reaches no agent's context.
+    if (row.kind === 'sop_candidate' && decision !== 'ask') {
+      const memoryId = String(row.payload.memoryId ?? '');
+      if (memoryId) {
+        const activated =
+          decision === 'approve'
+            ? await approveCandidate(tx, memoryId)
+            : await rejectCandidate(tx, memoryId);
+        await appendEvent(tx, {
+          companyId,
+          type: decision === 'approve' ? 'sop.approved' : 'sop.rejected',
+          actor: 'owner',
+          payload: { memoryId, applied: activated },
+        });
+      }
+    }
+
+    return row;
   });
 
-  if (!taskId || decision === 'ask') return;
-  await transition(companyId, taskId, decision === 'approve' ? 'running' : 'cancelled');
+  if (!item.task_id || decision === 'ask') return;
+  await transition(companyId, item.task_id, decision === 'approve' ? 'running' : 'cancelled');
 }
 
 /**

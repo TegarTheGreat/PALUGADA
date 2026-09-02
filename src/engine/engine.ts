@@ -174,7 +174,7 @@ export class Engine {
           const result = await this.#options.broker.invoke<I, O>(
             {
               companyId, projectId: task.projectId, divisionId: task.divisionId,
-              taskId, idempotencyKey: key, signal: controller.signal,
+              taskId, roleId: task.roleId, idempotencyKey: key, signal: controller.signal,
             },
             name,
             input,

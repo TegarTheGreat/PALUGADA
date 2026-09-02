@@ -49,6 +49,8 @@ export interface PolicyRow {
   effect: PolicyEffect;
   condition: Condition;
   mode: 'enforce' | 'log_only';
+  /** Effect arguments, such as the reviewer role a require_review names. */
+  params: Record<string, unknown>;
 }
 
 export interface PolicyMatch {
@@ -57,6 +59,7 @@ export interface PolicyMatch {
   scope: PolicyScope;
   effect: PolicyEffect;
   mode: 'enforce' | 'log_only';
+  params: Record<string, unknown>;
 }
 
 export interface PolicyDecision {
@@ -90,8 +93,9 @@ export async function loadApplicablePolicies(
     effect: PolicyEffect;
     condition: Condition;
     mode: 'enforce' | 'log_only';
+    params: Record<string, unknown>;
   }>(
-    `SELECT id, slug, company_id, division_id, effect, condition, mode
+    `SELECT id, slug, company_id, division_id, effect, condition, mode, params
        FROM policies
       WHERE company_id IS NULL
          OR (company_id = $1 AND (division_id IS NULL OR division_id = $2))`,
@@ -105,6 +109,7 @@ export async function loadApplicablePolicies(
     effect: row.effect,
     condition: row.condition,
     mode: row.mode,
+    params: row.params,
   }));
 }
 
@@ -128,6 +133,7 @@ export function decide(policies: PolicyRow[], facts: ActionFacts): PolicyDecisio
       scope: policy.scope,
       effect: policy.effect,
       mode: policy.mode,
+      params: policy.params,
     };
 
     if (policy.mode === 'log_only') {

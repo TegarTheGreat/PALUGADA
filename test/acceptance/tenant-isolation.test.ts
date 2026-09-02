@@ -126,6 +126,7 @@ test('every table holding tenant data is protected', async () => {
     'capabilities',       // platform registry: no tenant data, app has SELECT only
     'platform_control',   // global stop signal: no tenant data
     'schema_migrations',  // migration bookkeeping: app has no grant at all
+    'company_templates',  // a shape, not tenant content: app has no grant at all
   ]);
 
   const rows = await withControlPlane(async (tx) => {
@@ -152,6 +153,25 @@ test('every table holding tenant data is protected', async () => {
   for (const row of rows.filter((r) => r.rls)) {
     assert.ok(row.forced, `${row.table_name} enables RLS but does not FORCE it`);
     assert.ok(Number(row.policies) >= 1, `${row.table_name} has RLS but no policy`);
+  }
+
+  // An unprotected table is only acceptable while the application role cannot
+  // read it or it genuinely holds no tenant content. Asserting the grants too
+  // stops "add it to the allow-list" from becoming the way past this test.
+  const grants = await withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ table_name: string; privilege_type: string }>(
+      `SELECT table_name, privilege_type FROM information_schema.table_privileges
+        WHERE grantee = 'palugada_app' AND table_name = ANY($1::text[])`,
+      [[...EXPECTED_UNPROTECTED]],
+    );
+    return rows;
+  });
+  for (const grant of grants) {
+    assert.ok(
+      ['capabilities', 'platform_control'].includes(grant.table_name),
+      `${grant.table_name} is unprotected yet readable by the application role`,
+    );
+    assert.equal(grant.privilege_type, 'SELECT');
   }
 });
 

@@ -45,6 +45,7 @@ function policy(overrides: Partial<PolicyRow>): PolicyRow {
     effect: overrides.effect ?? 'deny',
     condition: overrides.condition ?? { field: 'tool', op: 'matches', value: 'dns.*' },
     mode: overrides.mode ?? 'enforce',
+    params: overrides.params ?? {},
   };
 }
 
@@ -209,6 +210,7 @@ test('policies load across platform, company and division scopes', async () => {
     effect: 'require_review',
     condition: { field: 'tool', op: 'matches', value: 'dns.*' },
     companyId: fixture.companyId,
+    params: { reviewer_role: 'qa-reviewer' },
   });
   await putPolicy({
     slug: 'other-company-rule',
@@ -228,6 +230,34 @@ test('policies load across platform, company and division scopes', async () => {
     "another tenant's policy must never reach this evaluation",
   );
   assert.equal(decision.effect, 'require_approval');
+});
+
+test('a review policy that names no reviewer cannot be saved', async () => {
+  // "Get this reviewed" without saying by whom is a rule that cannot be
+  // executed. Discovering that at the moment it first matters -- with a task
+  // already parked waiting for a reviewer that was never named -- is too late,
+  // so the database refuses the configuration instead.
+  const fixture = await createCompany('review-needs-reviewer');
+
+  await assert.rejects(
+    () =>
+      putPolicy({
+        slug: 'needs-review',
+        effect: 'require_review',
+        condition: { field: 'tool', op: 'matches', value: 'email.*' },
+        companyId: fixture.companyId,
+      }),
+    /policies_review_names_reviewer/,
+  );
+
+  const accepted = await putPolicy({
+    slug: 'needs-review',
+    effect: 'require_review',
+    condition: { field: 'tool', op: 'matches', value: 'email.*' },
+    companyId: fixture.companyId,
+    params: { reviewer_role: 'qa-reviewer' },
+  });
+  assert.ok(accepted);
 });
 
 test('every policy change is recorded with a diff (F3.6)', async () => {

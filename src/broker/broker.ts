@@ -42,6 +42,7 @@ import { fingerprintAction, isApproved, openReview } from '../review/review.ts';
 import { chargeEstimate, estimateFor, refundEstimate, settleActual } from './cost.ts';
 import { evaluateRoleFreeze, isRoleFrozen } from '../governance/role-freeze.ts';
 import { isSpendPaused } from '../governance/spend-guard.ts';
+import { ancestryForTask, renderAncestry } from '../domain/goals.ts';
 import { checkAgainstPlan, readPlan, type TaskPlan } from '../engine/plan.ts';
 import type { CapabilityRegistry } from './registry.ts';
 
@@ -318,6 +319,10 @@ export class CapabilityBroker {
     }
 
     if (requiresOwnerApproval(tier) || policy.effect === 'require_approval') {
+      // F10.2 asks the item to say why. The plan says what will happen; the
+      // goal chain says what it is ultimately for. An owner reading this on a
+      // phone gets both without following a link.
+      const chain = await withTenant(ctx.companyId, (tx) => ancestryForTask(tx, ctx.taskId));
       await inbox.requestApproval({
         companyId: ctx.companyId,
         taskId: ctx.taskId,
@@ -328,12 +333,17 @@ export class CapabilityBroker {
           `Task ${ctx.taskId} requested ${name} at tier ${tier}` +
           (policy.effect === 'require_approval'
             ? `, and policy ${policy.matched.map((m) => m.slug).join(', ')} requires your approval.`
-            : ', which cannot be reversed.'),
+            : ', which cannot be reversed.') +
+          (chain.length > 0 ? `\n\nWhat this is for — ${renderAncestry(chain)}` : ''),
         consequenceIfDenied: 'The task halts and no external change is made.',
         estimatedCostCents: capability.estimatedCostCents ?? 0,
         // F10.2 asks an approval item to say why. The plan is most of the
         // answer, so it travels with the item rather than being a click away.
-        payload: { input: redactor.redactDeep(input) as unknown, plan },
+        payload: {
+          input: redactor.redactDeep(input) as unknown,
+          plan,
+          goalAncestry: chain.map((goal) => ({ kind: goal.kind, statement: goal.statement })),
+        },
       });
       throw new PalugadaError(
         'approval.required',

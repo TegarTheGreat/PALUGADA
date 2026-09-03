@@ -42,6 +42,8 @@ export interface TaskRow {
   attemptMax: number;
   tokensReserved: number;
   haltReason: string | null;
+  /** F2.7: the goal this task exists to serve. */
+  goalId: string | null;
   /** F9.5: this task may wait for the company's cheap hours. */
   batchable: boolean;
 }
@@ -50,7 +52,7 @@ const SELECT_TASK = `
   SELECT id, company_id, project_id, division_id, role_id, parent_task_id,
          budget_account_id, status, input, output, hop_depth, hop_max,
          deadline_at, idempotency_key, attempt, attempt_max, tokens_reserved,
-         halt_reason, batchable
+         halt_reason, batchable, goal_id
     FROM tasks`;
 
 interface RawTask {
@@ -59,7 +61,7 @@ interface RawTask {
   status: TaskStatus; input: Record<string, unknown>; output: Record<string, unknown> | null;
   hop_depth: number; hop_max: number; deadline_at: Date | null; idempotency_key: string;
   attempt: number; attempt_max: number; tokens_reserved: string; halt_reason: string | null;
-  batchable: boolean;
+  batchable: boolean; goal_id: string | null;
 }
 
 function toTask(row: RawTask): TaskRow {
@@ -72,6 +74,7 @@ function toTask(row: RawTask): TaskRow {
     attempt: row.attempt, attemptMax: row.attempt_max,
     tokensReserved: Number(row.tokens_reserved), haltReason: row.halt_reason,
     batchable: row.batchable,
+    goalId: row.goal_id,
   };
 }
 
@@ -106,6 +109,15 @@ export interface CreateTaskInput {
    * flag the difference between a company that answers and one that does not.
    */
   batchable?: boolean | undefined;
+  /**
+   * F2.7: the goal this task serves.
+   *
+   * Required for a root task and inherited by a sub-task. The caller creating
+   * a root task is the one that knows why it is being created; by the time a
+   * sub-task is spawned the answer is already on its parent, and asking again
+   * would invite a different answer.
+   */
+  goalId?: string | undefined;
 }
 
 /**
@@ -129,7 +141,19 @@ export async function createRootTask(input: CreateTaskInput): Promise<TaskRow> {
     // F3.7: a frozen role admits no work. Checked before the reservation, so
     // a refused task does not tie up an allowance on the way out.
     await assertRoleIsNotFrozen(tx, input.roleId);
+    await assertRoleIsComplete(tx, input.roleId);
     if (input.batchable) await assertRoleIsReadOnly(tx, input.roleId);
+
+    // F2.7: a root task is where the "why" is known, so it is where it is
+    // asked for. A task with no goal cannot explain itself to the owner later,
+    // and F10.2 needs exactly that explanation.
+    if (!input.goalId) {
+      throw new PalugadaError(
+        'goal.required',
+        'a root task must name the goal it serves (PRD F2.7)',
+        { roleId: input.roleId },
+      );
+    }
 
     const reserveTokens = input.reserveTokens ?? DEFAULT_TASK_RESERVE_TOKENS;
     const granted = await budget.reserve(tx, input.budgetAccountId, reserveTokens);
@@ -155,6 +179,41 @@ export async function createRootTask(input: CreateTaskInput): Promise<TaskRow> {
       throw error;
     }
   });
+}
+
+/**
+ * Refuses admission for a role that cannot say what finished looks like (F2.8).
+ *
+ * v2 section 2.3 traces a real surprise bill to the absence of exactly this:
+ * vague instructions plus an eager schedule, and nothing able to tell whether
+ * the work was done. A role that cannot state its own completion will be asked
+ * again, and again.
+ *
+ * Checked at admission rather than as a NOT NULL column so the failure names
+ * the role and the missing half, which is what an operator needs, instead of
+ * naming a column.
+ */
+async function assertRoleIsComplete(tx: TenantClient, roleId: string): Promise<void> {
+  const { rows } = await tx.query<{ slug: string; criteria: number; has_output: boolean }>(
+    `SELECT slug,
+            cardinality(done_criteria) AS criteria,
+            output_schema <> '{}'::jsonb AS has_output
+       FROM roles WHERE id = $1`,
+    [roleId],
+  );
+  const row = rows[0];
+  if (!row) return;
+
+  const missing: string[] = [];
+  if (!row.has_output) missing.push('an output schema');
+  if (row.criteria === 0) missing.push('at least one done_criteria');
+  if (missing.length > 0) {
+    throw new PalugadaError(
+      'role.incomplete',
+      `role ${row.slug} cannot be given work without ${missing.join(' and ')} (PRD F2.8)`,
+      { roleId, missing },
+    );
+  }
 }
 
 /**
@@ -254,6 +313,7 @@ export async function createSubTask(
     // A frozen role takes no delegated work either, or a parent could route
     // around the freeze simply by handing the task down.
     await assertRoleIsNotFrozen(tx, input.roleId);
+    await assertRoleIsComplete(tx, input.roleId);
     if (input.batchable) await assertRoleIsReadOnly(tx, input.roleId);
 
     const hopDepth = parent.hopDepth + 1;
@@ -280,6 +340,10 @@ export async function createSubTask(
       );
     }
 
+    // F2.7: inherited rather than re-supplied. The answer is already on the
+    // parent, and asking again would invite a different one.
+    const inherited = input.goalId ?? parent.goalId ?? undefined;
+
     const inputHash = hashInput(input.input);
     await assertNoCycle(tx, parentTaskId, input.roleId, inputHash);
 
@@ -295,7 +359,12 @@ export async function createSubTask(
 
     return insertTask(
       tx,
-      { ...input, budgetAccountId: parent.budgetAccountId, createdBy: input.createdBy ?? 'agent_run' },
+      {
+        ...input,
+        budgetAccountId: parent.budgetAccountId,
+        createdBy: input.createdBy ?? 'agent_run',
+        goalId: inherited,
+      },
       { parentTaskId, hopDepth, reserveTokens },
     );
   });
@@ -344,18 +413,19 @@ async function insertTask(
        company_id, project_id, division_id, role_id, parent_task_id,
        budget_account_id, input, hop_depth, hop_max, deadline_at,
        idempotency_key, input_hash, created_by, attempt_max, tokens_reserved,
-       batchable)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+       batchable, goal_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
      RETURNING id, company_id, project_id, division_id, role_id, parent_task_id,
                budget_account_id, status, input, output, hop_depth, hop_max,
                deadline_at, idempotency_key, attempt, attempt_max,
-               tokens_reserved, halt_reason, batchable`,
+               tokens_reserved, halt_reason, batchable, goal_id`,
     [
       input.companyId, input.projectId, input.divisionId, input.roleId,
       meta.parentTaskId, input.budgetAccountId, JSON.stringify(input.input),
       meta.hopDepth, input.hopMax ?? 3, input.deadlineAt ?? null, key, inputHash,
       input.createdBy, input.attemptMax ?? 3, meta.reserveTokens,
       input.batchable ?? false,
+      input.goalId ?? null,
     ],
   );
   const task = toTask(rows[0]!);

@@ -71,6 +71,7 @@ async function newTask(fixture: Fixture) {
     divisionId: fixture.divisionId,
     roleId: fixture.roleId,
     budgetAccountId: fixture.budgetAccountId,
+    goalId: fixture.goalId,
     input: { goal: 'ten steps' },
     createdBy: 'owner',
     reserveTokens: 100_000,

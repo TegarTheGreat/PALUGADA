@@ -68,6 +68,7 @@ async function seedCompany(fixture: Fixture, marker: string): Promise<string> {
     divisionId: fixture.divisionId,
     roleId: fixture.roleId,
     budgetAccountId: fixture.budgetAccountId,
+    goalId: fixture.goalId,
     input: { marker },
     createdBy: 'owner',
     reserveTokens: 50_000,

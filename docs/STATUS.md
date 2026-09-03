@@ -34,8 +34,8 @@ what is missing rather than leaving the reader to guess.
 | Group | Built | Partial | Not built |
 |---|---|---|---|
 | F1 tenancy, budget | F1.1–F1.4, F1.7, F1.8, F1.9 | F1.5 (no skills or config in the archive), F1.6 (one account per company; not per project/division/role) | — |
-| F2 organisation | F2.2, F2.4, F2.5 | F2.1 (no per-division escalation policy), F2.3 (no done_criteria, runtime, model routing, heartbeat) | F2.6, F2.7, F2.8, F2.9 |
-| F3 charter, policy | F3.1–F3.8 | F3.9 (versioned with a diff, but no rollback), F3.12 (policy is code rather than prompt text, but there is no hook framework) | F3.10, F3.11 |
+| F2 organisation | F2.2, F2.4, F2.5, F2.7, F2.8 | F2.1 (no per-division escalation policy), F2.3 (no runtime, model routing or heartbeat on a role) | F2.6, F2.9 |
+| F3 charter, policy | F3.1–F3.8, F3.10 | F3.9 (versioned with a diff, but no rollback), F3.12 (policy is code rather than prompt text, but there is no hook framework) | F3.11 |
 | F4 memory | F4.1–F4.4, F4.6 | F4.5 (low-confidence facts flagged; skill candidates need F15), F4.7 (the journal survives a restart, but there is no heartbeat and no working-memory object) | F4.8 |
 | F5 engine | F5.1–F5.9 | — | F5.10, F5.11, F5.12, F5.13, F5.14 |
 | F6 agent communication | F6.1–F6.6 | — | F6.7 |

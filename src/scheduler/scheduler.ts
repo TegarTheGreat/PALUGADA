@@ -44,6 +44,8 @@ export interface ScheduleInput {
    * digest has no reason to run at the most expensive minute of the day.
    */
   batchable?: boolean;
+  /** F2.7: the goal every task this schedule creates will serve. */
+  goalId?: string;
 }
 
 /**
@@ -83,8 +85,8 @@ export async function upsertSchedule(input: ScheduleInput, now = new Date()): Pr
       `INSERT INTO schedules
          (company_id, project_id, division_id, role_id, budget_account_id, slug,
           cron_expression, timezone, input, reserve_tokens, enabled, next_run_at,
-          batchable)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+          batchable, goal_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
        ON CONFLICT (company_id, slug) DO UPDATE
          SET cron_expression = EXCLUDED.cron_expression,
              timezone        = EXCLUDED.timezone,
@@ -92,7 +94,8 @@ export async function upsertSchedule(input: ScheduleInput, now = new Date()): Pr
              reserve_tokens  = EXCLUDED.reserve_tokens,
              enabled         = EXCLUDED.enabled,
              next_run_at     = EXCLUDED.next_run_at,
-             batchable       = EXCLUDED.batchable
+             batchable       = EXCLUDED.batchable,
+             goal_id         = EXCLUDED.goal_id
        RETURNING id`,
       [
         input.companyId,
@@ -108,6 +111,7 @@ export async function upsertSchedule(input: ScheduleInput, now = new Date()): Pr
         input.enabled ?? true,
         next,
         input.batchable ?? false,
+        input.goalId ?? null,
       ],
     );
     return rows[0]!.id;
@@ -127,6 +131,7 @@ interface DueSchedule {
   input: Record<string, unknown>;
   reserve_tokens: string;
   batchable: boolean;
+  goal_id: string | null;
   next_run_at: Date;
 }
 
@@ -183,7 +188,7 @@ export async function runDueSchedules(now = new Date()): Promise<FiredOccurrence
     const { rows } = await tx.query<DueSchedule>(
       `SELECT s.id, s.company_id, s.project_id, s.division_id, s.role_id,
               s.budget_account_id, s.slug, s.cron_expression, s.timezone,
-              s.input, s.reserve_tokens, s.next_run_at, s.batchable
+              s.input, s.reserve_tokens, s.next_run_at, s.batchable, s.goal_id
          FROM schedules s
          JOIN companies c ON c.id = s.company_id
         WHERE s.enabled AND s.next_run_at <= $1 AND c.frozen_at IS NULL
@@ -212,6 +217,7 @@ export async function runDueSchedules(now = new Date()): Promise<FiredOccurrence
         reserveTokens: Number(schedule.reserve_tokens),
         idempotencyKey: key,
         batchable: schedule.batchable,
+        ...(schedule.goal_id ? { goalId: schedule.goal_id } : {}),
       });
     } catch (error) {
       // A schedule that cannot be funded must not stall every schedule behind

@@ -36,17 +36,36 @@ after(async () => {
   await closeSetup();
 });
 
+// F2.8 asks for an output schema, not a particular one. Kept permissive so
+// these tests keep exercising the template rather than a contract shape they
+// never set out to test.
+const WORK_OUTPUT = { type: 'object' } as const;
+const DONE = ['the run returns a summary of what it did'];
+
 const TEMPLATE: CompanyTemplate = {
   projects: [{ slug: 'main', name: 'Main' }],
+  goals: [
+    { slug: 'mission', kind: 'mission', statement: 'Run the company well.' },
+    { slug: 'deliver', kind: 'objective', parent: 'mission', statement: 'Ship the work.' },
+  ],
   divisions: [
     { slug: 'ops', name: 'Operations', maxConcurrency: 2 },
     { slug: 'ops-infra', name: 'Infrastructure', parent: 'ops' },
     { slug: 'growth', name: 'Growth' },
   ],
   roles: [
-    { slug: 'operator', division: 'ops', systemPrompt: 'You operate.', model: 'test-model' },
-    { slug: 'qa-reviewer', division: 'ops', systemPrompt: 'You review.', model: 'test-model' },
-    { slug: 'marketer', division: 'growth', systemPrompt: 'You market.', model: 'test-model' },
+    {
+      slug: 'operator', division: 'ops', systemPrompt: 'You operate.', model: 'test-model',
+      outputSchema: WORK_OUTPUT, doneCriteria: DONE,
+    },
+    {
+      slug: 'qa-reviewer', division: 'ops', systemPrompt: 'You review.', model: 'test-model',
+      outputSchema: WORK_OUTPUT, doneCriteria: DONE,
+    },
+    {
+      slug: 'marketer', division: 'growth', systemPrompt: 'You market.', model: 'test-model',
+      outputSchema: WORK_OUTPUT, doneCriteria: DONE,
+    },
   ],
   sops: [{ division: 'ops', body: 'SOP: verify the zone before any deploy.' }],
   grants: [{ division: 'ops', capability: 'deploy.staging', rateLimitPerHour: 10 }],
@@ -210,8 +229,14 @@ test('a template that fails partway leaves no half-built company', async () => {
     body: {
       divisions: [{ slug: 'ops', name: 'Ops' }],
       roles: [
-        { slug: 'same', division: 'ops', systemPrompt: 'p', model: 'm' },
-        { slug: 'same', division: 'ops', systemPrompt: 'p', model: 'm' },
+        {
+          slug: 'same', division: 'ops', systemPrompt: 'p', model: 'm',
+          outputSchema: WORK_OUTPUT, doneCriteria: DONE,
+        },
+        {
+          slug: 'same', division: 'ops', systemPrompt: 'p', model: 'm',
+          outputSchema: WORK_OUTPUT, doneCriteria: DONE,
+        },
       ],
     },
   });
@@ -264,6 +289,7 @@ test('two companies from one template run in parallel without leaking', async ()
       divisionId: created.divisionIds.ops!,
       roleId: created.roleIds.operator!,
       budgetAccountId: created.budgetAccountId,
+      goalId: created.goalIds.deliver!,
       input: { target },
       createdBy: 'owner',
       reserveTokens: 20_000,

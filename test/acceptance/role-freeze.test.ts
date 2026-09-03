@@ -73,6 +73,7 @@ async function newTask(fixture: Fixture, roleId: string) {
     divisionId: fixture.divisionId,
     roleId,
     budgetAccountId: fixture.budgetAccountId,
+    goalId: fixture.goalId,
     input: { goal: `dns-${attempts}` },
     createdBy: 'owner',
     reserveTokens: 5_000,

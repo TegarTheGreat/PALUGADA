@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import * as budgetModule from '../../src/engine/budget.ts';
 import { recordPlan } from '../../src/engine/plan.ts';
+import { createGoal } from '../../src/domain/goals.ts';
 
 export interface Fixture {
   companyId: string;
@@ -18,6 +19,8 @@ export interface Fixture {
   roleId: string;
   budgetAccountId: string;
   slug: string;
+  /** F2.7: the objective every task in these tests hangs from. */
+  goalId: string;
 }
 
 export async function createCompany(
@@ -34,6 +37,24 @@ export async function createCompany(
     return rows[0]!.id;
   });
 
+  // F2.7: every root task names a goal, so the fixture has one to name. A
+  // mission with one objective under it is the shortest chain that still has
+  // a shape worth testing.
+  const mission = await createGoal({
+    companyId,
+    kind: 'mission',
+    slug: 'mission',
+    statement: `Run ${unique} well.`,
+  });
+  const objective = await createGoal({
+    companyId,
+    kind: 'objective',
+    slug: 'objective',
+    statement: 'Keep the work moving without surprising the owner.',
+    parentGoalId: mission.id,
+  });
+  const goalId = objective.id;
+
   return withTenant(companyId, async (tx) => {
     const { rows: p } = await tx.query<{ id: string }>(
       'INSERT INTO projects (company_id, slug, name) VALUES ($1, $2, $3) RETURNING id',
@@ -43,9 +64,16 @@ export async function createCompany(
       'INSERT INTO divisions (company_id, slug, name) VALUES ($1, $2, $3) RETURNING id',
       [companyId, 'ops', 'Operations'],
     );
+    // F2.8: a role with no output schema and no completion criterion cannot be
+    // given work, so the fixture supplies both. They are deliberately minimal
+    // -- a test that cares about contracts sets its own.
     const { rows: r } = await tx.query<{ id: string }>(
-      `INSERT INTO roles (company_id, division_id, slug, system_prompt, model)
-       VALUES ($1, $2, 'worker', 'You are a worker.', 'test-model') RETURNING id`,
+      `INSERT INTO roles (company_id, division_id, slug, system_prompt, model,
+                          output_schema, done_criteria)
+       VALUES ($1, $2, 'worker', 'You are a worker.', 'test-model',
+               '{"type":"object"}'::jsonb,
+               ARRAY['the run returns an output matching its schema'])
+       RETURNING id`,
       [companyId, d[0]!.id],
     );
     const budgetAccountId = await budgetModule.createAccount(tx, {
@@ -62,6 +90,7 @@ export async function createCompany(
       roleId: r[0]!.id,
       budgetAccountId,
       slug: unique,
+      goalId,
     };
   });
 }
@@ -74,14 +103,16 @@ export async function addRole(
   return withTenant(fixture.companyId, async (tx) => {
     const { rows } = await tx.query<{ id: string }>(
       `INSERT INTO roles (company_id, division_id, slug, system_prompt, model,
-                          input_schema, output_schema)
-       VALUES ($1, $2, $3, 'You are a worker.', 'test-model', $4, $5) RETURNING id`,
+                          input_schema, output_schema, done_criteria)
+       VALUES ($1, $2, $3, 'You are a worker.', 'test-model', $4, $5,
+               ARRAY['the run returns an output matching its schema'])
+       RETURNING id`,
       [
         fixture.companyId,
         fixture.divisionId,
         slug,
         JSON.stringify(schemas.input ?? {}),
-        JSON.stringify(schemas.output ?? {}),
+        JSON.stringify(schemas.output ?? { type: 'object' }),
       ],
     );
     return rows[0]!.id;
@@ -94,9 +125,19 @@ export async function setRoleSchemas(
   schemas: { input?: Record<string, unknown>; output?: Record<string, unknown> },
 ): Promise<void> {
   await withTenant(fixture.companyId, async (tx) => {
+    // Only what it was given. Blanking the other half would quietly strip the
+    // output schema F2.8 requires, and the failure would surface three tests
+    // later as an admission refusal nobody asked for.
     await tx.query(
-      'UPDATE roles SET input_schema = $2, output_schema = $3 WHERE id = $1',
-      [roleId, JSON.stringify(schemas.input ?? {}), JSON.stringify(schemas.output ?? {})],
+      `UPDATE roles
+          SET input_schema = coalesce($2::jsonb, input_schema),
+              output_schema = coalesce($3::jsonb, output_schema)
+        WHERE id = $1`,
+      [
+        roleId,
+        schemas.input === undefined ? null : JSON.stringify(schemas.input),
+        schemas.output === undefined ? null : JSON.stringify(schemas.output),
+      ],
     );
   });
 }

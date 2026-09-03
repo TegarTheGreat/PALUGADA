@@ -22,7 +22,7 @@ v2 requirement as built, partial or not built.
 ## Status
 
 **Everything the v1 specification asked for is implemented and tested**, with
-228 acceptance tests running against a real PostgreSQL 16 with pgvector:
+240 acceptance tests running against a real PostgreSQL 16 with pgvector:
 tenant isolation and the durable engine, the charter and policy engine, scoped
 memory with distillation, typed contracts and handoff, adversarial review,
 the capability broker with tier calibration and cost control, durable
@@ -195,6 +195,9 @@ the template is organised by function rather than by industry.
 | v2 F1.7 warn at 80%, pause at 100%, owner override with a deadline | `src/governance/spend-guard.ts` | `spend-guard.test.ts` |
 | v2 F1.8 circuit breaker on the spending rate | `src/governance/spend-guard.ts` | `spend-guard.test.ts` |
 | v2 F1.9 the period ceiling and the per-task one are separate | `db/migrations/0014_*.sql` | `spend-guard.test.ts` |
+| v2 F2.7 goal ancestry, in the run context and the approval item | `src/domain/goals.ts` | `goals.test.ts` |
+| v2 F2.8 no work for a role that cannot say what finished looks like | `src/engine/tasks.ts`, `src/templates/company.ts` | `goals.test.ts` |
+| v2 F3.10 strategy is the owner's; agents read it and propose | `src/domain/goals.ts` | `goals.test.ts` |
 
 ## Decisions worth knowing
 
@@ -372,6 +375,25 @@ broker never guesses which parameter is the list. A guess breaks silently the
 day a field is renamed, and a guard that has quietly stopped guarding is worse
 than none.
 
+**Every task can say why it exists.** A root task names the goal it serves and
+a sub-task inherits it, so the chain — mission, objective, key result — travels
+into the run context and into the approval item. F10.2 asks an item to say why,
+and an owner deciding on a phone at 07:00 will not follow a link to find out.
+
+**Agents read the strategy and cannot change it.** The application role holds
+`SELECT` on `goals` and nothing else, so F3.10 is a grant rather than a rule an
+agent is asked to follow. An agent that thinks the strategy is wrong raises an
+escalation — which parks nothing, because a question about strategy gates no
+particular action and an agent's opinion should not cost the company the task
+it was doing.
+
+**A role that cannot say what done looks like gets no work.** v2 traces a
+surprise bill to exactly that: vague instructions, an eager schedule, and
+nothing able to tell whether the work was finished, so it was asked again and
+again. A role needs an output schema and at least one testable completion
+criterion — checked when a template is saved, where it is still cheap to fix,
+and again at admission.
+
 **Two money ceilings, and neither substitutes for the other.** A single
 runaway task is caught by its budget account; a hundred well-behaved tasks that
 together cost more than the company can afford are caught only by the monthly
@@ -461,7 +483,7 @@ by requirement; the short version is that the runtime adapter protocol (F13),
 lifecycle hooks (F14), the skill loop (F15), bundles (F16) and trajectory
 evaluation (F17) do not exist, and neither do heartbeats and the wake queue
 (F9.7–F9.10), atomic checkout, leases, lanes and orphan recovery
-(F5.11–F5.14) or goal ancestry (F2.7).
+(F5.11–F5.14).
 
 There is also no owner UI, which several v2 requirements assume (F10.9–F10.10,
 F11.2, F12.5).

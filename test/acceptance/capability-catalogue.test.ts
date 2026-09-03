@@ -469,6 +469,8 @@ test('a template whose role reaches past its division is refused when it is save
               systemPrompt: 'p',
               model: 'standard',
               tools: ['dns.update'],
+              outputSchema: { type: 'object' },
+              doneCriteria: ['the record resolves to the new value'],
             },
           ],
         },

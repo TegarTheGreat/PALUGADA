@@ -13,6 +13,7 @@
  */
 import type { TenantClient } from '../db/tenant.ts';
 import { recall, type MemoryItem } from '../memory/store.ts';
+import { ancestryForTask, renderAncestry } from '../domain/goals.ts';
 
 export interface ContextSection {
   kind:
@@ -21,6 +22,7 @@ export interface ContextSection {
     | 'sop'
     | 'confidence_warning'
     | 'semantic_memory'
+    | 'goal_ancestry'
     | 'working_memory';
   title: string;
   body: string;
@@ -181,6 +183,19 @@ export async function buildContext(
   }
 
   if (options.taskId) {
+    // F2.7, and section 6.2 puts it here: after the memory that informs the
+    // work and before the working memory of the task itself. The chain is the
+    // sentence's subject -- what this is ultimately for -- and it reads better
+    // immediately above what has been done so far than buried at the top.
+    const chain = await ancestryForTask(tx, options.taskId);
+    if (chain.length > 0) {
+      sections.push({
+        kind: 'goal_ancestry',
+        title: 'What this work is for',
+        body: renderAncestry(chain),
+      });
+    }
+
     const { rows } = await tx.query<{ name: string; output: unknown }>(
       `SELECT name, output FROM task_steps
         WHERE task_id = $1 AND status = 'committed'

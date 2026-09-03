@@ -78,6 +78,29 @@ const WORK_OUTPUT = {
 export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
   projects: [{ slug: 'main', name: 'Main' }],
 
+  // F2.7. Deliberately general, because the template is: a company in any line
+  // of business can say this much about itself on day one, and the owner
+  // replaces the statements with its own once there are any.
+  goals: [
+    {
+      slug: 'mission',
+      kind: 'mission',
+      statement: 'Deliver what this company sells, reliably and without surprising its owner.',
+    },
+    {
+      slug: 'deliver',
+      kind: 'objective',
+      parent: 'mission',
+      statement: 'Ship the work the company has promised, on time and verified.',
+    },
+    {
+      slug: 'sustain',
+      kind: 'objective',
+      parent: 'mission',
+      statement: 'Keep the company solvent, answerable and running without daily attention.',
+    },
+  ],
+
   divisions: [
     { slug: 'ops', name: 'Operations', maxConcurrency: 4 },
     { slug: 'delivery', name: 'Delivery', maxConcurrency: 4 },
@@ -161,6 +184,10 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
   roles: [
     {
       slug: 'coordinator',
+      doneCriteria: [
+        'the state of every service checked is recorded',
+        'anything that needs another division is handed off rather than attempted',
+      ],
       division: 'ops',
       model: 'standard',
       maxTokensPerRun: 60_000,
@@ -185,6 +212,10 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     },
     {
       slug: 'planner',
+      doneCriteria: [
+        'the plan names what will change, how it will be checked, and what undoing it would take',
+        'the tickets that follow from it exist',
+      ],
       division: 'delivery',
       model: 'deep',
       maxTokensPerRun: 120_000,
@@ -199,6 +230,10 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     },
     {
       slug: 'builder',
+      doneCriteria: [
+        'staging shows the service answering after the change',
+        'production carries the same build, or the reason it does not is written down',
+      ],
       division: 'build',
       model: 'deep',
       maxTokensPerRun: 150_000,
@@ -222,6 +257,10 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     },
     {
       slug: 'marketer',
+      doneCriteria: [
+        'every message sent was drafted first',
+        'the customer record says what was sent and to whom',
+      ],
       division: 'growth',
       model: 'standard',
       maxTokensPerRun: 80_000,
@@ -244,6 +283,10 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     },
     {
       slug: 'bookkeeper',
+      doneCriteria: [
+        'every payment is matched to an invoice that was read',
+        'the ledger balances against what was issued and paid',
+      ],
       division: 'finance',
       model: 'standard',
       maxTokensPerRun: 60_000,
@@ -258,6 +301,10 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     },
     {
       slug: 'responder',
+      doneCriteria: [
+        'the customer has an answer, or a ticket exists saying who owes them one',
+        'the customer record says what they were told',
+      ],
       division: 'support',
       model: 'fast',
       maxTokensPerRun: 40_000,
@@ -272,6 +319,10 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     },
     {
       slug: 'reviewer',
+      doneCriteria: [
+        'the verdict names the criterion that decided it',
+        'a proposal that could not be judged was rejected for that reason rather than approved',
+      ],
       division: 'assurance',
       model: 'deep',
       maxTokensPerRun: 80_000,
@@ -287,6 +338,10 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     },
     {
       slug: 'analyst',
+      doneCriteria: [
+        'the question has a numeric answer, or a statement of why the data cannot give one',
+        'the snippet that produced it is recorded with the result',
+      ],
       division: 'lab',
       model: 'standard',
       maxTokensPerRun: 60_000,

@@ -33,6 +33,8 @@ export interface TemplateRole {
   inputSchema?: Record<string, unknown>;
   outputSchema?: Record<string, unknown>;
   maxTokensPerRun?: number;
+  /** F2.8: at least one testable statement of what finished looks like. */
+  doneCriteria?: string[];
 }
 
 export interface TemplateGrant {
@@ -42,8 +44,24 @@ export interface TemplateGrant {
   rateLimitPerHour?: number;
 }
 
+export interface TemplateGoal {
+  slug: string;
+  kind: 'mission' | 'objective' | 'key_result';
+  statement: string;
+  /** The slug of the level above. Omitted for a mission. */
+  parent?: string;
+}
+
 export interface CompanyTemplate {
   projects?: Array<{ slug: string; name: string }>;
+  /**
+   * F2.7: what the company is for.
+   *
+   * A template without goals produces a company whose tasks cannot say why
+   * they exist, so `createCompanyFromTemplate` refuses one -- the same
+   * reasoning as F2.8 applied a level up.
+   */
+  goals?: TemplateGoal[];
   divisions: TemplateDivision[];
   roles: TemplateRole[];
   sops?: Array<{ division: string; body: string }>;
@@ -54,6 +72,7 @@ export interface CompanyTemplate {
 export interface CreatedCompany {
   companyId: string;
   projectIds: Record<string, string>;
+  goalIds: Record<string, string>;
   divisionIds: Record<string, string>;
   roleIds: Record<string, string>;
   budgetAccountId: string;
@@ -115,6 +134,19 @@ export function assertTemplateIsCoherent(template: CompanyTemplate): void {
     }
   }
 
+  const goals = new Set((template.goals ?? []).map((goal) => goal.slug));
+  for (const goal of template.goals ?? []) {
+    if (goal.kind === 'mission' && goal.parent) {
+      throw new Error(`mission ${goal.slug} cannot hang from ${goal.parent}`);
+    }
+    if (goal.kind !== 'mission' && !goal.parent) {
+      throw new Error(`${goal.kind} ${goal.slug} must name the level above it`);
+    }
+    if (goal.parent && !goals.has(goal.parent)) {
+      throw new Error(`goal ${goal.slug} names unknown parent ${goal.parent}`);
+    }
+  }
+
   for (const role of template.roles) {
     if (!divisions.has(role.division)) {
       throw new Error(`role ${role.slug} names unknown division ${role.division}`);
@@ -123,6 +155,15 @@ export function assertTemplateIsCoherent(template: CompanyTemplate): void {
       // Also a database constraint (F2.4). Rejecting it here keeps a bad
       // template from being stored and rediscovered later.
       throw new Error(`role ${role.slug} declares more than 12 tools (PRD F2.4)`);
+    }
+    // F2.8, checked when the template is stored rather than when a task is
+    // refused: a role that cannot say what done looks like is a template
+    // defect, and the template is where it can still be fixed cheaply.
+    if ((role.doneCriteria ?? []).length === 0) {
+      throw new Error(`role ${role.slug} declares no done_criteria (PRD F2.8)`);
+    }
+    if (Object.keys(role.outputSchema ?? {}).length === 0) {
+      throw new Error(`role ${role.slug} declares no output schema (PRD F2.8)`);
     }
     for (const tool of role.tools ?? []) {
       // F2.3: a role's tools are a subset of its division's grants. Without
@@ -179,6 +220,7 @@ export async function createCompanyFromTemplate(
     await assertCapabilitiesExist(tx, template);
     const companyId = await insertCompany(tx, input);
     const projectIds = await insertProjects(tx, companyId, template);
+    const goalIds = await insertGoals(tx, companyId, template);
     const divisionIds = await insertDivisions(tx, companyId, template);
     const roleIds = await insertRoles(tx, companyId, template, divisionIds);
     await insertSops(tx, companyId, template, divisionIds);
@@ -199,7 +241,7 @@ export async function createCompanyFromTemplate(
       ],
     );
 
-    return { companyId, projectIds, divisionIds, roleIds, budgetAccountId };
+    return { companyId, projectIds, goalIds, divisionIds, roleIds, budgetAccountId };
   });
 }
 
@@ -259,6 +301,33 @@ async function insertProjects(
   return ids;
 }
 
+/**
+ * Writes the goal ladder, parents first (F2.7).
+ *
+ * Ordered by level rather than by declaration, so a template may list its
+ * objectives before its mission without the insert failing on a parent that
+ * does not exist yet.
+ */
+async function insertGoals(
+  tx: TenantClient,
+  companyId: string,
+  template: CompanyTemplate,
+): Promise<Record<string, string>> {
+  const ids: Record<string, string> = {};
+  const order: Array<TemplateGoal['kind']> = ['mission', 'objective', 'key_result'];
+  for (const kind of order) {
+    for (const goal of (template.goals ?? []).filter((entry) => entry.kind === kind)) {
+      const { rows } = await tx.query<{ id: string }>(
+        `INSERT INTO goals (company_id, parent_goal_id, kind, slug, statement)
+         VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+        [companyId, goal.parent ? ids[goal.parent] : null, goal.kind, goal.slug, goal.statement],
+      );
+      ids[goal.slug] = rows[0]!.id;
+    }
+  }
+  return ids;
+}
+
 async function insertDivisions(
   tx: TenantClient,
   companyId: string,
@@ -299,8 +368,9 @@ async function insertRoles(
   for (const role of template.roles) {
     const { rows } = await tx.query<{ id: string }>(
       `INSERT INTO roles (company_id, division_id, slug, system_prompt, model, tools,
-                          input_schema, output_schema, max_tokens_per_run)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+                          input_schema, output_schema, max_tokens_per_run,
+                          done_criteria)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
       [
         companyId,
         divisionIds[role.division],
@@ -311,6 +381,7 @@ async function insertRoles(
         JSON.stringify(role.inputSchema ?? {}),
         JSON.stringify(role.outputSchema ?? {}),
         role.maxTokensPerRun ?? 100000,
+        role.doneCriteria ?? [],
       ],
     );
     ids[role.slug] = rows[0]!.id;

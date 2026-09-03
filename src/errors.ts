@@ -15,6 +15,8 @@ export type ErrorCode =
   | 'capability.verify_failed'
   | 'capability.rate_limited'
   | 'contract.violation'
+  | 'goal.required'
+  | 'role.incomplete'
   | 'plan.required'
   | 'plan.batch_mismatch'
   | 'plan.already_recorded'

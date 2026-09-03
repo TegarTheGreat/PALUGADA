@@ -104,6 +104,7 @@ async function proposerTask(fixture: Fixture) {
     divisionId: fixture.divisionId,
     roleId: fixture.roleId,
     budgetAccountId: fixture.budgetAccountId,
+    goalId: fixture.goalId,
     input: {},
     createdBy: 'owner',
     reserveTokens: 50_000,

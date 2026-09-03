@@ -41,6 +41,7 @@ test('delegation stops at hop_max', async () => {
   const root = await createRootTask({
     ...base(fixture, 'root'),
     budgetAccountId: fixture.budgetAccountId,
+    goalId: fixture.goalId,
     createdBy: 'owner',
     hopMax: 2,
   });
@@ -69,6 +70,7 @@ test('a repeated role and input in the ancestor chain is refused', async () => {
     divisionId: fixture.divisionId,
     roleId: roleA,
     budgetAccountId: fixture.budgetAccountId,
+    goalId: fixture.goalId,
     input: sharedInput,
     createdBy: 'owner',
     reserveTokens: 1_000,
@@ -119,6 +121,7 @@ test('fan-out is capped per task', async () => {
   const root = await createRootTask({
     ...base(fixture, 'root'),
     budgetAccountId: fixture.budgetAccountId,
+    goalId: fixture.goalId,
     createdBy: 'owner',
   });
 
@@ -137,6 +140,7 @@ test('a task past its deadline halts instead of continuing', async () => {
   const task = await createRootTask({
     ...base(fixture, 'late'),
     budgetAccountId: fixture.budgetAccountId,
+    goalId: fixture.goalId,
     createdBy: 'owner',
     deadlineAt: new Date(Date.now() - 1_000),
   });

@@ -48,6 +48,14 @@ export interface Capability<I = unknown, O = unknown> {
     urlHost?: string | null;
   };
   /**
+   * Reports what the call actually cost, once it has happened (F8.5).
+   *
+   * Optional, and returning null is a legitimate answer: "this cost nothing"
+   * and "nobody measured this" are different facts, and the broker keeps them
+   * apart rather than reporting an unmeasured call as free.
+   */
+  actualCostCents?(input: I, result: O, ctx: CapabilityContext): Promise<number | null>;
+  /**
    * Whether the capability runs code supplied at call time (F8.10).
    *
    * Declared here rather than inferred from the adapter name, because the

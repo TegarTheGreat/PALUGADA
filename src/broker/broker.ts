@@ -39,6 +39,7 @@ import { capabilityWindow, isWithin, localTimeIn, nextOpening } from '../schedul
 import * as inbox from '../inbox/inbox.ts';
 import { redactor } from '../secrets/manager.ts';
 import { fingerprintAction, isApproved, openReview } from '../review/review.ts';
+import { chargeEstimate, estimateFor, refundEstimate, settleActual } from './cost.ts';
 import type { CapabilityRegistry } from './registry.ts';
 
 export interface InvokeContext {
@@ -57,6 +58,8 @@ export interface InvokeResult<O> {
   tier: Tier;
   verified: boolean;
   policy: PolicyDecision;
+  /** What was charged before the call and what it turned out to cost (F8.5). */
+  cost: { estimatedCents: number; actualCents: number | null; drifted: boolean };
 }
 
 type DenialCode = Extract<
@@ -262,6 +265,11 @@ export class CapabilityBroker {
 
     const controller = new AbortController();
     const signal = ctx.signal ?? controller.signal;
+    const costContext = {
+      companyId: ctx.companyId,
+      projectId: ctx.projectId,
+      taskId: ctx.taskId,
+    };
 
     await withTenant(ctx.companyId, async (tx) => {
       await appendEvent(tx, {
@@ -288,7 +296,33 @@ export class CapabilityBroker {
       signal,
     };
 
-    const output = (await capability.execute(input as never, capabilityContext)) as O;
+    // Section 8.8 treats tier 2 as "check the budget, then policy". The check
+    // has to happen while the money is still unspent, so the estimate is
+    // charged here and refunded below if the call does not happen.
+    const estimatedCents = estimateFor(capability, input);
+    const charged = await chargeEstimate(costContext, name, estimatedCents);
+
+    let output: O;
+    try {
+      output = (await capability.execute(input as never, capabilityContext)) as O;
+    } catch (error) {
+      // An action that did not happen must not leave a charge behind.
+      if (charged) await refundEstimate(costContext, charged.accountId, estimatedCents);
+      throw error;
+    }
+
+    // Settled before the read-back, because the provider billed for the call
+    // regardless of whether the state it left behind is the one we asked for.
+    const actualCents =
+      (await capability.actualCostCents?.(input as never, output as never, capabilityContext)) ??
+      null;
+    const drift = await settleActual(
+      costContext,
+      charged?.accountId ?? null,
+      name,
+      estimatedCents,
+      actualCents,
+    );
 
     let verified = false;
     if (requiresVerification(tier)) {
@@ -315,7 +349,17 @@ export class CapabilityBroker {
       }
     }
 
-    return { output, tier, verified, policy };
+    return {
+      output,
+      tier,
+      verified,
+      policy,
+      cost: {
+        estimatedCents,
+        actualCents: drift?.actualCents ?? null,
+        drifted: drift?.drifted ?? false,
+      },
+    };
   }
 }
 

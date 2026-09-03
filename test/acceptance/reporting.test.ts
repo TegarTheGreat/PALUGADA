@@ -80,15 +80,60 @@ test('cost breaks down by every dimension F11.3 names', async () => {
   assert.match(monthly[0]!.period, /^\d{4}-\d{2}$/);
 });
 
-test('estimated figures are labelled as estimates', async () => {
+/** Writes the cost event the broker leaves after a capability call (F8.5). */
+async function seedCapabilityCost(
+  fixture: Fixture,
+  capability: string,
+  estimatedCents: number,
+  actualCents: number | null,
+): Promise<void> {
+  await withTenant(fixture.companyId, async (tx) => {
+    await tx.query(
+      `INSERT INTO events (company_id, project_id, type, actor, payload)
+       VALUES ($1, $2, 'tool.cost', 'broker', $3::jsonb)`,
+      [
+        fixture.companyId,
+        fixture.projectId,
+        JSON.stringify({ capability, estimatedCents, actualCents }),
+      ],
+    );
+  });
+}
+
+test('a measured capability cost is reported as measured, and a fallback is not', async () => {
   // A dashboard that prints an estimate next to a measurement without saying
   // which is which teaches the owner to distrust all of it.
+  //
+  // This test replaces one that asserted `rows.every(...)` over a company with
+  // no capability calls at all: the array was empty, `every` was vacuously
+  // true, and the assertion held no matter what the reporting code did.
   const fixture = await createCompany('cost-estimates');
+  await seedCapabilityCost(fixture, 'email.send', 100, 250);
+  await seedCapabilityCost(fixture, 'email.send', 100, 50);
+  await seedCapabilityCost(fixture, 'deploy.production', 40, null);
+  await seedCapabilityCost(fixture, 'social.publish', 10, 10);
+  await seedCapabilityCost(fixture, 'social.publish', 10, null);
+
   const rows = await costBreakdown(fixture.companyId, 'capability', {
     from: new Date(Date.now() - 86_400_000),
-    to: new Date(),
+    to: new Date(Date.now() + 60_000),
   });
-  assert.equal(rows.every((row) => row.estimated), true);
+  const byKey = new Map(rows.map((row) => [row.key, row]));
+
+  const email = byKey.get('email.send')!;
+  assert.equal(email.costCents, 300, 'both calls counted at what they were billed');
+  assert.equal(email.calls, 2);
+  assert.equal(email.estimated, false, 'every call in this row was measured');
+
+  const deploy = byKey.get('deploy.production')!;
+  assert.equal(deploy.costCents, 40, 'nothing measured it, so the charge stands as the figure');
+  assert.equal(deploy.estimated, true);
+
+  // One unmeasured call marks the whole row. Reporting 26 cents as measured
+  // because most of it was would be the exact confusion the flag exists for.
+  const social = byKey.get('social.publish')!;
+  assert.equal(social.costCents, 20);
+  assert.equal(social.estimated, true);
 });
 
 test('one company never sees another\'s cost', async () => {

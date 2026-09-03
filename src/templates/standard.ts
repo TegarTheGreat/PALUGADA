@@ -25,11 +25,13 @@
  *
  * **The money ceiling is zero.** Section 14.2 -- the monthly cost tolerance --
  * is still open, and inventing a number would settle by default a question the
- * owner has not answered. Zero is the fail-closed reading: the company works
- * from the first minute, and every declared cost lands over budget in the cost
- * report (F11.3) and in the alerts that watch it (F11.4) until the owner sets
- * a ceiling. An open question that shows up in the numbers gets answered; one
- * that quietly defaults gets forgotten.
+ * owner has not answered. Zero is the fail-closed reading, and it is not
+ * decorative: model calls and capability estimates are both charged against
+ * this account, so the first costed call halts with `budget.exceeded` and
+ * arrives in the inbox saying so. The company is therefore complete and
+ * inert until the owner sets a ceiling, which is the behaviour an unanswered
+ * question deserves -- one that blocks gets answered, one that quietly
+ * defaults gets forgotten.
  *
  * **Models are named by role, not by vendor.** `fast`, `standard` and `deep`
  * are the three shapes of work here. Section 14.4 leaves the mapping to real

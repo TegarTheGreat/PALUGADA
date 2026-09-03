@@ -9,11 +9,14 @@
  *     attributed to a task and therefore to a role and division.
  *   - Budget accounts hold money committed through capabilities.
  *
- * One honest limitation: per-capability figures use the registry's estimated
- * cost, because actual spend per external call is only captured once F8.5's
- * cost-drift tracking lands. Estimates are labelled as such in the result
- * rather than quietly presented next to measured numbers, since a dashboard
- * that mixes the two teaches the owner to distrust all of it.
+ * Per-capability figures come from the `tool.cost` event the broker writes
+ * after every call (F8.5). A capability that reports what it was billed is
+ * counted at that figure; one that reports nothing falls back to the estimate
+ * it was charged, and the row is flagged `estimated` so the fallback is
+ * visible. The flag is deliberately pessimistic: one unmeasured call in the
+ * group marks the whole row, because a dashboard that presents a guess next to
+ * a measurement without saying which is which teaches the owner to distrust
+ * both.
  */
 import { withTenant, withControlPlane } from '../db/tenant.ts';
 
@@ -78,13 +81,22 @@ export async function costBreakdown(
         key: string;
         cost_cents: string;
         calls: string;
+        estimated: boolean;
       }>(
+        // Three sources in falling order of authority: what the capability was
+        // billed, what it was charged before the call, and the registry's flat
+        // figure for capabilities that declare neither.
         `SELECT e.payload->>'capability' AS key,
-                coalesce(sum(c.estimated_cost_cents), 0)::text AS cost_cents,
-                count(*)::text AS calls
+                coalesce(sum(coalesce(
+                  nullif(e.payload->>'actualCents', '')::bigint,
+                  nullif(e.payload->>'estimatedCents', '')::bigint,
+                  c.estimated_cost_cents,
+                  0)), 0)::text AS cost_cents,
+                count(*)::text AS calls,
+                bool_or(e.payload->>'actualCents' IS NULL) AS estimated
            FROM events e
            LEFT JOIN capabilities c ON c.name = e.payload->>'capability'
-          WHERE e.type = 'tool.called'
+          WHERE e.type = 'tool.cost'
             AND e.occurred_at >= $1 AND e.occurred_at < $2
             AND e.payload->>'capability' IS NOT NULL
           GROUP BY 1 ORDER BY 2 DESC`,
@@ -96,7 +108,7 @@ export async function costBreakdown(
         costCents: Number(row.cost_cents),
         tokens: 0,
         calls: Number(row.calls),
-        estimated: true,
+        estimated: row.estimated,
       }));
     }
 

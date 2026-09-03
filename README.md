@@ -16,7 +16,7 @@ of that document.
 ## Status
 
 All four phases of the roadmap (PRD section 13) are implemented and tested,
-with 168 acceptance tests running against a real PostgreSQL 16 with pgvector.
+with 177 acceptance tests running against a real PostgreSQL 16 with pgvector.
 
 - **Phase 0** — tenant isolation, the durable execution engine, the capability
   broker, the event log, the owner's emergency controls.
@@ -171,6 +171,9 @@ the template is organised by function rather than by industry.
 | F8.10 untrusted code kept away from credentials and tier 2 | `db/migrations/0008_*.sql` | `capability-catalogue.test.ts` |
 | F1.1, F2.5 a general-purpose company template | `src/templates/standard.ts` | `capability-catalogue.test.ts` |
 | F2.3 a role's tools are a subset of its division's grants | `src/templates/company.ts` | `capability-catalogue.test.ts` |
+| Section 8.8 tier 2 is checked against the budget before the call | `src/broker/cost.ts` | `cost-control.test.ts` |
+| F8.5 estimate before, actual after, `cost.drift` past half | `src/broker/cost.ts` | `cost-control.test.ts` |
+| F11.3 per-capability cost from measured spend | `src/reporting/cost.ts` | `reporting.test.ts` |
 
 ## Decisions worth knowing
 
@@ -300,6 +303,20 @@ budget in the cost report until the owner sets a ceiling.
 per-role model abstraction, so binding a vendor name into a stored template
 would pre-empt both.
 
+**The estimate is charged before the call, the actual after it.** A ceiling can
+only change the outcome while the money is unspent, so the budget is debited
+first and a refusal produces no downstream call — the rule F2.4 states for
+grants. Settlement afterwards is unconditional: the provider has already
+billed, and refusing the adjustment would leave the account claiming an amount
+the company does not owe. An overrun becomes a visible overspend rather than a
+quiet understatement.
+
+**"Cost nothing" and "nobody measured" are different facts.** A capability that
+reports no actual cost produces no drift event and no measured figure. Reading
+the second as the first would raise a 100% drift on every unmeasured capability
+and bury the real ones, and would print a guess on the dashboard next to a
+measurement without saying which is which.
+
 ## Deviations from the PRD found while building
 
 Both are marked in the code and are worth reconciling in the document.
@@ -319,9 +336,8 @@ Both are marked in the code and are worth reconciling in the document.
 ## Not built yet
 
 The agent runtime and the owner UI. Plus, from the requirement list: the
-automatic role freeze on repeated policy violations (F3.7), cost-drift
-detection (F8.5), cheap-hour batching (F9.5), and memory confidence surfaced to
-the agent at retrieval time (F4.7).
+automatic role freeze on repeated policy violations (F3.7), cheap-hour batching
+(F9.5), and memory confidence surfaced to the agent at retrieval time (F4.7).
 
 Section 13 also ends with "evaluate migrating the engine or the vector store
 based on real data". That is not something to write ahead of the data: there is
@@ -336,8 +352,11 @@ attempted rather than guessed at.
   The consequence is concrete: a capability that executes untrusted code must
   not also hold a credential or reach a tier 2 action. `SANDBOX_GUARANTEES`
   states this in code so it cannot drift out of the comment.
-- **Per-capability cost is an estimate** from the registry, labelled as such in
-  the reporting API. Measured external spend arrives with F8.5.
+- **Per-capability cost is measured where the capability measures it.** A
+  capability that reports what it was billed is counted at that figure; one
+  that reports nothing falls back to the estimate it was charged, and the row
+  is flagged `estimated`. The flag is pessimistic on purpose: one unmeasured
+  call marks the whole row.
 - **Semantic retrieval uses exact search.** That is correct at these volumes
   and is what makes F4.2's "filter before similarity" literally true, but the
   scale in section 9 will need pgvector's iterative scans or per-scope partial

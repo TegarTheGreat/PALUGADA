@@ -190,6 +190,35 @@ that and nothing else: no UPDATE, no DELETE, and a `WITH CHECK` that refuses a
 platform-scoped row. An agent that could rewrite a version could manufacture
 one to roll back to.
 
+## 2.4 Whether the suite would notice
+
+Both audits above were, in the end, the same sentence: the tests did not catch
+it. So the third pass asked that directly — break a load-bearing invariant and
+see whether the suite turns red. Nine of them, each mutated in `src/`, the
+relevant file run, the mutation reverted:
+
+| Invariant broken | Tests that failed |
+|---|---|
+| Tier 3 no longer needs the owner (F8.8) | 1 |
+| A hook denial no longer short-circuits (F14.2) | 6 |
+| Checkout drops its advisory lock (F5.11) | 1 |
+| An untrusted bundle installs unquarantined (F12.10) | 4 |
+| A skill activates without a reviewer (F15.3) | 2 |
+| The plan and batch guard stops checking (F8.11, F8.13) | 4 |
+| Every publisher counts as trusted (F16.2) | 4 |
+| The worker ignores a company freeze (F1.4) | 1 |
+| An import inherits foreign trust (F16.4, F15.8) | 1 |
+
+All nine were caught. The suite was also checked for the shapes that pass
+without testing anything — an `assert.rejects` with no matcher, which accepts
+any error including a typo in the test; a `.every()` over an array that could
+be empty; a test with no assertion at all; an assertion comparing a value to
+itself — and has none.
+
+That is not proof the suite is complete. It is evidence that the entries in
+the table above mean what they say, which is the property those two audits
+found missing in four places and one hole.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

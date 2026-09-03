@@ -141,7 +141,7 @@ src/
   runtime/         the adapter protocol, the wire, and five runtimes
   skills/          skill documents, the curation gates, and eval cases
   eval/            trajectory export and the role eval set
-  bundles/         versioned packages, signing, and the three built-in bundles
+  bundles/         versioned packages, signing, trusted publishers, three bundles
   gateway/         device pairing, signed challenges, idempotency
 test/acceptance/   one file per PRD acceptance criterion
 ```
@@ -283,6 +283,8 @@ the template is organised by function rather than by industry.
 | v2 F16.2 the hash recorded at install answers "is this still what was published" | `src/bundles/bundle.ts` | `bundles.test.ts` |
 | v2 F16.4 a company moves instances with every reference remapped | `src/audit/import.ts` | `bundles.test.ts` |
 | v2 F12.10 an unsigned bundle installs with tier 0 grants only | `src/bundles/bundle.ts` | `bundles.test.ts` |
+| v2 F16.2 a self-signed bundle is not a trusted one | `src/bundles/publishers.ts` | `bundles.test.ts` |
+| v2 F1.2 no table v2 added leaks a row across companies | `db/migrations/` | `tenant-isolation.test.ts` |
 | v2 F14.4 a bundle's hooks run, and can only refuse | `src/engine/hooks.ts`, `src/bundles/bundle.ts` | `bundles.test.ts` |
 | v2 F12.9 a containerised runtime has no network at all | `src/runtime/container.ts` | `out-of-process-runtimes.test.ts` |
 | v2 F10.10 a tier 3 approval is refused over a chat channel | `src/inbox/inbox.ts` | `owner-inbox.test.ts` |

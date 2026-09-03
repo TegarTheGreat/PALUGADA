@@ -21,6 +21,11 @@
  *
  * What does not come across, and why:
  *
+ *   - **A trust decision made elsewhere.** An external skill that was
+ *     un-quarantined on the source instance comes back quarantined here. An
+ *     archive is not a chain of custody, and inheriting somebody else's
+ *     judgement about a document from a hub would make an archive a way past
+ *     the one gate external knowledge has (F15.8).
  *   - **Credentials.** The archive carries references, never values, so an
  *     imported company has the shape of its credentials and none of their
  *     contents. That is correct: moving a company between instances must not
@@ -42,6 +47,16 @@ interface ImportSection {
   references: string[];
   /** Columns to drop: instance-local state that must not travel. */
   drop?: string[];
+  /**
+   * Columns forced to a value, whatever the archive said.
+   *
+   * For a trust decision made on the instance the archive came from. An
+   * external skill that was un-quarantined *there* has been vouched for by
+   * somebody this installation has never heard of, and an archive is not a
+   * chain of custody — F16.4 says a company moves between PALUGADA instances,
+   * not that the destination inherits the source's judgement.
+   */
+  force?: Record<string, unknown>;
   /**
    * Written through the control plane instead of the tenant scope.
    *
@@ -91,7 +106,16 @@ const SECTIONS: ImportSection[] = [
     table: 'memories',
     references: ['scope_id', 'source_event_id', 'superseded_by'],
   },
-  { name: 'skills', table: 'skills', references: ['scope_id'] },
+  {
+    name: 'skills',
+    table: 'skills',
+    references: ['scope_id'],
+    // F15.8: an imported external skill re-enters quarantine. The alternative
+    // is that anybody who can hand an owner an archive can hand them an
+    // unquarantined skill, which would make the archive a way around the one
+    // gate external knowledge has.
+    force: { quarantined: true },
+  },
   { name: 'skill_versions', table: 'skill_versions', references: ['skill_id', 'review_request_id'] },
   { name: 'skill_evals', table: 'skill_evals', references: ['skill_id'] },
   { name: 'config_versions', table: 'config_versions', references: ['subject_id'] },
@@ -205,6 +229,16 @@ async function importSection(
     const values: Record<string, unknown> = { ...row };
 
     for (const column of section.drop ?? []) delete values[column];
+
+    // Applied before the id remap so it cannot be overwritten by anything the
+    // archive carried under the same name.
+    for (const [column, value] of Object.entries(section.force ?? {})) {
+      // Only where the archive already has the column: forcing `quarantined`
+      // onto a row that never had it would insert a column the section's own
+      // export never wrote, and an import that invents columns is one that
+      // fails the day a table gains one.
+      if (column in values) values[column] = value;
+    }
 
     if (typeof values.id === 'string') values.id = remap.get(values.id);
     for (const column of section.references) {

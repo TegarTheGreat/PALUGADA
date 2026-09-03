@@ -32,6 +32,7 @@ import { withControlPlane, withTenant } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
 import { TIER } from '../domain/tier.ts';
+import { isTrustedPublisher, keyFingerprint } from './publishers.ts';
 import type { CompanyTemplate, TemplateGrant, TemplateRole } from '../templates/company.ts';
 import type { Hook, HookName, HookPipeline } from '../engine/hooks.ts';
 
@@ -171,7 +172,10 @@ export function verifyBundleSignature(bundle: SignedBundle): boolean {
 export async function publishBundle(bundle: Bundle | SignedBundle): Promise<{
   id: string;
   hash: string;
+  /** The signature verifies against the key offered with it. */
   signed: boolean;
+  /** That key is one this installation has been told to accept (F16.2). */
+  trusted: boolean;
 }> {
   assertBundleIsCoherent(bundle);
   const hash = hashBundle(bundle);
@@ -185,16 +189,20 @@ export async function publishBundle(bundle: Bundle | SignedBundle): Promise<{
     );
   }
 
+  const fingerprint = signed ? keyFingerprint(bundle.publisherKey) : null;
+
   const id = await withControlPlane(async (tx) => {
     const { rows } = await tx.query<{ id: string }>(
       `INSERT INTO bundles
-         (slug, version, name, description, body, content_hash, signature, signed_by, publisher_key)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         (slug, version, name, description, body, content_hash, signature, signed_by,
+          publisher_key, publisher_fingerprint)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        ON CONFLICT (slug, version) DO UPDATE
          SET name = EXCLUDED.name, description = EXCLUDED.description,
              body = EXCLUDED.body, content_hash = EXCLUDED.content_hash,
              signature = EXCLUDED.signature, signed_by = EXCLUDED.signed_by,
-             publisher_key = EXCLUDED.publisher_key
+             publisher_key = EXCLUDED.publisher_key,
+             publisher_fingerprint = EXCLUDED.publisher_fingerprint
        RETURNING id`,
       [
         bundle.slug,
@@ -206,12 +214,17 @@ export async function publishBundle(bundle: Bundle | SignedBundle): Promise<{
         signed ? bundle.signature : null,
         signed ? bundle.signedBy : null,
         signed ? bundle.publisherKey : null,
+        fingerprint,
       ],
     );
     return rows[0]!.id;
   });
 
-  return { id, hash, signed };
+  // Whether the publisher is *trusted* is asked at install rather than
+  // recorded here, so that trusting a publisher afterwards lets the next
+  // install through without anybody republishing. What is reported now is
+  // whether the bundle carries a verifiable signature at all.
+  return { id, hash, signed, trusted: await isTrustedPublisher(signed ? bundle.publisherKey : null) };
 }
 
 export interface InstalledBundle {
@@ -242,8 +255,10 @@ export async function installBundle(input: {
       body: BundleBody;
       content_hash: string;
       signature: string | null;
+      publisher_key: string | null;
     }>(
-      'SELECT id, body, content_hash, signature FROM bundles WHERE slug = $1 AND version = $2',
+      `SELECT id, body, content_hash, signature, publisher_key
+         FROM bundles WHERE slug = $1 AND version = $2`,
       [input.slug, input.version],
     );
     return rows[0] ?? null;
@@ -257,7 +272,12 @@ export async function installBundle(input: {
     );
   }
 
-  const quarantined = stored.signature === null;
+  // F16.2, F12.10. A signature alone is not enough: it was verified at publish
+  // against a key that arrived with it, which proves the bundle is internally
+  // consistent and nothing about who made it. Quarantine lifts only for a
+  // publisher this installation was told to accept.
+  const quarantined = stored.signature === null
+    || !(await isTrustedPublisher(stored.publisher_key));
   const body = stored.body;
 
   const installed = await withTenant(input.companyId, async (tx) => {

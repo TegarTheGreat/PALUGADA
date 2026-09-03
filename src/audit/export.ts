@@ -176,7 +176,13 @@ const SECTIONS: Section[] = [
   {
     // F1.5: the knowledge, and the two gates it passed to become knowledge.
     name: 'skills',
-    sql: `SELECT id, slug, scope_type, scope_id, summary, active_version, created_at
+    // `provenance`, `origin` and `quarantined` travel because an archive that
+    // dropped them would lose the fact that a skill came from outside — and a
+    // restored company would treat a hub's document as its own work (F15.8).
+    // The destination re-quarantines regardless; what it needs from the archive
+    // is to know there is something to re-quarantine.
+    sql: `SELECT id, slug, scope_type, scope_id, summary, active_version,
+                 provenance, origin, quarantined, created_at
             FROM skills ORDER BY slug`,
   },
   {

@@ -138,6 +138,58 @@ that failed outside any stage, which is what a database blip looks like, ended
 the loop: a daemon that exits on a transient failure, invisibly, to whoever was
 relying on it. Both are fixed and both have tests.
 
+## 2.3 What a security review turned up
+
+A second pass, with a different question: not "what does nothing call" but
+"what does this claim to prevent, and does it".
+
+**A signature was being verified against a key carried in the same payload.**
+`publishBundle` and `importExternalSkill` both took a signature and a public
+key together and checked one against the other, which proves the payload is
+internally consistent and nothing whatever about who produced it. Anyone could
+generate a keypair, sign their own bundle, and have it install unquarantined
+with whatever grants it asked for — `web-ops` includes `dns.update` at tier 2.
+The quarantine F12.10 and F15.8 exist to impose was one `generateKeyPair` away
+from being skipped, in both places.
+
+The fix is a trusted-publisher list the owner adds to (`src/bundles/publishers.ts`),
+and a third outcome where there were two. A signature that does not verify is
+still refused outright — a false claim of provenance is worse than no claim.
+One that verifies against a key this installation was never told to accept is
+now treated as *unsigned*: quarantined, because an unknown publisher is exactly
+what quarantine is for. Trust is checked at install rather than baked in at
+publish, so an owner who decides to trust a vendor does not have to go back to
+the vendor for a new artefact. It is keyed on a fingerprint of the key's DER
+rather than its PEM text, because a list you could bypass with a trailing
+newline is a list in name only.
+
+**The tenant boundary holds on every table v2 added.** `every table holding
+tenant data is protected` only asserts a policy exists — a predicate on the
+wrong column passes it. So there is now a test that drives the same path an
+agent would: ordinary queries in company B's scope asking for company A's
+skills, versions, eval cases, gateway devices, challenges, dedupe entries and
+config versions, by sweep and by id. It lists every v2 table rather than a
+sample, because a sample means the next table is protected by whoever
+remembers to extend it.
+
+**An archive was carrying a trust decision made somewhere else, and losing
+the fact that there was one.** Two halves of the same bug. The export never
+wrote a skill's `provenance`, `origin` or `quarantined`, so a restored company
+treated a document from a hub as its own work; and the import took whatever the
+archive said, so an external skill somebody un-quarantined on the source
+instance arrived un-quarantined here. Handing an owner an archive was a way
+past the one gate external knowledge has. The archive now carries all three,
+and the import forces `quarantined` back on regardless of what it says: an
+archive is not a chain of custody, and F16.4 says a company moves between
+instances, not that the destination inherits the source's judgement.
+
+**`config_versions` is append-only for agents.** The paths that apply an
+owner-approved grant or role change run in tenant scope and the version has to
+commit in the same transaction, so the application role needs INSERT. It has
+that and nothing else: no UPDATE, no DELETE, and a `WITH CHECK` that refuses a
+platform-scoped row. An agent that could rewrite a version could manufacture
+one to roll back to.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

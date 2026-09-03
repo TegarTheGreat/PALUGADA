@@ -39,16 +39,25 @@ export interface SeedOptions {
   /**
    * Signed copies of the built-in bundles.
    *
-   * Unsigned bundles install quarantined (F12.10), so an installation that
-   * wants `web-ops` to hold `dns.update` has to sign it. Passing nothing is
-   * supported and honest: the bundles publish unsigned and install read-only
-   * until somebody signs them.
+   * Quarantine lifts only for a signature from a publisher this installation
+   * trusts (`trustPublisher`), so an installation that wants `web-ops` to hold
+   * `dns.update` has to both sign the bundle and add the signing key. Passing
+   * nothing is supported and honest: the bundles publish unsigned and install
+   * read-only until somebody does both.
    */
   signedBundles?: SignedBundle[];
 }
 
 export interface SeedReport {
-  bundles: Array<{ slug: string; version: string; hash: string; signed: boolean }>;
+  bundles: Array<{
+    slug: string;
+    version: string;
+    hash: string;
+    /** The signature verifies against the key offered with it. */
+    signed: boolean;
+    /** That key is one this installation trusts, so the bundle installs freely. */
+    trusted: boolean;
+  }>;
   charters: Array<{ scope: string; version: number | null }>;
   template: string;
 }
@@ -82,6 +91,7 @@ export async function seed(options: SeedOptions = {}): Promise<SeedReport> {
       version: builtIn.version,
       hash: published.hash,
       signed: published.signed,
+      trusted: published.trusted,
     });
   }
 

@@ -37,6 +37,7 @@ export type ErrorCode =
   | 'bundle.invalid'
   | 'bundle.unknown'
   | 'bundle.bad_signature'
+  | 'publisher.invalid_key'
   | 'archive.invalid'
   | 'approval.channel_forbidden'
   | 'review.required'

@@ -37,6 +37,7 @@ import { withTenant, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
 import * as inbox from '../inbox/inbox.ts';
+import { isTrustedPublisher } from '../bundles/publishers.ts';
 
 export type SkillScope = 'division' | 'company' | 'platform';
 export type SkillAuthor = 'owner' | 'distillation' | 'agent' | 'bundle';
@@ -548,14 +549,21 @@ export async function importExternalSkill(
 ): Promise<ProposedVersion & { quarantined: boolean }> {
   const document = parseSkillDocument(input.source);
 
-  const signed = input.signature !== undefined && input.publisherKey !== undefined;
-  if (signed && !verifyDetachedSignature(input.publisherKey!, input.source, input.signature!)) {
+  // Three outcomes, and the middle one is the useful part. A signature that
+  // does not verify is refused outright — a false claim of provenance is worse
+  // than no claim. A signature that verifies against a key this installation
+  // has never been told to accept is treated as *unsigned*: the key arrived
+  // with the document, so it proves internal consistency and nothing about who
+  // wrote it, and an unknown publisher is exactly what quarantine is for.
+  const offered = input.signature !== undefined && input.publisherKey !== undefined;
+  if (offered && !verifyDetachedSignature(input.publisherKey!, input.source, input.signature!)) {
     throw new PalugadaError(
       'skill.bad_signature',
       `the signature on ${input.slug} does not verify against the key it was offered with`,
       { slug: input.slug, origin: input.origin },
     );
   }
+  const signed = offered && (await isTrustedPublisher(input.publisherKey!));
 
   const proposed = await proposeSkillVersion({
     companyId: input.companyId,
@@ -564,7 +572,13 @@ export async function importExternalSkill(
     scopeId: input.divisionId,
     source: input.source,
     author: 'bundle',
-    changelog: `Imported from ${input.origin}${signed ? ', signed' : ', unsigned'}.`,
+    changelog:
+      `Imported from ${input.origin}` +
+      (signed
+        ? ', signed by a publisher this installation trusts.'
+        : offered
+          ? ', signed by a publisher this installation does not know — quarantined.'
+          : ', unsigned — quarantined.'),
   });
 
   await withTenant(input.companyId, async (tx) => {
@@ -582,6 +596,7 @@ export async function importExternalSkill(
         slug: input.slug,
         origin: input.origin,
         signed,
+        offeredSignature: offered,
         quarantined: !signed,
         // The document's own hash, so "is this still what arrived" stays
         // answerable after somebody edits the row.

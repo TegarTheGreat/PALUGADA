@@ -32,6 +32,7 @@ import {
 } from '../../src/skills/skills.ts';
 import { buildContext } from '../../src/context/builder.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
+import { trustPublisher } from '../../src/bundles/publishers.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
@@ -483,9 +484,63 @@ test('an unsigned external skill arrives quarantined and division-scoped (F15.8)
   );
 });
 
+/**
+ * A skill signed by a stranger is still a stranger's skill.
+ *
+ * The same hole the bundles had: the key arrives with the document, so
+ * verifying against it proves internal consistency and nothing about who wrote
+ * it. Anyone could sign their own hub upload and have it skip quarantine — and
+ * a skill that skips quarantine can be widened to the whole company.
+ */
+test('a self-signed external skill is still quarantined (F15.8, F16.2)', async () => {
+  const fixture = await createCompany('skill-hub-stranger');
+  const stranger = publisher();
+
+  const imported = await importExternalSkill({
+    companyId: fixture.companyId,
+    slug: 'cold-outreach',
+    source: HUB_SKILL,
+    origin: 'agentskills.io/cold-outreach',
+    divisionId: fixture.divisionId,
+    signature: sign(null, Buffer.from(hashSkillSource(HUB_SKILL)), stranger.privateKey)
+      .toString('base64'),
+    publisherKey: stranger.publicKey,
+  });
+
+  assert.equal(imported.quarantined, true, 'a correct signature from an unknown key is not trust');
+
+  await assert.rejects(
+    () =>
+      setSkillScope(
+        fixture.companyId,
+        imported.skillId,
+        { scopeType: 'company' },
+        { ownerApproved: true },
+      ),
+    (error: unknown) => isPalugadaError(error, 'skill.quarantined'),
+  );
+
+  // The record says which of the two it was, because "unsigned" and "signed by
+  // somebody we do not know" are different things for an owner deciding.
+  const event = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ payload: Record<string, unknown> }>(
+      "SELECT payload FROM events WHERE type = 'skill.imported'",
+    );
+    return rows[0]!.payload;
+  });
+  assert.equal(event.offeredSignature, true);
+  assert.equal(event.signed, false);
+});
+
 test('a signed external skill is not quarantined (F15.8, F12.10)', async () => {
   const fixture = await createCompany('skill-hub-signed');
   const keys = publisher();
+  // The installation has to have been told to accept this publisher.
+  await trustPublisher({
+    publicKeyPem: keys.publicKey,
+    label: 'a hub the owner checked',
+    ownerApproved: true,
+  });
 
   const imported = await importExternalSkill({
     companyId: fixture.companyId,

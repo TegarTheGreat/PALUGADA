@@ -32,9 +32,19 @@ import {
   type SignedBundle,
 } from '../../src/bundles/bundle.ts';
 import { HookPipeline } from '../../src/engine/hooks.ts';
+import {
+  isTrustedPublisher,
+  keyFingerprint,
+  revokePublisher,
+  trustPublisher,
+} from '../../src/bundles/publishers.ts';
 import { exportCompany } from '../../src/audit/export.ts';
 import { importCompany } from '../../src/audit/import.ts';
-import { skillSummariesFor } from '../../src/skills/skills.ts';
+import {
+  importExternalSkill,
+  liftSkillQuarantine,
+  skillSummariesFor,
+} from '../../src/skills/skills.ts';
 import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
@@ -140,6 +150,15 @@ test('a bundle whose signature does not verify is refused (F16.2)', async () => 
 async function installable(fixture: Fixture, bundle: Bundle, sign?: boolean) {
   await registerStandardCatalogue();
   const keys = publisher();
+  if (sign) {
+    // Signing alone is not enough any more, and that is the point: the key has
+    // to be one this installation was told to accept.
+    await trustPublisher({
+      publicKeyPem: keys.publicKey,
+      label: 'the test publisher',
+      ownerApproved: true,
+    });
+  }
   await publishBundle(sign ? signBundle(bundle, keys) : bundle);
   return installBundle({
     companyId: fixture.companyId,
@@ -269,6 +288,11 @@ test('a company can be assembled from several bundles (F16.3, F16.5)', async () 
   const fixture = await createCompany('bundle-compose');
   await registerStandardCatalogue();
   const keys = publisher();
+  await trustPublisher({
+    publicKeyPem: keys.publicKey,
+    label: 'the test publisher',
+    ownerApproved: true,
+  });
 
   for (const bundle of BUILT_IN_BUNDLES) {
     await publishBundle(signBundle(bundle, keys));
@@ -415,6 +439,11 @@ test('a company exports and imports with every reference remapped (F16.4)', asyn
   const fixture = await createCompany('export-source');
   await registerStandardCatalogue();
   const keys = publisher();
+  await trustPublisher({
+    publicKeyPem: keys.publicKey,
+    label: 'the test publisher',
+    ownerApproved: true,
+  });
   await publishBundle(signBundle(CONTENT_OPS, keys));
   await installBundle({
     companyId: fixture.companyId,
@@ -467,6 +496,52 @@ test('a company exports and imports with every reference remapped (F16.4)', asyn
   assert.ok(imported.skipped.includes('bundle_installs'));
 });
 
+/**
+ * An archive is not a chain of custody.
+ *
+ * A skill that somebody un-quarantined on the instance the archive came from
+ * was vouched for by a person this installation has never heard of. Inheriting
+ * that judgement would make handing an owner an archive a way past the one
+ * gate external knowledge has.
+ */
+test('an imported external skill re-enters quarantine (F16.4, F15.8)', async () => {
+  const source = await createCompany('archive-source-skill');
+
+  const imported = await importExternalSkill({
+    companyId: source.companyId,
+    slug: 'cold-outreach',
+    source: `---\nname: cold-outreach\ndescription: From a hub.\n---\n\nSend three, then stop.\n`,
+    origin: 'agentskills.io/cold-outreach',
+    divisionId: source.divisionId,
+  });
+
+  // Vouched for on the source instance, which is the state the archive carries.
+  await liftSkillQuarantine(source.companyId, imported.skillId, { ownerApproved: true });
+  const lifted = await withTenant(source.companyId, async (tx) => {
+    const { rows } = await tx.query<{ quarantined: boolean }>(
+      'SELECT quarantined FROM skills WHERE id = $1',
+      [imported.skillId],
+    );
+    return rows[0]!.quarantined;
+  });
+  assert.equal(lifted, false, 'the archive really does carry an un-quarantined skill');
+
+  const restored = await importCompany(
+    await archiveLines(source.companyId),
+    { slug: `${source.slug}-elsewhere` },
+  );
+
+  const arrived = await withTenant(restored.companyId, async (tx) => {
+    const { rows } = await tx.query<{ quarantined: boolean; provenance: string; origin: string }>(
+      "SELECT quarantined, provenance, origin FROM skills WHERE slug = 'cold-outreach'",
+    );
+    return rows[0]!;
+  });
+  assert.equal(arrived.quarantined, true, 'the destination makes its own judgement');
+  assert.equal(arrived.provenance, 'external');
+  assert.equal(arrived.origin, 'agentskills.io/cold-outreach', 'and still knows where it came from');
+});
+
 test('the source company is untouched by an import (F16.4)', async () => {
   const fixture = await createCompany('export-untouched');
   const imported = await importCompany(
@@ -488,4 +563,171 @@ test('the source company is untouched by an import (F16.4)', async () => {
   });
   assert.equal(original, 1);
   assert.equal(copy, 1);
+});
+
+
+/* ------------------------------------------------- self-signing (F16.2) --- */
+
+/**
+ * A signature verified against a key that arrived with it proves nothing.
+ *
+ * This is the hole the trusted-publisher list closes, and it was open: the
+ * verifier was handed both the signature and the key, so anyone could generate
+ * a keypair, sign their own bundle, and have it install unquarantined with
+ * whatever grants it asked for — including `dns.update` at tier 2. The
+ * quarantine F12.10 exists to impose was one `generateKeyPair` away from being
+ * skipped.
+ */
+test('a self-signed bundle installs quarantined, not freely (F16.2, F12.10)', async () => {
+  const fixture = await createCompany('bundle-self-signed');
+  await registerStandardCatalogue();
+
+  // A publisher nobody here has ever heard of, signing correctly.
+  const stranger = publisher();
+  const published = await publishBundle(signBundle(WEB_OPS, stranger));
+  assert.equal(published.signed, true, 'the signature does verify against its own key');
+  assert.equal(published.trusted, false, 'and that is not the same as being trusted');
+
+  const installed = await installBundle({
+    companyId: fixture.companyId,
+    slug: WEB_OPS.slug,
+    version: WEB_OPS.version,
+  });
+  assert.equal(installed.quarantined, true);
+
+  const grants = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ capability_name: string }>(
+      `SELECT capability_name FROM capability_grants g
+         JOIN divisions d ON d.id = g.division_id WHERE d.slug = 'web'`,
+    );
+    return rows.map((row) => row.capability_name);
+  });
+  assert.deepEqual(grants, [], 'a stranger\'s bundle reaches nothing');
+});
+
+/**
+ * Trusting the publisher is what lifts it — and afterwards, without
+ * republishing.
+ *
+ * That ordering matters: an owner who decides to trust a vendor should not
+ * have to go back to the vendor for a new artefact, and a publish that baked
+ * the trust decision in would require exactly that.
+ */
+test('trusting the publisher afterwards lets the next install through (F16.2)', async () => {
+  const fixture = await createCompany('bundle-trust-later');
+  await registerStandardCatalogue();
+
+  const vendor = publisher();
+  await publishBundle(signBundle(QA_REVIEW, vendor));
+
+  const before = await installBundle({
+    companyId: fixture.companyId,
+    slug: 'qa-review',
+    version: '1.0.0',
+  });
+  assert.equal(before.quarantined, true);
+
+  await trustPublisher({
+    publicKeyPem: vendor.publicKey,
+    label: 'a vendor the owner checked',
+    ownerApproved: true,
+  });
+
+  const after = await installBundle({
+    companyId: fixture.companyId,
+    slug: 'qa-review',
+    version: '1.0.0',
+  });
+  assert.equal(after.quarantined, false, 'no republish was needed');
+});
+
+test('trusting a publisher is the owner\'s decision (F16.2)', async () => {
+  const stranger = publisher();
+  await assert.rejects(
+    () =>
+      trustPublisher({
+        publicKeyPem: stranger.publicKey,
+        label: 'someone',
+        ownerApproved: false,
+      }),
+    (error: unknown) => isPalugadaError(error, 'approval.required'),
+  );
+
+  // And a key that cannot be read is not a publisher.
+  await assert.rejects(
+    () => trustPublisher({ publicKeyPem: 'not a key', label: 'x', ownerApproved: true }),
+    (error: unknown) => isPalugadaError(error, 'publisher.invalid_key'),
+  );
+});
+
+/**
+ * Trust is keyed on the fingerprint of the key, not on the text of its PEM.
+ *
+ * A list somebody could bypass by adding a trailing newline would be a list in
+ * name only, so the fingerprint is taken over the DER encoding: every spelling
+ * of one key that Node can parse gives one fingerprint.
+ *
+ * A spelling Node *cannot* parse gets no fingerprint and is refused. That is
+ * the safe direction and worth pinning: the alternative — falling back to
+ * hashing the raw text — would make an unparseable key trustable, which is a
+ * key nothing could ever verify a signature with.
+ */
+test('one key has one fingerprint, however it is spelled (F16.2)', async () => {
+  const keys = publisher();
+  const fingerprint = await trustPublisher({
+    publicKeyPem: keys.publicKey,
+    label: 'canonical',
+    ownerApproved: true,
+  });
+
+  assert.equal(keyFingerprint(`${keys.publicKey}\n\n`), fingerprint);
+  assert.equal(keyFingerprint(keys.publicKey.trim()), fingerprint);
+  assert.equal(await isTrustedPublisher(`${keys.publicKey}\n`), true);
+
+  // Unreadable is not trusted, and is not an exception either.
+  assert.equal(keyFingerprint('-----BEGIN PUBLIC KEY-----\nnonsense\n'), null);
+  assert.equal(await isTrustedPublisher('not a key at all'), false);
+  assert.equal(await isTrustedPublisher(null), false);
+});
+
+/** Revoking stops the next install without rewriting what is already there. */
+test('revoking a publisher quarantines the next install (F16.2)', async () => {
+  const fixture = await createCompany('bundle-revoked');
+  await registerStandardCatalogue();
+
+  const vendor = publisher();
+  const fingerprint = await trustPublisher({
+    publicKeyPem: vendor.publicKey,
+    label: 'a vendor',
+    ownerApproved: true,
+  });
+  await publishBundle(signBundle(QA_REVIEW, vendor));
+
+  const trusted = await installBundle({
+    companyId: fixture.companyId,
+    slug: 'qa-review',
+    version: '1.0.0',
+  });
+  assert.equal(trusted.quarantined, false);
+
+  await revokePublisher(fingerprint);
+
+  const other = await createCompany('bundle-after-revoke');
+  const afterRevoke = await installBundle({
+    companyId: other.companyId,
+    slug: 'qa-review',
+    version: '1.0.0',
+  });
+  assert.equal(afterRevoke.quarantined, true);
+
+  // The earlier install is left alone: rewriting it would hide the window in
+  // which the key was live, which is the first thing anybody investigating a
+  // compromise would want to see.
+  const untouched = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ quarantined: boolean }>(
+      "SELECT quarantined FROM bundle_installs WHERE slug = 'qa-review'",
+    );
+    return rows[0]!.quarantined;
+  });
+  assert.equal(untouched, false);
 });

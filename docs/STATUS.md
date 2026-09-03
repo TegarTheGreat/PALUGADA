@@ -71,11 +71,14 @@ F14 and F17 sits on top of it. Nothing new should be built on the handler model
 until this is resolved, because each addition makes the eventual move more
 expensive.
 
-**Section 14.1 is open again, and it gates the rest.** v2 reopens the
-fork-versus-build decision with an explicit one-week spike and pass criteria.
-The answer changes what "implement F5.11" means: a fork inherits Paperclip's
-checkout, a rebuild writes one. Building the v2 engine before that decision
-risks writing the half that gets thrown away.
+**Section 14.1 is decided: build.** The spike ran against the pass criteria
+the PRD set in advance and scored zero of three — row-level security, the
+capability broker and mandatory verification all fail to go in as a Paperclip
+plugin, and the criterion asked for two. See
+[`decisions/0001-fork-versus-build.md`](decisions/0001-fork-versus-build.md)
+for the evidence and for the deployment checks to run if the owner wants them
+before committing. The second half of the PRD's fallback binds: the adapter
+protocol must stay Paperclip-compatible (F13.1–F13.3).
 
 **The state machine gains a status.** v2 section 8.5 adds
 `pending → checked_out → running`, which the current implementation does not

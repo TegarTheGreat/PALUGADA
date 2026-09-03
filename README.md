@@ -42,9 +42,11 @@ and for the three decisions that gate the rest — the largest being that v2's
 NG6 forbids the platform from calling an LLM itself, which the current engine
 does.
 
-Nine questions in [PRD section 14](docs/PRD.md#14-pertanyaan-terbuka) remain
-open. Three of them (fork versus build, the monthly cost ceiling, and which
-durable engine to adopt) set defaults across the whole system.
+Section 14.1 is decided — **build, and stay adapter-compatible** — on the pass
+criteria the PRD set in advance; see
+[`docs/decisions/0001-fork-versus-build.md`](docs/decisions/0001-fork-versus-build.md).
+Eight questions in [PRD section 14](docs/PRD.md#14-pertanyaan-terbuka) remain
+open.
 
 ## Quick start
 

@@ -20,7 +20,7 @@ import { createRootTask, getTask } from '../../src/engine/tasks.ts';
 import { killCapability } from '../../src/engine/control.ts';
 import { isPalugadaError } from '../../src/errors.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
-import { createCompany, grantCapability, type Fixture } from '../helpers/fixtures.ts';
+import { createCompany, grantCapability, type Fixture, planTask } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
 before(ensureSchema);
@@ -225,6 +225,8 @@ test('a tier 3 action stops for owner approval instead of executing', async () =
   await grantCapability(fixture, 'dns.update', { tierOverride: 3 });
 
   const task = await newTask(fixture);
+  // The override makes this tier 3, so F8.11 wants a plan before the action.
+  await planTask(fixture.companyId, task.id, [{ capability: 'dns.update' }]);
   const engine = engineFor(registry, async (ctx) => {
     await ctx.callCapability('dns.update', { record: 'www', value: '9.9.9.9' });
     return {};

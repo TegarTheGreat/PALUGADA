@@ -21,7 +21,7 @@ import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';
 import { createRootTask, getTask } from '../../src/engine/tasks.ts';
 import { countCommittedSteps } from '../../src/engine/journal.ts';
-import { createCompany, grantCapability, type Fixture } from '../helpers/fixtures.ts';
+import { createCompany, grantCapability, type Fixture, planTask } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
 before(ensureSchema);
@@ -93,7 +93,7 @@ function buildEngine(handler: TaskHandler, sideEffects: string[]) {
 }
 
 async function newTask(fixture: Fixture, key: string) {
-  return createRootTask({
+  const task = await createRootTask({
     companyId: fixture.companyId,
     projectId: fixture.projectId,
     divisionId: fixture.divisionId,
@@ -103,6 +103,11 @@ async function newTask(fixture: Fixture, key: string) {
     createdBy: 'owner',
     reserveTokens: 200_000,
   });
+  // F8.11: a tier 2 action needs a plan on the record first. Written here so
+  // every task this file creates has one, since the gate is not what these
+  // tests are about.
+  await planTask(fixture.companyId, task.id, [{ capability: 'email.send' }]);
+  return task;
 }
 
 test('a task survives a kill at every step boundary', async () => {
@@ -245,6 +250,7 @@ test('repeated handler failures converge, and do consume attempts', async () => 
     reserveTokens: 200_000,
     attemptMax: 10,
   });
+  await planTask(fixture.companyId, task.id, [{ capability: 'email.send' }]);
   let totalLlmCalls = 0;
 
   for (const killAt of [2, 4, 6]) {

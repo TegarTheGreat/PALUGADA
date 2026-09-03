@@ -24,7 +24,7 @@ import {
 } from '../../src/review/review.ts';
 import { recall } from '../../src/memory/store.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
-import { createCompany, addRole, grantCapability, type Fixture } from '../helpers/fixtures.ts';
+import { createCompany, addRole, grantCapability, type Fixture, planTask } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
 before(ensureSchema);
@@ -98,7 +98,7 @@ function engineFor(registry: CapabilityRegistry, handlers: Record<string, TaskHa
 }
 
 async function proposerTask(fixture: Fixture) {
-  return createRootTask({
+  const task = await createRootTask({
     companyId: fixture.companyId,
     projectId: fixture.projectId,
     divisionId: fixture.divisionId,
@@ -108,6 +108,11 @@ async function proposerTask(fixture: Fixture) {
     createdBy: 'owner',
     reserveTokens: 50_000,
   });
+  // F8.11: a tier 2 action needs a plan on the record first. Written here so
+  // every task this file creates has one, since the gate is not what these
+  // tests are about.
+  await planTask(fixture.companyId, task.id, [{ capability: 'email.send' }]);
+  return task;
 }
 
 const PROPOSAL = { to: 'client@example.test', body: 'Hello' };

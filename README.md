@@ -22,7 +22,7 @@ v2 requirement as built, partial or not built.
 ## Status
 
 **Everything the v1 specification asked for is implemented and tested**, with
-194 acceptance tests running against a real PostgreSQL 16 with pgvector:
+204 acceptance tests running against a real PostgreSQL 16 with pgvector:
 tenant isolation and the durable engine, the charter and policy engine, scoped
 memory with distillation, typed contracts and handoff, adversarial review,
 the capability broker with tier calibration and cost control, durable
@@ -182,6 +182,8 @@ the template is organised by function rather than by industry.
 | F3.7 denials counted per role, the role frozen past the limit | `src/governance/role-freeze.ts` | `role-freeze.test.ts` |
 | F4.7 the run is told when it is leaning on an unverified fact | `src/context/builder.ts` | `charter-context.test.ts` |
 | F9.5 non-urgent, read-only work waits for cheap hours | `src/scheduler/windows.ts`, `src/engine/engine.ts` | `scheduling-windows.test.ts` |
+| v2 F8.11 a tier 2 action needs a recorded plan first | `src/engine/plan.ts` | `plan-and-batch.test.ts` |
+| v2 F8.13 batch guard: the call is held to the plan's count | `src/engine/plan.ts`, `src/broker/broker.ts` | `plan-and-batch.test.ts` |
 
 ## Decisions worth knowing
 
@@ -341,6 +343,24 @@ caller still gets the denial it asked about, with the code the engine branches
 on. The counter's failure is recorded rather than swallowed, because a control
 that has quietly stopped working is worse than one that was never there.
 
+**A plan is a number, not a paragraph.** v2 records an outreach agent that
+contacted 23 leads when it should have contacted 3; nothing in the system knew
+what "3" was, so nothing could notice. A plan step names the capability, what
+it expects to be true afterwards, and — where the call is a batch — how many
+items it covers. Free text would be readable and uncheckable, which is the
+state that produced the 23.
+
+**A plan cannot be rewritten.** Recording one twice is refused. A plan that can
+be edited mid-task is a description rather than a commitment, and the failure
+it exists to prevent is precisely an agent finding itself with 23 recipients
+and deciding that was the plan all along. Changing course is a new task or an
+escalation, not an edit.
+
+**The batch size comes from the capability, not from the arguments.** The
+broker never guesses which parameter is the list. A guess breaks silently the
+day a field is renamed, and a guard that has quietly stopped guarding is worse
+than none.
+
 **Deferral is opt-in, and eligibility is not taken on trust.** F9.5's batching
 runs non-urgent work in cheap hours. A task waits only if it was marked
 non-urgent — defaulting to "wait until tonight" would make a forgotten flag the
@@ -388,8 +408,8 @@ by requirement; the short version is that the runtime adapter protocol (F13),
 lifecycle hooks (F14), the skill loop (F15), bundles (F16) and trajectory
 evaluation (F17) do not exist, and neither do heartbeats and the wake queue
 (F9.7–F9.10), atomic checkout, leases, lanes and orphan recovery
-(F5.11–F5.14), plan steps, preflight and batch guards (F8.11–F8.13), the
-spending circuit breaker (F1.7–F1.9), or goal ancestry (F2.7).
+(F5.11–F5.14), preflight (F8.12), the spending circuit breaker (F1.7–F1.9), or
+goal ancestry (F2.7).
 
 There is also no owner UI, which several v2 requirements assume (F10.9–F10.10,
 F11.2, F12.5).

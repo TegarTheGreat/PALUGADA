@@ -23,7 +23,7 @@ import { RecordingLlmClient } from '../../src/llm/client.ts';
 import { createCompanyFromTemplate } from '../../src/templates/company.ts';
 import { STANDARD_TEMPLATE_SLUG, installStandardTemplate } from '../../src/templates/standard.ts';
 import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
-import { createCompany, grantCapability, type Fixture } from '../helpers/fixtures.ts';
+import { createCompany, grantCapability, type Fixture, planTask } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
 before(ensureSchema);
@@ -95,6 +95,9 @@ async function invoke(
     createdBy: 'owner',
     reserveTokens: 10_000,
   });
+  // F8.11: email.send is tier 2, so the plan comes first. The batch size is
+  // declared to match, since this file is about cost rather than the guard.
+  await planTask(fixture.companyId, task.id, [{ capability: capability.name }]);
 
   const broker = new CapabilityBroker(registry);
   return broker.invoke<SendInput, { sent: boolean }>(

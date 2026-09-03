@@ -27,7 +27,7 @@ import { claimReadyWindowTasks, createRootTask, getTask } from '../../src/engine
 import * as inbox from '../../src/inbox/inbox.ts';
 import { freezeCompany } from '../../src/engine/control.ts';
 import { isPalugadaError } from '../../src/errors.ts';
-import { createCompany, grantCapability, type Fixture } from '../helpers/fixtures.ts';
+import { createCompany, grantCapability, type Fixture, planTask } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
 before(ensureSchema);
@@ -134,6 +134,7 @@ test('an action outside its window waits instead of failing (F9.2)', async () =>
     createdBy: 'owner',
     reserveTokens: 10_000,
   });
+  await planTask(fixture.companyId, task.id, [{ capability: 'email.send' }]);
 
   const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
 

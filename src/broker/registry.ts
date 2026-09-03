@@ -46,6 +46,15 @@ export interface Capability<I = unknown, O = unknown> {
     moneyCents?: number;
     recipientDomain?: string | null;
     urlHost?: string | null;
+    /**
+     * How many items this call covers, when it is a batch (F8.13).
+     *
+     * Reported by the capability rather than guessed from the input, for the
+     * same reason as the fields above: a guess breaks silently the day an
+     * argument is renamed, and a batch guard that has quietly stopped guarding
+     * is worse than none.
+     */
+    batchSize?: number;
   };
   /**
    * Reports what the call actually cost, once it has happened (F8.5).

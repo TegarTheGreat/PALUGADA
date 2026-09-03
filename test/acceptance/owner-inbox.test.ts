@@ -17,7 +17,7 @@ import { Engine } from '../../src/engine/engine.ts';
 import { CapabilityRegistry, type Capability } from '../../src/broker/registry.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';
-import { createCompany, grantCapability, type Fixture } from '../helpers/fixtures.ts';
+import { createCompany, grantCapability, type Fixture, planTask } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
 before(ensureSchema);
@@ -28,7 +28,7 @@ after(async () => {
 });
 
 async function newTask(fixture: Fixture, goal = 'work') {
-  return createRootTask({
+  const task = await createRootTask({
     companyId: fixture.companyId,
     projectId: fixture.projectId,
     divisionId: fixture.divisionId,
@@ -38,6 +38,11 @@ async function newTask(fixture: Fixture, goal = 'work') {
     createdBy: 'owner',
     reserveTokens: 10_000,
   });
+  // F8.11: a tier 2 action needs a plan on the record first. Written here so
+  // every task this file creates has one, since the gate is not what these
+  // tests are about.
+  await planTask(fixture.companyId, task.id, [{ capability: 'dns.nameservers' }]);
+  return task;
 }
 
 function tier3Capability() {

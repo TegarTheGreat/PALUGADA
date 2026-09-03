@@ -16,7 +16,7 @@ import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';
 import { createRootTask } from '../../src/engine/tasks.ts';
 import { describeReplay, replayTask, type ReplayHandler } from '../../src/engine/replay.ts';
-import { createCompany, grantCapability, type Fixture } from '../helpers/fixtures.ts';
+import { createCompany, grantCapability, type Fixture, planTask } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
 before(ensureSchema);
@@ -77,6 +77,10 @@ async function liveRun(fixture: Fixture, sideEffects: string[]) {
     createdBy: 'owner',
     reserveTokens: 50_000,
   });
+  // F8.11: a tier 2 action needs a plan on the record first. Written here so
+  // every task this file creates has one, since the gate is not what these
+  // tests are about.
+  await planTask(fixture.companyId, task.id, [{ capability: 'deploy.production' }]);
 
   const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
   return { task, outcome };

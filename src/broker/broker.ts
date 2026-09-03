@@ -41,6 +41,7 @@ import { redactor } from '../secrets/manager.ts';
 import { fingerprintAction, isApproved, openReview } from '../review/review.ts';
 import { chargeEstimate, estimateFor, refundEstimate, settleActual } from './cost.ts';
 import { evaluateRoleFreeze, isRoleFrozen } from '../governance/role-freeze.ts';
+import { checkAgainstPlan, readPlan, type TaskPlan } from '../engine/plan.ts';
 import type { CapabilityRegistry } from './registry.ts';
 
 export interface InvokeContext {
@@ -70,6 +71,8 @@ type DenialCode = Extract<
   | 'capability.rate_limited'
   | 'policy.denied'
   | 'role.frozen'
+  | 'plan.required'
+  | 'plan.batch_mismatch'
 >;
 
 type Verdict =
@@ -78,6 +81,7 @@ type Verdict =
       tier: Tier;
       policy: PolicyDecision;
       facts: ActionFacts;
+      plan: TaskPlan | null;
       window: { closed: true; reopensAt: Date | null } | { closed: false };
     }
   | { allowed: false; reason: DenialCode; message: string; policy?: PolicyDecision };
@@ -149,7 +153,8 @@ export class CapabilityBroker {
       }
 
       const tier = effectiveTier(capability.defaultTier, grant.tierOverride);
-      const facts = await buildFacts(tx, ctx, name, tier, capability.describe?.(input as never), now);
+      const described = capability.describe?.(input as never);
+      const facts = await buildFacts(tx, ctx, name, tier, described, now);
       const policy = await evaluate(tx, ctx.companyId, ctx.divisionId, facts);
 
       if (policy.effect === 'deny') {
@@ -161,19 +166,41 @@ export class CapabilityBroker {
         };
       }
 
+      // F8.11, F8.13. After policy, because a call policy already denies needs
+      // no plan; before the window and the approval, because an approval item
+      // has to be able to show the plan the owner is being asked to endorse.
+      const plan = await readPlan(tx, ctx.taskId);
+      if (tier >= 2) {
+        const verdict = checkAgainstPlan(plan, name, described?.batchSize);
+        if (!verdict.ok) {
+          return { allowed: false, reason: verdict.code, message: verdict.message, policy };
+        }
+      }
+
       const window = await capabilityWindow(tx, ctx.divisionId, name);
       const windowState =
         window && !isWithin(window, now)
           ? ({ closed: true, reopensAt: nextOpening(window, now) } as const)
           : ({ closed: false } as const);
 
-      return { allowed: true, tier, policy, facts, window: windowState };
+      return { allowed: true, tier, policy, facts, plan, window: windowState };
     });
 
     if (!verdict.allowed) {
       await withTenant(ctx.companyId, (tx) =>
         recordDenial(tx, ctx, name, verdict.reason, verdict.policy),
       );
+      // F8.13's acceptance criterion: a batch that does not match the plan is
+      // an incident, not a statistic. It is the case the guard exists for, and
+      // one the owner should see even though the action never happened.
+      if (verdict.reason === 'plan.batch_mismatch') {
+        await inbox.raiseIncident({
+          companyId: ctx.companyId,
+          taskId: ctx.taskId,
+          title: `Batch guard stopped ${name}`,
+          detail: `${verdict.message} Nothing was sent, and no adapter was called.`,
+        });
+      }
       // After the record, so the count includes this denial: a threshold of
       // ten freezes on the tenth attempt rather than the eleventh.
       await countTowardsRoleFreeze(ctx);
@@ -184,7 +211,7 @@ export class CapabilityBroker {
       });
     }
 
-    const { tier, policy } = verdict;
+    const { tier, policy, plan } = verdict;
 
     // F9.2: outside its window the action is deferred, not refused. The engine
     // turns this into `waiting_window` with a wake-up time.
@@ -231,7 +258,14 @@ export class CapabilityBroker {
           reviewerRoleSlug,
           capabilityName: name,
           actionFingerprint: fingerprint,
-          proposal: { capability: name, tier, input: redactor.redactDeep(input) as unknown },
+          proposal: {
+            capability: name,
+            tier,
+            input: redactor.redactDeep(input) as unknown,
+            // F8.11: the reviewer judges the action against what the task said
+            // it would do, not only against the arguments in front of them.
+            plan,
+          },
           criteria,
         });
 
@@ -274,7 +308,9 @@ export class CapabilityBroker {
             : ', which cannot be reversed.'),
         consequenceIfDenied: 'The task halts and no external change is made.',
         estimatedCostCents: capability.estimatedCostCents ?? 0,
-        payload: { input: redactor.redactDeep(input) as unknown },
+        // F10.2 asks an approval item to say why. The plan is most of the
+        // answer, so it travels with the item rather than being a click away.
+        payload: { input: redactor.redactDeep(input) as unknown, plan },
       });
       throw new PalugadaError(
         'approval.required',

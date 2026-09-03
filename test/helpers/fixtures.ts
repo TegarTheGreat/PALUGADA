@@ -9,6 +9,7 @@
 import { randomUUID } from 'node:crypto';
 import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import * as budgetModule from '../../src/engine/budget.ts';
+import { recordPlan } from '../../src/engine/plan.ts';
 
 export interface Fixture {
   companyId: string;
@@ -122,4 +123,28 @@ export async function grantCapability(
       ],
     );
   });
+}
+
+/**
+ * Records the plan F8.11 requires before a task may take a tier 2 action.
+ *
+ * The intent and expected effect are filled in generically here because these
+ * tests are about the gate rather than about plan authorship; a test that
+ * cares what the plan says writes its own.
+ */
+export async function planTask(
+  companyId: string,
+  taskId: string,
+  steps: Array<{ capability: string; batchSize?: number }>,
+): Promise<void> {
+  await recordPlan(
+    companyId,
+    taskId,
+    steps.map((step) => ({
+      capability: step.capability,
+      intent: `use ${step.capability}`,
+      expectedEffect: `${step.capability} has run`,
+      ...(step.batchSize === undefined ? {} : { batchSize: step.batchSize }),
+    })),
+  );
 }

@@ -41,13 +41,15 @@ export interface TaskRow {
   attemptMax: number;
   tokensReserved: number;
   haltReason: string | null;
+  /** F9.5: this task may wait for the company's cheap hours. */
+  batchable: boolean;
 }
 
 const SELECT_TASK = `
   SELECT id, company_id, project_id, division_id, role_id, parent_task_id,
          budget_account_id, status, input, output, hop_depth, hop_max,
          deadline_at, idempotency_key, attempt, attempt_max, tokens_reserved,
-         halt_reason
+         halt_reason, batchable
     FROM tasks`;
 
 interface RawTask {
@@ -56,6 +58,7 @@ interface RawTask {
   status: TaskStatus; input: Record<string, unknown>; output: Record<string, unknown> | null;
   hop_depth: number; hop_max: number; deadline_at: Date | null; idempotency_key: string;
   attempt: number; attempt_max: number; tokens_reserved: string; halt_reason: string | null;
+  batchable: boolean;
 }
 
 function toTask(row: RawTask): TaskRow {
@@ -67,6 +70,7 @@ function toTask(row: RawTask): TaskRow {
     deadlineAt: row.deadline_at, idempotencyKey: row.idempotency_key,
     attempt: row.attempt, attemptMax: row.attempt_max,
     tokensReserved: Number(row.tokens_reserved), haltReason: row.halt_reason,
+    batchable: row.batchable,
   };
 }
 
@@ -94,6 +98,13 @@ export interface CreateTaskInput {
    * rather than a second one.
    */
   idempotencyKey?: string | undefined;
+  /**
+   * F9.5: mark this task as non-urgent, so it waits for cheap hours.
+   *
+   * Opt-in. Defaulting work to "wait until tonight" would make a forgotten
+   * flag the difference between a company that answers and one that does not.
+   */
+  batchable?: boolean | undefined;
 }
 
 /**
@@ -116,6 +127,7 @@ export async function createRootTask(input: CreateTaskInput): Promise<TaskRow> {
     // F3.7: a frozen role admits no work. Checked before the reservation, so
     // a refused task does not tie up an allowance on the way out.
     await assertRoleIsNotFrozen(tx, input.roleId);
+    if (input.batchable) await assertRoleIsReadOnly(tx, input.roleId);
 
     const reserveTokens = input.reserveTokens ?? DEFAULT_TASK_RESERVE_TOKENS;
     const granted = await budget.reserve(tx, input.budgetAccountId, reserveTokens);
@@ -159,6 +171,37 @@ async function assertRoleIsNotFrozen(tx: TenantClient, roleId: string): Promise<
   }
 }
 
+/**
+ * Refuses to defer work that can change something (F9.5).
+ *
+ * F9.5 restricts batching to tier 0, and the tier is read from the registry
+ * rather than taken from the request: a caller that could declare its own work
+ * read-only could park a production deploy until 02:00, by which time the
+ * world it was going to write to has moved.
+ *
+ * The role's declared tools are the right thing to check rather than its
+ * division's grants. A role may only use its own tools (F2.3), so a role whose
+ * twelve tools are all reads cannot write even if its division could.
+ */
+async function assertRoleIsReadOnly(tx: TenantClient, roleId: string): Promise<void> {
+  const { rows } = await tx.query<{ writes: string[] }>(
+    `SELECT coalesce(array_agg(c.name), '{}') AS writes
+       FROM roles r
+       JOIN capabilities c ON c.name = ANY(r.tools)
+      WHERE r.id = $1 AND c.default_tier > 0`,
+    [roleId],
+  );
+  const writes = rows[0]?.writes ?? [];
+  if (writes.length > 0) {
+    throw new PalugadaError(
+      'batch.not_eligible',
+      `role ${roleId} holds write capabilities (${writes.join(', ')}), so its work cannot ` +
+        'wait for cheap hours (PRD F9.5 restricts batching to tier 0)',
+      { roleId, writes },
+    );
+  }
+}
+
 async function findByIdempotencyKey(
   tx: TenantClient,
   idempotencyKey: string,
@@ -191,6 +234,7 @@ export async function createSubTask(
     // A frozen role takes no delegated work either, or a parent could route
     // around the freeze simply by handing the task down.
     await assertRoleIsNotFrozen(tx, input.roleId);
+    if (input.batchable) await assertRoleIsReadOnly(tx, input.roleId);
 
     const hopDepth = parent.hopDepth + 1;
     const hopMax = input.hopMax ?? parent.hopMax;
@@ -279,17 +323,19 @@ async function insertTask(
     `INSERT INTO tasks (
        company_id, project_id, division_id, role_id, parent_task_id,
        budget_account_id, input, hop_depth, hop_max, deadline_at,
-       idempotency_key, input_hash, created_by, attempt_max, tokens_reserved)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+       idempotency_key, input_hash, created_by, attempt_max, tokens_reserved,
+       batchable)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
      RETURNING id, company_id, project_id, division_id, role_id, parent_task_id,
                budget_account_id, status, input, output, hop_depth, hop_max,
                deadline_at, idempotency_key, attempt, attempt_max,
-               tokens_reserved, halt_reason`,
+               tokens_reserved, halt_reason, batchable`,
     [
       input.companyId, input.projectId, input.divisionId, input.roleId,
       meta.parentTaskId, input.budgetAccountId, JSON.stringify(input.input),
       meta.hopDepth, input.hopMax ?? 3, input.deadlineAt ?? null, key, inputHash,
       input.createdBy, input.attemptMax ?? 3, meta.reserveTokens,
+      input.batchable ?? false,
     ],
   );
   const task = toTask(rows[0]!);

@@ -133,6 +133,66 @@ export async function capabilityWindow(
   };
 }
 
+/**
+ * The company's cheap hours, if it has declared any (F9.5).
+ *
+ * Absent is the normal state and means "there are no cheap hours here", not
+ * "any hour will do": a company with no window runs its batchable work
+ * immediately, because deferring it would be waiting for a discount that does
+ * not exist.
+ */
+export async function batchWindow(
+  tx: TenantClient,
+  companyId: string,
+): Promise<Window | null> {
+  const { rows } = await tx.query<{
+    timezone: string;
+    start_hour: number;
+    end_hour: number;
+    days_of_week: number[];
+  }>(
+    `SELECT timezone, start_hour, end_hour, days_of_week
+       FROM batch_windows WHERE company_id = $1`,
+    [companyId],
+  );
+
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    timezone: row.timezone,
+    startHour: row.start_hour,
+    endHour: row.end_hour,
+    daysOfWeek: row.days_of_week,
+  };
+}
+
+export async function setBatchWindow(input: {
+  companyId: string;
+  timezone: string;
+  startHour: number;
+  endHour: number;
+  daysOfWeek?: number[];
+}): Promise<void> {
+  await withControlPlane(async (tx) => {
+    await tx.query(
+      `INSERT INTO batch_windows (company_id, timezone, start_hour, end_hour, days_of_week)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (company_id) DO UPDATE
+         SET timezone = EXCLUDED.timezone,
+             start_hour = EXCLUDED.start_hour,
+             end_hour = EXCLUDED.end_hour,
+             days_of_week = EXCLUDED.days_of_week`,
+      [
+        input.companyId,
+        input.timezone,
+        input.startHour,
+        input.endHour,
+        input.daysOfWeek ?? [0, 1, 2, 3, 4, 5, 6],
+      ],
+    );
+  });
+}
+
 export interface OwnerWindow extends Window {}
 
 export async function ownerWindow(): Promise<OwnerWindow> {

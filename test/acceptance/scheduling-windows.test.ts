@@ -16,6 +16,7 @@ import {
   nextOpening,
   notifyAfterFor,
   pendingNotifications,
+  setBatchWindow,
   setOwnerWindow,
 } from '../../src/scheduler/windows.ts';
 import { Engine } from '../../src/engine/engine.ts';
@@ -25,6 +26,7 @@ import { RecordingLlmClient } from '../../src/llm/client.ts';
 import { claimReadyWindowTasks, createRootTask, getTask } from '../../src/engine/tasks.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { freezeCompany } from '../../src/engine/control.ts';
+import { isPalugadaError } from '../../src/errors.ts';
 import { createCompany, grantCapability, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
@@ -275,4 +277,199 @@ test('cron expressions are evaluated in the schedule zone', () => {
   const next = nextOccurrence('0 8 * * 1-5', JAKARTA, saturdayNoonUtc);
   assert.equal(next.toISOString(), '2026-09-07T01:00:00.000Z');
   assert.equal(localTimeIn(JAKARTA, next).hour, 8);
+});
+
+// ---------------------------------------------------------------------------
+// F9.5 -- non-urgent read-only work waits for cheap hours
+// ---------------------------------------------------------------------------
+
+/**
+ * A window relative to the hour it is now, in UTC.
+ *
+ * Offset 0 produces a window that is open at this moment; any other offset
+ * produces one that is shut. Built from the current hour rather than fixed
+ * hours so the tests do not pass or fail depending on what time the suite runs.
+ */
+function windowAround(offsetHours: number): {
+  timezone: string;
+  startHour: number;
+  endHour: number;
+} {
+  const startHour = (new Date().getUTCHours() + offsetHours + 24) % 24;
+  return { timezone: 'UTC', startHour, endHour: (startHour + 1) % 24 };
+}
+
+function batchEngine(ran: string[]) {
+  return new Engine({
+    broker: new CapabilityBroker(new CapabilityRegistry()),
+    llm: new RecordingLlmClient(),
+    handlers: new Map([
+      ['worker', async (ctx) => {
+        ran.push(ctx.task.id);
+        return { done: true };
+      }],
+    ]),
+  });
+}
+
+async function batchableTask(fixture: Fixture, goal: string) {
+  return createRootTask({
+    companyId: fixture.companyId,
+    projectId: fixture.projectId,
+    divisionId: fixture.divisionId,
+    roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId,
+    input: { goal },
+    createdBy: 'owner',
+    reserveTokens: 5_000,
+    batchable: true,
+  });
+}
+
+test('non-urgent work waits for cheap hours instead of running now (F9.5)', async () => {
+  const fixture = await createCompany('batch-defer');
+  await setBatchWindow({ companyId: fixture.companyId, ...windowAround(3) });
+
+  const ran: string[] = [];
+  const task = await batchableTask(fixture, 'nightly summary');
+  const outcome = await batchEngine(ran).runTask(fixture.companyId, task.id, 'worker');
+
+  assert.equal(outcome.status, 'waiting_window');
+  assert.ok(outcome.waitUntil instanceof Date, 'the task knows when to come back');
+  assert.ok(outcome.waitUntil.getTime() > Date.now());
+  assert.deepEqual(ran, [], 'the handler is not run');
+
+  const parked = await withTenant(fixture.companyId, (tx) => getTask(tx, task.id));
+  assert.equal(parked!.status, 'waiting_window');
+});
+
+test('cheap hours run the work immediately', async () => {
+  const fixture = await createCompany('batch-open');
+  await setBatchWindow({ companyId: fixture.companyId, ...windowAround(0) });
+
+  const ran: string[] = [];
+  const task = await batchableTask(fixture, 'nightly summary');
+  const outcome = await batchEngine(ran).runTask(fixture.companyId, task.id, 'worker');
+
+  assert.equal(outcome.status, 'completed');
+  assert.deepEqual(ran, [task.id]);
+});
+
+test('a company with no cheap hours does not wait for a discount that does not exist', async () => {
+  // The absence of a window means "there are no cheap hours here", not "any
+  // hour will do". Reading it the other way would park every batchable task
+  // for ever in the ordinary case of a company that never configured one.
+  const fixture = await createCompany('batch-no-window');
+
+  const ran: string[] = [];
+  const task = await batchableTask(fixture, 'nightly summary');
+  const outcome = await batchEngine(ran).runTask(fixture.companyId, task.id, 'worker');
+
+  assert.equal(outcome.status, 'completed');
+  assert.deepEqual(ran, [task.id]);
+});
+
+test('urgent work ignores the window entirely', async () => {
+  const fixture = await createCompany('batch-urgent');
+  await setBatchWindow({ companyId: fixture.companyId, ...windowAround(3) });
+
+  const ran: string[] = [];
+  const task = await createRootTask({
+    companyId: fixture.companyId,
+    projectId: fixture.projectId,
+    divisionId: fixture.divisionId,
+    roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId,
+    input: { goal: 'a customer is waiting' },
+    createdBy: 'owner',
+    reserveTokens: 5_000,
+  });
+  const outcome = await batchEngine(ran).runTask(fixture.companyId, task.id, 'worker');
+
+  assert.equal(outcome.status, 'completed', 'deferral is opt-in, not the default');
+  assert.deepEqual(ran, [task.id]);
+});
+
+test('work that can write is never deferred (F9.5 restricts batching to tier 0)', async () => {
+  // The tier is read from the registry rather than taken from the request. A
+  // caller that could declare its own work read-only could park a production
+  // deploy until 02:00, by which time the world it was going to write to has
+  // moved.
+  const fixture = await createCompany('batch-tier');
+  const registry = new CapabilityRegistry();
+  const capability: Capability<{ record: string }, { ok: boolean }> = {
+    name: 'dns.update',
+    adapter: 'test:dns',
+    defaultTier: 1,
+    execute: async () => ({ ok: true }),
+    verify: async () => true,
+  };
+  registry.register(capability);
+  await registry.sync();
+
+  await withTenant(fixture.companyId, async (tx) => {
+    await tx.query('UPDATE roles SET tools = $2 WHERE id = $1', [
+      fixture.roleId,
+      ['dns.update'],
+    ]);
+  });
+
+  await assert.rejects(
+    () => batchableTask(fixture, 'nightly deploy'),
+    (error: unknown) => {
+      assert.ok(isPalugadaError(error, 'batch.not_eligible'));
+      assert.match(error.message, /dns\.update/, 'the message names what disqualified it');
+      return true;
+    },
+  );
+});
+
+test('a parked task is picked up once the window opens, and finishes', async () => {
+  // Parking is only useful if something wakes it. F9.2 already has the sweep;
+  // this checks that batched work joins the same queue rather than needing a
+  // second mechanism nobody runs.
+  const fixture = await createCompany('batch-wake');
+  await setBatchWindow({ companyId: fixture.companyId, ...windowAround(3) });
+
+  const ran: string[] = [];
+  const engine = batchEngine(ran);
+  const task = await batchableTask(fixture, 'nightly summary');
+  await engine.runTask(fixture.companyId, task.id, 'worker');
+
+  const notYet = await claimReadyWindowTasks(fixture.companyId, new Date());
+  assert.deepEqual(notYet, [], 'nothing is claimed before the window opens');
+
+  const laterOn = new Date(Date.now() + 4 * 3_600_000);
+  const ready = await claimReadyWindowTasks(fixture.companyId, laterOn);
+  assert.deepEqual(ready.map((row) => row.id), [task.id]);
+
+  // Once the hours are cheap the same task runs to completion.
+  await setBatchWindow({ companyId: fixture.companyId, ...windowAround(0) });
+  const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(outcome.status, 'completed');
+  assert.deepEqual(ran, [task.id]);
+});
+
+test('a schedule can mark the work it creates as non-urgent', async () => {
+  // A recurring job is where most non-urgent work comes from: a nightly digest
+  // has no reason to run at the most expensive minute of the day.
+  const fixture = await createCompany('batch-schedule');
+  await upsertSchedule(
+    {
+      companyId: fixture.companyId,
+      projectId: fixture.projectId,
+      divisionId: fixture.divisionId,
+      roleId: fixture.roleId,
+      budgetAccountId: fixture.budgetAccountId,
+      slug: 'nightly-digest',
+      cronExpression: '0 * * * *',
+      batchable: true,
+    },
+    new Date(Date.now() - 3_600_000),
+  );
+
+  const fired = await runDueSchedules(new Date());
+  assert.equal(fired.length, 1);
+  const created = await withTenant(fixture.companyId, (tx) => getTask(tx, fired[0]!.taskId));
+  assert.equal(created!.batchable, true, 'the flag travels from the schedule to the task');
 });

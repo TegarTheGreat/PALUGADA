@@ -18,6 +18,7 @@ import { validateContract } from './contracts.ts';
 import { isTerminal } from '../domain/task.ts';
 import { runStep, type StepKind } from './journal.ts';
 import { isCompanyFrozen, isStopAllRequested } from './control.ts';
+import { batchWindow, isWithin, nextOpening } from '../scheduler/windows.ts';
 import * as budget from './budget.ts';
 import * as inbox from '../inbox/inbox.ts';
 import type { CapabilityBroker } from '../broker/broker.ts';
@@ -105,6 +106,41 @@ export class Engine {
 
     if (['pending', 'waiting_approval', 'waiting_review', 'waiting_window'].includes(task.status)) {
       await transition(companyId, taskId, 'running');
+    }
+
+    // F9.5: non-urgent, read-only work waits for the company's cheap hours.
+    //
+    // Checked here rather than at admission for the same reason the kill
+    // switch is re-read before every step: the window that was open when the
+    // task was created may have closed by the time a worker picked it up, and
+    // the decision that matters is the one taken at the moment the work would
+    // actually run.
+    if (task.batchable) {
+      const now = new Date();
+      const opensAt = await withTenant(companyId, async (tx) => {
+        const window = await batchWindow(tx, companyId);
+        // No window means this company has no cheap hours, so there is no
+        // discount to wait for and the work runs immediately.
+        if (!window || isWithin(window, now)) return null;
+        return nextOpening(window, now);
+      });
+
+      // A window that never opens is a misconfiguration, and parking work
+      // for ever is a worse answer to it than running the work now.
+      if (opensAt) {
+        await withTenant(companyId, async (tx) => {
+          await appendEvent(tx, {
+            companyId,
+            projectId: task.projectId,
+            taskId,
+            type: 'task.batched',
+            actor: 'engine',
+            payload: { opensAt: opensAt.toISOString() },
+          });
+        });
+        await transition(companyId, taskId, 'waiting_window', { waitUntil: opensAt });
+        return { status: 'waiting_window', reason: 'waiting for cheap hours', waitUntil: opensAt };
+      }
     }
 
     const controller = new AbortController();

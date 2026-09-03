@@ -37,6 +37,13 @@ export interface ScheduleInput {
   input?: Record<string, unknown>;
   reserveTokens?: number;
   enabled?: boolean;
+  /**
+   * F9.5: the tasks this schedule creates may wait for cheap hours.
+   *
+   * A recurring job is where most non-urgent work comes from -- a nightly
+   * digest has no reason to run at the most expensive minute of the day.
+   */
+  batchable?: boolean;
 }
 
 /**
@@ -75,15 +82,17 @@ export async function upsertSchedule(input: ScheduleInput, now = new Date()): Pr
     const { rows } = await tx.query<{ id: string }>(
       `INSERT INTO schedules
          (company_id, project_id, division_id, role_id, budget_account_id, slug,
-          cron_expression, timezone, input, reserve_tokens, enabled, next_run_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+          cron_expression, timezone, input, reserve_tokens, enabled, next_run_at,
+          batchable)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        ON CONFLICT (company_id, slug) DO UPDATE
          SET cron_expression = EXCLUDED.cron_expression,
              timezone        = EXCLUDED.timezone,
              input           = EXCLUDED.input,
              reserve_tokens  = EXCLUDED.reserve_tokens,
              enabled         = EXCLUDED.enabled,
-             next_run_at     = EXCLUDED.next_run_at
+             next_run_at     = EXCLUDED.next_run_at,
+             batchable       = EXCLUDED.batchable
        RETURNING id`,
       [
         input.companyId,
@@ -98,6 +107,7 @@ export async function upsertSchedule(input: ScheduleInput, now = new Date()): Pr
         input.reserveTokens ?? 1000,
         input.enabled ?? true,
         next,
+        input.batchable ?? false,
       ],
     );
     return rows[0]!.id;
@@ -116,6 +126,7 @@ interface DueSchedule {
   timezone: string;
   input: Record<string, unknown>;
   reserve_tokens: string;
+  batchable: boolean;
   next_run_at: Date;
 }
 
@@ -172,7 +183,7 @@ export async function runDueSchedules(now = new Date()): Promise<FiredOccurrence
     const { rows } = await tx.query<DueSchedule>(
       `SELECT s.id, s.company_id, s.project_id, s.division_id, s.role_id,
               s.budget_account_id, s.slug, s.cron_expression, s.timezone,
-              s.input, s.reserve_tokens, s.next_run_at
+              s.input, s.reserve_tokens, s.next_run_at, s.batchable
          FROM schedules s
          JOIN companies c ON c.id = s.company_id
         WHERE s.enabled AND s.next_run_at <= $1 AND c.frozen_at IS NULL
@@ -200,6 +211,7 @@ export async function runDueSchedules(now = new Date()): Promise<FiredOccurrence
         createdBy: 'scheduler',
         reserveTokens: Number(schedule.reserve_tokens),
         idempotencyKey: key,
+        batchable: schedule.batchable,
       });
     } catch (error) {
       // A schedule that cannot be funded must not stall every schedule behind

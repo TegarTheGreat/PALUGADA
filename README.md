@@ -16,7 +16,7 @@ of that document.
 ## Status
 
 All four phases of the roadmap (PRD section 13) are implemented and tested,
-with 187 acceptance tests running against a real PostgreSQL 16 with pgvector.
+with 194 acceptance tests running against a real PostgreSQL 16 with pgvector.
 
 - **Phase 0** — tenant isolation, the durable execution engine, the capability
   broker, the event log, the owner's emergency controls.
@@ -176,6 +176,7 @@ the template is organised by function rather than by industry.
 | F11.3 per-capability cost from measured spend | `src/reporting/cost.ts` | `reporting.test.ts` |
 | F3.7 denials counted per role, the role frozen past the limit | `src/governance/role-freeze.ts` | `role-freeze.test.ts` |
 | F4.7 the run is told when it is leaning on an unverified fact | `src/context/builder.ts` | `charter-context.test.ts` |
+| F9.5 non-urgent, read-only work waits for cheap hours | `src/scheduler/windows.ts`, `src/engine/engine.ts` | `scheduling-windows.test.ts` |
 
 ## Decisions worth knowing
 
@@ -335,6 +336,20 @@ caller still gets the denial it asked about, with the code the engine branches
 on. The counter's failure is recorded rather than swallowed, because a control
 that has quietly stopped working is worse than one that was never there.
 
+**Deferral is opt-in, and eligibility is not taken on trust.** F9.5's batching
+runs non-urgent work in cheap hours. A task waits only if it was marked
+non-urgent — defaulting to "wait until tonight" would make a forgotten flag the
+difference between a company that answers and one that does not — and only if
+its role holds no capability above tier 0, checked against the registry rather
+than against a claim in the request. A caller that could declare its own work
+read-only could park a production deploy until 02:00, by which time the world
+it was going to write to has moved.
+
+**No cheap hours means no waiting.** A company that has declared no batch
+window runs its batchable work immediately. Reading an absent window as "any
+hour will do" would park every such task for ever in the ordinary case of a
+company that never configured one.
+
 **Telling the agent means telling it, in words.** F4.7's confidence used to be
 a decimal in a heading, which is easy to skim and assumes the reader knows
 where the line is. A context carrying an unverified fact now opens with a
@@ -360,8 +375,8 @@ Both are marked in the code and are worth reconciling in the document.
 
 ## Not built yet
 
-The agent runtime and the owner UI. Plus, from the requirement list,
-cheap-hour batching (F9.5).
+The agent runtime and the owner UI. Every numbered requirement in PRD section 8
+is now implemented and tested.
 
 Section 13 also ends with "evaluate migrating the engine or the vector store
 based on real data". That is not something to write ahead of the data: there is

@@ -16,6 +16,7 @@ import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
 import { createSubTask, getTask, transition, type TaskRow } from './tasks.ts';
 import { validateContract } from './contracts.ts';
+import { containChildResult, type ChildResult } from './containment.ts';
 import { isTerminal } from '../domain/task.ts';
 import { runStep, type StepKind } from './journal.ts';
 import { isCompanyFrozen, isStopAllRequested } from './control.ts';
@@ -214,7 +215,7 @@ export class Engine {
   }): Promise<RunRequest> {
     const { companyId, task, runtime } = input;
 
-    return withTenant(companyId, async (tx) => {
+    const request = await withTenant(companyId, async (tx) => {
       const context = await buildContext(tx, {
         companyId,
         divisionId: task.divisionId,
@@ -269,8 +270,28 @@ export class Engine {
             ? Math.max(0, task.deadlineAt.getTime() - Date.now())
             : DEFAULT_LEASE_MS,
         },
+        dropped: context.dropped,
       };
     });
+
+    // F14's `pre_compact`, at the moment F4.8 makes it necessary: the pack did
+    // not fit and something was left out. An observation rather than a gate --
+    // the trimming has happened and a refusal cannot un-happen it -- so this
+    // is the hook's chance to write what mattered somewhere durable before the
+    // run proceeds without it.
+    if (request.dropped > 0) {
+      await this.hooks.run('pre_compact', {
+        companyId,
+        projectId: task.projectId,
+        taskId: task.id,
+        roleId: task.roleId,
+        divisionId: task.divisionId,
+        output: { dropped: request.dropped },
+      });
+    }
+
+    const { dropped: _dropped, ...runRequest } = request;
+    return runRequest;
   }
 
   async runTask(companyId: string, taskId: string, roleSlug: string): Promise<RunOutcome> {
@@ -522,7 +543,7 @@ export class Engine {
       childRoleSlug: string,
       childInput: Record<string, unknown>,
       childOptions: { timeoutMs: number; reserveTokens?: number },
-    ): Promise<Record<string, unknown>> => {
+    ): Promise<ChildResult> => {
         if (!Number.isFinite(childOptions.timeoutMs) || childOptions.timeoutMs <= 0) {
           throw new Error('awaitChild requires a positive timeoutMs (PRD F6.4)');
         }
@@ -580,7 +601,21 @@ export class Engine {
                   { childTaskId: child.id, status: outcome.status, reason: outcome.reason },
                 );
               }
-              return outcome.output ?? {};
+              // F6.7: the parent receives an answer and a summary, and not the
+              // child's transcript. The child's own record is where its
+              // reasoning stays.
+              const steps = await withTenant(companyId, async (tx) => {
+                const { rows } = await tx.query<{ count: string }>(
+                  'SELECT count(*)::text AS count FROM task_steps WHERE task_id = $1',
+                  [child.id],
+                );
+                return Number(rows[0]!.count);
+              });
+              return containChildResult(childRoleSlug, outcome.output ?? {}, {
+                status: outcome.status,
+                steps,
+                costCents: 0,
+              });
             } catch (error) {
               const current = await withTenant(companyId, (tx) => getTask(tx, child.id));
               if (current && !isTerminal(current.status)) {

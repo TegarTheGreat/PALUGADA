@@ -15,6 +15,7 @@ import type { TenantClient } from '../db/tenant.ts';
 import { skillSummariesFor } from '../skills/skills.ts';
 import { recall, type MemoryItem } from '../memory/store.ts';
 import { ancestryForTask, renderAncestry } from '../domain/goals.ts';
+import { openQuestionsFor } from '../inbox/inbox.ts';
 
 export interface ContextSection {
   kind:
@@ -24,6 +25,7 @@ export interface ContextSection {
     | 'confidence_warning'
     | 'semantic_memory'
     | 'goal_ancestry'
+    | 'owner_question'
     | 'working_memory';
   title: string;
   body: string;
@@ -41,6 +43,34 @@ export interface ContextSection {
  */
 export const LOW_CONFIDENCE = 0.6;
 
+/**
+ * F4.8: how much of a run's context the pack may occupy.
+ *
+ * 40k tokens, which is section 9's figure. It is a cap on the *pack* rather
+ * than on the run: what the runtime then says to its model is the runtime's
+ * business, and the platform's job is not to hand it an unbounded document to
+ * start from.
+ */
+export const CONTEXT_PACK_TOKEN_LIMIT = 40_000;
+
+/**
+ * The order in which sections are given up when the pack is too large.
+ *
+ * The charter is never dropped -- F3.2 requires it in every run, and a run that
+ * lost its charter to make room for a fact is a run operating outside its own
+ * rules. Working memory is next-most protected: without it a resumed task
+ * starts again. Semantic memory goes first, because it is the one kind that
+ * can be fetched back on demand through `memory.search`.
+ */
+const DROP_ORDER: ContextSection['kind'][] = [
+  'semantic_memory',
+  'sop',
+  'goal_ancestry',
+  'working_memory',
+];
+// `owner_question` is deliberately absent, like the charters: a run that lost
+// the owner's question to make room for a fact would answer the wrong thing.
+
 export interface BuildContextOptions {
   companyId: string;
   divisionId: string;
@@ -50,6 +80,8 @@ export interface BuildContextOptions {
   embeddingModel?: string | undefined;
   semanticLimit?: number;
   sopLimit?: number;
+  /** F4.8. Overridable so a test can show the cap working without 40k of text. */
+  tokenLimit?: number;
 }
 
 export interface AssembledContext {
@@ -65,6 +97,8 @@ export interface AssembledContext {
    * hoping the model read the warning.
    */
   lowConfidenceMemories: MemoryItem[];
+  /** F4.8: how many sections did not fit. Zero when the pack was under budget. */
+  dropped: number;
 }
 
 /**
@@ -213,6 +247,20 @@ export async function buildContext(
       });
     }
 
+    // F10.3: the owner asked something, and the answer belongs in this task
+    // rather than in a new one. It goes above the working memory because it is
+    // the most recent thing that happened and the thing to deal with first.
+    for (const question of await openQuestionsFor(tx, options.taskId)) {
+      sections.push({
+        kind: 'owner_question',
+        title: 'The owner has asked you a question',
+        body:
+          `${question.question}\n\n` +
+          'Answer it before proposing the action again. Record your answer ' +
+          `against inbox item ${question.inboxItemId}.`,
+      });
+    }
+
     const { rows } = await tx.query<{ name: string; output: unknown }>(
       `SELECT name, output FROM task_steps
         WHERE task_id = $1 AND status = 'committed'
@@ -228,9 +276,73 @@ export async function buildContext(
     }
   }
 
-  const text = sections
+  // F4.8: the pack is bounded. What is dropped is dropped in a fixed order and
+  // the run is *told* -- a context silently missing the fact somebody relied on
+  // is worse than one that says it is incomplete and how to ask for the rest.
+  const trimmed = trimToBudget(sections, options.tokenLimit ?? CONTEXT_PACK_TOKEN_LIMIT);
+
+  const text = trimmed.sections
     .map((section) => `## ${section.title}\n\n${section.body}`)
     .join('\n\n');
 
-  return { sections, text, semanticMemories, lowConfidenceMemories };
+  return {
+    sections: trimmed.sections,
+    text,
+    semanticMemories,
+    lowConfidenceMemories,
+    dropped: trimmed.dropped,
+  };
+}
+
+/** Four characters a token: enough to bound a document, not to bill for one. */
+export function estimateContextTokens(sections: ContextSection[]): number {
+  return Math.ceil(
+    sections.reduce((total, section) => total + section.title.length + section.body.length + 8, 0)
+      / 4,
+  );
+}
+
+/**
+ * Drops sections until the pack fits, least valuable first.
+ *
+ * Within a kind the *last* items go first: `recall` returns its best matches
+ * first, so dropping from the end removes the least relevant rather than the
+ * least recently written.
+ */
+function trimToBudget(
+  sections: ContextSection[],
+  limit: number,
+): { sections: ContextSection[]; dropped: number } {
+  if (estimateContextTokens(sections) <= limit) return { sections, dropped: 0 };
+
+  const kept = [...sections];
+  let dropped = 0;
+
+  for (const kind of DROP_ORDER) {
+    for (let index = kept.length - 1; index >= 0 && estimateContextTokens(kept) > limit; index -= 1) {
+      if (kept[index]!.kind !== kind) continue;
+      kept.splice(index, 1);
+      dropped += 1;
+    }
+    if (estimateContextTokens(kept) <= limit) break;
+  }
+
+  if (dropped > 0) {
+    // Placed after the charter so it is read subject to it, and before
+    // everything it qualifies.
+    const afterCharter = kept.findIndex(
+      (section) => section.kind !== 'platform_charter' && section.kind !== 'company_charter',
+    );
+    kept.splice(afterCharter === -1 ? kept.length : afterCharter, 0, {
+      kind: 'confidence_warning',
+      title: 'This context is incomplete',
+      body:
+        `${dropped} item${dropped === 1 ? '' : 's'} did not fit within the ` +
+        `${limit}-token context pack and ${dropped === 1 ? 'was' : 'were'} left out. ` +
+        'Use memory.search to look for anything you expected to find here and did not. ' +
+        'Do not assume a fact is absent because it is missing from this pack.',
+    });
+  }
+
+  return { sections: kept, dropped };
 }

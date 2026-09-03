@@ -22,7 +22,11 @@ export type AlertKind =
   | 'daily_cost'
   | 'task_failure_rate'
   | 'policy_denials'
-  | 'verification_failures';
+  | 'verification_failures'
+  /** F11.4: a capability the role declares stopped being usable (F8.12). */
+  | 'preflight_failures'
+  /** F11.4: a run whose worker stopped talking and whose lease was reclaimed. */
+  | 'orphaned_runs';
 
 export interface Thresholds {
   dailyCostCents: number;
@@ -154,6 +158,9 @@ interface DayMetrics {
   tasksFailed: number;
   policyDenials: number;
   verificationFailures: number;
+  /** F11.4. */
+  preflightFailures: number;
+  orphanedRuns: number;
 }
 
 export async function metricsForDay(companyId: string, day: Date): Promise<DayMetrics> {
@@ -164,6 +171,8 @@ export async function metricsForDay(companyId: string, day: Date): Promise<DayMe
       tasks_failed: string;
       policy_denials: string;
       verification_failures: string;
+      preflight_failures: string;
+      orphaned_runs: string;
     }>(
       `WITH bounds AS (
          SELECT date_trunc('day', $1::timestamptz) AS from_at,
@@ -184,7 +193,15 @@ export async function metricsForDay(companyId: string, day: Date): Promise<DayMe
          (SELECT count(*)::text FROM events, bounds
            WHERE type = 'tool.verify_failed'
              AND occurred_at >= bounds.from_at AND occurred_at < bounds.to_at)
-           AS verification_failures`,
+           AS verification_failures,
+         (SELECT count(*)::text FROM tasks, bounds
+           WHERE halt_reason = 'capability_unhealthy'
+             AND finished_at >= bounds.from_at AND finished_at < bounds.to_at)
+           AS preflight_failures,
+         (SELECT count(*)::text FROM agent_runs, bounds
+           WHERE status = 'orphaned'
+             AND finished_at >= bounds.from_at AND finished_at < bounds.to_at)
+           AS orphaned_runs`,
       [day],
     );
     const row = rows[0]!;
@@ -194,6 +211,8 @@ export async function metricsForDay(companyId: string, day: Date): Promise<DayMe
       tasksFailed: Number(row.tasks_failed),
       policyDenials: Number(row.policy_denials),
       verificationFailures: Number(row.verification_failures),
+      preflightFailures: Number(row.preflight_failures),
+      orphanedRuns: Number(row.orphaned_runs),
     };
   });
 }
@@ -268,6 +287,36 @@ export async function evaluateAlerts(companyId: string, now = new Date()): Promi
     });
   }
 
+  // F11.4: both of these are "the platform noticed something about itself".
+  // One means a capability the role declares has stopped being usable, so
+  // tasks are halting before they start; the other means a worker stopped
+  // talking mid-run. Either is a single occurrence worth telling the owner
+  // about, so the threshold is one rather than a rate -- a system that only
+  // reports its own failures in bulk is a system that hides the first one.
+  if (metrics.preflightFailures > 0) {
+    breaches.push({
+      kind: 'preflight_failures',
+      summary:
+        `${metrics.preflightFailures} task${metrics.preflightFailures === 1 ? '' : 's'} could ` +
+        'not start today because a capability the role declares failed its readiness check. ' +
+        'A credential has probably expired or a quota is exhausted.',
+      observed: metrics.preflightFailures,
+      threshold: 0,
+    });
+  }
+
+  if (metrics.orphanedRuns > 0) {
+    breaches.push({
+      kind: 'orphaned_runs',
+      summary:
+        `${metrics.orphanedRuns} run${metrics.orphanedRuns === 1 ? '' : 's'} stopped reporting ` +
+        'and had their leases reclaimed today. The work was picked up again; the tokens they ' +
+        'had already spent were not recovered.',
+      observed: metrics.orphanedRuns,
+      threshold: 0,
+    });
+  }
+
   const raised: RaisedAlert[] = [];
 
   for (const breach of breaches) {
@@ -277,10 +326,15 @@ export async function evaluateAlerts(companyId: string, now = new Date()): Promi
     // what the system believes. Everything else is a budget-shaped alert that
     // can wait for the owner's window.
     const inboxItemId =
+      // F8.12 calls a preflight failure an incident, and an orphaned run means
+      // a worker died mid-task -- neither keeps until the owner's window the way
+      // a spending figure does.
       breach.kind === 'verification_failures'
+      || breach.kind === 'preflight_failures'
+      || breach.kind === 'orphaned_runs'
         ? await inbox.raiseIncident({
             companyId,
-            title: 'External writes failed verification',
+            title: alertTitle(breach.kind),
             detail: breach.summary,
           })
         : await inbox.raiseBudgetAlert({
@@ -319,5 +373,9 @@ function alertTitle(kind: AlertKind): string {
       return 'Unusual number of policy refusals';
     case 'verification_failures':
       return 'External writes failed verification';
+    case 'preflight_failures':
+      return 'A capability stopped being usable';
+    case 'orphaned_runs':
+      return 'A worker stopped reporting mid-run';
   }
 }

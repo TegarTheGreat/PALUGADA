@@ -11,9 +11,9 @@
  *   - Silence is safe. An unanswered approval expires into a cancellation,
  *     never into an execution (F10.4).
  */
-import { withTenant, withControlPlane } from '../db/tenant.ts';
+import { withTenant, withControlPlane, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
-import { transition } from '../engine/tasks.ts';
+import { getTask, transition } from '../engine/tasks.ts';
 import { notifyAfterFor } from '../scheduler/windows.ts';
 import { approveCandidate, rejectCandidate } from '../memory/store.ts';
 import type { Tier } from '../domain/tier.ts';
@@ -60,6 +60,33 @@ export interface InboxItem {
 }
 
 export async function requestApproval(input: ApprovalInput): Promise<string> {
+  // An approval already open for this task and capability is *this* approval.
+  // The broker re-reaches this point every time the task runs again -- after an
+  // owner question under F10.3, after a restart -- and a second item would ask
+  // the owner the same thing twice and let them answer it differently.
+  if (input.taskId) {
+    const existing = await withTenant(input.companyId, async (tx) => {
+      const { rows } = await tx.query<{ id: string }>(
+        `SELECT id FROM inbox_items
+          WHERE task_id = $1 AND kind = 'approval' AND status = 'open'
+            AND capability_name IS NOT DISTINCT FROM $2
+          ORDER BY created_at LIMIT 1`,
+        [input.taskId, input.capabilityName],
+      );
+      return rows[0]?.id ?? null;
+    });
+    if (existing) {
+      // Only if the task is actually somewhere it can wait from. A task already
+      // parked on this item needs no second transition, and one that has since
+      // been cancelled must not be dragged back.
+      const current = await withTenant(input.companyId, (tx) => getTask(tx, input.taskId!));
+      if (current?.status === 'running') {
+        await transition(input.companyId, input.taskId, 'waiting_approval');
+      }
+      return existing;
+    }
+  }
+
   const ttl = input.ttlHours ?? DEFAULT_APPROVAL_TTL_HOURS;
   // F9.3: a tier 3 approval may wake the owner; anything gentler waits for
   // their window. The item is created either way -- only the moment they are
@@ -362,8 +389,88 @@ export async function decide(
     return row;
   });
 
-  if (!item.task_id || decision === 'ask') return;
+  if (!item.task_id) return;
+
+  if (decision === 'ask') {
+    // F10.3: the clarification happens inside this task rather than becoming a
+    // second one. The question goes onto the task's record, the task goes back
+    // on the queue, and the run that picks it up reads the question in its
+    // context. The approval item stays open: asking is not deciding, and the
+    // owner still has to say yes.
+    await withTenant(companyId, async (tx) => {
+      await appendEvent(tx, {
+        companyId,
+        taskId: item.task_id!,
+        type: 'owner.asked',
+        actor: 'owner',
+        payload: { inboxItemId: itemId, question: note },
+      });
+    });
+    // Through `running`, because that is the only edge out of waiting_approval
+    // and the task genuinely is running again -- with a question to answer
+    // before it re-proposes whatever it was proposing.
+    await transition(companyId, item.task_id, 'running');
+    return;
+  }
+
   await transition(companyId, item.task_id, decision === 'approve' ? 'running' : 'cancelled');
+}
+
+/**
+ * The agent's answer to an owner question (F10.3).
+ *
+ * Recorded against the item the owner is looking at, so the answer appears
+ * under the question rather than in an event log they would have to go and
+ * find. The item stays open: an answered question is a decision that can now
+ * be made, not one that has been.
+ */
+export async function answerOwnerQuestion(
+  companyId: string,
+  itemId: string,
+  answer: string,
+): Promise<void> {
+  await withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<{ task_id: string | null }>(
+      `UPDATE inbox_items
+          SET payload = payload || jsonb_build_object(
+                'answers', coalesce(payload->'answers', '[]'::jsonb) ||
+                           jsonb_build_array(jsonb_build_object(
+                             'question', coalesce(owner_note, ''),
+                             'answer', $2::text,
+                             'at', now()))),
+              -- The question has been answered, so the item is undecided again
+              -- and shows as waiting on the owner rather than on the agent.
+              decision = NULL,
+              decided_at = NULL
+        WHERE id = $1 AND status = 'open'
+        RETURNING task_id`,
+      [itemId, answer],
+    );
+    const row = rows[0];
+    if (!row) throw new Error(`inbox item ${itemId} is not open`);
+
+    await appendEvent(tx, {
+      companyId,
+      taskId: row.task_id ?? undefined,
+      type: 'owner.answered',
+      actor: 'agent_run',
+      payload: { inboxItemId: itemId, answer },
+    });
+  });
+}
+
+/** The owner's open questions on a task, for the run that has to answer them. */
+export async function openQuestionsFor(
+  tx: TenantClient,
+  taskId: string,
+): Promise<Array<{ inboxItemId: string; question: string }>> {
+  const { rows } = await tx.query<{ id: string; owner_note: string | null }>(
+    `SELECT id, owner_note FROM inbox_items
+      WHERE task_id = $1 AND status = 'open' AND decision = 'ask'
+      ORDER BY decided_at`,
+    [taskId],
+  );
+  return rows.map((row) => ({ inboxItemId: row.id, question: row.owner_note ?? '' }));
 }
 
 /**

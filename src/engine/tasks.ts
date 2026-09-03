@@ -23,6 +23,15 @@ export const DEFAULT_FAN_OUT_MAX = 5;
 /** Admission reserve per task, so a sibling cannot be admitted without room. */
 export const DEFAULT_TASK_RESERVE_TOKENS = 1_000;
 
+/**
+ * F5.10: the priority almost everything gets.
+ *
+ * P2 rather than P0, and that is the whole design. A default of P0 would make
+ * the field meaningless within a week -- everything is urgent when nothing has
+ * to choose.
+ */
+export const DEFAULT_PRIORITY = 2;
+
 export interface TaskRow {
   id: string;
   companyId: string;
@@ -50,13 +59,16 @@ export interface TaskRow {
   leaseExpiresAt: Date | null;
   /** F9.5: this task may wait for the company's cheap hours. */
   batchable: boolean;
+  /** F5.10: P0 is an incident, P3 is whenever. P2 is almost everything. */
+  priority: number;
 }
 
 const SELECT_TASK = `
   SELECT id, company_id, project_id, division_id, role_id, parent_task_id,
          budget_account_id, status, input, output, hop_depth, hop_max,
          deadline_at, idempotency_key, attempt, attempt_max, tokens_reserved,
-         halt_reason, batchable, goal_id, lane_key, lease_holder, lease_expires_at
+         halt_reason, batchable, goal_id, lane_key, lease_holder, lease_expires_at,
+         priority
     FROM tasks`;
 
 interface RawTask {
@@ -66,7 +78,7 @@ interface RawTask {
   hop_depth: number; hop_max: number; deadline_at: Date | null; idempotency_key: string;
   attempt: number; attempt_max: number; tokens_reserved: string; halt_reason: string | null;
   batchable: boolean; goal_id: string | null; lane_key: string | null;
-  lease_holder: string | null; lease_expires_at: Date | null;
+  lease_holder: string | null; lease_expires_at: Date | null; priority: number;
 }
 
 function toTask(row: RawTask): TaskRow {
@@ -83,6 +95,7 @@ function toTask(row: RawTask): TaskRow {
     laneKey: row.lane_key,
     leaseHolder: row.lease_holder,
     leaseExpiresAt: row.lease_expires_at,
+    priority: row.priority,
   };
 }
 
@@ -117,6 +130,14 @@ export interface CreateTaskInput {
    * flag the difference between a company that answers and one that does not.
    */
   batchable?: boolean | undefined;
+  /**
+   * F5.10: P0 is an incident, P3 is whenever.
+   *
+   * Defaulted to P2, which is what almost everything is -- work that should
+   * happen today and does not need to jump a queue. A default of P0 would make
+   * the field meaningless within a week.
+   */
+  priority?: number | undefined;
   /**
    * F2.7: the goal this task serves.
    *
@@ -430,13 +451,13 @@ async function insertTask(
        company_id, project_id, division_id, role_id, parent_task_id,
        budget_account_id, input, hop_depth, hop_max, deadline_at,
        idempotency_key, input_hash, created_by, attempt_max, tokens_reserved,
-       batchable, goal_id, lane_key)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+       batchable, goal_id, lane_key, priority)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
      RETURNING id, company_id, project_id, division_id, role_id, parent_task_id,
                budget_account_id, status, input, output, hop_depth, hop_max,
                deadline_at, idempotency_key, attempt, attempt_max,
                tokens_reserved, halt_reason, batchable, goal_id, lane_key,
-               lease_holder, lease_expires_at`,
+               lease_holder, lease_expires_at, priority`,
     [
       input.companyId, input.projectId, input.divisionId, input.roleId,
       meta.parentTaskId, input.budgetAccountId, JSON.stringify(input.input),
@@ -445,6 +466,7 @@ async function insertTask(
       input.batchable ?? false,
       input.goalId ?? null,
       input.laneKey ?? null,
+      input.priority ?? DEFAULT_PRIORITY,
     ],
   );
   const task = toTask(rows[0]!);

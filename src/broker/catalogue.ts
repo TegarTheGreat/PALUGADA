@@ -72,6 +72,29 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
     calibration: 'A named tier 0 example in the PRD section 8.8 table.',
   },
   {
+    // F4.8. The door back to what did not fit in the context pack, which is
+    // what makes capping the pack reasonable rather than lossy.
+    name: 'memory.search',
+    adapter: 'platform',
+    tier: TIER.READ_ONLY,
+    summary: "Searches the company's own semantic memory.",
+    calibration:
+      'A read of the company\'s own store, scoped to the asking division by ' +
+      'the same rules the context pack uses. It changes nothing outside the ' +
+      'company and nothing inside it either.',
+  },
+  {
+    // F15.7. The pack carries a skill\'s summary; this fetches the document.
+    name: 'skill.read',
+    adapter: 'platform',
+    tier: TIER.READ_ONLY,
+    summary: 'Reads the active version of a skill the context pack summarised.',
+    calibration:
+      'A read of a document the company wrote and approved. Reading a ' +
+      'procedure is not an action; following it may be, and whatever it ' +
+      'leads to is judged on its own tier.',
+  },
+  {
     name: 'uptime.check',
     adapter: 'monitoring',
     tier: TIER.READ_ONLY,

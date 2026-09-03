@@ -36,6 +36,7 @@
 import type { StepKind } from '../engine/journal.ts';
 import type { Goal } from '../domain/goals.ts';
 import type { TaskRow } from '../engine/tasks.ts';
+import type { ChildResult } from '../engine/containment.ts';
 
 export interface ToolDeclaration {
   name: string;
@@ -111,12 +112,19 @@ export interface RunServices {
   callTool<I, O>(name: string, input: I): Promise<O>;
   /** F5.1: journals the step, so a crash resumes rather than repeats. */
   step<T>(name: string, kind: StepKind, input: unknown, fn: (key: string) => Promise<T>): Promise<T>;
-  /** F6.4, F6.7: a contained sub-task with a mandatory deadline. */
+  /**
+   * F6.4, F6.7: a contained sub-task with a mandatory deadline.
+   *
+   * Returns the child's schema-validated output and a summary of at most 500
+   * tokens. Its transcript stays with the child: a parent that accumulated its
+   * children's reasoning would carry five runs' worth of thinking into its
+   * sixth decision.
+   */
   awaitChild(
     roleSlug: string,
     input: Record<string, unknown>,
     options: { timeoutMs: number; reserveTokens?: number },
-  ): Promise<Record<string, unknown>>;
+  ): Promise<ChildResult>;
   /**
    * F11.1, F13.7: every model call is traced through the adapter.
    *

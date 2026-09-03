@@ -31,6 +31,7 @@
 import type { LlmClient, LlmRequest } from '../llm/client.ts';
 import type { StepKind } from '../engine/journal.ts';
 import type { TaskRow } from '../engine/tasks.ts';
+import type { ChildResult } from '../engine/containment.ts';
 import type {
   Adapter,
   AdapterHealth,
@@ -51,7 +52,7 @@ export interface TaskContext {
     roleSlug: string,
     input: Record<string, unknown>,
     options: { timeoutMs: number; reserveTokens?: number },
-  ): Promise<Record<string, unknown>>;
+  ): Promise<ChildResult>;
 }
 
 export type TaskHandler = (ctx: TaskContext) => Promise<Record<string, unknown>>;

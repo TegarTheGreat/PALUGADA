@@ -93,7 +93,10 @@ const CLAIM_SQL = `
                            WHERE busy.budget_account_id = t.budget_account_id
                              AND busy.id <> t.id
                              AND busy.status IN ('checked_out', 'running')), 0)
-     ORDER BY t.created_at
+     -- F5.10: priority first, then age. Age is the tie-break rather than the
+     -- whole order, so a queue full of P2 work still drains oldest-first and a
+     -- P0 incident does not wait behind it.
+     ORDER BY t.priority, t.created_at
      FOR UPDATE SKIP LOCKED
      LIMIT 1
   )

@@ -11,6 +11,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { glob } from 'node:fs/promises';
 import { withTenant } from '../../src/db/tenant.ts';
+import {
+  CHILD_SUMMARY_TOKEN_LIMIT,
+  estimateTokens,
+} from '../../src/engine/containment.ts';
 import { closePools } from '../../src/db/pool.ts';
 import { Engine, type TaskHandler } from '../../src/engine/engine.ts';
 import { CapabilityRegistry } from '../../src/broker/registry.ts';
@@ -194,7 +198,11 @@ test('awaitChild requires a timeout and enforces it (F6.4)', async () => {
         'a blocking call with no deadline must not be expressible',
       );
       const result = await ctx.awaitChild('slow', { n: 1 }, { timeoutMs: 5000 });
-      return { fromChild: result };
+      // F6.7: an answer and a summary. The summary is bounded; the child's
+      // transcript is not here at all.
+      assert.ok(result.summary.length > 0);
+      assert.ok(estimateTokens(result.summary) <= CHILD_SUMMARY_TOKEN_LIMIT);
+      return { fromChild: result.output, summary: result.summary };
     },
     slow: async () => ({ answer: 'child result' }),
   });
@@ -203,7 +211,10 @@ test('awaitChild requires a timeout and enforces it (F6.4)', async () => {
   const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
 
   assert.equal(outcome.status, 'completed');
-  assert.deepEqual(outcome.output, { fromChild: { answer: 'child result' } });
+  assert.deepEqual((outcome.output as { fromChild: unknown }).fromChild, {
+    answer: 'child result',
+  });
+  assert.match(String((outcome.output as { summary: string }).summary), /^slow completed/);
 
   const child = await withTenant(fixture.companyId, async (tx) => {
     const { rows } = await tx.query<{ id: string; status: string; budget_account_id: string }>(
@@ -221,7 +232,7 @@ test('a child that overruns its timeout is halted, not left running', async () =
   await addRole(fixture, 'stuck');
 
   const engine = engineWith({
-    worker: async (ctx) => ({ result: await ctx.awaitChild('stuck', {}, { timeoutMs: 120 }) }),
+    worker: async (ctx) => (await ctx.awaitChild('stuck', {}, { timeoutMs: 120 })).output,
     stuck: async () => {
       await new Promise((resolve) => setTimeout(resolve, 1500));
       return { never: true };
@@ -255,7 +266,7 @@ test('an abandoned run stops committing once its task has ended', async () => {
 
   let stepsAttempted = 0;
   const engine = engineWith({
-    worker: async (ctx) => ({ result: await ctx.awaitChild('slow-writer', {}, { timeoutMs: 100 }) }),
+    worker: async (ctx) => (await ctx.awaitChild('slow-writer', {}, { timeoutMs: 100 })).output,
     'slow-writer': async (ctx) => {
       await new Promise((resolve) => setTimeout(resolve, 400));
       stepsAttempted += 1;

@@ -210,6 +210,12 @@ export async function openReview(input: OpenReviewInput): Promise<OpenReviewResu
     );
   }
 
+  // F7.7: a reviewer on the same model as the proposer shares its blind spots.
+  // Chosen here rather than left to the reviewer role's configuration, because
+  // the property that matters is a *relation* between two roles and neither one
+  // can see the other's setting.
+  const routing = await chooseReviewerModel(input.companyId, input.proposerRoleId, reviewerRoleId);
+
   // The review runs as a separate task, so it has its own step journal and
   // therefore its own working memory. F7.3 asks for exactly that: a reviewer
   // that shares the proposer's scratch space is reviewing its own reasoning.
@@ -223,6 +229,10 @@ export async function openReview(input: OpenReviewInput): Promise<OpenReviewResu
       criteria: input.criteria,
       round,
       previousReason: existing?.reason ?? null,
+      // The reviewer is told which model it should be answering on, and
+      // whether the platform managed to find a different one at all.
+      model: routing.model,
+      sameModelAsProposer: routing.sameAsProposer,
     },
     createdBy: 'event',
     ...(input.reserveTokens === undefined ? {} : { reserveTokens: input.reserveTokens }),
@@ -503,5 +513,64 @@ export async function pendingReviews(companyId: string): Promise<
       reviewTaskId: row.review_task_id,
       reviewerRoleSlug: row.slug,
     }));
+  });
+}
+
+
+/**
+ * Picks a model for the reviewer that is not the proposer's (F7.7).
+ *
+ * Two models trained the same way, prompted the same way, tend to be wrong the
+ * same way. A reviewer that shares the proposer's model is a second opinion in
+ * name only, so the reviewer role's own routing is searched for anything the
+ * proposer did not use.
+ *
+ * When there is nothing else -- a deployment with one model configured -- the
+ * review still happens, on the same model, and an event says so. Refusing to
+ * review at all would be worse: a same-model reviewer catches a great deal
+ * that no reviewer catches nothing of. What must not happen is for the
+ * weakening to be invisible, because a review everybody believes is
+ * independent and is not is more dangerous than no review.
+ */
+export async function chooseReviewerModel(
+  companyId: string,
+  proposerRoleId: string,
+  reviewerRoleId: string,
+): Promise<{ model: string; sameAsProposer: boolean }> {
+  return withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<{
+      id: string;
+      model: string;
+      model_primary: string | null;
+      model_fallback: string[];
+    }>(
+      'SELECT id, model, model_primary, model_fallback FROM roles WHERE id = ANY($1::uuid[])',
+      [[proposerRoleId, reviewerRoleId]],
+    );
+
+    const proposer = rows.find((row) => row.id === proposerRoleId);
+    const reviewer = rows.find((row) => row.id === reviewerRoleId);
+    const proposerModel = proposer?.model_primary ?? proposer?.model ?? '';
+    const reviewerPrimary = reviewer?.model_primary ?? reviewer?.model ?? '';
+
+    if (reviewerPrimary && reviewerPrimary !== proposerModel) {
+      return { model: reviewerPrimary, sameAsProposer: false };
+    }
+
+    const alternative = (reviewer?.model_fallback ?? []).find(
+      (candidate) => candidate && candidate !== proposerModel,
+    );
+    if (alternative) return { model: alternative, sameAsProposer: false };
+
+    await appendEvent(tx, {
+      companyId,
+      type: 'review.same_model',
+      actor: 'system',
+      payload: {
+        model: reviewerPrimary,
+        reason: 'no model configured for the reviewer differs from the proposer',
+      },
+    });
+    return { model: reviewerPrimary, sameAsProposer: true };
   });
 }

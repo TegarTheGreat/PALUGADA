@@ -22,6 +22,7 @@ export type ErrorCode =
   | 'plan.already_recorded'
   | 'plan.invalid'
   | 'policy.denied'
+  | 'hook.denied'
   | 'review.required'
   | 'window.closed'
   | 'approval.required'

@@ -63,6 +63,28 @@ export class Redactor {
     return value;
   }
 
+  /**
+   * True when a registered secret appears verbatim anywhere in a value.
+   *
+   * `redactDeep` is the remedy; this is the alarm. They are separate because a
+   * value that had to be redacted on its way to a log is a leak that already
+   * happened somewhere upstream, and the post_tool hook (F14) needs to be able
+   * to refuse rather than quietly clean up after it.
+   */
+  leaks(value: unknown): boolean {
+    if (typeof value === 'string') {
+      for (const secret of this.#secrets) {
+        if (value.includes(secret)) return true;
+      }
+      return false;
+    }
+    if (Array.isArray(value)) return value.some((item) => this.leaks(item));
+    if (value && typeof value === 'object') {
+      return Object.values(value as Record<string, unknown>).some((nested) => this.leaks(nested));
+    }
+    return false;
+  }
+
   get size(): number {
     return this.#secrets.size;
   }

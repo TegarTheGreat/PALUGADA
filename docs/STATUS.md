@@ -35,7 +35,7 @@ what is missing rather than leaving the reader to guess.
 |---|---|---|---|
 | F1 tenancy, budget | F1.1–F1.4, F1.7, F1.8, F1.9 | F1.5 (no skills or config in the archive), F1.6 (one account per company; not per project/division/role) | — |
 | F2 organisation | F2.2, F2.4, F2.5, F2.7, F2.8 | F2.1 (no per-division escalation policy), F2.3 (no runtime, model routing or heartbeat on a role) | F2.6, F2.9 |
-| F3 charter, policy | F3.1–F3.8, F3.10 | F3.9 (versioned with a diff, but no rollback), F3.12 (policy is code rather than prompt text, but there is no hook framework) | F3.11 |
+| F3 charter, policy | F3.1–F3.8, F3.10, F3.12 | F3.9 (versioned with a diff, but no rollback) | F3.11 |
 | F4 memory | F4.1–F4.4, F4.6 | F4.5 (low-confidence facts flagged; skill candidates need F15), F4.7 (the journal survives a restart, but there is no heartbeat and no working-memory object) | F4.8 |
 | F5 engine | F5.1–F5.9, F5.11–F5.14 | — | F5.10 |
 | F6 agent communication | F6.1–F6.6 | — | F6.7 |
@@ -46,7 +46,7 @@ what is missing rather than leaving the reader to guess.
 | F11 observability | F11.3, F11.5, F11.6 | F11.1 (traced, but by the engine rather than through an adapter), F11.4 (no preflight or orphan alerts) | F11.2, F11.7 |
 | F12 credentials, gateway | F12.1–F12.4 (F12.3 now also triggers preflight) | — | F12.5, F12.7, F12.8, F12.9, F12.10 |
 | F13 runtime adapters | F13.1, F13.4, F13.5, F13.7, F13.8 | F13.6 (routing is carried in the request; no automatic fallback yet) | F13.2 (`claude-code`, `http`, `script`), F13.3 |
-| F14 lifecycle hooks | — | F14.1 (enforcement is deterministic engine code, but not named hooks) | F14.2, F14.3, F14.4 |
+| F14 lifecycle hooks | F14.1, F14.2, F14.3 | — | F14.4 (a bundle may not yet carry a hook) |
 | F15 skills | — | F15.3 (candidate SOPs need owner approval; not in skill format, unversioned, no eval) | F15.1, F15.2, F15.4–F15.8 |
 | F16 bundles | — | F16.3 (company templates exist; unsigned, unversioned, not bundles) | F16.1, F16.2, F16.4, F16.5 |
 | F17 eval, trajectory | — | — | all of F17 |
@@ -58,6 +58,29 @@ section 3 below, so it was built out first: F8 is now complete. The additions ar
 decoration — the heartbeat model (F9.7–F9.10), atomic checkout (F5.11), leases
 (F5.12) and lanes (F5.13) are what make the engine safe for more than one
 worker, and none of them exist yet.
+
+## 2.1 Deliberate deviations from the PRD
+
+Two places where the implementation does not read literally as the PRD does.
+Both are choices, and both are cheap to reverse if the reasoning stops holding.
+
+**F14.3 records refusals, not permissions.** The requirement reads "every hook
+records an event with its decision and reason". Denials do. Allows do not:
+section 9 budgets a company a million events a month, and an event per hook per
+tool call would spend most of that recording that nothing happened. The tool
+call's own `tool.called` event is the record that the gates let it through, and
+the hook names consulted at a point are readable from the pipeline at any time.
+
+**The broker's gate chain is inline rather than registered as hooks.** Section
+8.14 lists policy, tier, budget, plan check and batch guard under `pre_tool`.
+They run at exactly that point and they are deterministic engine code a runtime
+cannot reach — which is what F14.1 asks for — but they are one ordered read
+inside a single transaction, where the grant decides the tier, the tier decides
+the facts, and the facts decide the policy. Splitting them into independent
+hooks would buy names at the price of that atomic read. The three conditions
+that depend on nothing else — platform stop, company freeze, spend ceiling —
+*are* registered hooks, because those are the ones a second caller would
+otherwise have to remember to copy.
 
 ## 3. What has to be decided before building further
 

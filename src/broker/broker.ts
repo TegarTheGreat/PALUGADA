@@ -5,8 +5,11 @@
  * its own. The order of the gates is deliberate and each one is placed where
  * it is for a reason:
  *
- *   1. Platform stop and company freeze, because a halted platform should not
- *      even consult its configuration.
+ *   1. The `pre_tool` hooks (F14): platform stop, company freeze and the spend
+ *      ceiling, because a halted platform should not even consult its
+ *      configuration. They live in the hook pipeline rather than inline so
+ *      that a company cannot remove them and an added hook can only tighten
+ *      them.
  *   2. Kill switch, grant and rate limit -- all before anything reaches an
  *      adapter, because F2.4 requires a refusal to produce no downstream call.
  *      A refusal issued after the request has left is not a refusal.
@@ -22,6 +25,14 @@
  * Policy and tier are independent gates and the stricter always wins: a policy
  * cannot lower a tier 3 action below owner approval, and a tier 0 read can
  * still be denied by policy.
+ *
+ * Steps 2 through 5 stay inline rather than becoming hooks of their own. They
+ * are one ordered read inside a single transaction where each gate consumes
+ * what the one before it computed -- the grant decides the tier, the tier
+ * decides the facts, the facts decide the policy -- and splitting them into
+ * independent hooks would buy names at the price of that atomic read. They are
+ * no less built-in for it: F14.1 asks for deterministic engine code on this
+ * side of the adapter boundary, which is what they are.
  */
 import { withTenant, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
@@ -32,7 +43,6 @@ import {
   requiresVerification,
   type Tier,
 } from '../domain/tier.ts';
-import { isCompanyFrozen, isStopAllRequested } from '../engine/control.ts';
 import { evaluate, type PolicyDecision } from '../policy/engine.ts';
 import type { ActionFacts } from '../policy/condition.ts';
 import { capabilityWindow, isWithin, localTimeIn, nextOpening } from '../scheduler/windows.ts';
@@ -41,10 +51,10 @@ import { redactor } from '../secrets/manager.ts';
 import { fingerprintAction, isApproved, openReview } from '../review/review.ts';
 import { chargeEstimate, estimateFor, refundEstimate, settleActual } from './cost.ts';
 import { evaluateRoleFreeze, isRoleFrozen } from '../governance/role-freeze.ts';
-import { isSpendPaused } from '../governance/spend-guard.ts';
 import { ancestryForTask, renderAncestry } from '../domain/goals.ts';
 import { checkAgainstPlan, readPlan, type TaskPlan } from '../engine/plan.ts';
 import type { CapabilityRegistry } from './registry.ts';
+import { HookPipeline } from '../engine/hooks.ts';
 
 export interface InvokeContext {
   companyId: string;
@@ -90,9 +100,18 @@ type Verdict =
 
 export class CapabilityBroker {
   readonly #registry: CapabilityRegistry;
+  readonly #hooks: HookPipeline;
 
-  constructor(registry: CapabilityRegistry) {
+  constructor(registry: CapabilityRegistry, hooks?: HookPipeline) {
     this.#registry = registry;
+    // A broker built without one still has every built-in hook: F14.2 is not
+    // an option a caller can decline by leaving an argument out.
+    this.#hooks = hooks ?? new HookPipeline();
+  }
+
+  /** The hook pipeline this broker consults (F14). */
+  get hooks(): HookPipeline {
+    return this.#hooks;
   }
 
   /**
@@ -113,21 +132,26 @@ export class CapabilityBroker {
       throw new PalugadaError('capability.unknown', `capability ${name} is not registered`, { name });
     }
 
-    if (await isStopAllRequested()) {
-      throw new PalugadaError('platform.stopped', 'platform stop is in effect', { name });
-    }
-    if (await isCompanyFrozen(ctx.companyId)) {
-      throw new PalugadaError('company.frozen', 'company is frozen', { name });
-    }
-    // F1.7: a company that has spent its month stops taking external actions.
-    // Beside the freeze rather than folded into it, because "you stopped this"
-    // and "it ran out of money" need different answers and different remedies.
-    if (await isSpendPaused(ctx.companyId)) {
-      throw new PalugadaError(
-        'spend.paused',
-        'company has reached its monthly spending ceiling',
-        { name },
-      );
+    // F14: the pre_tool point. The built-in hooks here are the conditions
+    // under which nothing at all should run -- platform stop, company freeze,
+    // spent budget -- and they run before the authorization transaction opens,
+    // because a halted platform should not even consult its configuration.
+    // Added hooks run after them and can only refuse.
+    const preTool = await this.#hooks.run('pre_tool', {
+      companyId: ctx.companyId,
+      projectId: ctx.projectId,
+      taskId: ctx.taskId,
+      roleId: ctx.roleId,
+      divisionId: ctx.divisionId,
+      capability: name,
+      tier: capability.defaultTier,
+      input,
+    });
+    if (!preTool.allowed) {
+      throw new PalugadaError(preTool.code ?? 'hook.denied', preTool.reason!, {
+        name,
+        hook: preTool.refusedBy,
+      });
     }
 
     const now = new Date();
@@ -436,6 +460,32 @@ export class CapabilityBroker {
           { name, tier },
         );
       }
+    }
+
+    // F14: the post_tool point. The built-in hook here refuses an output that
+    // carries a credential verbatim -- section 12.4's rule that a secret never
+    // reaches a durable record cannot be enforced only on the way in, because
+    // the way a token most often escapes is inside somebody else's response
+    // body.
+    const postTool = await this.#hooks.run('post_tool', {
+      companyId: ctx.companyId,
+      projectId: ctx.projectId,
+      taskId: ctx.taskId,
+      roleId: ctx.roleId,
+      divisionId: ctx.divisionId,
+      capability: name,
+      tier,
+      input,
+      output,
+    });
+    if (!postTool.allowed) {
+      // The action already happened; what the refusal stops is the output
+      // travelling any further. Loud rather than silently redacted, because a
+      // capability that returns a secret is a defect in that capability.
+      throw new PalugadaError(postTool.code ?? 'hook.denied', postTool.reason!, {
+        name,
+        hook: postTool.refusedBy,
+      });
     }
 
     return {

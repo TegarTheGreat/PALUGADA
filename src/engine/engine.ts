@@ -19,6 +19,7 @@ import { validateContract } from './contracts.ts';
 import { isTerminal } from '../domain/task.ts';
 import { runStep, type StepKind } from './journal.ts';
 import { isCompanyFrozen, isStopAllRequested } from './control.ts';
+import type { HookPipeline } from './hooks.ts';
 import { batchWindow, isWithin, nextOpening } from '../scheduler/windows.ts';
 import {
   AdapterRegistry,
@@ -121,6 +122,18 @@ export class Engine {
   /** The runtimes this engine can employ. */
   get adapters(): AdapterRegistry {
     return this.#adapters;
+  }
+
+  /**
+   * The hook pipeline (F14).
+   *
+   * The broker's, deliberately. One pipeline means a hook added for a company
+   * applies at every point rather than only at the ones whose owner happened
+   * to be handed it, and it removes the failure where two pipelines drift and
+   * a rule is enforced on tools but not on runs.
+   */
+  get hooks(): HookPipeline {
+    return this.#options.broker.hooks;
   }
 
   /** The identity this engine claims tasks under (F5.11). */
@@ -402,6 +415,26 @@ export class Engine {
       };
     }
 
+    // F14: the pre_run point, immediately before the runtime is employed.
+    // After the health check because an unhealthy runtime is not a refusal,
+    // and before the agent run because a run that starts and is then refused
+    // has already cost the tokens the refusal exists to save.
+    const preRun = await this.hooks.run('pre_run', {
+      companyId,
+      projectId: task.projectId,
+      taskId,
+      roleId: task.roleId,
+      divisionId: task.divisionId,
+      input: task.input,
+    });
+    if (!preRun.allowed) {
+      return this.#classifyFailure(
+        companyId,
+        taskId,
+        new PalugadaError(preRun.code ?? 'hook.denied', preRun.reason!, { hook: preRun.refusedBy }),
+      );
+    }
+
     const controller = new AbortController();
     const agentRunId = await this.#startAgentRun(task);
 
@@ -629,6 +662,26 @@ export class Engine {
       // downstream task triggered by `task.completed` has no other guarantee
       // about what it is about to read.
       validateContract('output', task.roleId, roleSlug, contract.output, output);
+
+      // F14: the post_run point. After the schema, because a hook asked to
+      // judge an output should be given one that is at least the right shape,
+      // and before the task is marked complete, because completion is what
+      // wakes everything downstream.
+      const postRun = await this.hooks.run('post_run', {
+        companyId,
+        projectId: task.projectId,
+        taskId,
+        roleId: task.roleId,
+        divisionId: task.divisionId,
+        input: task.input,
+        output,
+      });
+      if (!postRun.allowed) {
+        throw new PalugadaError(postRun.code ?? 'hook.denied', postRun.reason!, {
+          hook: postRun.refusedBy,
+        });
+      }
+
       await this.#finishAgentRun(companyId, agentRunId, 'succeeded');
 
       // An abandoned run can still arrive here: its caller gave up, something
@@ -711,6 +764,11 @@ export class Engine {
       // A denial is terminal rather than retryable: the same call would be
       // refused again, and retrying it only burns the attempt budget.
       'policy.denied': 'policy_denied',
+      // A hook that refused is a rule that will refuse again. Retrying it
+      // spends attempts to reach the same answer.
+      'hook.denied': 'policy_denied',
+      // F1.7: the month's ceiling is not reached again by trying harder.
+      'spend.paused': 'budget_exhausted',
       'budget.exceeded': 'budget_exhausted',
       'budget.reservation_refused': 'budget_exhausted',
       'hop.exceeded': 'hop_limit',
@@ -722,6 +780,7 @@ export class Engine {
     const haltReason = code ? haltCodes[code] : undefined;
     if (haltReason) {
       await transition(companyId, taskId, 'halted', { haltReason });
+      await this.#onHalt(companyId, settled, haltReason, error);
       if (haltReason === 'verification_failed') {
         // F8.4: a write that reports success but reads back differently is an
         // incident, not a retry.
@@ -746,9 +805,37 @@ export class Engine {
 
     if (exhausted) {
       await transition(companyId, taskId, 'failed');
+      await this.#onHalt(companyId, settled, 'attempts_exhausted', error);
       return { status: 'failed', reason: (error as Error).message };
     }
     return { status: 'failed', reason: 'retryable' };
+  }
+
+  /**
+   * F14's `on_halt` point.
+   *
+   * An observation rather than a gate: the task has already ended, so there is
+   * nothing left for a refusal to prevent and the verdict is ignored. It exists
+   * so that raising an inbox item or an incident on a halt is something a
+   * company can add without editing the engine -- which is the whole argument
+   * for hooks, applied to the one point where the argument is easiest to
+   * forget.
+   */
+  async #onHalt(
+    companyId: string,
+    task: TaskRow,
+    reason: string,
+    error: unknown,
+  ): Promise<void> {
+    await this.hooks.run('on_halt', {
+      companyId,
+      projectId: task.projectId,
+      taskId: task.id,
+      roleId: task.roleId,
+      divisionId: task.divisionId,
+      input: task.input,
+      output: { reason, error: (error as Error).message },
+    });
   }
 
   /** Deadline, platform stop and company freeze, checked together. */

@@ -15,6 +15,7 @@ import { AdapterRegistry, type RunEvent } from '../../src/runtime/protocol.ts';
 import { ScriptAdapter } from '../../src/runtime/script.ts';
 import { HttpAdapter } from '../../src/runtime/http.ts';
 import { ClaudeCodeAdapter } from '../../src/runtime/claude-code.ts';
+import { ContainerAdapter } from '../../src/runtime/container.ts';
 import { startToolBridge } from '../../src/runtime/tool-bridge.ts';
 import { Engine } from '../../src/engine/engine.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
@@ -567,6 +568,59 @@ async function rpc(bridge: { url: string; token: string }, message: unknown): Pr
   assert.equal(response.status, 200);
   return response.json();
 }
+
+/* ------------------------------------------------------------- container --- */
+
+/**
+ * F12.9's one real guarantee: `--network none`.
+ *
+ * `sandbox.ts` records that Node's permission model covers the filesystem,
+ * child processes, workers and native addons and *not* sockets, and that real
+ * network isolation needs a container below the process. This is that
+ * container, and the flag is the whole reason the backend exists — so it is
+ * asserted directly rather than inferred from a run that happened to work.
+ */
+test('the docker backend starts a container with no network at all (F12.9, F13.5)', () => {
+  const adapter = new ContainerAdapter({ image: 'palugada/runtime@sha256:abc' });
+  const argv = adapter.argv();
+
+  assert.equal(argv[argv.indexOf('--network') + 1], 'none');
+  assert.ok(argv.includes('--read-only'));
+  assert.ok(argv.includes('--rm'));
+  assert.equal(argv[argv.indexOf('--cap-drop') + 1], 'ALL');
+  assert.equal(argv[argv.indexOf('--security-opt') + 1], 'no-new-privileges');
+  assert.equal(argv[argv.indexOf('--user') + 1], '65534:65534', 'nothing inside runs as root');
+  assert.equal(argv.at(-1), 'palugada/runtime@sha256:abc');
+
+  // It claims only `docker`. Claiming `local` too would make a role's
+  // isolation setting a value that sometimes means nothing.
+  assert.deepEqual([...adapter.backends], ['docker']);
+});
+
+/**
+ * The health check asks the daemon, not the CLI.
+ *
+ * `docker --version` answers from the binary alone and would report healthy on
+ * a machine with no daemon — which is this machine, and is exactly the failure
+ * F13.8 exists to catch before a task is handed over.
+ */
+test('the docker backend reports unhealthy when no daemon is reachable (F13.8)', async () => {
+  const adapter = new ContainerAdapter({ image: 'palugada/runtime:1' });
+  const health = await adapter.health();
+
+  assert.equal(health.ok, false);
+  assert.ok((health.detail ?? '').length > 0, 'a refusal has to say why');
+});
+
+test('a missing docker binary is unhealthy rather than an exception (F13.8)', async () => {
+  const adapter = new ContainerAdapter({
+    image: 'palugada/runtime:1',
+    docker: '/nonexistent/docker',
+  });
+  const health = await adapter.health();
+  assert.equal(health.ok, false);
+  assert.match(health.detail ?? '', /not runnable/);
+});
 
 /* ----------------------------------------------------------- claude-code --- */
 

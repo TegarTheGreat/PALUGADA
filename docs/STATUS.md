@@ -42,10 +42,10 @@ what is missing rather than leaving the reader to guess.
 | F7 adversarial review | F7.1–F7.7 | — | — |
 | F8 broker, tiers | F8.1–F8.13 | — | — |
 | F9 scheduler | F9.1–F9.10 | — | — |
-| F10 owner surface | F10.1–F10.4, F10.6, F10.7, F10.8, F10.11 | F10.5 (the rule is enforced; there is no push channel) | F10.9, F10.10 |
+| F10 owner surface | F10.1–F10.4, F10.6–F10.8, F10.11 | F10.5 (the rule is enforced; there is no push channel), F10.10 (a tier 3 approval is refused over a chat channel; MFA needs an app) | F10.9 |
 | F11 observability | F11.1, F11.3–F11.7 | — | F11.2 (no owner PWA, so no live run view) |
-| F12 credentials, gateway | F12.1–F12.4, F12.7, F12.8, F12.10 | F12.9 (a spawned runtime inherits no environment and reaches tools only through the broker; container and remote-sandbox backends are declared, not implemented) | F12.5 |
-| F13 runtime adapters | F13.1, F13.2, F13.4, F13.5, F13.6, F13.7, F13.8 | F13.3 (the wire protocol is open and documented; no `hermes`, `codex` or `gemini-cli` adapter is written) | — |
+| F12 credentials, gateway | F12.1–F12.4, F12.7–F12.10 | — | F12.5 |
+| F13 runtime adapters | F13.1, F13.2, F13.4–F13.8 | F13.3 (the wire protocol is open and documented; no `hermes`, `codex` or `gemini-cli` adapter is written) | — |
 | F14 lifecycle hooks | F14.1–F14.4 | — | — |
 | F15 skills | F15.1–F15.7 | F15.8 (quarantine exists for bundles and devices; there is no Skills Hub client to import through it) | — |
 | F16 bundles | F16.1–F16.5 | — | — |
@@ -70,8 +70,18 @@ write an adapter against.
 
 ## 2.1 Deliberate deviations from the PRD
 
-Two places where the implementation does not read literally as the PRD does.
-Both are choices, and both are cheap to reverse if the reasoning stops holding.
+Three places where the implementation does not read literally as the PRD does.
+All three are choices, and all three are cheap to reverse if the reasoning
+stops holding.
+
+**F10.10 is enforced in half, and it is the half that matters.** The
+requirement is "tier 3 approval only through the app with MFA; the message
+channel shows a link and nothing more". There is no app and no MFA here, so
+what is implemented is the prohibition: `decide` takes the channel it arrived
+on, and a tier 3 approval over `chat` is refused and recorded as a security
+event. Written now rather than alongside the chat integration, because a rule
+added at the same time as the surface it constrains is a rule somebody has to
+remember.
 
 **F14.3 records refusals, not permissions.** The requirement reads "every hook
 records an event with its decision and reason". Denials do. Allows do not:
@@ -106,13 +116,18 @@ whether the change keeps what the references depended on and keeps the negative
 cases' failure modes closed. That is weaker than replaying the work, and it is
 the check that can run in the second before a decision.
 
-**Two things a green suite does not prove.** The first is below; the second is
-that F12.9's `docker` and `remote_sandbox` execution backends are declared,
-selected per role and carried in every `RunRequest`, and only `local` is
-implemented. A role configured for `docker` today runs where the orchestrator
-runs. That is stated in the adapter's own comment as well as here, because a
-backend that is a configuration value with no effect is worse than one that is
-missing.
+**Two things a green suite does not prove**, and both are named in the code as
+well as here.
+
+`ContainerAdapter` implements F12.9's `docker` backend, and its
+`--network none` is the guarantee the in-process sandbox has never been able to
+make: a runtime started there reaches the engine over stdio and nothing else.
+There is a docker CLI in this environment and no daemon, so what is tested is
+the argv — the flags *are* the security property — and the health check's
+refusal. A real container against a real image has never run here.
+`remote_sandbox` remains a declared backend with no adapter behind it; the
+`http` runtime reports it because "somewhere else, not ours" is what it means
+in F13.5's vocabulary, and it cannot verify the claim.
 
 **The `claude-code` adapter has not been run against the real binary.** It is
 not installed here and the provider is not reachable from the test environment,

@@ -227,7 +227,10 @@ export const SANDBOX_GUARANTEES = {
   wallClock: 'bounded',
   heap: 'bounded',
   /** The honest gaps. See the module comment. */
-  network: 'NOT isolated -- requires a container or namespace below this process',
+  network:
+    'NOT isolated in-process -- requires a container or namespace below this ' +
+    'process. src/runtime/container.ts is that container: it starts a runtime ' +
+    'with --network none, which is the isolation this sandbox cannot provide.',
   resultIntegrity:
     'not guaranteed against deliberately hostile in-process code; a forged or ' +
     'broken result is reported as a failed run, never as a value',

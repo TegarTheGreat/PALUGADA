@@ -105,7 +105,7 @@ src/
   inbox/           owner inbox: approvals, incidents, emergency controls
   audit/           append-only event log, security events
   llm/             model interface and a recording test double
-  runtime/         the adapter protocol, the wire, and four runtimes
+  runtime/         the adapter protocol, the wire, and five runtimes
   skills/          skill documents, the curation gates, and eval cases
   eval/            trajectory export and the role eval set
   bundles/         versioned packages, signing, and the three built-in bundles
@@ -251,6 +251,8 @@ the template is organised by function rather than by industry.
 | v2 F16.4 a company moves instances with every reference remapped | `src/audit/import.ts` | `bundles.test.ts` |
 | v2 F12.10 an unsigned bundle installs with tier 0 grants only | `src/bundles/bundle.ts` | `bundles.test.ts` |
 | v2 F14.4 a bundle's hooks run, and can only refuse | `src/engine/hooks.ts`, `src/bundles/bundle.ts` | `bundles.test.ts` |
+| v2 F12.9 a containerised runtime has no network at all | `src/runtime/container.ts` | `out-of-process-runtimes.test.ts` |
+| v2 F10.10 a tier 3 approval is refused over a chat channel | `src/inbox/inbox.ts` | `owner-inbox.test.ts` |
 
 ## Decisions worth knowing
 
@@ -618,19 +620,29 @@ what the last computed.
 
 ## Not built yet
 
-Four requirements, and they are the same requirement four times: the owner's
-phone. F10.9 and F10.10 want a PWA, F11.2 a live run view inside it, F12.5 a
-Telegram and WhatsApp channel. None of them can be exercised from here — there
-is no device, no store and no messaging account — and writing them blind would
+Three requirements, and they are the same requirement three times: the owner's
+phone. F10.9 wants a Telegram or WhatsApp channel, F11.2 a live run view, F12.5
+MFA and mobile biometrics. None of them can be exercised from here — there is
+no device, no store and no messaging account — and writing them blind would
 produce code that compiles and has never worked once.
 
-Two things are partial rather than absent, and
-[`docs/STATUS.md`](docs/STATUS.md) says so in the same words: F12.9's `docker`
-and `remote_sandbox` execution backends are declared and selected per role but
-only `local` is implemented, and F13.3's adapters for `hermes`, `openclaw`,
-`codex` and `gemini-cli` are unwritten because none of the four is installed
-here to write one against. The wire protocol they would speak is written,
-documented and tested.
+F10.10 is half-built and the half that exists is the half that matters: a tier
+3 approval given over a chat channel is refused, with the refusal recorded as a
+security event. The rule holds before any chat channel exists, so the
+integration that arrives later cannot be the thing that forgets it. What is
+missing is the MFA the app half asks for.
+
+One thing is partial rather than absent, and
+[`docs/STATUS.md`](docs/STATUS.md) says so in the same words: F13.3's adapters
+for `hermes`, `openclaw`, `codex` and `gemini-cli` are unwritten because none
+of the four is installed here to write one against. The wire protocol they
+would speak is written, documented and tested.
+
+Two things are implemented and unverified end to end, which is not the same as
+built: the `claude-code` adapter (no CLI, no provider here) and the `docker`
+execution backend (a docker CLI, no daemon). What the suite covers in both
+cases is the command line — for the container, `--network none` and the rest of
+the flags *are* the security property — and the health check's refusal.
 
 Section 13 still ends with "evaluate migrating the engine or the vector store
 based on real data". That is not something to write ahead of the data: there is

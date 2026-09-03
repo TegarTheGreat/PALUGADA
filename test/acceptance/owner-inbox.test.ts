@@ -10,6 +10,7 @@ import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { withTenant } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
+import { isPalugadaError } from '../../src/errors.ts';
 import { createRootTask, getTask, transition } from '../../src/engine/tasks.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { freezeCompany, isStopAllRequested, clearStopAll } from '../../src/engine/control.ts';
@@ -247,4 +248,50 @@ test('an approval item carries everything needed to decide', async () => {
   assert.match(item.consequenceIfDenied, /keeps serving/);
   assert.ok(item.expiresAt instanceof Date, 'an approval must have an expiry');
   assert.equal(item.taskId, task.id, 'the item links back to the task chain');
+});
+
+
+/**
+ * PRD v2 F10.10: a tier 3 approval never happens over a message channel.
+ *
+ * The rule is enforced before any chat channel exists. A rule written at the
+ * same time as the surface it constrains is a rule somebody has to remember;
+ * this one is already true, so the integration that arrives later cannot be
+ * the thing that forgets it.
+ */
+test('a tier 3 approval cannot be given over a chat channel (F10.10)', async () => {
+  const fixture = await createCompany('tier3-channel');
+  const task = await newTask(fixture, 'transfer the domain');
+  await transition(fixture.companyId, task.id, 'running');
+
+  const itemId = await inbox.requestApproval({
+    companyId: fixture.companyId,
+    taskId: task.id,
+    capabilityName: 'domain.transfer',
+    tier: 3,
+    actionSummary: 'Transfer the domain',
+    rationale: 'The registrar migration is finished.',
+    consequenceIfDenied: 'The domain stays where it is.',
+  });
+
+  await assert.rejects(
+    () => inbox.decide(fixture.companyId, itemId, 'approve', 'ok', { channel: 'chat' }),
+    (error: unknown) => isPalugadaError(error, 'approval.channel_forbidden'),
+  );
+
+  // Refused *and* unchanged: the item is still open and the task still parked.
+  const open = await inbox.listOpen(fixture.companyId);
+  assert.ok(open.some((entry) => entry.id === itemId));
+
+  const events = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ type: string }>(
+      "SELECT type FROM events WHERE type = 'security.tier3_channel_refused'",
+    );
+    return rows;
+  });
+  assert.equal(events.length, 1);
+
+  // A denial over chat is fine: F10.10 bars approving, and refusing an action
+  // is the safe direction. So is a tier 2 approval.
+  await inbox.decide(fixture.companyId, itemId, 'deny', 'not yet', { channel: 'chat' });
 });

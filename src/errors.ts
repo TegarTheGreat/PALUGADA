@@ -36,6 +36,7 @@ export type ErrorCode =
   | 'bundle.unknown'
   | 'bundle.bad_signature'
   | 'archive.invalid'
+  | 'approval.channel_forbidden'
   | 'review.required'
   | 'window.closed'
   | 'approval.required'

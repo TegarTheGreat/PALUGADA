@@ -171,7 +171,14 @@ export class HookPipeline {
     this.#added.set(hook.on, list);
   }
 
-  /** The names consulted at a point, built-in first. */
+  /**
+   * The names registered at a point in this process, built-in first.
+   *
+   * Not the whole list a run sees: a company's bundle hooks are read per
+   * company at `run` time, so they cannot appear in an answer that takes no
+   * company. Said here rather than left to be discovered by someone who
+   * trusted this to be exhaustive.
+   */
   hooksFor(on: HookName): string[] {
     return [
       ...(this.#builtIn.get(on) ?? []).map((hook) => hook.name),

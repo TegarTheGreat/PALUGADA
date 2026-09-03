@@ -13,6 +13,7 @@
  */
 import { withTenant, withControlPlane, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
+import { PalugadaError } from '../errors.ts';
 import { getTask, transition } from '../engine/tasks.ts';
 import { notifyAfterFor } from '../scheduler/windows.ts';
 import { approveCandidate, rejectCandidate } from '../memory/store.ts';
@@ -336,12 +337,64 @@ export async function listOpen(companyId: string): Promise<InboxItem[]> {
  * the item open, because F10.3 lets the owner request clarification without
  * spawning a second task.
  */
+/**
+ * Where a decision arrived from (F10.10).
+ *
+ * `app` is the owner's authenticated application. `chat` is a message channel
+ * — Telegram, WhatsApp, Signal — which F10.9 makes a notification surface and
+ * F10.10 explicitly bars from tier 3. `api` is the owner's own tooling against
+ * this process.
+ */
+export type DecisionChannel = 'app' | 'chat' | 'api';
+
+/**
+ * The channels that may approve a tier 3 action.
+ *
+ * `chat` is absent and that is the requirement, not a default: a message
+ * channel is a surface where a forwarded message and a real one look alike,
+ * and tier 3 is the tier that cannot be undone. F10.10 says the channel shows
+ * a link and the approval happens in the app.
+ *
+ * The rule is enforced here even though no chat channel exists yet. A rule
+ * added at the same time as the surface it constrains is a rule somebody has
+ * to remember; this one is already true, so the integration that arrives later
+ * cannot be the thing that forgets it.
+ */
+const TIER_3_CHANNELS = new Set<DecisionChannel>(['app', 'api']);
+
 export async function decide(
   companyId: string,
   itemId: string,
   decision: Decision,
   note = '',
+  options: { channel?: DecisionChannel } = {},
 ): Promise<void> {
+  const channel = options.channel ?? 'api';
+  // F10.10: read the tier before the update, so a refusal changes nothing.
+  const tier = await withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<{ tier: number | null }>(
+      "SELECT tier FROM inbox_items WHERE id = $1 AND status = 'open'",
+      [itemId],
+    );
+    return rows[0]?.tier ?? null;
+  });
+
+  if (decision === 'approve' && (tier ?? 0) >= 3 && !TIER_3_CHANNELS.has(channel)) {
+    await withTenant(companyId, async (tx) => {
+      await appendEvent(tx, {
+        companyId,
+        type: 'security.tier3_channel_refused',
+        actor: 'system',
+        payload: { inboxItemId: itemId, channel },
+      });
+    });
+    throw new PalugadaError(
+      'approval.channel_forbidden',
+      `a tier 3 approval cannot be given over ${channel}; it happens in the app (F10.10)`,
+      { inboxItemId: itemId, channel },
+    );
+  }
+
   const item = await withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
       task_id: string | null;

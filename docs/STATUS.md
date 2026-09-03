@@ -45,7 +45,7 @@ what is missing rather than leaving the reader to guess.
 | F10 owner surface | F10.2, F10.4, F10.6, F10.7, F10.8, F10.11 | F10.1 (no `skill_candidate`), F10.5 (the rule is enforced; there is no push channel) | F10.3, F10.9, F10.10 |
 | F11 observability | F11.3, F11.5, F11.6 | F11.1 (traced, but by the engine rather than through an adapter), F11.4 (no preflight or orphan alerts) | F11.2, F11.7 |
 | F12 credentials, gateway | F12.1–F12.4 (F12.3 now also triggers preflight) | — | F12.5, F12.7, F12.8, F12.9, F12.10 |
-| F13 runtime adapters | — | — | all of F13 |
+| F13 runtime adapters | F13.1, F13.4, F13.5, F13.7, F13.8 | F13.6 (routing is carried in the request; no automatic fallback yet) | F13.2 (`claude-code`, `http`, `script`), F13.3 |
 | F14 lifecycle hooks | — | F14.1 (enforcement is deterministic engine code, but not named hooks) | F14.2, F14.3, F14.4 |
 | F15 skills | — | F15.3 (candidate SOPs need owner approval; not in skill format, unversioned, no eval) | F15.1, F15.2, F15.4–F15.8 |
 | F16 bundles | — | F16.3 (company templates exist; unsigned, unversioned, not bundles) | F16.1, F16.2, F16.4, F16.5 |
@@ -61,7 +61,16 @@ worker, and none of them exist yet.
 
 ## 3. What has to be decided before building further
 
-**NG6 contradicts the engine as it stands.** v2 states plainly that PALUGADA is
+**NG6 is resolved.** The engine no longer calls a model to do a task: it
+assembles a `RunRequest`, lends the runtime four services, and does the
+accounting. The handler model is now the in-process runtime — a genuine adapter
+that the engine talks to through the same protocol it would use for
+`claude-code`. What remains of F13 is the out-of-process adapters themselves
+(F13.2, F13.3) and automatic model fallback (F13.6).
+
+The paragraph below is kept because it records why this mattered.
+
+~~**NG6 contradicts the engine as it stands.**~~ v2 states plainly that PALUGADA is
 not an agent runtime and does not call an LLM to do a task; a runtime does,
 through the adapter protocol in section 7.5. The current engine calls
 `LlmClient.complete()` directly from inside a task handler, and the whole

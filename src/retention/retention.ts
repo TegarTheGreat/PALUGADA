@@ -117,13 +117,19 @@ export async function scrubExpiredPrompts(companyId: string, now = new Date()): 
 
   return withControlPlane(async (tx) => {
     const { rowCount } = await tx.query(
+      // A NULL prompt is left NULL. It means the runtime never shared it
+      // (F11.1 traces what the adapter reports), and overwriting that with the
+      // redaction marker would claim retention removed something that was
+      // never there.
       `UPDATE llm_traces
-          SET prompt = '{"redacted":"retention"}'::jsonb,
+          SET prompt = CASE WHEN prompt IS NULL THEN NULL
+                            ELSE '{"redacted":"retention"}'::jsonb END,
               response = CASE WHEN response IS NULL THEN NULL
                               ELSE '{"redacted":"retention"}'::jsonb END
         WHERE company_id = $1
           AND occurred_at < $2
-          AND prompt <> '{"redacted":"retention"}'::jsonb`,
+          AND ((prompt IS NOT NULL AND prompt <> '{"redacted":"retention"}'::jsonb)
+            OR (response IS NOT NULL AND response <> '{"redacted":"retention"}'::jsonb))`,
       [companyId, cutoff],
     );
     await recordRetention(tx, companyId, 'prompts_scrubbed', rowCount ?? 0, cutoff);

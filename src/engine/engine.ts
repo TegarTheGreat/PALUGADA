@@ -20,43 +20,52 @@ import { isTerminal } from '../domain/task.ts';
 import { runStep, type StepKind } from './journal.ts';
 import { isCompanyFrozen, isStopAllRequested } from './control.ts';
 import { batchWindow, isWithin, nextOpening } from '../scheduler/windows.ts';
+import {
+  AdapterRegistry,
+  type ExecutionBackend,
+  type RunRequest,
+  type RunServices,
+} from '../runtime/protocol.ts';
+import { InProcessAdapter, type TaskHandler } from '../runtime/in-process.ts';
+import { buildContext } from '../context/builder.ts';
+import { ancestryForTask } from '../domain/goals.ts';
 import { preflightForRole } from '../broker/preflight.ts';
-import { claimTask, recordRunHeartbeat, renewLease } from './checkout.ts';
+import { DEFAULT_LEASE_MS, claimTask, recordRunHeartbeat, renewLease } from './checkout.ts';
 import * as budget from './budget.ts';
 import * as inbox from '../inbox/inbox.ts';
 import type { CapabilityBroker } from '../broker/broker.ts';
 import type { LlmClient, LlmRequest } from '../llm/client.ts';
 
-export interface TaskContext {
-  readonly task: TaskRow;
-  readonly signal: AbortSignal;
-  /** Runs a journalled step, or replays its recorded output after a restart. */
-  step<T>(name: string, kind: StepKind, input: unknown, fn: (key: string) => Promise<T>): Promise<T>;
-  /** Calls an external capability through the broker. Never called directly. */
-  callCapability<I, O>(name: string, input: I): Promise<O>;
-  /** Calls the model, charging tokens against the inherited budget. */
-  llm(request: Omit<LlmRequest, 'model'> & { model?: string }): Promise<string>;
-  /**
-   * Runs another role and waits for its typed output (PRD F6.4).
-   *
-   * The only synchronous path between roles, and it goes through the engine
-   * rather than between agents. `timeoutMs` is required, not optional: a
-   * blocking call with no deadline is how one stuck sub-task quietly holds a
-   * parent's budget reservation open for ever.
-   */
-  awaitChild(
-    roleSlug: string,
-    input: Record<string, unknown>,
-    options: { timeoutMs: number; reserveTokens?: number },
-  ): Promise<Record<string, unknown>>;
-}
-
-export type TaskHandler = (ctx: TaskContext) => Promise<Record<string, unknown>>;
+/**
+ * The handler shape, re-exported from the runtime that defines it.
+ *
+ * NG6: a handler is a *runtime's* idea, not the engine's. It lives with the
+ * in-process adapter now, and is re-exported here so existing callers keep
+ * one import rather than being churned to make a point.
+ */
+export type { TaskContext, TaskHandler } from '../runtime/in-process.ts';
 
 export interface EngineOptions {
   broker: CapabilityBroker;
-  llm: LlmClient;
-  handlers: Map<string, TaskHandler>;
+  /**
+   * The runtimes this engine may employ (F13.1).
+   *
+   * Optional only because `llm` and `handlers` below build the in-process one
+   * for you. A deployment that employs a real runtime registers it here.
+   */
+  adapters?: AdapterRegistry;
+  /**
+   * Convenience: builds the in-process runtime from a model client and a
+   * handler map.
+   *
+   * Kept because most callers want exactly that, and because the alternative
+   * -- making every caller assemble an adapter -- would be churn in service of
+   * a point the types already make. The engine itself never touches this
+   * client; it is handed to the runtime, which is the only thing that calls a
+   * model (NG6).
+   */
+  llm?: LlmClient;
+  handlers?: Map<string, TaskHandler>;
   /**
    * F5.11: who this engine is, when it claims a task.
    *
@@ -76,6 +85,8 @@ export interface RunOutcome {
      * fine, this engine simply does not have it.
      */
     | 'not_claimed'
+    /** F13.8: the role's runtime is not answering. The task went back. */
+    | 'runtime_unavailable'
     | 'completed'
     | 'failed'
     | 'halted'
@@ -93,9 +104,23 @@ export class Engine {
   readonly #options: EngineOptions;
   readonly #workerId: string;
 
+  readonly #adapters: AdapterRegistry;
+
   constructor(options: EngineOptions) {
     this.#options = options;
     this.#workerId = options.workerId ?? `worker-${randomUUID()}`;
+
+    this.#adapters = options.adapters ?? new AdapterRegistry();
+    if (options.handlers && options.llm && !this.#adapters.get('in-process')) {
+      this.#adapters.register(
+        new InProcessAdapter({ handlers: options.handlers, llm: options.llm }),
+      );
+    }
+  }
+
+  /** The runtimes this engine can employ. */
+  get adapters(): AdapterRegistry {
+    return this.#adapters;
   }
 
   /** The identity this engine claims tasks under (F5.11). */
@@ -103,10 +128,135 @@ export class Engine {
     return this.#workerId;
   }
 
-  async runTask(companyId: string, taskId: string, roleSlug: string): Promise<RunOutcome> {
-    const handler = this.#options.handlers.get(roleSlug);
-    if (!handler) throw new Error(`no handler registered for role ${roleSlug}`);
+  /**
+   * What a role says about how it is executed (F2.3, F13.5, F13.6).
+   *
+   * Read per run rather than cached: a role's runtime is configuration the
+   * owner may change, and a cache would mean the change takes effect whenever
+   * the process happens to restart.
+   */
+  async #loadRuntimeConfig(companyId: string, roleId: string): Promise<{
+    runtime: string;
+    backend: ExecutionBackend;
+    modelPrimary: string;
+    modelFallback: string[];
+    tools: string[];
+    maxTokensPerRun: number;
+  }> {
+    return withTenant(companyId, async (tx) => {
+      const { rows } = await tx.query<{
+        runtime: string;
+        backend: ExecutionBackend;
+        model: string;
+        model_primary: string | null;
+        model_fallback: string[];
+        tools: string[];
+        max_tokens_per_run: number;
+      }>(
+        `SELECT runtime, backend, model, model_primary, model_fallback, tools,
+                max_tokens_per_run
+           FROM roles WHERE id = $1`,
+        [roleId],
+      );
+      const row = rows[0];
+      if (!row) throw new Error(`role ${roleId} not found`);
+      return {
+        runtime: row.runtime,
+        backend: row.backend,
+        // `model` predates `model_primary` and is still what most roles carry.
+        // Preferring the newer column and falling back keeps both readable
+        // without a migration that rewrites every role's model by guesswork.
+        modelPrimary: row.model_primary ?? row.model,
+        modelFallback: row.model_fallback,
+        tools: row.tools,
+        maxTokensPerRun: row.max_tokens_per_run,
+      };
+    });
+  }
 
+  /**
+   * Assembles what the runtime is given (§7.5).
+   *
+   * Everything it needs and nothing it must not have: the tools arrive as
+   * names, schemas and tiers, never as endpoints or credentials, and the
+   * working memory is what this task already committed so a resumed run
+   * continues rather than starting again (F4.7).
+   */
+  async #buildRunRequest(input: {
+    companyId: string;
+    task: TaskRow;
+    roleSlug: string;
+    runtime: {
+      backend: ExecutionBackend;
+      modelPrimary: string;
+      modelFallback: string[];
+      tools: string[];
+      maxTokensPerRun: number;
+    };
+    agentRunId: string;
+  }): Promise<RunRequest> {
+    const { companyId, task, runtime } = input;
+
+    return withTenant(companyId, async (tx) => {
+      const context = await buildContext(tx, {
+        companyId,
+        divisionId: task.divisionId,
+        taskId: task.id,
+      });
+      const goalAncestry = await ancestryForTask(tx, task.id);
+
+      const { rows: toolRows } = await tx.query<{
+        name: string;
+        input_schema: Record<string, unknown>;
+        default_tier: number;
+      }>(
+        `SELECT name, input_schema, default_tier FROM capabilities
+          WHERE name = ANY($1::text[]) ORDER BY name`,
+        [runtime.tools],
+      );
+
+      const { rows: steps } = await tx.query<{ name: string; output: unknown }>(
+        `SELECT name, output FROM task_steps
+          WHERE task_id = $1 AND status = 'committed' ORDER BY step_index`,
+        [task.id],
+      );
+
+      return {
+        runId: input.agentRunId,
+        task,
+        roleSlug: input.roleSlug,
+        contextPack: {
+          charter: context.sections
+            .filter((s) => s.kind === 'platform_charter' || s.kind === 'company_charter')
+            .map((s) => s.body)
+            .join('\n\n'),
+          skills: context.sections.filter((s) => s.kind === 'sop').map((s) => s.body),
+          memories: context.sections
+            .filter((s) => s.kind === 'semantic_memory' || s.kind === 'confidence_warning')
+            .map((s) => `${s.title}\n${s.body}`),
+          goalAncestry,
+          workingMemory: steps.map((row) => ({ name: row.name, output: row.output })),
+        },
+        allowedTools: toolRows.map((row) => ({
+          name: row.name,
+          inputSchema: row.input_schema,
+          tier: row.default_tier,
+        })),
+        modelRouting: { primary: runtime.modelPrimary, fallback: runtime.modelFallback },
+        backend: runtime.backend,
+        limits: {
+          tokens: runtime.maxTokensPerRun,
+          // F6.4's deadline where the task has one; otherwise the lease, which
+          // is the longest a worker may hold anything without saying so.
+          wallClockMs: task.deadlineAt
+            ? Math.max(0, task.deadlineAt.getTime() - Date.now())
+            : DEFAULT_LEASE_MS,
+        },
+      };
+    });
+  }
+
+  async runTask(companyId: string, taskId: string, roleSlug: string): Promise<RunOutcome> {
     const task = await withTenant(companyId, (tx) => getTask(tx, taskId));
     if (!task) throw new Error(`task ${taskId} not found`);
 
@@ -223,6 +373,35 @@ export class Engine {
       };
     }
 
+    // F13.1: which runtime executes this role, on what, with which models.
+    const runtime = await this.#loadRuntimeConfig(companyId, task.roleId);
+    const adapter = this.#adapters.get(runtime.runtime);
+    if (!adapter) {
+      // Loud rather than falling back to whatever is registered: running a
+      // role on a runtime nobody chose for it is how a role calibrated for one
+      // model quietly ends up on another.
+      await transition(companyId, taskId, 'halted', { haltReason: 'runtime_unavailable' });
+      return {
+        status: 'halted',
+        reason:
+          `role ${roleSlug} names runtime ${runtime.runtime}, which is not registered ` +
+          `(registered: ${this.#adapters.names().join(', ') || 'none'})`,
+      };
+    }
+
+    // F13.8: a runtime that fails its health check receives no work. The task
+    // goes back on the queue rather than halting -- an unreachable runtime is
+    // usually a moment rather than a defect, and halting would turn a restart
+    // into an inbox item.
+    const health = await adapter.health();
+    if (!health.ok) {
+      await transition(companyId, taskId, 'pending');
+      return {
+        status: 'runtime_unavailable',
+        reason: `runtime ${adapter.name} is not healthy: ${health.detail ?? 'no detail'}`,
+      };
+    }
+
     const controller = new AbortController();
     const agentRunId = await this.#startAgentRun(task);
 
@@ -236,11 +415,7 @@ export class Engine {
     // randomness inside a handler is a defect.
     let stepIndex = 0;
 
-    const ctx: TaskContext = {
-      task,
-      signal: controller.signal,
-
-      step: async <T,>(name: string, kind: StepKind, input: unknown, fn: (key: string) => Promise<T>) => {
+    const step = async <T,>(name: string, kind: StepKind, input: unknown, fn: (key: string) => Promise<T>) => {
         const guard = await this.#checkGuards(task);
         if (guard) throw new PalugadaError('platform.stopped', guard.reason ?? 'halted', {});
         const index = stepIndex++;
@@ -290,10 +465,10 @@ export class Engine {
           fn,
         );
         return value;
-      },
+    };
 
-      callCapability: async <I, O,>(name: string, input: I): Promise<O> => {
-        return ctx.step(`capability:${name}`, 'tool', { name, input }, async (key) => {
+    const callTool = async <I, O,>(name: string, input: I): Promise<O> => {
+      return step(`capability:${name}`, 'tool', { name, input }, async (key) => {
           const result = await this.#options.broker.invoke<I, O>(
             {
               companyId, projectId: task.projectId, divisionId: task.divisionId,
@@ -302,17 +477,21 @@ export class Engine {
             name,
             input,
           );
-          return result.output;
-        });
-      },
+        return result.output;
+      });
+    };
 
-      awaitChild: async (childRoleSlug, childInput, childOptions) => {
+    const awaitChild = async (
+      childRoleSlug: string,
+      childInput: Record<string, unknown>,
+      childOptions: { timeoutMs: number; reserveTokens?: number },
+    ): Promise<Record<string, unknown>> => {
         if (!Number.isFinite(childOptions.timeoutMs) || childOptions.timeoutMs <= 0) {
           throw new Error('awaitChild requires a positive timeoutMs (PRD F6.4)');
         }
 
-        return ctx.step(
-          `await:${childRoleSlug}`,
+      return step(
+        `await:${childRoleSlug}`,
           'internal',
           { role: childRoleSlug, input: childInput },
           async () => {
@@ -375,34 +554,77 @@ export class Engine {
               if (timer) clearTimeout(timer);
             }
           },
-        );
-      },
+      );
+    };
 
-      llm: async (request) => {
-        return ctx.step('llm', 'llm', request, async () => {
-          const response = await this.#options.llm.complete(
-            { model: request.model ?? 'unset', system: request.system, messages: request.messages },
-            controller.signal,
-          );
-          const funded = await withTenant(companyId, (tx) =>
-            budget.spend(tx, task.budgetAccountId, {
-              tokens: response.inputTokens + response.outputTokens,
-              moneyCents: response.costCents,
-              fromReservation: task.tokensReserved,
-            }),
-          );
-          if (!funded) {
-            throw new PalugadaError('budget.exceeded', 'shared budget exhausted', {
-              budgetAccountId: task.budgetAccountId,
-            });
-          }
-          return response.content;
+    const reportUsage: RunServices['reportUsage'] = async (usage) => {
+      // F13.7: a runtime that cannot say what a call cost gets an estimate,
+      // and the estimate is marked as one. Reporting a guess as a measurement
+      // is how a cost dashboard stops being worth reading.
+      const estimated = usage.costCents === null;
+      const costCents = usage.costCents ?? 0;
+
+      const funded = await withTenant(companyId, (tx) =>
+        budget.spend(tx, task.budgetAccountId, {
+          tokens: usage.inputTokens + usage.outputTokens,
+          moneyCents: costCents,
+          fromReservation: task.tokensReserved,
+        }),
+      );
+      if (!funded) {
+        throw new PalugadaError('budget.exceeded', 'shared budget exhausted', {
+          budgetAccountId: task.budgetAccountId,
         });
-      },
+      }
+
+      // F11.1: every model call is traced through the adapter. The engine
+      // never made the call, so this is the only record there will be of it.
+      await withTenant(companyId, async (tx) => {
+        await tx.query(
+          `INSERT INTO llm_traces (id, company_id, task_id, agent_run_id, model,
+                                   prompt, response, input_tokens, output_tokens,
+                                   cost_cents, latency_ms)
+           VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11)`,
+          [
+            randomUUID(),
+            companyId,
+            taskId,
+            agentRunId,
+            usage.model,
+            usage.prompt === undefined ? null : JSON.stringify(usage.prompt),
+            usage.response === undefined ? null : JSON.stringify(usage.response),
+            usage.inputTokens,
+            usage.outputTokens,
+            costCents,
+            usage.latencyMs ?? null,
+          ],
+        );
+        if (estimated) {
+          await appendEvent(tx, {
+            companyId,
+            projectId: task.projectId,
+            taskId,
+            type: 'cost.estimated',
+            actor: 'engine',
+            payload: { model: usage.model, tokens: usage.inputTokens + usage.outputTokens },
+          });
+        }
+      });
+    };
+
+
+    const services: RunServices = {
+      step,
+      callTool,
+      awaitChild,
+      reportUsage,
+      signal: controller.signal,
     };
 
     try {
-      const output = await handler(ctx);
+      const { output } = await adapter.run(await this.#buildRunRequest(
+        { companyId, task, roleSlug, runtime, agentRunId },
+      ), services);
       // F6.2, F6.3: validated before the task is marked complete, because a
       // downstream task triggered by `task.completed` has no other guarantee
       // about what it is about to read.

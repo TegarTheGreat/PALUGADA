@@ -22,7 +22,7 @@ v2 requirement as built, partial or not built.
 ## Status
 
 **Everything the v1 specification asked for is implemented and tested**, with
-265 acceptance tests running against a real PostgreSQL 16 with pgvector:
+277 acceptance tests running against a real PostgreSQL 16 with pgvector:
 tenant isolation and the durable engine, the charter and policy engine, scoped
 memory with distillation, typed contracts and handoff, adversarial review,
 the capability broker with tier calibration and cost control, durable
@@ -95,6 +95,7 @@ src/
   inbox/           owner inbox: approvals, incidents, emergency controls
   audit/           append-only event log, security events
   llm/             model interface and a recording test double
+  runtime/         the adapter protocol, and the in-process runtime
 test/acceptance/   one file per PRD acceptance criterion
 ```
 
@@ -207,6 +208,10 @@ the template is organised by function rather than by industry.
 | v2 F9.9 wakes for one role inside a minute become one run | `src/scheduler/wake.ts` | `wake-queue.test.ts` |
 | v2 F9.10, G8 a wake with nothing to do costs nothing | `src/scheduler/wake.ts` | `wake-queue.test.ts` |
 | v2 F10.11 the owner assigns work directly and the role wakes | `src/scheduler/wake.ts` | `wake-queue.test.ts` |
+| v2 NG6, F13.1 the engine orchestrates; a runtime executes | `src/runtime/protocol.ts` | `runtime-adapter.test.ts` |
+| v2 F13.4 a runtime holds no credentials and no database | `src/runtime/protocol.ts` | `runtime-adapter.test.ts` |
+| v2 F13.7 cost per run, or an estimate marked as one | `src/engine/engine.ts` | `runtime-adapter.test.ts` |
+| v2 F13.8 an unhealthy runtime receives no work | `src/engine/engine.ts` | `runtime-adapter.test.ts` |
 
 ## Decisions worth knowing
 
@@ -383,6 +388,31 @@ escalation, not an edit.
 broker never guesses which parameter is the list. A guess breaks silently the
 day a field is renamed, and a guard that has quietly stopped guarding is worse
 than none.
+
+**The engine does not call a model to do a task.** NG6, and it is checked
+against the source rather than behaviourally, because a behavioural test would
+pass just as happily the day a model client reappears behind a condition. The
+engine assembles a request, lends the runtime four things, and does the
+accounting; the runtime decides what to say.
+
+**A runtime is lent four things and no more.** Tool calls resolved through the
+broker, a journalled step, a contained sub-task, and a way to report what a
+model call cost. No credentials — `allowedTools` carries names, schemas and
+tiers — and no database connection. A compromised runtime can ask for things
+and be refused; it cannot take them.
+
+**Durability differs by runtime, and the difference is stated.** The in-process
+runtime journals each model call, so a crash resumes without repeating one. An
+out-of-process runtime is a black box between tool calls: F5.1 journals the
+adapter round-trip, so a resumed run re-enters it and its internal reasoning
+happens again. Session continuity (F4.7) is what makes that bearable — the
+committed steps travel in the context pack — not what makes the two
+equivalent. That is the price of not being the runtime.
+
+**A missing prompt has two meanings, kept apart.** NULL means the runtime never
+shared it; the redaction marker means retention removed it. An auditor asking
+why a prompt is empty needs those told apart, so the scrubber leaves a NULL
+alone.
 
 **A wake is a reason to look, not a reason to run.** Dormant is the normal
 state (principle 13) and G8 puts a number on what that has to mean: zero tokens

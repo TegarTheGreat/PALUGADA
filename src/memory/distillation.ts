@@ -20,6 +20,13 @@
  *
  * A pass records how far it consumed, so running twice does not manufacture
  * corroboration by extracting the same fact again.
+ *
+ * On NG6: this job calls a model directly, and that is not the exception it
+ * looks like. NG6 forbids the platform calling a model *to do a task* -- a
+ * role's work belongs to a runtime. Distillation is the platform's own
+ * housekeeping over its own event log (v2 section 6.2 lists it as a scheduled
+ * job rather than a run), so there is no role, no task and no runtime whose
+ * work is being taken.
  */
 import { withTenant, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';

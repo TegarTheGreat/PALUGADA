@@ -119,7 +119,10 @@ test('an export carries the company\'s whole history (F1.5, F11.6)', async () =>
   assert.ok(sections.events!.length >= 3);
   assert.equal(sections.memories!.length, 1);
   assert.equal(sections.credentials!.length, 1);
-  assert.equal(sections.llm_traces!.length, 1);
+  // Two: the one this fixture seeds by hand, and the one the engine wrote for
+  // the model call the run actually made. F11.1 traces every call now that the
+  // runtime reports its usage, so a run that thinks leaves a trace behind.
+  assert.equal(sections.llm_traces!.length, 2);
 
   // The counts in the summary match what was actually written out, so a
   // truncated archive cannot report itself as complete.
@@ -163,13 +166,14 @@ test('prompts are excluded by default and included on request', async () => {
   await seedCompany(fixture, 'gamma');
 
   const withoutPrompts = await collectExport(fixture.companyId);
-  const trace = withoutPrompts.sections.llm_traces![0]!;
-  assert.equal('prompt' in trace, false, 'prompts are not exported by default');
-  assert.equal(trace.cost_cents, 3, 'but the cost is, because an audit needs it');
-  assert.equal(trace.model, 'test-model');
+  // Found by id: the engine's own trace for this run carries the same model
+  // name, and picking by model would silently test the wrong row.
+  const seeded = withoutPrompts.sections.llm_traces!.find((row) => row.id === 'trace-gamma')!;
+  assert.equal('prompt' in seeded, false, 'prompts are not exported by default');
+  assert.equal(seeded.cost_cents, 3, 'but the cost is, because an audit needs it');
 
   const withPrompts = await collectExport(fixture.companyId, { includePrompts: true });
-  const full = withPrompts.sections.llm_traces![0]!;
+  const full = withPrompts.sections.llm_traces!.find((row) => row.id === 'trace-gamma')!;
   assert.deepEqual(full.prompt, { text: 'prompt for gamma' });
 });
 

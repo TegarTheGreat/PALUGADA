@@ -433,3 +433,193 @@ test('a secret from an uncooperative manager is still redacted (F12.4)', async (
     'the leak check can only see a secret somebody registered',
   );
 });
+
+/* -------------------------------------------------------------- F12.6 --- */
+
+/**
+ * Least privilege, squeezed from both ends.
+ *
+ * F12.6 asks that third-party tokens carry the minimum scope their capability
+ * needs. PALUGADA cannot ask a provider what a token really holds — it stores a
+ * reference and never a value — so what it enforces is the *declaration*, from
+ * two directions at once. Over-declaring is refused by the database: a
+ * credential may not claim a scope no capability in its division needs.
+ * Under-declaring is refused by the broker: a capability whose required scopes
+ * are not covered does not run.
+ *
+ * Neither check is worth much alone. Together the only declaration that lets
+ * work happen is the true one, which turns an over-scoped token from something
+ * an operator does by accident into something they have to lie about.
+ */
+test('a credential may not declare a scope its division has no use for (F12.6)', async () => {
+  const fixture = await createCompany('scope-excess');
+
+  const registry = new CapabilityRegistry();
+  registry.register({
+    name: 'dns.read',
+    adapter: 'test:dns',
+    defaultTier: 0,
+    requiredScopes: ['zone:read'],
+    async execute() {
+      return { records: [] };
+    },
+  });
+  await registry.sync();
+  await grantCapability(fixture, 'dns.read');
+
+  // The scope the division's one capability needs: allowed.
+  await withTenant(fixture.companyId, async (tx) => {
+    await tx.query(
+      `INSERT INTO credentials (company_id, division_id, alias, secret_ref, scopes)
+       VALUES ($1, $2, 'dns', 'vault://acme/dns-token', ARRAY['zone:read'])`,
+      [fixture.companyId, fixture.divisionId],
+    );
+  });
+
+  // An organisation-admin token in a division that only reads DNS: refused,
+  // and the message names what is in excess rather than saying "invalid".
+  await assert.rejects(
+    () =>
+      withTenant(fixture.companyId, (tx) =>
+        tx.query(
+          `INSERT INTO credentials (company_id, division_id, alias, secret_ref, scopes)
+           VALUES ($1, $2, 'admin', 'vault://acme/admin-token',
+                   ARRAY['zone:read','org:admin'])`,
+          [fixture.companyId, fixture.divisionId],
+        ),
+      ),
+    /declares org:admin which no capability granted to its division needs/,
+  );
+});
+
+test('a capability does not run against a credential that does not cover it (F12.6)', async () => {
+  const fixture = await createCompany('scope-short');
+
+  const seen: string[] = [];
+  const capability: Capability<{ zone: string }, { ok: boolean }> = {
+    name: 'dns.read',
+    adapter: 'test:dns',
+    defaultTier: 0,
+    requiredScopes: ['zone:read', 'zone:write'],
+    async execute(_input, ctx) {
+      seen.push(await ctx.credential('dns'));
+      return { ok: true };
+    },
+  };
+
+  const registry = new CapabilityRegistry();
+  registry.register(capability as Capability<unknown, unknown>);
+  await registry.sync();
+  await grantCapability(fixture, 'dns.read');
+
+  // Declares half of what the capability needs. The database permits it —
+  // nothing here is in excess — and the broker is the side that refuses.
+  await withTenant(fixture.companyId, async (tx) => {
+    await tx.query(
+      `INSERT INTO credentials (company_id, division_id, alias, secret_ref, scopes)
+       VALUES ($1, $2, 'dns', 'vault://acme/dns-token', ARRAY['zone:read'])`,
+      [fixture.companyId, fixture.divisionId],
+    );
+  });
+
+  const secrets = new CachedSecretManager(
+    new InMemorySecretManager({ 'vault://acme/dns-token': SECRET }),
+  );
+  const broker = new CapabilityBroker(registry, undefined, secrets);
+  const taskId = await runnableTask(fixture, 'dns.read');
+
+  await assert.rejects(
+    () => broker.invoke(invokeContext(fixture, taskId), 'dns.read', { zone: 'example.com' }),
+    (error: unknown) => isPalugadaError(error, 'credential.scope_insufficient'),
+  );
+  assert.deepEqual(seen, [], 'the adapter never held a token too narrow for its job');
+
+  // And once the token is reissued with what the capability declared, it runs.
+  await withTenant(fixture.companyId, async (tx) => {
+    await tx.query(
+      `UPDATE credentials SET scopes = ARRAY['zone:read','zone:write'] WHERE division_id = $1`,
+      [fixture.divisionId],
+    );
+  });
+  const second = await runnableTask(fixture, 'dns.read');
+  await broker.invoke(invokeContext(fixture, second), 'dns.read', { zone: 'example.com' });
+  assert.deepEqual(seen, [SECRET]);
+});
+
+/**
+ * And the rule does not decay when a grant goes away.
+ *
+ * A check that only runs on insert is a check that holds until somebody
+ * revokes the grant that justified a scope, at which point the credential is
+ * over-scoped and nothing says so. The same reasoning as F3.5's policy scopes:
+ * a rule that can be escaped by changing something else is not a rule.
+ */
+test('revoking the grant that justified a scope is refused while the token declares it (F12.6)', async () => {
+  const fixture = await createCompany('scope-decay');
+
+  const registry = new CapabilityRegistry();
+  registry.register({
+    name: 'dns.read',
+    adapter: 'test:dns',
+    defaultTier: 0,
+    requiredScopes: ['zone:read'],
+    async execute() {
+      return { records: [] };
+    },
+  });
+  await registry.sync();
+  await grantCapability(fixture, 'dns.read');
+
+  await withTenant(fixture.companyId, async (tx) => {
+    await tx.query(
+      `INSERT INTO credentials (company_id, division_id, alias, secret_ref, scopes)
+       VALUES ($1, $2, 'dns', 'vault://acme/dns-token', ARRAY['zone:read'])`,
+      [fixture.companyId, fixture.divisionId],
+    );
+  });
+
+  await assert.rejects(
+    () =>
+      withTenant(fixture.companyId, (tx) =>
+        tx.query('DELETE FROM capability_grants WHERE division_id = $1', [fixture.divisionId]),
+      ),
+    /would be left declaring zone:read which nothing in its division needs/,
+  );
+
+  // Removing the credential first is the order that works, which is the order
+  // least privilege wants anyway: stop holding the token, then stop needing it.
+  await withTenant(fixture.companyId, async (tx) => {
+    await tx.query('DELETE FROM credentials WHERE division_id = $1', [fixture.divisionId]);
+    await tx.query('DELETE FROM capability_grants WHERE division_id = $1', [fixture.divisionId]);
+  });
+});
+
+/**
+ * A capability that needs no scope is the common case and stays quiet.
+ *
+ * Everything the platform implements itself reads the company's own store and
+ * talks to no provider. Requiring a declaration there would be ceremony, and
+ * ceremony is what makes people declare something untrue.
+ */
+test('a capability that needs no scope needs no declaration (F12.6)', async () => {
+  const fixture = await createCompany('scope-none');
+
+  const { capability, seen } = credentialCapability();
+  const secrets = new CachedSecretManager(
+    new InMemorySecretManager({ 'vault://acme/dns-token': SECRET }),
+  );
+  const broker = await brokerFor(capability as never, secrets);
+  await grantCapability(fixture, 'dns.read');
+
+  await withTenant(fixture.companyId, async (tx) => {
+    await tx.query(
+      `INSERT INTO credentials (company_id, division_id, alias, secret_ref)
+       VALUES ($1, $2, 'dns', 'vault://acme/dns-token')`,
+      [fixture.companyId, fixture.divisionId],
+    );
+  });
+
+  const taskId = await runnableTask(fixture, 'dns.read');
+  await broker.invoke(invokeContext(fixture, taskId), 'dns.read', { zone: 'example.com' });
+  assert.deepEqual(seen, [SECRET]);
+});

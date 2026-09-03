@@ -16,6 +16,8 @@ export type ErrorCode =
   | 'capability.rate_limited'
   /** The broker was built with no secret manager, so no credential can be resolved. */
   | 'credential.unavailable'
+  /** F12.6: the credential does not declare a scope the capability needs. */
+  | 'credential.scope_insufficient'
   | 'contract.violation'
   | 'goal.required'
   | 'role.incomplete'

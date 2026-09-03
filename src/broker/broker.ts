@@ -55,6 +55,7 @@ import { ancestryForTask, renderAncestry } from '../domain/goals.ts';
 import { checkAgainstPlan, readPlan, type TaskPlan } from '../engine/plan.ts';
 import type { CapabilityContext, CapabilityRegistry } from './registry.ts';
 import { CachedSecretManager, resolveCurrent } from '../secrets/rotation.ts';
+import { assertScopesCover } from '../secrets/scopes.ts';
 import { HookPipeline } from '../engine/hooks.ts';
 
 export interface InvokeContext {
@@ -143,7 +144,12 @@ export class CapabilityBroker {
    * at this point was written first and could be deleted with the whole suite
    * still green, which is how it was found out.
    */
-  async #credential(companyId: string, divisionId: string, alias: string): Promise<string> {
+  async #credential(
+    companyId: string,
+    divisionId: string,
+    alias: string,
+    capability: string,
+  ): Promise<string> {
     if (!this.#secrets) {
       throw new PalugadaError(
         'credential.unavailable',
@@ -151,10 +157,10 @@ export class CapabilityBroker {
         { alias },
       );
     }
-    const value = await withTenant(companyId, (tx) =>
-      resolveCurrent(tx, this.#secrets!, divisionId, alias),
-    );
-    return value;
+    return withTenant(companyId, async (tx) => {
+      await assertScopesCover(tx, divisionId, alias, capability);
+      return resolveCurrent(tx, this.#secrets!, divisionId, alias);
+    });
   }
 
   /** The hook pipeline this broker consults (F14). */
@@ -455,7 +461,7 @@ export class CapabilityBroker {
       taskId: ctx.taskId,
       idempotencyKey: ctx.idempotencyKey,
       signal,
-      credential: (alias: string) => this.#credential(ctx.companyId, ctx.divisionId, alias),
+      credential: (alias: string) => this.#credential(ctx.companyId, ctx.divisionId, alias, name),
     };
 
     // Section 8.8 treats tier 2 as "check the budget, then policy". The check

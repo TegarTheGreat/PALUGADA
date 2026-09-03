@@ -102,7 +102,13 @@ test('approving resumes the task and denying cancels it', async () => {
     tier: 3, actionSummary: 'Do the thing', rationale: 'because',
     consequenceIfDenied: 'nothing happens',
   });
-  await inbox.decide(fixture.companyId, approvalId, 'approve', 'go ahead');
+  // Tier 3, so F10.10 wants the app and a second factor. Stated rather than
+  // worked around: a test that reached a tier 3 approval without one would be
+  // exercising a path the platform does not have.
+  await inbox.decide(fixture.companyId, approvalId, 'approve', 'go ahead', {
+    channel: 'app',
+    assurance: 'mfa',
+  });
   const resumed = await withTenant(fixture.companyId, (tx) => getTask(tx, approved.id));
   assert.equal(resumed!.status, 'running');
 
@@ -294,4 +300,103 @@ test('a tier 3 approval cannot be given over a chat channel (F10.10)', async () 
   // A denial over chat is fine: F10.10 bars approving, and refusing an action
   // is the safe direction. So is a tier 2 approval.
   await inbox.decide(fixture.companyId, itemId, 'deny', 'not yet', { channel: 'chat' });
+});
+
+/**
+ * The other half of F10.10, which was not enforced.
+ *
+ * The requirement reads "approval tier 3 only through the app **with MFA**",
+ * and only the channel half of that sentence was checked: `channel: 'app'` was
+ * enough, so an integration that named the wrong channel — by mistake or by
+ * laziness — got a tier 3 approval with no second factor at all. The channel
+ * says which pipe the request came down. The assurance says how the person at
+ * the other end was authenticated, which is what the requirement is about.
+ *
+ * PALUGADA cannot verify the assertion, exactly as it cannot verify `channel`,
+ * and the code says so rather than dressing it up. What it buys is that
+ * approving a tier 3 action without a second factor now requires the caller to
+ * state something false, and the statement lands on the security event. Same
+ * trade as F12.6's scopes: an accident becomes a lie, and the lie is recorded.
+ */
+test('a tier 3 approval needs a second factor, not just the right channel (F10.10, F12.5)', async () => {
+  const fixture = await createCompany('tier3-mfa');
+  const task = await newTask(fixture, 'wire the payment');
+  await transition(fixture.companyId, task.id, 'running');
+
+  const itemId = await inbox.requestApproval({
+    companyId: fixture.companyId,
+    taskId: task.id,
+    capabilityName: 'payment.send',
+    tier: 3,
+    actionSummary: 'Send the payment',
+    rationale: 'The invoice is verified.',
+    consequenceIfDenied: 'The supplier is not paid this week.',
+  });
+
+  // The right channel and nothing said about authentication: refused, and the
+  // message names the missing factor rather than blaming the channel.
+  await assert.rejects(
+    () => inbox.decide(fixture.companyId, itemId, 'approve', 'ok', { channel: 'app' }),
+    (error: unknown) => isPalugadaError(error, 'approval.channel_forbidden'),
+  );
+
+  const refusals = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ payload: { assurance?: string; channel?: string } }>(
+      "SELECT payload FROM events WHERE type = 'security.tier3_channel_refused'",
+    );
+    return rows;
+  });
+  assert.equal(refusals.length, 1);
+  assert.equal(refusals[0]!.payload.assurance, 'none', 'what the caller claimed is on the record');
+  assert.equal(refusals[0]!.payload.channel, 'app');
+
+  // A session without a second factor is not enough either: F12.5 asks for
+  // MFA, and "already logged in" is the thing MFA exists to be more than.
+  await assert.rejects(
+    () =>
+      inbox.decide(fixture.companyId, itemId, 'approve', 'ok', {
+        channel: 'app',
+        assurance: 'session',
+      }),
+    (error: unknown) => isPalugadaError(error, 'approval.channel_forbidden'),
+  );
+
+  // Both halves together: the app, and a second factor.
+  await inbox.decide(fixture.companyId, itemId, 'approve', 'ok', {
+    channel: 'app',
+    assurance: 'mfa',
+  });
+  const open = await inbox.listOpen(fixture.companyId);
+  assert.equal(open.some((entry) => entry.id === itemId), false, 'the approval went through');
+});
+
+/**
+ * What a message channel may carry, written before the channel exists.
+ *
+ * F10.9 names three things a chat channel is an *action* surface for — an
+ * escalation, a skill candidate, and a review at tier 2 or below — and F10.10
+ * carves out tier 3 as a link and nothing more. No channel exists here and none
+ * can without a messaging account, so what is testable is the rule that would
+ * govern one. Written now for the reason F10.10's prohibition was: a rule that
+ * arrives with the integration is a rule the integration's author gets to
+ * decide.
+ */
+test('the message channel rule is settled before the channel exists (F10.9, F10.10)', () => {
+  assert.equal(inbox.channelDelivery({ kind: 'escalation', tier: null }), 'actionable');
+  assert.equal(inbox.channelDelivery({ kind: 'skill_candidate', tier: null }), 'actionable');
+  assert.equal(inbox.channelDelivery({ kind: 'approval', tier: 2 }), 'actionable');
+
+  // The exception F10.10 states, and it wins over the kind: a tier 3 approval
+  // reaches the phone and carries nothing to press.
+  assert.equal(inbox.channelDelivery({ kind: 'approval', tier: 3 }), 'link_only');
+
+  // An incident is push-worthy under F10.5 and is not one of the three F10.9
+  // lists, so it notifies and offers no button. That is a reading rather than a
+  // quotation and docs/STATUS.md says so.
+  assert.equal(inbox.channelDelivery({ kind: 'incident', tier: null }), 'link_only');
+
+  // Anything the requirement does not name is not a channel surface. The
+  // default is "not this one", which is the direction to be wrong in.
+  assert.equal(inbox.channelDelivery({ kind: 'budget_alert', tier: null }), 'none');
+  assert.equal(inbox.channelDelivery({ kind: 'fact_candidate', tier: null }), 'none');
 });

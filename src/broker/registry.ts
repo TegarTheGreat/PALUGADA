@@ -107,6 +107,20 @@ export interface Capability<I = unknown, O = unknown> {
    * something.
    */
   executesUntrustedCode?: boolean;
+  /**
+   * F12.6: the provider scopes this capability needs to do its job.
+   *
+   * Declared by the adapter, because the adapter is the only thing that knows
+   * which API calls it will make. It is checked from both sides: a credential
+   * may not declare a scope no capability in its division needs, and a
+   * capability may not run against a credential whose scopes do not cover
+   * this list. Squeezed from both ends, the only declaration that passes is
+   * the true one.
+   *
+   * Empty for everything that talks to nothing outside the company, which is
+   * most of what the platform implements itself.
+   */
+  requiredScopes?: readonly string[];
 }
 
 export class CapabilityRegistry {
@@ -151,13 +165,14 @@ export class CapabilityRegistry {
         await tx.query(
           `INSERT INTO capabilities
              (name, adapter, default_tier, estimated_cost_cents, has_verify,
-              executes_untrusted_code)
-           VALUES ($1, $2, $3, $4, $5, $6)
+              executes_untrusted_code, required_scopes)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
            ON CONFLICT (name) DO UPDATE
              SET adapter = EXCLUDED.adapter,
                  default_tier = EXCLUDED.default_tier,
                  estimated_cost_cents = EXCLUDED.estimated_cost_cents,
                  has_verify = EXCLUDED.has_verify,
+                 required_scopes = EXCLUDED.required_scopes,
                  executes_untrusted_code = EXCLUDED.executes_untrusted_code`,
           [
             capability.name,
@@ -166,6 +181,7 @@ export class CapabilityRegistry {
             capability.estimatedCostCents ?? 0,
             typeof capability.verify === 'function',
             capability.executesUntrustedCode ?? false,
+            [...(capability.requiredScopes ?? [])],
           ],
         );
       }

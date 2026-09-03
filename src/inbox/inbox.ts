@@ -408,14 +408,79 @@ export type DecisionChannel = 'app' | 'chat' | 'api';
  */
 const TIER_3_CHANNELS = new Set<DecisionChannel>(['app', 'api']);
 
+/**
+ * How the owner proved who they were (F10.10, F12.5).
+ *
+ * F10.10 reads "approval tier 3 only through the app **with MFA**", and only
+ * the second half of that sentence was enforced for a while: `channel: 'app'`
+ * was enough, so an integration that named the wrong channel got a tier 3
+ * approval with no second factor. The channel says which pipe the request came
+ * down; this says how the person at the other end was authenticated, which is
+ * what the requirement is actually about.
+ *
+ * It is asserted by the caller and this codebase cannot check it -- exactly
+ * like `channel`, and worth saying plainly rather than dressing up. PALUGADA
+ * performs no authentication: F12.5 wants MFA and mobile biometrics, and both
+ * live in an application that does not exist here. What this buys is that a
+ * tier 3 approval given without a second factor requires the caller to state
+ * something false, and the statement is on the decision event where an auditor
+ * can find it. That is the same trade as F12.6's scopes: an accident becomes a
+ * lie, and the lie is recorded.
+ */
+export type OwnerAssurance = 'mfa' | 'session' | 'none';
+
+/**
+ * What a message channel may do with an item (F10.9, F10.10, F10.5).
+ *
+ * F10.9 makes Telegram, WhatsApp or Signal a notification *and action* surface
+ * for three things by name: an escalation, a skill candidate, and a review at
+ * tier 2 or below, answered with inline buttons. F10.10 then carves out the
+ * exception: tier 3 shows a link and nothing else.
+ *
+ * No channel exists here and none can -- F10.9 needs a messaging account. This
+ * is the rule that would govern one, written now for the reason F10.10's
+ * prohibition was: a rule added alongside the integration it constrains is a
+ * rule whoever writes the integration gets to decide. Written first, it is
+ * already true when they arrive.
+ *
+ * `link_only` for an incident is a reading rather than a quotation, and worth
+ * flagging as one. F10.5 makes an incident push-worthy and F10.9 does not list
+ * it among the three the channel may act on, so it reaches the owner and
+ * carries nothing to press. Everything else is `none`: the requirement names
+ * what the surface is for, and a default of "not this one" is the direction to
+ * be wrong in.
+ */
+export type ChannelDelivery = 'actionable' | 'link_only' | 'none';
+
+export function channelDelivery(item: { kind: string; tier: number | null }): ChannelDelivery {
+  // F10.10 first, so no later rule can hand tier 3 a button.
+  if ((item.tier ?? 0) >= 3) return 'link_only';
+
+  switch (item.kind) {
+    case 'escalation':
+    case 'skill_candidate':
+      return 'actionable';
+    case 'approval':
+      // "review Tier <= 2" in F10.9's words. The tier 3 case left above.
+      return 'actionable';
+    case 'incident':
+      return 'link_only';
+    default:
+      return 'none';
+  }
+}
+
 export async function decide(
   companyId: string,
   itemId: string,
   decision: Decision,
   note = '',
-  options: { channel?: DecisionChannel } = {},
+  options: { channel?: DecisionChannel; assurance?: OwnerAssurance } = {},
 ): Promise<void> {
   const channel = options.channel ?? 'api';
+  // Defaulted to the weakest, so a caller that says nothing cannot approve a
+  // tier 3 action. The safe default is the one that refuses.
+  const assurance = options.assurance ?? 'none';
   // F10.10: read the tier before the update, so a refusal changes nothing.
   const tier = await withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{ tier: number | null }>(
@@ -425,19 +490,26 @@ export async function decide(
     return rows[0]?.tier ?? null;
   });
 
-  if (decision === 'approve' && (tier ?? 0) >= 3 && !TIER_3_CHANNELS.has(channel)) {
+  if (
+    decision === 'approve'
+    && (tier ?? 0) >= 3
+    && (!TIER_3_CHANNELS.has(channel) || assurance !== 'mfa')
+  ) {
     await withTenant(companyId, async (tx) => {
       await appendEvent(tx, {
         companyId,
         type: 'security.tier3_channel_refused',
         actor: 'system',
-        payload: { inboxItemId: itemId, channel },
+        payload: { inboxItemId: itemId, channel, assurance },
       });
     });
     throw new PalugadaError(
       'approval.channel_forbidden',
-      `a tier 3 approval cannot be given over ${channel}; it happens in the app (F10.10)`,
-      { inboxItemId: itemId, channel },
+      assurance === 'mfa'
+        ? `a tier 3 approval cannot be given over ${channel}; it happens in the app (F10.10)`
+        : 'a tier 3 approval needs a second factor; the caller asserted ' +
+          `assurance "${assurance}" (PRD F10.10, F12.5)`,
+      { inboxItemId: itemId, channel, assurance },
     );
   }
 

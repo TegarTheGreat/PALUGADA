@@ -221,6 +221,8 @@ test/acceptance/   one file per PRD acceptance criterion
 | F9.2 external windows, deferring not failing | `src/scheduler/windows.ts`, `src/broker/broker.ts` | `scheduling-windows.test.ts` |
 | F9.3 owner window, incidents excepted | `src/scheduler/windows.ts` | `scheduling-windows.test.ts` |
 | F12.1, F12.2, F12.4 secret references, scope, redaction, and a capability that can ask for one | `src/secrets/manager.ts`, `src/secrets/rotation.ts`, `src/broker/broker.ts` | `credentials.test.ts` |
+| F12.6 least privilege: a token declares its scopes, and both ends refuse a lie | `src/secrets/scopes.ts`, `db/migrations/0030_*.sql` | `credentials.test.ts` |
+| F10.9, F10.10 what a message channel may act on, and what tier 3 needs | `src/inbox/inbox.ts` | `owner-inbox.test.ts` |
 
 ## What Phase 2 adds
 
@@ -697,9 +699,27 @@ what the last computed.
 
 ## Not built yet
 
-Two requirements, and they are the same requirement twice: the owner's phone.
-F10.9 wants a Telegram or WhatsApp channel and F12.5 wants MFA with mobile
-biometrics. Neither can be exercised from here — there is no device, no store
+One thing wearing several numbers: the owner's phone. F10.5 has no push
+transport, F10.9 no messaging account, F10.10 and F12.5 no application that can
+perform MFA. Those are vendor integrations and a client application, and
+neither can be exercised from here.
+
+What is built for all of them is the half that is a rule rather than a
+transport, because a rule written alongside the integration it constrains is a
+rule the integration's author gets to decide. Only an incident or a tier 3
+approval escapes the owner's window. A message channel may act on an
+escalation, a skill candidate or a review at tier 2 and below, and carries
+tier 3 as a link with nothing to press. A tier 3 approval needs the app *and* an
+asserted second factor — for a while only the channel was checked, so an
+integration naming the wrong one got tier 3 with no MFA at all. None of those
+assertions can be verified here, and the code says so rather than dressing it
+up: what they buy is that doing the wrong thing requires stating something
+false, on an event an auditor can read.
+
+F13.3's four runtime adapters are the other outstanding item and are the same
+kind of thing: `hermes`, `openclaw`, `codex` and `gemini-cli` are not installed
+here, and an adapter written against a CLI whose interface cannot be observed is
+code that compiles and has never run. Neither can be exercised from here — there is no device, no store
 and no messaging account — and writing them blind would produce code that
 compiles and has never worked once.
 

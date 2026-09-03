@@ -8,15 +8,16 @@ to resolve it.
 This file says three things: which identifiers changed meaning, what is built
 against v2, and what has to be decided before the v2 roadmap can proceed.
 
-Sections 2.2 to 2.10 are the same exercise asked nine different ways — what
+Sections 2.2 to 2.11 are the same exercise asked ten different ways — what
 does nothing call, what does this claim to prevent, would the suite notice,
 what happens if you actually start it, which exports only tests reach, what one
 worker never races, do the PRD's own numbered criteria run as written, does the
-archive carry what it says it carries, and — the last one, and the one that
-should have come first — does this document describe the requirement or a
-summary of it somebody wrote once. Each found something, which is why they are
-separate rather than folded into a single "audited" note: the useful part is
-the question, not the answer.
+archive carry what it says it carries, does this document describe the
+requirement or a summary of it, and — last, and the one that should have been
+first — is every requirement in this table at all. Each found something, which
+is why they are separate rather than folded into a single "audited" note: the
+useful part is the question, not the answer. The last two were about this
+document rather than the code, and they were the two that found a P0.
 
 ## 1. Identifiers that changed meaning
 
@@ -41,9 +42,10 @@ number now reads as done and is not.
 Assessed requirement by requirement against v2 section 8. "Partial" always says
 what is missing rather than leaving the reader to guess.
 
-Read this table knowing what sections 2.2 to 2.10 found: nine audits, and every
-one of them found something in a row that already said "built" — or, in one
-case, in a row that said "not built" and should not have. F1.6 had its
+Read this table knowing what sections 2.2 to 2.11 found: ten audits, and every
+one found something — usually in a row that already said "built", once in a row
+that said "not built" and should not have, and once in a requirement that had no
+row at all. F1.6 had its
 accounts and its inheritance and nothing looked them up. F12.1–F12.4 scoped
 credentials the database enforced and no capability could obtain one. F1.5
 exported a company's rules as history and not as rules. None of those rows was
@@ -63,31 +65,44 @@ means less than that, the row says so.
 | F7 adversarial review | F7.1–F7.7 | — | — |
 | F8 broker, tiers | F8.1–F8.13 | — | — |
 | F9 scheduler | F9.1–F9.10 | — | — |
-| F10 owner surface | F10.1–F10.4, F10.6–F10.8, F10.11 | F10.5 (the rule is enforced; there is no push channel), F10.10 (a tier 3 approval is refused over a chat channel; MFA needs an app) | F10.9 |
+| F10 owner surface | F10.1–F10.4, F10.6–F10.8, F10.11 | F10.5 (the rule is enforced; there is no push channel), F10.9 (the delivery rule is enforced; there is no messaging account), F10.10 (both halves refused in code; nothing here can *perform* MFA) | — |
 | F11 observability | F11.1–F11.7 | — | — |
-| F12 credentials, gateway | F12.1–F12.4, F12.7–F12.10 | — | F12.5 |
-| F13 runtime adapters | F13.1, F13.2, F13.4–F13.8 | F13.3 (the wire protocol is open and documented; no `hermes`, `codex` or `gemini-cli` adapter is written) | — |
+| F12 credentials, gateway | F12.1–F12.4, F12.6–F12.10 | — | F12.5 |
+| F13 runtime adapters | F13.1, F13.2, F13.4–F13.8 | F13.3 (the wire protocol is open and documented; none of the four adapters it names — `hermes`, `openclaw`, `codex`, `gemini-cli` — is written) | — |
 | F14 lifecycle hooks | F14.1–F14.4 | — | — |
 | F15 skills | F15.1–F15.8 | — | — |
 | F16 bundles | F16.1–F16.5 | — | — |
 | F17 eval, trajectory | F17.1, F17.2, F17.3, F17.4 | — | — |
 
-Read as a whole: every P0 and P1 requirement in v2 section 8 is now built,
-except where the row above says otherwise. What is left is concentrated in one
-place and is honest about why — F10.9, F10.10 and F12.5 are the owner's
-phone. A PWA, push notifications, Telegram and WhatsApp are a client
-application and a set of vendor integrations, and none of them can be tested
-here: there is no device, no store, and no messaging account. Building them
-blind would produce code that compiles and has never worked. They are named as
-not built rather than half-written.
+Read as a whole: every P0 and P1 requirement in v2 section 8 is now built or
+enforced as far as this environment allows, and the "partial" column says
+exactly how far in each case. What is left is one thing wearing three numbers —
+the owner's phone. F10.5 has no push transport, F10.9 no messaging account,
+F10.10 and F12.5 no application that can perform MFA. Push notifications,
+Telegram and WhatsApp are vendor integrations and MFA is a client application;
+none can be exercised here, and writing them blind would produce code that
+compiles and has never worked.
+
+What *is* built for all four is the half that is a rule rather than a
+transport, and that is deliberate: a rule written alongside the integration it
+constrains is a rule the integration's author gets to decide. Only an incident
+or a tier 3 approval escapes the owner's window (F10.5). A message channel may
+act on an escalation, a skill candidate or a review at tier 2 and below, and
+carries tier 3 as a link with nothing to press (F10.9, F10.10). A tier 3
+approval needs the app and an asserted second factor (F10.10). Each of those is
+true today, against a surface that does not exist yet.
 
 The rest of the "partial" column is the same kind of honesty at smaller scale.
 F12.9's `docker` and `remote_sandbox` backends are declared in the protocol and
 selected per role; what is implemented is `local`, where a spawned runtime
 inherits no environment and reaches nothing but the broker. F13.3 asks for
-adapters to four named third-party runtimes; the wire protocol they would speak
-is written, documented and tested, and none of the four is installed here to
-write an adapter against.
+adapters to four named third-party runtimes — `hermes`, `openclaw`, `codex`
+and `gemini-cli`; the wire protocol they would speak is written, documented and
+tested, and none of the four is installed here to write an adapter against. An
+adapter is an argv and a translation of somebody else's output format, and
+writing one against a CLI whose interface cannot be observed would produce
+exactly the thing this document keeps refusing: code that compiles and has
+never run.
 
 ## 2.1 Deliberate deviations from the PRD
 
@@ -105,14 +120,21 @@ applies to one division and the database refuses anything wider. What is not
 built is a client for any particular hub; `importExternalSkill` takes the
 document, wherever it came from.
 
-**F10.10 is enforced in half, and it is the half that matters.** The
-requirement is "tier 3 approval only through the app with MFA; the message
-channel shows a link and nothing more". There is no app and no MFA here, so
-what is implemented is the prohibition: `decide` takes the channel it arrived
-on, and a tier 3 approval over `chat` is refused and recorded as a security
-event. Written now rather than alongside the chat integration, because a rule
-added at the same time as the surface it constrains is a rule somebody has to
-remember.
+**F10.10 is enforced as a refusal, because a refusal is what this side can
+make true.** The requirement is "tier 3 approval only through the app with MFA;
+the message channel shows a link and nothing more". Both halves now refuse:
+`decide` takes the channel it arrived on *and* how the owner was
+authenticated, and a tier 3 approval is refused unless it is the app and the
+caller asserts a second factor. Only the channel half was checked for a while,
+which meant an integration naming the wrong channel got a tier 3 approval with
+no MFA at all.
+
+Neither assertion can be verified here and the code says so instead of dressing
+it up: PALUGADA performs no authentication, which is F12.5 and needs an
+application that does not exist. What the check buys is that approving a tier 3
+action without a second factor requires the caller to state something false,
+and the statement lands on the `security.tier3_channel_refused` event. The same
+trade as F12.6's scopes — an accident becomes a lie, and the lie is recorded.
 
 **F14.3 records refusals, not permissions.** The requirement reads "every hook
 records an event with its decision and reason". Denials do. Allows do not:
@@ -580,6 +602,95 @@ owner only for an incident or a tier 3 approval — and `notifyAfterFor` enforce
 exactly that: everything else waits for the owner's window. F10.10's third
 clause, no tier 3 approval over chat, is refused and recorded. Both are real
 rules with no transport behind them, which is what the "partial" column says.
+
+## 2.11 A requirement that was graded nowhere at all
+
+Section 2.10 turned the audit on this document and found F11.2 filed under the
+wrong heading. Asked once more — this time mechanically, by diffing every
+requirement id the PRD declares against every id this table accounts for — it
+found something worse.
+
+**F12.6 was in no column.** Not built, not partial, not done: absent. One
+hundred and forty-five of the PRD's hundred and forty-six requirements were
+graded and this one had never been looked at, which is why nothing in the
+repository cited it — there was nothing to cite. A wrong grade is an argument
+somebody can have. An omission is invisible, and it survived nine audits
+because every one of them started from this table.
+
+The check is now `test/documents/requirement-coverage.test.ts` and it runs on
+every push. It compares the two documents and fails when a requirement is
+declared and ungraded, or graded and undeclared. It deliberately does not check
+whether a grade is *right* — no parser can, and sections 2.2 to 2.10 are what
+that costs. It checks only that every requirement has been looked at, which is
+the part a machine can do and a person demonstrably does not.
+
+The same pass found one smaller thing: the F13 row named three of the four
+adapters F13.3 asks for. `openclaw` had gone missing from the list while the
+README carried all four, so the two documents disagreed about the size of the
+same gap.
+
+### What F12.6 turned out to be
+
+*"Least privilege pada token pihak ketiga"* — P0. PALUGADA cannot enforce all
+of it and the part it cannot is worth stating first: the platform holds a
+reference and never a value (F12.1), so it cannot ask a provider what a token
+really carries. Only the issuer knows.
+
+What it can enforce is the *declaration*, and it is enforced from both ends at
+once so that the declaration cannot be gamed:
+
+- A credential may not declare a scope that no capability its division holds
+  actually needs. An organisation-admin token in a division that only reads DNS
+  is refused by the database, with the excess named.
+- A capability may not run against a credential whose declared scopes do not
+  cover its own `requiredScopes`. That refusal happens in the broker with a
+  reason, rather than at the provider with an opaque 403.
+
+Over-declaring is refused by the first, under-declaring by the second, so the
+only declaration that lets work happen is the true one. That is not the same as
+verifying the token and the code says so; what it does is turn an over-scoped
+token from something an operator creates by accident into something they have
+to lie about, which is how over-scoped tokens are actually created.
+
+There is a third check, because a rule that holds only at insert time is a rule
+that decays: revoking the grant that justified a scope is refused while a
+credential still declares it. Same reasoning as F3.5 refusing a policy scope
+that loosens a broader one — a rule you can escape by changing something else
+is not a rule.
+
+Empty stays legal. Everything the platform implements itself reads the
+company's own store and talks to no provider, and demanding a declaration there
+would be ceremony — which is what makes people declare something untrue.
+
+### And two more halves, once the same question was asked of F10
+
+Reading F11.2 and F12.6 properly made it worth re-reading the rest of the
+"needs the owner's phone" group rather than trusting the summary that had been
+written about them. Two had a buildable half that was not built.
+
+**F10.10 was enforced in one of its two clauses.** "Approval tier 3 only
+through the app **with MFA**" — the channel was checked and the second factor
+was not, so an integration naming `channel: 'app'` got a tier 3 approval with
+no MFA at all. `decide` now takes how the owner was authenticated alongside
+which pipe the request came down, and refuses tier 3 without both. Neither is
+verifiable here and the code says so: PALUGADA performs no authentication, and
+that is F12.5, which needs an application. What the check buys is that the
+wrong thing now requires stating something false, on an event an auditor can
+read.
+
+**F10.9's delivery rule did not exist.** The requirement names three things a
+message channel is an *action* surface for — an escalation, a skill candidate,
+a review at tier 2 or below — and F10.10 carves tier 3 down to a link. No
+channel exists here and none can without a messaging account, but the rule that
+would govern one is testable today, and it is written now for the same reason
+F10.10's prohibition was: a rule that arrives with the integration is a rule the
+integration's author gets to decide.
+
+One judgement call is flagged rather than buried. An incident is push-worthy
+under F10.5 and is not among the three F10.9 lists, so it is delivered as a
+link with nothing to press. That is a reading of two requirements together
+rather than a quotation of either, and it is the kind of thing to be told about
+rather than to discover.
 
 ## 3. Decisions, deviations, and what is unverified
 

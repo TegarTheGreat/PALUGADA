@@ -18,6 +18,8 @@
  * because the two systems are operated by different hands.
  */
 import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
+import { preflightGrants } from '../broker/preflight.ts';
+import type { CapabilityRegistry } from '../broker/registry.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
 import { redactor, type SecretManager } from './manager.ts';
@@ -145,6 +147,16 @@ export async function rotateCredential(input: {
   divisionId: string;
   alias: string;
   newSecretRef?: string;
+  /**
+   * When given, every capability this division holds is preflighted against
+   * the new secret (F12.3, F8.12).
+   *
+   * Optional rather than required because rotation is also how a credential is
+   * retired, and a caller with no registry to hand should still be able to
+   * rotate. The check is forced rather than cached: reusing a result from
+   * before the rotation would report the state the rotation replaced.
+   */
+  registry?: CapabilityRegistry;
 }): Promise<RotationResult> {
   const result = await withControlPlane(async (tx) => {
     const { rows } = await tx.query<{
@@ -186,6 +198,13 @@ export async function rotateCredential(input: {
       },
     });
   });
+
+  if (input.registry) {
+    await preflightGrants(input.registry, {
+      companyId: input.companyId,
+      divisionId: input.divisionId,
+    });
+  }
 
   return {
     alias: input.alias,

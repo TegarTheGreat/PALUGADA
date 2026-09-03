@@ -19,6 +19,7 @@ import { isTerminal } from '../domain/task.ts';
 import { runStep, type StepKind } from './journal.ts';
 import { isCompanyFrozen, isStopAllRequested } from './control.ts';
 import { batchWindow, isWithin, nextOpening } from '../scheduler/windows.ts';
+import { preflightForRole } from '../broker/preflight.ts';
 import * as budget from './budget.ts';
 import * as inbox from '../inbox/inbox.ts';
 import type { CapabilityBroker } from '../broker/broker.ts';
@@ -141,6 +142,28 @@ export class Engine {
         await transition(companyId, taskId, 'waiting_window', { waitUntil: opensAt });
         return { status: 'waiting_window', reason: 'waiting for cheap hours', waitUntil: opensAt };
       }
+    }
+
+    // F8.12: everything the role declares has to be usable before the task
+    // starts. Checked after the cheap-hours check, because a task that is
+    // about to park should not be probing external services, and before the
+    // agent run, because starting one would spend tokens assembling context
+    // for work that cannot succeed and leave a half-finished task behind.
+    const readiness = await preflightForRole(
+      this.#options.broker.registry,
+      { companyId, divisionId: task.divisionId },
+      task.roleId,
+    );
+    if (!readiness.ready) {
+      const named = readiness.failures.map((failure) => failure.capability).join(', ');
+      await transition(companyId, taskId, 'halted', { haltReason: 'capability_unhealthy' });
+      return {
+        status: 'halted',
+        // Halted rather than failed: a broken credential or an exhausted quota
+        // does not get better by being asked again, and F8.12 is explicit that
+        // this is an incident rather than a retry.
+        reason: `capability preflight failed for ${named}`,
+      };
     }
 
     const controller = new AbortController();

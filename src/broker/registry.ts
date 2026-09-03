@@ -57,6 +57,18 @@ export interface Capability<I = unknown, O = unknown> {
     batchSize?: number;
   };
   /**
+   * Reports whether the capability is usable right now (F8.12).
+   *
+   * Credentials, quota, connectivity -- whatever would make the first real
+   * call fail for a reason no retry fixes. Optional: a capability that needs
+   * nothing checked declares no preflight and is healthy by definition, which
+   * is true of every pure computation.
+   */
+  preflight?(ctx: { companyId: string; divisionId: string }): Promise<{
+    ok: boolean;
+    detail?: string;
+  }>;
+  /**
    * Reports what the call actually cost, once it has happened (F8.5).
    *
    * Optional, and returning null is a legitimate answer: "this cost nothing"

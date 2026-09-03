@@ -22,7 +22,7 @@ v2 requirement as built, partial or not built.
 ## Status
 
 **Everything the v1 specification asked for is implemented and tested**, with
-204 acceptance tests running against a real PostgreSQL 16 with pgvector:
+215 acceptance tests running against a real PostgreSQL 16 with pgvector:
 tenant isolation and the durable engine, the charter and policy engine, scoped
 memory with distillation, typed contracts and handoff, adversarial review,
 the capability broker with tier calibration and cost control, durable
@@ -184,6 +184,8 @@ the template is organised by function rather than by industry.
 | F9.5 non-urgent, read-only work waits for cheap hours | `src/scheduler/windows.ts`, `src/engine/engine.ts` | `scheduling-windows.test.ts` |
 | v2 F8.11 a tier 2 action needs a recorded plan first | `src/engine/plan.ts` | `plan-and-batch.test.ts` |
 | v2 F8.13 batch guard: the call is held to the plan's count | `src/engine/plan.ts`, `src/broker/broker.ts` | `plan-and-batch.test.ts` |
+| v2 F8.12 preflight; a task with a broken capability does not start | `src/broker/preflight.ts` | `preflight.test.ts` |
+| v2 F12.3 a rotation triggers a fresh preflight | `src/secrets/rotation.ts` | `preflight.test.ts` |
 
 ## Decisions worth knowing
 
@@ -361,6 +363,26 @@ broker never guesses which parameter is the list. A guess breaks silently the
 day a field is renamed, and a guard that has quietly stopped guarding is worse
 than none.
 
+**A broken capability is an incident, not a retry.** v2 records a
+misconfigured secret that failed silently for half a day: every call failed,
+every failure looked transient, and the retries hid it. A capability that fails
+preflight raises an incident and the task does not start — starting it would
+spend tokens assembling context for work that cannot succeed and leave a
+half-finished task for somebody to interpret later.
+
+**Health is per division, because the credential is.** The same capability is
+healthy for the division whose token is valid and unhealthy for the one whose
+token expired, so a platform-wide answer would be answering a question nobody
+asked. A fresh result is reused for fifteen minutes, or probing would itself
+become the load; a rotation forces a new reading, because the old one describes
+the state the rotation replaced.
+
+**A tool nothing is bound to is a deployment gap, not ill health.** Preflight
+answers "does this capability work". A name no adapter carries has nothing to
+work or fail, and the broker refuses it by name at the moment it is used, which
+is both louder and more accurate than halting every task whose role mentions
+it.
+
 **Deferral is opt-in, and eligibility is not taken on trust.** F9.5's batching
 runs non-urgent work in cheap hours. A task waits only if it was marked
 non-urgent — defaulting to "wait until tonight" would make a forgotten flag the
@@ -408,8 +430,8 @@ by requirement; the short version is that the runtime adapter protocol (F13),
 lifecycle hooks (F14), the skill loop (F15), bundles (F16) and trajectory
 evaluation (F17) do not exist, and neither do heartbeats and the wake queue
 (F9.7–F9.10), atomic checkout, leases, lanes and orphan recovery
-(F5.11–F5.14), preflight (F8.12), the spending circuit breaker (F1.7–F1.9), or
-goal ancestry (F2.7).
+(F5.11–F5.14), the spending circuit breaker (F1.7–F1.9), or goal ancestry
+(F2.7).
 
 There is also no owner UI, which several v2 requirements assume (F10.9–F10.10,
 F11.2, F12.5).

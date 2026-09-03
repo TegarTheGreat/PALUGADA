@@ -40,11 +40,11 @@ what is missing rather than leaving the reader to guess.
 | F5 engine | F5.1–F5.9 | — | F5.10, F5.11, F5.12, F5.13, F5.14 |
 | F6 agent communication | F6.1–F6.6 | — | F6.7 |
 | F7 adversarial review | F7.1–F7.6 | — | F7.7 |
-| F8 broker, tiers | F8.1–F8.11, F8.13 | — | F8.12 |
+| F8 broker, tiers | F8.1–F8.13 | — | — |
 | F9 scheduler | F9.1–F9.6 | — | F9.7, F9.8, F9.9, F9.10 |
 | F10 owner surface | F10.4, F10.6, F10.7, F10.8 | F10.1 (no `skill_candidate`), F10.2 (no goal ancestry, no plan), F10.5 (the rule is enforced; there is no push channel) | F10.3, F10.9, F10.10, F10.11 |
 | F11 observability | F11.3, F11.5, F11.6 | F11.1 (traced, but by the engine rather than through an adapter), F11.4 (no preflight or orphan alerts) | F11.2, F11.7 |
-| F12 credentials, gateway | F12.1–F12.4 | — | F12.5, F12.7, F12.8, F12.9, F12.10 |
+| F12 credentials, gateway | F12.1–F12.4 (F12.3 now also triggers preflight) | — | F12.5, F12.7, F12.8, F12.9, F12.10 |
 | F13 runtime adapters | — | — | all of F13 |
 | F14 lifecycle hooks | — | F14.1 (enforcement is deterministic engine code, but not named hooks) | F14.2, F14.3, F14.4 |
 | F15 skills | — | F15.3 (candidate SOPs need owner approval; not in skill format, unversioned, no eval) | F15.1, F15.2, F15.4–F15.8 |
@@ -54,7 +54,7 @@ what is missing rather than leaving the reader to guess.
 Read as a whole: v1's scope is finished and holds up, and v2 adds a control
 plane layer around it that is mostly not built. The exception is the broker,
 which is PALUGADA's own layer under every possible answer to the questions in
-section 3 below, so the plan step and the batch guard were built first. The additions are not
+section 3 below, so it was built out first: F8 is now complete. The additions are not
 decoration — the heartbeat model (F9.7–F9.10), atomic checkout (F5.11), leases
 (F5.12) and lanes (F5.13) are what make the engine safe for more than one
 worker, and none of them exist yet.

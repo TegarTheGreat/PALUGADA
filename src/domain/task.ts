@@ -79,6 +79,7 @@ export type HaltReason =
   | 'hop_limit'
   | 'deadline_passed'
   | 'verification_failed'
+  | 'capability_unhealthy'
   | 'cycle_detected'
   | 'approval_expired'
   | 'owner_stop'

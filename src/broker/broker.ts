@@ -93,6 +93,18 @@ export class CapabilityBroker {
     this.#registry = registry;
   }
 
+  /**
+   * The registry this broker runs against.
+   *
+   * Exposed because F8.12's preflight happens before a task starts, which is
+   * the engine's moment rather than the broker's, and the engine should not
+   * have to be handed the registry separately and risk being handed a
+   * different one.
+   */
+  get registry(): CapabilityRegistry {
+    return this.#registry;
+  }
+
   async invoke<I, O>(ctx: InvokeContext, name: string, input: I): Promise<InvokeResult<O>> {
     const capability = this.#registry.get(name);
     if (!capability) {

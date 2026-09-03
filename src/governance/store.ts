@@ -15,6 +15,7 @@
 import { withControlPlane, type TenantClient } from '../db/tenant.ts';
 import { canonicalJson } from '../canonical-json.ts';
 import { assertValidCondition, type Condition } from '../policy/condition.ts';
+import { recordVersion } from './config-versions.ts';
 import type { PolicyEffect } from '../policy/engine.ts';
 
 export interface CharterInput {
@@ -132,6 +133,16 @@ export async function publishCharter(input: CharterInput): Promise<{ id: string;
       after: { version, body: input.body },
     });
 
+    // F3.9: the governance log says what changed and who changed it; the
+    // config version is what a rollback reads. Written in the same transaction
+    // so a history containing a change that was rolled back is impossible.
+    await recordVersion(tx, {
+      companyId: input.companyId ?? null,
+      kind: 'charter',
+      snapshot: { body: input.body },
+      summary: previous ? `Charter v${version}` : 'Initial charter',
+    });
+
     return { id, version };
   });
 }
@@ -207,6 +218,23 @@ export async function putPolicy(input: PolicyInput): Promise<string> {
         mode: input.mode ?? 'enforce',
         params: input.params ?? {},
       },
+    });
+
+    // F3.9. Keyed on the policy row rather than on its slug, so a policy
+    // recreated under the same slug starts a new history rather than
+    // continuing somebody else's.
+    await recordVersion(tx, {
+      companyId: input.companyId ?? null,
+      kind: 'policy',
+      subjectId: id,
+      snapshot: {
+        slug: input.slug,
+        effect: input.effect,
+        condition: input.condition,
+        mode: input.mode ?? 'enforce',
+        params: input.params ?? {},
+      },
+      summary: `${existing ? 'Updated' : 'Created'} policy ${input.slug}`,
     });
 
     return id;

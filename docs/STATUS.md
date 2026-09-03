@@ -111,6 +111,33 @@ that depend on nothing else — platform stop, company freeze, spend ceiling —
 *are* registered hooks, because those are the ones a second caller would
 otherwise have to remember to copy.
 
+## 2.2 What an audit of these claims turned up
+
+The table above was written as each group landed, and re-reading it against the
+code found four requirements marked built whose modules nothing called:
+`recordVersion` was wired to grants and not to charters, policies or roles
+(F3.9); `escalationPolicyFor` was stored and never read (F2.1);
+`memory.search` and `skill.read` were catalogued, promised to every run in its
+context pack, and bound to no implementation (F4.8, F15.7); and the preflight
+and orphan alerts had no test at all (F11.4). All four are fixed rather than
+downgraded, and each now has a test that would have caught it.
+
+The common cause was worth more than the four fixes: there was no composition
+root. Every module was exercised by the suite and nothing assembled them into
+a process, so "nothing calls this" was invisible — the tests called everything.
+`src/worker.ts` is the loop and `src/seed.ts` is what a fresh installation
+needs, and with them the built-in bundles (F16.5) and the charter files (F3.11)
+are reachable from `src/` rather than only from `test/`.
+
+Writing the loop turned up two defects that only a composition root could have
+exposed. A worker pinned to one company did not apply F1.4's freeze filter, so
+it would have claimed a frozen company's task, taken a lease, been refused by
+the engine's guards, and left the task checked out until the lease expired — a
+freeze that parks work for the length of a lease is not a freeze. And a tick
+that failed outside any stage, which is what a database blip looks like, ended
+the loop: a daemon that exits on a transient failure, invisibly, to whoever was
+relying on it. Both are fixed and both have tests.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

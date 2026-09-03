@@ -35,8 +35,9 @@ import {
   DEFAULT_ESCALATION_MINUTES,
 } from '../../src/governance/structure.ts';
 import { history, recordVersion, restore } from '../../src/governance/config-versions.ts';
+import { applyRoleChange } from '../../src/governance/structure.ts';
+import { publishCharter, putPolicy } from '../../src/governance/store.ts';
 import { exportToDisk, importFromDisk } from '../../src/governance/charter-files.ts';
-import { publishCharter } from '../../src/governance/store.ts';
 import {
   claimIdempotencyKey,
   connect,
@@ -48,7 +49,9 @@ import {
 import { chooseReviewerModel } from '../../src/review/review.ts';
 import { containChildResult, CHILD_OUTPUT_TOKEN_LIMIT } from '../../src/engine/containment.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
-import { createCompany, addRole, type Fixture } from '../helpers/fixtures.ts';
+import { createCompany, addRole, grantCapability, type Fixture } from '../helpers/fixtures.ts';
+import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
+import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
 before(ensureSchema);
@@ -300,6 +303,84 @@ test('the default cap is section 9\'s figure', () => {
   assert.equal(CONTEXT_PACK_TOKEN_LIMIT, 40_000);
 });
 
+/**
+ * The door back is a real door.
+ *
+ * The context pack tells a run to use `memory.search` for whatever did not
+ * fit. That instruction is only honest if the capability is bound to
+ * something — a catalogued name with no implementation would answer
+ * `capability.unknown`, and the platform would have lied to the run it was
+ * instructing. This test exists because for a while that was exactly the case:
+ * the declaration was in the catalogue and nothing implemented it.
+ */
+test('memory.search answers through the broker, scoped like the pack (F4.8)', async () => {
+  const fixture = await createCompany('memory-search');
+  const registry = await registerStandardCatalogue();
+  await grantCapability(fixture, 'memory.search');
+  const broker = new CapabilityBroker(registry);
+
+  await withTenant(fixture.companyId, (tx) =>
+    remember(tx, {
+      companyId: fixture.companyId,
+      memoryType: 'semantic',
+      scopeType: 'division',
+      scopeId: fixture.divisionId,
+      body: 'The registrar bills in euros, not dollars.',
+      source: 'test',
+    }),
+  );
+  await withTenant(fixture.companyId, (tx) =>
+    remember(tx, {
+      companyId: fixture.companyId,
+      memoryType: 'semantic',
+      scopeType: 'division',
+      scopeId: fixture.divisionId,
+      body: 'Unrelated fact about coffee.',
+      source: 'test',
+      confidence: 0.4,
+    }),
+  );
+
+  const task = await newTask(fixture);
+  const found = await broker.invoke<{ query: string }, {
+    facts: Array<{ body: string; unverified: boolean }>;
+    truncated: boolean;
+  }>(
+    {
+      companyId: fixture.companyId,
+      projectId: fixture.projectId,
+      divisionId: fixture.divisionId,
+      taskId: task.id,
+      roleId: fixture.roleId,
+      idempotencyKey: `search-${task.id}`,
+    },
+    'memory.search',
+    { query: 'registrar' },
+  );
+
+  assert.equal(found.output.facts.length, 1);
+  assert.match(found.output.facts[0]!.body, /bills in euros/);
+  assert.equal(found.tier, 0, 'a read of the company\'s own store is tier 0');
+
+  // A fact fetched through the tool must not arrive more certain than the same
+  // fact would have been in the pack (F4.5).
+  const unsure = await broker.invoke<{ query: string }, {
+    facts: Array<{ body: string; unverified: boolean }>;
+  }>(
+    {
+      companyId: fixture.companyId,
+      projectId: fixture.projectId,
+      divisionId: fixture.divisionId,
+      taskId: task.id,
+      roleId: fixture.roleId,
+      idempotencyKey: `search-coffee-${task.id}`,
+    },
+    'memory.search',
+    { query: 'coffee' },
+  );
+  assert.equal(unsure.output.facts[0]!.unverified, true);
+});
+
 /* ------------------------------------------------------------------ F10.3 --- */
 
 test('the owner can ask a question inside the same task (F10.3)', async () => {
@@ -450,6 +531,136 @@ test('any config version can be restored, and the restore is itself a version (F
   await assert.rejects(
     () => restore(fixture.companyId, 'role', fixture.roleId, 99),
     (error: unknown) => isPalugadaError(error, 'config.unknown_version'),
+  );
+});
+
+/**
+ * F3.9 covers the things the requirement names, not just the one that was
+ * convenient.
+ *
+ * "Semua config (charter, policy, role, grant, bundle) berversi" — a rollback
+ * surface that only knew about grants would be a rollback surface for grants,
+ * and this test exists because for a while that is exactly what it was.
+ */
+test('a charter, a policy and a role each produce a config version (F3.9)', async () => {
+  const fixture = await createCompany('config-coverage');
+
+  await publishCharter({ companyId: fixture.companyId, body: 'Be careful.' });
+  await publishCharter({ companyId: fixture.companyId, body: 'Be careful, and be quick.' });
+
+  const charterHistory = await history(fixture.companyId, 'charter', null);
+  assert.deepEqual(charterHistory.map((entry) => entry.version), [2, 1]);
+  assert.deepEqual(charterHistory[0]!.snapshot, { body: 'Be careful, and be quick.' });
+
+  const policyId = await putPolicy({
+    companyId: fixture.companyId,
+    slug: 'no-weekend-sends',
+    effect: 'deny',
+    condition: { field: 'tool', op: 'eq', value: 'email.send' },
+  });
+  const policyHistory = await history(fixture.companyId, 'policy', policyId);
+  assert.equal(policyHistory.length, 1);
+  assert.equal(policyHistory[0]!.snapshot.slug, 'no-weekend-sends');
+
+  // A role change versions the state it is leaving, because a rollback needs
+  // somewhere to go back *to* — versioning the new state would mean the first
+  // restorable version is the one that broke something.
+  await applyRoleChange(
+    fixture.companyId,
+    fixture.roleId,
+    { modelPrimary: 'model-b' },
+    { ownerApproved: true },
+  );
+  const roleHistory = await history(fixture.companyId, 'role', fixture.roleId);
+  assert.equal(roleHistory.length, 1);
+  assert.equal(roleHistory[0]!.snapshot.modelPrimary, 'test-model');
+
+  const restored = await restore(fixture.companyId, 'role', fixture.roleId, 1);
+  assert.equal(restored.snapshot.modelPrimary, 'test-model');
+});
+
+test('a role change without the owner is refused (F2.9, F17.3)', async () => {
+  const fixture = await createCompany('role-change-refused');
+  await assert.rejects(
+    () =>
+      applyRoleChange(
+        fixture.companyId,
+        fixture.roleId,
+        { systemPrompt: 'do whatever' },
+        { ownerApproved: false },
+      ),
+    (error: unknown) => isPalugadaError(error, 'approval.required'),
+  );
+});
+
+/** F3.9 reaches the platform charter too, which outranks every company. */
+test('the platform charter is versioned and restorable (F3.9, F3.1)', async () => {
+  await publishCharter({ body: 'Do no harm.' });
+  await publishCharter({ body: 'Do no harm, and say what you did.' });
+
+  const platform = await history(null, 'charter', null);
+  assert.ok(platform.length >= 2);
+  assert.equal(platform[0]!.snapshot.body, 'Do no harm, and say what you did.');
+
+  const restored = await restore(null, 'charter', null, platform[platform.length - 1]!.version);
+  assert.equal(restored.snapshot.body, 'Do no harm.');
+});
+
+/* ------------------------------------------------------------------ F2.1 --- */
+
+/**
+ * A division's escalation policy has to *do* something.
+ *
+ * It decides who was asked first and how long they had, and the owner is told
+ * both. A policy that was stored and never read would be a settings page.
+ */
+test('a division\'s escalation policy shapes the escalation it raises (F2.1)', async () => {
+  const fixture = await createCompany('escalation-applied');
+  await setEscalationPolicy(fixture.companyId, fixture.divisionId, {
+    roleSlug: 'ops-lead',
+    afterMinutes: 45,
+  });
+
+  const itemId = await inbox.raiseEscalation({
+    companyId: fixture.companyId,
+    divisionId: fixture.divisionId,
+    title: 'The registrar will not answer',
+    detail: 'Three attempts, all timed out.',
+  });
+
+  const item = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{
+      rationale: string; notify_after: Date; payload: Record<string, unknown>;
+    }>('SELECT rationale, notify_after, payload FROM inbox_items WHERE id = $1', [itemId]);
+    return rows[0]!;
+  });
+
+  assert.match(item.rationale, /ops-lead was asked first and has had 45 minutes/);
+  assert.equal(item.payload.escalationRole, 'ops-lead');
+  assert.ok(
+    item.notify_after.getTime() > Date.now() + 40 * 60_000,
+    "the division's grace period delays telling the owner",
+  );
+
+  // Without a division there is nothing to wait for beyond the owner's own
+  // window. Compared against the other item rather than against a clock: the
+  // owner window is configuration, so an absolute assertion would be testing
+  // the fixture's timezone rather than the policy.
+  const direct = await inbox.raiseEscalation({
+    companyId: fixture.companyId,
+    title: 'No division owns this',
+    detail: 'Straight to you.',
+  });
+  const immediate = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ notify_after: Date }>(
+      'SELECT notify_after FROM inbox_items WHERE id = $1',
+      [direct],
+    );
+    return rows[0]!.notify_after;
+  });
+  assert.ok(
+    immediate.getTime() <= item.notify_after.getTime(),
+    "a division's grace period can delay the owner and never brings them forward",
   );
 });
 

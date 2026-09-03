@@ -16,6 +16,7 @@ import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
 import { getTask, transition } from '../engine/tasks.ts';
 import { notifyAfterFor } from '../scheduler/windows.ts';
+import { escalationPolicyFor } from '../governance/structure.ts';
 import { approveCandidate, rejectCandidate } from '../memory/store.ts';
 import type { Tier } from '../domain/tier.ts';
 
@@ -167,18 +168,59 @@ export async function raiseEscalation(input: {
   title: string;
   detail: string;
   tier?: Tier | undefined;
+  /**
+   * F2.1: whose problem it is first.
+   *
+   * With a division, the division's own escalation policy decides who hears
+   * about it and how long they have. Without one the item goes straight to the
+   * owner, which is the right default: an escalation with no home is not a
+   * reason to delay telling somebody.
+   */
+  divisionId?: string | undefined;
 }): Promise<string> {
-  const notifyAfter = await notifyAfterFor('escalation', { tier: input.tier ?? null });
+  const windowOpens = await notifyAfterFor('escalation', { tier: input.tier ?? null });
+
+  // F2.1. Read before the insert so the policy shapes the item rather than
+  // being noticed afterwards.
+  const policy = input.divisionId
+    ? await withTenant(input.companyId, (tx) => escalationPolicyFor(tx, input.divisionId!))
+    : null;
+
+  // The later of the two: the owner's window and the division's own grace
+  // period. A division that is allowed four hours to handle something should
+  // not have the owner told in one, and an owner asleep should not be told at
+  // three because a division's clock ran out.
+  const divisionHasUntil = policy
+    ? new Date(Date.now() + policy.afterMinutes * 60_000)
+    : windowOpens;
+  const notifyAfter = divisionHasUntil > windowOpens ? divisionHasUntil : windowOpens;
 
   return withTenant(input.companyId, async (tx) => {
     const { rows } = await tx.query<{ id: string }>(
       `INSERT INTO inbox_items
          (company_id, task_id, kind, title, action_summary, rationale,
-          consequence_if_denied, tier, notify_after)
-       VALUES ($1,$2,'escalation',$3,$3,$4,'The task stays blocked until you decide.',$5,$6)
+          consequence_if_denied, tier, notify_after, payload)
+       VALUES ($1,$2,'escalation',$3,$3,$4,'The task stays blocked until you decide.',$5,$6,$7)
        RETURNING id`,
-      [input.companyId, input.taskId ?? null, input.title, input.detail,
-       input.tier ?? null, notifyAfter],
+      [
+        input.companyId, input.taskId ?? null, input.title,
+        // The owner is told who was supposed to handle it. An escalation that
+        // reaches them without saying whose it was is one they have to trace.
+        policy?.roleSlug
+          ? `${input.detail}\n\n${policy.roleSlug} was asked first and has had ` +
+            `${policy.afterMinutes} minutes.`
+          : input.detail,
+        input.tier ?? null, notifyAfter,
+        JSON.stringify(
+          policy
+            ? {
+                divisionId: input.divisionId,
+                escalationRole: policy.roleSlug,
+                afterMinutes: policy.afterMinutes,
+              }
+            : {},
+        ),
+      ],
     );
     const id = rows[0]!.id;
     await appendEvent(tx, {
@@ -186,7 +228,11 @@ export async function raiseEscalation(input: {
       taskId: input.taskId,
       type: 'escalation.raised',
       actor: 'system',
-      payload: { inboxItemId: id, title: input.title },
+      payload: {
+        inboxItemId: id,
+        title: input.title,
+        ...(policy ? { escalationRole: policy.roleSlug, afterMinutes: policy.afterMinutes } : {}),
+      },
     });
     return id;
   });

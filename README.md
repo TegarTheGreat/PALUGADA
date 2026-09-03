@@ -31,9 +31,12 @@ audit export. On top of that, **the standard company** — a calibrated
 capability catalogue and a template of function-based divisions that fit any
 line of business, which is the owner's answer to PRD section 14.2.
 
-**PRD v2 is built too**, with four exceptions named below. v2 makes PALUGADA
+**PRD v2 is built too**, with three exceptions named below, and there is now a
+worker that assembles the parts into something that runs (`src/worker.ts`) and
+a seed for what a fresh installation needs (`src/seed.ts`). v2 makes PALUGADA
 explicitly a control plane that employs third-party runtimes through an adapter
-protocol — `script`, `http`, `claude-code` and the in-process one — and adds
+protocol — `script`, `http`, `claude-code`, `docker` and the in-process one — and
+adds
 heartbeats and a wake queue, atomic checkout with leases and lanes, lifecycle
 hooks, plan steps, preflight, batch guards, per-scope budgets, a curated skill
 loop, signed bundles, and trajectory evaluation. Its NG6 forbids the platform
@@ -41,16 +44,12 @@ from calling an LLM to do a task; the engine assembles a `RunRequest`, lends
 the runtime four services and does the accounting, and the old handler model is
 now the in-process adapter.
 
-**What is not built, and why.** F10.9, F10.10, F11.2 and F12.5 are the owner's
-phone: a PWA, push notifications, Telegram and WhatsApp. None of them can be
-tested from here — no device, no store, no messaging account — and building
-them blind would produce code that compiles and has never worked. Two things
-are partial for the same reason: F12.9's `docker` and `remote_sandbox`
-execution backends are declared and selected per role but only `local` is
-implemented, and F13.3's adapters for four named third-party runtimes are
-unwritten because none of the four is installed here. See
-[`docs/STATUS.md`](docs/STATUS.md) for the requirement-by-requirement grading
-and for the deliberate deviations.
+**What is not built** is the owner's phone — F10.9, F11.2 and F12.5 — plus the
+display half of three requirements whose enforcing half is in place. Nothing
+there can be exercised from this environment, and writing it blind would
+produce code that compiles and has never worked. [Not built yet](#not-built-yet)
+says which and why; [`docs/STATUS.md`](docs/STATUS.md) grades every requirement
+and records the deliberate deviations.
 
 Two questions in [PRD section 14](docs/PRD.md#14-pertanyaan-terbuka) are
 answered. **14.1: build, and stay adapter-compatible**, on the pass criteria
@@ -61,6 +60,38 @@ ceiling. Seven remain open, and one of them is worth flagging rather than
 leaving in a list: **14.4, the timezone and owner window, is unset**, so
 everything falls back to UTC. That is a default nobody chose, not a decision —
 escalations and cheap hours are both keyed to it.
+
+## Running it
+
+```ts
+import { Engine } from './src/engine/engine.ts';
+import { CapabilityBroker } from './src/broker/broker.ts';
+import { Worker } from './src/worker.ts';
+import { baseRegistry, seed } from './src/seed.ts';
+
+// Once per installation: the built-in bundles, the standard template, and the
+// charters if they live on disk (F3.11).
+await seed({ charterRoot: '/etc/palugada/charters' });
+
+// `baseRegistry()` binds only what PALUGADA implements itself — memory.search
+// and skill.read. Binding `email.send` to a real provider is yours to do, with
+// your own credentials, and deliberately not something a seed invents.
+const registry = baseRegistry();
+// registry.register(yourEmailAdapter());
+await registry.sync();
+
+const worker = new Worker({
+  engine: new Engine({ broker: new CapabilityBroker(registry), adapters: yourAdapters }),
+  signal: shutdown.signal,
+});
+await worker.start();
+```
+
+A tick reclaims expired leases, fires due schedules, wakes dormant roles,
+drains the wake queue, claims and runs up to its budget, settles reviews and
+expiring approvals, then looks at the money and the failure rate — in that
+order, each position load-bearing, and bounded so that `stopEverything()` bites
+within one polling interval rather than one queue.
 
 ## Quick start
 
@@ -105,6 +136,8 @@ src/
   inbox/           owner inbox: approvals, incidents, emergency controls
   audit/           append-only event log, security events
   llm/             model interface and a recording test double
+  worker.ts        the loop: reclaim, schedule, wake, claim, run, settle, watch
+  seed.ts          what a fresh installation needs before it can do anything
   runtime/         the adapter protocol, the wire, and five runtimes
   skills/          skill documents, the curation gates, and eval cases
   eval/            trajectory export and the role eval set
@@ -254,6 +287,10 @@ the template is organised by function rather than by industry.
 | v2 F12.9 a containerised runtime has no network at all | `src/runtime/container.ts` | `out-of-process-runtimes.test.ts` |
 | v2 F10.10 a tier 3 approval is refused over a chat channel | `src/inbox/inbox.ts` | `owner-inbox.test.ts` |
 | v2 F15.8 an external skill enters quarantined, and quarantine is one division | `src/skills/skills.ts` | `skills.test.ts` |
+| v2 §6.2 the loop that assembles the parts, bounded so a stop bites | `src/worker.ts` | `worker.test.ts` |
+| v2 F16.5, F3.11 a fresh installation seeds its bundles and reads its charters | `src/seed.ts` | `worker.test.ts` |
+| v2 F3.9 charter, policy, role and grant each produce a restorable version | `src/governance/` | `control-plane.test.ts` |
+| v2 F2.1 a division's escalation policy shapes the escalation it raises | `src/inbox/inbox.ts` | `control-plane.test.ts` |
 
 ## Decisions worth knowing
 

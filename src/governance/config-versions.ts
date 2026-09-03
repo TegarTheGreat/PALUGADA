@@ -16,7 +16,7 @@
  * silently the day a table gained one. `restore` returns the snapshot and
  * records the intent; the caller for that kind puts it back.
  */
-import { withTenant, type TenantClient } from '../db/tenant.ts';
+import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
 
@@ -43,9 +43,10 @@ export interface ConfigVersion {
  * history, because it is believed.
  */
 export async function recordVersion(
-  tx: TenantClient,
+  tx: Pick<TenantClient, 'query'>,
   input: {
-    companyId: string;
+    /** Null for platform-scoped configuration, which outranks every company. */
+    companyId?: string | null;
     kind: ConfigKind;
     subjectId?: string | null;
     snapshot: Record<string, unknown>;
@@ -60,11 +61,11 @@ export async function recordVersion(
             coalesce(max(version), 0) + 1,
             $4, $5, $6
        FROM config_versions
-      WHERE company_id = $1 AND kind = $2
+      WHERE company_id IS NOT DISTINCT FROM $1 AND kind = $2
         AND subject_id IS NOT DISTINCT FROM $3
      RETURNING version`,
     [
-      input.companyId,
+      input.companyId ?? null,
       input.kind,
       input.subjectId ?? null,
       JSON.stringify(input.snapshot),
@@ -76,11 +77,13 @@ export async function recordVersion(
 }
 
 export async function history(
-  companyId: string,
+  companyId: string | null,
   kind: ConfigKind,
   subjectId: string | null,
 ): Promise<ConfigVersion[]> {
-  return withTenant(companyId, async (tx) => {
+  // Platform-scoped history is read through the control plane: the tenant
+  // scope has no company to be in, and the rows belong to nobody's tenant.
+  const read = async (tx: Pick<TenantClient, 'query'>) => {
     const { rows } = await tx.query<{
       id: string;
       kind: ConfigKind;
@@ -93,7 +96,8 @@ export async function history(
     }>(
       `SELECT id, kind, subject_id, version, snapshot, summary, changed_by, created_at
          FROM config_versions
-        WHERE company_id = $1 AND kind = $2 AND subject_id IS NOT DISTINCT FROM $3
+        WHERE company_id IS NOT DISTINCT FROM $1 AND kind = $2
+          AND subject_id IS NOT DISTINCT FROM $3
         ORDER BY version DESC`,
       [companyId, kind, subjectId],
     );
@@ -107,7 +111,9 @@ export async function history(
       changedBy: row.changed_by,
       createdAt: row.created_at,
     }));
-  });
+  };
+
+  return companyId === null ? withControlPlane(read) : withTenant(companyId, read);
 }
 
 /**
@@ -120,16 +126,21 @@ export async function history(
  * visible.
  */
 export async function restore(
-  companyId: string,
+  companyId: string | null,
   kind: ConfigKind,
   subjectId: string | null,
   version: number,
   options: { changedBy?: string } = {},
 ): Promise<{ snapshot: Record<string, unknown>; newVersion: number }> {
-  return withTenant(companyId, async (tx) => {
+  // Always the control plane, even for a company's own configuration: a
+  // version is a record of what an owner decided, and the application role has
+  // no write grant on the table -- deliberately, since an agent that could
+  // write one could manufacture a version to roll back to.
+  return withControlPlane(async (tx) => {
     const { rows } = await tx.query<{ snapshot: Record<string, unknown>; summary: string }>(
       `SELECT snapshot, summary FROM config_versions
-        WHERE company_id = $1 AND kind = $2 AND subject_id IS NOT DISTINCT FROM $3
+        WHERE company_id IS NOT DISTINCT FROM $1 AND kind = $2
+          AND subject_id IS NOT DISTINCT FROM $3
           AND version = $4`,
       [companyId, kind, subjectId, version],
     );
@@ -151,12 +162,17 @@ export async function restore(
       ...(options.changedBy === undefined ? {} : { changedBy: options.changedBy }),
     });
 
-    await appendEvent(tx, {
-      companyId,
-      type: 'config.restored',
-      actor: 'owner',
-      payload: { kind, subjectId, restoredFrom: version, newVersion },
-    });
+    // The event log is tenant-scoped, so a platform restore has no company to
+    // record it against. It is recorded in the version's own summary instead,
+    // which is where somebody looking at platform history would look.
+    if (companyId !== null) {
+      await appendEvent(tx, {
+        companyId,
+        type: 'config.restored',
+        actor: 'owner',
+        payload: { kind, subjectId, restoredFrom: version, newVersion },
+      });
+    }
 
     return { snapshot: found.snapshot, newVersion };
   });

@@ -115,3 +115,25 @@ export function skillReadCapability(): Capability<SkillReadInput, SkillReadResul
     },
   };
 }
+
+
+/**
+ * Registers the capabilities PALUGADA implements itself.
+ *
+ * Called by whatever assembles a deployment's registry, alongside the adapters
+ * that bind everything else. It exists because the alternative — leaving each
+ * caller to remember two names — is how `memory.search` ends up catalogued,
+ * promised to every run in its context pack, and bound to nothing. The context
+ * pack tells a run to use it when something did not fit (F4.8); a run that
+ * followed that instruction and got `capability.unknown` would have been lied
+ * to by the platform.
+ */
+export function registerPlatformCapabilities(registry: {
+  register(capability: Capability<never, never>): void;
+}): void {
+  registry.register(memorySearchCapability() as unknown as Capability<never, never>);
+  registry.register(skillReadCapability() as unknown as Capability<never, never>);
+}
+
+/** The names this module implements, for a caller that needs to know. */
+export const PLATFORM_CAPABILITIES = ['memory.search', 'skill.read'] as const;

@@ -225,6 +225,79 @@ test('a failed verification is an incident, not a statistic (F8.4, F11.4)', asyn
   assert.equal(items[0]!.kind, 'incident');
 });
 
+/**
+ * F11.4 names preflight and orphan alerts, and both are one-occurrence
+ * thresholds rather than rates.
+ *
+ * A capability that stopped being usable means tasks are halting before they
+ * start; a worker that stopped reporting means a run died mid-task. A system
+ * that only reports its own failures in bulk hides the first one — which is
+ * the one somebody could still have acted on.
+ */
+test('a capability that stopped being usable is an incident on the first task (F11.4)', async () => {
+  const fixture = await createCompany('alert-preflight');
+  await setThresholds(fixture.companyId, { dailyCostCents: 1_000_000 });
+
+  await withTenant(fixture.companyId, async (tx) => {
+    await tx.query(
+      `INSERT INTO tasks
+         (company_id, project_id, division_id, role_id, budget_account_id, input,
+          input_hash, idempotency_key, created_by, status, halt_reason, finished_at)
+       VALUES ($1,$2,$3,$4,$5,'{}'::jsonb,'h','preflight-1','owner',
+               'halted','capability_unhealthy', now())`,
+      [
+        fixture.companyId, fixture.projectId, fixture.divisionId, fixture.roleId,
+        fixture.budgetAccountId,
+      ],
+    );
+  });
+
+  const raised = await evaluateAlerts(fixture.companyId);
+  assert.deepEqual(raised.map((alert) => alert.kind), ['preflight_failures']);
+  assert.match(raised[0]!.summary, /readiness check/);
+
+  // An incident, not a budget-shaped alert: F8.12 is explicit that this does
+  // not keep until the owner's window.
+  const items = await inbox.listOpen(fixture.companyId);
+  assert.equal(items[0]!.kind, 'incident');
+
+  // Once a day, like every other alert. A capability that stays broken must
+  // not file ninety-six identical incidents.
+  assert.deepEqual(await evaluateAlerts(fixture.companyId), []);
+});
+
+test('an orphaned run is an incident, and says the spend was not recovered (F11.4, F5.14)', async () => {
+  const fixture = await createCompany('alert-orphan');
+  await setThresholds(fixture.companyId, { dailyCostCents: 1_000_000 });
+
+  await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ id: string }>(
+      `INSERT INTO tasks
+         (company_id, project_id, division_id, role_id, budget_account_id, input,
+          input_hash, idempotency_key, created_by)
+       VALUES ($1,$2,$3,$4,$5,'{}'::jsonb,'h','orphan-1','owner')
+       RETURNING id`,
+      [
+        fixture.companyId, fixture.projectId, fixture.divisionId, fixture.roleId,
+        fixture.budgetAccountId,
+      ],
+    );
+    await tx.query(
+      `INSERT INTO agent_runs
+         (company_id, task_id, role_id, attempt, status, finished_at)
+       VALUES ($1, $2, $3, 1, 'orphaned', now())`,
+      [fixture.companyId, rows[0]!.id, fixture.roleId],
+    );
+  });
+
+  const raised = await evaluateAlerts(fixture.companyId);
+  assert.deepEqual(raised.map((alert) => alert.kind), ['orphaned_runs']);
+  assert.match(raised[0]!.summary, /were not recovered|was not recovered/);
+
+  const items = await inbox.listOpen(fixture.companyId);
+  assert.equal(items[0]!.kind, 'incident');
+});
+
 test('the daily digest fits one screen (F10.6)', async () => {
   const fixture = await createCompany('digest');
   await seedRun(fixture, { status: 'completed', costCents: 150 }, 1);

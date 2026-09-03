@@ -166,6 +166,96 @@ export async function applyGrantChange(
   });
 }
 
+/**
+ * Applies an approved change to a role, and records the version (F3.9, F17.3).
+ *
+ * The three fields are the three that change what a role will do — its system
+ * prompt, its tools, its model routing — which is why F17.2 runs the eval set
+ * on exactly these and why they are the only ones this function touches. A
+ * general role updater would let a rename travel the same path as a rewrite.
+ *
+ * The snapshot is taken *before* the change, not after: a rollback needs the
+ * state to return to, and versioning the new state would mean the first
+ * version anybody could roll back to is the one that broke something.
+ */
+export interface RoleFields {
+  systemPrompt?: string;
+  tools?: string[];
+  modelPrimary?: string;
+  modelFallback?: string[];
+}
+
+export async function applyRoleChange(
+  companyId: string,
+  roleId: string,
+  fields: RoleFields,
+  options: { ownerApproved: boolean; summary?: string },
+): Promise<number> {
+  if (!options.ownerApproved) {
+    throw new PalugadaError(
+      'approval.required',
+      "changing a role's prompt, tools or model routing is the owner's (F2.9, F17.3)",
+      { roleId },
+    );
+  }
+
+  return withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<{
+      slug: string;
+      system_prompt: string;
+      tools: string[];
+      model_primary: string | null;
+      model: string;
+      model_fallback: string[];
+    }>(
+      `SELECT slug, system_prompt, tools, model_primary, model, model_fallback
+         FROM roles WHERE id = $1`,
+      [roleId],
+    );
+    const before = rows[0];
+    if (!before) throw new PalugadaError('role.incomplete', `no role ${roleId}`, { roleId });
+
+    const version = await recordVersion(tx, {
+      companyId,
+      kind: 'role',
+      subjectId: roleId,
+      snapshot: {
+        slug: before.slug,
+        systemPrompt: before.system_prompt,
+        tools: before.tools,
+        modelPrimary: before.model_primary ?? before.model,
+        modelFallback: before.model_fallback,
+      },
+      summary: options.summary ?? `State of ${before.slug} before this change`,
+    });
+
+    await tx.query(
+      `UPDATE roles
+          SET system_prompt  = coalesce($2, system_prompt),
+              tools          = coalesce($3::text[], tools),
+              model_primary  = coalesce($4, model_primary),
+              model_fallback = coalesce($5::text[], model_fallback)
+        WHERE id = $1`,
+      [
+        roleId,
+        fields.systemPrompt ?? null,
+        fields.tools ?? null,
+        fields.modelPrimary ?? null,
+        fields.modelFallback ?? null,
+      ],
+    );
+
+    await appendEvent(tx, {
+      companyId,
+      type: 'role.changed',
+      actor: 'owner',
+      payload: { roleId, slug: before.slug, changed: Object.keys(fields), version },
+    });
+
+    return version;
+  });
+}
+
 async function readGrant(
   tx: TenantClient,
   divisionId: string,

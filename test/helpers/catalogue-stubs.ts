@@ -15,6 +15,10 @@ import {
   type CapabilityDeclaration,
 } from '../../src/broker/catalogue.ts';
 import { CapabilityRegistry, type Capability } from '../../src/broker/registry.ts';
+import {
+  PLATFORM_CAPABILITIES,
+  registerPlatformCapabilities,
+} from '../../src/broker/platform-capabilities.ts';
 
 export function stubCapability(declaration: CapabilityDeclaration): Capability<unknown, unknown> {
   return {
@@ -31,12 +35,25 @@ export function stubCapability(declaration: CapabilityDeclaration): Capability<u
   };
 }
 
-/** Registers a stub for every catalogued capability and syncs the registry. */
+/**
+ * Registers a stub for every catalogued capability and syncs the registry.
+ *
+ * With one exception: the capabilities PALUGADA implements itself get their
+ * real implementations. Stubbing `memory.search` would mean the test suite
+ * never exercises the thing F4.8 promises every run — and a stub that answered
+ * `{ ok: true }` to a memory search would make a broken search look like an
+ * empty company.
+ */
 export async function registerStandardCatalogue(): Promise<CapabilityRegistry> {
   const registry = new CapabilityRegistry();
+  const platform = new Set<string>(PLATFORM_CAPABILITIES);
+
   for (const declaration of STANDARD_CATALOGUE) {
+    if (platform.has(declaration.name)) continue;
     registry.register(stubCapability(declaration));
   }
+  registerPlatformCapabilities(registry as never);
+
   await registry.sync();
   return registry;
 }

@@ -26,6 +26,7 @@ export type ErrorCode =
   | 'approval.denied'
   | 'budget.exceeded'
   | 'budget.reservation_refused'
+  | 'spend.paused'
   | 'batch.not_eligible'
   | 'hop.exceeded'
   | 'cycle.detected'

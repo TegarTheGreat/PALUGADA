@@ -41,6 +41,7 @@ import { redactor } from '../secrets/manager.ts';
 import { fingerprintAction, isApproved, openReview } from '../review/review.ts';
 import { chargeEstimate, estimateFor, refundEstimate, settleActual } from './cost.ts';
 import { evaluateRoleFreeze, isRoleFrozen } from '../governance/role-freeze.ts';
+import { isSpendPaused } from '../governance/spend-guard.ts';
 import { checkAgainstPlan, readPlan, type TaskPlan } from '../engine/plan.ts';
 import type { CapabilityRegistry } from './registry.ts';
 
@@ -116,6 +117,16 @@ export class CapabilityBroker {
     }
     if (await isCompanyFrozen(ctx.companyId)) {
       throw new PalugadaError('company.frozen', 'company is frozen', { name });
+    }
+    // F1.7: a company that has spent its month stops taking external actions.
+    // Beside the freeze rather than folded into it, because "you stopped this"
+    // and "it ran out of money" need different answers and different remedies.
+    if (await isSpendPaused(ctx.companyId)) {
+      throw new PalugadaError(
+        'spend.paused',
+        'company has reached its monthly spending ceiling',
+        { name },
+      );
     }
 
     const now = new Date();

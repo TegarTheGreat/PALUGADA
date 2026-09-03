@@ -23,15 +23,19 @@
  * lab is its own division precisely so that refusal never has to fire in
  * anger.
  *
- * **The money ceiling is zero.** Section 14.3 -- the monthly cost tolerance --
- * is still open, and inventing a number would settle by default a question the
- * owner has not answered. Zero is the fail-closed reading, and it is not
- * decorative: model calls and capability estimates are both charged against
- * this account, so the first costed call halts with `budget.exceeded` and
- * arrives in the inbox saying so. The company is therefore complete and
- * inert until the owner sets a ceiling, which is the behaviour an unanswered
- * question deserves -- one that blocks gets answered, one that quietly
- * defaults gets forgotten.
+ * **The money ceilings are two, and they are not the same instrument.**
+ * Section 14.3 is answered: USD 200 per company per month, which lives in
+ * `spend_limits` and is enforced per calendar month (F1.7, F1.9). The figure
+ * here is the other ceiling -- the lifetime allowance of the budget account a
+ * delegation tree shares (F5.4) -- set to a year of the monthly one.
+ *
+ * That multiple is deliberate and is a placeholder for a gap rather than a
+ * considered number. F1.6 asks for accounts per project, division and role;
+ * until those exist this template creates exactly one account and it is
+ * therefore company-lifetime. Setting it to the monthly figure would make it
+ * bind in the second month and the monthly ceiling would never get to do its
+ * job, so it is set high enough to stay out of the way and the gap is recorded
+ * in docs/STATUS.md rather than hidden behind a number that looks decided.
  *
  * **Models are named by role, not by vendor.** `fast`, `standard` and `deep`
  * are the three shapes of work here. Section 14.5 leaves the mapping to real
@@ -359,9 +363,10 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
 
   budget: {
     tokensMax: 2_000_000,
-    // Zero on purpose. See the module comment: section 14.3 is open, and this
-    // is the fail-closed reading of an unanswered question.
-    moneyMaxCents: 0,
+    // A year of the monthly ceiling. See the module comment: this is the
+    // per-tree ceiling, not the monthly one, and it is set out of the way
+    // because F1.6's per-scope accounts do not exist yet.
+    moneyMaxCents: 240_000,
   },
 };
 

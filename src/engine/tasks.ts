@@ -15,6 +15,7 @@ import { assertTransition, type HaltReason, type TaskStatus } from '../domain/ta
 import { hashInput } from './hash.ts';
 import * as budget from './budget.ts';
 import { isRoleFrozen } from '../governance/role-freeze.ts';
+import { isSpendPaused } from '../governance/spend-guard.ts';
 
 /** F6.5: one task may spawn at most this many children unless overridden. */
 export const DEFAULT_FAN_OUT_MAX = 5;
@@ -115,6 +116,7 @@ export interface CreateTaskInput {
  * its first step.
  */
 export async function createRootTask(input: CreateTaskInput): Promise<TaskRow> {
+  await assertSpendIsNotPaused(input.companyId);
   return withTenant(input.companyId, async (tx) => {
     // An explicit key means the caller can retry safely. Returning the
     // existing task rather than reserving again keeps a retry from quietly
@@ -153,6 +155,23 @@ export async function createRootTask(input: CreateTaskInput): Promise<TaskRow> {
       throw error;
     }
   });
+}
+
+/**
+ * Refuses admission while the company's monthly ceiling is reached (F1.7).
+ *
+ * At admission as well as in the broker: a paused company that could still
+ * start tasks would keep spending on model calls, which is most of the bill
+ * the ceiling exists to cap.
+ */
+async function assertSpendIsNotPaused(companyId: string): Promise<void> {
+  if (await isSpendPaused(companyId)) {
+    throw new PalugadaError(
+      'spend.paused',
+      'company has reached its monthly spending ceiling and is not taking new work',
+      { companyId },
+    );
+  }
 }
 
 /**
@@ -227,6 +246,7 @@ export async function createSubTask(
     fanOutMax?: number | undefined;
   },
 ): Promise<TaskRow> {
+  await assertSpendIsNotPaused(input.companyId);
   return withTenant(input.companyId, async (tx) => {
     const parent = await getTask(tx, parentTaskId);
     if (!parent) throw new Error(`parent task ${parentTaskId} not found`);

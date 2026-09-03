@@ -52,6 +52,10 @@ export async function resetData(): Promise<void> {
       `INSERT INTO retention_policies (company_id) SELECT NULL
         WHERE NOT EXISTS (SELECT 1 FROM retention_policies WHERE company_id IS NULL)`,
     );
+    await tx.query(
+      `INSERT INTO spend_limits (company_id) SELECT NULL
+        WHERE NOT EXISTS (SELECT 1 FROM spend_limits WHERE company_id IS NULL)`,
+    );
   });
 }
 

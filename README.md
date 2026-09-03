@@ -22,7 +22,7 @@ v2 requirement as built, partial or not built.
 ## Status
 
 **Everything the v1 specification asked for is implemented and tested**, with
-215 acceptance tests running against a real PostgreSQL 16 with pgvector:
+228 acceptance tests running against a real PostgreSQL 16 with pgvector:
 tenant isolation and the durable engine, the charter and policy engine, scoped
 memory with distillation, typed contracts and handoff, adversarial review,
 the capability broker with tier calibration and cost control, durable
@@ -42,11 +42,15 @@ and for the three decisions that gate the rest — the largest being that v2's
 NG6 forbids the platform from calling an LLM itself, which the current engine
 does.
 
-Section 14.1 is decided — **build, and stay adapter-compatible** — on the pass
-criteria the PRD set in advance; see
+Two questions in [PRD section 14](docs/PRD.md#14-pertanyaan-terbuka) are
+answered. **14.1: build, and stay adapter-compatible**, on the pass criteria
+the PRD set in advance — see
 [`docs/decisions/0001-fork-versus-build.md`](docs/decisions/0001-fork-versus-build.md).
-Eight questions in [PRD section 14](docs/PRD.md#14-pertanyaan-terbuka) remain
-open.
+**14.3: USD 200 per company per month**, which is now the platform default
+ceiling. Seven remain open, and one of them is worth flagging rather than
+leaving in a list: **14.4, the timezone and owner window, is unset**, so
+everything falls back to UTC. That is a default nobody chose, not a decision —
+escalations and cheap hours are both keyed to it.
 
 ## Quick start
 
@@ -188,6 +192,9 @@ the template is organised by function rather than by industry.
 | v2 F8.13 batch guard: the call is held to the plan's count | `src/engine/plan.ts`, `src/broker/broker.ts` | `plan-and-batch.test.ts` |
 | v2 F8.12 preflight; a task with a broken capability does not start | `src/broker/preflight.ts` | `preflight.test.ts` |
 | v2 F12.3 a rotation triggers a fresh preflight | `src/secrets/rotation.ts` | `preflight.test.ts` |
+| v2 F1.7 warn at 80%, pause at 100%, owner override with a deadline | `src/governance/spend-guard.ts` | `spend-guard.test.ts` |
+| v2 F1.8 circuit breaker on the spending rate | `src/governance/spend-guard.ts` | `spend-guard.test.ts` |
+| v2 F1.9 the period ceiling and the per-task one are separate | `db/migrations/0014_*.sql` | `spend-guard.test.ts` |
 
 ## Decisions worth knowing
 
@@ -365,6 +372,28 @@ broker never guesses which parameter is the list. A guess breaks silently the
 day a field is renamed, and a guard that has quietly stopped guarding is worse
 than none.
 
+**Two money ceilings, and neither substitutes for the other.** A single
+runaway task is caught by its budget account; a hundred well-behaved tasks that
+together cost more than the company can afford are caught only by the monthly
+ceiling. F1.9 asks for both and says both must hold.
+
+**Spend is derived, never counted twice.** The figure comes from the model
+traces and the `tool.cost` events that already record every cent. A second
+counter kept beside them is a second thing that can be wrong, and the one that
+is wrong is always the one being enforced.
+
+**The breaker watches the rate, so there is money left when it fires.** A role
+spending more than three times its own seven-day average in an hour is stopped
+— before the monthly ceiling is reached, which is the point: the owner finds
+out while there is still budget to work with. The last hour is excluded from
+the baseline, or a large enough spike would lift the average it is compared
+against and hide itself. A floor sits under the ratio for the same reason the
+alerts demand a minimum sample: three times almost nothing is still almost
+nothing.
+
+**An override carries a deadline.** One without an end would quietly become the
+new ceiling, which is the failure a ceiling exists to prevent.
+
 **A broken capability is an incident, not a retry.** v2 records a
 misconfigured secret that failed silently for half a day: every call failed,
 every failure looked transient, and the retries hid it. A capability that fails
@@ -432,8 +461,7 @@ by requirement; the short version is that the runtime adapter protocol (F13),
 lifecycle hooks (F14), the skill loop (F15), bundles (F16) and trajectory
 evaluation (F17) do not exist, and neither do heartbeats and the wake queue
 (F9.7–F9.10), atomic checkout, leases, lanes and orphan recovery
-(F5.11–F5.14), the spending circuit breaker (F1.7–F1.9), or goal ancestry
-(F2.7).
+(F5.11–F5.14) or goal ancestry (F2.7).
 
 There is also no owner UI, which several v2 requirements assume (F10.9–F10.10,
 F11.2, F12.5).

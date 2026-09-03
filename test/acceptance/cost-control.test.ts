@@ -21,6 +21,7 @@ import { createRootTask } from '../../src/engine/tasks.ts';
 import * as budget from '../../src/engine/budget.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';
 import { createCompanyFromTemplate } from '../../src/templates/company.ts';
+import { limitFor } from '../../src/governance/spend-guard.ts';
 import { STANDARD_TEMPLATE_SLUG, installStandardTemplate } from '../../src/templates/standard.ts';
 import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
 import { createCompany, grantCapability, type Fixture, planTask } from '../helpers/fixtures.ts';
@@ -253,10 +254,11 @@ test('a capability that measures nothing is not reported as free', async () => {
   assert.equal(await moneySpent(fixture), 100, 'the estimate stands as the only figure there is');
 });
 
-test("the standard company's zero ceiling stops the first costed call", async () => {
-  // Section 14.3 is open. Zero is the fail-closed reading of an unanswered
-  // question, and this is what it means in practice: the company is complete
-  // and inert until the owner sets a number.
+test('a company from the standard template works, and its ceilings are the two the PRD asks for', async () => {
+  // Section 14.3 is answered: USD 200 a company a month. That figure lives in
+  // spend_limits and is enforced per calendar month; the budget account is the
+  // other ceiling F1.9 names, the lifetime allowance a delegation tree shares.
+  // Both must hold, and neither substitutes for the other.
   await registerStandardCatalogue();
   await installStandardTemplate();
   const created = await createCompanyFromTemplate({
@@ -264,6 +266,9 @@ test("the standard company's zero ceiling stops the first costed call", async ()
     companySlug: 'standard-budget',
     name: 'Standard Budget',
   });
+
+  const limit = await limitFor(created.companyId);
+  assert.equal(limit.moneyMaxCents, 20_000, 'USD 200 a month, from the platform default');
 
   const engine = new Engine({
     broker: new CapabilityBroker(new CapabilityRegistry()),
@@ -290,27 +295,8 @@ test("the standard company's zero ceiling stops the first costed call", async ()
     reserveTokens: 10_000,
   });
 
-  const halted = await engine.runTask(created.companyId, task.id, 'coordinator');
-  assert.equal(halted.status, 'halted');
-  assert.match(halted.reason ?? '', /budget/);
-
-  // And it works the moment the owner answers the question.
-  await withTenant(created.companyId, async (tx) => {
-    await tx.query('UPDATE budget_accounts SET money_max_cents = 50_000 WHERE id = $1', [
-      created.budgetAccountId,
-    ]);
-  });
-
-  const second = await createRootTask({
-    companyId: created.companyId,
-    projectId: created.projectIds.main!,
-    divisionId: created.divisionIds.ops!,
-    roleId: created.roleIds.coordinator!,
-    budgetAccountId: created.budgetAccountId,
-    input: { goal: 'check the service again' },
-    createdBy: 'owner',
-    reserveTokens: 10_000,
-  });
-  const ran = await engine.runTask(created.companyId, second.id, 'coordinator');
+  // The company is operable on arrival now that the ceiling is set, which is
+  // what an answered open question is supposed to change.
+  const ran = await engine.runTask(created.companyId, task.id, 'coordinator');
   assert.equal(ran.status, 'completed');
 });

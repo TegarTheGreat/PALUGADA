@@ -348,7 +348,10 @@ test('the standard template builds a company of any line of business', async () 
       'SELECT tokens_max, money_max_cents FROM budget_accounts',
     );
     assert.equal(budget.length, 1, 'one account, shared by the whole delegation tree (F5.4)');
-    assert.equal(budget[0]!.money_max_cents, '0', 'section 14.3 is open; zero is fail-closed');
+    // The per-tree ceiling, not the monthly one. Section 14.3's USD 200 a month
+    // lives in spend_limits; this is a year of it, set out of the way because
+    // F1.6's per-scope accounts do not exist yet.
+    assert.equal(budget[0]!.money_max_cents, '240000');
 
     const { rows: sops } = await tx.query<{ count: string }>(
       `SELECT count(*) FROM memories

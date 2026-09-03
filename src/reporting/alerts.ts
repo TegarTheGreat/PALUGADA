@@ -38,6 +38,15 @@ export interface Thresholds {
    * arrive together, and the freeze would stop being the early signal.
    */
   roleFreezeDenialsPerDay: number;
+  /** F1.8: how many times its own baseline a role may spend before it stops. */
+  spendRateMultiple: number;
+  /**
+   * F1.8: the least an hour must cost before the ratio means anything.
+   *
+   * Three times almost nothing is still almost nothing, and a breaker that
+   * trips on it teaches the owner to ignore breakers.
+   */
+  spendRateFloorCents: number;
 }
 
 /** Used when no threshold row exists, so alerting survives a missing config. */
@@ -47,6 +56,8 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
   policyDenialsPerDay: 20,
   verificationFailuresPerDay: 1,
   roleFreezeDenialsPerDay: 10,
+  spendRateMultiple: 3,
+  spendRateFloorCents: 100,
 };
 
 export interface RaisedAlert {
@@ -66,9 +77,12 @@ export async function thresholdsFor(companyId: string): Promise<Thresholds> {
       policy_denials_per_day: number;
       verification_failures_per_day: number;
       role_freeze_denials_per_day: number;
+      spend_rate_multiple: number;
+      spend_rate_floor_cents: number;
     }>(
       `SELECT daily_cost_cents, task_failure_rate, policy_denials_per_day,
-              verification_failures_per_day, role_freeze_denials_per_day
+              verification_failures_per_day, role_freeze_denials_per_day,
+              spend_rate_multiple, spend_rate_floor_cents
          FROM alert_thresholds
         WHERE company_id = $1 OR company_id IS NULL
         ORDER BY company_id NULLS LAST
@@ -83,6 +97,8 @@ export async function thresholdsFor(companyId: string): Promise<Thresholds> {
       policyDenialsPerDay: row.policy_denials_per_day,
       verificationFailuresPerDay: row.verification_failures_per_day,
       roleFreezeDenialsPerDay: row.role_freeze_denials_per_day,
+      spendRateMultiple: row.spend_rate_multiple,
+      spendRateFloorCents: row.spend_rate_floor_cents,
     };
   });
 }
@@ -95,13 +111,18 @@ export async function setThresholds(
     await tx.query(
       `INSERT INTO alert_thresholds
          (company_id, daily_cost_cents, task_failure_rate, policy_denials_per_day,
-          verification_failures_per_day, role_freeze_denials_per_day)
+          verification_failures_per_day, role_freeze_denials_per_day,
+          spend_rate_multiple, spend_rate_floor_cents)
        VALUES ($1,
                coalesce($2, 10000),
                coalesce($3, 0.2),
                coalesce($4, 20),
                coalesce($5, 1),
-               coalesce($6, 10))
+               coalesce($6, 10),
+               -- Cast explicitly: the literal 3 would make PostgreSQL infer an
+               -- integer parameter, and this column is a real.
+               coalesce($7::real, 3),
+               coalesce($8, 100))
        ON CONFLICT (company_id) DO UPDATE
          SET daily_cost_cents = coalesce($2, alert_thresholds.daily_cost_cents),
              task_failure_rate = coalesce($3, alert_thresholds.task_failure_rate),
@@ -109,7 +130,10 @@ export async function setThresholds(
              verification_failures_per_day =
                coalesce($5, alert_thresholds.verification_failures_per_day),
              role_freeze_denials_per_day =
-               coalesce($6, alert_thresholds.role_freeze_denials_per_day)`,
+               coalesce($6, alert_thresholds.role_freeze_denials_per_day),
+             spend_rate_multiple = coalesce($7::real, alert_thresholds.spend_rate_multiple),
+             spend_rate_floor_cents =
+               coalesce($8, alert_thresholds.spend_rate_floor_cents)`,
       [
         companyId,
         thresholds.dailyCostCents ?? null,
@@ -117,6 +141,8 @@ export async function setThresholds(
         thresholds.policyDenialsPerDay ?? null,
         thresholds.verificationFailuresPerDay ?? null,
         thresholds.roleFreezeDenialsPerDay ?? null,
+        thresholds.spendRateMultiple ?? null,
+        thresholds.spendRateFloorCents ?? null,
       ],
     );
   });

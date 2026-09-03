@@ -31,6 +31,7 @@ import {
 } from '../runtime/protocol.ts';
 import { InProcessAdapter, type TaskHandler } from '../runtime/in-process.ts';
 import { ProviderFailure } from '../runtime/wire.ts';
+import { proposeNegativeCase } from '../eval/role-eval.ts';
 import { buildContext } from '../context/builder.ts';
 import { ancestryForTask } from '../domain/goals.ts';
 import { preflightForRole } from '../broker/preflight.ts';
@@ -702,7 +703,7 @@ export class Engine {
       return { status: 'completed', output };
     } catch (error) {
       await this.#finishAgentRun(companyId, agentRunId, 'failed');
-      return this.#classifyFailure(companyId, taskId, error);
+      return this.#classifyFailure(companyId, taskId, error, agentRunId);
     }
   }
 
@@ -714,7 +715,12 @@ export class Engine {
    * hop, deadline and a failed read-back all halt, because retrying any of
    * them would either overspend or repeat an unverified write.
    */
-  async #classifyFailure(companyId: string, taskId: string, error: unknown): Promise<RunOutcome> {
+  async #classifyFailure(
+    companyId: string,
+    taskId: string,
+    error: unknown,
+    agentRunId?: string,
+  ): Promise<RunOutcome> {
     const code = error instanceof PalugadaError ? error.code : null;
 
     // Nothing to classify if the task already has an outcome, or has gone
@@ -790,7 +796,7 @@ export class Engine {
     const haltReason = code ? haltCodes[code] : undefined;
     if (haltReason) {
       await transition(companyId, taskId, 'halted', { haltReason });
-      await this.#onHalt(companyId, settled, haltReason, error);
+      await this.#onHalt(companyId, settled, haltReason, error, agentRunId);
       if (haltReason === 'verification_failed') {
         // F8.4: a write that reports success but reads back differently is an
         // incident, not a retry.
@@ -815,7 +821,7 @@ export class Engine {
 
     if (exhausted) {
       await transition(companyId, taskId, 'failed');
-      await this.#onHalt(companyId, settled, 'attempts_exhausted', error);
+      await this.#onHalt(companyId, settled, 'attempts_exhausted', error, agentRunId);
       return { status: 'failed', reason: (error as Error).message };
     }
     return { status: 'failed', reason: 'retryable' };
@@ -975,6 +981,7 @@ export class Engine {
     task: TaskRow,
     reason: string,
     error: unknown,
+    agentRunId?: string,
   ): Promise<void> {
     await this.hooks.run('on_halt', {
       companyId,
@@ -985,6 +992,21 @@ export class Engine {
       input: task.input,
       output: { reason, error: (error as Error).message },
     });
+
+    // F17.4: a run that ended badly becomes a negative eval candidate. It is a
+    // candidate rather than a case -- whether the role is judged against it is
+    // still somebody's decision -- but it is written down without being asked,
+    // because the failures worth remembering are exactly the ones nobody feels
+    // like recording afterwards.
+    if (agentRunId) {
+      try {
+        await proposeNegativeCase(companyId, agentRunId, reason);
+      } catch {
+        // The halt is already recorded and returned. Failing to keep a
+        // regression case must not turn a classified failure into an
+        // unclassified one.
+      }
+    }
   }
 
   /** Deadline, platform stop and company freeze, checked together. */

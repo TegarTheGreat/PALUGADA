@@ -26,7 +26,15 @@ export type Decision = 'approve' | 'deny' | 'ask';
 
 export interface ApprovalInput {
   companyId: string;
-  taskId: string;
+  /**
+   * The task waiting on this decision, when there is one.
+   *
+   * Absent for an approval that is not about work in flight -- a structural
+   * change under F2.9, a role change under F17.3. Those have nothing to park:
+   * if the owner never answers, nothing happens, which is the safe outcome
+   * F10.4 asks for and is reached here by there being no task to cancel.
+   */
+  taskId?: string | undefined;
   capabilityName: string;
   tier: Tier;
   actionSummary: string;
@@ -68,7 +76,7 @@ export async function requestApproval(input: ApprovalInput): Promise<string> {
                now() + make_interval(hours => $11), $12)
        RETURNING id`,
       [
-        input.companyId, input.taskId, input.actionSummary, input.actionSummary,
+        input.companyId, input.taskId ?? null, input.actionSummary, input.actionSummary,
         input.rationale, input.tier, input.estimatedCostCents ?? 0,
         input.consequenceIfDenied, input.capabilityName,
         JSON.stringify(input.payload ?? {}), ttl, notifyAfter,
@@ -85,7 +93,7 @@ export async function requestApproval(input: ApprovalInput): Promise<string> {
     return id;
   });
 
-  await transition(input.companyId, input.taskId, 'waiting_approval');
+  if (input.taskId) await transition(input.companyId, input.taskId, 'waiting_approval');
   return itemId;
 }
 
@@ -187,6 +195,57 @@ export async function proposeSop(input: {
         input.title,
         `Observed in ${input.occurrences} completed tasks.\n\n${input.body}`,
         JSON.stringify({ memoryId: input.memoryId, occurrences: input.occurrences }),
+        notifyAfter,
+      ],
+    );
+    return rows[0]!.id;
+  });
+}
+
+/**
+ * Proposes a skill version for the owner's decision (F10.1, F15.3).
+ *
+ * Beside `proposeSop` rather than replacing it: an SOP candidate is a
+ * paragraph a distiller noticed, a skill candidate is a versioned document
+ * with an author, a changelog and a review behind it. Collapsing the two would
+ * mean the owner cannot tell, from the queue, which of the two they are being
+ * asked about.
+ *
+ * Waits for the owner's window. A proposed skill is not urgent -- nothing
+ * changes until it is approved, which is the property that makes it safe to
+ * let it wait.
+ */
+export async function proposeSkill(input: {
+  companyId: string;
+  skillVersionId: string;
+  slug: string;
+  version: number;
+  author: string;
+  changelog: string;
+  summary: string;
+}): Promise<string> {
+  const notifyAfter = await notifyAfterFor('skill_candidate', {});
+
+  return withTenant(input.companyId, async (tx) => {
+    const { rows } = await tx.query<{ id: string }>(
+      `INSERT INTO inbox_items
+         (company_id, kind, title, action_summary, rationale, consequence_if_denied,
+          payload, notify_after)
+       VALUES ($1,'skill_candidate',$2,$3,$4,
+               'Nothing changes; the current version of the skill stays in force.',
+               $5,$6)
+       RETURNING id`,
+      [
+        input.companyId,
+        `Skill ${input.slug} v${input.version}`,
+        input.summary,
+        `Proposed by ${input.author}.\n\n${input.changelog}`,
+        JSON.stringify({
+          skillVersionId: input.skillVersionId,
+          slug: input.slug,
+          version: input.version,
+          author: input.author,
+        }),
         notifyAfter,
       ],
     );

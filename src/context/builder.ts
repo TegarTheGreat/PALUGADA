@@ -12,6 +12,7 @@
  * placed where a later section could appear to qualify them.
  */
 import type { TenantClient } from '../db/tenant.ts';
+import { skillSummariesFor } from '../skills/skills.ts';
 import { recall, type MemoryItem } from '../memory/store.ts';
 import { ancestryForTask, renderAncestry } from '../domain/goals.ts';
 
@@ -129,6 +130,22 @@ export async function buildContext(
   options: BuildContextOptions,
 ): Promise<AssembledContext> {
   const sections: ContextSection[] = await readCharters(tx, options.companyId);
+
+  // F15.7: skills travel as summaries. A company with forty of them would
+  // otherwise spend a run's whole context on documents it may never open, so
+  // the pack says what exists and `skill.read` fetches the one that turns out
+  // to matter.
+  const skills = await skillSummariesFor(tx, {
+    companyId: options.companyId,
+    divisionId: options.divisionId ?? null,
+  });
+  for (const skill of skills) {
+    sections.push({
+      kind: 'sop',
+      title: `Skill ${skill.slug} (v${skill.activeVersion})`,
+      body: `${skill.summary}\n\nRead the full procedure with skill.read("${skill.slug}").`,
+    });
+  }
 
   const sops = await recall(tx, options.companyId, {
     memoryType: 'procedural',

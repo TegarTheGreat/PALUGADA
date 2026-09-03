@@ -96,6 +96,8 @@ src/
   audit/           append-only event log, security events
   llm/             model interface and a recording test double
   runtime/         the adapter protocol, the wire, and four runtimes
+  skills/          skill documents, the curation gates, and eval cases
+  eval/            trajectory export and the role eval set
 test/acceptance/   one file per PRD acceptance criterion
 ```
 
@@ -218,6 +220,14 @@ the template is organised by function rather than by industry.
 | v2 F14.1 a runtime cannot get past a hook | `src/engine/hooks.ts` | `hooks.test.ts` |
 | v2 F14.2 built-ins cannot be removed; an added hook may only tighten | `src/engine/hooks.ts` | `hooks.test.ts` |
 | v2 F14.3 every refusal names the hook and why | `src/engine/hooks.ts` | `hooks.test.ts` |
+| v2 F15.1 skills are open-format documents, and a round trip is lossless | `src/skills/skills.ts` | `skills.test.ts` |
+| v2 F15.3 a candidate needs a reviewer *and* the owner | `src/skills/skills.ts` | `skills.test.ts` |
+| v2 F15.4 no eval case, no activation — enforced by the database | `db/migrations/0021_skills.sql` | `skills.test.ts` |
+| v2 F15.7 the context pack carries summaries; `skill.read` fetches the rest | `src/context/builder.ts` | `skills.test.ts` |
+| v2 F17.1, F11.7 a run exports as a trajectory, hook decisions included | `src/eval/trajectory.ts` | `trajectory-eval.test.ts` |
+| v2 F17.2 a role with fewer than five references is unscored, not passing | `src/eval/role-eval.ts` | `trajectory-eval.test.ts` |
+| v2 F17.3 the owner sees the score before deciding | `src/eval/role-eval.ts` | `trajectory-eval.test.ts` |
+| v2 F17.4 a halted run becomes a negative candidate on its own | `src/engine/engine.ts` | `trajectory-eval.test.ts` |
 
 ## Decisions worth knowing
 

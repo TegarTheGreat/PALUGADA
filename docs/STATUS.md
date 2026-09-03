@@ -36,20 +36,20 @@ what is missing rather than leaving the reader to guess.
 | F1 tenancy, budget | F1.1–F1.4, F1.7, F1.8, F1.9 | F1.5 (no skills or config in the archive), F1.6 (one account per company; not per project/division/role) | — |
 | F2 organisation | F2.2, F2.3, F2.4, F2.5, F2.7, F2.8 | F2.1 (no per-division escalation policy) | F2.6, F2.9 |
 | F3 charter, policy | F3.1–F3.8, F3.10, F3.12 | F3.9 (versioned with a diff, but no rollback) | F3.11 |
-| F4 memory | F4.1–F4.4, F4.6 | F4.5 (low-confidence facts flagged; skill candidates need F15), F4.7 (the journal survives a restart, but there is no heartbeat and no working-memory object) | F4.8 |
+| F4 memory | F4.1–F4.7 | — | F4.8 |
 | F5 engine | F5.1–F5.9, F5.11–F5.14 | — | F5.10 |
 | F6 agent communication | F6.1–F6.6 | — | F6.7 |
 | F7 adversarial review | F7.1–F7.6 | — | F7.7 |
 | F8 broker, tiers | F8.1–F8.13 | — | — |
 | F9 scheduler | F9.1–F9.10 | — | — |
-| F10 owner surface | F10.2, F10.4, F10.6, F10.7, F10.8, F10.11 | F10.1 (no `skill_candidate`), F10.5 (the rule is enforced; there is no push channel) | F10.3, F10.9, F10.10 |
-| F11 observability | F11.1, F11.3, F11.5, F11.6 | F11.4 (no preflight or orphan alerts) | F11.2, F11.7 |
+| F10 owner surface | F10.1, F10.2, F10.4, F10.6, F10.7, F10.8, F10.11 | F10.5 (the rule is enforced; there is no push channel) | F10.3, F10.9, F10.10 |
+| F11 observability | F11.1, F11.3, F11.5, F11.6, F11.7 | F11.4 (no preflight or orphan alerts) | F11.2 |
 | F12 credentials, gateway | F12.1–F12.4 (F12.3 now also triggers preflight) | — | F12.5, F12.7, F12.8, F12.9, F12.10 |
 | F13 runtime adapters | F13.1, F13.2, F13.4, F13.5, F13.6, F13.7, F13.8 | F13.3 (the wire protocol is open and documented; no `hermes`, `codex` or `gemini-cli` adapter is written) | — |
 | F14 lifecycle hooks | F14.1, F14.2, F14.3 | — | F14.4 (a bundle may not yet carry a hook) |
-| F15 skills | — | F15.3 (candidate SOPs need owner approval; not in skill format, unversioned, no eval) | F15.1, F15.2, F15.4–F15.8 |
+| F15 skills | F15.1–F15.7 | — | F15.8 (needs the quarantine mode of F12.10) |
 | F16 bundles | — | F16.3 (company templates exist; unsigned, unversioned, not bundles) | F16.1, F16.2, F16.4, F16.5 |
-| F17 eval, trajectory | — | — | all of F17 |
+| F17 eval, trajectory | F17.1, F17.2, F17.3, F17.4 | — | — |
 
 Read as a whole: v1's scope is finished and holds up, and v2 adds a control
 plane layer around it that is mostly not built. The exception is the broker,
@@ -83,6 +83,15 @@ that depend on nothing else — platform stop, company freeze, spend ceiling —
 otherwise have to remember to copy.
 
 ## 3. What has to be decided before building further
+
+**A role eval is structural, not a replay.** F17.2 asks that a change to a
+role's charter, skills or model routing runs its eval set. Scoring by
+re-executing five reference trajectories against a live provider would cost
+real money and give a different answer each time, and F17.3 needs the number
+*before* the owner clicks rather than an hour afterwards. So the score asks
+whether the change keeps what the references depended on and keeps the negative
+cases' failure modes closed. That is weaker than replaying the work, and it is
+the check that can run in the second before a decision.
 
 **The `claude-code` adapter has not been run against the real binary.** It is
 not installed here and the provider is not reachable from the test environment,

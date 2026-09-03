@@ -8,6 +8,18 @@ on:
   push:
     branches: ['**']
   pull_request:
+  # F5.11's acceptance criterion is a thousand claim races, which takes about
+  # seventy seconds. Run nightly rather than on every push: the property is
+  # structural, so a broken one fails in the first few rounds, and the stated
+  # number still executes on a schedule instead of being argued away.
+  #
+  # GitHub fires `schedule` on the default branch only, so on a feature branch
+  # the soak is reached through `workflow_dispatch` (Actions -> CI -> Run
+  # workflow) or locally with PALUGADA_SOAK=1. Said here because a nightly that
+  # silently does not run on the branch you are working on is worse than none.
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
 
 jobs:
   test:
@@ -59,3 +71,14 @@ jobs:
 
       - name: Acceptance tests
         run: npm test
+
+      # The soak, at the scale F5.11 states: a thousand claim races instead of
+      # sixty. Only on the nightly run and on a manual dispatch, so a push
+      # waits ninety seconds rather than three minutes. One file rather than
+      # the whole suite, because that file is the only one PALUGADA_SOAK
+      # changes and the rest has already run in the step above.
+      - name: Claim race at the stated scale (F5.11)
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        env:
+          PALUGADA_SOAK: '1'
+        run: node --test --test-concurrency=1 test/acceptance/checkout-lease-lane.test.ts

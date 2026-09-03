@@ -129,6 +129,18 @@ npm run db:migrate
 npm test
 ```
 
+F5.11's acceptance criterion is twenty workers over a thousand claim races.
+That takes about seventy seconds, so `npm test` runs sixty rounds and the
+stated thousand runs on demand:
+
+```bash
+PALUGADA_SOAK=1 node --test --test-concurrency=1 test/acceptance/checkout-lease-lane.test.ts
+```
+
+CI runs it on a nightly schedule and on `workflow_dispatch`. The schedule
+fires on the default branch only, so on a feature branch use the manual
+trigger or the command above.
+
 `db:setup` connects as a superuser, because it installs pgvector — which is not
 a trusted extension — alongside the roles and the database. Set
 `PALUGADA_SUPERUSER_URL` to point at a superuser, or leave it unset to use a
@@ -202,7 +214,7 @@ test/acceptance/   one file per PRD acceptance criterion
 | F4.2 scope filtered before similarity | `src/memory/store.ts` | `memory-scope.test.ts` (1,000 facts) |
 | F4.6 memory scoping per project and division | `src/memory/store.ts` | `memory-scope.test.ts` |
 | F6.1, F6.2 typed contracts both ways | `src/engine/contracts.ts` | `contracts-handoff.test.ts` |
-| F6.3 handoff triggered by completion | `src/engine/handoff.ts` | `contracts-handoff.test.ts` |
+| F6.3 handoff triggered by completion, performed by the loop | `src/engine/handoff.ts`, `src/worker.ts` | `contracts-handoff.test.ts`, `worker.test.ts` |
 | F6.4 `awaitChild` with a mandatory timeout | `src/engine/engine.ts` | `contracts-handoff.test.ts` |
 | F8.9 external content marked as data | `src/context/builder.ts` | `charter-context.test.ts` |
 | F9.1 durable cron | `src/scheduler/scheduler.ts` | `scheduling-windows.test.ts` |

@@ -12,10 +12,11 @@
  * test suite and a platform.
  */
 import { test, before, beforeEach, after } from 'node:test';
+import { randomUUID } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { withTenant, withControlPlane } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
-import { Worker } from '../../src/worker.ts';
+import { Worker, DEFAULT_IDLE_MS } from '../../src/worker.ts';
 import { baseRegistry, seed } from '../../src/seed.ts';
 import { Engine, type TaskHandler } from '../../src/engine/engine.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
@@ -25,7 +26,10 @@ import { enqueueWake } from '../../src/scheduler/wake.ts';
 import { requestStopAll, clearStopAll, freezeCompany } from '../../src/engine/control.ts';
 import { installBundle } from '../../src/bundles/bundle.ts';
 import { readTemplate } from '../../src/templates/company.ts';
-import { createCompany, type Fixture } from '../helpers/fixtures.ts';
+import type { HandoffRule } from '../../src/engine/handoff.ts';
+import { isRoleFrozen } from '../../src/governance/role-freeze.ts';
+import * as inbox from '../../src/inbox/inbox.ts';
+import { createCompany, addRole, setRoleSchemas, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
 before(ensureSchema);
@@ -39,12 +43,17 @@ after(async () => {
 function workerFor(
   fixture: Fixture,
   handler: TaskHandler,
-  options: { all?: boolean; id?: string } = {},
+  options: {
+    all?: boolean;
+    id?: string;
+    handlers?: Record<string, TaskHandler>;
+    handoffRules?: HandoffRule[];
+  } = {},
 ) {
   const engine = new Engine({
     broker: new CapabilityBroker(baseRegistry()),
     llm: new RecordingLlmClient(),
-    handlers: new Map([['worker', handler]]),
+    handlers: new Map([['worker', handler], ...Object.entries(options.handlers ?? {})]),
     // Distinct per worker when a test runs more than one: a lease belongs to
     // its holder, and two workers sharing an id could renew each other's.
     workerId: options.id ?? 'tick-worker',
@@ -53,6 +62,7 @@ function workerFor(
     engine,
     ...(options.all ? {} : { companyId: fixture.companyId }),
     maxRunsPerTick: 4,
+    ...(options.handoffRules ? { handoffRules: options.handoffRules } : {}),
   });
 }
 
@@ -470,4 +480,127 @@ test('two workers on the same company run each task exactly once', async () => {
     return rows;
   });
   assert.deepEqual(statuses, [{ status: 'completed', count: '6' }]);
+});
+
+/**
+ * A handoff happens because the loop ran, not because a test called it.
+ *
+ * `contracts-handoff.test.ts` proves the mechanism: a completed task's output
+ * starts its successor, the engine starts it, and running the rules twice does
+ * not fan out twice. What it does not prove is that anything runs the rules in
+ * a live platform — `processHandoffs` took its rules as an argument and no
+ * caller in `src/` passed any, so a deployment got handoffs only if it wrote
+ * its own loop. One tick now does the whole thing: run the predecessor, then
+ * create the successor from its output.
+ */
+test('one tick runs a task and then the handoff it owes (F6.1, F6.3)', async () => {
+  const fixture = await createCompany('worker-handoff');
+  await setRoleSchemas(fixture, fixture.roleId, {
+    output: { type: 'object', required: ['findings'], properties: { findings: { type: 'array' } } },
+  });
+  await addRole(fixture, 'writer', {
+    input: { type: 'object', required: ['findings'], properties: { findings: { type: 'array' } } },
+  });
+
+  const drafted: string[] = [];
+  const worker = workerFor(fixture, async () => ({ findings: ['a', 'b'] }), {
+    handlers: {
+      writer: async (ctx) => {
+        drafted.push((ctx.task.input.findings as string[]).join(' and '));
+        return { draft: 'done' };
+      },
+    },
+    handoffRules: [
+      {
+        fromRoleSlug: 'worker',
+        toRoleSlug: 'writer',
+        mapInput: (output) => ({ findings: output.findings }),
+      },
+    ],
+  });
+
+  await newTask(fixture);
+
+  // The first tick runs the predecessor and, in its settle stage, creates the
+  // successor. It does not run the successor: settle comes after claim, which
+  // is the correct order for every other reason and costs a handoff one tick.
+  const first = await worker.tick();
+  assert.deepEqual(first.errors, []);
+  assert.equal(first.handedOff, 1, 'the loop performed the handoff');
+  assert.deepEqual(drafted, [], 'and did not also run it in the same pass');
+
+  const second = await worker.tick();
+  assert.deepEqual(second.errors, []);
+  assert.deepEqual(drafted, ['a and b'], 'the successor ran on its predecessor\'s output');
+  assert.equal(second.handedOff, 0, 'and the rule did not fire a second time');
+});
+
+/** One model call that cost something, at a chosen time. */
+async function seedTrace(
+  fixture: Fixture,
+  taskId: string | null,
+  cents: number,
+  at: Date,
+): Promise<void> {
+  await withTenant(fixture.companyId, async (tx) => {
+    await tx.query(
+      `INSERT INTO llm_traces (id, company_id, task_id, model, prompt, response,
+                               input_tokens, output_tokens, cost_cents, occurred_at)
+       VALUES ($1, $2, $3, 'test-model', '{}'::jsonb, '{}'::jsonb, 10, 5, $4, $5)`,
+      [randomUUID(), fixture.companyId, taskId, cents, at],
+    );
+  });
+}
+
+/**
+ * The tick is what makes F1.8's "within five minutes" true.
+ *
+ * `spend-guard.test.ts` proves the breaker itself: ten times the usual rate
+ * trips it, the role is frozen, an incident is raised, and the month is still
+ * intact. What it calls is `evaluateCircuitBreakers` directly, so the
+ * criterion's *timing* half — paused within five minutes of the spike — rested
+ * on the watch stage running, and no test asserted that it did. The tick's own
+ * docstring said it watched; nothing checked.
+ *
+ * The bound is the polling interval: `DEFAULT_IDLE_MS` is five seconds and a
+ * tick that found work goes straight round, so the worst case is one tick
+ * behind rather than five minutes. Asserted here as "one tick is enough",
+ * which is the property that has to hold for the number in the PRD to be met
+ * with room to spare.
+ */
+test('one tick trips the breaker on a role that spiked (F1.8, F1.7)', async () => {
+  const fixture = await createCompany('worker-watch');
+  const now = new Date();
+
+  // A week of ten cents an hour, then a hundred in the last hour.
+  const task = await newTask(fixture);
+  for (let hoursAgo = 2; hoursAgo <= 167; hoursAgo += 1) {
+    await seedTrace(fixture, task.id, 10, new Date(now.getTime() - hoursAgo * 3_600_000));
+  }
+  await seedTrace(fixture, task.id, 100, new Date(now.getTime() - 10 * 60_000));
+
+  assert.equal(
+    await withTenant(fixture.companyId, (tx) => isRoleFrozen(tx, fixture.roleId)),
+    false,
+    'nothing has looked yet',
+  );
+
+  const worker = workerFor(fixture, async () => ({ done: true }));
+  const report = await worker.tick(now);
+  assert.deepEqual(report.errors, []);
+
+  assert.equal(
+    await withTenant(fixture.companyId, (tx) => isRoleFrozen(tx, fixture.roleId)),
+    true,
+    'the loop found the spike without anybody calling the breaker',
+  );
+
+  const incidents = (await inbox.listOpen(fixture.companyId)).filter(
+    (item) => item.kind === 'incident',
+  );
+  assert.equal(incidents.length, 1);
+  assert.match(incidents[0]!.title, /spending too fast/);
+
+  // And the interval that makes the criterion's five minutes generous.
+  assert.ok(DEFAULT_IDLE_MS <= 60_000, `idle interval is ${DEFAULT_IDLE_MS}ms`);
 });

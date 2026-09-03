@@ -64,13 +64,27 @@ async function setTokenCeiling(fixture: Fixture, tokensMax: number): Promise<voi
 }
 
 const WORKERS = 20;
-const ITERATIONS = 60;
+
+/**
+ * The PRD's number, and the one every push can afford.
+ *
+ * F5.11's acceptance criterion is twenty workers over a thousand iterations
+ * with zero double-checkouts. A thousand rounds takes about seventy seconds,
+ * which is most of a suite that otherwise runs in ninety, so paying it on
+ * every commit forever is the wrong trade: the property is structural -- one
+ * `UPDATE` over a row locked inside a per-company advisory lock -- so a broken
+ * one fails in the first few rounds, and sixty is well past that.
+ *
+ * The stated number is not therefore skipped. `PALUGADA_SOAK=1` runs the
+ * thousand, and CI runs it nightly and on demand, so the criterion is met by
+ * something that actually executes rather than by an argument about why it
+ * need not. docs/STATUS.md records the arrangement.
+ */
+const SOAK_ITERATIONS = 1_000;
+const QUICK_ITERATIONS = 60;
+const ITERATIONS = process.env.PALUGADA_SOAK === '1' ? SOAK_ITERATIONS : QUICK_ITERATIONS;
 
 test('twenty workers racing for five tasks claim each exactly once (F5.11)', async () => {
-  // The criterion the PRD states, at the scale a test can afford to run: the
-  // property is structural -- one UPDATE over a row locked with SKIP LOCKED --
-  // so the race is either impossible or fails immediately, and sixty rounds of
-  // twenty workers is well past the point where a broken one would show.
   const fixture = await createCompany('claim-race', { tokensMax: 100_000_000 });
 
   for (let round = 0; round < ITERATIONS; round += 1) {

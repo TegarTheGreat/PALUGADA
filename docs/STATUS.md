@@ -8,12 +8,13 @@ to resolve it.
 This file says three things: which identifiers changed meaning, what is built
 against v2, and what has to be decided before the v2 roadmap can proceed.
 
-Sections 2.2 to 2.7 are the same exercise asked six different ways — what does
-nothing call, what does this claim to prevent, would the suite notice, what
-happens if you actually start it, which exports only tests reach, and what one
-worker never races. Each one found something, which is the reason they are
-written down separately rather than folded into a single "audited" note: the
-useful part is the question, not the answer.
+Sections 2.2 to 2.8 are the same exercise asked seven different ways — what
+does nothing call, what does this claim to prevent, would the suite notice,
+what happens if you actually start it, which exports only tests reach, what one
+worker never races, and do the PRD's own numbered criteria run as written. Each
+one found something, which is the reason they are written down separately
+rather than folded into a single "audited" note: the useful part is the
+question, not the answer.
 
 ## 1. Identifiers that changed meaning
 
@@ -363,12 +364,18 @@ costs three indexed deletes that delete nothing.
 
 Two remain unwired on purpose, and are named here rather than left to be found:
 
-- `processHandoffs` (F6.1, F6.3) takes its rules as an argument, and a rule
-  carries a `mapInput` function, so the rules cannot live in a table — they are
-  code a composition root supplies. `src/worker.ts` does not supply any, so a
-  deployment that wants handoffs passes them itself. That is a real limitation
-  and the honest description of it is "the mechanism is built, the configuration
-  surface is not".
+- `processHandoffs` (F6.1, F6.3) is now a worker stage, and its rules stay
+  code rather than rows: a rule carries a `mapInput` function, so it is
+  supplied by whatever composes the process — the same arrangement as the
+  capability registry, where `baseRegistry()` binds what the platform
+  implements and a deployment binds the rest. `Worker` takes them as an option
+  and runs them in its settle stage, after the runs, because a run in the same
+  tick may have completed the task a handoff follows. Omitting them means no
+  handoffs, which is the honest default: a template that invented a process
+  would be deciding a company's workflow for it. F6.3 asks for handoff *via
+  the completed event rather than a direct call*, and that is what is built and
+  tested; a stored rule table is not something the PRD asks for, and saying so
+  is more useful than implying a gap.
 - `buildDailyDigest` and `buildWeeklyRetro` (F10.1) render for a channel that
   does not exist yet — the same F11.2 gap as the rest of the owner surface. They
   are called by whatever delivers them, and nothing delivers.
@@ -396,6 +403,44 @@ ran and the overlap the test was named for never happened. The handler now
 sleeps long enough that it does, and the sleep is the mechanism rather than
 latency-tolerance — which is worth saying in the test, because the next person
 to see a `setTimeout` in a test will reasonably want to delete it.
+
+## 2.8 The four acceptance criteria the PRD spells out
+
+Most requirements are a line in a table. Four have an explicit
+**Kriteria penerimaan** attached, which makes them checkable literally rather
+than by judgement, so they were checked literally.
+
+**F1.3** — an injection prompt asking for another company's data is refused at
+the database and recorded as `security.rls_denied`. Both halves are asserted,
+the event included. Met.
+
+**F8.13** — a plan naming 3 recipients against a call carrying 23 is refused
+before the MCP call and raises an incident. The test uses those numbers, checks
+the adapter was never reached, and reads the incident's rationale. Met.
+
+**F1.8** — a role burning ten times its usual rate is paused within five
+minutes without the company touching 100% of its budget. The rate half was
+covered: ten times the hourly baseline trips the breaker, the role is frozen,
+an incident is raised, and the period is well under its ceiling. The *timing*
+half was not. It rests on the worker's watch stage running, and no test
+asserted that the tick watches anything — the tick's own docstring said it did.
+There is one now: a spiked role is frozen by `worker.tick()` with nobody
+calling the breaker, and the interval that makes five minutes generous
+(`DEFAULT_IDLE_MS`, five seconds) is asserted beside it. Met, and it was half
+met before.
+
+**F5.11** — twenty workers, five tasks, budget for three, and *zero
+double-checkouts in a thousand iterations*. The test raced twenty workers sixty
+times, with a comment arguing that sixty was well past where a broken
+implementation would show. That argument is true and it is not the criterion.
+A thousand rounds takes about seventy seconds, which is most of a suite that
+runs in ninety, so it is not something to pay on every push forever — but "we
+judged the number unnecessary" is exactly the shape of claim these sections
+exist to catch. `PALUGADA_SOAK=1` now runs the thousand, and CI runs it on a nightly
+schedule and on `workflow_dispatch` — the schedule fires on the default branch
+only, which is why the manual trigger exists rather than being an afterthought.
+Executed at the stated scale: 1,000 iterations, 20 workers, zero
+double-checkouts, 69 seconds. Met.
 
 ## 3. Decisions, deviations, and what is unverified
 

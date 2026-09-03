@@ -17,8 +17,10 @@
  *      produce waits a whole tick for no reason.
  *   3. **Drain wakes** (F9.8), which turns a wake into at most one run.
  *   4. **Claim and run** whatever is left claimable, up to `maxRunsPerTick`.
- *   5. **Settle** reviews and expire overdue approvals (F7.2, F10.4). After
- *      the runs, because a run in this tick may have opened one.
+ *   5. **Settle** reviews, expire overdue approvals (F7.2, F10.4) and perform
+ *      the handoffs owed by tasks that completed (F6.1, F6.3). After the runs,
+ *      because a run in this tick may have opened a review or completed the
+ *      task a handoff follows.
  *   6. **Watch the money and the failure rate** (F1.7–F1.9, F11.4). Last,
  *      because it reports on what just happened.
  *   7. **Retention** (section 12.3), at most once every few hours per company.
@@ -48,6 +50,7 @@ import { evaluateAlerts } from './reporting/alerts.ts';
 import { evaluateCircuitBreakers, evaluateSpendLimit } from './governance/spend-guard.ts';
 import * as inbox from './inbox/inbox.ts';
 import { runRetention } from './retention/retention.ts';
+import { processHandoffs, type HandoffRule } from './engine/handoff.ts';
 
 export interface WorkerOptions {
   engine: Engine;
@@ -66,6 +69,16 @@ export interface WorkerOptions {
    * disable, and "we stopped deleting your expired data" is not a setting.
    */
   retentionIntervalMs?: number;
+  /**
+   * F6.1, F6.3: what runs after what.
+   *
+   * Code rather than rows, because a rule carries a `mapInput` function — the
+   * same arrangement as the capability registry, where the platform binds what
+   * it implements and a deployment binds the rest. Omitted means no handoffs,
+   * which is the honest default: inventing one would decide a company's
+   * process for it.
+   */
+  handoffRules?: HandoffRule[];
   signal?: AbortSignal;
   /**
    * Called when a whole tick fails, not when a stage does.
@@ -85,6 +98,8 @@ export interface TickReport {
   alerts: number;
   /** Companies whose retention policy this tick applied. */
   retained: number;
+  /** Successor tasks created from a completed task's output (F6.3). */
+  handedOff: number;
   /** Set when the platform stop is in effect: the tick did nothing else. */
   stopped: boolean;
   errors: Array<{ stage: string; message: string }>;
@@ -124,7 +139,7 @@ export class Worker {
    */
   async tick(now = new Date()): Promise<TickReport> {
     const report: TickReport = {
-      reclaimed: 0, scheduled: 0, woken: 0, ran: [], alerts: 0, retained: 0,
+      reclaimed: 0, scheduled: 0, woken: 0, ran: [], alerts: 0, retained: 0, handedOff: 0,
       stopped: false, errors: [],
     };
 
@@ -181,6 +196,15 @@ export class Worker {
       await this.#stage(report, 'settle', async () => {
         await settleCompletedReviews(company);
         await inbox.expireOverdue(company);
+
+        // F6.3: a completed task's output is what starts its successor, and
+        // the engine is what starts it -- not the finishing agent naming who
+        // to call. Driven from state, so a worker that was down when the task
+        // completed still performs the handoff when it comes back.
+        const rules = this.#options.handoffRules ?? [];
+        if (rules.length > 0) {
+          report.handedOff += (await processHandoffs(company, rules)).length;
+        }
       });
 
       await this.#stage(report, 'watch', async () => {

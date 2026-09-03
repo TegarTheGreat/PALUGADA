@@ -10,9 +10,17 @@
  *
  * The distinction is not ceremony. If an agent could name its successor, the
  * call graph would live in prompts, where it cannot be inspected, bounded or
- * replayed. Here it is data: the rules are visible, the trigger is an event in
- * the log, and the resulting task is subject to the same depth, fan-out, cycle
- * and budget checks as any other.
+ * replayed. Here the trigger is an event in the log and the resulting task is
+ * subject to the same depth, fan-out, cycle and budget checks as any other.
+ *
+ * The rules themselves are code rather than rows, and that is worth being
+ * precise about because "the rules are visible" would otherwise read as "an
+ * owner can see them in a table". A rule carries a `mapInput` function, so it
+ * is supplied by whatever composes the process -- the same arrangement as the
+ * capability registry, where `baseRegistry()` binds what the platform
+ * implements and an operator binds the rest. `Worker` takes them as an option
+ * and runs them each tick, so a deployment with rules gets handoffs from the
+ * loop instead of having to write a second one.
  */
 import { withTenant } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';

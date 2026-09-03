@@ -592,17 +592,45 @@ charter does.
 A third deviation recorded against v1 — `waiting_window` being absent from the
 state diagram although F9.2 named it — is resolved: v2 draws it.
 
+Two deliberate departures from v2's text, both recorded in
+[`docs/STATUS.md`](docs/STATUS.md) with the reasoning: F14.3 records hook
+refusals and not permissions, because an event per hook per tool call would
+spend most of section 9's event budget saying that nothing happened; and the
+broker's own gate chain stays inline rather than being registered as hooks,
+because it is one ordered read in a single transaction where each gate consumes
+what the last computed.
+
+## What PRD v2 adds
+
+| Requirement | Where | Verified by |
+|---|---|---|
+| F5.11–F5.14 atomic checkout, leases, lanes, orphan recovery | `src/engine/checkout.ts` | `checkout-lease-lane.test.ts` |
+| F9.7–F9.10 dormancy, the wake queue, coalescing | `src/scheduler/wake.ts` | `wake-queue.test.ts` |
+| F8.11–F8.13 plan steps, preflight, the batch guard | `src/engine/plan.ts`, `src/broker/preflight.ts` | `plan-and-batch.test.ts`, `preflight.test.ts` |
+| F2.7, F3.10 the goal ladder, and who may change it | `src/domain/goals.ts` | `goals.test.ts` |
+| F1.7–F1.9 the spend ceiling and its circuit breakers | `src/governance/spend-guard.ts` | `spend-guard.test.ts` |
+| F13 the runtime adapter protocol and four runtimes | `src/runtime/` | `runtime-adapter.test.ts`, `out-of-process-runtimes.test.ts` |
+| F14, F3.12 lifecycle hooks as enforcement | `src/engine/hooks.ts` | `hooks.test.ts` |
+| F15 skills and the curated learning loop | `src/skills/skills.ts` | `skills.test.ts` |
+| F16 signed bundles, and moving a company between instances | `src/bundles/`, `src/audit/import.ts` | `bundles.test.ts` |
+| F17 trajectories and the role eval set | `src/eval/` | `trajectory-eval.test.ts` |
+| F1.6, F2.9, F3.9, F3.11, F4.8, F5.10, F12.7–F12.10 | `src/governance/`, `src/gateway/` | `control-plane.test.ts` |
+
 ## Not built yet
 
-Most of what v2 added. [`docs/STATUS.md`](docs/STATUS.md) grades it requirement
-by requirement; the short version is that the runtime adapter protocol (F13),
-lifecycle hooks (F14), the skill loop (F15), bundles (F16) and trajectory
-evaluation (F17) do not exist, and neither do heartbeats and the wake queue
-(F9.7–F9.10), atomic checkout, leases, lanes and orphan recovery
-— see [`docs/STATUS.md`](docs/STATUS.md) for what is left.
+Four requirements, and they are the same requirement four times: the owner's
+phone. F10.9 and F10.10 want a PWA, F11.2 a live run view inside it, F12.5 a
+Telegram and WhatsApp channel. None of them can be exercised from here — there
+is no device, no store and no messaging account — and writing them blind would
+produce code that compiles and has never worked once.
 
-There is also no owner UI, which several v2 requirements assume (F10.9–F10.10,
-F11.2, F12.5).
+Two things are partial rather than absent, and
+[`docs/STATUS.md`](docs/STATUS.md) says so in the same words: F12.9's `docker`
+and `remote_sandbox` execution backends are declared and selected per role but
+only `local` is implemented, and F13.3's adapters for `hermes`, `openclaw`,
+`codex` and `gemini-cli` are unwritten because none of the four is installed
+here to write one against. The wire protocol they would speak is written,
+documented and tested.
 
 Section 13 still ends with "evaluate migrating the engine or the vector store
 based on real data". That is not something to write ahead of the data: there is

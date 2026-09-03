@@ -9,6 +9,11 @@ import { PalugadaError } from '../errors.ts';
 
 export const TASK_STATUSES = [
   'pending',
+  // v2 section 8.5 inserts this between pending and running. It is the
+  // difference between "nobody has this" and "a worker claimed it and has not
+  // started yet", and a crash in that gap needs a different recovery from a
+  // task nobody picked up.
+  'checked_out',
   'running',
   'completed',
   'waiting_approval',
@@ -34,10 +39,19 @@ const TRANSITIONS: Record<TaskStatus, readonly TaskStatus[]> = {
   // Routing that through `cancelled` instead would be wrong -- cancellation
   // means the owner stopped the work, while a halt is a task that stopped
   // itself and owes the owner an inbox item. Worth reconciling in the PRD.
-  pending: ['running', 'halted', 'cancelled'],
+  // `pending -> running` stays legal alongside the checkout path: a worker that
+  // claims and starts in one breath passes through `checked_out`, but the
+  // engine also runs tasks that were never queued, and forbidding the direct
+  // move would mean inventing a checkout for them.
+  pending: ['checked_out', 'running', 'halted', 'cancelled'],
+  // F5.12: a lease that expires returns the task to `pending`, so the claim is
+  // reversible without the worker that made it being involved.
+  checked_out: ['running', 'pending', 'halted', 'cancelled'],
   running: [
     'completed', 'waiting_approval', 'waiting_review', 'waiting_window',
-    'failed', 'halted', 'cancelled',
+    // F5.12 again: a reclaimed lease takes a running task back to `pending`
+    // with its journal intact, so the next worker resumes rather than restarts.
+    'pending', 'failed', 'halted', 'cancelled',
   ],
   waiting_approval: ['running', 'cancelled'],
   waiting_review: ['running', 'failed', 'cancelled'],

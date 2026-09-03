@@ -22,7 +22,7 @@ v2 requirement as built, partial or not built.
 ## Status
 
 **Everything the v1 specification asked for is implemented and tested**, with
-240 acceptance tests running against a real PostgreSQL 16 with pgvector:
+252 acceptance tests running against a real PostgreSQL 16 with pgvector:
 tenant isolation and the durable engine, the charter and policy engine, scoped
 memory with distillation, typed contracts and handoff, adversarial review,
 the capability broker with tier calibration and cost control, durable
@@ -198,6 +198,10 @@ the template is organised by function rather than by industry.
 | v2 F2.7 goal ancestry, in the run context and the approval item | `src/domain/goals.ts` | `goals.test.ts` |
 | v2 F2.8 no work for a role that cannot say what finished looks like | `src/engine/tasks.ts`, `src/templates/company.ts` | `goals.test.ts` |
 | v2 F3.10 strategy is the owner's; agents read it and propose | `src/domain/goals.ts` | `goals.test.ts` |
+| v2 F5.11 atomic checkout; two workers cannot hold one task | `src/engine/checkout.ts` | `checkout-lease-lane.test.ts` |
+| v2 F5.12 leases, renewal by the holder, reclaim with the journal intact | `src/engine/checkout.ts` | `checkout-lease-lane.test.ts` |
+| v2 F5.13 one task at a time per lane | `src/engine/checkout.ts` | `checkout-lease-lane.test.ts` |
+| v2 F5.14 orphan recovery, with the abandoned spend recorded | `src/engine/checkout.ts` | `checkout-lease-lane.test.ts` |
 
 ## Decisions worth knowing
 
@@ -375,6 +379,30 @@ broker never guesses which parameter is the list. A guess breaks silently the
 day a field is renamed, and a guard that has quietly stopped guarding is worse
 than none.
 
+**A claim is one statement, and it is serialised.** Selecting a task, checking
+it can still be funded, checking its lane is free and writing the lease all
+happen together. `FOR UPDATE SKIP LOCKED` protects the row being claimed but
+says nothing about predicates over *other* rows, so claims within a company
+take an advisory lock: without it two concurrent claims cannot see each other's
+uncommitted checkout, and five tasks get claimed against an account with room
+for three.
+
+**A lease expires; it is not released.** A worker that dies releases nothing,
+so the only reclamation that works is one the dead worker is not involved in.
+Reclaiming returns the task to `pending` with its journal intact — a lost
+worker must not become lost work.
+
+**Lanes are opt-in.** Most tasks touch nothing shared, and serialising them
+would cost throughput for nothing. A lane key is the exception you declare for
+a repository, a domain or an account, where two concurrent tasks would
+interleave into a state neither intended.
+
+**An orphaned run is neither a success nor a failure.** Calling it "failed"
+would put a bad deploy's restart storm into the failure rate the alerts watch.
+Its spend is recorded before the task goes back, because a retry that did not
+carry the abandoned cost forward would let a crash loop cost an unbounded
+amount while every individual attempt looked affordable.
+
 **Every task can say why it exists.** A root task names the goal it serves and
 a sub-task inherits it, so the chain — mission, objective, key result — travels
 into the run context and into the approval item. F10.2 asks an item to say why,
@@ -483,7 +511,7 @@ by requirement; the short version is that the runtime adapter protocol (F13),
 lifecycle hooks (F14), the skill loop (F15), bundles (F16) and trajectory
 evaluation (F17) do not exist, and neither do heartbeats and the wake queue
 (F9.7–F9.10), atomic checkout, leases, lanes and orphan recovery
-(F5.11–F5.14).
+— see [`docs/STATUS.md`](docs/STATUS.md) for what is left.
 
 There is also no owner UI, which several v2 requirements assume (F10.9–F10.10,
 F11.2, F12.5).

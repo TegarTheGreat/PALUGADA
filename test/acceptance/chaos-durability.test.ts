@@ -86,6 +86,7 @@ function buildEngine(handler: TaskHandler, sideEffects: string[]) {
   const llm = new RecordingLlmClient((request) => `response-${request.messages[0]!.content}`);
   const engine = new Engine({
     broker: new CapabilityBroker(registry),
+    workerId: 'chaos-worker',
     llm,
     handlers: new Map([['worker', handler]]),
   });
@@ -307,6 +308,7 @@ test('a crash between the side effect and its journal entry does not lose the ta
   registry.register(capability);
   const engine = new Engine({
     broker: new CapabilityBroker(registry),
+    workerId: 'chaos-worker',
     llm: new RecordingLlmClient(),
     handlers: new Map([
       ['worker', async (ctx) => {

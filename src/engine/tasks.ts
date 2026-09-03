@@ -44,6 +44,10 @@ export interface TaskRow {
   haltReason: string | null;
   /** F2.7: the goal this task exists to serve. */
   goalId: string | null;
+  /** F5.13: the resource this task serialises against, if any. */
+  laneKey: string | null;
+  leaseHolder: string | null;
+  leaseExpiresAt: Date | null;
   /** F9.5: this task may wait for the company's cheap hours. */
   batchable: boolean;
 }
@@ -52,7 +56,7 @@ const SELECT_TASK = `
   SELECT id, company_id, project_id, division_id, role_id, parent_task_id,
          budget_account_id, status, input, output, hop_depth, hop_max,
          deadline_at, idempotency_key, attempt, attempt_max, tokens_reserved,
-         halt_reason, batchable, goal_id
+         halt_reason, batchable, goal_id, lane_key, lease_holder, lease_expires_at
     FROM tasks`;
 
 interface RawTask {
@@ -61,7 +65,8 @@ interface RawTask {
   status: TaskStatus; input: Record<string, unknown>; output: Record<string, unknown> | null;
   hop_depth: number; hop_max: number; deadline_at: Date | null; idempotency_key: string;
   attempt: number; attempt_max: number; tokens_reserved: string; halt_reason: string | null;
-  batchable: boolean; goal_id: string | null;
+  batchable: boolean; goal_id: string | null; lane_key: string | null;
+  lease_holder: string | null; lease_expires_at: Date | null;
 }
 
 function toTask(row: RawTask): TaskRow {
@@ -75,6 +80,9 @@ function toTask(row: RawTask): TaskRow {
     tokensReserved: Number(row.tokens_reserved), haltReason: row.halt_reason,
     batchable: row.batchable,
     goalId: row.goal_id,
+    laneKey: row.lane_key,
+    leaseHolder: row.lease_holder,
+    leaseExpiresAt: row.lease_expires_at,
   };
 }
 
@@ -118,6 +126,15 @@ export interface CreateTaskInput {
    * would invite a different answer.
    */
   goalId?: string | undefined;
+  /**
+   * F5.13: the shared resource this task touches, if any.
+   *
+   * At most one task per lane is checked out or running at a time. Opt-in,
+   * because most tasks touch nothing shared and serialising them would cost
+   * throughput for nothing. Conventionally `<resource-kind>:<identifier>` --
+   * `repo:acme/site`, `domain:example.test`.
+   */
+  laneKey?: string | undefined;
 }
 
 /**
@@ -413,12 +430,13 @@ async function insertTask(
        company_id, project_id, division_id, role_id, parent_task_id,
        budget_account_id, input, hop_depth, hop_max, deadline_at,
        idempotency_key, input_hash, created_by, attempt_max, tokens_reserved,
-       batchable, goal_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+       batchable, goal_id, lane_key)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
      RETURNING id, company_id, project_id, division_id, role_id, parent_task_id,
                budget_account_id, status, input, output, hop_depth, hop_max,
                deadline_at, idempotency_key, attempt, attempt_max,
-               tokens_reserved, halt_reason, batchable, goal_id`,
+               tokens_reserved, halt_reason, batchable, goal_id, lane_key,
+               lease_holder, lease_expires_at`,
     [
       input.companyId, input.projectId, input.divisionId, input.roleId,
       meta.parentTaskId, input.budgetAccountId, JSON.stringify(input.input),
@@ -426,6 +444,7 @@ async function insertTask(
       input.createdBy, input.attemptMax ?? 3, meta.reserveTokens,
       input.batchable ?? false,
       input.goalId ?? null,
+      input.laneKey ?? null,
     ],
   );
   const task = toTask(rows[0]!);
@@ -490,7 +509,15 @@ export async function transition(
               started_at = CASE WHEN $2 = 'running' AND started_at IS NULL
                                 THEN now() ELSE started_at END,
               finished_at = CASE WHEN $2 IN ('completed','failed','halted','cancelled')
-                                 THEN now() ELSE finished_at END
+                                 THEN now() ELSE finished_at END,
+              -- F5.12, F5.13: a task that has finished holds no lease and
+              -- occupies no lane. Cleared here rather than at each call site,
+              -- because a lease left on a finished task blocks its lane for
+              -- fifteen minutes and nothing would ever notice.
+              lease_holder = CASE WHEN $2 IN ('completed','failed','halted','cancelled')
+                                  THEN NULL ELSE lease_holder END,
+              lease_expires_at = CASE WHEN $2 IN ('completed','failed','halted','cancelled')
+                                      THEN NULL ELSE lease_expires_at END
         WHERE id = $1`,
       [
         taskId,

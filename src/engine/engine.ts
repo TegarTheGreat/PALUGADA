@@ -10,6 +10,7 @@
  * checked only at admission, or a stop button that waits for the current task
  * to end, is not a control -- it is a suggestion.
  */
+import { randomUUID } from 'node:crypto';
 import { withTenant } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
@@ -20,6 +21,7 @@ import { runStep, type StepKind } from './journal.ts';
 import { isCompanyFrozen, isStopAllRequested } from './control.ts';
 import { batchWindow, isWithin, nextOpening } from '../scheduler/windows.ts';
 import { preflightForRole } from '../broker/preflight.ts';
+import { claimTask, recordRunHeartbeat, renewLease } from './checkout.ts';
 import * as budget from './budget.ts';
 import * as inbox from '../inbox/inbox.ts';
 import type { CapabilityBroker } from '../broker/broker.ts';
@@ -55,10 +57,25 @@ export interface EngineOptions {
   broker: CapabilityBroker;
   llm: LlmClient;
   handlers: Map<string, TaskHandler>;
+  /**
+   * F5.11: who this engine is, when it claims a task.
+   *
+   * Defaulted rather than required, and defaulted to something unique per
+   * instance: two engines sharing an identity would be able to renew each
+   * other's leases, which is the one thing a lease exists to prevent.
+   */
+  workerId?: string;
 }
 
 export interface RunOutcome {
   status:
+    /**
+     * F5.11: another worker holds the task, or it is not currently claimable.
+     *
+     * An outcome of the attempt rather than a state of the task -- the task is
+     * fine, this engine simply does not have it.
+     */
+    | 'not_claimed'
     | 'completed'
     | 'failed'
     | 'halted'
@@ -74,9 +91,16 @@ export interface RunOutcome {
 
 export class Engine {
   readonly #options: EngineOptions;
+  readonly #workerId: string;
 
   constructor(options: EngineOptions) {
     this.#options = options;
+    this.#workerId = options.workerId ?? `worker-${randomUUID()}`;
+  }
+
+  /** The identity this engine claims tasks under (F5.11). */
+  get workerId(): string {
+    return this.#workerId;
   }
 
   async runTask(companyId: string, taskId: string, roleSlug: string): Promise<RunOutcome> {
@@ -105,7 +129,40 @@ export class Engine {
       return { status: 'halted', reason: (error as Error).message };
     }
 
-    if (['pending', 'waiting_approval', 'waiting_review', 'waiting_window'].includes(task.status)) {
+    // F5.11: claim it before running it. One statement selects the task,
+    // checks it can still be funded, checks its lane is free and writes the
+    // lease, so two workers cannot both believe they hold it. A task that is
+    // already running here was claimed on an earlier pass and is being
+    // resumed, so it is not re-claimed.
+    if (task.status === 'pending') {
+      const claim = await claimTask(companyId, { holder: this.#workerId, taskId });
+      if (!claim) {
+        return {
+          status: 'not_claimed',
+          reason:
+            'another worker holds this task, its lane is busy, or its budget can no longer ' +
+            'fund it',
+        };
+      }
+    } else if (
+      task.leaseHolder !== null
+      && task.leaseHolder !== this.#workerId
+      && task.leaseExpiresAt !== null
+      && task.leaseExpiresAt > new Date()
+    ) {
+      // Already claimed, and not by us. Running it anyway would produce the
+      // exact situation the lease exists to prevent: two workers journalling
+      // steps against one task, each believing it holds it.
+      return {
+        status: 'not_claimed',
+        reason: `another worker holds this task until ${task.leaseExpiresAt.toISOString()}`,
+      };
+    }
+
+    if (
+      ['checked_out', 'waiting_approval', 'waiting_review', 'waiting_window'].includes(task.status)
+      || task.status === 'pending'
+    ) {
       await transition(companyId, taskId, 'running');
     }
 
@@ -221,6 +278,13 @@ export class Engine {
                   { taskId, status: current?.status ?? null },
                 );
               }
+
+              // F5.12, F5.14: a committed step is proof this worker is alive,
+              // so it is the natural place to push the lease out and mark the
+              // run as still breathing. A separate timer would be one more
+              // thing that can be running while the work is not.
+              await renewLease(companyId, taskId, this.#workerId);
+              await withTenant(companyId, (tx) => recordRunHeartbeat(tx, agentRunId));
             },
           },
           fn,

@@ -58,6 +58,7 @@ async function newEngine(handler: TaskHandler) {
   const llm = new RecordingLlmClient((request) => `response-${request.messages[0]!.content}`);
   const engine = new Engine({
     broker: new CapabilityBroker(registry),
+    workerId: 'resume-worker',
     llm,
     handlers: new Map([['worker', handler]]),
   });

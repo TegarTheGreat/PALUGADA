@@ -37,7 +37,7 @@ what is missing rather than leaving the reader to guess.
 | F2 organisation | F2.2, F2.4, F2.5, F2.7, F2.8 | F2.1 (no per-division escalation policy), F2.3 (no runtime, model routing or heartbeat on a role) | F2.6, F2.9 |
 | F3 charter, policy | F3.1–F3.8, F3.10 | F3.9 (versioned with a diff, but no rollback), F3.12 (policy is code rather than prompt text, but there is no hook framework) | F3.11 |
 | F4 memory | F4.1–F4.4, F4.6 | F4.5 (low-confidence facts flagged; skill candidates need F15), F4.7 (the journal survives a restart, but there is no heartbeat and no working-memory object) | F4.8 |
-| F5 engine | F5.1–F5.9 | — | F5.10, F5.11, F5.12, F5.13, F5.14 |
+| F5 engine | F5.1–F5.9, F5.11–F5.14 | — | F5.10 |
 | F6 agent communication | F6.1–F6.6 | — | F6.7 |
 | F7 adversarial review | F7.1–F7.6 | — | F7.7 |
 | F8 broker, tiers | F8.1–F8.13 | — | — |
@@ -88,6 +88,10 @@ own.
 
 Three smaller notes, recorded so they are not rediscovered:
 
+- v2's `checked_out` status is implemented, and `pending -> running` is kept
+  alongside it: a worker that claims and starts in one breath passes through
+  `checked_out`, but the engine also runs tasks that were never queued, and
+  forbidding the direct move would mean inventing a checkout for them.
 - v2 keeps `waiting_window` in the diagram, which resolves one of the two
   deviations recorded against v1. It now returns to `pending` rather than to
   `running`, which is what the implementation already does.

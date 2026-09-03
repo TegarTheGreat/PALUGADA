@@ -20,8 +20,14 @@ jobs:
         env:
           POSTGRES_PASSWORD: postgres
         ports: ['5432:5432']
+        # -U postgres because the health check runs as root inside the
+        # container and pg_isready defaults the role to the OS user: without it
+        # every probe logs `FATAL: role "root" does not exist`. The probe still
+        # passes, which is what makes it worth fixing -- it fills the server log
+        # with failures nobody caused, and that log is what the suite is audited
+        # against after a green run. Real failures have to stand out in it.
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres -d postgres"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5

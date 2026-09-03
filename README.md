@@ -247,7 +247,7 @@ test/acceptance/   one file per PRD acceptance criterion
 | F5.9 dry-run replay | `src/engine/replay.ts` | `replay.test.ts` |
 | F8.10 sandbox for code execution | `src/sandbox/sandbox.ts` | `sandbox.test.ts` |
 | F11.5 retention, with an archival path, applied by the worker loop | `src/retention/retention.ts`, `src/worker.ts`, `db/migrations/0007_*.sql` | `retention-rotation.test.ts`, `worker.test.ts` |
-| F11.6, F1.5 audit and company export | `src/audit/export.ts` | `audit-export.test.ts` |
+| F11.6, F1.5 audit and company export, restored on another instance | `src/audit/export.ts`, `src/audit/import.ts` | `audit-export.test.ts` |
 | F12.3 secret rotation without a restart, effective on the next call | `src/secrets/rotation.ts` | `retention-rotation.test.ts`, `credentials.test.ts` |
 
 ## What the standard company adds

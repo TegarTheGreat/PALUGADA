@@ -8,13 +8,13 @@ to resolve it.
 This file says three things: which identifiers changed meaning, what is built
 against v2, and what has to be decided before the v2 roadmap can proceed.
 
-Sections 2.2 to 2.8 are the same exercise asked seven different ways — what
+Sections 2.2 to 2.9 are the same exercise asked eight different ways — what
 does nothing call, what does this claim to prevent, would the suite notice,
 what happens if you actually start it, which exports only tests reach, what one
-worker never races, and do the PRD's own numbered criteria run as written. Each
-one found something, which is the reason they are written down separately
-rather than folded into a single "audited" note: the useful part is the
-question, not the answer.
+worker never races, do the PRD's own numbered criteria run as written, and does
+the archive carry what it says it carries. Each one found something, which is
+the reason they are written down separately rather than folded into a single
+"audited" note: the useful part is the question, not the answer.
 
 ## 1. Identifiers that changed meaning
 
@@ -441,6 +441,70 @@ schedule and on `workflow_dispatch` — the schedule fires on the default branch
 only, which is why the manual trigger exists rather than being an afterthought.
 Executed at the stated scale: 1,000 iterations, 20 workers, zero
 double-checkouts, 69 seconds. Met.
+
+## 2.9 What the archive did not carry
+
+F1.5 asks for a company's full state, events, memory, skills and config as an
+archive; F16.4 says a company moves between PALUGADA instances on it. The
+export was checked the way the sections above were checked — mechanically, by
+comparing what it reads against what the schema declares, and then what the
+*import* reads against what the export writes. Both comparisons found things.
+
+**The rules in force were not in the archive.** `config_versions` carried the
+history of every policy, charter and role; the live `policies` rows were not
+exported and not imported, and neither were the spending ceiling, the retention
+policy, the alert thresholds, the batch window or the capability windows. A
+company restored from an archive came up with a complete record of what its
+rules had been and *nothing requiring approval of anything*. That is the worst
+shape a gap can take: silently permissive, on an archive that reported itself
+complete, with the evidence of what was lost sitting right beside it in the
+same file.
+
+**Four more sections were exported and never imported.** Credentials — so a
+restored company had no aliases and every credentialled capability failed with
+a reason the archive could not explain. Review requests, decision records and
+the governance log — the record of who approved what. The review-request one
+was worse than an omission: `skill_versions` remapped a `review_request_id`
+against a section the import did not have, so it resolved to null and a
+restored skill version pointed at no review, which is precisely the evidence
+F15.3's "the owner cannot approve a version no reviewer has seen" rests on.
+
+**And the round trip had never worked for a company that had done any work.**
+`tasks.input_hash` and `task_steps.input_hash` are NOT NULL and were not
+exported, so importing a company with a single task failed on the constraint.
+`review_requests.project_id` and `schedules.budget_account_id` were missing the
+same way — the second meaning a restored schedule would have had no account to
+draw on even if the insert had succeeded. The existing round-trip test imported
+a company with no tasks, which is why none of this had ever been seen.
+
+Fixing it turned up one more, in the import rather than the export. `normalise`
+stringified objects and left arrays alone, which is a guess about the *value*
+where the question is about the *column*: `pg` returns a `jsonb` column and a
+`text[]` column both as JavaScript arrays, and they have to go back as
+different things. It worked until the first `jsonb` column holding an array.
+The import now asks `information_schema` which columns are JSON, once per
+table — the schema is the authority on its own types.
+
+Three sections stay out of a restore on purpose, and they are now a named
+constant rather than the difference between two lists: `bundle_installs`
+(an install points into the platform's catalogue, which the destination may not
+have), `retention_log` (it records what *this* instance deleted) and
+`llm_traces` (a trace is a charge already billed elsewhere, and restoring one
+would put it inside the destination's monthly period and its seven-day
+circuit-breaker baseline — a genuine migration wants that and a clone does not,
+and nothing in an archive says which). All three stay *in* the archive, because
+an auditor is exactly who should see them.
+
+The test that would have caught all of it compares the two section lists
+directly and fails if a name is in neither the restored set nor the deliberate
+list. It is four lines and it is total, where reading two files and hoping is
+neither.
+
+One last note, because it cuts the other way. The first version of the policy
+test asserted with a regex condition and failed, and the temptation was to
+treat that as a bug. It was not: `matches` takes a glob and escapes every
+character but `*`, deliberately, so that a rule in a configuration row cannot
+cause catastrophic backtracking. The test was wrong and the code was right.
 
 ## 3. Decisions, deviations, and what is unverified
 

@@ -114,14 +114,15 @@ const SECTIONS: Section[] = [
     name: 'tasks',
     sql: `SELECT id, project_id, division_id, role_id, parent_task_id, budget_account_id,
                  status, halt_reason, input, output, hop_depth, hop_max, deadline_at,
-                 idempotency_key, created_by, attempt, goal_id, lane_key, batchable,
+                 idempotency_key, input_hash, created_by, attempt, attempt_max,
+                 tokens_reserved, goal_id, lane_key, batchable,
                  priority, created_at, started_at, finished_at
             FROM tasks ORDER BY created_at`,
   },
   {
     name: 'task_steps',
-    sql: `SELECT task_id, step_index, name, kind, status, idempotency_key, output,
-                 error, attempt, started_at, committed_at
+    sql: `SELECT task_id, step_index, name, kind, status, idempotency_key, input_hash,
+                 output, error, attempt, started_at, committed_at
             FROM task_steps ORDER BY task_id, step_index`,
   },
   {
@@ -149,9 +150,9 @@ const SECTIONS: Section[] = [
   },
   {
     name: 'review_requests',
-    sql: `SELECT id, proposer_task_id, proposer_role_id, reviewer_role_id, review_task_id,
-                 capability_name, action_fingerprint, proposal, criteria, round, status,
-                 decision, reason, created_at, decided_at
+    sql: `SELECT id, project_id, proposer_task_id, proposer_role_id, reviewer_role_id,
+                 review_task_id, capability_name, action_fingerprint, proposal, criteria,
+                 round, status, decision, reason, created_at, decided_at
             FROM review_requests ORDER BY created_at`,
   },
   {
@@ -163,8 +164,9 @@ const SECTIONS: Section[] = [
   },
   {
     name: 'schedules',
-    sql: `SELECT id, project_id, division_id, role_id, slug, cron_expression, timezone,
-                 input, enabled, last_run_at, next_run_at, created_at
+    sql: `SELECT id, project_id, division_id, role_id, budget_account_id, slug,
+                 cron_expression, timezone, input, reserve_tokens, batchable, goal_id,
+                 enabled, last_run_at, next_run_at, created_at
             FROM schedules ORDER BY created_at`,
   },
   {
@@ -220,6 +222,56 @@ const SECTIONS: Section[] = [
     name: 'retention_log',
     sql: 'SELECT id, action, rows_affected, through_at, occurred_at FROM retention_log ORDER BY occurred_at',
   },
+
+  // F1.5's "config", and the reason this block exists rather than being
+  // covered by `config_versions` above. That section carries the *history* of
+  // a policy; these carry the rules in force. A company restored with its
+  // version history and no live policies would run with nothing requiring
+  // approval of anything, which is the worst shape a gap can take: silently
+  // permissive, and an archive that looks complete.
+  //
+  // Every one of these is a rule the owner set and would have to set again.
+  {
+    name: 'policies',
+    // Company- and division-scoped only. A platform-scoped policy
+    // (company_id IS NULL) belongs to the installation, not to this company,
+    // and carrying it would let an archive install a platform rule on import.
+    sql: `SELECT id, division_id, slug, effect, condition, mode, params, created_at
+            FROM policies WHERE company_id IS NOT NULL
+           ORDER BY division_id NULLS FIRST, slug`,
+  },
+  {
+    name: 'spend_limits',
+    // `paused_at` and `pause_reason` are deliberately absent: whether this
+    // company is currently paused for spending is a fact about the instance it
+    // was paused on, and a restore that arrived already paused would be
+    // reporting a ceiling it has not reached here.
+    sql: `SELECT id, money_max_cents, override_until, created_at
+            FROM spend_limits WHERE company_id IS NOT NULL`,
+  },
+  {
+    name: 'alert_thresholds',
+    sql: `SELECT id, daily_cost_cents, policy_denials_per_day,
+                 verification_failures_per_day, created_at
+            FROM alert_thresholds WHERE company_id IS NOT NULL`,
+  },
+  {
+    name: 'retention_policies',
+    sql: `SELECT id, event_days, trace_days, prompt_days, created_at
+            FROM retention_policies WHERE company_id IS NOT NULL`,
+  },
+  {
+    name: 'batch_windows',
+    sql: `SELECT id, timezone, start_hour, end_hour, days_of_week, created_at
+            FROM batch_windows WHERE company_id IS NOT NULL`,
+  },
+  {
+    name: 'capability_windows',
+    sql: `SELECT id, division_id, capability_name, timezone, start_hour,
+                 end_hour, days_of_week, created_at
+            FROM capability_windows WHERE company_id IS NOT NULL
+           ORDER BY capability_name, division_id NULLS FIRST`,
+  },
 ];
 
 const TRACES_WITH_PROMPTS = `
@@ -231,6 +283,24 @@ const TRACES_WITHOUT_PROMPTS = `
   SELECT id, task_id, agent_run_id, model, input_tokens, output_tokens,
          cost_cents, latency_ms, occurred_at
     FROM llm_traces ORDER BY occurred_at`;
+
+/**
+ * Every section this export writes, so the import can be checked against it.
+ *
+ * `audit-export.test.ts` asserts that the difference between this list and the
+ * import's is exactly the three sections deliberately left behind. Six
+ * sections had gone missing from the import without anybody noticing --
+ * credentials, review requests, decision records, the governance log, and two
+ * on purpose -- which is what a comparison nobody can run looks like from the
+ * inside. `company` and `llm_traces` are added by hand because neither is in
+ * `SECTIONS`: the first is one row written before the loop, the second is
+ * streamed separately so its prompt columns can be chosen at run time.
+ */
+export const EXPORT_SECTION_NAMES: readonly string[] = [
+  'company',
+  ...SECTIONS.map((section) => section.name),
+  'llm_traces',
+];
 
 /** Rows are fetched in pages so a long history does not arrive all at once. */
 const PAGE_SIZE = 500;

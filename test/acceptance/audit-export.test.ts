@@ -10,13 +10,28 @@ import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { withTenant } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
-import { collectExport, exportCompany, type ArchiveLine } from '../../src/audit/export.ts';
+import {
+  collectExport,
+  exportCompany,
+  EXPORT_SECTION_NAMES,
+  type ArchiveLine,
+} from '../../src/audit/export.ts';
 import { Engine } from '../../src/engine/engine.ts';
 import { CapabilityRegistry, type Capability } from '../../src/broker/registry.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';
 import { createRootTask } from '../../src/engine/tasks.ts';
 import { remember } from '../../src/memory/store.ts';
+import {
+  importCompany,
+  IMPORT_SECTION_NAMES,
+  NOT_RESTORED,
+} from '../../src/audit/import.ts';
+import { putPolicy } from '../../src/governance/store.ts';
+import { setSpendLimit } from '../../src/governance/spend-guard.ts';
+import { setRetention } from '../../src/retention/retention.ts';
+import { setBatchWindow, capabilityWindow } from '../../src/scheduler/windows.ts';
+import { evaluate } from '../../src/policy/engine.ts';
 import { createCompany, grantCapability, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
@@ -227,5 +242,161 @@ test('exporting a company that does not exist fails loudly', async () => {
   await assert.rejects(
     () => exportCompany('00000000-0000-0000-0000-000000000000', () => undefined),
     /not found, or not visible in this scope/,
+  );
+});
+
+/**
+ * An archive that restores a company without its rules is worse than none.
+ *
+ * F1.5 asks for a company's full state, events, memory, skills *and config*.
+ * The archive carried `config_versions` — the history of every policy, charter
+ * and role — and not the `policies` rows themselves, nor the spending ceiling,
+ * the retention policy, the alert thresholds or the windows. A company restored
+ * from it came up with a complete record of what its rules had been and nothing
+ * requiring approval of anything.
+ *
+ * That is the worst shape a gap can take: silently permissive, on an archive
+ * that reported itself complete. It was found by comparing the tables the
+ * export reads against the tables the schema declares, which is a question
+ * worth asking of any exporter.
+ *
+ * The test is deliberately not "the rows came across". It is that the restored
+ * company *refuses what its policy refuses*, because that is the property an
+ * owner is relying on and rows are only how it happens to be implemented.
+ */
+test('a restored company still refuses what its policy refused (F1.5, F3.3)', async () => {
+  const fixture = await createCompany('export-config');
+  await seedCompany(fixture, 'delta');
+
+  await putPolicy({
+    companyId: fixture.companyId,
+    slug: 'production-needs-a-human',
+    effect: 'require_approval',
+    // A glob, not a regex: `matches` escapes every character but `*`, which
+    // is what stops a configuration row causing catastrophic backtracking.
+    condition: { op: 'matches', field: 'tool', value: 'deploy.*' },
+  });
+  await setSpendLimit(fixture.companyId, 44_400);
+  await setRetention(fixture.companyId, { eventDays: 420 });
+  await setBatchWindow({
+    companyId: fixture.companyId,
+    timezone: 'Asia/Jakarta',
+    startHour: 1,
+    endHour: 5,
+  });
+  await withTenant(fixture.companyId, async (tx) => {
+    await tx.query(
+      `INSERT INTO capability_windows (company_id, division_id, capability_name, timezone,
+                                       start_hour, end_hour)
+       VALUES ($1, $2, 'deploy.staging', 'Asia/Jakarta', 9, 17)`,
+      [fixture.companyId, fixture.divisionId],
+    );
+  });
+
+  const lines: ArchiveLine[] = [];
+  await exportCompany(fixture.companyId, (line) => {
+    lines.push(line);
+  });
+  const restored = await importCompany(lines, { slug: `${fixture.slug}-restored` });
+  assert.notEqual(restored.companyId, fixture.companyId);
+
+  // The policy is in force, not merely present: asked the way the broker asks.
+  const decision = await withTenant(restored.companyId, async (tx) => {
+    const { rows } = await tx.query<{ id: string }>("SELECT id FROM divisions LIMIT 1");
+    return evaluate(tx, restored.companyId, rows[0]!.id, {
+      tool: 'deploy.production',
+      tier: 2,
+      division: 'ops',
+      money_cents: 0,
+      recipient_domain: null,
+      url_host: null,
+      hour_local: 12,
+      calls_in_window: 0,
+    });
+  });
+  assert.equal(decision.effect, 'require_approval', 'a restored company that deploys freely');
+  assert.ok(
+    decision.matched.some((match) => match.slug === 'production-needs-a-human'),
+    'and it is the owner\'s own rule that said so',
+  );
+
+  // The ceilings and the windows came with it. Each of these is a number the
+  // owner chose and would otherwise have to choose again, silently reverting
+  // to a platform default in the meantime.
+  const config = await withTenant(restored.companyId, async (tx) => {
+    const limit = await tx.query<{ money_max_cents: string }>(
+      'SELECT money_max_cents FROM spend_limits WHERE company_id = $1',
+      [restored.companyId],
+    );
+    const retention = await tx.query<{ event_days: number }>(
+      'SELECT event_days FROM retention_policies WHERE company_id = $1',
+      [restored.companyId],
+    );
+    const batch = await tx.query<{ timezone: string; start_hour: number }>(
+      'SELECT timezone, start_hour FROM batch_windows WHERE company_id = $1',
+      [restored.companyId],
+    );
+    const { rows: divisions } = await tx.query<{ id: string }>('SELECT id FROM divisions LIMIT 1');
+    const window = await capabilityWindow(tx, divisions[0]!.id, 'deploy.staging');
+    return {
+      limit: limit.rows[0]?.money_max_cents,
+      eventDays: retention.rows[0]?.event_days,
+      batch: batch.rows[0],
+      window,
+    };
+  });
+
+  assert.equal(config.limit, '44400', 'the monthly ceiling the owner set');
+  assert.equal(config.eventDays, 420);
+  assert.deepEqual(config.batch, { timezone: 'Asia/Jakarta', start_hour: 1 });
+  assert.equal(config.window?.startHour, 9, 'and the hours a deploy may happen in');
+
+  // What deliberately does not travel: whether the source instance had this
+  // company paused. A ceiling is the owner's decision and moves with them; a
+  // pause is a fact about spending that has not happened here.
+  const paused = await withTenant(restored.companyId, async (tx) => {
+    const { rows } = await tx.query<{ paused_at: Date | null }>(
+      'SELECT paused_at FROM spend_limits WHERE company_id = $1',
+      [restored.companyId],
+    );
+    return rows[0]?.paused_at ?? null;
+  });
+  assert.equal(paused, null);
+});
+
+/**
+ * The two lists differ by exactly what somebody decided to leave behind.
+ *
+ * This is the test that would have caught the whole problem. The export wrote
+ * thirty-one sections and the import read twenty-four, and the seven-section
+ * difference was not a decision — four of them were simply missing:
+ * credentials, review requests, decision records and the governance log. The
+ * review-request one was worse than an omission, because `skill_versions`
+ * remapped a `review_request_id` against a section that was never imported, so
+ * a restored skill version pointed at no review at all.
+ *
+ * Comparing the lists is a cheap, total check where reading two files and
+ * hoping is not. The three that remain are named in `NOT_RESTORED` with their
+ * reasons on the import's own SECTIONS, so adding a section without deciding
+ * which side it belongs on now fails here.
+ */
+test('every exported section is restored, or is named as deliberately not (F1.5, F16.4)', () => {
+  const exported = new Set(EXPORT_SECTION_NAMES);
+  const imported = new Set(IMPORT_SECTION_NAMES);
+
+  const missing = [...exported].filter(
+    (name) => !imported.has(name) && !NOT_RESTORED.includes(name),
+  );
+  assert.deepEqual(missing, [], 'exported and silently not restored');
+
+  const unexpected = [...imported].filter((name) => !exported.has(name));
+  assert.deepEqual(unexpected, [], 'restored from a section nothing exports');
+
+  // And the deliberate list is not a place to hide a section that should
+  // travel: every name in it has to actually be exported.
+  assert.deepEqual(
+    NOT_RESTORED.filter((name) => !exported.has(name)),
+    [],
+    'named as not-restored but not exported either',
   );
 });

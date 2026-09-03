@@ -2,7 +2,7 @@
  * Model access.
  *
  * Only an interface and a deterministic fake ship in Phase 0. The PRD leaves
- * the model-per-tier calibration open (section 14.4) and section 12 asks for
+ * the model-per-tier calibration open (section 14.5) and section 12 asks for
  * per-role model abstraction so a provider outage does not take the platform
  * with it, so binding to one vendor now would be guessing at a decision the
  * owner has not made. Every call is traced (F11.1) regardless of provider.

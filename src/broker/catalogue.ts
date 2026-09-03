@@ -1,8 +1,8 @@
 /**
  * The standard capability catalogue and its tier calibration (PRD F8.2, F8.3,
- * section 8.8, open question 14.1).
+ * section 8.8, open question 14.2).
  *
- * Section 14.1 left the first company's line of business open, and with it the
+ * Section 14.2 left the first company's line of business open, and with it the
  * initial capabilities and their tier calibration. The owner's answer is that
  * there is no single line of business: PALUGADA runs companies of any kind, so
  * the catalogue is the set of things *every* company does -- correspond, keep

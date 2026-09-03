@@ -9,37 +9,42 @@ This is not a collaboration workspace and not a multi-agent chat. It is a
 **durable workflow engine + state store + policy engine + capability broker**,
 with a single human interface: a decision inbox.
 
-The product specification is [`docs/PRD.md`](docs/PRD.md) (Indonesian). Code and
-comments are English; requirement identifiers such as `F5.4` refer to sections
-of that document.
+The product specification is [`docs/PRD.md`](docs/PRD.md) — **v2.0**,
+Indonesian. Code and comments are English; requirement identifiers such as
+`F5.4` refer to sections of that document.
+
+v2 replaces v1, which is kept at [`docs/PRD-v1.md`](docs/PRD-v1.md) because
+most of this codebase was built against it and cites its numbering. Three
+identifiers changed meaning between the two, and
+[`docs/STATUS.md`](docs/STATUS.md) is the map: it lists those, and grades every
+v2 requirement as built, partial or not built.
 
 ## Status
 
-All four phases of the roadmap (PRD section 13) are implemented and tested,
-with 194 acceptance tests running against a real PostgreSQL 16 with pgvector.
+**Everything the v1 specification asked for is implemented and tested**, with
+194 acceptance tests running against a real PostgreSQL 16 with pgvector:
+tenant isolation and the durable engine, the charter and policy engine, scoped
+memory with distillation, typed contracts and handoff, adversarial review,
+the capability broker with tier calibration and cost control, durable
+scheduling, credentials and rotation, retention, replay, a code sandbox, and
+audit export. On top of that, **the standard company** — a calibrated
+capability catalogue and a template of function-based divisions that fit any
+line of business, which is the owner's answer to PRD section 14.2.
 
-- **Phase 0** — tenant isolation, the durable execution engine, the capability
-  broker, the event log, the owner's emergency controls.
-- **Phase 1** — charter and policy engine, scoped memory, typed contracts and
-  handoff, durable scheduling with external and owner windows, credentials.
-- **Phase 2** — memory distillation and candidate SOPs, adversarial review and
-  decision records, company templates, cost reporting, alerts, digest and retro.
-- **Phase 3** — routine chaos testing, dry-run replay, a sandbox for
-  code-executing capabilities, secret rotation, audit export and retention.
+**v2 is a larger specification, and much of it is not built.** It makes
+PALUGADA explicitly a control plane that employs third-party runtimes
+(Claude Code, Hermes, OpenClaw, HTTP, scripts) through an adapter protocol,
+and adds heartbeats and a wake queue, atomic checkout with leases and lanes,
+lifecycle hooks, plan steps, preflight, batch guards, a curated skill loop,
+signed bundles, and trajectory evaluation. See
+[`docs/STATUS.md`](docs/STATUS.md) for the requirement-by-requirement grading
+and for the three decisions that gate the rest — the largest being that v2's
+NG6 forbids the platform from calling an LLM itself, which the current engine
+does.
 
-Phase 2's completion criterion is met: two companies built from one template
-run concurrently with the isolation tests green. There is no agent runtime and
-no owner UI yet — see [Not built yet](#not-built-yet).
-
-Beyond the roadmap, the platform now ships **the standard company**: a
-calibrated capability catalogue and a template of function-based divisions that
-fit a company in any line of business. That is the answer to PRD section 14.1,
-which the owner settled by saying there is no single line of business to build
-for.
-
-Six questions in [PRD section 14](docs/PRD.md#14-pertanyaan-terbuka) remain
-open. Two of them (the monthly cost ceiling, and which durable engine to adopt)
-set defaults across the whole system.
+Nine questions in [PRD section 14](docs/PRD.md#14-pertanyaan-terbuka) remain
+open. Three of them (fork versus build, the monthly cost ceiling, and which
+durable engine to adopt) set defaults across the whole system.
 
 ## Quick start
 
@@ -157,7 +162,7 @@ test/acceptance/   one file per PRD acceptance criterion
 
 ## What the standard company adds
 
-Section 14.1 asked which line of business the first company would be in,
+Section 14.2 asked which line of business the first company would be in,
 because that fixes the initial capabilities, the tier calibration and the
 division template. The owner's answer was that there is no single one: the
 platform runs companies of every kind. So the catalogue holds what *every*
@@ -166,7 +171,7 @@ the template is organised by function rather than by industry.
 
 | Requirement | Where | Verified by |
 |---|---|---|
-| 14.1 capability catalogue and tier calibration | `src/broker/catalogue.ts` | `capability-catalogue.test.ts` |
+| 14.2 capability catalogue and tier calibration | `src/broker/catalogue.ts` | `capability-catalogue.test.ts` |
 | F8.3 a binding may tighten the catalogue, never loosen it | `src/broker/registry.ts` | `capability-catalogue.test.ts` |
 | F8.10 untrusted code kept away from credentials and tier 2 | `db/migrations/0008_*.sql` | `capability-catalogue.test.ts` |
 | F1.1, F2.5 a general-purpose company template | `src/templates/standard.ts` | `capability-catalogue.test.ts` |
@@ -296,13 +301,13 @@ rule applies.
 has no capability grants at all. A reviewer that can also execute is not a
 second pair of eyes, it is a second pair of hands.
 
-**The standard company's money ceiling is zero.** Section 14.2 is open, and
+**The standard company's money ceiling is zero.** Section 14.3 is open, and
 inventing a number would settle it by default. Zero is the fail-closed reading:
 the company works from the first minute and every declared cost lands over
 budget in the cost report until the owner sets a ceiling.
 
 **Models are named by role, not by vendor.** The standard template asks for
-`fast`, `standard` or `deep`. Section 14.4 leaves the mapping open and F6 wants
+`fast`, `standard` or `deep`. Section 14.5 leaves the mapping open and F6 wants
 per-role model abstraction, so binding a vendor name into a stored template
 would pre-empt both.
 
@@ -350,8 +355,8 @@ window runs its batchable work immediately. Reading an absent window as "any
 hour will do" would park every such task for ever in the ordinary case of a
 company that never configured one.
 
-**Telling the agent means telling it, in words.** F4.7's confidence used to be
-a decimal in a heading, which is easy to skim and assumes the reader knows
+**Telling the agent means telling it, in words.** Memory confidence (v2 F4.1,
+F4.5) used to be a decimal in a heading, which is easy to skim and assumes the reader knows
 where the line is. A context carrying an unverified fact now opens with a
 warning that says how many and what to do about them, and each such fact is
 titled UNVERIFIED. The warning comes before the facts, for the same reason the
@@ -359,12 +364,12 @@ charter does.
 
 ## Deviations from the PRD found while building
 
-Both are marked in the code and are worth reconciling in the document.
-
-1. **`pending -> halted` is missing from the section 8.5 diagram.** A task can
-   be admitted and then miss its deadline before a worker picks it up. F5.6
-   requires that to halt, but the diagram offers a pending task only `running`
-   and `cancelled`. The transition was added; see `src/domain/task.ts`.
+1. **`pending -> halted` is still missing from the section 8.5 diagram.** A
+   task can be admitted and then miss its deadline before a worker picks it up.
+   F5.6 requires that to halt, but the diagram offers a pending task only
+   `running` and `cancelled`. The transition was added; see
+   `src/domain/task.ts`. v2 redrew the diagram and did not add it, so the
+   deviation stands.
 
 2. **The append-only log makes company deletion impossible.** The trigger on
    `events` rejects `DELETE`, including through a cascade, so a company row
@@ -373,12 +378,23 @@ Both are marked in the code and are worth reconciling in the document.
    means retention (F11.5) will need an explicit archival path rather than a
    delete.
 
+A third deviation recorded against v1 — `waiting_window` being absent from the
+state diagram although F9.2 named it — is resolved: v2 draws it.
+
 ## Not built yet
 
-The agent runtime and the owner UI. Every numbered requirement in PRD section 8
-is now implemented and tested.
+Most of what v2 added. [`docs/STATUS.md`](docs/STATUS.md) grades it requirement
+by requirement; the short version is that the runtime adapter protocol (F13),
+lifecycle hooks (F14), the skill loop (F15), bundles (F16) and trajectory
+evaluation (F17) do not exist, and neither do heartbeats and the wake queue
+(F9.7–F9.10), atomic checkout, leases, lanes and orphan recovery
+(F5.11–F5.14), plan steps, preflight and batch guards (F8.11–F8.13), the
+spending circuit breaker (F1.7–F1.9), or goal ancestry (F2.7).
 
-Section 13 also ends with "evaluate migrating the engine or the vector store
+There is also no owner UI, which several v2 requirements assume (F10.9–F10.10,
+F11.2, F12.5).
+
+Section 13 still ends with "evaluate migrating the engine or the vector store
 based on real data". That is not something to write ahead of the data: there is
 no production workload to measure yet, so the evaluation is deliberately not
 attempted rather than guessed at.
@@ -406,6 +422,6 @@ attempted rather than guessed at.
   operations.
 
 `src/llm/client.ts` deliberately ships only an interface and a test double. The
-PRD leaves model-per-tier calibration open (section 14.4) and asks for
+PRD leaves model-per-tier calibration open (section 14.5) and asks for
 per-role model abstraction so one provider outage cannot stop the platform, so
 binding to a vendor now would pre-empt a decision the owner has not made.

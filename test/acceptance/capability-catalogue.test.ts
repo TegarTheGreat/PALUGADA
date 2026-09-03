@@ -1,7 +1,7 @@
 /**
- * PRD section 8.8, F8.2, F8.3, F8.10, F2.3 and open question 14.1.
+ * PRD section 8.8, F8.2, F8.3, F8.10, F2.3 and open question 14.2.
  *
- * The owner settled 14.1 by saying the platform is for companies of every
+ * The owner settled 14.2 by saying the platform is for companies of every
  * kind, which turns "what capabilities does the first company need" into "what
  * does every company need" and makes the tier calibration a platform-wide
  * decision rather than a per-tenant one. These tests hold that calibration in
@@ -348,7 +348,7 @@ test('the standard template builds a company of any line of business', async () 
       'SELECT tokens_max, money_max_cents FROM budget_accounts',
     );
     assert.equal(budget.length, 1, 'one account, shared by the whole delegation tree (F5.4)');
-    assert.equal(budget[0]!.money_max_cents, '0', 'section 14.2 is open; zero is fail-closed');
+    assert.equal(budget[0]!.money_max_cents, '0', 'section 14.3 is open; zero is fail-closed');
 
     const { rows: sops } = await tx.query<{ count: string }>(
       `SELECT count(*) FROM memories

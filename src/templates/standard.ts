@@ -1,7 +1,7 @@
 /**
- * The standard company (PRD F1.1, F2.5, goal G7, open question 14.1).
+ * The standard company (PRD F1.1, F2.5, F16.3, goal G7, open question 14.2).
  *
- * Section 14.1 asked which line of business the first company would be in,
+ * Section 14.2 asked which line of business the first company would be in,
  * because that would fix the initial capabilities, the tier calibration and
  * the division template. The owner's answer is that there is no single one:
  * PALUGADA runs companies of every kind. So this template is organised by the
@@ -23,7 +23,7 @@
  * lab is its own division precisely so that refusal never has to fire in
  * anger.
  *
- * **The money ceiling is zero.** Section 14.2 -- the monthly cost tolerance --
+ * **The money ceiling is zero.** Section 14.3 -- the monthly cost tolerance --
  * is still open, and inventing a number would settle by default a question the
  * owner has not answered. Zero is the fail-closed reading, and it is not
  * decorative: model calls and capability estimates are both charged against
@@ -34,7 +34,7 @@
  * defaults gets forgotten.
  *
  * **Models are named by role, not by vendor.** `fast`, `standard` and `deep`
- * are the three shapes of work here. Section 14.4 leaves the mapping to real
+ * are the three shapes of work here. Section 14.5 leaves the mapping to real
  * models open, and F6 asks for per-role model abstraction so one provider's
  * outage cannot stop the platform, so binding a vendor name into a stored
  * template would pre-empt both.
@@ -359,7 +359,7 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
 
   budget: {
     tokensMax: 2_000_000,
-    // Zero on purpose. See the module comment: section 14.2 is open, and this
+    // Zero on purpose. See the module comment: section 14.3 is open, and this
     // is the fail-closed reading of an unanswered question.
     moneyMaxCents: 0,
   },

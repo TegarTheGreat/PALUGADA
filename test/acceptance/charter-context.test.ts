@@ -173,10 +173,10 @@ test('external content is marked as data, not instructions (F8.9)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// F4.7 -- the run is told when it is relying on a fact nobody established
+// F4.5 -- the run is told when it is relying on a fact nobody established
 // ---------------------------------------------------------------------------
 
-test('low-confidence facts are named as such, in words (F4.7)', async () => {
+test('low-confidence facts are named as such, in words (F4.1, F4.5)', async () => {
   // The requirement is that the agent is *told*, and a decimal in a heading
   // does not tell anyone anything: it is easy to skim past, and it assumes the
   // reader knows where the line between sure and unsure has been drawn.

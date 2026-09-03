@@ -251,7 +251,7 @@ test('a capability that measures nothing is not reported as free', async () => {
 });
 
 test("the standard company's zero ceiling stops the first costed call", async () => {
-  // Section 14.2 is open. Zero is the fail-closed reading of an unanswered
+  // Section 14.3 is open. Zero is the fail-closed reading of an unanswered
   // question, and this is what it means in practice: the company is complete
   // and inert until the owner sets a number.
   await registerStandardCatalogue();

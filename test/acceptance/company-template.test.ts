@@ -1,5 +1,5 @@
 /**
- * PRD F1.1, F2.5 and the Phase 2 completion criterion.
+ * PRD F1.1, F16.3 and the Phase 2 completion criterion.
  *
  * Section 13 ends Phase 2 with "two companies running in parallel; the
  * isolation tests green". So this file does not only check that a template
@@ -79,7 +79,7 @@ function stagingDeploy() {
   return { capability, deploys };
 }
 
-test('a company is built from a template without touching code (F2.5, G7)', async () => {
+test('a company is built from a template without touching code (F16.3, G7)', async () => {
   await registerDeployCapability();
   await saveTemplate({ slug: 'agency', name: 'Agency', body: TEMPLATE });
   const created = await createCompanyFromTemplate({

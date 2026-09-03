@@ -235,7 +235,7 @@ export async function setOwnerWindow(input: {
 /**
  * Kinds of inbox item that may wake the owner outside their window (F9.3).
  *
- * Section 14.5 leaves the definition of an emergency open, so this is the
+ * Section 14.6 leaves the definition of an emergency open, so this is the
  * conservative reading rather than a settled answer: an incident is something
  * already going wrong, and a tier 3 approval is an irreversible action waiting
  * on a human. Everything else waits. Widening this list is an owner decision,

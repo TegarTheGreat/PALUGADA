@@ -1,5 +1,5 @@
 /**
- * Company templates (PRD F1.1, F2.5, goal G7).
+ * Company templates (PRD F1.1, F16.3, goal G7).
  *
  * A new company is data, not a deployment: divisions, roles, SOPs, capability
  * grants and a budget come from a stored template. That is what G7 asks for --
@@ -120,9 +120,9 @@ export function assertTemplateIsCoherent(template: CompanyTemplate): void {
       throw new Error(`role ${role.slug} names unknown division ${role.division}`);
     }
     if ((role.tools ?? []).length > 12) {
-      // Also a database constraint (F2.6). Rejecting it here keeps a bad
+      // Also a database constraint (F2.4). Rejecting it here keeps a bad
       // template from being stored and rediscovered later.
-      throw new Error(`role ${role.slug} declares more than 12 tools (PRD F2.6)`);
+      throw new Error(`role ${role.slug} declares more than 12 tools (PRD F2.4)`);
     }
     for (const tool of role.tools ?? []) {
       // F2.3: a role's tools are a subset of its division's grants. Without

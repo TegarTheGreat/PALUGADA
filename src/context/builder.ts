@@ -28,7 +28,7 @@ export interface ContextSection {
 
 /**
  * Below this, a fact is presented to the run as something to check rather than
- * something to rely on (F4.7).
+ * something to rely on (F4.1, F4.5).
  *
  * The line is drawn where the system's own writers stop being sure. The
  * distiller records an unstated model confidence as 0.5, and a procedural
@@ -55,7 +55,7 @@ export interface AssembledContext {
   text: string;
   semanticMemories: MemoryItem[];
   /**
-   * The retrieved facts the run should not lean on (F4.7).
+   * The retrieved facts the run should not lean on (F4.5).
    *
    * Exposed as data as well as prose so a caller can act on it -- refuse to
    * take an irreversible action on an unverified fact, say -- rather than
@@ -148,7 +148,7 @@ export async function buildContext(
     (memory) => memory.confidence < LOW_CONFIDENCE,
   );
 
-  // F4.7: the run is *told*, in words, before it reads the facts themselves.
+  // F4.5: the run is *told*, in words, before it reads the facts themselves.
   // A number in a heading is not telling -- it is easy to skim past, and it
   // assumes the reader knows where the line between sure and unsure is drawn.
   // The warning goes first for the same reason the charter does: a caveat

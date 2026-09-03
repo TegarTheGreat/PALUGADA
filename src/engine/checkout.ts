@@ -50,6 +50,8 @@ export interface ClaimOptions {
   holder: string;
   /** Claim this task specifically, rather than whatever is next in line. */
   taskId?: string | undefined;
+  /** Only consider work for this role (F9.8: a wake names one role). */
+  roleId?: string | undefined;
   leaseMs?: number | undefined;
   now?: Date | undefined;
 }
@@ -76,6 +78,7 @@ const CLAIM_SQL = `
       FROM tasks t
      WHERE t.status = 'pending'
        AND ($2::uuid IS NULL OR t.id = $2)
+       AND ($5::uuid IS NULL OR t.role_id = $5)
        AND (t.wait_until IS NULL OR t.wait_until <= $3)
        AND (t.deadline_at IS NULL OR t.deadline_at > $3)
        AND (t.lane_key IS NULL OR NOT EXISTS (
@@ -129,6 +132,7 @@ export async function claimTask(
       options.taskId ?? null,
       now,
       expiresAt,
+      options.roleId ?? null,
     ]);
     const row = rows[0];
     if (!row) return null;

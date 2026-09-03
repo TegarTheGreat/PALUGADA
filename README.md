@@ -22,7 +22,7 @@ v2 requirement as built, partial or not built.
 ## Status
 
 **Everything the v1 specification asked for is implemented and tested**, with
-252 acceptance tests running against a real PostgreSQL 16 with pgvector:
+265 acceptance tests running against a real PostgreSQL 16 with pgvector:
 tenant isolation and the durable engine, the charter and policy engine, scoped
 memory with distillation, typed contracts and handoff, adversarial review,
 the capability broker with tier calibration and cost control, durable
@@ -202,6 +202,11 @@ the template is organised by function rather than by industry.
 | v2 F5.12 leases, renewal by the holder, reclaim with the journal intact | `src/engine/checkout.ts` | `checkout-lease-lane.test.ts` |
 | v2 F5.13 one task at a time per lane | `src/engine/checkout.ts` | `checkout-lease-lane.test.ts` |
 | v2 F5.14 orphan recovery, with the abandoned spend recorded | `src/engine/checkout.ts` | `checkout-lease-lane.test.ts` |
+| v2 F9.7 a role sleeps four hours by default | `src/scheduler/wake.ts` | `wake-queue.test.ts` |
+| v2 F9.8 a database wake queue; assignment overtakes the schedule | `src/scheduler/wake.ts` | `wake-queue.test.ts` |
+| v2 F9.9 wakes for one role inside a minute become one run | `src/scheduler/wake.ts` | `wake-queue.test.ts` |
+| v2 F9.10, G8 a wake with nothing to do costs nothing | `src/scheduler/wake.ts` | `wake-queue.test.ts` |
+| v2 F10.11 the owner assigns work directly and the role wakes | `src/scheduler/wake.ts` | `wake-queue.test.ts` |
 
 ## Decisions worth knowing
 
@@ -378,6 +383,20 @@ escalation, not an edit.
 broker never guesses which parameter is the list. A guess breaks silently the
 day a field is renamed, and a guard that has quietly stopped guarding is worse
 than none.
+
+**A wake is a reason to look, not a reason to run.** Dormant is the normal
+state (principle 13) and G8 puts a number on what that has to mean: zero tokens
+when there is no task. A wake with nothing claimable is consumed and recorded
+as idle — no context assembled, no model called, no run row written. That is
+the difference between an agent that is dormant and one that is merely quiet,
+and v2 traces real surprise bills to the second.
+
+**Coalescing keeps what it absorbed.** Four events in a minute produce one run,
+and the other three are marked as folded into it rather than deleted. "The
+queue asked four times and we looked once" is a fact about the system's rhythm
+the owner may need. An assignment is exempt: folding one into a heartbeat that
+is not due for another three hours would do the opposite of what an assignment
+is for.
 
 **A claim is one statement, and it is serialised.** Selecting a task, checking
 it can still be funded, checking its lane is free and writing the lease all

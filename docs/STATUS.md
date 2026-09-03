@@ -41,8 +41,8 @@ what is missing rather than leaving the reader to guess.
 | F6 agent communication | F6.1–F6.6 | — | F6.7 |
 | F7 adversarial review | F7.1–F7.6 | — | F7.7 |
 | F8 broker, tiers | F8.1–F8.13 | — | — |
-| F9 scheduler | F9.1–F9.6 | — | F9.7, F9.8, F9.9, F9.10 |
-| F10 owner surface | F10.4, F10.6, F10.7, F10.8 | F10.1 (no `skill_candidate`), F10.2 (no goal ancestry, no plan), F10.5 (the rule is enforced; there is no push channel) | F10.3, F10.9, F10.10, F10.11 |
+| F9 scheduler | F9.1–F9.10 | — | — |
+| F10 owner surface | F10.2, F10.4, F10.6, F10.7, F10.8, F10.11 | F10.1 (no `skill_candidate`), F10.5 (the rule is enforced; there is no push channel) | F10.3, F10.9, F10.10 |
 | F11 observability | F11.3, F11.5, F11.6 | F11.1 (traced, but by the engine rather than through an adapter), F11.4 (no preflight or orphan alerts) | F11.2, F11.7 |
 | F12 credentials, gateway | F12.1–F12.4 (F12.3 now also triggers preflight) | — | F12.5, F12.7, F12.8, F12.9, F12.10 |
 | F13 runtime adapters | — | — | all of F13 |

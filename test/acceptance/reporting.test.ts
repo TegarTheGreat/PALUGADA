@@ -17,7 +17,9 @@ import {
   buildWeeklyRetro,
   renderDailyDigest,
 } from '../../src/reporting/digest.ts';
+import { traceFromInboxItem } from '../../src/reporting/trace.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
+import { createRootTask, transition } from '../../src/engine/tasks.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
@@ -364,4 +366,121 @@ test('the weekly retro reports the learning signals (F9.4)', async () => {
   assert.equal(retro.decisionsRecorded, 1);
   assert.equal(retro.costliestDivisions.length, 1);
   assert.equal(retro.costliestDivisions[0]!.costCents, 120);
+});
+
+/**
+ * F11.2: the trace behind an inbox item, reached from the item.
+ *
+ * This requirement had been written off. `docs/STATUS.md` recorded it in four
+ * places as "no owner PWA, so no live run view" and filed it under not built —
+ * and F11.2 says none of that. It says "trace dari item inbox ≤ 2 klik": the
+ * trace behind an item must be *reachable* from it, in at most two hops. That
+ * is a claim about the data, and it was false for a different reason than the
+ * one written down: `inbox_items.task_id` and `llm_traces.task_id` had been one
+ * join apart since the schema was written and nothing joined them.
+ *
+ * What is asserted here is the reachability, because that is the part that can
+ * be observed from this side: the item id alone, one call, and the model call
+ * comes back with its prompt. Nobody can count clicks from a test, and
+ * pretending to would be the same over-claim in a different direction.
+ */
+test('an inbox item reaches the model call behind it (F11.2)', async () => {
+  const fixture = await createCompany('trace-reach');
+
+  const task = await createRootTask({
+    companyId: fixture.companyId,
+    projectId: fixture.projectId,
+    divisionId: fixture.divisionId,
+    roleId: fixture.roleId,
+    goalId: fixture.goalId,
+    input: { ask: 'send the invoice' },
+    createdBy: 'owner',
+    reserveTokens: 1_000,
+  });
+
+  // An approval arises mid-run, and `requestApproval` parks the task -- which is
+  // only legal from `running`. Moved here rather than worked around, because a
+  // test that reached `waiting_approval` from `pending` would be exercising a
+  // path the engine does not have.
+  await transition(fixture.companyId, task.id, 'running');
+
+  await withTenant(fixture.companyId, async (tx) => {
+    await tx.query(
+      `INSERT INTO llm_traces (id, company_id, task_id, model, prompt, response,
+                               input_tokens, output_tokens, cost_cents, latency_ms)
+       VALUES ($1,$2,$3,'deep-model',$4,$5,900,120,42,3100)`,
+      [
+        `trace-reach-1`,
+        fixture.companyId,
+        task.id,
+        JSON.stringify({ system: 'You issue invoices.', ask: 'send the invoice' }),
+        JSON.stringify({ text: 'I propose sending it to acme.test' }),
+      ],
+    );
+  });
+
+  const itemId = await inbox.requestApproval({
+    companyId: fixture.companyId,
+    taskId: task.id,
+    actionSummary: 'invoice.issue for 1 recipient',
+    rationale: 'the plan says one invoice and this is it',
+    tier: 2,
+    estimatedCostCents: 42,
+    consequenceIfDenied: 'the customer is not billed this month',
+    capabilityName: 'invoice.issue',
+  });
+
+  // One call, from the item id, with nothing else to hand.
+  const trace = await traceFromInboxItem(fixture.companyId, itemId, { includePrompts: true });
+  assert.ok(trace, 'the item was found');
+  assert.equal(trace.taskId, task.id);
+  assert.equal(trace.tier, 2);
+  assert.equal(trace.calls.length, 1);
+  assert.equal(trace.calls[0]!.model, 'deep-model');
+  assert.equal(trace.calls[0]!.costCents, 42);
+  assert.equal(trace.calls[0]!.latencyMs, 3100);
+  assert.deepEqual(trace.calls[0]!.prompt, {
+    system: 'You issue invoices.',
+    ask: 'send the invoice',
+  });
+
+  // And the default answer is the smaller one: F11.5 keeps a trace for a year
+  // and a prompt for ninety days, so the prompt is asked for rather than given.
+  const without = await traceFromInboxItem(fixture.companyId, itemId);
+  assert.equal('prompt' in without!.calls[0]!, false, 'a prompt nobody asked for');
+  assert.equal(without!.calls[0]!.costCents, 42, 'but the cost, which an audit needs');
+});
+
+test('an item with nothing behind it says so, rather than looking empty', async () => {
+  const fixture = await createCompany('trace-no-task');
+  await inbox.raiseBudgetAlert({
+    companyId: fixture.companyId,
+    title: 'eighty percent of the month is spent',
+    detail: 'at the current rate the ceiling lands on the 24th',
+  });
+  const [item] = await inbox.listOpen(fixture.companyId);
+
+  const trace = await traceFromInboxItem(fixture.companyId, item!.id);
+  assert.equal(trace!.taskId, null);
+  assert.deepEqual(trace!.calls, []);
+  // The distinction that matters: no trace because there was never a run, not
+  // no trace because retention took it or a query missed it.
+  assert.match(trace!.reason ?? '', /not about one task/);
+});
+
+test('one company cannot trace another\'s inbox item (F1.3, F11.2)', async () => {
+  const mine = await createCompany('trace-mine');
+  const theirs = await createCompany('trace-theirs');
+
+  await inbox.raiseIncident({
+    companyId: theirs.companyId,
+    title: 'their incident',
+    detail: 'nothing to do with me',
+  });
+  const [item] = await inbox.listOpen(theirs.companyId);
+
+  // Row-level security confines the lookup, so the answer is "no such item"
+  // rather than "an item you may not read" -- which is the right answer,
+  // because the second one confirms it exists.
+  assert.equal(await traceFromInboxItem(mine.companyId, item!.id), null);
 });

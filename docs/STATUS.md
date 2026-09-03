@@ -8,13 +8,15 @@ to resolve it.
 This file says three things: which identifiers changed meaning, what is built
 against v2, and what has to be decided before the v2 roadmap can proceed.
 
-Sections 2.2 to 2.9 are the same exercise asked eight different ways — what
+Sections 2.2 to 2.10 are the same exercise asked nine different ways — what
 does nothing call, what does this claim to prevent, would the suite notice,
 what happens if you actually start it, which exports only tests reach, what one
-worker never races, do the PRD's own numbered criteria run as written, and does
-the archive carry what it says it carries. Each one found something, which is
-the reason they are written down separately rather than folded into a single
-"audited" note: the useful part is the question, not the answer.
+worker never races, do the PRD's own numbered criteria run as written, does the
+archive carry what it says it carries, and — the last one, and the one that
+should have come first — does this document describe the requirement or a
+summary of it somebody wrote once. Each found something, which is why they are
+separate rather than folded into a single "audited" note: the useful part is
+the question, not the answer.
 
 ## 1. Identifiers that changed meaning
 
@@ -39,8 +41,9 @@ number now reads as done and is not.
 Assessed requirement by requirement against v2 section 8. "Partial" always says
 what is missing rather than leaving the reader to guess.
 
-Read this table knowing what sections 2.2 to 2.9 found: eight audits, and every
-one of them found something in a row that already said "built". F1.6 had its
+Read this table knowing what sections 2.2 to 2.10 found: nine audits, and every
+one of them found something in a row that already said "built" — or, in one
+case, in a row that said "not built" and should not have. F1.6 had its
 accounts and its inheritance and nothing looked them up. F12.1–F12.4 scoped
 credentials the database enforced and no capability could obtain one. F1.5
 exported a company's rules as history and not as rules. None of those rows was
@@ -61,7 +64,7 @@ means less than that, the row says so.
 | F8 broker, tiers | F8.1–F8.13 | — | — |
 | F9 scheduler | F9.1–F9.10 | — | — |
 | F10 owner surface | F10.1–F10.4, F10.6–F10.8, F10.11 | F10.5 (the rule is enforced; there is no push channel), F10.10 (a tier 3 approval is refused over a chat channel; MFA needs an app) | F10.9 |
-| F11 observability | F11.1, F11.3–F11.7 | — | F11.2 (no owner PWA, so no live run view) |
+| F11 observability | F11.1–F11.7 | — | — |
 | F12 credentials, gateway | F12.1–F12.4, F12.7–F12.10 | — | F12.5 |
 | F13 runtime adapters | F13.1, F13.2, F13.4–F13.8 | F13.3 (the wire protocol is open and documented; no `hermes`, `codex` or `gemini-cli` adapter is written) | — |
 | F14 lifecycle hooks | F14.1–F14.4 | — | — |
@@ -71,7 +74,7 @@ means less than that, the row says so.
 
 Read as a whole: every P0 and P1 requirement in v2 section 8 is now built,
 except where the row above says otherwise. What is left is concentrated in one
-place and is honest about why — F10.9, F10.10, F11.2 and F12.5 are the owner's
+place and is honest about why — F10.9, F10.10 and F12.5 are the owner's
 phone. A PWA, push notifications, Telegram and WhatsApp are a client
 application and a set of vendor integrations, and none of them can be tested
 here: there is no device, no store, and no messaging account. Building them
@@ -332,8 +335,9 @@ or `scripts/`, only in `test/`?
 The list is long and most of it is fine, because most of it is the **owner
 surface**. `freezeCompany`, `requestStopAll`, `setRetention`, `rotateCredential`,
 `approveSkillVersion`, `pairDevice` and their neighbours have no caller in
-`src/` because their caller is a person, through a console that F11.2 records
-as not built. An entry point waiting for its client is not the same defect as
+`src/` because their caller is a person, through a console nothing here
+builds — see F10.9 and F12.5, and section 2.10 on what F11.2 turned out to
+actually ask for. An entry point waiting for its client is not the same defect as
 an internal dependency nothing depends on.
 
 Two were the real thing.
@@ -386,8 +390,8 @@ Two remain unwired on purpose, and are named here rather than left to be found:
   the completed event rather than a direct call*, and that is what is built and
   tested; a stored rule table is not something the PRD asks for, and saying so
   is more useful than implying a gap.
-- `buildDailyDigest` and `buildWeeklyRetro` (F10.1) render for a channel that
-  does not exist yet — the same F11.2 gap as the rest of the owner surface. They
+- `buildDailyDigest` and `buildWeeklyRetro` (F10.6) render for a channel that
+  does not exist yet — the same gap as the rest of the owner surface. They
   are called by whatever delivers them, and nothing delivers. The obvious fix is
   to deliver them into the owner inbox, which does exist and is tested, and it
   is deliberately not done: the inbox is the list of things the owner has to
@@ -396,7 +400,7 @@ Two remain unwired on purpose, and are named here rather than left to be found:
   argument F14.3 makes about an event per hook, and the same one
   `charter-context.test.ts` makes about a confidence warning printed over facts
   that are all established. The digest is built when something asks for it,
-  which is honest, and F11.2 is where the asking will come from.
+  which is honest, and the owner surface is where the asking will come from.
 
 ## 2.7 What one worker never tests
 
@@ -526,6 +530,56 @@ test asserted with a regex condition and failed, and the temptation was to
 treat that as a bug. It was not: `matches` takes a glob and escapes every
 character but `*`, deliberately, so that a rule in a configuration row cannot
 cause catastrophic backtracking. The test was wrong and the code was right.
+
+## 2.10 A requirement that was written off for the wrong reason
+
+The eight audits above all asked the same kind of question about the code. This
+one asks it about this document.
+
+**F11.2 was recorded as not built, in four places, on a misreading.** The entry
+here said "no owner PWA, so no live run view", and F11.2 says nothing about a
+PWA or a live view. It says *"trace dari item inbox ≤ 2 klik"*: the trace behind
+an inbox item must be reachable from it, in at most two hops. That is a claim
+about the shape of the data, not about a screen — and the reason it kept being
+grouped with the owner's phone is that once one sentence in a status document is
+wrong, everything downstream cites the sentence rather than the requirement.
+
+It was genuinely unbuilt, for a different reason. `inbox_items.task_id` and
+`llm_traces.task_id` had been one join apart since the schema was written,
+`trajectoriesForTask` already assembled a task's runs with their steps and goal
+ancestry, and nothing joined an item to either. An owner looking at an approval
+could not reach what the model had been asked, which is most of what "why is
+this being proposed" means. `traceFromInboxItem` is that join. It composes the
+existing trajectory reader rather than copying its queries, and it reads the
+calls from the *task* rather than by walking the runs: `agent_run_id` is
+nullable, so walking the runs drops the calls made outside one — which are
+exactly the calls somebody wants when a task went wrong, which is when they
+open the item.
+
+Prompts are excluded unless asked for, the same rule the archive follows and for
+the same reason: F11.5 keeps a trace for a year and a prompt for ninety days, so
+the smaller answer is the one to hand over by default. And the type keeps
+"you did not ask" and "retention took it" apart — absent versus null — because
+an owner reading a trace with no prompt should be able to tell which happened.
+
+What the test asserts is the reachability: the item id alone, one call, and the
+model call comes back. Nobody can count clicks from a test and pretending to
+would be the same over-claim pointing the other way, so the test says what it
+checks and this section says the rest.
+
+Of the owner surface, three remain: F10.9 (a Telegram or WhatsApp channel),
+F10.10's second half (MFA) and F12.5 (owner MFA and mobile biometrics). Those
+need a messaging account and a device, and neither is here. F13.3's three
+missing runtime adapters are the other outstanding item and are the same kind
+of thing — the binaries are not installed. So four in total, where the list
+said five this morning, because one of them was never on it.
+
+The other claims on that list were checked the same way while I was here, and
+they hold. F10.5 reads as a restriction rather than a feature — push reaches the
+owner only for an incident or a tier 3 approval — and `notifyAfterFor` enforces
+exactly that: everything else waits for the owner's window. F10.10's third
+clause, no tier 3 approval over chat, is refused and recorded. Both are real
+rules with no transport behind them, which is what the "partial" column says.
 
 ## 3. Decisions, deviations, and what is unverified
 

@@ -44,8 +44,8 @@ from calling an LLM to do a task; the engine assembles a `RunRequest`, lends
 the runtime four services and does the accounting, and the old handler model is
 now the in-process adapter.
 
-**What is not built** is the owner's phone — F10.9, F11.2 and F12.5 — plus the
-display half of three requirements whose enforcing half is in place. Nothing
+**What is not built** is the owner's phone — F10.9 and F12.5 — plus the
+display half of two requirements whose enforcing half is in place. Nothing
 there can be exercised from this environment, and writing it blind would
 produce code that compiles and has never worked. [Not built yet](#not-built-yet)
 says which and why; [`docs/STATUS.md`](docs/STATUS.md) grades every requirement
@@ -248,6 +248,7 @@ test/acceptance/   one file per PRD acceptance criterion
 | F8.10 sandbox for code execution | `src/sandbox/sandbox.ts` | `sandbox.test.ts` |
 | F11.5 retention, with an archival path, applied by the worker loop | `src/retention/retention.ts`, `src/worker.ts`, `db/migrations/0007_*.sql` | `retention-rotation.test.ts`, `worker.test.ts` |
 | F11.6, F1.5 audit and company export, restored on another instance | `src/audit/export.ts`, `src/audit/import.ts` | `audit-export.test.ts` |
+| F11.2 the trace behind an inbox item, reached from the item | `src/reporting/trace.ts` | `reporting.test.ts` |
 | F12.3 secret rotation without a restart, effective on the next call | `src/secrets/rotation.ts` | `retention-rotation.test.ts`, `credentials.test.ts` |
 
 ## What the standard company adds
@@ -696,11 +697,22 @@ what the last computed.
 
 ## Not built yet
 
-Three requirements, and they are the same requirement three times: the owner's
-phone. F10.9 wants a Telegram or WhatsApp channel, F11.2 a live run view, F12.5
-MFA and mobile biometrics. None of them can be exercised from here — there is
-no device, no store and no messaging account — and writing them blind would
-produce code that compiles and has never worked once.
+Two requirements, and they are the same requirement twice: the owner's phone.
+F10.9 wants a Telegram or WhatsApp channel and F12.5 wants MFA with mobile
+biometrics. Neither can be exercised from here — there is no device, no store
+and no messaging account — and writing them blind would produce code that
+compiles and has never worked once.
+
+There were three. F11.2 was on this list, described as "a live run view", and
+F11.2 says *"trace dari item inbox ≤ 2 klik"* — the trace behind an inbox item
+must be reachable from it in at most two hops. That is a property of the data,
+not of a screen, and it is built now: `traceFromInboxItem` in
+`src/reporting/trace.ts`. It was genuinely missing, for a different reason than
+the one written here — `inbox_items.task_id` and `llm_traces.task_id` had been
+one join apart since the schema was written and nothing joined them.
+[`docs/STATUS.md`](docs/STATUS.md) §2.10 has the rest, including why a wrong
+sentence in a status document propagates: everything downstream cites the
+sentence rather than the requirement.
 
 F10.10 is half-built and the half that exists is the half that matters: a tier
 3 approval given over a chat channel is refused, with the refusal recorded as a

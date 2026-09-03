@@ -16,7 +16,7 @@ of that document.
 ## Status
 
 All four phases of the roadmap (PRD section 13) are implemented and tested,
-with 177 acceptance tests running against a real PostgreSQL 16 with pgvector.
+with 187 acceptance tests running against a real PostgreSQL 16 with pgvector.
 
 - **Phase 0** — tenant isolation, the durable execution engine, the capability
   broker, the event log, the owner's emergency controls.
@@ -174,6 +174,8 @@ the template is organised by function rather than by industry.
 | Section 8.8 tier 2 is checked against the budget before the call | `src/broker/cost.ts` | `cost-control.test.ts` |
 | F8.5 estimate before, actual after, `cost.drift` past half | `src/broker/cost.ts` | `cost-control.test.ts` |
 | F11.3 per-capability cost from measured spend | `src/reporting/cost.ts` | `reporting.test.ts` |
+| F3.7 denials counted per role, the role frozen past the limit | `src/governance/role-freeze.ts` | `role-freeze.test.ts` |
+| F4.7 the run is told when it is leaning on an unverified fact | `src/context/builder.ts` | `charter-context.test.ts` |
 
 ## Decisions worth knowing
 
@@ -317,6 +319,29 @@ the second as the first would raise a 100% drift on every unmeasured capability
 and bury the real ones, and would print a guess on the dashboard next to a
 measurement without saying which is which.
 
+**A repeated denial is a role's problem, not a task's.** One task being denied
+is one task going wrong; a role being denied over and over is a prompt or a
+grant that is wrong, and it will be just as wrong for the next task that runs
+it. So F3.7 freezes the role — the smallest cut that actually stops the
+repetition — and the freeze covers admission as well as capability calls, or
+the role would keep starting tasks that cannot finish their work.
+
+**Nothing thaws on a timer.** A frozen role waits for the owner. The condition
+that caused the freeze does not fix itself overnight, and a role that unfroze
+by itself would spend tomorrow's allowance the same way.
+
+**Bookkeeping never changes the answer.** If the freeze counter fails, the
+caller still gets the denial it asked about, with the code the engine branches
+on. The counter's failure is recorded rather than swallowed, because a control
+that has quietly stopped working is worse than one that was never there.
+
+**Telling the agent means telling it, in words.** F4.7's confidence used to be
+a decimal in a heading, which is easy to skim and assumes the reader knows
+where the line is. A context carrying an unverified fact now opens with a
+warning that says how many and what to do about them, and each such fact is
+titled UNVERIFIED. The warning comes before the facts, for the same reason the
+charter does.
+
 ## Deviations from the PRD found while building
 
 Both are marked in the code and are worth reconciling in the document.
@@ -335,9 +360,8 @@ Both are marked in the code and are worth reconciling in the document.
 
 ## Not built yet
 
-The agent runtime and the owner UI. Plus, from the requirement list: the
-automatic role freeze on repeated policy violations (F3.7), cheap-hour batching
-(F9.5), and memory confidence surfaced to the agent at retrieval time (F4.7).
+The agent runtime and the owner UI. Plus, from the requirement list,
+cheap-hour batching (F9.5).
 
 Section 13 also ends with "evaluate migrating the engine or the vector store
 based on real data". That is not something to write ahead of the data: there is

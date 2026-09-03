@@ -40,6 +40,7 @@ import * as inbox from '../inbox/inbox.ts';
 import { redactor } from '../secrets/manager.ts';
 import { fingerprintAction, isApproved, openReview } from '../review/review.ts';
 import { chargeEstimate, estimateFor, refundEstimate, settleActual } from './cost.ts';
+import { evaluateRoleFreeze, isRoleFrozen } from '../governance/role-freeze.ts';
 import type { CapabilityRegistry } from './registry.ts';
 
 export interface InvokeContext {
@@ -64,7 +65,11 @@ export interface InvokeResult<O> {
 
 type DenialCode = Extract<
   ErrorCode,
-  'capability.disabled' | 'capability.not_granted' | 'capability.rate_limited' | 'policy.denied'
+  | 'capability.disabled'
+  | 'capability.not_granted'
+  | 'capability.rate_limited'
+  | 'policy.denied'
+  | 'role.frozen'
 >;
 
 type Verdict =
@@ -109,6 +114,17 @@ export class CapabilityBroker {
           allowed: false,
           reason: 'capability.disabled',
           message: `capability ${name} is disabled`,
+        };
+      }
+
+      // F3.7: a role frozen for repeated denials stops here, beside the kill
+      // switch and before the grant, because a frozen role's problem is not
+      // which capability it asked for.
+      if (await isRoleFrozen(tx, ctx.roleId)) {
+        return {
+          allowed: false,
+          reason: 'role.frozen',
+          message: `role ${ctx.roleId} is frozen after repeated denials and cannot act`,
         };
       }
 
@@ -158,6 +174,9 @@ export class CapabilityBroker {
       await withTenant(ctx.companyId, (tx) =>
         recordDenial(tx, ctx, name, verdict.reason, verdict.policy),
       );
+      // After the record, so the count includes this denial: a threshold of
+      // ten freezes on the tenth attempt rather than the eleventh.
+      await countTowardsRoleFreeze(ctx);
       throw new PalugadaError(verdict.reason, verdict.message, {
         name,
         divisionId: ctx.divisionId,
@@ -222,6 +241,7 @@ export class CapabilityBroker {
           await withTenant(ctx.companyId, (tx) =>
             recordDenial(tx, ctx, name, 'policy.denied', policy),
           );
+          await countTowardsRoleFreeze(ctx);
           throw new PalugadaError(
             'policy.denied',
             `review rejected ${name}`,
@@ -446,6 +466,39 @@ async function countRecentInvocations(
   return Number(rows[0]!.count);
 }
 
+/**
+ * Counts a denial towards F3.7 without letting the bookkeeping change what the
+ * caller is told.
+ *
+ * The denial is the answer to the caller's question and the engine branches on
+ * its code: F2.4 requires `capability.not_granted` for an ungranted tool, and
+ * a failure while counting must not turn that into an unrecognised error and a
+ * failed task. The failure is recorded rather than swallowed, because a freeze
+ * that has quietly stopped working is a control that only appears to exist.
+ */
+async function countTowardsRoleFreeze(ctx: InvokeContext): Promise<void> {
+  try {
+    await evaluateRoleFreeze(ctx);
+  } catch (error) {
+    try {
+      await withTenant(ctx.companyId, async (tx) => {
+        await appendEvent(tx, {
+          companyId: ctx.companyId,
+          projectId: ctx.projectId,
+          taskId: ctx.taskId,
+          type: 'role.freeze_check_failed',
+          actor: 'broker',
+          payload: { roleId: ctx.roleId, error: String((error as Error).message ?? error) },
+        });
+      });
+    } catch {
+      // The denial itself is already on the record, which is the entry that
+      // matters. Failing to note that the counter failed must not, in turn,
+      // take the denial's error code with it.
+    }
+  }
+}
+
 async function recordDenial(
   tx: TenantClient,
   ctx: InvokeContext,
@@ -462,6 +515,11 @@ async function recordDenial(
     payload: {
       capability: name,
       reason,
+      // F3.7 counts denials per role, so the role has to be on the record.
+      // Without it the count could only be reconstructed by joining back
+      // through the task, which stops working the moment a task is purged by
+      // retention while its denials are still inside the window.
+      roleId: ctx.roleId,
       ...(policy ? { policies: policy.matched.map((m) => m.slug) } : {}),
     },
   });

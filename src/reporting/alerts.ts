@@ -29,6 +29,15 @@ export interface Thresholds {
   taskFailureRate: number;
   policyDenialsPerDay: number;
   verificationFailuresPerDay: number;
+  /**
+   * F3.7: denials by a single role in one day before that role is frozen.
+   *
+   * Lower than `policyDenialsPerDay` on purpose. One role misbehaving should
+   * be stopped before the company's total is high enough to be worth waking
+   * the owner for; equal values would make the freeze and the alert always
+   * arrive together, and the freeze would stop being the early signal.
+   */
+  roleFreezeDenialsPerDay: number;
 }
 
 /** Used when no threshold row exists, so alerting survives a missing config. */
@@ -37,6 +46,7 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
   taskFailureRate: 0.2,
   policyDenialsPerDay: 20,
   verificationFailuresPerDay: 1,
+  roleFreezeDenialsPerDay: 10,
 };
 
 export interface RaisedAlert {
@@ -55,9 +65,10 @@ export async function thresholdsFor(companyId: string): Promise<Thresholds> {
       task_failure_rate: number;
       policy_denials_per_day: number;
       verification_failures_per_day: number;
+      role_freeze_denials_per_day: number;
     }>(
       `SELECT daily_cost_cents, task_failure_rate, policy_denials_per_day,
-              verification_failures_per_day
+              verification_failures_per_day, role_freeze_denials_per_day
          FROM alert_thresholds
         WHERE company_id = $1 OR company_id IS NULL
         ORDER BY company_id NULLS LAST
@@ -71,6 +82,7 @@ export async function thresholdsFor(companyId: string): Promise<Thresholds> {
       taskFailureRate: row.task_failure_rate,
       policyDenialsPerDay: row.policy_denials_per_day,
       verificationFailuresPerDay: row.verification_failures_per_day,
+      roleFreezeDenialsPerDay: row.role_freeze_denials_per_day,
     };
   });
 }
@@ -83,24 +95,28 @@ export async function setThresholds(
     await tx.query(
       `INSERT INTO alert_thresholds
          (company_id, daily_cost_cents, task_failure_rate, policy_denials_per_day,
-          verification_failures_per_day)
+          verification_failures_per_day, role_freeze_denials_per_day)
        VALUES ($1,
                coalesce($2, 10000),
                coalesce($3, 0.2),
                coalesce($4, 20),
-               coalesce($5, 1))
+               coalesce($5, 1),
+               coalesce($6, 10))
        ON CONFLICT (company_id) DO UPDATE
          SET daily_cost_cents = coalesce($2, alert_thresholds.daily_cost_cents),
              task_failure_rate = coalesce($3, alert_thresholds.task_failure_rate),
              policy_denials_per_day = coalesce($4, alert_thresholds.policy_denials_per_day),
              verification_failures_per_day =
-               coalesce($5, alert_thresholds.verification_failures_per_day)`,
+               coalesce($5, alert_thresholds.verification_failures_per_day),
+             role_freeze_denials_per_day =
+               coalesce($6, alert_thresholds.role_freeze_denials_per_day)`,
       [
         companyId,
         thresholds.dailyCostCents ?? null,
         thresholds.taskFailureRate ?? null,
         thresholds.policyDenialsPerDay ?? null,
         thresholds.verificationFailuresPerDay ?? null,
+        thresholds.roleFreezeDenialsPerDay ?? null,
       ],
     );
   });

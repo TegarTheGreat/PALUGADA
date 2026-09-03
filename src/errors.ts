@@ -26,6 +26,7 @@ export type ErrorCode =
   | 'cycle.detected'
   | 'deadline.exceeded'
   | 'company.frozen'
+  | 'role.frozen'
   | 'platform.stopped'
   | 'task.invalid_transition'
   | 'tenant.context_missing';

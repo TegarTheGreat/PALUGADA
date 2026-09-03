@@ -15,10 +15,28 @@ import type { TenantClient } from '../db/tenant.ts';
 import { recall, type MemoryItem } from '../memory/store.ts';
 
 export interface ContextSection {
-  kind: 'platform_charter' | 'company_charter' | 'sop' | 'semantic_memory' | 'working_memory';
+  kind:
+    | 'platform_charter'
+    | 'company_charter'
+    | 'sop'
+    | 'confidence_warning'
+    | 'semantic_memory'
+    | 'working_memory';
   title: string;
   body: string;
 }
+
+/**
+ * Below this, a fact is presented to the run as something to check rather than
+ * something to rely on (F4.7).
+ *
+ * The line is drawn where the system's own writers stop being sure. The
+ * distiller records an unstated model confidence as 0.5, and a procedural
+ * pattern earns `occurrences / 10`, so 0.6 means "the model would not commit
+ * to this" and "this has been seen fewer than six times" both land on the
+ * cautious side. Anything asserted directly arrives at 1.0 and is unaffected.
+ */
+export const LOW_CONFIDENCE = 0.6;
 
 export interface BuildContextOptions {
   companyId: string;
@@ -36,6 +54,14 @@ export interface AssembledContext {
   /** Rendered prompt text, sections in order, ready to be prepended. */
   text: string;
   semanticMemories: MemoryItem[];
+  /**
+   * The retrieved facts the run should not lean on (F4.7).
+   *
+   * Exposed as data as well as prose so a caller can act on it -- refuse to
+   * take an irreversible action on an unverified fact, say -- rather than
+   * hoping the model read the warning.
+   */
+  lowConfidenceMemories: MemoryItem[];
 }
 
 /**
@@ -118,13 +144,38 @@ export async function buildContext(
     embeddingModel: options.embeddingModel,
     limit: options.semanticLimit ?? 10,
   });
+  const lowConfidenceMemories = semanticMemories.filter(
+    (memory) => memory.confidence < LOW_CONFIDENCE,
+  );
+
+  // F4.7: the run is *told*, in words, before it reads the facts themselves.
+  // A number in a heading is not telling -- it is easy to skim past, and it
+  // assumes the reader knows where the line between sure and unsure is drawn.
+  // The warning goes first for the same reason the charter does: a caveat
+  // printed after the material it qualifies is a caveat competing with it.
+  if (lowConfidenceMemories.length > 0) {
+    sections.push({
+      kind: 'confidence_warning',
+      title: 'Some of what follows is not established',
+      body:
+        `${lowConfidenceMemories.length} of the ${semanticMemories.length} facts below are ` +
+        `recorded with a confidence under ${LOW_CONFIDENCE} and are marked UNVERIFIED. Treat ` +
+        'them as leads to check, not as things the company knows. Do not take an irreversible ' +
+        'or costly action on one without confirming it first, and say which fact you were ' +
+        'relying on if you do.',
+    });
+  }
+
   for (const memory of semanticMemories) {
+    const unverified = memory.confidence < LOW_CONFIDENCE;
     sections.push({
       kind: 'semantic_memory',
-      // F4.7 in miniature: a run should be able to tell a certainty from a
-      // guess, so confidence travels with the fact rather than being flattened
-      // away in the prompt.
-      title: `Known fact (confidence ${memory.confidence.toFixed(2)}, source ${memory.source})`,
+      // Confidence travels with the fact rather than being flattened away, and
+      // the low ones say so in a word as well as a number: a run scanning
+      // headings should not have to compare decimals to notice.
+      title:
+        `${unverified ? 'UNVERIFIED fact' : 'Known fact'} ` +
+        `(confidence ${memory.confidence.toFixed(2)}, source ${memory.source})`,
       body: memory.body,
     });
   }
@@ -149,5 +200,5 @@ export async function buildContext(
     .map((section) => `## ${section.title}\n\n${section.body}`)
     .join('\n\n');
 
-  return { sections, text, semanticMemories };
+  return { sections, text, semanticMemories, lowConfidenceMemories };
 }

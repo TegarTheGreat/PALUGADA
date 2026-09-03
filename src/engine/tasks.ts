@@ -14,6 +14,7 @@ import { PalugadaError } from '../errors.ts';
 import { assertTransition, type HaltReason, type TaskStatus } from '../domain/task.ts';
 import { hashInput } from './hash.ts';
 import * as budget from './budget.ts';
+import { isRoleFrozen } from '../governance/role-freeze.ts';
 
 /** F6.5: one task may spawn at most this many children unless overridden. */
 export const DEFAULT_FAN_OUT_MAX = 5;
@@ -112,6 +113,10 @@ export async function createRootTask(input: CreateTaskInput): Promise<TaskRow> {
       if (existing) return existing;
     }
 
+    // F3.7: a frozen role admits no work. Checked before the reservation, so
+    // a refused task does not tie up an allowance on the way out.
+    await assertRoleIsNotFrozen(tx, input.roleId);
+
     const reserveTokens = input.reserveTokens ?? DEFAULT_TASK_RESERVE_TOKENS;
     const granted = await budget.reserve(tx, input.budgetAccountId, reserveTokens);
     if (!granted) {
@@ -136,6 +141,22 @@ export async function createRootTask(input: CreateTaskInput): Promise<TaskRow> {
       throw error;
     }
   });
+}
+
+/**
+ * Refuses admission for a role that has been frozen (F3.7).
+ *
+ * A freeze that only stopped capability calls would let the role keep starting
+ * tasks, burning tokens and filling the log with runs that cannot finish their
+ * work. Stopping it here is what makes the freeze mean "this role does not
+ * run" rather than "this role runs but achieves nothing".
+ */
+async function assertRoleIsNotFrozen(tx: TenantClient, roleId: string): Promise<void> {
+  if (await isRoleFrozen(tx, roleId)) {
+    throw new PalugadaError('role.frozen', `role ${roleId} is frozen and cannot be given work`, {
+      roleId,
+    });
+  }
 }
 
 async function findByIdempotencyKey(
@@ -166,6 +187,10 @@ export async function createSubTask(
   return withTenant(input.companyId, async (tx) => {
     const parent = await getTask(tx, parentTaskId);
     if (!parent) throw new Error(`parent task ${parentTaskId} not found`);
+
+    // A frozen role takes no delegated work either, or a parent could route
+    // around the freeze simply by handing the task down.
+    await assertRoleIsNotFrozen(tx, input.roleId);
 
     const hopDepth = parent.hopDepth + 1;
     const hopMax = input.hopMax ?? parent.hopMax;

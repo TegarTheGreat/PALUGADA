@@ -69,6 +69,13 @@ export class CachedSecretManager implements SecretManager {
 
     const value = await this.#inner.resolve(reference);
     this.#cache.set(key, { value, expiresAt: this.#now() + this.#ttlMs });
+    // F12.4, and this is the line that makes it hold rather than the ones that
+    // look like they do. `SecretManager` is one method wide so a deployment can
+    // implement it against its own vault, and such an implementation has no
+    // reason to know this codebase has a redactor. Every credential reaches an
+    // adapter through here -- the broker's resolver takes a CachedSecretManager
+    // rather than a bare one for exactly that reason -- so registering here
+    // covers the vault nobody here wrote. credentials.test.ts breaks if it goes.
     redactor.register(value);
     return value;
   }

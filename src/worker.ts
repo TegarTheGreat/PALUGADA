@@ -21,6 +21,9 @@
  *      the runs, because a run in this tick may have opened one.
  *   6. **Watch the money and the failure rate** (F1.7–F1.9, F11.4). Last,
  *      because it reports on what just happened.
+ *   7. **Retention** (section 12.3), at most once every few hours per company.
+ *      Last and rarest: it deletes, and everything above may still want to read
+ *      what it is about to remove.
  *
  * A tick is bounded rather than draining the queue: a worker that ran every
  * claimable task before looking at the clock again would never notice a
@@ -44,6 +47,7 @@ import { settleCompletedReviews } from './review/review.ts';
 import { evaluateAlerts } from './reporting/alerts.ts';
 import { evaluateCircuitBreakers, evaluateSpendLimit } from './governance/spend-guard.ts';
 import * as inbox from './inbox/inbox.ts';
+import { runRetention } from './retention/retention.ts';
 
 export interface WorkerOptions {
   engine: Engine;
@@ -53,6 +57,15 @@ export interface WorkerOptions {
   idleMs?: number;
   /** How many tasks one tick may run. Bounds how long a stop takes to bite. */
   maxRunsPerTick?: number;
+  /**
+   * How often a company's retention policy is applied.
+   *
+   * Retention is a promise about data the company no longer keeps, and a
+   * promise nothing runs is not one. It is here rather than on a schedule
+   * because a schedule belongs to a company and is something an owner can
+   * disable, and "we stopped deleting your expired data" is not a setting.
+   */
+  retentionIntervalMs?: number;
   signal?: AbortSignal;
   /**
    * Called when a whole tick fails, not when a stage does.
@@ -70,6 +83,8 @@ export interface TickReport {
   woken: number;
   ran: Array<{ taskId: string; status: RunOutcome['status'] }>;
   alerts: number;
+  /** Companies whose retention policy this tick applied. */
+  retained: number;
   /** Set when the platform stop is in effect: the tick did nothing else. */
   stopped: boolean;
   errors: Array<{ stage: string; message: string }>;
@@ -78,9 +93,22 @@ export interface TickReport {
 export const DEFAULT_IDLE_MS = 5_000;
 export const DEFAULT_MAX_RUNS_PER_TICK = 8;
 
+/**
+ * Six hours, which is four sweeps a day.
+ *
+ * The windows retention enforces are measured in days, so anything under a day
+ * is already prompt; four is chosen so that a worker restarted a few times a
+ * day still sweeps, without a company's deletions waiting on one worker
+ * staying up. The clock is in memory, so a restart costs one extra sweep --
+ * three indexed deletes that delete nothing.
+ */
+export const DEFAULT_RETENTION_INTERVAL_MS = 6 * 60 * 60 * 1_000;
+
 export class Worker {
   readonly #options: WorkerOptions;
   readonly id: string;
+  /** When each company's retention was last applied by *this* worker. */
+  readonly #retainedAt = new Map<string, number>();
 
   constructor(options: WorkerOptions) {
     this.#options = options;
@@ -96,7 +124,8 @@ export class Worker {
    */
   async tick(now = new Date()): Promise<TickReport> {
     const report: TickReport = {
-      reclaimed: 0, scheduled: 0, woken: 0, ran: [], alerts: 0, stopped: false, errors: [],
+      reclaimed: 0, scheduled: 0, woken: 0, ran: [], alerts: 0, retained: 0,
+      stopped: false, errors: [],
     };
 
     // F5.8: a halted platform does nothing at all, and finds out within one
@@ -159,6 +188,20 @@ export class Worker {
         await evaluateCircuitBreakers(company, now);
         report.alerts += (await evaluateAlerts(company, now)).length;
       });
+
+      // Section 12.3. Deletes, so it goes after everything that reads.
+      const interval = this.#options.retentionIntervalMs ?? DEFAULT_RETENTION_INTERVAL_MS;
+      const last = this.#retainedAt.get(company);
+      if (last === undefined || now.getTime() - last >= interval) {
+        await this.#stage(report, 'retention', async () => {
+          await runRetention(company, now);
+          // Recorded after the sweep rather than before it: a sweep that threw
+          // has not happened, and marking it done would mean waiting the whole
+          // interval before trying again.
+          this.#retainedAt.set(company, now.getTime());
+          report.retained += 1;
+        });
+      }
     }
 
     return report;

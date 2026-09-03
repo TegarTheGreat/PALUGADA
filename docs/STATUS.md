@@ -8,6 +8,13 @@ to resolve it.
 This file says three things: which identifiers changed meaning, what is built
 against v2, and what has to be decided before the v2 roadmap can proceed.
 
+Sections 2.2 to 2.7 are the same exercise asked six different ways — what does
+nothing call, what does this claim to prevent, would the suite notice, what
+happens if you actually start it, which exports only tests reach, and what one
+worker never races. Each one found something, which is the reason they are
+written down separately rather than folded into a single "audited" note: the
+useful part is the question, not the answer.
+
 ## 1. Identifiers that changed meaning
 
 Most numbers are stable between v1 and v2, or v2 is a superset. Three are not,
@@ -302,6 +309,93 @@ names, which is the list an operator actually wants.
 
 The fourth run is the first that means anything: seed, company, worker, task,
 `completed` in 0.2s, funded by the `ops` account rather than the company's.
+
+## 2.6 What "nothing calls this" looks like when you go looking for it
+
+Three separate times now the same defect has surfaced: a module that works,
+has tests, and is assembled by nobody. The wiring audit found four. The F1.6
+account lookup was a fifth. So rather than wait for a sixth, the question was
+asked mechanically — which exported names in `src/` appear nowhere in `src/`
+or `scripts/`, only in `test/`?
+
+The list is long and most of it is fine, because most of it is the **owner
+surface**. `freezeCompany`, `requestStopAll`, `setRetention`, `rotateCredential`,
+`approveSkillVersion`, `pairDevice` and their neighbours have no caller in
+`src/` because their caller is a person, through a console that F11.2 records
+as not built. An entry point waiting for its client is not the same defect as
+an internal dependency nothing depends on.
+
+Two were the real thing.
+
+**No credential ever reached a capability.** `CapabilityContext` carried no
+credential and neither `resolveForDivision` nor `resolveCurrent` was called
+from `src/` at all. The database enforced F12's scoping — a credential cannot
+be scoped to a division that runs untrusted code, and the tests proved the
+lookup was division-scoped — and an adapter bound to a real provider had no way
+to obtain the secret it would need. F12.1–F12.4 read as built. The context now
+carries `credential(alias)`, resolved against the *calling* division so an
+adapter can name an alias but not a division, through `resolveCurrent` so
+F12.3's rotation takes effect on the next call rather than when a cache expires.
+
+`resolveForDivision` is deleted rather than left beside it. It did the same
+division-scoped lookup without reading the version, so keeping it meant a
+second way in that would quietly ignore a rotation.
+
+Writing the tests found something smaller and worth recording, because it is
+the same mistake in miniature. The first version registered the resolved secret
+with the redactor *in the broker*, with a comment explaining why that was the
+line that made section 12.4 hold. Deleting the line left the whole suite green:
+`CachedSecretManager` already registers, and the broker's parameter is that
+type rather than the bare `SecretManager` interface, so the guarantee was
+already made by what the broker will accept. The comment described a line that
+had never been the thing that ran. It is gone, and the real registration now
+carries the explanation and a test that fails without it.
+
+**Retention was scheduled by nothing.** `runRetention` applies every window in
+section 12.3 and nothing called it, so a company's expired prompts, traces and
+events were kept indefinitely — a promise about data the platform deletes, that
+nothing deleted. It is a worker stage now, at most once every six hours per
+company rather than per tick, because it is three deletes and the windows it
+enforces are measured in days. It sits last in the tick: it removes, and
+everything above may still want to read what it is about to remove. The clock
+is in memory, so a restarted worker sweeps once more than it needed to, which
+costs three indexed deletes that delete nothing.
+
+Two remain unwired on purpose, and are named here rather than left to be found:
+
+- `processHandoffs` (F6.1, F6.3) takes its rules as an argument, and a rule
+  carries a `mapInput` function, so the rules cannot live in a table — they are
+  code a composition root supplies. `src/worker.ts` does not supply any, so a
+  deployment that wants handoffs passes them itself. That is a real limitation
+  and the honest description of it is "the mechanism is built, the configuration
+  surface is not".
+- `buildDailyDigest` and `buildWeeklyRetro` (F10.1) render for a channel that
+  does not exist yet — the same F11.2 gap as the rest of the owner surface. They
+  are called by whatever delivers them, and nothing delivers.
+
+## 2.7 What one worker never tests
+
+The claim path is raced hard: `checkout-lease-lane.test.ts` sends twenty
+workers at `claimTask` sixty times over and checks that exactly one wins, that
+a lane admits one task, and that five claimable tasks against an account with
+room for three produce three checkouts. Removing the per-company advisory lock
+fails it immediately, which is the right answer — that lock is what makes the
+lane and budget predicates hold under `READ COMMITTED`.
+
+What no test ran was two *workers*. The whole tick — reclaim, schedules,
+wakes, claim, run, settle, retention — over the same rows at the same time,
+which is the shape a deployment has. There is one now, and writing it turned up
+a predicate with no coverage: `claimTask` claims only `pending`, and letting it
+claim `running` as well left the entire suite green. The lease/lane test races
+the claim itself, where nothing has started yet, so "a task already being run
+cannot be claimed again" was an assumption rather than a tested property.
+
+The first version of the new test did not catch it either. Its handler returned
+immediately, so one worker's tasks reached `completed` before the other's claim
+ran and the overlap the test was named for never happened. The handler now
+sleeps long enough that it does, and the sleep is the mechanism rather than
+latency-tolerance — which is worth saying in the test, because the next person
+to see a `setTimeout` in a test will reasonably want to delete it.
 
 ## 3. Decisions, deviations, and what is unverified
 

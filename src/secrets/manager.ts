@@ -13,7 +13,6 @@
  * the redactor runs over anything on its way to a durable record.
  */
 import { PalugadaError } from '../errors.ts';
-import type { TenantClient } from '../db/tenant.ts';
 
 export interface SecretManager {
   /** Resolves a reference such as "vault://path/to/secret". */
@@ -123,31 +122,10 @@ export class InMemorySecretManager implements SecretManager {
   }
 }
 
-/**
- * Resolves a credential a division is entitled to (F12.2).
- *
- * The division is part of the lookup rather than a check performed afterwards,
- * so a role in another division cannot name someone else's alias and receive
- * their secret. Row-level security already confines the row to its tenant;
- * this narrows it to the division within that tenant.
+/*
+ * There was a `resolveForDivision` here, and `resolveCurrent` in
+ * secrets/rotation.ts replaced it. Both did the same division-scoped lookup
+ * and only one read the version, so keeping the unversioned one meant a second
+ * way to resolve a credential that would quietly ignore a rotation. The broker
+ * calls `resolveCurrent`; there is now no other way in.
  */
-export async function resolveForDivision(
-  tx: TenantClient,
-  secrets: SecretManager,
-  divisionId: string,
-  alias: string,
-): Promise<string> {
-  const { rows } = await tx.query<{ secret_ref: string }>(
-    'SELECT secret_ref FROM credentials WHERE division_id = $1 AND alias = $2',
-    [divisionId, alias],
-  );
-  const row = rows[0];
-  if (!row) {
-    throw new PalugadaError(
-      'capability.not_granted',
-      `division ${divisionId} has no credential aliased ${alias}`,
-      { divisionId, alias },
-    );
-  }
-  return secrets.resolve(row.secret_ref);
-}

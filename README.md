@@ -208,7 +208,7 @@ test/acceptance/   one file per PRD acceptance criterion
 | F9.1 durable cron | `src/scheduler/scheduler.ts` | `scheduling-windows.test.ts` |
 | F9.2 external windows, deferring not failing | `src/scheduler/windows.ts`, `src/broker/broker.ts` | `scheduling-windows.test.ts` |
 | F9.3 owner window, incidents excepted | `src/scheduler/windows.ts` | `scheduling-windows.test.ts` |
-| F12.1, F12.2, F12.4 secret references, scope, redaction | `src/secrets/manager.ts` | `credentials.test.ts` |
+| F12.1, F12.2, F12.4 secret references, scope, redaction, and a capability that can ask for one | `src/secrets/manager.ts`, `src/secrets/rotation.ts`, `src/broker/broker.ts` | `credentials.test.ts` |
 
 ## What Phase 2 adds
 
@@ -234,9 +234,9 @@ test/acceptance/   one file per PRD acceptance criterion
 | Section 9 durability under chaos | — | `chaos-durability.test.ts` |
 | F5.9 dry-run replay | `src/engine/replay.ts` | `replay.test.ts` |
 | F8.10 sandbox for code execution | `src/sandbox/sandbox.ts` | `sandbox.test.ts` |
-| F11.5 retention, with an archival path | `src/retention/retention.ts`, `db/migrations/0007_*.sql` | `retention-rotation.test.ts` |
+| F11.5 retention, with an archival path, applied by the worker loop | `src/retention/retention.ts`, `src/worker.ts`, `db/migrations/0007_*.sql` | `retention-rotation.test.ts`, `worker.test.ts` |
 | F11.6, F1.5 audit and company export | `src/audit/export.ts` | `audit-export.test.ts` |
-| F12.3 secret rotation without a restart | `src/secrets/rotation.ts` | `retention-rotation.test.ts` |
+| F12.3 secret rotation without a restart, effective on the next call | `src/secrets/rotation.ts` | `retention-rotation.test.ts`, `credentials.test.ts` |
 
 ## What the standard company adds
 

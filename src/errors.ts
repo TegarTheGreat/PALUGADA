@@ -14,6 +14,8 @@ export type ErrorCode =
   | 'capability.miscalibrated'
   | 'capability.verify_failed'
   | 'capability.rate_limited'
+  /** The broker was built with no secret manager, so no credential can be resolved. */
+  | 'credential.unavailable'
   | 'contract.violation'
   | 'goal.required'
   | 'role.incomplete'

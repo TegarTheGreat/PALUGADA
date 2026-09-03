@@ -36,12 +36,18 @@ after(async () => {
   await closeSetup();
 });
 
-function workerFor(fixture: Fixture, handler: TaskHandler, options: { all?: boolean } = {}) {
+function workerFor(
+  fixture: Fixture,
+  handler: TaskHandler,
+  options: { all?: boolean; id?: string } = {},
+) {
   const engine = new Engine({
     broker: new CapabilityBroker(baseRegistry()),
     llm: new RecordingLlmClient(),
     handlers: new Map([['worker', handler]]),
-    workerId: 'tick-worker',
+    // Distinct per worker when a test runs more than one: a lease belongs to
+    // its holder, and two workers sharing an id could renew each other's.
+    workerId: options.id ?? 'tick-worker',
   });
   return new Worker({
     engine,
@@ -348,4 +354,120 @@ test('the loop stops when its signal aborts', async () => {
   // It did not wait out the ten-second idle interval, which is what makes a
   // shutdown a shutdown rather than a timeout.
   assert.ok(Date.now() - started < 5_000);
+});
+
+/**
+ * Retention runs from the loop, not only when somebody calls it.
+ *
+ * `runRetention` was written, tested and scheduled by nothing: every retention
+ * window in section 12.3 was a promise about data the platform would delete,
+ * and no code path deleted it. This is the tick stage, and the second half of
+ * the test is the part that matters — that it does not run on every tick, so a
+ * five-second poll does not turn into three table scans a company every five
+ * seconds.
+ */
+test('a tick applies retention, and does not do it again straight away (section 12.3)', async () => {
+  const fixture = await createCompany('worker-retention');
+
+  // An event well past the longest window the policy allows.
+  const ancient = new Date(Date.now() - 500 * 24 * 60 * 60 * 1000);
+  await withControlPlane(async (tx) => {
+    await tx.query(
+      `INSERT INTO events (company_id, type, actor, payload, occurred_at)
+       VALUES ($1, 'task.created', 'system', '{}'::jsonb, $2)`,
+      [fixture.companyId, ancient],
+    );
+  });
+
+  const before = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ count: string }>(
+      'SELECT count(*)::text AS count FROM events WHERE occurred_at < $1',
+      [new Date(Date.now() - 401 * 24 * 60 * 60 * 1000)],
+    );
+    return Number(rows[0]!.count);
+  });
+  assert.ok(before > 0, 'there is something outside the window to delete');
+
+  const worker = workerFor(fixture, async () => ({ done: true }));
+  const first = await worker.tick();
+  assert.equal(first.retained, 1);
+  assert.deepEqual(first.errors, []);
+
+  const after = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ count: string }>(
+      'SELECT count(*)::text AS count FROM events WHERE occurred_at < $1',
+      [new Date(Date.now() - 401 * 24 * 60 * 60 * 1000)],
+    );
+    return Number(rows[0]!.count);
+  });
+  assert.equal(after, 0, 'the expired event is gone');
+
+  // And the next tick leaves it alone: the interval is hours, not one tick.
+  const second = await worker.tick();
+  assert.equal(second.retained, 0, 'retention is not a per-tick cost');
+});
+
+/**
+ * Two workers on one company, ticking at the same time.
+ *
+ * `checkout-lease-lane.test.ts` races twenty workers through `claimTask`, which
+ * is the sharp end and is where the guarantee lives. What it does not exercise
+ * is the whole tick: reclaim, schedules, wakes, claim, run, settle and
+ * retention, all of them running twice over the same rows. That is the shape a
+ * real deployment has — a fleet, not a worker — and nothing here had ever run
+ * it.
+ *
+ * The claim is narrow: every task runs exactly once, and neither worker
+ * reports a stage failure. A task running twice would mean a side effect
+ * happening twice, which is the whole reason leases exist. Checked by letting
+ * `claimTask` claim a `running` task, which this notices and the lease/lane
+ * test does not — that one races the claim itself, where nothing is running
+ * yet, so the predicate that keeps a *started* task from being claimed again
+ * had no test until this one.
+ */
+test('two workers on the same company run each task exactly once', async () => {
+  const fixture = await createCompany('worker-fleet', { tokensMax: 10_000_000 });
+
+  const ran: string[] = [];
+  const handler: TaskHandler = async (ctx) => {
+    ran.push(ctx.task.id);
+    // Long enough that the overlap is guaranteed rather than incidental. With
+    // a handler that returned immediately, one worker's tasks were already
+    // `completed` before the other's claim ran, and the test passed even with
+    // `claimTask` willing to claim a `running` task — which is exactly the
+    // double-run this exists to rule out. The number is the point, not
+    // latency-tolerance.
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    return { done: true };
+  };
+
+  const wanted: string[] = [];
+  for (let i = 0; i < 6; i += 1) wanted.push((await newTask(fixture)).id);
+
+  const left = workerFor(fixture, handler, { id: 'fleet-a' });
+  const right = workerFor(fixture, handler, { id: 'fleet-b' });
+
+  // Two rounds, because six tasks is more than one tick's maxRunsPerTick of
+  // four and the second round is where a task released by the first could be
+  // picked up twice.
+  for (let round = 0; round < 2; round += 1) {
+    const reports = await Promise.all([left.tick(), right.tick()]);
+    for (const report of reports) {
+      assert.deepEqual(report.errors, [], 'a stage failed under contention');
+    }
+  }
+
+  assert.deepEqual(
+    [...ran].sort(),
+    [...wanted].sort(),
+    'every task ran, and none of them twice',
+  );
+
+  const statuses = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ status: string; count: string }>(
+      'SELECT status, count(*)::text AS count FROM tasks GROUP BY status',
+    );
+    return rows;
+  });
+  assert.deepEqual(statuses, [{ status: 'completed', count: '6' }]);
 });

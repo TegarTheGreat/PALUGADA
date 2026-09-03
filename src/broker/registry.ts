@@ -20,6 +20,27 @@ export interface CapabilityContext {
   /** F5.2. Pass this to the downstream system so a replay is recognised. */
   idempotencyKey: string;
   signal: AbortSignal;
+  /**
+   * The secret behind one of this division's credential aliases (F12.1-F12.3).
+   *
+   * The capability asks for the alias it needs and the broker resolves it
+   * against the *calling* division, so a role cannot receive another division's
+   * secret by naming their alias -- the division is part of the lookup rather
+   * than a check afterwards. The value is registered with the redactor on the
+   * way out, which is what makes section 12.4's "a secret never appears in a
+   * log or an event" hold for a credential this capability then echoes.
+   *
+   * Resolved per call rather than handed over at registration: the version is
+   * read every time, so F12.3's rotation takes effect on the next call instead
+   * of within a cache lifetime.
+   *
+   * Throws `capability.not_granted` when the division holds no such alias, and
+   * `credential.unavailable` when the broker was built without a secret
+   * manager -- which is a deployment that never configured one, and is a
+   * clearer answer than a capability failing at the provider with a blank
+   * token.
+   */
+  credential(alias: string): Promise<string>;
 }
 
 export interface Capability<I = unknown, O = unknown> {

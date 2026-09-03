@@ -53,7 +53,8 @@ import { chargeEstimate, estimateFor, refundEstimate, settleActual } from './cos
 import { evaluateRoleFreeze, isRoleFrozen } from '../governance/role-freeze.ts';
 import { ancestryForTask, renderAncestry } from '../domain/goals.ts';
 import { checkAgainstPlan, readPlan, type TaskPlan } from '../engine/plan.ts';
-import type { CapabilityRegistry } from './registry.ts';
+import type { CapabilityContext, CapabilityRegistry } from './registry.ts';
+import { CachedSecretManager, resolveCurrent } from '../secrets/rotation.ts';
 import { HookPipeline } from '../engine/hooks.ts';
 
 export interface InvokeContext {
@@ -101,12 +102,59 @@ type Verdict =
 export class CapabilityBroker {
   readonly #registry: CapabilityRegistry;
   readonly #hooks: HookPipeline;
+  readonly #secrets: CachedSecretManager | null;
 
-  constructor(registry: CapabilityRegistry, hooks?: HookPipeline) {
+  /**
+   * `secrets` is what makes F12.1-F12.3 reachable from a running capability.
+   *
+   * Optional, because most of this codebase's capabilities are reads of the
+   * company's own store and need nothing. A deployment that binds a provider
+   * passes one; one that does not gets a `credential.unavailable` the first
+   * time a capability asks, which names the deployment gap rather than failing
+   * at the provider with a blank token.
+   */
+  constructor(
+    registry: CapabilityRegistry,
+    hooks?: HookPipeline,
+    secrets?: CachedSecretManager,
+  ) {
     this.#registry = registry;
     // A broker built without one still has every built-in hook: F14.2 is not
     // an option a caller can decline by leaving an argument out.
     this.#hooks = hooks ?? new HookPipeline();
+    this.#secrets = secrets ?? null;
+  }
+
+  /**
+   * F12.2: a credential, scoped to the division that asked for it.
+   *
+   * Read inside a tenant transaction so row-level security confines the row to
+   * the company before the division narrows it further, and resolved through
+   * `resolveCurrent` so the version is checked on every call -- which is what
+   * makes F12.3's rotation take effect on the next call rather than when a
+   * cache happens to expire.
+   *
+   * Redaction is not done here, and that is deliberate rather than an omission.
+   * `CachedSecretManager.resolveVersioned` registers every value it resolves,
+   * and this resolver's parameter is that type rather than the bare
+   * `SecretManager` interface -- so the registration is guaranteed by what the
+   * broker will accept instead of by a second line here that would look like
+   * the guarantee while never being the thing that ran. A `redactor.register`
+   * at this point was written first and could be deleted with the whole suite
+   * still green, which is how it was found out.
+   */
+  async #credential(companyId: string, divisionId: string, alias: string): Promise<string> {
+    if (!this.#secrets) {
+      throw new PalugadaError(
+        'credential.unavailable',
+        'this deployment has no secret manager, so no credential can be resolved',
+        { alias },
+      );
+    }
+    const value = await withTenant(companyId, (tx) =>
+      resolveCurrent(tx, this.#secrets!, divisionId, alias),
+    );
+    return value;
   }
 
   /** The hook pipeline this broker consults (F14). */
@@ -401,12 +449,13 @@ export class CapabilityBroker {
       });
     });
 
-    const capabilityContext = {
+    const capabilityContext: CapabilityContext = {
       companyId: ctx.companyId,
       divisionId: ctx.divisionId,
       taskId: ctx.taskId,
       idempotencyKey: ctx.idempotencyKey,
       signal,
+      credential: (alias: string) => this.#credential(ctx.companyId, ctx.divisionId, alias),
     };
 
     // Section 8.8 treats tier 2 as "check the budget, then policy". The check

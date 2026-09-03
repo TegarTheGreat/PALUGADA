@@ -95,7 +95,7 @@ src/
   inbox/           owner inbox: approvals, incidents, emergency controls
   audit/           append-only event log, security events
   llm/             model interface and a recording test double
-  runtime/         the adapter protocol, and the in-process runtime
+  runtime/         the adapter protocol, the wire, and four runtimes
 test/acceptance/   one file per PRD acceptance criterion
 ```
 
@@ -212,6 +212,12 @@ the template is organised by function rather than by industry.
 | v2 F13.4 a runtime holds no credentials and no database | `src/runtime/protocol.ts` | `runtime-adapter.test.ts` |
 | v2 F13.7 cost per run, or an estimate marked as one | `src/engine/engine.ts` | `runtime-adapter.test.ts` |
 | v2 F13.8 an unhealthy runtime receives no work | `src/engine/engine.ts` | `runtime-adapter.test.ts` |
+| v2 F13.2 a spawned script, a webhook and headless Claude Code | `src/runtime/script.ts`, `http.ts`, `claude-code.ts` | `out-of-process-runtimes.test.ts` |
+| v2 F13.4 a spawned runtime inherits no environment; its tools go through the broker | `src/runtime/script.ts`, `src/runtime/tool-bridge.ts` | `out-of-process-runtimes.test.ts` |
+| v2 F13.6 fallback for tier 0–1; a role that can act irreversibly halts instead | `src/engine/engine.ts` | `out-of-process-runtimes.test.ts` |
+| v2 F14.1 a runtime cannot get past a hook | `src/engine/hooks.ts` | `hooks.test.ts` |
+| v2 F14.2 built-ins cannot be removed; an added hook may only tighten | `src/engine/hooks.ts` | `hooks.test.ts` |
+| v2 F14.3 every refusal names the hook and why | `src/engine/hooks.ts` | `hooks.test.ts` |
 
 ## Decisions worth knowing
 

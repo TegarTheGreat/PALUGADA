@@ -23,6 +23,7 @@ export type ErrorCode =
   | 'plan.invalid'
   | 'policy.denied'
   | 'hook.denied'
+  | 'model.unavailable'
   | 'review.required'
   | 'window.closed'
   | 'approval.required'

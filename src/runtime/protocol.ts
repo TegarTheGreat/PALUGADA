@@ -128,6 +128,33 @@ export interface RunServices {
   signal: AbortSignal;
 }
 
+/**
+ * What a runtime says while it works (§7.5).
+ *
+ * The wire vocabulary for an out-of-process runtime. The in-process one has no
+ * use for it -- it calls the services directly -- but everything reached over a
+ * pipe or a socket speaks this, and having one vocabulary is what makes an
+ * adapter for a runtime nobody has written yet a matter of translation rather
+ * than of design.
+ *
+ * `tool_call` is the only event that asks for something back. The engine
+ * resolves it through the broker and answers with a `tool_result`; the runtime
+ * never sees an endpoint or a credential, only a name, arguments and an answer.
+ */
+export type RunEvent =
+  | { type: 'tool_call'; id: string; name: string; args: unknown; idemKey?: string }
+  | { type: 'text'; text: string }
+  /** F13.7: the runtime's own account of what a model call cost. */
+  | { type: 'usage'; usage: ModelUsage }
+  | { type: 'done'; output: Record<string, unknown> }
+  | { type: 'error'; message: string; retryable?: boolean; providerFailure?: boolean };
+
+/** What the engine says back. */
+export type EngineMessage =
+  | { type: 'tool_result'; id: string; output: unknown }
+  | { type: 'tool_error'; id: string; code: string; message: string }
+  | { type: 'cancel'; reason: string };
+
 export interface AdapterHealth {
   ok: boolean;
   detail?: string;

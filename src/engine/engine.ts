@@ -23,11 +23,14 @@ import type { HookPipeline } from './hooks.ts';
 import { batchWindow, isWithin, nextOpening } from '../scheduler/windows.ts';
 import {
   AdapterRegistry,
+  type Adapter,
+  type AdapterResult,
   type ExecutionBackend,
   type RunRequest,
   type RunServices,
 } from '../runtime/protocol.ts';
 import { InProcessAdapter, type TaskHandler } from '../runtime/in-process.ts';
+import { ProviderFailure } from '../runtime/wire.ts';
 import { buildContext } from '../context/builder.ts';
 import { ancestryForTask } from '../domain/goals.ts';
 import { preflightForRole } from '../broker/preflight.ts';
@@ -655,9 +658,11 @@ export class Engine {
     };
 
     try {
-      const { output } = await adapter.run(await this.#buildRunRequest(
+      const { output } = await this.#runWithFallback(
+        adapter,
         { companyId, task, roleSlug, runtime, agentRunId },
-      ), services);
+        services,
+      );
       // F6.2, F6.3: validated before the task is marked complete, because a
       // downstream task triggered by `task.completed` has no other guarantee
       // about what it is about to read.
@@ -759,8 +764,13 @@ export class Engine {
     const haltCodes: Record<
       string,
       'policy_denied' | 'budget_exhausted' | 'hop_limit' | 'deadline_passed'
-        | 'verification_failed' | 'cycle_detected'
+        | 'verification_failed' | 'cycle_detected' | 'runtime_unavailable'
     > = {
+      // F13.6: every model the role names has failed, or the role may act
+      // irreversibly and the engine refused to substitute one. Either way the
+      // incident is already raised and another attempt would reach the same
+      // provider.
+      'model.unavailable': 'runtime_unavailable',
       // A denial is terminal rather than retryable: the same call would be
       // refused again, and retrying it only burns the attempt budget.
       'policy.denied': 'policy_denied',
@@ -809,6 +819,145 @@ export class Engine {
       return { status: 'failed', reason: (error as Error).message };
     }
     return { status: 'failed', reason: 'retryable' };
+  }
+
+  /**
+   * F13.6: model routing, and the one case where falling back is not allowed.
+   *
+   * A provider that is down is a fact about the world rather than about the
+   * work, so for a role whose tools are all tier 0 or 1 the engine retries on
+   * the next model in the role's list. The run starts again from the top --
+   * the model changed, so nothing it said before is worth resuming from -- and
+   * the substitution is recorded, because "which model did this" has to remain
+   * answerable afterwards.
+   *
+   * A role that can take a tier 2 action does not get that. Tier 2 is the
+   * threshold at which an action changes something outside the company and
+   * cannot be undone, and the PRD's word for the alternative is *silently*:
+   * quietly running an irreversible action on a model the owner did not choose
+   * and did not calibrate the role for. So the run halts and the owner is told,
+   * which is slower and is the point.
+   *
+   * The same rule applies once a task has actually taken a tier 2 action, even
+   * for a role whose remaining tools are harmless: half of an irreversible
+   * sequence performed by one model and half by another is a worse outcome than
+   * a halt, and much harder to reason about afterwards.
+   */
+  async #runWithFallback(
+    adapter: Adapter,
+    input: {
+      companyId: string;
+      task: TaskRow;
+      roleSlug: string;
+      runtime: {
+        backend: ExecutionBackend;
+        modelPrimary: string;
+        modelFallback: string[];
+        tools: string[];
+        maxTokensPerRun: number;
+      };
+      agentRunId: string;
+    },
+    services: RunServices,
+  ): Promise<AdapterResult> {
+    const { companyId, task, runtime } = input;
+    const models = [runtime.modelPrimary, ...runtime.modelFallback];
+
+    for (const [index, model] of models.entries()) {
+      const request = await this.#buildRunRequest({
+        ...input,
+        runtime: { ...runtime, modelPrimary: model },
+      });
+
+      try {
+        return await adapter.run(request, services);
+      } catch (error) {
+        if (!(error instanceof ProviderFailure)) throw error;
+
+        const irreversible = await this.#mayActIrreversibly(companyId, task, request);
+        const last = index === models.length - 1;
+
+        if (irreversible || last) {
+          await withTenant(companyId, async (tx) => {
+            await appendEvent(tx, {
+              companyId,
+              projectId: task.projectId,
+              taskId: task.id,
+              type: 'model.fallback_refused',
+              actor: 'engine',
+              payload: {
+                model,
+                reason: irreversible ? 'tier_2_or_above' : 'no_fallback_left',
+                remaining: models.slice(index + 1),
+              },
+            });
+          });
+          await inbox.raiseIncident({
+            companyId,
+            taskId: task.id,
+            title: `Model ${model} failed and the run was not moved`,
+            detail: irreversible
+              ? `${error.message} This role can take actions that cannot be undone, so the ` +
+                'run was not silently retried on a different model.'
+              : `${error.message} No fallback model is left for this role.`,
+          });
+          throw new PalugadaError('model.unavailable', error.message, {
+            model,
+            fellBack: false,
+            reason: irreversible ? 'tier_2_or_above' : 'no_fallback_left',
+          });
+        }
+
+        const next = models[index + 1]!;
+        await withTenant(companyId, async (tx) => {
+          await appendEvent(tx, {
+            companyId,
+            projectId: task.projectId,
+            taskId: task.id,
+            type: 'model.fell_back',
+            actor: 'engine',
+            payload: { from: model, to: next, reason: error.message },
+          });
+        });
+      }
+    }
+
+    // Unreachable: the last iteration either returns or throws above. Present
+    // because a loop that can fall out of its end should say what that means
+    // rather than returning undefined.
+    throw new PalugadaError('model.unavailable', 'no model produced a run', {
+      models,
+    });
+  }
+
+  /**
+   * Whether this run could still do something that cannot be undone.
+   *
+   * Two questions, and either one is enough: can the role reach a tier 2 tool
+   * at all, and has this task already taken such an action. The first is read
+   * from the request the runtime was about to be given, so it reflects what
+   * was actually permitted rather than what a role row said at some other
+   * moment.
+   */
+  async #mayActIrreversibly(
+    companyId: string,
+    task: TaskRow,
+    request: RunRequest,
+  ): Promise<boolean> {
+    if (request.allowedTools.some((tool) => tool.tier >= 2)) return true;
+
+    return withTenant(companyId, async (tx) => {
+      const { rows } = await tx.query<{ taken: boolean }>(
+        `SELECT EXISTS (
+           SELECT 1 FROM events
+            WHERE task_id = $1
+              AND type = 'tool.called'
+              AND (payload->>'tier')::int >= 2
+         ) AS taken`,
+        [task.id],
+      );
+      return rows[0]?.taken ?? false;
+    });
   }
 
   /**

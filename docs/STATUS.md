@@ -39,6 +39,16 @@ number now reads as done and is not.
 Assessed requirement by requirement against v2 section 8. "Partial" always says
 what is missing rather than leaving the reader to guess.
 
+Read this table knowing what sections 2.2 to 2.9 found: eight audits, and every
+one of them found something in a row that already said "built". F1.6 had its
+accounts and its inheritance and nothing looked them up. F12.1–F12.4 scoped
+credentials the database enforced and no capability could obtain one. F1.5
+exported a company's rules as history and not as rules. None of those rows was
+a lie when it was written — each described real, tested code — and each was
+still wrong about what the platform did. "Built" here means the requirement is
+implemented, assembled, and has a test that fails when it is broken; where it
+means less than that, the row says so.
+
 | Group | Built | Partial | Not built |
 |---|---|---|---|
 | F1 tenancy, budget | F1.1–F1.9 | — | — |
@@ -378,7 +388,15 @@ Two remain unwired on purpose, and are named here rather than left to be found:
   is more useful than implying a gap.
 - `buildDailyDigest` and `buildWeeklyRetro` (F10.1) render for a channel that
   does not exist yet — the same F11.2 gap as the rest of the owner surface. They
-  are called by whatever delivers them, and nothing delivers.
+  are called by whatever delivers them, and nothing delivers. The obvious fix is
+  to deliver them into the owner inbox, which does exist and is tested, and it
+  is deliberately not done: the inbox is the list of things the owner has to
+  *decide*, and a digest needs no decision. Filling it with items that need no
+  answer is how a queue of decisions becomes a feed somebody skims — the same
+  argument F14.3 makes about an event per hook, and the same one
+  `charter-context.test.ts` makes about a confidence warning printed over facts
+  that are all established. The digest is built when something asks for it,
+  which is honest, and F11.2 is where the asking will come from.
 
 ## 2.7 What one worker never tests
 
@@ -439,8 +457,11 @@ judged the number unnecessary" is exactly the shape of claim these sections
 exist to catch. `PALUGADA_SOAK=1` now runs the thousand, and CI runs it on a nightly
 schedule and on `workflow_dispatch` — the schedule fires on the default branch
 only, which is why the manual trigger exists rather than being an afterthought.
-Executed at the stated scale: 1,000 iterations, 20 workers, zero
-double-checkouts, 69 seconds. Met.
+Executed at the stated scale twice: locally in 69 seconds, and in CI through a
+manual dispatch in 66, both with zero double-checkouts across 1,000 iterations
+of twenty workers. The CI half matters on its own — a conditional step nobody
+has ever seen run is a claim, not a check, and the push runs show it correctly
+`skipped` while the dispatch run shows it `success`. Met.
 
 ## 2.9 What the archive did not carry
 

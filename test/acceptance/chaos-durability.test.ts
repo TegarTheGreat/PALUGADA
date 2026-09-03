@@ -67,7 +67,10 @@ function buildEngine(handler: TaskHandler, sideEffects: string[]) {
   const capability: Capability<{ to: string }, { sent: boolean }> = {
     name: 'email.send',
     adapter: 'test:email',
-    defaultTier: 1,
+    // Tier 2, matching the catalogue: PRD section 8.8 lists external email as a
+    // tier 2 example, and a double that claimed tier 1 would be exercising
+    // a gate the real capability never passes through.
+    defaultTier: 2,
     async execute(input) {
       sideEffects.push(input.to);
       return { sent: true };
@@ -278,7 +281,10 @@ test('a crash between the side effect and its journal entry does not lose the ta
   const capability: Capability<{ to: string }, { sent: boolean }> = {
     name: 'email.send',
     adapter: 'test:email',
-    defaultTier: 1,
+    // Tier 2, matching the catalogue: PRD section 8.8 lists external email as a
+    // tier 2 example, and a double that claimed tier 1 would be exercising
+    // a gate the real capability never passes through.
+    defaultTier: 2,
     async execute(_input, ctx) {
       seenKeys.push(ctx.idempotencyKey);
       // The world changed, and then the worker died before committing.

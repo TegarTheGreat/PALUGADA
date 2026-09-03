@@ -16,7 +16,7 @@ of that document.
 ## Status
 
 All four phases of the roadmap (PRD section 13) are implemented and tested,
-with 148 acceptance tests running against a real PostgreSQL 16 with pgvector.
+with 168 acceptance tests running against a real PostgreSQL 16 with pgvector.
 
 - **Phase 0** — tenant isolation, the durable execution engine, the capability
   broker, the event log, the owner's emergency controls.
@@ -31,7 +31,13 @@ Phase 2's completion criterion is met: two companies built from one template
 run concurrently with the isolation tests green. There is no agent runtime and
 no owner UI yet — see [Not built yet](#not-built-yet).
 
-Seven questions in [PRD section 14](docs/PRD.md#14-pertanyaan-terbuka) are still
+Beyond the roadmap, the platform now ships **the standard company**: a
+calibrated capability catalogue and a template of function-based divisions that
+fit a company in any line of business. That is the answer to PRD section 14.1,
+which the owner settled by saying there is no single line of business to build
+for.
+
+Six questions in [PRD section 14](docs/PRD.md#14-pertanyaan-terbuka) remain
 open. Two of them (the monthly cost ceiling, and which durable engine to adopt)
 set defaults across the whole system.
 
@@ -63,12 +69,12 @@ src/
   db/              connection pools and tenant-scoped access
   domain/          task state machine, reversibility tiers
   engine/          step journal, budgets, task admission, contracts, handoff
-  broker/          capability registry and the broker
+  broker/          capability registry, the standard catalogue, and the broker
   policy/          declarative conditions and the policy engine
   governance/      charter and policy administration, audited
   review/          adversarial review and decision records
   memory/          the four memory kinds, scoped retrieval, distillation
-  templates/       building a company from a stored shape
+  templates/       building a company from a stored shape, and the standard one
   reporting/       cost, alerts, daily digest, weekly retro
   context/         prompt assembly, charter first
   scheduler/       durable cron, capability windows, the owner window
@@ -148,6 +154,23 @@ test/acceptance/   one file per PRD acceptance criterion
 | F11.5 retention, with an archival path | `src/retention/retention.ts`, `db/migrations/0007_*.sql` | `retention-rotation.test.ts` |
 | F11.6, F1.5 audit and company export | `src/audit/export.ts` | `audit-export.test.ts` |
 | F12.3 secret rotation without a restart | `src/secrets/rotation.ts` | `retention-rotation.test.ts` |
+
+## What the standard company adds
+
+Section 14.1 asked which line of business the first company would be in,
+because that fixes the initial capabilities, the tier calibration and the
+division template. The owner's answer was that there is no single one: the
+platform runs companies of every kind. So the catalogue holds what *every*
+company does — correspond, keep records, publish, deploy, invoice, pay — and
+the template is organised by function rather than by industry.
+
+| Requirement | Where | Verified by |
+|---|---|---|
+| 14.1 capability catalogue and tier calibration | `src/broker/catalogue.ts` | `capability-catalogue.test.ts` |
+| F8.3 a binding may tighten the catalogue, never loosen it | `src/broker/registry.ts` | `capability-catalogue.test.ts` |
+| F8.10 untrusted code kept away from credentials and tier 2 | `db/migrations/0008_*.sql` | `capability-catalogue.test.ts` |
+| F1.1, F2.5 a general-purpose company template | `src/templates/standard.ts` | `capability-catalogue.test.ts` |
+| F2.3 a role's tools are a subset of its division's grants | `src/templates/company.ts` | `capability-catalogue.test.ts` |
 
 ## Decisions worth knowing
 
@@ -242,6 +265,40 @@ task.
 **A replay cannot reach the world.** The replay module imports no broker, no
 adapter and no model client — not disabled ones, none at all. A step the
 recorded run never took is reported as a divergence rather than invented.
+
+**The catalogue is the calibration, and it only tightens.** A capability the
+catalogue names cannot be registered below its catalogued tier. That is F8.3
+one level up: the same rule that stops a grant loosening the registry stops a
+registry entry loosening the catalogue. A registration is the last moment
+anyone reads a tier on purpose; afterwards the number is simply believed. It
+caught five miscalibrated bindings the day it was added.
+
+**The catalogue does not publish itself.** A row in `capabilities` means the
+broker can run the thing, and the table requires a read-back above tier 0
+(F8.4). Writing declarations into it would mean claiming a `verify()` that does
+not exist, so capabilities arrive there only through `registry.sync()`, when a
+real adapter is bound.
+
+**Untrusted code lives alone.** The sandbox does not isolate the network, so
+`src/sandbox` names the consequence: a code-executing capability must not also
+hold a credential or reach a tier 2 action. That was a comment, and a comment
+does not stop a grant. Two database triggers now enforce it from both sides, so
+the order in which somebody configures a division cannot decide whether the
+rule applies.
+
+**A reviewer holds nothing.** In the standard template the assurance division
+has no capability grants at all. A reviewer that can also execute is not a
+second pair of eyes, it is a second pair of hands.
+
+**The standard company's money ceiling is zero.** Section 14.2 is open, and
+inventing a number would settle it by default. Zero is the fail-closed reading:
+the company works from the first minute and every declared cost lands over
+budget in the cost report until the owner sets a ceiling.
+
+**Models are named by role, not by vendor.** The standard template asks for
+`fast`, `standard` or `deep`. Section 14.4 leaves the mapping open and F6 wants
+per-role model abstraction, so binding a vendor name into a stored template
+would pre-empt both.
 
 ## Deviations from the PRD found while building
 

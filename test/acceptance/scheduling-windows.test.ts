@@ -83,7 +83,10 @@ test('an action outside its window waits instead of failing (F9.2)', async () =>
   const emailCapability: Capability<{ to: string }, { sent: boolean }> = {
     name: 'email.send',
     adapter: 'test:email',
-    defaultTier: 1,
+    // Tier 2, matching the catalogue: PRD section 8.8 lists external email as a
+    // tier 2 example, and a double that claimed tier 1 would be exercising
+    // a gate the real capability never passes through.
+    defaultTier: 2,
     async execute() {
       calls.executions += 1;
       return { sent: true };

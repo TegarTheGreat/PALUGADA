@@ -89,6 +89,19 @@ export async function saveTemplate(input: {
 export function assertTemplateIsCoherent(template: CompanyTemplate): void {
   const divisions = new Set(template.divisions.map((division) => division.slug));
 
+  // Built before the roles are checked, because a role's tools have to be a
+  // subset of its own division's grants (F2.3) and a grant does not reach a
+  // sub-division: `readGrant` matches the division exactly.
+  const granted = new Map<string, Set<string>>();
+  for (const grant of template.grants ?? []) {
+    let set = granted.get(grant.division);
+    if (!set) {
+      set = new Set();
+      granted.set(grant.division, set);
+    }
+    set.add(grant.capability);
+  }
+
   if (divisions.size !== template.divisions.length) {
     throw new Error('template defines the same division slug twice');
   }
@@ -110,6 +123,18 @@ export function assertTemplateIsCoherent(template: CompanyTemplate): void {
       // Also a database constraint (F2.6). Rejecting it here keeps a bad
       // template from being stored and rediscovered later.
       throw new Error(`role ${role.slug} declares more than 12 tools (PRD F2.6)`);
+    }
+    for (const tool of role.tools ?? []) {
+      // F2.3: a role's tools are a subset of its division's grants. Without
+      // this the template stores happily and the mistake surfaces as a
+      // `capability.not_granted` in production, on the first call, which is
+      // both the latest and the least convenient moment to learn about it.
+      if (!granted.get(role.division)?.has(tool)) {
+        throw new Error(
+          `role ${role.slug} declares tool ${tool}, which is not granted to its division ` +
+            `${role.division} (PRD F2.3, F2.4)`,
+        );
+      }
     }
   }
 

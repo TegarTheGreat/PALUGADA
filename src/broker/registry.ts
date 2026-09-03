@@ -11,6 +11,7 @@
 import { PalugadaError } from '../errors.ts';
 import { isTier, requiresVerification, type Tier } from '../domain/tier.ts';
 import { withControlPlane } from '../db/tenant.ts';
+import { assertCalibrated } from './catalogue.ts';
 
 export interface CapabilityContext {
   companyId: string;
@@ -46,6 +47,16 @@ export interface Capability<I = unknown, O = unknown> {
     recipientDomain?: string | null;
     urlHost?: string | null;
   };
+  /**
+   * Whether the capability runs code supplied at call time (F8.10).
+   *
+   * Declared here rather than inferred from the adapter name, because the
+   * database refuses to place such a capability in a division that holds a
+   * credential or a tier 2 grant, and a boundary that depends on a naming
+   * convention is a boundary that ends the first time somebody renames
+   * something.
+   */
+  executesUntrustedCode?: boolean;
 }
 
 export class CapabilityRegistry {
@@ -65,6 +76,12 @@ export class CapabilityRegistry {
         { name: capability.name, tier: capability.defaultTier },
       );
     }
+    // Last, because the two checks above are about this capability being
+    // internally coherent, while this one is about it agreeing with the
+    // platform's calibration (section 8.8). A capability that fails the first
+    // two is broken; one that fails this is a downgrade.
+    assertCalibrated(capability);
+
     this.#capabilities.set(capability.name, capability as unknown as Capability<never, never>);
   }
 
@@ -83,19 +100,22 @@ export class CapabilityRegistry {
       for (const capability of rows) {
         await tx.query(
           `INSERT INTO capabilities
-             (name, adapter, default_tier, estimated_cost_cents, has_verify)
-           VALUES ($1, $2, $3, $4, $5)
+             (name, adapter, default_tier, estimated_cost_cents, has_verify,
+              executes_untrusted_code)
+           VALUES ($1, $2, $3, $4, $5, $6)
            ON CONFLICT (name) DO UPDATE
              SET adapter = EXCLUDED.adapter,
                  default_tier = EXCLUDED.default_tier,
                  estimated_cost_cents = EXCLUDED.estimated_cost_cents,
-                 has_verify = EXCLUDED.has_verify`,
+                 has_verify = EXCLUDED.has_verify,
+                 executes_untrusted_code = EXCLUDED.executes_untrusted_code`,
           [
             capability.name,
             capability.adapter,
             capability.defaultTier,
             capability.estimatedCostCents ?? 0,
             typeof capability.verify === 'function',
+            capability.executesUntrustedCode ?? false,
           ],
         );
       }

@@ -11,6 +11,7 @@ export type ErrorCode =
   | 'capability.unknown'
   | 'capability.disabled'
   | 'capability.verify_missing'
+  | 'capability.miscalibrated'
   | 'capability.verify_failed'
   | 'capability.rate_limited'
   | 'contract.violation'

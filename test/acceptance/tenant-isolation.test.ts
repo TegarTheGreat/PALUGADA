@@ -156,22 +156,33 @@ test('every table holding tenant data is protected', async () => {
   }
 
   // An unprotected table is only acceptable while the application role cannot
-  // read it or it genuinely holds no tenant content. Asserting the grants too
-  // stops "add it to the allow-list" from becoming the way past this test.
-  const grants = await withControlPlane(async (tx) => {
-    const { rows } = await tx.query<{ table_name: string; privilege_type: string }>(
-      `SELECT table_name, privilege_type FROM information_schema.table_privileges
-        WHERE grantee = 'palugada_app' AND table_name = ANY($1::text[])`,
-      [[...EXPECTED_UNPROTECTED]],
+  // read it, or it genuinely holds no tenant content. Asserting the privileges
+  // too stops "add it to the allow-list" from becoming the way past this test.
+  //
+  // Asked with has_table_privilege rather than by reading
+  // information_schema.table_privileges: that view only shows grants visible
+  // to the querying role, so it returns nothing here and a loop over it would
+  // pass without checking anything.
+  const READABLE_BY_AGENTS = new Set(['capabilities', 'platform_control']);
+
+  for (const table of EXPECTED_UNPROTECTED) {
+    const privileges = await withControlPlane(async (tx) => {
+      const { rows } = await tx.query<{ can_select: boolean; can_write: boolean }>(
+        `SELECT has_table_privilege('palugada_app', $1, 'SELECT') AS can_select,
+                has_table_privilege('palugada_app', $1, 'INSERT')
+                  OR has_table_privilege('palugada_app', $1, 'UPDATE')
+                  OR has_table_privilege('palugada_app', $1, 'DELETE') AS can_write`,
+        [table],
+      );
+      return rows[0]!;
+    });
+
+    assert.equal(
+      privileges.can_select,
+      READABLE_BY_AGENTS.has(table),
+      `${table} is unprotected; the application role's read access must be deliberate`,
     );
-    return rows;
-  });
-  for (const grant of grants) {
-    assert.ok(
-      ['capabilities', 'platform_control'].includes(grant.table_name),
-      `${grant.table_name} is unprotected yet readable by the application role`,
-    );
-    assert.equal(grant.privilege_type, 'SELECT');
+    assert.equal(privileges.can_write, false, `${table} must not be writable by an agent`);
   }
 });
 

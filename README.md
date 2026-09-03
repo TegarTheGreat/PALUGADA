@@ -15,8 +15,8 @@ of that document.
 
 ## Status
 
-Phases 0, 1 and 2 of the roadmap (PRD section 13) are implemented and tested,
-with 113 acceptance tests running against a real PostgreSQL 16 with pgvector.
+All four phases of the roadmap (PRD section 13) are implemented and tested,
+with 148 acceptance tests running against a real PostgreSQL 16 with pgvector.
 
 - **Phase 0** — tenant isolation, the durable execution engine, the capability
   broker, the event log, the owner's emergency controls.
@@ -24,6 +24,8 @@ with 113 acceptance tests running against a real PostgreSQL 16 with pgvector.
   handoff, durable scheduling with external and owner windows, credentials.
 - **Phase 2** — memory distillation and candidate SOPs, adversarial review and
   decision records, company templates, cost reporting, alerts, digest and retro.
+- **Phase 3** — routine chaos testing, dry-run replay, a sandbox for
+  code-executing capabilities, secret rotation, audit export and retention.
 
 Phase 2's completion criterion is met: two companies built from one template
 run concurrently with the isolation tests green. There is no agent runtime and
@@ -70,7 +72,9 @@ src/
   reporting/       cost, alerts, daily digest, weekly retro
   context/         prompt assembly, charter first
   scheduler/       durable cron, capability windows, the owner window
-  secrets/         secret references and redaction
+  secrets/         secret references, redaction, rotation
+  retention/       the only code that deletes anything durable
+  sandbox/         constrained execution for code-running capabilities
   inbox/           owner inbox: approvals, incidents, emergency controls
   audit/           append-only event log, security events
   llm/             model interface and a recording test double
@@ -133,6 +137,17 @@ test/acceptance/   one file per PRD acceptance criterion
 | F11.3 cost per project, division, role, capability | `src/reporting/cost.ts` | `reporting.test.ts` |
 | F11.4 alerts on cost, failure rate, denials, verification | `src/reporting/alerts.ts` | `reporting.test.ts` |
 | Phase 2 exit: two companies in parallel, isolation green | — | `company-template.test.ts` |
+
+## What Phase 3 adds
+
+| Requirement | Where | Verified by |
+|---|---|---|
+| Section 9 durability under chaos | — | `chaos-durability.test.ts` |
+| F5.9 dry-run replay | `src/engine/replay.ts` | `replay.test.ts` |
+| F8.10 sandbox for code execution | `src/sandbox/sandbox.ts` | `sandbox.test.ts` |
+| F11.5 retention, with an archival path | `src/retention/retention.ts`, `db/migrations/0007_*.sql` | `retention-rotation.test.ts` |
+| F11.6, F1.5 audit and company export | `src/audit/export.ts` | `audit-export.test.ts` |
+| F12.3 secret rotation without a restart | `src/secrets/rotation.ts` | `retention-rotation.test.ts` |
 
 ## Decisions worth knowing
 
@@ -211,6 +226,23 @@ decorative in exactly the case it exists for.
 standing overspend would fill the inbox, and an owner who has learned to scroll
 past the inbox is worse off than one with no alerts.
 
+**Deleting history is one narrow, recorded exception.** Retention is the only
+code that removes anything durable. It works only inside an explicit purge
+marked by a transaction-local flag, only on rows the database re-checks as past
+the window, and it writes what it removed — so "there are no events from March"
+and "March was quiet" stay distinguishable. A missing retention policy forbids
+deletion rather than permitting it.
+
+**A crashed worker is not a failed task.** A handler that throws consumes a
+retry attempt; a process that is killed never reached the engine's error
+handling, so resuming it consumes none. Without that distinction a bad deploy
+restarting every process would exhaust `attempt_max` and fail every in-flight
+task.
+
+**A replay cannot reach the world.** The replay module imports no broker, no
+adapter and no model client — not disabled ones, none at all. A step the
+recorded run never took is reported as a divergence rather than invented.
+
 ## Deviations from the PRD found while building
 
 Both are marked in the code and are worth reconciling in the document.
@@ -229,21 +261,34 @@ Both are marked in the code and are worth reconciling in the document.
 
 ## Not built yet
 
-Phase 3, in PRD order: routine chaos testing, dry-run replay (F5.9), a sandbox
-for code-executing capabilities (F8.10), secret rotation (F12.3), audit export
-(F11.6) and retention (F11.5). Plus the owner UI, the agent runtime, and the
-automatic role freeze on repeated policy violations (F3.7).
+The agent runtime and the owner UI. Plus, from the requirement list: the
+automatic role freeze on repeated policy violations (F3.7), cost-drift
+detection (F8.5), cheap-hour batching (F9.5), and memory confidence surfaced to
+the agent at retrieval time (F4.7).
 
-Two limits worth stating plainly rather than discovering later:
+Section 13 also ends with "evaluate migrating the engine or the vector store
+based on real data". That is not something to write ahead of the data: there is
+no production workload to measure yet, so the evaluation is deliberately not
+attempted rather than guessed at.
 
-- Per-capability cost is an **estimate** from the registry, labelled as such in
-  the reporting API. Measured external spend arrives with F8.5's cost-drift
-  tracking.
-- Semantic retrieval uses exact search. That is correct at Phase 2 volumes and
-  is what makes F4.2's "filter before similarity" literally true, but the scale
-  in section 9 will need pgvector's iterative scans or per-scope partial
+## Limits worth knowing before you rely on them
+
+- **The sandbox does not isolate the network.** Node's permission model covers
+  the filesystem, child processes, workers and native addons, but not sockets.
+  Real network isolation needs a container or a namespace below the process.
+  The consequence is concrete: a capability that executes untrusted code must
+  not also hold a credential or reach a tier 2 action. `SANDBOX_GUARANTEES`
+  states this in code so it cannot drift out of the comment.
+- **Per-capability cost is an estimate** from the registry, labelled as such in
+  the reporting API. Measured external spend arrives with F8.5.
+- **Semantic retrieval uses exact search.** That is correct at these volumes
+  and is what makes F4.2's "filter before similarity" literally true, but the
+  scale in section 9 will need pgvector's iterative scans or per-scope partial
   indexes — not an ANN index bolted on, which would silently invert the filter
   order.
+- **Deleting a company is still impossible**, by design: the append-only event
+  log has no cascade path. Freeze, export and retention are the supported
+  operations.
 
 `src/llm/client.ts` deliberately ships only an interface and a test double. The
 PRD leaves model-per-tier calibration open (section 14.4) and asks for

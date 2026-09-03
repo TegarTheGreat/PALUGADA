@@ -150,6 +150,12 @@ CREATE TABLE alert_thresholds (
   CONSTRAINT alert_thresholds_one_per_scope UNIQUE (company_id),
   CONSTRAINT alert_failure_rate_range CHECK (task_failure_rate >= 0 AND task_failure_rate <= 1)
 );
+-- UNIQUE (company_id) above does not constrain the platform row: in a unique
+-- index NULLs are distinct from each other, so nothing stops a second default
+-- appearing and making the "which policy applies" pick arbitrary.
+CREATE UNIQUE INDEX alert_thresholds_single_platform_row
+  ON alert_thresholds ((company_id IS NULL)) WHERE company_id IS NULL;
+
 INSERT INTO alert_thresholds (company_id) VALUES (NULL);
 
 -- A company-scoped row is tenant data: it reveals that company's cost ceiling

@@ -31,6 +31,14 @@ export interface Thresholds {
   verificationFailuresPerDay: number;
 }
 
+/** Used when no threshold row exists, so alerting survives a missing config. */
+export const DEFAULT_THRESHOLDS: Thresholds = {
+  dailyCostCents: 10_000,
+  taskFailureRate: 0.2,
+  policyDenialsPerDay: 20,
+  verificationFailuresPerDay: 1,
+};
+
 export interface RaisedAlert {
   kind: AlertKind;
   summary: string;
@@ -56,7 +64,8 @@ export async function thresholdsFor(companyId: string): Promise<Thresholds> {
         LIMIT 1`,
       [companyId],
     );
-    const row = rows[0]!;
+    const row = rows[0];
+    if (!row) return DEFAULT_THRESHOLDS;
     return {
       dailyCostCents: row.daily_cost_cents,
       taskFailureRate: row.task_failure_rate,

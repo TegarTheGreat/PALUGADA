@@ -601,15 +601,32 @@ test('the docker backend starts a container with no network at all (F12.9, F13.5
  * The health check asks the daemon, not the CLI.
  *
  * `docker --version` answers from the binary alone and would report healthy on
- * a machine with no daemon — which is this machine, and is exactly the failure
- * F13.8 exists to catch before a task is handed over.
+ * a machine with no daemon, which is exactly the failure F13.8 exists to catch
+ * before a task is handed over. The two fakes are the whole test: one exits 0
+ * and prints nothing — a client with no server — and must be unhealthy; one
+ * prints a version and must be healthy.
+ *
+ * Written against fakes rather than against whatever docker this machine has,
+ * because "there is no daemon here" is a fact about a machine and not a
+ * property of the code. A test that asserted it would pass in this container
+ * and fail on any CI runner that ships one.
  */
-test('the docker backend reports unhealthy when no daemon is reachable (F13.8)', async () => {
-  const adapter = new ContainerAdapter({ image: 'palugada/runtime:1' });
-  const health = await adapter.health();
+test('the docker backend asks the daemon, not the CLI (F13.8)', async () => {
+  const noServer = new ContainerAdapter({
+    image: 'palugada/runtime:1',
+    docker: new URL('../fixtures/runtimes/fake-docker-no-server.sh', import.meta.url).pathname,
+  });
+  const refused = await noServer.health();
+  assert.equal(refused.ok, false, 'exit code 0 with no server version is not healthy');
+  assert.ok((refused.detail ?? '').length > 0, 'a refusal has to say why');
 
-  assert.equal(health.ok, false);
-  assert.ok((health.detail ?? '').length > 0, 'a refusal has to say why');
+  const reachable = new ContainerAdapter({
+    image: 'palugada/runtime:1',
+    docker: new URL('../fixtures/runtimes/fake-docker-healthy.sh', import.meta.url).pathname,
+  });
+  const healthy = await reachable.health();
+  assert.equal(healthy.ok, true);
+  assert.match(healthy.detail ?? '', /27\.0\.1/);
 });
 
 test('a missing docker binary is unhealthy rather than an exception (F13.8)', async () => {

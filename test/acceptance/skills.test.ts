@@ -8,6 +8,7 @@
  * different role having examined it and the owner having said yes.
  */
 import { test, before, beforeEach, after } from 'node:test';
+import { generateKeyPairSync, sign } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { withTenant } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
@@ -25,6 +26,9 @@ import {
   runSkillEvals,
   screenCandidate,
   skillSummariesFor,
+  hashSkillSource,
+  importExternalSkill,
+  liftSkillQuarantine,
 } from '../../src/skills/skills.ts';
 import { buildContext } from '../../src/context/builder.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
@@ -394,4 +398,227 @@ test('a division does not see another division\'s skill (F15.6)', async () => {
     skillSummariesFor(tx, { companyId: fixture.companyId, divisionId: otherDivision }),
   );
   assert.deepEqual(seen, []);
+});
+
+
+/* --------------------------------------------------------------- F15.8 --- */
+
+const HUB_SKILL = `---
+name: cold-outreach
+description: A sequence somebody on the internet says works.
+---
+
+# Cold outreach
+
+Send three messages, four days apart, then stop.
+Never send a fourth.
+`;
+
+function publisher() {
+  const { publicKey, privateKey } = generateKeyPairSync('ed25519', {
+    publicKeyEncoding: { type: 'spki', format: 'pem' },
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+  });
+  return { publicKey, privateKey };
+}
+
+/**
+ * F15.8: an unsigned external skill enters quarantined, and quarantine means
+ * one division.
+ *
+ * The requirement points at F12.10, whose answer for a device or a bundle is
+ * "tier 0 only". A skill has no tier, so the analogue is scope: for knowledge,
+ * reaching too far means being put in front of every agent in the company.
+ */
+test('an unsigned external skill arrives quarantined and division-scoped (F15.8)', async () => {
+  const fixture = await createCompany('skill-hub-unsigned');
+
+  const imported = await importExternalSkill({
+    companyId: fixture.companyId,
+    slug: 'cold-outreach',
+    source: HUB_SKILL,
+    origin: 'agentskills.io/cold-outreach',
+    divisionId: fixture.divisionId,
+  });
+  assert.equal(imported.quarantined, true);
+
+  const stored = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{
+      provenance: string; origin: string; quarantined: boolean; scope_type: string;
+    }>(
+      'SELECT provenance, origin, quarantined, scope_type FROM skills WHERE id = $1',
+      [imported.skillId],
+    );
+    return rows[0]!;
+  });
+  assert.equal(stored.provenance, 'external');
+  assert.equal(stored.origin, 'agentskills.io/cold-outreach');
+  assert.equal(stored.quarantined, true);
+  assert.equal(stored.scope_type, 'division');
+
+  // Widening is refused outright — not "refused without owner approval". The
+  // owner's route is to vouch for where it came from first, which is a
+  // different question from who should follow it.
+  await assert.rejects(
+    () =>
+      setSkillScope(
+        fixture.companyId,
+        imported.skillId,
+        { scopeType: 'company' },
+        { ownerApproved: true },
+      ),
+    (error: unknown) => isPalugadaError(error, 'skill.quarantined'),
+  );
+
+  // And the database refuses it too, so the rule does not depend on the code
+  // path somebody happens to use.
+  await assert.rejects(
+    () =>
+      withTenant(fixture.companyId, (tx) =>
+        tx.query("UPDATE skills SET scope_type = 'company', scope_id = NULL WHERE id = $1", [
+          imported.skillId,
+        ]),
+      ),
+    (error: unknown) => /PRD F15.8/.test((error as Error).message),
+  );
+});
+
+test('a signed external skill is not quarantined (F15.8, F12.10)', async () => {
+  const fixture = await createCompany('skill-hub-signed');
+  const keys = publisher();
+
+  const imported = await importExternalSkill({
+    companyId: fixture.companyId,
+    slug: 'cold-outreach',
+    source: HUB_SKILL,
+    origin: 'agentskills.io/cold-outreach',
+    divisionId: fixture.divisionId,
+    signature: sign(null, Buffer.from(hashSkillSource(HUB_SKILL)), keys.privateKey)
+      .toString('base64'),
+    publisherKey: keys.publicKey,
+  });
+
+  assert.equal(imported.quarantined, false);
+  await setSkillScope(
+    fixture.companyId,
+    imported.skillId,
+    { scopeType: 'company' },
+    { ownerApproved: true },
+  );
+});
+
+/**
+ * A signature that does not verify is refused, where none is merely
+ * quarantined.
+ *
+ * A false claim of provenance is worse than no claim: accepting it as
+ * unvouched-for would make forging one strictly better than omitting one.
+ */
+test('an external skill with a bad signature is refused outright (F15.8)', async () => {
+  const fixture = await createCompany('skill-hub-forged');
+  const keys = publisher();
+  const impostor = publisher();
+
+  await assert.rejects(
+    () =>
+      importExternalSkill({
+        companyId: fixture.companyId,
+        slug: 'cold-outreach',
+        source: HUB_SKILL,
+        origin: 'agentskills.io/cold-outreach',
+        divisionId: fixture.divisionId,
+        signature: sign(null, Buffer.from(hashSkillSource(HUB_SKILL)), impostor.privateKey)
+          .toString('base64'),
+        publisherKey: keys.publicKey,
+      }),
+    (error: unknown) => isPalugadaError(error, 'skill.bad_signature'),
+  );
+
+  const skills = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ count: string }>('SELECT count(*)::text AS count FROM skills');
+    return Number(rows[0]!.count);
+  });
+  assert.equal(skills, 0, 'a forged signature leaves nothing behind');
+});
+
+test('lifting a quarantine is the owner\'s, and is a separate decision (F15.8)', async () => {
+  const fixture = await createCompany('skill-hub-lift');
+  const imported = await importExternalSkill({
+    companyId: fixture.companyId,
+    slug: 'cold-outreach',
+    source: HUB_SKILL,
+    origin: 'agentskills.io/cold-outreach',
+    divisionId: fixture.divisionId,
+  });
+
+  await assert.rejects(
+    () => liftSkillQuarantine(fixture.companyId, imported.skillId, { ownerApproved: false }),
+    (error: unknown) => isPalugadaError(error, 'approval.required'),
+  );
+
+  await liftSkillQuarantine(fixture.companyId, imported.skillId, { ownerApproved: true });
+  await setSkillScope(
+    fixture.companyId,
+    imported.skillId,
+    { scopeType: 'company' },
+    { ownerApproved: true },
+  );
+});
+
+/**
+ * An imported skill is still a candidate, still needs both gates, and still
+ * needs an eval. Quarantine is a fourth constraint, not a replacement.
+ */
+test('an imported skill still needs a reviewer, the owner, and an eval (F15.8, F15.3)', async () => {
+  const fixture = await createCompany('skill-hub-gates');
+  const imported = await importExternalSkill({
+    companyId: fixture.companyId,
+    slug: 'cold-outreach',
+    source: HUB_SKILL,
+    origin: 'agentskills.io/cold-outreach',
+    divisionId: fixture.divisionId,
+  });
+
+  assert.deepEqual(
+    await withTenant(fixture.companyId, (tx) =>
+      skillSummariesFor(tx, { companyId: fixture.companyId, divisionId: fixture.divisionId }),
+    ),
+    [],
+  );
+
+  await assert.rejects(
+    () => approveSkillVersion(fixture.companyId, imported.versionId),
+    (error: unknown) => isPalugadaError(error, 'review.required'),
+  );
+
+  await recordSkillReview(fixture.companyId, imported.versionId, { approved: true });
+  await assert.rejects(
+    () => approveSkillVersion(fixture.companyId, imported.versionId),
+    (error: unknown) => /no eval case/.test((error as Error).message),
+  );
+
+  await addEvalCase(fixture.companyId, imported.skillId, {
+    name: 'stops at three',
+    input: {},
+    expectContains: ['Never send a fourth'],
+  });
+  await approveSkillVersion(fixture.companyId, imported.versionId);
+
+  // Live, and the summary says where it came from: a run reading it should
+  // know nobody here wrote it.
+  const live = await withTenant(fixture.companyId, (tx) =>
+    skillSummariesFor(tx, { companyId: fixture.companyId, divisionId: fixture.divisionId }),
+  );
+  assert.equal(live.length, 1);
+  assert.equal(live[0]!.quarantined, true);
+  assert.equal(live[0]!.origin, 'agentskills.io/cold-outreach');
+
+  // And the run is told in words, not in a flag it cannot see. Same reasoning
+  // as F4.5's unverified facts.
+  const context = await withTenant(fixture.companyId, (tx) =>
+    buildContext(tx, { companyId: fixture.companyId, divisionId: fixture.divisionId }),
+  );
+  assert.match(context.text, /QUARANTINED/);
+  assert.match(context.text, /nobody\s+here has vouched for it/);
+  assert.match(context.text, /agentskills\.io\/cold-outreach/);
 });

@@ -47,7 +47,7 @@ what is missing rather than leaving the reader to guess.
 | F12 credentials, gateway | F12.1–F12.4, F12.7–F12.10 | — | F12.5 |
 | F13 runtime adapters | F13.1, F13.2, F13.4–F13.8 | F13.3 (the wire protocol is open and documented; no `hermes`, `codex` or `gemini-cli` adapter is written) | — |
 | F14 lifecycle hooks | F14.1–F14.4 | — | — |
-| F15 skills | F15.1–F15.7 | F15.8 (quarantine exists for bundles and devices; there is no Skills Hub client to import through it) | — |
+| F15 skills | F15.1–F15.8 | — | — |
 | F16 bundles | F16.1–F16.5 | — | — |
 | F17 eval, trajectory | F17.1, F17.2, F17.3, F17.4 | — | — |
 
@@ -70,9 +70,19 @@ write an adapter against.
 
 ## 2.1 Deliberate deviations from the PRD
 
-Three places where the implementation does not read literally as the PRD does.
-All three are choices, and all three are cheap to reverse if the reasoning
-stops holding.
+Four places where the implementation does not read literally as the PRD does.
+All four are choices, and all four are cheap to reverse if the reasoning stops
+holding.
+
+**F15.8's quarantine is scope, not tier.** The requirement says an external
+skill enters only through quarantine and points at F12.10, whose answer for a
+device or a bundle is "tier 0 only". A skill has no tier — it is a document —
+so the analogue had to be chosen rather than copied. It is scope: an
+unvouched-for thing may not reach past a read, and for knowledge, reaching too
+far means being put in front of every agent in the company. A quarantined skill
+applies to one division and the database refuses anything wider. What is not
+built is a client for any particular hub; `importExternalSkill` takes the
+document, wherever it came from.
 
 **F10.10 is enforced in half, and it is the half that matters.** The
 requirement is "tier 3 approval only through the app with MFA; the message

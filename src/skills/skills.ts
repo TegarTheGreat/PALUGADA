@@ -32,6 +32,7 @@
  * a company with forty skills would spend all of it on documents the run may
  * not open. `readSkill` is the tool that opens one.
  */
+import { createHash, createPublicKey, verify } from 'node:crypto';
 import { withTenant, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
@@ -53,6 +54,9 @@ export interface SkillSummary {
   scopeId: string | null;
   summary: string;
   activeVersion: number | null;
+  /** F15.8: this arrived from outside and nobody here has vouched for it. */
+  quarantined: boolean;
+  origin: string | null;
 }
 
 export interface SkillDocument {
@@ -346,12 +350,29 @@ export async function setSkillScope(
   options: { ownerApproved: boolean },
 ): Promise<void> {
   await withTenant(companyId, async (tx) => {
-    const { rows } = await tx.query<{ scope_type: SkillScope; slug: string }>(
-      'SELECT scope_type, slug FROM skills WHERE id = $1',
+    const { rows } = await tx.query<{
+      scope_type: SkillScope;
+      slug: string;
+      quarantined: boolean;
+    }>(
+      'SELECT scope_type, slug, quarantined FROM skills WHERE id = $1',
       [skillId],
     );
     const row = rows[0];
     if (!row) throw new PalugadaError('skill.unknown', `no skill ${skillId}`, {});
+
+    // F15.8: a quarantined skill cannot be widened at all, approved or not.
+    // The owner's route is to lift the quarantine -- which is a decision about
+    // whether they vouch for where it came from -- and then to widen it. Two
+    // decisions, because they are two questions.
+    if (row.quarantined && isPromotion(row.scope_type, target.scopeType)) {
+      throw new PalugadaError(
+        'skill.quarantined',
+        `${row.slug} arrived from outside and is quarantined; lift the quarantine before ` +
+          'widening its scope (F15.8)',
+        { skillId, from: row.scope_type, to: target.scopeType },
+      );
+    }
 
     if (isPromotion(row.scope_type, target.scopeType) && !options.ownerApproved) {
       throw new PalugadaError(
@@ -484,6 +505,152 @@ export async function screenCandidate(
   return { rejected: true, cases: result.cases };
 }
 
+/* ------------------------------------------------------ external skills --- */
+
+export interface ImportExternalSkillInput {
+  companyId: string;
+  slug: string;
+  /** The SKILL.md as it arrived. */
+  source: string;
+  /** Where from: a hub name, a catalogue id, a URL. Kept for the record. */
+  origin: string;
+  /** The division that asked for it. Required: quarantine means one division. */
+  divisionId: string;
+  /** Base64. Absent means unsigned, which means quarantine (F12.10). */
+  signature?: string;
+  /** The publisher's public key, PEM. Public, so holding it gives nothing away. */
+  publisherKey?: string;
+}
+
+/**
+ * The only way a skill from outside this company gets in (F15.8).
+ *
+ * F15.8 says an external skill enters only through quarantine, and names
+ * F12.10 — whose answer for a device or a bundle is "tier 0 only". A skill has
+ * no tier; it is a document. So quarantine means scope here, and the analogue
+ * is exact: F12.10's rule is that an unvouched-for thing may not reach past a
+ * read, and for knowledge, reaching too far means being put in front of every
+ * agent in the company. A quarantined skill applies to one division, and the
+ * database refuses anything wider.
+ *
+ * A valid signature lifts the quarantine. An *invalid* one is refused outright
+ * rather than downgraded to unsigned: a false claim of provenance is worse
+ * than no claim, and accepting it as merely unvouched-for would reward
+ * forging one.
+ *
+ * Everything else is unchanged. An imported skill is still a candidate, still
+ * needs a reviewer and the owner (F15.3), and still needs an eval case before
+ * it can be activated (F15.4). Quarantine is a fourth constraint, not a
+ * replacement for the other three.
+ */
+export async function importExternalSkill(
+  input: ImportExternalSkillInput,
+): Promise<ProposedVersion & { quarantined: boolean }> {
+  const document = parseSkillDocument(input.source);
+
+  const signed = input.signature !== undefined && input.publisherKey !== undefined;
+  if (signed && !verifyDetachedSignature(input.publisherKey!, input.source, input.signature!)) {
+    throw new PalugadaError(
+      'skill.bad_signature',
+      `the signature on ${input.slug} does not verify against the key it was offered with`,
+      { slug: input.slug, origin: input.origin },
+    );
+  }
+
+  const proposed = await proposeSkillVersion({
+    companyId: input.companyId,
+    slug: input.slug,
+    scopeType: 'division',
+    scopeId: input.divisionId,
+    source: input.source,
+    author: 'bundle',
+    changelog: `Imported from ${input.origin}${signed ? ', signed' : ', unsigned'}.`,
+  });
+
+  await withTenant(input.companyId, async (tx) => {
+    await tx.query(
+      `UPDATE skills
+          SET provenance = 'external', origin = $2, quarantined = $3
+        WHERE id = $1`,
+      [proposed.skillId, input.origin, !signed],
+    );
+    await appendEvent(tx, {
+      companyId: input.companyId,
+      type: 'skill.imported',
+      actor: 'owner',
+      payload: {
+        slug: input.slug,
+        origin: input.origin,
+        signed,
+        quarantined: !signed,
+        // The document's own hash, so "is this still what arrived" stays
+        // answerable after somebody edits the row.
+        contentHash: hashSkillSource(input.source),
+      },
+    });
+  });
+
+  return { ...proposed, quarantined: !signed };
+}
+
+/**
+ * Lifts a quarantine (F15.8).
+ *
+ * The owner's decision, and a different question from "may this apply more
+ * widely" — which is why it is a different function. Vouching for where a
+ * document came from and deciding who should follow it are two judgements, and
+ * collapsing them would mean the second is made by whoever makes the first.
+ */
+export async function liftSkillQuarantine(
+  companyId: string,
+  skillId: string,
+  options: { ownerApproved: boolean },
+): Promise<void> {
+  if (!options.ownerApproved) {
+    throw new PalugadaError(
+      'approval.required',
+      'lifting a skill quarantine is vouching for something from outside, which is the owner\'s',
+      { skillId },
+    );
+  }
+
+  await withTenant(companyId, async (tx) => {
+    await tx.query('UPDATE skills SET quarantined = false WHERE id = $1', [skillId]);
+    await appendEvent(tx, {
+      companyId,
+      type: 'skill.quarantine_lifted',
+      actor: 'owner',
+      payload: { skillId },
+    });
+  });
+}
+
+/** The bytes a detached skill signature is taken over. */
+export function hashSkillSource(source: string): string {
+  return createHash('sha256').update(source.trim()).digest('hex');
+}
+
+function verifyDetachedSignature(
+  publicKeyPem: string,
+  source: string,
+  signatureBase64: string,
+): boolean {
+  try {
+    const key = createPublicKey(publicKeyPem);
+    const edwards = key.asymmetricKeyType === 'ed25519' || key.asymmetricKeyType === 'ed448';
+    return verify(
+      edwards ? null : 'sha256',
+      Buffer.from(hashSkillSource(source)),
+      key,
+      Buffer.from(signatureBase64, 'base64'),
+    );
+  } catch {
+    // A malformed key or signature has failed to verify. Reading the throw as
+    // anything else would make a broken signature the easiest one to present.
+    return false;
+  }
+}
+
 /* --------------------------------------------------- progressive disclosure --- */
 
 /**
@@ -505,8 +672,10 @@ export async function skillSummariesFor(
     scope_id: string | null;
     summary: string;
     active_version: number | null;
+    quarantined: boolean;
+    origin: string | null;
   }>(
-    `SELECT id, slug, scope_type, scope_id, summary, active_version
+    `SELECT id, slug, scope_type, scope_id, summary, active_version, quarantined, origin
        FROM skills
       WHERE company_id = $1
         AND active_version IS NOT NULL
@@ -521,6 +690,8 @@ export async function skillSummariesFor(
     scopeId: row.scope_id,
     summary: row.summary,
     activeVersion: row.active_version,
+    quarantined: row.quarantined,
+    origin: row.origin,
   }));
 }
 

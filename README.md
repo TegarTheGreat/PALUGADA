@@ -253,6 +253,7 @@ the template is organised by function rather than by industry.
 | v2 F14.4 a bundle's hooks run, and can only refuse | `src/engine/hooks.ts`, `src/bundles/bundle.ts` | `bundles.test.ts` |
 | v2 F12.9 a containerised runtime has no network at all | `src/runtime/container.ts` | `out-of-process-runtimes.test.ts` |
 | v2 F10.10 a tier 3 approval is refused over a chat channel | `src/inbox/inbox.ts` | `owner-inbox.test.ts` |
+| v2 F15.8 an external skill enters quarantined, and quarantine is one division | `src/skills/skills.ts` | `skills.test.ts` |
 
 ## Decisions worth knowing
 
@@ -637,6 +638,10 @@ One thing is partial rather than absent, and
 for `hermes`, `openclaw`, `codex` and `gemini-cli` are unwritten because none
 of the four is installed here to write one against. The wire protocol they
 would speak is written, documented and tested.
+
+F10.5 is enforced as a rule with no transport behind it: only an incident or a
+tier 3 approval may reach the owner outside their window, and everything else
+waits. What is missing is something to push *with*.
 
 Two things are implemented and unverified end to end, which is not the same as
 built: the `claude-code` adapter (no CLI, no provider here) and the `docker`

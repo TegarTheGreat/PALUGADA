@@ -27,6 +27,8 @@ export type ErrorCode =
   | 'skill.invalid'
   | 'skill.unknown'
   | 'skill.scope_change'
+  | 'skill.quarantined'
+  | 'skill.bad_signature'
   | 'config.unknown_version'
   | 'gateway.unpaired'
   | 'gateway.bad_signature'

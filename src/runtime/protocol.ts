@@ -67,6 +67,20 @@ export interface ModelRouting {
   fallback: string[];
 }
 
+/**
+ * Where a runtime executes (F13.5).
+ *
+ * A role names one and it travels in every `RunRequest`, but honouring it is
+ * the *adapter's* job, and only `local` is implemented today: the `script` and
+ * `claude-code` adapters spawn a process wherever this process runs, and
+ * `http` reports `remote_sandbox` because "somewhere else, not ours" is what
+ * that means in F13.5's vocabulary — it cannot verify the claim.
+ *
+ * Said here rather than left to be discovered, because a backend that is a
+ * configuration value with no effect is worse than one that is missing: it
+ * reads like isolation somebody chose. An adapter that genuinely containerises
+ * declares `docker` in its `backends`; the ones here do not.
+ */
 export type ExecutionBackend = 'local' | 'docker' | 'remote_sandbox';
 
 export interface RunRequest {

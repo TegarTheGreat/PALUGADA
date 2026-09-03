@@ -77,9 +77,19 @@ const SECTIONS: Section[] = [
   },
   {
     name: 'roles',
+    // F1.5 counts a role's runtime, routing and completion criteria as config:
+    // an archive that restored a role without them would restore something
+    // that behaves differently and is still called the same thing.
     sql: `SELECT id, division_id, slug, system_prompt, model, tools, input_schema,
-                 output_schema, max_tokens_per_run, attempt_max, created_at
+                 output_schema, max_tokens_per_run, attempt_max, done_criteria,
+                 runtime, backend, model_primary, model_fallback,
+                 heartbeat_minutes, frozen_at, frozen_reason, created_at
             FROM roles ORDER BY slug`,
+  },
+  {
+    name: 'goals',
+    sql: `SELECT id, parent_goal_id, kind, slug, statement, created_at
+            FROM goals ORDER BY created_at`,
   },
   {
     name: 'capability_grants',
@@ -96,14 +106,16 @@ const SECTIONS: Section[] = [
   {
     name: 'budget_accounts',
     sql: `SELECT id, label, tokens_max, tokens_spent, tokens_reserved,
-                 money_max_cents, money_spent_cents, created_at
+                 money_max_cents, money_spent_cents, scope_type, scope_id,
+                 parent_account_id, created_at
             FROM budget_accounts ORDER BY created_at`,
   },
   {
     name: 'tasks',
     sql: `SELECT id, project_id, division_id, role_id, parent_task_id, budget_account_id,
                  status, halt_reason, input, output, hop_depth, hop_max, deadline_at,
-                 idempotency_key, created_by, attempt, created_at, started_at, finished_at
+                 idempotency_key, created_by, attempt, goal_id, lane_key, batchable,
+                 priority, created_at, started_at, finished_at
             FROM tasks ORDER BY created_at`,
   },
   {
@@ -160,6 +172,43 @@ const SECTIONS: Section[] = [
     sql: `SELECT id, subject, subject_id, division_id, action, before, after, actor, occurred_at
             FROM governance_log WHERE company_id = $1 ORDER BY occurred_at`,
     viaControlPlane: true,
+  },
+  {
+    // F1.5: the knowledge, and the two gates it passed to become knowledge.
+    name: 'skills',
+    sql: `SELECT id, slug, scope_type, scope_id, summary, active_version, created_at
+            FROM skills ORDER BY slug`,
+  },
+  {
+    name: 'skill_versions',
+    sql: `SELECT id, skill_id, version, body, author, changelog, state,
+                 review_request_id, reviewed_at, approved_at, activated_at,
+                 rejected_reason, created_at
+            FROM skill_versions ORDER BY skill_id, version`,
+  },
+  {
+    name: 'skill_evals',
+    sql: `SELECT id, skill_id, name, input, expect_contains, created_at
+            FROM skill_evals ORDER BY skill_id, name`,
+  },
+  {
+    // F1.5, F3.9: every version of every configuration, so an archive can
+    // answer "what did this look like in March" as well as "what does it look
+    // like now".
+    name: 'config_versions',
+    sql: `SELECT id, kind, subject_id, version, snapshot, summary, changed_by, created_at
+            FROM config_versions ORDER BY kind, subject_id, version`,
+  },
+  {
+    name: 'role_eval_cases',
+    sql: `SELECT id, role_id, name, polarity, source_agent_run_id, task_input,
+                 trajectory, expectation, accepted_at, created_at
+            FROM role_eval_cases ORDER BY role_id, name`,
+  },
+  {
+    name: 'bundle_installs',
+    sql: `SELECT id, slug, version, installed_hash, quarantined, installed_at
+            FROM bundle_installs ORDER BY installed_at`,
   },
   {
     name: 'retention_log',

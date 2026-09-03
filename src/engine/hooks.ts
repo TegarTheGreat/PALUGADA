@@ -40,6 +40,24 @@ import { isCompanyFrozen, isStopAllRequested } from './control.ts';
 import { isSpendPaused } from '../governance/spend-guard.ts';
 import { redactor } from '../secrets/manager.ts';
 
+/** How long a company's bundle hooks are held before they are re-read. */
+export const COMPANY_HOOK_CACHE_MS = 60_000;
+
+/** Where a company's own hooks come from. Injected so a test can supply its own. */
+export type CompanyHookResolver = (companyId: string) => Promise<Hook[]>;
+
+/**
+ * The default resolver: the hooks a company's installed bundles declare.
+ *
+ * Imported lazily. `bundle.ts` needs this module's types, and a static import
+ * back would make the two modules load each other -- which works for types,
+ * which are erased, and is a trap for values.
+ */
+async function bundleHooksFor(companyId: string): Promise<Hook[]> {
+  const { installedBundleHooks } = await import('../bundles/bundle.ts');
+  return installedBundleHooks(companyId);
+}
+
 export type HookName =
   | 'pre_run'
   | 'pre_tool'
@@ -96,13 +114,54 @@ export interface HookOutcome {
 export class HookPipeline {
   readonly #builtIn = new Map<HookName, Hook[]>();
   readonly #added = new Map<HookName, Hook[]>();
+  readonly #resolve: CompanyHookResolver;
+  readonly #cache = new Map<string, { at: number; hooks: Hook[] }>();
 
-  constructor(builtIn: Hook[] = builtInHooks()) {
+  constructor(builtIn: Hook[] = builtInHooks(), resolver: CompanyHookResolver = bundleHooksFor) {
     for (const hook of builtIn) {
       const list = this.#builtIn.get(hook.on) ?? [];
       list.push(hook);
       this.#builtIn.set(hook.on, list);
     }
+    this.#resolve = resolver;
+  }
+
+  /** Drops the cached per-company hooks, after an install or an uninstall. */
+  forget(companyId?: string): void {
+    if (companyId) this.#cache.delete(companyId);
+    else this.#cache.clear();
+  }
+
+  /**
+   * The hooks a company's installed bundles bring (F14.4).
+   *
+   * Cached briefly rather than read per tool call: a company's bundles change
+   * when somebody installs one, not between two steps of a run, and a query
+   * per gate would put a round trip in front of every action. The window is
+   * short enough that an install takes effect within a minute without anybody
+   * restarting anything.
+   */
+  async #companyHooks(companyId: string, on: HookName): Promise<Hook[]> {
+    const cached = this.#cache.get(companyId);
+    if (cached && Date.now() - cached.at < COMPANY_HOOK_CACHE_MS) {
+      return cached.hooks.filter((hook) => hook.on === on);
+    }
+
+    let hooks: Hook[];
+    try {
+      hooks = await this.#resolve(companyId);
+    } catch {
+      // A pipeline that cannot read a company's bundles falls back to its
+      // built-ins. That is the safe direction: the built-ins are the ones a
+      // company cannot remove, and a bundle hook can only tighten, so losing
+      // one loses a restriction rather than a permission -- which is worth
+      // saying out loud, because it means this failure is *not* silent-fail
+      // into a wider gate.
+      hooks = [];
+    }
+
+    this.#cache.set(companyId, { at: Date.now(), hooks });
+    return hooks.filter((hook) => hook.on === on);
   }
 
   /** Adds a hook that may refuse and may not permit. */
@@ -134,8 +193,13 @@ export class HookPipeline {
    */
   async run(on: HookName, ctx: HookContext): Promise<HookOutcome> {
     const consulted: string[] = [];
+    const fromBundles = await this.#companyHooks(ctx.companyId, on);
 
-    for (const hook of [...(this.#builtIn.get(on) ?? []), ...(this.#added.get(on) ?? [])]) {
+    for (const hook of [
+      ...(this.#builtIn.get(on) ?? []),
+      ...(this.#added.get(on) ?? []),
+      ...fromBundles,
+    ]) {
       consulted.push(hook.name);
 
       let verdict: HookVerdict;

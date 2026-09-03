@@ -33,8 +33,8 @@ what is missing rather than leaving the reader to guess.
 
 | Group | Built | Partial | Not built |
 |---|---|---|---|
-| F1 tenancy, budget | F1.1–F1.4, F1.6–F1.9 | F1.5 (no skills or config in the archive) | — |
-| F2 organisation | F2.1–F2.5, F2.7, F2.8, F2.9 | — | F2.6 |
+| F1 tenancy, budget | F1.1–F1.9 | — | — |
+| F2 organisation | F2.1–F2.9 | — | — |
 | F3 charter, policy | F3.1–F3.12 | — | — |
 | F4 memory | F4.1–F4.8 | — | — |
 | F5 engine | F5.1–F5.14 | — | — |
@@ -43,21 +43,30 @@ what is missing rather than leaving the reader to guess.
 | F8 broker, tiers | F8.1–F8.13 | — | — |
 | F9 scheduler | F9.1–F9.10 | — | — |
 | F10 owner surface | F10.1–F10.4, F10.6, F10.7, F10.8, F10.11 | F10.5 (the rule is enforced; there is no push channel) | F10.9, F10.10 |
-| F11 observability | F11.1, F11.3, F11.5, F11.6, F11.7 | F11.4 (no preflight or orphan alerts) | F11.2 |
+| F11 observability | F11.1, F11.3–F11.7 | — | F11.2 (no owner PWA, so no live run view) |
 | F12 credentials, gateway | F12.1–F12.4, F12.7, F12.8, F12.10 | F12.9 (a spawned runtime inherits no environment and reaches tools only through the broker; container and remote-sandbox backends are declared, not implemented) | F12.5 |
 | F13 runtime adapters | F13.1, F13.2, F13.4, F13.5, F13.6, F13.7, F13.8 | F13.3 (the wire protocol is open and documented; no `hermes`, `codex` or `gemini-cli` adapter is written) | — |
-| F14 lifecycle hooks | F14.1, F14.2, F14.3 | — | F14.4 (a bundle may not yet carry a hook) |
-| F15 skills | F15.1–F15.7 | F15.8 (F12.10's quarantine exists for devices; a Skills Hub import path does not) | — |
-| F16 bundles | — | F16.3 (company templates exist; unsigned, unversioned, not bundles) | F16.1, F16.2, F16.4, F16.5 |
+| F14 lifecycle hooks | F14.1–F14.4 | — | — |
+| F15 skills | F15.1–F15.7 | F15.8 (quarantine exists for bundles and devices; there is no Skills Hub client to import through it) | — |
+| F16 bundles | F16.1–F16.5 | — | — |
 | F17 eval, trajectory | F17.1, F17.2, F17.3, F17.4 | — | — |
 
-Read as a whole: v1's scope is finished and holds up, and v2 adds a control
-plane layer around it that is mostly not built. The exception is the broker,
-which is PALUGADA's own layer under every possible answer to the questions in
-section 3 below, so it was built out first: F8 is now complete. The additions are not
-decoration — the heartbeat model (F9.7–F9.10), atomic checkout (F5.11), leases
-(F5.12) and lanes (F5.13) are what make the engine safe for more than one
-worker, and none of them exist yet.
+Read as a whole: every P0 and P1 requirement in v2 section 8 is now built,
+except where the row above says otherwise. What is left is concentrated in one
+place and is honest about why — F10.9, F10.10, F11.2 and F12.5 are the owner's
+phone. A PWA, push notifications, Telegram and WhatsApp are a client
+application and a set of vendor integrations, and none of them can be tested
+here: there is no device, no store, and no messaging account. Building them
+blind would produce code that compiles and has never worked. They are named as
+not built rather than half-written.
+
+The rest of the "partial" column is the same kind of honesty at smaller scale.
+F12.9's `docker` and `remote_sandbox` backends are declared in the protocol and
+selected per role; what is implemented is `local`, where a spawned runtime
+inherits no environment and reaches nothing but the broker. F13.3 asks for
+adapters to four named third-party runtimes; the wire protocol they would speak
+is written, documented and tested, and none of the four is installed here to
+write an adapter against.
 
 ## 2.1 Deliberate deviations from the PRD
 
@@ -82,7 +91,11 @@ that depend on nothing else — platform stop, company freeze, spend ceiling —
 *are* registered hooks, because those are the ones a second caller would
 otherwise have to remember to copy.
 
-## 3. What has to be decided before building further
+## 3. Decisions, deviations, and what is unverified
+
+Nothing here is blocking any more. What follows is the reasoning behind the
+choices that are not obvious from the code, and the two places where a green
+suite proves less than it looks like it does.
 
 **A role eval is structural, not a replay.** F17.2 asks that a change to a
 role's charter, skills or model routing runs its eval set. Scoring by
@@ -92,6 +105,14 @@ real money and give a different answer each time, and F17.3 needs the number
 whether the change keeps what the references depended on and keeps the negative
 cases' failure modes closed. That is weaker than replaying the work, and it is
 the check that can run in the second before a decision.
+
+**Two things a green suite does not prove.** The first is below; the second is
+that F12.9's `docker` and `remote_sandbox` execution backends are declared,
+selected per role and carried in every `RunRequest`, and only `local` is
+implemented. A role configured for `docker` today runs where the orchestrator
+runs. That is stated in the adapter's own comment as well as here, because a
+backend that is a configuration value with no effect is worse than one that is
+missing.
 
 **The `claude-code` adapter has not been run against the real binary.** It is
 not installed here and the provider is not reachable from the test environment,
@@ -103,9 +124,8 @@ and is written down here rather than left for a green suite to imply.
 **NG6 is resolved.** The engine no longer calls a model to do a task: it
 assembles a `RunRequest`, lends the runtime four services, and does the
 accounting. The handler model is now the in-process runtime — a genuine adapter
-that the engine talks to through the same protocol it would use for
-`claude-code`. What remains of F13 is the out-of-process adapters themselves
-(F13.2, F13.3) and automatic model fallback (F13.6).
+that the engine talks to through the same protocol it uses for `script`, `http`
+and `claude-code`, all three of which are now written.
 
 The paragraph below is kept because it records why this mattered.
 
@@ -128,13 +148,11 @@ for the evidence and for the deployment checks to run if the owner wants them
 before committing. The second half of the PRD's fallback binds: the adapter
 protocol must stay Paperclip-compatible (F13.1–F13.3).
 
-**The state machine gains a status.** v2 section 8.5 adds
-`pending → checked_out → running`, which the current implementation does not
-have — it goes `pending → running`. Adding `checked_out` is a schema change and
-a change to every transition guard, so it belongs with F5.11 rather than on its
-own.
+**The state machine gained its status.** v2 section 8.5's
+`pending → checked_out → running` is implemented, and the note below records
+what was kept alongside it.
 
-Three smaller notes, recorded so they are not rediscovered:
+Smaller notes, recorded so they are not rediscovered:
 
 - v2's `checked_out` status is implemented, and `pending -> running` is kept
   alongside it: a worker that claims and starts in one breath passes through
@@ -145,12 +163,15 @@ Three smaller notes, recorded so they are not rediscovered:
   `running`, which is what the implementation already does.
 - v2 still does not draw `pending → halted`, and F5.6 still requires it. The
   deviation stands.
-- v2 F1.5 and F16.4 both ask for a full company archive, and the existing
-  export covers state, events and memory but not skills or configuration,
-  neither of which exists yet in the form v2 describes.
-- F1.6's per-scope budget accounts are still missing, and that shows through
-  into the standard template: it creates one account, which is therefore
-  company-lifetime rather than per-tree. Its money ceiling is set to a year of
-  the monthly figure so it stays out of the way and the monthly ceiling does
-  the work. Once accounts exist per project, division and role, that number
-  should become a real per-tree allowance.
+- v2 F1.5 and F16.4 both ask for a full company archive. The export now carries
+  skills, skill versions, eval cases and every configuration version, and
+  `src/audit/import.ts` reads one back on another instance with every
+  identifier remapped. `bundle_installs` is deliberately not restored: an
+  install points at a bundle in the *platform's* catalogue, which the
+  destination may not have, so bundles are reinstalled rather than restored
+  into a dangling reference.
+- F1.6's per-scope accounts exist and inherit, but the standard template still
+  creates one company-level account. That is now a template choice rather than
+  a missing feature: a template that invented a division allowance would be
+  guessing at a number the owner has not chosen. Its money ceiling stays a year
+  of the monthly figure so the monthly ceiling does the work.

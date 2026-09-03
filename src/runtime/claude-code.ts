@@ -76,7 +76,11 @@ export class ClaudeCodeAdapter implements Adapter {
 
   constructor(options: ClaudeCodeAdapterOptions = {}) {
     this.name = options.name ?? 'claude-code';
-    this.backends = options.backends ?? ['local', 'docker'];
+    // `local` only: this adapter spawns the CLI wherever this process runs. It
+    // claimed `docker` at one point, which would have made a role's isolation
+    // setting a value with no effect -- worse than a missing feature, because
+    // it reads like a choice somebody made.
+    this.backends = options.backends ?? ['local'];
     this.#options = options;
   }
 

@@ -127,6 +127,7 @@ test('every table holding tenant data is protected', async () => {
     'platform_control',   // global stop signal: no tenant data
     'schema_migrations',  // migration bookkeeping: app has no grant at all
     'company_templates',  // a shape, not tenant content: app has no grant at all
+    'bundles',            // platform package catalogue: app has no grant at all
   ]);
 
   const rows = await withControlPlane(async (tx) => {

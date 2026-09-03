@@ -39,7 +39,11 @@ CREATE TABLE bundles (
   created_at    timestamptz NOT NULL DEFAULT now(),
   UNIQUE (slug, version)
 );
-GRANT SELECT ON bundles TO palugada_app;
+-- No grant to palugada_app. A bundle is platform configuration -- what roles
+-- exist, what they may reach, what the hooks refuse -- and an agent that could
+-- read the catalogue could read the shape of every other company's
+-- installation. It carries no tenant data, so it needs no RLS; it is kept out
+-- of the application role's reach instead, which is the stronger of the two.
 GRANT SELECT, INSERT, UPDATE, DELETE ON bundles TO palugada_admin;
 
 CREATE TABLE bundle_installs (

@@ -22,7 +22,7 @@ v2 requirement as built, partial or not built.
 ## Status
 
 **Everything the v1 specification asked for is implemented and tested**, with
-277 acceptance tests running against a real PostgreSQL 16 with pgvector:
+the whole suite running against a real PostgreSQL 16 with pgvector:
 tenant isolation and the durable engine, the charter and policy engine, scoped
 memory with distillation, typed contracts and handoff, adversarial review,
 the capability broker with tier calibration and cost control, durable
@@ -31,16 +31,26 @@ audit export. On top of that, **the standard company** — a calibrated
 capability catalogue and a template of function-based divisions that fit any
 line of business, which is the owner's answer to PRD section 14.2.
 
-**v2 is a larger specification, and much of it is not built.** It makes
-PALUGADA explicitly a control plane that employs third-party runtimes
-(Claude Code, Hermes, OpenClaw, HTTP, scripts) through an adapter protocol,
-and adds heartbeats and a wake queue, atomic checkout with leases and lanes,
-lifecycle hooks, plan steps, preflight, batch guards, a curated skill loop,
-signed bundles, and trajectory evaluation. See
+**PRD v2 is built too**, with four exceptions named below. v2 makes PALUGADA
+explicitly a control plane that employs third-party runtimes through an adapter
+protocol — `script`, `http`, `claude-code` and the in-process one — and adds
+heartbeats and a wake queue, atomic checkout with leases and lanes, lifecycle
+hooks, plan steps, preflight, batch guards, per-scope budgets, a curated skill
+loop, signed bundles, and trajectory evaluation. Its NG6 forbids the platform
+from calling an LLM to do a task; the engine assembles a `RunRequest`, lends
+the runtime four services and does the accounting, and the old handler model is
+now the in-process adapter.
+
+**What is not built, and why.** F10.9, F10.10, F11.2 and F12.5 are the owner's
+phone: a PWA, push notifications, Telegram and WhatsApp. None of them can be
+tested from here — no device, no store, no messaging account — and building
+them blind would produce code that compiles and has never worked. Two things
+are partial for the same reason: F12.9's `docker` and `remote_sandbox`
+execution backends are declared and selected per role but only `local` is
+implemented, and F13.3's adapters for four named third-party runtimes are
+unwritten because none of the four is installed here. See
 [`docs/STATUS.md`](docs/STATUS.md) for the requirement-by-requirement grading
-and for the three decisions that gate the rest — the largest being that v2's
-NG6 forbids the platform from calling an LLM itself, which the current engine
-does.
+and for the deliberate deviations.
 
 Two questions in [PRD section 14](docs/PRD.md#14-pertanyaan-terbuka) are
 answered. **14.1: build, and stay adapter-compatible**, on the pass criteria
@@ -98,6 +108,8 @@ src/
   runtime/         the adapter protocol, the wire, and four runtimes
   skills/          skill documents, the curation gates, and eval cases
   eval/            trajectory export and the role eval set
+  bundles/         versioned packages, signing, and the three built-in bundles
+  gateway/         device pairing, signed challenges, idempotency
 test/acceptance/   one file per PRD acceptance criterion
 ```
 
@@ -228,6 +240,17 @@ the template is organised by function rather than by industry.
 | v2 F17.2 a role with fewer than five references is unscored, not passing | `src/eval/role-eval.ts` | `trajectory-eval.test.ts` |
 | v2 F17.3 the owner sees the score before deciding | `src/eval/role-eval.ts` | `trajectory-eval.test.ts` |
 | v2 F17.4 a halted run becomes a negative candidate on its own | `src/engine/engine.ts` | `trajectory-eval.test.ts` |
+| v2 F1.6 a division's ceiling is its own and the company's | `src/engine/budget.ts` | `control-plane.test.ts` |
+| v2 F2.9 a grant is not something an agent can widen | `src/governance/structure.ts` | `control-plane.test.ts` |
+| v2 F3.9 any config version restores, and the restore is a version | `src/governance/config-versions.ts` | `control-plane.test.ts` |
+| v2 F3.11 charters are files; the files are the source | `src/governance/charter-files.ts` | `control-plane.test.ts` |
+| v2 F4.8 the pack is capped and says what it left out | `src/context/builder.ts` | `control-plane.test.ts` |
+| v2 F10.3 the owner asks inside the same task | `src/inbox/inbox.ts` | `control-plane.test.ts` |
+| v2 F12.7 a runtime is a device that signs a nonce | `src/gateway/gateway.ts` | `control-plane.test.ts` |
+| v2 F16.2 the hash recorded at install answers "is this still what was published" | `src/bundles/bundle.ts` | `bundles.test.ts` |
+| v2 F16.4 a company moves instances with every reference remapped | `src/audit/import.ts` | `bundles.test.ts` |
+| v2 F12.10 an unsigned bundle installs with tier 0 grants only | `src/bundles/bundle.ts` | `bundles.test.ts` |
+| v2 F14.4 a bundle's hooks run, and can only refuse | `src/engine/hooks.ts`, `src/bundles/bundle.ts` | `bundles.test.ts` |
 
 ## Decisions worth knowing
 

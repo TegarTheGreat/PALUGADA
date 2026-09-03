@@ -241,3 +241,60 @@ test('a role may not be configured with more than twelve tools', async () => {
     );
   });
 });
+
+
+/**
+ * A retryable failure goes back on the queue, lease and all.
+ *
+ * Found by booting the platform rather than by a test: a task that failed
+ * retryably stayed `running` holding a lease nobody was working, and
+ * `claimTask` only claims `pending`. So the retry did not happen when the next
+ * worker came round — it happened when the lease expired, half an hour later.
+ * `attempt_max` of three meant three attempts spread over an hour and a half,
+ * which is not what anybody reading `attempt_max` expects.
+ */
+test('a retryable failure returns the task to the queue, not to limbo (F5.12)', async () => {
+  const fixture = await createCompany('retry-requeue');
+
+  let attempts = 0;
+  const engine = new Engine({
+    broker: new CapabilityBroker(new CapabilityRegistry()),
+    llm: new RecordingLlmClient(),
+    handlers: new Map([['worker', async () => {
+      attempts += 1;
+      throw new Error('a transient failure');
+    }]]),
+    workerId: 'requeue-worker',
+  });
+
+  const task = await createRootTask({
+    companyId: fixture.companyId,
+    projectId: fixture.projectId,
+    divisionId: fixture.divisionId,
+    roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId,
+    goalId: fixture.goalId,
+    input: {},
+    createdBy: 'owner',
+    reserveTokens: 5_000,
+    attemptMax: 3,
+  });
+
+  const first = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(first.reason, 'retryable');
+
+  const parked = await withTenant(fixture.companyId, (tx) => getTask(tx, task.id));
+  assert.equal(parked!.status, 'pending', 'claimable again without waiting for a lease to expire');
+  assert.equal(parked!.leaseHolder, null, 'and not appearing to belong to anybody');
+  assert.equal(parked!.attempt, 1);
+
+  // Which means the next attempt actually happens, rather than waiting out the
+  // lease. Two more, and the third exhausts it.
+  await engine.runTask(fixture.companyId, task.id, 'worker');
+  const last = await engine.runTask(fixture.companyId, task.id, 'worker');
+
+  assert.equal(attempts, 3, 'three attempts, not one and a long wait');
+  assert.equal(last.status, 'failed');
+  const settled = await withTenant(fixture.companyId, (tx) => getTask(tx, task.id));
+  assert.equal(settled!.status, 'failed');
+});

@@ -93,6 +93,24 @@ expiring approvals, then looks at the money and the failure rate — in that
 order, each position load-bearing, and bounded so that `stopEverything()` bites
 within one polling interval rather than one queue.
 
+### Checking an installation
+
+```
+npm run smoke
+```
+
+Seeds the installation, builds a company from the standard template, starts a
+worker, puts one task in front of it and waits — then prints the task's status
+and its audit trail, and exits non-zero if it did not complete. It uses the
+in-process runtime and calls no model: what it checks is the orchestration —
+claim, lease, run, contract, transition, settle — so it is runnable anywhere
+without a provider. It creates a company and leaves it behind, so point it at a
+development database.
+
+The first time it ran it failed twice, in ways no test had caught because no
+test did what a real run does. [`docs/STATUS.md`](docs/STATUS.md) §2.5 says
+what they were.
+
 ## Quick start
 
 Requires Node 22.18+ (for native TypeScript execution) and PostgreSQL 16 with

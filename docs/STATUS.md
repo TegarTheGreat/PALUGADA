@@ -219,6 +219,68 @@ That is not proof the suite is complete. It is evidence that the entries in
 the table above mean what they say, which is the property those two audits
 found missing in four places and one hole.
 
+## 2.5 What booting it found
+
+Three audits, and then the obvious thing nobody had done: start the platform
+and watch a company do one piece of work. `scripts/smoke.ts` seeds the
+installation, builds a company from the standard template, starts a worker,
+puts a task in front of it and waits. The first run failed, in two ways that
+no test had caught because no test did what a real run does.
+
+**A retryable failure left the task in `running`.** `#classifyFailure`
+incremented the attempt, wrote `task.attempt_failed`, and returned — without
+moving the task or dropping its lease. `claimTask` only claims `pending`, so
+nothing picked it up again until the lease expired. `attempt_max` of three
+meant three attempts spread over an hour and a half. It now returns the task to
+`pending` and clears the lease, which is the same edge F5.12 uses to reclaim
+one.
+
+**No role in the standard company could call the tools its own context pack
+tells it to use.** F4.8 caps the pack and instructs the run to use
+`memory.search` for whatever did not fit; F15.7 does the same for `skill.read`.
+The template granted neither, to anybody. Every run in a standard company that
+followed its instructions was refused. Both are now granted to every division
+except two, and both exceptions are decisions rather than oversights.
+
+The lab holds `code.execute`, and `SANDBOX_GUARANTEES` records that the sandbox
+does not isolate the network — which is why F8.10 already refuses it a
+credential or a tier 2 grant. Everything the company knows is the same category
+of thing, so `memory.search` there would be a search interface over the
+company's knowledge handed to supplied code. The lab reads its own inputs and
+nothing else.
+
+Assurance is excluded from the other end. F7.3 says the reviewer approves and
+cannot act, and the way that is guaranteed is that its division holds no grant
+at all — an invariant one query can check. A read is not an action, so the
+first version of this fix made an exception for these two capabilities and
+broke that check; the exception was refused rather than the check weakened,
+because "no grants" is checkable and "only harmless grants" is an argument to
+be had again with every capability anybody adds. The reviewer judges the
+proposal it was handed, which is what its own prompt already told it.
+
+The `qa-review` bundle reaches the same rule by the other route, and the
+difference is deliberate rather than an inconsistency: its division does hold
+the two read grants, and F7.3 is enforced there by the `review.read-only` hook
+it ships, which refuses the division any write. An empty grant list and a hook
+that cannot be removed are both real enforcement; what would not be real is a
+list of grants somebody has judged harmless with nothing checking the judgement
+afterwards. The template has no hooks of its own, so it uses the list.
+
+Which leaves two divisions still being told to call something they cannot, so
+the grant was only half the fix. The pack now asks whether the division holds
+the capability before it writes the instruction, and says the honest thing
+instead when it does not: that this is a summary and the rest cannot be
+fetched, or that what was dropped cannot be searched back. That is the durable
+form — a division added tomorrow without the grant gets a pack that is honest
+about it, rather than a second hard-coded exception list and the same bug
+waiting for whoever forgets to extend it.
+
+All three fixes have regression tests, and each was checked by re-introducing
+the bug. The template one did not catch it at first: it created its company
+from whatever `company_templates` row happened to be in the database, so it was
+testing the last thing that wrote one rather than the source. It now saves the
+template from the source constant first.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

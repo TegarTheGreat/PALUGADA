@@ -36,7 +36,9 @@ import { proposeNegativeCase } from '../eval/role-eval.ts';
 import { buildContext } from '../context/builder.ts';
 import { ancestryForTask } from '../domain/goals.ts';
 import { preflightForRole } from '../broker/preflight.ts';
-import { DEFAULT_LEASE_MS, claimTask, recordRunHeartbeat, renewLease } from './checkout.ts';
+import {
+  DEFAULT_LEASE_MS, claimTask, clearLease, recordRunHeartbeat, renewLease,
+} from './checkout.ts';
 import * as budget from './budget.ts';
 import * as inbox from '../inbox/inbox.ts';
 import type { CapabilityBroker } from '../broker/broker.ts';
@@ -859,6 +861,16 @@ export class Engine {
       await this.#onHalt(companyId, settled, 'attempts_exhausted', error, agentRunId);
       return { status: 'failed', reason: (error as Error).message };
     }
+    // Back on the queue, and the lease released with it.
+    //
+    // Without this the task stays `running` holding a lease nobody is working,
+    // and `claimTask` only claims `pending` -- so the retry does not happen
+    // when the next worker comes round, it happens when the lease expires,
+    // half an hour later. `attempt_max` of three would mean three attempts
+    // spread over an hour and a half, which is not what anybody reading
+    // `attempt_max` expects. The first real boot of this platform found it.
+    await transition(companyId, taskId, 'pending');
+    await clearLease(companyId, taskId, this.#workerId);
     return { status: 'failed', reason: 'retryable' };
   }
 

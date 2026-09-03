@@ -263,6 +263,12 @@ test('a deployment with one model reviews anyway, and records that it did (F7.7)
 test('the context pack is capped, and says what it left out (F4.8)', async () => {
   const fixture = await createCompany('context-cap');
   await publishCharter({ companyId: fixture.companyId, body: 'Be careful.' });
+  // The notice tells the run to search back what was dropped, and the pack
+  // only writes that instruction for a division that may follow it. Granted
+  // here rather than assumed, which is the arrangement F4.8 actually describes;
+  // the catalogue comes first because a grant names a capability that exists.
+  await registerStandardCatalogue();
+  await grantCapability(fixture, 'memory.search');
 
   for (let index = 0; index < 12; index += 1) {
     await withTenant(fixture.companyId, (tx) =>

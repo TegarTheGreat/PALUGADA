@@ -196,6 +196,34 @@ export async function releaseTask(
   });
 }
 
+/**
+ * Drops this worker's lease without changing the task's status.
+ *
+ * Distinct from `releaseTask`, which gives back a claim that was taken and
+ * never started and therefore insists the task is still `checked_out`. This is
+ * for a task that *was* started and is going back on the queue after a
+ * retryable failure: the status move is the caller's, and what is left is the
+ * lease. Keyed on the holder, so a worker cannot drop a lease it does not own.
+ *
+ * Leaving the lease behind would not stop the retry — `claimTask` looks at the
+ * status, not the holder — but it would leave a task on the queue that appears
+ * to belong to somebody, which is exactly the confusion leases exist to remove.
+ */
+export async function clearLease(
+  companyId: string,
+  taskId: string,
+  holder: string,
+): Promise<boolean> {
+  return withTenant(companyId, async (tx) => {
+    const { rowCount } = await tx.query(
+      `UPDATE tasks SET lease_holder = NULL, lease_expires_at = NULL
+        WHERE id = $1 AND lease_holder = $2`,
+      [taskId, holder],
+    );
+    return rowCount === 1;
+  });
+}
+
 export interface Reclaimed {
   taskId: string;
   previousHolder: string;

@@ -75,6 +75,64 @@ const WORK_OUTPUT = {
   },
 } as const;
 
+/**
+ * The two capabilities almost every role holds.
+ *
+ * They are not a convenience. F4.8 caps the context pack and tells the run to
+ * use `memory.search` for whatever did not fit; F15.7 puts a skill's summary in
+ * the pack and tells it to use `skill.read` for the document. A company whose
+ * roles are not granted them is one where every run is instructed to call
+ * something it will be refused for — which is what the first real boot of this
+ * platform found, and which no test had caught because no test followed the
+ * instruction.
+ *
+ * Both are tier 0 reads of the company's own store, scoped to the asking
+ * division by the same rules the pack uses, so granting them widens nothing.
+ */
+const PLATFORM_TOOLS = ['memory.search', 'skill.read'] as const;
+
+/**
+ * The two divisions that do not get them, and why.
+ *
+ * The lab holds `code.execute`, and `SANDBOX_GUARANTEES` records that the
+ * sandbox does not isolate the network. F8.10 already refuses that division a
+ * credential or a tier 2 grant, because untrusted code could post either one
+ * somewhere. Everything the company knows is the same category of thing:
+ * granting `memory.search` here would hand supplied code a search interface
+ * over the company's accumulated knowledge, and `skill.read` its approved
+ * procedures. The lab reads its own inputs and nothing else.
+ *
+ * Assurance is excluded for the opposite reason. F7.3 says the reviewer
+ * approves and cannot act, and the way that is guaranteed is that its division
+ * holds no grant at all -- an invariant one query can check, which
+ * capability-catalogue.test.ts does. A read is not an action, so the
+ * temptation is to make an exception for these two; the exception is refused
+ * anyway, because "no grants" is checkable and "only harmless grants" is an
+ * argument to be had again with every capability anybody adds. The reviewer
+ * judges the proposal it was handed, which is what its own prompt tells it.
+ */
+const NO_PLATFORM_TOOLS = new Set(['lab', 'assurance']);
+
+/**
+ * The company's shape, lifted out so the platform grants below derive from it
+ * rather than repeating it. A division added here is granted the platform
+ * tools automatically, which is the difference between a rule and a list
+ * somebody has to remember to extend.
+ */
+const DIVISIONS = [
+  { slug: 'ops', name: 'Operations', maxConcurrency: 4 },
+  { slug: 'delivery', name: 'Delivery', maxConcurrency: 4 },
+  // The one sub-division. Depth is capped at two (F2.2), and the split earns
+  // its place: planning and building fail differently and deserve different
+  // concurrency and different grants.
+  { slug: 'build', name: 'Build', parent: 'delivery', maxConcurrency: 6 },
+  { slug: 'growth', name: 'Growth', maxConcurrency: 3 },
+  { slug: 'finance', name: 'Finance', maxConcurrency: 2 },
+  { slug: 'support', name: 'Support', maxConcurrency: 6 },
+  { slug: 'assurance', name: 'Assurance', maxConcurrency: 2 },
+  { slug: 'lab', name: 'Lab', maxConcurrency: 2 },
+] as const;
+
 export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
   projects: [{ slug: 'main', name: 'Main' }],
 
@@ -101,21 +159,18 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     },
   ],
 
-  divisions: [
-    { slug: 'ops', name: 'Operations', maxConcurrency: 4 },
-    { slug: 'delivery', name: 'Delivery', maxConcurrency: 4 },
-    // The one sub-division. Depth is capped at two (F2.2), and the split earns
-    // its place: planning and building fail differently and deserve different
-    // concurrency and different grants.
-    { slug: 'build', name: 'Build', parent: 'delivery', maxConcurrency: 6 },
-    { slug: 'growth', name: 'Growth', maxConcurrency: 3 },
-    { slug: 'finance', name: 'Finance', maxConcurrency: 2 },
-    { slug: 'support', name: 'Support', maxConcurrency: 6 },
-    { slug: 'assurance', name: 'Assurance', maxConcurrency: 2 },
-    { slug: 'lab', name: 'Lab', maxConcurrency: 2 },
-  ],
+  divisions: [...DIVISIONS],
 
   grants: [
+    // F4.8, F15.7: every division outside NO_PLATFORM_TOOLS may read its own
+    // memory and its own skills. The context pack instructs every run to do
+    // both, so a division without the grants is one where following that
+    // instruction is a refusal.
+    ...DIVISIONS
+      .filter((division) => !NO_PLATFORM_TOOLS.has(division.slug))
+      .flatMap((division) =>
+        PLATFORM_TOOLS.map((capability) => ({ division: division.slug, capability }))),
+
     // Operations: watches the company and writes things down. Nothing here
     // reaches a customer.
     { division: 'ops', capability: 'uptime.check' },
@@ -198,6 +253,7 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
         'ship anything. When work belongs to another division, hand it off rather than ' +
         'attempting it.',
       tools: [
+        ...PLATFORM_TOOLS,
         'uptime.check',
         'metrics.read',
         'files.list',
@@ -224,7 +280,7 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
         'repository, the existing documents and public sources, and you produce a written ' +
         'plan and the tickets that follow from it. You have no deploy capability, by ' +
         'design: deciding what to ship and shipping it are separate jobs here.',
-      tools: ['repo.read', 'web.fetch', 'files.list', 'doc.draft', 'ticket.create'],
+      tools: [...PLATFORM_TOOLS, 'repo.read', 'web.fetch', 'files.list', 'doc.draft', 'ticket.create'],
       inputSchema: WORK_INPUT,
       outputSchema: WORK_OUTPUT,
     },
@@ -244,6 +300,7 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
         'review, so propose it with the evidence from staging attached rather than as a ' +
         'bare request.',
       tools: [
+        ...PLATFORM_TOOLS,
         'repo.read',
         'repo.branch',
         'deploy.staging',
@@ -269,6 +326,7 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
         'a sent message is not. Anything you publish or spend on is a tier 2 action and is ' +
         'rate limited, so treat the limit as the plan rather than as an obstacle.',
       tools: [
+        ...PLATFORM_TOOLS,
         'web.fetch',
         'crm.read',
         'crm.note',
@@ -295,7 +353,7 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
         'company owes. Every payment must be matched to an invoice you have read. You ' +
         'cannot transfer money that is not settling one, and you should not ask for that ' +
         'capability; that transfer is the owner\'s to make.',
-      tools: ['ledger.read', 'doc.draft', 'invoice.issue', 'invoice.pay'],
+      tools: [...PLATFORM_TOOLS, 'ledger.read', 'doc.draft', 'invoice.issue', 'invoice.pay'],
       inputSchema: WORK_INPUT,
       outputSchema: WORK_OUTPUT,
     },
@@ -313,7 +371,15 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
         'customer record before replying, record what you told them, and open a ticket ' +
         'when the answer needs somebody else. If a reply would commit the company to ' +
         'anything -- a refund, a date, a discount -- do not send it: hand it off.',
-      tools: ['mailbox.read', 'crm.read', 'crm.note', 'ticket.create', 'email.draft', 'email.send'],
+      tools: [
+        ...PLATFORM_TOOLS,
+        'mailbox.read',
+        'crm.read',
+        'crm.note',
+        'ticket.create',
+        'email.draft',
+        'email.send',
+      ],
       inputSchema: WORK_INPUT,
       outputSchema: WORK_OUTPUT,
     },
@@ -332,6 +398,7 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
         'you approve, which is the point. Answer with a verdict and the reason for it. If ' +
         'you cannot judge the proposal on what you were given, say so plainly: an unclear ' +
         'answer is escalated to the owner, and that is the correct outcome, not a failure.',
+      // Empty, and F7.3 is why. NO_PLATFORM_TOOLS above has the argument.
       tools: [],
       inputSchema: WORK_INPUT,
       outputSchema: WORK_OUTPUT,

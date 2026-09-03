@@ -33,7 +33,8 @@ import {
 import { buildContext } from '../../src/context/builder.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { trustPublisher } from '../../src/bundles/publishers.ts';
-import { createCompany, type Fixture } from '../helpers/fixtures.ts';
+import { createCompany, grantCapability, type Fixture } from '../helpers/fixtures.ts';
+import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
 before(ensureSchema);
@@ -362,6 +363,12 @@ test('a run\'s context carries a skill summary, not the skill (F15.7)', async ()
   await recordSkillReview(fixture.companyId, proposed.versionId, { approved: true });
   await approveSkillVersion(fixture.companyId, proposed.versionId);
 
+  // The pack only tells a division to fetch what it may fetch, so the grant is
+  // part of the arrangement rather than incidental setup. The catalogue comes
+  // first because a grant names a capability that has to exist.
+  await registerStandardCatalogue();
+  await grantCapability(fixture, 'skill.read');
+
   const context = await withTenant(fixture.companyId, (tx) =>
     buildContext(tx, { companyId: fixture.companyId, divisionId: fixture.divisionId }),
   );
@@ -378,6 +385,71 @@ test('a run\'s context carries a skill summary, not the skill (F15.7)', async ()
   // And `skill.read` is what fetches it.
   const full = await readSkill(fixture.companyId, 'refund-policy');
   assert.match(full!.source, /Refund within 30 days/);
+});
+
+/**
+ * The pack does not tell a run to call something it will be refused for.
+ *
+ * F4.8 and F15.7 both work by instructing the run: search for what did not fit,
+ * fetch the procedure that was only summarised. The first real boot of this
+ * platform found every division being told both while being granted neither,
+ * so every run that followed its instructions met a refusal. The template now
+ * grants them — except to the lab, which runs supplied code, and to assurance,
+ * whose reviewer holds no grant at all by F7.3. The instruction is therefore
+ * conditional on the grant, which is the durable form of the fix: a division
+ * added tomorrow without the grant gets a pack that is honest about it rather
+ * than the same bug again.
+ */
+test('the context pack does not instruct a division to call what it was not granted (F4.8, F15.7)', async () => {
+  const fixture = await createCompany('pack-without-grants');
+  const proposed = await proposeRefundSkill(fixture);
+  await withEval(fixture, proposed.skillId);
+  await recordSkillReview(fixture.companyId, proposed.versionId, { approved: true });
+  await approveSkillVersion(fixture.companyId, proposed.versionId);
+
+  // No grantCapability call anywhere in this test: the division holds neither.
+  //
+  // Two packs, because the two instructions live in sections that cannot both
+  // be present. The skill summary carries the `skill.read` instruction and the
+  // trim warning carries the `memory.search` one — and the warning only exists
+  // when something was dropped, which at a small enough limit means the skill
+  // summary was the thing dropped. Asserting both against one pack would leave
+  // whichever section was missing untested and passing for the wrong reason.
+  const full = await withTenant(fixture.companyId, (tx) =>
+    buildContext(tx, { companyId: fixture.companyId, divisionId: fixture.divisionId }),
+  );
+  const withSummary = full.sections.map((section) => section.body).join('\n');
+
+  assert.equal(full.dropped, 0, 'nothing was trimmed, so the skill summary is really here');
+  assert.match(withSummary, /How to answer a refund request/);
+  assert.equal(
+    /skill\.read\(/.test(withSummary),
+    false,
+    'a run told to fetch a procedure its division cannot fetch spends an attempt on a refusal',
+  );
+  // Silence would be worse than the instruction: the run should know it is
+  // working from a summary rather than assume it has the whole procedure.
+  assert.match(withSummary, /cannot fetch the full procedure/);
+
+  const capped = await withTenant(fixture.companyId, (tx) =>
+    buildContext(tx, {
+      companyId: fixture.companyId,
+      divisionId: fixture.divisionId,
+      // Below what the skill summary alone costs, so something is certainly
+      // dropped and the incomplete-context warning is certainly written.
+      tokenLimit: 20,
+    }),
+  );
+  const trimmed = capped.sections.map((section) => section.body).join('\n');
+
+  assert.ok(capped.dropped > 0, 'the pack was trimmed, so the warning is in play');
+  assert.match(trimmed, /did not fit within the 20-token context pack/);
+  assert.equal(
+    /memory\.search/.test(trimmed),
+    false,
+    'and the same for searching back what the pack dropped',
+  );
+  assert.match(trimmed, /cannot search for what was left out/);
 });
 
 test('a division does not see another division\'s skill (F15.6)', async () => {

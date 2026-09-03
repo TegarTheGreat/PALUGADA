@@ -12,6 +12,7 @@
  * keyed on a name rather than an id fails here and nowhere else.
  */
 import { test, before, beforeEach, after } from 'node:test';
+import { randomUUID } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { withTenant, withControlPlane } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
@@ -27,6 +28,11 @@ import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';
 import { createRootTask, getTask } from '../../src/engine/tasks.ts';
 import { buildContext } from '../../src/context/builder.ts';
+import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
+import {
+  STANDARD_TEMPLATE_SLUG,
+  STANDARD_COMPANY_TEMPLATE,
+} from '../../src/templates/standard.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
 before(ensureSchema);
@@ -371,4 +377,83 @@ test('a second company can be created without a deploy (F1.1)', async () => {
     assert.equal(events.length, 1);
     assert.equal(events[0]!.payload.template, 'agency');
   }
+});
+
+
+/**
+ * Every role can call the two tools its own context pack tells it to use.
+ *
+ * F4.8 caps the pack and instructs the run to use `memory.search` for whatever
+ * did not fit; F15.7 puts a skill's summary in the pack and instructs it to use
+ * `skill.read` for the document. A company whose roles are not granted them is
+ * one where every run is told to call something it will be refused for — which
+ * is what the first real boot of this platform found, and no test caught
+ * because no test followed the instruction.
+ */
+test('every role in the standard company can read its own memory and skills (F4.8, F15.7)', async () => {
+  await registerStandardCatalogue();
+  // Saved from the source constant, deliberately. `createCompanyFromTemplate`
+  // reads the template out of the database, so a test that relied on whatever
+  // row happened to be there would be testing the last thing that wrote one —
+  // and would pass against a stale copy while the source was broken. That is
+  // exactly how this test first failed to catch the bug it exists for.
+  await saveTemplate({
+    slug: STANDARD_TEMPLATE_SLUG,
+    name: 'Standard company',
+    body: STANDARD_COMPANY_TEMPLATE,
+  });
+
+  const slug = `platform-tools-${randomUUID().slice(0, 8)}`;
+  const created = await createCompanyFromTemplate({
+    templateSlug: STANDARD_TEMPLATE_SLUG,
+    companySlug: slug,
+    name: 'Platform tools',
+  });
+
+  const missing = await withTenant(created.companyId, async (tx) => {
+    const { rows } = await tx.query<{ slug: string; division: string; missing: string[] }>(
+      `SELECT r.slug, d.slug AS division,
+              ARRAY(SELECT t FROM unnest(ARRAY['memory.search','skill.read']) t
+                     WHERE NOT (t = ANY(r.tools))) AS missing
+         FROM roles r JOIN divisions d ON d.id = r.division_id
+        WHERE r.company_id = $1 ORDER BY r.slug`,
+      [created.companyId],
+    );
+    return rows.filter((row) => row.missing.length > 0);
+  });
+
+  // Two deliberate exceptions, and they are the only two. The lab holds
+  // `code.execute`, and SANDBOX_GUARANTEES records that the sandbox does not
+  // isolate the network — so F8.10 already refuses that division a credential
+  // or a tier 2 grant. Everything the company knows is the same category of
+  // thing: `memory.search` there would be a search interface over the
+  // company's knowledge, handed to supplied code. Assurance is excluded from
+  // the other end: F7.3 says the reviewer approves and cannot act, and that is
+  // guaranteed by its division holding no grant at all rather than by an
+  // argument about which grants are harmless.
+  assert.deepEqual(
+    [...new Set(missing.map((row) => row.division))].sort(),
+    ['assurance', 'lab'],
+    'a role that cannot follow its own context pack, or an exception that can read the company',
+  );
+
+  // And the grant exists in every division, because a tool on a role that the
+  // division does not hold is refused at the broker.
+  const ungranted = await withTenant(created.companyId, async (tx) => {
+    const { rows } = await tx.query<{ slug: string; capability: string }>(
+      `SELECT d.slug, t AS capability
+         FROM divisions d, unnest(ARRAY['memory.search','skill.read']) t
+        WHERE d.company_id = $1
+          AND NOT EXISTS (SELECT 1 FROM capability_grants g
+                           WHERE g.division_id = d.id AND g.capability_name = t)
+        ORDER BY d.slug, t`,
+      [created.companyId],
+    );
+    return rows;
+  });
+  assert.deepEqual(
+    [...new Set(ungranted.map((row) => row.slug))].sort(),
+    ['assurance', 'lab'],
+    'a division whose roles hold a tool it was never granted, or an exception that was granted one',
+  );
 });

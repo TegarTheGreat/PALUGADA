@@ -344,14 +344,49 @@ test('the standard template builds a company of any line of business', async () 
       ['build'],
     );
 
-    const { rows: budget } = await tx.query<{ tokens_max: string; money_max_cents: string }>(
-      'SELECT tokens_max, money_max_cents FROM budget_accounts',
+    // F1.6: a company account, and a narrower one under it for every division.
+    // The per-division ceilings are containment, not accounting — they sum to
+    // more than the company's on purpose, because a quiet division does not
+    // lend its share to a busy one.
+    const { rows: budget } = await tx.query<{
+      label: string; scope_type: string; money_max_cents: string; parent_label: string | null;
+    }>(
+      `SELECT a.label, a.scope_type, a.money_max_cents, p.label AS parent_label
+         FROM budget_accounts a
+         LEFT JOIN budget_accounts p ON p.id = a.parent_account_id
+        ORDER BY a.scope_type, a.label`,
     );
-    assert.equal(budget.length, 1, 'one account, shared by the whole delegation tree (F5.4)');
-    // The per-tree ceiling, not the monthly one. Section 14.3's USD 200 a month
-    // lives in spend_limits; this is a year of it, set out of the way because
-    // F1.6's per-scope accounts do not exist yet.
-    assert.equal(budget[0]!.money_max_cents, '240000');
+    const company = budget.filter((row) => row.scope_type === 'company');
+    assert.equal(company.length, 1, 'exactly one root, which every chain ends at');
+    // The company-wide lifetime ceiling, not the monthly one. Section 14.3's
+    // USD 200 a month lives in spend_limits; this is a year of it, set out of
+    // the way so the monthly limit is what paces the company.
+    assert.equal(company[0]!.money_max_cents, '240000');
+
+    assert.deepEqual(
+      budget.filter((row) => row.scope_type === 'division').map((row) => row.label),
+      ['assurance', 'build', 'delivery', 'finance', 'growth', 'lab', 'ops', 'support'],
+      'every division has a ceiling of its own',
+    );
+
+    // And a sub-division hangs from its parent division, not from the company:
+    // Build's spending is Delivery's spending, so Delivery's ceiling has to
+    // contain it or it would be a number that could never bind.
+    const build = budget.find((row) => row.label === 'build');
+    assert.equal(build!.parent_label, 'delivery');
+    for (const row of budget.filter((r) => r.scope_type === 'division' && r.label !== 'build')) {
+      assert.equal(row.parent_label, 'company', `${row.label} hangs from the company account`);
+    }
+
+    // The returned map is what a caller building on this template works from,
+    // so it is checked against the database rather than trusted.
+    const byScope = await tx.query<{ label: string; id: string }>(
+      "SELECT label, id FROM budget_accounts WHERE scope_type = 'division'",
+    );
+    assert.deepEqual(
+      created.divisionBudgetAccountIds,
+      Object.fromEntries(byScope.rows.map((row) => [row.label, row.id])),
+    );
 
     const { rows: sops } = await tx.query<{ count: string }>(
       `SELECT count(*) FROM memories

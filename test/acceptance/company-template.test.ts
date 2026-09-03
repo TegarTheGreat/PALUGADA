@@ -198,6 +198,54 @@ test('an incoherent template is refused before it is stored', async () => {
     /same division slug twice/,
   );
 
+  // F1.6's ceilings only mean something if the narrower one is narrower. A
+  // division declared above the account it hangs from is a number that could
+  // never bind, so it is refused here rather than stored looking enforced.
+  assert.throws(
+    () =>
+      assertTemplateIsCoherent({
+        divisions: [{ slug: 'ops', name: 'Ops' }],
+        roles: [],
+        budget: {
+          tokensMax: 1_000,
+          divisions: [{ division: 'ops', tokensMax: 5_000 }],
+        },
+      }),
+    /above the company's 1000, so the ceiling could never bind/,
+  );
+
+  // And the comparison follows the division tree, not the company: a
+  // sub-division is contained by its parent division, so that is what it has
+  // to fit inside.
+  assert.throws(
+    () =>
+      assertTemplateIsCoherent({
+        divisions: [
+          { slug: 'delivery', name: 'Delivery' },
+          { slug: 'build', name: 'Build', parent: 'delivery' },
+        ],
+        roles: [],
+        budget: {
+          tokensMax: 100_000,
+          divisions: [
+            { division: 'delivery', tokensMax: 10_000 },
+            { division: 'build', tokensMax: 20_000 },
+          ],
+        },
+      }),
+    /above delivery's 10000/,
+  );
+
+  assert.throws(
+    () =>
+      assertTemplateIsCoherent({
+        divisions: [{ slug: 'ops', name: 'Ops' }],
+        roles: [],
+        budget: { tokensMax: 1_000, divisions: [{ division: 'opps', tokensMax: 500 }] },
+      }),
+    /budget names unknown division opps/,
+  );
+
   assert.throws(
     () =>
       assertTemplateIsCoherent({

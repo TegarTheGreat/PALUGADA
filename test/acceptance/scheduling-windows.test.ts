@@ -25,6 +25,7 @@ import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';
 import { claimReadyWindowTasks, createRootTask, getTask } from '../../src/engine/tasks.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
+import * as budget from '../../src/engine/budget.ts';
 import { freezeCompany } from '../../src/engine/control.ts';
 import { isPalugadaError } from '../../src/errors.ts';
 import { createCompany, grantCapability, type Fixture, planTask } from '../helpers/fixtures.ts';
@@ -479,4 +480,59 @@ test('a schedule can mark the work it creates as non-urgent', async () => {
   assert.equal(fired.length, 1);
   const created = await withTenant(fixture.companyId, (tx) => getTask(tx, fired[0]!.taskId));
   assert.equal(created!.batchable, true, 'the flag travels from the schedule to the task');
+});
+
+/**
+ * A schedule created without an account gets the division's, not the company's.
+ *
+ * `schedules.budget_account_id` is NOT NULL, so the account is chosen once when
+ * the schedule is written and then held. That is deliberate -- resolving it at
+ * every firing would silently move a schedule to a different ceiling the day
+ * somebody adds one -- but it means the choice made here is the one that lasts,
+ * and defaulting it to the company account would put every recurring job in the
+ * company outside its division's ceiling. Recurring work is most of what a
+ * company does, so that is most of F1.6.
+ */
+test('a schedule draws on its division\'s account when it names none (F1.6, F9.1)', async () => {
+  const fixture = await createCompany('schedule-budget', { tokensMax: 100_000 });
+  const divisionAccount = await withTenant(fixture.companyId, (tx) =>
+    budget.createAccount(tx, {
+      companyId: fixture.companyId,
+      label: 'ops',
+      tokensMax: 20_000,
+      scope: {
+        scopeType: 'division',
+        scopeId: fixture.divisionId,
+        parentAccountId: fixture.budgetAccountId,
+      },
+    }),
+  );
+
+  // No budgetAccountId given.
+  await upsertSchedule(
+    {
+      companyId: fixture.companyId,
+      projectId: fixture.projectId,
+      divisionId: fixture.divisionId,
+      roleId: fixture.roleId,
+      goalId: fixture.goalId,
+      slug: 'division-funded',
+      cronExpression: '0 * * * *',
+    },
+    new Date(Date.now() - 3_600_000),
+  );
+
+  const stored = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ budget_account_id: string }>(
+      "SELECT budget_account_id FROM schedules WHERE slug = 'division-funded'",
+    );
+    return rows[0]!.budget_account_id;
+  });
+  assert.equal(stored, divisionAccount, 'not the company account');
+
+  // And the task it fires draws on it, which is the part that spends money.
+  const fired = await runDueSchedules(new Date());
+  assert.equal(fired.length, 1);
+  const created = await withTenant(fixture.companyId, (tx) => getTask(tx, fired[0]!.taskId));
+  assert.equal(created!.budgetAccountId, divisionAccount);
 });

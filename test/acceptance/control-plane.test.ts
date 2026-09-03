@@ -19,7 +19,7 @@ import { withTenant, withControlPlane } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
 import { isPalugadaError } from '../../src/errors.ts';
 import * as budget from '../../src/engine/budget.ts';
-import { createRootTask, getTask, transition } from '../../src/engine/tasks.ts';
+import { createRootTask, createSubTask, getTask, transition } from '../../src/engine/tasks.ts';
 import { claimTask } from '../../src/engine/checkout.ts';
 import {
   CONTEXT_PACK_TOKEN_LIMIT,
@@ -164,6 +164,79 @@ test('a task draws on the narrowest account that exists (F1.6)', async () => {
     return budget.accountFor(tx, { companyId: fixture.companyId, divisionId: rows[0]!.id });
   });
   assert.equal(other, fixture.budgetAccountId);
+});
+
+/**
+ * And a task actually lands on it.
+ *
+ * The two tests above check the machinery: the chain walks, and `accountFor`
+ * picks the narrowest. Neither shows a task using it, and for a while nothing
+ * did — `accountFor` was written, tested and called by nobody, so every task in
+ * every company drew on the company account and a division ceiling was a row in
+ * a table. This is the wiring, which is the part that was missing.
+ */
+test('a root task is funded by its division account, and a sub-task by its parent (F1.6, F5.4)', async () => {
+  const fixture = await createCompany('budget-wired', { tokensMax: 100_000 });
+  const divisionAccount = await withTenant(fixture.companyId, (tx) =>
+    budget.createAccount(tx, {
+      companyId: fixture.companyId,
+      label: 'ops',
+      tokensMax: 1_000,
+      scope: {
+        scopeType: 'division',
+        scopeId: fixture.divisionId,
+        parentAccountId: fixture.budgetAccountId,
+      },
+    }),
+  );
+
+  // No budgetAccountId given: the account is looked up, not assumed.
+  const root = await createRootTask({
+    companyId: fixture.companyId,
+    projectId: fixture.projectId,
+    divisionId: fixture.divisionId,
+    roleId: fixture.roleId,
+    goalId: fixture.goalId,
+    input: { run: 'wired' },
+    createdBy: 'owner',
+    reserveTokens: 100,
+  });
+  assert.equal(root.budgetAccountId, divisionAccount, 'not the company account');
+
+  // F5.4 is unchanged by that: a sub-task shares its parent's counter, which
+  // is what stops a delegation tree from finding a fresh allowance by moving.
+  const child = await createSubTask(root.id, {
+    companyId: fixture.companyId,
+    projectId: fixture.projectId,
+    divisionId: fixture.divisionId,
+    roleId: fixture.roleId,
+    input: { run: 'delegated' },
+    reserveTokens: 100,
+  });
+  assert.equal(child.budgetAccountId, root.budgetAccountId);
+
+  // The containment property, which is the reason for all of it: the division
+  // runs out while the company still has almost all of its allowance.
+  await assert.rejects(
+    () =>
+      createRootTask({
+        companyId: fixture.companyId,
+        projectId: fixture.projectId,
+        divisionId: fixture.divisionId,
+        roleId: fixture.roleId,
+        goalId: fixture.goalId,
+        input: { run: 'over the division ceiling' },
+        createdBy: 'owner',
+        reserveTokens: 900,
+      }),
+    (error: unknown) => isPalugadaError(error, 'budget.reservation_refused'),
+  );
+
+  const company = await withTenant(fixture.companyId, (tx) =>
+    budget.snapshot(tx, fixture.budgetAccountId),
+  );
+  assert.equal(company.tokensReserved, 200, 'the company barely noticed');
+  assert.ok(company.tokensMax - company.tokensReserved > 900, 'and had room for the refused task');
 });
 
 /* ------------------------------------------------------------------ F5.10 --- */

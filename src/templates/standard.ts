@@ -10,7 +10,7 @@
  * checks its own work -- and a company in a particular trade adds divisions on
  * top rather than replacing these.
  *
- * Four things are deliberate.
+ * Five things are deliberate.
  *
  * **Assurance holds no capability at all.** The reviewer division exists to
  * satisfy F7.3 with a role that is structurally incapable of acting on what it
@@ -29,13 +29,19 @@
  * here is the other ceiling -- the lifetime allowance of the budget account a
  * delegation tree shares (F5.4) -- set to a year of the monthly one.
  *
- * That multiple is deliberate and is a placeholder for a gap rather than a
- * considered number. F1.6 asks for accounts per project, division and role;
- * until those exist this template creates exactly one account and it is
- * therefore company-lifetime. Setting it to the monthly figure would make it
- * bind in the second month and the monthly ceiling would never get to do its
- * job, so it is set high enough to stay out of the way and the gap is recorded
- * in docs/STATUS.md rather than hidden behind a number that looks decided.
+ * That multiple is deliberate: setting the lifetime figure to the monthly one
+ * would make it bind in the second month, and the monthly ceiling would never
+ * get to do its job. It is set high enough to stay out of the way, and F1.6's
+ * narrower accounts are what actually contain a division.
+ *
+ * **Every division has its own ceiling, under the company's (F1.6).** The
+ * budget block at the bottom of this file gives each one an account whose
+ * parent is the company's, so a reservation is checked against the whole chain
+ * and a division cannot spend the company's month by itself. Build's account
+ * hangs from Delivery's rather than the company's, because Build is Delivery's
+ * sub-division and its spending is Delivery's spending. The shares add up to
+ * more than the company's total on purpose -- they are containment, not an
+ * allocation, and a quiet division does not lend its share to a busy one.
  *
  * **Models are named by role, not by vendor.** `fast`, `standard` and `deep`
  * are the three shapes of work here. Section 14.5 leaves the mapping to real
@@ -486,9 +492,42 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
   budget: {
     tokensMax: 2_000_000,
     // A year of the monthly ceiling. See the module comment: this is the
-    // per-tree ceiling, not the monthly one, and it is set out of the way
-    // because F1.6's per-scope accounts do not exist yet.
+    // company-wide lifetime ceiling, not the monthly one, and it is set out of
+    // the way so that the monthly limit in `spend_limits` is what actually
+    // paces the company.
     moneyMaxCents: 240_000,
+
+    // F1.6's narrower ceilings, and the point of them is containment rather
+    // than accounting. Every one of these rolls up into the company account
+    // above, so the company's total is unchanged; what changes is that one
+    // division cannot spend the whole of it. A build loop that goes wrong stops
+    // when Build's share is gone, while support is still answering customers.
+    //
+    // The shares deliberately sum to more than the company's ceiling. They are
+    // not an allocation of it -- a division that is quiet does not lend its
+    // share to one that is busy, and sizing them to add up exactly would mean
+    // the company ceiling could never be the thing that binds. Each number is
+    // "the most this division should ever be able to spend on its own",
+    // measured against what its work costs: ops and support run many short
+    // tasks, assurance reviews what others produced, and the lab runs code that
+    // is supposed to be cheap and occasionally is not, which is exactly why it
+    // is capped hardest.
+    //
+    // Build hangs from Delivery rather than from the company, because it is
+    // Delivery's sub-division: its spending is Delivery's spending, and
+    // Delivery's ceiling has to be the larger of the two or it would be a
+    // number that could never bind. `assertTemplateIsCoherent` refuses the
+    // other way round rather than storing a limit that looks enforced.
+    divisions: [
+      { division: 'ops', tokensMax: 400_000, moneyMaxCents: 48_000 },
+      { division: 'delivery', tokensMax: 900_000, moneyMaxCents: 108_000 },
+      { division: 'build', tokensMax: 700_000, moneyMaxCents: 84_000 },
+      { division: 'growth', tokensMax: 300_000, moneyMaxCents: 36_000 },
+      { division: 'finance', tokensMax: 200_000, moneyMaxCents: 24_000 },
+      { division: 'support', tokensMax: 400_000, moneyMaxCents: 48_000 },
+      { division: 'assurance', tokensMax: 300_000, moneyMaxCents: 36_000 },
+      { division: 'lab', tokensMax: 150_000, moneyMaxCents: 18_000 },
+    ],
   },
 };
 

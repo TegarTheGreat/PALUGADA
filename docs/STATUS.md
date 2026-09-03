@@ -223,9 +223,9 @@ found missing in four places and one hole.
 
 Three audits, and then the obvious thing nobody had done: start the platform
 and watch a company do one piece of work. `scripts/smoke.ts` seeds the
-installation, builds a company from the standard template, starts a worker,
-puts a task in front of it and waits. The first run failed, in two ways that
-no test had caught because no test did what a real run does.
+installation, builds a company, starts a worker, puts a task in front of it and
+waits. Each of its first three runs failed, in ways no test had caught because
+no test did what a real run does.
 
 **A retryable failure left the task in `running`.** `#classifyFailure`
 incremented the attempt, wrote `task.attempt_failed`, and returned — without
@@ -275,11 +275,33 @@ form — a division added tomorrow without the grant gets a pack that is honest
 about it, rather than a second hard-coded exception list and the same bug
 waiting for whoever forgets to extend it.
 
-All three fixes have regression tests, and each was checked by re-introducing
-the bug. The template one did not catch it at first: it created its company
-from whatever `company_templates` row happened to be in the database, so it was
+Those fixes have regression tests, and each was checked by re-introducing the
+bug. The template one did not catch it at first: it created its company from
+whatever `company_templates` row happened to be in the database, so it was
 testing the last thing that wrote one rather than the source. It now saves the
 template from the source constant first.
+
+**And then the check itself turned out not to be hermetic, the same way.** It
+built its company from the standard template, which grants twenty-seven
+capabilities. Twenty-five of those are catalogue *declarations*:
+`src/broker/catalogue.ts` is a tier calibration and deliberately does not write
+itself into the `capabilities` table, because a row there means the broker can
+run the thing and F8.4 wants a read-back for anything above tier 0. So a freshly
+seeded installation cannot build a standard company until an operator binds real
+adapters — which is correct, and is the design saying so.
+
+Which made the standard template the wrong one for a boot check. The first two
+runs passed on catalogue rows the *test suite* had left behind: the check was
+testing the last thing that wrote one, which is the identical mistake its own
+regression test had made a few hours earlier and which I did not think to look
+for here. It now saves and builds its own one-division template, granting only
+what the platform implements itself, so it runs on an installation that has been
+migrated and seeded and nothing else. What the standard template would still
+need is reported rather than hidden — the third run printed all twenty-five
+names, which is the list an operator actually wants.
+
+The fourth run is the first that means anything: seed, company, worker, task,
+`completed` in 0.2s, funded by the `ops` account rather than the company's.
 
 ## 3. Decisions, deviations, and what is unverified
 
@@ -365,8 +387,23 @@ Smaller notes, recorded so they are not rediscovered:
   install points at a bundle in the *platform's* catalogue, which the
   destination may not have, so bundles are reinstalled rather than restored
   into a dangling reference.
-- F1.6's per-scope accounts exist and inherit, but the standard template still
-  creates one company-level account. That is now a template choice rather than
-  a missing feature: a template that invented a division allowance would be
-  guessing at a number the owner has not chosen. Its money ceiling stays a year
-  of the monthly figure so the monthly ceiling does the work.
+- F1.6 is wired end to end. The accounts and their inheritance existed and were
+  tested; `budget.accountFor` picked the narrowest one and *nothing in `src/`
+  called it*, so every task in every company drew on the company account and a
+  division ceiling was a row in a table. This is the same shape as the four
+  over-claims the wiring audit found — machinery that works, tested in
+  isolation, assembled by nobody — which is why the section above is not a
+  closed chapter but a habit. `createRootTask` now looks the account up from
+  the task's role, division and project unless the caller names one;
+  `createSubTask` still passes the parent's, because F5.4 says a sub-task
+  shares its parent's counter and that is not a thing to be clever about.
+  The standard template gives every division a ceiling under the company's,
+  with Build's hanging from Delivery's rather than the company's, and
+  `assertTemplateIsCoherent` refuses a narrower account declared above the one
+  it hangs from — a limit that could never bind is worse than no limit, because
+  it reads as enforced. `upsertSchedule` defaults the same way, which matters
+  more than it looks: `schedules.budget_account_id` is NOT NULL, so a schedule's
+  account is chosen once and then held, and defaulting it to the company's would
+  have put every recurring job in the company outside its division's ceiling.
+  Recurring work is most of what a company does, so that would have been most
+  of F1.6 back where it started.

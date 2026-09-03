@@ -99,17 +99,23 @@ within one polling interval rather than one queue.
 npm run smoke
 ```
 
-Seeds the installation, builds a company from the standard template, starts a
-worker, puts one task in front of it and waits — then prints the task's status
-and its audit trail, and exits non-zero if it did not complete. It uses the
-in-process runtime and calls no model: what it checks is the orchestration —
-claim, lease, run, contract, transition, settle — so it is runnable anywhere
-without a provider. It creates a company and leaves it behind, so point it at a
-development database.
+Seeds the installation, builds a company, starts a worker, puts one task in
+front of it and waits — then prints the task's status and its audit trail, and
+exits non-zero if it did not complete. It uses the in-process runtime and calls
+no model: what it checks is the orchestration — claim, lease, run, contract,
+transition, settle — so it runs on an installation that has just been migrated
+and seeded and nothing else. It creates a company and leaves it behind, so
+point it at a development database.
 
-The first time it ran it failed twice, in ways no test had caught because no
-test did what a real run does. [`docs/STATUS.md`](docs/STATUS.md) §2.5 says
-what they were.
+The company it builds grants only what PALUGADA implements itself. The standard
+template grants twenty-seven capabilities and twenty-five of those are catalogue
+declarations waiting for an adapter, so a fresh installation cannot build a
+standard company until an operator binds providers — which is correct, and the
+check reports exactly which names are still missing rather than failing on it.
+
+Each of its first three runs found something no test had caught, because no test
+did what a real run does. [`docs/STATUS.md`](docs/STATUS.md) §2.5 says what they
+were.
 
 ## Quick start
 
@@ -291,7 +297,7 @@ the template is organised by function rather than by industry.
 | v2 F17.2 a role with fewer than five references is unscored, not passing | `src/eval/role-eval.ts` | `trajectory-eval.test.ts` |
 | v2 F17.3 the owner sees the score before deciding | `src/eval/role-eval.ts` | `trajectory-eval.test.ts` |
 | v2 F17.4 a halted run becomes a negative candidate on its own | `src/engine/engine.ts` | `trajectory-eval.test.ts` |
-| v2 F1.6 a division's ceiling is its own and the company's | `src/engine/budget.ts` | `control-plane.test.ts` |
+| v2 F1.6 a division's ceiling is its own and the company's, and a task draws on it | `src/engine/budget.ts`, `src/engine/tasks.ts`, `src/templates/standard.ts` | `control-plane.test.ts`, `capability-catalogue.test.ts` |
 | v2 F2.9 a grant is not something an agent can widen | `src/governance/structure.ts` | `control-plane.test.ts` |
 | v2 F3.9 any config version restores, and the restore is a version | `src/governance/config-versions.ts` | `control-plane.test.ts` |
 | v2 F3.11 charters are files; the files are the source | `src/governance/charter-files.ts` | `control-plane.test.ts` |

@@ -110,7 +110,13 @@ export interface CreateTaskInput {
   divisionId: string;
   roleId: string;
   input: Record<string, unknown>;
-  budgetAccountId: string;
+  /**
+   * Which account funds this task. Optional: omitted, F1.6's narrowest
+   * applicable account is looked up from the role, division and project the
+   * task names. A caller that passes one is overriding that, which is what
+   * `createSubTask` does to satisfy F5.4.
+   */
+  budgetAccountId?: string;
   createdBy: 'scheduler' | 'event' | 'agent_run' | 'owner';
   deadlineAt?: Date | undefined;
   hopMax?: number | undefined;
@@ -193,24 +199,47 @@ export async function createRootTask(input: CreateTaskInput): Promise<TaskRow> {
       );
     }
 
+    // F1.6: the narrowest account that covers this task, unless the caller
+    // named one. A task charged to the company account while its division has
+    // one of its own would make that division's ceiling unenforceable, which
+    // is the whole point of having it.
+    const budgetAccountId = input.budgetAccountId
+      ?? await budget.accountFor(tx, {
+        companyId: input.companyId,
+        roleId: input.roleId,
+        divisionId: input.divisionId,
+        projectId: input.projectId,
+      });
+    if (!budgetAccountId) {
+      throw new PalugadaError(
+        'budget.reservation_refused',
+        'this company has no budget account to fund a task from',
+        { companyId: input.companyId, divisionId: input.divisionId },
+      );
+    }
+
     const reserveTokens = input.reserveTokens ?? DEFAULT_TASK_RESERVE_TOKENS;
-    const granted = await budget.reserve(tx, input.budgetAccountId, reserveTokens);
+    const granted = await budget.reserve(tx, budgetAccountId, reserveTokens);
     if (!granted) {
       throw new PalugadaError(
         'budget.reservation_refused',
         'budget account cannot fund this task',
-        { budgetAccountId: input.budgetAccountId, reserveTokens },
+        { budgetAccountId, reserveTokens },
       );
     }
 
     try {
-      return await insertTask(tx, input, { parentTaskId: null, hopDepth: 0, reserveTokens });
+      return await insertTask(
+        tx,
+        { ...input, budgetAccountId },
+        { parentTaskId: null, hopDepth: 0, reserveTokens },
+      );
     } catch (error) {
       // Two workers raced for the same occurrence. The unique constraint on
       // (company_id, idempotency_key) settled it; this side gives its
       // reservation back and adopts the winner's task.
       if ((error as { code?: string }).code === '23505' && input.idempotencyKey) {
-        await budget.release(tx, input.budgetAccountId, reserveTokens);
+        await budget.release(tx, budgetAccountId, reserveTokens);
         const existing = await findByIdempotencyKey(tx, input.idempotencyKey);
         if (existing) return existing;
       }
@@ -439,9 +468,16 @@ async function assertNoCycle(
   }
 }
 
+/**
+ * `budgetAccountId` is required here even though it is optional on the input:
+ * by this point the account has been resolved and reserved against, and a row
+ * that reached the table with a null one would be a task nothing is paying for.
+ * Stating it in the type is cheaper than a runtime check that has to be
+ * remembered at each call site.
+ */
 async function insertTask(
   tx: TenantClient,
-  input: CreateTaskInput,
+  input: CreateTaskInput & { budgetAccountId: string },
   meta: { parentTaskId: string | null; hopDepth: number; reserveTokens: number },
 ): Promise<TaskRow> {
   const inputHash = hashInput(input.input);

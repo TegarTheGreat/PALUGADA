@@ -21,6 +21,7 @@
 import cronParser from 'cron-parser';
 import { withControlPlane, withTenant } from '../db/tenant.ts';
 import { createRootTask, type TaskRow } from '../engine/tasks.ts';
+import * as budget from '../engine/budget.ts';
 import { appendEvent } from '../audit/event-log.ts';
 
 const { parseExpression } = cronParser;
@@ -30,7 +31,16 @@ export interface ScheduleInput {
   projectId: string;
   divisionId: string;
   roleId: string;
-  budgetAccountId: string;
+  /**
+   * Which account the tasks this schedule creates draw on.
+   *
+   * Optional: omitted, F1.6's narrowest applicable account is looked up from
+   * the division and role the schedule names. `schedules.budget_account_id` is
+   * NOT NULL, so the choice is made once here and then held -- which is the
+   * point, since a schedule that resolved its account at every firing would
+   * silently move to a different ceiling the day somebody adds one.
+   */
+  budgetAccountId?: string;
   slug: string;
   cronExpression: string;
   timezone?: string;
@@ -81,6 +91,17 @@ export async function upsertSchedule(input: ScheduleInput, now = new Date()): Pr
   const next = nextOccurrence(input.cronExpression, timezone, now);
 
   return withTenant(input.companyId, async (tx) => {
+    const budgetAccountId = input.budgetAccountId
+      ?? await budget.accountFor(tx, {
+        companyId: input.companyId,
+        roleId: input.roleId,
+        divisionId: input.divisionId,
+        projectId: input.projectId,
+      });
+    if (!budgetAccountId) {
+      throw new Error('this company has no budget account for a schedule to draw on');
+    }
+
     const { rows } = await tx.query<{ id: string }>(
       `INSERT INTO schedules
          (company_id, project_id, division_id, role_id, budget_account_id, slug,
@@ -102,7 +123,7 @@ export async function upsertSchedule(input: ScheduleInput, now = new Date()): Pr
         input.projectId,
         input.divisionId,
         input.roleId,
-        input.budgetAccountId,
+        budgetAccountId,
         input.slug,
         input.cronExpression,
         timezone,

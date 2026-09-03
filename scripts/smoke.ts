@@ -22,13 +22,93 @@ import { Engine, type TaskContext } from '../src/engine/engine.ts';
 import { RecordingLlmClient } from '../src/llm/client.ts';
 import { Worker } from '../src/worker.ts';
 import { baseRegistry, seed } from '../src/seed.ts';
-import { createCompanyFromTemplate } from '../src/templates/company.ts';
-import { STANDARD_TEMPLATE_SLUG } from '../src/templates/standard.ts';
+import {
+  createCompanyFromTemplate,
+  saveTemplate,
+  type CompanyTemplate,
+} from '../src/templates/company.ts';
+import { STANDARD_COMPANY_TEMPLATE } from '../src/templates/standard.ts';
 import { createRootTask, getTask } from '../src/engine/tasks.ts';
-import { withTenant } from '../src/db/tenant.ts';
+import { withTenant, withControlPlane } from '../src/db/tenant.ts';
 import { closePools } from '../src/db/pool.ts';
 
 const DEADLINE_MS = 30_000;
+
+/**
+ * The company this check builds, and why it is not the standard one.
+ *
+ * The standard template grants twenty-seven capabilities. Twenty-five of them
+ * are catalogue *declarations* -- `src/broker/catalogue.ts` is a tier
+ * calibration and deliberately does not write itself into the `capabilities`
+ * table, because a row there means the broker can run the thing and F8.4 wants
+ * a read-back for anything above tier 0. So a freshly seeded installation
+ * cannot build a standard company until an operator binds real adapters, and
+ * that is correct rather than a gap.
+ *
+ * Which makes it the wrong template for a boot check. This one grants only
+ * what PALUGADA implements itself, so it runs on an installation that has just
+ * been migrated and seeded and nothing else -- which is the situation the check
+ * exists for. The first two times this script ran it used the standard
+ * template and passed, on catalogue rows the test suite had left in the
+ * database: it was testing the last thing that wrote one, exactly as one of the
+ * regression tests it produced had been. What the standard template would still
+ * need is reported below rather than hidden.
+ */
+const SMOKE_TEMPLATE: CompanyTemplate = {
+  projects: [{ slug: 'main', name: 'Main' }],
+  goals: [
+    {
+      slug: 'mission',
+      kind: 'mission',
+      statement: 'Answer what this company knows, and say so plainly.',
+    },
+  ],
+  divisions: [{ slug: 'ops', name: 'Operations', maxConcurrency: 2 }],
+  roles: [
+    {
+      slug: 'coordinator',
+      division: 'ops',
+      systemPrompt: 'You look things up in this company and report what you found.',
+      model: 'standard',
+      tools: ['memory.search', 'skill.read'],
+      doneCriteria: ['the answer says what was looked for and what was found'],
+      outputSchema: {
+        type: 'object',
+        additionalProperties: true,
+        required: ['summary'],
+        properties: { summary: { type: 'string', minLength: 1 } },
+      },
+    },
+  ],
+  grants: [
+    { division: 'ops', capability: 'memory.search' },
+    { division: 'ops', capability: 'skill.read' },
+  ],
+  // A division ceiling under the company's, so the boot exercises F1.6's
+  // lookup rather than the one account every company used to have.
+  budget: {
+    tokensMax: 200_000,
+    moneyMaxCents: 20_000,
+    divisions: [{ division: 'ops', tokensMax: 50_000, moneyMaxCents: 5_000 }],
+  },
+};
+
+const SMOKE_TEMPLATE_SLUG = 'smoke-company';
+
+/** What the standard template still needs before it can build a company here. */
+async function unboundStandardGrants(): Promise<string[]> {
+  const wanted = [...new Set(
+    (STANDARD_COMPANY_TEMPLATE.grants ?? []).map((grant) => grant.capability),
+  )];
+  return withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ name: string }>(
+      'SELECT name FROM capabilities WHERE name = ANY($1::text[])',
+      [wanted],
+    );
+    const bound = new Set(rows.map((row) => row.name));
+    return wanted.filter((name) => !bound.has(name));
+  });
+}
 
 function log(step: string, detail: string): void {
   process.stdout.write(`  ${step.padEnd(22)} ${detail}\n`);
@@ -43,34 +123,48 @@ async function main(): Promise<number> {
     log('', `  ${bundle.slug}@${bundle.version} ${bundle.trusted ? 'trusted' : 'untrusted'}`);
   }
 
-  const slug = `smoke-${Date.now().toString(36)}`;
-  const company = await createCompanyFromTemplate({
-    templateSlug: STANDARD_TEMPLATE_SLUG,
-    companySlug: slug,
-    name: 'Smoke Run',
-  });
-  log('company built', `${slug} — ${Object.keys(company.divisionIds).length} divisions, ` +
-    `${Object.keys(company.roleIds).length} roles`);
-
   // The registry a deployment starts from: what the platform implements
   // itself. Nothing external is bound, which is why the handler below acts
   // through `memory.search` rather than through anything that leaves the
-  // machine.
+  // machine. Synced before the company is built, because
+  // `createCompanyFromTemplate` refuses to grant a capability the broker
+  // cannot run.
   const registry = baseRegistry();
   await registry.sync();
 
-  // Named rather than taken as whichever key came first. Two divisions hold no
-  // platform grant on purpose — the lab, which runs supplied code, and
-  // assurance, whose reviewer holds none at all by F7.3 — so a boot check that
-  // depended on object key order could land on one of them and report a
-  // correct refusal as a broken platform.
+  await saveTemplate({
+    slug: SMOKE_TEMPLATE_SLUG,
+    name: 'Smoke company',
+    description: 'One division that uses only what the platform implements itself.',
+    body: SMOKE_TEMPLATE,
+  });
+
+  const slug = `smoke-${Date.now().toString(36)}`;
+  const company = await createCompanyFromTemplate({
+    templateSlug: SMOKE_TEMPLATE_SLUG,
+    companySlug: slug,
+    name: 'Smoke Run',
+  });
+  log('company built', `${slug} — ${Object.keys(company.divisionIds).length} division, ` +
+    `${Object.keys(company.roleIds).length} role`);
+
+  const unbound = await unboundStandardGrants();
+  log(
+    'standard template',
+    unbound.length === 0
+      ? 'every capability it grants is bound here'
+      : `${unbound.length} capabilities still need an adapter: ${unbound.join(', ')}`,
+  );
+
+  // Named rather than taken as whichever key came first, so a change to the
+  // template above fails loudly here instead of quietly running something else.
   const roleSlug = 'coordinator';
   const divisionSlug = 'ops';
   const roleId = company.roleIds[roleSlug];
   const divisionId = company.divisionIds[divisionSlug];
   if (!roleId || !divisionId) {
     throw new Error(
-      `the standard template no longer has ${divisionSlug}/${roleSlug}; this check needs updating`,
+      `SMOKE_TEMPLATE no longer has ${divisionSlug}/${roleSlug}; this check needs updating`,
     );
   }
 
@@ -103,18 +197,24 @@ async function main(): Promise<number> {
   const running = worker.start();
   log('worker started', `id ${engine.workerId}, role ${roleSlug}`);
 
+  // No budgetAccountId: F1.6 says the narrowest account that covers this task,
+  // which for a task in ops is the ops account rather than the company's. Left
+  // to the lookup here on purpose -- it is the wiring that was missing, so a
+  // boot check that named the account by hand would step over it.
   const task = await createRootTask({
     companyId: company.companyId,
     projectId: Object.values(company.projectIds)[0]!,
     divisionId,
     roleId,
-    budgetAccountId: company.budgetAccountId,
     goalId: Object.values(company.goalIds)[0]!,
     input: { goal: 'Say what this company knows.' },
     createdBy: 'owner',
     reserveTokens: 5_000,
   });
-  log('task created', task.id);
+  const fundedBy = task.budgetAccountId === company.budgetAccountId
+    ? 'the company account'
+    : `the ${divisionSlug} account`;
+  log('task created', `${task.id} — funded by ${fundedBy}`);
 
   const startedAt = Date.now();
   let final: Awaited<ReturnType<typeof getTask>> = null;

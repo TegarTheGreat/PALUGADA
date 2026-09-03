@@ -66,7 +66,21 @@ export interface CompanyTemplate {
   roles: TemplateRole[];
   sops?: Array<{ division: string; body: string }>;
   grants?: TemplateGrant[];
-  budget?: { tokensMax: number; moneyMaxCents?: number };
+  /**
+   * The company's ceiling, and the narrower ceilings under it (F1.6).
+   *
+   * `divisions` is the part that makes F1.6 more than a schema. Without it a
+   * company has exactly one account, every task draws on it, and a division
+   * that burns the month is indistinguishable from the company doing so. Each
+   * entry creates a child account whose parent is the company's, and
+   * `budget_reserve` walks the whole chain, so a division's ceiling binds
+   * without the company's ever stopping binding.
+   */
+  budget?: {
+    tokensMax: number;
+    moneyMaxCents?: number;
+    divisions?: Array<{ division: string; tokensMax: number; moneyMaxCents?: number }>;
+  };
 }
 
 export interface CreatedCompany {
@@ -75,7 +89,10 @@ export interface CreatedCompany {
   goalIds: Record<string, string>;
   divisionIds: Record<string, string>;
   roleIds: Record<string, string>;
+  /** The company-scoped account, which every narrower one rolls up into. */
   budgetAccountId: string;
+  /** Division slug to its own account, for the divisions the template gave one. */
+  divisionBudgetAccountIds: Record<string, string>;
 }
 
 export async function saveTemplate(input: {
@@ -131,6 +148,55 @@ export function assertTemplateIsCoherent(template: CompanyTemplate): void {
     }
     if (division.parent === division.slug) {
       throw new Error(`division ${division.slug} cannot be its own parent`);
+    }
+  }
+
+  // F1.6's inheritance means a task's effective ceiling is the smallest in its
+  // chain, so an account above the one it hangs from is a number that can never
+  // be reached. Refused at save time rather than left to be discovered as a
+  // reservation that failed against a limit nobody set -- the same reasoning as
+  // F3.5 refusing a policy scope that loosens a broader one.
+  //
+  // Compared against the account it will actually hang from, which for a
+  // sub-division is its parent division's when that has one. Comparing
+  // everything against the company's would let a sub-division be declared
+  // larger than the division containing it.
+  const budgets = new Map(
+    (template.budget?.divisions ?? []).map((account) => [account.division, account]),
+  );
+  const parentOf = new Map(
+    template.divisions.map((division) => [division.slug, division.parent ?? null]),
+  );
+  if (budgets.size !== (template.budget?.divisions ?? []).length) {
+    throw new Error('template gives the same division two budget accounts');
+  }
+
+  for (const account of template.budget?.divisions ?? []) {
+    if (!divisions.has(account.division)) {
+      throw new Error(`budget names unknown division ${account.division}`);
+    }
+
+    const parentSlug = parentOf.get(account.division) ?? null;
+    const above = (parentSlug && budgets.get(parentSlug)) || {
+      division: 'the company',
+      tokensMax: template.budget?.tokensMax ?? 1_000_000,
+      moneyMaxCents: template.budget?.moneyMaxCents ?? 0,
+    };
+
+    if (account.tokensMax > above.tokensMax) {
+      throw new Error(
+        `division ${account.division} is given ${account.tokensMax} tokens, above ` +
+        `${above.division}'s ${above.tokensMax}, so the ceiling could never bind`,
+      );
+    }
+    // A zero money ceiling means "not set here", so it is not a smaller number
+    // to be exceeded; only a real one above it is a contradiction.
+    const aboveMoney = above.moneyMaxCents ?? 0;
+    if (aboveMoney > 0 && (account.moneyMaxCents ?? 0) > aboveMoney) {
+      throw new Error(
+        `division ${account.division} is given ${account.moneyMaxCents} cents, above ` +
+        `${above.division}'s ${aboveMoney}, so the ceiling could never bind`,
+      );
     }
   }
 
@@ -225,7 +291,7 @@ export async function createCompanyFromTemplate(
     const roleIds = await insertRoles(tx, companyId, template, divisionIds);
     await insertSops(tx, companyId, template, divisionIds);
     await insertGrants(tx, companyId, template, divisionIds);
-    const budgetAccountId = await insertBudget(tx, companyId, template);
+    const budget = await insertBudget(tx, companyId, template, divisionIds);
 
     await tx.query(
       `INSERT INTO events (company_id, project_id, type, actor, payload)
@@ -241,7 +307,15 @@ export async function createCompanyFromTemplate(
       ],
     );
 
-    return { companyId, projectIds, goalIds, divisionIds, roleIds, budgetAccountId };
+    return {
+      companyId,
+      projectIds,
+      goalIds,
+      divisionIds,
+      roleIds,
+      budgetAccountId: budget.companyAccountId,
+      divisionBudgetAccountIds: budget.divisionAccountIds,
+    };
   });
 }
 
@@ -430,15 +504,67 @@ async function insertGrants(
   }
 }
 
+/**
+ * The company's account, and a child for each division the template gave one.
+ *
+ * Runs after the divisions exist, because a child account names the division it
+ * belongs to. The company account is created unconditionally and is the root of
+ * every chain: `budget_narrow_scope_has_a_parent` refuses a narrower account
+ * without one, which is the database saying that a division ceiling can only
+ * ever tighten the company's, never escape it.
+ *
+ * A sub-division's account hangs from its parent division's, not from the
+ * company's, when the parent has one. That is what makes the parent's ceiling
+ * contain its own sub-tree: without it, Build could spend past Delivery's
+ * ceiling while Delivery's own number sat there looking enforced. Depth is
+ * capped at two (F2.2), so ordering the inserts is one pass -- parents first,
+ * then the rest.
+ */
 async function insertBudget(
   tx: TenantClient,
   companyId: string,
   template: CompanyTemplate,
-): Promise<string> {
+  divisionIds: Record<string, string>,
+): Promise<{ companyAccountId: string; divisionAccountIds: Record<string, string> }> {
   const { rows } = await tx.query<{ id: string }>(
     `INSERT INTO budget_accounts (company_id, label, tokens_max, money_max_cents)
      VALUES ($1, 'company', $2, $3) RETURNING id`,
     [companyId, template.budget?.tokensMax ?? 1_000_000, template.budget?.moneyMaxCents ?? 0],
   );
-  return rows[0]!.id;
+  const companyAccountId = rows[0]!.id;
+
+  const parentOf = new Map(
+    template.divisions.map((division) => [division.slug, division.parent ?? null]),
+  );
+  const declared = new Set((template.budget?.divisions ?? []).map((a) => a.division));
+  const ordered = [...(template.budget?.divisions ?? [])].sort((left, right) => {
+    const leftIsChild = declared.has(parentOf.get(left.division) ?? '');
+    const rightIsChild = declared.has(parentOf.get(right.division) ?? '');
+    return Number(leftIsChild) - Number(rightIsChild);
+  });
+
+  const divisionAccountIds: Record<string, string> = {};
+  for (const account of ordered) {
+    const parentSlug = parentOf.get(account.division) ?? null;
+    const parentAccountId =
+      (parentSlug && divisionAccountIds[parentSlug]) || companyAccountId;
+
+    const { rows: child } = await tx.query<{ id: string }>(
+      `INSERT INTO budget_accounts
+         (company_id, label, tokens_max, money_max_cents, scope_type, scope_id,
+          parent_account_id)
+       VALUES ($1, $2, $3, $4, 'division', $5, $6) RETURNING id`,
+      [
+        companyId,
+        account.division,
+        account.tokensMax,
+        account.moneyMaxCents ?? 0,
+        divisionIds[account.division],
+        parentAccountId,
+      ],
+    );
+    divisionAccountIds[account.division] = child[0]!.id;
+  }
+
+  return { companyAccountId, divisionAccountIds };
 }

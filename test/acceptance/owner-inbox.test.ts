@@ -384,11 +384,20 @@ test('a tier 3 approval needs a second factor, not just the right channel (F10.1
 test('the message channel rule is settled before the channel exists (F10.9, F10.10)', () => {
   assert.equal(inbox.channelDelivery({ kind: 'escalation', tier: null }), 'actionable');
   assert.equal(inbox.channelDelivery({ kind: 'skill_candidate', tier: null }), 'actionable');
+  // Same decision, older name: `proposeSop` still raises this one.
+  assert.equal(inbox.channelDelivery({ kind: 'sop_candidate', tier: null }), 'actionable');
   assert.equal(inbox.channelDelivery({ kind: 'approval', tier: 2 }), 'actionable');
 
-  // The exception F10.10 states, and it wins over the kind: a tier 3 approval
-  // reaches the phone and carries nothing to press.
+  // The exception F10.10 states: a tier 3 *approval* reaches the phone and
+  // carries nothing to press.
   assert.equal(inbox.channelDelivery({ kind: 'approval', tier: 3 }), 'link_only');
+
+  // And it is scoped to approvals, which the first version of this rule got
+  // wrong. F10.10 restricts approving an irreversible action; an escalation is
+  // a question. `proposeGoalChange` raises exactly this — an escalation
+  // carrying tier 3 because the inbox sorts by it — and answering it must not
+  // require opening an app that does not exist.
+  assert.equal(inbox.channelDelivery({ kind: 'escalation', tier: 3 }), 'actionable');
 
   // An incident is push-worthy under F10.5 and is not one of the three F10.9
   // lists, so it notifies and offers no button. That is a reading rather than a
@@ -398,5 +407,7 @@ test('the message channel rule is settled before the channel exists (F10.9, F10.
   // Anything the requirement does not name is not a channel surface. The
   // default is "not this one", which is the direction to be wrong in.
   assert.equal(inbox.channelDelivery({ kind: 'budget_alert', tier: null }), 'none');
+  // A fact is not a procedure and F10.9 does not name it, so it stays off the
+  // channel until somebody decides it belongs there.
   assert.equal(inbox.channelDelivery({ kind: 'fact_candidate', tier: null }), 'none');
 });

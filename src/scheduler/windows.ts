@@ -12,6 +12,7 @@
  * time zone database instead of by assumptions that break twice a year.
  */
 import { withTenant, withControlPlane, type TenantClient } from '../db/tenant.ts';
+import { channelDelivery, type ChannelDelivery } from '../inbox/inbox.ts';
 
 export interface LocalTime {
   hour: number;
@@ -262,18 +263,41 @@ export async function notifyAfterFor(
   return nextOpening(window, now) ?? now;
 }
 
-/** Items the owner may be shown right now. */
+/**
+ * Items the owner may be shown right now, and what a channel may do with each.
+ *
+ * Two rules meet here and they answer different questions. `notify_after`
+ * answers *when* -- F10.5 lets an incident and a tier 3 approval through the
+ * owner's window and makes everything else wait. `channelDelivery` answers
+ * *how* -- F10.9 names the three things a message channel may put a button on,
+ * and F10.10 cuts tier 3 down to a link.
+ *
+ * Carried together because a caller that had to remember to ask the second
+ * question separately is a caller that will eventually not. This is the one
+ * function that answers "what can the owner be shown", so it is where the rule
+ * about what they may press belongs.
+ */
 export async function pendingNotifications(
   companyId: string,
   now = new Date(),
-): Promise<Array<{ id: string; kind: string; title: string }>> {
+): Promise<Array<{ id: string; kind: string; title: string; delivery: ChannelDelivery }>> {
   return withTenant(companyId, async (tx) => {
-    const { rows } = await tx.query<{ id: string; kind: string; title: string }>(
-      `SELECT id, kind, title FROM inbox_items
+    const { rows } = await tx.query<{
+      id: string;
+      kind: string;
+      title: string;
+      tier: number | null;
+    }>(
+      `SELECT id, kind, title, tier FROM inbox_items
         WHERE status = 'open' AND notify_after <= $1
         ORDER BY created_at`,
       [now],
     );
-    return rows;
+    return rows.map((row) => ({
+      id: row.id,
+      kind: row.kind,
+      title: row.title,
+      delivery: channelDelivery(row),
+    }));
   });
 }

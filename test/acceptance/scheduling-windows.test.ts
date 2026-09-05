@@ -196,6 +196,12 @@ test('non-emergency escalations wait for the owner window; incidents do not (F9.
   const notifiable = await pendingNotifications(fixture.companyId);
   assert.equal(notifiable.length, 1);
   assert.equal(notifiable[0]!.kind, 'incident');
+
+  // And it carries what a channel may do with it. Two rules answer different
+  // questions — `notify_after` says when the owner may be shown this, F10.9
+  // and F10.10 say what they may press — and a caller that had to ask the
+  // second one separately is a caller that will eventually not.
+  assert.equal(notifiable[0]!.delivery, 'link_only');
 });
 
 test('schedules survive a restart and fire exactly once (F9.1)', async () => {

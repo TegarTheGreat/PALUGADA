@@ -453,15 +453,24 @@ export type OwnerAssurance = 'mfa' | 'session' | 'none';
 export type ChannelDelivery = 'actionable' | 'link_only' | 'none';
 
 export function channelDelivery(item: { kind: string; tier: number | null }): ChannelDelivery {
-  // F10.10 first, so no later rule can hand tier 3 a button.
-  if ((item.tier ?? 0) >= 3) return 'link_only';
-
   switch (item.kind) {
+    case 'approval':
+      // F10.9 says "review Tier <= 2" and F10.10 says tier 3 shows a link.
+      // The tier test belongs *inside* this case rather than above the switch:
+      // F10.10 restricts approving an irreversible action, and an escalation is
+      // a question, not an approval. `notifyAfterFor` scopes its own tier 3
+      // branch the same way, and the first version of this function did not --
+      // which made a tier 3 escalation, exactly what `proposeGoalChange`
+      // raises, arrive with nothing to press.
+      return (item.tier ?? 0) >= 3 ? 'link_only' : 'actionable';
     case 'escalation':
     case 'skill_candidate':
-      return 'actionable';
-    case 'approval':
-      // "review Tier <= 2" in F10.9's words. The tier 3 case left above.
+    // The v1 name for the same decision. `proposeSop` still raises it and
+    // `proposeSkill` raises the v2 one, so an owner asked "should this become
+    // a procedure?" gets a button from one path and not the other purely by
+    // which vocabulary the caller happened to use. F10.9 names the concept,
+    // not the spelling.
+    case 'sop_candidate':
       return 'actionable';
     case 'incident':
       return 'link_only';

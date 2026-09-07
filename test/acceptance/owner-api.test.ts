@@ -954,7 +954,8 @@ test('a vendor file that cannot be built from stops the boot (§10)', async () =
 test('the deployment can actually run a task (F13.1, §10)', async () => {
   const { start } = await import('../../src/main.ts');
   const { RecordingLlmClient } = await import('../../src/llm/client.ts');
-  const { createRootTask } = await import('../../src/engine/tasks.ts');
+  const { createRootTask, getTask } = await import('../../src/engine/tasks.ts');
+  const { withTenant } = await import('../../src/db/tenant.ts');
 
   const fixture = await createCompany('deployment-runtime');
   const ran: string[] = [];
@@ -966,7 +967,7 @@ test('the deployment can actually run a task (F13.1, §10)', async () => {
       ran.push(ctx.task.id);
       return { done: true };
     }]]),
-    worker: { idleMs: 50 },
+    worker: { companyId: fixture.companyId, idleMs: 50 },
   });
 
   try {
@@ -987,8 +988,30 @@ test('the deployment can actually run a task (F13.1, §10)', async () => {
       reserveTokens: 10_000,
     });
 
-    const outcome = await deployment.engine.runTask(fixture.companyId, task.id, 'worker');
-    assert.equal(outcome.status, 'completed', outcome.reason ?? '');
+    // Left to the worker this deployment started, rather than run by hand.
+    //
+    // The first version called `engine.runTask` directly and raced the
+    // deployment's own worker for the same row -- whoever claimed it first
+    // won, and one run in ten the test lost and read `not_claimed`. Which was
+    // F5.11 working exactly as written: `FOR UPDATE SKIP LOCKED` means two
+    // claimants cannot both have it. The platform was right and the test was
+    // wrong, and it was wrong about the interesting part too: "the deployment
+    // can run a task" is a claim about the *worker*, so watching the worker do
+    // it is both correct and stronger.
+    const deadline = Date.now() + 10_000;
+    let status = task.status;
+    while (Date.now() < deadline) {
+      status = await withTenant(
+        fixture.companyId,
+        async (tx) => (await getTask(tx, task.id))!.status,
+      );
+      if (status === 'completed' || status === 'failed' || status === 'halted') break;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+
+    // Raced against a clock rather than waited on forever: a regression here
+    // should be one red line, not a suite that hangs until CI times out.
+    assert.equal(status, 'completed', `the worker left the task ${status}`);
     assert.deepEqual(ran, [task.id]);
     assert.ok(deployment.notes.some((note) => note.startsWith('runtimes:')));
   } finally {

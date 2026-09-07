@@ -1637,6 +1637,27 @@ directly; `claimIdempotencyKey` and `assertWithinQuarantine` wait on a device
 actually speaking to this deployment; and a budget account, an account chain
 and superseding a memory all take a transaction rather than a company id.
 
+### A test that raced the platform and lost, once in seven
+
+CI went red on a commit that had been green locally, and the same tree ran
+green here 598 out of 598. So it was a flake, and a flake found once and shrugged
+at is a flake that comes back on the commit you actually need to ship. Fifteen
+repeats of the file found it: `the deployment can actually run a task` failed
+one run in seven with `not_claimed`.
+
+**The platform was right and the test was wrong.** `start()` boots a *worker*,
+and the test then called `engine.runTask` on the same row. Two claimants, one
+task: F5.11's `FOR UPDATE SKIP LOCKED` means exactly one of them gets it, and
+one run in seven the worker was faster. The test was also wrong about the
+interesting part -- "the deployment can run a task" is a claim about the
+worker, so watching the worker do it is both correct and stronger. It waits for
+the task to reach a terminal status now, raced against a ten-second clock so a
+regression is one red line rather than a suite that hangs until CI times out.
+
+Fifteen consecutive runs since, and the two mutations that test exists for -- an
+engine with no adapters, an in-process runtime never built -- are both still
+caught.
+
 ### What is actually left
 
 No push service, no bot token, no sandbox vendor, and none of F13.3's four

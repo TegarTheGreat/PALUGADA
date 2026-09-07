@@ -73,8 +73,16 @@ export interface VerifySpec {
    * A function rather than a field comparison, because "did it work" is
    * vendor-shaped: one returns the object, another a status, another an empty
    * 204 that means yes. Given the parsed body and the status.
+   *
+   * The call's input is passed too, because the strongest read-back F8.4 can
+   * ask for is not "a field is present" but "the record now says what I set
+   * it to" -- and that comparison needs the value that was set.
    */
-  matches(answer: { status: number; body: unknown }, result: unknown): boolean;
+  matches(
+    answer: { status: number; body: unknown },
+    result: unknown,
+    input: Record<string, unknown>,
+  ): boolean;
 }
 
 export interface HttpCapabilitySpec {
@@ -240,7 +248,7 @@ export function httpCapability(spec: HttpCapabilitySpec): Capability<
       });
       // A read-back that could not be made is not a read-back that passed.
       if (answer.status >= 400) return false;
-      return verifySpec.matches({ status: answer.status, body: answer.body }, result);
+      return verifySpec.matches({ status: answer.status, body: answer.body }, result, input);
     };
   }
 

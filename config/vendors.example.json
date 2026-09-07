@@ -1,0 +1,100 @@
+{
+  "capabilities": [
+    {
+      "name": "email.send",
+      "adapter": "resend",
+      "tier": 2,
+      "method": "POST",
+      "url": "https://api.resend.com/emails",
+      "headers": {
+        "authorization": "Bearer {credential}",
+        "idempotency-key": "{idempotencyKey}"
+      },
+      "body": {
+        "from": "{input.from}",
+        "to": "{input.to}",
+        "subject": "{input.subject}",
+        "text": "{input.body}"
+      },
+      "result": "body.id",
+      "credentialAlias": "email",
+      "requiredScopes": ["email:send"],
+      "verify": {
+        "url": "https://api.resend.com/emails/{result.id}",
+        "headers": { "authorization": "Bearer {credential}" },
+        "matches": { "status": 200, "path": "body.id", "equalsPath": "result" }
+      },
+      "describe": {
+        "recipientDomain": "to",
+        "batchSize": "to"
+      },
+      "preflightUrl": "https://api.resend.com/domains",
+      "estimatedCostCents": 1
+    },
+    {
+      "name": "dns.read",
+      "adapter": "cloudflare",
+      "tier": 0,
+      "method": "GET",
+      "url": "https://api.cloudflare.com/client/v4/zones/{input.zoneId}/dns_records",
+      "headers": { "authorization": "Bearer {credential}" },
+      "result": "body.result",
+      "credentialAlias": "dns",
+      "requiredScopes": ["zone:read"],
+      "preflightUrl": "https://api.cloudflare.com/client/v4/user/tokens/verify"
+    },
+    {
+      "name": "dns.update",
+      "adapter": "cloudflare",
+      "tier": 1,
+      "method": "PUT",
+      "url": "https://api.cloudflare.com/client/v4/zones/{input.zoneId}/dns_records/{input.recordId}",
+      "headers": {
+        "authorization": "Bearer {credential}",
+        "x-idempotency-key": "{idempotencyKey}"
+      },
+      "body": {
+        "type": "{input.type}",
+        "name": "{input.name}",
+        "content": "{input.content}",
+        "ttl": "{input.ttl}"
+      },
+      "result": "body.result",
+      "credentialAlias": "dns",
+      "requiredScopes": ["zone:read", "zone:edit"],
+      "verify": {
+        "url": "https://api.cloudflare.com/client/v4/zones/{input.zoneId}/dns_records/{input.recordId}",
+        "headers": { "authorization": "Bearer {credential}" },
+        "matches": { "status": 200, "path": "body.result.content", "equalsPath": "input.content" }
+      },
+      "describe": { "urlHost": "content" },
+      "preflightUrl": "https://api.cloudflare.com/client/v4/user/tokens/verify"
+    },
+    {
+      "name": "invoice.issue",
+      "adapter": "stripe",
+      "tier": 2,
+      "method": "POST",
+      "url": "https://api.stripe.com/v1/invoices",
+      "headers": {
+        "authorization": "Bearer {credential}",
+        "idempotency-key": "{idempotencyKey}"
+      },
+      "body": {
+        "customer": "{input.customerId}",
+        "amount_due": "{input.amountCents}",
+        "currency": "{input.currency}"
+      },
+      "result": "body.id",
+      "credentialAlias": "billing",
+      "requiredScopes": ["invoice:write"],
+      "verify": {
+        "url": "https://api.stripe.com/v1/invoices/{result.id}",
+        "headers": { "authorization": "Bearer {credential}" },
+        "matches": { "status": 200, "path": "body.status", "oneOf": ["draft", "open", "paid"] }
+      },
+      "describe": { "moneyCents": "amountCents" },
+      "preflightUrl": "https://api.stripe.com/v1/balance"
+    }
+  ]
+}

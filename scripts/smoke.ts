@@ -172,6 +172,15 @@ async function main(): Promise<number> {
   });
   log('platform capabilities', bound.join(', '));
 
+  // And the example vendor file, which is what an operator copies. A broken
+  // example is a broken first hour, and this is the boot check -- so it is
+  // read here rather than trusted, and the names it binds come off the count
+  // below like any other binding.
+  const { registerVendorCapabilities } = await import('../src/capabilities/vendors.ts');
+  const fromFile = await registerVendorCapabilities(registry, 'config/vendors.example.json');
+  await registry.sync();
+  log('vendor file', `config/vendors.example.json binds ${fromFile.join(', ')}`);
+
   const unbound = await unboundStandardGrants();
   log(
     'standard template',
@@ -182,7 +191,7 @@ async function main(): Promise<number> {
   // The five are not among them, which is the assertion: a capability the
   // platform implements and forgets to register is one a role is refused for
   // at the moment it tries to work.
-  for (const name of bound) {
+  for (const name of [...bound, ...fromFile]) {
     if (unbound.includes(name)) {
       log('RESULT', `${name} is implemented and not registered`);
       return 1;

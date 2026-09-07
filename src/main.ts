@@ -36,6 +36,8 @@ import { TelegramChannel } from './owner/telegram.ts';
 import type { OwnerChannel } from './owner/notify.ts';
 import { AdapterRegistry } from './runtime/protocol.ts';
 import { registerPlatformCapabilities } from './capabilities/platform.ts';
+import { registerVendorCapabilities } from './capabilities/vendors.ts';
+import { STANDARD_CATALOGUE } from './broker/catalogue.ts';
 import { registerPlatformCapabilities as registerPlatformTools, PLATFORM_CAPABILITIES }
   from './broker/platform-capabilities.ts';
 import { CachedSecretManager } from './secrets/rotation.ts';
@@ -63,6 +65,15 @@ export interface DeploymentOptions {
    * platform's own source.
    */
   filesRoot?: string;
+  /**
+   * The JSON file binding the capabilities that need somebody's account.
+   *
+   * The twenty this platform does not implement are a spec each, and this is
+   * where a deployment hands them in. Omitted means they stay unbound, which
+   * the boot check says out loud rather than leaving to an agent's first
+   * refusal.
+   */
+  vendorsFile?: string;
   port?: number;
   host?: string;
   env?: NodeJS.ProcessEnv;
@@ -201,6 +212,49 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     notes.push('doc.draft and email.draft are unbound: they need PALUGADA_FILES_ROOT too (F8)');
   }
   notes.push(`bound by the platform: ${[...PLATFORM_CAPABILITIES, ...bound].join(', ')}`);
+
+  // The twenty, from the operator's file.
+  //
+  // A failure here stops the boot rather than being collected as a note. Every
+  // other missing piece leaves a capability unbound, which the catalogue check
+  // and the broker both refuse loudly at the moment of use; a *malformed*
+  // vendor file is different, because the operator believes they configured
+  // it. Starting anyway would produce the exact failure v2 section 2.3
+  // records -- a deployment that looks healthy and refuses every send.
+  const vendorsFile = options.vendorsFile ?? env.PALUGADA_VENDORS ?? null;
+  const vendorNames = vendorsFile
+    ? await registerVendorCapabilities(registry, vendorsFile)
+    : [];
+  if (vendorNames.length > 0) {
+    notes.push(`bound by ${vendorsFile}: ${vendorNames.join(', ')}`);
+  }
+
+  // Once, after everything is registered.
+  //
+  // `registerPlatformCapabilities` syncs at the end of its own work, and the
+  // first version of this file relied on that -- so a capability registered
+  // afterwards lived in memory and never reached the `capabilities` table.
+  // The broker reads that table for the kill switch and the tier, and every
+  // grant is a foreign key into it, so a vendor capability that skipped it
+  // could not be granted at all: the file would load, the boot note would name
+  // it, and nothing would work. Syncing here rather than there means the last
+  // registration is the one that decides when to write.
+  await registry.sync();
+
+  // What is still unbound, by name. The count on its own has been wrong twice
+  // in this repository's history -- both times because something was
+  // registered and nothing looked -- so this reads the registry rather than
+  // subtracting numbers.
+  const unbound = STANDARD_CATALOGUE
+    .map((entry) => entry.name)
+    .filter((name) => registry.get(name) === undefined);
+  if (unbound.length > 0) {
+    notes.push(
+      `${unbound.length} catalogued ${unbound.length === 1 ? 'capability needs' : 'capabilities need'} `
+      + `a vendor: ${unbound.join(', ')}`
+      + (vendorsFile ? '' : ' -- set PALUGADA_VENDORS to a file that binds them'),
+    );
+  }
 
   const broker = new CapabilityBroker(
     registry,

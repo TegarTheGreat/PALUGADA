@@ -36,6 +36,15 @@ export type ErrorCode =
   | 'skill.quarantined'
   | 'skill.bad_signature'
   | 'config.unknown_version'
+  /**
+   * A deployment's own configuration file cannot be built from.
+   *
+   * Separate from `contract.violation`, which is an agent breaking a rule this
+   * platform stated. This one is the operator's file, read at boot, and it is
+   * refused there rather than becoming a capability that fails at an agent's
+   * first call -- the silent misconfiguration v2 section 2.3 records.
+   */
+  | 'config.invalid'
   | 'gateway.unpaired'
   | 'gateway.bad_signature'
   | 'gateway.quarantined'

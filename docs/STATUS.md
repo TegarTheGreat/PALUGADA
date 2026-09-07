@@ -1212,11 +1212,12 @@ requires fails its preflight rather than its first real call.
 
 ### What that leaves
 
-Twenty names still need somebody's account, and the boot check still prints all
-twenty. That number is honest in a way it was not: what is left is what
-genuinely cannot be built here, rather than what nobody had looked at -- and
-what remains for an operator is a settings entry per vendor rather than an
-integration.
+Twenty names still need somebody's account, and the boot check prints every one
+it does not have. That number is honest in a way it was not: what is left is
+what genuinely cannot be built here, rather than what nobody had looked at --
+and what remains for an operator is a settings entry per vendor rather than an
+integration. The section after this one is about how they hand that entry in,
+which turned out to be missing.
 
 ### And a review of that turned up a credential leak
 
@@ -1272,6 +1273,77 @@ the forced sweep wrote `unhealthy`, an incident was raised, and the engine
 halted the next task that needed it. The owner would have been woken to be told
 that the thing they had just fixed was broken. Seven mutations, one per fix,
 each re-introducing the exact defect: all seven are caught.
+
+### The spec was configuration nobody could hand in
+
+The section above says an operator writes a spec rather than an integration,
+and the README said so too. Both were one step early. `HttpCapabilitySpec` is
+a TypeScript object with four functions in it -- a body builder, a result
+mapper, a match predicate and a policy describer -- so the only way to bind
+`email.send` was to fork this repository and edit `src/main.ts`. Nothing in the
+deployment referenced `httpCapability` at all.
+
+That is the same defect a fourth time: **machinery that works, is tested in
+isolation, and is assembled by nobody.** It is worth naming how it recurs,
+because the shape is always the same and the fix is always the same size. Each
+time, a piece was built and proved correct against a test that constructed its
+own caller; each time, the real caller was the file nobody thought of as code.
+
+So the four functions have declarative forms and the whole thing is a JSON
+file. `PALUGADA_VENDORS` names it, `config/vendors.example.json` is a working
+one, and `src/capabilities/vendors.ts` turns each entry into the spec
+`httpCapability` already took:
+
+- a **body** is a JSON template, substituted value by value rather than by
+  string -- so a subject line with a quote in it cannot produce invalid JSON,
+  and a string that is *exactly* one placeholder keeps the type of the value it
+  names, because a vendor that declared an integer rejects `"25"`;
+- a **result** is a path into the answer;
+- a **match** is a status, a path and a comparison, including `equalsPath`,
+  which is the read-back F8.4 actually wants: not "a field came back" but "the
+  record now says what I set it to". `VerifySpec.matches` gained the call's
+  input so it can make that comparison;
+- a **describe** maps F3.4's four fields to input paths, and reads a batch
+  properly: recipients that share a domain have one, recipients that do not
+  have `null` rather than the first one -- which is the safe answer in both
+  directions a policy can be written, since an escalation rule reading
+  `not_in [ours]` fires on `null` and an allow rule reading `in [ours]` does
+  not match it.
+
+The vocabulary is deliberately small. The alternative to a small vocabulary is
+an expression language, and an expression language in a configuration file is a
+program nobody reviews inside the one component standing between an agent and
+an irreversible action. Paths read own properties only, for the same reason:
+`{ "present": "body.constructor" }` would otherwise pass against every object a
+vendor can return, including the `{}` it answers when it did nothing.
+
+**A file that cannot be built from stops the boot**, naming the entry and the
+field. Every other missing piece leaves a capability unbound, which the
+catalogue check and the broker both refuse loudly at the moment of use; a
+malformed vendor file is different, because the operator believes they
+configured it, and starting anyway is section 2.3's silent misconfiguration
+written a second time. `additionalProperties: false` throughout, so
+`credential_alias` for `credentialAlias` is a refusal rather than a capability
+that sends no token; a duplicate name is a refusal rather than a race between
+two entries; an empty `matches` is a refusal rather than a read-back that reads
+nothing back. And the file cannot loosen the catalogue: `registry.register`
+runs `assertCalibrated`, so an entry binding `email.send` at tier 0 is refused
+against the calibration.
+
+**And writing the test for the assembly found a second bug in it.**
+`registerPlatformCapabilities` syncs the registry to the `capabilities` table
+at the end of its own work, and the vendor file loaded *after* that -- so a
+vendor capability lived in memory and never reached the table the broker reads
+for the kill switch and the tier, and which every grant is a foreign key into.
+The file would have loaded, the boot note would have named it, and it could not
+have been granted to anyone. The sync now happens once, after everything is
+registered. The boot note also lists what is still unbound by name rather than
+by count, because the count on its own has been wrong twice in this document's
+history, both times because something was registered and nothing looked.
+
+`npm run smoke` reads the example file, so the number it prints went from
+twenty to sixteen: `email.send`, `dns.read`, `dns.update` and `invoice.issue`
+are bound by configuration in the boot check itself.
 
 ### What is actually left
 

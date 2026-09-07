@@ -795,3 +795,127 @@ test('the deployment gives the broker its secrets (F12.1, F12.3)', async () => {
     await deployment.stop();
   }
 });
+
+/* -------------------------------------------- what the fourth review found --- */
+
+/**
+ * The twenty were a spec nobody could hand in.
+ *
+ * `httpCapability` turned a vendor integration into configuration, and the
+ * README said so -- but the configuration was a TypeScript object with four
+ * functions in it, so the only way to bind `email.send` was to fork this
+ * repository and edit this file. That is the same defect a fourth time:
+ * machinery that works, is tested alone, and is assembled by nobody.
+ *
+ * This boots the assembly with a vendor file on disk and checks the three
+ * things that make it real: the capability is registered, the deployment says
+ * which file bound it, and what is still unbound is named rather than counted.
+ */
+test('the deployment binds the twenty from a file (§10, F8)', async () => {
+  const { start } = await import('../../src/main.ts');
+  const { withControlPlane } = await import('../../src/db/tenant.ts');
+  const { mkdtemp, writeFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+
+  const directory = await mkdtemp(join(tmpdir(), 'palugada-deploy-'));
+  const path = join(directory, 'vendors.json');
+  await writeFile(path, JSON.stringify({
+    capabilities: [{
+      name: 'email.send',
+      adapter: 'resend',
+      tier: 2,
+      method: 'POST',
+      url: 'https://api.example/v1/emails',
+      headers: {
+        authorization: 'Bearer {credential}',
+        'idempotency-key': '{idempotencyKey}',
+      },
+      body: { to: '{input.to}', subject: '{input.subject}' },
+      result: 'body.id',
+      credentialAlias: 'email',
+      verify: {
+        url: 'https://api.example/v1/emails/{result.id}',
+        matches: { status: 200, path: 'body.id', equalsPath: 'result' },
+      },
+      describe: { recipientDomain: 'to' },
+    }],
+  }));
+
+  const deployment = await start({
+    port: 0,
+    env: {},
+    vendorsFile: path,
+    worker: { idleMs: 50 },
+  });
+  try {
+    const registered = await withControlPlane(async (tx) => {
+      const { rows } = await tx.query<{ name: string; default_tier: number }>(
+        "SELECT name, default_tier FROM capabilities WHERE name = 'email.send'",
+      );
+      return rows[0];
+    });
+    assert.equal(registered?.name, 'email.send', 'the file did not reach the registry');
+    assert.equal(registered.default_tier, 2, 'and it kept the catalogued tier');
+
+    assert.ok(
+      deployment.notes.some((note) => note.startsWith(`bound by ${path}:`)),
+      deployment.notes.join(' | '),
+    );
+
+    // What is left, by name. The count on its own has been wrong twice in this
+    // repository's history, both times because something was registered and
+    // nothing looked.
+    const remaining = deployment.notes.find((note) => /catalogued capabilit/.test(note));
+    assert.ok(remaining, deployment.notes.join(' | '));
+    assert.ok(!/email\.send/.test(remaining), 'a bound capability is still listed as needing one');
+    assert.match(remaining, /invoice\.pay/, 'one that genuinely needs a vendor is not listed');
+  } finally {
+    await deployment.stop();
+  }
+});
+
+/**
+ * And a file it cannot build from stops the boot.
+ *
+ * Every other missing piece leaves a capability unbound, which the broker
+ * refuses loudly at the moment of use. A malformed vendor file is different:
+ * the operator believes they configured it. Starting anyway produces exactly
+ * the failure v2 section 2.3 records -- a deployment that looks healthy and
+ * refuses every send.
+ */
+test('a vendor file that cannot be built from stops the boot (§10)', async () => {
+  const { start } = await import('../../src/main.ts');
+  const { mkdtemp, writeFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+
+  const directory = await mkdtemp(join(tmpdir(), 'palugada-deploy-bad-'));
+  const path = join(directory, 'vendors.json');
+  // A tier 2 write with no read-back: F8.4, which the broker would refuse at
+  // the first invoice.
+  await writeFile(path, JSON.stringify({
+    capabilities: [{
+      name: 'invoice.issue', adapter: 'x', tier: 2, method: 'POST',
+      url: 'https://api.example/v1/invoices',
+      headers: { 'idempotency-key': '{idempotencyKey}' },
+    }],
+  }));
+
+  // Caught rather than `assert.rejects`, so that a regression *fails* instead
+  // of hanging: a `start` that wrongly succeeds leaves a listening console and
+  // a ticking worker behind, the test runner never exits, and CI burns its
+  // whole timeout on what should be one red line. A test that hangs on the
+  // defect it exists to catch is a test that does not report it.
+  let started: Awaited<ReturnType<typeof start>> | null = null;
+  let refusal: unknown = null;
+  try {
+    started = await start({ port: 0, env: {}, vendorsFile: path, worker: { idleMs: 50 } });
+  } catch (failure) {
+    refusal = failure;
+  }
+  if (started) await started.stop();
+
+  assert.equal(started, null, 'a file that cannot be built from started a deployment anyway');
+  assert.match((refusal as Error).message, /cannot bind invoice\.issue/);
+});

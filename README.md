@@ -733,6 +733,7 @@ conjure, and each says so at boot rather than at 3am:
 
 | Variable | What it turns on |
 |---|---|
+| `PALUGADA_VENDORS` | the capabilities that need somebody's account (see below) |
 | `PALUGADA_FILES_ROOT` | `files.list`, and the drafting pair with a model |
 | `PALUGADA_PUSH_URL` | push for an incident or a tier 3 approval (F10.5) |
 | `PALUGADA_TELEGRAM_TOKEN`, `_CHAT`, `_WEBHOOK_SECRET` | the message channel (F10.9) |
@@ -764,11 +765,29 @@ boot check names all twenty on every start, because a company granted a
 capability with nothing behind it is one whose agents are refused at the moment
 they try to work.
 
-What an operator writes for one of the twenty is a spec, not an integration:
+What an operator writes for one of the twenty is a spec, not an integration,
+and it is a JSON file rather than a fork of this repository. `PALUGADA_VENDORS`
+points at it and `config/vendors.example.json` is a working one to copy;
 `httpCapability` carries the credential resolution, the reachability rules, the
 idempotency key, the read-back and the error translation, and refuses at
 construction a spec that writes without verifying, has a side effect without an
 idempotency key, or puts a credential in any of the three URLs it can name.
+
+An entry names a method, a URL and four small things that would otherwise be
+code: a `body` as a JSON template, a `result` as a path into the answer, a
+`verify.matches` as a status and a comparison, and a `describe` mapping the
+four fields a policy can match on to input paths. Deliberately a small
+vocabulary — the alternative is an expression language, and an expression
+language in a configuration file is a program nobody reviews inside the one
+component standing between an agent and an irreversible action.
+
+A file that cannot be built from **stops the boot**, naming the entry and what
+is wrong with it. Every other missing piece leaves a capability unbound, which
+the broker refuses loudly at the moment of use; a malformed vendor file is
+different, because the operator believes they configured it — and a deployment
+that looks healthy and refuses every send is the failure v2 §2.3 records. The
+file also cannot loosen the catalogue: an entry binding `email.send` at tier 0
+is refused against the calibration, not believed.
 
 At the transport, a credential does not follow a redirect off the host it was
 issued for: `authorization`, `cookie` and the common API-key headers are

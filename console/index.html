@@ -44,20 +44,39 @@
   </section>
 
   <section id="console" hidden>
-    <!-- F10.7. The global controls, where they can be reached in one press. -->
+    <!-- F10.7. The global controls, where they can be reached in one press.
+         Two buttons, because they are two decisions: "stop" raises a flag the
+         engine reads at every step, so work stops cleanly and resumes when the
+         flag clears; "cancel everything" ends the tasks outright and cannot be
+         undone, which is why it asks for the authenticator. -->
     <div id="controls">
       <button id="stop-all" class="danger"></button>
+      <button id="cancel-all" class="danger">Cancel everything</button>
       <span id="control-note" class="muted"></span>
     </div>
 
     <nav id="companies"></nav>
 
-    <div id="digest" class="digest"></div>
+    <!-- The rest of what an owner does. The inbox is first because it is the
+         thing with a person waiting on it; everything else is running the
+         company rather than being interrupted by it. -->
+    <nav id="tabs"></nav>
 
-    <!-- F10.1. One queue, and F10.2 puts everything a judgement needs on the
-         card: what, why, tier, cost, and what happens if it is refused. -->
-    <ul id="inbox"></ul>
-    <p id="empty" class="muted" hidden>Nothing is waiting.</p>
+    <div id="panel-decisions" class="panel">
+      <div id="digest" class="digest"></div>
+      <!-- F10.1. One queue, and F10.2 puts everything a judgement needs on the
+           card: what, why, tier, cost, and what happens if it is refused. -->
+      <ul id="inbox"></ul>
+      <p id="empty" class="muted" hidden>Nothing is waiting.</p>
+    </div>
+
+    <div id="panel-money" class="panel" hidden></div>
+    <div id="panel-health" class="panel" hidden></div>
+    <div id="panel-settings" class="panel" hidden></div>
+    <div id="panel-structure" class="panel" hidden></div>
+    <div id="panel-skills" class="panel" hidden></div>
+    <div id="panel-supply" class="panel" hidden></div>
+    <div id="panel-devices" class="panel" hidden></div>
   </section>
 </main>
 

@@ -186,3 +186,97 @@ dialog input { margin-top: 0.5rem; }
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* --------------------------------------------------------------- panels --- */
+
+/*
+ * The rest of what an owner does, behind the tabs.
+ *
+ * Visually quieter than the queue on purpose. The inbox is the thing with a
+ * person waiting on it and should be the loudest thing on the page; a ceiling
+ * being set or a publisher being listed is work the owner came looking for,
+ * and work you went looking for does not need to shout.
+ */
+#tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.75rem 0 0.25rem;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 0.5rem;
+}
+
+.panel { padding: 0.5rem 0 2rem; }
+.panel h2 { margin-top: 1.75rem; }
+.panel h2:first-child { margin-top: 0.5rem; }
+
+.facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.2rem 1rem;
+  margin: 0.5rem 0 1rem;
+}
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; }
+
+.panel table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.5rem 0 1rem;
+  font-size: 0.92rem;
+}
+.panel th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  padding: 0.3rem 0.5rem 0.3rem 0;
+}
+.panel td {
+  border-bottom: 1px solid var(--line);
+  padding: 0.35rem 0.5rem 0.35rem 0;
+  vertical-align: top;
+}
+
+.panel-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0.5rem 0 1.5rem;
+  max-width: 34rem;
+}
+.panel-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.panel-form input,
+.panel-form textarea {
+  font: inherit;
+  color: var(--fg);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.4rem 0.5rem;
+}
+.panel-form textarea { min-height: 5.5rem; resize: vertical; }
+.panel-form button { align-self: flex-start; }
+
+.group { display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: flex-start; }
+
+/* A nonce the owner has to carry to a device by hand. Selectable, monospace,
+   and wrapped -- it is a string somebody copies, not one they read. */
+.nonce {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+  word-break: break-all;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.5rem;
+  user-select: all;
+}
+
+#controls { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }

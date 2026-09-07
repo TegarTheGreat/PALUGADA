@@ -1579,6 +1579,55 @@ somebody hesitates over happens too late. `docs/STATUS.md` had the narrower
 list right, so the two documents disagreed -- which is the failure section 2.10
 records about F11.2, arriving a second time.
 
+### The same defect one storey up
+
+`reachability.test.ts` reads `src/` and `scripts/`. It cannot see the console,
+which is a *page* -- so a route could be built, tested, documented, and still
+have no button, which is the same defect wearing a different coat. It had
+happened while nobody was looking: **fifty-two of sixty-one routes were
+unreachable from the page.** Every operation the two sections above added was
+in the API and nowhere a person could press it.
+
+So the console has the rest of what an owner does, behind tabs: **Money** (the
+ceiling, what has been spent, lifting a pause or bounding an override, the cost
+timeline and every company's cost), **Health** (capability readings, waiting
+reviews, the governance log), **Settings** (the owner's hours, a company's
+cheap hours, retention and what it purged, alert thresholds, the export),
+**Structure** (the goal ladder, grants, roles, escalation, policies,
+schedules), **Skills**, **Bundles** and **Devices**. The queue stays first,
+because it is the only tab with a person waiting on it.
+
+Two things were generalised rather than duplicated. The factor dialog now takes
+*what to attempt* rather than an inbox item, and returns once the thing has
+either happened or the owner has backed out -- written that way because a TOTP
+code is single-use, and handing one back for a caller to spend later is how one
+gets spent on a request that was never sent, locking the owner out of the thing
+they meant to do. And the panels are built from a small set of `textContent`
+builders -- a table, a fact list, a form -- so twenty forms are twenty
+declarations rather than twenty hand-written handlers.
+
+**And a guard, so this does not need finding again.**
+`test/documents/console-routes.test.ts` reads the route patterns out of
+`api.ts`, reads the paths `console.js` fetches, and lists the ones no button
+presses. The list is an inventory in the same shape as the other one:
+`machine` (a program is the caller), `flow` (the page reaches it through
+another route) or `todo` (it should have a button, and here is what it would
+be). Thirteen entries, every one with a sentence.
+
+Its own first version was wrong in the direction that matters. It matched on
+paths alone, so a `POST /goals/:id` made a `GET /goals/:id` look pressed -- a
+guard reporting a button that is not there is worse than no guard, because it
+is believed. The method travels with the path now.
+
+`console-page.test.ts` covers the rest of what nothing else would notice: no
+browser runs here, so it checks that every id the script reaches for exists on
+the page (a renamed id makes `getElementById` answer null, the next line throw,
+and a panel silently never draw -- which looks exactly like a company with
+nothing in it), that every tab has a panel and names a function that exists,
+and that the script never uses `innerHTML`. That last one is the page's oldest
+rule: every title, rationale and consequence on it came from an agent, and
+`textContent` makes that structurally impossible to exploit.
+
 What is left on the inventory is nine `console` entries, and they are honest
 ones rather than a backlog: **replay** needs `ReplayContext` to carry `signal`
 and `awaitChild` before a deployment's own handlers can be replayed through it,

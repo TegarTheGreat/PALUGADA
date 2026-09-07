@@ -434,7 +434,14 @@ export class OwnerMfa {
         // The code is right. Whether it may be *used* is a separate question:
         // a code is valid for a whole step, so one seen in transit can be
         // replayed inside that window unless the step is remembered.
-        if (factor.lastStep !== null && step <= factor.lastStep) {
+        //
+        // Claimed by the write rather than by a read before it. A read, a
+        // decision and then a write is a race, and the thing racing here is
+        // two presentations of the same intercepted code arriving together --
+        // which is exactly the shape an attacker who has the code produces,
+        // not a rare accident. The UPDATE only matches while the step is still
+        // unclaimed, so the second one changes no rows and is refused.
+        if (!(await this.#claimStep(factor.id, step))) {
           await this.#record(factor.id, 'totp', false, 'mfa.replayed', context);
           throw new PalugadaError(
             'mfa.replayed',
@@ -443,7 +450,6 @@ export class OwnerMfa {
           );
         }
 
-        await this.#advance(factor.id, { lastStep: step });
         await this.#record(factor.id, 'totp', true, null, context);
         return { authenticatorId: factor.id, kind: 'totp', label: factor.label };
       }
@@ -546,32 +552,67 @@ export class OwnerMfa {
     // advance means either a replay or a cloned key, and both are the same
     // answer. Zero is the documented "this authenticator does not count",
     // which is common on platform authenticators and is not evidence of
-    // anything.
-    if (parsed.signCount !== 0 && parsed.signCount <= factor.signCount) {
+    // anything -- and for those the challenge, redeemed exactly once above, is
+    // what stops a replay.
+    //
+    // Claimed by the write, for the same reason the TOTP step is: a read, a
+    // decision and then a write lets two copies of one assertion both pass.
+    if (parsed.signCount !== 0 && !(await this.#claimSignCount(factor.id, parsed.signCount))) {
       return refuse(
         'mfa.counter_did_not_advance',
         `the signature counter went from ${factor.signCount} to ${parsed.signCount}`,
       );
     }
-
-    await this.#advance(factor.id, { signCount: parsed.signCount });
+    if (parsed.signCount === 0) await this.#touch(factor.id);
     await this.#record(factor.id, 'webauthn', true, null, context);
     return { authenticatorId: factor.id, kind: 'webauthn', label: factor.label };
   }
 
-  async #advance(
-    authenticatorId: string,
-    state: { lastStep?: number; signCount?: number },
-  ): Promise<void> {
-    await withControlPlane(async (tx) => {
-      await tx.query(
+  /**
+   * Takes the step, or reports that it was already taken.
+   *
+   * The condition is in the WHERE clause rather than in TypeScript because
+   * that is what makes it atomic: PostgreSQL takes a row lock for the UPDATE,
+   * so of two transactions presenting the same code the second re-evaluates
+   * the predicate against the first one's result and matches nothing.
+   */
+  async #claimStep(authenticatorId: string, step: number): Promise<boolean> {
+    return withControlPlane(async (tx) => {
+      const { rowCount } = await tx.query(
         `UPDATE owner_authenticators
-            SET last_step = coalesce($2, last_step),
-                sign_count = coalesce($3, sign_count),
-                last_used_at = now()
-          WHERE id = $1`,
-        [authenticatorId, state.lastStep ?? null, state.signCount ?? null],
+            SET last_step = $2, last_used_at = now()
+          WHERE id = $1 AND (last_step IS NULL OR last_step < $2)`,
+        [authenticatorId, step],
       );
+      return (rowCount ?? 0) === 1;
+    });
+  }
+
+  /** The same claim, for an authenticator's own signature counter. */
+  async #claimSignCount(authenticatorId: string, signCount: number): Promise<boolean> {
+    return withControlPlane(async (tx) => {
+      const { rowCount } = await tx.query(
+        `UPDATE owner_authenticators
+            SET sign_count = $2, last_used_at = now()
+          WHERE id = $1 AND sign_count < $2`,
+        [authenticatorId, signCount],
+      );
+      return (rowCount ?? 0) === 1;
+    });
+  }
+
+  /**
+   * For an authenticator that does not count.
+   *
+   * There is nothing to claim, so this only records that the device was used.
+   * The replay defence for these is the challenge, which `redeem` hands out
+   * exactly once.
+   */
+  async #touch(authenticatorId: string): Promise<void> {
+    await withControlPlane(async (tx) => {
+      await tx.query('UPDATE owner_authenticators SET last_used_at = now() WHERE id = $1', [
+        authenticatorId,
+      ]);
     });
   }
 

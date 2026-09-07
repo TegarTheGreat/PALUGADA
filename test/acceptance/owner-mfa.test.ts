@@ -140,6 +140,58 @@ test('a TOTP code cannot be used twice (F12.5)', async () => {
 });
 
 /**
+ * Two presentations of the same code arriving together.
+ *
+ * A read, a decision and then a write is a race, and the thing racing here is
+ * not a rare accident — it is exactly the shape an attacker who has
+ * intercepted a code produces. The claim is in the UPDATE's WHERE clause, so
+ * PostgreSQL's row lock makes the second one match nothing.
+ */
+test('two simultaneous uses of one TOTP code cannot both win (F12.5)', async () => {
+  const at = new Date('2026-09-07T05:00:00Z');
+  const { mfa, secrets } = mfaWith({ now: () => at });
+  const { secret } = newTotpSecret('owner phone');
+  secrets.set('vault://owner/totp', secret);
+  await mfa.enrolTotp({ label: 'owner phone', secretRef: 'vault://owner/totp' });
+
+  const code = totpCode(decodeBase32(secret), stepFor(at));
+  const outcomes = await Promise.allSettled([mfa.verifyTotp(code), mfa.verifyTotp(code)]);
+  const accepted = outcomes.filter((result) => result.status === 'fulfilled');
+  const refused = outcomes.filter((result) => result.status === 'rejected');
+
+  assert.equal(accepted.length, 1, 'exactly one may win');
+  assert.equal(refused.length, 1);
+  assert.ok(isPalugadaError((refused[0] as PromiseRejectedResult).reason, 'mfa.replayed'));
+});
+
+/** The same, for a passkey's signature counter. */
+test('two simultaneous uses of one passkey assertion cannot both win (F12.5)', async () => {
+  const { mfa } = mfaWith();
+  const device = phone({ signCount: 4 });
+  await mfa.enrolWebAuthn({
+    label: 'owner iPhone',
+    credentialId: device.credentialId,
+    publicKeyPem: device.publicKeyPem,
+  });
+
+  // Two distinct challenges, so what is being tested is the counter rather
+  // than the challenge store — the counter is the check that catches a cloned
+  // key, which a fresh challenge would not.
+  const first = device.assert({ challenge: mfa.challenge(), signCount: 5 });
+  const second = device.assert({ challenge: mfa.challenge(), signCount: 5 });
+
+  const outcomes = await Promise.allSettled([
+    mfa.verifyWebAuthn(first),
+    mfa.verifyWebAuthn(second),
+  ]);
+  assert.equal(outcomes.filter((result) => result.status === 'fulfilled').length, 1);
+  const refused = outcomes.find((result) => result.status === 'rejected');
+  assert.ok(
+    isPalugadaError((refused as PromiseRejectedResult).reason, 'mfa.counter_did_not_advance'),
+  );
+});
+
+/**
  * A phone's clock drifts. One step either side is accepted, because an owner
  * who has to retype a code they read correctly stops using the feature — and
  * two steps would double the window an intercepted code stays usable in.

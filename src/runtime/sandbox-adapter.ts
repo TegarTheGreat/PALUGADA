@@ -138,46 +138,71 @@ export class RemoteSandboxAdapter implements Adapter {
     const { provider, image } = this.#options;
     const sandboxId = await provider.create({ image, runId: request.runId });
 
-    let session: SandboxSession | null = null;
+    // Written as an explicit outcome rather than a `try/finally`, because a
+    // `throw` inside `finally` replaces whatever exception was already in
+    // flight. The cleanup failure would then have become the run's reported
+    // cause, and the real one -- the runtime crashed, the model was
+    // unreachable, the output did not match the schema -- would have been
+    // lost. That is the wrong trade in both directions: the cleanup failure is
+    // an operational problem for whoever runs the platform, and the run
+    // failure is what the company needs to see.
+    let outcome: AdapterResult | null = null;
+    let failure: unknown = null;
+
     try {
-      session = await provider.exec({
+      const session = await provider.exec({
         sandboxId,
         command: this.#options.command ?? [],
       });
 
-      const active = session;
       const transport: Transport = {
-        events: this.#events(active),
+        events: this.#events(session),
         async send(message: EngineMessage) {
-          await active.write(`${JSON.stringify(message)}\n`);
+          await session.write(`${JSON.stringify(message)}\n`);
         },
         async close() {
-          await active.close();
+          await session.close();
         },
       };
 
-      await active.write(`${JSON.stringify(toWireRequest(request))}\n`);
-      return await driveRun(request, services, transport);
-    } finally {
-      // The property the whole backend is for. Runs when the exec threw, when
-      // the run was withdrawn, and when `driveRun` returned normally -- there
-      // is deliberately no path out of this method that skips it.
-      try {
-        await provider.destroy(sandboxId);
-      } catch (error) {
-        // Not swallowed. A leaked sandbox is a billed machine holding a
-        // company's working files, and one nobody hears about is the same as
-        // no cleanup at all. Thrown only when the run itself succeeded --
-        // `finally` would otherwise replace a real failure with this one and
-        // hide why the run went wrong.
-        throw new PalugadaError(
-          'sandbox.not_destroyed',
-          `sandbox ${sandboxId} could not be destroyed and may still be running: `
-            + (error as Error).message,
-          { sandboxId, provider: provider.name },
-        );
-      }
+      await session.write(`${JSON.stringify(toWireRequest(request))}\n`);
+      outcome = await driveRun(request, services, transport);
+    } catch (error) {
+      failure = error;
     }
+
+    // The property the whole backend is for. Reached when the exec threw, when
+    // the run was withdrawn, and when `driveRun` returned normally -- there is
+    // deliberately no path out of this method that skips it.
+    let leaked: Error | null = null;
+    try {
+      await provider.destroy(sandboxId);
+    } catch (error) {
+      leaked = error as Error;
+    }
+
+    if (failure !== null) {
+      // The run's own failure wins, and the leak is attached to it rather than
+      // dropped: a sandbox nobody hears about is the same as no cleanup at
+      // all, but it is not why this task failed.
+      if (leaked) {
+        (failure as Error).message =
+          `${(failure as Error).message} `
+          + `(and sandbox ${sandboxId} could not be destroyed: ${leaked.message})`;
+      }
+      throw failure;
+    }
+
+    if (leaked) {
+      throw new PalugadaError(
+        'sandbox.not_destroyed',
+        `sandbox ${sandboxId} could not be destroyed and may still be running: `
+          + leaked.message,
+        { sandboxId, provider: provider.name },
+      );
+    }
+
+    return outcome!;
   }
 
   async *#events(session: SandboxSession): AsyncGenerator<RunEvent> {

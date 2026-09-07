@@ -1122,6 +1122,39 @@ test('a sandbox that will not delete becomes a failure that names it (F13.5)', a
   assert.match(outcome.reason ?? '', /sbx-1 could not be destroyed/);
 });
 
+/**
+ * A failed cleanup must not become the story of a failed run.
+ *
+ * The obvious way to write "always destroy" is a `finally`, and a `throw`
+ * inside one replaces whatever exception was already in flight. The cleanup
+ * failure would then be reported as the task's cause and the real one -- the
+ * runtime crashed, the output did not match the schema -- would be gone. Both
+ * matter and they matter to different people: the leak is an operational
+ * problem for whoever runs the platform, and the run failure is what the
+ * company needs to read.
+ */
+test('a run that failed reports why, even when the sandbox also leaked (F13.5)', async () => {
+  const fixture = await createCompany('sandbox-both-failed');
+  const broker = await brokerFor(fixture, []);
+  await configureRole(fixture, { runtime: 'sandbox:fake' });
+  const task = await newTask(fixture, { script: 'unreadable' }, { attemptMax: 1 });
+  const fake = fakeProvider({ failDestroy: true });
+
+  const outcome = await engineWith(
+    broker,
+    new RemoteSandboxAdapter({ provider: fake.provider, image: 'palugada/runtime:1' }),
+  ).runTask(fixture.companyId, task.id, 'worker');
+
+  assert.equal(outcome.status, 'failed');
+  assert.match(
+    outcome.reason ?? '',
+    /unreadable output/,
+    'the run failed because the runtime was not speaking the protocol',
+  );
+  // And the leak travels with it rather than being dropped.
+  assert.match(outcome.reason ?? '', /sbx-1 could not be destroyed/);
+});
+
 test('a provider that cannot make a sandbox fails the run rather than hanging (F13.5)', async () => {
   const fixture = await createCompany('sandbox-nocapacity');
   const broker = await brokerFor(fixture, []);

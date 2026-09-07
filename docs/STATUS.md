@@ -951,6 +951,35 @@ missing from the audit log.
 Every one of them is covered by a test that was verified by re-introducing the
 defect it claims to catch.
 
+### A green suite that was green for the wrong reason
+
+CI went red on a commit whose only change was documentation, and the test it
+failed had been passing for a week. Nothing in the code had moved. What had
+moved was the clock: the run happened at 14:32 UTC instead of 05:22.
+
+The test compared two escalations' `notify_after` for equality, to show that a
+division which names no escalation role adds nothing to the owner's wait. When
+the owner's window is *closed*, `notifyAfterFor` returns the next opening --
+one fixed timestamp, so both items get the same value and the assertion holds.
+When it is **open** it returns `now`, and the two items were raised a
+millisecond apart. The assertion was therefore true or false depending on the
+hour of the day, and for a week it had only ever been asked in the closed half.
+
+Two things came out of it, and neither is the test.
+
+The assertion now compares a *difference* rather than an identity: the division
+must add nothing, and the defect it guards against added four hours, so a
+tolerance of a second catches it either way. An equality assertion on two
+timestamps taken at two different moments was never testing what it said.
+
+And `resetData` now restores the owner's window. It lives in
+`platform_control`, which is not tenant data and therefore survives the
+TRUNCATE -- so the one test that legitimately moves it, to check that a routine
+escalation waits for waking hours, left it moved for every file that ran
+afterwards. That is a whole class of order-dependence: a suite that passes for
+a reason nobody wrote down, until the day the order or the clock changes and a
+green test goes red with no code between the two runs.
+
 ### What is actually left
 
 No push service, no bot token, no sandbox vendor, and none of F13.3's four

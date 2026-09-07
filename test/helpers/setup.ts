@@ -56,6 +56,23 @@ export async function resetData(): Promise<void> {
       `INSERT INTO spend_limits (company_id) SELECT NULL
         WHERE NOT EXISTS (SELECT 1 FROM spend_limits WHERE company_id IS NULL)`,
     );
+
+    // The owner's window, back to the schema's own default.
+    //
+    // `platform_control` is not tenant data, so it survives the TRUNCATE --
+    // and `setOwnerWindow` is how one test checks that a routine escalation
+    // waits for waking hours. Left set, that window is inherited by every file
+    // that runs afterwards, so what a later test observes depends on which
+    // earlier test happened to move it. Order-dependence like that does not
+    // fail; it makes a suite pass for a reason nobody wrote down, until the
+    // day the order or the clock changes and a green test goes red with no
+    // code between the two runs.
+    await tx.query(
+      `UPDATE platform_control
+          SET owner_timezone = 'UTC',
+              owner_window_start_hour = 8,
+              owner_window_end_hour = 22`,
+    );
   });
 }
 

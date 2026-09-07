@@ -783,10 +783,18 @@ test('a division that names no escalation role does not delay the owner (F2.1)',
 
   // The same moment as an escalation with no division at all: the owner's own
   // window and nothing added to it.
-  assert.equal(
-    rows.get(unowned)!.notify_after.getTime(),
-    rows.get(direct)!.notify_after.getTime(),
+  //
+  // Compared as a difference rather than for equality. When the owner's window
+  // is open, `notifyAfterFor` returns `now` -- so the two items get the two
+  // different milliseconds at which they were raised, and an equality
+  // assertion passes or fails by the hour of the day the suite runs. It passed
+  // here for a week and failed on a 14:32 CI run, which is the window being
+  // open rather than anything about the code. The property is that the
+  // division adds *nothing*, and the bug it guards against added four hours.
+  const gap = Math.abs(
+    rows.get(unowned)!.notify_after.getTime() - rows.get(direct)!.notify_after.getTime(),
   );
+  assert.ok(gap < 1_000, `the division added ${gap}ms to the owner's notification`);
   // And it does not claim somebody was asked first.
   assert.doesNotMatch(rows.get(unowned)!.rationale, /was asked first/);
   assert.equal(rows.get(unowned)!.payload.escalationRole, null);

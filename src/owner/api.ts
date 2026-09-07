@@ -72,6 +72,43 @@ import { healthFor } from '../broker/preflight.ts';
 import { costTimeline, platformCost } from '../reporting/cost.ts';
 import { rotateCredential } from '../secrets/rotation.ts';
 import { readTaskEvents } from '../audit/event-log.ts';
+import { collectExport } from '../audit/export.ts';
+import { applyGoalChange, createGoal, readGoal } from '../domain/goals.ts';
+import {
+  applyGrantChange,
+  applyRoleChange,
+  setEscalationPolicy,
+  type RoleFields,
+  type StructuralChange,
+} from '../governance/structure.ts';
+import { putPolicy } from '../governance/store.ts';
+import { POLICY_EFFECTS, type PolicyEffect } from '../policy/engine.ts';
+import { setThresholds } from '../reporting/alerts.ts';
+import { pendingReviews } from '../review/review.ts';
+import { upsertSchedule } from '../scheduler/scheduler.ts';
+import {
+  approveSkillVersion,
+  importExternalSkill,
+  liftSkillQuarantine,
+  recordSkillReview,
+  setSkillScope,
+  skillSummariesFor,
+  type SkillScopeTarget,
+} from '../skills/skills.ts';
+import { installBundle, verifyInstall } from '../bundles/bundle.ts';
+import {
+  listTrustedPublishers,
+  revokePublisher,
+  trustPublisher,
+} from '../bundles/publishers.ts';
+import { issueChallenge, pairDevice, registerDevice, revokeDevice } from '../gateway/gateway.ts';
+import {
+  acceptEvalCase,
+  evalCasesFor,
+  latestScore,
+  requestRoleChange,
+  type RoleChange,
+} from '../eval/role-eval.ts';
 import type { CapabilityRegistry } from '../broker/registry.ts';
 import type { OwnerMfa, WebAuthnAssertion } from './mfa.ts';
 import { OwnerSessions, type OwnerSession } from './session.ts';
@@ -608,6 +645,460 @@ export class OwnerApi {
         },
       },
 
+      /* ----------------------------------------------------- F2.7, F3.10 --- */
+
+      {
+        method: 'GET',
+        pattern: '/api/companies/:companyId/goals/:goalId',
+        handle: async ({ params }) => {
+          const goal = await withTenant(
+            params.companyId!, (tx) => readGoal(tx, params.goalId!),
+          );
+          if (!goal) throw new PalugadaError('contract.violation', 'no such goal', {});
+          return goal;
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/goals',
+        handle: async ({ params, body }) => createGoal({
+          companyId: params.companyId!,
+          kind: oneOf(body.kind, GOAL_KINDS, 'kind'),
+          slug: requireText(body.slug, 'slug'),
+          statement: requireText(body.statement, 'statement'),
+          ...(body.parentGoalId === undefined
+            ? {}
+            : { parentGoalId: body.parentGoalId === null ? null : String(body.parentGoalId) }),
+        }),
+      },
+
+      {
+        // Editing the ladder redirects the company, so it takes the owner's
+        // device. `proposeGoalChange` is the agent's path -- it files an item
+        // and waits; this is the owner acting directly, which is why there is
+        // nothing to wait for and why the factor is the whole check.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/goals/:goalId',
+        handle: async ({ params, body }) => {
+          await this.#requireFactor(body.proof, 'change a goal', params.companyId!);
+          await applyGoalChange({
+            companyId: params.companyId!,
+            goalId: params.goalId!,
+            ...(body.statement === undefined ? {} : { statement: String(body.statement) }),
+            ...(body.status === undefined
+              ? {}
+              : { status: oneOf(body.status, GOAL_STATUSES, 'status') }),
+          });
+          return { ok: true };
+        },
+      },
+
+      /* ----------------------------------------------------- F2.9, F3.9 --- */
+
+      {
+        // F2.9 says a structural change is tier 3 and the owner's. Every one
+        // of these takes `ownerApproved`, and this surface is the only place
+        // that may pass `true` -- with a factor, because a session is a tab.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/structure/grant',
+        handle: async ({ params, body }) => {
+          await this.#requireFactor(body.proof, 'change a grant', params.companyId!);
+          const kind = body.tierOverride === undefined && body.revoke === true
+            ? 'revoke_grant' as const
+            : 'change_grant' as const;
+          const change = (kind === 'revoke_grant'
+            ? {
+              kind,
+              divisionId: requireText(body.divisionId, 'divisionId'),
+              capabilityName: requireText(body.capabilityName, 'capabilityName'),
+            }
+            : {
+              kind,
+              divisionId: requireText(body.divisionId, 'divisionId'),
+              capabilityName: requireText(body.capabilityName, 'capabilityName'),
+              tierOverride: body.tierOverride === null
+                ? null
+                : wholeNumber(body.tierOverride, 'tierOverride'),
+            }) as Extract<StructuralChange, { kind: 'change_grant' | 'revoke_grant' }>;
+          await applyGrantChange(params.companyId!, change, { ownerApproved: true });
+          return { ok: true };
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/roles/:roleId',
+        handle: async ({ params, body }) => {
+          await this.#requireFactor(body.proof, 'change a role', params.companyId!);
+          const fields: RoleFields = {};
+          if (body.systemPrompt !== undefined) fields.systemPrompt = String(body.systemPrompt);
+          if (Array.isArray(body.tools)) fields.tools = body.tools.map(String);
+          if (body.modelPrimary !== undefined) fields.modelPrimary = String(body.modelPrimary);
+          if (Array.isArray(body.modelFallback)) {
+            fields.modelFallback = body.modelFallback.map(String);
+          }
+          if (Object.keys(fields).length === 0) {
+            throw new PalugadaError('contract.violation', 'no role field was given', {});
+          }
+          const version = await applyRoleChange(params.companyId!, params.roleId!, fields, {
+            ownerApproved: true,
+            ...(body.summary === undefined ? {} : { summary: String(body.summary) }),
+          });
+          return { version };
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/divisions/:divisionId/escalation',
+        handle: async ({ params, body }) => {
+          const policy: { roleSlug?: string | null; afterMinutes?: number } = {};
+          if (body.roleSlug !== undefined) {
+            policy.roleSlug = body.roleSlug === null ? null : String(body.roleSlug);
+          }
+          if (body.afterMinutes !== undefined) {
+            policy.afterMinutes = wholeNumber(body.afterMinutes, 'afterMinutes');
+          }
+          if (Object.keys(policy).length === 0) {
+            throw new PalugadaError('contract.violation', 'no escalation field was given', {});
+          }
+          await setEscalationPolicy(params.companyId!, params.divisionId!, policy);
+          return { ok: true };
+        },
+      },
+
+      /* ----------------------------------------------------------- F3.4 --- */
+
+      {
+        // The condition is validated by `putPolicy` itself, which is where the
+        // grammar lives. A policy the console accepted and the engine could
+        // not read would be a rule that looks enforced and is not.
+        method: 'POST',
+        pattern: '/api/policies',
+        handle: async ({ body }) => ({
+          id: await putPolicy({
+            slug: requireText(body.slug, 'slug'),
+            // Checked against the list rather than cast: an effect the engine
+            // does not know is a policy that reads as a rule and enforces
+            // nothing, and `putPolicy` would store it happily.
+            effect: policyEffect(body.effect),
+            condition: body.condition as never,
+            ...(body.companyId === undefined ? {} : { companyId: String(body.companyId) }),
+            ...(body.divisionId === undefined ? {} : { divisionId: String(body.divisionId) }),
+            ...(body.mode === undefined
+              ? {}
+              : { mode: String(body.mode) as 'enforce' | 'log_only' }),
+            ...(body.params === undefined
+              ? {}
+              : { params: body.params as Record<string, unknown> }),
+          }),
+        }),
+      },
+
+      /* ------------------------------------------------------------ F15 --- */
+
+      {
+        method: 'GET',
+        pattern: '/api/companies/:companyId/skills',
+        handle: async ({ params, query }) => ({
+          skills: await withTenant(params.companyId!, (tx) => skillSummariesFor(tx, {
+            companyId: params.companyId!,
+            divisionId: query.get('division'),
+          })),
+        }),
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/skills/versions/:versionId/review',
+        handle: async ({ params, body }) => {
+          await recordSkillReview(params.companyId!, params.versionId!, {
+            approved: body.approved === true,
+            ...(body.reason === undefined ? {} : { reason: String(body.reason) }),
+            ...(body.reviewRequestId === undefined
+              ? {}
+              : { reviewRequestId: String(body.reviewRequestId) }),
+          });
+          return { ok: true };
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/skills/versions/:versionId/approve',
+        handle: async ({ params }) =>
+          approveSkillVersion(params.companyId!, params.versionId!),
+      },
+
+      {
+        // F15.5. Widening a skill's scope is vouching for it somewhere it has
+        // not been used, so it carries `ownerApproved` and this surface is the
+        // only caller that may say true.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/skills/:skillId/scope',
+        handle: async ({ params, body }) => {
+          await this.#requireFactor(body.proof, 'change a skill\'s scope', params.companyId!);
+          // Built rather than cast. The first version passed
+          // `{ scope, scopeId } as never`, which type-checked and was the
+          // wrong shape entirely -- `setSkillScope` reads `scopeType`, so
+          // every call would have widened the skill to `undefined` scope. A
+          // cast is how a shape mismatch survives a typecheck.
+          const scopeType = oneOf(body.scopeType, SKILL_SCOPES, 'scopeType');
+          const target: SkillScopeTarget = scopeType === 'division'
+            ? { scopeType, scopeId: requireText(body.scopeId, 'scopeId') }
+            : { scopeType };
+          await setSkillScope(params.companyId!, params.skillId!, target, {
+            ownerApproved: true,
+          });
+          return { ok: true };
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/skills/:skillId/quarantine/lift',
+        handle: async ({ params, body }) => {
+          await this.#requireFactor(body.proof, 'lift a quarantine', params.companyId!);
+          await liftSkillQuarantine(params.companyId!, params.skillId!, { ownerApproved: true });
+          return { ok: true };
+        },
+      },
+
+      {
+        // F15.8. Unsigned means quarantined, which the function decides -- this
+        // route hands over what arrived and does not vouch for it.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/skills/import',
+        handle: async ({ params, body }) => importExternalSkill({
+          companyId: params.companyId!,
+          slug: requireText(body.slug, 'slug'),
+          source: requireText(body.source, 'source'),
+          origin: requireText(body.origin, 'origin'),
+          divisionId: requireText(body.divisionId, 'divisionId'),
+          ...(body.signature === undefined ? {} : { signature: String(body.signature) }),
+          ...(body.publisherKey === undefined
+            ? {}
+            : { publisherKey: String(body.publisherKey) }),
+        }),
+      },
+
+      /* ------------------------------------------------------------ F16 --- */
+
+      {
+        method: 'GET',
+        pattern: '/api/publishers',
+        handle: async () => ({ publishers: await listTrustedPublishers() }),
+      },
+
+      {
+        // Trusting a publisher is vouching for everything it will ever sign,
+        // which is why the function refuses without `ownerApproved` and why
+        // this route asks for the device rather than the tab.
+        method: 'POST',
+        pattern: '/api/publishers',
+        handle: async ({ body }) => {
+          await this.#requireFactor(body.proof, 'trust a publisher');
+          return {
+            fingerprint: await trustPublisher({
+              publicKeyPem: requireText(body.publicKeyPem, 'publicKeyPem'),
+              label: requireText(body.label, 'label'),
+              ownerApproved: true,
+              addedBy: 'owner',
+            }),
+          };
+        },
+      },
+
+      {
+        // Revoking needs no factor: it only ever narrows what this
+        // installation will accept, and a revocation somebody hesitates over
+        // is one that happens too late.
+        method: 'POST',
+        pattern: '/api/publishers/:fingerprint/revoke',
+        handle: async ({ params }) => {
+          await revokePublisher(params.fingerprint!);
+          return { ok: true };
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/bundles',
+        handle: async ({ params, body }) => installBundle({
+          companyId: params.companyId!,
+          slug: requireText(body.slug, 'slug'),
+          version: requireText(body.version, 'version'),
+        }),
+      },
+
+      {
+        // F16.5. "Is what is installed still what was signed" is a question
+        // with a yes-or-no answer, and one nobody can ask is one nobody asks.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/bundles/:slug/verify',
+        handle: async ({ params }) => {
+          const answer = await verifyInstall(params.companyId!, params.slug!);
+          if (!answer) throw new PalugadaError('contract.violation', 'no such install', {});
+          return answer;
+        },
+      },
+
+      /* --------------------------------------------------- F12.7, F12.10 --- */
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/devices',
+        handle: async ({ params, body }) => registerDevice({
+          companyId: params.companyId!,
+          name: requireText(body.name, 'name'),
+          runtime: requireText(body.runtime, 'runtime'),
+          publicKeyPem: requireText(body.publicKeyPem, 'publicKeyPem'),
+        }),
+      },
+
+      {
+        // Pairing is what makes a device's signature count, so it is the
+        // owner's device that authorises another one. Lifting the quarantine
+        // at the same time is a separate flag, because "I know this machine"
+        // and "I vouch for what it has already done" are different claims.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/devices/:deviceId/pair',
+        handle: async ({ params, body }) => {
+          await this.#requireFactor(body.proof, 'pair a device', params.companyId!);
+          await pairDevice(params.companyId!, params.deviceId!, {
+            liftQuarantine: body.liftQuarantine === true,
+          });
+          return { ok: true };
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/devices/:deviceId/revoke',
+        handle: async ({ params }) => {
+          await revokeDevice(params.companyId!, params.deviceId!);
+          return { ok: true };
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/devices/:deviceId/challenge',
+        handle: async ({ params }) => ({
+          nonce: await issueChallenge(params.companyId!, params.deviceId!),
+        }),
+      },
+
+      /* ------------------------------------------------------------ F17 --- */
+
+      {
+        method: 'GET',
+        pattern: '/api/companies/:companyId/roles/:roleId/evals',
+        handle: async ({ params }) => ({
+          cases: await evalCasesFor(params.companyId!, params.roleId!),
+          latest: await latestScore(params.companyId!, params.roleId!),
+        }),
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/evals/:caseId/accept',
+        handle: async ({ params }) => {
+          await acceptEvalCase(params.companyId!, params.caseId!);
+          return { ok: true };
+        },
+      },
+
+      {
+        // F17.2 and F17.3 together: scoring the change and putting the score
+        // in front of the owner *before* they decide, rather than an hour
+        // afterwards. This files the item; the decision goes through `decide`
+        // like every other one, which is how the tier 3 gate stays in one
+        // place.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/roles/:roleId/change-request',
+        handle: async ({ params, body }) => requestRoleChange({
+          companyId: params.companyId!,
+          roleId: params.roleId!,
+          change: roleChange(body.change),
+          tools: Array.isArray(body.tools) ? body.tools.map(String) : [],
+          summary: requireText(body.summary, 'summary'),
+        }),
+      },
+
+      /* ------------------------------------ F7.5, F9.1, F11.6, F16.4 --- */
+
+      {
+        method: 'GET',
+        pattern: '/api/companies/:companyId/reviews',
+        handle: async ({ params }) => ({ reviews: await pendingReviews(params.companyId!) }),
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/schedules',
+        handle: async ({ params, body }) => ({
+          id: await upsertSchedule({
+            companyId: params.companyId!,
+            projectId: requireText(body.projectId, 'projectId'),
+            divisionId: requireText(body.divisionId, 'divisionId'),
+            roleId: requireText(body.roleId, 'roleId'),
+            slug: requireText(body.slug, 'slug'),
+            cronExpression: requireText(body.cronExpression, 'cronExpression'),
+            ...(body.timezone === undefined ? {} : { timezone: String(body.timezone) }),
+            ...(body.goalId === undefined ? {} : { goalId: String(body.goalId) }),
+            ...(body.input === undefined
+              ? {}
+              : { input: body.input as Record<string, unknown> }),
+            ...(body.reserveTokens === undefined
+              ? {}
+              : { reserveTokens: wholeNumber(body.reserveTokens, 'reserveTokens') }),
+            ...(body.batchable === undefined ? {} : { batchable: body.batchable === true }),
+            ...(body.enabled === undefined ? {} : { enabled: body.enabled !== false }),
+          }),
+        }),
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/alert-thresholds',
+        handle: async ({ params, body }) => {
+          const thresholds: Record<string, number> = {};
+          for (const field of [
+            'dailyCostCents', 'taskFailureRate', 'policyDenialsPerDay',
+            'verificationFailuresPerDay', 'roleFreezeDenialsPerDay',
+            'spendRateMultiple', 'spendRateFloorCents',
+          ] as const) {
+            if (body[field] === undefined) continue;
+            const value = Number(body[field]);
+            if (!Number.isFinite(value) || value < 0) {
+              throw new PalugadaError(
+                'contract.violation', `${field} must be a number of at least zero`, { field },
+              );
+            }
+            thresholds[field] = value;
+          }
+          if (Object.keys(thresholds).length === 0) {
+            throw new PalugadaError('contract.violation', 'no threshold was given', {});
+          }
+          await setThresholds(params.companyId!, thresholds);
+          return { ok: true };
+        },
+      },
+
+      {
+        // F16.4. The whole company, as JSON, in one answer. Deliberately not
+        // streamed: an owner exporting a company is doing it once, and a
+        // download they can read is worth more than one they have to
+        // reassemble.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/export',
+        handle: async ({ params, query }) => collectExport(params.companyId!, {
+          ...(query.get('prompts') === '1' ? { includePrompts: true } : {}),
+        }),
+      },
+
       /* ----------------------------------------------------------- F12.5 --- */
 
       {
@@ -967,6 +1458,48 @@ function refusalFrom(error: unknown): string | null {
   const message = (error as Error).message;
   return typeof message === 'string' && message.length > 0 ? message : null;
 }
+
+/**
+ * One of a fixed set, or a refusal naming what is allowed.
+ *
+ * A cast would let an effect the engine does not know reach the database, and
+ * `putPolicy` would store it happily -- producing a policy row that reads as a
+ * rule and enforces nothing. The same argument as the tier: a value the
+ * platform believes is a value somebody has to have checked once.
+ */
+function oneOf<T extends string>(value: unknown, allowed: readonly T[], field: string): T {
+  const text = String(value ?? '');
+  if (!(allowed as readonly string[]).includes(text)) {
+    throw new PalugadaError(
+      'contract.violation',
+      `${field} must be one of ${allowed.join(', ')}; got ${text || 'nothing'}`,
+      { field },
+    );
+  }
+  return text as T;
+}
+
+/** A string that has to be there. `String(undefined)` is "undefined", and it fits. */
+function requireText(value: unknown, field: string): string {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!text) {
+    throw new PalugadaError('contract.violation', `${field} is required`, { field });
+  }
+  return text;
+}
+
+function policyEffect(value: unknown): PolicyEffect {
+  return oneOf(value, POLICY_EFFECTS, 'effect');
+}
+
+const ROLE_CHANGES = ['charter', 'skills', 'model_routing'] as const;
+function roleChange(value: unknown): RoleChange {
+  return oneOf(value, ROLE_CHANGES, 'change');
+}
+
+const GOAL_KINDS = ['mission', 'objective', 'key_result'] as const;
+const GOAL_STATUSES = ['active', 'met', 'abandoned'] as const;
+const SKILL_SCOPES = ['company', 'platform', 'division'] as const;
 
 function bearer(req: IncomingMessage): string | undefined {
   const header = req.headers.authorization ?? '';

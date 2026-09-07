@@ -734,11 +734,12 @@ operations an owner touches to *run* a company — the spend ceiling and what ha
 been spent against it, lifting a pause, retention, the owner's own hours and a
 company's batch window, capability health, cost by day or by company, the
 governance log, a task's events, rotating a credential, answering an agent's
-question, and both halves of the stop switch. The operations that change how a
-company is *built* — goals, skills, bundles, policies, structural changes,
-device pairing, replay, the eval set — are implemented and do not have a route
-yet; `test/documents/reachability.test.ts` lists every one of them by name and
-fails if that list drifts. Signing in means presenting a second
+question, and both halves of the stop switch. It also covers the operations that change how a
+company is *built* — the goal ladder, structural changes to a grant or a role,
+policies, skills, bundles and their publishers, the device gateway, and the
+eval set — and each of those takes a second factor, because F2.9 makes them the
+owner's and a session is a browser tab. `test/documents/reachability.test.ts`
+lists what still has no route, by name, and fails if that list drifts. Signing in means presenting a second
 factor, because there are no accounts: PALUGADA has one human, so an identity
 system would be a table with one row and a password to lose. A fresh
 deployment has no authenticator enrolled and says so at boot, in those words —

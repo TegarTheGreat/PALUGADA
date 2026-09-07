@@ -1491,10 +1491,52 @@ database's words. A permission or RLS denial deliberately stays opaque: that
 one means this process asked for something it may not have, which is a bug here
 rather than a message for the owner.
 
-What is left on the inventory is the half that changes how a company is
-*built* rather than how it runs -- goals, skills, bundles, policies, the
-structural changes, device pairing, replay and the eval set -- and it is still
-there by name.
+### And the second half
+
+Twenty-five more, which is the half that changes how a company is *built*:
+**the goal ladder** (F2.7, F3.10), **structural changes** (F2.9, F3.9 -- a
+grant, a role, an escalation policy), **policies** (F3.4), **skills** (F15 --
+listing, review, approval, scope, quarantine, import), **bundles and their
+publishers** (F16 -- trust, revoke, install, verify), **the device gateway**
+(F12.7, F12.10 -- register, pair, revoke, challenge), **the eval set** (F17 --
+cases, the last score, a change request), and the four that had nowhere to
+live: pending reviews, schedules, alert thresholds and the export.
+
+Everything F2.9 calls structural takes `ownerApproved`, and this surface is the
+only caller in the codebase that may pass `true`. That makes the second factor
+the whole of the check: a route that passed `true` off a session would have
+made the flag decorative. So a grant change, a role change, a goal edit, a
+skill's scope, lifting a quarantine, trusting a publisher and pairing a device
+each take the owner's device. Revoking a publisher or a device does not --
+those only ever narrow what this installation accepts, and a revocation
+somebody hesitates over happens too late.
+
+**Two things a cast would have hidden, and one the tests found.**
+
+`setSkillScope` takes `{ scopeType }`, and the first version of that route
+passed `{ scope, scopeId } as never`. It type-checked. Every call would have
+widened the skill to an undefined scope -- which is the shape of bug a cast
+exists to create. Built rather than cast now, and a division target without an
+id is refused by name.
+
+A policy effect and a role change are likewise checked against their lists
+rather than cast. An effect the engine does not know would be stored happily by
+`putPolicy`, producing a row that reads as a rule and enforces nothing.
+
+And the test helper was wrong about the platform. It got a fresh TOTP code by
+adding one to the step number, which works twice: `TOTP_DRIFT_STEPS` is one, so
+step+2 is outside the window and the third code in a test is rejected. The
+platform was right and the helper was wrong -- a test that needs four codes
+needs four minutes, so it moves the clock the verifier reads instead.
+
+What is left on the inventory is nine `console` entries, and they are honest
+ones rather than a backlog: **replay** needs `ReplayContext` to carry `signal`
+and `awaitChild` before a deployment's own handlers can be replayed through it,
+which is engine work rather than a route; `proposeStructuralChange` and
+`assertApproved` are the *agent's* path to the same changes the owner now makes
+directly; `claimIdempotencyKey` and `assertWithinQuarantine` wait on a device
+actually speaking to this deployment; and a budget account, an account chain
+and superseding a memory all take a transaction rather than a company id.
 
 ### What is actually left
 

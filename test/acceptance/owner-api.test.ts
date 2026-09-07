@@ -18,6 +18,7 @@ import { InMemorySecretManager } from '../../src/secrets/manager.ts';
 import { OwnerApi } from '../../src/owner/api.ts';
 import {
   OwnerMfa,
+  TOTP_STEP_SECONDS,
   decodeBase32,
   newTotpSecret,
   stepFor,
@@ -25,7 +26,7 @@ import {
 } from '../../src/owner/mfa.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { clearStopAll, isStopAllRequested } from '../../src/engine/control.ts';
-import { createCompany, type Fixture } from '../helpers/fixtures.ts';
+import { createCompany, grantCapability, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
 before(ensureSchema);
@@ -45,18 +46,29 @@ async function console_(): Promise<{
   const secrets = new InMemorySecretManager();
   const { secret } = newTotpSecret('owner phone');
   secrets.set('vault://owner/totp', secret);
-  const mfa = new OwnerMfa({ secrets, rpId: 'palugada.local' });
+  // A clock the test moves, rather than codes that walk past the drift window.
+  //
+  // A TOTP code cannot be used twice -- `last_step` must strictly increase --
+  // so a test needs a fresh step per call, and the first version got one by
+  // adding to the step number. That works twice: `TOTP_DRIFT_STEPS` is one, so
+  // step+2 is outside the window and the third code in a test is rejected as
+  // invalid. Which is the platform being right and the helper being wrong: a
+  // test that needs four codes needs four *minutes*, and the way to have those
+  // without waiting is to move the clock the verifier reads.
+  let steps = 0;
+  const at = () => new Date(Date.now() + steps * TOTP_STEP_SECONDS * 1000);
+  const mfa = new OwnerMfa({ secrets, rpId: 'palugada.local', now: at });
   await mfa.enrolTotp({ label: 'owner phone', secretRef: 'vault://owner/totp' });
 
   const api = new OwnerApi({ mfa });
   const { url } = await api.listen();
-  // A fresh step per call: a TOTP code cannot be used twice, so a test that
-  // signs in and then approves would fail on the second for the wrong reason.
-  let drift = 0;
   return {
     api,
     url,
-    code: () => totpCode(decodeBase32(secret), stepFor(new Date()) + drift++),
+    code: () => {
+      steps += 1;
+      return totpCode(decodeBase32(secret), stepFor(at()));
+    },
     close: () => api.close(),
   };
 }
@@ -1356,6 +1368,455 @@ test('every new route needs a session (F10, F12.5)', async () => {
       ['POST',
         `/api/companies/${fixture.companyId}/divisions/${fixture.divisionId}/credentials/x/rotate`],
       ['POST', `/api/companies/${fixture.companyId}/inbox/${fixture.companyId}/answer`],
+    ];
+    for (const [method, path] of paths) {
+      const answer = await call(owner.url, method, path, { body: {} });
+      assert.equal(answer.status, 401, `${method} ${path} answered ${answer.status}`);
+    }
+  } finally {
+    await owner.close();
+  }
+});
+
+/* ------------------------------ the half that changes how a company is built --- */
+
+/**
+ * The goal ladder, edited by the owner.
+ *
+ * F2.7 makes every task hang from a goal, and F3.10 makes the ladder the
+ * owner's. `createGoal` and `applyGoalChange` were both implemented and
+ * neither had a route, so the direction of the company could be set only from
+ * a `psql` prompt. Editing one redirects work already in flight, which is why
+ * it takes the owner's device rather than their tab.
+ */
+test('the owner can build and redirect the goal ladder (F2.7, F3.10)', async () => {
+  const fixture = await createCompany('console-goals');
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+    const base = `/api/companies/${fixture.companyId}/goals`;
+
+    // The ladder is a ladder: an objective hangs from the level above it, and
+    // the database says so rather than this route. A key result parented to a
+    // mission is refused, which is the answer the owner should see.
+    const skippedRung = await call(owner.url, 'POST', base, {
+      token,
+      body: {
+        kind: 'key_result',
+        slug: 'straight-to-the-top',
+        statement: 'Skip a rung.',
+        parentGoalId: (await call(owner.url, 'GET', `${base}/${fixture.goalId}`, { token }))
+          .body.parentGoalId,
+      },
+    });
+    assert.equal(skippedRung.status, 400, JSON.stringify(skippedRung.body));
+
+    const objective = await call(owner.url, 'POST', base, {
+      token,
+      body: {
+        kind: 'objective',
+        slug: 'ship-the-thing',
+        statement: 'Ship it this quarter.',
+        parentGoalId: (await call(owner.url, 'GET', `${base}/${fixture.goalId}`, { token }))
+          .body.parentGoalId,
+      },
+    });
+    assert.equal(objective.status, 200, JSON.stringify(objective.body));
+
+    // A kind the ladder does not have is refused by name rather than reaching
+    // the database as a value nobody checked.
+    const nonsense = await call(owner.url, 'POST', base, {
+      token, body: { kind: 'vibe', slug: 'x', statement: 'y' },
+    });
+    assert.equal(nonsense.status, 400);
+    assert.match(String(nonsense.body.error), /kind must be one of/);
+
+    const goalId = String(objective.body.id);
+    const without = await call(owner.url, 'POST', `${base}/${goalId}`, {
+      token, body: { status: 'met' },
+    });
+    assert.equal(without.status, 403, JSON.stringify(without.body));
+
+    const withFactor = await call(owner.url, 'POST', `${base}/${goalId}`, {
+      token, body: { status: 'met', proof: { totp: owner.code() } },
+    });
+    assert.equal(withFactor.status, 200, JSON.stringify(withFactor.body));
+    assert.equal(
+      (await call(owner.url, 'GET', `${base}/${goalId}`, { token })).body.status,
+      'met',
+    );
+  } finally {
+    await owner.close();
+  }
+});
+
+/**
+ * F2.9's structural changes, which are the owner's by definition.
+ *
+ * `applyGrantChange` and `applyRoleChange` both refuse without
+ * `ownerApproved`, and this surface is the only caller that may pass `true` --
+ * which makes the second factor the whole of the check. A route that passed
+ * `true` off a session would have made the flag decorative.
+ */
+test('the owner can change a grant and a role, with their device (F2.9, F3.9)', async () => {
+  const fixture = await createCompany('console-structure');
+  // A grant is a foreign key into `capabilities`, so the capability has to be
+  // registered before there is anything to change.
+  const { CapabilityRegistry } = await import('../../src/broker/registry.ts');
+  const { registerPlatformCapabilities: registerTools } =
+    await import('../../src/broker/platform-capabilities.ts');
+  const structureRegistry = new CapabilityRegistry();
+  registerTools(structureRegistry);
+  // Catalogued at tier 1, so there is something for a tightening to tighten
+  // *from* and something a loosening would loosen below.
+  structureRegistry.register({
+    name: 'dns.update',
+    adapter: 'test:dns',
+    defaultTier: 1,
+    async execute() { return {}; },
+    async verify() { return true; },
+  } as never);
+  await structureRegistry.sync();
+  await grantCapability(fixture, 'dns.update');
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+
+    const grantPath = `/api/companies/${fixture.companyId}/structure/grant`;
+    const without = await call(owner.url, 'POST', grantPath, {
+      token,
+      body: { divisionId: fixture.divisionId, capabilityName: 'dns.update', tierOverride: 2 },
+    });
+    assert.equal(without.status, 403, JSON.stringify(without.body));
+
+    const tightened = await call(owner.url, 'POST', grantPath, {
+      token,
+      body: {
+        divisionId: fixture.divisionId,
+        capabilityName: 'dns.update',
+        tierOverride: 2,
+        proof: { totp: owner.code() },
+      },
+    });
+    assert.equal(tightened.status, 200, JSON.stringify(tightened.body));
+
+    // F8.3 still holds through this surface: a grant may tighten and never
+    // loosen, and the database is what says so.
+    const loosened = await call(owner.url, 'POST', grantPath, {
+      token,
+      body: {
+        divisionId: fixture.divisionId,
+        capabilityName: 'dns.update',
+        tierOverride: 0,
+        proof: { totp: owner.code() },
+      },
+    });
+    assert.equal(loosened.status, 400, JSON.stringify(loosened.body));
+
+    const rolePath = `/api/companies/${fixture.companyId}/roles/${fixture.roleId}`;
+    const empty = await call(owner.url, 'POST', rolePath, {
+      token, body: { proof: { totp: owner.code() } },
+    });
+    assert.equal(empty.status, 400, JSON.stringify(empty.body));
+
+    const changed = await call(owner.url, 'POST', rolePath, {
+      token,
+      body: {
+        systemPrompt: 'You coordinate, and you say what you are doing.',
+        summary: 'clearer charter',
+        proof: { totp: owner.code() },
+      },
+    });
+    assert.equal(changed.status, 200, JSON.stringify(changed.body));
+    assert.equal(typeof changed.body.version, 'number');
+  } finally {
+    await owner.close();
+  }
+});
+
+test('the owner can write a policy, and cannot write one the engine cannot read (F3.4)', async () => {
+  const fixture = await createCompany('console-policy');
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+
+    const written = await call(owner.url, 'POST', '/api/policies', {
+      token,
+      body: {
+        slug: 'external-mail-is-the-owners',
+        effect: 'require_approval',
+        companyId: fixture.companyId,
+        condition: { field: 'recipient_domain', op: 'not_in', value: ['acme.example'] },
+      },
+    });
+    assert.equal(written.status, 200, JSON.stringify(written.body));
+
+    // An effect the engine does not know would be stored happily and enforce
+    // nothing: a policy row that reads as a rule and is not one.
+    const unknown = await call(owner.url, 'POST', '/api/policies', {
+      token,
+      body: {
+        slug: 'nonsense', effect: 'shrug', companyId: fixture.companyId,
+        condition: { field: 'tier', op: 'gte', value: 2 },
+      },
+    });
+    assert.equal(unknown.status, 400, JSON.stringify(unknown.body));
+    assert.match(String(unknown.body.error), /effect must be one of/);
+
+    // And a condition the grammar refuses is refused here rather than stored.
+    const bad = await call(owner.url, 'POST', '/api/policies', {
+      token,
+      body: {
+        slug: 'bad-condition', effect: 'deny', companyId: fixture.companyId,
+        condition: { field: 'whatever', op: 'eq', value: 1 },
+      },
+    });
+    assert.equal(bad.status >= 400, true, JSON.stringify(bad.body));
+
+    const log = await call(
+      owner.url, 'GET', `/api/companies/${fixture.companyId}/governance`, { token },
+    );
+    assert.ok((log.body.log as unknown[]).length > 0, 'the change was not recorded');
+  } finally {
+    await owner.close();
+  }
+});
+
+test('the owner can see and scope a skill, and lifting quarantine takes a factor (F15)', async () => {
+  const fixture = await createCompany('console-skills');
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+    const base = `/api/companies/${fixture.companyId}/skills`;
+
+    const list = await call(owner.url, 'GET', base, { token });
+    assert.equal(list.status, 200, JSON.stringify(list.body));
+    assert.ok(Array.isArray(list.body.skills));
+
+    // A skill from outside, unsigned, which is what quarantine is for.
+    const imported = await call(owner.url, 'POST', `${base}/import`, {
+      token,
+      body: {
+        slug: 'cold-outreach',
+        origin: 'https://hub.example/cold-outreach',
+        divisionId: fixture.divisionId,
+        source: [
+          '---', 'name: cold-outreach',
+          'description: How to open a cold conversation.',
+          'triggers: [outreach]', '---', '', 'Say who you are first.', '',
+        ].join('\n'),
+      },
+    });
+    assert.equal(imported.status, 200, JSON.stringify(imported.body));
+    const skillId = String(imported.body.skillId ?? imported.body.id);
+
+    const without = await call(owner.url, 'POST', `${base}/${skillId}/quarantine/lift`, {
+      token, body: {},
+    });
+    assert.equal(without.status, 403, JSON.stringify(without.body));
+
+    const lifted = await call(owner.url, 'POST', `${base}/${skillId}/quarantine/lift`, {
+      token, body: { proof: { totp: owner.code() } },
+    });
+    assert.equal(lifted.status, 200, JSON.stringify(lifted.body));
+
+    // A scope target is built, not cast: `setSkillScope` reads `scopeType`,
+    // and a division target without an id is refused here rather than
+    // silently widening the skill.
+    const missing = await call(owner.url, 'POST', `${base}/${skillId}/scope`, {
+      token, body: { scopeType: 'division', proof: { totp: owner.code() } },
+    });
+    assert.equal(missing.status, 400, JSON.stringify(missing.body));
+    assert.match(String(missing.body.error), /scopeId is required/);
+  } finally {
+    await owner.close();
+  }
+});
+
+test('the owner can trust and revoke a bundle publisher (F16.2)', async () => {
+  const { generateKeyPairSync } = await import('node:crypto');
+  const { publicKey } = generateKeyPairSync('ed25519');
+  const pem = publicKey.export({ type: 'spki', format: 'pem' }).toString();
+
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+
+    const without = await call(owner.url, 'POST', '/api/publishers', {
+      token, body: { publicKeyPem: pem, label: 'a partner' },
+    });
+    assert.equal(without.status, 403, JSON.stringify(without.body));
+
+    const trusted = await call(owner.url, 'POST', '/api/publishers', {
+      token, body: { publicKeyPem: pem, label: 'a partner', proof: { totp: owner.code() } },
+    });
+    assert.equal(trusted.status, 200, JSON.stringify(trusted.body));
+    const fingerprint = String(trusted.body.fingerprint);
+
+    const listed = await call(owner.url, 'GET', '/api/publishers', { token });
+    assert.ok(
+      (listed.body.publishers as Array<{ fingerprint: string }>)
+        .some((publisher) => publisher.fingerprint === fingerprint),
+    );
+
+    // Revoking needs no factor. It only ever narrows what this installation
+    // accepts, and a revocation somebody hesitates over happens too late.
+    const revoked = await call(
+      owner.url, 'POST', `/api/publishers/${fingerprint}/revoke`, { token, body: {} },
+    );
+    assert.equal(revoked.status, 200, JSON.stringify(revoked.body));
+    assert.notEqual(
+      (await call(owner.url, 'GET', '/api/publishers', { token })
+      ).body.publishers &&
+        ((await call(owner.url, 'GET', '/api/publishers', { token })).body.publishers as
+          Array<{ fingerprint: string; revokedAt: string | null }>)
+          .find((publisher) => publisher.fingerprint === fingerprint)?.revokedAt,
+      null,
+    );
+  } finally {
+    await owner.close();
+  }
+});
+
+test('the owner can register, pair and revoke a device (F12.7, F12.10)', async () => {
+  const { generateKeyPairSync } = await import('node:crypto');
+  const { publicKey } = generateKeyPairSync('ed25519');
+  const pem = publicKey.export({ type: 'spki', format: 'pem' }).toString();
+
+  const fixture = await createCompany('console-devices');
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+    const base = `/api/companies/${fixture.companyId}/devices`;
+
+    const registered = await call(owner.url, 'POST', base, {
+      token, body: { name: 'the laptop', runtime: 'claude-code', publicKeyPem: pem },
+    });
+    assert.equal(registered.status, 200, JSON.stringify(registered.body));
+    const deviceId = String(registered.body.id);
+
+    const without = await call(owner.url, 'POST', `${base}/${deviceId}/pair`, { token, body: {} });
+    assert.equal(without.status, 403, JSON.stringify(without.body));
+
+    const paired = await call(owner.url, 'POST', `${base}/${deviceId}/pair`, {
+      token, body: { proof: { totp: owner.code() } },
+    });
+    assert.equal(paired.status, 200, JSON.stringify(paired.body));
+
+    const challenge = await call(
+      owner.url, 'POST', `${base}/${deviceId}/challenge`, { token, body: {} },
+    );
+    assert.equal(challenge.status, 200);
+    assert.equal(typeof challenge.body.nonce, 'string');
+
+    const revoked = await call(
+      owner.url, 'POST', `${base}/${deviceId}/revoke`, { token, body: {} },
+    );
+    assert.equal(revoked.status, 200, JSON.stringify(revoked.body));
+  } finally {
+    await owner.close();
+  }
+});
+
+test('the owner can read a role\'s eval set and its last score (F17.1, F17.3)', async () => {
+  const fixture = await createCompany('console-evals');
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+    const answer = await call(
+      owner.url, 'GET',
+      `/api/companies/${fixture.companyId}/roles/${fixture.roleId}/evals`, { token },
+    );
+    assert.equal(answer.status, 200, JSON.stringify(answer.body));
+    assert.ok(Array.isArray(answer.body.cases));
+
+    // A change the eval set does not know is refused by name: `charter`,
+    // `skills` and `model_routing` are what F17.2 scores.
+    const nonsense = await call(
+      owner.url, 'POST',
+      `/api/companies/${fixture.companyId}/roles/${fixture.roleId}/change-request`,
+      { token, body: { change: 'vibes', tools: [], summary: 'x' } },
+    );
+    assert.equal(nonsense.status, 400, JSON.stringify(nonsense.body));
+    assert.match(String(nonsense.body.error), /change must be one of/);
+  } finally {
+    await owner.close();
+  }
+});
+
+test('the owner can read reviews, set thresholds and export the company (F7.5, F11.6, F16.4)', async () => {
+  const fixture = await createCompany('console-rest');
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+
+    const reviews = await call(
+      owner.url, 'GET', `/api/companies/${fixture.companyId}/reviews`, { token },
+    );
+    assert.equal(reviews.status, 200);
+    assert.ok(Array.isArray(reviews.body.reviews));
+
+    const thresholds = await call(
+      owner.url, 'POST', `/api/companies/${fixture.companyId}/alert-thresholds`,
+      { token, body: { dailyCostCents: 5_000 } },
+    );
+    assert.equal(thresholds.status, 200, JSON.stringify(thresholds.body));
+
+    const none = await call(
+      owner.url, 'POST', `/api/companies/${fixture.companyId}/alert-thresholds`,
+      { token, body: {} },
+    );
+    assert.equal(none.status, 400, JSON.stringify(none.body));
+
+    const exported = await call(
+      owner.url, 'GET', `/api/companies/${fixture.companyId}/export`, { token },
+    );
+    assert.equal(exported.status, 200, JSON.stringify(exported.body));
+    assert.ok(exported.body.sections, 'the export carried no sections');
+    // Prompts are opt-in: an audit export usually needs to show that a call
+    // happened, not what was said, and the smaller archive is the safer one to
+    // hand over.
+    assert.equal(typeof exported.body.summary, 'object');
+  } finally {
+    await owner.close();
+  }
+});
+
+test('every route in the second block needs a session too (F10, F12.5)', async () => {
+  const fixture = await createCompany('console-unauthenticated-2');
+  const owner = await console_();
+  try {
+    const paths: Array<[string, string]> = [
+      ['GET', `/api/companies/${fixture.companyId}/goals/${fixture.goalId}`],
+      ['POST', `/api/companies/${fixture.companyId}/goals`],
+      ['POST', `/api/companies/${fixture.companyId}/goals/${fixture.goalId}`],
+      ['POST', `/api/companies/${fixture.companyId}/structure/grant`],
+      ['POST', `/api/companies/${fixture.companyId}/roles/${fixture.roleId}`],
+      ['POST', `/api/companies/${fixture.companyId}/divisions/${fixture.divisionId}/escalation`],
+      ['POST', '/api/policies'],
+      ['GET', `/api/companies/${fixture.companyId}/skills`],
+      ['POST', `/api/companies/${fixture.companyId}/skills/import`],
+      ['POST', `/api/companies/${fixture.companyId}/skills/x/scope`],
+      ['POST', `/api/companies/${fixture.companyId}/skills/x/quarantine/lift`],
+      ['POST', `/api/companies/${fixture.companyId}/skills/versions/x/approve`],
+      ['POST', `/api/companies/${fixture.companyId}/skills/versions/x/review`],
+      ['GET', '/api/publishers'],
+      ['POST', '/api/publishers'],
+      ['POST', '/api/publishers/x/revoke'],
+      ['POST', `/api/companies/${fixture.companyId}/bundles`],
+      ['GET', `/api/companies/${fixture.companyId}/bundles/x/verify`],
+      ['POST', `/api/companies/${fixture.companyId}/devices`],
+      ['POST', `/api/companies/${fixture.companyId}/devices/x/pair`],
+      ['POST', `/api/companies/${fixture.companyId}/devices/x/revoke`],
+      ['POST', `/api/companies/${fixture.companyId}/devices/x/challenge`],
+      ['GET', `/api/companies/${fixture.companyId}/roles/${fixture.roleId}/evals`],
+      ['POST', `/api/companies/${fixture.companyId}/evals/x/accept`],
+      ['POST', `/api/companies/${fixture.companyId}/roles/${fixture.roleId}/change-request`],
+      ['GET', `/api/companies/${fixture.companyId}/reviews`],
+      ['POST', `/api/companies/${fixture.companyId}/schedules`],
+      ['POST', `/api/companies/${fixture.companyId}/alert-thresholds`],
+      ['GET', `/api/companies/${fixture.companyId}/export`],
+      ['POST', '/api/control/cancel-everything'],
     ];
     for (const [method, path] of paths) {
       const answer = await call(owner.url, method, path, { body: {} });

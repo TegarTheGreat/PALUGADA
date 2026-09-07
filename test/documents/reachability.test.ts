@@ -55,7 +55,6 @@ const ROOT = fileURLToPath(new URL('../..', import.meta.url));
  */
 const UNREACHABLE: Record<string, string> = {
   // F11: the audit trail an owner can read.
-  collectExport: 'console: F16.4 export is not offered anywhere',
   EXPORT_SECTION_NAMES: 'helper: the section list, asserted directly',
   IMPORT_SECTION_NAMES: 'helper: the section list, asserted directly',
   NOT_RESTORED: 'helper: what an import deliberately drops, asserted directly',
@@ -68,13 +67,8 @@ const UNREACHABLE: Record<string, string> = {
 
   // F16: bundles.
   forgetBundleHooks: 'helper: a cache reset a test needs between installs',
-  verifyInstall: 'console: F16.5 install verification is not offered',
-  listTrustedPublishers: 'console: F16.2 publishers cannot be seen',
-  revokePublisher: 'console: F16.2 publishers cannot be revoked',
 
   // F2.7, F3.10: the goal ladder.
-  applyGoalChange: 'console: F2.7 the ladder cannot be edited',
-  createGoal: 'console: F2.7 the ladder cannot be edited',
 
   // F1: budget.
   chainFor: 'console: F1.6 the account chain is not shown',
@@ -93,28 +87,17 @@ const UNREACHABLE: Record<string, string> = {
   isTenantContextMissing: 'helper: the RLS probe, asserted directly',
 
   // F17: role evals.
-  acceptEvalCase: 'console: F17.1 an eval case cannot be accepted',
   assertApproved: 'console: F17.3 a role change cannot be approved',
-  latestScore: 'console: F17.3 a score is not shown',
-  requestRoleChange: 'console: F17.2 a role change cannot be requested',
 
   // F12.7-F12.10: the device gateway.
   assertWithinQuarantine: 'console: F12.10 quarantine is not surfaced',
   claimIdempotencyKey: 'console: no device speaks to this deployment yet',
-  issueChallenge: 'console: F12.7 pairing is not offered',
-  pairDevice: 'console: F12.7 pairing is not offered',
-  registerDevice: 'console: F12.7 pairing is not offered',
-  revokeDevice: 'console: F12.7 a device cannot be revoked',
   secretsMatch: 'helper: the constant-time compare, asserted directly',
 
   // F1.7-F1.9: the spend ceiling.
 
   // F3: policy and structure.
-  putPolicy: 'console: F3.4 a policy cannot be written',
-  applyGrantChange: 'console: F3.9 a grant cannot be changed',
-  applyRoleChange: 'console: F3.9 a role cannot be changed',
   proposeStructuralChange: 'console: F3.9 a change cannot be proposed',
-  setEscalationPolicy: 'console: F2.6 escalation cannot be configured',
 
   // F10: the owner surface itself.
 
@@ -125,14 +108,12 @@ const UNREACHABLE: Record<string, string> = {
 
   // F3.4, F10.6, F11: reporting.
   strictness: 'helper: the effect ordering, asserted directly',
-  setThresholds: 'console: F11.6 alert thresholds cannot be set',
   renderDailyDigest: 'worker: F10.6 the digest is drawn by the console; no '
     + 'channel sends the rendered text',
 
   // F1.5: retention.
 
   // F7: adversarial review.
-  pendingReviews: 'console: F7.5 pending reviews are not shown',
 
   // F13, F12.9.
   knownClis: 'helper: the four starting-point specs, read by an operator '
@@ -141,7 +122,6 @@ const UNREACHABLE: Record<string, string> = {
     + '`code.execute` needs somebody\'s account',
 
   // F9: the scheduler.
-  upsertSchedule: 'console: F9.1 a schedule cannot be created',
   assignTask: 'worker: F9.9 a wake is consumed by the tick, not assigned by hand',
   coalescedCount: 'helper: how many wakes merged, asserted directly',
   pendingNotifications: 'helper: the queue behind the owner window, asserted directly',
@@ -149,13 +129,8 @@ const UNREACHABLE: Record<string, string> = {
   // F12.3.
 
   // F15: skills.
-  approveSkillVersion: 'console: F15.4 a skill cannot be approved',
-  importExternalSkill: 'console: F15.8 a skill cannot be imported',
-  liftSkillQuarantine: 'console: F15.6 quarantine cannot be lifted',
-  recordSkillReview: 'console: F15.4 a review cannot be recorded',
   renderSkillDocument: 'helper: the document form, asserted directly',
   screenCandidate: 'worker: F15.3 candidates are not screened on the tick',
-  setSkillScope: 'console: F15.5 scope cannot be changed',
 
   // Entry points and templates.
   installStandardTemplate: 'entry: a deployment builds its first company with it',

@@ -440,7 +440,12 @@ function pick(
   leaf?: string,
 ): unknown {
   if (root === 'input') return leaf ? values.input[leaf] : undefined;
-  if (root === 'result') return leaf ? values.result?.[leaf] : undefined;
+  // A bare `{result}` is the whole result, which is what a vendor answering an
+  // id rather than an object gives you. Without it a spec whose `result` is a
+  // scalar has no way to name it, and the read-back URL keeps a literal
+  // `{result.id}` -- which 404s, and reports a write that succeeded as
+  // unverified.
+  if (root === 'result') return leaf ? values.result?.[leaf] : values.result;
   if (leaf) return undefined;
   return (values as unknown as Record<string, unknown>)[root];
 }

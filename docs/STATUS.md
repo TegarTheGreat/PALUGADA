@@ -1345,6 +1345,58 @@ history, both times because something was registered and nothing looked.
 twenty to sixteen: `email.send`, `dns.read`, `dns.update` and `invoice.issue`
 are bound by configuration in the boot check itself.
 
+### And a review of the file found seven more
+
+Six in the new code and one in the example, and the pattern in four of them is
+the same: **a guard that passes and checks nothing.**
+
+- **A read-back clause that asserts nothing.** An empty `matches` was already
+  refused. `{ "path": "body.status" }` was not -- it reads a field and
+  discards it -- and neither was `{ "equals": "sent" }`, which names a value
+  and never looks for it. Both left a tier 1 write "verified" on any 2xx,
+  which is worse than an unverified write because the platform reports it as
+  checked. Each now requires the other.
+- **And the fix for it was itself a guard that checked nothing.** The first
+  version used `dependentRequired`, a 2019-09 keyword; this validator runs
+  draft-07 with `strict: false`, where an unrecognised keyword is silently
+  ignored. The test caught it. Written as `if`/`then` now, which every draft
+  understands.
+- **The example's own read-back could never have run.** `"result": "body.id"`
+  makes the result a *string*, and a verify URL of `{result.id}` then reads
+  `id` off a string, finds nothing, and goes out with the placeholder still in
+  it -- so the vendor 404s and a write that succeeded is reported unverified,
+  wrong in the direction of sending it twice. `fill` now understands a bare
+  `{result}` for the scalar case, the example uses it, and the test asserts
+  that no read-back URL in the shipped file survives filling with a `{` in it.
+- **A policy fact that was always null.** The example mapped `dns.update`'s
+  `urlHost` to a DNS record's *value*, which `new URL()` throws on. A fact
+  that is permanently null is worse than an absent one: a policy written
+  against it reads as protecting something while the `not_in` direction fires
+  on everything and the `in` direction fires on nothing. The test now
+  exercises every `describe` in the shipped file against an ordinary input.
+- **A nested input path was sent as text.** Body templates read one dotted
+  segment, so `{input.customer.email}` reached the vendor literally -- stored,
+  and sent to somebody -- while every other path in the file read to any
+  depth.
+- **A file could take a name the platform already bound.** `register` is a
+  `Map.set`, so an entry named `memory.search` would replace the platform's
+  binding with a vendor's URL while the boot note still credited the platform.
+  Every role's context pack instructs a run to call that tool, so the
+  consequence is the whole platform quietly talking to somebody else's server.
+  Refused now, naming the adapter that holds it.
+- **The smoke run polluted a shared database.** It synced the example vendors
+  into the `capabilities` table, and that table is what authorises a grant --
+  so a later deployment started *without* a vendor file could grant
+  `email.send` and then answer `capability.unknown` at call time. The boot
+  check now counts against the registry, which is the truer question anyway:
+  a row without an adapter is grantable and unusable, which is the state the
+  count exists to report rather than one it should hide.
+
+The seventh is smaller and worth the line: a refusal from the catalogue said
+only that `email.send` is tier 2, leaving the operator to work out which of
+their files said otherwise. It names the file and the entry now, keeping the
+original error code.
+
 ### What is actually left
 
 No push service, no bot token, no sandbox vendor, and none of F13.3's four

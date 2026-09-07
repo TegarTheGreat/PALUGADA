@@ -155,6 +155,37 @@ const SCHEMA = {
                 // At least one clause: an empty `matches` accepts everything,
                 // which is a read-back that reads nothing back.
                 minProperties: 1,
+                // And a clause that asserts nothing is the same failure in a
+                // shape that passes the line above. A `path` with nothing to
+                // compare it to reads a field and discards it; an `equals`
+                // with no `path` names a value and never looks for it. Both
+                // leave a tier 1 write "verified" on any 2xx, which is F8.4
+                // satisfied in form and not in substance -- so each requires
+                // the other.
+                //
+                // Written as `if`/`then` rather than `dependentRequired`,
+                // which is a 2019-09 keyword this validator runs draft-07 --
+                // and an unrecognised keyword under `strict: false` is not an
+                // error, it is silently ignored. A guard that validates
+                // nothing is the failure it was written to prevent.
+                allOf: [
+                  {
+                    if: { required: ['path'] },
+                    then: { anyOf: [
+                      { required: ['equals'] },
+                      { required: ['oneOf'] },
+                      { required: ['equalsPath'] },
+                    ] },
+                  },
+                  {
+                    if: { anyOf: [
+                      { required: ['equals'] },
+                      { required: ['oneOf'] },
+                      { required: ['equalsPath'] },
+                    ] },
+                    then: { required: ['path'] },
+                  },
+                ],
                 properties: {
                   status: {
                     anyOf: [
@@ -223,11 +254,13 @@ function at(root: unknown, path: string): unknown {
  * have no way to say which they meant. A string with anything else around it
  * is interpolated as text.
  */
+const PLACEHOLDER = /\{([a-zA-Z][a-zA-Z0-9_-]*(?:\.[a-zA-Z0-9_-]+)*)\}/;
+
 function fillTemplate(template: unknown, values: HttpPlaceholders): unknown {
   if (typeof template === 'string') {
-    const whole = /^\{([a-zA-Z]+(?:\.[a-zA-Z0-9_-]+)?)\}$/.exec(template);
+    const whole = new RegExp(`^${PLACEHOLDER.source}$`).exec(template);
     if (whole) return placeholder(whole[1]!, values);
-    return template.replace(/\{([a-zA-Z]+(?:\.[a-zA-Z0-9_-]+)?)\}/g, (literal, name: string) => {
+    return template.replace(new RegExp(PLACEHOLDER.source, 'g'), (literal, name: string) => {
       const found = placeholder(name, values);
       // A placeholder nothing fills is left as written. `undefined` would
       // become the four letters "undefined" and be sent, and a vendor that
@@ -252,8 +285,13 @@ function placeholder(name: string, values: HttpPlaceholders): unknown {
   if (name === 'taskId') return values.taskId;
   // Deliberately not `{credential}`. A body is not a header, and a credential
   // in one is a credential in the vendor's request log.
+  //
+  // Nested, because an input is a document and `{input.customer.email}` is the
+  // ordinary way to name a field in one. Reading only the first segment left
+  // that placeholder in the body as literal text, which a vendor stores and
+  // sends to somebody.
   const dot = name.indexOf('.');
-  if (dot > 0 && name.slice(0, dot) === 'input') return values.input[name.slice(dot + 1)];
+  if (dot > 0 && name.slice(0, dot) === 'input') return at(values.input, name.slice(dot + 1));
   return undefined;
 }
 
@@ -519,10 +557,40 @@ export async function registerVendorCapabilities(
 
   const specs = parseVendors(document, path);
   for (const spec of specs) {
-    // `register` runs `assertCalibrated`, so a file that binds `email.send` at
-    // tier 0 is refused here against the catalogue rather than believed. That
-    // is the one rule a configuration file must not be able to loosen.
-    registry.register(httpCapability(spec));
+    // A name this process already bound is not a name a file may take.
+    //
+    // `register` is a `Map.set`, so a file naming `memory.search` would
+    // silently replace the platform's own binding with a vendor's URL -- and
+    // the boot note would still say the platform bound it. Every role's
+    // context pack instructs a run to call that tool, so the consequence is
+    // the whole platform quietly talking to somebody else's server.
+    const existing = registry.get(spec.name);
+    if (existing) {
+      throw new PalugadaError(
+        'config.invalid',
+        `${path} binds ${spec.name}, which this deployment already binds `
+          + `(adapter ${existing.adapter}); a capability has one binding`,
+        { path, name: spec.name, adapter: existing.adapter },
+      );
+    }
+
+    try {
+      // `register` runs `assertCalibrated`, so a file that binds `email.send`
+      // at tier 0 is refused here against the catalogue rather than believed.
+      // That is the one rule a configuration file must not be able to loosen.
+      registry.register(httpCapability(spec));
+    } catch (failure) {
+      // Rethrown with the file and the entry in front of it, keeping the
+      // original code. A boot refusal that says only "email.send is
+      // catalogued at tier 2" leaves the operator to work out which of their
+      // files said otherwise.
+      const code = failure instanceof PalugadaError ? failure.code : 'config.invalid';
+      throw new PalugadaError(
+        code,
+        `${path} cannot bind ${spec.name}: ${(failure as Error).message}`,
+        { path, name: spec.name },
+      );
+    }
   }
   return specs.map((spec) => spec.name);
 }

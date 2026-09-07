@@ -18,6 +18,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { CapabilityBroker } from '../src/broker/broker.ts';
+import type { CapabilityRegistry } from '../src/broker/registry.ts';
 import { Engine, type TaskContext } from '../src/engine/engine.ts';
 import { RecordingLlmClient } from '../src/llm/client.ts';
 import { Worker } from '../src/worker.ts';
@@ -107,18 +108,22 @@ const SMOKE_TEMPLATE: CompanyTemplate = {
 const SMOKE_TEMPLATE_SLUG = 'smoke-company';
 
 /** What the standard template still needs before it can build a company here. */
-async function unboundStandardGrants(): Promise<string[]> {
+/**
+ * What the standard template grants and this process cannot actually do.
+ *
+ * Read from the registry rather than from the `capabilities` table, because
+ * they answer different questions and only one of them is the one that
+ * matters. A row in the table means the name exists and may be granted; an
+ * entry in the registry means an adapter will answer when a role calls it. A
+ * name with a row and no adapter is grantable and unusable, which is the
+ * failure this check exists to find rather than a state it should count as
+ * bound.
+ */
+function unboundStandardGrants(registry: CapabilityRegistry): string[] {
   const wanted = [...new Set(
     (STANDARD_COMPANY_TEMPLATE.grants ?? []).map((grant) => grant.capability),
   )];
-  return withControlPlane(async (tx) => {
-    const { rows } = await tx.query<{ name: string }>(
-      'SELECT name FROM capabilities WHERE name = ANY($1::text[])',
-      [wanted],
-    );
-    const bound = new Set(rows.map((row) => row.name));
-    return wanted.filter((name) => !bound.has(name));
-  });
+  return wanted.filter((name) => registry.get(name) === undefined);
 }
 
 function log(step: string, detail: string): void {
@@ -176,12 +181,18 @@ async function main(): Promise<number> {
   // example is a broken first hour, and this is the boot check -- so it is
   // read here rather than trusted, and the names it binds come off the count
   // below like any other binding.
+  //
+  // Deliberately *not* synced to the `capabilities` table. A row there is what
+  // authorises a grant, and this is a boot check on a database somebody else
+  // will use next: writing `email.send` into it would leave a later deployment
+  // -- one started without a vendor file -- able to grant a capability nothing
+  // answers, which is the exact "grantable and unusable" state the count below
+  // exists to report.
   const { registerVendorCapabilities } = await import('../src/capabilities/vendors.ts');
   const fromFile = await registerVendorCapabilities(registry, 'config/vendors.example.json');
-  await registry.sync();
   log('vendor file', `config/vendors.example.json binds ${fromFile.join(', ')}`);
 
-  const unbound = await unboundStandardGrants();
+  const unbound = unboundStandardGrants(registry);
   log(
     'standard template',
     unbound.length === 0

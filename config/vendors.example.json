@@ -20,7 +20,7 @@
       "credentialAlias": "email",
       "requiredScopes": ["email:send"],
       "verify": {
-        "url": "https://api.resend.com/emails/{result.id}",
+        "url": "https://api.resend.com/emails/{result}",
         "headers": { "authorization": "Bearer {credential}" },
         "matches": { "status": 200, "path": "body.id", "equalsPath": "result" }
       },
@@ -67,7 +67,6 @@
         "headers": { "authorization": "Bearer {credential}" },
         "matches": { "status": 200, "path": "body.result.content", "equalsPath": "input.content" }
       },
-      "describe": { "urlHost": "content" },
       "preflightUrl": "https://api.cloudflare.com/client/v4/user/tokens/verify"
     },
     {
@@ -89,7 +88,7 @@
       "credentialAlias": "billing",
       "requiredScopes": ["invoice:write"],
       "verify": {
-        "url": "https://api.stripe.com/v1/invoices/{result.id}",
+        "url": "https://api.stripe.com/v1/invoices/{result}",
         "headers": { "authorization": "Bearer {credential}" },
         "matches": { "status": 200, "path": "body.status", "oneOf": ["draft", "open", "paid"] }
       },

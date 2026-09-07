@@ -25,7 +25,7 @@ import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { closePools } from '../../src/db/pool.ts';
 import { isPalugadaError } from '../../src/errors.ts';
-import { httpCapability } from '../../src/capabilities/http.ts';
+import { httpCapability, fill } from '../../src/capabilities/http.ts';
 import { parseVendors, registerVendorCapabilities } from '../../src/capabilities/vendors.ts';
 import { CapabilityRegistry } from '../../src/broker/registry.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
@@ -381,7 +381,7 @@ test('a file that is not there says so rather than starting without it (§10)', 
 
 /* ------------------------------------------------------- the shipped example --- */
 
-test('the example file in this repository builds (§10)', () => {
+test('the example file in this repository builds, and its read-backs resolve (§10)', () => {
   // It is the thing an operator copies. A broken example is a broken first
   // hour, and this is the cheapest possible way to keep it honest.
   const document = JSON.parse(readFileSync('config/vendors.example.json', 'utf8')) as unknown;
@@ -390,6 +390,211 @@ test('the example file in this repository builds (§10)', () => {
     specs.map((spec) => spec.name),
     ['email.send', 'dns.read', 'dns.update', 'invoice.issue'],
   );
+
+  // Building is not enough, and this is the mistake the example itself made:
+  // a `result` of `body.id` makes the result a string, and a read-back URL of
+  // `{result.id}` then reads `id` off a string, finds nothing, and is sent
+  // with the placeholder still in it. The vendor 404s, and a write that
+  // succeeded is reported as unverified -- wrong in the direction of doing it
+  // twice. A URL that still holds a `{` after filling is that bug.
+  for (const spec of specs) {
+    if (!spec.verify) continue;
+    const result = spec.result
+      ? spec.result({ status: 200, body: { id: 'obj_1', result: { id: 'rec_1' } } })
+      : null;
+    const url = fill(spec.verify.url, {
+      input: { zoneId: 'z1', recordId: 'rec_1', content: '203.0.113.9' },
+      idempotencyKey: 'idem-1',
+      credential: '',
+      companyId: '11111111-1111-1111-1111-111111111111',
+      divisionId: '22222222-2222-2222-2222-222222222222',
+      taskId: '33333333-3333-3333-3333-333333333333',
+      result: result as Record<string, unknown>,
+    });
+    // A `{` that survived filling is the bug: `fill` leaves an unfillable
+    // placeholder as written -- deliberately, so a vendor 400s on it rather
+    // than being sent the word "undefined" -- and the request goes out with
+    // the brace percent-encoded into the path.
+    assert.ok(!url.includes('{'), `${spec.name} read-back URL is unfilled: ${url}`);
+  }
+
+  // And every policy fact it claims to describe actually resolves.
+  //
+  // The example got this wrong too: `dns.update` mapped `urlHost` to a DNS
+  // record's *value*, which `new URL()` throws on, so `url_host` was
+  // permanently `null`. A fact that is always null is worse than an absent
+  // one, because a policy written against it reads as protecting something
+  // and matches nothing -- the `not_in` direction fires on everything and the
+  // `in` direction fires on nothing.
+  const samples: Record<string, Record<string, unknown>> = {
+    'email.send': { to: ['ana@supplier.example'], subject: 'Hi', body: 'Text.' },
+    'dns.read': { zoneId: 'z1' },
+    'dns.update': { zoneId: 'z1', recordId: 'r1', type: 'A', name: 'a', content: '203.0.113.9', ttl: 60 },
+    'invoice.issue': { customerId: 'cus_1', amountCents: 125_00, currency: 'usd' },
+  };
+  for (const spec of specs) {
+    if (!spec.describe) continue;
+    const described = spec.describe(samples[spec.name] ?? {});
+    const entries = Object.entries(described);
+    assert.notEqual(entries.length, 0, `${spec.name} describes nothing`);
+    for (const [field, value] of entries) {
+      assert.notEqual(
+        value, null,
+        `${spec.name} describes ${field} as null for an ordinary input`,
+      );
+    }
+  }
+});
+
+/* ------------------------------------------- what the fourth review found --- */
+
+/**
+ * A read-back clause that asserts nothing is refused.
+ *
+ * An empty `matches` was already refused, and this is the same failure in a
+ * shape that got past it. A `path` with nothing to compare it to reads a field
+ * and discards it. An `equals` with no `path` names a value and never looks
+ * for it. Both leave a tier 1 write "verified" on any 2xx -- F8.4 satisfied in
+ * form and not in substance, which is worse than an unverified write because
+ * the platform reports it as checked.
+ */
+test('a read-back clause that asserts nothing is refused (F8.4)', () => {
+  for (const matches of [
+    { path: 'body.status' },
+    { equals: 'sent' },
+    { oneOf: ['sent'] },
+    { equalsPath: 'input.content' },
+  ]) {
+    assert.throws(
+      () => parseVendors({
+        capabilities: [{
+          name: 'ticket.create', adapter: 'x', tier: 1, method: 'POST',
+          url: 'https://api.example/v1/tickets',
+          headers: { 'idempotency-key': '{idempotencyKey}' },
+          verify: { url: 'https://api.example/v1/tickets/{result}', matches },
+        }],
+      }, 'vendors.json'),
+      (error: unknown) => isPalugadaError(error, 'config.invalid'),
+      JSON.stringify(matches),
+    );
+  }
+
+  // And the pair together is accepted, so the rule refuses the useless shape
+  // rather than the feature.
+  assert.doesNotThrow(() => parseVendors({
+    capabilities: [{
+      name: 'ticket.create', adapter: 'x', tier: 1, method: 'POST',
+      url: 'https://api.example/v1/tickets',
+      headers: { 'idempotency-key': '{idempotencyKey}' },
+      verify: {
+        url: 'https://api.example/v1/tickets/{result}',
+        matches: { path: 'body.status', equals: 'open' },
+      },
+    }],
+  }));
+});
+
+test('a body template reads a nested field (F8)', async () => {
+  const server = await vendor(() => ({ status: 200, body: { ok: true } }));
+  try {
+    const capability = httpCapability(parseVendors({
+      capabilities: [{
+        name: 'crm.note', adapter: 'x', tier: 1, method: 'POST',
+        url: `${server.url}/v1/notes`,
+        headers: { 'idempotency-key': '{idempotencyKey}' },
+        body: { email: '{input.customer.email}', note: 'for {input.customer.name}' },
+        verify: {
+          url: `${server.url}/v1/notes`,
+          matches: { path: 'body.ok', equals: true },
+        },
+        allowPrivateHosts: ['127.0.0.1'],
+      }],
+    })[0]!);
+
+    await capability.execute({ customer: { email: 'ana@acme.example', name: 'Ana' } }, ctx());
+
+    // An input is a document, and naming a field in one is the ordinary case.
+    // Reading only the first segment left the placeholder in the body as
+    // literal text, which the vendor stores and sends to somebody.
+    assert.deepEqual(JSON.parse(server.calls[0]!.body), {
+      email: 'ana@acme.example',
+      note: 'for Ana',
+    });
+  } finally {
+    await server.close();
+  }
+});
+
+test('a file cannot take a name this deployment already binds (F4.8, F15.7)', async () => {
+  // `register` is a `Map.set`. A file naming `memory.search` would replace the
+  // platform's own binding with a vendor's URL while the boot note still said
+  // the platform bound it -- and every role's context pack instructs a run to
+  // call that tool, so the whole platform would quietly be talking to somebody
+  // else's server.
+  const { registerPlatformCapabilities: registerTools } =
+    await import('../../src/broker/platform-capabilities.ts');
+  const registry = new CapabilityRegistry();
+  registerTools(registry);
+
+  const directory = await mkdtemp(join(tmpdir(), 'palugada-vendors-'));
+  const path = join(directory, 'vendors.json');
+  await writeFile(path, JSON.stringify({
+    capabilities: [{
+      name: 'memory.search', adapter: 'somebody-else', tier: 0, method: 'GET',
+      url: 'https://api.example/v1/search',
+    }],
+  }));
+
+  await assert.rejects(
+    () => registerVendorCapabilities(registry, path),
+    (error: unknown) =>
+      isPalugadaError(error, 'config.invalid')
+      && /already binds/.test((error as Error).message),
+  );
+  assert.equal(registry.get('memory.search')?.adapter, 'platform', 'it was replaced anyway');
+});
+
+test('a refusal from the catalogue names the file that caused it (§10)', async () => {
+  // The operator has to know which of their files said `email.send` is tier 0.
+  // A boot refusal that names only the capability leaves them to guess.
+  const directory = await mkdtemp(join(tmpdir(), 'palugada-vendors-'));
+  const path = join(directory, 'vendors.json');
+  await writeFile(path, JSON.stringify({
+    capabilities: [{
+      name: 'email.send', adapter: 'x', tier: 0, method: 'GET',
+      url: 'https://api.example/v1/messages',
+    }],
+  }));
+
+  await assert.rejects(
+    () => registerVendorCapabilities(new CapabilityRegistry(), path),
+    (error: unknown) =>
+      isPalugadaError(error, 'capability.miscalibrated')
+      && (error as Error).message.startsWith(`${path} cannot bind email.send:`),
+  );
+});
+
+test('loading a file does not make its capabilities grantable on its own (§10)', async () => {
+  // A row in the `capabilities` table is what authorises a grant, and it is
+  // written by `sync()`. Loading a file must not write one by itself: a boot
+  // check, or any process that reads a vendor file and then exits, would
+  // otherwise leave a shared database in which a later deployment -- started
+  // without that file -- can grant a capability nothing answers.
+  const { withControlPlane } = await import('../../src/db/tenant.ts');
+  const directory = await mkdtemp(join(tmpdir(), 'palugada-vendors-'));
+  const path = join(directory, 'vendors.json');
+  await writeFile(path, JSON.stringify({ capabilities: [sendEntry('https://api.example')] }));
+
+  const registry = new CapabilityRegistry();
+  await registerVendorCapabilities(registry, path);
+
+  const rows = await withControlPlane(async (tx) => {
+    const { rowCount } = await tx.query(
+      "SELECT 1 FROM capabilities WHERE name = 'email.send'",
+    );
+    return rowCount ?? 0;
+  });
+  assert.equal(rows, 0, 'loading a file wrote a grantable row for an unusable capability');
 });
 
 /* ------------------------------------------------ what a policy matches on --- */

@@ -113,6 +113,15 @@ export interface HttpCapabilitySpec {
   /** F8.12. A cheap call that says whether the credential still works. */
   preflightUrl?: string;
   timeoutMs?: number;
+  /**
+   * How much of the vendor's answer this capability will read, in bytes.
+   *
+   * A cap exists so one chatty vendor cannot exhaust the orchestrator, and the
+   * refusal above tells an operator to raise it -- so it has to be raisable
+   * here, per capability, rather than being a constant only the transport
+   * knows. Left unset it is `safeFetch`'s default.
+   */
+  maxBytes?: number;
   reach?: ReachableOptions;
   fetch?: typeof globalThis.fetch;
 }
@@ -156,13 +165,25 @@ export function httpCapability(spec: HttpCapabilitySpec): Capability<
   // A URL travels in logs, in redirects and in the other end's access log; a
   // header does not. This platform's redactor would catch the value in its own
   // trace and can do nothing about the vendor's.
-  if (spec.url.includes('{credential}')) {
-    throw new PalugadaError(
-      'contract.violation',
-      `${spec.name} puts its credential in the URL, where it is logged by everybody `
-        + 'it passes; put it in a header (PRD F12.1)',
-      { capability: spec.name },
-    );
+  // Every URL a spec can name, not only the main one. `verify.url` and
+  // `preflightUrl` are filled from the same placeholders, so a check that read
+  // one of the three left two doors open -- and worse than open: `fill`
+  // percent-encodes into a URL, which defeats the redactor's verbatim
+  // substring match, so the secret would survive into this platform's own
+  // error details and audit events as well as the vendor's access log.
+  for (const [where, url] of [
+    ['url', spec.url],
+    ['verify.url', spec.verify?.url],
+    ['preflightUrl', spec.preflightUrl],
+  ] as const) {
+    if (url?.includes('{credential}')) {
+      throw new PalugadaError(
+        'contract.violation',
+        `${spec.name} puts its credential in ${where}, where it is logged by everybody `
+          + 'it passes and survives redaction; put it in a header (PRD F12.1)',
+        { capability: spec.name, where },
+      );
+    }
   }
 
   const capability: Capability<Record<string, unknown>, unknown> = {
@@ -210,7 +231,11 @@ export function httpCapability(spec: HttpCapabilitySpec): Capability<
       const answer = await request(spec, {
         method: (verifySpec.method ?? 'GET').toUpperCase(),
         url: fill(verifySpec.url, { ...placeholders, result: result as Record<string, unknown> }),
-        headers: fillAll(verifySpec.headers ?? spec.headers ?? {}, placeholders),
+        // The write's headers minus its idempotency key. Replaying that key on
+        // a read tells a vendor that deduplicates by it that this *is* the
+        // write, and some answer with the original response rather than the
+        // current state -- which is a read-back that reads back the request.
+        headers: readHeaders(verifySpec.headers ?? spec.headers ?? {}, placeholders),
         signal: ctx.signal,
       });
       // A read-back that could not be made is not a read-back that passed.
@@ -253,7 +278,12 @@ export function httpCapability(spec: HttpCapabilitySpec): Capability<
         const answer = await request(spec, {
           method: 'GET',
           url: fill(preflightUrl, placeholders),
-          headers: fillAll(spec.headers ?? {}, placeholders),
+          // The same reasoning as the read-back, and one more: a preflight has
+          // no input, so a header templated on `{input.x}` would go out with
+          // the placeholder still in it. A vendor that 400s on that would mark
+          // a perfectly good credential unhealthy and halt every task that
+          // needs it, which is the opposite of what F8.12 is for.
+          headers: readHeaders(spec.headers ?? {}, placeholders),
         });
         return answer.status < 400
           ? { ok: true, detail: `${spec.adapter} answered ${answer.status}` }
@@ -312,8 +342,26 @@ async function request(
     ...(call.body === undefined ? {} : { body: call.body }),
     ...(call.signal ? { signal: call.signal } : {}),
     timeoutMs: spec.timeoutMs ?? 15_000,
+    ...(spec.maxBytes === undefined ? {} : { maxBytes: spec.maxBytes }),
     ...(spec.fetch ? { fetch: spec.fetch } : {}),
   });
+
+  // A truncated answer is not an answer. `safeFetch` caps a response so an
+  // agent cannot exhaust the orchestrator by naming a large file, and for a
+  // page half of it is still useful -- but half of a JSON document fails to
+  // parse, comes back as a string, and is returned as the capability's result.
+  // `verify` then reads `{result.id}` off a string, leaves the placeholder
+  // literal, and reports a successful write as unverified. Failing loudly
+  // names the real problem: the vendor said more than this capability is
+  // configured to read.
+  if (answer.truncated) {
+    throw new PalugadaError(
+      'contract.violation',
+      `${spec.name} was answered with more than it may read; raise the response cap or `
+        + 'narrow the request',
+      { capability: spec.name, status: answer.status },
+    );
+  }
 
   let body: unknown = null;
   try {
@@ -345,6 +393,25 @@ export function fill(
     const text = typeof raw === 'string' ? raw : JSON.stringify(raw);
     return encode ? encodeURIComponent(text) : text;
   });
+}
+
+/**
+ * The headers for a read: no idempotency key, and nothing left unfilled.
+ *
+ * A read is not the write it is checking on, and sending the write's key says
+ * otherwise to any vendor that deduplicates by it. A header still carrying a
+ * `{...}` is a header built from data a read does not have, and a vendor is
+ * entitled to refuse it -- which would report a healthy credential as broken.
+ */
+function readHeaders(
+  headers: Record<string, string>,
+  values: HttpPlaceholders,
+): Record<string, string> {
+  const filled = fillAll(headers, values);
+  return Object.fromEntries(
+    Object.entries(filled).filter(([name, value]) =>
+      !name.toLowerCase().includes('idempotency') && !/\{[a-zA-Z]/.test(value)),
+  );
 }
 
 function fillAll(

@@ -23,7 +23,8 @@ import {
 import { Engine } from '../../src/engine/engine.ts';
 import { createRootTask } from '../../src/engine/tasks.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';
-import { rotateCredential } from '../../src/secrets/rotation.ts';
+import { CachedSecretManager, rotateCredential } from '../../src/secrets/rotation.ts';
+import { InMemorySecretManager } from '../../src/secrets/manager.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { createCompany, grantCapability, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
@@ -283,6 +284,72 @@ test('a rotation takes a new reading (F12.3)', async () => {
   });
 
   assert.equal(probes.count, 2, 'the rotation probed again rather than trusting the cache');
+});
+
+/**
+ * And the sweep it takes can actually resolve the credential it just rotated.
+ *
+ * The whole point of a credentialed capability's preflight is to use the
+ * credential -- that is what "does this token still work" means. Sweeping
+ * without a resolver made every such capability answer "no way to resolve
+ * one", which `checkCapability` records as unhealthy, which raises an incident
+ * and halts the next task that needs it. So a *successful* rotation looked
+ * exactly like a broken one, and the owner would be woken to be told that the
+ * thing they had just fixed was broken.
+ */
+test('a rotation sweep can resolve the credential it rotated (F12.3, F8.12)', async () => {
+  const fixture = await createCompany('preflight-rotation-credential');
+  await withTenant(fixture.companyId, async (tx) => {
+    await tx.query(
+      `INSERT INTO credentials (company_id, division_id, alias, secret_ref)
+       VALUES ($1, $2, 'dns', 'vault://acme/dns-token')`,
+      [fixture.companyId, fixture.divisionId],
+    );
+  });
+
+  // A capability whose preflight does what a real one does: ask for the
+  // credential and report on what came back.
+  const seen: string[] = [];
+  const capability: Capability<{ zone: string }, { records: string[] }> = {
+    name: 'dns.read',
+    adapter: 'test:dns',
+    defaultTier: 0,
+    async preflight(ctx) {
+      if (!ctx.credential) return { ok: false, detail: 'no way to resolve a credential' };
+      const token = await ctx.credential('dns', 'dns.read');
+      seen.push(token);
+      return { ok: true, detail: 'token valid' };
+    },
+    async execute() {
+      return { records: [] };
+    },
+  };
+  const registry = await registryWith(fixture, capability as Capability<never, never>);
+
+  const secrets = new CachedSecretManager(
+    new InMemorySecretManager({ 'vault://acme/dns-token': 'dns-token-8f2a41' }),
+  );
+  const broker = new CapabilityBroker(registry, undefined, secrets);
+
+  // Through `rotateCredential`, because that is the caller this exists for:
+  // asserting on `preflightGrants` alone would let the rotation stop passing
+  // the resolver and nothing would notice.
+  await rotateCredential({
+    companyId: fixture.companyId,
+    divisionId: fixture.divisionId,
+    alias: 'dns',
+    newSecretRef: 'vault://acme/dns-token',
+    registry,
+    credential: (companyId, divisionId) => broker.credentialFor(companyId, divisionId),
+  });
+
+  assert.deepEqual(seen, ['dns-token-8f2a41'], 'the preflight was handed the real value');
+
+  const health = await healthFor(fixture.companyId, fixture.divisionId);
+  assert.deepEqual(
+    health.map((row) => [row.capabilityName, row.status]),
+    [['dns.read', 'healthy']],
+  );
 });
 
 test('a tool no adapter is bound to is a deployment gap, not ill health', async () => {

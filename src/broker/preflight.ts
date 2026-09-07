@@ -287,7 +287,26 @@ export async function preflightForRole(
  */
 export async function preflightGrants(
   registry: CapabilityRegistry,
-  scope: { companyId?: string; divisionId?: string } = {},
+  scope: {
+    companyId?: string;
+    divisionId?: string;
+    /**
+     * How to resolve a division's credential, for the capabilities that need
+     * one (F8.12, F12.3).
+     *
+     * Required in practice for a sweep after a rotation, which is the moment
+     * this function exists for. Without it every credentialed capability
+     * reports "no way to resolve one", the forced sweep writes `unhealthy`,
+     * an incident is raised, and the engine halts the next task that needs the
+     * capability -- so a *successful* rotation would look exactly like a
+     * broken one. Optional only because a caller with no secret manager should
+     * still be able to sweep the capabilities that need none.
+     */
+    credential?: (
+      companyId: string,
+      divisionId: string,
+    ) => (alias: string, capabilityName: string) => Promise<string>;
+  } = {},
 ): Promise<{ checked: number; failures: number }> {
   const grants = await withControlPlane(async (tx) => {
     const { rows } = await tx.query<{
@@ -308,7 +327,13 @@ export async function preflightGrants(
   for (const grant of grants) {
     const outcome = await checkCapability(
       registry,
-      { companyId: grant.company_id, divisionId: grant.division_id },
+      {
+        companyId: grant.company_id,
+        divisionId: grant.division_id,
+        ...(scope.credential
+          ? { credential: scope.credential(grant.company_id, grant.division_id) }
+          : {}),
+      },
       grant.capability_name,
       // Forced: a sweep exists to find out what is true now. Reusing a result
       // from before a rotation would report the state the rotation replaced.

@@ -768,7 +768,15 @@ What an operator writes for one of the twenty is a spec, not an integration:
 `httpCapability` carries the credential resolution, the reachability rules, the
 idempotency key, the read-back and the error translation, and refuses at
 construction a spec that writes without verifying, has a side effect without an
-idempotency key, or puts a credential in a URL.
+idempotency key, or puts a credential in any of the three URLs it can name.
+
+At the transport, a credential does not follow a redirect off the host it was
+issued for: `authorization`, `cookie` and the common API-key headers are
+dropped on any hop that changes origin, so a vendor answering
+`302 Location: https://attacker.example/` is not handed a live token. A `307`
+or `308` on a request with a side effect is refused rather than repeated,
+because the idempotency key that makes a retry safe means nothing to a party
+that never issued it.
 
 The five that need nobody's account — `web.fetch`, `uptime.check`,
 `files.list`, `doc.draft`, `email.draft` — are implemented. They were unbound

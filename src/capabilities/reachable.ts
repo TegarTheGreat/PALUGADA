@@ -247,6 +247,41 @@ export interface SafeFetchOptions extends ReachableOptions {
   fetch?: typeof globalThis.fetch;
 }
 
+/**
+ * Headers that must not follow a redirect to somewhere else.
+ *
+ * The reachability check stops a redirect reaching *inside* this network. It
+ * does nothing about a redirect to another public host, which is fine for a
+ * page and is not fine for a request carrying a division's bearer token: a
+ * vendor answering `302 Location: https://attacker.example/` would be handed a
+ * live credential, and the capability that sent it believes -- because its own
+ * comment says so -- that a header does not travel.
+ *
+ * Dropped on any hop that changes origin, which is what browsers and `curl`
+ * do and for the same reason. Matched case-insensitively because a header name
+ * is, and an attacker who can choose the spelling should not be able to choose
+ * the outcome.
+ */
+const SENSITIVE_HEADERS = new Set([
+  'authorization',
+  'proxy-authorization',
+  'cookie',
+  'x-api-key',
+  'x-auth-token',
+  'api-key',
+]);
+
+function stripSensitive(
+  headers: Record<string, string>,
+  from: URL,
+  to: URL,
+): Record<string, string> {
+  if (from.origin === to.origin) return headers;
+  return Object.fromEntries(
+    Object.entries(headers).filter(([name]) => !SENSITIVE_HEADERS.has(name.toLowerCase())),
+  );
+}
+
 export interface SafeResponse {
   status: number;
   url: string;
@@ -272,6 +307,10 @@ export async function safeFetch(raw: string, options: SafeFetchOptions = {}): Pr
   const redirects: string[] = [];
 
   let target = await assertReachable(raw, options);
+  let headers = options.headers ?? {};
+  let method = options.method ?? 'GET';
+  let body = options.body;
+
   for (let hop = 0; ; hop += 1) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 10_000);
@@ -288,9 +327,9 @@ export async function safeFetch(raw: string, options: SafeFetchOptions = {}): Pr
     // handshake because the connection already looks healthy.
     try {
       const response = await doFetch(target.toString(), {
-        method: options.method ?? 'GET',
-        ...(options.headers ? { headers: options.headers } : {}),
-        ...(options.body === undefined ? {} : { body: options.body }),
+        method,
+        headers,
+        ...(body === undefined ? {} : { body }),
         redirect: 'manual',
         signal: controller.signal,
       });
@@ -309,22 +348,47 @@ export async function safeFetch(raw: string, options: SafeFetchOptions = {}): Pr
         await response.body?.cancel().catch(() => undefined);
         // Resolved against the current URL, because a `Location` may be
         // relative -- and then checked again, because that is the point.
-        const next = new URL(location, target).toString();
-        redirects.push(next);
-        target = await assertReachable(next, options);
+        const next = new URL(location, target);
+
+        // A request with a side effect does not get replayed somewhere else.
+        // `307` and `308` mean "repeat exactly", and repeating a POST at a
+        // host the caller never named is a second real action against a
+        // stranger. `301`, `302` and `303` mean "go and GET instead", which is
+        // what every client does and is what happens here.
+        if (method !== 'GET' && method !== 'HEAD') {
+          if (response.status === 307 || response.status === 308) {
+            throw new PalugadaError(
+              'capability.unreachable',
+              `${raw} answered ${response.status} for a ${method}: this platform will not `
+                + 'repeat a side effect at a redirected address',
+              { url: raw, status: response.status },
+            );
+          }
+          method = 'GET';
+          body = undefined;
+        }
+
+        // The credential does not follow a redirect off the host it was for.
+        // See `SENSITIVE_HEADERS`: this is the one thing the reachability
+        // check does not cover, because the other end of a redirect can be a
+        // perfectly ordinary public host that simply is not the vendor.
+        headers = stripSensitive(headers, target, next);
+
+        redirects.push(next.toString());
+        target = await assertReachable(next.toString(), options);
         continue;
       }
 
       // Bounded on the way in. A capability that read an unbounded response
       // into memory would be a capability an agent can use to exhaust the
       // orchestrator by naming a large file.
-      const body = await readBounded(response, maxBytes);
+      const answer = await readBounded(response, maxBytes);
       return {
         status: response.status,
         url: target.toString(),
         headers: Object.fromEntries(response.headers),
-        body: body.text,
-        truncated: body.truncated,
+        body: answer.text,
+        truncated: answer.truncated,
         redirects,
       };
     } finally {

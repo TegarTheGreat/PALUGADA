@@ -18,6 +18,7 @@ import { createServer, type Server } from 'node:http';
 import { closePools } from '../../src/db/pool.ts';
 import { isPalugadaError } from '../../src/errors.ts';
 import { httpCapability, fill } from '../../src/capabilities/http.ts';
+import { safeFetch } from '../../src/capabilities/reachable.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
 before(ensureSchema);
@@ -446,3 +447,207 @@ test('a placeholder is encoded for a URL and left alone in a header (F12.1)', ()
   assert.equal(fill('https://api.example/{input.missing}', values),
     'https://api.example/{input.missing}');
 });
+
+/* ------------------------------------------- what the third review found --- */
+
+/**
+ * A credential does not follow a redirect off the host it was issued for.
+ *
+ * The reachability check stops a redirect reaching *inside* this network. It
+ * says nothing about a redirect to another perfectly ordinary public host --
+ * and this platform's HTTP capabilities send a bearer token, so a vendor
+ * answering `302 Location: https://attacker.example/` would have handed over a
+ * live credential. The module's own comment claimed a header does not travel
+ * in a redirect. It did.
+ *
+ * Two servers on loopback are two origins -- different ports -- so the drop
+ * must happen between them exactly as it would between two domains.
+ */
+test('safeFetch drops a credential when the origin changes (F12.1)', async () => {
+  const second = await vendor(() => ({ status: 200, body: { ok: true } }));
+  try {
+    const redirector = await vendorRedirectingTo(`${second.url}/landed`);
+    try {
+      const answer = await safeFetch(`${redirector.url}/start`, {
+        allowPrivateHosts: ['127.0.0.1'],
+        headers: {
+          authorization: 'Bearer sk_live_secret',
+          'X-Api-Key': 'sk_live_secret',
+          accept: 'application/json',
+        },
+      });
+      assert.equal(answer.status, 200);
+
+      const landed = second.calls[0]!;
+      assert.equal(landed.path, '/landed', 'the redirect was followed');
+      assert.equal(landed.headers.authorization, undefined, 'the bearer token followed it');
+      assert.equal(landed.headers['x-api-key'], undefined, 'so did the api key');
+      // An ordinary header still travels: dropping everything would break
+      // content negotiation for no security gain.
+      assert.equal(landed.headers.accept, 'application/json');
+    } finally {
+      await redirector.close();
+    }
+  } finally {
+    await second.close();
+  }
+});
+
+/**
+ * A side effect is not repeated at an address the caller never named.
+ *
+ * `307` and `308` mean "repeat exactly". Repeating a POST at a redirected host
+ * is a second real action against a stranger, and the vendor's idempotency key
+ * -- which is what makes a retry safe -- means nothing to a party that never
+ * issued it.
+ */
+test('a side effect is not replayed at a redirected address (F12.8)', async () => {
+  const redirector = await vendorRedirectingTo('https://example.com/elsewhere', 307);
+  try {
+    await assert.rejects(
+      () => safeFetch(`${redirector.url}/send`, {
+        allowPrivateHosts: ['127.0.0.1'],
+        method: 'POST',
+        body: '{"to":"a@b.example"}',
+      }),
+      (error: unknown) =>
+        isPalugadaError(error, 'capability.unreachable')
+        && /will not repeat a side effect/.test((error as Error).message),
+    );
+  } finally {
+    await redirector.close();
+  }
+});
+
+/**
+ * Every URL a spec can name, not only the main one.
+ *
+ * `verify.url` and `preflightUrl` are filled from the same placeholders, so a
+ * check that read one of the three left two doors open -- and worse than open:
+ * `fill` percent-encodes into a URL, which defeats the redactor's verbatim
+ * substring match, so the secret survives into this platform's own error
+ * details and audit events as well as the vendor's access log.
+ */
+test('a credential is refused in every URL a spec can name (F12.1, F12.4)', () => {
+  const base = {
+    name: 'bad', adapter: 'x', tier: 0 as const, method: 'GET' as const,
+    url: 'https://api.example/v1',
+  };
+  assert.throws(
+    () => httpCapability({ ...base, preflightUrl: 'https://api.example/me?k={credential}' }),
+    /preflightUrl/,
+  );
+  assert.throws(
+    () => httpCapability({
+      ...base, tier: 1 as const,
+      verify: { url: 'https://api.example/v1/{result.id}?k={credential}', matches: () => true },
+    }),
+    /verify\.url/,
+  );
+});
+
+/**
+ * A truncated answer is not an answer.
+ *
+ * Half of a JSON document fails to parse, comes back as a string, and is
+ * returned as the capability's result. `verify` then reads `{result.id}` off a
+ * string, leaves the placeholder literal, and reports a successful write as
+ * unverified -- which is the worst of the three possible outcomes, because it
+ * is wrong in the direction of doing the thing twice.
+ */
+test('an answer larger than the cap is a failure, not a fragment (F8)', async () => {
+  const server = await vendor(() => ({
+    status: 200,
+    body: { id: 'msg_1', padding: 'x'.repeat(4_000) },
+  }));
+  try {
+    const capability = httpCapability({
+      name: 'chatty.read', adapter: 'fakevendor', tier: 0, method: 'GET',
+      url: `${server.url}/v1/thing`,
+      reach: { allowPrivateHosts: ['127.0.0.1'] },
+      // Deliberately smaller than the answer.
+      maxBytes: 512,
+    });
+    await assert.rejects(
+      () => capability.execute({}, ctx()),
+      (error: unknown) =>
+        isPalugadaError(error, 'contract.violation')
+        && /more than it may read/.test((error as Error).message),
+    );
+  } finally {
+    await server.close();
+  }
+});
+
+/**
+ * A read is not the write it is checking on.
+ *
+ * Sending the write's idempotency key on the read-back tells a vendor that
+ * deduplicates by it that this *is* the write, and some answer with the
+ * original response rather than the current state -- a read-back that reads
+ * back the request. And a preflight has no input, so a header templated on
+ * `{input.x}` would go out with the placeholder still in it; a vendor that
+ * 400s on that marks a healthy credential unhealthy and halts every task that
+ * needs it, which is the opposite of what F8.12 is for.
+ */
+test('a read-back and a preflight carry no idempotency key and no placeholders (F8.4, F8.12)', async () => {
+  const server = await vendor((call) =>
+    call.method === 'POST'
+      ? { status: 202, body: { id: 'msg_1' } }
+      : { status: 200, body: { id: 'msg_1', status: 'sent' } },
+  );
+  try {
+    const spec = sendSpec(server.url);
+    const capability = httpCapability({
+      ...spec,
+      headers: { ...spec.headers, 'x-thread': '{input.to}' },
+      preflightUrl: `${server.url}/v1/me`,
+    });
+    const context = ctx();
+
+    const result = await capability.execute({ to: 'a@b.example' }, context);
+    assert.equal(server.calls[0]!.headers['idempotency-key'], 'idem-1');
+    assert.equal(server.calls[0]!.headers['x-thread'], 'a@b.example');
+
+    await capability.verify!({}, result, context);
+    const readBack = server.calls[1]!;
+    assert.equal(readBack.headers['idempotency-key'], undefined, 'a read is not the write');
+    assert.equal(readBack.headers.authorization, 'Bearer sk_live/9aB+cD=eF');
+
+    await capability.preflight!({
+      companyId: context.companyId,
+      divisionId: context.divisionId,
+      credential: async (alias: string) => context.credential(alias),
+    });
+    const probe = server.calls[2]!;
+    assert.equal(probe.headers['idempotency-key'], undefined);
+    // The header templated on input is dropped rather than sent with the
+    // placeholder still in it.
+    assert.equal(probe.headers['x-thread'], undefined);
+    assert.equal(probe.headers.authorization, 'Bearer sk_live/9aB+cD=eF');
+  } finally {
+    await server.close();
+  }
+});
+
+/** A server whose only job is to redirect somewhere named. */
+async function vendorRedirectingTo(
+  location: string,
+  status = 302,
+): Promise<{ url: string; close: () => Promise<void> }> {
+  const server: Server = createServer((_req, res) => {
+    res.writeHead(status, { location, 'content-type': 'application/json' });
+    res.end('{}');
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (address === null || typeof address === 'string') throw new Error('no port');
+  return {
+    url: `http://127.0.0.1:${address.port}`,
+    close: () =>
+      new Promise<void>((resolve) => {
+        server.closeAllConnections();
+        server.close(() => resolve());
+      }),
+  };
+}

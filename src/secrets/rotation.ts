@@ -164,6 +164,19 @@ export async function rotateCredential(input: {
    * before the rotation would report the state the rotation replaced.
    */
   registry?: CapabilityRegistry;
+  /**
+   * How to resolve the rotated credential during that sweep.
+   *
+   * Without it every credentialed capability answers "no way to resolve one",
+   * the forced sweep records `unhealthy`, an incident is raised and the next
+   * task that needs the capability halts -- so a rotation that worked would be
+   * indistinguishable from one that broke everything. `CapabilityBroker`
+   * supplies this as `credentialFor`.
+   */
+  credential?: (
+    companyId: string,
+    divisionId: string,
+  ) => (alias: string, capabilityName: string) => Promise<string>;
 }): Promise<RotationResult> {
   const result = await withControlPlane(async (tx) => {
     const { rows } = await tx.query<{
@@ -210,6 +223,7 @@ export async function rotateCredential(input: {
     await preflightGrants(input.registry, {
       companyId: input.companyId,
       divisionId: input.divisionId,
+      ...(input.credential ? { credential: input.credential } : {}),
     });
   }
 

@@ -1218,6 +1218,61 @@ genuinely cannot be built here, rather than what nobody had looked at -- and
 what remains for an operator is a settings entry per vendor rather than an
 integration.
 
+### And a review of that turned up a credential leak
+
+Five findings, and the first two are the same mistake made twice: a rule
+written down and then applied to one of the three places it holds.
+
+**A credential followed a redirect.** `safeFetch` refuses a redirect that
+reaches *inside* this network, which is what it was written for, and does
+nothing about a redirect to another perfectly ordinary public host — which
+was fine while its callers fetched pages, and stopped being fine the moment
+one of them carried a division's bearer token. A vendor answering
+`302 Location: https://attacker.example/` would have been handed a live
+credential, and the module's own comment said headers do not travel in a
+redirect. They did. `authorization`, `cookie` and the four common API-key
+spellings are now dropped on any hop that changes origin, the way a browser
+and `curl` do it; an ordinary header like `accept` still travels, because
+dropping everything would break content negotiation for no gain.
+
+**A side effect could be repeated at an address the caller never named.**
+`307` and `308` mean "repeat exactly", so a vendor could turn one POST into a
+second real action against a stranger — and the idempotency key that makes a
+retry safe means nothing to a party that never issued it. Refused now for
+anything but GET and HEAD; `301`/`302`/`303` downgrade to GET with no body,
+which is what the status codes actually say.
+
+**The `{credential}`-in-a-URL refusal read one URL of three.** A spec can name
+three — the call, the read-back, and the preflight — and only the first was
+checked, so the rule the section above describes could be broken by putting the
+token in the verify URL instead.
+
+**A truncated answer was returned as a result.** The response cap exists so one
+chatty vendor cannot exhaust the orchestrator, and for a page half of it is
+still useful. Half of a JSON document is not: it fails to parse, comes back as
+a string, `verify` reads `{result.id}` off it, finds nothing, leaves the
+placeholder literal, and reports a *successful* write as unverified — which is
+wrong in the direction of doing the thing twice. It is a refusal now, and the
+cap it names is a per-capability setting rather than a constant only the
+transport knows, so the advice in the message is advice somebody can take.
+
+**A read-back was sent as though it were the write.** The verify call reused
+the write's headers verbatim, idempotency key included, which tells a vendor
+that deduplicates by it that this *is* the write — some answer with the
+original response rather than the current state, so the read-back reads back
+the request. The same headers on a preflight went out with `{input.x}` still
+in them, because a preflight has no input, and a vendor that 400s on that marks
+a healthy credential unhealthy and halts every task that needs it.
+
+And one in the platform rather than in the new code: **a successful rotation
+filed a false incident.** `rotateCredential` sweeps the division's grants
+afterwards, which is the point of F12.3 — but it swept with no way to resolve a
+credential, so every capability that needs one answered "no way to resolve one",
+the forced sweep wrote `unhealthy`, an incident was raised, and the engine
+halted the next task that needed it. The owner would have been woken to be told
+that the thing they had just fixed was broken. Seven mutations, one per fix,
+each re-introducing the exact defect: all seven are caught.
+
 ### What is actually left
 
 No push service, no bot token, no sandbox vendor, and none of F13.3's four

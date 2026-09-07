@@ -17,6 +17,12 @@ import { HttpAdapter } from '../../src/runtime/http.ts';
 import { ClaudeCodeAdapter } from '../../src/runtime/claude-code.ts';
 import { ContainerAdapter } from '../../src/runtime/container.ts';
 import { CliAdapter, runtimeSpecsFrom } from '../../src/runtime/cli.ts';
+import { KNOWN_CLI_NAMES, knownCli, knownClis } from '../../src/runtime/known-clis.ts';
+import {
+  RemoteSandboxAdapter,
+  type SandboxProvider,
+} from '../../src/runtime/sandbox-adapter.ts';
+import { spawn } from 'node:child_process';
 import { readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { startToolBridge } from '../../src/runtime/tool-bridge.ts';
@@ -977,4 +983,304 @@ test('a placeholder becomes one argument whatever it contains (F13.3)', () => {
     'a model; rm -rf /',
     '--tools=mcp__palugada__dns.read',
   ]);
+});
+
+/* ------------------------------------------------------ remote_sandbox --- */
+
+/**
+ * A sandbox provider written for the test.
+ *
+ * It runs the same `echo-runtime.mjs` every other out-of-process test uses,
+ * as a child process standing in for a machine somewhere else. That is the
+ * honest stand-in: what differs about a real provider is latency and an HTTP
+ * call, and what this exercises is everything the adapter decides — the wire,
+ * the tool bridge's absence, cancellation, and above all whether the sandbox
+ * is destroyed on every path out.
+ */
+function fakeProvider(options: { failCreate?: boolean; failDestroy?: boolean } = {}) {
+  const created: string[] = [];
+  const destroyed: string[] = [];
+  let sequence = 0;
+
+  const provider: SandboxProvider = {
+    name: 'fake',
+    async create() {
+      if (options.failCreate) throw new Error('the region is out of capacity');
+      sequence += 1;
+      const id = `sbx-${sequence}`;
+      created.push(id);
+      return id;
+    },
+    async exec() {
+      const child = spawn(process.execPath, [RUNTIME], { stdio: ['pipe', 'pipe', 'pipe'] });
+      let stderr = '';
+      child.stderr!.setEncoding('utf8');
+      child.stderr!.on('data', (chunk: string) => {
+        stderr += chunk;
+      });
+      child.stdin!.on('error', () => {});
+      return {
+        output: child.stdout!,
+        async write(line: string) {
+          if (!child.stdin!.destroyed) child.stdin!.write(line);
+        },
+        stderr: () => stderr,
+        async close() {
+          child.stdin!.end();
+          if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+        },
+      };
+    },
+    async destroy(id: string) {
+      if (options.failDestroy) throw new Error('the API returned 500');
+      destroyed.push(id);
+    },
+    async health() {
+      return { ok: true, detail: 'fake provider' };
+    },
+  };
+
+  return { provider, created, destroyed };
+}
+
+test('a task runs inside a remote sandbox and its output comes back (F13.5, F12.9)', async () => {
+  const fixture = await createCompany('sandbox-basic');
+  const broker = await brokerFor(fixture, []);
+  await configureRole(fixture, { runtime: 'sandbox:fake' });
+  const task = await newTask(fixture, { script: 'done' });
+  const fake = fakeProvider();
+
+  const outcome = await engineWith(
+    broker,
+    new RemoteSandboxAdapter({ provider: fake.provider, image: 'palugada/runtime:1' }),
+  ).runTask(fixture.companyId, task.id, 'worker');
+
+  assert.equal(outcome.status, 'completed', outcome.reason);
+  assert.deepEqual(outcome.output, { ok: true });
+  assert.deepEqual(fake.created, ['sbx-1']);
+  assert.deepEqual(fake.destroyed, ['sbx-1']);
+});
+
+/**
+ * The property the whole backend exists for.
+ *
+ * A sandbox that outlives its run is a billed machine holding a company's
+ * working files, and "almost always destroyed" is a slow leak of both. So the
+ * delete runs when the run succeeded, when it failed, and when the runtime
+ * died without saying anything — all three, because they are three different
+ * paths out of the same method and only one of them is the happy one.
+ */
+test('a sandbox is destroyed however the run ends (F13.5, F12.9)', async () => {
+  const fixture = await createCompany('sandbox-cleanup');
+  const broker = await brokerFor(fixture, []);
+  await configureRole(fixture, { runtime: 'sandbox:fake' });
+  const fake = fakeProvider();
+  const adapter = new RemoteSandboxAdapter({
+    provider: fake.provider,
+    image: 'palugada/runtime:1',
+  });
+
+  // Three real paths out of `run`, not three spellings of the same one: a
+  // completed run, a runtime that stopped without saying `done`, and one that
+  // was not speaking the protocol at all. The last two throw from inside
+  // `driveRun`, which is where a cleanup that lives after the call rather than
+  // in a `finally` stops happening.
+  const outcomes: string[] = [];
+  for (const script of ['done', 'silent', 'unreadable']) {
+    const task = await newTask(fixture, { script }, { attemptMax: 1 });
+    const outcome = await engineWith(broker, adapter).runTask(
+      fixture.companyId, task.id, 'worker',
+    );
+    outcomes.push(outcome.status);
+  }
+  assert.deepEqual(outcomes, ['completed', 'failed', 'failed'], 'two of the three really failed');
+
+  assert.equal(fake.created.length, 3);
+  assert.deepEqual(fake.destroyed, fake.created, 'every sandbox that was made was destroyed');
+});
+
+/**
+ * A sandbox that could not be destroyed is reported, not swallowed.
+ *
+ * A leaked sandbox nobody hears about is the same as no cleanup at all: the
+ * bill arrives a month later and the working files are still sitting on
+ * somebody else's disk in the meantime.
+ */
+test('a sandbox that will not delete becomes a failure that names it (F13.5)', async () => {
+  const fixture = await createCompany('sandbox-leak');
+  const broker = await brokerFor(fixture, []);
+  await configureRole(fixture, { runtime: 'sandbox:fake' });
+  const task = await newTask(fixture, { script: 'done' }, { attemptMax: 1 });
+  const fake = fakeProvider({ failDestroy: true });
+
+  const outcome = await engineWith(
+    broker,
+    new RemoteSandboxAdapter({ provider: fake.provider, image: 'palugada/runtime:1' }),
+  ).runTask(fixture.companyId, task.id, 'worker');
+
+  assert.equal(outcome.status, 'failed');
+  assert.match(outcome.reason ?? '', /sbx-1 could not be destroyed/);
+});
+
+test('a provider that cannot make a sandbox fails the run rather than hanging (F13.5)', async () => {
+  const fixture = await createCompany('sandbox-nocapacity');
+  const broker = await brokerFor(fixture, []);
+  await configureRole(fixture, { runtime: 'sandbox:fake' });
+  const task = await newTask(fixture, { script: 'done' }, { attemptMax: 1 });
+  const fake = fakeProvider({ failCreate: true });
+
+  const outcome = await engineWith(
+    broker,
+    new RemoteSandboxAdapter({ provider: fake.provider, image: 'palugada/runtime:1' }),
+  ).runTask(fixture.companyId, task.id, 'worker');
+
+  assert.equal(outcome.status, 'failed');
+  assert.match(outcome.reason ?? '', /out of capacity/);
+  assert.deepEqual(fake.destroyed, [], 'nothing was made, so nothing is deleted');
+});
+
+/**
+ * A runtime in a sandbox still reaches the broker, and only the broker.
+ *
+ * It gets no MCP tool bridge — that is an HTTP server on the orchestrator's
+ * loopback, which is a different machine — so its tool calls travel as events
+ * on the pipe it was born with. F12.9 asks for a runtime with no route to the
+ * database, the secret manager or the network, and a runtime whose only
+ * channel is that pipe has exactly that.
+ */
+test("a sandboxed runtime's tool call is resolved by the broker (F12.9, F13.4)", async () => {
+  const fixture = await createCompany('sandbox-tool');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'sandbox:fake', tools: ['dns.read'] });
+  const task = await newTask(fixture, { script: 'call_tool' });
+  const fake = fakeProvider();
+
+  const outcome = await engineWith(
+    broker,
+    new RemoteSandboxAdapter({ provider: fake.provider, image: 'palugada/runtime:1' }),
+  ).runTask(fixture.companyId, task.id, 'worker');
+
+  assert.equal(outcome.status, 'completed', outcome.reason);
+  assert.deepEqual(
+    (outcome.output as { answer: { output: { records: string[] } } }).answer.output.records,
+    ['a.example.com'],
+  );
+  assert.deepEqual(fake.destroyed, ['sbx-1']);
+});
+
+test('the remote sandbox backend claims only itself (F13.5)', () => {
+  const adapter = new RemoteSandboxAdapter({
+    provider: fakeProvider().provider,
+    image: 'palugada/runtime:1',
+  });
+  // Claiming `local` too would make a role's isolation setting a value that
+  // sometimes means nothing.
+  assert.deepEqual([...adapter.backends], ['remote_sandbox']);
+  assert.equal(adapter.name, 'sandbox:fake');
+});
+
+test('an unreachable sandbox provider is unhealthy rather than an exception (F13.8)', async () => {
+  const adapter = new RemoteSandboxAdapter({
+    image: 'palugada/runtime:1',
+    provider: {
+      name: 'broken',
+      async create() { return 'x'; },
+      async exec() { throw new Error('unused'); },
+      async destroy() {},
+      async health() { throw new Error('DNS is not answering'); },
+    },
+  });
+  const health = await adapter.health();
+  assert.equal(health.ok, false);
+  assert.match(health.detail ?? '', /DNS is not answering/);
+});
+
+/* ------------------------------------------------- the four F13.3 names --- */
+
+/**
+ * The four runtimes F13.3 lists, as specs.
+ *
+ * None of the four binaries is installed here and none of these command lines
+ * has been run against the real thing — `src/runtime/known-clis.ts` says so
+ * three times over and `docs/STATUS.md` says it again. So what is asserted is
+ * not the flags, which would only prove somebody typed them twice. It is the
+ * two things that are true whatever the vendor does: every one of them places
+ * the tool bridge, and none of them is given tools of its own.
+ */
+test('each runtime F13.3 names is a spec that reaches the broker (F13.3, F13.4)', () => {
+  const specs = knownClis();
+  assert.deepEqual(specs.map((spec) => spec.name), [...KNOWN_CLI_NAMES]);
+
+  for (const spec of specs) {
+    // The constructor refuses a spec that would run an agent with no tools at
+    // all, so this is F13.4 checked by construction rather than by reading.
+    const adapter = new CliAdapter(spec);
+    assert.equal(adapter.name, spec.name);
+
+    const argv = adapter.argv({
+      model: 'a-model',
+      maxTurns: '40',
+      mcpConfig: '{"mcpServers":{}}',
+      mcpConfigFile: '/tmp/mcp.json',
+      mcpUrl: 'http://127.0.0.1:1/mcp',
+      mcpToken: 'tok',
+      allowedTools: 'mcp__palugada__dns.read',
+      prompt: 'do the thing',
+    });
+
+    // No placeholder is left unsubstituted: one that was would reach the CLI
+    // as the literal string `{model}`, and a CLI that accepted it would run
+    // against a model nobody chose.
+    assert.equal(argv.some((arg) => /\{[a-zA-Z]+\}/.test(arg)), false, spec.name);
+    assert.ok(
+      argv.some((arg) => arg.includes('/tmp/mcp.json') || arg.includes('mcpServers')),
+      `${spec.name} must be pointed at the bridge`,
+    );
+  }
+});
+
+/**
+ * A wrong guess is a settings edit, not a bug report.
+ *
+ * These command lines are unverified, so the shape that ships has to be one
+ * where correcting them costs nothing — otherwise the first operator who finds
+ * a flag wrong is stuck until this repository releases.
+ */
+test('a known runtime spec can be corrected without editing the platform (F13.3)', () => {
+  const corrected = knownCli('codex', {
+    command: '/opt/codex/bin/codex',
+    args: ['exec', '--mcp-config', '{mcpConfigFile}', '--model', '{model}'],
+  });
+  assert.equal(corrected.name, 'codex', 'the name a role points at does not move');
+  assert.equal(corrected.command, '/opt/codex/bin/codex');
+  assert.doesNotThrow(() => new CliAdapter(corrected));
+});
+
+/**
+ * And the machinery does not care which of them it is driving.
+ *
+ * The binary is swapped for the stand-in CLI and everything else — the spec,
+ * the adapter, the bridge, the engine — is the real path. That is as close to
+ * running `codex` as this repository can get, and it is the part where the
+ * platform's own defects would be.
+ */
+test('a known spec drives a real run once the binary exists (F13.3)', async () => {
+  const fixture = await createCompany('known-cli-run');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'codex', tools: ['dns.read'] });
+  const task = await newTask(fixture, { ask: 'read the zone' });
+
+  const spec = knownCli('codex', {
+    command: process.execPath,
+    args: [AGENT_CLI, '--dialect', 'text', '--mcp-config-file', '{mcpConfigFile}', '--call', 'dns.read'],
+  });
+
+  const outcome = await engineWith(broker, new CliAdapter(spec)).runTask(
+    fixture.companyId,
+    task.id,
+    'worker',
+  );
+
+  assert.equal(outcome.status, 'completed', outcome.reason);
+  assert.equal((outcome.output as { tool: { isError: boolean } }).tool.isError, false);
 });

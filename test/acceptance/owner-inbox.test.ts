@@ -20,6 +20,30 @@ import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';
 import { createCompany, grantCapability, type Fixture, planTask } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
+import { InMemorySecretManager } from '../../src/secrets/manager.ts';
+import { OwnerMfa, decodeBase32, newTotpSecret, stepFor, totpCode } from '../../src/owner/mfa.ts';
+
+/**
+ * A real second factor, because F10.10 no longer accepts a claimed one.
+ *
+ * Enrolled per test rather than shared: `resetData` truncates the
+ * authenticators along with everything else, and a fixture that outlived that
+ * would be a fixture pointing at a row that is gone.
+ */
+async function enrolledOwner(): Promise<{ mfa: OwnerMfa; code: () => string }> {
+  const secrets = new InMemorySecretManager();
+  const { secret } = newTotpSecret('owner phone');
+  secrets.set('vault://owner/totp', secret);
+  const mfa = new OwnerMfa({ secrets });
+  await mfa.enrolTotp({ label: 'owner phone', secretRef: 'vault://owner/totp' });
+  // A fresh code per call: a TOTP code cannot be used twice, so a test that
+  // approved two things would fail on the second for the wrong reason.
+  let drift = 0;
+  return {
+    mfa,
+    code: () => totpCode(decodeBase32(secret), stepFor(new Date()) + drift++),
+  };
+}
 
 before(ensureSchema);
 beforeEach(resetData);
@@ -102,12 +126,13 @@ test('approving resumes the task and denying cancels it', async () => {
     tier: 3, actionSummary: 'Do the thing', rationale: 'because',
     consequenceIfDenied: 'nothing happens',
   });
-  // Tier 3, so F10.10 wants the app and a second factor. Stated rather than
-  // worked around: a test that reached a tier 3 approval without one would be
-  // exercising a path the platform does not have.
+  // Tier 3, so F10.10 wants the app and a second factor -- a real one, checked
+  // against an enrolled authenticator rather than asserted.
+  const owner = await enrolledOwner();
   await inbox.decide(fixture.companyId, approvalId, 'approve', 'go ahead', {
     channel: 'app',
-    assurance: 'mfa',
+    proof: { totp: owner.code() },
+    mfa: owner.mfa,
   });
   const resumed = await withTenant(fixture.companyId, (tx) => getTask(tx, approved.id));
   assert.equal(resumed!.status, 'running');
@@ -312,11 +337,12 @@ test('a tier 3 approval cannot be given over a chat channel (F10.10)', async () 
  * says which pipe the request came down. The assurance says how the person at
  * the other end was authenticated, which is what the requirement is about.
  *
- * PALUGADA cannot verify the assertion, exactly as it cannot verify `channel`,
- * and the code says so rather than dressing it up. What it buys is that
- * approving a tier 3 action without a second factor now requires the caller to
- * state something false, and the statement lands on the security event. Same
- * trade as F12.6's scopes: an accident becomes a lie, and the lie is recorded.
+ * It was first fixed by asking the caller and writing the answer down, which
+ * turned an accident into a lie an auditor could find but did not stop the
+ * lie. It is now *verified*: `OwnerMfa` checks a TOTP code or a passkey
+ * assertion against an enrolled authenticator, and `assurance: 'mfa'` is what
+ * `decide` concludes rather than what a caller may say. `owner-mfa.test.ts`
+ * covers the arithmetic; this covers the gate.
  */
 test('a tier 3 approval needs a second factor, not just the right channel (F10.10, F12.5)', async () => {
   const fixture = await createCompany('tier3-mfa');
@@ -361,10 +387,23 @@ test('a tier 3 approval needs a second factor, not just the right channel (F10.1
     (error: unknown) => isPalugadaError(error, 'approval.channel_forbidden'),
   );
 
-  // Both halves together: the app, and a second factor.
+  // And a claimed second factor with nothing behind it, which is what this
+  // test used to accept.
+  await assert.rejects(
+    () =>
+      inbox.decide(fixture.companyId, itemId, 'approve', 'ok', {
+        channel: 'app',
+        assurance: 'mfa',
+      }),
+    (error: unknown) => isPalugadaError(error, 'approval.channel_forbidden'),
+  );
+
+  // Both halves together: the app, and a second factor that verifies.
+  const owner = await enrolledOwner();
   await inbox.decide(fixture.companyId, itemId, 'approve', 'ok', {
     channel: 'app',
-    assurance: 'mfa',
+    proof: { totp: owner.code() },
+    mfa: owner.mfa,
   });
   const open = await inbox.listOpen(fixture.companyId);
   assert.equal(open.some((entry) => entry.id === itemId), false, 'the approval went through');

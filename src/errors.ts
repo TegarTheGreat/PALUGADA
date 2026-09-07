@@ -43,7 +43,31 @@ export type ErrorCode =
   | 'bundle.bad_signature'
   | 'publisher.invalid_key'
   | 'archive.invalid'
+  /** F13.5: a remote sandbox outlived its run and may still be billing. */
+  | 'sandbox.not_destroyed'
   | 'approval.channel_forbidden'
+  /**
+   * F12.5. The owner's second factor, and the eleven ways it fails.
+   *
+   * Enumerated rather than collapsed into one `mfa.failed` because these are
+   * what an auditor reads off `owner_authentications`: "wrong code" and "that
+   * code has been used before" and "the signature counter went backwards" are
+   * three completely different stories about the same refusal, and only the
+   * last two are somebody trying.
+   */
+  | 'mfa.not_enrolled'
+  | 'mfa.code_invalid'
+  | 'mfa.replayed'
+  | 'mfa.secret_malformed'
+  | 'mfa.unknown_credential'
+  | 'mfa.assertion_malformed'
+  | 'mfa.wrong_ceremony'
+  | 'mfa.challenge_unknown'
+  | 'mfa.wrong_origin'
+  | 'mfa.wrong_relying_party'
+  | 'mfa.not_user_verified'
+  | 'mfa.signature_invalid'
+  | 'mfa.counter_did_not_advance'
   | 'review.required'
   | 'window.closed'
   | 'approval.required'

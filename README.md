@@ -300,7 +300,12 @@ the template is organised by function rather than by industry.
 | v2 F13.8 an unhealthy runtime receives no work | `src/engine/engine.ts` | `runtime-adapter.test.ts` |
 | v2 F13.2 a spawned script, a webhook and headless Claude Code | `src/runtime/script.ts`, `http.ts`, `claude-code.ts` | `out-of-process-runtimes.test.ts` |
 | v2 F13.4 a spawned runtime inherits no environment; its tools go through the broker | `src/runtime/script.ts`, `src/runtime/tool-bridge.ts` | `out-of-process-runtimes.test.ts` |
-| v2 F13.3 an agent CLI is employed from a configuration entry, not a new adapter | `src/runtime/cli.ts` | `out-of-process-runtimes.test.ts` |
+| v2 F13.3 an agent CLI is employed from a configuration entry, not a new adapter | `src/runtime/cli.ts`, `known-clis.ts` | `out-of-process-runtimes.test.ts` |
+| v2 F13.5, F12.9 a runtime runs in a remote sandbox, destroyed on every path out | `src/runtime/sandbox-adapter.ts` | `out-of-process-runtimes.test.ts` |
+| v2 F12.5 the owner's second factor is verified, not asserted | `src/owner/mfa.ts` | `owner-mfa.test.ts` |
+| v2 F10.10 a tier 3 approval needs the app and a factor that checks out | `src/inbox/inbox.ts` | `owner-mfa.test.ts` |
+| v2 F10.5 push reaches the owner for an incident and a tier 3 approval, once | `src/owner/push.ts`, `notify.ts` | `owner-channels.test.ts` |
+| v2 F10.9 a chat carries buttons for what it may act on, and a link for the rest | `src/owner/telegram.ts` | `owner-channels.test.ts` |
 | v2 F13.6 fallback for tier 0–1; a role that can act irreversibly halts instead | `src/engine/engine.ts` | `out-of-process-runtimes.test.ts` |
 | v2 F14.1 a runtime cannot get past a hook | `src/engine/hooks.ts` | `hooks.test.ts` |
 | v2 F14.2 built-ins cannot be removed; an added hook may only tighten | `src/engine/hooks.ts` | `hooks.test.ts` |
@@ -710,58 +715,65 @@ transport, because a rule written alongside the integration it constrains is a
 rule the integration's author gets to decide. Only an incident or a tier 3
 approval escapes the owner's window. A message channel may act on an
 escalation, a skill candidate or a review at tier 2 and below, and carries
-tier 3 as a link with nothing to press. A tier 3 approval needs the app *and* an
-asserted second factor — for a while only the channel was checked, so an
-integration naming the wrong one got tier 3 with no MFA at all. None of those
-assertions can be verified here, and the code says so rather than dressing it
-up: what they buy is that doing the wrong thing requires stating something
-false, on an event an auditor can read.
+tier 3 as a link with nothing to press. A tier 3 approval needs the app *and* a
+second factor.
 
-F13.3's four runtime adapters were the other outstanding item, and reading the
-requirement past its list changed what was worth building. It asks for
+Those rules used to be the whole story, and the sentence explaining why —
+*these need the owner's phone, and there is no phone here* — was true and was
+doing work it had not earned. It ran together two different problems. A vendor
+account cannot be conjured; **code can be written**. Only the first is a reason
+to leave a P0 unbuilt, and four requirements had been filed under it when they
+belonged under the second.
+
+**F12.5 was arithmetic filed as an application.** The client is an app; the
+verification is not. `decide` had been accepting `assurance: 'mfa'` as a string
+nothing checked, so "tier 3 only through the app with MFA" meant "tier 3 for
+anyone who types mfa". `src/owner/mfa.ts` now implements TOTP (RFC 6238,
+checked against the RFC's own published vectors, with the accepted step
+remembered so a code cannot be used twice) and WebAuthn — the challenge, the
+origin, the RP id hash the authenticator signed, the user-verified flag and the
+signature counter, each of which is an attack rather than a formality. A
+deployment with no verifier configured cannot approve a tier 3 action at all,
+which is the right consequence of not meeting a P0.
+
+**F10.5 and F10.9 were a rule with the easy half missing** — the transport is
+an HTTP call. `src/owner/push.ts` and `src/owner/telegram.ts` are written and
+driven end to end against a server on loopback. Building them found three
+things no amount of rule-writing would have: the same incident would have been
+pushed on every worker tick until the owner gave in; a bot is reachable by
+anyone who learns its name, so a button press is checked against a webhook
+secret *and* the configured chat; and one unescaped hyphen in a title would
+have made Telegram reject the whole message, losing an escalation silently
+rather than rendering it oddly.
+
+**F12.9's `remote_sandbox` backend** is `RemoteSandboxAdapter` over a
+three-method provider — create, exec, destroy — with the whole lifecycle
+exercised, including the property it exists for: the sandbox is destroyed on
+every path out, and one that will not delete becomes a failure that names it
+rather than a leak nobody hears about.
+
+F13.3's four runtimes are the same correction applied to a list. Reading the
+requirement past its names changed what was worth building: it asks for
 `hermes`, `openclaw`, `codex` and `gemini-cli` *so that community adapters can
-be used* — and the reason is the part that generalises. What those four have in
-common is everything that is hard: the environment quarantine, the per-run tool
-bridge, the redactor, the stream translation, killing the process when the
+be used*, and the reason is the part that generalises. What those four have in
+common is everything that is hard — the environment quarantine, the per-run
+tool bridge, the redactor, the stream translation, killing the process when the
 engine withdraws. What differs is a command name and an argument list. So the
-hard part is `CliAdapter`, written once and tested end to end against a
-stand-in CLI, and a runtime is now a `CliRuntimeSpec` — a JSON entry naming a
-command, with `{model}`, `{mcpConfig}` and the rest substituted per run.
-Employing a runtime nobody here has heard of is a settings entry, not a release
-of this platform. What stays outstanding is the list itself: the four binaries
-are not installed here, so their command lines are an operator's to supply
-rather than this repository's to guess.
+hard part is `CliAdapter`, and a runtime is a `CliRuntimeSpec`: a JSON entry
+that an operator can correct without a release of this platform.
+`src/runtime/known-clis.ts` ships the four as starting points, and says three
+times over that none has been run against the real binary.
 
-There were three. F11.2 was on this list, described as "a live run view", and
-F11.2 says *"trace dari item inbox ≤ 2 klik"* — the trace behind an inbox item
-must be reachable from it in at most two hops. That is a property of the data,
-not of a screen, and it is built now: `traceFromInboxItem` in
-`src/reporting/trace.ts`. It was genuinely missing, for a different reason than
-the one written here — `inbox_items.task_id` and `llm_traces.task_id` had been
-one join apart since the schema was written and nothing joined them.
-[`docs/STATUS.md`](docs/STATUS.md) §2.10 has the rest, including why a wrong
-sentence in a status document propagates: everything downstream cites the
-sentence rather than the requirement.
+What is genuinely left is a fact about this machine rather than about the code:
+no push service, no bot token, no sandbox vendor, and none of the four binaries
+is installed here. Every decision the platform makes before a request leaves is
+covered by the suite — which items may ring a phone, what a chat may put a
+button on, which second factors verify, whether a sandbox is cleaned up. What
+nobody here can check is whether the vendor on the other end agrees about a
+field name.
 
-F10.10 is half-built and the half that exists is the half that matters: a tier
-3 approval given over a chat channel is refused, with the refusal recorded as a
-security event. The rule holds before any chat channel exists, so the
-integration that arrives later cannot be the thing that forgets it. What is
-missing is the MFA the app half asks for.
-
-One thing is partial rather than absent, and
-[`docs/STATUS.md`](docs/STATUS.md) §2.12 says so in the same words: F13.3's
-four named binaries have no entry written for them here, because none of the
-four is installed to write one against. The machinery they would be entries
-for is written, tested, and exercised by a runtime that is employed from a
-configuration entry alone.
-
-F10.5 is enforced as a rule with no transport behind it: only an incident or a
-tier 3 approval may reach the owner outside their window, and everything else
-waits. What is missing is something to push *with*.
-
-Two things are implemented and unverified end to end, which is not the same as
-built: the `claude-code` adapter (no CLI, no provider here) and the `docker`
+Two things remain implemented and unverified end to end, which is not the same
+as built: the `claude-code` adapter (no CLI, no provider here) and the `docker`
 execution backend (a docker CLI, no daemon). What the suite covers in both
 cases is the command line — for the container, `--network none` and the rest of
 the flags *are* the security property — and the health check's refusal.

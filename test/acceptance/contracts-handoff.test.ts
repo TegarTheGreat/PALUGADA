@@ -308,7 +308,16 @@ test('no agent-to-agent messaging primitive exists (F6.1)', async () => {
   // checked against the source rather than against behaviour. A test that only
   // exercised the sanctioned path would pass just as happily on the day
   // somebody added a sendMessage() beside it.
-  const forbidden = /\b(sendMessage|sendToAgent|agentMessage|messageAgent|postToAgent)\b/;
+  //
+  // Matched as *code* rather than as text. The forbidden thing is a function
+  // an agent can call, and a quoted string is not one -- Telegram's HTTP API
+  // has a method literally called `sendMessage`, and F10.9 requires calling
+  // it, so a plain word search would have made "the platform may not message
+  // its owner" the rule instead of "an agent may not message another agent".
+  // A declaration, a call or a property access still trips this; only a string
+  // naming somebody else's endpoint does not.
+  const names = 'sendMessage|sendToAgent|agentMessage|messageAgent|postToAgent';
+  const forbidden = new RegExp(`(?<!['"\`])\\b(${names})\\b(?!['"\`])`);
   const offenders: string[] = [];
 
   for await (const file of glob('src/**/*.ts')) {
@@ -321,4 +330,16 @@ test('no agent-to-agent messaging primitive exists (F6.1)', async () => {
     [],
     'the only way to reach another role is to create a task with a typed contract',
   );
+
+  // And the narrowing did not turn the guard off: the shapes it exists to
+  // catch still trip it.
+  for (const shape of [
+    'export function sendMessage(to: string) {}',
+    'await sendToAgent(role, payload);',
+    'engine.messageAgent(other);',
+    'const x = { postToAgent };',
+  ]) {
+    assert.ok(forbidden.test(shape), shape);
+  }
+  assert.equal(forbidden.test("await this.#call('sendMessage', body)"), false);
 });

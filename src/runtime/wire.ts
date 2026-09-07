@@ -232,13 +232,24 @@ async function handleToolCall(
  * a community adapter might be written in can produce it with one print
  * statement, and because a half-written line at the end of a stream is
  * recognisably incomplete rather than silently truncating a value.
+ *
+ * Decoded with a streaming `TextDecoder` rather than per chunk. Chunk
+ * boundaries fall wherever the transport puts them, and a multi-byte character
+ * split across two of them decodes to two replacement characters if each half
+ * is converted on its own -- which for a remote runtime, where the boundaries
+ * are TCP segments rather than pipe writes, is not a rare case. `{ stream:
+ * true }` holds the partial sequence back until the rest arrives.
+ *
+ * Accepts a plain `Uint8Array` as well as a `Buffer`: a `fetch` response body
+ * yields the former, and a remote sandbox's output is a `fetch` response body.
  */
 export async function* readNdjson(
-  stream: AsyncIterable<Buffer | string>,
+  stream: AsyncIterable<Uint8Array | string>,
 ): AsyncGenerator<unknown> {
+  const decoder = new TextDecoder('utf8');
   let buffer = '';
   for await (const chunk of stream) {
-    buffer += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+    buffer += typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true });
     let index = buffer.indexOf('\n');
     while (index !== -1) {
       const line = buffer.slice(0, index).trim();

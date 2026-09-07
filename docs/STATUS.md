@@ -65,42 +65,49 @@ means less than that, the row says so.
 | F7 adversarial review | F7.1–F7.7 | — | — |
 | F8 broker, tiers | F8.1–F8.13 | — | — |
 | F9 scheduler | F9.1–F9.10 | — | — |
-| F10 owner surface | F10.1–F10.4, F10.6–F10.8, F10.11 | F10.5 (the rule is enforced; there is no push channel), F10.9 (the delivery rule is enforced; there is no messaging account), F10.10 (both halves refused in code; nothing here can *perform* MFA) | — |
+| F10 owner surface | F10.1–F10.4, F10.6–F10.8, F10.10, F10.11 | F10.5, F10.9 (both transports are written and driven end to end against a local server; no push service and no bot account exist here to point them at) | — |
 | F11 observability | F11.1–F11.7 | — | — |
-| F12 credentials, gateway | F12.1–F12.4, F12.6–F12.10 | — | F12.5 |
-| F13 runtime adapters | F13.1, F13.2, F13.4–F13.8 | F13.3 (an agent CLI is a configuration entry rather than an adapter, and that path runs end to end; the four binaries it names — `hermes`, `openclaw`, `codex`, `gemini-cli` — are not installed here, so their command lines are an operator's to supply) | — |
+| F12 credentials, gateway | F12.1–F12.10 | — | — |
+| F13 runtime adapters | F13.1, F13.2, F13.4–F13.8 | F13.3 (the machinery, the four named specs and the override path are built and driven end to end; none of the four binaries is installed here, so the command lines in `known-clis.ts` are starting points rather than verified argv) | — |
 | F14 lifecycle hooks | F14.1–F14.4 | — | — |
 | F15 skills | F15.1–F15.8 | — | — |
 | F16 bundles | F16.1–F16.5 | — | — |
 | F17 eval, trajectory | F17.1, F17.2, F17.3, F17.4 | — | — |
 
-Read as a whole: every P0 and P1 requirement in v2 section 8 is now built or
-enforced as far as this environment allows, and the "partial" column says
-exactly how far in each case. What is left is one thing wearing three numbers —
-the owner's phone. F10.5 has no push transport, F10.9 no messaging account,
-F10.10 and F12.5 no application that can perform MFA. Push notifications,
-Telegram and WhatsApp are vendor integrations and MFA is a client application;
-none can be exercised here, and writing them blind would produce code that
-compiles and has never worked.
+Read as a whole: every requirement in v2 section 8 is built, and the two rows
+still marked partial are partial in one specific way — a vendor account this
+repository cannot hold.
 
-What *is* built for all four is the half that is a rule rather than a
-transport, and that is deliberate: a rule written alongside the integration it
-constrains is a rule the integration's author gets to decide. Only an incident
-or a tier 3 approval escapes the owner's window (F10.5). A message channel may
-act on an escalation, a skill candidate or a review at tier 2 and below, and
-carries tier 3 as a link with nothing to press (F10.9, F10.10). A tier 3
-approval needs the app and an asserted second factor (F10.10). Each of those is
-true today, against a surface that does not exist yet.
+That distinction is worth stating precisely, because for a long time this
+document ran them together and stopped at the wrong place. There is a
+difference between *cannot be written* and *cannot be exercised against the
+real thing*, and four requirements had been filed under the first when they
+belonged under the second. Section 2.13 is that correction. F12.5's MFA is
+arithmetic and is now implemented and checked against RFC 6238's own published
+vectors; F10.10's tier 3 gate verifies a real second factor instead of
+believing a caller who typed `mfa`; F10.5's push and F10.9's message channel
+are written, and both are driven end to end against a server on loopback.
 
-The rest of the "partial" column is the same kind of honesty at smaller scale.
-F12.9's `docker` and `remote_sandbox` backends are declared in the protocol and
-selected per role; what is implemented is `local`, where a spawned runtime
-inherits no environment and reaches nothing but the broker. F13.3 names four
-third-party runtimes — `hermes`, `openclaw`, `codex` and `gemini-cli` — and
-then names the reason for the list: *so that community adapters can be used*.
-That reason is now built and section 2.12 says how; what stays partial is the
-list, because none of the four binaries is installed here and their command
-lines are an operator's to supply rather than this repository's to guess.
+What is left is genuinely unavailable rather than unbuilt: no push service, no
+bot token, no sandbox vendor and none of F13.3's four binaries exists in this
+environment. Every decision the platform makes before the request leaves is
+covered, which is where its own defects live; what nobody here can check is
+whether the vendor on the other end agrees about a field name.
+
+F12.9's `remote_sandbox` backend is implemented too, as `RemoteSandboxAdapter`
+over a three-method provider interface — create, exec, destroy — with the whole
+lifecycle exercised against a provider written for the test, including the
+property the backend exists for: the sandbox is destroyed on every path out,
+and one that will not delete becomes a failure that names it rather than a
+leak nobody hears about. `docker` remains implemented as argv and a health
+check, because there is a docker CLI here and no daemon.
+
+F13.3 names four third-party runtimes — `hermes`, `openclaw`, `codex` and
+`gemini-cli` — and then names the reason for the list: *so that community
+adapters can be used*. That reason is built and section 2.12 says how; the four
+specs themselves now ship in `src/runtime/known-clis.ts` as starting points an
+operator overrides, said three times over there because none has been run
+against the real binary.
 
 ## 2.1 Deliberate deviations from the PRD
 
@@ -762,6 +769,121 @@ claim that fails on contact. What is offered instead is the property the clause
 was after — a runtime nobody here has heard of can be employed without changing
 this codebase — reached by PALUGADA's own documented protocol rather than by
 somebody else's.
+
+## 2.13 "Cannot be tested" is not "cannot be built"
+
+Four requirements — F10.5, F10.9, F10.10 and F12.5 — spent this whole build in
+the partial column under one sentence: *these need the owner's phone, and there
+is no phone here*. The sentence was true and it was doing work it had not
+earned. It was written once, and every later pass cited the sentence instead of
+re-reading the requirement, which is exactly the failure section 2.10 recorded
+about F11.2 and then repeated four more times without noticing.
+
+The correction is a distinction. **A vendor account cannot be conjured. Code
+can be written.** Those are different problems, and only the first one is a
+reason to leave a P0 unbuilt.
+
+### F12.5 was arithmetic filed as an application
+
+"Owner: MFA; mobile biometrik", P0, graded not built because MFA lives in an
+app. Half of that is true: the *client* is an app — an authenticator holding a
+TOTP secret, a phone holding a passkey behind a fingerprint. But verifying what
+those clients produce is arithmetic, and arithmetic is the one thing a control
+plane should never take a caller's word for. It had been taking exactly that:
+`decide` accepted `assurance: 'mfa'` as a string nothing checked, so F10.10's
+"tier 3 only through the app with MFA" was, in practice, "tier 3 for anyone who
+types mfa".
+
+`src/owner/mfa.ts` implements both factors and `owner_authenticators` holds
+them, out of the application role's reach entirely — an agent that could read a
+TOTP secret could mint its own approvals, and one that could insert a row could
+enrol itself as the owner's phone.
+
+- **TOTP (RFC 6238)** with a one-step drift window, and the accepted step
+  remembered so a code cannot be used twice. A code is valid for thirty
+  seconds, which is long enough to be read over a shoulder or replayed out of a
+  log. Checked against RFC 6238's own published vectors, so the test proves
+  conformance rather than self-consistency.
+- **WebAuthn**, which is the "mobile biometrik" half: the phone signs a
+  challenge with a key held behind a fingerprint. Six things are checked and
+  each is an attack rather than a formality — the signature, the challenge
+  (without which the assertion is a fixed string anyone who saw it can resend),
+  the origin, the RP id hash the *authenticator* signed, the **user-verified**
+  flag, and the signature counter. The last is the difference between a key
+  that was touched and a key that was unlocked by a person, which is what
+  "biometric" means. Tested against real P-256 signatures made in the test; the
+  only difference from a phone is where the private key lives.
+
+Every attempt lands in `owner_authentications`, failures included — a burst of
+failures against the owner's authenticator is the shape of somebody trying, and
+a log that kept only successes would hide precisely that.
+
+`decide` now derives `assurance` from a verification instead of reading it from
+its caller, and a deployment with **no** verifier configured cannot approve a
+tier 3 action at all. That is deliberate: F12.5 is a P0, and the consequence of
+not meeting it should be that irreversible actions wait, not that they proceed.
+
+### F10.5 and F10.9 were a rule with the easy half missing
+
+Both were graded "a rule with no transport", which had the difficulty exactly
+backwards. The rules are the hard part and they were built. The transport is an
+HTTP call.
+
+`src/owner/push.ts` is a webhook push channel: an HTTPS POST to a URL the
+deployment configures, which is how every push service worth using is reached —
+a relay in front of FCM or APNs, ntfy, Pushover, an owner's own endpoint — with
+a `body` function mapping onto whichever. Binding to FCM directly would have
+meant a service account and a hard vendor dependency for a feature whose entire
+content is "send four short strings".
+
+`src/owner/telegram.ts` is the message channel, with inline keyboards, which is
+what "balasan lewat tombol inline" asks for. Telegram rather than WhatsApp or
+Signal because an owner can be running it in five minutes with no business
+verification and no per-message cost; the other two are the same shape behind a
+different HTTP call.
+
+Three things came out of building them that no amount of rule-writing would
+have found:
+
+- **The same incident would have been pushed on every tick.** An inbox item
+  stays open until the owner decides, so "open and past its `notify_after`" is
+  true for as long as they take to answer — and a worker ticks every few
+  seconds. The first real deployment would have woken its owner until they gave
+  in. `owner_notifications` is a row per item *per channel*, and the uniqueness
+  constraint on that pair is the rule rather than a nicety. Per channel because
+  an incident is push-worthy under F10.5 and, being absent from F10.9's list of
+  three, also reaches the chat as a link: both are correct for one item, and a
+  record keyed on the item alone would have let whichever ran first silence the
+  other.
+- **A bot is reachable by anyone who learns its name.** "It came from Telegram"
+  is not "it came from the owner", so a press is checked against the webhook
+  secret in constant time *and* against the configured chat id, and a
+  well-formed press from anywhere else is recorded as a security event rather
+  than dropped — somebody finding the bot is worth knowing about. F10.10's tier
+  3 refusal is deliberately **not** re-implemented in the channel: it lives in
+  `decide`, where every channel meets it, because a second implementation of
+  "not over chat" is a second thing that can be wrong.
+- **An unescaped hyphen would have silently lost an escalation.** Telegram
+  rejects a whole message when one MarkdownV2 reserved character in it is
+  unescaped, and an item's title is whatever an agent wrote. The message would
+  not have rendered oddly — it would have failed to *send*, and the owner would
+  never have learned there was an escalation.
+
+A push deliberately carries an alert and not the decision: a lock screen is
+rendered by an operating system and copied through a vendor's servers, so it
+gets what happened, how bad, and a link, and the substance stays behind the app
+where the second factor is.
+
+### What is actually left
+
+No push service, no bot token, no sandbox vendor, and none of F13.3's four
+binaries exists in this environment. That is the whole of the remaining gap and
+it is a fact about this machine rather than about the code. What the suite
+covers is every decision the platform makes before a request leaves — which
+items may ring a phone, what a chat may offer a button for, which second
+factors verify, whether a sandbox is destroyed on every path out. What nobody
+here can check is whether the vendor on the other end agrees about a field
+name, and no amount of writing would change that.
 
 ## 3. Decisions, deviations, and what is unverified
 

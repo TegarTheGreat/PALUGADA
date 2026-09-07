@@ -19,6 +19,7 @@ import { notifyAfterFor } from '../scheduler/windows.ts';
 import { escalationPolicyFor } from '../governance/structure.ts';
 import { approveCandidate, rejectCandidate } from '../memory/store.ts';
 import type { Tier } from '../domain/tier.ts';
+import type { OwnerMfa, VerifiedFactor, WebAuthnAssertion } from '../owner/mfa.ts';
 
 /** F10.4. The owner is one person and may be asleep, travelling or ill. */
 export const DEFAULT_APPROVAL_TTL_HOURS = 72;
@@ -434,16 +435,30 @@ const TIER_3_CHANNELS = new Set<DecisionChannel>(['app', 'api']);
  * down; this says how the person at the other end was authenticated, which is
  * what the requirement is actually about.
  *
- * It is asserted by the caller and this codebase cannot check it -- exactly
- * like `channel`, and worth saying plainly rather than dressing up. PALUGADA
- * performs no authentication: F12.5 wants MFA and mobile biometrics, and both
- * live in an application that does not exist here. What this buys is that a
- * tier 3 approval given without a second factor requires the caller to state
- * something false, and the statement is on the decision event where an auditor
- * can find it. That is the same trade as F12.6's scopes: an accident becomes a
- * lie, and the lie is recorded.
+ * It used to be *asserted* by the caller and checked by nothing, which made
+ * F10.10 read "tier 3 for anyone who says mfa". It is now derived: `mfa` is
+ * what `decide` writes down after `OwnerMfa` has verified a real second factor
+ * against an enrolled authenticator, and a caller cannot set it. What a caller
+ * supplies is the proof -- a TOTP code, or a WebAuthn assertion signed by the
+ * owner's phone -- and the platform does the arithmetic.
+ *
+ * `session` and `none` remain, for the tiers where a second factor is not
+ * required. They are the caller's word, and at those tiers the caller's word
+ * is what the requirement asks for.
  */
 export type OwnerAssurance = 'mfa' | 'session' | 'none';
+
+/**
+ * What the owner presents to prove a tier 3 approval (F10.10, F12.5).
+ *
+ * Two shapes because F12.5 names two factors: a code from an authenticator
+ * app, and an assertion from a phone that unlocked a key with a fingerprint.
+ * Either is verified by `OwnerMfa` against something enrolled; neither is
+ * taken on trust.
+ */
+export type MfaProof =
+  | { totp: string }
+  | { webauthn: WebAuthnAssertion };
 
 /**
  * What a message channel may do with an item (F10.9, F10.10, F10.5).
@@ -495,17 +510,36 @@ export function channelDelivery(item: { kind: string; tier: number | null }): Ch
   }
 }
 
+export interface DecideOptions {
+  channel?: DecisionChannel;
+  /**
+   * For tiers below 3, where the platform does not demand a second factor.
+   * Ignored at tier 3: there, `assurance` is what the verifier concluded.
+   */
+  assurance?: OwnerAssurance;
+  /** The second factor itself. Required to approve a tier 3 action. */
+  proof?: MfaProof;
+  /**
+   * Who checks it.
+   *
+   * Passed in rather than reached for, so that a deployment which has not
+   * configured MFA cannot approve a tier 3 action by accident -- the absence
+   * of a verifier is a refusal, not a bypass.
+   */
+  mfa?: OwnerMfa;
+}
+
 export async function decide(
   companyId: string,
   itemId: string,
   decision: Decision,
   note = '',
-  options: { channel?: DecisionChannel; assurance?: OwnerAssurance } = {},
+  options: DecideOptions = {},
 ): Promise<void> {
   const channel = options.channel ?? 'api';
   // Defaulted to the weakest, so a caller that says nothing cannot approve a
   // tier 3 action. The safe default is the one that refuses.
-  const assurance = options.assurance ?? 'none';
+  let assurance: OwnerAssurance = options.assurance ?? 'none';
   // F10.10: read the tier before the update, so a refusal changes nothing.
   const tier = await withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{ tier: number | null }>(
@@ -515,27 +549,63 @@ export async function decide(
     return rows[0]?.tier ?? null;
   });
 
-  if (
-    decision === 'approve'
-    && (tier ?? 0) >= 3
-    && (!TIER_3_CHANNELS.has(channel) || assurance !== 'mfa')
-  ) {
-    await withTenant(companyId, async (tx) => {
-      await appendEvent(tx, {
-        companyId,
-        type: 'security.tier3_channel_refused',
-        actor: 'system',
-        payload: { inboxItemId: itemId, channel, assurance },
+  let factor: VerifiedFactor | null = null;
+  if (decision === 'approve' && (tier ?? 0) >= 3) {
+    // The pipe first, because it is the cheaper check and because a second
+    // factor presented over chat is still a tier 3 approval over chat.
+    const refuse = async (reason: string, message: string): Promise<never> => {
+      await withTenant(companyId, async (tx) => {
+        await appendEvent(tx, {
+          companyId,
+          type: 'security.tier3_channel_refused',
+          actor: 'system',
+          payload: { inboxItemId: itemId, channel, assurance, reason },
+        });
       });
-    });
-    throw new PalugadaError(
-      'approval.channel_forbidden',
-      assurance === 'mfa'
-        ? `a tier 3 approval cannot be given over ${channel}; it happens in the app (F10.10)`
-        : 'a tier 3 approval needs a second factor; the caller asserted ' +
-          `assurance "${assurance}" (PRD F10.10, F12.5)`,
-      { inboxItemId: itemId, channel, assurance },
-    );
+      throw new PalugadaError('approval.channel_forbidden', message, {
+        inboxItemId: itemId, channel, assurance, reason,
+      });
+    };
+
+    if (!TIER_3_CHANNELS.has(channel)) {
+      await refuse(
+        'channel',
+        `a tier 3 approval cannot be given over ${channel}; it happens in the app (F10.10)`,
+      );
+    }
+    // No verifier is a refusal rather than a bypass. A deployment that has not
+    // set up MFA has not met F12.5, and the consequence of not meeting it
+    // should be that irreversible actions wait -- not that they proceed.
+    if (!options.mfa) {
+      await refuse(
+        'no_verifier',
+        'a tier 3 approval needs a second factor and this deployment has no MFA '
+          + 'verifier configured (PRD F10.10, F12.5)',
+      );
+    }
+    if (!options.proof) {
+      await refuse(
+        'no_proof',
+        'a tier 3 approval needs a second factor; none was presented (PRD F10.10, F12.5)',
+      );
+    }
+
+    // The verification itself throws its own `mfa.*` error, which says which
+    // of the eleven ways it failed. Not flattened into this one: "that code
+    // has been used before" and "wrong code" are different stories, and only
+    // one of them is somebody trying.
+    factor =
+      'totp' in options.proof!
+        ? await options.mfa!.verifyTotp(options.proof.totp, {
+            purpose: 'approval.tier3',
+            subjectId: itemId,
+          })
+        : await options.mfa!.verifyWebAuthn(options.proof!.webauthn, {
+            purpose: 'approval.tier3',
+            subjectId: itemId,
+          });
+    // Derived, never taken from the caller. This is the whole fix.
+    assurance = 'mfa';
   }
 
   const item = await withTenant(companyId, async (tx) => {
@@ -561,7 +631,21 @@ export async function decide(
       taskId: row.task_id ?? undefined,
       type: 'owner.decided',
       actor: 'owner',
-      payload: { inboxItemId: itemId, kind: row.kind, decision, note },
+      // F10.8, and F12.5's audit half: which device the owner used is part of
+      // what was decided. An approval that names the authenticator can be
+      // matched to the row in `owner_authentications` that authorised it; one
+      // that only says "mfa" cannot.
+      payload: {
+        inboxItemId: itemId,
+        kind: row.kind,
+        decision,
+        note,
+        channel,
+        assurance,
+        ...(factor
+          ? { authenticatorId: factor.authenticatorId, factor: factor.kind, device: factor.label }
+          : {}),
+      },
     });
 
     // F4.5: approving a candidate is what makes it usable. Until this moment

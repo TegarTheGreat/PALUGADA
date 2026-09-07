@@ -63,17 +63,87 @@ function isPrivateV4(address: string): boolean {
   return false;
 }
 
+/**
+ * Expands an IPv6 address into its sixteen bytes.
+ *
+ * Written out because the alternative is comparing strings, and an IPv6
+ * address has many spellings of the same value: `::ffff:127.0.0.1` and
+ * `::ffff:7f00:1` are the same address, `fe80::1` and `fe90::1` are both
+ * link-local, and `0:0:0:0:0:0:0:1` is loopback. A prefix match on the text
+ * catches the spelling somebody thought of and misses the rest -- which is not
+ * a hypothetical: the first version of this file matched `fe80` as a string
+ * and let `fe90::1` through, and matched the dotted mapped form and let the
+ * hex one through. Both reach loopback.
+ */
+export function ipv6Bytes(address: string): Uint8Array | null {
+  let text = address.toLowerCase().split('%')[0]!;
+
+  // A trailing dotted quad -- the `::ffff:1.2.3.4` form -- becomes two groups.
+  const dotted = text.match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/);
+  if (dotted) {
+    const quad = dotted[1]!.split('.').map(Number);
+    if (quad.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return null;
+    const [a, b, c, d] = quad as [number, number, number, number];
+    text = text.slice(0, -dotted[1]!.length)
+      + ((a << 8) | b).toString(16) + ':' + ((c << 8) | d).toString(16);
+  }
+
+  const halves = text.split('::');
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(':') : [];
+  const tail = halves.length === 2 ? (halves[1] ? halves[1].split(':') : []) : [];
+  if (halves.length === 1 && head.length !== 8) return null;
+  if (head.length + tail.length > 8) return null;
+
+  const groups = [
+    ...head,
+    ...Array.from({ length: 8 - head.length - tail.length }, () => '0'),
+    ...tail,
+  ];
+
+  const bytes = new Uint8Array(16);
+  for (const [index, group] of groups.entries()) {
+    if (!/^[0-9a-f]{1,4}$/.test(group)) return null;
+    const value = Number.parseInt(group, 16);
+    bytes[index * 2] = value >> 8;
+    bytes[index * 2 + 1] = value & 0xff;
+  }
+  return bytes;
+}
+
 function isPrivateV6(address: string): boolean {
-  const lower = address.toLowerCase();
-  if (lower === '::' || lower === '::1') return true;       // unspecified, loopback
-  if (lower.startsWith('fe80')) return true;                // link-local
-  if (lower.startsWith('fc') || lower.startsWith('fd')) return true;  // unique local
-  if (lower.startsWith('ff')) return true;                  // multicast
+  const bytes = ipv6Bytes(address);
+  // Unparseable is refused, like everything else this cannot reason about.
+  if (bytes === null) return true;
+
+  const [b0, b1] = bytes as unknown as [number, number];
+
+  // Unspecified and loopback: fifteen zero bytes, then 0 or 1.
+  if (bytes.slice(0, 15).every((byte) => byte === 0)) return bytes[15]! <= 1;
+
+  // fe80::/10 -- link-local, and the range is fe80 to febf rather than the
+  // `fe80` a prefix match sees.
+  if (b0 === 0xfe && (b1 & 0xc0) === 0x80) return true;
+  // fc00::/7 -- unique local.
+  if ((b0 & 0xfe) === 0xfc) return true;
+  // ff00::/8 -- multicast.
+  if (b0 === 0xff) return true;
+
   // An IPv4 address wearing an IPv6 hat. `::ffff:169.254.169.254` reaches the
-  // metadata service exactly as the bare form does, and a check that stopped
-  // at the colon would have let it.
-  const mapped = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-  if (mapped) return isPrivateV4(mapped[1]!);
+  // metadata service exactly as the bare form does, whichever way it is
+  // spelled -- and it is spelled both ways in the wild.
+  const mapped = bytes.slice(0, 10).every((byte) => byte === 0)
+    && bytes[10] === 0xff && bytes[11] === 0xff;
+  if (mapped) {
+    return isPrivateV4(`${bytes[12]}.${bytes[13]}.${bytes[14]}.${bytes[15]}`);
+  }
+
+  // 64:ff9b::/96 -- NAT64, which translates to an IPv4 address that may itself
+  // be private. Same argument as the mapped form.
+  if (b0 === 0x00 && b1 === 0x64 && bytes[2] === 0xff && bytes[3] === 0x9b) {
+    return isPrivateV4(`${bytes[12]}.${bytes[13]}.${bytes[14]}.${bytes[15]}`);
+  }
+
   return false;
 }
 
@@ -208,49 +278,59 @@ export async function safeFetch(raw: string, options: SafeFetchOptions = {}): Pr
     const onAbort = () => controller.abort();
     options.signal?.addEventListener('abort', onAbort, { once: true });
 
-    let response: Response;
+    // The timer and the listener are released only once the *body* has been
+    // read, not when the headers arrive. Clearing them at the end of the fetch
+    // call was the natural place and the wrong one: a server that sends
+    // headers immediately and then trickles the body forever would have had no
+    // deadline at all, and `ctx.signal` -- the engine withdrawing the run --
+    // would have stopped reaching it. A slow-body stall is the classic way to
+    // hold a fetching process open, and it is cheaper to mount than a slow
+    // handshake because the connection already looks healthy.
     try {
-      response = await doFetch(target.toString(), {
+      const response = await doFetch(target.toString(), {
         method: options.method ?? 'GET',
         ...(options.headers ? { headers: options.headers } : {}),
         ...(options.body === undefined ? {} : { body: options.body }),
         redirect: 'manual',
         signal: controller.signal,
       });
+
+      const location = response.headers.get('location');
+      if (response.status >= 300 && response.status < 400 && location) {
+        if (hop >= maxRedirects) {
+          throw new PalugadaError(
+            'capability.unreachable',
+            `${raw} redirected more than ${maxRedirects} times`,
+            { url: raw },
+          );
+        }
+        // The body of a redirect is nothing anybody wants, and leaving it
+        // undrained holds the socket.
+        await response.body?.cancel().catch(() => undefined);
+        // Resolved against the current URL, because a `Location` may be
+        // relative -- and then checked again, because that is the point.
+        const next = new URL(location, target).toString();
+        redirects.push(next);
+        target = await assertReachable(next, options);
+        continue;
+      }
+
+      // Bounded on the way in. A capability that read an unbounded response
+      // into memory would be a capability an agent can use to exhaust the
+      // orchestrator by naming a large file.
+      const body = await readBounded(response, maxBytes);
+      return {
+        status: response.status,
+        url: target.toString(),
+        headers: Object.fromEntries(response.headers),
+        body: body.text,
+        truncated: body.truncated,
+        redirects,
+      };
     } finally {
       clearTimeout(timer);
       options.signal?.removeEventListener('abort', onAbort);
     }
-
-    const location = response.headers.get('location');
-    if (response.status >= 300 && response.status < 400 && location) {
-      if (hop >= maxRedirects) {
-        throw new PalugadaError(
-          'capability.unreachable',
-          `${raw} redirected more than ${maxRedirects} times`,
-          { url: raw },
-        );
-      }
-      // Resolved against the current URL, because a `Location` may be
-      // relative -- and then checked again, because that is the point.
-      const next = new URL(location, target).toString();
-      redirects.push(next);
-      target = await assertReachable(next, options);
-      continue;
-    }
-
-    // Bounded on the way in. A capability that read an unbounded response into
-    // memory would be a capability an agent can use to exhaust the
-    // orchestrator by naming a large file.
-    const raw_body = await readBounded(response, maxBytes);
-    return {
-      status: response.status,
-      url: target.toString(),
-      headers: Object.fromEntries(response.headers),
-      body: raw_body.text,
-      truncated: raw_body.truncated,
-      redirects,
-    };
   }
 }
 

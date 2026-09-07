@@ -20,6 +20,7 @@ import { closePools } from '../../src/db/pool.ts';
 import { isPalugadaError } from '../../src/errors.ts';
 import {
   assertReachable,
+  ipv6Bytes,
   isPrivateAddress,
   safeFetch,
 } from '../../src/capabilities/reachable.ts';
@@ -337,13 +338,18 @@ test('files.list lists a directory and nothing above it (F12.9)', async () => {
   const { join } = await import('node:path');
 
   const root = await mkdtemp(join(tmpdir(), 'palugada-files-'));
-  await writeFile(join(root, 'report.md'), 'hello', 'utf8');
-  await mkdir(join(root, 'drafts'));
-  await writeFile(join(root, 'drafts', 'one.txt'), 'x', 'utf8');
+  const context = ctx();
+  // Into *this company's* directory, which is the one the capability reads.
+  // Writing into the platform root would be writing where no company can see.
+  const { companyRoot } = await import('../../src/capabilities/files.ts');
+  const mine = await companyRoot(root, context.companyId);
+  await writeFile(join(mine, 'report.md'), 'hello', 'utf8');
+  await mkdir(join(mine, 'drafts'));
+  await writeFile(join(mine, 'drafts', 'one.txt'), 'x', 'utf8');
 
   const capability = filesList({ root });
 
-  const listing = await capability.execute({}, ctx());
+  const listing = await capability.execute({}, context);
   assert.equal(listing.path, '.');
   assert.deepEqual(
     listing.entries.map((entry) => [entry.name, entry.kind]).sort(),
@@ -351,7 +357,7 @@ test('files.list lists a directory and nothing above it (F12.9)', async () => {
   );
   assert.equal(listing.entries.find((entry) => entry.name === 'report.md')!.bytes, 5);
 
-  const inner = await capability.execute({ path: 'drafts' }, ctx());
+  const inner = await capability.execute({ path: 'drafts' }, context);
   assert.equal(inner.path, 'drafts');
   assert.equal(inner.entries.length, 1);
 
@@ -360,11 +366,11 @@ test('files.list lists a directory and nothing above it (F12.9)', async () => {
   // `/etc` passes every string comparison; only `realpath` sees it. This is
   // the same defect the owner console had, written down in both places so the
   // second implementation did not have to rediscover it.
-  await assert.rejects(() => capability.execute({ path: '../../etc' }, ctx()));
+  await assert.rejects(() => capability.execute({ path: '../../etc' }, context));
 
-  await symlink('/etc', join(root, 'escape')).catch(() => undefined);
+  await symlink('/etc', join(mine, 'escape')).catch(() => undefined);
   await assert.rejects(
-    () => capability.execute({ path: 'escape' }, ctx()),
+    () => capability.execute({ path: 'escape' }, context),
     (error: unknown) => isPalugadaError(error, 'capability.unreachable'),
     'a symlink walked out of the company files',
   );
@@ -376,9 +382,12 @@ test('files.list caps how much one call returns', async () => {
   const { join } = await import('node:path');
 
   const root = await mkdtemp(join(tmpdir(), 'palugada-many-'));
-  for (let i = 0; i < 12; i += 1) await writeFile(join(root, `f${i}.txt`), 'x', 'utf8');
+  const context = ctx();
+  const { companyRoot } = await import('../../src/capabilities/files.ts');
+  const mine = await companyRoot(root, context.companyId);
+  for (let i = 0; i < 12; i += 1) await writeFile(join(mine, `f${i}.txt`), 'x', 'utf8');
 
-  const listing = await filesList({ root, maxEntries: 5 }).execute({}, ctx());
+  const listing = await filesList({ root, maxEntries: 5 }).execute({}, context);
   assert.equal(listing.entries.length, 5);
   assert.equal(listing.truncated, true);
 });
@@ -404,6 +413,10 @@ test('a draft is written where the owner can find it, and read back (F8.2, F8.4)
   const { join } = await import('node:path');
   const root = await mkdtemp(join(tmpdir(), 'palugada-drafts-'));
 
+  const context = ctx();
+  const { companyRoot } = await import('../../src/capabilities/files.ts');
+  const mine = await companyRoot(root, context.companyId);
+
   const llm = new RecordingLlmClient(() => 'Subject: Your invoice\n\nHello, the invoice is attached.');
   const doc = docDraft({ llm, root });
   const email = emailDraft({ llm, root });
@@ -413,29 +426,29 @@ test('a draft is written where the owner can find it, and read back (F8.2, F8.4)
   assert.equal(doc.defaultTier, 1);
   assert.equal(email.defaultTier, 1);
 
-  const written = await doc.execute({ brief: 'a memo about the outage' }, ctx());
+  const written = await doc.execute({ brief: 'a memo about the outage' }, context);
   assert.match(written.path, /^drafts\/a-memo-about-the-outage-/);
-  assert.equal(await readFile(join(root, written.path), 'utf8'), written.text);
+  assert.equal(await readFile(join(mine, written.path), 'utf8'), written.text);
   assert.equal(written.words, written.text.trim().split(/\s+/).length);
 
   // F8.4: the read-back. Not a formality -- a write that reported success and
   // left nothing on disk is what it catches and a return code does not.
-  assert.equal(await doc.verify!({ brief: '' }, written, ctx()), true);
+  assert.equal(await doc.verify!({ brief: '' }, written, context), true);
   assert.equal(
-    await doc.verify!({ brief: '' }, { ...written, text: 'something else' }, ctx()),
+    await doc.verify!({ brief: '' }, { ...written, text: 'something else' }, context),
     false,
   );
 
   const drafted = await email.execute(
-    { to: 'ana@supplier.example', brief: 'chase the invoice' }, ctx(),
+    { to: 'ana@supplier.example', brief: 'chase the invoice' }, context,
   );
   assert.equal(drafted.subject, 'Your invoice');
   assert.equal(drafted.body, 'Hello, the invoice is attached.');
   // Stored as a message, so what the owner opens is the thing that would be
   // sent rather than a description of it.
-  const stored = await readFile(join(root, drafted.path), 'utf8');
+  const stored = await readFile(join(mine, drafted.path), 'utf8');
   assert.match(stored, /^To: ana@supplier\.example\nSubject: Your invoice\n\n/);
-  assert.equal(await email.verify!({ to: '', brief: '' }, drafted, ctx()), true);
+  assert.equal(await email.verify!({ to: '', brief: '' }, drafted, context), true);
 
   // F3.4: a policy saying "no drafts addressed outside our domain" needs the
   // domain from the capability, which makes the *draft* governable rather than
@@ -447,7 +460,7 @@ test('a draft is written where the owner can find it, and read back (F8.2, F8.4)
   assert.equal(email.describe!({ to: 'nonsense', brief: '' }).recipientDomain, null);
 
   // F8.5: what it cost, measured rather than estimated.
-  assert.equal(typeof (await doc.actualCostCents!({ brief: '' }, written, ctx())), 'number');
+  assert.equal(typeof (await doc.actualCostCents!({ brief: '' }, written, context)), 'number');
 });
 
 /**
@@ -475,11 +488,16 @@ test('a brief cannot become a path (F12.9)', async () => {
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const root = await mkdtemp(join(tmpdir(), 'palugada-slug-'));
+  const context = ctx();
 
   const written = await docDraft({ llm: new RecordingLlmClient(), root })
-    .execute({ brief: '../../../../etc/cron.d/evil' }, ctx());
+    .execute({ brief: '../../../../etc/cron.d/evil' }, context);
   assert.match(written.path, /^drafts\//);
-  assert.deepEqual(await readdir(root), ['drafts']);
+  // Inside this company's directory, and the platform root holds nothing but
+  // company directories.
+  const { companyRoot } = await import('../../src/capabilities/files.ts');
+  assert.deepEqual(await readdir(await companyRoot(root, context.companyId)), ['drafts']);
+  assert.deepEqual(await readdir(root), [context.companyId]);
 });
 
 /**
@@ -545,4 +563,258 @@ test('the platform binds what it can and leaves the rest unbound (F8)', () => {
   for (const capability of full) {
     assert.match(capability.adapter, /^platform:/, capability.name);
   }
+});
+
+/* --------------------------------------------- what the second review found --- */
+
+/**
+ * An IPv6 address has many spellings of the same value.
+ *
+ * The first version of `isPrivateV6` matched text: `fe80` as a prefix, and the
+ * dotted `::ffff:1.2.3.4` form. Both are real spellings and both have twins.
+ * `fe90::1` is link-local (the range is fe80::/10, not the four characters
+ * `fe80`) and `::ffff:7f00:1` is loopback written in hex. Either one reaches
+ * inside this network past a check that only reads the string.
+ */
+test('every spelling of an address inside the network is refused (F12.9)', () => {
+  const inside = [
+    '::ffff:7f00:1',        // 127.0.0.1, in hex rather than dotted
+    '::ffff:a9fe:a9fe',     // 169.254.169.254, the metadata service, in hex
+    '::FFFF:169.254.169.254',
+    'fe90::1', 'fea0::1', 'feb0::1', 'febf:ffff::1',   // all fe80::/10
+    'fc00::1', 'fdff::1',                              // all fc00::/7
+    '0:0:0:0:0:0:0:1',      // loopback, written out
+    '0000:0000:0000:0000:0000:0000:0000:0000',
+    '64:ff9b::7f00:1',      // NAT64 wrapping loopback
+    'fe80::1%eth0',         // with a zone index
+  ];
+  for (const address of inside) {
+    assert.equal(isPrivateAddress(address), true, `${address} must be refused`);
+  }
+
+  // And the ones just outside the ranges, which a check written with the wrong
+  // mask would swallow.
+  for (const address of ['fec0::1', 'fe7f::1', 'fb00::1', 'fe00::1', '2606:4700::1111']) {
+    assert.equal(isPrivateAddress(address), false, `${address} must be allowed`);
+  }
+});
+
+test('an IPv6 address parses to the same bytes however it is written', () => {
+  assert.deepEqual([...ipv6Bytes('::1')!].slice(-2), [0, 1]);
+  assert.deepEqual(ipv6Bytes('::ffff:127.0.0.1'), ipv6Bytes('::ffff:7f00:1'));
+  assert.deepEqual(ipv6Bytes('fe80:0:0:0:0:0:0:1'), ipv6Bytes('fe80::1'));
+  // Not addresses at all.
+  for (const bad of ['::1::2', 'gggg::1', '1:2:3:4:5:6:7', 'hello']) {
+    assert.equal(ipv6Bytes(bad), null, bad);
+  }
+});
+
+/**
+ * A deadline that only covers the handshake is not a deadline.
+ *
+ * A server that sends headers immediately and then trickles the body forever
+ * is the classic way to hold a fetching process open -- and it is cheaper to
+ * mount than a slow handshake, because the connection already looks healthy.
+ * The first version cleared the timer as soon as the headers arrived.
+ */
+test('a stalled body hits the timeout rather than hanging (F12.9)', async () => {
+  const open: Array<() => void> = [];
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'text/plain' });
+    res.write('the beginning');
+    // And then nothing, for ever.
+    open.push(() => res.end());
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address !== null && typeof address !== 'string');
+
+  try {
+    // Raced against a clock rather than simply awaited. Without the race, a
+    // regression here does not fail the test -- it hangs it, and a hung test
+    // is a test whose result nobody reads. The mutation that put the
+    // `clearTimeout` back must produce a red line, not a stuck run.
+    const outcome = await Promise.race([
+      safeFetch(`http://127.0.0.1:${address.port}/slow`, {
+        allowPrivateHosts: ['127.0.0.1'],
+        timeoutMs: 400,
+      }).then(() => 'returned' as const, () => 'timed out' as const),
+      new Promise<'still waiting'>((resolve) => setTimeout(() => resolve('still waiting'), 3_000)),
+    ]);
+    assert.equal(outcome, 'timed out', 'a body that never ends must not be waited on for ever');
+  } finally {
+    for (const end of open) end();
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+/**
+ * The engine withdrawing a run is not the site being down.
+ *
+ * A stop-all, a lost lease or a deadline would otherwise come back as
+ * `up: false`, and the role would escalate about a host that was never
+ * actually probed. "We did not finish asking" and "it did not answer" are
+ * different facts and only one is worth waking somebody for.
+ */
+test('a cancelled probe is not a site that is down (F5.8, F8)', async () => {
+  const open: Array<() => void> = [];
+  const server = createServer((_req, res) => {
+    res.writeHead(200);
+    res.write('x');
+    open.push(() => res.end());
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address !== null && typeof address !== 'string');
+
+  const withdrawn = new AbortController();
+  const context = { ...ctx(), signal: withdrawn.signal };
+  setTimeout(() => withdrawn.abort(), 100);
+
+  try {
+    // Raced for the same reason, and with a longer capability timeout than the
+    // race so that what ends the call is the abort rather than the deadline.
+    const outcome = await Promise.race([
+      uptimeCheck({ allowPrivateHosts: ['127.0.0.1'], timeoutMs: 10_000 })
+        .execute({ url: `http://127.0.0.1:${address.port}/health` }, context)
+        .then((answer) => `reported up=${answer.up}` as const, () => 'threw' as const),
+      new Promise<'still waiting'>((resolve) => setTimeout(() => resolve('still waiting'), 3_000)),
+    ]);
+    assert.equal(outcome, 'threw', 'a withdrawn run must not be reported as a measurement');
+  } finally {
+    for (const end of open) end();
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+/**
+ * One filesystem, many companies, and no row-level security to inherit.
+ *
+ * F1.1 is enforced by the database everywhere else. A capability reading and
+ * writing a filesystem has to do the same job by hand or it undoes it, and the
+ * first version of these gave every company the same directory.
+ */
+test('one company cannot see another\'s files or drafts (F1.1, F12.9)', async () => {
+  const { mkdtemp, writeFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const root = await mkdtemp(join(tmpdir(), 'palugada-tenancy-'));
+
+  const acme = { ...ctx(), companyId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' };
+  const other = { ...ctx(), companyId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' };
+
+  const list = filesList({ root });
+  const doc = docDraft({ llm: new RecordingLlmClient(() => 'acme secrets'), root });
+
+  // Acme writes a draft and puts a file beside it.
+  const written = await doc.execute({ brief: 'the acme plan' }, acme);
+  const { companyRoot } = await import('../../src/capabilities/files.ts');
+  await writeFile(join(await companyRoot(root, acme.companyId), 'private.txt'), 'x', 'utf8');
+
+  const acmeSees = await list.execute({}, acme);
+  assert.deepEqual(
+    acmeSees.entries.map((entry) => entry.name).sort(),
+    ['drafts', 'private.txt'],
+  );
+
+  // The other company sees an empty directory of its own, not Acme's.
+  const otherSees = await list.execute({}, other);
+  assert.deepEqual(otherSees.entries, []);
+
+  // And cannot reach Acme's by naming it: the id comes from the broker, and
+  // there is no argument that gets past the containment check.
+  await assert.rejects(() => list.execute({ path: `../${acme.companyId}` }, other));
+
+  // Nor can it read Acme's draft back as its own.
+  assert.equal(await doc.verify!({ brief: '' }, written, acme), true);
+  assert.equal(await doc.verify!({ brief: '' }, written, other), false);
+});
+
+/**
+ * A link in a listing is reported as a link, not as its target.
+ *
+ * `stat` follows one, so a link to `/etc/shadow` would tell an agent how big
+ * it is and when it last changed. That is not reading it, and it is not
+ * nothing either.
+ */
+test('a symlink is listed as what it is, not as what it points at (F12.9)', async () => {
+  const { mkdtemp, symlink } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const root = await mkdtemp(join(tmpdir(), 'palugada-lstat-'));
+  const context = ctx();
+  const { companyRoot } = await import('../../src/capabilities/files.ts');
+  const mine = await companyRoot(root, context.companyId);
+  await symlink('/etc/hostname', join(mine, 'peek'));
+
+  const listing = await filesList({ root }).execute({}, context);
+  const entry = listing.entries.find((candidate) => candidate.name === 'peek')!;
+  assert.equal(entry.kind, 'other', 'a link is not a file');
+  assert.equal(entry.bytes, 0, "and it does not report its target's size");
+});
+
+/**
+ * A read-back that passes on an empty draft has stopped checking.
+ *
+ * `splitEmail` legitimately produces an empty body -- a model that wrote only
+ * a subject line -- and `includes('')` is true of every string.
+ */
+test('an empty draft does not pass its own read-back (F8.4)', async () => {
+  const { mkdtemp, writeFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const root = await mkdtemp(join(tmpdir(), 'palugada-empty-'));
+  const context = ctx();
+
+  const email = emailDraft({
+    llm: new RecordingLlmClient(() => 'Subject: Only a subject'),
+    root,
+  });
+  const drafted = await email.execute({ to: 'a@b.example', brief: 'x' }, context);
+  assert.equal(drafted.body, '');
+  assert.equal(await email.verify!({ to: '', brief: '' }, drafted, context), true);
+
+  // Now break the file behind it. The read-back must notice, which
+  // `includes(result.body)` could not when the body is empty.
+  const { companyRoot } = await import('../../src/capabilities/files.ts');
+  await writeFile(join(await companyRoot(root, context.companyId), drafted.path), '', 'utf8');
+  assert.equal(await email.verify!({ to: '', brief: '' }, drafted, context), false);
+});
+
+/**
+ * A capability object is registered once and called by every division that
+ * holds it. One `let` for the cost means two concurrent runs report each
+ * other's, and F8.5's whole point is that a cost belongs to the call that
+ * incurred it.
+ */
+test('two concurrent drafts do not report each other\'s cost (F8.5)', async () => {
+  const { mkdtemp } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const root = await mkdtemp(join(tmpdir(), 'palugada-cost-'));
+
+  let call = 0;
+  const llm = {
+    async complete() {
+      const mine = (call += 1);
+      // The second call finishes first, which is what makes a shared variable
+      // report the wrong number rather than merely a stale one.
+      await new Promise((resolve) => setTimeout(resolve, mine === 1 ? 60 : 5));
+      return { content: `draft ${mine}`, inputTokens: 1, outputTokens: 1, costCents: mine * 100 };
+    },
+  };
+
+  const doc = docDraft({ llm, root });
+  const first = { ...ctx(), idempotencyKey: 'call-one' };
+  const second = { ...ctx(), idempotencyKey: 'call-two' };
+
+  const [a, b] = await Promise.all([
+    doc.execute({ brief: 'one' }, first),
+    doc.execute({ brief: 'two' }, second),
+  ]);
+
+  assert.equal(await doc.actualCostCents!({ brief: '' }, a!, first), 100);
+  assert.equal(await doc.actualCostCents!({ brief: '' }, b!, second), 200);
 });

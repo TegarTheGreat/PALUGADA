@@ -676,3 +676,122 @@ test('the deployment boots, serves the console, and takes a decision', async () 
     await deployment.stop();
   }
 });
+
+/* ------------------------------------------- what the second review found --- */
+
+/**
+ * The assembly file had the defect assembly files exist to prevent.
+ *
+ * `memory.search` and `skill.read` are the two tools every context pack
+ * *instructs* every run to call -- F4.8 for what did not fit in the pack, F15.7
+ * for a skill's full text -- and `src/main.ts` never registered them. Under
+ * `npm start` every role would have been told to use two tools that answer
+ * `capability.unknown`. That is the third time this repository has found
+ * machinery nobody assembled, and this time it was in the assembly.
+ */
+test('the deployment binds the tools every context pack tells a run to call (F4.8, F15.7)', async () => {
+  const { start } = await import('../../src/main.ts');
+  const { PLATFORM_CAPABILITIES } = await import('../../src/broker/platform-capabilities.ts');
+  const { withControlPlane } = await import('../../src/db/tenant.ts');
+
+  const deployment = await start({ port: 0, env: {}, worker: { idleMs: 50 } });
+  try {
+    const registered = await withControlPlane(async (tx) => {
+      const { rows } = await tx.query<{ name: string }>('SELECT name FROM capabilities');
+      return new Set(rows.map((row) => row.name));
+    });
+
+    for (const name of PLATFORM_CAPABILITIES) {
+      assert.ok(registered.has(name), `${name} is instructed and not bound`);
+    }
+    // And the ones the platform implements for itself, which the notes name.
+    for (const name of ['web.fetch', 'uptime.check']) {
+      assert.ok(registered.has(name), `${name} is not bound`);
+    }
+    assert.ok(
+      deployment.notes.some((note) => note.startsWith('bound by the platform:')),
+      deployment.notes.join(' | '),
+    );
+  } finally {
+    await deployment.stop();
+  }
+});
+
+/**
+ * A broker built without a secret manager refuses every credential.
+ *
+ * `new CapabilityBroker(registry, undefined, undefined)` is what the first
+ * assembly did, and it makes `ctx.credential()` throw `credential.unavailable`
+ * for every capability that needs one -- in the only assembly a deployment
+ * actually runs. The unit tests all pass one in, so nothing noticed.
+ */
+test('the deployment gives the broker its secrets (F12.1, F12.3)', async () => {
+  const { start } = await import('../../src/main.ts');
+  const { CapabilityRegistry } = await import('../../src/broker/registry.ts');
+  const { grantCapability } = await import('../helpers/fixtures.ts');
+  const { withControlPlane } = await import('../../src/db/tenant.ts');
+
+  const fixture = await createCompany('deployment-secrets');
+  const secrets = new InMemorySecretManager();
+  secrets.set('vault://acme/api', 'the-real-token-value');
+
+  // A capability that asks for a credential and reports what it got.
+  let seen: string | null = null;
+  const registry = new CapabilityRegistry();
+  registry.register({
+    name: 'test.credentialed',
+    adapter: 'test:secrets',
+    defaultTier: 0,
+    async execute(_input: unknown, ctx) {
+      seen = await ctx.credential('api');
+      return { ok: true };
+    },
+  });
+
+  // A real task, because the broker writes the call onto its timeline and the
+  // event log will not carry one for a task that does not exist.
+  const { createRootTask } = await import('../../src/engine/tasks.ts');
+  const task = await createRootTask({
+    companyId: fixture.companyId,
+    projectId: fixture.projectId,
+    divisionId: fixture.divisionId,
+    roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId,
+    goalId: fixture.goalId,
+    input: { why: 'to invoke a capability' },
+    createdBy: 'owner',
+    reserveTokens: 1_000,
+  });
+
+  const deployment = await start({ secrets, registry, port: 0, env: {}, worker: { idleMs: 50 } });
+  try {
+    await withControlPlane(async (tx) => {
+      await tx.query(
+        `INSERT INTO credentials (company_id, division_id, alias, secret_ref)
+         VALUES ($1, $2, 'api', 'vault://acme/api')`,
+        [fixture.companyId, fixture.divisionId],
+      );
+    });
+    await grantCapability(fixture, 'test.credentialed');
+
+    // Through the broker this deployment actually built, not one the test
+    // made: the defect was in the assembly, so anything the test constructed
+    // for itself would have passed while `npm start` failed.
+    await deployment.broker.invoke(
+      {
+        companyId: fixture.companyId,
+        projectId: fixture.projectId,
+        divisionId: fixture.divisionId,
+        roleId: fixture.roleId,
+        taskId: task.id,
+        idempotencyKey: 'secrets-1',
+      },
+      'test.credentialed',
+      {},
+    );
+
+    assert.equal(seen, 'the-real-token-value', 'the broker was built without its secrets');
+  } finally {
+    await deployment.stop();
+  }
+});

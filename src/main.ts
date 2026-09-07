@@ -36,6 +36,9 @@ import { TelegramChannel } from './owner/telegram.ts';
 import type { OwnerChannel } from './owner/notify.ts';
 import { AdapterRegistry } from './runtime/protocol.ts';
 import { registerPlatformCapabilities } from './capabilities/platform.ts';
+import { registerPlatformCapabilities as registerPlatformTools, PLATFORM_CAPABILITIES }
+  from './broker/platform-capabilities.ts';
+import { CachedSecretManager } from './secrets/rotation.ts';
 import type { LlmClient } from './llm/client.ts';
 
 export interface DeploymentOptions {
@@ -70,6 +73,15 @@ export interface Deployment {
   worker: Worker;
   api: OwnerApi;
   mfa: OwnerMfa;
+  /**
+   * The broker this deployment built.
+   *
+   * Handed back rather than kept private, because an assembly that cannot be
+   * inspected is an assembly nothing can check -- and the two defects found in
+   * this file were both invisible from outside it: platform tools that were
+   * never registered, and a broker built without its secret manager.
+   */
+  broker: CapabilityBroker;
   url: string;
   /** What was left unconfigured, in the words an operator can act on. */
   notes: string[];
@@ -148,7 +160,20 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
 
   const registry = options.registry ?? new CapabilityRegistry();
 
-  // The six capabilities the platform implements itself. The other nineteen
+  // `memory.search` and `skill.read`, first and unconditionally.
+  //
+  // Every role's context pack *instructs* the run to call these -- F4.8 for
+  // what did not fit in the pack, F15.7 for a skill's full text -- and the
+  // standard template grants them to every division that is allowed them. A
+  // deployment that did not register them would tell every run to call two
+  // tools that answer `capability.unknown`, which is the same defect this
+  // repository found once before and is exactly what an assembly file exists
+  // to stop happening twice.
+  registerPlatformTools(registry);
+
+  const filesRoot = options.filesRoot ?? env.PALUGADA_FILES_ROOT ?? null;
+
+  // The five capabilities the platform implements itself. The other twenty
   // the standard template grants need somebody's account, and a control plane
   // does not get to choose which mail provider every company that ever uses it
   // will have.
@@ -158,26 +183,39 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
         ? { allowPrivateHosts: env.PALUGADA_ALLOW_PRIVATE_HOSTS.split(',').map((h) => h.trim()) }
         : {}),
     },
-    ...(options.filesRoot ?? env.PALUGADA_FILES_ROOT
-      ? { files: { root: (options.filesRoot ?? env.PALUGADA_FILES_ROOT)! } }
-      : {}),
+    // Parenthesised: `??` binds tighter than `?:` here only by accident of
+    // reading, and a root that silently did not reach the capability would
+    // leave `files.list` unbound while the note said otherwise.
+    ...(filesRoot ? { files: { root: filesRoot } } : {}),
     ...(options.llm ? { llm: options.llm } : {}),
     ...(env.PALUGADA_DRAFT_MODEL ? { draftModel: env.PALUGADA_DRAFT_MODEL } : {}),
   });
-  if (!options.filesRoot && !env.PALUGADA_FILES_ROOT) {
+  if (!filesRoot) {
     notes.push('files.list is unbound: set PALUGADA_FILES_ROOT to the company\'s files (F8)');
   }
   if (!options.llm) {
     notes.push('doc.draft and email.draft are unbound: no model client was given (F8)');
-  } else if (!options.filesRoot && !env.PALUGADA_FILES_ROOT) {
+  } else if (!filesRoot) {
     // §8.8 puts a draft at tier 1 because it is a write. A drafting capability
     // with nowhere to write is not the capability the catalogue calibrated.
     notes.push('doc.draft and email.draft are unbound: they need PALUGADA_FILES_ROOT too (F8)');
   }
-  notes.push(`bound by the platform: ${bound.join(', ')}`);
+  notes.push(`bound by the platform: ${[...PLATFORM_CAPABILITIES, ...bound].join(', ')}`);
+
+  const broker = new CapabilityBroker(
+    registry,
+    undefined,
+    // The secret manager, cached. Passing `undefined` here -- which the first
+    // version did -- makes `ctx.credential()` throw `credential.unavailable`
+    // for every capability that needs one, in the only assembly a deployment
+    // actually runs. Cached because F12.3 reads the version on every call, and
+    // the cache is what stops that becoming a round trip per tool call while
+    // still picking up a rotation within its short life.
+    new CachedSecretManager(secrets),
+  );
 
   const engine = new Engine({
-    broker: new CapabilityBroker(registry, undefined, undefined),
+    broker,
     ...(options.adapters ? { adapters: options.adapters } : {}),
     workerId: env.PALUGADA_WORKER_ID ?? `worker-${process.pid}`,
   });
@@ -216,6 +254,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     worker,
     api,
     mfa,
+    broker,
     url,
     notes,
     async stop() {

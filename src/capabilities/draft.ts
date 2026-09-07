@@ -31,16 +31,19 @@
  */
 import { PalugadaError } from '../errors.ts';
 import type { Capability, CapabilityContext } from '../broker/registry.ts';
+import { companyRoot } from './files.ts';
 import type { LlmClient } from '../llm/client.ts';
 
 export interface DraftOptions {
   llm: LlmClient;
   /**
-   * The company's files, the same root `files.list` reads.
+   * The platform's files root, the same one `files.list` reads.
    *
-   * Required. A draft that went somewhere the owner cannot find is a draft
-   * that was not written, and there is no directory this platform may pick on
-   * a company's behalf.
+   * Required, and it is the root for *every* company: each one's drafts go
+   * into its own subdirectory, chosen from `ctx.companyId`. A shared directory
+   * was the first version and it was a tenancy hole with no database in it --
+   * F1.1 is row-level security everywhere else, and a capability writing to a
+   * filesystem has none to inherit.
    */
   root: string;
   model?: string;
@@ -77,7 +80,11 @@ const DOC_SYSTEM = [
 
 export function docDraft(options: DraftOptions): Capability<DocDraftInput, DocDraftOutput> {
   const model = options.model ?? 'draft-model';
-  let lastCostCents: number | null = null;
+  // Keyed by the idempotency key, not a single variable. A capability object is
+  // registered once and called concurrently by every division that holds it, so
+  // one `let` would have two runs reporting each other's cost -- and F8.5's
+  // whole point is that a cost is attributed to the call that incurred it.
+  const costs = new Map<string, number>();
 
   return {
     name: 'doc.draft',
@@ -101,10 +108,11 @@ export function docDraft(options: DraftOptions): Capability<DocDraftInput, DocDr
         },
         ctx.signal,
       );
-      lastCostCents = answer.costCents;
+      costs.set(ctx.idempotencyKey, answer.costCents);
 
       const path = await write(
         options.root,
+        ctx.companyId,
         `${slug(input.brief)}-${short(ctx)}.md`,
         answer.content,
       );
@@ -123,14 +131,17 @@ export function docDraft(options: DraftOptions): Capability<DocDraftInput, DocDr
      * the call and dropped it -- is exactly the failure a read-back catches
      * and a return code does not.
      */
-    async verify(_input, result) {
+    async verify(_input, result, ctx) {
       const { readFile } = await import('node:fs/promises');
       const { join } = await import('node:path');
-      const stored = await readFile(join(options.root, result.path), 'utf8').catch(() => null);
+      const base = await companyRoot(options.root, ctx.companyId);
+      const stored = await readFile(join(base, result.path), 'utf8').catch(() => null);
       return stored === result.text;
     },
-    async actualCostCents() {
-      return lastCostCents;
+    async actualCostCents(_input, _result, ctx) {
+      const cents = costs.get(ctx.idempotencyKey) ?? null;
+      costs.delete(ctx.idempotencyKey);
+      return cents;
     },
   };
 }
@@ -166,7 +177,8 @@ const EMAIL_SYSTEM = [
 
 export function emailDraft(options: DraftOptions): Capability<EmailDraftInput, EmailDraftOutput> {
   const model = options.model ?? 'draft-model';
-  let lastCostCents: number | null = null;
+  // See `docDraft`: per call, never per capability.
+  const costs = new Map<string, number>();
 
   return {
     name: 'email.draft',
@@ -192,12 +204,13 @@ export function emailDraft(options: DraftOptions): Capability<EmailDraftInput, E
         },
         ctx.signal,
       );
-      lastCostCents = answer.costCents;
+      costs.set(ctx.idempotencyKey, answer.costCents);
 
       const { subject, body } = splitEmail(answer.content, input.subject ?? '');
       const to = String(input.to ?? '');
       const path = await write(
         options.root,
+        ctx.companyId,
         `email-${slug(subject || to)}-${short(ctx)}.eml`,
         // Stored as a message rather than as prose, so what the owner opens is
         // the thing that would be sent rather than a description of it.
@@ -213,14 +226,23 @@ export function emailDraft(options: DraftOptions): Capability<EmailDraftInput, E
       const at = to.lastIndexOf('@');
       return { recipientDomain: at === -1 ? null : to.slice(at + 1).toLowerCase() };
     },
-    async verify(_input, result) {
+    async verify(_input, result, ctx) {
       const { readFile } = await import('node:fs/promises');
       const { join } = await import('node:path');
-      const stored = await readFile(join(options.root, result.path), 'utf8').catch(() => null);
-      return stored !== null && stored.includes(result.body);
+      const base = await companyRoot(options.root, ctx.companyId);
+      const stored = await readFile(join(base, result.path), 'utf8').catch(() => null);
+      if (stored === null) return false;
+      // `includes` alone is vacuously true for an empty body -- and
+      // `splitEmail` produces one legitimately, from a model that wrote only a
+      // subject. A read-back that passes on a draft with nothing in it is a
+      // read-back that has stopped checking, so the whole message is
+      // reconstructed and compared.
+      return stored === `To: ${result.to}\nSubject: ${result.subject}\n\n${result.body}\n`;
     },
-    async actualCostCents() {
-      return lastCostCents;
+    async actualCostCents(_input, _result, ctx) {
+      const cents = costs.get(ctx.idempotencyKey) ?? null;
+      costs.delete(ctx.idempotencyKey);
+      return cents;
     },
   };
 }
@@ -233,17 +255,16 @@ export function emailDraft(options: DraftOptions): Capability<EmailDraftInput, E
  * put one, which is the stronger arrangement: there is no input that reaches
  * this join.
  */
-async function write(root: string, name: string, content: string): Promise<string> {
-  const { mkdir, writeFile, realpath } = await import('node:fs/promises');
-  const { join, resolve } = await import('node:path');
+async function write(
+  root: string,
+  companyId: string,
+  name: string,
+  content: string,
+): Promise<string> {
+  const { mkdir, writeFile } = await import('node:fs/promises');
+  const { join } = await import('node:path');
 
-  const base = await realpath(resolve(root)).catch(() => {
-    throw new PalugadaError(
-      'capability.unknown',
-      `drafting is configured with a root that does not exist: ${root}`,
-      {},
-    );
-  });
+  const base = await companyRoot(root, companyId);
   const directory = join(base, 'drafts');
   await mkdir(directory, { recursive: true });
   await writeFile(join(directory, name), content, { encoding: 'utf8', mode: 0o600 });

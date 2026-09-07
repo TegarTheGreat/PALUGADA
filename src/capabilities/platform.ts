@@ -1,10 +1,10 @@
 /**
  * The capabilities a deployment gets for free (PRD v2 F8).
  *
- * The standard company template grants twenty-five capability names. Nineteen
+ * The standard company template grants twenty-five capability names. Twenty
  * of them need somebody's account -- a DNS provider, a mail provider, a
  * ledger -- and choosing one for every company that will ever use this
- * platform is not a decision a control plane gets to make. Six do not, and
+ * platform is not a decision a control plane gets to make. Five do not, and
  * this is where they are bound.
  *
  * Registering them is opt-in and takes an argument for each thing that cannot

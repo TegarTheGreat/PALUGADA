@@ -11,7 +11,7 @@
  * checking whether a host is up, listing files under a directory, and drafting
  * a document with the model the role already has -- none of those needs an
  * account with anybody. They were unbound for the same reason as the other
- * nineteen, which was the wrong reason, and the difference is exactly the one
+ * twenty, which was the wrong reason, and the difference is exactly the one
  * this repository got wrong once already about MFA: *a vendor account cannot
  * be conjured, and code can be written.*
  *
@@ -150,6 +150,15 @@ export function uptimeCheck(options: WebOptions = {}): Capability<UptimeInput, U
         // not a measurement of anything, and reporting it as "down" would hide
         // a misconfiguration behind a plausible answer.
         if (error instanceof PalugadaError && error.code === 'capability.unreachable') throw error;
+
+        // And except an abort, which is this platform stopping rather than the
+        // host being down. The engine withdrawing a run -- a stop-all, a lease
+        // lost, a deadline -- would otherwise come back as `up: false`, and the
+        // role would escalate about a site that was never actually probed.
+        // "We did not finish asking" and "it did not answer" are different
+        // facts and only one of them is worth waking somebody for.
+        if (ctx.signal.aborted || (error as Error)?.name === 'AbortError') throw error;
+
         return { up: false, status: 0, latencyMs: Date.now() - startedAt, url };
       }
     },

@@ -1118,6 +1118,56 @@ deny-list, because the input is prose written by an agent, and "which
 characters are dangerous in a filename" has a different answer on every
 filesystem while "which are safe" has the same short one everywhere.
 
+### And then a review found twelve more
+
+Worth recording as a group rather than a list, because two of them are the same
+mistake in two places and one is the mistake this whole document is about.
+
+**A filesystem has no row-level security to inherit.** `files.list` and the
+drafting pair shared one directory across every company, so company A could
+list company B's drafts. F1.1 is enforced by the database everywhere else in
+this platform, and a capability that reaches a filesystem has to do that job by
+hand or it undoes it. Each company now has a subdirectory named by its id --
+chosen from `ctx.companyId`, never from an argument.
+
+**An IPv6 address has many spellings of the same value, and the first check
+read the text.** `fe80` as a string prefix misses `fe90::1`, which is also
+link-local: the range is fe80::/10, not those four characters. The dotted
+`::ffff:127.0.0.1` has a hex twin, `::ffff:7f00:1`. Both reach inside this
+network. The addresses are parsed into their sixteen bytes now, and the tests
+name every spelling.
+
+**A deadline that only covers the handshake is not a deadline.** `safeFetch`
+cleared its timer when the headers arrived, so a server that sends headers
+immediately and then trickles the body forever had no deadline and could not be
+cancelled by the engine withdrawing the run. That is cheaper to mount than a
+slow handshake, because the connection already looks healthy.
+
+**A dialog that approves what the owner just cancelled.** The console's second
+factor prompt removed its listeners by hand in each exit path and missed
+Escape, so the listener stayed bound to the *cancelled* item -- and the next
+tier 3 confirmation submitted the owner's valid code against the previous one
+and approved it. It is now an `AbortController` tied to the dialog's own
+`close` event, which fires however the dialog closes. This is the worst failure
+that page could have had, and it was three lines.
+
+**And the assembly file had the defect assembly files exist to prevent.**
+`src/main.ts` never registered `memory.search` and `skill.read` -- the two tools
+every context pack *instructs* every run to call -- so under `npm start` every
+role would have been told to use two tools that answer `capability.unknown`.
+It also passed `undefined` where the secret manager goes, which makes
+`ctx.credential()` throw for every capability that needs one, in the only
+assembly a deployment actually runs. Both are the same shape as the notifier
+that nothing called, found for the third time.
+
+The rest: `lstat` rather than `stat` in a listing, so a link reports itself
+instead of its target's size and modification time; a read-back that used
+`includes` and was vacuously true for the empty body `splitEmail` legitimately
+produces; a cost held in one closure variable shared by every concurrent call;
+`uptime.check` reporting a withdrawn run as "the site is down"; and a stop-all
+button with no error path, which is the one button that must never fail
+quietly.
+
 ### What that leaves
 
 Twenty names still need somebody's account, and the boot check still prints all

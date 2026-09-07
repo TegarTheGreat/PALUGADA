@@ -159,7 +159,7 @@ async function main(): Promise<number> {
   log('company built', `${slug} — ${Object.keys(company.divisionIds).length} division, ` +
     `${Object.keys(company.roleIds).length} role`);
 
-  // The six the platform implements itself, bound before the count so the
+  // The five the platform implements itself, bound before the count so the
   // count means what it says. `files.list` gets a temporary root and the
   // drafting pair the same recording client the run already uses: this is a
   // boot check, and what it is checking is that the wiring exists.
@@ -179,7 +179,7 @@ async function main(): Promise<number> {
       ? 'every capability it grants is bound here'
       : `${unbound.length} still need a vendor: ${unbound.join(', ')}`,
   );
-  // The six are not among them, which is the assertion: a capability the
+  // The five are not among them, which is the assertion: a capability the
   // platform implements and forgets to register is one a role is refused for
   // at the moment it tries to work.
   for (const name of bound) {

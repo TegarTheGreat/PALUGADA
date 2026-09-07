@@ -112,7 +112,16 @@ function drawControls(control) {
     // Reversible, and both directions are the same button. A stop the owner
     // cannot lift without a database console is one they hesitate to press,
     // and hesitating is the failure F10.7 exists to remove.
-    await api('POST', '/api/control/stop-all', { on: !control.stopAll });
+    try {
+      await api('POST', '/api/control/stop-all', { on: !control.stopAll });
+      el('control-note').textContent = '';
+    } catch (failure) {
+      // Said out loud. A stop that silently did not happen is worse than one
+      // that refused, because the owner walks away believing the platform is
+      // halted -- and this is the button they press when something is on fire.
+      el('control-note').textContent = `That did not take effect: ${failure.message}`;
+      return;
+    }
     await refresh();
   };
 }
@@ -273,6 +282,18 @@ async function send(item, decision, note, proof) {
   });
 }
 
+/**
+ * Asks for the factor, for *this* item and no other.
+ *
+ * The listeners are torn down by an `AbortController` tied to the dialog's own
+ * `close` event, which fires however the dialog closes -- the Cancel button,
+ * the form, or Escape. Removing them by hand in each exit path was the first
+ * version and it missed Escape, and the consequence was not cosmetic: the
+ * listener stayed bound to the *cancelled* item, so the next tier 3
+ * confirmation submitted the owner's valid code against the previous item and
+ * approved it. A dialog that approves the thing the owner just backed out of
+ * is the worst failure this page could have.
+ */
 function confirmWithFactor(item, decision, note) {
   const dialog = el('factor');
   const error = el('factor-error');
@@ -280,24 +301,28 @@ function confirmWithFactor(item, decision, note) {
   el('factor-what').textContent = item.title;
   error.hidden = true;
   input.value = '';
-  dialog.showModal();
-  input.focus();
+
+  const scope = new AbortController();
+  const { signal } = scope;
 
   return new Promise((resolve) => {
-    const cancel = () => {
-      dialog.close();
-      cleanup();
+    // Fires for every way out, including Escape and `dialog.close()`. One
+    // place to release everything means there is no exit path to forget.
+    dialog.addEventListener('close', () => {
+      scope.abort();
+      input.value = '';
       resolve();
-    };
-    const submit = async (event) => {
+    }, { once: true });
+
+    el('factor-cancel').addEventListener('click', () => dialog.close(), { signal });
+
+    el('factor-form').addEventListener('submit', async (event) => {
       event.preventDefault();
       error.hidden = true;
       try {
         await send(item, decision, note, { totp: input.value.trim() });
         dialog.close();
-        cleanup();
         await drawInbox();
-        resolve();
       } catch (failure) {
         // Shown here rather than on the card, because the owner is looking at
         // this box: "that code is wrong" and "that has been used" and "locked
@@ -307,13 +332,10 @@ function confirmWithFactor(item, decision, note) {
         input.value = '';
         input.focus();
       }
-    };
-    const cleanup = () => {
-      el('factor-form').removeEventListener('submit', submit);
-      el('factor-cancel').removeEventListener('click', cancel);
-    };
-    el('factor-form').addEventListener('submit', submit);
-    el('factor-cancel').addEventListener('click', cancel);
+    }, { signal });
+
+    dialog.showModal();
+    input.focus();
   });
 }
 
@@ -347,6 +369,14 @@ el('trace-close').addEventListener('click', () => el('trace').close());
 
 /* ------------------------------------------------------------------ small --- */
 
+/**
+ * An amount, with no currency symbol.
+ *
+ * The platform stores cents and does not know which currency they are: a
+ * company's ledger decides that, and this console serves every company at
+ * once. Printing a symbol would be inventing one, and a figure labelled in the
+ * wrong currency is worse than a figure labelled in none.
+ */
 function money(cents) {
-  return `${(cents / 100).toFixed(2)}`;
+  return (cents / 100).toFixed(2);
 }

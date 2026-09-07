@@ -300,6 +300,7 @@ the template is organised by function rather than by industry.
 | v2 F13.8 an unhealthy runtime receives no work | `src/engine/engine.ts` | `runtime-adapter.test.ts` |
 | v2 F13.2 a spawned script, a webhook and headless Claude Code | `src/runtime/script.ts`, `http.ts`, `claude-code.ts` | `out-of-process-runtimes.test.ts` |
 | v2 F13.4 a spawned runtime inherits no environment; its tools go through the broker | `src/runtime/script.ts`, `src/runtime/tool-bridge.ts` | `out-of-process-runtimes.test.ts` |
+| v2 F13.3 an agent CLI is employed from a configuration entry, not a new adapter | `src/runtime/cli.ts` | `out-of-process-runtimes.test.ts` |
 | v2 F13.6 fallback for tier 0–1; a role that can act irreversibly halts instead | `src/engine/engine.ts` | `out-of-process-runtimes.test.ts` |
 | v2 F14.1 a runtime cannot get past a hook | `src/engine/hooks.ts` | `hooks.test.ts` |
 | v2 F14.2 built-ins cannot be removed; an added hook may only tighten | `src/engine/hooks.ts` | `hooks.test.ts` |
@@ -716,12 +717,20 @@ assertions can be verified here, and the code says so rather than dressing it
 up: what they buy is that doing the wrong thing requires stating something
 false, on an event an auditor can read.
 
-F13.3's four runtime adapters are the other outstanding item and are the same
-kind of thing: `hermes`, `openclaw`, `codex` and `gemini-cli` are not installed
-here, and an adapter written against a CLI whose interface cannot be observed is
-code that compiles and has never run. Neither can be exercised from here — there is no device, no store
-and no messaging account — and writing them blind would produce code that
-compiles and has never worked once.
+F13.3's four runtime adapters were the other outstanding item, and reading the
+requirement past its list changed what was worth building. It asks for
+`hermes`, `openclaw`, `codex` and `gemini-cli` *so that community adapters can
+be used* — and the reason is the part that generalises. What those four have in
+common is everything that is hard: the environment quarantine, the per-run tool
+bridge, the redactor, the stream translation, killing the process when the
+engine withdraws. What differs is a command name and an argument list. So the
+hard part is `CliAdapter`, written once and tested end to end against a
+stand-in CLI, and a runtime is now a `CliRuntimeSpec` — a JSON entry naming a
+command, with `{model}`, `{mcpConfig}` and the rest substituted per run.
+Employing a runtime nobody here has heard of is a settings entry, not a release
+of this platform. What stays outstanding is the list itself: the four binaries
+are not installed here, so their command lines are an operator's to supply
+rather than this repository's to guess.
 
 There were three. F11.2 was on this list, described as "a live run view", and
 F11.2 says *"trace dari item inbox ≤ 2 klik"* — the trace behind an inbox item
@@ -741,10 +750,11 @@ integration that arrives later cannot be the thing that forgets it. What is
 missing is the MFA the app half asks for.
 
 One thing is partial rather than absent, and
-[`docs/STATUS.md`](docs/STATUS.md) says so in the same words: F13.3's adapters
-for `hermes`, `openclaw`, `codex` and `gemini-cli` are unwritten because none
-of the four is installed here to write one against. The wire protocol they
-would speak is written, documented and tested.
+[`docs/STATUS.md`](docs/STATUS.md) §2.12 says so in the same words: F13.3's
+four named binaries have no entry written for them here, because none of the
+four is installed to write one against. The machinery they would be entries
+for is written, tested, and exercised by a runtime that is employed from a
+configuration entry alone.
 
 F10.5 is enforced as a rule with no transport behind it: only an incident or a
 tier 3 approval may reach the owner outside their window, and everything else

@@ -16,6 +16,9 @@ import { ScriptAdapter } from '../../src/runtime/script.ts';
 import { HttpAdapter } from '../../src/runtime/http.ts';
 import { ClaudeCodeAdapter } from '../../src/runtime/claude-code.ts';
 import { ContainerAdapter } from '../../src/runtime/container.ts';
+import { CliAdapter, runtimeSpecsFrom } from '../../src/runtime/cli.ts';
+import { readdir } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { startToolBridge } from '../../src/runtime/tool-bridge.ts';
 import { Engine } from '../../src/engine/engine.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
@@ -674,4 +677,304 @@ test('the claude-code runtime disallows the CLI\'s own tools and points it at th
   };
   assert.equal(config.mcpServers.palugada.url, 'http://127.0.0.1:1/mcp');
   assert.equal(config.mcpServers.palugada.headers.Authorization, 'Bearer secret-token');
+});
+
+/* ---------------------------------------------------------------- cli --- */
+
+const AGENT_CLI = new URL('../fixtures/runtimes/fake-agent-cli.mjs', import.meta.url).pathname;
+
+/**
+ * A spec that would leave the runtime with no tools is refused.
+ *
+ * The whole point of `CliAdapter` is that employing a new agent CLI is a
+ * configuration entry, and a configuration entry that forgets the tool bridge
+ * fails in the worst way there is: the CLI starts, talks to a model, has no
+ * tools at all, and answers confidently about work it could not do. Nothing
+ * throws and nothing is logged. Refused at construction, where the
+ * configuration can still be fixed.
+ */
+test('a runtime spec that never places the tool bridge is refused (F13.3, F13.4)', () => {
+  assert.throws(
+    () => new CliAdapter({ name: 'forgetful', command: 'agent', args: ['-p', '{prompt}'] }),
+    /places no tool bridge/,
+  );
+
+  // Any of the three ways of naming it counts: a CLI may want the whole client
+  // configuration, a file holding it, or just the URL.
+  for (const arg of ['{mcpConfig}', '{mcpConfigFile}', '{mcpUrl}']) {
+    assert.doesNotThrow(
+      () => new CliAdapter({ name: 'fine', command: 'agent', args: ['--mcp', arg] }),
+    );
+  }
+});
+
+/**
+ * The end of F13.3 that matters: a CLI nobody wrote an adapter for does a task.
+ *
+ * `hermes`, `openclaw`, `codex` and `gemini-cli` are not installed here and
+ * their flags are not guessed anywhere in this repository. What is claimed
+ * instead is that any of them is a `CliRuntimeSpec`, and this test is that
+ * claim being exercised: a command, an argument list, and a runtime that runs
+ * a real task, calls a real capability through the broker, and is charged for
+ * what it used -- with no code written for it.
+ */
+test('an agent CLI is employed from a configuration entry alone (F13.3)', async () => {
+  const fixture = await createCompany('cli-configured');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'codex', tools: ['dns.read'] });
+  const task = await newTask(fixture, { ask: 'read the zone' });
+
+  // Exactly what an operator who had the binary would write, and nothing else.
+  const [spec] = runtimeSpecsFrom([
+    {
+      name: 'codex',
+      command: process.execPath,
+      args: [AGENT_CLI, '--model', '{model}', '--mcp-config', '{mcpConfig}', '--call', 'dns.read'],
+    },
+  ]);
+
+  const outcome = await engineWith(broker, new CliAdapter(spec!)).runTask(
+    fixture.companyId,
+    task.id,
+    'worker',
+  );
+
+  assert.equal(outcome.status, 'completed', outcome.reason);
+  const output = outcome.output as { tool: { isError: boolean; text: string }; model: string };
+  assert.equal(output.tool.isError, false, 'the capability was resolved by the broker');
+  assert.deepEqual(JSON.parse(output.tool.text), { records: ['a.example.com'] });
+  // The role's model reached the command line through the placeholder.
+  assert.equal(output.model, 'test-model');
+
+  // F13.7: the stream reported usage and the engine charged it.
+  assert.ok((await eventTypes(fixture.companyId, task.id)).includes('tool.cost'));
+});
+
+/**
+ * The same, through a file.
+ *
+ * Several agent CLIs take a path to an MCP configuration rather than the JSON
+ * itself, and that path carries the run's bearer token. The file is written
+ * 0600 inside a 0700 directory and removed when the run ends -- a token left
+ * on disk outlives the run it was minted for, which is the one property a
+ * per-run token exists to have.
+ */
+test('an agent CLI given its MCP config as a file leaves no token behind (F13.3, F12.1)', async () => {
+  const fixture = await createCompany('cli-config-file');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'gemini-cli', tools: ['dns.read'] });
+  const task = await newTask(fixture, { ask: 'read the zone' });
+
+  const before = await readdir(tmpdir());
+
+  const outcome = await engineWith(
+    broker,
+    new CliAdapter({
+      name: 'gemini-cli',
+      command: process.execPath,
+      args: [AGENT_CLI, '--mcp-config-file', '{mcpConfigFile}', '--call', 'dns.read'],
+    }),
+  ).runTask(fixture.companyId, task.id, 'worker');
+
+  assert.equal(outcome.status, 'completed', outcome.reason);
+  assert.equal((outcome.output as { tool: { isError: boolean } }).tool.isError, false);
+
+  const after = await readdir(tmpdir());
+  const left = after.filter(
+    (name) => name.startsWith('palugada-mcp-') && !before.includes(name),
+  );
+  assert.deepEqual(left, [], 'the configuration file holding the run token was removed');
+});
+
+/**
+ * F13.4 and F8.7 for this adapter, asked the way it would actually fail.
+ *
+ * A child inherits its parent's environment unless somebody stops it, and this
+ * parent's environment holds `DATABASE_URL`. Nothing would break if it leaked;
+ * the run would simply have been handed the platform's keys. So the runtime is
+ * asked what it can see rather than whether it worked.
+ */
+test('an agent CLI does not inherit the orchestrator environment (F13.3, F13.4)', async () => {
+  process.env.PALUGADA_TEST_SENTINEL = 'a value the runtime must not see';
+
+  try {
+    const fixture = await createCompany('cli-env');
+    const broker = await brokerFor(fixture, []);
+    await configureRole(fixture, { runtime: 'hermes' });
+    const task = await newTask(fixture, { ask: 'what can you see' });
+
+    const outcome = await engineWith(
+      broker,
+      new CliAdapter({
+        name: 'hermes',
+        command: process.execPath,
+        args: [AGENT_CLI, '--mcp-config', '{mcpConfig}', '--dump-env'],
+        env: { HERMES_HOME: '/var/lib/hermes' },
+      }),
+    ).runTask(fixture.companyId, task.id, 'worker');
+
+    assert.equal(outcome.status, 'completed', outcome.reason);
+    // Allow-list rather than deny-list: a new secret in the parent environment
+    // should fail this test on the day it is added, not on the day it leaks.
+    assert.deepEqual((outcome.output as { env: string[] }).env, ['HERMES_HOME', 'PATH']);
+  } finally {
+    delete process.env.PALUGADA_TEST_SENTINEL;
+  }
+});
+
+/**
+ * The other dialect: a CLI that prints its answer and exits.
+ *
+ * Not every agent CLI emits a structured stream, and one that does not is
+ * still employable -- the exit code is the verdict and stdout is the answer.
+ */
+test('an agent CLI that only prints its answer is still employable (F13.3)', async () => {
+  const fixture = await createCompany('cli-text');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'openclaw', tools: ['dns.read'] });
+  const task = await newTask(fixture, { ask: 'read the zone' });
+
+  const outcome = await engineWith(
+    broker,
+    new CliAdapter({
+      name: 'openclaw',
+      command: process.execPath,
+      args: [AGENT_CLI, '--dialect', 'text', '--mcp-config', '{mcpConfig}', '--call', 'dns.read'],
+      dialect: 'text',
+    }),
+  ).runTask(fixture.companyId, task.id, 'worker');
+
+  assert.equal(outcome.status, 'completed', outcome.reason);
+  assert.equal((outcome.output as { tool: { isError: boolean } }).tool.isError, false);
+});
+
+/**
+ * A CLI that fails is a failure, not a provider failure.
+ *
+ * F13.6 lets the engine silently move a run to a fallback model when the
+ * provider failed. A non-zero exit says the process died and nothing about
+ * why, so reading it as a provider failure would turn every crash into a
+ * second billed run on a different model.
+ */
+test('an agent CLI that exits non-zero fails with what it said (F13.3, F13.6)', async () => {
+  const fixture = await createCompany('cli-failure');
+  const broker = await brokerFor(fixture, []);
+  await configureRole(fixture, { runtime: 'codex', fallback: ['fallback-model'] });
+  const task = await newTask(fixture, { ask: 'fail' }, { attemptMax: 1 });
+
+  const outcome = await engineWith(
+    broker,
+    new CliAdapter({
+      name: 'codex',
+      command: process.execPath,
+      args: [AGENT_CLI, '--dialect', 'text', '--mcp-config', '{mcpConfig}', '--exit', '3'],
+      dialect: 'text',
+    }),
+  ).runTask(fixture.companyId, task.id, 'worker');
+
+  assert.equal(outcome.status, 'failed');
+  assert.match(outcome.reason ?? '', /exited 3/);
+  assert.match(outcome.reason ?? '', /told to fail/, 'what it wrote to stderr travels with it');
+  // No silent second run on the fallback model.
+  assert.ok(!(await eventTypes(fixture.companyId, task.id)).includes('model.fallback'));
+});
+
+/**
+ * A CLI that takes its prompt as an argument gets the same prompt.
+ *
+ * Some agent CLIs read stdin and some take the prompt on the command line, and
+ * a role moved between two runtimes should be doing the same job either way --
+ * a prompt that changed with the adapter would make the runtime a variable in
+ * the work rather than in who does it. So both paths build it from the same
+ * function, and this checks that the argument path is actually wired to it
+ * rather than sending an empty string that a model would answer anyway.
+ */
+test('a CLI that takes its prompt as an argument is sent the same prompt (F13.3, F3.2)', async () => {
+  const fixture = await createCompany('cli-prompt-arg');
+  const broker = await brokerFor(fixture, []);
+  await configureRole(fixture, { runtime: 'codex' });
+  const task = await newTask(fixture, { ask: 'anything' });
+
+  const onArgv = await engineWith(
+    broker,
+    new CliAdapter({
+      name: 'codex',
+      command: process.execPath,
+      args: [AGENT_CLI, '--mcp-config', '{mcpConfig}', '--prompt', '{prompt}'],
+      promptVia: 'arg',
+    }),
+  ).runTask(fixture.companyId, task.id, 'worker');
+
+  const second = await newTask(fixture, { ask: 'anything' });
+  const onStdin = await engineWith(
+    broker,
+    new CliAdapter({
+      name: 'codex',
+      command: process.execPath,
+      args: [AGENT_CLI, '--mcp-config', '{mcpConfig}'],
+    }),
+  ).runTask(fixture.companyId, second.id, 'worker');
+
+  assert.equal(onArgv.status, 'completed', onArgv.reason);
+  assert.equal(onStdin.status, 'completed', onStdin.reason);
+
+  const viaArgv = onArgv.output as { promptLength: number };
+  const viaStdin = onStdin.output as { promptLength: number };
+  // The same prompt, byte for byte. Compared against the stdin path rather
+  // than against a literal, because what is being tested is that the two paths
+  // build it from the same function -- not what that function currently says.
+  assert.ok(viaArgv.promptLength > 0, 'the prompt reached the command line');
+  assert.equal(viaArgv.promptLength, viaStdin.promptLength);
+});
+
+/**
+ * A malformed spec is a loud failure at load time.
+ *
+ * A spec that silently did not load would leave a role pointing at a runtime
+ * that is simply not registered, and the engine's message for that names the
+ * runtimes it *does* have -- sending whoever reads it looking in the wrong
+ * place entirely.
+ */
+test('a malformed runtime spec says which entry and what is wrong (F13.3)', () => {
+  assert.throws(() => runtimeSpecsFrom({ name: 'x' }), /must be an array/);
+  assert.throws(() => runtimeSpecsFrom([{ command: 'x', args: [] }]), /spec 0 has no name/);
+  assert.throws(() => runtimeSpecsFrom([{ name: 'hermes', args: [] }]), /hermes has no command/);
+  assert.throws(
+    () => runtimeSpecsFrom([{ name: 'hermes', command: 'h', args: [1] }]),
+    /not a string/,
+  );
+  assert.deepEqual(runtimeSpecsFrom(null), []);
+});
+
+/**
+ * A placeholder is substituted into an argv element, never through a shell.
+ *
+ * CLIs disagree about whether a flag and its value are one argument or two, so
+ * substitution is textual -- and it is textual into an array that `spawn`
+ * passes without a shell, so a model name or a bridge token containing a space,
+ * a quote or a semicolon stays exactly one argument.
+ */
+test('a placeholder becomes one argument whatever it contains (F13.3)', () => {
+  const adapter = new CliAdapter({
+    name: 'inline',
+    command: 'agent',
+    args: ['--mcp={mcpConfig}', '--model', '{model}', '--tools={allowedTools}'],
+  });
+  const argv = adapter.argv({
+    model: 'a model; rm -rf /',
+    maxTurns: '40',
+    mcpConfig: '{"a":"b"}',
+    mcpConfigFile: '',
+    mcpUrl: 'http://127.0.0.1:1/mcp',
+    mcpToken: 't',
+    allowedTools: 'mcp__palugada__dns.read',
+    prompt: 'p',
+  });
+
+  assert.deepEqual(argv, [
+    '--mcp={"a":"b"}',
+    '--model',
+    'a model; rm -rf /',
+    '--tools=mcp__palugada__dns.read',
+  ]);
 });

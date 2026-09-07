@@ -55,7 +55,7 @@ export interface ClaudeCodeAdapterOptions {
 }
 
 /** What `claude -p --output-format stream-json` writes, in the parts used here. */
-interface StreamJsonLine {
+export interface StreamJsonLine {
   type: string;
   subtype?: string;
   result?: unknown;
@@ -240,13 +240,27 @@ export class ClaudeCodeAdapter implements Adapter {
           continue;
         }
 
-        yield* translateLine(parsed, stderr);
+        yield* translateStreamJsonLine(parsed, stderr, this.name);
       }
     }
   }
 }
 
-function* translateLine(line: StreamJsonLine, stderr: () => string): Generator<RunEvent> {
+/**
+ * Translates one stream-json line into §7.5's vocabulary.
+ *
+ * Exported because `CliAdapter` speaks the same dialect for every other
+ * headless agent CLI that emits it, and a second copy of this would be a
+ * second place for the two to drift apart.
+ *
+ * `runtime` names who is being translated so an error says which CLI ended
+ * badly; it is the adapter's name, not anything the CLI told us.
+ */
+export function* translateStreamJsonLine(
+  line: StreamJsonLine,
+  stderr: () => string,
+  runtime = 'claude-code',
+): Generator<RunEvent> {
   if (line.type === 'assistant') {
     const usage = line.message?.usage;
     if (usage) {
@@ -273,7 +287,7 @@ function* translateLine(line: StreamJsonLine, stderr: () => string): Generator<R
       yield {
         type: 'error',
         message:
-          `claude-code ended as ${line.subtype ?? 'unknown'}` + (detail ? `: ${detail}` : ''),
+          `${runtime} ended as ${line.subtype ?? 'unknown'}` + (detail ? `: ${detail}` : ''),
         // A CLI that ends in an error subtype has usually failed to reach the
         // provider, which is exactly the case F13.6 may retry on a fallback
         // model. Whether it is retried is the engine's decision, not this one.
@@ -293,7 +307,7 @@ function* translateLine(line: StreamJsonLine, stderr: () => string): Generator<R
  * the output-schema check as `{ text: ... }` and let F6.2 refuse it, rather
  * than to invent a shape that would pass.
  */
-function asOutput(result: unknown): Record<string, unknown> {
+export function asOutput(result: unknown): Record<string, unknown> {
   if (result && typeof result === 'object' && !Array.isArray(result)) {
     return result as Record<string, unknown>;
   }

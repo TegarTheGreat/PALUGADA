@@ -68,7 +68,7 @@ means less than that, the row says so.
 | F10 owner surface | F10.1–F10.4, F10.6–F10.8, F10.11 | F10.5 (the rule is enforced; there is no push channel), F10.9 (the delivery rule is enforced; there is no messaging account), F10.10 (both halves refused in code; nothing here can *perform* MFA) | — |
 | F11 observability | F11.1–F11.7 | — | — |
 | F12 credentials, gateway | F12.1–F12.4, F12.6–F12.10 | — | F12.5 |
-| F13 runtime adapters | F13.1, F13.2, F13.4–F13.8 | F13.3 (the wire protocol is open and documented; none of the four adapters it names — `hermes`, `openclaw`, `codex`, `gemini-cli` — is written) | — |
+| F13 runtime adapters | F13.1, F13.2, F13.4–F13.8 | F13.3 (an agent CLI is a configuration entry rather than an adapter, and that path runs end to end; the four binaries it names — `hermes`, `openclaw`, `codex`, `gemini-cli` — are not installed here, so their command lines are an operator's to supply) | — |
 | F14 lifecycle hooks | F14.1–F14.4 | — | — |
 | F15 skills | F15.1–F15.8 | — | — |
 | F16 bundles | F16.1–F16.5 | — | — |
@@ -95,14 +95,12 @@ true today, against a surface that does not exist yet.
 The rest of the "partial" column is the same kind of honesty at smaller scale.
 F12.9's `docker` and `remote_sandbox` backends are declared in the protocol and
 selected per role; what is implemented is `local`, where a spawned runtime
-inherits no environment and reaches nothing but the broker. F13.3 asks for
-adapters to four named third-party runtimes — `hermes`, `openclaw`, `codex`
-and `gemini-cli`; the wire protocol they would speak is written, documented and
-tested, and none of the four is installed here to write an adapter against. An
-adapter is an argv and a translation of somebody else's output format, and
-writing one against a CLI whose interface cannot be observed would produce
-exactly the thing this document keeps refusing: code that compiles and has
-never run.
+inherits no environment and reaches nothing but the broker. F13.3 names four
+third-party runtimes — `hermes`, `openclaw`, `codex` and `gemini-cli` — and
+then names the reason for the list: *so that community adapters can be used*.
+That reason is now built and section 2.12 says how; what stays partial is the
+list, because none of the four binaries is installed here and their command
+lines are an operator's to supply rather than this repository's to guess.
 
 ## 2.1 Deliberate deviations from the PRD
 
@@ -691,6 +689,79 @@ under F10.5 and is not among the three F10.9 lists, so it is delivered as a
 link with nothing to press. That is a reading of two requirements together
 rather than a quotation of either, and it is the kind of thing to be told about
 rather than to discover.
+
+## 2.12 The half of F13.3 that was a list, and the half that was a reason
+
+F13.3 reads: *adapters `hermes`, `openclaw`, `codex`, `gemini-cli`;
+compatibility with the Paperclip adapter protocol so that community adapters
+can be used*. It had been graded partial on the strength of the first clause —
+four names, four adapters unwritten — and the second clause had never been
+read as a separate thing to build. It is the more important of the two. The
+list is four programs that happen to exist in September 2026; the reason is
+that this platform employs runtimes it has never heard of.
+
+Four hand-rolled adapters would have satisfied the list and missed the reason,
+and would have done it in the worst available way. None of the four is
+installed here. Their flags would have been guessed, the tests would have
+asserted the guesses, and the suite would have gone green over four programs
+that had never been run — the exact trade this document refuses everywhere
+else.
+
+What the four actually have in common turns out to be everything that is hard.
+Each is a process that takes a prompt, is told where to find an MCP server,
+writes a stream to stdout and exits. Keeping the parent's environment away from
+the child, standing up a per-run tool bridge, holding the redactor between the
+runtime and the wire, translating a stream into §7.5's vocabulary, bounding
+stderr, killing the process when the engine withdraws — identical for all of
+them, and all of it is what an adapter gets wrong. What differs is a command
+name, an argument list, and which of two output dialects the thing speaks.
+
+So `CliAdapter` is the hard part, written once and tested, and a
+`CliRuntimeSpec` is the rest: a JSON object naming a command and its arguments,
+with `{model}`, `{mcpConfig}`, `{mcpConfigFile}`, `{mcpUrl}`, `{mcpToken}`,
+`{allowedTools}` and `{prompt}` substituted per run. `runtimeSpecsFrom` reads
+them out of a deployment's configuration, so employing a runtime is an entry in
+a settings file rather than a release of this platform — and a CLI that changes
+its flags is a corrected entry rather than a patch. That is what "community
+adapters can be used" was asking for, and it is stronger than four adapters
+would have been, because the fifth runtime is free.
+
+The tests are end-to-end rather than argv assertions, against a stand-in CLI
+that behaves the way one of the four would: it reads the MCP configuration out
+of its own argv, calls a real capability through the bridge, and answers in
+either dialect. So what is checked is not that the adapter builds a plausible
+command line — it is that a runtime employed from a configuration entry alone
+does a real task, has its tool call resolved by the broker, and is charged for
+what it used.
+
+Three refusals are in the adapter rather than in a review:
+
+- **A spec that never places the tool bridge is refused at construction.** An
+  agent CLI spawned without one starts, talks to a model, has no tools at all,
+  and answers confidently about work it could not do. Nothing throws and
+  nothing is logged. It is the same defect class as a role granted no
+  capabilities, and section 2.2 is a list of those.
+- **The execution backend is not a spec field.** A process spawned here runs
+  where this process runs, so the adapter claims `local` and nothing else.
+  Letting a spec claim `docker` would make a role's isolation setting a value
+  that changed nothing — worse than a missing feature, because it reads like a
+  choice somebody made.
+- **A non-zero exit is a failure, not a provider failure.** F13.6 lets the
+  engine move a run to a fallback model silently when the provider failed. An
+  exit code says the process died and nothing about why, so reading it as a
+  provider failure would turn every crash into a second billed run.
+
+Two things this does not claim. The four names are still not adapters in this
+repository, and the table says so: what an operator gets is the machinery and a
+place to put the command line, not a working `codex` entry written by someone
+who has never run `codex`. And **Paperclip compatibility is not claimed at the
+wire level.** F13.3 asks for compatibility with a competitor's adapter
+protocol; that protocol is not published in anything this repository can read,
+and a "compatible" implementation written from a guess would be a compatibility
+claim that fails on contact. What is offered instead is the property the clause
+was after — a runtime nobody here has heard of can be employed without changing
+this codebase — reached by PALUGADA's own documented protocol rather than by
+somebody else's.
 
 ## 3. Decisions, deviations, and what is unverified
 

@@ -12,6 +12,8 @@
  * stream as well, so they show up on its timeline rather than only in a
  * separate audit table.
  */
+import { PalugadaError } from '../errors.ts';
+
 import { withControlPlane, type TenantClient } from '../db/tenant.ts';
 import { canonicalJson } from '../canonical-json.ts';
 import { assertValidCondition, type Condition } from '../policy/condition.ts';
@@ -158,7 +160,11 @@ export async function putPolicy(input: PolicyInput): Promise<string> {
   assertValidCondition(input.condition);
 
   if (input.divisionId && !input.companyId) {
-    throw new Error('a division-scoped policy must also name its company');
+    throw new PalugadaError(
+      'contract.violation',
+      'a division-scoped policy must also name its company',
+      { divisionId: input.divisionId },
+    );
   }
 
   return withControlPlane(async (tx) => {

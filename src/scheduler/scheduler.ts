@@ -13,6 +13,8 @@
  * reverse order would lose an occurrence outright, which is the worse failure:
  * a duplicate is visible, a silently skipped nightly job is not.
  */
+import { PalugadaError } from '../errors.ts';
+
 // cron-parser is CommonJS while its type declarations are written in ESM
 // style, so the two disagree about what a named import means: TypeScript
 // accepts `{ parseExpression }`, but Node's CommonJS named-export detection
@@ -79,7 +81,8 @@ export function assertValidCron(cronExpression: string, timezone: string): void 
   try {
     parseExpression(cronExpression, { tz: timezone });
   } catch (error) {
-    throw new Error(
+    throw new PalugadaError(
+      'contract.violation',
       `invalid cron expression ${JSON.stringify(cronExpression)}: ${(error as Error).message}`,
     );
   }
@@ -99,7 +102,11 @@ export async function upsertSchedule(input: ScheduleInput, now = new Date()): Pr
         projectId: input.projectId,
       });
     if (!budgetAccountId) {
-      throw new Error('this company has no budget account for a schedule to draw on');
+      throw new PalugadaError(
+        'contract.violation',
+        'this company has no budget account for a schedule to draw on',
+        { companyId: input.companyId },
+      );
     }
 
     const { rows } = await tx.query<{ id: string }>(

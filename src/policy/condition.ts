@@ -13,6 +13,8 @@
  * count within a window. Those are exactly the fields below; adding another is
  * a change here rather than a new expression language.
  */
+import { PalugadaError } from '../errors.ts';
+
 
 export interface ActionFacts {
   /** Capability name, for example "dns.update". */
@@ -70,7 +72,7 @@ export function assertValidCondition(
   path = '$',
 ): asserts condition is Condition {
   if (typeof condition !== 'object' || condition === null) {
-    throw new Error(`policy condition at ${path} must be an object`);
+    throw new PalugadaError('contract.violation', `policy condition at ${path} must be an object`, {});
   }
   const node = condition as Record<string, unknown>;
 
@@ -78,7 +80,7 @@ export function assertValidCondition(
     const key = 'all' in node ? 'all' : 'any';
     const children = node[key];
     if (!Array.isArray(children) || children.length === 0) {
-      throw new Error(`policy condition at ${path}.${key} must be a non-empty array`);
+      throw new PalugadaError('contract.violation', `policy condition at ${path}.${key} must be a non-empty array`, {});
     }
     children.forEach((child, index) => assertValidCondition(child, `${path}.${key}[${index}]`));
     return;
@@ -91,14 +93,14 @@ export function assertValidCondition(
 
   const { field, op, value } = node;
   if (typeof field !== 'string' || !FACT_NAMES.has(field)) {
-    throw new Error(`policy condition at ${path} references unknown field ${String(field)}`);
+    throw new PalugadaError('contract.violation', `policy condition at ${path} references unknown field ${String(field)}`, {});
   }
 
   switch (op) {
     case 'eq':
     case 'ne':
       if (value !== null && typeof value !== 'string' && typeof value !== 'number') {
-        throw new Error(`policy condition at ${path} expects a string, number or null`);
+        throw new PalugadaError('contract.violation', `policy condition at ${path} expects a string, number or null`, {});
       }
       return;
     case 'gt':
@@ -106,22 +108,22 @@ export function assertValidCondition(
     case 'lt':
     case 'lte':
       if (typeof value !== 'number') {
-        throw new Error(`policy condition at ${path} expects a number`);
+        throw new PalugadaError('contract.violation', `policy condition at ${path} expects a number`, {});
       }
       return;
     case 'in':
     case 'not_in':
       if (!Array.isArray(value)) {
-        throw new Error(`policy condition at ${path} expects an array`);
+        throw new PalugadaError('contract.violation', `policy condition at ${path} expects an array`, {});
       }
       return;
     case 'matches':
       if (typeof value !== 'string') {
-        throw new Error(`policy condition at ${path} expects a glob string`);
+        throw new PalugadaError('contract.violation', `policy condition at ${path} expects a glob string`, {});
       }
       return;
     default:
-      throw new Error(`policy condition at ${path} uses unknown operator ${String(op)}`);
+      throw new PalugadaError('contract.violation', `policy condition at ${path} uses unknown operator ${String(op)}`, {});
   }
 }
 

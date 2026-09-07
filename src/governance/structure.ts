@@ -317,13 +317,22 @@ export async function setEscalationPolicy(
   divisionId: string,
   policy: Partial<EscalationPolicy>,
 ): Promise<void> {
+  // `coalesce` cannot say "set this to null", and null is a real setting here:
+  // it means an escalation goes straight to the owner rather than to a role.
+  // With `coalesce($2, escalation_role_slug)` that instruction was a silent
+  // no-op -- the API answered `{ ok: true }`, an event was recorded, and the
+  // division kept escalating to whatever it escalated to before. So which
+  // fields were *given* decides the update, rather than which are non-null.
+  const setsRole = 'roleSlug' in policy;
+  const setsMinutes = 'afterMinutes' in policy;
   await withTenant(companyId, async (tx) => {
     await tx.query(
       `UPDATE divisions
-          SET escalation_role_slug = coalesce($2, escalation_role_slug),
-              escalate_after_minutes = coalesce($3, escalate_after_minutes)
+          SET escalation_role_slug = CASE WHEN $4 THEN $2 ELSE escalation_role_slug END,
+              escalate_after_minutes =
+                CASE WHEN $5 THEN $3 ELSE escalate_after_minutes END
         WHERE id = $1`,
-      [divisionId, policy.roleSlug ?? null, policy.afterMinutes ?? null],
+      [divisionId, policy.roleSlug ?? null, policy.afterMinutes ?? null, setsRole, setsMinutes],
     );
     await appendEvent(tx, {
       companyId,

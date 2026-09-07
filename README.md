@@ -737,8 +737,13 @@ governance log, a task's events, rotating a credential, answering an agent's
 question, and both halves of the stop switch. It also covers the operations that change how a
 company is *built* — the goal ladder, structural changes to a grant or a role,
 policies, skills, bundles and their publishers, the device gateway, and the
-eval set — and each of those takes a second factor, because F2.9 makes them the
-owner's and a session is a browser tab. `test/documents/reachability.test.ts`
+eval set. The ones that *widen* what the platform will do take a second factor,
+because F2.9 makes them the owner's and a session is a browser tab: changing a
+grant or a role, editing a goal, widening a skill's scope, lifting a
+quarantine, trusting a publisher, installing a bundle and pairing a device.
+Revoking a publisher or a device does not — those only ever narrow what this
+installation accepts, and a revocation somebody hesitates over happens too
+late. `test/documents/reachability.test.ts`
 lists what still has no route, by name, and fails if that list drifts. Signing in means presenting a second
 factor, because there are no accounts: PALUGADA has one human, so an identity
 system would be a table with one row and a password to lose. A fresh

@@ -1826,3 +1826,269 @@ test('every route in the second block needs a session too (F10, F12.5)', async (
     await owner.close();
   }
 });
+
+/* --------------------------------------------- what the fifth review found --- */
+
+/**
+ * `revoke` means revoke, whatever else the body carries.
+ *
+ * The first version read the flag only when no `tierOverride` was sent, so
+ * `{ revoke: true, tierOverride: null }` became a *change* to an unlimited
+ * grant. Nothing downstream would have caught it either: the database's
+ * loosening trigger returns early on NULL, so a request to take a capability
+ * away would have handed it over without a ceiling.
+ */
+test('a revoke with a tier in the body still revokes (F3.9)', async () => {
+  const fixture = await createCompany('console-revoke');
+  const { CapabilityRegistry } = await import('../../src/broker/registry.ts');
+  const { registerPlatformCapabilities: registerTools } =
+    await import('../../src/broker/platform-capabilities.ts');
+  const registry = new CapabilityRegistry();
+  registerTools(registry);
+  await registry.sync();
+  await grantCapability(fixture, 'memory.search');
+
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+    const revoked = await call(
+      owner.url, 'POST', `/api/companies/${fixture.companyId}/structure/grant`,
+      {
+        token,
+        body: {
+          divisionId: fixture.divisionId,
+          capabilityName: 'memory.search',
+          revoke: true,
+          tierOverride: null,
+          proof: { totp: owner.code() },
+        },
+      },
+    );
+    assert.equal(revoked.status, 200, JSON.stringify(revoked.body));
+
+    const { withTenant: tenant } = await import('../../src/db/tenant.ts');
+    const left = await tenant(fixture.companyId, async (tx) => {
+      const { rowCount } = await tx.query(
+        'SELECT 1 FROM capability_grants WHERE division_id = $1 AND capability_name = $2',
+        [fixture.divisionId, 'memory.search'],
+      );
+      return rowCount ?? 0;
+    });
+    assert.equal(left, 0, 'the revocation granted instead');
+  } finally {
+    await owner.close();
+  }
+});
+
+/**
+ * A refusal from a validator is a refusal, not a crash.
+ *
+ * `assertValidCondition`, `assertValidCron` and `putPolicy`'s division check
+ * all threw a plain `Error`, which reaches the owner as `500 internal error` --
+ * so a typo in a cron expression or a policy field looked like a broken
+ * console. They are `PalugadaError` now, at the source rather than in this
+ * surface, so the chat channel and an operator's script get the same sentence.
+ */
+test('a bad condition and a bad cron are refused by name, not as a crash (F3.4, F9.1)', async () => {
+  const fixture = await createCompany('console-refusals');
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+
+    const field = await call(owner.url, 'POST', '/api/policies', {
+      token,
+      body: {
+        slug: 'unknown-field', effect: 'deny', companyId: fixture.companyId,
+        condition: { field: 'whatever', op: 'eq', value: 1 },
+      },
+    });
+    assert.equal(field.status, 400, JSON.stringify(field.body));
+    assert.match(String(field.body.error), /unknown field whatever/);
+
+    const scoped = await call(owner.url, 'POST', '/api/policies', {
+      token,
+      body: {
+        slug: 'division-without-company', effect: 'deny', divisionId: fixture.divisionId,
+        condition: { field: 'tier', op: 'gte', value: 2 },
+      },
+    });
+    assert.equal(scoped.status, 400, JSON.stringify(scoped.body));
+    assert.match(String(scoped.body.error), /must also name its company/);
+
+    const cron = await call(
+      owner.url, 'POST', `/api/companies/${fixture.companyId}/schedules`,
+      {
+        token,
+        body: {
+          projectId: fixture.projectId,
+          divisionId: fixture.divisionId,
+          roleId: fixture.roleId,
+          slug: 'nightly',
+          cronExpression: 'not a cron expression',
+        },
+      },
+    );
+    assert.equal(cron.status, 400, JSON.stringify(cron.body));
+    assert.match(String(cron.body.error), /invalid cron expression/);
+  } finally {
+    await owner.close();
+  }
+});
+
+/**
+ * An escalation that goes straight to the owner can actually be set.
+ *
+ * `coalesce($2, escalation_role_slug)` cannot say "set this to null", and null
+ * is a real setting here -- it means the division does not hold the item at
+ * all. The API answered `{ ok: true }`, recorded an event, and left the
+ * division escalating to whatever it escalated to before.
+ */
+test('an escalation policy can be set to nobody (F2.6)', async () => {
+  const fixture = await createCompany('console-escalation');
+  const { withTenant: tenant } = await import('../../src/db/tenant.ts');
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+    const path = `/api/companies/${fixture.companyId}/divisions/${fixture.divisionId}/escalation`;
+
+    await call(owner.url, 'POST', path, {
+      token, body: { roleSlug: 'coordinator', afterMinutes: 30 },
+    });
+    const set = await tenant(fixture.companyId, async (tx) => {
+      const { rows } = await tx.query<{ slug: string | null; minutes: number }>(
+        `SELECT escalation_role_slug AS slug, escalate_after_minutes AS minutes
+           FROM divisions WHERE id = $1`,
+        [fixture.divisionId],
+      );
+      return rows[0]!;
+    });
+    assert.equal(set.slug, 'coordinator');
+
+    const cleared = await call(owner.url, 'POST', path, { token, body: { roleSlug: null } });
+    assert.equal(cleared.status, 200, JSON.stringify(cleared.body));
+    const after = await tenant(fixture.companyId, async (tx) => {
+      const { rows } = await tx.query<{ slug: string | null; minutes: number }>(
+        `SELECT escalation_role_slug AS slug, escalate_after_minutes AS minutes
+           FROM divisions WHERE id = $1`,
+        [fixture.divisionId],
+      );
+      return rows[0]!;
+    });
+    assert.equal(after.slug, null, 'the division still escalates to a role');
+    assert.equal(after.minutes, 30, 'a field nobody named was changed');
+
+    const nothing = await call(owner.url, 'POST', path, { token, body: {} });
+    assert.equal(nothing.status, 400, JSON.stringify(nothing.body));
+  } finally {
+    await owner.close();
+  }
+});
+
+test('a role field cannot be set to the word "null" (F3.9)', async () => {
+  const fixture = await createCompany('console-role-null');
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+    const path = `/api/companies/${fixture.companyId}/roles/${fixture.roleId}`;
+
+    // `String(null)` is the four letters "null", and a role whose
+    // `model_primary` is that string fails every later run.
+    const nulled = await call(owner.url, 'POST', path, {
+      token, body: { modelPrimary: null, proof: { totp: owner.code() } },
+    });
+    assert.equal(nulled.status, 400, JSON.stringify(nulled.body));
+    assert.match(String(nulled.body.error), /modelPrimary is required/);
+
+    const listOfNulls = await call(owner.url, 'POST', path, {
+      token, body: { tools: ['web.fetch', null], proof: { totp: owner.code() } },
+    });
+    assert.equal(listOfNulls.status, 400, JSON.stringify(listOfNulls.body));
+    assert.match(String(listOfNulls.body.error), /tools\[1\] is required/);
+  } finally {
+    await owner.close();
+  }
+});
+
+test('installing a bundle takes a factor, like every other structural change (F16, F2.9)', async () => {
+  // An install writes divisions, roles and capability grants, including tier 3
+  // ones. A session is a browser tab.
+  const fixture = await createCompany('console-bundle-factor');
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+    const answer = await call(
+      owner.url, 'POST', `/api/companies/${fixture.companyId}/bundles`,
+      { token, body: { slug: 'content-ops', version: '1.0.0' } },
+    );
+    assert.equal(answer.status, 403, JSON.stringify(answer.body));
+    assert.equal(answer.body.code, 'approval.channel_forbidden');
+  } finally {
+    await owner.close();
+  }
+});
+
+test('a skill review with no verdict does not silently reject (F15.4)', async () => {
+  // `body.approved === true` made rejection the default, and
+  // `approveSkillVersion` refuses a rejected version forever afterwards -- so
+  // a POST that forgot the field would have destroyed the skill.
+  const fixture = await createCompany('console-review-default');
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+    const answer = await call(
+      owner.url, 'POST',
+      `/api/companies/${fixture.companyId}/skills/versions/`
+        + '11111111-1111-1111-1111-111111111111/review',
+      { token, body: {} },
+    );
+    assert.equal(answer.status, 400, JSON.stringify(answer.body));
+    assert.match(String(answer.body.error), /approved must be true or false/);
+  } finally {
+    await owner.close();
+  }
+});
+
+test('a threshold of null is not a threshold of zero (F11.6)', async () => {
+  // `Number(null)`, `Number('')` and `Number([])` are all zero, and a daily
+  // cost ceiling of zero makes the alert fire every day.
+  const fixture = await createCompany('console-threshold-null');
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+    for (const value of [null, '', []] as unknown[]) {
+      const answer = await call(
+        owner.url, 'POST', `/api/companies/${fixture.companyId}/alert-thresholds`,
+        { token, body: { dailyCostCents: value } },
+      );
+      assert.equal(answer.status, 400, `${JSON.stringify(value)}: ${JSON.stringify(answer.body)}`);
+    }
+  } finally {
+    await owner.close();
+  }
+});
+
+test('an empty goal edit does not spend the owner\'s code (F2.7)', async () => {
+  // A TOTP code is one-shot. An empty edit that reached the factor would spend
+  // it, write a `goal.changed` event, change nothing, and leave the owner
+  // needing a fresh code for the real attempt.
+  const fixture = await createCompany('console-goal-empty');
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+    const code = owner.code();
+    const empty = await call(
+      owner.url, 'POST', `/api/companies/${fixture.companyId}/goals/${fixture.goalId}`,
+      { token, body: { proof: { totp: code } } },
+    );
+    assert.equal(empty.status, 400, JSON.stringify(empty.body));
+
+    // The same code still works, which is the proof it was not spent.
+    const real = await call(
+      owner.url, 'POST', `/api/companies/${fixture.companyId}/goals/${fixture.goalId}`,
+      { token, body: { statement: 'Be useful, on purpose.', proof: { totp: code } } },
+    );
+    assert.equal(real.status, 200, JSON.stringify(real.body));
+  } finally {
+    await owner.close();
+  }
+});

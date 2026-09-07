@@ -681,6 +681,12 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/goals/:goalId',
         handle: async ({ params, body }) => {
+          // Before the factor. A TOTP code is one-shot, so an empty edit would
+          // spend the owner's code, write a `goal.changed` event, and change
+          // nothing -- and the next real attempt would need a new code.
+          if (body.statement === undefined && body.status === undefined) {
+            throw new PalugadaError('contract.violation', 'no goal field was given', {});
+          }
           await this.#requireFactor(body.proof, 'change a goal', params.companyId!);
           await applyGoalChange({
             companyId: params.companyId!,
@@ -704,9 +710,12 @@ export class OwnerApi {
         pattern: '/api/companies/:companyId/structure/grant',
         handle: async ({ params, body }) => {
           await this.#requireFactor(body.proof, 'change a grant', params.companyId!);
-          const kind = body.tierOverride === undefined && body.revoke === true
-            ? 'revoke_grant' as const
-            : 'change_grant' as const;
+          // `revoke` decides, on its own. The first version read it only when
+          // no `tierOverride` was sent, so `{ revoke: true, tierOverride: null }`
+          // became a *change* to an unlimited grant -- and the database's
+          // loosening trigger returns early on NULL, so nothing downstream
+          // would have caught a revocation that granted instead.
+          const kind = body.revoke === true ? 'revoke_grant' as const : 'change_grant' as const;
           const change = (kind === 'revoke_grant'
             ? {
               kind,
@@ -731,12 +740,22 @@ export class OwnerApi {
         pattern: '/api/companies/:companyId/roles/:roleId',
         handle: async ({ params, body }) => {
           await this.#requireFactor(body.proof, 'change a role', params.companyId!);
+          // `String(null)` is the four letters "null", and a role whose
+          // `model_primary` is the string "null" fails every later run. Each
+          // field that is present must be a real value, and a field that is
+          // absent is left alone.
           const fields: RoleFields = {};
-          if (body.systemPrompt !== undefined) fields.systemPrompt = String(body.systemPrompt);
-          if (Array.isArray(body.tools)) fields.tools = body.tools.map(String);
-          if (body.modelPrimary !== undefined) fields.modelPrimary = String(body.modelPrimary);
-          if (Array.isArray(body.modelFallback)) {
-            fields.modelFallback = body.modelFallback.map(String);
+          if (body.systemPrompt !== undefined) {
+            fields.systemPrompt = requireText(body.systemPrompt, 'systemPrompt');
+          }
+          if (body.tools !== undefined) {
+            fields.tools = textList(body.tools, 'tools');
+          }
+          if (body.modelPrimary !== undefined) {
+            fields.modelPrimary = requireText(body.modelPrimary, 'modelPrimary');
+          }
+          if (body.modelFallback !== undefined) {
+            fields.modelFallback = textList(body.modelFallback, 'modelFallback');
           }
           if (Object.keys(fields).length === 0) {
             throw new PalugadaError('contract.violation', 'no role field was given', {});
@@ -813,8 +832,17 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/skills/versions/:versionId/review',
         handle: async ({ params, body }) => {
+          // Said explicitly. `body.approved === true` made rejection the
+          // default, so a POST that forgot the field would reject the version
+          // *permanently* -- `approveSkillVersion` refuses a rejected one
+          // forever afterwards.
+          if (typeof body.approved !== 'boolean') {
+            throw new PalugadaError(
+              'contract.violation', 'approved must be true or false', { field: 'approved' },
+            );
+          }
           await recordSkillReview(params.companyId!, params.versionId!, {
-            approved: body.approved === true,
+            approved: body.approved,
             ...(body.reason === undefined ? {} : { reason: String(body.reason) }),
             ...(body.reviewRequestId === undefined
               ? {}
@@ -923,13 +951,21 @@ export class OwnerApi {
       },
 
       {
+        // An install writes divisions, roles and capability grants -- including
+        // tier 3 ones -- so it is a structural change by every measure F2.9
+        // uses, and it takes the owner's device for the same reason
+        // `structure/grant` does. The first version of this route asked only
+        // for a session, which would have made the gate next to it decorative.
         method: 'POST',
         pattern: '/api/companies/:companyId/bundles',
-        handle: async ({ params, body }) => installBundle({
-          companyId: params.companyId!,
-          slug: requireText(body.slug, 'slug'),
-          version: requireText(body.version, 'version'),
-        }),
+        handle: async ({ params, body }) => {
+          await this.#requireFactor(body.proof, 'install a bundle', params.companyId!);
+          return installBundle({
+            companyId: params.companyId!,
+            slug: requireText(body.slug, 'slug'),
+            version: requireText(body.version, 'version'),
+          });
+        },
       },
 
       {
@@ -1071,8 +1107,11 @@ export class OwnerApi {
             'spendRateMultiple', 'spendRateFloorCents',
           ] as const) {
             if (body[field] === undefined) continue;
-            const value = Number(body[field]);
-            if (!Number.isFinite(value) || value < 0) {
+            // `Number(null)`, `Number('')` and `Number([])` are all zero, and a
+            // daily cost ceiling of zero makes the alert fire every day. A
+            // number has to arrive as one.
+            const value = body[field];
+            if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
               throw new PalugadaError(
                 'contract.violation', `${field} must be a number of at least zero`, { field },
               );
@@ -1486,6 +1525,14 @@ function requireText(value: unknown, field: string): string {
     throw new PalugadaError('contract.violation', `${field} is required`, { field });
   }
   return text;
+}
+
+/** A list of non-empty strings, which `Array.map(String)` is not. */
+function textList(value: unknown, field: string): string[] {
+  if (!Array.isArray(value)) {
+    throw new PalugadaError('contract.violation', `${field} must be an array`, { field });
+  }
+  return value.map((entry, index) => requireText(entry, `${field}[${index}]`));
 }
 
 function policyEffect(value: unknown): PolicyEffect {

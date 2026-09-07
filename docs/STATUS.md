@@ -1529,6 +1529,56 @@ step+2 is outside the window and the third code in a test is rejected. The
 platform was right and the helper was wrong -- a test that needs four codes
 needs four minutes, so it moves the clock the verifier reads instead.
 
+### And a review of that block found ten more
+
+The pattern this time is **a value nobody checked**, five times over, and a
+**refusal that arrived as a crash**, three times.
+
+- **A revoke that granted.** The route read `revoke` only when no
+  `tierOverride` was sent, so `{ revoke: true, tierOverride: null }` became a
+  *change* to an unlimited grant. Nothing downstream would have caught it: the
+  database's loosening trigger returns early on NULL, so a request to take a
+  capability away would have handed it over with no ceiling.
+- **A role field of `null` became the word "null".** `String(null)` is four
+  letters, and a role whose `model_primary` is the string `"null"` fails every
+  later run. This is exactly the hazard `requireText` was written for two
+  paragraphs earlier and then not applied here.
+- **A threshold of `null` became a threshold of zero.** `Number(null)`,
+  `Number('')` and `Number([])` are all `0`, and a daily cost ceiling of zero
+  makes the alert fire every day forever.
+- **A skill review with no verdict rejected it, permanently.**
+  `approved: body.approved === true` made rejection the default, and
+  `approveSkillVersion` refuses a rejected version forever afterwards -- so a
+  POST that forgot one field destroyed the skill.
+- **An escalation could not be set to nobody.** `null` is a real setting for
+  `escalation_role_slug`: it means the division does not hold the item at all.
+  `coalesce($2, escalation_role_slug)` cannot express it, so the API answered
+  `{ ok: true }`, recorded an event, and left the division escalating where it
+  always had. Which fields were *given* decides the update now, not which are
+  non-null.
+
+Three refusals reached the owner as `500 internal error`, because
+`assertValidCondition`, `assertValidCron` and `putPolicy`'s division check all
+threw a plain `Error`. A typo in a cron expression looked like a broken
+console. They are `PalugadaError`s now, fixed at the source rather than in this
+surface, so the chat channel and an operator's script get the same sentence.
+
+And two of the owner's own actions were wrong in different directions.
+**Installing a bundle asked only for a session** -- an install writes divisions,
+roles and capability grants including tier 3 ones, which is a structural change
+by every measure F2.9 uses, so a route without the factor made the gate next to
+it decorative. And **an empty goal edit spent a code**: a TOTP code is one-shot,
+so an edit with no fields would consume it, write a `goal.changed` event, change
+nothing, and leave the owner needing a fresh code for the real attempt. The
+emptiness check runs before the factor now.
+
+The tenth was the README, which claimed every one of those routes takes a
+second factor. Nine of them do not, deliberately: revoking a publisher or a
+device only ever narrows what this installation accepts, and a revocation
+somebody hesitates over happens too late. `docs/STATUS.md` had the narrower
+list right, so the two documents disagreed -- which is the failure section 2.10
+records about F11.2, arriving a second time.
+
 What is left on the inventory is nine `console` entries, and they are honest
 ones rather than a backlog: **replay** needs `ReplayContext` to carry `signal`
 and `awaitChild` before a deployment's own handlers can be replayed through it,

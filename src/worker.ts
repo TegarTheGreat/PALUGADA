@@ -183,14 +183,31 @@ export class Worker {
       stopped: false, errors: [],
     };
 
-    // F5.8: a halted platform does nothing at all, and finds out within one
-    // polling interval.
-    if (await isStopAllRequested()) {
-      report.stopped = true;
-      return report;
-    }
+    // F5.8: a halted platform runs no work, and finds out within one polling
+    // interval.
+    //
+    // Read narrowly, because the requirement is narrow: "semua task
+    // `cancelled`; aksi in-flight tidak di-commit". It is about tasks and
+    // about actions with effects in the world. Telling the owner what already
+    // happened is neither -- it commits nothing on a company's behalf, spends
+    // no budget, and runs no agent.
+    //
+    // The wider reading was the one in place, and it had a cost nobody chose:
+    // the owner presses stop *because* something is wrong, and the platform
+    // answers by stopping telling them what is wrong. An incident raised a
+    // second before the stop would have sat undelivered until the stop was
+    // lifted. F10.5 already bounds what may reach them -- an incident or a
+    // tier 3 approval -- and `owner_notifications` bounds it to once, so what
+    // arrives during a halt is exactly the backlog of things they most need.
+    const halted = await isStopAllRequested();
+    if (halted) report.stopped = true;
 
     const companies = this.#rotate(await this.#companies());
+
+    if (halted) {
+      for (const company of companies) await this.#notify(report, company, now);
+      return report;
+    }
 
     for (const company of companies) {
       await this.#stage(report, 'reclaim', async () => {
@@ -277,25 +294,7 @@ export class Worker {
       // F10.5, F10.9. After `watch`, because that stage is what raises the
       // incidents and budget alerts this one delivers -- notifying before
       // them would tell the owner about this tick's news on the next tick.
-      if ((this.#options.ownerChannels ?? []).length > 0) {
-        await this.#stage(report, 'notify', async () => {
-          for (const channel of this.#options.ownerChannels ?? []) {
-            const options = {
-              now,
-              ...(this.#options.ownerLinkFor ? { linkFor: this.#options.ownerLinkFor } : {}),
-            };
-            report.notified += (await dispatch(company, channel, options)).delivered;
-            // A vendor is briefly unreachable more often than it is broken, and
-            // a first attempt must not repeat while a retry must. `retryFailed`
-            // is the only path that re-sends, and it only re-sends rows that
-            // were claimed, never completed, and last tried long enough ago --
-            // the two run back to back in one tick, so without that wait two of
-            // the three attempts would be spent milliseconds apart and a relay
-            // restarting would exhaust the row before it came back.
-            report.notified += (await retryFailed(company, channel, options)).delivered;
-          }
-        });
-      }
+      await this.#notify(report, company, now);
 
       // Section 12.3. Deletes, so it goes after everything that reads.
       const interval = this.#options.retentionIntervalMs ?? DEFAULT_RETENTION_INTERVAL_MS;
@@ -440,6 +439,36 @@ export class Worker {
    * is worse than one that fails loudly, and a worker whose schedule stage has
    * been throwing for a week looks exactly like a company with no schedules.
    */
+  /**
+   * Puts what is waiting in front of the owner (F10.5, F10.9).
+   *
+   * A method rather than lines in the loop because it runs from two places:
+   * the ordinary tick, and a halted platform. The second is the reason it is
+   * worth naming -- see the stop-all comment in `tick`.
+   */
+  async #notify(report: TickReport, company: string, now: Date): Promise<void> {
+    const channels = this.#options.ownerChannels ?? [];
+    if (channels.length === 0) return;
+
+    await this.#stage(report, 'notify', async () => {
+      for (const channel of channels) {
+        const options = {
+          now,
+          ...(this.#options.ownerLinkFor ? { linkFor: this.#options.ownerLinkFor } : {}),
+        };
+        report.notified += (await dispatch(company, channel, options)).delivered;
+        // A vendor is briefly unreachable more often than it is broken, and a
+        // first attempt must not repeat while a retry must. `retryFailed` is
+        // the only path that re-sends, and it only re-sends rows that were
+        // claimed, never completed, and last tried long enough ago -- the two
+        // run back to back in one tick, so without that wait two of the three
+        // attempts would be spent milliseconds apart and a relay restarting
+        // would exhaust the row before it came back.
+        report.notified += (await retryFailed(company, channel, options)).delivered;
+      }
+    });
+  }
+
   async #stage(report: TickReport, stage: string, run: () => Promise<void>): Promise<void> {
     try {
       await run();

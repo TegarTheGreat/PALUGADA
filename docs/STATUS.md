@@ -980,6 +980,29 @@ afterwards. That is a whole class of order-dependence: a suite that passes for
 a reason nobody wrote down, until the day the order or the clock changes and a
 green test goes red with no code between the two runs.
 
+### A rule applied wider than it was written
+
+F5.8 reads: *"Stop semua: semua task `cancelled` ≤ 5 detik; aksi in-flight
+tidak di-commit"*. It is about tasks, and about actions with effects in the
+world. The tick implemented it as "do nothing at all" -- which is a broader
+rule, and broader in a direction with a cost nobody chose: the owner presses
+stop *because* something is wrong, and the platform answers by stopping telling
+them what is wrong. An incident raised a second before the stop would have sat
+undelivered until the stop was lifted, which could be a weekend.
+
+Telling the owner what already happened is not a task and not an action with
+effects: it commits nothing on a company's behalf, spends no budget, and runs
+no agent. So a halted tick now runs the notify stage and nothing else. F10.5
+already bounds what may reach them to an incident or a tier 3 approval, and
+`owner_notifications` bounds it to once each, so what arrives during a halt is
+exactly the backlog of things they most need and no more -- a halted worker
+ticking every few seconds does not become a phone ringing every few seconds.
+
+Worth recording as a category rather than a fix. A requirement implemented more
+strictly than it was written looks like caution and reads like rigour, and the
+cost only shows up in the situation the extra strictness was never considered
+against.
+
 ### What is actually left
 
 No push service, no bot token, no sandbox vendor, and none of F13.3's four

@@ -106,11 +106,11 @@ test('a tick claims pending work and runs it (section 6.2)', async () => {
 /**
  * F5.8: a stop is bounded by the polling interval, not by the queue.
  *
- * The tick does nothing else at all — it does not claim, does not run, does not
- * even look at the schedules. A worker that finished its queue before noticing
- * would make "stop everything" mean "stop eventually".
+ * The tick does no work at all — it does not claim, does not run, does not even
+ * look at the schedules. A worker that finished its queue before noticing would
+ * make "stop everything" mean "stop eventually".
  */
-test('a tick under a platform stop does nothing (F5.8)', async () => {
+test('a tick under a platform stop runs no work (F5.8)', async () => {
   const fixture = await createCompany('worker-stopped');
   let handlerRan = false;
   const worker = workerFor(fixture, async () => {
@@ -125,6 +125,64 @@ test('a tick under a platform stop does nothing (F5.8)', async () => {
     assert.equal(report.stopped, true);
     assert.deepEqual(report.ran, []);
     assert.equal(handlerRan, false);
+  } finally {
+    await clearStopAll();
+  }
+});
+
+/**
+ * ...and still tells the owner what happened.
+ *
+ * F5.8 is narrow on purpose: "semua task `cancelled`; aksi in-flight tidak
+ * di-commit". It is about tasks, and about actions with effects in the world.
+ * Telling the owner what already went wrong is neither — it commits nothing on
+ * a company's behalf, spends no budget and runs no agent.
+ *
+ * The wider reading was the one in place, and its cost is the thing worth
+ * naming: the owner presses stop *because* something is wrong, and the
+ * platform answers by stopping telling them what is wrong. An incident raised
+ * a second before the stop would have waited until the stop was lifted.
+ */
+test('a halted platform still tells the owner about an incident (F5.8, F10.5)', async () => {
+  const fixture = await createCompany('worker-stopped-notify');
+  const seen: string[] = [];
+  const channel: OwnerChannel = {
+    name: 'test:channel',
+    carries: () => true,
+    async deliver(item: NotifiableItem) {
+      seen.push(item.title);
+      return {};
+    },
+  };
+
+  let handlerRan = false;
+  const worker = workerFor(fixture, async () => {
+    handlerRan = true;
+    return { done: true };
+  }, { ownerChannels: [channel] });
+
+  await newTask(fixture);
+  await inbox.raiseIncident({
+    companyId: fixture.companyId,
+    title: 'The gateway is down',
+    detail: 'Raised a moment before the owner pressed stop.',
+  });
+  await requestStopAll();
+  try {
+    const report = await worker.tick();
+
+    assert.equal(report.stopped, true);
+    // Still no work: the halt is a halt.
+    assert.deepEqual(report.ran, []);
+    assert.equal(handlerRan, false);
+    // And the owner is told.
+    assert.deepEqual(seen, ['The gateway is down']);
+    assert.equal(report.notified, 1);
+
+    // Once, as ever. A halted platform ticking every few seconds must not
+    // become a phone ringing every few seconds.
+    await worker.tick();
+    assert.deepEqual(seen, ['The gateway is down']);
   } finally {
     await clearStopAll();
   }

@@ -38,6 +38,22 @@ export const PREFLIGHT_TTL_MS = 15 * 60_000;
 export interface PreflightContext {
   companyId: string;
   divisionId: string;
+  /**
+   * The division's credential, for a preflight that needs one.
+   *
+   * F8.12 exists to catch "the failure that no retry fixes", and for most of
+   * the catalogue that failure *is* the credential: expired, revoked, rotated
+   * to something the vendor no longer accepts. A preflight with no way to
+   * resolve one can only check that a host answers, which is the part that was
+   * never in doubt.
+   *
+   * Optional because the caller may not have a secret manager -- a test, or a
+   * deployment that configured none -- and a capability whose preflight needs
+   * one and does not get it should say so rather than pass. The same
+   * division-scoped, version-reading lookup `CapabilityContext.credential`
+   * uses, so a rotation takes effect here too.
+   */
+  credential?: (alias: string, capabilityName: string) => Promise<string>;
 }
 
 export interface PreflightResult {

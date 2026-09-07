@@ -85,7 +85,21 @@ export interface Capability<I = unknown, O = unknown> {
    * nothing checked declares no preflight and is healthy by definition, which
    * is true of every pure computation.
    */
-  preflight?(ctx: { companyId: string; divisionId: string }): Promise<{
+  preflight?(ctx: {
+    companyId: string;
+    divisionId: string;
+    /**
+     * The division's credential, when the caller can resolve one.
+     *
+     * Optional because a caller may have no secret manager -- a test, or a
+     * deployment that configured none -- and because most capabilities need
+     * nothing checked. A capability whose preflight needs one and does not get
+     * it should report that rather than pass: F8.12 is for the failure no
+     * retry fixes, and for most of the catalogue that failure *is* the
+     * credential.
+     */
+    credential?: (alias: string, capabilityName: string) => Promise<string>;
+  }): Promise<{
     ok: boolean;
     detail?: string;
   }>;

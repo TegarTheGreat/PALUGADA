@@ -398,7 +398,16 @@ export class Engine {
     // for work that cannot succeed and leave a half-finished task behind.
     const readiness = await preflightForRole(
       this.#options.broker.registry,
-      { companyId, divisionId: task.divisionId },
+      {
+        companyId,
+        divisionId: task.divisionId,
+        // F8.12 is for the failure no retry fixes, and for most of the
+        // catalogue that failure is the credential -- expired, revoked,
+        // rotated to something the vendor no longer accepts. A preflight with
+        // no way to resolve one could only check that a host answers, which is
+        // the part that was never in doubt.
+        credential: this.#options.broker.credentialFor(companyId, task.divisionId),
+      },
       task.roleId,
     );
     if (!readiness.ready) {

@@ -316,6 +316,7 @@ the template is organised by function rather than by industry.
 | v2 F10.1–F10.7 the owner's console: one queue, the buttons, the trace | `src/owner/api.ts`, `console/` | `owner-api.test.ts` |
 | v2 F12.9 a capability may not reach inside this network, whatever it is told | `src/capabilities/reachable.ts` | `platform-capabilities.test.ts` |
 | v2 F8 the five capabilities that need nobody's account | `src/capabilities/` | `platform-capabilities.test.ts` |
+| v2 F8, F12.8 a vendor capability is a spec, not four hundred lines | `src/capabilities/http.ts` | `http-capability.test.ts` |
 | v2 F13.6 fallback for tier 0–1; a role that can act irreversibly halts instead | `src/engine/engine.ts` | `out-of-process-runtimes.test.ts` |
 | v2 F14.1 a runtime cannot get past a hook | `src/engine/hooks.ts` | `hooks.test.ts` |
 | v2 F14.2 built-ins cannot be removed; an added hook may only tighten | `src/engine/hooks.ts` | `hooks.test.ts` |
@@ -756,12 +757,18 @@ path out, whether a capability may reach inside this network. What nobody here
 can check is whether the vendor on the other end agrees about a field name.
 
 Twenty of the twenty-five capability names the standard template grants have no
-adapter, and that is the design rather than a gap: `email.send` against Resend
+adapter bound *here*, and that is the design rather than a gap: `email.send` against Resend
 and against SES are different programs, and choosing one for every company that
 will ever use this platform is not a decision a control plane gets to make. The
 boot check names all twenty on every start, because a company granted a
 capability with nothing behind it is one whose agents are refused at the moment
 they try to work.
+
+What an operator writes for one of the twenty is a spec, not an integration:
+`httpCapability` carries the credential resolution, the reachability rules, the
+idempotency key, the read-back and the error translation, and refuses at
+construction a spec that writes without verifying, has a side effect without an
+idempotency key, or puts a credential in a URL.
 
 The five that need nobody's account — `web.fetch`, `uptime.check`,
 `files.list`, `doc.draft`, `email.draft` — are implemented. They were unbound

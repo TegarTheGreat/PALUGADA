@@ -213,6 +213,28 @@ export class CapabilityBroker {
     return this.#registry;
   }
 
+  /**
+   * Resolves a division's credential for a preflight (F8.12, F12.2).
+   *
+   * The same lookup `invoke` gives a capability: scoped to the division, read
+   * at the current version, and never handed over as a long-lived value. It is
+   * exposed because F8.12's check happens before a task starts -- the engine's
+   * moment rather than the broker's -- and the failure it exists to catch is
+   * usually the credential itself. A preflight that could only check that a
+   * host answers would be checking the part that was never in doubt.
+   */
+  credentialFor(
+    companyId: string,
+    divisionId: string,
+  ): (alias: string, capabilityName: string) => Promise<string> {
+    // The capability's name travels with the alias because F12.6's scope check
+    // needs it: a credential that does not declare what *this* capability
+    // requires should fail its preflight, which is the whole point of checking
+    // one before a task starts rather than during it.
+    return async (alias, capabilityName) =>
+      this.#credential(companyId, divisionId, alias, capabilityName);
+  }
+
   async invoke<I, O>(ctx: InvokeContext, name: string, input: I): Promise<InvokeResult<O>> {
     const capability = this.#registry.get(name);
     if (!capability) {

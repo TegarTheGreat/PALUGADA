@@ -1169,11 +1169,54 @@ produces; a cost held in one closure variable shared by every concurrent call;
 button with no error path, which is the one button that must never fail
 quietly.
 
+### And the twenty are a configuration entry, not four hundred lines each
+
+"We cannot choose the vendor" is not the same as "every deployment writes the
+same four hundred lines", and the difference is the split this repository has
+now reached for three times. What those twenty have in common is everything
+that is hard: resolving a credential without the capability ever holding it,
+keeping the request out of this network, carrying an idempotency key on
+anything with a side effect, reading the state back afterwards, reporting a
+destination a policy can match on, and turning somebody else's error body into
+a refusal an agent can act on. What differs is a URL, a header and which field
+of the answer matters.
+
+So `httpCapability` is the hard part, written once, and an
+`HttpCapabilitySpec` is the rest -- a JSON-shaped object an operator supplies
+and can correct when a vendor changes a path, without a release of this
+platform.
+
+Three things are refused when the spec is built rather than when an agent hits
+them, because each fails silently:
+
+- **A tier 1 capability with no `verify`.** The broker refuses the call anyway;
+  the difference is whether an operator finds out when they configure it or an
+  agent finds out halfway through sending an invoice.
+- **A side-effecting method that places no idempotency key.** A runtime whose
+  request timed out does not know whether the email went, and the vendor is the
+  only party who can answer that -- but only if it was told which call this is.
+- **A credential in a URL.** A URL travels in logs, in redirects and in the
+  other end's access log; a header does not. This platform's redactor catches
+  the value in its own trace and can do nothing about the vendor's.
+
+Building it turned up a gap in the platform rather than in the configuration.
+**F8.12's preflight had no way to resolve a credential** -- `PreflightContext`
+was `{ companyId, divisionId }` -- so the check that exists to catch "the
+failure no retry fixes" could only ask whether a host answered, which is the
+part that was never in doubt. For most of the catalogue that failure *is* the
+credential: expired, revoked, rotated to something the vendor no longer
+accepts. The context now carries the same division-scoped, version-reading
+lookup the execute path uses, the engine supplies it, and F12.6's scope check
+runs on it too -- so a credential that does not declare what this capability
+requires fails its preflight rather than its first real call.
+
 ### What that leaves
 
 Twenty names still need somebody's account, and the boot check still prints all
-twenty. That number is now honest in a way it was not: what is left is what
-genuinely cannot be built here, rather than what nobody had looked at.
+twenty. That number is honest in a way it was not: what is left is what
+genuinely cannot be built here, rather than what nobody had looked at -- and
+what remains for an operator is a settings entry per vendor rather than an
+integration.
 
 ### What is actually left
 

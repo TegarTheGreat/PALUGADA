@@ -1397,6 +1397,63 @@ only that `email.send` is tier 2, leaving the operator to work out which of
 their files said otherwise. It names the file and the entry now, keeping the
 original error code.
 
+### The fifth time, and the last one found by hand
+
+`src/main.ts` passed the engine neither an adapter registry nor an
+`llm`/`handlers` pair. So `npm start` booted a worker whose `AdapterRegistry`
+was empty, and every task it checked out halted immediately with
+`runtime_unavailable`, naming the registered runtimes as "none". **The
+platform's whole purpose is to run work, and the deployment could run none of
+it.**
+
+That is the same defect a fifth time and much the largest. Nothing caught it
+because every other test builds its own `Engine` with its own handlers -- the
+assembly was, again, the one caller nobody wrote. `src/runtime/assemble.ts`
+now reads the environment and registers what it describes: the in-process
+runtime when a deployment supplies a model client and handlers, `claude-code`
+when a command is named, an HTTP runtime, a container for F12.9's `docker`
+backend, a remote sandbox, and F13.3's community CLI specs as JSON. Each is
+conditional because each needs something this process cannot conjure, and a
+half-configured one is a note rather than a silent absence. A deployment with
+none says so at boot in those words, because a worker that can run nothing
+looks, from outside, exactly like a worker with nothing to do.
+
+### And a guard, so there is no sixth
+
+Five times is a pattern, and a pattern found five times by review is a pattern
+that will be found a sixth. So it is a test now.
+
+`test/documents/reachability.test.ts` reads every exported value in `src/`,
+counts how many times its name appears anywhere in `src/` or `scripts/`, and
+lists the ones that appear exactly once -- their own definition. Something no
+production code mentions is something only a test calls. The scan is textual
+rather than a type-aware graph on purpose: a name in a comment counts as
+reachable, so it *under*-reports, and an under-reporting guard that runs in two
+seconds and needs no toolchain is worth more than an exact one nobody keeps
+working.
+
+It found seventy-six, and **the list is an inventory rather than an
+exemption.** Every entry is an operation this platform implements and a running
+deployment cannot reach, with the reason next to it, in four categories:
+`console` (an owner operation with no route -- by far the largest group),
+`worker` (something the tick does not do yet), `entry` (an alternative entry
+point a deployment calls) and `helper` (a predicate or constant whose callers
+inline the same thing). The test fails in both directions: a new orphan must be
+justified before it can be committed, and one that gets wired up must be
+struck off.
+
+**What the inventory says is worth stating plainly, because it is the largest
+honest gap in this build.** The owner's console has nine routes. Behind it sit
+around fifty owner operations with none: the spend ceiling cannot be set, a
+credential cannot be rotated, the goal ladder cannot be edited, a skill cannot
+be approved, a bundle's publisher cannot be revoked, a task cannot be replayed,
+retention cannot be configured, a device cannot be paired, an agent's question
+cannot be answered. Each is implemented, tested, and enforced by the database.
+None of them is reachable by the one human who is supposed to run the company.
+That is not a vendor account this repository cannot hold -- it is a surface
+nobody has built yet, and it is now written down by name and checked by the
+suite rather than discovered one review at a time.
+
 ### What is actually left
 
 No push service, no bot token, no sandbox vendor, and none of F13.3's four

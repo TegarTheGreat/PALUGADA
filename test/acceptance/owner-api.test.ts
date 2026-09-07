@@ -919,3 +919,152 @@ test('a vendor file that cannot be built from stops the boot (§10)', async () =
   assert.equal(started, null, 'a file that cannot be built from started a deployment anyway');
   assert.match((refusal as Error).message, /cannot bind invoice\.issue/);
 });
+
+/* --------------------------------------------- what the reachability scan found --- */
+
+/**
+ * The worker could not run anything.
+ *
+ * `src/main.ts` passed the engine neither an adapter registry nor an
+ * `llm`/`handlers` pair, so `npm start` booted a worker whose
+ * `AdapterRegistry` was empty. Every task it checked out halted immediately
+ * with `runtime_unavailable`, naming the registered runtimes as "none". The
+ * platform's whole purpose is to run work and the deployment could run none of
+ * it.
+ *
+ * This is the fifth time this repository has found machinery that works, is
+ * tested in isolation, and is assembled by nobody, and it is the largest.
+ * Nothing caught it because every other test builds its own `Engine` with its
+ * own handlers -- the assembly was the one caller nobody wrote. So this one
+ * runs a real task through the engine the deployment built, which is the only
+ * shape of test that could have failed.
+ */
+test('the deployment can actually run a task (F13.1, §10)', async () => {
+  const { start } = await import('../../src/main.ts');
+  const { RecordingLlmClient } = await import('../../src/llm/client.ts');
+  const { createRootTask } = await import('../../src/engine/tasks.ts');
+
+  const fixture = await createCompany('deployment-runtime');
+  const ran: string[] = [];
+  const deployment = await start({
+    port: 0,
+    env: {},
+    llm: new RecordingLlmClient(),
+    handlers: new Map([['worker', async (ctx) => {
+      ran.push(ctx.task.id);
+      return { done: true };
+    }]]),
+    worker: { idleMs: 50 },
+  });
+
+  try {
+    assert.ok(
+      deployment.engine.adapters.names().length > 0,
+      `the worker has no runtime: ${deployment.notes.join(' | ')}`,
+    );
+
+    const task = await createRootTask({
+      companyId: fixture.companyId,
+      projectId: fixture.projectId,
+      divisionId: fixture.divisionId,
+      roleId: fixture.roleId,
+      budgetAccountId: fixture.budgetAccountId,
+      goalId: fixture.goalId,
+      input: { goal: 'run through the deployment' },
+      createdBy: 'owner',
+      reserveTokens: 10_000,
+    });
+
+    const outcome = await deployment.engine.runTask(fixture.companyId, task.id, 'worker');
+    assert.equal(outcome.status, 'completed', outcome.reason ?? '');
+    assert.deepEqual(ran, [task.id]);
+    assert.ok(deployment.notes.some((note) => note.startsWith('runtimes:')));
+  } finally {
+    await deployment.stop();
+  }
+});
+
+/**
+ * And a deployment with no runtime at all says so, in those words.
+ *
+ * A worker that can run nothing looks, from outside, exactly like a worker
+ * with nothing to do. The note is the only difference an operator can see
+ * before a task halts.
+ */
+test('a deployment with no runtime says so at boot (F13.1)', async () => {
+  const { start } = await import('../../src/main.ts');
+  const deployment = await start({ port: 0, env: {}, worker: { idleMs: 50 } });
+  try {
+    assert.deepEqual(deployment.engine.adapters.names(), []);
+    assert.ok(
+      deployment.notes.some((note) => /every task will halt with runtime_unavailable/.test(note)),
+      deployment.notes.join(' | '),
+    );
+  } finally {
+    await deployment.stop();
+  }
+});
+
+/**
+ * The runtimes the environment describes are the runtimes it gets.
+ *
+ * Each of F13's adapters needs something this process cannot conjure -- a CLI
+ * on PATH, an image, a URL, a sandbox account -- so each is conditional. What
+ * must not be conditional is that naming one registers it: an operator who
+ * sets the variable and gets nothing has no way to tell.
+ */
+test('the environment describes which runtimes exist (F13.1, F13.3, F12.9)', async () => {
+  const { assembleRuntimes } = await import('../../src/runtime/assemble.ts');
+
+  const { adapters, notes } = assembleRuntimes({
+    env: {
+      PALUGADA_CLAUDE_CODE_COMMAND: 'claude',
+      PALUGADA_RUNTIME_HTTP_URL: 'https://runtime.example',
+      PALUGADA_RUNTIME_HTTP_NAME: 'partner',
+      PALUGADA_RUNTIME_IMAGE: 'ghcr.io/example/runtime@sha256:' + 'a'.repeat(64),
+      PALUGADA_SANDBOX_URL: 'https://sandbox.example',
+      PALUGADA_SANDBOX_IMAGE: 'ghcr.io/example/sandbox:1',
+      PALUGADA_SANDBOX_PROVIDER: 'daytona',
+      PALUGADA_RUNTIME_SPECS: JSON.stringify([{
+        name: 'hermes',
+        command: 'hermes',
+        args: ['--prompt', '{prompt}', '--mcp-config', '{mcpConfigFile}'],
+      }]),
+    },
+  });
+
+  const names = adapters.names();
+  for (const expected of ['claude-code', 'partner', 'sandbox:daytona', 'hermes']) {
+    assert.ok(names.includes(expected), `${expected} was not registered: ${names.join(', ')}`);
+  }
+  assert.ok(notes.some((note) => note.startsWith('runtimes:')));
+});
+
+test('a half-configured sandbox is a note, not a silent absence (F12.9)', async () => {
+  // A URL and no image is a sandbox that does not exist, and the role routed
+  // to it halts. Said at boot instead.
+  const { assembleRuntimes } = await import('../../src/runtime/assemble.ts');
+  const { notes } = assembleRuntimes({ env: { PALUGADA_SANDBOX_URL: 'https://sandbox.example' } });
+  assert.ok(
+    notes.some((note) => /needs both PALUGADA_SANDBOX_URL and PALUGADA_SANDBOX_IMAGE/.test(note)),
+    notes.join(' | '),
+  );
+});
+
+test('a runtime spec that would run without tools is refused at boot (F13.3)', async () => {
+  // A CLI spawned without the tool bridge runs, talks to a model, has no
+  // tools, and produces a confident answer about work it could not do.
+  // Nothing errors, which is why it is refused where the settings can still be
+  // fixed.
+  const { assembleRuntimes } = await import('../../src/runtime/assemble.ts');
+  assert.throws(
+    () => assembleRuntimes({
+      env: {
+        PALUGADA_RUNTIME_SPECS: JSON.stringify([{
+          name: 'toolless', command: 'toolless', args: ['--prompt', '{prompt}'],
+        }]),
+      },
+    }),
+    /PALUGADA_RUNTIME_SPECS could not be read/,
+  );
+});

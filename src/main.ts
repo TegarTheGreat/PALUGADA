@@ -35,6 +35,8 @@ import { WebhookPush } from './owner/push.ts';
 import { TelegramChannel } from './owner/telegram.ts';
 import type { OwnerChannel } from './owner/notify.ts';
 import { AdapterRegistry } from './runtime/protocol.ts';
+import { assembleRuntimes } from './runtime/assemble.ts';
+import type { TaskHandler } from './runtime/in-process.ts';
 import { registerPlatformCapabilities } from './capabilities/platform.ts';
 import { registerVendorCapabilities } from './capabilities/vendors.ts';
 import { STANDARD_CATALOGUE } from './broker/catalogue.ts';
@@ -46,8 +48,22 @@ import type { LlmClient } from './llm/client.ts';
 export interface DeploymentOptions {
   /** Where the secrets actually live. The in-memory one is for a test. */
   secrets?: SecretManager;
-  /** Extra adapters and capabilities a deployment binds for itself. */
+  /**
+   * Adapters a deployment binds for itself, on top of what the environment
+   * describes. Handed to `assembleRuntimes`, which adds to it rather than
+   * replacing it -- a caller's own runtime and a configured one coexist,
+   * because a role names which one it wants.
+   */
   adapters?: AdapterRegistry;
+  /**
+   * The handlers the in-process runtime executes (F13.1).
+   *
+   * Together with `llm` this is the runtime that needs nothing external, and
+   * without both of them a deployment has one only if the environment
+   * describes a real one. A worker with no runtime at all halts every task it
+   * checks out, which is a thing to learn at boot rather than at 3am.
+   */
+  handlers?: Map<string, TaskHandler>;
   registry?: CapabilityRegistry;
   /** The console's files. Omitted means the API without a page in front. */
   consoleRoot?: string;
@@ -93,6 +109,15 @@ export interface Deployment {
    * never registered, and a broker built without its secret manager.
    */
   broker: CapabilityBroker;
+  /**
+   * The engine this deployment built, and through it the runtimes.
+   *
+   * Exposed for the same reason as `broker`: the defects found in this file
+   * were all invisible from outside it, and an assembly nothing can inspect is
+   * an assembly nothing can check. `deployment.engine.adapters.names()` is the
+   * question "can this worker run anything", asked directly.
+   */
+  engine: Engine;
   url: string;
   /** What was left unconfigured, in the words an operator can act on. */
   notes: string[];
@@ -268,9 +293,26 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     new CachedSecretManager(secrets),
   );
 
+  // The runtimes, which is the whole of what a worker does.
+  //
+  // The first version of this file passed the engine neither an adapter
+  // registry nor an `llm`/`handlers` pair, so `npm start` booted a worker with
+  // an empty registry: every task it checked out halted immediately with
+  // `runtime_unavailable`, naming the registered runtimes as "none". The
+  // platform's purpose is to run work and the deployment could not run any.
+  // Every test builds its own `Engine` with its own handlers, so the assembly
+  // was the one caller nobody wrote.
+  const runtimes = assembleRuntimes({
+    env,
+    ...(options.adapters ? { registry: options.adapters } : {}),
+    ...(options.llm ? { llm: options.llm } : {}),
+    ...(options.handlers ? { handlers: options.handlers } : {}),
+  });
+  notes.push(...runtimes.notes);
+
   const engine = new Engine({
     broker,
-    ...(options.adapters ? { adapters: options.adapters } : {}),
+    adapters: runtimes.adapters,
     workerId: env.PALUGADA_WORKER_ID ?? `worker-${process.pid}`,
   });
 
@@ -309,6 +351,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     api,
     mfa,
     broker,
+    engine,
     url,
     notes,
     async stop() {

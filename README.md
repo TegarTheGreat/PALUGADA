@@ -721,6 +721,14 @@ npm run db:setup && npm run db:migrate   # PostgreSQL 16 with pgvector
 npm start                                # worker + owner console on :8787
 ```
 
+A worker also needs a **runtime** — something that actually executes a role's
+turn. The in-process one needs a model client and handlers, which a deployment
+supplies in code; every other runtime in F13 needs a CLI on PATH, an image, a
+URL, or a sandbox account, so each is switched on by the variable that names
+it. A deployment with none registered says so at boot in those words, because
+a worker that can run nothing looks, from outside, exactly like a worker with
+nothing to do.
+
 The console is at `http://127.0.0.1:8787`. Signing in means presenting a second
 factor, because there are no accounts: PALUGADA has one human, so an identity
 system would be a table with one row and a password to lose. A fresh
@@ -734,6 +742,11 @@ conjure, and each says so at boot rather than at 3am:
 | Variable | What it turns on |
 |---|---|
 | `PALUGADA_VENDORS` | the capabilities that need somebody's account (see below) |
+| `PALUGADA_CLAUDE_CODE_COMMAND` | the `claude-code` runtime (F13.2) |
+| `PALUGADA_RUNTIME_HTTP_URL` | a runtime that answers over HTTP (F13.4) |
+| `PALUGADA_RUNTIME_IMAGE` | the `docker` execution backend, the only one that isolates the network (F12.9) |
+| `PALUGADA_SANDBOX_URL`, `_IMAGE` | the remote sandbox backend (F12.9) |
+| `PALUGADA_RUNTIME_SPECS` | community CLI runtimes, as JSON (F13.3) |
 | `PALUGADA_FILES_ROOT` | `files.list`, and the drafting pair with a model |
 | `PALUGADA_PUSH_URL` | push for an incident or a tier 3 approval (F10.5) |
 | `PALUGADA_TELEGRAM_TOKEN`, `_CHAT`, `_WEBHOOK_SECRET` | the message channel (F10.9) |

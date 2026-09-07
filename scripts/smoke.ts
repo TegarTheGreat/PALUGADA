@@ -31,7 +31,15 @@ import { STANDARD_COMPANY_TEMPLATE } from '../src/templates/standard.ts';
 import { createRootTask, getTask } from '../src/engine/tasks.ts';
 import { withTenant, withControlPlane } from '../src/db/tenant.ts';
 import { closePools } from '../src/db/pool.ts';
-import { raiseIncident } from '../src/inbox/inbox.ts';
+import { raiseIncident, requestApproval, decide, listOpen } from '../src/inbox/inbox.ts';
+import { InMemorySecretManager } from '../src/secrets/manager.ts';
+import {
+  OwnerMfa,
+  decodeBase32,
+  newTotpSecret,
+  stepFor,
+  totpCode,
+} from '../src/owner/mfa.ts';
 import type { OwnerChannel } from '../src/owner/notify.ts';
 
 const DEADLINE_MS = 30_000;
@@ -273,6 +281,47 @@ async function main(): Promise<number> {
     return rows;
   });
   log('audit trail', trail.map((row) => `${row.type}×${row.count}`).join(', '));
+
+  // F10.10 and F12.5, end to end. The same reason the notifier is checked
+  // here: `OwnerMfa` is constructed by whoever assembles a deployment, and a
+  // verifier nobody builds is a tier 3 gate that refuses everything -- which
+  // looks exactly like the gate working until the day the owner needs to
+  // approve something.
+  const secrets = new InMemorySecretManager();
+  const { secret } = newTotpSecret('smoke owner');
+  secrets.set('vault://smoke/totp', secret);
+  const mfa = new OwnerMfa({ secrets, rpId: 'palugada.local' });
+  await mfa.enrolTotp({ label: 'smoke owner', secretRef: 'vault://smoke/totp' });
+
+  const approvalId = await requestApproval({
+    companyId: company.companyId,
+    capabilityName: 'smoke.irreversible',
+    tier: 3,
+    actionSummary: 'Something that cannot be undone',
+    rationale: 'The boot check asked for it.',
+    consequenceIfDenied: 'Nothing happens.',
+  });
+
+  // Refused without a factor, which is the half that matters: a deployment
+  // that has not set MFA up should find that irreversible actions wait.
+  let refused = false;
+  await decide(company.companyId, approvalId, 'approve', '', { channel: 'app' })
+    .catch(() => { refused = true; });
+
+  await decide(company.companyId, approvalId, 'approve', 'boot check', {
+    channel: 'app',
+    proof: { totp: totpCode(decodeBase32(secret), stepFor(new Date())) },
+    mfa,
+  });
+  const stillOpen = (await listOpen(company.companyId)).some((item) => item.id === approvalId);
+
+  log('tier 3 approval', refused && !stillOpen
+    ? 'refused without a factor, accepted with one'
+    : 'WRONG');
+  if (!refused || stillOpen) {
+    log('RESULT', 'the tier 3 gate did not behave');
+    return 1;
+  }
 
   // The wiring check. A notifier that is configured and never reached is the
   // shape of defect this file exists to catch, so it is a failure rather than

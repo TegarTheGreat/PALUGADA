@@ -892,6 +892,12 @@ isolation, and is assembled by nobody -- and a notifier is exactly the shape
 that fails that way, since every unit test of it passes whether or not anything
 calls it.
 
+The same boot check now enrols a TOTP factor, raises a tier 3 approval, watches
+it be refused with no second factor, and approves it with a real code. `OwnerMfa`
+has the identical failure mode and a worse consequence: a verifier nobody
+constructs is a tier 3 gate that refuses everything, which looks exactly like
+the gate working right up until the day the owner needs to approve something.
+
 ### What a review of the new code found
 
 Nine defects, from a review over the three commits above. Two are worth

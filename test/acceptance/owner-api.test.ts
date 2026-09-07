@@ -1068,3 +1068,300 @@ test('a runtime spec that would run without tools is refused at boot (F13.3)', a
     /PALUGADA_RUNTIME_SPECS could not be read/,
   );
 });
+
+/* ------------------------------------- the operations the owner could not reach --- */
+
+/**
+ * The spend ceiling, the pause, and lifting it.
+ *
+ * F1.7 lets an owner cap what a company may spend and F1.9 lets them lift the
+ * pause when the cap was wrong. Both were implemented, tested and enforced by
+ * the database, and neither had a route -- so the one human here could set a
+ * ceiling only with a `psql` prompt, and the guard that stopped a company
+ * could only be lifted the same way. A safety mechanism nobody can release is
+ * one they hesitate to arm.
+ */
+test('the owner can set the ceiling and lift the pause (F1.7, F1.9)', async () => {
+  const fixture = await createCompany('console-spend');
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+    const base = `/api/companies/${fixture.companyId}/spend`;
+
+    const set = await call(owner.url, 'POST', `${base}/limit`, {
+      token, body: { moneyMaxCents: 250_00 },
+    });
+    assert.equal(set.status, 200, JSON.stringify(set.body));
+
+    const read = await call(owner.url, 'GET', base, { token });
+    assert.equal(read.status, 200);
+    assert.equal(read.body.limitCents, 250_00);
+    assert.equal(typeof read.body.spentCents, 'number');
+
+    // A ceiling of zero set by a typo stops every company; `NaN` is a
+    // constraint violation the owner reads as a bug. Both are refused with the
+    // field named.
+    const bad = await call(owner.url, 'POST', `${base}/limit`, {
+      token, body: { moneyMaxCents: 'lots' },
+    });
+    assert.equal(bad.status, 400, JSON.stringify(bad.body));
+    assert.match(String(bad.body.error), /moneyMaxCents/);
+
+    // Paused the way the guard pauses it -- by spending past the ceiling --
+    // rather than by writing the row, so the state being lifted is the state
+    // the platform actually produces.
+    const { evaluateSpendLimit } = await import('../../src/governance/spend-guard.ts');
+    const { withTenant: tenant } = await import('../../src/db/tenant.ts');
+    const { randomUUID } = await import('node:crypto');
+    await tenant(fixture.companyId, async (tx) => {
+      await tx.query(
+        `INSERT INTO llm_traces (id, company_id, task_id, model, prompt, response,
+                                 input_tokens, output_tokens, cost_cents, occurred_at)
+         VALUES ($1, $2, NULL, 'test-model', '{}'::jsonb, '{}'::jsonb, 10, 5, $3, now())`,
+        [randomUUID(), fixture.companyId, 400_00],
+      );
+    });
+    await evaluateSpendLimit(fixture.companyId);
+    assert.notEqual(
+      (await call(owner.url, 'GET', base, { token })).body.pausedAt, null,
+      'the guard did not pause, so there is nothing to lift',
+    );
+
+    const resumed = await call(owner.url, 'POST', `${base}/resume`, { token, body: {} });
+    assert.equal(resumed.status, 200, JSON.stringify(resumed.body));
+    assert.equal((await call(owner.url, 'GET', base, { token })).body.pausedAt, null);
+
+    // An override is bounded. F1.9 exists for "this one campaign is worth it",
+    // and an override with no end is a ceiling removed rather than raised.
+    const past = await call(owner.url, 'POST', `${base}/resume`, {
+      token, body: { until: '2020-01-01T00:00:00Z' },
+    });
+    assert.equal(past.status, 400, JSON.stringify(past.body));
+  } finally {
+    await owner.close();
+  }
+});
+
+test('the owner can set retention and read what it purged (F1.5)', async () => {
+  const fixture = await createCompany('console-retention');
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+    const path = `/api/companies/${fixture.companyId}/retention`;
+
+    // Partial on purpose: changing how long prompts are kept should not make
+    // the owner restate the other two, which is how one gets changed by
+    // accident.
+    const before = await call(owner.url, 'GET', path, { token });
+    const events = (before.body.policy as { eventDays: number }).eventDays;
+
+    const set = await call(owner.url, 'POST', path, { token, body: { promptDays: 120 } });
+    assert.equal(set.status, 200, JSON.stringify(set.body));
+    const policy = set.body.policy as { eventDays: number; promptDays: number };
+    assert.equal(policy.promptDays, 120);
+    assert.equal(policy.eventDays, events, 'a field nobody named was changed');
+
+    const empty = await call(owner.url, 'POST', path, { token, body: {} });
+    assert.equal(empty.status, 400, JSON.stringify(empty.body));
+
+    // The schema keeps prompts for ninety days and says so in words. That
+    // sentence is the answer the owner should get -- an opaque 500 tells them
+    // their console is broken when the platform just told them why it would
+    // not do the thing.
+    const tooShort = await call(owner.url, 'POST', path, { token, body: { promptDays: 7 } });
+    assert.equal(tooShort.status, 400, JSON.stringify(tooShort.body));
+    assert.match(String(tooShort.body.error), /ninety_days|ninety days/);
+
+    assert.ok(Array.isArray((await call(owner.url, 'GET', path, { token })).body.log));
+  } finally {
+    await owner.close();
+  }
+});
+
+test('the owner can set their own hours, and a company\'s batch window (F9.5, F9.6)', async () => {
+  const fixture = await createCompany('console-windows');
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+
+    const set = await call(owner.url, 'POST', '/api/control/owner-window', {
+      token, body: { timezone: 'Asia/Jakarta', startHour: 8, endHour: 21 },
+    });
+    assert.equal(set.status, 200, JSON.stringify(set.body));
+
+    const read = await call(owner.url, 'GET', '/api/control/owner-window', { token });
+    assert.deepEqual(
+      { tz: read.body.timezone, start: read.body.startHour, end: read.body.endHour },
+      { tz: 'Asia/Jakarta', start: 8, end: 21 },
+    );
+
+    // An hour is 0 to 23. `Number('')` is zero and would silently set midnight.
+    const bad = await call(owner.url, 'POST', '/api/control/owner-window', {
+      token, body: { timezone: 'UTC', startHour: 8, endHour: 25 },
+    });
+    assert.equal(bad.status, 400, JSON.stringify(bad.body));
+    assert.match(String(bad.body.error), /endHour/);
+
+    const batch = await call(
+      owner.url, 'POST', `/api/companies/${fixture.companyId}/batch-window`,
+      { token, body: { timezone: 'UTC', startHour: 2, endHour: 5, daysOfWeek: [1, 2, 3, 4, 5] } },
+    );
+    assert.equal(batch.status, 200, JSON.stringify(batch.body));
+  } finally {
+    await owner.close();
+  }
+});
+
+/**
+ * A rotation takes the owner's device, not their tab.
+ *
+ * Rotating is the answer to "that token leaked", which makes it as
+ * irreversible as anything F10.10 gates -- and a session minted eight hours
+ * ago is possession of a browser tab. The gate lives on this surface rather
+ * than inside `rotateCredential` because rotation is also what a scheduled job
+ * does, and a job has no phone.
+ */
+test('rotating a credential needs a second factor (F12.3, F10.10)', async () => {
+  const fixture = await createCompany('console-rotate');
+  const { withTenant } = await import('../../src/db/tenant.ts');
+  await withTenant(fixture.companyId, async (tx) => {
+    await tx.query(
+      `INSERT INTO credentials (company_id, division_id, alias, secret_ref)
+       VALUES ($1, $2, 'dns', 'vault://acme/dns-token')`,
+      [fixture.companyId, fixture.divisionId],
+    );
+  });
+
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+    const path =
+      `/api/companies/${fixture.companyId}/divisions/${fixture.divisionId}/credentials/dns/rotate`;
+
+    const without = await call(owner.url, 'POST', path, { token, body: {} });
+    assert.equal(without.status, 403, JSON.stringify(without.body));
+    assert.equal(without.body.code, 'approval.channel_forbidden');
+
+    const withFactor = await call(owner.url, 'POST', path, {
+      token,
+      body: { proof: { totp: owner.code() }, newSecretRef: 'vault://acme/dns-token-v2' },
+    });
+    assert.equal(withFactor.status, 200, JSON.stringify(withFactor.body));
+    assert.equal(withFactor.body.version, 2);
+    // The reference travels, the value never does: it is a path, and what it
+    // points at is not seen by this process.
+    assert.equal(withFactor.body.secretRef, 'vault://acme/dns-token-v2');
+  } finally {
+    await owner.close();
+  }
+});
+
+test('the owner can answer an agent\'s question (F10.3)', async () => {
+  const fixture = await createCompany('console-answer');
+  // A question is what an owner leaves on an item they are not ready to
+  // decide, so that is how one is made here: the real path rather than a row.
+  const itemId = await inbox.requestApproval({
+    companyId: fixture.companyId,
+    capabilityName: 'email.send',
+    tier: 2,
+    actionSummary: 'Send the quote',
+    rationale: 'The supplier asked for it.',
+    consequenceIfDenied: 'They do not get a quote.',
+  });
+  await inbox.decide(
+    fixture.companyId, itemId, 'ask', 'Which supplier should this go to?',
+    { channel: 'app', assurance: 'session' },
+  );
+
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+    const path = `/api/companies/${fixture.companyId}/inbox/${itemId}/answer`;
+
+    const empty = await call(owner.url, 'POST', path, { token, body: { answer: '   ' } });
+    assert.equal(empty.status, 400, JSON.stringify(empty.body));
+
+    const answered = await call(owner.url, 'POST', path, {
+      token, body: { answer: 'The one in Surabaya.' },
+    });
+    assert.equal(answered.status, 200, JSON.stringify(answered.body));
+  } finally {
+    await owner.close();
+  }
+});
+
+test('the owner can see capability health, cost and the governance log (F8.12, F11.5, F3.11)', async () => {
+  const fixture = await createCompany('console-observability');
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+
+    const health = await call(
+      owner.url, 'GET',
+      `/api/companies/${fixture.companyId}/divisions/${fixture.divisionId}/health`,
+      { token },
+    );
+    assert.equal(health.status, 200, JSON.stringify(health.body));
+    assert.ok(Array.isArray(health.body.health));
+
+    // Thirty days by default. Making the owner name two dates before they can
+    // ask "what has this been costing me" is a question they stop asking.
+    const cost = await call(owner.url, 'GET', `/api/companies/${fixture.companyId}/cost`, { token });
+    assert.equal(cost.status, 200, JSON.stringify(cost.body));
+    assert.ok(Array.isArray(cost.body.timeline));
+
+    const platform = await call(owner.url, 'GET', '/api/control/cost', { token });
+    assert.equal(platform.status, 200);
+    assert.ok(Array.isArray(platform.body.companies));
+
+    const backwards = await call(
+      owner.url, 'GET',
+      `/api/companies/${fixture.companyId}/cost?from=2026-02-01&to=2026-01-01`,
+      { token },
+    );
+    assert.equal(backwards.status, 400, JSON.stringify(backwards.body));
+
+    const governance = await call(
+      owner.url, 'GET', `/api/companies/${fixture.companyId}/governance`, { token },
+    );
+    assert.equal(governance.status, 200);
+    assert.ok(Array.isArray(governance.body.log));
+  } finally {
+    await owner.close();
+  }
+});
+
+test('every new route needs a session (F10, F12.5)', async () => {
+  // The one property that must hold for all of them at once. A route added
+  // without a session check is a route that reaches a company's data
+  // unauthenticated, and it would be the easiest possible thing to miss in a
+  // block of twenty.
+  const fixture = await createCompany('console-unauthenticated');
+  const owner = await console_();
+  try {
+    const paths: Array<[string, string]> = [
+      ['GET', `/api/companies/${fixture.companyId}/spend`],
+      ['POST', `/api/companies/${fixture.companyId}/spend/limit`],
+      ['POST', `/api/companies/${fixture.companyId}/spend/resume`],
+      ['GET', `/api/companies/${fixture.companyId}/retention`],
+      ['POST', `/api/companies/${fixture.companyId}/retention`],
+      ['GET', '/api/control/owner-window'],
+      ['POST', '/api/control/owner-window'],
+      ['POST', `/api/companies/${fixture.companyId}/batch-window`],
+      ['GET', `/api/companies/${fixture.companyId}/divisions/${fixture.divisionId}/health`],
+      ['GET', `/api/companies/${fixture.companyId}/cost`],
+      ['GET', '/api/control/cost'],
+      ['GET', `/api/companies/${fixture.companyId}/governance`],
+      ['GET', `/api/companies/${fixture.companyId}/tasks/${fixture.companyId}/events`],
+      ['POST',
+        `/api/companies/${fixture.companyId}/divisions/${fixture.divisionId}/credentials/x/rotate`],
+      ['POST', `/api/companies/${fixture.companyId}/inbox/${fixture.companyId}/answer`],
+    ];
+    for (const [method, path] of paths) {
+      const answer = await call(owner.url, method, path, { body: {} });
+      assert.equal(answer.status, 401, `${method} ${path} answered ${answer.status}`);
+    }
+  } finally {
+    await owner.close();
+  }
+});

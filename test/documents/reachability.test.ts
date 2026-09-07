@@ -55,7 +55,6 @@ const ROOT = fileURLToPath(new URL('../..', import.meta.url));
  */
 const UNREACHABLE: Record<string, string> = {
   // F11: the audit trail an owner can read.
-  readTaskEvents: 'console: F11.2 has no route that returns a task\'s events',
   collectExport: 'console: F16.4 export is not offered anywhere',
   EXPORT_SECTION_NAMES: 'helper: the section list, asserted directly',
   IMPORT_SECTION_NAMES: 'helper: the section list, asserted directly',
@@ -66,7 +65,6 @@ const UNREACHABLE: Record<string, string> = {
   // F8: the catalogue and preflight.
   catalogueNames: 'helper: the catalogue as names, asserted directly',
   declarationFor: 'helper: one catalogue entry, asserted directly',
-  healthFor: 'console: F8.12 health is not shown to the owner',
 
   // F16: bundles.
   forgetBundleHooks: 'helper: a cache reset a test needs between installs',
@@ -110,22 +108,15 @@ const UNREACHABLE: Record<string, string> = {
   secretsMatch: 'helper: the constant-time compare, asserted directly',
 
   // F1.7-F1.9: the spend ceiling.
-  clearSpendPause: 'console: F1.9 a spend pause cannot be lifted',
-  overrideSpendPause: 'console: F1.9 a spend pause cannot be overridden',
-  setSpendLimit: 'console: F1.7 the ceiling cannot be set',
 
   // F3: policy and structure.
   putPolicy: 'console: F3.4 a policy cannot be written',
-  readGovernanceLog: 'console: F3.11 the governance log is not shown',
   applyGrantChange: 'console: F3.9 a grant cannot be changed',
   applyRoleChange: 'console: F3.9 a role cannot be changed',
   proposeStructuralChange: 'console: F3.9 a change cannot be proposed',
   setEscalationPolicy: 'console: F2.6 escalation cannot be configured',
 
   // F10: the owner surface itself.
-  answerOwnerQuestion: 'console: F10.3 an agent\'s question cannot be answered',
-  stopEverything: 'console: the route calls `requestStopAll`, which is the '
-    + 'control-plane half; this is the inbox half that files the item',
 
   // F4: memory.
   distillEpisodicToSemantic: 'worker: F4.5 distillation is not run on the tick',
@@ -135,14 +126,10 @@ const UNREACHABLE: Record<string, string> = {
   // F3.4, F10.6, F11: reporting.
   strictness: 'helper: the effect ordering, asserted directly',
   setThresholds: 'console: F11.6 alert thresholds cannot be set',
-  costTimeline: 'console: F11.5 the cost timeline is not shown',
-  platformCost: 'console: F11.5 platform cost is not shown',
   renderDailyDigest: 'worker: F10.6 the digest is drawn by the console; no '
     + 'channel sends the rendered text',
 
   // F1.5: retention.
-  readRetentionLog: 'console: F1.5 the retention log is not shown',
-  setRetention: 'console: F1.5 retention cannot be configured',
 
   // F7: adversarial review.
   pendingReviews: 'console: F7.5 pending reviews are not shown',
@@ -158,11 +145,8 @@ const UNREACHABLE: Record<string, string> = {
   assignTask: 'worker: F9.9 a wake is consumed by the tick, not assigned by hand',
   coalescedCount: 'helper: how many wakes merged, asserted directly',
   pendingNotifications: 'helper: the queue behind the owner window, asserted directly',
-  setBatchWindow: 'console: F9.6 the batch window cannot be set',
-  setOwnerWindow: 'console: F9.5 the owner\'s hours cannot be set',
 
   // F12.3.
-  rotateCredential: 'console: F12.3 a credential cannot be rotated',
 
   // F15: skills.
   approveSkillVersion: 'console: F15.4 a skill cannot be approved',

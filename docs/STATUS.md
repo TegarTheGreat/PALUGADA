@@ -1442,17 +1442,59 @@ inline the same thing). The test fails in both directions: a new orphan must be
 justified before it can be committed, and one that gets wired up must be
 struck off.
 
-**What the inventory says is worth stating plainly, because it is the largest
-honest gap in this build.** The owner's console has nine routes. Behind it sit
-around fifty owner operations with none: the spend ceiling cannot be set, a
-credential cannot be rotated, the goal ladder cannot be edited, a skill cannot
-be approved, a bundle's publisher cannot be revoked, a task cannot be replayed,
-retention cannot be configured, a device cannot be paired, an agent's question
-cannot be answered. Each is implemented, tested, and enforced by the database.
-None of them is reachable by the one human who is supposed to run the company.
-That is not a vendor account this repository cannot hold -- it is a surface
-nobody has built yet, and it is now written down by name and checked by the
-suite rather than discovered one review at a time.
+**What the inventory said was worth stating plainly, because it was the largest
+honest gap in this build.** The owner's console had nine routes. Behind it sat
+around fifty owner operations with none: the spend ceiling could not be set, a
+credential could not be rotated, the goal ladder could not be edited, a skill
+could not be approved, a task could not be replayed, retention could not be
+configured, a device could not be paired, an agent's question could not be
+answered. Each was implemented, tested, and enforced by the database, and none
+was reachable by the one human who is supposed to run the company. That is not
+a vendor account this repository cannot hold -- it is a surface nobody had
+built.
+
+### The first half of that surface
+
+Fifteen of them are reachable now, chosen as the ones an owner touches to run a
+company rather than to change how it is built: **money** (the ceiling, what has
+been spent against it, lifting a pause and bounding an override), **retention**
+(the policy and the log of what it purged), **the windows** (the owner's own
+hours and a company's batch window), **observability** (capability health, a
+company's cost timeline, the platform's cost by company, the governance log, a
+task's events), **F12.3's rotation**, **F10.3's answer** to an agent's
+question, and **the harder half of F10.7**.
+
+Three of those are worth their own line.
+
+**A rotation takes the owner's device, not their tab.** Rotating is the answer
+to "that token leaked", which makes it as irreversible as anything F10.10
+gates, and a session minted eight hours ago is possession of a browser tab. The
+gate lives on the console rather than inside `rotateCredential`, because
+rotation is also what a scheduled job does and a job has no phone: the surface
+with a human in front of it is the surface that can ask for one.
+
+**"Stop everything" and "cancel everything" are two buttons.** The existing
+route raises a flag the engine reads at every step, so in-flight work stops
+cleanly at its next one and resumes when the flag clears -- which is the button
+for "something looks wrong". `stopEverything` is the other one: it cancels
+every task outright, losing the journal state that would have let them
+continue. It had no caller at all. It has its own route now, and a second
+factor, because it is not the same decision.
+
+**A constraint the schema states in words is a refusal, not a crash.** The
+first version of the retention route answered `500 internal error` when the
+database refused to keep prompts for less than ninety days -- and that sentence
+was written for a person to read. Several of this platform's rules live in the
+schema and nowhere else, so the API now passes a check constraint, a trigger's
+own raise, a uniqueness clash and a malformed value back as a 400 with the
+database's words. A permission or RLS denial deliberately stays opaque: that
+one means this process asked for something it may not have, which is a bug here
+rather than a message for the owner.
+
+What is left on the inventory is the half that changes how a company is
+*built* rather than how it runs -- goals, skills, bundles, policies, the
+structural changes, device pairing, replay and the eval set -- and it is still
+there by name.
 
 ### What is actually left
 

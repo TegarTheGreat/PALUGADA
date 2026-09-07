@@ -729,7 +729,16 @@ it. A deployment with none registered says so at boot in those words, because
 a worker that can run nothing looks, from outside, exactly like a worker with
 nothing to do.
 
-The console is at `http://127.0.0.1:8787`. Signing in means presenting a second
+The console is at `http://127.0.0.1:8787`. Behind it the API covers the
+operations an owner touches to *run* a company — the spend ceiling and what has
+been spent against it, lifting a pause, retention, the owner's own hours and a
+company's batch window, capability health, cost by day or by company, the
+governance log, a task's events, rotating a credential, answering an agent's
+question, and both halves of the stop switch. The operations that change how a
+company is *built* — goals, skills, bundles, policies, structural changes,
+device pairing, replay, the eval set — are implemented and do not have a route
+yet; `test/documents/reachability.test.ts` lists every one of them by name and
+fails if that list drifts. Signing in means presenting a second
 factor, because there are no accounts: PALUGADA has one human, so an identity
 system would be a table with one row and a password to lose. A fresh
 deployment has no authenticator enrolled and says so at boot, in those words —

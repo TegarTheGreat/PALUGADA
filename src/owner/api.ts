@@ -7,12 +7,18 @@
  * point is "one person runs many companies" had no way for that person to say
  * yes. This is that way.
  *
- * It is deliberately small. Nine routes, no framework, no build step, and the
- * same `node:http` the tool bridge already uses. The reason is not
- * minimalism for its own sake: every route here is a place where an
- * unauthenticated request could reach a company's data or approve an
- * irreversible action, and a surface small enough to read in one sitting is
- * one whose every entrance can be checked.
+ * No framework, no build step, and the same `node:http` the tool bridge
+ * already uses. It stayed at nine routes for a while and that was not
+ * restraint, it was a gap: a reachability scan found around fifty owner
+ * operations this platform implements, tests, and enforces in the database,
+ * with no way for the one human here to invoke any of them. The spend ceiling
+ * could not be set. A credential could not be rotated. An agent's question
+ * could not be answered.
+ *
+ * So it is larger now, and the discipline that kept it small still holds:
+ * every route is a place where a request could reach a company's data or take
+ * an irreversible action, so each one is a parse, a call and a serialisation
+ * with no rule of its own.
  *
  * **What it does not do.** No business logic lives here. `decide` decides,
  * `OwnerMfa` verifies, `traceFromInboxItem` traces; this module parses a
@@ -38,7 +44,7 @@
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { PalugadaError } from '../errors.ts';
-import { withControlPlane } from '../db/tenant.ts';
+import { withControlPlane, withTenant } from '../db/tenant.ts';
 import * as inbox from '../inbox/inbox.ts';
 import { traceFromInboxItem } from '../reporting/trace.ts';
 import { buildDailyDigest, buildWeeklyRetro } from '../reporting/digest.ts';
@@ -52,6 +58,21 @@ import {
   unfreezeCompany,
 } from '../engine/control.ts';
 import { frozenRoles, unfreezeRole } from '../governance/role-freeze.ts';
+import {
+  clearSpendPause,
+  limitFor,
+  overrideSpendPause,
+  periodSpend,
+  setSpendLimit,
+} from '../governance/spend-guard.ts';
+import { readGovernanceLog } from '../governance/store.ts';
+import { readRetentionLog, retentionFor, setRetention } from '../retention/retention.ts';
+import { ownerWindow, setBatchWindow, setOwnerWindow } from '../scheduler/windows.ts';
+import { healthFor } from '../broker/preflight.ts';
+import { costTimeline, platformCost } from '../reporting/cost.ts';
+import { rotateCredential } from '../secrets/rotation.ts';
+import { readTaskEvents } from '../audit/event-log.ts';
+import type { CapabilityRegistry } from '../broker/registry.ts';
 import type { OwnerMfa, WebAuthnAssertion } from './mfa.ts';
 import { OwnerSessions, type OwnerSession } from './session.ts';
 
@@ -67,6 +88,21 @@ export interface OwnerApiOptions {
    * all.
    */
   origin?: string;
+  /**
+   * The registry a rotation sweeps afterwards (F12.3, F8.12).
+   *
+   * Optional, and its absence is honest rather than degraded: a sweep with no
+   * way to resolve the rotated credential reports every credentialed
+   * capability unhealthy, raises an incident and halts the next task that
+   * needs one -- so a *successful* rotation would look exactly like a broken
+   * one. Better to rotate without the check than to file a false alarm.
+   */
+  registry?: CapabilityRegistry;
+  /** How that sweep resolves a division's credential. Comes from the broker. */
+  credentialFor?: (
+    companyId: string,
+    divisionId: string,
+  ) => (alias: string, capabilityName: string) => Promise<string>;
 }
 
 interface Handler {
@@ -296,6 +332,24 @@ export class OwnerApi {
       },
 
       {
+        // The harder half of F10.7, and a separate button on purpose.
+        //
+        // `stop-all` raises the flag: the engine reads it at every step, so
+        // in-flight work stops cleanly at its next one and resumes when the
+        // flag clears. That is the button for "something looks wrong". This is
+        // the button for "stop, and do not resume": it cancels every task
+        // outright, which loses the journal state that would have let them
+        // continue. Irreversible, so it takes the owner's device rather than
+        // their tab.
+        method: 'POST',
+        pattern: '/api/control/cancel-everything',
+        handle: async ({ body }) => {
+          await this.#requireFactor(body.proof, 'cancel everything');
+          return { cancelled: await inbox.stopEverything() };
+        },
+      },
+
+      {
         method: 'POST',
         pattern: '/api/control/capability/:name/kill',
         handle: async ({ params, body }) => {
@@ -310,6 +364,246 @@ export class OwnerApi {
         pattern: '/api/control/company/:companyId/role/:roleId/resume',
         handle: async ({ params }) => {
           await unfreezeRole(params.companyId!, params.roleId!);
+          return { ok: true };
+        },
+      },
+
+      /* ------------------------------------------------ F1.5, F1.7-F1.9 --- */
+
+      {
+        // What the company is allowed to spend, what it has spent, and
+        // whether the guard has stopped it. One route, because an owner
+        // deciding whether to lift a pause needs all three at once and the
+        // console should not have to compose them.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/spend',
+        handle: async ({ params }) => {
+          const [limit, period] = await Promise.all([
+            limitFor(params.companyId!),
+            periodSpend(params.companyId!),
+          ]);
+          return {
+            limitCents: limit.moneyMaxCents,
+            pausedAt: limit.pausedAt?.toISOString() ?? null,
+            pauseReason: limit.pauseReason ?? null,
+            overrideUntil: limit.overrideUntil?.toISOString() ?? null,
+            periodStart: period.periodStart.toISOString(),
+            periodEnd: period.periodEnd.toISOString(),
+            spentCents: period.cents,
+          };
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/spend/limit',
+        handle: async ({ params, body }) => {
+          await setSpendLimit(params.companyId!, wholeNumber(body.moneyMaxCents, 'moneyMaxCents'));
+          return { ok: true };
+        },
+      },
+
+      {
+        // Lifting the pause and overriding it are one route with two shapes,
+        // because they are the same decision: `until` means "let it run past
+        // the ceiling until then", and its absence means "the ceiling was
+        // wrong, here is a new one" -- which is `clearSpendPause`.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/spend/resume',
+        handle: async ({ params, body }) => {
+          if (body.until === undefined || body.until === null) {
+            await clearSpendPause(params.companyId!);
+            return { ok: true, override: null };
+          }
+          const until = new Date(String(body.until));
+          if (Number.isNaN(until.getTime())) {
+            throw new PalugadaError('contract.violation', 'until is not a date', {});
+          }
+          // Deliberately not open-ended. F1.9's override exists for "this one
+          // campaign is worth it", and an override with no end is a ceiling
+          // that was removed rather than raised.
+          if (until.getTime() <= Date.now()) {
+            throw new PalugadaError('contract.violation', 'until is in the past', {});
+          }
+          await overrideSpendPause(params.companyId!, until);
+          return { ok: true, override: until.toISOString() };
+        },
+      },
+
+      {
+        method: 'GET',
+        pattern: '/api/companies/:companyId/retention',
+        handle: async ({ params }) => ({
+          policy: await retentionFor(params.companyId!),
+          log: await readRetentionLog(params.companyId!),
+        }),
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/retention',
+        handle: async ({ params, body }) => {
+          // Partial on purpose: an owner changing how long prompts are kept
+          // should not have to restate the other two, and restating them is
+          // how one gets changed by accident.
+          const policy: Record<string, number> = {};
+          for (const field of ['eventDays', 'traceDays', 'promptDays'] as const) {
+            if (body[field] !== undefined) policy[field] = wholeNumber(body[field], field);
+          }
+          if (Object.keys(policy).length === 0) {
+            throw new PalugadaError('contract.violation', 'no retention field was given', {});
+          }
+          await setRetention(params.companyId!, policy);
+          return { policy: await retentionFor(params.companyId!) };
+        },
+      },
+
+      /* ----------------------------------------------------- F9.5, F9.6 --- */
+
+      {
+        method: 'GET',
+        pattern: '/api/control/owner-window',
+        handle: async () => {
+          const window = await ownerWindow();
+          return {
+            timezone: window.timezone,
+            startHour: window.startHour,
+            endHour: window.endHour,
+          };
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/control/owner-window',
+        handle: async ({ body }) => {
+          await setOwnerWindow({
+            timezone: String(body.timezone ?? 'UTC'),
+            startHour: hour(body.startHour, 'startHour'),
+            endHour: hour(body.endHour, 'endHour'),
+          });
+          return { ok: true };
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/batch-window',
+        handle: async ({ params, body }) => {
+          await setBatchWindow({
+            companyId: params.companyId!,
+            timezone: String(body.timezone ?? 'UTC'),
+            startHour: hour(body.startHour, 'startHour'),
+            endHour: hour(body.endHour, 'endHour'),
+            ...(Array.isArray(body.daysOfWeek)
+              ? { daysOfWeek: body.daysOfWeek.map((day) => wholeNumber(day, 'daysOfWeek')) }
+              : {}),
+          });
+          return { ok: true };
+        },
+      },
+
+      /* --------------------------------------------- F8.12, F11.5, F3.11 --- */
+
+      {
+        // What a division's capabilities said last time anyone asked. The
+        // failure F8.12 exists for -- a credential that expired -- is
+        // invisible until a task halts, and this is where an owner sees it
+        // before that.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/divisions/:divisionId/health',
+        handle: async ({ params }) => ({
+          health: await healthFor(params.companyId!, params.divisionId!),
+        }),
+      },
+
+      {
+        method: 'GET',
+        pattern: '/api/companies/:companyId/cost',
+        handle: async ({ params, query }) => {
+          const granularity = query.get('by') === 'month' ? 'month' as const : 'day' as const;
+          return {
+            timeline: await costTimeline(params.companyId!, granularity, windowFrom(query)),
+          };
+        },
+      },
+
+      {
+        method: 'GET',
+        pattern: '/api/control/cost',
+        handle: async ({ query }) => ({ companies: await platformCost(windowFrom(query)) }),
+      },
+
+      {
+        method: 'GET',
+        pattern: '/api/companies/:companyId/governance',
+        handle: async ({ params }) => ({ log: await readGovernanceLog(params.companyId!) }),
+      },
+
+      {
+        // F11.2's other half. The trace route answers "why is this in front of
+        // me"; this answers "what did that task actually do", which is the
+        // question an owner asks about work that already finished.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/tasks/:taskId/events',
+        handle: async ({ params }) => ({
+          events: await withTenant(
+            params.companyId!,
+            (tx) => readTaskEvents(tx, params.taskId!),
+          ),
+        }),
+      },
+
+      /* ----------------------------------------------------------- F12.3 --- */
+
+      {
+        // Rotating is the answer to "that token leaked", so it is a tier 3
+        // shaped action: it takes a fresh factor, not a session eight hours
+        // old. The gate is here rather than in `rotateCredential` because
+        // rotation is also what a scheduled job does, and a job has no phone.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/divisions/:divisionId/credentials/:alias/rotate',
+        handle: async ({ params, body }) => {
+          await this.#requireFactor(body.proof, `rotate ${params.alias}`, params.companyId!);
+          const rotated = await rotateCredential({
+            companyId: params.companyId!,
+            divisionId: params.divisionId!,
+            alias: params.alias!,
+            ...(body.newSecretRef === undefined
+              ? {}
+              : { newSecretRef: String(body.newSecretRef) }),
+            // The sweep afterwards is the point of F12.3, and it needs both a
+            // registry to sweep and a way to resolve the new value. A
+            // deployment that gave this API neither rotates without it, which
+            // is honest: the alternative is a sweep that reports every
+            // credentialed capability unhealthy and halts the next task.
+            ...(this.#options.registry ? { registry: this.#options.registry } : {}),
+            ...(this.#options.credentialFor ? { credential: this.#options.credentialFor } : {}),
+          });
+          return {
+            alias: rotated.alias,
+            version: rotated.version,
+            previousVersion: rotated.previousVersion,
+            // The reference, never the value. It is a path; what it points at
+            // is never seen by this process.
+            secretRef: rotated.secretRef,
+          };
+        },
+      },
+
+      /* ----------------------------------------------------------- F10.3 --- */
+
+      {
+        // An agent asked the owner something. This is the answer going back,
+        // which puts the task back on the queue rather than deciding it.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/inbox/:itemId/answer',
+        handle: async ({ params, body }) => {
+          const answer = String(body.answer ?? '').trim();
+          if (!answer) {
+            throw new PalugadaError('contract.violation', 'an answer cannot be empty', {});
+          }
+          await inbox.answerOwnerQuestion(params.companyId!, params.itemId!, answer);
           return { ok: true };
         },
       },
@@ -341,6 +635,42 @@ export class OwnerApi {
   }
 
   /* --------------------------------------------------------------- plumbing --- */
+
+  /**
+   * Refuses an action that needs the owner's device rather than their tab.
+   *
+   * `decide` owns F10.10's gate for inbox items and this module never
+   * second-guesses it. This is the same *rule* applied to the handful of
+   * console actions that are not inbox items and are just as irreversible: a
+   * rotation is the answer to "that token leaked", and a session minted eight
+   * hours ago is possession of a browser tab.
+   *
+   * Kept here rather than pushed down into `rotateCredential` because rotation
+   * is also what a scheduled job does, and a job has no phone. The surface
+   * that has a human in front of it is the surface that can ask for one.
+   */
+  async #requireFactor(
+    proof: unknown,
+    purpose: string,
+    companyId: string | null = null,
+  ): Promise<void> {
+    if (proof === undefined || proof === null) {
+      throw new PalugadaError(
+        'approval.channel_forbidden',
+        `${purpose} needs a second factor; none was presented (PRD F10.10, F12.5)`,
+        { purpose },
+      );
+    }
+    const presented = proofFrom(proof);
+    // No `subjectId`: it is a task or an inbox item elsewhere, and there is no
+    // row this action is about. The company travels, though, so a factor
+    // enrolled against one company cannot rotate another's credential --
+    // the same isolation every table in this schema enforces, and the owner's
+    // own platform-scoped device still answers for all of them.
+    const asking = { purpose: `console.${purpose}`, subjectId: null, companyId };
+    if ('totp' in presented) await this.#options.mfa.verifyTotp(presented.totp, asking);
+    else await this.#options.mfa.verifyWebAuthn(presented.webauthn, asking);
+  }
 
   async #handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? '/', 'http://localhost');
@@ -406,6 +736,23 @@ export class OwnerApi {
           code: error.code,
           details: error.details,
         });
+        return;
+      }
+      // A constraint the schema states in words is a refusal too.
+      //
+      // "prompts must be kept at least ninety days" and "a mission is the top
+      // of the ladder and has no parent" are messages somebody wrote for a
+      // person to read, and the database is where several of this platform's
+      // rules actually live. Flattening them into `internal error` tells the
+      // owner their console is broken when in fact the platform just told
+      // them why it would not do the thing.
+      //
+      // Only the codes that mean "what you sent is not allowed". Everything
+      // else stays opaque, because an error nobody wrote for a reader is one
+      // that leaks a schema rather than explaining a rule.
+      const refusal = refusalFrom(error);
+      if (refusal) {
+        send(res, 400, { error: refusal, code: 'contract.violation' });
         return;
       }
       send(res, 500, { error: 'internal error' });
@@ -543,6 +890,82 @@ function proofFrom(value: unknown): { totp: string } | { webauthn: WebAuthnAsser
     'a second factor is a totp code or a webauthn assertion',
     {},
   );
+}
+
+/**
+ * A whole number, or a refusal that names the field.
+ *
+ * `Number(undefined)` is `NaN` and `Number('')` is `0`, and both would reach
+ * the database as a spend ceiling. A ceiling of zero set by a typo stops every
+ * company, which is a bad afternoon; one set to `NaN` is a constraint
+ * violation the owner reads as a bug.
+ */
+function wholeNumber(value: unknown, field: string): number {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new PalugadaError(
+      'contract.violation',
+      `${field} must be a whole number of at least zero`,
+      { field },
+    );
+  }
+  return parsed;
+}
+
+function hour(value: unknown, field: string): number {
+  const parsed = wholeNumber(value, field);
+  if (parsed > 23) {
+    throw new PalugadaError('contract.violation', `${field} must be an hour, 0 to 23`, { field });
+  }
+  return parsed;
+}
+
+/**
+ * The window a cost question covers, defaulting to the last thirty days.
+ *
+ * A default rather than a required pair, because the question an owner asks is
+ * "what has this been costing me" and making them name two dates first is a
+ * question they stop asking.
+ */
+function windowFrom(query: URLSearchParams): { from: Date; to: Date } {
+  const to = query.get('to') ? new Date(query.get('to')!) : new Date();
+  const from = query.get('from')
+    ? new Date(query.get('from')!)
+    : new Date(to.getTime() - 30 * 24 * 60 * 60_000);
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+    throw new PalugadaError('contract.violation', 'from and to must be dates', {});
+  }
+  if (from >= to) {
+    throw new PalugadaError('contract.violation', 'from must be before to', {});
+  }
+  return { from, to };
+}
+
+/**
+ * The database's own words, when it refused something the owner sent.
+ *
+ * Deliberately a short list. A check constraint, a trigger's `raise`, a
+ * uniqueness clash and a malformed value are all "what you sent is not
+ * allowed", and in this schema each carries a sentence written for a human --
+ * several of this platform's rules live there and nowhere else. A permission
+ * or RLS denial is *not* in the list: that one means this process asked for
+ * something it may not have, which is a bug here rather than a message for the
+ * owner.
+ */
+const REFUSAL_CODES = new Set([
+  '23514', // check constraint
+  '23505', // unique violation
+  '23503', // foreign key
+  '23502', // not null
+  '22P02', // invalid text representation
+  'P0001', // a trigger's own raise
+]);
+
+function refusalFrom(error: unknown): string | null {
+  const code = (error as { code?: string } | null)?.code;
+  if (typeof code !== 'string' || !REFUSAL_CODES.has(code)) return null;
+  const message = (error as Error).message;
+  return typeof message === 'string' && message.length > 0 ? message : null;
 }
 
 function bearer(req: IncomingMessage): string | undefined {

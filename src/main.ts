@@ -334,6 +334,13 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
 
   const api = new OwnerApi({
     mfa,
+    // The registry and the resolver, so F12.3's rotation can sweep the
+    // division afterwards. Without both, a rotation through the console still
+    // works and simply does not re-check -- which is better than a sweep that
+    // cannot resolve the new value, reports every credentialed capability
+    // unhealthy, and halts the next task that needs one.
+    registry,
+    credentialFor: (companyId, divisionId) => broker.credentialFor(companyId, divisionId),
     ...(options.consoleRoot ? { staticRoot: options.consoleRoot } : {}),
     ...(env.PALUGADA_CONSOLE_ORIGIN ? { origin: env.PALUGADA_CONSOLE_ORIGIN } : {}),
   });

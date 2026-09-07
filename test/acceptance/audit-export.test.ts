@@ -8,7 +8,7 @@
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { withTenant } from '../../src/db/tenant.ts';
+import { withTenant, withControlPlane } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
 import {
   collectExport,
@@ -28,6 +28,7 @@ import {
   NOT_RESTORED,
 } from '../../src/audit/import.ts';
 import { putPolicy } from '../../src/governance/store.ts';
+import { recordVersion } from '../../src/governance/config-versions.ts';
 import {
   proposeSkillVersion,
   addEvalCase,
@@ -498,4 +499,59 @@ test('a company with an approved skill restores, and external knowledge is re-ga
     skillSummariesFor(tx, { companyId: restored.companyId }),
   );
   assert.deepEqual(live.map((entry) => entry.slug), ['refund-policy']);
+});
+
+/**
+ * A company's archive carries the company's configuration, not the platform's.
+ *
+ * 0027 made `config_versions` shared-scope so a tenant can read the platform's
+ * own versions — the platform charter, the platform policies, the things F3.1
+ * says a company cannot override. The export section had no
+ * `company_id IS NOT NULL` filter, so every archive carried them, and
+ * `importCompany` rewrote them as the destination company's own. One company's
+ * archive would have installed the source installation's platform charter as
+ * that company's configuration, on an instance that never agreed to it.
+ *
+ * Reading a platform version is fine and is the point of the shared scope.
+ * Copying one into an archive labelled "this company" is not.
+ */
+test('an archive carries no platform configuration (F1.5, F3.1)', async () => {
+  const fixture = await createCompany('export-platform-config');
+
+  await withControlPlane(async (tx) => {
+    await recordVersion(tx, {
+      companyId: null,
+      kind: 'charter',
+      snapshot: { body: 'The platform charter, which no company may override.' },
+      summary: 'platform charter v1',
+      changedBy: 'owner',
+    });
+  });
+  await withTenant(fixture.companyId, (tx) =>
+    recordVersion(tx, {
+      companyId: fixture.companyId,
+      kind: 'charter',
+      snapshot: { body: 'This company says hello.' },
+      summary: 'company charter v1',
+      changedBy: 'owner',
+    }),
+  );
+
+  // The company really can see both, which is why the filter has to be in the
+  // query rather than left to row-level security.
+  const visible = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ count: string }>(
+      'SELECT count(*)::text AS count FROM config_versions',
+    );
+    return Number(rows[0]!.count);
+  });
+  assert.equal(visible, 2);
+
+  const { sections } = await collectExport(fixture.companyId);
+  assert.equal(sections.config_versions!.length, 1, 'only this company\'s own');
+  assert.equal(
+    JSON.stringify(sections).includes('which no company may override'),
+    false,
+    'the platform charter is not this company\'s to carry',
+  );
 });

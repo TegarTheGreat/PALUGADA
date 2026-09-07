@@ -83,6 +83,36 @@ export interface CompanyTemplate {
   };
 }
 
+/**
+ * The money ceiling a division ends up with, which is the nearest one actually
+ * declared above it, and the company's when nothing between them says anything.
+ *
+ * An omitted `moneyMaxCents` is not zero. `app.budget_spend` refuses when
+ * `money_spent + amount > money_max`, so storing zero would mean "may never
+ * spend a cent" rather than "no limit stated here" -- a division that simply
+ * said nothing about money could not have sent a single invoice. Inheriting is
+ * what F1.6 means by a narrower scope that does not narrow, and the chain check
+ * in `budget_reserve` still binds at whichever ancestor is smallest.
+ */
+function inheritedMoneyCents(
+  slug: string,
+  budgets: Map<string, { moneyMaxCents?: number }>,
+  parentOf: Map<string, string | null>,
+  companyMoneyCents: number,
+): number {
+  const seen = new Set<string>();
+  let at: string | null = slug;
+  while (at !== null && !seen.has(at)) {
+    seen.add(at);
+    const declared = budgets.get(at)?.moneyMaxCents;
+    if (declared !== undefined) {
+      return declared;
+    }
+    at = parentOf.get(at) ?? null;
+  }
+  return companyMoneyCents;
+}
+
 export interface CreatedCompany {
   companyId: string;
   projectIds: Record<string, string>;
@@ -189,9 +219,20 @@ export function assertTemplateIsCoherent(template: CompanyTemplate): void {
         `${above.division}'s ${above.tokensMax}, so the ceiling could never bind`,
       );
     }
-    // A zero money ceiling means "not set here", so it is not a smaller number
+    // Against the ceiling the parent actually ends up with, not only the one it
+    // declared: a parent that omitted its own inherits the company's, and a
+    // child declared above that would still be a number that could never bind.
+    // A zero ceiling means the company set none, so it is not a smaller number
     // to be exceeded; only a real one above it is a contradiction.
-    const aboveMoney = above.moneyMaxCents ?? 0;
+    const aboveMoney =
+      parentSlug === null
+        ? (template.budget?.moneyMaxCents ?? 0)
+        : inheritedMoneyCents(
+            parentSlug,
+            budgets,
+            parentOf,
+            template.budget?.moneyMaxCents ?? 0,
+          );
     if (aboveMoney > 0 && (account.moneyMaxCents ?? 0) > aboveMoney) {
       throw new Error(
         `division ${account.division} is given ${account.moneyMaxCents} cents, above ` +
@@ -543,11 +584,18 @@ async function insertBudget(
     return Number(leftIsChild) - Number(rightIsChild);
   });
 
+  const companyMoney = template.budget?.moneyMaxCents ?? 0;
+  const budgets = new Map(
+    (template.budget?.divisions ?? []).map((account) => [account.division, account]),
+  );
+
   const divisionAccountIds: Record<string, string> = {};
   for (const account of ordered) {
     const parentSlug = parentOf.get(account.division) ?? null;
     const parentAccountId =
       (parentSlug && divisionAccountIds[parentSlug]) || companyAccountId;
+
+    const money = inheritedMoneyCents(account.division, budgets, parentOf, companyMoney);
 
     const { rows: child } = await tx.query<{ id: string }>(
       `INSERT INTO budget_accounts
@@ -558,7 +606,7 @@ async function insertBudget(
         companyId,
         account.division,
         account.tokensMax,
-        account.moneyMaxCents ?? 0,
+        money,
         divisionIds[account.division],
         parentAccountId,
       ],

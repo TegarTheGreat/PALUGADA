@@ -731,3 +731,47 @@ test('revoking a publisher quarantines the next install (F16.2)', async () => {
   });
   assert.equal(untouched, false);
 });
+
+/**
+ * An unsigned bundle's skills say where they came from.
+ *
+ * F12.10 already refuses an unsigned or untrusted bundle any grant above tier
+ * 0, and the install is marked quarantined. Its *skills* were not: they went in
+ * through `proposeSkillVersion`, which defaults `provenance = 'internal'`, so a
+ * document from a publisher this installation has never heard of arrived
+ * indistinguishable from one the company wrote itself.
+ *
+ * The candidate gate meant it reached no context yet, which is why this was
+ * survivable — but once a reviewer and the owner approved it, it would be live
+ * with no origin on the record and no quarantine for anybody to lift, and
+ * F15.8's caveat above the procedure would never print. The one gate external
+ * knowledge has would have been skipped by arriving in a package.
+ */
+test('an unquarantined bundle\'s skills carry their origin (F15.8, F12.10)', async () => {
+  const fixture = await createCompany('bundle-skill-origin');
+  await registerStandardCatalogue();
+
+  // Published with no signature, so the install quarantines.
+  await publishBundle(QA_REVIEW);
+  const install = await installBundle({
+    companyId: fixture.companyId,
+    slug: QA_REVIEW.slug,
+    version: QA_REVIEW.version,
+  });
+  assert.equal(install.quarantined, true, 'an unsigned bundle installs quarantined');
+
+  const skill = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{
+      provenance: string; origin: string | null; quarantined: boolean; scope_type: string;
+    }>(
+      "SELECT provenance, origin, quarantined, scope_type FROM skills WHERE slug = 'reviewing'",
+    );
+    return rows[0]!;
+  });
+
+  assert.equal(skill.provenance, 'external', 'it did not come from this company');
+  assert.equal(skill.origin, `bundle:${QA_REVIEW.slug}@${QA_REVIEW.version}`);
+  // Quarantine is a division-scope flag (0026). A wider skill cannot carry it
+  // and does not need to: it is still a candidate, so F15.3 stands in the way.
+  assert.equal(skill.quarantined, skill.scope_type === 'division');
+});

@@ -145,6 +145,8 @@ export class Worker {
   readonly id: string;
   /** When each company's retention was last applied by *this* worker. */
   readonly #retainedAt = new Map<string, number>();
+  /** Which company this worker starts its tick on. See `#rotate`. */
+  #turn = 0;
 
   constructor(options: WorkerOptions) {
     this.#options = options;
@@ -171,7 +173,7 @@ export class Worker {
       return report;
     }
 
-    const companies = await this.#companies();
+    const companies = this.#rotate(await this.#companies());
 
     for (const company of companies) {
       await this.#stage(report, 'reclaim', async () => {
@@ -344,6 +346,27 @@ export class Worker {
     const outcome = await this.#options.engine.runTask(companyId, taskId, roleSlug);
     report.ran.push({ taskId, status: outcome.status });
     return outcome.status;
+  }
+
+  /**
+   * Starts each tick on a different company.
+   *
+   * `maxRunsPerTick` is a bound on the whole tick, not per company -- F5.8
+   * wants a stop to bite within one polling interval, and a budget that grew
+   * with the number of companies would not give that. But the loop always
+   * started at the same company, so one with more work than the budget spent
+   * all of it every tick and the companies behind it never got a claim stage at
+   * all. Not delayed: starved, for as long as the first one stays busy.
+   *
+   * Rotating costs nothing and makes the bound fair over time rather than
+   * fair per tick. Ten companies and a budget of eight means every company is
+   * reached within two ticks, which at the default interval is ten seconds.
+   */
+  #rotate(companies: string[]): string[] {
+    if (companies.length < 2) return companies;
+    const start = this.#turn % companies.length;
+    this.#turn = (this.#turn + 1) % companies.length;
+    return [...companies.slice(start), ...companies.slice(0, start)];
   }
 
   /**

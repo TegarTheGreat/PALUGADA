@@ -690,3 +690,57 @@ test('a tick that only met an unhealthy runtime sleeps rather than spinning (F13
     true,
   );
 });
+
+/**
+ * One busy company does not starve the others.
+ *
+ * `maxRunsPerTick` bounds the whole tick rather than each company, and it has
+ * to: F5.8 wants a stop to bite within one polling interval, and a budget that
+ * grew with the number of companies would not give that. But the loop always
+ * started at the same company, so one with more work than the budget spent all
+ * of it every tick and the companies behind it never reached their claim stage
+ * at all. Not delayed — starved, for as long as the first one stayed busy.
+ *
+ * The bound is now fair over time instead of fair per tick: each tick starts on
+ * the next company round.
+ */
+test('a busy company does not starve the next one (F5.8)', async () => {
+  const first = await createCompany('fleet-busy', { tokensMax: 10_000_000 });
+  const second = await createCompany('fleet-quiet', { tokensMax: 10_000_000 });
+
+  // More work than one tick's budget, in both.
+  for (let i = 0; i < 3; i += 1) await newTask(first);
+  for (let i = 0; i < 3; i += 1) await newTask(second);
+
+  const engine = new Engine({
+    broker: new CapabilityBroker(baseRegistry()),
+    llm: new RecordingLlmClient(),
+    handlers: new Map([['worker', async () => ({ done: true })]]),
+    workerId: 'fleet-fair',
+  });
+  // One run per tick, so the starvation is unambiguous rather than a matter of
+  // how the budget happened to divide.
+  const worker = new Worker({ engine, maxRunsPerTick: 1 });
+
+  const ranIn: string[] = [];
+  for (let tick = 0; tick < 2; tick += 1) {
+    const report = await worker.tick();
+    assert.deepEqual(report.errors, []);
+    for (const run of report.ran) {
+      const company = await withControlPlane(async (tx) => {
+        const { rows } = await tx.query<{ company_id: string }>(
+          'SELECT company_id FROM tasks WHERE id = $1',
+          [run.taskId],
+        );
+        return rows[0]!.company_id;
+      });
+      ranIn.push(company);
+    }
+  }
+
+  assert.deepEqual(
+    [...new Set(ranIn)].sort(),
+    [first.companyId, second.companyId].sort(),
+    'the second company never got a turn',
+  );
+});

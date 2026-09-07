@@ -385,7 +385,13 @@ export async function installBundle(input: {
   // review it and the owner still has to approve it, and a bundle that could
   // activate its own skills would be a way to put text in front of every agent
   // without anybody reading it.
-  const skills = await installSkills(input.companyId, body, input.slug);
+  const skills = await installSkills(
+    input.companyId,
+    body,
+    input.slug,
+    input.version,
+    quarantined,
+  );
 
   return {
     slug: input.slug,
@@ -414,6 +420,8 @@ async function installSkills(
   companyId: string,
   body: BundleBody,
   bundleSlug: string,
+  bundleVersion: string,
+  quarantined: boolean,
 ): Promise<string[]> {
   const { addEvalCase, proposeSkillVersion } = await import('../skills/skills.ts');
   const installed: string[] = [];
@@ -443,6 +451,30 @@ async function installSkills(
     // F15.4: the evals travel with the skill, so it is activatable at all.
     for (const evalCase of skill.evals) {
       await addEvalCase(companyId, proposed.skillId, evalCase);
+    }
+
+    // F15.8, F12.10: a skill from a bundle nobody vouched for came from
+    // outside this company, and it entered saying otherwise. `proposeSkillVersion`
+    // defaults to `internal`, so an unsigned bundle's skills arrived
+    // indistinguishable from ones the company wrote -- and once approved they
+    // would be live with no origin recorded and no quarantine for the owner to
+    // lift, which is the one gate F15.8 gives external knowledge.
+    //
+    // Quarantine only where the database allows it (0026 keeps a quarantined
+    // skill to one division). A wider one cannot carry the flag, and does not
+    // need to: it is still a candidate, so F15.3's review and the owner's
+    // approval stand between it and any context pack.
+    if (quarantined) {
+      await withTenant(companyId, async (tx) => {
+        await tx.query(
+          `UPDATE skills
+              SET provenance = 'external',
+                  origin = $2,
+                  quarantined = (scope_type = 'division')
+            WHERE id = $1`,
+          [proposed.skillId, `bundle:${bundleSlug}@${bundleVersion}`],
+        );
+      });
     }
     installed.push(skill.slug);
   }

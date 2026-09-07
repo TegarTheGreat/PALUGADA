@@ -204,8 +204,15 @@ const SECTIONS: Section[] = [
     // answer "what did this look like in March" as well as "what does it look
     // like now".
     name: 'config_versions',
+    // `WHERE company_id IS NOT NULL`, and it is not decoration. 0027 made this
+    // table shared-scope so a tenant can *read* the platform's own versions --
+    // the platform charter, the platform policies -- and without the filter
+    // every company archive carried them, and `importCompany` rewrote them as
+    // the destination company's own. One company's archive would have installed
+    // the source installation's platform charter as company configuration.
     sql: `SELECT id, kind, subject_id, version, snapshot, summary, changed_by, created_at
-            FROM config_versions ORDER BY kind, subject_id, version`,
+            FROM config_versions WHERE company_id IS NOT NULL
+           ORDER BY kind, subject_id, version`,
   },
   {
     name: 'role_eval_cases',

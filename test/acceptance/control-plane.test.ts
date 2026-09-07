@@ -743,6 +743,59 @@ test('a division\'s escalation policy shapes the escalation it raises (F2.1)', a
   );
 });
 
+/**
+ * A grace period is only a grace period if somebody has it.
+ *
+ * `escalationPolicyFor` defaults `afterMinutes` to four hours and `roleSlug` to
+ * nothing, so a division that never set a policy reads back as "four hours" for
+ * nobody. Holding the owner's notification on that would mean four hours in
+ * which no role has been asked, nobody is working on the problem, and the item
+ * just sits -- the delay bought silence, not handling. Without a named role the
+ * escalation has no home inside the division, which is exactly the case F2.1
+ * sends straight to the owner.
+ */
+test('a division that names no escalation role does not delay the owner (F2.1)', async () => {
+  const fixture = await createCompany('escalation-unowned');
+
+  // Deliberately not calling setEscalationPolicy: this is the state every
+  // division is created in.
+  const unowned = await inbox.raiseEscalation({
+    companyId: fixture.companyId,
+    divisionId: fixture.divisionId,
+    title: 'Nobody was named for this',
+    detail: 'The division has no escalation role.',
+  });
+  const direct = await inbox.raiseEscalation({
+    companyId: fixture.companyId,
+    title: 'No division at all',
+    detail: 'Straight to you.',
+  });
+
+  const rows = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{
+      id: string; notify_after: Date; rationale: string; payload: Record<string, unknown>;
+    }>(
+      'SELECT id, notify_after, rationale, payload FROM inbox_items WHERE id = ANY($1)',
+      [[unowned, direct]],
+    );
+    return new Map(rows.map((row) => [row.id, row]));
+  });
+
+  // The same moment as an escalation with no division at all: the owner's own
+  // window and nothing added to it.
+  assert.equal(
+    rows.get(unowned)!.notify_after.getTime(),
+    rows.get(direct)!.notify_after.getTime(),
+  );
+  // And it does not claim somebody was asked first.
+  assert.doesNotMatch(rows.get(unowned)!.rationale, /was asked first/);
+  assert.equal(rows.get(unowned)!.payload.escalationRole, null);
+  assert.equal(rows.get(unowned)!.payload.afterMinutes, undefined);
+  // The division is still recorded -- whose problem it was is worth keeping
+  // even when it named nobody to handle it.
+  assert.equal(rows.get(unowned)!.payload.divisionId, fixture.divisionId);
+});
+
 /* ----------------------------------------------------------------- F3.11 --- */
 
 test('charters live as files, and the files are the source (F3.11)', async () => {

@@ -190,8 +190,17 @@ export async function raiseEscalation(input: {
   // period. A division that is allowed four hours to handle something should
   // not have the owner told in one, and an owner asleep should not be told at
   // three because a division's clock ran out.
-  const divisionHasUntil = policy
-    ? new Date(Date.now() + policy.afterMinutes * 60_000)
+  //
+  // Only when the division actually names somebody, though. `afterMinutes` has
+  // a company-wide default and `roleSlug` does not, so a division that never
+  // set a policy still reads back as "four hours" -- and holding the owner's
+  // notification for four hours is granting a grace period to nobody. Through
+  // that window no role has been asked, no one is working on it, and the item
+  // simply waits. Without a named role the escalation has no home, and F2.1's
+  // own default for that case is the owner, now.
+  const handledBy = policy?.roleSlug ? policy : null;
+  const divisionHasUntil = handledBy
+    ? new Date(Date.now() + handledBy.afterMinutes * 60_000)
     : windowOpens;
   const notifyAfter = divisionHasUntil > windowOpens ? divisionHasUntil : windowOpens;
 
@@ -206,19 +215,24 @@ export async function raiseEscalation(input: {
         input.companyId, input.taskId ?? null, input.title,
         // The owner is told who was supposed to handle it. An escalation that
         // reaches them without saying whose it was is one they have to trace.
-        policy?.roleSlug
-          ? `${input.detail}\n\n${policy.roleSlug} was asked first and has had ` +
-            `${policy.afterMinutes} minutes.`
+        handledBy
+          ? `${input.detail}\n\n${handledBy.roleSlug} was asked first and has had ` +
+            `${handledBy.afterMinutes} minutes.`
           : input.detail,
         input.tier ?? null, notifyAfter,
+        // The recorded grace period is the one that was actually granted, so
+        // an item whose division names nobody does not read as though four
+        // hours were given to someone.
         JSON.stringify(
-          policy
+          handledBy
             ? {
                 divisionId: input.divisionId,
-                escalationRole: policy.roleSlug,
-                afterMinutes: policy.afterMinutes,
+                escalationRole: handledBy.roleSlug,
+                afterMinutes: handledBy.afterMinutes,
               }
-            : {},
+            : input.divisionId
+              ? { divisionId: input.divisionId, escalationRole: null }
+              : {},
         ),
       ],
     );
@@ -231,7 +245,9 @@ export async function raiseEscalation(input: {
       payload: {
         inboxItemId: id,
         title: input.title,
-        ...(policy ? { escalationRole: policy.roleSlug, afterMinutes: policy.afterMinutes } : {}),
+        ...(handledBy
+          ? { escalationRole: handledBy.roleSlug, afterMinutes: handledBy.afterMinutes }
+          : {}),
       },
     });
     return id;

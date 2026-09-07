@@ -350,3 +350,46 @@ test('the pipeline consults built-ins first and stops at the first refusal', asy
   assert.deepEqual(order, ['built.first', 'built.second']);
   assert.deepEqual(outcome.consulted, ['built.first', 'built.second']);
 });
+
+/**
+ * A hook judges the tier the division actually gave the capability.
+ *
+ * F8.3 lets a grant tighten a capability and never loosen it, so a division can
+ * hold `dns.read` at tier 2 where the registry calls it tier 0 — that is the
+ * division saying "here, this one is serious". The `pre_tool` hooks were handed
+ * `capability.defaultTier`, so a bundle hook refusing at or above a tier could
+ * not see the tightening and let through exactly the call that had been marked.
+ *
+ * The tier is read twice on purpose: once here, advisory, to decide what the
+ * hook is told, and once inside the authorization transaction where it is
+ * authoritative and consistent with the rate limit and policy beside it.
+ */
+test('a hook sees the tier the grant tightened to, not the registry default (F8.3, F14)', async () => {
+  const fixture = await createCompany('hook-effective-tier');
+
+  const hooks = new HookPipeline();
+  const seen: Array<number | undefined> = [];
+  hooks.add({
+    name: 'test.refuse-at-two',
+    on: 'pre_tool',
+    async run(ctx) {
+      seen.push(ctx.tier);
+      return (ctx.tier ?? 0) >= 2
+        ? { allow: false, reason: 'this division marked that capability as serious' }
+        : { allow: true };
+    },
+  });
+
+  const { broker, calls } = await brokerWith(hooks);
+  const task = await seed(fixture);
+  // After the registry sync, because a grant names a capability that exists.
+  // The division tightens dns.read from the registry's tier 0 to tier 2.
+  await grantCapability(fixture, 'dns.read', { tierOverride: 2 });
+
+  await assert.rejects(
+    () => broker.invoke(invokeContext(fixture, task.id), 'dns.read', { zone: 'example.com' }),
+    (error: unknown) => isPalugadaError(error, 'hook.denied'),
+  );
+  assert.deepEqual(seen, [2], 'the hook was told the registry default before this');
+  assert.equal(calls.executions, 0, 'and the adapter was never reached');
+});

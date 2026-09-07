@@ -28,6 +28,7 @@ import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';
 import { createRootTask, getTask } from '../../src/engine/tasks.ts';
 import { buildContext } from '../../src/context/builder.ts';
+import { snapshot, spend } from '../../src/engine/budget.ts';
 import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
 import {
   STANDARD_TEMPLATE_SLUG,
@@ -503,5 +504,98 @@ test('every role in the standard company can read its own memory and skills (F4.
     [...new Set(ungranted.map((row) => row.slug))].sort(),
     ['assurance', 'lab'],
     'a division whose roles hold a tool it was never granted, or an exception that was granted one',
+  );
+});
+
+/**
+ * A division that says nothing about money inherits the ceiling above it.
+ *
+ * F1.6 makes a division account a *narrower* scope, and a template's
+ * `budget.divisions` entry names tokens because tokens are what a division
+ * mostly burns. Money is optional there. Stored as zero, that omission would
+ * not have meant "no ceiling of its own" -- `app.budget_spend` refuses when
+ * `money_spent + amount > money_max`, so zero means "may never spend a cent",
+ * and every division that had not thought about money would have been unable
+ * to pay for anything. `assertTemplateIsCoherent` read the same zero as "not
+ * set here" and let it through, so the two halves disagreed about what an
+ * omitted number meant and the company was built on the harsher reading.
+ */
+test('a division that names no money ceiling inherits the one above it (F1.6)', async () => {
+  await saveTemplate({
+    slug: 'frugal',
+    name: 'Frugal',
+    body: {
+      divisions: [
+        { slug: 'ops', name: 'Operations' },
+        { slug: 'ops-infra', name: 'Infrastructure', parent: 'ops' },
+      ],
+      roles: [
+        {
+          slug: 'operator', division: 'ops', systemPrompt: 'You operate.',
+          model: 'test-model', outputSchema: WORK_OUTPUT, doneCriteria: DONE,
+        },
+      ],
+      budget: {
+        tokensMax: 100_000,
+        moneyMaxCents: 50_000,
+        divisions: [
+          // Neither says anything about money: one hangs from the company, the
+          // other from a division that is itself silent, so the walk up has to
+          // pass through a silent level to find the company's number.
+          { division: 'ops', tokensMax: 60_000 },
+          { division: 'ops-infra', tokensMax: 20_000 },
+        ],
+      },
+    },
+  });
+  const created = await createCompanyFromTemplate({
+    templateSlug: 'frugal', companySlug: 'frugal-co', name: 'Frugal Co',
+  });
+
+  await withTenant(created.companyId, async (tx) => {
+    const opsAccount = created.divisionBudgetAccountIds['ops']!;
+    const infraAccount = created.divisionBudgetAccountIds['ops-infra']!;
+
+    // The point of the test: an invoice actually clears. `budget_spend` walks
+    // the whole chain, so this passes only if every account in it -- including
+    // the two that named no money -- has room for the charge.
+    assert.equal(await spend(tx, infraAccount, { tokens: 10, moneyCents: 1_500 }), true);
+
+    const ops = await snapshot(tx, opsAccount);
+    const infra = await snapshot(tx, infraAccount);
+    assert.equal(ops.moneyMaxCents, 50_000);
+    assert.equal(infra.moneyMaxCents, 50_000);
+    // Inherited, not unlimited: the company's ceiling is still the one that
+    // binds, and it binds through the divisions below it.
+    assert.equal(await spend(tx, infraAccount, { tokens: 10, moneyCents: 49_000 }), false);
+  });
+});
+
+/**
+ * The other half of the same reading: inheritance must not become a way to
+ * declare a child larger than the parent it hangs from. A parent that omitted
+ * its money ends up with the company's, so a child declared above *that* is
+ * still a ceiling that could never bind, and saying so at save time is the
+ * only place it can still be fixed cheaply.
+ */
+test('a child cannot out-declare the money ceiling its parent inherited (F1.6)', () => {
+  assert.throws(
+    () =>
+      assertTemplateIsCoherent({
+        divisions: [
+          { slug: 'delivery', name: 'Delivery' },
+          { slug: 'build', name: 'Build', parent: 'delivery' },
+        ],
+        roles: [],
+        budget: {
+          tokensMax: 100_000,
+          moneyMaxCents: 10_000,
+          divisions: [
+            { division: 'delivery', tokensMax: 50_000 },
+            { division: 'build', tokensMax: 20_000, moneyMaxCents: 30_000 },
+          ],
+        },
+      }),
+    /above delivery's 10000/,
   );
 });

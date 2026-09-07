@@ -163,6 +163,39 @@ export class CapabilityBroker {
     });
   }
 
+  /**
+   * The tier a hook should judge, which is not the capability's own.
+   *
+   * F8.3 lets a grant tighten a capability -- never loosen it -- so a division
+   * can hold `doc.draft` at tier 2 where the registry calls it tier 1. The
+   * `pre_tool` hooks were handed `capability.defaultTier`, so a bundle hook
+   * that refuses at or above a tier could not see the tightening: the
+   * `qa-review` bundle's `review.read-only` would let through exactly the call
+   * the division had marked as the more serious one.
+   *
+   * Read here and read again inside the authorization transaction, and that is
+   * deliberate rather than sloppy. This one is advisory -- it decides what a
+   * hook is told -- and the one inside the transaction is authoritative,
+   * consistent with the rate limit and the policy it is evaluated beside. A
+   * grant that changed between the two costs a hook the wrong tier for one
+   * call; sharing the read would cost the gate its consistency, which is the
+   * worse trade.
+   *
+   * Falls back to the capability's own tier when the division holds no grant.
+   * The gate refuses that call a moment later with `capability.not_granted`;
+   * inventing a tier for it here would only change which refusal it gets.
+   */
+  async #effectiveTierFor(
+    ctx: InvokeContext,
+    name: string,
+    fallback: Tier,
+  ): Promise<Tier> {
+    const grant = await withTenant(ctx.companyId, (tx) =>
+      readGrant(tx, ctx.divisionId, name),
+    );
+    return grant ? effectiveTier(fallback, grant.tierOverride) : fallback;
+  }
+
   /** The hook pipeline this broker consults (F14). */
   get hooks(): HookPipeline {
     return this.#hooks;
@@ -198,7 +231,7 @@ export class CapabilityBroker {
       roleId: ctx.roleId,
       divisionId: ctx.divisionId,
       capability: name,
-      tier: capability.defaultTier,
+      tier: await this.#effectiveTierFor(ctx, name, capability.defaultTier),
       input,
     });
     if (!preTool.allowed) {

@@ -14,6 +14,8 @@ export type ErrorCode =
   | 'capability.miscalibrated'
   | 'capability.verify_failed'
   | 'capability.rate_limited'
+  /** F12.9: the capability was asked to reach somewhere it may not. */
+  | 'capability.unreachable'
   /** The broker was built with no secret manager, so no credential can be resolved. */
   | 'credential.unavailable'
   /** F12.6: the credential does not declare a scope the capability needs. */

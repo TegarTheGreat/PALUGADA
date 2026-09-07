@@ -35,6 +35,8 @@ import { WebhookPush } from './owner/push.ts';
 import { TelegramChannel } from './owner/telegram.ts';
 import type { OwnerChannel } from './owner/notify.ts';
 import { AdapterRegistry } from './runtime/protocol.ts';
+import { registerPlatformCapabilities } from './capabilities/platform.ts';
+import type { LlmClient } from './llm/client.ts';
 
 export interface DeploymentOptions {
   /** Where the secrets actually live. The in-memory one is for a test. */
@@ -44,6 +46,20 @@ export interface DeploymentOptions {
   registry?: CapabilityRegistry;
   /** The console's files. Omitted means the API without a page in front. */
   consoleRoot?: string;
+  /**
+   * The model the platform's own drafting capabilities use.
+   *
+   * Omitted means `doc.draft` and `email.draft` stay unbound, which is honest:
+   * a capability bound to no model would fail at the first call, and a role
+   * granted it would be told at the moment it tried to work.
+   */
+  llm?: LlmClient;
+  /**
+   * The directory `files.list` may read. There is deliberately no default --
+   * the default would be this process's working directory, which is the
+   * platform's own source.
+   */
+  filesRoot?: string;
   port?: number;
   host?: string;
   env?: NodeJS.ProcessEnv;
@@ -131,7 +147,34 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   }
 
   const registry = options.registry ?? new CapabilityRegistry();
-  await registry.sync();
+
+  // The six capabilities the platform implements itself. The other nineteen
+  // the standard template grants need somebody's account, and a control plane
+  // does not get to choose which mail provider every company that ever uses it
+  // will have.
+  const bound = await registerPlatformCapabilities(registry, {
+    web: {
+      ...(env.PALUGADA_ALLOW_PRIVATE_HOSTS
+        ? { allowPrivateHosts: env.PALUGADA_ALLOW_PRIVATE_HOSTS.split(',').map((h) => h.trim()) }
+        : {}),
+    },
+    ...(options.filesRoot ?? env.PALUGADA_FILES_ROOT
+      ? { files: { root: (options.filesRoot ?? env.PALUGADA_FILES_ROOT)! } }
+      : {}),
+    ...(options.llm ? { llm: options.llm } : {}),
+    ...(env.PALUGADA_DRAFT_MODEL ? { draftModel: env.PALUGADA_DRAFT_MODEL } : {}),
+  });
+  if (!options.filesRoot && !env.PALUGADA_FILES_ROOT) {
+    notes.push('files.list is unbound: set PALUGADA_FILES_ROOT to the company\'s files (F8)');
+  }
+  if (!options.llm) {
+    notes.push('doc.draft and email.draft are unbound: no model client was given (F8)');
+  } else if (!options.filesRoot && !env.PALUGADA_FILES_ROOT) {
+    // §8.8 puts a draft at tier 1 because it is a write. A drafting capability
+    // with nowhere to write is not the capability the catalogue calibrated.
+    notes.push('doc.draft and email.draft are unbound: they need PALUGADA_FILES_ROOT too (F8)');
+  }
+  notes.push(`bound by the platform: ${bound.join(', ')}`);
 
   const engine = new Engine({
     broker: new CapabilityBroker(registry, undefined, undefined),

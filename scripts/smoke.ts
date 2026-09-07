@@ -32,6 +32,7 @@ import { createRootTask, getTask } from '../src/engine/tasks.ts';
 import { withTenant, withControlPlane } from '../src/db/tenant.ts';
 import { closePools } from '../src/db/pool.ts';
 import { raiseIncident, requestApproval, decide, listOpen } from '../src/inbox/inbox.ts';
+import { registerPlatformCapabilities } from '../src/capabilities/platform.ts';
 import { InMemorySecretManager } from '../src/secrets/manager.ts';
 import {
   OwnerMfa,
@@ -158,13 +159,35 @@ async function main(): Promise<number> {
   log('company built', `${slug} — ${Object.keys(company.divisionIds).length} division, ` +
     `${Object.keys(company.roleIds).length} role`);
 
+  // The six the platform implements itself, bound before the count so the
+  // count means what it says. `files.list` gets a temporary root and the
+  // drafting pair the same recording client the run already uses: this is a
+  // boot check, and what it is checking is that the wiring exists.
+  const { mkdtemp } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const filesRoot = await mkdtemp(`${tmpdir()}/palugada-smoke-files-`);
+  const bound = await registerPlatformCapabilities(registry, {
+    files: { root: filesRoot },
+    llm: new RecordingLlmClient(),
+  });
+  log('platform capabilities', bound.join(', '));
+
   const unbound = await unboundStandardGrants();
   log(
     'standard template',
     unbound.length === 0
       ? 'every capability it grants is bound here'
-      : `${unbound.length} capabilities still need an adapter: ${unbound.join(', ')}`,
+      : `${unbound.length} still need a vendor: ${unbound.join(', ')}`,
   );
+  // The six are not among them, which is the assertion: a capability the
+  // platform implements and forgets to register is one a role is refused for
+  // at the moment it tries to work.
+  for (const name of bound) {
+    if (unbound.includes(name)) {
+      log('RESULT', `${name} is implemented and not registered`);
+      return 1;
+    }
+  }
 
   // Named rather than taken as whichever key came first, so a change to the
   // template above fails loudly here instead of quietly running something else.

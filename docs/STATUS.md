@@ -1049,6 +1049,81 @@ environment configured -- and it reports what was left unconfigured at boot
 rather than at 3am: no authenticator enrolled means no tier 3 approval is
 possible, and it says so in those words.
 
+## 2.15 Five capabilities that needed nobody's account
+
+Twenty-five names, nineteen of which need a vendor. Five did not, and they had
+been left unbound alongside the nineteen -- which is the same mistake section
+2.13 records about MFA, made a second time on a different subject. *A vendor
+account cannot be conjured. Code can be written.*
+
+`web.fetch`, `uptime.check`, `files.list`, `doc.draft` and `email.draft` are
+now real, in `src/capabilities/`. Two things came out of building them, and
+both are worth more than the capabilities.
+
+### The most dangerous thing in the catalogue is the one that looks harmless
+
+`web.fetch` is tier 0 -- it changes nothing -- and the standard template grants
+it to four divisions. It is therefore the capability most likely to be granted
+without much thought, and it makes an HTTP request *from inside the platform's
+own network*. What that reaches by default is everything the orchestrator can
+reach: `169.254.169.254`, the cloud metadata service, which hands the machine's
+own credentials to anything that asks from the machine; `127.0.0.1:<port>`, the
+MCP tool bridge; an internal admin panel on a private address, which is the
+ordinary case rather than the exotic one.
+
+None of that is a bug in `web.fetch`. It is what fetching a URL means, which is
+why the capability has to decide what "the web" is before it goes anywhere.
+`reachable.ts` is that decision, and four things in it are load-bearing enough
+to have been checked by removing them:
+
+- **The check is on resolved addresses, not on names.** `localhost` is easy to
+  spot. `metadata.google.internal` is a public name with an `A` record pointing
+  at the metadata service, and an attacker's own domain resolving to
+  `127.0.0.1` costs nothing. A blocklist of names is one somebody registers
+  around in an afternoon.
+- **Every address a name resolves to, not the first.** Two `A` records -- one
+  public, one loopback -- is a documented way past a checker that stops at the
+  first, because which one the socket uses is not the checker's choice.
+- **Every redirect, re-checked.** A permitted host answering `302 Location:
+  http://169.254.169.254/` is the same attack with one extra hop, and
+  `redirect: 'follow'` takes it without asking anybody. So redirects are
+  followed by hand.
+- **`http` and `https` only.** `file:///etc/passwd` is the shortest path from
+  "read a web page" to "read the host".
+
+`files.list` needed the same argument about a different resource, and the same
+answer the owner console needed: `resolve` flattens `..` but does not follow a
+symbolic link, so a link inside the root pointing at `/etc` passes every string
+comparison. Only `realpath` sees it.
+
+### The calibration check caught a design mistake, which is what it is for
+
+`doc.draft` and `email.draft` were first written to return text and store
+nothing, at tier 0, because that felt safer. `assertCalibrated` refused to
+register them: §8.8 puts a draft at **tier 1** because a draft is a *write that
+can be undone by rewriting*, and a capability that stores nothing is not that
+capability at all. It also has nothing to `verify()`, which tier 1 requires --
+and a mandatory read-back with nothing to read back is the shape of a rule
+being worked around rather than met.
+
+So they write, into the company's own files directory -- the same root
+`files.list` reads -- and verify by reading the file back. The document store is
+the part that needs a vendor; the writing is not. A deployment with Google Docs
+or a real mailbox binds a different implementation of the same name.
+
+The filename is the platform's and never the caller's: a capability that let a
+role name the file is one that lets a role name
+`../../etc/cron.d/anything`. The slug is an allow-list rather than a
+deny-list, because the input is prose written by an agent, and "which
+characters are dangerous in a filename" has a different answer on every
+filesystem while "which are safe" has the same short one everywhere.
+
+### What that leaves
+
+Twenty names still need somebody's account, and the boot check still prints all
+twenty. That number is now honest in a way it was not: what is left is what
+genuinely cannot be built here, rather than what nobody had looked at.
+
 ### What is actually left
 
 No push service, no bot token, no sandbox vendor, and none of F13.3's four
@@ -1092,14 +1167,19 @@ is a real Daytona or Modal machine answering; the `http` runtime also reports
 this backend, because "somewhere else, not ours" is what it means in F13.5's
 vocabulary, and it cannot verify the claim.
 
-**Twenty-five capabilities the standard template grants have no adapter, and
+**Twenty of the capabilities the standard template grants have no adapter, and
 that is the design rather than a gap.** `dns.read`, `email.send`,
 `invoice.pay` and the rest are *names* in the catalogue: a tier, a schema, the
 scopes a credential must declare, and a `verify()` contract. What executes them
 is a deployment's own adapter, because `email.send` against Resend and against
 SES are different programs and choosing one for every company that ever uses
-this platform is not a decision a control plane gets to make. The alternative
-would be twenty-five integrations against accounts nobody here holds.
+this platform is not a decision a control plane gets to make.
+
+It was twenty-five, and five of those were unbound for the wrong reason -- the
+same one this repository already got wrong about MFA. `web.fetch`,
+`uptime.check`, `files.list`, `doc.draft` and `email.draft` need nobody's
+account, and `src/capabilities/` implements them. Section 2.15 has what that
+cost and what it found.
 
 What the platform owes in exchange is not letting that be quiet, and
 `scripts/smoke.ts` names every unbound one on every boot. A company granted a

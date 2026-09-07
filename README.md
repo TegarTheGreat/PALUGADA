@@ -306,6 +306,9 @@ the template is organised by function rather than by industry.
 | v2 F10.10 a tier 3 approval needs the app and a factor that checks out | `src/inbox/inbox.ts` | `owner-mfa.test.ts` |
 | v2 F10.5 push reaches the owner for an incident and a tier 3 approval, once | `src/owner/push.ts`, `notify.ts` | `owner-channels.test.ts` |
 | v2 F10.9 a chat carries buttons for what it may act on, and a link for the rest | `src/owner/telegram.ts` | `owner-channels.test.ts` |
+| v2 F10.1–F10.7 the owner's console: one queue, the buttons, the trace | `src/owner/api.ts`, `console/` | `owner-api.test.ts` |
+| v2 F12.9 a capability may not reach inside this network, whatever it is told | `src/capabilities/reachable.ts` | `platform-capabilities.test.ts` |
+| v2 F8 the five capabilities that need nobody's account | `src/capabilities/` | `platform-capabilities.test.ts` |
 | v2 F13.6 fallback for tier 0–1; a role that can act irreversibly halts instead | `src/engine/engine.ts` | `out-of-process-runtimes.test.ts` |
 | v2 F14.1 a runtime cannot get past a hook | `src/engine/hooks.ts` | `hooks.test.ts` |
 | v2 F14.2 built-ins cannot be removed; an added hook may only tighten | `src/engine/hooks.ts` | `hooks.test.ts` |

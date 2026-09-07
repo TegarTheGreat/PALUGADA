@@ -21,7 +21,13 @@ import { createServer, type Server } from 'node:http';
 import { closePools } from '../../src/db/pool.ts';
 import { withTenant } from '../../src/db/tenant.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
-import { dispatch, retryFailed, undelivered, isPushWorthy } from '../../src/owner/notify.ts';
+import {
+  dispatch,
+  retryFailed,
+  undelivered,
+  isPushWorthy,
+  RETRY_BASE_MS,
+} from '../../src/owner/notify.ts';
 import { WebhookPush } from '../../src/owner/push.ts';
 import {
   TelegramChannel,
@@ -238,18 +244,62 @@ test('a push that fails is retried, and only up to a point (F10.5)', async () =>
     assert.equal(first.failed, 1);
     assert.equal(await lastError(fixture), 'push returned 503: {"error":"the relay is down"}');
 
-    // Still failing.
-    const second = await retryFailed(fixture.companyId, push);
+    // Still failing. The clock is moved rather than the delay shortened,
+    // because what is being tested is that the retry *waits* -- and a test
+    // that set the wait to zero would be testing a configuration nothing uses.
+    const second = await retryFailed(fixture.companyId, push, { now: later(1) });
     assert.equal(second.failed, 1);
 
-    // Now it works.
+    // Now it works, one doubling later.
     failUntil = 0;
-    const third = await retryFailed(fixture.companyId, push);
+    const third = await retryFailed(fixture.companyId, push, { now: later(3) });
     assert.equal(third.delivered, 1);
     assert.equal(await lastError(fixture), null);
 
+    // A delivery that needed a retry is still a delivery, and the timeline
+    // says so. An audit log that only recorded the first-time ones would be
+    // quietly wrong about every flaky night.
+    assert.equal(await notifiedEvents(fixture), 1);
+
     // And a delivered item is not chased again.
-    assert.equal((await retryFailed(fixture.companyId, push)).delivered, 0);
+    assert.equal((await retryFailed(fixture.companyId, push, { now: later(9) })).delivered, 0);
+  } finally {
+    await vendor.close();
+  }
+});
+
+/**
+ * The wait is the point, so it is asserted directly.
+ *
+ * The worker runs `dispatch` and then `retryFailed` in one tick. Without a
+ * delay, two of the three attempts go milliseconds apart and the third a few
+ * seconds later -- so a relay restarting behind a load balancer, which is the
+ * ordinary failure rather than the exotic one, would be out of attempts before
+ * it came back and the owner would simply never be told.
+ */
+test('a retry waits, and waits longer each time (F10.5)', async () => {
+  const fixture = await createCompany('push-backoff');
+  const vendor = await fakeVendor(() => ({ status: 503, body: {} }));
+  try {
+    await incident(fixture, 'Disk is full');
+    const push = new WebhookPush({ url: vendor.url });
+    await dispatch(fixture.companyId, push);
+    assert.equal(vendor.calls.length, 1);
+
+    // Immediately after, and a second later: nothing.
+    assert.equal((await retryFailed(fixture.companyId, push)).skipped, 0);
+    assert.equal(vendor.calls.length, 1, 'a retry in the same tick is not a retry');
+
+    // Past the first wait.
+    await retryFailed(fixture.companyId, push, { now: later(1) });
+    assert.equal(vendor.calls.length, 2);
+
+    // The wait doubled, so the same interval again is too soon.
+    await retryFailed(fixture.companyId, push, { now: later(2) });
+    assert.equal(vendor.calls.length, 2, 'the second wait is longer than the first');
+
+    await retryFailed(fixture.companyId, push, { now: later(3) });
+    assert.equal(vendor.calls.length, 3);
   } finally {
     await vendor.close();
   }
@@ -262,10 +312,61 @@ test('a failing channel stops being called rather than retrying for ever (F10.5)
     await incident(fixture, 'Disk is full');
     const push = new WebhookPush({ url: vendor.url });
     await dispatch(fixture.companyId, push);
-    for (let round = 0; round < 5; round += 1) {
-      await retryFailed(fixture.companyId, push, { maxAttempts: 3 });
+    for (let round = 1; round <= 8; round += 1) {
+      await retryFailed(fixture.companyId, push, { maxAttempts: 3, now: later(round * 4) });
     }
     assert.equal(vendor.calls.length, 3, 'one attempt and two retries, then it stops');
+  } finally {
+    await vendor.close();
+  }
+});
+
+/**
+ * A database hiccup after a successful send must not become a second send.
+ *
+ * The natural way to write the dispatch loop puts `settle` and the audit event
+ * inside the same `try` as the transport, so a failure *after* the message has
+ * gone runs the failure path -- which clears `delivered_at` -- and the retry in
+ * the same tick sends it again. The owner's phone rings twice for one incident,
+ * which is the exact thing this module exists to prevent.
+ */
+test('a send whose bookkeeping failed is not sent again (F10.5)', async () => {
+  const fixture = await createCompany('push-after-send');
+  // A receipt id with a NUL byte in it — which PostgreSQL refuses outright, so
+  // the message goes out and the write that records it does not come back.
+  // Not contrived: a vendor whose id passes through a broken parser produces
+  // exactly this, and the two-statement gap it exposes is real whatever the
+  // cause.
+  const vendor = await fakeVendor(() => ({
+    status: 200,
+    body: { id: `re${String.fromCharCode(0)}ceipt` },
+  }));
+  try {
+    await incident(fixture, 'Disk is full');
+    const push = new WebhookPush({ url: vendor.url });
+
+    await assert.rejects(
+      () => dispatch(fixture.companyId, push),
+      /invalid byte sequence/,
+      'the bookkeeping failure is not swallowed as a delivery failure',
+    );
+    assert.equal(vendor.calls.length, 1, 'the message did go out');
+
+    // Neither delivered nor failed: the outcome was never learned. That is the
+    // state the retry must leave alone — re-sending would ring the owner's
+    // phone twice for one incident, and between "possibly sent twice" and
+    // "possibly not sent" a notification chooses the second.
+    const row = await withTenant(fixture.companyId, async (tx) => {
+      const { rows } = await tx.query<{ delivered_at: Date | null; last_error: string | null }>(
+        'SELECT delivered_at, last_error FROM owner_notifications',
+      );
+      return rows[0]!;
+    });
+    assert.equal(row.delivered_at, null);
+    assert.equal(row.last_error, null);
+
+    await retryFailed(fixture.companyId, push, { now: later(9) });
+    assert.equal(vendor.calls.length, 1, 'and it is not sent a second time');
   } finally {
     await vendor.close();
   }
@@ -614,6 +715,20 @@ test('an item no channel carries is not queued for one (F10.9)', async () => {
   assert.equal(waiting.some((item) => item.kind === 'budget_alert'), false);
   assert.equal((await inbox.listOpen(fixture.companyId)).length, 1, 'it is still in the inbox');
 });
+
+/** `n` retry-base intervals from now, for testing the backoff without waiting. */
+function later(intervals: number): Date {
+  return new Date(Date.now() + intervals * RETRY_BASE_MS);
+}
+
+async function notifiedEvents(fixture: Fixture): Promise<number> {
+  return withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM events WHERE type = 'owner.notified'",
+    );
+    return Number(rows[0]!.count);
+  });
+}
 
 /** A moment past any owner window, for the kinds that wait for one (F10.5). */
 function tomorrow(): Date {

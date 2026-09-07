@@ -74,6 +74,27 @@ export const TOTP_DIGITS = 6;
  */
 export const TOTP_DRIFT_STEPS = 1;
 
+/**
+ * The lockout, which is what turns "we recorded the failures" into a defence.
+ *
+ * Ten in a row and the second factor stops answering for fifteen minutes. A
+ * six-digit code is one of a million and the drift window makes three valid at
+ * once, so an unthrottled attacker succeeds in a few hundred thousand
+ * attempts -- minutes over a fast connection, against the check that guards
+ * every irreversible action this platform can take.
+ *
+ * Ten is deliberately generous: a real owner mistypes, and a lockout that
+ * fires on the third attempt teaches them to turn the feature off. Fifteen
+ * minutes caps an attacker at roughly forty tries an hour, which turns minutes
+ * into centuries, and it costs an owner who genuinely locked themselves out
+ * one coffee.
+ *
+ * Consecutive, so a success clears it: an owner who gets it right on the
+ * fourth try has not spent anything.
+ */
+export const DEFAULT_MAX_FAILURES = 10;
+export const DEFAULT_LOCKOUT_MS = 15 * 60_000;
+
 /* ------------------------------------------------------------------ TOTP --- */
 
 /**
@@ -282,8 +303,27 @@ export interface MfaOptions {
   challenges?: ChallengeStore;
   /** The relying party id a passkey was registered against. */
   rpId?: string;
-  /** Where the app is served from, checked against `clientDataJSON.origin`. */
+  /**
+   * Where the app is served from, checked against `clientDataJSON.origin`.
+   *
+   * Defaults to `https://<rpId>`, which is the relationship WebAuthn assumes,
+   * rather than to "do not check". An optional check that is skipped when
+   * unset fails *open*: a deployment that forgot the option would accept an
+   * assertion the owner's phone produced for another site. `rpId` has always
+   * failed closed -- its default is a value a real assertion will not match --
+   * and this now behaves the same way. A deployment on a port overrides it.
+   */
   origin?: string;
+  /**
+   * How many failures in a row lock the owner out, and for how long.
+   *
+   * A six-digit code is one of a million, and the drift window makes three of
+   * them valid at once -- so an attacker who can keep guessing gets in after a
+   * few hundred thousand tries, which is minutes over a fast connection.
+   * Recording failures is not enough; something has to stop them.
+   */
+  maxConsecutiveFailures?: number;
+  lockoutMs?: number;
   now?: () => Date;
 }
 
@@ -291,6 +331,19 @@ export interface VerifiedFactor {
   authenticatorId: string;
   kind: FactorKind;
   label: string;
+}
+
+/** Who is asking, what for, and about which company. */
+export interface VerificationContext {
+  purpose?: string;
+  subjectId?: string | null;
+  /**
+   * The company the factor is being presented for.
+   *
+   * `null` means the platform's own owner, and a platform-scoped factor
+   * answers for every company. A company-scoped one answers only for its own.
+   */
+  companyId?: string | null;
 }
 
 /**
@@ -305,14 +358,18 @@ export class OwnerMfa {
   readonly #secrets: SecretManager;
   readonly #challenges: ChallengeStore;
   readonly #rpId: string;
-  readonly #origin: string | null;
+  readonly #origin: string;
+  readonly #maxConsecutiveFailures: number;
+  readonly #lockoutMs: number;
   readonly #now: () => Date;
 
   constructor(options: MfaOptions) {
     this.#secrets = options.secrets;
     this.#challenges = options.challenges ?? new ChallengeStore();
     this.#rpId = options.rpId ?? 'localhost';
-    this.#origin = options.origin ?? null;
+    this.#origin = options.origin ?? `https://${this.#rpId}`;
+    this.#maxConsecutiveFailures = options.maxConsecutiveFailures ?? DEFAULT_MAX_FAILURES;
+    this.#lockoutMs = options.lockoutMs ?? DEFAULT_LOCKOUT_MS;
     this.#now = options.now ?? (() => new Date());
   }
 
@@ -375,7 +432,17 @@ export class OwnerMfa {
     });
   }
 
-  async enrolled(): Promise<OwnerAuthenticator[]> {
+  /**
+   * The factors that may answer for this company.
+   *
+   * A platform-scoped row -- `company_id IS NULL` -- is the owner's own device
+   * and answers everywhere, which is what §5 principle 1's single human means.
+   * A company-scoped one answers only there. Without the predicate the two
+   * would be the same thing, and the column would be a lie: a factor enrolled
+   * against one company would have approved a tier 3 action in another, which
+   * is precisely the isolation every other table in this schema enforces.
+   */
+  async enrolled(companyId: string | null = null): Promise<OwnerAuthenticator[]> {
     return withControlPlane(async (tx) => {
       const { rows } = await tx.query<{
         id: string; kind: FactorKind; label: string; secret_ref: string | null;
@@ -386,7 +453,9 @@ export class OwnerMfa {
                 last_step, sign_count, revoked_at
            FROM owner_authenticators
           WHERE revoked_at IS NULL
+            AND (company_id IS NULL OR company_id = $1)
           ORDER BY enrolled_at`,
+        [companyId],
       );
       return rows.map((row) => ({
         id: row.id,
@@ -412,9 +481,11 @@ export class OwnerMfa {
    */
   async verifyTotp(
     code: string,
-    context: { purpose?: string; subjectId?: string | null } = {},
+    context: VerificationContext = {},
   ): Promise<VerifiedFactor> {
-    const candidates = (await this.enrolled()).filter((factor) => factor.kind === 'totp');
+    await this.#assertNotLockedOut(context);
+    const candidates = (await this.enrolled(context.companyId ?? null))
+      .filter((factor) => factor.kind === 'totp');
     if (candidates.length === 0) {
       await this.#record(null, 'totp', false, 'mfa.not_enrolled', context);
       throw new PalugadaError(
@@ -473,9 +544,10 @@ export class OwnerMfa {
    */
   async verifyWebAuthn(
     assertion: WebAuthnAssertion,
-    context: { purpose?: string; subjectId?: string | null } = {},
+    context: VerificationContext = {},
   ): Promise<VerifiedFactor> {
-    const factor = (await this.enrolled()).find(
+    await this.#assertNotLockedOut(context);
+    const factor = (await this.enrolled(context.companyId ?? null)).find(
       (candidate) =>
         candidate.kind === 'webauthn' && candidate.credentialId === assertion.credentialId,
     );
@@ -519,12 +591,23 @@ export class OwnerMfa {
 
     // Where it was collected. An origin check is what stops a signature
     // gathered by another site -- one the owner also uses this phone with --
-    // from being presented here.
-    if (this.#origin !== null && clientData.origin !== this.#origin) {
+    // from being presented here. Always checked: see `MfaOptions.origin` for
+    // why an optional one is worse than none.
+    if (clientData.origin !== this.#origin) {
       return refuse('mfa.wrong_origin', `the assertion was collected at ${clientData.origin}`);
     }
 
-    const parsed = parseAuthenticatorData(authenticatorData);
+    // Through `refuse` rather than letting `parseAuthenticatorData` throw
+    // straight out: every attempt is supposed to reach
+    // `owner_authentications`, and a stream of malformed assertions is one of
+    // the more informative things that table can hold -- it is what somebody
+    // probing the endpoint produces.
+    let parsed: ParsedAuthenticatorData;
+    try {
+      parsed = parseAuthenticatorData(authenticatorData);
+    } catch (error) {
+      return refuse('mfa.assertion_malformed', (error as Error).message);
+    }
 
     // The same argument as the origin, made by the authenticator rather than
     // by the browser: the RP id hash is what the *device* believed it was
@@ -566,6 +649,59 @@ export class OwnerMfa {
     if (parsed.signCount === 0) await this.#touch(factor.id);
     await this.#record(factor.id, 'webauthn', true, null, context);
     return { authenticatorId: factor.id, kind: 'webauthn', label: factor.label };
+  }
+
+  /**
+   * Refuses everything while the owner's factor is locked out.
+   *
+   * Consecutive failures, counted from the most recent attempt backwards, so a
+   * success clears the tally: an owner who mistypes three times and then gets
+   * it right has spent nothing. An attacker never gets a success, so their
+   * tally only grows.
+   *
+   * Checked *before* the code is compared rather than after. A lockout that
+   * still told an attacker "wrong code" versus "locked out" by how long it
+   * took would be a lockout they could work around by watching the clock, and
+   * more importantly, a lockout that runs after the comparison is a lockout
+   * that still lets the millionth guess through.
+   */
+  async #assertNotLockedOut(context: VerificationContext): Promise<void> {
+    const since = new Date(this.#now().getTime() - this.#lockoutMs);
+    const failures = await withControlPlane(async (tx) => {
+      const { rows } = await tx.query<{ failures: string }>(
+        // Counts the run of failures at the end of the window: `succeeded` is
+        // ordered false-first descending, so the count stops at the most
+        // recent success. Done in SQL because doing it in TypeScript would
+        // mean fetching every attempt in the window to count the tail of it.
+        `SELECT count(*)::text AS failures
+           FROM (
+             SELECT succeeded
+               FROM owner_authentications
+              WHERE occurred_at >= $1
+              ORDER BY occurred_at DESC
+           ) recent
+          WHERE NOT succeeded
+            AND NOT EXISTS (
+              SELECT 1 FROM owner_authentications later
+               WHERE later.occurred_at >= $1 AND later.succeeded
+            )`,
+        [since],
+      );
+      return Number(rows[0]?.failures ?? 0);
+    });
+
+    if (failures >= this.#maxConsecutiveFailures) {
+      // Recorded, so the lockout itself is visible: an owner asking "why will
+      // it not take my code" and an auditor asking "was somebody trying" are
+      // reading the same table.
+      await this.#record(null, 'totp', false, 'mfa.locked_out', context);
+      throw new PalugadaError(
+        'mfa.locked_out',
+        `too many failed attempts; the second factor is locked for `
+          + `${Math.round(this.#lockoutMs / 60_000)} minutes (PRD F12.5)`,
+        { failures },
+      );
+    }
   }
 
   /**
@@ -628,7 +764,7 @@ export class OwnerMfa {
     kind: FactorKind,
     succeeded: boolean,
     reason: string | null,
-    context: { purpose?: string; subjectId?: string | null },
+    context: VerificationContext,
   ): Promise<void> {
     await withControlPlane(async (tx) => {
       await tx.query(

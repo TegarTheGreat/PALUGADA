@@ -68,6 +68,7 @@ export type ErrorCode =
   | 'mfa.not_user_verified'
   | 'mfa.signature_invalid'
   | 'mfa.counter_did_not_advance'
+  | 'mfa.locked_out'
   | 'review.required'
   | 'window.closed'
   | 'approval.required'

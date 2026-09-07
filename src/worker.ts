@@ -288,7 +288,10 @@ export class Worker {
             // A vendor is briefly unreachable more often than it is broken, and
             // a first attempt must not repeat while a retry must. `retryFailed`
             // is the only path that re-sends, and it only re-sends rows that
-            // were claimed and never completed.
+            // were claimed, never completed, and last tried long enough ago --
+            // the two run back to back in one tick, so without that wait two of
+            // the three attempts would be spent milliseconds apart and a relay
+            // restarting would exhaust the row before it came back.
             report.notified += (await retryFailed(company, channel, options)).delivered;
           }
         });

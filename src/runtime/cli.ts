@@ -85,13 +85,22 @@ export interface CliPlaceholders {
   model: string;
   /** `spec.maxTurns`, as a string. */
   maxTurns: string;
-  /** The bridge as an MCP client configuration, inline JSON. */
+  /**
+   * The bridge as an MCP client configuration, inline JSON.
+   *
+   * Carries the run's bearer token, and an argv is world-readable on the host
+   * -- `/proc/<pid>/cmdline`, `ps`, a container sidecar. Prefer
+   * `{mcpConfigFile}`, which is 0600 in a 0700 directory and is removed when
+   * the run ends. This form stays because some CLIs take only inline JSON, and
+   * the token is minted per run and expires with it; but where a CLI accepts
+   * either, the file is the one to use.
+   */
   mcpConfig: string;
   /** The same configuration written to a 0600 file; the value is its path. */
   mcpConfigFile: string;
   /** The bridge's loopback URL. */
   mcpUrl: string;
-  /** The bearer token minted for this run and no other. */
+  /** The bearer token minted for this run and no other. Same caveat as `mcpConfig`. */
   mcpToken: string;
   /** Every allowed tool, `mcp__palugada__`-prefixed and comma-joined. */
   allowedTools: string;

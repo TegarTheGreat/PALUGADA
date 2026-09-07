@@ -824,6 +824,14 @@ test('a channel that fails is a stage error, not a dead worker (F10.5)', async (
   assert.equal(report.notified, 0);
   assert.deepEqual(report.errors, []);
   assert.equal(report.ran.some((run) => run.taskId === task.id), true);
-  // One attempt, then one retry of the row it claimed and could not complete.
-  assert.equal(attempts, 2);
+  // One attempt this tick, and *only* one: `dispatch` and `retryFailed` run
+  // back to back, so a retry with no wait would burn the second attempt
+  // milliseconds after the first. A relay restarting -- the ordinary case --
+  // would then be out of attempts before it came back, and the owner would
+  // never be told at all.
+  assert.equal(attempts, 1);
+
+  // Nor on the next tick, which is seconds later.
+  await worker.tick();
+  assert.equal(attempts, 1);
 });

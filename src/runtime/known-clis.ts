@@ -77,7 +77,13 @@ const SPECS: Record<KnownCliName, CliRuntimeSpec> = {
     args: [
       '--no-interactive',
       '--model', '{model}',
-      '--mcp', '{mcpConfig}',
+      // The file, not `{mcpConfig}`. The inline form puts the bridge's bearer
+      // token on the command line, and a command line is world-readable on
+      // this machine -- `/proc/<pid>/cmdline`, `ps`, any container sidecar. The
+      // token is per-run and expires with it, so the window is short, but it
+      // is a credential in a place credentials do not belong and the file form
+      // is 0600 in a 0700 directory and removed when the run ends.
+      '--mcp-config', '{mcpConfigFile}',
       // No native tools. See the module comment: this is F13.4 and it is the
       // one flag in this file that is not a matter of taste.
       '--no-builtin-tools',

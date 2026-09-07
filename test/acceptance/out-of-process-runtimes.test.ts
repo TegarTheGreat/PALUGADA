@@ -19,10 +19,12 @@ import { ContainerAdapter } from '../../src/runtime/container.ts';
 import { CliAdapter, runtimeSpecsFrom } from '../../src/runtime/cli.ts';
 import { KNOWN_CLI_NAMES, knownCli, knownClis } from '../../src/runtime/known-clis.ts';
 import {
+  HttpSandboxProvider,
   RemoteSandboxAdapter,
   type SandboxProvider,
 } from '../../src/runtime/sandbox-adapter.ts';
 import { spawn } from 'node:child_process';
+import { createServer } from 'node:http';
 import { readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { startToolBridge } from '../../src/runtime/tool-bridge.ts';
@@ -1228,6 +1230,51 @@ test('an unreachable sandbox provider is unhealthy rather than an exception (F13
   assert.match(health.detail ?? '', /DNS is not answering/);
 });
 
+/**
+ * A provider that accepts the connection and never answers.
+ *
+ * That is what a half-failed vendor does -- it does not refuse, it hangs. The
+ * destroy runs on the adapter's unconditional cleanup path and the health
+ * check runs before every checkout, so an unbounded request there does not
+ * report an unhealthy runtime: it stops the worker from running any task at
+ * all, which is the failure F13.8 exists to prevent arriving through the check
+ * meant to prevent it.
+ */
+test('a provider that never answers is a timeout, not a hung worker (F13.5, F13.8)', async () => {
+  const held: Array<() => void> = [];
+  const server = createServer((_req, res) => {
+    // Accepted, and then nothing. The response is held so the socket stays
+    // open exactly the way a black-holing vendor's does.
+    held.push(() => res.end('{}'));
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address !== null && typeof address !== 'string');
+
+  const provider = new HttpSandboxProvider({
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    timeoutMs: 250,
+  });
+
+  try {
+    const startedAt = Date.now();
+    const health = await new RemoteSandboxAdapter({
+      provider,
+      image: 'palugada/runtime:1',
+    }).health();
+    assert.equal(health.ok, false, 'a provider that never answers is not healthy');
+    assert.ok(Date.now() - startedAt < 5_000, 'and it says so promptly');
+
+    // The same for the cleanup path, which is the one that would hold `run()`
+    // open and with it the tick behind it.
+    await assert.rejects(() => provider.destroy('sbx-1'));
+  } finally {
+    for (const release of held) release();
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 /* ------------------------------------------------- the four F13.3 names --- */
 
 /**
@@ -1279,6 +1326,25 @@ test('each runtime F13.3 names is a spec that reaches the broker (F13.3, F13.4)'
  * where correcting them costs nothing — otherwise the first operator who finds
  * a flag wrong is stuck until this repository releases.
  */
+/**
+ * The bridge token does not go on a command line.
+ *
+ * `{mcpConfig}` expands to JSON carrying `Authorization: Bearer <token>`, and
+ * an argv is world-readable on the host -- `/proc/<pid>/cmdline`, `ps`, a
+ * sidecar container. The token is per-run and expires with it, so the window
+ * is short, but it is a credential in a place credentials do not belong.
+ * `{mcpConfigFile}` is 0600 in a 0700 directory and is removed when the run
+ * ends, and every shipped spec uses it.
+ */
+test('no shipped runtime spec puts the bridge token on a command line (F13.3, F12.1)', () => {
+  for (const spec of knownClis()) {
+    const argv = spec.args.join(' ');
+    assert.equal(argv.includes('{mcpConfig}'), false, `${spec.name} inlines the MCP config`);
+    assert.equal(argv.includes('{mcpToken}'), false, `${spec.name} inlines the bridge token`);
+    assert.ok(argv.includes('{mcpConfigFile}'), `${spec.name} must use the file form`);
+  }
+});
+
 test('a known runtime spec can be corrected without editing the platform (F13.3)', () => {
   const corrected = knownCli('codex', {
     command: '/opt/codex/bin/codex',

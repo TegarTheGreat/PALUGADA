@@ -594,16 +594,15 @@ export async function decide(
     // of the eleven ways it failed. Not flattened into this one: "that code
     // has been used before" and "wrong code" are different stories, and only
     // one of them is somebody trying.
+    // The company travels with the proof. A factor enrolled against one
+    // company must not approve a tier 3 action in another, which is the same
+    // isolation every other table in this schema enforces -- and the owner's
+    // own platform-scoped device answers for all of them.
+    const asking = { purpose: 'approval.tier3', subjectId: itemId, companyId };
     factor =
       'totp' in options.proof!
-        ? await options.mfa!.verifyTotp(options.proof.totp, {
-            purpose: 'approval.tier3',
-            subjectId: itemId,
-          })
-        : await options.mfa!.verifyWebAuthn(options.proof!.webauthn, {
-            purpose: 'approval.tier3',
-            subjectId: itemId,
-          });
+        ? await options.mfa!.verifyTotp(options.proof.totp, asking)
+        : await options.mfa!.verifyWebAuthn(options.proof!.webauthn, asking);
     // Derived, never taken from the caller. This is the whole fix.
     assurance = 'mfa';
   }

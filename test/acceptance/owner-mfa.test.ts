@@ -63,14 +63,24 @@ const RFC6238_VECTORS: Array<{ unixTime: number; eightDigits: string }> = [
   { unixTime: 2_000_000_000, eightDigits: '69279037' },
 ];
 
-function mfaWith(options: { secrets?: InMemorySecretManager; now?: () => Date } = {}) {
+function mfaWith(
+  options: {
+    secrets?: InMemorySecretManager;
+    now?: () => Date;
+    origin?: string | undefined;
+    maxConsecutiveFailures?: number;
+  } = {},
+) {
   const secrets = options.secrets ?? new InMemorySecretManager();
   const challenges = new ChallengeStore();
   const mfa = new OwnerMfa({
     secrets,
     challenges,
     rpId: RP_ID,
-    origin: ORIGIN,
+    ...('origin' in options ? { origin: options.origin! } : { origin: ORIGIN }),
+    ...(options.maxConsecutiveFailures === undefined
+      ? {}
+      : { maxConsecutiveFailures: options.maxConsecutiveFailures }),
     ...(options.now ? { now: options.now } : {}),
   });
   return { mfa, secrets, challenges };
@@ -565,3 +575,186 @@ async function attemptLog(): Promise<Array<{ succeeded: boolean; reason: string 
     return rows;
   });
 }
+
+/* -------------------------------------------------- what the review found --- */
+
+/**
+ * An optional origin check fails open, which is worse than none.
+ *
+ * A deployment that omits the option would have accepted an assertion the
+ * owner's phone produced for a completely different site, and nothing would
+ * have looked wrong. `rpId` has always failed closed -- its default is a value
+ * a real assertion cannot match -- and the origin now behaves the same way, by
+ * defaulting to the relationship WebAuthn itself assumes.
+ */
+test('a deployment that names no origin still checks one (F12.5)', async () => {
+  const { mfa } = mfaWith({ origin: undefined });
+  const device = phone();
+  await mfa.enrolWebAuthn({
+    label: 'owner iPhone',
+    credentialId: device.credentialId,
+    publicKeyPem: device.publicKeyPem,
+  });
+
+  // Collected at some other site the owner uses this phone with.
+  await assert.rejects(
+    () => mfa.verifyWebAuthn(device.assert({ challenge: mfa.challenge(), origin: 'https://elsewhere.example' })),
+    (error: unknown) => isPalugadaError(error, 'mfa.wrong_origin'),
+  );
+
+  // And the derived default is the one WebAuthn assumes, so a correctly
+  // configured phone still works with no origin set at all.
+  const verified = await mfa.verifyWebAuthn(
+    device.assert({ challenge: mfa.challenge(), origin: `https://${RP_ID}` }),
+  );
+  assert.equal(verified.kind, 'webauthn');
+});
+
+/**
+ * Recording failures is not a defence. Stopping them is.
+ *
+ * A six-digit code is one of a million and the drift window makes three valid
+ * at once, so an attacker who can keep guessing is through in a few hundred
+ * thousand attempts -- minutes over a fast connection, against the check that
+ * guards every irreversible action this platform can take. The replay defence
+ * does not help: it only engages on a *correct* code.
+ */
+test('a run of failures locks the second factor rather than counting them (F12.5)', async () => {
+  const at = new Date('2026-09-07T05:00:00Z');
+  const { mfa, secrets } = mfaWith({ now: () => at, maxConsecutiveFailures: 4 });
+  const { secret } = newTotpSecret('owner phone');
+  secrets.set('vault://owner/totp', secret);
+  await mfa.enrolTotp({ label: 'owner phone', secretRef: 'vault://owner/totp' });
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await assert.rejects(
+      () => mfa.verifyTotp('000000'),
+      (error: unknown) => isPalugadaError(error, 'mfa.code_invalid'),
+    );
+  }
+
+  // The fifth is refused before the code is even compared -- and so is the
+  // *right* code, which is the point: an attacker cannot tell a lockout from a
+  // wrong guess, and the owner is told to wait.
+  await assert.rejects(
+    () => mfa.verifyTotp(totpCode(decodeBase32(secret), stepFor(at))),
+    (error: unknown) => isPalugadaError(error, 'mfa.locked_out'),
+  );
+
+  // The lockout is on the record too: "why will it not take my code" and "was
+  // somebody trying" are the same table.
+  const attempts = await attemptLog();
+  assert.equal(attempts.at(-1)!.reason, 'mfa.locked_out');
+});
+
+/**
+ * A success clears the tally.
+ *
+ * An owner who mistypes three times and then gets it right has spent nothing,
+ * which is what makes a generous threshold safe: the count only grows for
+ * somebody who never succeeds.
+ */
+test('a correct code clears the run of failures (F12.5)', async () => {
+  const at = new Date('2026-09-07T05:00:00Z');
+  const { mfa, secrets } = mfaWith({ now: () => at, maxConsecutiveFailures: 3 });
+  const { secret } = newTotpSecret('owner phone');
+  secrets.set('vault://owner/totp', secret);
+  await mfa.enrolTotp({ label: 'owner phone', secretRef: 'vault://owner/totp' });
+
+  await assert.rejects(() => mfa.verifyTotp('000000'));
+  await assert.rejects(() => mfa.verifyTotp('000001'));
+  await mfa.verifyTotp(totpCode(decodeBase32(secret), stepFor(at)));
+
+  // Two more failures would have been the third and fourth in a row without
+  // the success between them.
+  await assert.rejects(
+    () => mfa.verifyTotp('000002'),
+    (error: unknown) => isPalugadaError(error, 'mfa.code_invalid'),
+  );
+});
+
+/**
+ * A factor enrolled against one company must not approve in another.
+ *
+ * The schema has always had `company_id` on an authenticator and the lookup
+ * ignored it, so the column was a lie: every factor answered everywhere. The
+ * owner's own device is platform-scoped and still does, which is what §5
+ * principle 1's single human means -- but a company-scoped one is scoped.
+ */
+test('a company-scoped authenticator answers for that company only (F12.5, F1.1)', async () => {
+  const acme = await createCompany('mfa-acme');
+  const other = await createCompany('mfa-other');
+  const at = new Date('2026-09-07T05:00:00Z');
+  const { mfa, secrets } = mfaWith({ now: () => at });
+  const { secret } = newTotpSecret('acme phone');
+  secrets.set('vault://acme/totp', secret);
+  await mfa.enrolTotp({
+    label: 'acme phone',
+    secretRef: 'vault://acme/totp',
+    companyId: acme.companyId,
+  });
+
+  const code = () => totpCode(decodeBase32(secret), stepFor(at));
+
+  // Its own company: fine.
+  const verified = await mfa.verifyTotp(code(), { companyId: acme.companyId });
+  assert.equal(verified.label, 'acme phone');
+
+  // Another company: there is no factor here at all, which is a different
+  // refusal from "wrong code" and the right one.
+  await assert.rejects(
+    () => mfa.verifyTotp(code(), { companyId: other.companyId }),
+    (error: unknown) => isPalugadaError(error, 'mfa.not_enrolled'),
+  );
+});
+
+test("the owner's own device answers for every company (F12.5)", async () => {
+  const acme = await createCompany('mfa-platform-acme');
+  const at = new Date('2026-09-07T05:00:00Z');
+  const { mfa, secrets } = mfaWith({ now: () => at });
+  const { secret } = newTotpSecret('owner phone');
+  secrets.set('vault://owner/totp', secret);
+  // No companyId: platform-scoped, which is the owner's own device.
+  await mfa.enrolTotp({ label: 'owner phone', secretRef: 'vault://owner/totp' });
+
+  const verified = await mfa.verifyTotp(totpCode(decodeBase32(secret), stepFor(at)), {
+    companyId: acme.companyId,
+  });
+  assert.equal(verified.label, 'owner phone');
+});
+
+/**
+ * A malformed assertion is an attempt too.
+ *
+ * `parseAuthenticatorData` used to throw straight out, past the recorder, so a
+ * stream of them left no trace -- and a stream of malformed assertions is
+ * exactly what somebody probing the endpoint produces, which is the most
+ * informative thing that table can hold.
+ */
+test('a malformed assertion is recorded like any other failure (F12.5)', async () => {
+  const { mfa } = mfaWith();
+  const device = phone();
+  await mfa.enrolWebAuthn({
+    label: 'owner iPhone',
+    credentialId: device.credentialId,
+    publicKeyPem: device.publicKeyPem,
+  });
+
+  const good = device.assert({ challenge: mfa.challenge() });
+  await assert.rejects(
+    () =>
+      mfa.verifyWebAuthn({
+        ...good,
+        // Shorter than the fixed header, which is what a truncated or
+        // hand-made assertion looks like.
+        authenticatorData: Buffer.from([1, 2, 3]).toString('base64url'),
+      }),
+    (error: unknown) => isPalugadaError(error, 'mfa.assertion_malformed'),
+  );
+
+  const attempts = await attemptLog();
+  assert.deepEqual(
+    attempts.map((row) => [row.succeeded, row.reason]),
+    [[false, 'mfa.assertion_malformed']],
+  );
+});

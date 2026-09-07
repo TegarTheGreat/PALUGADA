@@ -332,12 +332,25 @@ export class HttpSandboxProvider implements SandboxProvider {
     };
   }
 
+  /**
+   * Deletes the sandbox, and gives up rather than hanging.
+   *
+   * The timeout is the point. This runs on the adapter's unconditional cleanup
+   * path, so a provider that accepts the connection and never answers -- which
+   * is what a half-failed vendor does, rather than refusing -- would hold
+   * `run()` open for as long as the socket lasts, and with it the worker's
+   * tick and every task behind it. A cleanup that reports "I could not tell
+   * whether it went" is far better than one that stops the platform.
+   */
   async destroy(sandboxId: string): Promise<void> {
     const path = (this.#options.destroyPath ?? '/sandboxes/:id').replace(':id', sandboxId);
-    const response = await this.#fetch(`${this.#options.baseUrl}${path}`, {
-      method: 'DELETE',
-      headers: this.#options.token ? { authorization: this.#options.token } : {},
-    });
+    const response = await this.#withTimeout((signal) =>
+      this.#fetch(`${this.#options.baseUrl}${path}`, {
+        method: 'DELETE',
+        headers: this.#options.token ? { authorization: this.#options.token } : {},
+        signal,
+      }),
+    );
     // 404 is success: something else already removed it, and the postcondition
     // -- no sandbox with this id -- holds either way.
     if (!response.ok && response.status !== 404) {
@@ -345,11 +358,21 @@ export class HttpSandboxProvider implements SandboxProvider {
     }
   }
 
+  /**
+   * F13.8, with the same timeout and for a sharper reason.
+   *
+   * The engine calls this before handing a task over, so a health check that
+   * hangs does not report an unhealthy runtime -- it stops the worker from
+   * running any task at all, which is the failure F13.8 exists to prevent,
+   * arriving through the check meant to prevent it.
+   */
   async health(): Promise<AdapterHealth> {
     try {
-      const response = await this.#fetch(
-        `${this.#options.baseUrl}${this.#options.healthPath ?? '/health'}`,
-        { headers: this.#options.token ? { authorization: this.#options.token } : {} },
+      const response = await this.#withTimeout((signal) =>
+        this.#fetch(`${this.#options.baseUrl}${this.#options.healthPath ?? '/health'}`, {
+          headers: this.#options.token ? { authorization: this.#options.token } : {},
+          signal,
+        }),
       );
       return response.ok
         ? { ok: true, detail: `${this.name} at ${this.#options.baseUrl}` }
@@ -359,25 +382,32 @@ export class HttpSandboxProvider implements SandboxProvider {
     }
   }
 
-  async #json<T>(path: string, body: unknown): Promise<T> {
+  /** One place that bounds a request, so a new one cannot forget to. */
+  async #withTimeout(run: (signal: AbortSignal) => Promise<Response>): Promise<Response> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.#options.timeoutMs ?? 30_000);
     try {
-      const response = await this.#fetch(`${this.#options.baseUrl}${path}`, {
+      return await run(controller.signal);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async #json<T>(path: string, body: unknown): Promise<T> {
+    const response = await this.#withTimeout((signal) =>
+      this.#fetch(`${this.#options.baseUrl}${path}`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
           ...(this.#options.token ? { authorization: this.#options.token } : {}),
         },
         body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-      if (!response.ok) {
-        throw new Error(`${this.name} ${path} returned ${response.status}`);
-      }
-      return (await response.json()) as T;
-    } finally {
-      clearTimeout(timer);
+        signal,
+      }),
+    );
+    if (!response.ok) {
+      throw new Error(`${this.name} ${path} returned ${response.status}`);
     }
+    return (await response.json()) as T;
   }
 }

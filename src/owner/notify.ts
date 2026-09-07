@@ -196,23 +196,15 @@ export async function dispatch(
       continue;
     }
 
+    // Only the transport is inside the `try`, and the boundary is load-bearing.
+    // A wider one would catch a failure in `settle` or `appendEvent` -- which
+    // happen *after* the message has gone -- and run the failure path, which
+    // clears `delivered_at`. `retryFailed` in the same tick would then send it
+    // again. A database hiccup after a successful send would have produced the
+    // exact duplicate this module exists to prevent.
+    let result: DeliveryResult;
     try {
-      const result = await channel.deliver(withLink);
-      await settle(companyId, item.id, channel.name, { ref: result.ref ?? null });
-      await withTenant(companyId, async (tx) => {
-        await appendEvent(tx, {
-          companyId,
-          type: 'owner.notified',
-          actor: 'system',
-          payload: {
-            inboxItemId: item.id,
-            channel: channel.name,
-            delivery: item.delivery,
-            kind: item.kind,
-          },
-        });
-      });
-      report.delivered += 1;
+      result = await channel.deliver(withLink);
     } catch (error) {
       // Redacted on the way in, not on the way out. A transport's error
       // message is where a bearer token appears -- a 401 body quoting the
@@ -222,11 +214,54 @@ export async function dispatch(
         error: redactor.redact(String((error as Error).message ?? error)).slice(0, 500),
       });
       report.failed += 1;
+      continue;
     }
+
+    await recordDelivery(companyId, item, channel.name, result);
+    report.delivered += 1;
   }
 
   return report;
 }
+
+/**
+ * Marks a message as sent, and says so on the timeline.
+ *
+ * Shared by the first attempt and the retry, because a notification that
+ * reached the owner on the second try reached the owner: a `dispatch` that
+ * wrote the event and a `retryFailed` that did not would have left the audit
+ * log claiming that every delivery which needed a retry never happened.
+ */
+async function recordDelivery(
+  companyId: string,
+  item: NotifiableItem,
+  channel: string,
+  result: DeliveryResult,
+): Promise<void> {
+  await settle(companyId, item.id, channel, { ref: result.ref ?? null });
+  await withTenant(companyId, async (tx) => {
+    await appendEvent(tx, {
+      companyId,
+      type: 'owner.notified',
+      actor: 'system',
+      payload: {
+        inboxItemId: item.id,
+        channel,
+        delivery: item.delivery,
+        kind: item.kind,
+      },
+    });
+  });
+}
+
+/**
+ * How long to wait before the first retry. Doubles with each attempt.
+ *
+ * Thirty seconds because the thing being waited for is usually a process
+ * restarting behind a load balancer, and a retry that arrives before it has
+ * finished is an attempt spent on a certainty.
+ */
+export const RETRY_BASE_MS = 30_000;
 
 /**
  * Retries what failed.
@@ -236,13 +271,36 @@ export async function dispatch(
  * and never completed. `attempts` bounds it: a channel that is simply
  * misconfigured should stop being called rather than turn into a permanent
  * source of failed rows.
+ *
+ * **And it waits.** The worker runs `dispatch` and then `retryFailed` in the
+ * same tick, so without a delay two of the three attempts are spent
+ * milliseconds apart and the third a few seconds later -- a relay restarting,
+ * which is the ordinary case rather than the exotic one, would exhaust the row
+ * before it came back and the owner would simply never be told. The wait
+ * doubles: 30s, then a minute, then two.
+ *
+ * **And it only retries a recorded failure.** A row with no `delivered_at` and
+ * no `last_error` is one whose outcome was never learned: the send went out
+ * and the write that was supposed to record it did not come back. That is a
+ * real state -- the database can fail between two statements -- and the choice
+ * it forces is between possibly sending twice and possibly not sending. For a
+ * notification the second is right: waking someone twice for one incident is
+ * how a platform teaches its owner to ignore it, and the item is still open in
+ * the inbox either way.
  */
 export async function retryFailed(
   companyId: string,
   channel: OwnerChannel,
-  options: { maxAttempts?: number; linkFor?: DispatchOptions['linkFor'] } = {},
+  options: {
+    maxAttempts?: number;
+    linkFor?: DispatchOptions['linkFor'];
+    baseDelayMs?: number;
+    now?: Date;
+  } = {},
 ): Promise<DispatchReport> {
   const maxAttempts = options.maxAttempts ?? 3;
+  const baseDelayMs = options.baseDelayMs ?? RETRY_BASE_MS;
+  const now = options.now ?? new Date();
   const report: DispatchReport = { channel: channel.name, delivered: 0, failed: 0, skipped: 0 };
 
   const pending = await withTenant(companyId, async (tx) => {
@@ -257,11 +315,25 @@ export async function retryFailed(
         WHERE n.company_id = $1
           AND n.channel = $2
           AND n.delivered_at IS NULL
+          -- Only rows that recorded a failure. A row with neither a delivery
+          -- nor an error is one that was claimed and whose outcome was never
+          -- learned -- the send went out and the bookkeeping did not come
+          -- back. Re-sending that would ring the owner's phone twice for one
+          -- incident, and between "possibly sent twice" and "possibly not
+          -- sent" a notification should choose the second: the item is still
+          -- open, still in the inbox, and the next thing raised will carry the
+          -- news anyway.
+          AND n.last_error IS NOT NULL
           AND n.attempts < $3
+          -- The backoff. Computed in SQL rather than in TypeScript so the
+          -- filter and the ordering agree, and so two workers sweeping the
+          -- same company cannot disagree about which rows are due.
+          AND n.last_attempt_at
+              <= $4::timestamptz - make_interval(secs => $5 * power(2, n.attempts - 1))
           -- An item the owner has already dealt with does not need chasing.
           AND i.status = 'open'
         ORDER BY n.created_at`,
-      [companyId, channel.name, maxAttempts],
+      [companyId, channel.name, maxAttempts, now, baseDelayMs / 1000],
     );
     return rows;
   });
@@ -280,24 +352,44 @@ export async function retryFailed(
     };
     item.url = options.linkFor?.(item) ?? null;
 
-    await withTenant(companyId, async (tx) => {
-      await tx.query(
-        `UPDATE owner_notifications SET attempts = attempts + 1
-          WHERE inbox_item_id = $1 AND channel = $2`,
-        [row.id, channel.name],
+    // Claimed before the send, and only if it is still due: two workers
+    // sweeping the same company would otherwise both find the row ready and
+    // both send it. The condition repeats the one in the SELECT because the
+    // read and the write are separate statements, and the gap between them is
+    // exactly where the other worker is.
+    const claimed = await withTenant(companyId, async (tx) => {
+      const { rowCount } = await tx.query(
+        `UPDATE owner_notifications
+            SET attempts = attempts + 1, last_attempt_at = $3
+          WHERE inbox_item_id = $1 AND channel = $2
+            AND delivered_at IS NULL
+            AND last_attempt_at
+                <= $3::timestamptz - make_interval(secs => $4 * power(2, attempts - 1))`,
+        [row.id, channel.name, now, baseDelayMs / 1000],
       );
+      return (rowCount ?? 0) === 1;
     });
+    if (!claimed) {
+      report.skipped += 1;
+      continue;
+    }
 
+    let result: DeliveryResult;
     try {
-      const result = await channel.deliver(item);
-      await settle(companyId, row.id, channel.name, { ref: result.ref ?? null });
-      report.delivered += 1;
+      result = await channel.deliver(item);
     } catch (error) {
       await settle(companyId, row.id, channel.name, {
         error: redactor.redact(String((error as Error).message ?? error)).slice(0, 500),
       });
       report.failed += 1;
+      continue;
     }
+
+    // The same recorder `dispatch` uses. A delivery that needed a retry is
+    // still a delivery, and an audit log that only recorded the first-time
+    // ones would be quietly wrong about every flaky night.
+    await recordDelivery(companyId, item, channel.name, result);
+    report.delivered += 1;
   }
 
   return report;
@@ -320,8 +412,8 @@ async function claim(
   return withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{ id: string }>(
       `INSERT INTO owner_notifications
-         (company_id, inbox_item_id, channel, delivery, attempts)
-       VALUES ($1, $2, $3, $4, 1)
+         (company_id, inbox_item_id, channel, delivery, attempts, last_attempt_at)
+       VALUES ($1, $2, $3, $4, 1, now())
        ON CONFLICT (inbox_item_id, channel) DO NOTHING
        RETURNING id`,
       [companyId, itemId, channel, delivery],

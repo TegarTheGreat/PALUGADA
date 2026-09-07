@@ -892,6 +892,59 @@ isolation, and is assembled by nobody -- and a notifier is exactly the shape
 that fails that way, since every unit test of it passes whether or not anything
 calls it.
 
+### What a review of the new code found
+
+Nine defects, from a review over the three commits above. Two are worth
+recording here because both are about a rule that was written down and a piece
+of code that did something else.
+
+**The push would have rung twice.** `dispatch`'s `try` wrapped the delivery
+record and the audit event alongside the transport, so a database failure
+*after* the message had gone ran the failure path -- which clears
+`delivered_at` -- and the retry in the same tick sent it again. The exact thing
+`owner_notifications` exists to prevent, reached through the code that was
+supposed to prevent it. Only the transport is inside the `try` now, and the
+retry sweep ignores a row with neither a delivery nor an error: that is a row
+whose outcome was never learned, and between "possibly sent twice" and
+"possibly not sent" a notification should choose the second.
+
+**The retry budget was spent before the outage ended.** The worker runs
+`dispatch` and then `retryFailed` in one tick, so two of the three attempts
+went milliseconds apart and the third seconds later. A relay restarting behind
+a load balancer -- the ordinary failure, not the exotic one -- would have
+exhausted the row before it came back, and the owner would never have been
+told. `last_attempt_at` (0034) and a doubling wait fix it.
+
+Four more were in the MFA:
+
+- **The origin check failed open.** It was skipped entirely when the option was
+  unset, so a deployment that forgot it would accept an assertion the owner's
+  phone produced for a different site. `rpId` had always failed closed; the
+  origin now does too, defaulting to `https://<rpId>`.
+- **Nothing stopped a guesser.** Failures were recorded and never counted, and
+  the replay defence only engages on a *correct* code -- so six digits is a few
+  hundred thousand unthrottled attempts, which is minutes. Ten consecutive
+  failures now lock the factor for fifteen minutes; a success clears the tally,
+  so an owner who mistypes has spent nothing.
+- **`company_id` on an authenticator was a lie.** The lookup ignored it, so a
+  factor enrolled against one company would have approved a tier 3 action in
+  another. The owner's own device is platform-scoped and still answers
+  everywhere, which is what §5 principle 1 means; a company-scoped one is now
+  scoped.
+- **A malformed assertion left no trace**, because the parse threw past the
+  recorder -- and a stream of malformed assertions is exactly what somebody
+  probing the endpoint produces.
+
+And three elsewhere: a shipped runtime spec put the bridge's bearer token on a
+command line, where any local process reads it out of `/proc`; the sandbox
+provider's `destroy` and `health` had no timeout, so a vendor that accepts a
+connection and never answers would hang the worker's tick through the very
+check meant to keep it running; and a notification delivered on a retry was
+missing from the audit log.
+
+Every one of them is covered by a test that was verified by re-introducing the
+defect it claims to catch.
+
 ### What is actually left
 
 No push service, no bot token, no sandbox vendor, and none of F13.3's four

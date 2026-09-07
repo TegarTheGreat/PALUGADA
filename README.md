@@ -44,12 +44,19 @@ from calling an LLM to do a task; the engine assembles a `RunRequest`, lends
 the runtime four services and does the accounting, and the old handler model is
 now the in-process adapter.
 
-**What is not built** is the owner's phone — F10.9 and F12.5 — plus the
-display half of two requirements whose enforcing half is in place. Nothing
-there can be exercised from this environment, and writing it blind would
-produce code that compiles and has never worked. [Not built yet](#not-built-yet)
-says which and why; [`docs/STATUS.md`](docs/STATUS.md) grades every requirement
-and records the deliberate deviations.
+**Every requirement in section 8 is built.** That includes the owner's
+console — `npm start` serves an inbox with the buttons, the trace behind each
+item, and a second factor asked for at the moment of a tier 3 decision — and
+the second factor itself, which is arithmetic rather than a vendor and is
+checked against RFC 6238's own published vectors.
+
+**What cannot be exercised here** is a vendor account: no push service, no bot
+token, no sandbox provider, and none of the four agent CLIs F13.3 names. The
+code for all of them is written and driven end to end against a server on
+loopback; what nobody here can check is whether the vendor on the other end
+agrees about a field name. [What is not exercised](#what-is-not-exercised) says
+which and why; [`docs/STATUS.md`](docs/STATUS.md) grades every requirement and
+records the deliberate deviations.
 
 Two questions in [PRD section 14](docs/PRD.md#14-pertanyaan-terbuka) are
 answered. **14.1: build, and stay adapter-compatible**, on the pass criteria
@@ -706,77 +713,65 @@ what the last computed.
 | F17 trajectories and the role eval set | `src/eval/` | `trajectory-eval.test.ts` |
 | F1.6, F2.9, F3.9, F3.11, F4.8, F5.10, F12.7–F12.10 | `src/governance/`, `src/gateway/` | `control-plane.test.ts` |
 
-## Not built yet
+## Running it
 
-One thing wearing several numbers: the owner's phone. F10.5 has no push
-transport, F10.9 no messaging account, F10.10 and F12.5 no application that can
-perform MFA. Those are vendor integrations and a client application, and
-neither can be exercised from here.
+```sh
+npm run db:setup && npm run db:migrate   # PostgreSQL 16 with pgvector
+npm start                                # worker + owner console on :8787
+```
 
-What is built for all of them is the half that is a rule rather than a
-transport, because a rule written alongside the integration it constrains is a
-rule the integration's author gets to decide. Only an incident or a tier 3
-approval escapes the owner's window. A message channel may act on an
-escalation, a skill candidate or a review at tier 2 and below, and carries
-tier 3 as a link with nothing to press. A tier 3 approval needs the app *and* a
-second factor.
+The console is at `http://127.0.0.1:8787`. Signing in means presenting a second
+factor, because there are no accounts: PALUGADA has one human, so an identity
+system would be a table with one row and a password to lose. A fresh
+deployment has no authenticator enrolled and says so at boot, in those words —
+until one is, no tier 3 action can be approved, which is the right consequence
+of not meeting a P0 rather than a bug.
 
-Those rules used to be the whole story, and the sentence explaining why —
-*these need the owner's phone, and there is no phone here* — was true and was
-doing work it had not earned. It ran together two different problems. A vendor
-account cannot be conjured; **code can be written**. Only the first is a reason
-to leave a P0 unbuilt, and four requirements had been filed under it when they
-belonged under the second.
+Everything optional is optional because it needs something this process cannot
+conjure, and each says so at boot rather than at 3am:
 
-**F12.5 was arithmetic filed as an application.** The client is an app; the
-verification is not. `decide` had been accepting `assurance: 'mfa'` as a string
-nothing checked, so "tier 3 only through the app with MFA" meant "tier 3 for
-anyone who types mfa". `src/owner/mfa.ts` now implements TOTP (RFC 6238,
-checked against the RFC's own published vectors, with the accepted step
-remembered so a code cannot be used twice) and WebAuthn — the challenge, the
-origin, the RP id hash the authenticator signed, the user-verified flag and the
-signature counter, each of which is an attack rather than a formality. A
-deployment with no verifier configured cannot approve a tier 3 action at all,
-which is the right consequence of not meeting a P0.
+| Variable | What it turns on |
+|---|---|
+| `PALUGADA_FILES_ROOT` | `files.list`, and the drafting pair with a model |
+| `PALUGADA_PUSH_URL` | push for an incident or a tier 3 approval (F10.5) |
+| `PALUGADA_TELEGRAM_TOKEN`, `_CHAT`, `_WEBHOOK_SECRET` | the message channel (F10.9) |
+| `PALUGADA_RP_ID`, `PALUGADA_ORIGIN` | passkeys, for the console's own domain |
+| `PALUGADA_ALLOW_PRIVATE_HOSTS` | an internal host `web.fetch` may reach |
 
-**F10.5 and F10.9 were a rule with the easy half missing** — the transport is
-an HTTP call. `src/owner/push.ts` and `src/owner/telegram.ts` are written and
-driven end to end against a server on loopback. Building them found three
-things no amount of rule-writing would have: the same incident would have been
-pushed on every worker tick until the owner gave in; a bot is reachable by
-anyone who learns its name, so a button press is checked against a webhook
-secret *and* the configured chat; and one unescaped hyphen in a title would
-have made Telegram reject the whole message, losing an escalation silently
-rather than rendering it oddly.
+`npm run smoke` is the boot check. It builds a company, runs a task, and
+**fails** if the tick never reaches an owner channel, if the tier 3 gate does
+not refuse without a factor and accept with one, or if a capability the
+platform implements was not registered. Each of those is machinery that works,
+is tested alone, and would ship dormant — the defect this repository has found
+in itself more often than any other.
 
-**F12.9's `remote_sandbox` backend** is `RemoteSandboxAdapter` over a
-three-method provider — create, exec, destroy — with the whole lifecycle
-exercised, including the property it exists for: the sandbox is destroyed on
-every path out, and one that will not delete becomes a failure that names it
-rather than a leak nobody hears about.
+## What is not exercised
 
-F13.3's four runtimes are the same correction applied to a list. Reading the
-requirement past its names changed what was worth building: it asks for
-`hermes`, `openclaw`, `codex` and `gemini-cli` *so that community adapters can
-be used*, and the reason is the part that generalises. What those four have in
-common is everything that is hard — the environment quarantine, the per-run
-tool bridge, the redactor, the stream translation, killing the process when the
-engine withdraws. What differs is a command name and an argument list. So the
-hard part is `CliAdapter`, and a runtime is a `CliRuntimeSpec`: a JSON entry
-that an operator can correct without a release of this platform.
-`src/runtime/known-clis.ts` ships the four as starting points, and says three
-times over that none has been run against the real binary.
-
-What is genuinely left is a fact about this machine rather than about the code:
-no push service, no bot token, no sandbox vendor, and none of the four binaries
-is installed here. Every decision the platform makes before a request leaves is
+A vendor account, four times over: no push service, no bot token, no sandbox
+provider, and none of `hermes`, `openclaw`, `codex` or `gemini-cli` is
+installed. Every decision the platform makes *before* a request leaves is
 covered by the suite — which items may ring a phone, what a chat may put a
-button on, which second factors verify, whether a sandbox is cleaned up. What
-nobody here can check is whether the vendor on the other end agrees about a
-field name.
+button on, which second factors verify, whether a sandbox is destroyed on every
+path out, whether a capability may reach inside this network. What nobody here
+can check is whether the vendor on the other end agrees about a field name.
 
-Two things remain implemented and unverified end to end, which is not the same
-as built: the `claude-code` adapter (no CLI, no provider here) and the `docker`
+Twenty of the twenty-five capability names the standard template grants have no
+adapter, and that is the design rather than a gap: `email.send` against Resend
+and against SES are different programs, and choosing one for every company that
+will ever use this platform is not a decision a control plane gets to make. The
+boot check names all twenty on every start, because a company granted a
+capability with nothing behind it is one whose agents are refused at the moment
+they try to work.
+
+The five that need nobody's account — `web.fetch`, `uptime.check`,
+`files.list`, `doc.draft`, `email.draft` — are implemented. They were unbound
+alongside the other twenty for the same reason, which was the wrong reason:
+*a vendor account cannot be conjured, and code can be written.* That sentence
+is the correction this build made three times, on MFA, on the notification
+channels, and here.
+
+Two things are implemented and unverified end to end, which is not the same as
+built: the `claude-code` adapter (no CLI, no provider here) and the `docker`
 execution backend (a docker CLI, no daemon). What the suite covers in both
 cases is the command line — for the container, `--network none` and the rest of
 the flags *are* the security property — and the health check's refusal.

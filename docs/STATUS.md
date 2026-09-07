@@ -74,9 +74,9 @@ means less than that, the row says so.
 | F16 bundles | F16.1–F16.5 | — | — |
 | F17 eval, trajectory | F17.1, F17.2, F17.3, F17.4 | — | — |
 
-Read as a whole: every requirement in v2 section 8 is built, and the two rows
-still marked partial are partial in one specific way — a vendor account this
-repository cannot hold.
+Read as a whole: every requirement in v2 section 8 is built, the owner has a
+console to run it from (`npm start`), and the two rows still marked partial are
+partial in one specific way — a vendor account this repository cannot hold.
 
 That distinction is worth stating precisely, because for a long time this
 document ran them together and stopped at the wrong place. There is a
@@ -417,9 +417,10 @@ Two remain unwired on purpose, and are named here rather than left to be found:
   the completed event rather than a direct call*, and that is what is built and
   tested; a stored rule table is not something the PRD asks for, and saying so
   is more useful than implying a gap.
-- `buildDailyDigest` and `buildWeeklyRetro` (F10.6) render for a channel that
-  does not exist yet — the same gap as the rest of the owner surface. They
-  are called by whatever delivers them, and nothing delivers. The obvious fix is
+- `buildDailyDigest` and `buildWeeklyRetro` (F10.6) are reached by the owner's
+  console — `/api/companies/:id/digest` and `/retro` — and the console draws
+  the digest above the queue. They are still not *delivered* anywhere: nothing
+  emails them and nothing pushes them. The obvious fix is
   to deliver them into the owner inbox, which does exist and is tested, and it
   is deliberately not done: the inbox is the list of things the owner has to
   *decide*, and a digest needs no decision. Filling it with items that need no

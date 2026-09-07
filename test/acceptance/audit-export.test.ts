@@ -28,6 +28,15 @@ import {
   NOT_RESTORED,
 } from '../../src/audit/import.ts';
 import { putPolicy } from '../../src/governance/store.ts';
+import {
+  proposeSkillVersion,
+  addEvalCase,
+  recordSkillReview,
+  approveSkillVersion,
+  importExternalSkill,
+  liftSkillQuarantine,
+  skillSummariesFor,
+} from '../../src/skills/skills.ts';
 import { setSpendLimit } from '../../src/governance/spend-guard.ts';
 import { setRetention } from '../../src/retention/retention.ts';
 import { setBatchWindow, capabilityWindow } from '../../src/scheduler/windows.ts';
@@ -399,4 +408,94 @@ test('every exported section is restored, or is named as deliberately not (F1.5,
     [],
     'named as not-restored but not exported either',
   );
+});
+
+/**
+ * A company with a live skill survives the round trip.
+ *
+ * Two defects met here and both were invisible because every existing
+ * round-trip test imported a company whose skills were still candidates.
+ *
+ * `skill_versions` was imported before `skill_evals`, and 0021's trigger
+ * refuses an `active` version whose skill has no eval case — so the first
+ * company with an approved skill aborted the whole import and left an orphaned
+ * destination behind. And the `skills` section forced `quarantined = true` on
+ * every row, which 0026 refuses for anything not division-scoped, so a
+ * company-scoped skill aborted it too. The force also applied to skills the
+ * company wrote itself, which F15.8's argument about external knowledge never
+ * covered.
+ *
+ * What replaces the force is the gate F15.3 already built: an external skill's
+ * versions come back as candidates, so the knowledge reaches no context until a
+ * reviewer and the owner *here* have said so. A company's own skills are
+ * restored as they were, which is what restoring a company means.
+ */
+test('a company with an approved skill restores, and external knowledge is re-gated (F15.8, F16.4)', async () => {
+  const fixture = await createCompany('export-skills');
+
+  // The company's own skill, reviewed, evalled and live.
+  const mine = await proposeSkillVersion({
+    companyId: fixture.companyId,
+    slug: 'refund-policy',
+    scopeType: 'company',
+    source: '---\nname: refund-policy\ndescription: How to answer a refund request.\n---\nRefund within 30 days.\n',
+    author: 'distillation',
+    changelog: 'Observed in six support tasks.',
+  });
+  await addEvalCase(fixture.companyId, mine.skillId, {
+    name: 'names the window',
+    input: { question: 'how long do I have' },
+    expectContains: ['30 days'],
+  });
+  await recordSkillReview(fixture.companyId, mine.versionId, { approved: true });
+  await approveSkillVersion(fixture.companyId, mine.versionId);
+
+  // And one that came from outside and was vouched for on this instance.
+  const theirs = await importExternalSkill({
+    companyId: fixture.companyId,
+    divisionId: fixture.divisionId,
+    slug: 'cold-outreach',
+    origin: 'some-hub',
+    source: '---\nname: cold-outreach\ndescription: How to open a conversation.\n---\nLead with the problem.\n',
+  });
+  await liftSkillQuarantine(fixture.companyId, theirs.skillId, { ownerApproved: true });
+  await addEvalCase(fixture.companyId, theirs.skillId, {
+    name: 'leads with the problem',
+    input: { question: 'how do I open' },
+    expectContains: ['problem'],
+  });
+  await recordSkillReview(fixture.companyId, theirs.versionId, { approved: true });
+  await approveSkillVersion(fixture.companyId, theirs.versionId);
+
+  const lines: ArchiveLine[] = [];
+  await exportCompany(fixture.companyId, (line) => {
+    lines.push(line);
+  });
+
+  // Before the fix this threw and left the destination company behind.
+  const restored = await importCompany(lines, { slug: `${fixture.slug}-restored` });
+
+  const states = await withTenant(restored.companyId, async (tx) => {
+    const { rows } = await tx.query<{ slug: string; provenance: string; state: string }>(
+      `SELECT s.slug, s.provenance, v.state
+         FROM skills s JOIN skill_versions v ON v.skill_id = s.id
+        ORDER BY s.slug`,
+    );
+    return rows;
+  });
+
+  assert.deepEqual(states, [
+    // Came from outside: vouched for on the source instance, and this one has
+    // not vouched for anything. Back to a candidate.
+    { slug: 'cold-outreach', provenance: 'external', state: 'candidate' },
+    // The company's own knowledge, restored as it was.
+    { slug: 'refund-policy', provenance: 'internal', state: 'active' },
+  ]);
+
+  // Which is the point rather than a detail: the external one reaches no
+  // context here until somebody local has approved it.
+  const live = await withTenant(restored.companyId, (tx) =>
+    skillSummariesFor(tx, { companyId: restored.companyId }),
+  );
+  assert.deepEqual(live.map((entry) => entry.slug), ['refund-policy']);
 });

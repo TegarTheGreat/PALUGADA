@@ -119,6 +119,27 @@ export const DEFAULT_MAX_RUNS_PER_TICK = 8;
  */
 export const DEFAULT_RETENTION_INTERVAL_MS = 6 * 60 * 60 * 1_000;
 
+/**
+ * Whether a tick got anywhere, which is what decides between going straight
+ * round and sleeping.
+ *
+ * A function rather than three lines inside the loop, because the loop is the
+ * one part of this file a test cannot drive without waiting on wall-clock
+ * time, and this is the decision worth checking.
+ *
+ * `runtime_unavailable` is the case that has to be named. F13.8 sends the task
+ * back to `pending` and spends no attempt on it -- correctly, since a runtime
+ * being down is a fact about the world rather than about the work -- so it
+ * looks like a run happened. Counting it as progress meant the worker skipped
+ * its sleep, re-claimed the same task, failed the same health check and went
+ * round again at whatever rate the database could answer. With a docker daemon
+ * down that is a hot loop against Postgres, not a retry.
+ */
+export function madeProgress(report: TickReport): boolean {
+  const ran = report.ran.some((run) => run.status !== 'runtime_unavailable');
+  return ran || report.reclaimed > 0 || report.scheduled > 0;
+}
+
 export class Worker {
   readonly #options: WorkerOptions;
   readonly id: string;
@@ -170,6 +191,12 @@ export class Worker {
     });
 
     for (const company of companies) {
+      // One runtime failing its health check tells every later stage in this
+      // tick the same thing, so the wake stage and the claim stage share the
+      // answer rather than each discovering it. Without this a wake and a
+      // claim both ran the same task and both got the same refusal.
+      let runtimeDown = false;
+
       await this.#stage(report, 'wakes', async () => {
         const drained = await drainWakes(company, { holder: this.id, now });
         report.woken += drained.length;
@@ -179,17 +206,32 @@ export class Worker {
         const budget = this.#options.maxRunsPerTick ?? DEFAULT_MAX_RUNS_PER_TICK;
         for (const wake of drained) {
           if (report.ran.length >= budget) break;
-          if (wake.taskId) await this.#runClaimed(report, company, wake.taskId);
+          if (!wake.taskId) continue;
+          const status = await this.#runClaimed(report, company, wake.taskId);
+          if (status === 'runtime_unavailable') {
+            runtimeDown = true;
+            break;
+          }
         }
       });
 
       await this.#stage(report, 'claim', async () => {
+        if (runtimeDown) return;
         const budget = (this.#options.maxRunsPerTick ?? DEFAULT_MAX_RUNS_PER_TICK)
           - report.ran.length;
         for (let taken = 0; taken < budget; taken += 1) {
           const claim = await claimTask(company, { holder: this.id, now });
           if (!claim) break;
-          await this.#runClaimed(report, company, claim.taskId);
+          const status = await this.#runClaimed(report, company, claim.taskId);
+          // F13.8 puts the task straight back on the queue, so without this the
+          // loop claims the *same* task again and spends the whole tick's
+          // budget failing one health check. Stopping is also right for the
+          // others: a runtime that is down is down for every task that names
+          // it, and the next tick is when to find out it came back.
+          if (status === 'runtime_unavailable') {
+            runtimeDown = true;
+            break;
+          }
         }
       });
 
@@ -257,9 +299,7 @@ export class Worker {
         continue;
       }
 
-      const didSomething =
-        report.ran.length > 0 || report.reclaimed > 0 || report.scheduled > 0;
-      if (didSomething && !report.stopped) continue;
+      if (madeProgress(report) && !report.stopped) continue;
 
       await this.#sleep(idle, signal);
     }
@@ -285,7 +325,12 @@ export class Worker {
    * a claim that carried a stale slug would run the task as something it is
    * not.
    */
-  async #runClaimed(report: TickReport, companyId: string, taskId: string): Promise<void> {
+  /** Returns the outcome so the claim loop can decide whether to keep going. */
+  async #runClaimed(
+    report: TickReport,
+    companyId: string,
+    taskId: string,
+  ): Promise<RunOutcome['status'] | null> {
     const roleSlug = await withTenant(companyId, async (tx) => {
       const task = await getTask(tx, taskId);
       if (!task) return null;
@@ -294,10 +339,11 @@ export class Worker {
       ]);
       return rows[0]?.slug ?? null;
     });
-    if (!roleSlug) return;
+    if (!roleSlug) return null;
 
     const outcome = await this.#options.engine.runTask(companyId, taskId, roleSlug);
     report.ran.push({ taskId, status: outcome.status });
+    return outcome.status;
   }
 
   /**

@@ -16,7 +16,7 @@ import { randomUUID } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { withTenant, withControlPlane } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
-import { Worker, DEFAULT_IDLE_MS } from '../../src/worker.ts';
+import { Worker, DEFAULT_IDLE_MS, madeProgress } from '../../src/worker.ts';
 import { baseRegistry, seed } from '../../src/seed.ts';
 import { Engine, type TaskHandler } from '../../src/engine/engine.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
@@ -603,4 +603,90 @@ test('one tick trips the breaker on a role that spiked (F1.8, F1.7)', async () =
 
   // And the interval that makes the criterion's five minutes generous.
   assert.ok(DEFAULT_IDLE_MS <= 60_000, `idle interval is ${DEFAULT_IDLE_MS}ms`);
+});
+
+/**
+ * A worker whose runtime is down waits, rather than spinning.
+ *
+ * F13.8 sends a task back to `pending` when its runtime fails a health check,
+ * and correctly spends no attempt on it — a runtime that is down is a fact
+ * about the world, not about the work. But the loop counted that as progress,
+ * so it skipped its sleep, re-claimed the same task, failed the same health
+ * check, and went round again at whatever rate the database could answer. With
+ * a docker daemon down that is a hot loop against Postgres, not a retry.
+ *
+ * The task must still come back when the runtime does, so the fix is not to
+ * park it — it is to let the tick sleep. One attempt per polling interval is
+ * what "wait for the runtime" should cost.
+ */
+test('a tick that only met an unhealthy runtime is not progress (F13.8)', async () => {
+  const fixture = await createCompany('worker-unhealthy');
+
+  const engine = new Engine({
+    broker: new CapabilityBroker(baseRegistry()),
+    llm: new RecordingLlmClient(),
+    handlers: new Map([['worker', async () => ({ done: true })]]),
+    workerId: 'unhealthy-worker',
+  });
+
+  // A runtime the role names, which reports itself unwell.
+  engine.adapters.register({
+    name: 'sick',
+    backends: ['local'],
+    async health() {
+      return { ok: false, detail: 'no daemon reachable' };
+    },
+    async run() {
+      throw new Error('should never be asked to run');
+    },
+  });
+  await withTenant(fixture.companyId, async (tx) => {
+    await tx.query("UPDATE roles SET runtime = 'sick' WHERE id = $1", [fixture.roleId]);
+  });
+
+  const worker = new Worker({ engine, companyId: fixture.companyId, maxRunsPerTick: 4 });
+  const task = await newTask(fixture);
+
+  const report = await worker.tick();
+  assert.deepEqual(report.errors, []);
+  assert.deepEqual(report.ran.map((run) => run.status), ['runtime_unavailable']);
+
+  // Back on the queue for when the runtime recovers, holding no lease, with
+  // its attempt budget untouched.
+  const parked = await withTenant(fixture.companyId, (tx) => getTask(tx, task.id));
+  assert.equal(parked!.status, 'pending');
+  assert.equal(parked!.leaseHolder, null);
+  assert.equal(parked!.attempt, 0, 'a runtime being down is not the task failing');
+});
+
+test('a tick that only met an unhealthy runtime sleeps rather than spinning (F13.8)', () => {
+  const base = { reclaimed: 0, scheduled: 0, woken: 0, alerts: 0, retained: 0, handedOff: 0,
+    stopped: false, errors: [] };
+
+  // The case the loop got wrong: a run happened, and it got nowhere.
+  assert.equal(
+    madeProgress({ ...base, ran: [{ taskId: 't', status: 'runtime_unavailable' }] }),
+    false,
+    'the worker would skip its sleep and re-claim the same task immediately',
+  );
+
+  // Everything that is progress still is.
+  assert.equal(madeProgress({ ...base, ran: [{ taskId: 't', status: 'completed' }] }), true);
+  assert.equal(madeProgress({ ...base, ran: [{ taskId: 't', status: 'failed' }] }), true);
+  assert.equal(madeProgress({ ...base, ran: [], reclaimed: 1 }), true);
+  assert.equal(madeProgress({ ...base, ran: [], scheduled: 1 }), true);
+  assert.equal(madeProgress({ ...base, ran: [] }), false);
+
+  // And a tick that met one sick runtime and one healthy task still counts:
+  // the sleep is about having got nowhere at all.
+  assert.equal(
+    madeProgress({
+      ...base,
+      ran: [
+        { taskId: 'a', status: 'runtime_unavailable' },
+        { taskId: 'b', status: 'completed' },
+      ],
+    }),
+    true,
+  );
 });

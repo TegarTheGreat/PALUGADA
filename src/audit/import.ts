@@ -148,11 +148,12 @@ const SECTIONS: ImportSection[] = [
     name: 'skills',
     table: 'skills',
     references: ['scope_id'],
-    // F15.8: an imported external skill re-enters quarantine. The alternative
-    // is that anybody who can hand an owner an archive can hand them an
-    // unquarantined skill, which would make the archive a way around the one
-    // gate external knowledge has.
-    force: { quarantined: true },
+    // `quarantined` travels as it was, and the destination's own gate is
+    // applied afterwards instead of here. Forcing it true looked like the
+    // stricter choice and was not: 0026 refuses a quarantined skill that is
+    // not division-scoped, so a company-scoped skill aborted the entire
+    // import -- and it also quarantined skills this company wrote itself,
+    // which F15.8's argument about external knowledge never covered.
   },
   {
     // Before `skill_versions`, which carries a `review_request_id`. That
@@ -184,8 +185,13 @@ const SECTIONS: ImportSection[] = [
     references: ['subject_id', 'division_id'],
     viaControlPlane: true,
   },
-  { name: 'skill_versions', table: 'skill_versions', references: ['skill_id', 'review_request_id'] },
+  // Before `skill_versions`, and the ordering is load-bearing rather than
+  // tidy: 0021's `skill_versions_require_an_eval` refuses an `active` version
+  // whose skill has no eval case, so importing the versions first aborted the
+  // whole archive and left an orphaned destination company. Only a company
+  // whose skills were all still `candidate` restored at all.
   { name: 'skill_evals', table: 'skill_evals', references: ['skill_id'] },
+  { name: 'skill_versions', table: 'skill_versions', references: ['skill_id', 'review_request_id'] },
   { name: 'config_versions', table: 'config_versions', references: ['subject_id'] },
   { name: 'role_eval_cases', table: 'role_eval_cases', references: ['role_id', 'source_agent_run_id'] },
   {
@@ -315,6 +321,8 @@ export async function importCompany(
       : await withTenant(companyId, (tx) => importSection(tx, companyId, section, rows, remap));
   }
 
+  await requireLocalVouching(companyId);
+
   const skipped = [...bySection.keys()].filter(
     (name) => !SECTIONS.some((section) => section.name === name),
   );
@@ -441,6 +449,45 @@ async function jsonColumnsFor(tx: TenantClient, table: string): Promise<Set<stri
   const names = new Set(rows.map((row) => row.column_name));
   jsonColumns.set(table, names);
   return names;
+}
+
+/**
+ * F15.8: knowledge from outside is not vouched for by arriving in an archive.
+ *
+ * The destination cannot inherit the source's judgement -- F16.4 says a company
+ * moves between instances, not that the second one trusts what the first
+ * decided. The obvious way to express that was to force every imported skill
+ * back into quarantine, and it was wrong twice: 0026 refuses a quarantined
+ * skill that is not division-scoped, so a company-scoped one aborted the whole
+ * import, and it also quarantined skills the company wrote itself.
+ *
+ * The gate that fits is the one F15.3 already built. An external skill's
+ * versions come back as candidates, so the knowledge reaches no context until
+ * a reviewer and the owner here have said so and F15.4's eval has run. That
+ * holds at any scope, needs no trigger to cooperate, and leaves a company's own
+ * skills exactly as they were -- which is what restoring a company means.
+ */
+async function requireLocalVouching(companyId: string): Promise<void> {
+  await withTenant(companyId, async (tx) => {
+    // Quarantine where the database allows it, which is division scope (0026).
+    // This is the caveat F15.8 wants printed above the procedure in every
+    // context pack that carries it.
+    await tx.query(
+      `UPDATE skills SET quarantined = true
+        WHERE provenance = 'external' AND scope_type = 'division' AND NOT quarantined`,
+    );
+
+    // And the gate that holds at any scope. A skill too wide to quarantine
+    // cannot be marked, so it must not be live: its versions come back as
+    // candidates and it reaches no context until a reviewer and the owner here
+    // have said so, with F15.4's eval behind them.
+    await tx.query(
+      `UPDATE skill_versions SET state = 'candidate',
+              reviewed_at = NULL, approved_at = NULL, activated_at = NULL
+        WHERE state <> 'candidate'
+          AND skill_id IN (SELECT id FROM skills WHERE provenance = 'external')`,
+    );
+  });
 }
 
 function normalise(value: unknown, isJson: boolean): unknown {

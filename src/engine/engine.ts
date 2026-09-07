@@ -436,6 +436,9 @@ export class Engine {
     const health = await adapter.health();
     if (!health.ok) {
       await transition(companyId, taskId, 'pending');
+      // The lease goes with it, as on the retryable path. A task on the queue
+      // that still names a holder is the confusion leases exist to remove.
+      await clearLease(companyId, taskId, this.#workerId);
       return {
         status: 'runtime_unavailable',
         reason: `runtime ${adapter.name} is not healthy: ${health.detail ?? 'no detail'}`,

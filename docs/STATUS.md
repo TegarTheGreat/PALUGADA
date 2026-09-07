@@ -1015,9 +1015,28 @@ make: a runtime started there reaches the engine over stdio and nothing else.
 There is a docker CLI in this environment and no daemon, so what is tested is
 the argv — the flags *are* the security property — and the health check's
 refusal. A real container against a real image has never run here.
-`remote_sandbox` remains a declared backend with no adapter behind it; the
-`http` runtime reports it because "somewhere else, not ours" is what it means
-in F13.5's vocabulary, and it cannot verify the claim.
+`remote_sandbox` is `RemoteSandboxAdapter` over a three-method provider --
+create, exec, destroy -- and its lifecycle runs end to end against a provider
+written for the test, including the sandbox being destroyed on every path out
+of a run. No sandbox vendor is reachable from here, so what has never happened
+is a real Daytona or Modal machine answering; the `http` runtime also reports
+this backend, because "somewhere else, not ours" is what it means in F13.5's
+vocabulary, and it cannot verify the claim.
+
+**Twenty-five capabilities the standard template grants have no adapter, and
+that is the design rather than a gap.** `dns.read`, `email.send`,
+`invoice.pay` and the rest are *names* in the catalogue: a tier, a schema, the
+scopes a credential must declare, and a `verify()` contract. What executes them
+is a deployment's own adapter, because `email.send` against Resend and against
+SES are different programs and choosing one for every company that ever uses
+this platform is not a decision a control plane gets to make. The alternative
+would be twenty-five integrations against accounts nobody here holds.
+
+What the platform owes in exchange is not letting that be quiet, and
+`scripts/smoke.ts` names every unbound one on every boot. A company granted a
+capability with nothing behind it is a company whose agents will be refused at
+the moment they try to work, and finding that out at boot is the difference
+between a configuration error and an incident.
 
 **The `claude-code` adapter has not been run against the real binary.** It is
 not installed here and the provider is not reachable from the test environment,

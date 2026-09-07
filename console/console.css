@@ -1,0 +1,188 @@
+/*
+ * The owner's console.
+ *
+ * Plain CSS, one file, no preprocessor. The page it styles is where somebody
+ * approves things that cannot be undone, and the visual job is exactly two
+ * things: make the tier obvious, and make "approve" harder to hit by accident
+ * than "deny". Everything else is out of the way on purpose.
+ */
+
+:root {
+  color-scheme: light dark;
+  --bg: #fbfbfa;
+  --fg: #1a1a19;
+  --muted: #6b6b68;
+  --line: #e2e2df;
+  --card: #ffffff;
+  --accent: #2f5d50;
+  --danger: #a3301f;
+  --warn: #8a5a00;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17181a;
+    --fg: #ececea;
+    --muted: #9a9a97;
+    --line: #2c2e31;
+    --card: #1f2124;
+    --accent: #7fbfa8;
+    --danger: #e0705c;
+    --warn: #d9a441;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 0 1rem 4rem;
+  background: var(--bg);
+  color: var(--fg);
+  font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 1.25rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+h1 { font-size: 1.05rem; letter-spacing: 0.14em; margin: 0; }
+h2 { font-size: 1rem; margin: 0 0 0.4rem; }
+
+main { max-width: 46rem; margin: 0 auto; }
+section { padding: 1.5rem 0; }
+
+#who { display: flex; gap: 0.75rem; align-items: baseline; font-size: 0.85rem; }
+#device { color: var(--muted); }
+
+.muted { color: var(--muted); }
+.error { color: var(--danger); margin: 0.5rem 0 0; }
+
+/* ------------------------------------------------------------------ forms --- */
+
+input {
+  font: inherit;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--card);
+  color: inherit;
+  width: 8ch;
+  letter-spacing: 0.3em;
+  text-align: center;
+}
+
+button {
+  font: inherit;
+  padding: 0.45rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--card);
+  color: inherit;
+  cursor: pointer;
+}
+
+button:hover { border-color: var(--muted); }
+button.link { border: 0; background: none; color: var(--muted); padding: 0.45rem 0; }
+button.link:hover { color: var(--fg); text-decoration: underline; }
+
+form { display: flex; gap: 0.5rem; align-items: center; }
+
+/* ------------------------------------------------------------- the queue --- */
+
+#controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding-bottom: 1rem;
+}
+
+button.danger { border-color: var(--danger); color: var(--danger); }
+
+nav#companies { display: flex; gap: 0.4rem; flex-wrap: wrap; padding-bottom: 1rem; }
+.tab { font-size: 0.85rem; }
+.tab.current { border-color: var(--accent); color: var(--accent); }
+
+.digest {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1.25rem;
+  font-size: 0.9rem;
+}
+.digest p { margin: 0.15rem 0; }
+
+ul#inbox { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.85rem; }
+
+.card {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  padding: 0.9rem 1rem;
+}
+
+.card p { margin: 0.35rem 0; }
+
+.head { display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; }
+
+.kind { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+
+/*
+ * The tier is the single most important thing on the card: it is the
+ * difference between a question and a payment that cannot be recalled. So it
+ * is the one thing that carries colour, and tier 3 is the only thing on the
+ * page that is loud.
+ */
+.tier { font-size: 0.75rem; padding: 0.05rem 0.4rem; border-radius: 999px; border: 1px solid var(--line); }
+.tier-2 { color: var(--warn); border-color: var(--warn); }
+.tier-3 { color: var(--danger); border-color: var(--danger); font-weight: 600; }
+
+.kind-incident { border-left-color: var(--danger); }
+.kind-approval { border-left-color: var(--warn); }
+.kind-escalation { border-left-color: var(--accent); }
+
+.actions { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.75rem; flex-wrap: wrap; }
+
+/*
+ * "Approve" is the irreversible one, so it is not the easiest to hit. It
+ * carries no fill and no emphasis; "deny" is the quiet default. A console that
+ * made approving the prettiest button would be a console that got approvals it
+ * did not mean.
+ */
+button.approve { border-color: var(--accent); color: var(--accent); }
+button.deny { color: var(--muted); }
+
+/* ---------------------------------------------------------------- dialogs --- */
+
+dialog {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  color: inherit;
+  padding: 1.25rem;
+  max-width: min(42rem, 92vw);
+}
+dialog::backdrop { background: rgb(0 0 0 / 45%); }
+dialog menu { display: flex; gap: 0.5rem; justify-content: flex-end; margin: 1rem 0 0; padding: 0; }
+dialog form { display: block; }
+dialog input { margin-top: 0.5rem; }
+
+#trace-body {
+  max-height: 60vh;
+  overflow: auto;
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

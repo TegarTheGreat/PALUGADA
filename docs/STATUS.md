@@ -1003,6 +1003,52 @@ strictly than it was written looks like caution and reads like rigour, and the
 cost only shows up in the situation the extra strictness was never considered
 against.
 
+### The owner surface exists now
+
+Every requirement in F10 was built as a *rule* and had no surface: the inbox
+was a table and a set of functions, and the platform whose entire premise is
+"one person runs many companies" had no way for that person to say yes. The
+sentence that had been standing in for it -- "the owner's phone" -- covered
+three real vendor gaps and, underneath them, one thing nobody had written.
+
+`src/owner/api.ts` is the console's API and `console/` is the page. Both are
+deliberately small: no framework, no build step, `node:http` and one script.
+That is not taste. Every route is a place where an unauthenticated request
+could reach a company's data or approve something irreversible, and a surface
+small enough to read in one sitting is one whose every entrance can be checked.
+
+**The console holds no rules.** Which items exist, what may be pressed, whether
+a tier 3 approval needs a second factor -- all of it is answered by `decide`,
+where every surface meets the same gate. That is not a stylistic preference
+either, and there is a test for it: mutating the API to claim
+`assurance: 'mfa'` changes nothing, because `decide` derives assurance from a
+verification rather than reading it from a caller. A console that could talk
+its way past F10.10 would be a second implementation of it, and the one that
+mattered would be the one nobody re-read.
+
+**Signing in is presenting a second factor.** There are no accounts: PALUGADA
+has one human, so an identity system would be a table with one row and a
+password to lose. But a session is *not* MFA -- a token minted this morning is
+possession of a browser tab -- so a tier 3 approval asks for the factor again,
+at the moment of the decision. The page tries without one first and lets the
+platform refuse, which is how it stays out of the business of knowing which
+tier needs what.
+
+**The one real hole this found.** The static file server's containment check
+looked like it stopped path traversal, and it did not: `normalize` flattens
+`..` before anything compares, so a path full of dots lands harmlessly inside
+the root and misses. What the check actually earns its place against is a
+**symbolic link** inside the console directory -- `resolve` does not follow
+one, so a link to `/etc` passes every string comparison and reads somebody
+else's files. Only `realpath` sees it. Found by mutation testing: removing the
+check left the suite green, which meant the test was proving something the
+check was not doing.
+
+`src/main.ts` is the assembly -- worker, console, whichever channels the
+environment configured -- and it reports what was left unconfigured at boot
+rather than at 3am: no authenticator enrolled means no tier 3 approval is
+possible, and it says so in those words.
+
 ### What is actually left
 
 No push service, no bot token, no sandbox vendor, and none of F13.3's four

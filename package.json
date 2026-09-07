@@ -12,7 +12,8 @@
     "db:migrate": "node scripts/migrate.ts",
     "test": "node --test --test-concurrency=1 \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
-    "smoke": "node scripts/smoke.ts"
+    "smoke": "node scripts/smoke.ts",
+    "start": "node src/main.ts"
   },
   "dependencies": {
     "ajv": "^8.20.0",

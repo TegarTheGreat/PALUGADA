@@ -69,6 +69,8 @@ export type ErrorCode =
   | 'mfa.signature_invalid'
   | 'mfa.counter_did_not_advance'
   | 'mfa.locked_out'
+  /** F12.5: the owner's console was reached without a session. */
+  | 'owner.unauthenticated'
   | 'review.required'
   | 'window.closed'
   | 'approval.required'

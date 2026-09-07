@@ -29,6 +29,7 @@ import { readTemplate } from '../../src/templates/company.ts';
 import type { HandoffRule } from '../../src/engine/handoff.ts';
 import { isRoleFrozen } from '../../src/governance/role-freeze.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
+import type { NotifiableItem, OwnerChannel } from '../../src/owner/notify.ts';
 import { createCompany, addRole, setRoleSchemas, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
@@ -48,6 +49,7 @@ function workerFor(
     id?: string;
     handlers?: Record<string, TaskHandler>;
     handoffRules?: HandoffRule[];
+    ownerChannels?: OwnerChannel[];
   } = {},
 ) {
   const engine = new Engine({
@@ -63,6 +65,7 @@ function workerFor(
     ...(options.all ? {} : { companyId: fixture.companyId }),
     maxRunsPerTick: 4,
     ...(options.handoffRules ? { handoffRules: options.handoffRules } : {}),
+    ...(options.ownerChannels ? { ownerChannels: options.ownerChannels } : {}),
   });
 }
 
@@ -661,7 +664,7 @@ test('a tick that only met an unhealthy runtime is not progress (F13.8)', async 
 
 test('a tick that only met an unhealthy runtime sleeps rather than spinning (F13.8)', () => {
   const base = { reclaimed: 0, scheduled: 0, woken: 0, alerts: 0, retained: 0, handedOff: 0,
-    stopped: false, errors: [] };
+    notified: 0, stopped: false, errors: [] };
 
   // The case the loop got wrong: a run happened, and it got nowhere.
   assert.equal(
@@ -743,4 +746,84 @@ test('a busy company does not starve the next one (F5.8)', async () => {
     [first.companyId, second.companyId].sort(),
     'the second company never got a turn',
   );
+});
+
+/**
+ * The notifier has to be *called*.
+ *
+ * This repository has found the same defect in itself more often than any
+ * other: machinery that works, is tested in isolation, and is assembled by
+ * nobody. `push.ts` and `telegram.ts` are exactly the shape that fails that
+ * way -- both are tested end to end against a local server, and neither would
+ * ever have run in production if the tick did not have a stage that reached
+ * them.
+ */
+test('the tick puts an incident in front of the owner (F10.5, F10.9)', async () => {
+  const fixture = await createCompany('worker-notify');
+  const seen: string[] = [];
+  const channel: OwnerChannel = {
+    name: 'test:channel',
+    carries: () => true,
+    async deliver(item: NotifiableItem) {
+      seen.push(item.title);
+      return { ref: 'r1' };
+    },
+  };
+
+  await inbox.raiseIncident({
+    companyId: fixture.companyId,
+    title: 'The gateway is down',
+    detail: 'Three attempts, all timed out.',
+  });
+
+  const worker = workerFor(fixture, async () => ({ ok: true }), { ownerChannels: [channel] });
+  const first = await worker.tick();
+
+  assert.deepEqual(seen, ['The gateway is down']);
+  assert.equal(first.notified, 1);
+
+  // And the second tick does not tell them again. The item is still open --
+  // the owner has not answered -- so without a delivery record this is the
+  // tick that would have started ringing their phone every five seconds.
+  const second = await worker.tick();
+  assert.deepEqual(seen, ['The gateway is down']);
+  assert.equal(second.notified, 0);
+});
+
+/**
+ * A channel that is down does not take the tick with it.
+ *
+ * A vendor is briefly unreachable far more often than it is broken, and a
+ * worker that stopped claiming tasks because a push relay returned 502 would
+ * have made a notification outage into a company outage.
+ */
+test('a channel that fails is a stage error, not a dead worker (F10.5)', async () => {
+  const fixture = await createCompany('worker-notify-fails');
+  let attempts = 0;
+  const channel: OwnerChannel = {
+    name: 'test:flaky',
+    carries: () => true,
+    async deliver() {
+      attempts += 1;
+      throw new Error('the relay returned 502');
+    },
+  };
+
+  await inbox.raiseIncident({
+    companyId: fixture.companyId,
+    title: 'The gateway is down',
+    detail: 'Timed out.',
+  });
+  const task = await newTask(fixture);
+
+  const worker = workerFor(fixture, async () => ({ ok: true }), { ownerChannels: [channel] });
+  const report = await worker.tick();
+
+  // The failure is recorded on the notification row rather than thrown, so the
+  // tick carries on -- and the task still ran.
+  assert.equal(report.notified, 0);
+  assert.deepEqual(report.errors, []);
+  assert.equal(report.ran.some((run) => run.taskId === task.id), true);
+  // One attempt, then one retry of the row it claimed and could not complete.
+  assert.equal(attempts, 2);
 });

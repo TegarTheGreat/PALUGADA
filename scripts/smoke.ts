@@ -31,6 +31,8 @@ import { STANDARD_COMPANY_TEMPLATE } from '../src/templates/standard.ts';
 import { createRootTask, getTask } from '../src/engine/tasks.ts';
 import { withTenant, withControlPlane } from '../src/db/tenant.ts';
 import { closePools } from '../src/db/pool.ts';
+import { raiseIncident } from '../src/inbox/inbox.ts';
+import type { OwnerChannel } from '../src/owner/notify.ts';
 
 const DEADLINE_MS = 30_000;
 
@@ -185,12 +187,29 @@ async function main(): Promise<number> {
     workerId: `smoke-${randomUUID().slice(0, 8)}`,
   });
 
+  // F10.5, F10.9. A channel that records rather than one that posts: no push
+  // service and no bot exist here, and what this boot check is for is the
+  // wiring -- whether a tick reaches a channel at all. That is the failure
+  // this repository has found in itself more often than any other, and it is
+  // invisible to a unit test of the channel.
+  const notified: string[] = [];
+  const recordingChannel: OwnerChannel = {
+    name: 'smoke:recorder',
+    carries: () => true,
+    async deliver(item) {
+      notified.push(`${item.kind}:${item.delivery}`);
+      return {};
+    },
+  };
+
   const shutdown = new AbortController();
   const worker = new Worker({
     engine,
     companyId: company.companyId,
     idleMs: 250,
     signal: shutdown.signal,
+    ownerChannels: [recordingChannel],
+    ownerLinkFor: (item) => `https://app.palugada.local/i/${item.id}`,
     onTickError: (error) => log('tick failed', error.message),
   });
 
@@ -201,6 +220,14 @@ async function main(): Promise<number> {
   // which for a task in ops is the ops account rather than the company's. Left
   // to the lookup here on purpose -- it is the wiring that was missing, so a
   // boot check that named the account by hand would step over it.
+  // Something for the owner to be told about, raised before the task so the
+  // first tick has both to do.
+  await raiseIncident({
+    companyId: company.companyId,
+    title: 'A smoke incident, so the notifier has something to carry',
+    detail: 'Raised by the boot check.',
+  });
+
   const task = await createRootTask({
     companyId: company.companyId,
     projectId: Object.values(company.projectIds)[0]!,
@@ -246,6 +273,15 @@ async function main(): Promise<number> {
     return rows;
   });
   log('audit trail', trail.map((row) => `${row.type}×${row.count}`).join(', '));
+
+  // The wiring check. A notifier that is configured and never reached is the
+  // shape of defect this file exists to catch, so it is a failure rather than
+  // a note.
+  log('owner notified', notified.length > 0 ? notified.join(', ') : 'NOTHING');
+  if (notified.length === 0) {
+    log('RESULT', 'the tick never reached the owner channel');
+    return 1;
+  }
 
   return final.status === 'completed' ? 0 : 1;
 }

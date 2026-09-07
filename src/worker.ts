@@ -51,6 +51,7 @@ import { evaluateCircuitBreakers, evaluateSpendLimit } from './governance/spend-
 import * as inbox from './inbox/inbox.ts';
 import { runRetention } from './retention/retention.ts';
 import { processHandoffs, type HandoffRule } from './engine/handoff.ts';
+import { dispatch, retryFailed, type OwnerChannel, type NotifiableItem } from './owner/notify.ts';
 
 export interface WorkerOptions {
   engine: Engine;
@@ -79,6 +80,19 @@ export interface WorkerOptions {
    * process for it.
    */
   handoffRules?: HandoffRule[];
+  /**
+   * F10.5, F10.9: the pipes to the owner.
+   *
+   * Given to the worker rather than reached for, and empty by default, because
+   * a transport needs a vendor account and inventing one would be a platform
+   * choosing how a person is interrupted. What is *not* optional is that
+   * something calls them: a notifier nobody runs is the defect this codebase
+   * has found in itself more often than any other -- machinery that works, is
+   * tested in isolation, and is assembled by nobody.
+   */
+  ownerChannels?: OwnerChannel[];
+  /** Turns an item into a deep link into the owner's app, when there is one. */
+  ownerLinkFor?: (item: NotifiableItem) => string | null;
   signal?: AbortSignal;
   /**
    * Called when a whole tick fails, not when a stage does.
@@ -100,6 +114,8 @@ export interface TickReport {
   retained: number;
   /** Successor tasks created from a completed task's output (F6.3). */
   handedOff: number;
+  /** Items put in front of the owner on a channel this tick (F10.5, F10.9). */
+  notified: number;
   /** Set when the platform stop is in effect: the tick did nothing else. */
   stopped: boolean;
   errors: Array<{ stage: string; message: string }>;
@@ -163,6 +179,7 @@ export class Worker {
   async tick(now = new Date()): Promise<TickReport> {
     const report: TickReport = {
       reclaimed: 0, scheduled: 0, woken: 0, ran: [], alerts: 0, retained: 0, handedOff: 0,
+      notified: 0,
       stopped: false, errors: [],
     };
 
@@ -256,6 +273,26 @@ export class Worker {
         await evaluateCircuitBreakers(company, now);
         report.alerts += (await evaluateAlerts(company, now)).length;
       });
+
+      // F10.5, F10.9. After `watch`, because that stage is what raises the
+      // incidents and budget alerts this one delivers -- notifying before
+      // them would tell the owner about this tick's news on the next tick.
+      if ((this.#options.ownerChannels ?? []).length > 0) {
+        await this.#stage(report, 'notify', async () => {
+          for (const channel of this.#options.ownerChannels ?? []) {
+            const options = {
+              now,
+              ...(this.#options.ownerLinkFor ? { linkFor: this.#options.ownerLinkFor } : {}),
+            };
+            report.notified += (await dispatch(company, channel, options)).delivered;
+            // A vendor is briefly unreachable more often than it is broken, and
+            // a first attempt must not repeat while a retry must. `retryFailed`
+            // is the only path that re-sends, and it only re-sends rows that
+            // were claimed and never completed.
+            report.notified += (await retryFailed(company, channel, options)).delivered;
+          }
+        });
+      }
 
       // Section 12.3. Deletes, so it goes after everything that reads.
       const interval = this.#options.retentionIntervalMs ?? DEFAULT_RETENTION_INTERVAL_MS;

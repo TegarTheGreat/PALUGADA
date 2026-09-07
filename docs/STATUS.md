@@ -874,6 +874,24 @@ rendered by an operating system and copied through a vendor's servers, so it
 gets what happened, how bad, and a link, and the substance stays behind the app
 where the second factor is.
 
+### And the notifier is actually called
+
+The channels are wired into the worker's tick as a `notify` stage, after
+`watch` -- because `watch` is what raises the incidents and budget alerts this
+stage delivers, and notifying first would tell the owner about this tick's news
+on the next one. A channel that fails is a recorded failure on the
+notification row rather than a thrown tick: a vendor is briefly unreachable far
+more often than it is broken, and a worker that stopped claiming tasks because
+a push relay returned 502 would have turned a notification outage into a
+company outage.
+
+`scripts/smoke.ts` boots with a recording channel and fails if the tick never
+reaches it. That check exists because the defect this repository has found in
+itself more often than any other is machinery that works, is tested in
+isolation, and is assembled by nobody -- and a notifier is exactly the shape
+that fails that way, since every unit test of it passes whether or not anything
+calls it.
+
 ### What is actually left
 
 No push service, no bot token, no sandbox vendor, and none of F13.3's four

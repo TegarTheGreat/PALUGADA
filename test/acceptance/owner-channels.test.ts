@@ -828,3 +828,86 @@ test('a digest is redacted like everything else that leaves this process (F12.4)
     'a credential reached the owner\'s phone',
   );
 });
+
+/**
+ * A channel that fails does not lose the day, or stop the others.
+ *
+ * The claim is written before the transport is called -- correct, and the same
+ * rule every item delivery here follows. But `retryFailed` inner-joins
+ * `inbox_items`, so a digest row is invisible to it: a claim left behind by a
+ * transient failure would lose that day's digest permanently, and one
+ * unreachable transport would abort every later channel in the array on every
+ * tick.
+ */
+test('a digest that fails to send is not lost, and does not block the others (F10.6)', async () => {
+  const { dispatchDigest } = await import('../../src/owner/notify.ts');
+  const fixture = await createCompany('digest-failure');
+
+  let attempts = 0;
+  const flaky: OwnerChannel = {
+    name: 'test:flaky-digest',
+    carries: () => true,
+    async deliver() { return {}; },
+    async deliverDigest() {
+      attempts += 1;
+      if (attempts === 1) throw new Error('the relay was restarting');
+    },
+  };
+  const steady: string[] = [];
+  const other: OwnerChannel = {
+    name: 'test:steady-digest',
+    carries: () => true,
+    async deliver() { return {}; },
+    async deliverDigest(digest) { steady.push(digest.day); },
+  };
+
+  const first = await dispatchDigest(fixture.companyId, [flaky, other], {
+    day: '2026-09-07', text: 'Digest',
+  });
+  assert.equal(first.delivered, 1, 'the second channel was skipped by the first one failing');
+  assert.deepEqual(first.failed.map((one) => one.channel), ['test:flaky-digest']);
+  assert.deepEqual(steady, ['2026-09-07']);
+
+  // The claim stays and carries the reason -- `DELETE` is not the tenant
+  // role's to make, and a log of what the owner was told is not something the
+  // console's own role should be able to erase. `retryDigests` is what comes
+  // back to it; `retryFailed` cannot, because it joins `inbox_items` and a
+  // digest has no row there.
+  const { retryDigests } = await import('../../src/owner/notify.ts');
+  const retried = await retryDigests(
+    fixture.companyId, [flaky, other], { baseDelayMs: 0 },
+  );
+  assert.equal(retried.delivered, 1, 'the lost day was never retried');
+  assert.equal(attempts, 2);
+  assert.deepEqual(steady, ['2026-09-07'], 'the steady channel was sent the same day twice');
+
+  // And nothing is owed afterwards.
+  assert.equal((await retryDigests(fixture.companyId, [flaky, other], { baseDelayMs: 0 }))
+    .delivered, 0);
+});
+
+test('the digest is not built for a day already sent (F10.6)', async () => {
+  // `buildDailyDigest` is several aggregates over a day of events. Running it
+  // every tick to throw the answer away on a uniqueness conflict is a query a
+  // minute, all day, for one message.
+  const { digestOwed, dispatchDigest } = await import('../../src/owner/notify.ts');
+  const fixture = await createCompany('digest-owed');
+
+  const channel: OwnerChannel = {
+    name: 'test:owed',
+    carries: () => true,
+    async deliver() { return {}; },
+    async deliverDigest() { /* recorded by the table */ },
+  };
+
+  assert.deepEqual(
+    (await digestOwed(fixture.companyId, [channel], '2026-09-07')).map((one) => one.name),
+    ['test:owed'],
+  );
+
+  await dispatchDigest(fixture.companyId, [channel], { day: '2026-09-07', text: 'Digest' });
+
+  assert.deepEqual(await digestOwed(fixture.companyId, [channel], '2026-09-07'), []);
+  // A different day is still owed.
+  assert.equal((await digestOwed(fixture.companyId, [channel], '2026-09-08')).length, 1);
+});

@@ -716,8 +716,8 @@ async function drawMoney() {
         { name: 'scopeId', label: 'That scope id' },
         { name: 'parentAccountId', label: 'The account above it' },
       ],
-      (values) => api('POST', `${company()}/budget-accounts`, values),
-      { action: 'Open it' },
+      (values, proof) => api('POST', `${company()}/budget-accounts`, { ...values, proof }),
+      { action: 'Open it', factor: 'open a budget account' },
     ),
   );
 }

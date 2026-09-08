@@ -33,6 +33,7 @@ import { withTenant } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { redactor } from '../secrets/manager.ts';
 import { channelDelivery, type ChannelDelivery } from '../inbox/inbox.ts';
+import { buildDailyDigest, renderDailyDigest } from '../reporting/digest.ts';
 
 /** One item, as a transport needs to see it. */
 export interface NotifiableItem {
@@ -170,13 +171,46 @@ export async function undelivered(
  * that has no sensible place for a page of text is not broken, it simply is
  * not where a digest goes.
  */
+/**
+ * Which channels have not had a given day's digest yet.
+ *
+ * Asked before the digest is built, because building one is several aggregates
+ * over a day of events and the answer is thrown away on a uniqueness conflict.
+ * A worker ticking every few seconds would otherwise run those aggregates all
+ * day for one message.
+ *
+ * This is a read, so it races: two workers can both see a channel as owed. The
+ * insert in `dispatchDigest` is what actually decides, and it is the
+ * uniqueness constraint that makes "once a day" true. This only avoids the
+ * work when the answer is already settled.
+ */
+export async function digestOwed(
+  companyId: string,
+  channels: readonly OwnerChannel[],
+  day: string,
+): Promise<OwnerChannel[]> {
+  const already = await withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<{ channel: string }>(
+      'SELECT channel FROM owner_notifications WHERE digest_day = $1',
+      [day],
+    );
+    return new Set(rows.map((row) => row.channel));
+  });
+  return channels.filter((channel) => !already.has(channel.name));
+}
+
 export async function dispatchDigest(
   companyId: string,
   channels: readonly OwnerChannel[],
   digest: { day: string; text: string },
-): Promise<{ delivered: number; skipped: number }> {
+): Promise<{
+  delivered: number;
+  skipped: number;
+  failed: Array<{ channel: string; error: string }>;
+}> {
   let delivered = 0;
   let skipped = 0;
+  const failed: Array<{ channel: string; error: string }> = [];
 
   for (const channel of channels) {
     if (!channel.deliverDigest) {
@@ -203,25 +237,52 @@ export async function dispatchDigest(
       continue;
     }
 
-    // Redacted like everything else that leaves this process. A digest is
-    // assembled from what agents did, and an agent can put anything in a
-    // title.
-    await channel.deliverDigest({
-      companyId,
-      day: digest.day,
-      text: redactor.redact(digest.text),
-    });
-    await withTenant(companyId, async (tx) => {
-      await tx.query(
-        `UPDATE owner_notifications SET delivered_at = now()
-          WHERE company_id = $1 AND channel = $2 AND digest_day = $3`,
-        [companyId, channel.name, digest.day],
-      );
-    });
-    delivered += 1;
+    try {
+      // Redacted like everything else that leaves this process. A digest is
+      // assembled from what agents did, and an agent can put anything in a
+      // title.
+      await channel.deliverDigest({
+        companyId,
+        day: digest.day,
+        text: redactor.redact(digest.text),
+      });
+      await withTenant(companyId, async (tx) => {
+        await tx.query(
+          `UPDATE owner_notifications SET delivered_at = now()
+            WHERE company_id = $1 AND channel = $2 AND digest_day = $3`,
+          [companyId, channel.name, digest.day],
+        );
+      });
+      delivered += 1;
+    } catch (error) {
+      // Two things, and both were wrong without this. The claim is *released*,
+      // because `retryFailed` joins `inbox_items` and can never see a digest
+      // row -- so a claim left behind would lose that day permanently for one
+      // transient failure. And the loop continues, because one unreachable
+      // transport must not stop the owner's other channel from getting the
+      // digest, on this tick or any other.
+      // The failure is *recorded* rather than the claim removed. `DELETE` is
+      // not the tenant role's to make -- correctly, since a log of what the
+      // owner was told is not something the console's own role should be able
+      // to erase -- so the row stays and carries the reason, exactly as an
+      // item delivery does. `retryDigests` is what comes back to it.
+      //
+      // The loop continues either way: one unreachable transport must not stop
+      // the owner's other channel from getting the digest.
+      const reason = redactor.redact((error as Error).message).slice(0, 500);
+      await withTenant(companyId, async (tx) => {
+        await tx.query(
+          `UPDATE owner_notifications
+              SET attempts = attempts + 1, last_error = $4, last_attempt_at = now()
+            WHERE company_id = $1 AND channel = $2 AND digest_day = $3`,
+          [companyId, channel.name, digest.day, reason],
+        );
+      });
+      failed.push({ channel: channel.name, error: reason });
+    }
   }
 
-  return { delivered, skipped };
+  return { delivered, skipped, failed };
 }
 
 export interface DispatchReport {
@@ -368,6 +429,85 @@ export const RETRY_BASE_MS = 30_000;
  * how a platform teaches its owner to ignore it, and the item is still open in
  * the inbox either way.
  */
+/**
+ * Comes back to a digest whose channel was unreachable.
+ *
+ * `retryFailed` inner-joins `inbox_items`, so a digest row is invisible to it:
+ * a digest is not an item and has no row there. Without this a transport that
+ * was restarting when the digest went out lost that day for ever -- the claim
+ * stops it being sent again and nothing else ever looks at it.
+ *
+ * The same backoff and the same attempt budget, for the same reason: a first
+ * attempt must not repeat while a retry must, and a relay that comes back in a
+ * minute should not have exhausted the row in milliseconds.
+ */
+export async function retryDigests(
+  companyId: string,
+  channels: readonly OwnerChannel[],
+  options: { maxAttempts?: number; baseDelayMs?: number; now?: Date } = {},
+): Promise<{ delivered: number }> {
+  const maxAttempts = options.maxAttempts ?? 3;
+  const baseDelayMs = options.baseDelayMs ?? RETRY_BASE_MS;
+  const byName = new Map(channels.map((channel) => [channel.name, channel]));
+  let delivered = 0;
+
+  const due = await withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<{ channel: string; digest_day: string }>(
+      `SELECT channel, to_char(digest_day, 'YYYY-MM-DD') AS digest_day
+         FROM owner_notifications
+        WHERE company_id = $1
+          AND digest_day IS NOT NULL
+          AND delivered_at IS NULL
+          AND last_error IS NOT NULL
+          AND attempts < $2
+          AND last_attempt_at
+              <= now() - make_interval(secs => ($3::double precision / 1000)
+                                               * power(2, attempts))
+        ORDER BY digest_day`,
+      [companyId, maxAttempts, baseDelayMs],
+    );
+    return rows;
+  });
+
+  for (const row of due) {
+    const channel = byName.get(row.channel);
+    // A channel the deployment no longer has is not a failure to record
+    // against: there is nothing to send it to.
+    if (!channel?.deliverDigest) continue;
+
+    const digest = await buildDailyDigest(companyId, new Date(`${row.digest_day}T12:00:00Z`));
+    try {
+      await channel.deliverDigest({
+        companyId,
+        day: row.digest_day,
+        text: redactor.redact(renderDailyDigest(digest)),
+      });
+      await withTenant(companyId, async (tx) => {
+        await tx.query(
+          `UPDATE owner_notifications SET delivered_at = now(), last_error = NULL
+            WHERE company_id = $1 AND channel = $2 AND digest_day = $3`,
+          [companyId, row.channel, row.digest_day],
+        );
+      });
+      delivered += 1;
+    } catch (error) {
+      await withTenant(companyId, async (tx) => {
+        await tx.query(
+          `UPDATE owner_notifications
+              SET attempts = attempts + 1, last_error = $4, last_attempt_at = now()
+            WHERE company_id = $1 AND channel = $2 AND digest_day = $3`,
+          [
+            companyId, row.channel, row.digest_day,
+            redactor.redact((error as Error).message).slice(0, 500),
+          ],
+        );
+      });
+    }
+  }
+
+  return { delivered };
+}
+
 export async function retryFailed(
   companyId: string,
   channel: OwnerChannel,

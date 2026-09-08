@@ -656,11 +656,16 @@ export class OwnerApi {
         // way to ask it until now.
         method: 'GET',
         pattern: '/api/companies/:companyId/divisions/:divisionId/roles/:roleId/budget',
-        handle: async ({ params }) => withTenant(params.companyId!, async (tx) => {
+        handle: async ({ params, query }) => withTenant(params.companyId!, async (tx) => {
+          // The project too, because `createRootTask` passes it: without it
+          // this reported the company account while a project-scoped one was
+          // what the work is actually charged to, which is the one thing an
+          // owner reads this route to find out.
           const accountId = await accountFor(tx, {
             companyId: params.companyId!,
             divisionId: params.divisionId!,
             roleId: params.roleId!,
+            projectId: query.get('project'),
           });
           if (!accountId) {
             throw new PalugadaError(
@@ -676,9 +681,14 @@ export class OwnerApi {
       },
 
       {
+        // Opening an account sets a ceiling, which is money -- the same
+        // decision as `spend/limit`, and F2.9's reasoning applies for the same
+        // reason it applies to a grant. A session is a browser tab.
         method: 'POST',
         pattern: '/api/companies/:companyId/budget-accounts',
-        handle: async ({ params, body }) => withTenant(params.companyId!, async (tx) => ({
+        handle: async ({ params, body }) => {
+          await this.#requireFactor(body.proof, 'open a budget account', params.companyId!);
+          return withTenant(params.companyId!, async (tx) => ({
           id: await createAccount(tx, {
             companyId: params.companyId!,
             label: requireText(body.label, 'label'),
@@ -699,7 +709,8 @@ export class OwnerApi {
                 },
               }),
           }),
-        })),
+          }));
+        },
       },
 
       /* ------------------------------------------------------------ F4.6 --- */
@@ -713,17 +724,41 @@ export class OwnerApi {
         // did are both better served by a chain than by a hole.
         method: 'POST',
         pattern: '/api/companies/:companyId/memories/:memoryId/supersede',
-        handle: async ({ params, body }) => withTenant(params.companyId!, async (tx) => ({
-          id: await supersede(tx, params.memoryId!, {
-            companyId: params.companyId!,
-            memoryType: 'semantic',
-            scopeType: 'company',
-            body: requireText(body.body, 'body'),
-            ...(body.confidence === undefined
-              ? {}
-              : { confidence: Number(body.confidence) }),
-          }),
-        })),
+        handle: async ({ params, body }) => withTenant(params.companyId!, async (tx) => {
+          // The replacement takes the original's type and scope.
+          //
+          // Hardcoding `semantic`/`company` -- which the first version did --
+          // meant correcting a division's procedure wrote a company-wide fact:
+          // the old procedure was superseded and the new one was not a
+          // procedure, so `recall` found neither and the SOP vanished from
+          // every agent's context. A correction that deletes the thing it
+          // corrects is the worst possible shape for this.
+          const { rows } = await tx.query<{
+            memory_type: string;
+            scope_type: string;
+            scope_id: string | null;
+          }>(
+            'SELECT memory_type, scope_type, scope_id FROM memories WHERE id = $1',
+            [params.memoryId!],
+          );
+          const original = rows[0];
+          if (!original) {
+            throw new PalugadaError('contract.violation', 'no such memory', {});
+          }
+
+          return {
+            id: await supersede(tx, params.memoryId!, {
+              companyId: params.companyId!,
+              memoryType: original.memory_type as 'semantic',
+              scopeType: original.scope_type as 'company',
+              ...(original.scope_id === null ? {} : { scopeId: original.scope_id }),
+              body: requireText(body.body, 'body'),
+              ...(body.confidence === undefined
+                ? {}
+                : { confidence: Number(body.confidence) }),
+            }),
+          };
+        }),
       },
 
       /* ----------------------------------------------------------- F11.4 --- */

@@ -2401,10 +2401,18 @@ test('the owner can see what funds a role, and open an account (F1.2, F1.6)', as
     const orphan = await call(
       owner.url, 'POST', `/api/companies/${fixture.companyId}/budget-accounts`,
       { token, body: { label: 'ads', tokensMax: 1_000, scopeType: 'division',
-        scopeId: fixture.divisionId } },
+        scopeId: fixture.divisionId, proof: { totp: owner.code() } } },
     );
     assert.equal(orphan.status, 400, JSON.stringify(orphan.body));
     assert.match(String(orphan.body.error), /parentAccountId is required/);
+
+    // Opening an account sets a ceiling, which is money -- the same decision
+    // as the spend limit, and a session is a browser tab.
+    const noFactor = await call(
+      owner.url, 'POST', `/api/companies/${fixture.companyId}/budget-accounts`,
+      { token, body: { label: 'ads', tokensMax: 1_000 } },
+    );
+    assert.equal(noFactor.status, 403, JSON.stringify(noFactor.body));
 
     const opened = await call(
       owner.url, 'POST', `/api/companies/${fixture.companyId}/budget-accounts`,
@@ -2412,7 +2420,9 @@ test('the owner can see what funds a role, and open an account (F1.2, F1.6)', as
         token,
         body: {
           label: 'ads', tokensMax: 1_000, scopeType: 'division',
-          scopeId: fixture.divisionId, parentAccountId: budget.body.chain![1] ?? budget.body.accountId,
+          scopeId: fixture.divisionId,
+          parentAccountId: budget.body.chain![1] ?? budget.body.accountId,
+          proof: { totp: owner.code() },
         },
       },
     );
@@ -2453,6 +2463,47 @@ test('a fact is superseded rather than deleted (F4.6)', async () => {
       return rows[0]!;
     });
     assert.equal(chain.superseded_by, replaced.body.id);
+
+    // A correction that corrected nothing is a fault, not a no-op. Without
+    // this a wrong id left the replacement in place as a second, unlinked
+    // fact while the stale one stayed active -- so the platform believed both,
+    // and the caller was told it had been fixed.
+    const twice = await call(
+      owner.url, 'POST', `/api/companies/${fixture.companyId}/memories/${original}/supersede`,
+      { token, body: { body: 'A third opinion.' } },
+    );
+    assert.equal(twice.status, 400, JSON.stringify(twice.body));
+    assert.match(String(twice.body.error), /already was|does not exist/);
+
+    // The replacement takes the original's type and scope. Hardcoding
+    // semantic/company meant correcting a division's procedure superseded the
+    // old one and wrote something that was not a procedure -- so `recall`
+    // found neither and the SOP vanished from every agent's context.
+    const procedure = await tenant(fixture.companyId, (tx) => remember(tx, {
+      companyId: fixture.companyId,
+      memoryType: 'procedural',
+      scopeType: 'division',
+      scopeId: fixture.divisionId,
+      body: 'Always quote before invoicing.',
+    }));
+    const corrected = await call(
+      owner.url, 'POST', `/api/companies/${fixture.companyId}/memories/${procedure}/supersede`,
+      { token, body: { body: 'Always quote before invoicing, and cc the owner.' } },
+    );
+    assert.equal(corrected.status, 200, JSON.stringify(corrected.body));
+
+    const kept = await tenant(fixture.companyId, async (tx) => {
+      const { rows } = await tx.query<{
+        memory_type: string; scope_type: string; scope_id: string | null;
+      }>(
+        'SELECT memory_type, scope_type, scope_id FROM memories WHERE id = $1',
+        [corrected.body.id],
+      );
+      return rows[0]!;
+    });
+    assert.equal(kept.memory_type, 'procedural', 'the procedure stopped being one');
+    assert.equal(kept.scope_type, 'division');
+    assert.equal(kept.scope_id, fixture.divisionId);
   } finally {
     await owner.close();
   }

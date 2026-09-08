@@ -1854,6 +1854,67 @@ partial count that changes if you read it twice. Redacted like everything else
 that leaves this process, because a digest is assembled from what agents did
 and an agent can put anything in a title.
 
+### And a review of that found nine, two of them made by the fixes themselves
+
+**A fix that created a hot loop.** Widening the claim to `waiting_window` made
+a task parked with a *null* `wait_until` claimable immediately and repeatedly:
+claim, run, re-park, claim, up to the whole tick budget, paying for an agent
+run each time round -- with `madeProgress` suppressing the sleep because runs
+kept happening. The engine parks that way when the window it is waiting for
+has no next opening, which is a misconfiguration the platform has to survive
+rather than spin on. A parked task with no wake-up time stays parked now; a
+*pending* one with no `wait_until`, which is most of them, stays claimable.
+
+**A fix that gave one division another's memory.** The learning stage loops
+divisions, and distillation's watermark was keyed on the *project* while the
+memory it writes is scoped to a *division* -- and a company has one project and
+several divisions, which the standard template says outright. So the first
+division by slug consumed the whole event window, every other division read
+zero events for ever, and everyone's work became the first one's private
+knowledge.
+
+That is a mismatch in `distillEpisodicToSemantic` rather than in its caller,
+and the fix is that both ends now agree what a scope is: the read joins tasks
+and filters on the division, and the watermark is keyed on it. An event with no
+task belongs to no division and is skipped -- it is the company's, and there is
+no division-scoped fact to draw from it. Every test in that file had been
+seeding task-less events, which is exactly why one division was enough to hide
+this.
+
+Seven more:
+
+- **Screening did not need a model and was gated behind one.**
+  `runSkillEvals` is substring matching against the cases the skill declares.
+  A deployment with no model client never screened a candidate, and the boot
+  note blamed the missing model for something that never needed one. It runs
+  first now, and the distillation half returns early.
+- **A failing digest lost the day.** The claim is written before the transport
+  is called -- right, and what every item delivery here does -- but
+  `retryFailed` inner-joins `inbox_items`, so a digest row is invisible to it.
+  One restarting relay lost that day for ever, and aborted every later channel
+  in the array. The failure is recorded on the row now (`DELETE` is not the
+  tenant role's to make, and a log of what the owner was told is not something
+  the console's own role should be able to erase) and `retryDigests` comes back
+  to it with the same backoff and budget.
+- **The digest was built before the once-a-day check.** Several aggregates over
+  a day of events, run every tick and thrown away on a uniqueness conflict --
+  a query a minute, all day, for one message. `digestOwed` is asked first.
+- **Supersede hardcoded `semantic`/`company`.** Correcting a division's
+  procedure superseded the old one and wrote something that was not a
+  procedure, so `recall` found neither and the SOP vanished from every agent's
+  context. A correction that deletes what it corrects is the worst possible
+  shape for this. The replacement takes the original's type and scope.
+- **And supersede never checked that it matched a row.** A wrong id left the
+  replacement in place as a second, unlinked fact while the stale one stayed
+  active: the platform believed both, and the caller was told it was fixed.
+- **The budget lookup omitted the project** while `createRootTask` passes it,
+  so with a project-scoped account the console named the company account
+  rather than the one the work is charged to -- the one thing an owner reads
+  that route to find out.
+- **Opening a budget account took no second factor.** It sets a ceiling, which
+  is money: the same decision as the spend limit, and a session is a browser
+  tab.
+
 ### What is actually left
 
 No push service, no bot token, no sandbox vendor, and none of F13.3's four

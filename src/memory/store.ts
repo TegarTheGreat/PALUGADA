@@ -18,6 +18,8 @@
  *   "what did we believe then" and "what do we believe now" stay separately
  *   answerable. Deleting would collapse both into the latter.
  */
+import { PalugadaError } from '../errors.ts';
+
 import type { TenantClient } from '../db/tenant.ts';
 
 export type MemoryType = 'working' | 'episodic' | 'semantic' | 'procedural';
@@ -121,7 +123,21 @@ export async function supersede(
   replacement: RememberInput,
 ): Promise<string> {
   const replacementId = await remember(tx, replacement);
-  await tx.query('UPDATE memories SET superseded_by = $2 WHERE id = $1', [previousId, replacementId]);
+  const { rowCount } = await tx.query(
+    'UPDATE memories SET superseded_by = $2 WHERE id = $1 AND superseded_by IS NULL',
+    [previousId, replacementId],
+  );
+  // A correction that corrected nothing is a fault, not a no-op. Without this
+  // a wrong id left the replacement in place as a second, unlinked fact while
+  // the stale one stayed active -- so the platform believed both, and the
+  // caller was told it had been fixed.
+  if (rowCount !== 1) {
+    throw new PalugadaError(
+      'contract.violation',
+      `memory ${previousId} cannot be superseded: it does not exist here, or already was`,
+      { memoryId: previousId },
+    );
+  }
   return replacementId;
 }
 

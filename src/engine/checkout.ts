@@ -92,7 +92,15 @@ const CLAIM_SQL = `
      -- FOR UPDATE SKIP LOCKED. A separate path would have been a second,
      -- weaker claim, and the weaker one is the one that eventually runs two
      -- workers on one task.
-     WHERE t.status IN ('pending', 'waiting_window')
+     -- A parked task with no wake-up time is *not* claimable. The engine
+     -- parks one that way when the window it is waiting for never opens
+     -- (engine.ts, window.closed with no reopensAt), and without this it
+     -- would be claimed, run, re-parked and claimed again -- a hot loop paying
+     -- for a full agent run each time round, with madeProgress suppressing
+     -- the sleep because runs kept happening. A pending task with no
+     -- wait_until is the ordinary case and stays claimable.
+     WHERE (t.status = 'pending'
+            OR (t.status = 'waiting_window' AND t.wait_until IS NOT NULL))
        AND ($2::uuid IS NULL OR t.id = $2)
        AND ($5::uuid IS NULL OR t.role_id = $5)
        AND (t.wait_until IS NULL OR t.wait_until <= $3)

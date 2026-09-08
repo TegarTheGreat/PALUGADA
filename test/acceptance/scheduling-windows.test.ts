@@ -610,3 +610,56 @@ test('a task whose window has opened is claimed and run (F9.6)', async () => {
   assert.equal(await releaseTask(fixture.companyId, task.id, 'w1'), true);
   assert.deepEqual(ran, [], 'the claim itself must not run anything');
 });
+
+/**
+ * A window that never opens parks the task, and does not spin.
+ *
+ * The engine parks with a null `wait_until` when the window it is waiting for
+ * has no next opening -- a misconfiguration, but one the platform has to
+ * survive. Widening the claim to `waiting_window` made that row claimable
+ * immediately and repeatedly: claim, run, re-park, claim, up to the tick's
+ * whole budget, paying for an agent run each time round, with `madeProgress`
+ * suppressing the sleep because runs kept happening.
+ *
+ * A hot loop against the database and the model provider, produced by a fix
+ * for something else. So a parked task with no wake-up time stays parked, and
+ * a pending one with no `wait_until` -- the ordinary case -- stays claimable.
+ */
+test('a task parked with no wake-up time is not claimed in a loop (F9.6)', async () => {
+  const fixture = await createCompany('batch-no-opening');
+  const task = await batchableTask(fixture, 'never');
+
+  // Parked the way the engine parks one whose window will not reopen.
+  await withTenant(fixture.companyId, async (tx) => {
+    await tx.query(
+      "UPDATE tasks SET status = 'waiting_window', wait_until = NULL WHERE id = $1",
+      [task.id],
+    );
+  });
+
+  assert.equal(
+    await claimTask(fixture.companyId, { holder: 'w1' }), null,
+    'a task with no wake-up time was claimed, which is a loop',
+  );
+  assert.equal(
+    await claimTask(fixture.companyId, { holder: 'w1', now: new Date(Date.now() + 86_400_000) }),
+    null,
+    'and it stays parked however long anyone waits',
+  );
+
+  // An ordinary pending task with no `wait_until` is still claimable, which is
+  // most of them.
+  const ordinary = await createRootTask({
+    companyId: fixture.companyId,
+    projectId: fixture.projectId,
+    divisionId: fixture.divisionId,
+    roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId,
+    goalId: fixture.goalId,
+    input: { goal: 'ordinary' },
+    createdBy: 'owner',
+    reserveTokens: 5_000,
+  });
+  const claim = await claimTask(fixture.companyId, { holder: 'w1' });
+  assert.equal(claim?.taskId, ordinary.id);
+});

@@ -913,11 +913,27 @@ test('a tick distils what happened into what is known (F4.5)', async () => {
   const { appendEvent } = await import('../../src/audit/event-log.ts');
   const fixture = await createCompany('worker-distil');
 
+  // On a task, because distillation is division-scoped and an event's division
+  // is its task's. A company has one project and several divisions, so keying
+  // the read on the project made the first division consume everyone's work.
+  const { createRootTask } = await import('../../src/engine/tasks.ts');
+  const carrier = await createRootTask({
+    companyId: fixture.companyId,
+    projectId: fixture.projectId,
+    divisionId: fixture.divisionId,
+    roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId,
+    goalId: fixture.goalId,
+    input: { goal: 'something that happened' },
+    createdBy: 'owner',
+    reserveTokens: 1_000,
+  });
   await withTenant(fixture.companyId, async (tx) => {
     for (const note of ['the hosting provider is Alpha', 'the client prefers email']) {
       await appendEvent(tx, {
         companyId: fixture.companyId,
         projectId: fixture.projectId,
+        taskId: carrier.id,
         type: 'task.completed',
         actor: 'agent_run',
         payload: { note },
@@ -959,6 +975,7 @@ test('a tick distils what happened into what is known (F4.5)', async () => {
     await appendEvent(tx, {
       companyId: fixture.companyId,
       projectId: fixture.projectId,
+      taskId: carrier.id,
       type: 'task.completed',
       actor: 'agent_run',
       payload: { note: 'and the invoices go out on the first' },

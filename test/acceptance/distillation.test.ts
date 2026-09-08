@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import { withTenant } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';
+import { createRootTask } from '../../src/engine/tasks.ts';
 import { appendEvent } from '../../src/audit/event-log.ts';
 import {
   distillEpisodicToSemantic,
@@ -37,12 +38,34 @@ function factsClient(facts: Array<{ body: string; confidence?: number }>) {
   return new RecordingLlmClient(() => JSON.stringify({ facts }));
 }
 
+/**
+ * Events a division produced, which is what a division-scoped pass reads.
+ *
+ * Attached to a task on purpose. Distillation writes a *division* scoped
+ * memory, so it reads the events of that division -- and an event's division
+ * is its task's. These used to be seeded with no task at all, which meant the
+ * pass could be keyed on the project and nobody noticed that a company with
+ * two divisions had one of them consuming the other's work.
+ */
 async function seedEvents(fixture: Fixture, payloads: Array<Record<string, unknown>>) {
+  const task = await createRootTask({
+    companyId: fixture.companyId,
+    projectId: fixture.projectId,
+    divisionId: fixture.divisionId,
+    roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId,
+    goalId: fixture.goalId,
+    input: { goal: 'something that happened' },
+    createdBy: 'owner',
+    reserveTokens: 1_000,
+  });
+
   await withTenant(fixture.companyId, async (tx) => {
     for (const payload of payloads) {
       await appendEvent(tx, {
         companyId: fixture.companyId,
         projectId: fixture.projectId,
+        taskId: task.id,
         type: 'task.completed',
         actor: 'agent_run',
         payload,
@@ -71,7 +94,11 @@ test('episodic events become semantic facts (F4.4)', async () => {
     model: MODEL,
   });
 
-  assert.equal(result.eventsRead, 2);
+  // Three, not two: the task the seeded events belong to has a `task.created`
+  // of its own, and that is a thing this division did. A count that excluded
+  // it would be counting what the test wrote rather than what the division's
+  // log holds.
+  assert.equal(result.eventsRead, 3);
   assert.equal(result.factsCreated, 2);
 
   const facts = await withTenant(fixture.companyId, (tx) =>
@@ -154,27 +181,44 @@ test('a microsecond-precision timestamp does not reopen a consumed window', asyn
   // represent.
   const fixture = await createCompany('distil-precision');
 
+  // On a task, because the pass is division-scoped and an event's division is
+  // its task's. The timestamp is what this test is about; the task is what
+  // puts the event in a division's stream at all.
+  const carrier = await createRootTask({
+    companyId: fixture.companyId,
+    projectId: fixture.projectId,
+    divisionId: fixture.divisionId,
+    roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId,
+    goalId: fixture.goalId,
+    input: { goal: 'carry an odd timestamp' },
+    createdBy: 'owner',
+    reserveTokens: 1_000,
+  });
   await withTenant(fixture.companyId, async (tx) => {
     await tx.query(
-      `INSERT INTO events (company_id, project_id, type, actor, payload, occurred_at)
-       VALUES ($1, $2, 'task.completed', 'agent_run', '{"note":"sub-millisecond"}'::jsonb,
-               now() - interval '1 hour' + interval '456 microseconds')`,
-      [fixture.companyId, fixture.projectId],
+      `INSERT INTO events (company_id, project_id, task_id, type, actor, payload, occurred_at)
+       VALUES ($1, $2, $3, 'task.completed', 'agent_run', '{"note":"sub-millisecond"}'::jsonb,
+               now() + interval '1 second' + interval '456 microseconds')`,
+      [fixture.companyId, fixture.projectId, carrier.id],
     );
   });
 
+  // `until` reaches past the crafted event so it is the *last* one read, which
+  // is what puts its odd timestamp on the watermark -- the whole point here.
   const opts = {
     companyId: fixture.companyId,
     projectId: fixture.projectId,
     divisionId: fixture.divisionId,
     model: MODEL,
+    until: new Date(Date.now() + 60_000),
   };
 
   const first = await distillEpisodicToSemantic({
     ...opts,
     llm: factsClient([{ body: 'Distilled once.' }]),
   });
-  assert.equal(first.eventsRead, 1);
+  assert.equal(first.eventsRead, 2, 'the task creation is part of the stream');
 
   const stored = await withTenant(fixture.companyId, async (tx) => {
     const { rows } = await tx.query<{ micros: string }>(
@@ -216,7 +260,7 @@ test('an unusable model reply consumes nothing', async () => {
     llm: factsClient([{ body: 'Recovered on the second attempt.' }]),
     model: MODEL,
   });
-  assert.equal(retry.eventsRead, 1);
+  assert.equal(retry.eventsRead, 2, 'the task creation is part of the stream');
   assert.equal(retry.factsCreated, 1);
 });
 
@@ -399,4 +443,96 @@ test('a pattern below the recurrence floor is not proposed', async () => {
     model: MODEL,
   });
   assert.equal(candidates.length, 0, 'twice is a coincidence, not a procedure');
+});
+
+/**
+ * One division's work does not become another division's memory.
+ *
+ * The watermark was keyed on the *project* and the memory it writes is scoped
+ * to a *division* -- and a company has one project and several divisions, which
+ * the standard template says outright. So the first division to run consumed
+ * the whole event window: every other division read zero events for ever, and
+ * what it did became the first one's private knowledge.
+ *
+ * Invisible with one division, which is what every test here had. The fix is
+ * that both ends now agree about what a scope is.
+ */
+test('each division distils its own events, not the first one to run (F4.4, F4.6)', async () => {
+  const fixture = await createCompany('distil-two-divisions');
+
+  // A second division with a role of its own. There is no fixture helper for
+  // one because until now nothing in this file needed two.
+  const other = await withTenant(fixture.companyId, async (tx) => {
+    const { rows: divisions } = await tx.query<{ id: string }>(
+      "INSERT INTO divisions (company_id, slug, name) VALUES ($1, 'growth', 'Growth') "
+      + 'RETURNING id',
+      [fixture.companyId],
+    );
+    const divisionId = divisions[0]!.id;
+    const { rows: roles } = await tx.query<{ id: string }>(
+      `INSERT INTO roles (company_id, division_id, slug, system_prompt, model,
+                          input_schema, output_schema, done_criteria)
+       VALUES ($1, $2, 'marketer', 'You market.', 'test-model', '{}'::jsonb,
+               '{"type":"object"}'::jsonb, ARRAY['it is done'])
+       RETURNING id`,
+      [fixture.companyId, divisionId],
+    );
+    return { divisionId, roleId: roles[0]!.id };
+  });
+
+  await seedEvents(fixture, [{ note: 'ops noticed the provider is Alpha' }]);
+
+  // A task, and therefore events, belonging to the second division.
+  const theirs = await createRootTask({
+    companyId: fixture.companyId,
+    projectId: fixture.projectId,
+    divisionId: other.divisionId,
+    roleId: other.roleId,
+    budgetAccountId: fixture.budgetAccountId,
+    goalId: fixture.goalId,
+    input: { goal: 'growth did something' },
+    createdBy: 'owner',
+    reserveTokens: 1_000,
+  });
+  await withTenant(fixture.companyId, async (tx) => {
+    await appendEvent(tx, {
+      companyId: fixture.companyId,
+      projectId: fixture.projectId,
+      taskId: theirs.id,
+      type: 'task.completed',
+      actor: 'agent_run',
+      payload: { note: 'growth noticed the client prefers email' },
+    });
+  });
+
+  const opsPass = await distillEpisodicToSemantic({
+    companyId: fixture.companyId,
+    projectId: fixture.projectId,
+    divisionId: fixture.divisionId,
+    llm: factsClient([{ body: 'The provider is Alpha.' }]),
+    model: MODEL,
+  });
+  assert.ok(opsPass.eventsRead > 0);
+
+  // The second division still has its own events to read. Keyed on the
+  // project this was zero, for ever.
+  const growthLlm = factsClient([{ body: 'The client prefers email.' }]);
+  const growthPass = await distillEpisodicToSemantic({
+    companyId: fixture.companyId,
+    projectId: fixture.projectId,
+    divisionId: other.divisionId,
+    llm: growthLlm,
+    model: MODEL,
+  });
+  assert.ok(growthPass.eventsRead > 0, 'the second division read nothing');
+  assert.equal(growthPass.factsCreated, 1);
+
+  // And neither read the other's. The transcript the model was shown is the
+  // check: a division's facts must be drawn from its own work.
+  const shown = growthLlm.calls[0]!.messages[0]!.content;
+  assert.match(shown, /growth noticed/);
+  assert.equal(
+    shown.includes('ops noticed'), false,
+    'one division\'s work reached another division\'s model call',
+  );
 });

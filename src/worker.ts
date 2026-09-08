@@ -52,8 +52,10 @@ import * as inbox from './inbox/inbox.ts';
 import { runRetention } from './retention/retention.ts';
 import { processHandoffs, type HandoffRule } from './engine/handoff.ts';
 import {
+  digestOwed,
   dispatch,
   dispatchDigest,
+  retryDigests,
   retryFailed,
   type OwnerChannel,
   type NotifiableItem,
@@ -528,13 +530,35 @@ export class Worker {
    */
   async #learn(report: TickReport, company: string, now: Date): Promise<void> {
     const learning = this.#options.learning;
-    if (!learning) return;
 
-    const interval = learning.intervalMs ?? DEFAULT_LEARNING_INTERVAL_MS;
+    const interval = learning?.intervalMs ?? DEFAULT_LEARNING_INTERVAL_MS;
     const last = this.#learnedAt.get(company);
     if (last !== undefined && now.getTime() - last < interval) return;
 
     await this.#stage(report, 'learn', async () => {
+      // F15.3 first, and without a model. `runSkillEvals` is substring
+      // matching against the cases the skill itself declares -- it asks
+      // nothing of a provider. Gating it behind `learning` meant a deployment
+      // with no model client never screened a candidate, and the boot note
+      // blamed the missing model for something that never needed one.
+      const candidates = await withTenant(company, async (tx) => {
+        const { rows } = await tx.query<{ id: string }>(
+          "SELECT id FROM skill_versions WHERE state = 'candidate' ORDER BY created_at",
+        );
+        return rows.map((row) => row.id);
+      });
+      for (const versionId of candidates) {
+        await screenCandidate(company, versionId);
+        report.screened += 1;
+      }
+
+      // Distillation does need one, so a deployment without a model gets the
+      // screening and not the reading.
+      if (!learning) {
+        this.#learnedAt.set(company, now.getTime());
+        return;
+      }
+
       const scopes = await withTenant(company, async (tx) => {
         // Every division, and the company's oldest project to attribute the
         // memory to. A project belongs to a company rather than a division, so
@@ -578,19 +602,6 @@ export class Worker {
         }
       }
 
-      // F15.3. Every candidate version, screened against its own cases before
-      // a person is asked about it.
-      const candidates = await withTenant(company, async (tx) => {
-        const { rows } = await tx.query<{ id: string }>(
-          "SELECT id FROM skill_versions WHERE state = 'candidate' ORDER BY created_at",
-        );
-        return rows.map((row) => row.id);
-      });
-      for (const versionId of candidates) {
-        await screenCandidate(company, versionId);
-        report.screened += 1;
-      }
-
       // Recorded after the work rather than before it, for the same reason as
       // retention: a pass that threw has not happened.
       this.#learnedAt.set(company, now.getTime());
@@ -628,14 +639,29 @@ export class Worker {
       //
       // Inside the notify stage rather than beside it, because it is the same
       // failure if it throws: the owner does not hear from the platform.
-      if (channels.some((channel) => channel.deliverDigest)) {
+      const takers = channels.filter((channel) => channel.deliverDigest);
+      if (takers.length > 0) {
         const yesterday = new Date(now.getTime() - 24 * 60 * 60_000);
-        const digest = await buildDailyDigest(company, yesterday);
-        const sent = await dispatchDigest(company, channels, {
-          day: digest.day,
-          text: renderDailyDigest(digest),
-        });
-        report.digests += sent.delivered;
+        const day = yesterday.toISOString().slice(0, 10);
+        // Asked *before* the digest is built. `buildDailyDigest` is several
+        // aggregates over a day of events, and running it every tick to throw
+        // the answer away on a uniqueness conflict is a query a minute, all
+        // day, for one message.
+        const owed = await digestOwed(company, takers, day);
+        if (owed.length > 0) {
+          const digest = await buildDailyDigest(company, yesterday);
+          const sent = await dispatchDigest(company, owed, {
+            day: digest.day,
+            text: renderDailyDigest(digest),
+          });
+          report.digests += sent.delivered;
+        }
+
+        // And back to any whose transport was unreachable. `retryFailed` above
+        // cannot see these: it joins `inbox_items`, and a digest has no row
+        // there. Without this a relay that was restarting when the digest went
+        // out lost that day for ever.
+        report.digests += (await retryDigests(company, takers, { now })).delivered;
       }
     });
   }

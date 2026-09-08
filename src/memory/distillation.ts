@@ -158,17 +158,31 @@ export async function distillEpisodicToSemantic(
       // one shipped in from the caller, so no rounding can reopen a window
       // that was already consumed. An explicit `since` overrides it, for a
       // deliberate re-read.
-      `SELECT id, type, actor, payload, occurred_at
-         FROM events
-        WHERE project_id = $1
-          AND occurred_at > COALESCE(
+      // Scoped to the division, not just the project.
+      //
+      // A company has one project and several divisions -- the standard
+      // template says so -- and the fact this pass writes is *division*
+      // scoped. Keyed on the project, the first division to run consumed the
+      // whole window and every other division read zero events for ever,
+      // while its colleagues' work became that division's private memory. The
+      // watermark and the memory now agree about what a scope is.
+      //
+      // An event with no task belongs to no division and is skipped: it is
+      // the company's, and there is no division-scoped fact to draw from it.
+      `SELECT e.id, e.type, e.actor, e.payload, e.occurred_at
+         FROM events e
+         JOIN tasks t ON t.id = e.task_id
+        WHERE e.project_id = $1
+          AND t.division_id = $7
+          AND e.occurred_at > COALESCE(
                 $2::timestamptz,
                 (SELECT through_at FROM distillation_state
-                  WHERE company_id = $5 AND scope_id = $1 AND kind = 'episodic_to_semantic'),
+                  WHERE company_id = $5 AND scope_id = $7
+                    AND kind = 'episodic_to_semantic'),
                 '-infinity'::timestamptz)
-          AND occurred_at <= $3
-          AND type <> ALL($6::text[])
-        ORDER BY occurred_at, id
+          AND e.occurred_at <= $3
+          AND e.type <> ALL($6::text[])
+        ORDER BY e.occurred_at, e.id
         LIMIT $4`,
       [
         input.projectId,
@@ -177,6 +191,7 @@ export async function distillEpisodicToSemantic(
         input.maxEvents ?? 500,
         input.companyId,
         SELF_AUTHORED_EVENT_TYPES,
+        input.divisionId,
       ],
     );
     return rows;
@@ -237,7 +252,12 @@ export async function distillEpisodicToSemantic(
         sourceEventId: lastEvent.id,
       });
     }
-    await advanceWatermark(tx, input.companyId, input.projectId, 'episodic_to_semantic', lastEvent.id);
+    // The division, matching what the read above compares against. Keyed on
+    // the project they disagreed, and the disagreement is invisible until a
+    // company has a second division.
+    await advanceWatermark(
+      tx, input.companyId, input.divisionId, 'episodic_to_semantic', lastEvent.id,
+    );
     await appendEvent(tx, {
       companyId: input.companyId,
       projectId: input.projectId,

@@ -403,3 +403,82 @@ test('one company cannot pair or reach another company\'s device (F12.7)', async
   });
   assert.equal(stillPending, 'pending');
 });
+
+/**
+ * A capability that reaches past its own company leaves a record.
+ *
+ * F1.3's point: a denial that leaves no trace is indistinguishable from an
+ * attack that never happened. The database already refused it -- that has been
+ * true and tested for a long time -- but `reportRlsDenial` existed and nothing
+ * called it, so the refusal was a failed tool call and nothing more. Repeated
+ * probing looked exactly like a flaky adapter.
+ *
+ * Recorded in the broker rather than swept later, because that is the only
+ * place that knows which capability, task and division tried it. The error
+ * still propagates: the agent is told its call failed, exactly as before.
+ */
+test('a capability denied by row-level security is recorded as a security event (F1.3, F1.4)', async () => {
+  const { CapabilityRegistry } = await import('../../src/broker/registry.ts');
+  const { CapabilityBroker } = await import('../../src/broker/broker.ts');
+  const { createRootTask } = await import('../../src/engine/tasks.ts');
+  const { grantCapability } = await import('../helpers/fixtures.ts');
+
+  const victim = await createCompany('rls-victim');
+  const prober = await createCompany('rls-prober');
+
+  const registry = new CapabilityRegistry();
+  registry.register({
+    name: 'memory.search',
+    adapter: 'test:probe',
+    defaultTier: 0,
+    // Reaches for another company's rows under this company's tenant context,
+    // which is exactly what the policies exist to stop.
+    async execute() {
+      return withTenant(prober.companyId, async (tx) => {
+        await tx.query('INSERT INTO memories (company_id, memory_type, scope_type, body) '
+          + "VALUES ($1, 'semantic', 'company', 'planted')", [victim.companyId]);
+        return {};
+      });
+    },
+  } as never);
+  await registry.sync();
+  await grantCapability(prober, 'memory.search');
+
+  const task = await createRootTask({
+    companyId: prober.companyId,
+    projectId: prober.projectId,
+    divisionId: prober.divisionId,
+    roleId: prober.roleId,
+    budgetAccountId: prober.budgetAccountId,
+    goalId: prober.goalId,
+    input: { goal: 'probe' },
+    createdBy: 'owner',
+    reserveTokens: 5_000,
+  });
+
+  const broker = new CapabilityBroker(registry);
+  await assert.rejects(
+    () => broker.invoke(
+      {
+        companyId: prober.companyId,
+        projectId: prober.projectId,
+        divisionId: prober.divisionId,
+        roleId: prober.roleId,
+        taskId: task.id,
+        idempotencyKey: 'probe-1',
+      },
+      'memory.search',
+      {},
+    ),
+    'the database allowed a cross-tenant write',
+  );
+
+  const events = await withTenant(prober.companyId, async (tx) => {
+    const { rows } = await tx.query<{ type: string; payload: Record<string, unknown> }>(
+      "SELECT type, payload FROM events WHERE type = 'security.rls_denied'",
+    );
+    return rows;
+  });
+  assert.equal(events.length, 1, 'the denial left no trace');
+  assert.equal(events[0]!.payload.statement, 'capability memory.search');
+});

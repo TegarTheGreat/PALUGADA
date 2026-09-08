@@ -73,6 +73,9 @@ import { costTimeline, platformCost } from '../reporting/cost.ts';
 import { rotateCredential } from '../secrets/rotation.ts';
 import { readTaskEvents } from '../audit/event-log.ts';
 import { describeReplay, replayTask } from '../engine/replay.ts';
+import { assignTask } from '../scheduler/wake.ts';
+import { accountFor, chainFor, createAccount, snapshot } from '../engine/budget.ts';
+import { supersede } from '../memory/store.ts';
 import { getTask } from '../engine/tasks.ts';
 import type { TaskHandler } from '../runtime/in-process.ts';
 import { collectExport } from '../audit/export.ts';
@@ -601,6 +604,126 @@ export class OwnerApi {
             (tx) => readTaskEvents(tx, params.taskId!),
           ),
         }),
+      },
+
+      /* --------------------------------------------------- F10.11, F9.9 --- */
+
+      {
+        // The owner giving a role something to do.
+        //
+        // Until this existed the owner could approve, configure and inspect --
+        // and could not ask a company for anything. Every task in the platform
+        // came from a schedule, an event or another agent. That is not one
+        // human running many companies; it is one human watching them.
+        //
+        // Not just a task: `assignTask` also clears the role's dormancy and
+        // queues an assignment wake, which is exempt from coalescing. The
+        // owner asking for something now and the system answering in four
+        // hours is what F9.8 exists to rule out.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/assign',
+        handle: async ({ params, body }) => {
+          const assigned = await assignTask({
+            companyId: params.companyId!,
+            projectId: requireText(body.projectId, 'projectId'),
+            divisionId: requireText(body.divisionId, 'divisionId'),
+            roleId: requireText(body.roleId, 'roleId'),
+            input: (body.input as Record<string, unknown> | undefined)
+              ?? { goal: requireText(body.goal, 'goal') },
+            createdBy: 'owner',
+            // F2.7: required, not defaulted. Every task hangs from a goal, and
+            // a route that picked one -- the company's mission, the first row
+            // -- would be attaching the owner's work to whatever happened to
+            // be there rather than to what they meant.
+            goalId: requireText(body.goalId, 'goalId'),
+            ...(body.detail === undefined ? {} : { detail: String(body.detail) }),
+            ...(body.reserveTokens === undefined
+              ? {}
+              : { reserveTokens: wholeNumber(body.reserveTokens, 'reserveTokens') }),
+          });
+          return { taskId: assigned.task.id, wakeId: assigned.wakeId };
+        },
+      },
+
+      /* ----------------------------------------------------- F1.2, F1.6 --- */
+
+      {
+        // What funds a role's work, and the chain above it.
+        //
+        // F1.6 makes a budget a tree: a task draws on the narrowest account
+        // that covers it, and a spend counts against every account above.
+        // Which one funds a given role is a question with a real answer and no
+        // way to ask it until now.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/divisions/:divisionId/roles/:roleId/budget',
+        handle: async ({ params }) => withTenant(params.companyId!, async (tx) => {
+          const accountId = await accountFor(tx, {
+            companyId: params.companyId!,
+            divisionId: params.divisionId!,
+            roleId: params.roleId!,
+          });
+          if (!accountId) {
+            throw new PalugadaError(
+              'contract.violation', 'no account covers that role', {},
+            );
+          }
+          return {
+            accountId,
+            chain: await chainFor(tx, accountId),
+            snapshot: await snapshot(tx, accountId),
+          };
+        }),
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/budget-accounts',
+        handle: async ({ params, body }) => withTenant(params.companyId!, async (tx) => ({
+          id: await createAccount(tx, {
+            companyId: params.companyId!,
+            label: requireText(body.label, 'label'),
+            tokensMax: wholeNumber(body.tokensMax, 'tokensMax'),
+            ...(body.moneyMaxCents === undefined
+              ? {}
+              : { moneyMaxCents: wholeNumber(body.moneyMaxCents, 'moneyMaxCents') }),
+            // A scope below the company needs the account above it named:
+            // F1.6's chain is what makes a spend count at every level, and an
+            // account with no parent would be a ceiling nothing rolls up to.
+            ...(body.scopeType === undefined
+              ? {}
+              : {
+                scope: {
+                  scopeType: oneOf(body.scopeType, BUDGET_SCOPES, 'scopeType'),
+                  scopeId: requireText(body.scopeId, 'scopeId'),
+                  parentAccountId: requireText(body.parentAccountId, 'parentAccountId'),
+                },
+              }),
+          }),
+        })),
+      },
+
+      /* ------------------------------------------------------------ F4.6 --- */
+
+      {
+        // Replacing a fact rather than deleting it.
+        //
+        // A memory that turned out to be wrong is not removed: it is
+        // superseded, and the old row keeps pointing at what replaced it. An
+        // agent that read the old fact yesterday and a person asking why it
+        // did are both better served by a chain than by a hole.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/memories/:memoryId/supersede',
+        handle: async ({ params, body }) => withTenant(params.companyId!, async (tx) => ({
+          id: await supersede(tx, params.memoryId!, {
+            companyId: params.companyId!,
+            memoryType: 'semantic',
+            scopeType: 'company',
+            body: requireText(body.body, 'body'),
+            ...(body.confidence === undefined
+              ? {}
+              : { confidence: Number(body.confidence) }),
+          }),
+        })),
       },
 
       /* ----------------------------------------------------------- F11.4 --- */
@@ -1615,6 +1738,7 @@ function roleChange(value: unknown): RoleChange {
 const GOAL_KINDS = ['mission', 'objective', 'key_result'] as const;
 const GOAL_STATUSES = ['active', 'met', 'abandoned'] as const;
 const SKILL_SCOPES = ['company', 'platform', 'division'] as const;
+const BUDGET_SCOPES = ['project', 'division', 'role'] as const;
 
 function bearer(req: IncomingMessage): string | undefined {
   const header = req.headers.authorization ?? '';

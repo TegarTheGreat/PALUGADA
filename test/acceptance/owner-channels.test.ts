@@ -27,6 +27,7 @@ import {
   undelivered,
   isPushWorthy,
   RETRY_BASE_MS,
+  type OwnerChannel,
 } from '../../src/owner/notify.ts';
 import { WebhookPush } from '../../src/owner/push.ts';
 import {
@@ -743,3 +744,87 @@ async function lastError(fixture: Fixture): Promise<string | null> {
     return rows[0]?.last_error ?? null;
   });
 }
+
+/* ------------------------------------------------------------------ F10.6 --- */
+
+/**
+ * The daily digest reaches a channel, once, for yesterday.
+ *
+ * `renderDailyDigest` turned a digest into text and nothing sent it. The
+ * console draws its own, so an owner looking at the console saw one and an
+ * owner who was not looking never did -- and F10.6 asks for a digest, not for
+ * a panel.
+ *
+ * Yesterday's rather than today's: a digest of a day still in progress is a
+ * partial count that changes if you read it twice, and the point of a daily
+ * digest is that it is the account of a day that finished.
+ */
+test('the daily digest is sent once a day, to channels that take one (F10.6)', async () => {
+  const { dispatchDigest } = await import('../../src/owner/notify.ts');
+  const fixture = await createCompany('digest-dispatch');
+
+  const sent: Array<{ day: string; text: string }> = [];
+  const taker: OwnerChannel = {
+    name: 'test:digest',
+    carries: () => true,
+    async deliver() { return {}; },
+    async deliverDigest(digest) { sent.push({ day: digest.day, text: digest.text }); },
+  };
+  // A channel with no `deliverDigest` is skipped rather than failed: a
+  // transport with no sensible place for a page of text is not broken.
+  const abstainer: OwnerChannel = {
+    name: 'test:no-digest',
+    carries: () => true,
+    async deliver() { return {}; },
+  };
+
+  const first = await dispatchDigest(fixture.companyId, [taker, abstainer], {
+    day: '2026-09-07', text: 'Digest for 2026-09-07\nSpend: 0.00',
+  });
+  assert.equal(first.delivered, 1);
+  assert.equal(first.skipped, 1);
+  assert.equal(sent.length, 1);
+
+  // Once a day, and the record is what enforces it -- not a read followed by
+  // a write, which two workers would both pass.
+  const again = await dispatchDigest(fixture.companyId, [taker, abstainer], {
+    day: '2026-09-07', text: 'Digest for 2026-09-07\nSpend: 0.00',
+  });
+  assert.equal(again.delivered, 0, 'the same day was sent twice');
+  assert.equal(sent.length, 1);
+
+  // A different day is a different digest.
+  const nextDay = await dispatchDigest(fixture.companyId, [taker], {
+    day: '2026-09-08', text: 'Digest for 2026-09-08\nSpend: 1.00',
+  });
+  assert.equal(nextDay.delivered, 1);
+  assert.deepEqual(sent.map((one) => one.day), ['2026-09-07', '2026-09-08']);
+});
+
+test('a digest is redacted like everything else that leaves this process (F12.4)', async () => {
+  const { dispatchDigest } = await import('../../src/owner/notify.ts');
+  const { redactor } = await import('../../src/secrets/manager.ts');
+  const fixture = await createCompany('digest-redaction');
+
+  // A digest is assembled from what agents did, and an agent can put anything
+  // in a title.
+  redactor.register('sk_live_digest_secret_9a1');
+  const sent: string[] = [];
+  const channel: OwnerChannel = {
+    name: 'test:digest-redact',
+    carries: () => true,
+    async deliver() { return {}; },
+    async deliverDigest(digest) { sent.push(digest.text); },
+  };
+
+  await dispatchDigest(fixture.companyId, [channel], {
+    day: '2026-09-07',
+    text: 'Digest\nAn agent wrote sk_live_digest_secret_9a1 into a title.',
+  });
+
+  assert.equal(sent.length, 1);
+  assert.equal(
+    sent[0]!.includes('sk_live_digest_secret_9a1'), false,
+    'a credential reached the owner\'s phone',
+  );
+});

@@ -34,6 +34,7 @@
  * no less built-in for it: F14.1 asks for deterministic engine code on this
  * side of the adapter boundary, which is what they are.
  */
+import { isRlsViolation, reportRlsDenial } from '../audit/security.ts';
 import { withTenant, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError, type ErrorCode } from '../errors.ts';
@@ -531,6 +532,27 @@ export class CapabilityBroker {
     } catch (error) {
       // An action that did not happen must not leave a charge behind.
       if (charged) await refundEstimate(costContext, charged.accountId, estimatedCents);
+
+      // F1.3, F1.4. A capability that reached past its own company is the one
+      // failure here that is not about the vendor: the database refused it,
+      // and a refusal that leaves no trace is indistinguishable from an attack
+      // that never happened.
+      //
+      // Recorded here rather than swept later, because this is the only place
+      // that knows *which* capability, task and division tried it. The error
+      // still propagates: the agent is told its call failed, exactly as
+      // before. This adds a record, it does not swallow anything.
+      if (isRlsViolation(error)) {
+        await reportRlsDenial(ctx.companyId, {
+          taskId: ctx.taskId,
+          statement: `capability ${name}`,
+          message: (error as Error).message,
+        }).catch(() => {
+          // A record that cannot be written must not turn a refusal into a
+          // different error. The denial already happened and the caller is
+          // about to hear about it.
+        });
+      }
       throw error;
     }
 

@@ -1802,6 +1802,58 @@ watermark works -- the mutation that removed the guard passed. New events are
 seeded between the two ticks now, and a third worker with the interval set to
 zero reads them, so the guard is shown to be a delay rather than a stop.
 
+### The owner could not ask a company for anything
+
+The largest thing left, and it had been invisible because everything around it
+worked. The console could approve, configure and inspect. It could not create a
+task. Every task in this platform came from a schedule, an event or another
+agent -- which is not one human running many companies, it is one human
+watching them. F10.11's `assignTask` existed, tested, called by nobody.
+
+It is not just "create a task", either: the role's dormancy is cleared and the
+wake is queued as an *assignment*, which is exempt from coalescing and outranks
+a schedule. The owner asking for something now and the system answering in four
+hours is exactly what F9.8 exists to rule out.
+
+The route requires the goal rather than defaulting it. F2.7 makes every task
+hang from one, and a route that picked -- the company's mission, the first row
+-- would attach the owner's work to whatever happened to be there rather than
+to what they meant. The database refused the first version for exactly that
+reason, which is the constraint doing its job.
+
+Three more went with it. **F1.6's budget tree** could not be read or extended:
+which account funds a role, the chain above it that a spend also counts
+against, and opening a new one -- with the account above it named, because a
+ceiling nothing rolls up to is not part of a tree. **F4.6's supersede**: a fact
+that turned out to be wrong is replaced rather than deleted, and the old row
+keeps pointing at what replaced it, because an agent that read it yesterday and
+a person asking why it did are both better served by a chain than by a hole.
+
+### And two things that happened silently
+
+**F1.3: a denial that leaves no trace.** The database refuses a capability that
+reaches past its own company -- that has been true and tested for a long time
+-- but `reportRlsDenial` existed and nothing called it. The refusal was a
+failed tool call and nothing more, so repeated probing looked exactly like a
+flaky adapter. Recorded in the broker rather than swept later, because that is
+the only place that knows which capability, task and division tried it. The
+error still propagates: this adds a record, it does not swallow anything.
+
+**F10.6: a digest nobody received.** `renderDailyDigest` turned a digest into
+text and nothing sent it. The console draws its own, so an owner looking at the
+console saw one and an owner who was not looking never did -- and the
+requirement asks for a digest, not for a panel.
+
+A digest is not an inbox item: it has no id and nothing decides it, so
+`OwnerChannel` gained an optional `deliverDigest` and `owner_notifications`
+gained a `digest_day` with a check constraint that a row is exactly one of the
+two. Once a day per company per channel, enforced by the uniqueness rather than
+by a read followed by a write, so a worker restarted twice in an afternoon
+sends one. *Yesterday's*, not today's: a digest of a day still in progress is a
+partial count that changes if you read it twice. Redacted like everything else
+that leaves this process, because a digest is assembled from what agents did
+and an agent can put anything in a title.
+
 ### What is actually left
 
 No push service, no bot token, no sandbox vendor, and none of F13.3's four

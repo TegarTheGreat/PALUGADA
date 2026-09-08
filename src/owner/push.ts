@@ -144,6 +144,45 @@ export class WebhookPush implements OwnerChannel {
       clearTimeout(timer);
     }
   }
+
+  /**
+   * F10.6's digest, through the same webhook.
+   *
+   * Push is for interrupting somebody -- F10.5 keeps that to an incident or a
+   * tier 3 approval -- and a digest is the opposite. It goes out anyway
+   * because a push service is usually also the thing that can show a quiet
+   * notification, and a deployment that does not want one simply does not have
+   * a digest to send: the worker only asks channels that implement this.
+   */
+  async deliverDigest(digest: { companyId: string; day: string; text: string }): Promise<void> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.#options.timeoutMs ?? 10_000);
+    try {
+      const response = await this.#fetch(this.#options.url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...(this.#options.token
+            ? { [this.#options.tokenHeader ?? 'authorization']: this.#options.token }
+            : {}),
+        },
+        body: JSON.stringify({
+          kind: 'digest',
+          companyId: digest.companyId,
+          day: digest.day,
+          title: `Digest for ${digest.day}`,
+          body: digest.text,
+        }),
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        const detail = (await response.text().catch(() => '')).slice(0, 200);
+        throw new Error(`push returned ${response.status}${detail ? `: ${detail}` : ''}`);
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 }
 
 /**

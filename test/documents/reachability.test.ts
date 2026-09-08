@@ -58,8 +58,6 @@ const UNREACHABLE: Record<string, string> = {
   EXPORT_SECTION_NAMES: 'helper: the section list, asserted directly',
   IMPORT_SECTION_NAMES: 'helper: the section list, asserted directly',
   NOT_RESTORED: 'helper: what an import deliberately drops, asserted directly',
-  isRlsViolation: 'worker: F1.4 denials are not swept into incidents on the tick',
-  reportRlsDenial: 'worker: F1.4 denials are not swept into incidents on the tick',
 
   // F8: the catalogue and preflight.
   catalogueNames: 'helper: the catalogue as names, asserted directly',
@@ -71,8 +69,6 @@ const UNREACHABLE: Record<string, string> = {
   // F2.7, F3.10: the goal ladder.
 
   // F1: budget.
-  chainFor: 'console: F1.6 the account chain is not shown',
-  createAccount: 'console: F1.2 an account cannot be opened',
 
   // F5, F11: the engine's own machinery.
   forgetCompiledSchemas: 'helper: a cache reset a test needs between schemas',
@@ -99,12 +95,9 @@ const UNREACHABLE: Record<string, string> = {
   // F10: the owner surface itself.
 
   // F4: memory.
-  supersede: 'console: F4.6 a fact cannot be superseded by hand',
 
   // F3.4, F10.6, F11: reporting.
   strictness: 'helper: the effect ordering, asserted directly',
-  renderDailyDigest: 'worker: F10.6 the digest is drawn by the console; no '
-    + 'channel sends the rendered text',
 
   // F1.5: retention.
 
@@ -117,7 +110,6 @@ const UNREACHABLE: Record<string, string> = {
     + '`code.execute` needs somebody\'s account',
 
   // F9: the scheduler.
-  assignTask: 'worker: F9.9 a wake is consumed by the tick, not assigned by hand',
   coalescedCount: 'helper: how many wakes merged, asserted directly',
   pendingNotifications: 'helper: the queue behind the owner window, asserted directly',
 

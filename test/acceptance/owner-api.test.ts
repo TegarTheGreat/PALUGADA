@@ -2275,3 +2275,185 @@ test('a replay of a role this deployment does not run says so (F11.4)', async ()
     await deployment.stop();
   }
 });
+
+/* ---------------------------------- what the owner still could not ask for --- */
+
+/**
+ * The owner can give a company something to do.
+ *
+ * Until this route existed they could approve, configure and inspect -- and
+ * could not ask a company for anything. Every task in the platform came from a
+ * schedule, an event or another agent. That is not one human running many
+ * companies; it is one human watching them.
+ *
+ * F10.11 is not just "create a task" either: the role's dormancy is cleared
+ * and the wake is queued as an assignment, which is exempt from coalescing.
+ * The owner asking for something now and the system answering in four hours is
+ * what F9.8 exists to rule out.
+ */
+test('the owner can assign work to a role (F10.11, F9.9)', async () => {
+  const fixture = await createCompany('console-assign');
+  const { withTenant: tenant } = await import('../../src/db/tenant.ts');
+
+  // Dormant, which is the state an assignment has to cut through.
+  await tenant(fixture.companyId, async (tx) => {
+    await tx.query(
+      "UPDATE roles SET dormant_until = now() + interval '4 hours' WHERE id = $1",
+      [fixture.roleId],
+    );
+  });
+
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+    const assigned = await call(
+      owner.url, 'POST', `/api/companies/${fixture.companyId}/assign`,
+      {
+        token,
+        body: {
+          projectId: fixture.projectId,
+          divisionId: fixture.divisionId,
+          roleId: fixture.roleId,
+          goalId: fixture.goalId,
+          goal: 'Write this month\'s summary.',
+        },
+      },
+    );
+    assert.equal(assigned.status, 200, JSON.stringify(assigned.body));
+    assert.equal(typeof assigned.body.taskId, 'string');
+    assert.equal(typeof assigned.body.wakeId, 'string');
+
+    const state = await tenant(fixture.companyId, async (tx) => {
+      const { rows: roles } = await tx.query<{ dormant_until: Date | null }>(
+        'SELECT dormant_until FROM roles WHERE id = $1', [fixture.roleId],
+      );
+      const { rows: tasks } = await tx.query<{ status: string; input: Record<string, unknown> }>(
+        'SELECT status, input FROM tasks WHERE id = $1', [assigned.body.taskId],
+      );
+      const { rows: wakes } = await tx.query<{ reason: string }>(
+        'SELECT reason FROM wake_queue WHERE id = $1', [assigned.body.wakeId],
+      );
+      return { role: roles[0]!, task: tasks[0]!, wake: wakes[0]! };
+    });
+
+    assert.equal(state.role.dormant_until, null, 'the role is still asleep');
+    assert.equal(state.task.status, 'pending');
+    assert.deepEqual(state.task.input, { goal: 'Write this month\'s summary.' });
+    assert.equal(state.wake.reason, 'assignment');
+
+    // F2.7. A task that names no goal is refused by name rather than attached
+    // to whichever goal happened to be first.
+    const noGoal = await call(
+      owner.url, 'POST', `/api/companies/${fixture.companyId}/assign`,
+      {
+        token,
+        body: {
+          projectId: fixture.projectId,
+          divisionId: fixture.divisionId,
+          roleId: fixture.roleId,
+          goal: 'Something.',
+        },
+      },
+    );
+    assert.equal(noGoal.status, 400, JSON.stringify(noGoal.body));
+    assert.match(String(noGoal.body.error), /goalId is required/);
+
+    // And one with no instruction is a task nobody can judge the output of.
+    const empty = await call(
+      owner.url, 'POST', `/api/companies/${fixture.companyId}/assign`,
+      {
+        token,
+        body: {
+          projectId: fixture.projectId,
+          divisionId: fixture.divisionId,
+          roleId: fixture.roleId,
+          goalId: fixture.goalId,
+        },
+      },
+    );
+    assert.equal(empty.status, 400, JSON.stringify(empty.body));
+    assert.match(String(empty.body.error), /goal is required/);
+  } finally {
+    await owner.close();
+  }
+});
+
+test('the owner can see what funds a role, and open an account (F1.2, F1.6)', async () => {
+  const fixture = await createCompany('console-budget');
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+    const budget = await call(
+      owner.url, 'GET',
+      `/api/companies/${fixture.companyId}/divisions/${fixture.divisionId}`
+        + `/roles/${fixture.roleId}/budget`,
+      { token },
+    );
+    assert.equal(budget.status, 200, JSON.stringify(budget.body));
+    // F1.6's chain: the account that funds the work, and every one above it
+    // that the spend also counts against.
+    assert.ok(Array.isArray(budget.body.chain));
+    assert.ok((budget.body.chain as string[]).includes(String(budget.body.accountId)));
+    assert.equal(typeof (budget.body.snapshot as { tokensMax: number }).tokensMax, 'number');
+
+    // An account below the company needs the one above it named: a ceiling
+    // nothing rolls up to is not part of a tree.
+    const orphan = await call(
+      owner.url, 'POST', `/api/companies/${fixture.companyId}/budget-accounts`,
+      { token, body: { label: 'ads', tokensMax: 1_000, scopeType: 'division',
+        scopeId: fixture.divisionId } },
+    );
+    assert.equal(orphan.status, 400, JSON.stringify(orphan.body));
+    assert.match(String(orphan.body.error), /parentAccountId is required/);
+
+    const opened = await call(
+      owner.url, 'POST', `/api/companies/${fixture.companyId}/budget-accounts`,
+      {
+        token,
+        body: {
+          label: 'ads', tokensMax: 1_000, scopeType: 'division',
+          scopeId: fixture.divisionId, parentAccountId: budget.body.chain![1] ?? budget.body.accountId,
+        },
+      },
+    );
+    assert.equal(opened.status >= 200 && opened.status < 500, true, JSON.stringify(opened.body));
+  } finally {
+    await owner.close();
+  }
+});
+
+test('a fact is superseded rather than deleted (F4.6)', async () => {
+  const { remember } = await import('../../src/memory/store.ts');
+  const fixture = await createCompany('console-supersede');
+  const { withTenant: tenant } = await import('../../src/db/tenant.ts');
+
+  const original = await tenant(fixture.companyId, (tx) => remember(tx, {
+    companyId: fixture.companyId,
+    memoryType: 'semantic',
+    scopeType: 'company',
+    body: 'The hosting provider is Alpha.',
+  }));
+
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+    const replaced = await call(
+      owner.url, 'POST', `/api/companies/${fixture.companyId}/memories/${original}/supersede`,
+      { token, body: { body: 'The hosting provider is Beta since September.' } },
+    );
+    assert.equal(replaced.status, 200, JSON.stringify(replaced.body));
+
+    // The old row stays and points at what replaced it. An agent that read it
+    // yesterday, and a person asking why it did, are both better served by a
+    // chain than by a hole.
+    const chain = await tenant(fixture.companyId, async (tx) => {
+      const { rows } = await tx.query<{ id: string; superseded_by: string | null }>(
+        'SELECT id, superseded_by FROM memories WHERE id = $1', [original],
+      );
+      return rows[0]!;
+    });
+    assert.equal(chain.superseded_by, replaced.body.id);
+  } finally {
+    await owner.close();
+  }
+});

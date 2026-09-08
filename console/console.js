@@ -684,6 +684,41 @@ async function drawMoney() {
     heading('Every company'),
     table(['Company', 'Cost', 'Tokens'],
       platform.companies.map((row) => [row.slug, money(row.costCents), row.tokens])),
+
+    // F1.6. A budget is a tree: a task draws on the narrowest account that
+    // covers it, and a spend counts against every account above.
+    heading('What funds a role'),
+    form(
+      [
+        { name: 'divisionId', label: 'Division id', required: true },
+        { name: 'roleId', label: 'Role id', required: true },
+      ],
+      async (values) => {
+        const budget = await api(
+          'GET', `${company()}/divisions/${values.divisionId}/roles/${values.roleId}/budget`,
+        );
+        panel.append(facts([
+          ['Account', budget.accountId],
+          ['Tokens', `${budget.snapshot.tokensSpent} of ${budget.snapshot.tokensMax}`],
+          ['Above it', budget.chain.join(' \u2192 ')],
+        ]));
+      },
+      { action: 'Look it up' },
+    ),
+    heading('Open an account'),
+    note('Anything below the company names the account above it, so a spend rolls up.'),
+    form(
+      [
+        { name: 'label', label: 'Label', required: true },
+        { name: 'tokensMax', label: 'Token ceiling', type: 'number', required: true },
+        { name: 'moneyMaxCents', label: 'Money ceiling, cents', type: 'number' },
+        { name: 'scopeType', label: 'Scope (project, division, role; blank for company)' },
+        { name: 'scopeId', label: 'That scope id' },
+        { name: 'parentAccountId', label: 'The account above it' },
+      ],
+      (values) => api('POST', `${company()}/budget-accounts`, values),
+      { action: 'Open it' },
+    ),
   );
 }
 
@@ -751,6 +786,18 @@ async function drawHealth() {
         'POST', `/api/control/company/${state.companyId}/role/${values.roleId}/resume`, {},
       ),
       { action: 'Resume it' },
+    ),
+
+    heading('Correct something the platform believes'),
+    note('A fact that turned out to be wrong is replaced, not deleted (F4.6).'),
+    form(
+      [
+        { name: 'memoryId', label: 'Memory id', required: true },
+        { name: 'body', label: 'What is true instead', type: 'textarea', required: true },
+      ],
+      ({ memoryId, body }) =>
+        api('POST', `${company()}/memories/${memoryId}/supersede`, { body }),
+      { action: 'Supersede it' },
     ),
 
     heading('What a task did'),
@@ -895,6 +942,24 @@ async function drawStructure() {
   if (!state.companyId) return panel.replaceChildren(note('No company.'));
 
   panel.replaceChildren(
+    heading('Give a role something to do'),
+    note('It wakes the role now rather than waiting for its next heartbeat (F10.11).'),
+    form(
+      [
+        { name: 'projectId', label: 'Project id', required: true },
+        { name: 'divisionId', label: 'Division id', required: true },
+        { name: 'roleId', label: 'Role id', required: true },
+        { name: 'goalId', label: 'Which goal this serves', required: true },
+        { name: 'goal', label: 'What to do', type: 'textarea', required: true },
+        { name: 'reserveTokens', label: 'Tokens to reserve', type: 'number' },
+      ],
+      async (values) => {
+        const assigned = await api('POST', `${company()}/assign`, values);
+        panel.append(note(`Assigned. The task is ${assigned.taskId}.`));
+      },
+      { action: 'Assign it' },
+    ),
+
     heading('The goal ladder'),
     note('A mission, the objectives under it, and the key results under those (F2.7).'),
     form(

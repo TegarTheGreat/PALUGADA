@@ -179,6 +179,21 @@ export class TelegramChannel implements OwnerChannel {
   }
 
   /**
+   * F10.6's digest, as a plain message with nothing to press.
+   *
+   * No buttons, deliberately. F10.9 names three kinds a chat is an action
+   * surface for and a digest is not one of them -- it is a summary of a day
+   * that has already happened, so there is nothing here to decide.
+   */
+  async deliverDigest(digest: { day: string; text: string }): Promise<void> {
+    await this.#call('sendMessage', {
+      chat_id: this.#options.chatId,
+      parse_mode: 'MarkdownV2',
+      text: escapeMarkdown(digest.text),
+    });
+  }
+
+  /**
    * Checks the header Telegram was told to send.
    *
    * Constant time, because it is a shared secret and an attacker who can learn

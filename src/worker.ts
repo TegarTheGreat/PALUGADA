@@ -51,7 +51,14 @@ import { evaluateCircuitBreakers, evaluateSpendLimit } from './governance/spend-
 import * as inbox from './inbox/inbox.ts';
 import { runRetention } from './retention/retention.ts';
 import { processHandoffs, type HandoffRule } from './engine/handoff.ts';
-import { dispatch, retryFailed, type OwnerChannel, type NotifiableItem } from './owner/notify.ts';
+import {
+  dispatch,
+  dispatchDigest,
+  retryFailed,
+  type OwnerChannel,
+  type NotifiableItem,
+} from './owner/notify.ts';
+import { buildDailyDigest, renderDailyDigest } from './reporting/digest.ts';
 import {
   distillEpisodicToSemantic,
   distillSemanticToProcedural,
@@ -138,6 +145,8 @@ export interface TickReport {
   handedOff: number;
   /** Items put in front of the owner on a channel this tick (F10.5, F10.9). */
   notified: number;
+  /** Daily digests sent to a channel this tick (F10.6). */
+  digests: number;
   /** Facts distilled from events, and SOP candidates raised from them (F4.5). */
   distilled: number;
   /** Skill candidates screened against their own eval cases (F15.3). */
@@ -219,6 +228,7 @@ export class Worker {
     const report: TickReport = {
       reclaimed: 0, scheduled: 0, woken: 0, ran: [], alerts: 0, retained: 0, handedOff: 0,
       notified: 0,
+      digests: 0,
       distilled: 0,
       screened: 0,
       stopped: false, errors: [],
@@ -606,6 +616,26 @@ export class Worker {
         // attempts would be spent milliseconds apart and a relay restarting
         // would exhaust the row before it came back.
         report.notified += (await retryFailed(company, channel, options)).delivered;
+      }
+
+      // F10.6, once a day, to whichever channels take one.
+      //
+      // Yesterday's, not today's: a digest of a day still in progress is a
+      // partial count that changes if you read it twice, and the point of a
+      // daily digest is that it is the account of a day that finished. The
+      // delivery record is keyed on the day, so a worker restarted twice in an
+      // afternoon still sends one.
+      //
+      // Inside the notify stage rather than beside it, because it is the same
+      // failure if it throws: the owner does not hear from the platform.
+      if (channels.some((channel) => channel.deliverDigest)) {
+        const yesterday = new Date(now.getTime() - 24 * 60 * 60_000);
+        const digest = await buildDailyDigest(company, yesterday);
+        const sent = await dispatchDigest(company, channels, {
+          day: digest.day,
+          text: renderDailyDigest(digest),
+        });
+        report.digests += sent.delivered;
       }
     });
   }

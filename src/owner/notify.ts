@@ -73,6 +73,20 @@ export interface OwnerChannel {
    */
   carries(item: NotifiableItem): boolean;
   deliver(item: NotifiableItem): Promise<DeliveryResult>;
+  /**
+   * F10.6's daily digest, as text, once a day.
+   *
+   * Optional and separate from `deliver`, because a digest is not an item: it
+   * has no id, nothing decides it, and F10.5's "push only for an incident or a
+   * tier 3 approval" is about interrupting a person -- a digest is the
+   * opposite, a thing they read when they choose to. A channel that has no
+   * sensible place for one simply does not implement this.
+   *
+   * `renderDailyDigest` produced the text and nothing sent it, which is how
+   * F10.6 came to be half-built: the console draws the digest, and the owner
+   * who is not looking at the console never sees it.
+   */
+  deliverDigest?(digest: { companyId: string; day: string; text: string }): Promise<void>;
 }
 
 /**
@@ -142,6 +156,72 @@ export async function undelivered(
       }];
     });
   });
+}
+
+/**
+ * F10.6's daily digest, to every channel that takes one.
+ *
+ * Once per company per day, and the record is the same table the item
+ * deliveries use -- keyed on a synthetic id built from the day, so a worker
+ * that restarts twice in an afternoon does not send three digests. The
+ * uniqueness constraint is what enforces it rather than a read-then-write.
+ *
+ * A channel with no `deliverDigest` is skipped rather than failed: a transport
+ * that has no sensible place for a page of text is not broken, it simply is
+ * not where a digest goes.
+ */
+export async function dispatchDigest(
+  companyId: string,
+  channels: readonly OwnerChannel[],
+  digest: { day: string; text: string },
+): Promise<{ delivered: number; skipped: number }> {
+  let delivered = 0;
+  let skipped = 0;
+
+  for (const channel of channels) {
+    if (!channel.deliverDigest) {
+      skipped += 1;
+      continue;
+    }
+
+    // Claimed first, like every other delivery here: a crash between the send
+    // and the record would send the digest twice, and once a day is the whole
+    // promise. `inbox_item_id` is null for a digest -- it is not an item --
+    // so the day is what makes the row unique.
+    const claimed = await withTenant(companyId, async (tx) => {
+      const { rowCount } = await tx.query(
+        `INSERT INTO owner_notifications (company_id, inbox_item_id, channel, delivery, digest_day)
+         VALUES ($1, NULL, $2, 'link_only', $3)
+         ON CONFLICT (company_id, channel, digest_day) WHERE digest_day IS NOT NULL
+           DO NOTHING`,
+        [companyId, channel.name, digest.day],
+      );
+      return (rowCount ?? 0) === 1;
+    });
+    if (!claimed) {
+      skipped += 1;
+      continue;
+    }
+
+    // Redacted like everything else that leaves this process. A digest is
+    // assembled from what agents did, and an agent can put anything in a
+    // title.
+    await channel.deliverDigest({
+      companyId,
+      day: digest.day,
+      text: redactor.redact(digest.text),
+    });
+    await withTenant(companyId, async (tx) => {
+      await tx.query(
+        `UPDATE owner_notifications SET delivered_at = now()
+          WHERE company_id = $1 AND channel = $2 AND digest_day = $3`,
+        [companyId, channel.name, digest.day],
+      );
+    });
+    delivered += 1;
+  }
+
+  return { delivered, skipped };
 }
 
 export interface DispatchReport {

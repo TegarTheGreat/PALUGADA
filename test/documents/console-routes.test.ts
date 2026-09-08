@@ -34,36 +34,23 @@ const ROOT = fileURLToPath(new URL('../..', import.meta.url));
  *   without a sentence saying what the button would be.
  */
 const API_ONLY: Record<string, string> = {
+  // Recategorised, because the first version of this list called them
+  // `machine` and that was flattering. A WebAuthn assertion *is* built by the
+  // browser's credential API -- but the browser in question is this page, so
+  // "a program is the caller" was describing the page as though it were
+  // somebody else. They are `todo`: the platform verifies a passkey and the
+  // console cannot present one.
+  //
+  // Not written blind, either. `navigator.credentials.get` needs a secure
+  // context and an `rpId` that matches where the console is served from, and
+  // no browser runs in this environment -- so code written here would be an
+  // unverified claim in the one place this repository has been most careful
+  // not to make them. It is a `todo` until somebody can watch it work.
   'GET /api/auth/challenge':
-    'machine: a WebAuthn assertion is built by the browser\'s own credential API, '
-    + 'which this page does not use yet -- it signs in with a code',
+    'todo: signing in with a passkey rather than a code; the platform verifies '
+    + 'one and the page cannot present one',
   'GET /api/mfa/challenge':
-    'machine: the same challenge, for the same reason',
-  'GET /api/mfa/authenticators':
-    'todo: a list of the owner\'s own devices, with a button to revoke one',
-  'GET /api/companies/:companyId/retro':
-    'todo: F9.4\'s weekly retro, alongside the daily digest',
-  'POST /api/control/company/:companyId/freeze':
-    'todo: a freeze button per company in the company tabs',
-  'POST /api/control/capability/:name/kill':
-    'todo: F8.13\'s kill switch, on the health panel next to the capability',
-  'POST /api/control/company/:companyId/role/:roleId/resume':
-    'todo: a resume button wherever a frozen role is shown',
-  'GET /api/companies/:companyId/tasks/:taskId/events':
-    'flow: the decisions panel reaches a task\'s history through the trace '
-    + 'route, which starts from the item the owner is looking at',
-  'POST /api/companies/:companyId/divisions/:divisionId/credentials/:alias/rotate':
-    'todo: rotation belongs on a credentials panel, which needs a route that '
-    + 'lists a division\'s aliases first',
-  'GET /api/companies/:companyId/goals/:goalId':
-    'flow: the structure panel edits a goal by id rather than browsing the '
-    + 'ladder, which needs a listing route',
-  'GET /api/companies/:companyId/roles/:roleId/evals':
-    'todo: F17\'s eval set, once there is a roles panel to hang it from',
-  'POST /api/companies/:companyId/evals/:caseId/accept':
-    'todo: the same panel',
-  'POST /api/companies/:companyId/roles/:roleId/change-request':
-    'todo: the same panel; the owner changes a role directly today',
+    'todo: the same, for a second factor at the moment of a decision',
 };
 
 const PATTERN = /method: '([A-Z]+)',\s*\n\s*pattern: '([^']+)'/g;

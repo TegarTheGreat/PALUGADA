@@ -1658,6 +1658,98 @@ Fifteen consecutive runs since, and the two mutations that test exists for -- an
 engine with no adapters, an in-process runtime never built -- are both still
 caught.
 
+### Replay, and the last of the buttons
+
+F11.4's replay was on the inventory with a reason that turned out to be the
+finding: `ReplayContext` was a *narrower* interface than `TaskContext`, so a
+`TaskHandler` -- the thing a deployment writes and the engine runs -- did not
+fit it. The only thing that could be replayed was a handler written for the
+replayer. F11.4 is about replaying the platform's own work, and a replay that
+can only replay a test fixture is not that.
+
+`ReplayContext` is now `TaskContext`, imported as a *type* so nothing in the
+runtime reaches that module -- the guarantee in its own comment, no broker, no
+model client, no adapter wired in at all, still holds exactly. It gained a
+`signal` that is live and never aborted (an already-aborted one would send
+every handler down its cancellation path, which is not the path the recorded
+run took) and an `awaitChild` that serves `await:<role>` from the journal.
+
+**That last one was the hole worth finding.** `awaitChild` is the only thing a
+handler can do that creates another *task*: the child spends budget and can
+call a capability, so a replay that spawned one would be a dry run in name
+only. The first version of the test did not cover it -- the mutation that made
+`awaitChild` throw passed every test -- so there is one now that runs a real
+parent and child, replays the parent, and asserts the child handler ran exactly
+once.
+
+The route is `POST /api/companies/:id/tasks/:id/replay`, and it uses the
+deployment's *own* handlers rather than a copy. A deployment whose runtime is a
+container or a CLI has none this process could call, and a task whose role this
+deployment does not carry is a different problem again -- both are named
+refusals rather than an empty report.
+
+The nine `todo` buttons are built too: the capability kill switch, resuming a
+frozen role, a task's events, the replay itself, the owner's own
+authenticators, the weekly retro, freezing a company, rotating a credential,
+reading a goal, and a role's eval set with its last score and a change request.
+
+**Two entries stay on that list, and the honest thing was to recategorise
+them.** The first version called the WebAuthn challenge routes `machine` --
+"the browser's credential API is the caller" -- which was flattering, because
+the browser in question is this page. They are `todo`: the platform verifies a
+passkey and the console cannot present one. They were not written blind either:
+`navigator.credentials.get` needs a secure context and an `rpId` matching where
+the console is served, no browser runs in this environment, and code written
+here would be an unverified claim in the one place this repository has been
+most careful not to make them.
+
+### The boot check found two of its own, and one of the platform's
+
+`npm run smoke` failed twice in a row for two different reasons, which is what
+a boot check is for.
+
+**Two authenticators may not share a secret.** The smoke enrolled
+`vault://smoke/totp` on every run and left the row behind --
+`owner_authenticators` is control-plane data and survives -- so the second run
+added a *second* row against the same reference, which resolves to whichever
+secret the current process holds. Both rows matched the code, the older was
+tried first, and its step was already claimed: the check failed with "that code
+has already been used".
+
+That is a platform fault, not just a dirty database. Two rows on one secret are
+not two factors; they are one factor counted twice, and the replay defence
+turns that into a fault, because `last_step` is per authenticator. In a real
+deployment -- an owner re-enrolling the same seed after a reinstall, say -- the
+owner would press the right button, type the right code off the right phone,
+and be told it is a replay. `enrolTotp` refuses a reference a live
+authenticator already holds. A *revoked* one does not block, because replacing
+a lost phone is the ordinary case and a guard that forbade it would be worse
+than the bug.
+
+The smoke's own half is fixed too: a unique reference per run, and the row
+revoked whatever the verdict, so a failing boot check does not leave one that
+breaks the next.
+
+**And the new guard immediately found a third thing, in the suite.**
+`resetData` truncates `companies` and `capabilities` and lets the cascade do
+the rest -- but `owner_authenticators` is platform-scoped, `company_id` is null
+for the owner's own phone, and the cascade never reached it. Every test that
+enrolled one left it behind. That had been true for as long as the table has
+existed and was invisible, because nothing cared about a second row until
+`enrolTotp` started refusing one. It is truncated between tests now, through
+the *owner* pool rather than the control plane: `owner_authentications` is
+append-only to `palugada_admin`, which is the right rule -- a record of every
+second-factor attempt that the console's own role could delete would not be
+much of a record.
+
+**And it stopped the worker before the thing it was about to assert on.** The
+task usually finishes on the first tick and the notification is a later stage
+of that same tick, so aborting as soon as the task was terminal cut the tick
+before the channel was reached -- "the tick never reached the owner channel",
+perhaps one run in three. It waits for both now. A check that fails for its own
+reasons is a check people learn to re-run rather than read, which is worse than
+not having it.
+
 ### What is actually left
 
 No push service, no bot token, no sandbox vendor, and none of F13.3's four

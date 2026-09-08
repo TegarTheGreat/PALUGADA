@@ -545,9 +545,9 @@ test('the API allows no cross-origin caller unless one was configured', async ()
  * well-behaved client can never check.
  */
 test('the console cannot be walked out of', async () => {
-  const owner = await console_();
-  await owner.close();
-
+  // Its own server, with its own static root. It does not use `console_()`:
+  // this test never signs in, and starting a second console only to close it
+  // was leftover from an earlier shape.
   const secrets = new InMemorySecretManager();
   const { secret } = newTotpSecret('owner phone');
   secrets.set('vault://owner/totp', secret);
@@ -2113,5 +2113,165 @@ test('an empty goal edit does not spend the owner\'s code (F2.7)', async () => {
     assert.equal(real.status, 200, JSON.stringify(real.body));
   } finally {
     await owner.close();
+  }
+});
+
+/**
+ * Signs in to a deployment the test started.
+ *
+ * A fresh deployment has no authenticator enrolled -- and says so at boot,
+ * which is F12.5 working -- so a test that wants a session has to enrol one
+ * first. The clock moves rather than the step number, for the same reason
+ * `console_()` does: `TOTP_DRIFT_STEPS` is one, so a test needing several
+ * codes needs several minutes.
+ */
+async function signInTo(
+  deployment: { url: string; mfa: OwnerMfa },
+  secret: string,
+): Promise<string> {
+  await deployment.mfa.enrolTotp({ label: 'owner phone', secretRef: 'vault://owner/totp' });
+  return signIn(deployment.url, totpCode(decodeBase32(secret), stepFor(new Date())));
+}
+
+/* ------------------------------------------------------------------ F11.4 --- */
+
+/**
+ * The owner can replay a task, and nothing is done twice.
+ *
+ * `ReplayContext` used to be a narrower interface than `TaskContext`, which
+ * made this module unusable from anywhere real: a `TaskHandler` -- the thing a
+ * deployment writes and the engine runs -- did not fit it, so the only thing
+ * that could be replayed was a handler written for the replayer. F11.4 is
+ * about replaying *the platform's own* work, and a replay that can only replay
+ * a test fixture is not that.
+ */
+test('the owner can replay a task the deployment ran (F11.4, F5.9)', async () => {
+  const { start } = await import('../../src/main.ts');
+  const { RecordingLlmClient } = await import('../../src/llm/client.ts');
+  const { createRootTask, getTask } = await import('../../src/engine/tasks.ts');
+  const { withTenant } = await import('../../src/db/tenant.ts');
+
+  const fixture = await createCompany('deployment-replay');
+  // Renamed to the fixture's own role, because the replay looks the handler up
+  // by the role the task actually ran as.
+  const roleSlug = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ slug: string }>(
+      'SELECT slug FROM roles WHERE id = $1', [fixture.roleId],
+    );
+    return rows[0]!.slug;
+  });
+
+  let ran = 0;
+  const handler = async (ctx: { step: <T>(
+    name: string, kind: 'internal', input: unknown, fn: (key: string) => Promise<T>,
+  ) => Promise<T> }) => {
+    ran += 1;
+    const decided = await ctx.step('decide', 'internal', { on: 'the thing' },
+      async () => ({ answer: 'yes' }));
+    return { decided };
+  };
+
+  const secrets = new InMemorySecretManager();
+  const { secret } = newTotpSecret('owner phone');
+  secrets.set('vault://owner/totp', secret);
+
+  const deployment = await start({
+    port: 0,
+    env: {},
+    secrets,
+    llm: new RecordingLlmClient(),
+    handlers: new Map([[roleSlug, handler as never]]),
+    worker: { companyId: fixture.companyId, idleMs: 50 },
+  });
+
+  try {
+    const task = await createRootTask({
+      companyId: fixture.companyId,
+      projectId: fixture.projectId,
+      divisionId: fixture.divisionId,
+      roleId: fixture.roleId,
+      budgetAccountId: fixture.budgetAccountId,
+      goalId: fixture.goalId,
+      input: { goal: 'something to replay' },
+      createdBy: 'owner',
+      reserveTokens: 10_000,
+    });
+
+    const deadline = Date.now() + 10_000;
+    let status = task.status;
+    while (Date.now() < deadline) {
+      status = await withTenant(
+        fixture.companyId, async (tx) => (await getTask(tx, task.id))!.status,
+      );
+      if (status === 'completed' || status === 'failed' || status === 'halted') break;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    assert.equal(status, 'completed', `the worker left the task ${status}`);
+    const afterRun = ran;
+
+    const token = await signInTo(deployment, secret);
+    const replayed = await call(
+      deployment.url, 'POST', `/api/companies/${fixture.companyId}/tasks/${task.id}/replay`,
+      { token, body: {} },
+    );
+    assert.equal(replayed.status, 200, JSON.stringify(replayed.body));
+    assert.match(String(replayed.body.summary), /no divergence/);
+
+    // The handler ran again -- that is what a replay is -- but its step came
+    // from the journal rather than from doing the work. Nothing external is
+    // reachable from `replayTask` at all: no broker, no model client, no
+    // adapter is imported into that module.
+    assert.equal(ran, afterRun + 1, 'the handler was not replayed');
+    const report = replayed.body.report as { steps: unknown[]; divergences: unknown[] };
+    assert.equal(report.divergences.length, 0);
+    assert.ok(report.steps.length >= 1, 'no step was served from the journal');
+  } finally {
+    await deployment.stop();
+  }
+});
+
+test('a replay of a role this deployment does not run says so (F11.4)', async () => {
+  const { start } = await import('../../src/main.ts');
+  const { RecordingLlmClient } = await import('../../src/llm/client.ts');
+  const { createRootTask } = await import('../../src/engine/tasks.ts');
+
+  const fixture = await createCompany('deployment-replay-missing');
+  const secrets = new InMemorySecretManager();
+  const { secret } = newTotpSecret('owner phone');
+  secrets.set('vault://owner/totp', secret);
+
+  const deployment = await start({
+    port: 0,
+    env: {},
+    secrets,
+    llm: new RecordingLlmClient(),
+    handlers: new Map([['somebody-else', async () => ({ done: true })]]),
+    worker: { idleMs: 50 },
+  });
+
+  try {
+    const task = await createRootTask({
+      companyId: fixture.companyId,
+      projectId: fixture.projectId,
+      divisionId: fixture.divisionId,
+      roleId: fixture.roleId,
+      budgetAccountId: fixture.budgetAccountId,
+      goalId: fixture.goalId,
+      input: { goal: 'never run here' },
+      createdBy: 'owner',
+      reserveTokens: 10_000,
+    });
+
+    const token = await signInTo(deployment, secret);
+    const answer = await call(
+      deployment.url, 'POST', `/api/companies/${fixture.companyId}/tasks/${task.id}/replay`,
+      { token, body: {} },
+    );
+    // Named, because "nothing happened" and "this deployment does not have
+    // that role's handler" are different problems with different fixes.
+    assert.equal(answer.status, 400, JSON.stringify(answer.body));
+    assert.match(String(answer.body.error), /no handler for role/);
+  } finally {
+    await deployment.stop();
   }
 });

@@ -758,3 +758,48 @@ test('a malformed assertion is recorded like any other failure (F12.5)', async (
     [[false, 'mfa.assertion_malformed']],
   );
 });
+
+/**
+ * One secret, one authenticator.
+ *
+ * Two rows pointing at the same secret are not two factors -- they are one
+ * factor counted twice, and the replay defence turns that from harmless
+ * redundancy into a fault. `last_step` is per authenticator, so whichever row
+ * `verifyTotp` reaches first claims the step and the other is refused for that
+ * whole window with "that code has already been used". The owner presses the
+ * right button, types the right code off the right phone, and is told it is a
+ * replay.
+ *
+ * Found by the boot check rather than by a test, which is the boot check
+ * earning its keep: it enrolled the same reference on every run, left the rows
+ * behind, and the second run's code matched the first run's row.
+ */
+test('the same secret cannot be enrolled twice (F12.5)', async () => {
+  const secrets = new InMemorySecretManager();
+  const { secret } = newTotpSecret('the phone');
+  secrets.set('vault://owner/shared', secret);
+  const mfa = new OwnerMfa({ secrets, rpId: 'palugada.local' });
+
+  const first = await mfa.enrolTotp({ label: 'the phone', secretRef: 'vault://owner/shared' });
+  assert.ok(first);
+
+  await assert.rejects(
+    () => mfa.enrolTotp({ label: 'the same phone again', secretRef: 'vault://owner/shared' }),
+    (error: unknown) =>
+      isPalugadaError(error, 'mfa.already_enrolled')
+      && /already enrolled as the phone/.test((error as Error).message),
+  );
+
+  // And the one that is enrolled still works, which is the point: the refusal
+  // protects the working factor rather than replacing it.
+  const verified = await mfa.verifyTotp(totpCode(decodeBase32(secret), stepFor(new Date())));
+  assert.equal(verified.authenticatorId, first);
+
+  // A revoked row is not in the way. Re-enrolling after losing a phone is the
+  // ordinary case, and refusing that would make the guard worse than the bug.
+  await mfa.revoke(first);
+  const replacement = await mfa.enrolTotp({
+    label: 'the new phone', secretRef: 'vault://owner/shared',
+  });
+  assert.notEqual(replacement, first);
+});

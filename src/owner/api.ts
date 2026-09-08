@@ -72,6 +72,9 @@ import { healthFor } from '../broker/preflight.ts';
 import { costTimeline, platformCost } from '../reporting/cost.ts';
 import { rotateCredential } from '../secrets/rotation.ts';
 import { readTaskEvents } from '../audit/event-log.ts';
+import { describeReplay, replayTask } from '../engine/replay.ts';
+import { getTask } from '../engine/tasks.ts';
+import type { TaskHandler } from '../runtime/in-process.ts';
 import { collectExport } from '../audit/export.ts';
 import { applyGoalChange, createGoal, readGoal } from '../domain/goals.ts';
 import {
@@ -135,6 +138,15 @@ export interface OwnerApiOptions {
    * one. Better to rotate without the check than to file a false alarm.
    */
   registry?: CapabilityRegistry;
+  /**
+   * The handlers F11.4's replay re-runs (F5.9).
+   *
+   * The deployment's own, not a copy: a replay of a handler nobody runs is a
+   * replay of nothing. Absent means the route refuses rather than pretending,
+   * because a deployment whose runtime is a container or a CLI has no handler
+   * this process could call.
+   */
+  replayHandlers?: Map<string, TaskHandler>;
   /** How that sweep resolves a division's credential. Comes from the broker. */
   credentialFor?: (
     companyId: string,
@@ -589,6 +601,62 @@ export class OwnerApi {
             (tx) => readTaskEvents(tx, params.taskId!),
           ),
         }),
+      },
+
+      /* ----------------------------------------------------------- F11.4 --- */
+
+      {
+        // Re-runs the task's handler against its journal, and reaches nothing.
+        //
+        // `replayTask` has no broker, no model client and no adapter wired in
+        // at all -- not "disabled under a flag", none imported -- so a replay
+        // of a task that bought a domain cannot buy the domain again. What it
+        // reports is where the code no longer does what it did when the
+        // journal was written, which is the most useful thing a replay can
+        // say.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/tasks/:taskId/replay',
+        handle: async ({ params }) => {
+          const handlers = this.#options.replayHandlers;
+          if (!handlers || handlers.size === 0) {
+            throw new PalugadaError(
+              'contract.violation',
+              'this deployment runs no in-process handlers, so there is nothing to replay '
+                + 'here; a task run by a container or a CLI is replayed where that runtime '
+                + 'lives (PRD F5.9, F13)',
+              {},
+            );
+          }
+
+          const roleSlug = await withTenant(params.companyId!, async (tx) => {
+            const task = await getTask(tx, params.taskId!);
+            if (!task) return null;
+            const { rows } = await tx.query<{ slug: string }>(
+              'SELECT slug FROM roles WHERE id = $1',
+              [task.roleId],
+            );
+            return rows[0]?.slug ?? null;
+          });
+          if (!roleSlug) {
+            throw new PalugadaError('contract.violation', 'no such task', {});
+          }
+
+          const handler = handlers.get(roleSlug);
+          if (!handler) {
+            // Named, because "nothing happened" and "this deployment does not
+            // have that role's handler" are different problems with different
+            // fixes.
+            throw new PalugadaError(
+              'contract.violation',
+              `this deployment has no handler for role ${roleSlug}, so its work cannot be `
+                + 'replayed here',
+              { roleSlug },
+            );
+          }
+
+          const report = await replayTask(params.companyId!, params.taskId!, handler);
+          return { summary: describeReplay(report), report };
+        },
       },
 
       /* ----------------------------------------------------------- F12.3 --- */

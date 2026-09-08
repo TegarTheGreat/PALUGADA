@@ -78,8 +78,6 @@ const UNREACHABLE: Record<string, string> = {
   forgetCompiledSchemas: 'helper: a cache reset a test needs between schemas',
   countCommittedSteps: 'helper: a journal count, asserted directly',
   recordPlan: 'worker: F8.11 a plan is recorded by a runtime, and none here plans',
-  describeReplay: 'console: F11.4 replay is not offered',
-  replayTask: 'console: F11.4 replay is not offered',
   claimReadyWindowTasks: 'worker: F9.6 batch windows are not drained on the tick',
 
   // Predicates every caller writes inline.

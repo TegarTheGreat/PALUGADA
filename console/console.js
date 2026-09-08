@@ -726,6 +726,59 @@ async function drawHealth() {
     heading('Governance log'),
     table(['Subject', 'Action', 'Actor'],
       governance.log.map((row) => [row.subject, row.action, row.actor])),
+
+    // F8.13. The kill switch is per capability and platform-wide: a vendor
+    // that has started doing something wrong is wrong for every company, and
+    // waiting to disable it company by company is waiting.
+    heading('Disable a capability everywhere'),
+    form(
+      [{ name: 'name', label: 'Capability', required: true }],
+      (values) => api('POST', `/api/control/capability/${values.name}/kill`, { on: true }),
+      { action: 'Disable it' },
+    ),
+    form(
+      [{ name: 'name', label: 'Capability', required: true }],
+      (values) => api('POST', `/api/control/capability/${values.name}/kill`, { on: false }),
+      { action: 'Allow it again' },
+    ),
+
+    // F3.12. A role freezes itself when it keeps being denied, and stays
+    // frozen until a person looks. This is the person looking.
+    heading('Resume a frozen role'),
+    form(
+      [{ name: 'roleId', label: 'Role id', required: true }],
+      (values) => api(
+        'POST', `/api/control/company/${state.companyId}/role/${values.roleId}/resume`, {},
+      ),
+      { action: 'Resume it' },
+    ),
+
+    heading('What a task did'),
+    note('Its events, and a dry replay of its handler against the journal (F11.2, F5.9).'),
+    form(
+      [{ name: 'taskId', label: 'Task id', required: true }],
+      async (values) => {
+        const { events } = await api('GET', `${company()}/tasks/${values.taskId}/events`);
+        panel.append(
+          heading('Events'),
+          table(['Type', 'Actor'], events.map((event) => [event.type, event.actor])),
+        );
+      },
+      { action: 'Show its events' },
+    ),
+    form(
+      [{ name: 'taskId', label: 'Task id', required: true }],
+      async (values) => {
+        // Nothing is repeated: the replay has no broker, no model client and
+        // no adapter wired in at all, so a task that bought a domain cannot
+        // buy it again.
+        const answer = await api('POST', `${company()}/tasks/${values.taskId}/replay`, {});
+        const body = document.createElement('pre');
+        body.textContent = `${answer.summary}\n\n${JSON.stringify(answer.report, null, 2)}`;
+        panel.append(heading('Replay'), body);
+      },
+      { action: 'Replay it' },
+    ),
   );
 }
 
@@ -791,6 +844,37 @@ async function drawSettings() {
       ],
       (values) => api('POST', `${company()}/alert-thresholds`, values),
     ),
+    heading('Your authenticators'),
+    // F12.5. The owner should be able to see what can approve a tier 3 action
+    // in their name. Never the secret and never the public key -- a label and
+    // a kind is what a person needs to recognise a device.
+    await (async () => {
+      const { authenticators } = await api('GET', '/api/mfa/authenticators');
+      return authenticators.length === 0
+        ? note('None enrolled. No tier 3 action can be approved until one is.')
+        : table(['Label', 'Kind'], authenticators.map((one) => [one.label, one.kind]));
+    })(),
+
+    heading('This week'),
+    await (async () => {
+      const retro = await api('GET', `${company()}/retro`);
+      return facts([
+        ['Done', retro.tasksCompleted ?? 0],
+        ['Failed', retro.tasksFailed ?? 0],
+        ['Spent', money(retro.moneySpentCents ?? 0)],
+      ]);
+    })(),
+
+    heading('Freeze this company'),
+    note('Nothing of theirs starts while it is frozen; existing work stops at its next step.'),
+    group(
+      action('Freeze', () =>
+        api('POST', `/api/control/company/${state.companyId}/freeze`, { on: true }),
+      { danger: true }),
+      action('Unfreeze', () =>
+        api('POST', `/api/control/company/${state.companyId}/freeze`, { on: false })),
+    ),
+
     heading('Export'),
     action('Download this company as JSON', async () => {
       const dump = await api('GET', `${company()}/export`);
@@ -895,6 +979,90 @@ async function drawStructure() {
         condition: JSON.parse(values.condition),
       }),
       { action: 'Write it' },
+    ),
+
+    heading('Rotate a credential'),
+    note('The answer to "that token leaked". It takes your authenticator (F12.3).'),
+    form(
+      [
+        { name: 'divisionId', label: 'Division id', required: true },
+        { name: 'alias', label: 'Alias', required: true },
+        { name: 'newSecretRef', label: 'New reference (blank to keep the same path)' },
+      ],
+      async ({ divisionId, alias, newSecretRef }, proof) => {
+        const rotated = await api(
+          'POST', `${company()}/divisions/${divisionId}/credentials/${alias}/rotate`,
+          { ...(newSecretRef === undefined ? {} : { newSecretRef }), proof },
+        );
+        panel.append(note(`${rotated.alias} is now version ${rotated.version}.`));
+      },
+      { action: 'Rotate', factor: 'rotate a credential' },
+    ),
+
+    heading('Read a goal'),
+    form(
+      [{ name: 'goalId', label: 'Goal id', required: true }],
+      async (values) => {
+        const goal = await api('GET', `${company()}/goals/${values.goalId}`);
+        panel.append(facts([
+          ['Kind', goal.kind],
+          ['Slug', goal.slug],
+          ['Status', goal.status],
+          ['Statement', goal.statement],
+          ['Parent', goal.parentGoalId ?? 'none'],
+        ]));
+      },
+      { action: 'Read it' },
+    ),
+
+    heading('A role\'s eval set'),
+    note('What a change to this role would be scored against, before you decide (F17).'),
+    form(
+      [{ name: 'roleId', label: 'Role id', required: true }],
+      async (values) => {
+        const evals = await api('GET', `${company()}/roles/${values.roleId}/evals`);
+        panel.append(
+          evals.latest
+            ? facts([
+              ['Last score', `${evals.latest.passed} passed, ${evals.latest.failed} failed`],
+              ['Ran', String(evals.latest.ranAt).slice(0, 16)],
+              ['Triggered by', evals.latest.triggeredBy],
+            ])
+            : note('Never scored.'),
+          evals.cases.length === 0
+            ? note('No cases yet.')
+            : table(['Name', 'Polarity', 'Accepted', ''],
+              evals.cases.map((one) => [
+                one.name,
+                one.polarity,
+                one.accepted ? 'yes' : 'no',
+                one.accepted
+                  ? ''
+                  : action('Accept', () =>
+                    api('POST', `${company()}/evals/${one.id}/accept`, {})),
+              ])),
+        );
+      },
+      { action: 'Show it' },
+    ),
+    form(
+      [
+        { name: 'roleId', label: 'Role id', required: true },
+        { name: 'change', label: 'Change (charter, skills, model_routing)', required: true },
+        { name: 'summary', label: 'What and why', required: true },
+      ],
+      async ({ roleId, ...rest }) => {
+        // F17.3: the score reaches the owner *before* they decide, so this
+        // files the item and the decision goes through the queue like every
+        // other one.
+        const asked = await api(
+          'POST', `${company()}/roles/${roleId}/change-request`, { ...rest, tools: [] },
+        );
+        panel.append(note(
+          `Filed. It scored ${asked.score.passed} passed, ${asked.score.failed} failed.`,
+        ));
+      },
+      { action: 'Request a change' },
     ),
 
     heading('A schedule'),

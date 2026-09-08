@@ -294,11 +294,20 @@ async function main(): Promise<number> {
     : `the ${divisionSlug} account`;
   log('task created', `${task.id} — funded by ${fundedBy}`);
 
+  // Waits for *both* things this check is about, not just the faster one.
+  //
+  // The first version stopped the worker as soon as the task was terminal --
+  // and the task usually finishes on the first tick, while the notification is
+  // a later stage of that same tick. So `shutdown.abort()` cut the tick before
+  // the channel was reached, and the boot check failed with "the tick never
+  // reached the owner channel" perhaps one run in three. A check that fails
+  // for its own reasons is a check people learn to re-run rather than read.
   const startedAt = Date.now();
   let final: Awaited<ReturnType<typeof getTask>> = null;
   while (Date.now() - startedAt < DEADLINE_MS) {
     final = await withTenant(company.companyId, (tx) => getTask(tx, task.id));
-    if (final && ['completed', 'failed', 'halted', 'cancelled'].includes(final.status)) break;
+    const done = final && ['completed', 'failed', 'halted', 'cancelled'].includes(final.status);
+    if (done && notified.length > 0) break;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
 
@@ -330,11 +339,25 @@ async function main(): Promise<number> {
   // verifier nobody builds is a tier 3 gate that refuses everything -- which
   // looks exactly like the gate working until the day the owner needs to
   // approve something.
+  //
+  // The reference is unique per run and the row is revoked at the end.
+  //
+  // The first version used `vault://smoke/totp` every time and left the row
+  // behind, and `owner_authenticators` is control-plane data that survives --
+  // so the second run enrolled a *second* row against the same reference,
+  // which resolves to whichever secret the current process holds. Both rows
+  // matched the code, the older one was tried first, and its step was already
+  // claimed: the boot check failed with "that code has already been used".
+  //
+  // Which was the check earning its keep. The fix is in two places, because
+  // there were two faults: this one polluted a shared database, and the
+  // platform let two authenticators share a secret at all -- see `enrolTotp`.
+  const secretRef = `vault://smoke/${randomUUID()}`;
   const secrets = new InMemorySecretManager();
   const { secret } = newTotpSecret('smoke owner');
-  secrets.set('vault://smoke/totp', secret);
+  secrets.set(secretRef, secret);
   const mfa = new OwnerMfa({ secrets, rpId: 'palugada.local' });
-  await mfa.enrolTotp({ label: 'smoke owner', secretRef: 'vault://smoke/totp' });
+  const authenticatorId = await mfa.enrolTotp({ label: 'smoke owner', secretRef });
 
   const approvalId = await requestApproval({
     companyId: company.companyId,
@@ -357,6 +380,10 @@ async function main(): Promise<number> {
     mfa,
   });
   const stillOpen = (await listOpen(company.companyId)).some((item) => item.id === approvalId);
+
+  // Revoked whatever the verdict below is, so a failing boot check does not
+  // also leave a row that breaks the next one.
+  await mfa.revoke(authenticatorId);
 
   log('tier 3 approval', refused && !stillOpen
     ? 'refused without a factor, accepted with one'

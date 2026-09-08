@@ -341,6 +341,9 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // unhealthy, and halts the next task that needs one.
     registry,
     credentialFor: (companyId, divisionId) => broker.credentialFor(companyId, divisionId),
+    // The same handlers the in-process runtime executes, so F11.4 replays the
+    // work this deployment actually did rather than a fixture.
+    ...(options.handlers ? { replayHandlers: options.handlers } : {}),
     ...(options.consoleRoot ? { staticRoot: options.consoleRoot } : {}),
     ...(env.PALUGADA_CONSOLE_ORIGIN ? { origin: env.PALUGADA_CONSOLE_ORIGIN } : {}),
   });

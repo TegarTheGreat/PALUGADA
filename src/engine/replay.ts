@@ -20,6 +20,8 @@ import { withTenant } from '../db/tenant.ts';
 import { getTask, type TaskRow } from './tasks.ts';
 import { hashInput } from './hash.ts';
 import type { StepKind } from './journal.ts';
+import type { TaskContext } from '../runtime/in-process.ts';
+import type { ChildResult } from './containment.ts';
 
 export interface ReplayedStep {
   index: number;
@@ -52,12 +54,26 @@ export interface ReplayReport {
   unusedSteps: number;
 }
 
-export interface ReplayContext {
-  readonly task: TaskRow;
-  step<T>(name: string, kind: StepKind, input: unknown, fn?: unknown): Promise<T>;
-  callCapability<I, O>(name: string, input: I): Promise<O>;
-  llm(request: { system: string; messages: Array<{ role: 'user' | 'assistant'; content: string }> }): Promise<string>;
-}
+/**
+ * What a handler sees when it is being replayed.
+ *
+ * The same shape a run sees, deliberately and by definition: it *is*
+ * `TaskContext`. A handler needs no knowledge that it is being replayed and
+ * therefore cannot behave differently when it is -- which is the whole
+ * property this module exists to have.
+ *
+ * It was a narrower interface at first, and that made this module unusable
+ * from anywhere real. `TaskHandler` is what a deployment writes and what the
+ * engine runs, and a context missing `signal` and `awaitChild` is not one a
+ * `TaskHandler` fits -- so the only thing that could be replayed was a handler
+ * written for the replayer. F11.4 is about replaying *the platform's own*
+ * work, and a replay that can only replay a test fixture is not that.
+ *
+ * The type is imported, not the module: `import type` is erased, so nothing in
+ * the runtime reaches this file. The guarantee in the comment above -- no
+ * broker, no model client, no adapter wired in at all -- still holds.
+ */
+export type ReplayContext = TaskContext;
 
 export type ReplayHandler = (ctx: ReplayContext) => Promise<Record<string, unknown>>;
 
@@ -146,11 +162,23 @@ export async function replayTask(
 
   const ctx: ReplayContext = {
     task,
+    // Live and never aborted. Nothing here reaches the world, so there is
+    // nothing to cancel -- and a signal that arrived already aborted would
+    // make every handler that checks it take its cancellation path, which is
+    // not the path the recorded run took.
+    signal: new AbortController().signal,
     step: (name, kind, input) => serve(name, kind, input),
     // Deliberately identical in shape to the engine's context, and served
     // entirely from the journal. No adapter is imported into this module.
     callCapability: (name, input) => serve(`capability:${name}`, 'tool', { name, input }),
     llm: (request) => serve('llm', 'llm', request),
+    // Named and shaped exactly as the engine records it -- `await:<role>`, an
+    // `internal` step, with `{ role, input }` as its input -- so a child's
+    // result comes back from the journal and no child is started. A replay
+    // that spawned one would be doing the work again, which is the one thing
+    // this module must never do.
+    awaitChild: (roleSlug, input) =>
+      serve<ChildResult>(`await:${roleSlug}`, 'internal', { role: roleSlug, input }),
   };
 
   let output: Record<string, unknown> | null = null;

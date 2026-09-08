@@ -35,6 +35,22 @@ export async function resetData(): Promise<void> {
   // registry rows that each test registers for itself.
   await ownerPool().query('TRUNCATE companies, capabilities CASCADE');
 
+  // The owner's own devices, which are not tenant data either.
+  //
+  // `owner_authenticators` is platform-scoped -- `company_id` is null for the
+  // owner's own phone -- so `TRUNCATE companies CASCADE` never reaches it, and
+  // an authenticator enrolled by one test was still there for the next. That
+  // was invisible until `enrolTotp` started refusing a secret reference a live
+  // authenticator already holds, at which point the second test in a file to
+  // enrol `vault://owner/totp` failed. The leak was older than the guard; the
+  // guard is what made it say so.
+  //
+  // Truncated through the *owner* pool rather than the control plane:
+  // `owner_authentications` is append-only to `palugada_admin`, which is the
+  // right rule -- a record of every second-factor attempt that the console's
+  // own role could delete would not be much of a record.
+  await ownerPool().query('TRUNCATE owner_authenticators, owner_authentications CASCADE');
+
   // TRUNCATE ... CASCADE empties the whole referencing table, not only the
   // rows that pointed at a company -- so it also removes the platform-default
   // rows (company_id IS NULL) that the migrations seeded. Restoring them keeps

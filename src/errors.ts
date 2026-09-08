@@ -45,6 +45,8 @@ export type ErrorCode =
    * first call -- the silent misconfiguration v2 section 2.3 records.
    */
   | 'config.invalid'
+  /** F12.5: that secret is already enrolled, so a second row would fight it. */
+  | 'mfa.already_enrolled'
   | 'gateway.unpaired'
   | 'gateway.bad_signature'
   | 'gateway.quarantined'

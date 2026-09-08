@@ -160,7 +160,11 @@ test('a handler that changed since the run reports a divergence', async () => {
     // The target changed since the recorded run.
     const deployed = await ctx.callCapability('deploy.production', { target: 'staging' });
     // And an extra step the original never took.
-    const extra = await ctx.step('new-check', 'internal', {}, undefined);
+    // A real `fn`, because a handler always has one: `ReplayContext` is the
+    // context a run sees, and the replayer serves the answer from the journal
+    // rather than calling it. Passing `undefined` was only ever possible while
+    // this interface was narrower than the one a handler is written against.
+    const extra = await ctx.step('new-check', 'internal', {}, async () => ({}));
     return { plan, deployed: deployed as Record<string, unknown>, extra: extra as unknown };
   };
 
@@ -211,4 +215,71 @@ test('a replay of a halted task still explains how far it got', async () => {
   assert.equal(report.steps[0]!.kind, 'llm');
   assert.equal(report.divergences[0]!.reason, 'missing_step');
   assert.equal(sideEffects.length, 0);
+});
+
+/**
+ * A replay does not start a child, it reads the one that ran.
+ *
+ * `awaitChild` is the only thing a handler can do that creates *another task*,
+ * and it was the last hole in this module's guarantee: `ReplayContext` did not
+ * have the method at all, so a handler that used it could not be replayed --
+ * and once the interface was widened so that a real `TaskHandler` fits, the
+ * question became whether the replay serves the child from the journal or
+ * spawns a second one.
+ *
+ * A second one would be the worst possible failure here. The child does real
+ * work: it spends budget, it can call a capability, and a "dry run" that
+ * quietly ran a whole subtree again is a dry run in name only.
+ */
+test('a replay serves a child from the journal rather than starting one (F5.9, F6.4)', async () => {
+  const { addRole } = await import('../helpers/fixtures.ts');
+  const fixture = await createCompany('replay-child');
+  await addRole(fixture, 'helper');
+
+  // Counted in the *handlers*, so the number says how many times each actually
+  // ran rather than how many rows exist.
+  const runs = { parent: 0, child: 0 };
+  const parent = (async (ctx) => {
+    runs.parent += 1;
+    const answer = await ctx.awaitChild('helper', { ask: 'what time' }, { timeoutMs: 10_000 });
+    return { answer: answer as unknown as Record<string, unknown> };
+  }) as TaskHandler & ReplayHandler;
+  const child: TaskHandler = async () => {
+    runs.child += 1;
+    return { said: '02:00' };
+  };
+
+  const engine = new Engine({
+    broker: new CapabilityBroker(new CapabilityRegistry()),
+    llm: new RecordingLlmClient(),
+    handlers: new Map<string, TaskHandler>([['worker', parent], ['helper', child]]),
+  });
+
+  const task = await createRootTask({
+    companyId: fixture.companyId,
+    projectId: fixture.projectId,
+    divisionId: fixture.divisionId,
+    roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId,
+    goalId: fixture.goalId,
+    input: {},
+    createdBy: 'owner',
+    reserveTokens: 50_000,
+  });
+
+  const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(outcome.status, 'completed', outcome.reason ?? '');
+  assert.deepEqual(runs, { parent: 1, child: 1 });
+
+  const report = await replayTask(fixture.companyId, task.id, parent);
+
+  assert.deepEqual(report.divergences, [], describeReplay(report));
+  assert.equal(runs.parent, 2, 'the parent handler was not replayed');
+  // The whole point. The child's result came back from the journal, and no
+  // second child was created or run.
+  assert.equal(runs.child, 1, 'the replay started the child again');
+
+  const served = report.steps.find((step) => step.name === 'await:helper');
+  assert.ok(served, `no child step was served: ${JSON.stringify(report.steps)}`);
+  assert.equal(served.kind, 'internal');
 });

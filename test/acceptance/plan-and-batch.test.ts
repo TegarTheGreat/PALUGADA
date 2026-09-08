@@ -363,3 +363,84 @@ test('a plan belongs to one task and is not visible to another company', async (
   const seenByThem = await withTenant(theirs.companyId, (tx) => readPlan(tx, task.id));
   assert.equal(seenByThem, null, "another company's plan is not readable");
 });
+
+/**
+ * A runtime can record a plan, which until now it could not.
+ *
+ * The broker refuses a tier 2 action on a task with no plan (F8.11), and the
+ * only way a plan reached a task was `recordPlan` -- a function called by a
+ * test fixture and nothing else. The wire protocol between the engine and a
+ * runtime carries tool calls; there was no tool. So every real runtime would
+ * have hit `plan.required` on its first tier 2 action with no move that could
+ * satisfy it: a requirement enforced against agents that could not comply.
+ *
+ * `plan.record` is a platform capability now, beside `memory.search` and
+ * `skill.read`, for the same reason -- the platform is the thing that has the
+ * task.
+ */
+test('a run can record its plan and then act on it (F8.11)', async () => {
+  const { registerPlatformCapabilities } = await import('../../src/broker/platform-capabilities.ts');
+  const fixture = await createCompany('plan-record');
+
+  const sent: string[] = [];
+  const registry = new CapabilityRegistry();
+  registerPlatformCapabilities(registry);
+  registry.register({
+    name: 'email.send',
+    adapter: 'test:mail',
+    defaultTier: 2,
+    async execute(input: { to: string }) { sent.push(input.to); return { ok: true }; },
+    async verify() { return true; },
+  } as never);
+  await registry.sync();
+  await grantCapability(fixture, 'plan.record');
+  await grantCapability(fixture, 'email.send');
+
+  const broker = new CapabilityBroker(registry);
+  const task = await newTask(fixture);
+  const ctx = {
+    companyId: fixture.companyId,
+    projectId: fixture.projectId,
+    divisionId: fixture.divisionId,
+    roleId: fixture.roleId,
+    taskId: task.id,
+    idempotencyKey: 'plan-1',
+  };
+
+  // Without the plan, the tier 2 action is refused -- which is F8.11 working,
+  // and was previously the end of the road for any real runtime.
+  await assert.rejects(
+    () => broker.invoke({ ...ctx, idempotencyKey: 'send-0' }, 'email.send', { to: 'a@b.example' }),
+    (error: unknown) => isPalugadaError(error, 'plan.required'),
+  );
+
+  const recorded = await broker.invoke<{ steps: unknown[] }, { steps: number }>(
+    ctx,
+    'plan.record',
+    {
+      steps: [{
+        capability: 'email.send',
+        intent: 'tell the supplier the invoice is paid',
+        expectedEffect: 'the supplier has been told',
+      }],
+    },
+  );
+  assert.equal(recorded.output.steps, 1);
+
+  const done = await broker.invoke(
+    { ...ctx, idempotencyKey: 'send-1' }, 'email.send', { to: 'a@b.example' },
+  );
+  assert.equal(done.verified, true);
+  assert.deepEqual(sent, ['a@b.example']);
+
+  // And it cannot be rewritten after seeing how the first step went, which is
+  // the whole value of F8.11: the plan is a commitment made before the
+  // actions, not a description written after them.
+  await assert.rejects(
+    () => broker.invoke(
+      { ...ctx, idempotencyKey: 'plan-2' },
+      'plan.record',
+      { steps: [{ capability: 'email.send', intent: 'again', expectedEffect: 'again' }] },
+    ),
+  );
+});

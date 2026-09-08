@@ -729,7 +729,10 @@ it. A deployment with none registered says so at boot in those words, because
 a worker that can run nothing looks, from outside, exactly like a worker with
 nothing to do.
 
-The console is at `http://127.0.0.1:8787`. The queue is the first tab because
+The console is at `http://127.0.0.1:8787`. Starting a company is on the row
+where the companies are — and a template can only be used by a deployment that
+has bound every capability it grants, which the refusal names when it does not.
+The queue is the first tab because
 it is the one with a person waiting on it; behind it are Money, Health,
 Settings, Structure, Skills, Bundles and Devices. Two tests keep the page and
 the API from drifting apart: one lists every route no button presses, and one

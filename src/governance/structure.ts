@@ -22,6 +22,7 @@
  * same shape: which role hears about a problem, and how long the division may
  * sit on one before the owner does.
  */
+import { assertApproved, type RoleChange } from '../eval/role-eval.ts';
 import { withTenant, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
@@ -185,19 +186,33 @@ export interface RoleFields {
   modelFallback?: string[];
 }
 
+/**
+ * Which of F17.2's three a set of fields amounts to.
+ *
+ * The eval set scores a change by kind, and a caller supplies fields. A prompt
+ * change is the charter; tools are the skills; a model is the routing. When a
+ * call touches more than one, the charter is the widest and is what the owner
+ * is told they are approving.
+ */
+function changeKindOf(fields: RoleFields): RoleChange {
+  if (fields.systemPrompt !== undefined) return 'charter';
+  if (fields.tools !== undefined) return 'skills';
+  return 'model_routing';
+}
+
 export async function applyRoleChange(
   companyId: string,
   roleId: string,
   fields: RoleFields,
   options: { ownerApproved: boolean; summary?: string },
 ): Promise<number> {
-  if (!options.ownerApproved) {
-    throw new PalugadaError(
-      'approval.required',
-      "changing a role's prompt, tools or model routing is the owner's (F2.9, F17.3)",
-      { roleId },
-    );
-  }
+  // F17.3's own guard, called rather than restated.
+  //
+  // This used to be an inline `throw` saying the same thing in different
+  // words, so the rule had two implementations and `assertApproved` -- written
+  // for exactly this -- had no caller. Two statements of one rule is how they
+  // drift, and the one that matters is always the one nobody re-read.
+  assertApproved(options.ownerApproved, changeKindOf(fields));
 
   return withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{

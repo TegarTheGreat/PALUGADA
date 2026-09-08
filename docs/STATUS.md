@@ -1915,6 +1915,53 @@ Seven more:
   is money: the same decision as the spend limit, and a session is a browser
   tab.
 
+### F8.11 was enforced against agents that could not comply
+
+The broker refuses a tier 2 action on a task with no plan. The only way a plan
+reached a task was `recordPlan` -- called by a test fixture and nothing else.
+The wire protocol between the engine and a runtime carries tool calls; **there
+was no tool.** So every real runtime -- `claude-code`, a CLI, a container --
+would have hit `plan.required` on its first tier 2 action with no move that
+could satisfy it. A requirement enforced against agents with no way to obey it,
+and the suite never saw it because the fixture wrote the plan directly.
+
+`plan.record` is a platform capability now, beside `memory.search` and
+`skill.read`, for the same reason they are: the platform is the thing that has
+the task. Tier 0, because recording an intention changes nothing outside this
+database -- it is the *statement* the tier 2 gate then holds the run to. It
+goes through the broker like everything else, and `recordPlan` still refuses a
+second plan, so a run cannot rewrite its intentions after seeing how the first
+step went. That is the whole value of F8.11: a commitment made before the
+actions, not a description written after them.
+
+### One rule, two implementations
+
+`applyRoleChange` opened with an inline `throw` saying, in different words,
+what `assertApproved` says -- and `assertApproved`, written for exactly this,
+had no caller. Two statements of one rule is how they drift, and the one that
+matters is always the one nobody re-read. It calls it now.
+
+### And the owner could not start a company
+
+"One human runs many companies" is what this platform is for, and the console
+could not make one. A company arrived through the seed script or the boot
+check, so the owner's second company needed a terminal.
+`createCompanyFromTemplate` was called by those two and nothing else.
+
+A structural change if anything is -- divisions, roles, grants and a budget
+tree in one transaction -- so it takes the owner's device, like every other
+one.
+
+Building it surfaced something worth stating: **the standard template cannot be
+instantiated by a deployment that has not bound its capabilities.**
+`createCompanyFromTemplate` refuses to grant a capability the broker cannot
+run, which is right -- a company whose agents are refused the moment they try
+to work is worse than no company -- but the standard template grants
+twenty-five, sixteen of which need somebody's account. That refusal was a plain
+`Error`, so it reached the owner as `500 internal error`; it is a typed refusal
+now, and it names exactly which capabilities to bind first, which is the
+sentence somebody acts on.
+
 ### What is actually left
 
 No push service, no bot token, no sandbox vendor, and none of F13.3's four

@@ -73,14 +73,12 @@ const UNREACHABLE: Record<string, string> = {
   // F5, F11: the engine's own machinery.
   forgetCompiledSchemas: 'helper: a cache reset a test needs between schemas',
   countCommittedSteps: 'helper: a journal count, asserted directly',
-  recordPlan: 'worker: F8.11 a plan is recorded by a runtime, and none here plans',
 
   // Predicates every caller writes inline.
   isPalugadaError: 'helper: production narrows on `instanceof` and `code` directly',
   isTenantContextMissing: 'helper: the RLS probe, asserted directly',
 
   // F17: role evals.
-  assertApproved: 'console: F17.3 a role change cannot be approved',
 
   // F12.7-F12.10: the device gateway.
   assertWithinQuarantine: 'console: F12.10 quarantine is not surfaced',

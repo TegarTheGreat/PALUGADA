@@ -15,6 +15,7 @@
  * because the rows have to be written before there is a tenant context to
  * write them under.
  */
+import { PalugadaError } from '../errors.ts';
 import { withControlPlane, type TenantClient } from '../db/tenant.ts';
 
 export interface TemplateDivision {
@@ -384,9 +385,16 @@ async function assertCapabilitiesExist(
   const missing = wanted.filter((name) => !known.has(name));
 
   if (missing.length > 0) {
-    throw new Error(
+    // A typed refusal, so the owner's console can show it as the answer it is
+    // rather than as "internal error". This is the message somebody acts on --
+    // it names exactly which capabilities to bind first -- and a 500 would
+    // tell them their console is broken when the platform has just told them
+    // what to do.
+    throw new PalugadaError(
+      'contract.violation',
       `template grants capabilities that are not registered: ${missing.join(', ')}. ` +
         'Register them with the broker before creating a company from this template.',
+      { missing },
     );
   }
 }

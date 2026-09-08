@@ -74,6 +74,7 @@ import { rotateCredential } from '../secrets/rotation.ts';
 import { readTaskEvents } from '../audit/event-log.ts';
 import { describeReplay, replayTask } from '../engine/replay.ts';
 import { assignTask } from '../scheduler/wake.ts';
+import { createCompanyFromTemplate, readTemplate } from '../templates/company.ts';
 import { accountFor, chainFor, createAccount, snapshot } from '../engine/budget.ts';
 import { supersede } from '../memory/store.ts';
 import { getTask } from '../engine/tasks.ts';
@@ -257,6 +258,45 @@ export class OwnerApi {
         method: 'GET',
         pattern: '/api/companies',
         handle: async () => ({ companies: await companies() }),
+      },
+
+      {
+        // Starting a company, which is the thing this platform is for.
+        //
+        // "One human runs many companies" and the console could not make one:
+        // a company arrived through the seed script or the boot check, so the
+        // owner's second company needed a terminal. `createCompanyFromTemplate`
+        // was called only by those two.
+        //
+        // A structural change if anything is -- it writes divisions, roles,
+        // grants and a budget tree in one transaction -- so it takes the
+        // owner's device, like every other one.
+        method: 'POST',
+        pattern: '/api/companies',
+        handle: async ({ body }) => {
+          await this.#requireFactor(body.proof, 'start a company');
+          const templateSlug = requireText(body.templateSlug, 'templateSlug');
+          // Checked here so the refusal names the template rather than
+          // arriving as a plain `Error` the caller reads as a broken console.
+          if (!(await readTemplate(templateSlug))) {
+            throw new PalugadaError(
+              'contract.violation', `no company template named ${templateSlug}`, { templateSlug },
+            );
+          }
+          const created = await createCompanyFromTemplate({
+            templateSlug,
+            companySlug: requireText(body.companySlug, 'companySlug'),
+            name: requireText(body.name, 'name'),
+            ...(body.timezone === undefined
+              ? {}
+              : { timezone: requireText(body.timezone, 'timezone') }),
+          });
+          return {
+            companyId: created.companyId,
+            divisions: Object.keys(created.divisionIds),
+            roles: Object.keys(created.roleIds),
+          };
+        },
       },
 
       {

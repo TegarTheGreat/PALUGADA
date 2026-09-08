@@ -142,6 +142,13 @@ function drawControls(control) {
 function drawCompanies() {
   const nav = el('companies');
   nav.replaceChildren();
+  // "One human runs many companies", so starting one is on the row where the
+  // companies are, not buried in a settings tab.
+  const start = document.createElement('button');
+  start.className = 'tab';
+  start.textContent = '+ New company';
+  start.onclick = () => startCompany();
+  nav.append(start);
   for (const company of state.companies) {
     const button = document.createElement('button');
     button.textContent = company.name + (company.frozen ? ' (frozen)' : '');
@@ -153,6 +160,30 @@ function drawCompanies() {
     };
     nav.append(button);
   }
+}
+
+/**
+ * Starting a company (PRD v2 section 5).
+ *
+ * A structural change if anything is -- it writes divisions, roles, grants and
+ * a budget tree in one transaction -- so the API asks for the owner's device
+ * and this asks for the code. `window.prompt` rather than a form panel because
+ * this is three fields and lives on a row of tabs; a panel would be a page for
+ * something done a handful of times.
+ */
+async function startCompany() {
+  const slug = window.prompt('A short slug for the company, e.g. acme')?.trim();
+  if (!slug) return;
+  const name = window.prompt('Its name')?.trim();
+  if (!name) return;
+
+  const done = await withFactor(`start ${name}`, (proof) => api('POST', '/api/companies', {
+    templateSlug: 'standard-company',
+    companySlug: slug,
+    name,
+    proof,
+  }));
+  if (done) await refresh();
 }
 
 async function drawInbox() {

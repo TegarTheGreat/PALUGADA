@@ -2508,3 +2508,110 @@ test('a fact is superseded rather than deleted (F4.6)', async () => {
     await owner.close();
   }
 });
+
+/**
+ * The owner can start a company.
+ *
+ * "One human runs many companies" is what this platform is for, and the
+ * console could not make one: a company arrived through the seed script or the
+ * boot check, so the owner's second company needed a terminal.
+ * `createCompanyFromTemplate` was called by those two and nothing else.
+ *
+ * A structural change if anything is -- divisions, roles, grants and a budget
+ * tree in one transaction -- so it takes the owner's device.
+ */
+test('the owner can start a company from a template (section 5, F2)', async () => {
+  const { installStandardTemplate } = await import('../../src/templates/standard.ts');
+  const { saveTemplate } = await import('../../src/templates/company.ts');
+  const { CapabilityRegistry } = await import('../../src/broker/registry.ts');
+  const { registerPlatformCapabilities: registerTools } =
+    await import('../../src/broker/platform-capabilities.ts');
+  await installStandardTemplate();
+
+  // What a first boot has: the capabilities the platform implements itself.
+  const registry = new CapabilityRegistry();
+  registerTools(registry);
+  await registry.sync();
+
+  // A template that grants only those. The standard one grants twenty-five,
+  // and `createCompanyFromTemplate` refuses to grant a capability the broker
+  // cannot run -- a company whose agents are refused the moment they try to
+  // work is worse than no company.
+  await saveTemplate({
+    slug: 'starter',
+    name: 'Starter',
+    description: 'One division, using only what the platform implements itself.',
+    body: {
+      goals: [{ slug: 'mission', kind: 'mission', statement: 'Be useful.' }],
+      divisions: [{ slug: 'ops', name: 'Operations' }],
+      roles: [{
+        slug: 'coordinator',
+        division: 'ops',
+        systemPrompt: 'You coordinate.',
+        model: 'test-model',
+        tools: ['memory.search'],
+        outputSchema: { type: 'object' },
+        doneCriteria: ['the run returns an output matching its schema'],
+      }],
+      grants: [{ division: 'ops', capability: 'memory.search' }],
+      budget: { tokensMax: 100_000 },
+    },
+  });
+
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+
+    const without = await call(owner.url, 'POST', '/api/companies', {
+      token,
+      body: { templateSlug: 'starter', companySlug: 'acme', name: 'Acme' },
+    });
+    assert.equal(without.status, 403, JSON.stringify(without.body));
+
+    // A template that does not exist is named rather than arriving as a plain
+    // error the owner reads as a broken console.
+    const missing = await call(owner.url, 'POST', '/api/companies', {
+      token,
+      body: {
+        templateSlug: 'no-such-template', companySlug: 'acme', name: 'Acme',
+        proof: { totp: owner.code() },
+      },
+    });
+    assert.equal(missing.status, 400, JSON.stringify(missing.body));
+    assert.match(String(missing.body.error), /no company template named no-such-template/);
+
+    // A template granting more than this deployment binds is refused with the
+    // list, which is what an operator acts on -- not "internal error", which
+    // tells them their console is broken when the platform has just told them
+    // what to bind.
+    const unbound = await call(owner.url, 'POST', '/api/companies', {
+      token,
+      body: {
+        templateSlug: 'standard-company', companySlug: 'too-big', name: 'Too Big',
+        proof: { totp: owner.code() },
+      },
+    });
+    assert.equal(unbound.status, 400, JSON.stringify(unbound.body));
+    assert.match(String(unbound.body.error), /capabilities that are not registered.*email\.send/);
+
+    const created = await call(owner.url, 'POST', '/api/companies', {
+      token,
+      body: {
+        templateSlug: 'starter', companySlug: 'acme', name: 'Acme',
+        proof: { totp: owner.code() },
+      },
+    });
+    assert.equal(created.status, 200, JSON.stringify(created.body));
+    assert.ok((created.body.divisions as string[]).length > 0, 'it has no divisions');
+    assert.ok((created.body.roles as string[]).length > 0, 'it has no roles');
+
+    // And it is in the list the console draws its tabs from.
+    const listed = await call(owner.url, 'GET', '/api/companies', { token });
+    assert.ok(
+      (listed.body.companies as Array<{ id: string }>)
+        .some((company) => company.id === created.body.companyId),
+    );
+  } finally {
+    await owner.close();
+  }
+});

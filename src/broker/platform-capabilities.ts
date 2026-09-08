@@ -22,6 +22,7 @@ import { withTenant } from '../db/tenant.ts';
 import { recall } from '../memory/store.ts';
 import { readSkill } from '../skills/skills.ts';
 import { TIER } from '../domain/tier.ts';
+import { recordPlan, type PlanStep } from '../engine/plan.ts';
 import type { Capability } from './registry.ts';
 
 export interface MemorySearchInput {
@@ -128,12 +129,52 @@ export function skillReadCapability(): Capability<SkillReadInput, SkillReadResul
  * followed that instruction and got `capability.unknown` would have been lied
  * to by the platform.
  */
+export interface PlanRecordInput {
+  steps: PlanStep[];
+}
+
+/**
+ * F8.11's `plan.record`.
+ *
+ * The broker refuses a tier 2 action on a task with no plan, and until this
+ * existed **no runtime had any way to record one**. The wire protocol between
+ * the engine and a runtime carries tool calls and nothing else, and the plan
+ * was written by `recordPlan` -- a function only a test fixture ever called.
+ * So every real runtime -- `claude-code`, a CLI, a container -- would have hit
+ * `plan.required` on its first tier 2 action and had no move that could
+ * satisfy it. The requirement was enforced against agents that could not
+ * comply.
+ *
+ * It belongs here with `memory.search` and `skill.read` for the same reason
+ * they do: the platform is the thing that has the task, so the platform is
+ * what implements it. Tier 0 because recording an intention changes nothing
+ * outside this database -- it is the *statement* the tier 2 gate then holds
+ * the run to.
+ *
+ * It goes through the broker like everything else, and `recordPlan` refuses a
+ * second one, so a run cannot rewrite its plan after seeing how the first step
+ * went. That is the whole value of F8.11: the plan is a commitment made before
+ * the actions, not a description written after them.
+ */
+export function planRecordCapability(): Capability<PlanRecordInput, { steps: number }> {
+  return {
+    name: 'plan.record',
+    adapter: 'platform',
+    defaultTier: TIER.READ_ONLY,
+    async execute(input, ctx) {
+      const plan = await recordPlan(ctx.companyId, ctx.taskId, input.steps);
+      return { steps: plan.steps.length };
+    },
+  };
+}
+
 export function registerPlatformCapabilities(registry: {
   register(capability: Capability<never, never>): void;
 }): void {
   registry.register(memorySearchCapability() as unknown as Capability<never, never>);
   registry.register(skillReadCapability() as unknown as Capability<never, never>);
+  registry.register(planRecordCapability() as unknown as Capability<never, never>);
 }
 
 /** The names this module implements, for a caller that needs to know. */
-export const PLATFORM_CAPABILITIES = ['memory.search', 'skill.read'] as const;
+export const PLATFORM_CAPABILITIES = ['memory.search', 'skill.read', 'plan.record'] as const;

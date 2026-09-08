@@ -231,6 +231,12 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   }
   if (!options.llm) {
     notes.push('doc.draft and email.draft are unbound: no model client was given (F8)');
+    // Two more things that need one, and are silent rather than broken
+    // without it -- which is the worse failure of the two.
+    notes.push(
+      'memory is not distilled and skill candidates are not screened: '
+      + 'no model client was given (F4.5, F15.3)',
+    );
   } else if (!filesRoot) {
     // §8.8 puts a draft at tier 1 because it is a write. A drafting capability
     // with nowhere to write is not the capability the catalogue calibrated.
@@ -326,6 +332,18 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     engine,
     signal: shutdown.signal,
     ownerChannels: channels,
+    // F4.5 and F15.3 need a model. The same one the drafting capabilities use,
+    // because a deployment that configured one meant it for the platform's own
+    // work; without it the worker never distils and never screens, which the
+    // note below says out loud.
+    ...(options.llm
+      ? {
+        learning: {
+          llm: options.llm,
+          model: env.PALUGADA_DRAFT_MODEL ?? 'claude-sonnet-5',
+        },
+      }
+      : {}),
     ...(env.PALUGADA_APP_URL_PUBLIC
       ? { ownerLinkFor: (item) => `${env.PALUGADA_APP_URL_PUBLIC}/i/${item.id}` }
       : {}),

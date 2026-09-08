@@ -1750,6 +1750,58 @@ perhaps one run in three. It waits for both now. A check that fails for its own
 reasons is a check people learn to re-run rather than read, which is worse than
 not having it.
 
+### Work deferred to cheap hours never ran
+
+The severest thing on the `worker` half of the inventory, and it reads as a
+one-line bug: `claimTask` selected `WHERE t.status = 'pending'`, and nothing
+anywhere else moved a task out of `waiting_window`. The engine parked a
+batchable task with a `wait_until`, the claim could not see it, and there it
+stayed -- **for ever, for every batchable task**, which is most non-urgent
+work. F9.6's whole purpose.
+
+The index built for the drain, `tasks_waiting_window_ready`, had been created
+in migration 0011 and used by nothing. `claimReadyWindowTasks` existed and was
+called only by its own tests, which asserted that it *returned the row* -- a
+read that proved nothing about whether a worker would ever ask.
+
+Fixed at the claim rather than by a second query: that one already holds the
+lane check, the budget check, the priority order and `FOR UPDATE SKIP LOCKED`,
+and a separate drain would have been a second, weaker claim -- and the weaker
+one is the one that eventually runs two workers on one task.
+`claimReadyWindowTasks` is deleted, and its tests now assert through the claim.
+
+The transition map needed the same correction and needed a test to notice.
+`waiting_window` did not list `checked_out`, so the map said the claim was
+illegal while the claim did it -- `claimTask` writes its UPDATE directly, in
+one statement, because the point of that query is that the check and the write
+are one operation. The map does not stop it; it only describes it, and a map
+that describes the code wrongly is worse than none. The first attempt at the
+fix changed the map with nothing asserting on it: the mutation that reverted
+the map passed every test. There is one now.
+
+### And the tick did not learn anything
+
+F4.5's distillation and F15.3's screening were implemented, tested in
+isolation, and called by nobody. Memory grew without ever becoming knowledge --
+episodic events never became semantic facts, repeated facts never became a
+procedure worth writing down -- and a skill candidate sat at `candidate` for
+ever, because the thing that screens one against its own eval cases ran
+nowhere. Neither has a button, and neither should: "the platform learns" is not
+a chore for the one human here.
+
+Both need a model, so both are a `learning` option on the worker and absent by
+default; a deployment with no model client is told at boot that it will do
+neither. Hourly rather than per tick, because distillation reads a window of
+events and costs a model call, and every tick would be paying for the same
+reading over and over. After retention in the tick, so a sweep that has just
+removed expired events is not then read as though they were still there.
+
+The interval guard also needed a better test than the first one. Asserting an
+unchanged model-call count over an unchanged event log proved only that the
+watermark works -- the mutation that removed the guard passed. New events are
+seeded between the two ticks now, and a third worker with the interval set to
+zero reads them, so the guard is shown to be a delay rather than a stop.
+
 ### What is actually left
 
 No push service, no bot token, no sandbox vendor, and none of F13.3's four

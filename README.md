@@ -764,6 +764,7 @@ conjure, and each says so at boot rather than at 3am:
 | Variable | What it turns on |
 |---|---|
 | `PALUGADA_VENDORS` | the capabilities that need somebody's account (see below) |
+| `PALUGADA_DRAFT_MODEL` | the model the platform's own work uses: drafting, and the hourly pass that distils memory and screens skill candidates (F4.5, F15.3) |
 | `PALUGADA_CLAUDE_CODE_COMMAND` | the `claude-code` runtime (F13.2) |
 | `PALUGADA_RUNTIME_HTTP_URL` | a runtime that answers over HTTP (F13.4) |
 | `PALUGADA_RUNTIME_IMAGE` | the `docker` execution backend, the only one that isolates the network (F12.9) |

@@ -298,3 +298,30 @@ test('a retryable failure returns the task to the queue, not to limbo (F5.12)', 
   const settled = await withTenant(fixture.companyId, (tx) => getTask(tx, task.id));
   assert.equal(settled!.status, 'failed');
 });
+
+/**
+ * The transition map describes what `claimTask` actually does.
+ *
+ * The map is this platform's stated model of which moves are legal, and
+ * `assertTransition` is what enforces it -- but `claimTask` writes its UPDATE
+ * directly, in one statement with `FOR UPDATE SKIP LOCKED`, because the point
+ * of that query is that the check and the write are the same operation. So the
+ * map does not stop it; it only describes it, and a map that describes the
+ * code wrongly is worse than none, because the next person to read it believes
+ * it.
+ *
+ * F9.6's fix widened that query to take a parked task whose window has opened.
+ * This is the map keeping up.
+ */
+test('a task parked for cheap hours may be checked out (F9.6)', () => {
+  assert.equal(
+    canTransition('waiting_window', 'checked_out'), true,
+    'the claim query takes a parked task and the map says it may not',
+  );
+  // And the ordinary one still may, which is what it shares the query with.
+  assert.equal(canTransition('pending', 'checked_out'), true);
+  // A finished task may not, whatever a query might say: `claimTask` filters
+  // on status, and this is the statement of why that filter has to be there.
+  assert.equal(canTransition('completed', 'checked_out'), false);
+  assert.equal(canTransition('cancelled', 'checked_out'), false);
+});

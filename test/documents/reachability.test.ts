@@ -78,7 +78,6 @@ const UNREACHABLE: Record<string, string> = {
   forgetCompiledSchemas: 'helper: a cache reset a test needs between schemas',
   countCommittedSteps: 'helper: a journal count, asserted directly',
   recordPlan: 'worker: F8.11 a plan is recorded by a runtime, and none here plans',
-  claimReadyWindowTasks: 'worker: F9.6 batch windows are not drained on the tick',
 
   // Predicates every caller writes inline.
   isPalugadaError: 'helper: production narrows on `instanceof` and `code` directly',
@@ -100,8 +99,6 @@ const UNREACHABLE: Record<string, string> = {
   // F10: the owner surface itself.
 
   // F4: memory.
-  distillEpisodicToSemantic: 'worker: F4.5 distillation is not run on the tick',
-  distillSemanticToProcedural: 'worker: F4.5 distillation is not run on the tick',
   supersede: 'console: F4.6 a fact cannot be superseded by hand',
 
   // F3.4, F10.6, F11: reporting.
@@ -128,7 +125,6 @@ const UNREACHABLE: Record<string, string> = {
 
   // F15: skills.
   renderSkillDocument: 'helper: the document form, asserted directly',
-  screenCandidate: 'worker: F15.3 candidates are not screened on the tick',
 
   // Entry points and templates.
   installStandardTemplate: 'entry: a deployment builds its first company with it',

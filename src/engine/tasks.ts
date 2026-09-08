@@ -518,27 +518,6 @@ async function insertTask(
 }
 
 /** Moves a task to a new status, refusing transitions the PRD does not allow. */
-/**
- * Tasks whose window has reopened (F9.2).
- *
- * A task parked on a closed window would otherwise sit there for ever: nothing
- * else wakes it, because nothing failed.
- */
-export async function claimReadyWindowTasks(
-  companyId: string,
-  now = new Date(),
-): Promise<TaskRow[]> {
-  return withTenant(companyId, async (tx) => {
-    const { rows } = await tx.query<RawTask>(
-      `${SELECT_TASK}
-        WHERE status = 'waiting_window'
-          AND (wait_until IS NULL OR wait_until <= $1)
-        ORDER BY created_at`,
-      [now],
-    );
-    return rows.map(toTask);
-  });
-}
 
 export async function transition(
   companyId: string,

@@ -722,7 +722,7 @@ test('a tick that only met an unhealthy runtime is not progress (F13.8)', async 
 
 test('a tick that only met an unhealthy runtime sleeps rather than spinning (F13.8)', () => {
   const base = { reclaimed: 0, scheduled: 0, woken: 0, alerts: 0, retained: 0, handedOff: 0,
-    notified: 0, stopped: false, errors: [] };
+    notified: 0, distilled: 0, screened: 0, stopped: false, errors: [] };
 
   // The case the loop got wrong: a run happened, and it got nowhere.
   assert.equal(
@@ -892,4 +892,163 @@ test('a channel that fails is a stage error, not a dead worker (F10.5)', async (
   // Nor on the next tick, which is seconds later.
   await worker.tick();
   assert.equal(attempts, 1);
+});
+
+/* ------------------------------------ what a tick was supposed to do and did not --- */
+
+/**
+ * The tick distils memory and screens skill candidates.
+ *
+ * Both were implemented, tested in isolation, and called by nobody: memory
+ * grew without ever becoming knowledge, and a skill candidate sat at
+ * `candidate` for ever because the thing that screens one ran nowhere. F4.5
+ * and F15.3 are things a platform does on its own -- there is no button for
+ * either, and there should not be, because "the platform learns" is not a
+ * chore for the one human here.
+ *
+ * Both need a model, so both are optional; what is not optional is that
+ * something calls them when one is configured.
+ */
+test('a tick distils what happened into what is known (F4.5)', async () => {
+  const { appendEvent } = await import('../../src/audit/event-log.ts');
+  const fixture = await createCompany('worker-distil');
+
+  await withTenant(fixture.companyId, async (tx) => {
+    for (const note of ['the hosting provider is Alpha', 'the client prefers email']) {
+      await appendEvent(tx, {
+        companyId: fixture.companyId,
+        projectId: fixture.projectId,
+        type: 'task.completed',
+        actor: 'agent_run',
+        payload: { note },
+      });
+    }
+  });
+
+  const llm = new RecordingLlmClient(() => JSON.stringify({
+    facts: [{ body: 'The hosting provider is Alpha.' }],
+  }));
+
+  const worker = new Worker({
+    engine: new Engine({
+      broker: new CapabilityBroker(baseRegistry()),
+      llm: new RecordingLlmClient(),
+      handlers: new Map(),
+    }),
+    companyId: fixture.companyId,
+    learning: { llm, model: 'test-model' },
+  });
+
+  const report = await worker.tick();
+  assert.deepEqual(report.errors, [], JSON.stringify(report.errors));
+  assert.ok(report.distilled > 0, 'the tick distilled nothing');
+
+  const facts = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ body: string }>(
+      "SELECT body FROM memories WHERE memory_type = 'semantic'",
+    );
+    return rows.map((row) => row.body);
+  });
+  assert.ok(facts.length > 0, 'no semantic memory was written');
+
+  // Hourly, not every tick. Proved with *new* events between the two ticks:
+  // without the interval the second tick would read them, so asserting on an
+  // unchanged model-call count over an unchanged event log would have proved
+  // only that the watermark works.
+  await withTenant(fixture.companyId, async (tx) => {
+    await appendEvent(tx, {
+      companyId: fixture.companyId,
+      projectId: fixture.projectId,
+      type: 'task.completed',
+      actor: 'agent_run',
+      payload: { note: 'and the invoices go out on the first' },
+    });
+  });
+
+  const before = llm.calls.length;
+  const second = await worker.tick();
+  assert.equal(second.distilled, 0, 'the tick distilled again within the hour');
+  assert.equal(llm.calls.length, before, 'the model was called again within the hour');
+
+  // And a worker whose interval has passed does read them, so the guard is a
+  // delay rather than a stop.
+  const later = new Worker({
+    engine: new Engine({
+      broker: new CapabilityBroker(baseRegistry()),
+      llm: new RecordingLlmClient(),
+      handlers: new Map(),
+    }),
+    companyId: fixture.companyId,
+    learning: { llm, model: 'test-model', intervalMs: 0 },
+  });
+  assert.ok((await later.tick()).distilled > 0, 'the new events were never read');
+});
+
+test('a tick screens a skill candidate before anyone is asked about it (F15.3)', async () => {
+  const { proposeSkillVersion, addEvalCase } = await import('../../src/skills/skills.ts');
+  const fixture = await createCompany('worker-screen');
+
+  const source = [
+    '---', 'name: outreach', 'description: How to open a conversation.',
+    'triggers: [outreach]', '---', '', 'Say who you are first.', '',
+  ].join('\n');
+  const proposed = await proposeSkillVersion({
+    companyId: fixture.companyId,
+    slug: 'outreach',
+    scopeType: 'company',
+    source,
+    author: 'agent',
+    changelog: 'first draft',
+  });
+
+  // A case the skill fails, so screening has something to reject on. F15.4
+  // refuses to activate a skill with no case at all, and screening is what
+  // stops a broken one reaching the owner's queue.
+  await addEvalCase(fixture.companyId, proposed.skillId, {
+    name: 'mentions the price',
+    input: { ask: 'open a conversation' },
+    expectContains: ['price'],
+  });
+
+  const worker = new Worker({
+    engine: new Engine({
+      broker: new CapabilityBroker(baseRegistry()),
+      llm: new RecordingLlmClient(),
+      handlers: new Map(),
+    }),
+    companyId: fixture.companyId,
+    learning: { llm: new RecordingLlmClient(() => JSON.stringify({ facts: [] })), model: 'm' },
+  });
+
+  const report = await worker.tick();
+  assert.deepEqual(report.errors, [], JSON.stringify(report.errors));
+  assert.equal(report.screened, 1, 'the candidate was not screened');
+
+  const state = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ state: string }>(
+      'SELECT state FROM skill_versions WHERE id = $1', [proposed.versionId],
+    );
+    return rows[0]!.state;
+  });
+  assert.equal(state, 'rejected', 'a candidate that fails its own cases reached the queue');
+});
+
+test('a worker with no model neither distils nor screens, and does not fail (F4.5, F15.3)', async () => {
+  // The honest default. A deployment that has configured no model gets
+  // neither, and the boot check says so -- rather than a tick that throws
+  // every hour because half of it needs something nobody supplied.
+  const fixture = await createCompany('worker-no-model');
+  const worker = new Worker({
+    engine: new Engine({
+      broker: new CapabilityBroker(baseRegistry()),
+      llm: new RecordingLlmClient(),
+      handlers: new Map(),
+    }),
+    companyId: fixture.companyId,
+  });
+
+  const report = await worker.tick();
+  assert.deepEqual(report.errors, []);
+  assert.equal(report.distilled, 0);
+  assert.equal(report.screened, 0);
 });

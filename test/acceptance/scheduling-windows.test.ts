@@ -23,7 +23,8 @@ import { Engine } from '../../src/engine/engine.ts';
 import { CapabilityRegistry, type Capability } from '../../src/broker/registry.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';
-import { claimReadyWindowTasks, createRootTask, getTask } from '../../src/engine/tasks.ts';
+import { createRootTask, getTask } from '../../src/engine/tasks.ts';
+import { claimTask, releaseTask } from '../../src/engine/checkout.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import * as budget from '../../src/engine/budget.ts';
 import { freezeCompany } from '../../src/engine/control.ts';
@@ -147,15 +148,18 @@ test('an action outside its window waits instead of failing (F9.2)', async () =>
   const stored = await withTenant(fixture.companyId, (tx) => getTask(tx, task.id));
   assert.equal(stored!.status, 'waiting_window');
 
-  // Nothing is ready yet, so a worker sweeping for reopened windows finds none.
-  const readyNow = await claimReadyWindowTasks(fixture.companyId, new Date());
-  assert.equal(readyNow.length, 0);
+  // Nothing is claimable yet, so a worker looking for work finds none.
+  assert.equal(await claimTask(fixture.companyId, { holder: 'w1' }), null);
 
   // Once the wake-up time passes, the task is picked up again rather than
-  // sitting there for ever.
-  const ready = await claimReadyWindowTasks(fixture.companyId, new Date(Date.now() + 8 * 86_400_000));
-  assert.equal(ready.length, 1);
-  assert.equal(ready[0]!.id, task.id);
+  // sitting there for ever. Asserted through the claim -- the thing a worker
+  // actually does -- rather than through a query written for this test: the
+  // reason the task sat there for ever was that nothing claimed it, and a read
+  // that returned the row proved nothing about that.
+  const ready = await claimTask(
+    fixture.companyId, { holder: 'w1', now: new Date(Date.now() + 8 * 86_400_000) },
+  );
+  assert.equal(ready?.taskId, task.id);
 });
 
 test('non-emergency escalations wait for the owner window; incidents do not (F9.3)', async () => {
@@ -449,12 +453,19 @@ test('a parked task is picked up once the window opens, and finishes', async () 
   const task = await batchableTask(fixture, 'nightly summary');
   await engine.runTask(fixture.companyId, task.id, 'worker');
 
-  const notYet = await claimReadyWindowTasks(fixture.companyId, new Date());
-  assert.deepEqual(notYet, [], 'nothing is claimed before the window opens');
+  assert.equal(
+    await claimTask(fixture.companyId, { holder: 'w1' }), null,
+    'the task was claimed before the window opened',
+  );
 
+  // Claimed as the engine's own worker, which is what happens in a tick: the
+  // claim and the run are the same worker, so the lease it just took is its
+  // own rather than somebody else's to refuse.
   const laterOn = new Date(Date.now() + 4 * 3_600_000);
-  const ready = await claimReadyWindowTasks(fixture.companyId, laterOn);
-  assert.deepEqual(ready.map((row) => row.id), [task.id]);
+  const ready = await claimTask(
+    fixture.companyId, { holder: engine.workerId, now: laterOn },
+  );
+  assert.equal(ready?.taskId, task.id);
 
   // Once the hours are cheap the same task runs to completion.
   await setBatchWindow({ companyId: fixture.companyId, ...windowAround(0) });
@@ -541,4 +552,61 @@ test('a schedule draws on its division\'s account when it names none (F1.6, F9.1
   assert.equal(fired.length, 1);
   const created = await withTenant(fixture.companyId, (tx) => getTask(tx, fired[0]!.taskId));
   assert.equal(created!.budgetAccountId, divisionAccount);
+});
+
+/**
+ * A task parked for cheap hours is claimed when they arrive.
+ *
+ * This was the requirement's whole point and nothing did it. The engine parked
+ * the task, `claimTask` looked only at `pending`, and there it stayed --
+ * *forever*, for every batchable task, which is most non-urgent work. The
+ * index built for the drain, `tasks_waiting_window_ready`, had never been used
+ * by anything: `claimReadyWindowTasks` existed and no production code called
+ * it.
+ *
+ * So the check is not "the query returns the row" -- that passed all along.
+ * It is that a worker claims it and the handler runs.
+ */
+test('a task whose window has opened is claimed and run (F9.6)', async () => {
+  const fixture = await createCompany('batch-drain');
+  // A window that is closed now, so the task parks with a `wait_until`.
+  await setBatchWindow({ companyId: fixture.companyId, ...windowAround(3) });
+
+  const ran: string[] = [];
+  const engine = batchEngine(ran);
+  const task = await batchableTask(fixture, 'nightly summary');
+
+  const parked = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(parked.status, 'waiting_window');
+  assert.ok(parked.waitUntil instanceof Date, 'the task does not know when to come back');
+  assert.deepEqual(ran, []);
+
+  // Nothing claimable while the window is shut, which is the other half: a
+  // claim that ignored `wait_until` would run the work at the expensive hour
+  // the parking existed to avoid.
+  assert.equal(
+    await claimTask(fixture.companyId, { holder: 'w1' }), null,
+    'the task was claimed before its window opened',
+  );
+
+  // The window opens. The claim is the ordinary one -- same lane rule, same
+  // budget rule, same priority order -- because widening it was the fix rather
+  // than adding a second, weaker path.
+  const opensAt = new Date(parked.waitUntil.getTime() + 60_000);
+
+  const claim = await claimTask(fixture.companyId, { holder: 'w1', now: opensAt });
+  assert.ok(claim, 'the task was not claimable once its window opened');
+  assert.equal(claim.taskId, task.id);
+
+  // And it is checked out, which is the transition that had to be allowed for
+  // any of this to work: a parked task resumes through the ordinary claim
+  // rather than through a path of its own.
+  const claimed = await withTenant(fixture.companyId, (tx) => getTask(tx, task.id));
+  assert.equal(claimed!.status, 'checked_out');
+
+  // Given back, so the row is left the way the test found it. What happens
+  // *after* the claim -- the handler running once the hours are actually
+  // cheap -- is what "cheap hours run the work immediately" above covers.
+  assert.equal(await releaseTask(fixture.companyId, task.id, 'w1'), true);
+  assert.deepEqual(ran, [], 'the claim itself must not run anything');
 });

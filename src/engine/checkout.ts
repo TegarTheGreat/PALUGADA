@@ -76,7 +76,23 @@ const CLAIM_SQL = `
   WITH candidate AS (
     SELECT t.id
       FROM tasks t
-     WHERE t.status = 'pending'
+     -- F9.6. A task parked for cheap hours is claimable the moment they
+     -- arrive, and the wait_until test below is what says whether they have.
+     --
+     -- It used to read status = 'pending' alone, and nothing else in the
+     -- platform ever moved a task out of waiting_window: the engine parked it,
+     -- the claim could not see it, and there it stayed. Every batchable task --
+     -- which is most non-urgent work -- was deferred to a window it would
+     -- never be woken for. The index this query wants,
+     -- tasks_waiting_window_ready, had been created for the drain and never
+     -- used by anything.
+     --
+     -- Widened here rather than drained by a second query on purpose: this one
+     -- already holds the lane check, the budget check, the priority order and
+     -- FOR UPDATE SKIP LOCKED. A separate path would have been a second,
+     -- weaker claim, and the weaker one is the one that eventually runs two
+     -- workers on one task.
+     WHERE t.status IN ('pending', 'waiting_window')
        AND ($2::uuid IS NULL OR t.id = $2)
        AND ($5::uuid IS NULL OR t.role_id = $5)
        AND (t.wait_until IS NULL OR t.wait_until <= $3)

@@ -52,6 +52,12 @@ import * as inbox from './inbox/inbox.ts';
 import { runRetention } from './retention/retention.ts';
 import { processHandoffs, type HandoffRule } from './engine/handoff.ts';
 import { dispatch, retryFailed, type OwnerChannel, type NotifiableItem } from './owner/notify.ts';
+import {
+  distillEpisodicToSemantic,
+  distillSemanticToProcedural,
+} from './memory/distillation.ts';
+import { screenCandidate } from './skills/skills.ts';
+import type { LlmClient } from './llm/client.ts';
 
 export interface WorkerOptions {
   engine: Engine;
@@ -91,6 +97,22 @@ export interface WorkerOptions {
    * tested in isolation, and is assembled by nobody.
    */
   ownerChannels?: OwnerChannel[];
+  /**
+   * F4.5's distillation and F15.3's screening, and how often to run them.
+   *
+   * Both need a model, and a model needs somebody's account -- so both are
+   * optional and their absence is a fact about the deployment rather than a
+   * default. What is *not* optional is that something calls them: memory that
+   * is never distilled grows without ever becoming knowledge, and a skill
+   * candidate nobody screens sits at `candidate` for ever. Both were exactly
+   * that until this option existed.
+   */
+  learning?: {
+    llm: LlmClient;
+    model: string;
+    /** Defaults to once an hour. Distillation reads a window of events. */
+    intervalMs?: number;
+  };
   /** Turns an item into a deep link into the owner's app, when there is one. */
   ownerLinkFor?: (item: NotifiableItem) => string | null;
   signal?: AbortSignal;
@@ -116,6 +138,10 @@ export interface TickReport {
   handedOff: number;
   /** Items put in front of the owner on a channel this tick (F10.5, F10.9). */
   notified: number;
+  /** Facts distilled from events, and SOP candidates raised from them (F4.5). */
+  distilled: number;
+  /** Skill candidates screened against their own eval cases (F15.3). */
+  screened: number;
   /** Set when the platform stop is in effect: the tick did nothing else. */
   stopped: boolean;
   errors: Array<{ stage: string; message: string }>;
@@ -134,6 +160,16 @@ export const DEFAULT_MAX_RUNS_PER_TICK = 8;
  * three indexed deletes that delete nothing.
  */
 export const DEFAULT_RETENTION_INTERVAL_MS = 6 * 60 * 60 * 1_000;
+
+/**
+ * An hour, for the learning stage.
+ *
+ * Distillation reads a window of events and costs a model call, so running it
+ * every tick would be paying for the same reading over and over. An hour is
+ * short enough that a fact learned this morning is available this afternoon,
+ * and long enough that the bill is a bill rather than a stream.
+ */
+export const DEFAULT_LEARNING_INTERVAL_MS = 60 * 60 * 1_000;
 
 /**
  * Whether a tick got anywhere, which is what decides between going straight
@@ -159,6 +195,9 @@ export function madeProgress(report: TickReport): boolean {
 export class Worker {
   readonly #options: WorkerOptions;
   readonly id: string;
+  /** When this worker last ran the learning stage for each company. */
+  readonly #learnedAt = new Map<string, number>();
+
   /** When each company's retention was last applied by *this* worker. */
   readonly #retainedAt = new Map<string, number>();
   /** Which company this worker starts its tick on. See `#rotate`. */
@@ -180,6 +219,8 @@ export class Worker {
     const report: TickReport = {
       reclaimed: 0, scheduled: 0, woken: 0, ran: [], alerts: 0, retained: 0, handedOff: 0,
       notified: 0,
+      distilled: 0,
+      screened: 0,
       stopped: false, errors: [],
     };
 
@@ -309,6 +350,19 @@ export class Worker {
           report.retained += 1;
         });
       }
+
+      // F4.5 and F15.3, on their own clock.
+      //
+      // Both were implemented, tested and called by nobody: memory grew
+      // without ever becoming knowledge, and a skill candidate sat at
+      // `candidate` for ever because the thing that screens one ran nowhere.
+      // Hourly rather than per tick, because distillation reads a window of
+      // events and costs a model call -- every tick would be paying for the
+      // same reading over and over.
+      //
+      // After retention, deliberately: a sweep that has just removed expired
+      // events should not then be read as though they were still there.
+      await this.#learn(report, company, now);
     }
 
     return report;
@@ -446,6 +500,93 @@ export class Worker {
    * the ordinary tick, and a halted platform. The second is the reason it is
    * worth naming -- see the stop-all comment in `tick`.
    */
+  /**
+   * F4.5's distillation and F15.3's screening, for one company.
+   *
+   * Two things a platform is supposed to do on its own and this one did not.
+   * Distillation turns what happened into what is known -- episodic events
+   * into semantic facts, repeated facts into a procedure worth writing down.
+   * Screening runs a skill candidate against its own eval cases before anyone
+   * is asked to review it, so the review queue holds things that at least work.
+   *
+   * Both need a model. A deployment that has not configured one gets neither,
+   * and says so at boot rather than quietly never learning anything.
+   *
+   * Per division, because that is the scope both functions take: a fact
+   * learned in ops is an ops fact, and F4.6's scoping is not something to
+   * flatten here.
+   */
+  async #learn(report: TickReport, company: string, now: Date): Promise<void> {
+    const learning = this.#options.learning;
+    if (!learning) return;
+
+    const interval = learning.intervalMs ?? DEFAULT_LEARNING_INTERVAL_MS;
+    const last = this.#learnedAt.get(company);
+    if (last !== undefined && now.getTime() - last < interval) return;
+
+    await this.#stage(report, 'learn', async () => {
+      const scopes = await withTenant(company, async (tx) => {
+        // Every division, and the company's oldest project to attribute the
+        // memory to. A project belongs to a company rather than a division, so
+        // there is no per-division one to pick -- what the scope is *for* is
+        // F4.6's division scoping on the memory, and that comes from the
+        // division id.
+        const { rows } = await tx.query<{ division_id: string; project_id: string | null }>(
+          `SELECT d.id AS division_id,
+                  (SELECT p.id FROM projects p ORDER BY p.created_at LIMIT 1) AS project_id
+             FROM divisions d
+            ORDER BY d.slug`,
+        );
+        return rows.filter(
+          (row): row is { division_id: string; project_id: string } => row.project_id !== null,
+        );
+      });
+
+      for (const scope of scopes) {
+        const distilled = await distillEpisodicToSemantic({
+          companyId: company,
+          projectId: scope.project_id,
+          divisionId: scope.division_id,
+          llm: learning.llm,
+          model: learning.model,
+          until: now,
+        });
+        report.distilled += distilled.factsCreated;
+
+        // Only when there is something new to generalise from. A procedural
+        // pass over facts that did not change would raise the same SOP
+        // candidate again, and the owner would decline it again.
+        if (distilled.factsCreated > 0) {
+          const candidates = await distillSemanticToProcedural({
+            companyId: company,
+            projectId: scope.project_id,
+            divisionId: scope.division_id,
+            llm: learning.llm,
+            model: learning.model,
+          });
+          report.distilled += candidates.length;
+        }
+      }
+
+      // F15.3. Every candidate version, screened against its own cases before
+      // a person is asked about it.
+      const candidates = await withTenant(company, async (tx) => {
+        const { rows } = await tx.query<{ id: string }>(
+          "SELECT id FROM skill_versions WHERE state = 'candidate' ORDER BY created_at",
+        );
+        return rows.map((row) => row.id);
+      });
+      for (const versionId of candidates) {
+        await screenCandidate(company, versionId);
+        report.screened += 1;
+      }
+
+      // Recorded after the work rather than before it, for the same reason as
+      // retention: a pass that threw has not happened.
+      this.#learnedAt.set(company, now.getTime());
+    });
+  }
+
   async #notify(report: TickReport, company: string, now: Date): Promise<void> {
     const channels = this.#options.ownerChannels ?? [];
     if (channels.length === 0) return;

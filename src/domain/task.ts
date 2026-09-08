@@ -58,7 +58,10 @@ const TRANSITIONS: Record<TaskStatus, readonly TaskStatus[]> = {
   // F9.2. Waiting for a window is not a failure: the action is permitted, just
   // not at this hour, so the task resumes rather than being retried from
   // scratch or escalated.
-  waiting_window: ['running', 'cancelled', 'halted'],
+  // `checked_out` because that is how it resumes: the claim query takes a
+  // parked task whose window has opened exactly as it takes a pending one,
+  // with the same lane, budget and priority rules applied to it.
+  waiting_window: ['checked_out', 'running', 'cancelled', 'halted'],
   completed: [],
   failed: [],
   halted: [],

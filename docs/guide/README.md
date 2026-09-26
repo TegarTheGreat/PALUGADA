@@ -52,7 +52,9 @@ along the bottom and under **More**.
 3. **Start a company.** On **Home**, press **Start a company**. Give it a
    **Name**; the **Short name** fills itself in and is used in links and
    exports. Leave **Let it run itself** on if you want a strategist that
-   reviews the week every Monday and proposes what to do next. Press
+   reviews the week every Monday and proposes what to do next (on a stock
+   deployment it needs its grants first; see
+   [troubleshooting](troubleshooting.md#the-strategist-does-nothing)). Press
    **Start it** and confirm with a code, because creating a company writes
    divisions, roles, grants and budgets. You land on the company's
    **Overview**. Look at the stage card (no stage is set yet), the goal
@@ -106,7 +108,9 @@ along the bottom and under **More**.
    - a vendor file for the capabilities that need somebody's account, such as
      sending email ([how-to](how-to.md#connect-a-vendor));
    - your own goals on **Team**, **Goals**, with a number to measure each by;
-   - schedules and triggers on **Team**, so work starts without you;
+   - triggers and handoffs on **Team**, so work starts without you, and
+     schedules, which for now need the workaround in
+     [how-to](how-to.md#schedule-recurring-work);
    - HTTPS and backups before the deployment matters to anyone
      ([operations](operations.md)).
 

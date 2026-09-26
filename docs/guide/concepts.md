@@ -44,9 +44,9 @@ Divisions nest two levels deep at most. A division holds:
 
 - its grants: the capabilities its roles may use, each at the catalogue's
   tier or a stricter one (**Capabilities it may use**);
-- how many runs it should have at once (**Runs at once, at most**). The
-  number is recorded and shown, but at the time of writing the worker's
-  claim does not read it, so it does not yet limit anything;
+- how many of its tasks may run at once (**Runs at once, at most**),
+  across every worker. A sub-task that its own running parent is driving
+  runs inside the parent's place rather than waiting for another;
 - who hears about trouble first (**Who hears about trouble first**): a role
   such as the coordinator, for a number of minutes, and then you;
 - its credentials, each named by an alias and stored as a reference to a
@@ -67,7 +67,9 @@ defines it:
   means. Work is checked against them before it counts as done.
 - **Its output schema:** the shape its answer must have. Every role in the
   standard template returns a `summary`, and may return `artefacts`. An
-  answer that does not fit is refused, and the run is told why.
+  answer that does not fit is refused and the task tries again, up to its
+  number of attempts; an input that does not fit the role's input schema
+  stops the task at once.
 - **Its tools:** the capabilities it may call, at most twelve, and only those
   its division is granted.
 - **Its model:** a tier (`fast`, `standard` or `deep`) rather than a vendor's
@@ -289,8 +291,8 @@ a body. A run's context carries each active skill's summary, and the run
 reads the whole text with `skill.read` when it needs it. A new version is a
 candidate until a different role reviews it and you approve it, and a skill
 with no eval case cannot be activated. Skills imported from outside start
-quarantined to one division until you lift it. Skills are under **Settings**,
-**Skills**.
+quarantined to one division until you lift the quarantine. Skills are
+under **Settings**, **Skills**.
 
 ## Bundles
 
@@ -298,8 +300,12 @@ A bundle is a package of divisions, roles, grants, policies, skills with
 their eval cases, and schedules, installed into a company. The built-in ones
 are `company-os`, `content-ops`, `web-ops`, `qa-review` and `palugada-dev`
 (PALUGADA's own engineering team; see [AGENTS.md](../../AGENTS.md)). A bundle
-signed by a publisher you trust installs as written; an unsigned one installs
-with read-only grants. Bundles are under **Settings**, **Bundles**.
+signed by a publisher you trust installs as written. An unsigned one,
+which is how the built-in bundles are published unless the operator signs
+them, installs quarantined: only grants it names at tier 0 are created, its
+schedules start switched off, and its policies that allow something are left
+out. A bundle's skills always arrive as candidates for review and your
+approval. Bundles are under **Settings**, **Bundles**.
 
 ## Runtimes
 
@@ -310,7 +316,7 @@ steps, sub-tasks and a way to report cost.
 | Runtime | What it is |
 |---|---|
 | `in-process` | The platform's own loop with the configured model. Every role the templates create uses it |
-| `claude-code`, and other agent CLIs | A headless agent CLI run as a child process with a home of its own, none of its own tools, and the role's granted capabilities as its only tools |
+| `claude-code`, and other agent CLIs | A headless agent CLI run as a child process in a private directory of its own, with none of its own tools and the role's granted capabilities as its only tools |
 | `http` | A runtime behind a URL, spoken to in turns |
 | `docker` | A runtime in a container with no network at all |
 | A remote sandbox | A runtime in a sandbox a provider runs |
@@ -338,8 +344,9 @@ lift its quarantine.
   treated as data, and the work it starts takes no tier 2 or higher action
   without you.
 
-Cheap hours (under **Settings**, **Company**) hold non-urgent work that only
-reads until a window you choose. All four are on **Team**.
+Schedules, handoffs and triggers are tabs on **Team**; a role's heartbeat is
+shown in its drawer there. Cheap hours (under **Settings**, **Company**) hold
+non-urgent work that only reads until a window you choose.
 
 ## Languages
 

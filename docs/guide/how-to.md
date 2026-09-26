@@ -78,7 +78,8 @@ Open the task from **Work** (or **Open the task** on an inbox item).
 
 To stop everything at once, press **Stop everything** at the foot of the
 sidebar. Work in every company stops at its next step and nothing new
-starts; **Resume everything** takes a code. To freeze one company, use **Freeze** under **Settings**, **Company**.
+starts; **Resume everything** takes a code. To stop one company, use
+**Freeze** under **Settings**, **Company**; **Unfreeze** takes a code.
 
 ## Pause or resume a role
 
@@ -333,8 +334,15 @@ the sender, so it needs the HTTPS set-up in [operations](operations.md).
    `web-ops` (DNS and deployment), `qa-review` and `palugada-dev`.
 3. **Is it still what was signed?** checks an installed bundle against the
    hash recorded at install. **Trust a publisher** adds a publisher's public
-   key; bundles it signs install as written, and unsigned ones install with
-   read-only grants.
+   key; bundles it signs install as written.
+
+An unsigned bundle, which the built-in ones are unless the operator signs
+them, installs quarantined: only the grants it names at tier 0 are created
+(the built-in bundles name none), its schedules start switched off, and its
+policies that allow something are left out. Grant what its roles need
+yourself with **Change a grant** in each of its divisions; each role's
+drawer lists its **Tools**. Its skills arrive as candidates under
+**Settings**, **Skills**, for a reviewer and you to approve.
 
 ## Set the company's languages
 

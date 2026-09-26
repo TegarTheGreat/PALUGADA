@@ -113,7 +113,7 @@ take the answer in brackets.
    with a six-digit code from an authenticator app such as Google
    Authenticator, Microsoft Authenticator, 1Password, Authy or Bitwarden. The
    setup makes a new secret, shows it as a QR code in the terminal and as a
-   key in groups of four letters, and asks for the code your app now shows.
+   key in groups of four characters, and asks for the code your app now shows.
    A wrong code means the app does not hold this key; try the next code, or
    press Enter to skip the check. It writes the secret as
    `PALUGADA_SECRET_OWNER_TOTP` and points `PALUGADA_OWNER_TOTP_REF` at it.
@@ -189,6 +189,13 @@ deployment ([how-to](how-to.md#export-and-import-a-company)).
    new started while winding down.
 3. Press **Start it**, then type a code in
    **Confirm with your authenticator** and press **Confirm**.
+
+The built-in bundles are published unsigned unless the operator signs them,
+and an unsigned bundle installs quarantined. On a stock deployment that
+means `company-os` arrives with none of the strategist's grants, its weekly
+review switched off, and its skills waiting as candidates.
+[Troubleshooting](troubleshooting.md#the-strategist-does-nothing) says how to
+give it what it needs.
 
 The company is built from the standard template in one transaction:
 

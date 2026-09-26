@@ -69,8 +69,9 @@ worker processes.
   ([how-to](how-to.md#connect-a-vendor)).
 - Budget accounts for the divisions that spend, and alert thresholds under
   **Settings**, **Company**.
-- Triggers for events other services send, schedules for recurring work,
-  and handoffs between roles.
+- Triggers for events other services send, handoffs between roles, and
+  schedules for recurring work (for now created through the owner API; see
+  [how-to](how-to.md#schedule-recurring-work)).
 - Retention windows that match what you are obliged to keep.
 - Monitoring on `GET /api/health`, and the JSON log lines collected
   somewhere you will read them.
@@ -110,10 +111,13 @@ database's connection count and statement times, the event log's growth, and
 roles paused for spending too fast.
 
 **Know.** A long agent CLI run holds its worker for as long as it takes, so
-count long runs when you count processes. Memory search is exact rather than
-approximate, which keeps scope filters correct and gets slower as a
-company's memory grows. A division's **Runs at once, at most** is recorded
-but, at the time of writing, not enforced by the worker's claim.
+count long runs when you count processes. A division's
+**Runs at once, at most** holds across every worker, so a division set to
+two runs two tasks at a time however many workers you add; raise it for the
+divisions that should use them. There is no limit per capability yet, beyond
+each grant's rate per hour. Memory search is exact rather than approximate,
+which keeps scope filters correct and gets slower as a company's memory
+grows.
 
 ## Enterprise
 
@@ -154,8 +158,8 @@ expects are not there. Be clear about both before you commit.
 - Passkeys in the console. The API verifies a passkey assertion, but the
   console signs in and approves with an authenticator code only.
 - Platforms other than Linux, and an image with agent CLIs in it.
-- Proof against the vendors themselves: push, Telegram, the model APIs, MCP
-  servers and the agent CLIs are exercised against local servers. The
+- Proof against the vendors themselves: push, Telegram, the model APIs and
+  MCP servers are exercised against local servers. The
   [configuration page](../configuration.md) says how far each agent CLI's
   command line has been checked.
 

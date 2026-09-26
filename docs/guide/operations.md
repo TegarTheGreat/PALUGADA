@@ -34,9 +34,9 @@ into the environment file. Because the unit points `PALUGADA_OWNER_TOTP_REF`
 at a new place, the first boot enrols it as an authenticator of its own. It
 holds the same secret, so your app's codes keep working; the old entry can no
 longer be read and is skipped, and you can revoke it under **Settings**,
-**Security**. Build the console (`npm run console:build`)
-in `/opt/palugada` before the first start, and run `npm run db:migrate` there
-with the same database settings the unit uses.
+**Security**. Build the console (`npm run console:build`) in `/opt/palugada`
+before the first start, and run `npm run db:migrate` there with the same
+database settings the unit uses.
 
 The platform's boot lines go to standard output and its JSON log lines to
 standard error, so both are in the journal.
@@ -80,13 +80,15 @@ explicitly: `PALUGADA_APP_URL_PUBLIC` alone does not add it there.
 Some paths must be reachable from the internet, not only from your browser:
 `/api/hooks/<id>` for [triggers](how-to.md#let-other-services-start-work-triggers)
 and `/api/channels/telegram` for Telegram's button presses. Both check their
-own token or signature. Everything else needs a signed-in session.
+own token or signature. Apart from those, signing in and the health check,
+every route needs a signed-in session.
 
 ## Secrets
 
-A secret is never written into the database or the configuration as a
-value. It is a reference, resolved when it is used and redacted from
-anything written down afterwards. This deployment resolves two kinds:
+The database never holds a secret. The settings and credentials that need
+one hold a reference to it, resolved when it is used, and the value is
+redacted from anything written down afterwards. This deployment resolves two
+kinds of reference:
 
 | Reference | Where the value is | Rule |
 |---|---|---|
@@ -184,13 +186,16 @@ a time.
 ### Stopping and restarting
 
 On SIGTERM or SIGINT the console closes first, then the worker. A run in
-flight is given about twenty seconds to finish
-its step, and then hands its task back to the queue with its journal, well
-inside the minute the systemd unit and the compose file wait before they
-kill. The task's timeline says it was handed back; no attempt is charged,
-it does not count as a lost worker, and the next worker to come up resumes
-it at the step it reached. A process killed outright loses nothing either: its tasks' leases run
-out and another worker resumes them from the last committed step.
+flight is given about twenty seconds to finish its step, and then hands its
+task back to the queue with its journal, well inside the minute the systemd
+unit and the compose file wait before they kill. The task's timeline says it
+was handed back; no attempt is charged, it does not count as a lost worker,
+and the next worker to come up resumes it at the step it reached.
+
+A process killed outright loses no work either, but it is slower: its
+tasks' leases run out within fifteen minutes, another worker resumes them
+from the last committed step, and each counts as a lost worker towards the
+crash-loop limit of three.
 
 ## Monitoring
 
@@ -276,8 +281,8 @@ compose file as shipped runs one app container on one published port.
 - **Database size.** The event log grows with the work and is kept at least
   a year; prompts at least ninety days. Set the windows under **Settings**,
   **Company**, **Retention**.
-- **Agent CLIs.** Each run is a separate process tree with its own home
-  directory on the machine that runs it. Size that machine's memory for the
+- **Agent CLIs.** Each run is a separate process tree with a directory of
+  its own on the machine that runs it. Size that machine's memory for the
   number of runs it may have at once.
 - **Timeouts.** A single database statement is ended after two minutes and a
   transaction left idle after ten, so a stuck query cannot hold its locks
@@ -299,7 +304,8 @@ The script connects as a superuser only to create these and to install the
 each role's password from `PALUGADA_OWNER_URL`, `PALUGADA_APP_URL` and
 `PALUGADA_ADMIN_URL` (from the environment or `.env`); passwords may use
 letters, digits and `_ . ~ -`. `PALUGADA_DB_NAME` names the database
-(default `palugada`), and `PALUGADA_SUPERUSER_URL` the superuser connection.
+(default `palugada`; the connection URLs must name the same one), and
+`PALUGADA_SUPERUSER_URL` the superuser connection.
 It refuses to run over an existing database; `PALUGADA_RESET_DATABASE=yes`
 drops and recreates it, with everything in it.
 

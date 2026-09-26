@@ -69,6 +69,7 @@ later. The message names it. The common ones:
 | `PALUGADA_MODEL_KEY_REF … could not be read: …` | The key's variable is not set, is not named `PALUGADA_SECRET_…`, or its file is outside `PALUGADA_SECRET_DIRS` |
 | `the anthropic provider needs PALUGADA_MODEL_KEY_REF` | Set the key, or `PALUGADA_MODEL_PROVIDER=openai` for an OpenAI-compatible API |
 | `… serves the models it serves, so say which one each tier means: …` | An OpenAI-compatible provider has no default models: set `PALUGADA_MODEL`, or name every tier in `PALUGADA_MODEL_ALIASES` |
+| `PALUGADA_AGENT_CLIS names …; the ones known here are …` | Use one of the names it lists; any other CLI is described in `PALUGADA_RUNTIME_SPECS` |
 | `PALUGADA_RUNTIME_SPECS could not be read: …` | Fix the JSON, or the entry it names; a spec that places no tool bridge is refused |
 | A path, then what is wrong with it | The vendor, MCP or price file that path names is malformed; the rest of the message says where |
 
@@ -89,7 +90,9 @@ starts.
 
 **Cause.** No model is configured. The console works, but every role the
 templates create runs on the in-process runtime, which needs a model, so no
-work can be done.
+work can be done. The boot also says `no in-process runtime: …`, and, when
+no other runtime is configured either, `no runtime is registered: every task
+will halt with runtime_unavailable (F13.1)`.
 
 **Fix.** Run `npm run setup` and choose a model, or put a role on another
 runtime ([how-to](how-to.md#put-a-role-on-an-agent-cli)).
@@ -196,12 +199,12 @@ authenticator, use a new reference instead, as above.
 ### A task shows **No runtime could take it**
 
 **Cause.** The task is halted with `runtime_unavailable`. Either the role
-names a runtime this deployment does not run (the engine reports `role …
-names runtime …, which is not registered (registered: …)`), or the model
-behind the in-process runtime refused the key.
+names a runtime the worker that took it does not run, or the model behind
+the in-process runtime refused the key.
 
 **Fix.** Open the role on **Team** and read **Who does its work**: it says
-whether its runtime runs here and answers. Configure the runtime, or move
+whether its runtime runs here and answers, or that "it cannot work until it
+is moved to one that does". Configure the runtime, or move
 the role to one that runs. For a refused key, run `npm run setup` to check
 the model; it prints the provider's refusal. With several worker
 processes, every one needs the same runtimes. Then use **Do it again**.
@@ -296,6 +299,25 @@ name the goal it serves (PRD F2.7)`.
 **Fix.** Create it with a goal and a brief through the owner API
 ([how-to](how-to.md#schedule-recurring-work)).
 
+### The strategist does nothing
+
+**Cause.** The built-in bundles are published unsigned unless the operator
+signs them, and an unsigned bundle installs quarantined. `company-os`, which
+**Let it run itself** installs, therefore arrives with no grants for its
+Strategy division, its `weekly-business-review` schedule **Off**, and its
+skills as candidates. The same applies to any built-in bundle installed
+under **Settings**, **Bundles**.
+
+**Fix.**
+1. Open the Strategy division on **Team** and use **Change a grant** for
+   each capability the strategist's drawer lists under **Tools**, at its
+   catalogue tier.
+2. Turn the weekly review on through the owner API: the same `slug`, with
+   its role, division, project, `goalId`, `input` and `"enabled": true`, on
+   `POST /api/companies/<id>/schedules` ([how-to](how-to.md#schedule-recurring-work)).
+   The console's **New schedule** form would replace it without a goal.
+3. Review and approve its skills under **Settings**, **Skills**.
+
 ## Models and agent CLIs
 
 ### The strategist's tasks fail on a model that is not Anthropic's
@@ -305,9 +327,9 @@ name the goal it serves (PRD F2.7)`.
 rather than a tier, so they are sent to your provider under that name.
 
 **Fix.** Open the role on **Team**, and under
-**Change its charter or model** set **Primary model** to `standard`. Or map the name in
-`PALUGADA_MODEL_ALIASES`, for example `{"claude-sonnet-5": "<your model>"}`
-alongside the tiers.
+**Change its charter or model** set **Primary model** to `standard`. Or map
+the name in `PALUGADA_MODEL_ALIASES`, for example
+`{"claude-sonnet-5": "<your model>"}` alongside the tiers.
 
 ### A role on an agent CLI fails at once
 

@@ -91,6 +91,8 @@ export interface VendorSpec {
    * a template reads (`{input.to}`) is a field the call must have.
    */
   input?: Record<string, unknown>;
+  /** A POST that only reads -- a search -- may be tier 0 when the file says so. */
+  readOnly?: boolean;
   /** A path into `{ status, body }`. Omitted answers with the parsed body. */
   result?: string;
   credentialAlias?: string;
@@ -114,6 +116,62 @@ export interface VendorFile {
 }
 
 /* ------------------------------------------------------------- the schema --- */
+
+/**
+ * What a read-back rule may say, shared with the MCP file (`mcp.ts`), whose
+ * read-backs are held to the same rules as a vendor's.
+ */
+export const MATCH_RULE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  // At least one clause: an empty `matches` accepts everything,
+  // which is a read-back that reads nothing back.
+  minProperties: 1,
+  // And a clause that asserts nothing is the same failure in a
+  // shape that passes the line above. A `path` with nothing to
+  // compare it to reads a field and discards it; an `equals`
+  // with no `path` names a value and never looks for it. Both
+  // leave a tier 1 write "verified" on any 2xx, which is F8.4
+  // satisfied in form and not in substance -- so each requires
+  // the other.
+  //
+  // Written as `if`/`then` rather than `dependentRequired`,
+  // which is a 2019-09 keyword this validator runs draft-07 --
+  // and an unrecognised keyword under `strict: false` is not an
+  // error, it is silently ignored. A guard that validates
+  // nothing is the failure it was written to prevent.
+  allOf: [
+    {
+      if: { required: ['path'] },
+      then: { anyOf: [
+        { required: ['equals'] },
+        { required: ['oneOf'] },
+        { required: ['equalsPath'] },
+      ] },
+    },
+    {
+      if: { anyOf: [
+        { required: ['equals'] },
+        { required: ['oneOf'] },
+        { required: ['equalsPath'] },
+      ] },
+      then: { required: ['path'] },
+    },
+  ],
+  properties: {
+    status: {
+      anyOf: [
+        { type: 'integer' },
+        { type: 'array', items: { type: 'integer' }, minItems: 1 },
+      ],
+    },
+    present: { type: 'string', minLength: 1 },
+    path: { type: 'string', minLength: 1 },
+    equals: {},
+    oneOf: { type: 'array' },
+    equalsPath: { type: 'string', minLength: 1 },
+  },
+} as const;
 
 /**
  * What the file may say, checked before anything is built from it.
@@ -144,6 +202,7 @@ const SCHEMA = {
           headers: { type: 'object', additionalProperties: { type: 'string' } },
           body: {},
           input: { type: 'object' },
+          readOnly: { type: 'boolean' },
           result: { type: 'string', minLength: 1 },
           credentialAlias: { type: 'string', minLength: 1 },
           requiredScopes: { type: 'array', items: { type: 'string' } },
@@ -155,57 +214,7 @@ const SCHEMA = {
               method: { type: 'string' },
               url: { type: 'string', minLength: 1 },
               headers: { type: 'object', additionalProperties: { type: 'string' } },
-              matches: {
-                type: 'object',
-                additionalProperties: false,
-                // At least one clause: an empty `matches` accepts everything,
-                // which is a read-back that reads nothing back.
-                minProperties: 1,
-                // And a clause that asserts nothing is the same failure in a
-                // shape that passes the line above. A `path` with nothing to
-                // compare it to reads a field and discards it; an `equals`
-                // with no `path` names a value and never looks for it. Both
-                // leave a tier 1 write "verified" on any 2xx, which is F8.4
-                // satisfied in form and not in substance -- so each requires
-                // the other.
-                //
-                // Written as `if`/`then` rather than `dependentRequired`,
-                // which is a 2019-09 keyword this validator runs draft-07 --
-                // and an unrecognised keyword under `strict: false` is not an
-                // error, it is silently ignored. A guard that validates
-                // nothing is the failure it was written to prevent.
-                allOf: [
-                  {
-                    if: { required: ['path'] },
-                    then: { anyOf: [
-                      { required: ['equals'] },
-                      { required: ['oneOf'] },
-                      { required: ['equalsPath'] },
-                    ] },
-                  },
-                  {
-                    if: { anyOf: [
-                      { required: ['equals'] },
-                      { required: ['oneOf'] },
-                      { required: ['equalsPath'] },
-                    ] },
-                    then: { required: ['path'] },
-                  },
-                ],
-                properties: {
-                  status: {
-                    anyOf: [
-                      { type: 'integer' },
-                      { type: 'array', items: { type: 'integer' }, minItems: 1 },
-                    ],
-                  },
-                  present: { type: 'string', minLength: 1 },
-                  path: { type: 'string', minLength: 1 },
-                  equals: {},
-                  oneOf: { type: 'array' },
-                  equalsPath: { type: 'string', minLength: 1 },
-                },
-              },
+              matches: MATCH_RULE_SCHEMA,
             },
           },
           describe: {
@@ -301,7 +310,7 @@ function placeholder(name: string, values: HttpPlaceholders): unknown {
   return undefined;
 }
 
-function matcher(rule: MatchRule) {
+export function matcher(rule: MatchRule) {
   return (
     answer: { status: number; body: unknown },
     result: unknown,
@@ -475,6 +484,7 @@ export function specFrom(entry: VendorSpec): HttpCapabilitySpec {
   const spec: HttpCapabilitySpec = {
     name: entry.name,
     inputSchema: entry.input ?? inputSchemaFrom(entry),
+    ...(entry.readOnly ? { readOnly: true } : {}),
     adapter: entry.adapter,
     tier: entry.tier,
     method: entry.method,

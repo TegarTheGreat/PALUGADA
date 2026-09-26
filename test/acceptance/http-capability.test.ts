@@ -234,8 +234,9 @@ test('a side-effecting spec must carry an idempotency key (F12.8)', () => {
   }
 
   // In the URL is as good as in a header: some vendors take it either way.
+  // (A query that takes a POST, which is how this one may be tier 0.)
   assert.doesNotThrow(() => httpCapability({
-    name: 'ok.write', adapter: 'x', tier: 0, method: 'POST',
+    name: 'ok.query', adapter: 'x', tier: 0, method: 'POST', readOnly: true,
     url: 'https://api.example/v1/things?key={idempotencyKey}',
   }));
 
@@ -249,8 +250,7 @@ test('a side-effecting spec must carry an idempotency key (F12.8)', () => {
 test('the idempotency key on the wire is the one the engine minted (F12.8)', async () => {
   const server = await vendor(() => ({ status: 202, body: { id: 'msg_1' } }));
   try {
-    const { verify: _verify, ...readOnly } = sendSpec(server.url);
-    const capability = httpCapability({ ...readOnly, tier: 0 as const });
+    const capability = httpCapability(sendSpec(server.url));
     await capability.execute({ to: 'a@b.example' }, ctx({ idempotencyKey: 'run-7-step-2' }));
     assert.equal(server.calls[0]!.headers['idempotency-key'], 'run-7-step-2');
   } finally {
@@ -350,8 +350,7 @@ test('a verify whose answer does not match is a failure (F8.4)', async () => {
 test("a vendor's refusal reaches the agent with what it said (F8)", async () => {
   const server = await vendor(() => ({ status: 402, body: { error: 'card declined' } }));
   try {
-    const { verify: _verify, ...readOnly } = sendSpec(server.url);
-    const capability = httpCapability({ ...readOnly, tier: 0 as const });
+    const capability = httpCapability(sendSpec(server.url));
     await assert.rejects(
       () => capability.execute({ to: 'a@b.example' }, ctx()),
       (error: unknown) =>

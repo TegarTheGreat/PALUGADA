@@ -34,7 +34,10 @@
  * than handed to `fetch` to follow on its own.
  */
 import { lookup } from 'node:dns/promises';
-import { isIP } from 'node:net';
+import { isIP, type LookupFunction } from 'node:net';
+import { request as httpRequest } from 'node:http';
+import { request as httpsRequest } from 'node:https';
+import { Readable } from 'node:stream';
 import { PalugadaError } from '../errors.ts';
 
 /**
@@ -176,11 +179,20 @@ export interface ReachableOptions {
  *
  * Throws rather than returning false, because every caller is about to make a
  * request and a boolean is a thing a caller can forget to look at.
+ *
+ * Returns the URL with the address it was checked at.
+ *
+ * The address is what the request then connects to. Checking a name and
+ * letting the request resolve it again is the gap DNS rebinding goes
+ * through: the first answer is public, the second -- a second later, from
+ * the same attacker's name server -- is `169.254.169.254`, and the check has
+ * already passed. Null when there is nothing to pin: an allowed private host
+ * that does not resolve here.
  */
 export async function assertReachable(
   raw: string,
   options: ReachableOptions = {},
-): Promise<URL> {
+): Promise<{ url: URL; address: string | null }> {
   let url: URL;
   try {
     url = new URL(raw);
@@ -199,7 +211,14 @@ export async function assertReachable(
     );
   }
 
-  if ((options.allowPrivateHosts ?? []).includes(url.hostname)) return url;
+  const hostname = url.hostname.replace(/^\[|\]$/g, '');
+  if ((options.allowPrivateHosts ?? []).includes(url.hostname)) {
+    // Allowed whatever it is, and still pinned to what it was when allowed.
+    const allowed = isIP(hostname)
+      ? [hostname]
+      : await (options.resolve ?? defaultResolve)(hostname).catch(() => []);
+    return { url, address: allowed[0] ?? null };
+  }
 
   const addresses = isIP(url.hostname)
     ? [url.hostname]
@@ -227,7 +246,50 @@ export async function assertReachable(
     }
   }
 
-  return url;
+  return { url, address: addresses[0]! };
+}
+
+/**
+ * A fetch that connects to one address, whatever the name resolves to now.
+ *
+ * `node:http` rather than the global fetch, because only it takes a lookup
+ * to use in place of the resolver; the host name still travels in the Host
+ * header and, for https, in SNI and the certificate check, so a vendor sees
+ * the request it expects and a forged certificate is still refused.
+ */
+function pinnedFetch(address: string): typeof globalThis.fetch {
+  const family = isIP(address) === 6 ? 6 : 4;
+  const pinned: LookupFunction = (_hostname, options, callback) => {
+    if (options.all) (callback as (error: null, addresses: Array<{ address: string; family: number }>) => void)(null, [{ address, family }]);
+    else (callback as (error: null, address: string, family: number) => void)(null, address, family);
+  };
+  return ((input: string | URL | Request, init: RequestInit = {}) => new Promise<Response>((resolve, reject) => {
+    const url = new URL(String(input));
+    const send = url.protocol === 'https:' ? httpsRequest : httpRequest;
+    const request = send(url, {
+      method: init.method ?? 'GET',
+      headers: (init.headers ?? {}) as Record<string, string>,
+      lookup: pinned,
+      ...(init.signal ? { signal: init.signal } : {}),
+    }, (answer) => {
+      const headers = new Headers();
+      for (const [name, value] of Object.entries(answer.headers)) {
+        if (Array.isArray(value)) for (const one of value) headers.append(name, one);
+        else if (value !== undefined) headers.set(name, value);
+      }
+      const status = answer.statusCode ?? 502;
+      const empty = status === 204 || status === 304 || init.method === 'HEAD';
+      if (empty) answer.resume();
+      resolve(new Response(empty ? null : (Readable.toWeb(answer) as ReadableStream<Uint8Array>), {
+        status,
+        statusText: answer.statusMessage ?? '',
+        headers,
+      }));
+    });
+    request.on('error', reject);
+    if (init.body !== undefined && init.body !== null) request.write(init.body as string);
+    request.end();
+  })) as typeof globalThis.fetch;
 }
 
 async function defaultResolve(hostname: string): Promise<string[]> {
@@ -301,12 +363,16 @@ export interface SafeResponse {
  * without asking anybody.
  */
 export async function safeFetch(raw: string, options: SafeFetchOptions = {}): Promise<SafeResponse> {
-  const doFetch = options.fetch ?? globalThis.fetch;
   const maxRedirects = options.maxRedirects ?? 3;
   const maxBytes = options.maxBytes ?? 512 * 1024;
   const redirects: string[] = [];
 
-  let target = await assertReachable(raw, options);
+  let vetted = await assertReachable(raw, options);
+  let target = vetted.url;
+  // Each hop connects to the address its own check passed, not to whatever
+  // its name resolves to by the time the socket opens.
+  const fetcherFor = (address: string | null) =>
+    options.fetch ?? (address ? pinnedFetch(address) : globalThis.fetch);
   let headers = options.headers ?? {};
   let method = options.method ?? 'GET';
   let body = options.body;
@@ -326,7 +392,7 @@ export async function safeFetch(raw: string, options: SafeFetchOptions = {}): Pr
     // hold a fetching process open, and it is cheaper to mount than a slow
     // handshake because the connection already looks healthy.
     try {
-      const response = await doFetch(target.toString(), {
+      const response = await fetcherFor(vetted.address)(target.toString(), {
         method,
         headers,
         ...(body === undefined ? {} : { body }),
@@ -375,7 +441,8 @@ export async function safeFetch(raw: string, options: SafeFetchOptions = {}): Pr
         headers = stripSensitive(headers, target, next);
 
         redirects.push(next.toString());
-        target = await assertReachable(next.toString(), options);
+        vetted = await assertReachable(next.toString(), options);
+        target = vetted.url;
         continue;
       }
 

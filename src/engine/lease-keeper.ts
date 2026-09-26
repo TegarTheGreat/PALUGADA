@@ -27,6 +27,14 @@ export interface LeaseKeeperOptions {
   renew: () => Promise<void>;
   /** Called once, when the lease is found to be lost. */
   onLost: () => void;
+  /**
+   * Called once, when the run has gone a whole lease without progress and
+   * the keeper stops covering it -- while this worker still holds the lease,
+   * so the run can be stopped before the lease lapses and another worker
+   * takes the task. It used to stop renewing and say nothing, and the run
+   * carried on beside the next worker's.
+   */
+  onSilent?: () => void;
   leaseMs: number;
   /** Until when the run is covered before it has shown any progress. */
   coverUntil: number;
@@ -35,6 +43,8 @@ export interface LeaseKeeperOptions {
 export class LeaseKeeper {
   readonly #renew: () => Promise<void>;
   readonly #onLost: () => void;
+  readonly #onSilent: (() => void) | undefined;
+  #silent = false;
   readonly #leaseMs: number;
   #coverUntil: number;
   #timer: NodeJS.Timeout | undefined;
@@ -45,6 +55,7 @@ export class LeaseKeeper {
   constructor(options: LeaseKeeperOptions) {
     this.#renew = options.renew;
     this.#onLost = options.onLost;
+    this.#onSilent = options.onSilent;
     this.#leaseMs = options.leaseMs;
     this.#coverUntil = options.coverUntil;
   }
@@ -93,7 +104,13 @@ export class LeaseKeeper {
 
   async #tick(): Promise<void> {
     if (this.#stopped || this.#lost || this.#renewing) return;
-    if (Date.now() > this.#coverUntil) return;
+    if (Date.now() > this.#coverUntil) {
+      if (!this.#silent) {
+        this.#silent = true;
+        this.#onSilent?.();
+      }
+      return;
+    }
     this.#renewing = true;
     try {
       await this.#renew();

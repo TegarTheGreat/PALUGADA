@@ -490,7 +490,15 @@ test('a worker that lost its task commits nothing and leaves it to the next hold
 
   assert.equal(first.status, 'not_claimed', first.reason);
   assert.equal(second.status, 'not_claimed', second.reason);
-  assert.deepEqual(replica.reclaimed.sort(), [stuck.id, quiet.id].sort());
+  // Whoever noticed first put it back: the other replica's sweep, or the
+  // worker itself handing back a run that had gone quiet while it still held
+  // the lease. Either way it went back once, as a lost worker.
+  for (const task of [stuck, quiet]) {
+    const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ n: number }>(
+      "SELECT count(*)::int AS n FROM events WHERE task_id = $1 AND type = 'task.lease_expired'", [task.id]));
+    assert.equal(rows[0]!.n, 1, 'put back once');
+  }
+  assert.ok(replica.reclaimed.every((id) => id === stuck.id || id === quiet.id));
   assert.equal(afterStuck + afterQuiet, 0, 'no step started after the lease was gone');
   assert.deepEqual(await committed(stuck.id), [], 'the stuck step was never committed');
   assert.deepEqual(await committed(quiet.id), ['quick']);

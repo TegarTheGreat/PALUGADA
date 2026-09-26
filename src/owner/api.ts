@@ -611,7 +611,7 @@ export class OwnerApi {
           // something switched off until the operator sets it.
           return {
             notes,
-            todo: notes.filter((note) => !/^(enrolled |bound by |model: |model prices from |runtimes: |seeded )/.test(note)),
+            todo: notes.filter((note) => !/^(enrolled |bound by |bound from |model: |model prices from |runtimes: |seeded )/.test(note)),
           };
         },
       },

@@ -404,6 +404,43 @@ export async function reclaimExpiredLeases(
   });
 }
 
+/**
+ * A worker handing back a task whose run went quiet, before its lease lapses.
+ *
+ * What the sweep would have done a moment later, done by the holder so no
+ * second worker runs the task beside the first: back to the queue with its
+ * journal, no attempt charged -- the work did not fail, it stopped moving --
+ * and counted as a lost worker, so a task that goes quiet every time is
+ * halted like one that crashes every time. False when the lease was no
+ * longer this worker's to hand back.
+ */
+export async function giveBack(companyId: string, taskId: string, holder: string, why: string): Promise<boolean> {
+  return withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<{ status: string }>(
+      `WITH held AS (
+         SELECT id, status FROM tasks
+          WHERE id = $1 AND lease_holder = $2 AND status IN ('checked_out', 'running')
+          FOR UPDATE
+       ), released AS (
+         UPDATE tasks SET status = 'pending', lease_holder = NULL, lease_expires_at = NULL
+          WHERE id IN (SELECT id FROM held)
+       )
+       SELECT status FROM held`,
+      [taskId, holder],
+    );
+    if (rows.length === 0) return false;
+    await appendEvent(tx, {
+      companyId,
+      taskId,
+      type: 'task.lease_expired',
+      actor: 'system',
+      payload: { holder, reclaimedFrom: rows[0]!.status, quiet: why },
+    });
+    await haltIfCrashLooping(tx, companyId, taskId);
+    return true;
+  });
+}
+
 /** A worker saying it is still there (F5.12, F5.14). */
 export async function recordRunHeartbeat(
   tx: TenantClient,

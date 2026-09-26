@@ -172,6 +172,8 @@ test('a template keeps the type of a value it substitutes whole (F8)', async () 
         // the tier is a field the same file sets. A key on a read costs
         // nothing and the vendor ignores it.
         headers: { 'idempotency-key': '{idempotencyKey}' },
+        // And a POST at tier 0 is one the file says only reads.
+        readOnly: true,
         body: {
           limit: '{input.limit}',
           tags: '{input.tags}',
@@ -265,6 +267,30 @@ test('a vendor capability says what it takes: the fields its templates use, or w
     (error: unknown) => isPalugadaError(error, 'config.invalid') && /email\.send.*input/.test((error as Error).message),
     'a schema the validator cannot read is refused at boot, not at the first send',
   );
+});
+
+test('a file cannot bind a write at tier 0 under a name the catalogue does not know (F8.3)', () => {
+  // The catalogue holds what it names to its tier. A name it does not know
+  // was held to nothing, so a payout bound at tier 0 would run at once with
+  // nobody asked.
+  assert.throws(
+    () => parseVendors({
+      capabilities: [{
+        name: 'payout.send', adapter: 'x', tier: 0, method: 'POST', url: 'https://api.example/payouts',
+        headers: { 'idempotency-key': '{idempotencyKey}' },
+      }],
+    }, 'vendors.json'),
+    (error: unknown) => isPalugadaError(error, 'config.invalid')
+      && /payout\.send is a POST, which changes something, and cannot be tier 0/.test((error as Error).message),
+  );
+  // A search that takes a POST, which the file says only reads, may.
+  const [search] = parseVendors({
+    capabilities: [{
+      name: 'catalog.search', adapter: 'x', tier: 0, method: 'POST', url: 'https://api.example/search',
+      headers: { 'idempotency-key': '{idempotencyKey}' }, readOnly: true,
+    }],
+  });
+  assert.equal(httpCapability(search!).defaultTier, 0);
 });
 
 test('a file naming a field this platform does not have is refused (F8)', () => {

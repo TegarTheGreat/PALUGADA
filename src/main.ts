@@ -29,6 +29,7 @@ import { CapabilityRegistry } from './broker/registry.ts';
 import { Engine } from './engine/engine.ts';
 import { DEFAULT_PRICE_TABLE, loadPriceTable } from './engine/pricing.ts';
 import { modelAliasesFrom, modelClientFrom } from './llm/anthropic.ts';
+import { registerMcpServers } from './capabilities/mcp.ts';
 import { Worker, type WorkerOptions } from './worker.ts';
 import type { SecretManager } from './secrets/manager.ts';
 import { OwnerMfa, decodeBase32 } from './owner/mfa.ts';
@@ -398,6 +399,16 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     : [];
   if (vendorNames.length > 0) {
     notes.push(`bound by ${vendorsFile}: ${vendorNames.join(', ')}`);
+  }
+
+  // Tools from MCP servers, only those the file names, each at the tier it
+  // states (`src/capabilities/mcp.ts`). Refused at boot like the vendor file
+  // when it is wrong; a server that does not answer is a note, and its tools
+  // are checked again at every call.
+  const mcpFile = env.PALUGADA_MCP_SERVERS ?? null;
+  if (mcpFile) {
+    const mcp = await registerMcpServers(registry, mcpFile);
+    notes.push(`bound from ${mcpFile}: ${mcp.bound.join(', ')}`, ...mcp.notes);
   }
 
   // Once, after everything is registered.

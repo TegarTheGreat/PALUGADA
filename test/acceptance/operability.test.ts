@@ -307,3 +307,33 @@ test('a process that cannot work says so to whatever asks, with a 503', async ()
     await api.close();
   }
 });
+
+test('a run that shows no progress for a whole lease is stopped while its worker still holds it, and the task goes back', async () => {
+  // The keeper stopped renewing a silent run's lease and said nothing: the
+  // run carried on, the lease lapsed, and the next worker ran the task beside
+  // it. And a handler stuck on a promise that never settles held the worker,
+  // and every other company's sweeps with it, for as long as the process ran.
+  const fixture = await createCompany('silent-run');
+  const task = await newTask(fixture);
+  const engine = new Engine({
+    broker: new CapabilityBroker(new CapabilityRegistry()),
+    llm: new RecordingLlmClient(),
+    handlers: new Map([['worker', () => new Promise<Record<string, unknown>>(() => {})]]),
+    workerId: 'silent-worker',
+    leaseMs: 300,
+  });
+  const started = Date.now();
+  const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.ok(Date.now() - started < 5_000, 'the worker is free again');
+  assert.equal(outcome.status, 'not_claimed');
+  assert.match(outcome.reason ?? '', /showed no progress for 300 ms and was stopped before its lease ran out/);
+  const after = (await withTenant(fixture.companyId, (tx) => getTask(tx, task.id)))!;
+  assert.equal(after.status, 'pending');
+  assert.equal(after.leaseHolder, null, 'and nobody holds it, so the next worker may');
+  assert.equal(after.attempt, 0, 'the work did not fail; it stopped moving');
+
+  // Counted as a lost worker: a task that goes quiet every time is halted
+  // like one that crashes every time.
+  for (let n = 1; n < MAX_RECLAIMS; n += 1) await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal((await withTenant(fixture.companyId, (tx) => getTask(tx, task.id)))!.haltReason, 'crash_loop');
+});

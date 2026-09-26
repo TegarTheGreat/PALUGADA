@@ -69,6 +69,7 @@ find out at startup rather than at 3am.
 | `PALUGADA_MODEL_ALIASES` | Which model each tier a role names stands for, as JSON. Defaults: `fast` = `claude-haiku-4-5-20251001`, `standard` = `claude-sonnet-5`, `deep` = `claude-opus-5-5` |
 | `PALUGADA_SECRET_DIRS` | Where `file://` secrets may be read from (default `/run/secrets`) |
 | `PALUGADA_VENDORS` | Vendor capabilities from a JSON spec file (see [`config/vendors.example.json`](../config/vendors.example.json)) |
+| `PALUGADA_MCP_SERVERS` | Tools from MCP servers, only those the file names (see [`config/mcp.example.json`](../config/mcp.example.json) and below) |
 | `PALUGADA_MODEL_PRICES` | Model prices for runtimes that report tokens but no price (see [`config/prices.example.json`](../config/prices.example.json)) |
 | `PALUGADA_DRAFT_MODEL` | The tier or model used for drafting, memory distillation and skill screening (default `standard`) |
 | `PALUGADA_CLAUDE_CODE_COMMAND` | The Claude Code runtime |
@@ -81,7 +82,7 @@ find out at startup rather than at 3am.
 | `PALUGADA_TELEGRAM_TOKEN`, `_CHAT`, `_WEBHOOK_SECRET` | Telegram with decision buttons. Point the bot's webhook at `<PALUGADA_APP_URL_PUBLIC>/api/channels/telegram` |
 | `PALUGADA_APP_URL_PUBLIC` | Where the console is reached from the owner's phone. Notifications link there |
 | `PALUGADA_ALLOWED_HOSTS` | The host names the console answers to. Defaults to the hosts of the public URL and origins, plus loopback |
-| `PALUGADA_RP_ID`, `PALUGADA_ORIGIN` | Passkeys for the console's domain |
+| `PALUGADA_RP_ID`, `PALUGADA_ORIGIN` | Where a passkey would be verified. The platform verifies a passkey assertion, but the console cannot present one yet, so the owner signs in and approves with an authenticator code |
 | `PALUGADA_ALLOW_PRIVATE_HOSTS` | An internal host that `web.fetch` may reach |
 
 **Runtimes.** A role's work is done by the runtime it names. With a model
@@ -91,6 +92,20 @@ tools through the broker, and finishes with the task's output. Each turn is
 a journalled step, so a restart resumes at the turn it reached. Any other
 runtime configured below can be chosen per role in the console (the role's
 *Who does its work*), and only one this deployment runs is accepted.
+
+**MCP servers.** `PALUGADA_MCP_SERVERS` names a file listing servers
+(streamable HTTP) and, under each, the tools this deployment may use: each
+becomes the capability `mcp.<server>.<tool>`, granted to divisions like any
+other. A tool the file does not name does not exist here. The file states
+each tool's tier, and the server can only raise it: a tool the server marks
+destructive must be tier 3, and a tool at tier 0 must be one the server says
+only reads. A tool at tier 1 or above must be pinned -- the boot prints the
+pin of an unpinned tool -- and must name a read-back: another tool on the
+same server and what its answer must say. A tool whose description or
+arguments changed since it was pinned is refused. `credentialAlias` sends
+the calling division's credential as a bearer token. Everything a server
+returns counts as content from outside the company, so work that used it
+asks the owner before its next tier 2 action.
 
 **Capabilities.** PALUGADA implements the ones that need no vendor account:
 `web.fetch`, `uptime.check`, `files.list`, `doc.draft`, `email.draft`,

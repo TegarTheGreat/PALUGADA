@@ -57,10 +57,10 @@ database.
     <td width="33%" valign="top">
       <h3>2. Give it work</h3>
       Tell the coordinator what you want. It hands the work to the role whose
-      job it is, and that role runs on the agent you choose: Claude Code,
-      Codex, OpenCode, Gemini CLI, Hermes, OpenClaw, an HTTP service or Docker
-      with no network. Every action it takes goes through a broker that knows
-      its cost and how hard it is to undo.
+      job it is. With a model key, the platform runs that role itself; or put
+      the role on Claude Code, another agent CLI you describe in one entry, an
+      HTTP service or Docker with no network. Every action goes through a
+      broker that knows its cost and how hard it is to undo.
     </td>
     <td width="33%" valign="top">
       <h3>3. Decide what matters</h3>
@@ -113,12 +113,12 @@ every other setting are in [docs/configuration.md](docs/configuration.md).
   </tr>
   <tr>
     <td valign="top"><b>🏢 An organisation that moves</b><br>A coordinator routes work, a planner hands the build to the builder, and a stuck division asks the coordinator before it asks you.</td>
-    <td valign="top"><b>🤖 Bring any agent</b><br>Agents never see a credential or a database. Each CLI runs in its own home, with only the tools it was granted.</td>
-    <td valign="top"><b>♻️ A crash loses nothing</b><br>Every step is journalled, leases stop a task running twice, and hop limits and deadlines end runaway work.</td>
+    <td valign="top"><b>🤖 A model, or your agent</b><br>A role runs on the platform's own model loop or on Claude Code and other CLIs. None sees a credential or the database, and each gets only the tools it was granted.</td>
+    <td valign="top"><b>♻️ A crash loses little</b><br>Every step is journalled and a run resumes at the step it reached. Leases stop a task running twice, and a task that keeps killing its worker is halted.</td>
   </tr>
   <tr>
     <td valign="top"><b>🛡️ Isolation in the database</b><br>Row-level security forced on every tenant table: a row cannot even point into another company.</td>
-    <td valign="top"><b>🧠 A company that learns</b><br>Versioned facts, procedures distilled from experience, skills with eval cases, and your word on delivered work.</td>
+    <td valign="top"><b>🧠 A company that learns</b><br>Versioned facts found by what they say, procedures distilled from experience once a model is set, skills with eval cases, and your word first in every run.</td>
     <td valign="top"><b>🌏 In your language</b><br>The console in English and Indonesian, and each company chooses what its agents write in.</td>
   </tr>
 </table>
@@ -149,18 +149,25 @@ webhooks, bundles, audit export -- is in [docs/features.md](docs/features.md).
 ## How it compares
 
 PALUGADA was read against four systems people use to run agents at work,
-looking for what goes wrong in each and whether it goes wrong here.
+looking for what goes wrong in each and whether it goes wrong here -- and
+for what they do that it does not.
 
 | | Chat workspaces (Slack, Buzz) | auto-company | Paperclip | **PALUGADA** |
 |---|---|---|---|---|
-| **An irreversible action** | Buzz approves every tool permission itself | "Do not wait for human approval" | Approvals with no expiry and no second factor | The owner, with a second factor; unanswered means cancelled |
-| **Isolation between companies** | — | — | Application code only | Forced row-level security, company-scoped foreign keys |
+| **An irreversible action** | Buzz approves every tool permission itself | "Do not wait for human approval" | Decisions expire after a week; no second factor | The owner, with a second factor; unanswered means cancelled |
+| **Isolation between companies** | Buzz: row-level security specified, not shipped | — | Application code only | Forced row-level security, company-scoped foreign keys |
 | **Usage an agent did not price** | — | Paused as "unverifiable" | Recorded at 0¢, so the hard stop never trips | Priced from the operator's list or a high fallback |
-| **Agents triggering agents** | Buzz: no hop limit | — | — | Hop limit and cycle detection |
-| **Past decisions** | Lost as threads scroll | A file the model rewrites each cycle | — | Records with the outcome and your note, searchable |
+| **Agents triggering agents** | Buzz: no hop limit | — | A re-wake throttle, no hop limit | Hop limit and cycle detection |
+| **Past decisions** | Lost as threads scroll | A file the model rewrites each cycle | Kept with the decider's note | Kept with the outcome and your note, and searchable |
+| **Integrations** | Slack: a large app directory | — | A governed MCP gateway | Built-ins, vendor files, allow-listed MCP servers; no connector catalogue or OAuth flow |
+| **Watching it run** | — | — | Tracing | JSON logs and a health check; no tracing or metrics yet |
+| **Installing** | Slack: nothing, it is hosted; Buzz: a container image | A script | A container image | Node and Postgres by hand; Linux only |
+| **People** | Many | One | Many | One owner, by design |
 
-Each cell is cited to source code or public documentation in
-[docs/RESEARCH-2026-09.md](docs/RESEARCH-2026-09.md).
+The first five rows are cited to source code or public documentation in
+[docs/RESEARCH-2026-09.md](docs/RESEARCH-2026-09.md); the last four, and the
+corrections to the Paperclip column, come from the audit recorded in
+[docs/STATUS.md](docs/STATUS.md) section 2.21.
 
 ## Architecture
 
@@ -183,17 +190,26 @@ Each cell is cited to source code or public documentation in
 TypeScript on Node 22 with no build step for the server, PostgreSQL 16 with
 pgvector, and a React and [Mantine](https://mantine.dev) console served from
 the same origin under a strict content security policy. The engine never
-calls a model to do a task itself: it lends the runtime tool calls through the
+calls a model itself: a runtime does -- the platform's own in-process loop,
+or an agent you bring -- and the engine lends it tool calls through the
 broker, journalled steps, contained sub-tasks and a way to report cost.
 
 ## Limits worth knowing
 
 - **Vendor integrations are verified up to the wire.** Push, Telegram, the
-  sandbox and the agent CLIs are exercised end to end against local servers,
-  not against the vendors themselves.
-- **The in-process sandbox does not isolate the network.** Use the Docker
-  runtime when that matters; code-executing capabilities never get a
-  credential either way.
+  model API, MCP servers and the agent CLIs are exercised end to end against
+  local servers, not against the vendors themselves.
+- **Only Claude Code's command line has been checked against its
+  documentation in detail.** The entries for Codex, Gemini CLI, OpenCode,
+  Hermes and OpenClaw are starting points written from theirs; none has been
+  run against the real binary here.
+- **The only network isolation is the Docker runtime** (`--network none`).
+  Code-executing capabilities never get a credential either way.
+- **Integrations are what you bind.** The built-ins, vendor files and the MCP
+  servers you allow-list. There is no connector catalogue and no OAuth flow
+  for connecting an account.
+- **One owner, on Linux, installed by hand.** There are no other users, no
+  container image or compose file yet, and process handling reads `/proc`.
 - **Companies are frozen, exported or retained, never deleted.** The event log
   is append-only by design.
 - **A capability that needs somebody's account waits for one.** Sending

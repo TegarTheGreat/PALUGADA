@@ -57,6 +57,12 @@ export interface Capability<I = unknown, O = unknown> {
    * TypeError from inside the platform.
    */
   inputSchema?: Record<string, unknown>;
+  /**
+   * Whether what it returns was written outside the company (F8.9), for a
+   * capability the catalogue does not know -- a tool from an MCP server.
+   * The catalogue's own say so for everything it names.
+   */
+  readsOutside?: boolean;
   estimatedCostCents?: number;
   execute(input: I, ctx: CapabilityContext): Promise<O>;
   /**

@@ -1,0 +1,21 @@
+{
+  "servers": [
+    {
+      "name": "payments",
+      "url": "https://mcp.payments.example/mcp",
+      "credentialAlias": "payments",
+      "tools": {
+        "get_transaction": { "tier": 0 },
+        "create_payment_link": {
+          "tier": 2,
+          "pin": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "verify": {
+            "tool": "get_payment_link",
+            "arguments": { "id": "{result.id}" },
+            "matches": { "path": "body.amount", "equalsPath": "input.amount" }
+          }
+        }
+      }
+    }
+  ]
+}

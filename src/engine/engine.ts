@@ -42,7 +42,7 @@ import { buildContext, type ContextSection } from '../context/builder.ts';
 import { ancestryForTask } from '../domain/goals.ts';
 import { preflightForRole } from '../broker/preflight.ts';
 import {
-  DEFAULT_LEASE_MS, adoptLease, claimTask, clearLease, recordRunHeartbeat, renewLease,
+  DEFAULT_LEASE_MS, adoptLease, claimTask, clearLease, giveBack, recordRunHeartbeat, renewLease,
 } from './checkout.ts';
 import * as budget from './budget.ts';
 import * as inbox from '../inbox/inbox.ts';
@@ -561,9 +561,32 @@ export class Engine {
     // to a deadline the run is waiting on. A handler stuck on a promise that
     // never settles stops being covered, its lease lapses, and the task goes
     // back to the queue -- which is what a lease is for.
+    //
+    // And a run that is neither progressing nor waiting on anything bounded
+    // is stopped when its cover ends, while this worker still holds the
+    // lease. The engine stops waiting for it too: a handler stuck on a promise
+    // that never settles held the worker -- and with it every other company's
+    // reclaims, expiries and notices -- for as long as the process lived.
+    let giveUp: (reason: Error) => void = () => undefined;
+    const abandoned = new Promise<never>((_resolve, reject) => { giveUp = reject; });
+    abandoned.catch(() => undefined);
+    let silent: Error | null = null;
     const lease = new LeaseKeeper({
       renew: () => this.#holdLease(companyId, taskId, agentRunId, leaseMs),
-      onLost: () => controller.abort(),
+      onLost: () => {
+        controller.abort();
+        giveUp(new Error('the lease was lost while the run was in flight'));
+      },
+      onSilent: () => {
+        const quiet = leaseMs >= 60_000 ? `${Math.round(leaseMs / 60_000)} minutes`
+          : leaseMs >= 1_000 ? `${Math.round(leaseMs / 1_000)} seconds` : `${leaseMs} ms`;
+        silent = new Error(
+          `the run showed no progress for ${quiet} and was stopped before its lease ran out; `
+            + 'what it committed is kept',
+        );
+        controller.abort();
+        giveUp(silent);
+      },
       leaseMs,
       coverUntil: task.deadlineAt?.getTime() ?? Date.now() + leaseMs,
     });
@@ -921,7 +944,7 @@ export class Engine {
 
     lease.start();
     try {
-      const { output } = await this.#runWithFallback(
+      const { output } = await Promise.race([abandoned, this.#runWithFallback(
         adapter,
         {
           companyId, task, roleSlug, runtime, agentRunId,
@@ -931,7 +954,7 @@ export class Engine {
           },
         },
         services,
-      );
+      )]);
       // Whatever the runtime produced after being told to wait is not the
       // task's output: the action it was waiting for has not happened.
       if (parked) throw parked;
@@ -978,6 +1001,12 @@ export class Engine {
       // attempt, the status and the lease are the new holder's now.
       if (lease.lost) {
         return { status: 'not_claimed', reason: 'the lease was lost while the run was in flight' };
+      }
+      // Quiet for a whole lease: handed back while still ours, as the sweep
+      // would have a moment later, and with nothing charged to the attempt.
+      if (silent) {
+        await giveBack(companyId, taskId, this.#workerId, (silent as Error).message);
+        return { status: 'not_claimed', reason: (silent as Error).message };
       }
       // The run may have ended on something else by the time it stopped --
       // the runtime reacting to the withdrawal, or failing on its own -- but

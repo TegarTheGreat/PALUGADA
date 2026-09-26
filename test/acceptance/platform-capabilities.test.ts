@@ -147,7 +147,8 @@ test('a public name that resolves inside the network is refused (F12.9)', async 
   );
 
   const fine = await assertReachable('https://good.example/page', { resolve });
-  assert.equal(fine.hostname, 'good.example');
+  assert.equal(fine.url.hostname, 'good.example');
+  assert.ok(fine.address, 'and the address the request will connect to');
 
   // A name that resolves to nothing is refused rather than attempted.
   await assert.rejects(
@@ -271,6 +272,27 @@ test('web.fetch cannot reach the metadata service (F12.9)', async () => {
     () => capability.execute({ url: 'http://metadata.example/latest/meta-data/' }, ctx()),
     (error: unknown) => isPalugadaError(error, 'capability.unreachable'),
   );
+});
+
+test('a request goes to the address its check passed, not to what the name says a moment later (F12.9)', async () => {
+  // DNS rebinding: the name answers with a public address for the check and
+  // with 169.254.169.254 for the request a moment later. The check resolved
+  // the name, and the request resolved it again. A name under `.invalid`
+  // never resolves, so this request reaches the server only if it connects
+  // to the address the check was given.
+  const server = await origin(() => ({ status: 200, body: 'from the checked address' }));
+  let resolved = 0;
+  try {
+    const answer = await safeFetch(`http://rebinding.invalid:${new URL(server.url).port}/page`, {
+      allowPrivateHosts: ['rebinding.invalid'],
+      resolve: async () => { resolved += 1; return ['127.0.0.1']; },
+    });
+    assert.equal(answer.status, 200);
+    assert.equal(answer.body, 'from the checked address');
+    assert.equal(resolved, 1, 'the name was resolved once, by the check');
+  } finally {
+    await server.close();
+  }
 });
 
 /* ---------------------------------------------------------- uptime.check --- */

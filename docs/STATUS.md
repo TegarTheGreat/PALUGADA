@@ -2874,15 +2874,68 @@ returns the facts sharing the most words with the query, and the pack puts
 the owner's word first, then what shares the most words with the task, then
 the newest.
 
+### Reaching what already exists: MCP servers
+
+The platform served MCP to its own agent CLIs and could use none, so the
+integrations that exist as MCP servers were out of reach unless rewritten as
+vendor files (`src/capabilities/mcp.ts`, `PALUGADA_MCP_SERVERS`).
+
+- Only the tools the file names are bound, as `mcp.<server>.<tool>`, and
+  granted like any capability. A tool the server offers and the file does
+  not name does not exist here.
+- The file states each tier and the server may only raise it: a tool the
+  server marks destructive must be tier 3, and a tier 0 tool must be one the
+  server says only reads (or, when it will not list its tools without a
+  credential, one the file says so of).
+- A tool at tier 1 or above must be pinned -- a SHA-256 of its name,
+  description and arguments -- and must name a read-back on the same server
+  (F8.4). A tool that changed since it was pinned is refused at boot, at the
+  call, and by the preflight: the "rug pull" MCP is known for.
+- The calling division's credential is sent as a bearer token, resolved per
+  call; a session is opened per call, so one division's authority is never
+  carried into another's. The server is offered no sampling, elicitation or
+  roots.
+- Everything a server returns is outside content (F8.9), and the step's
+  idempotency key travels in the call's `_meta`, where a server that
+  honours it can recognise a retry; MCP has no key of its own, which is why
+  the approval and the journal are spent before the call.
+- Streamable HTTP only. A stdio server is a process the platform would run
+  with its own environment, which F13.4 keeps runtimes from.
+
+### Three more from the reliability and security audits
+
+- A run that showed no progress for a whole lease kept running: the keeper
+  stopped renewing and said nothing, the lease lapsed, and the next worker
+  ran the task beside it. And a handler stuck on a promise that never
+  settles held the worker, and every company's sweeps with it. The run is
+  now stopped when its cover ends, while this worker still holds the lease,
+  the engine stops waiting for it, and the task goes back to the queue as
+  a lost worker would: no attempt charged, and counted towards `crash_loop`.
+- A vendor file could bind a POST at tier 0 under a name the catalogue does
+  not know -- a payout that runs at once with nobody asked. A method that
+  changes something is now refused at tier 0 unless the file says the
+  vendor only reads (a search that takes a POST).
+- `web.fetch` and every vendor call checked the address a name resolved to,
+  and then let the request resolve it again: DNS rebinding answers the
+  check with a public address and the request with `169.254.169.254`. Each
+  request now connects to the address its own check passed.
+
 **Still open from these audits, in the order they would be taken**
 
+- Resuming an agent CLI's run is by position: a CLI that re-issues an
+  earlier call after a restart is told the journal diverged. The platform's
+  own loop replays exactly; a CLI does not.
+- The worker runs one company's work at a time, and a shutdown does not hand
+  in-flight work back before the process exits.
+- Sign-in has no per-address throttle: ten wrong codes lock the owner out
+  for fifteen minutes, from anywhere that can reach the console.
+- No connector catalogue, no OAuth flow, no tracing or metrics endpoint, no
+  container image.
 - A way for a run to write down what it learned. A `memory.note` would be a
   thirteenth tool for every role in the standard company but one, and F2.4
   caps a role at twelve; until a role can spare one, what a run learned
   reaches memory through distillation, which now runs whenever a model is
   configured, and through the owner's word on delivered work.
-- A governed MCP client, so a company can use the integrations that already
-  exist as MCP servers.
 
 ## 3. Decisions, deviations, and what is unverified
 

@@ -90,6 +90,8 @@ export interface HttpCapabilitySpec {
   name: string;
   /** What a call carries, as a JSON Schema: shown to the model and held by the broker. */
   inputSchema?: Record<string, unknown>;
+  /** The operator's word that a POST at tier 0 only reads, as a search API's does. */
+  readOnly?: boolean;
   /** The vendor, for the catalogue: `resend`, `cloudflare`, `stripe`. */
   adapter: string;
   tier: Tier;
@@ -171,6 +173,21 @@ export function httpCapability(spec: HttpCapabilitySpec): Capability<
         { capability: spec.name },
       );
     }
+  }
+
+  // A method that changes something is not a read, whatever the file says.
+  // The catalogue holds the capabilities it names to their tier, and nothing
+  // held one it did not name: a file could bind a new POST -- a transfer, a
+  // deletion -- at tier 0, where it runs at once with nobody asked (F8.3).
+  // A search API that takes a POST is the exception, and the operator says so
+  // in so many words (`readOnly`), as they would for an MCP tool.
+  if (spec.tier === 0 && SIDE_EFFECTING.has(method) && !spec.readOnly) {
+    throw new PalugadaError(
+      'capability.miscalibrated',
+      `${spec.name} is a ${method}, which changes something, and cannot be tier 0; bind it at `
+        + 'tier 1 or above with a read-back, or say readOnly if the vendor only reads',
+      { name: spec.name, tier: spec.tier, method },
+    );
   }
 
   // A URL travels in logs, in redirects and in the other end's access log; a

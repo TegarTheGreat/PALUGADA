@@ -2386,16 +2386,42 @@ inserting a second row, because its unique key treated NULLs as distinct
 (0044). An archive with a corrected fact or a withdrawn approval could not be
 restored, and a failed import left half a company behind; import is one
 transaction now (0045). Retention reaches the journal's copies of model
-replies and the bookkeeping tables (0046).
+replies and the bookkeeping tables (0046). An archive left columns behind --
+a credential's scopes, a goal's status, a division's escalation policy, the
+charters, the distillation watermark -- and is now compared column by column
+with the database, so a column added later travels or is named as staying
+behind.
+
+The application role could do anything to anything inside its own company:
+clear its freeze, raise its own ceilings, rewrite the traces its spend is
+summed from, delete history. Its grants are now what the code writes,
+established by logging every statement it ran across the suite (0047). Row
+security never kept a row from *pointing* into another company, because a
+foreign key is checked past it; every reference between tenant tables is on
+`(company_id, id)` now (0048). A schedule's priority reached nothing, and a
+task knew its schedule only by the text of its key (0049).
+
+### The owner's surface
+
+Sessions were held in each process's memory, so a second console replica
+answered "sign in first" to a token the first had issued, and a device revoked
+through one process stayed signed in on the other. They are rows now, stored
+as the token's hash (0050), and a revoked device is checked on every request
+rather than remembered by whoever revoked it. The console answered to any
+`Host`, so a page on a name rebound to 127.0.0.1 reached a loopback console as
+same-origin; it answers only to its own names now. Pairing a runtime device
+named an id, and a re-registration keeps the id and swaps the key -- so the
+key trusted was whichever registered last. A pairing now carries the key's
+fingerprint as the owner compared it with the machine, a full SHA-256 of the
+key that OpenSSL can reproduce, and a revoked device is not paired back.
 
 ### Not changed, and why
 
-The application role still holds broader grants than the code uses. Narrowing
-them is right and is also the one change here that could break a path only
-production exercises; it is left for a migration with its own review.
-Sessions are held in each process's memory, so a deployment with two console
-replicas signs the owner in to one of them; that is a documented property of
-the design rather than a defect found today.
+References into `events` keep their single-column foreign keys: they record
+where a memory or a decision came from, no request supplies them, and a second
+unique key on the largest table is the wrong trade for that. Events written
+before pairing named the key carry the older, shorter fingerprint of the PEM
+text; they are history, and are left as written.
 
 ## 3. Decisions, deviations, and what is unverified
 

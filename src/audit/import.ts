@@ -155,6 +155,7 @@ const SECTIONS: ImportSection[] = [
     force: { enabled: false },
   },
   { name: 'trigger_deliveries', table: 'trigger_deliveries', references: ['trigger_id', 'task_id'] },
+  { name: 'handoff_rules', table: 'handoff_rules', references: ['from_role_id', 'to_role_id'] },
   { name: 'metric_observations', table: 'metric_observations', references: ['metric_id', 'task_id'] },
   { name: 'agent_runs', table: 'agent_runs', references: ['task_id', 'role_id'] },
   { name: 'run_notes', table: 'run_notes', references: ['task_id', 'agent_run_id'] },

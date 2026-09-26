@@ -338,6 +338,18 @@ export interface TaskDetail {
 }
 
 /** An inbound trigger (0054): a URL another service posts events to. */
+/** When one role finishes, another takes over (0058). */
+export interface HandoffRule {
+  id: string;
+  fromRoleId: string;
+  fromRoleSlug: string;
+  toRoleId: string;
+  toRoleSlug: string;
+  brief: string;
+  enabled: boolean;
+  createdAt: string;
+}
+
 /** How a trigger's caller proves itself (0056). */
 export type TriggerScheme = 'bearer' | 'github' | 'stripe' | 'slack' | 'standard';
 

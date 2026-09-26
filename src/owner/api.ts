@@ -75,6 +75,7 @@ import { costTimeline, platformCost } from '../reporting/cost.ts';
 import { rotateCredential } from '../secrets/rotation.ts';
 import type { SecretManager } from '../secrets/manager.ts';
 import { assertStage, loosens, setStage, stageOf, type Stage } from '../domain/stage.ts';
+import { createHandoffRule, handoffRulesOf, setHandoffRuleEnabled } from '../engine/handoff-rules.ts';
 import { appendEvent, readTaskEvents } from '../audit/event-log.ts';
 import { describeReplay, replayTask } from '../engine/replay.ts';
 import { assignTask } from '../scheduler/wake.ts';
@@ -1055,6 +1056,41 @@ export class OwnerApi {
         maxBodyBytes: 256 * 1024,
         handle: async ({ params, request, raw }) =>
           receiveHook(params.publicId!, { raw, headers: request.headers }, this.#options.secrets),
+      },
+
+      {
+        method: 'GET',
+        pattern: '/api/companies/:companyId/handoffs',
+        handle: async ({ params }) => ({ handoffs: await handoffRulesOf(params.companyId!) }),
+      },
+
+      {
+        // A chain starts work without anyone asking each time, so making one
+        // takes the device, as a schedule's is the owner's to set (0058).
+        method: 'POST',
+        pattern: '/api/companies/:companyId/handoffs',
+        handle: async ({ params, body }) => {
+          await this.#requireFactor(body.proof, 'let one role start work for another', params.companyId!);
+          return {
+            ruleId: await createHandoffRule(params.companyId!, {
+              fromRoleId: requireText(body.fromRoleId, 'fromRoleId'),
+              toRoleId: requireText(body.toRoleId, 'toRoleId'),
+              brief: requireText(body.brief, 'brief'),
+            }),
+          };
+        },
+      },
+
+      {
+        // Switching one off is the session's; on again is the device's.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/handoffs/:ruleId',
+        handle: async ({ params, body }) => {
+          const enabled = body.enabled === true;
+          if (enabled) await this.#requireFactor(body.proof, 'switch a handoff back on', params.companyId!);
+          await setHandoffRuleEnabled(params.companyId!, params.ruleId!, enabled);
+          return { ok: true };
+        },
       },
 
       {

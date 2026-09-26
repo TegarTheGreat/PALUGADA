@@ -101,15 +101,15 @@ export async function processHandoffs(
 
   for (const rule of rules) {
     const roles = await withTenant(companyId, async (tx) => {
-      const { rows } = await tx.query<{ slug: string; id: string }>(
-        'SELECT slug, id FROM roles WHERE slug = ANY($1::text[])',
+      const { rows } = await tx.query<{ slug: string; id: string; division_id: string }>(
+        'SELECT slug, id, division_id FROM roles WHERE slug = ANY($1::text[])',
         [[rule.fromRoleSlug, rule.toRoleSlug]],
       );
-      return new Map(rows.map((row) => [row.slug, row.id]));
+      return new Map(rows.map((row) => [row.slug, row]));
     });
-    const fromRoleId = roles.get(rule.fromRoleSlug);
-    const successorRoleId = roles.get(rule.toRoleSlug);
-    if (!fromRoleId || !successorRoleId) continue;
+    const fromRoleId = roles.get(rule.fromRoleSlug)?.id;
+    const successor = roles.get(rule.toRoleSlug);
+    if (!fromRoleId || !successor) continue;
 
     const owed = await withTenant(companyId, async (tx) => {
       const { rows } = await tx.query<CompletedTask>(
@@ -131,7 +131,7 @@ export async function processHandoffs(
     });
 
     for (const task of owed) {
-      const created = await handOff(companyId, rule, task, successorRoleId, options);
+      const created = await handOff(companyId, rule, task, successor, options);
       if (created) results.push({ fromTaskId: task.id, toTaskId: created, toRoleSlug: rule.toRoleSlug });
     }
   }
@@ -144,9 +144,10 @@ async function handOff(
   companyId: string,
   rule: HandoffRule,
   task: CompletedTask,
-  successorRoleId: string,
+  successorRole: { id: string; division_id: string },
   options: { reserveTokens?: number },
 ): Promise<string | null> {
+  const successorRoleId = successorRole.id;
   const input = rule.mapInput(task.output ?? {});
   if (input === null) {
     await record(companyId, task.id, rule.toRoleSlug, { outcome: 'declined' });
@@ -175,7 +176,10 @@ async function handOff(
     successor = await createSubTask(task.id, {
       companyId,
       projectId: task.project_id,
-      divisionId: task.division_id,
+      // The successor's own division, whose grants the broker will read. It
+      // was the predecessor's, which let a reviewer handed work from content
+      // act with content's grants (0058 now refuses the pair).
+      divisionId: successorRole.division_id,
       roleId: successorRoleId,
       input,
       createdBy: 'event',

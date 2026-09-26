@@ -52,6 +52,7 @@ import { evaluateCircuitBreakers, evaluateSpendLimit } from './governance/spend-
 import * as inbox from './inbox/inbox.ts';
 import { runRetention } from './retention/retention.ts';
 import { processHandoffs, type HandoffRule } from './engine/handoff.ts';
+import { ownerHandoffRules } from './engine/handoff-rules.ts';
 import {
   digestOwed,
   dispatch,
@@ -356,7 +357,8 @@ export class Worker {
         // the engine is what starts it -- not the finishing agent naming who
         // to call. Driven from state, so a worker that was down when the task
         // completed still performs the handoff when it comes back.
-        const rules = this.#options.handoffRules ?? [];
+        // The deployment's rules in code, and the ones the owner set (0058).
+        const rules = [...(this.#options.handoffRules ?? []), ...await ownerHandoffRules(company)];
         if (rules.length > 0) {
           report.handedOff += (await processHandoffs(company, rules)).length;
         }

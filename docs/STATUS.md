@@ -2626,6 +2626,21 @@ rest are listed at the end.
   `pg` 8 queues them and warns; `pg` 9 refuses, so the page would have
   stopped working on the next upgrade. They run in order now, and the test
   setup turns that warning into a failure for whichever file causes it.
+- Chain roles (0058, `src/engine/handoff-rules.ts`, Team, "Handoffs"): the
+  owner says "when this role finishes, that one takes over, with this
+  brief", and the worker runs it every tick beside any rules in code. A
+  deployment started from the README had no handoff rules at all, so no
+  work followed on from other work unless an agent delegated it. The
+  successor is a sub-task of the finished work (hop limit, fan-out bound,
+  budget chain and F8.9's "begun outside" all carry), handed the
+  predecessor's output as context beside the brief and never as the brief.
+  Making a chain and switching one back on take the device.
+- A defect found building that: the handoff engine filed each successor
+  under its predecessor's division, which is the division whose grants and
+  policies the broker reads -- so a reviewer handed work from content would
+  have acted with content's grants, against F7.3. It uses the successor
+  role's division, and the database now refuses any task whose division is
+  not its role's (`tasks_role_in_its_division`).
 - Measure goals by numbers (section 2.19).
 
 **F8.9, enforced where it does not depend on the model.** The untrusted

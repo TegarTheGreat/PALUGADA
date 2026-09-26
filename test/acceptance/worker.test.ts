@@ -596,6 +596,26 @@ test('one tick runs a task and then the handoff it owes (F6.1, F6.3)', async () 
   assert.equal(second.handedOff, 0, 'and the rule did not fire a second time');
 });
 
+/**
+ * And the owner's handoffs (0058), which need no code: a deployment started
+ * from the README runs the rules the owner made in the console.
+ */
+test("a tick runs the owner's handoffs too, with no rule in code", async () => {
+  const fixture = await createCompany('worker-owner-handoff');
+  const writerId = await addRole(fixture, 'writer');
+  const { createHandoffRule } = await import('../../src/engine/handoff-rules.ts');
+  await createHandoffRule(fixture.companyId, { fromRoleId: fixture.roleId, toRoleId: writerId, brief: 'Write it up.' });
+
+  const briefs: string[] = [];
+  const worker = workerFor(fixture, async () => ({ findings: ['a'] }), {
+    handlers: { writer: async (ctx) => { briefs.push(String(ctx.task.input.goal)); return { draft: 'done' }; } },
+  });
+  await newTask(fixture);
+  assert.equal((await worker.tick()).handedOff, 1);
+  await worker.tick();
+  assert.deepEqual(briefs, ['Write it up.']);
+});
+
 /** One model call that cost something, at a chosen time. */
 async function seedTrace(
   fixture: Fixture,

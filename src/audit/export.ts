@@ -143,6 +143,12 @@ const SECTIONS: Section[] = [
             FROM triggers ORDER BY created_at`,
   },
   {
+    // 0058. Which role takes over when another finishes, and with what brief.
+    name: 'handoff_rules',
+    sql: `SELECT id, from_role_id, to_role_id, brief, enabled, created_at
+            FROM handoff_rules ORDER BY created_at`,
+  },
+  {
     // After the tasks, which a delivery names.
     name: 'trigger_deliveries',
     sql: `SELECT id, trigger_id, delivery_key, received_at, outcome, task_id

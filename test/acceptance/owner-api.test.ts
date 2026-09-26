@@ -3645,6 +3645,30 @@ test('the owner hires a role and opens a division with the device, and starts a 
   }
 });
 
+/** Handoffs over HTTP (0058): made and switched on with the device, off with the session. */
+test('the owner chains two roles with the device and switches the chain off with the session (0058)', async () => {
+  const owner = await console_();
+  try {
+    const fixture = await createCompany('handoff-http');
+    const token = await signIn(owner.url, owner.code());
+    const { addRole } = await import('../helpers/fixtures.ts');
+    const writerId = await addRole(fixture, 'writer');
+    const base = `/api/companies/${fixture.companyId}/handoffs`;
+    const rule = { fromRoleId: fixture.roleId, toRoleId: writerId, brief: 'Write it up.' };
+    assert.notEqual((await call(owner.url, 'POST', base, { token, body: rule })).status, 200);
+    const made = await call(owner.url, 'POST', base, { token, body: { ...rule, proof: { totp: owner.code() } } });
+    assert.equal(made.status, 200, JSON.stringify(made.body));
+    const path = `${base}/${String(made.body.ruleId)}`;
+    assert.equal((await call(owner.url, 'POST', path, { token, body: { enabled: false } })).status, 200);
+    assert.notEqual((await call(owner.url, 'POST', path, { token, body: { enabled: true } })).status, 200);
+    const listed = await call(owner.url, 'GET', base, { token });
+    assert.deepEqual((listed.body.handoffs as Array<{ toRoleSlug: string; enabled: boolean }>)
+      .map((one) => [one.toRoleSlug, one.enabled]), [['writer', false]]);
+  } finally {
+    await owner.close();
+  }
+});
+
 /**
  * Inbound triggers over HTTP (0054): the owner opens one with their device,
  * another service posts to its URL with its token, and a wrong token, an

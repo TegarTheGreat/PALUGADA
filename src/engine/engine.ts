@@ -147,6 +147,12 @@ export interface RunOutcome {
   waitUntil?: Date | null;
 }
 
+/**
+ * The broker's refusals that mean "wait", not "no": the task parks on them
+ * rather than failing, however the runtime reacted to being told.
+ */
+const PARKING_CODES: ReadonlySet<string> = new Set(['approval.required', 'review.required', 'window.closed']);
+
 export class Engine {
   readonly #options: EngineOptions;
   readonly #workerId: string;
@@ -606,18 +612,36 @@ export class Engine {
         return value;
     };
 
+    // The broker's answer when the task now waits on somebody: the owner for
+    // an approval, a reviewer, or the clock for a window. An in-process
+    // handler meets it as a throw that ends the run. A runtime in another
+    // process is told it as a refused tool call and carries on -- and then
+    // says `done`, and the engine used to try to complete a task that was
+    // waiting for the owner, fail on the illegal move, and throw out of
+    // `runTask` with the approval still open. So the first such answer is
+    // kept, the run is withdrawn, and the task parks as it would have had
+    // the throw ended it.
+    let parked: PalugadaError | null = null;
     const callTool = async <I, O,>(name: string, input: I): Promise<O> => {
-      return step(`capability:${name}`, 'tool', { name, input }, async (key) => {
-          const result = await this.#options.broker.invoke<I, O>(
-            {
-              companyId, projectId: task.projectId, divisionId: task.divisionId,
-              taskId, roleId: task.roleId, idempotencyKey: key, signal: controller.signal,
-            },
-            name,
-            input,
-          );
-        return result.output;
-      });
+      try {
+        return await step(`capability:${name}`, 'tool', { name, input }, async (key) => {
+            const result = await this.#options.broker.invoke<I, O>(
+              {
+                companyId, projectId: task.projectId, divisionId: task.divisionId,
+                taskId, roleId: task.roleId, idempotencyKey: key, signal: controller.signal,
+              },
+              name,
+              input,
+            );
+          return result.output;
+        });
+      } catch (error) {
+        if (!parked && error instanceof PalugadaError && PARKING_CODES.has(error.code)) {
+          parked = error;
+          controller.abort();
+        }
+        throw error;
+      }
     };
 
     const awaitChild = async (
@@ -895,6 +919,9 @@ export class Engine {
         },
         services,
       );
+      // Whatever the runtime produced after being told to wait is not the
+      // task's output: the action it was waiting for has not happened.
+      if (parked) throw parked;
       // F6.2, F6.3: validated before the task is marked complete, because a
       // downstream task triggered by `task.completed` has no other guarantee
       // about what it is about to read.
@@ -939,7 +966,10 @@ export class Engine {
       if (lease.lost) {
         return { status: 'not_claimed', reason: 'the lease was lost while the run was in flight' };
       }
-      return this.#classifyFailure(companyId, taskId, error, agentRunId);
+      // The run may have ended on something else by the time it stopped --
+      // the runtime reacting to the withdrawal, or failing on its own -- but
+      // the reason it stopped is the wait.
+      return this.#classifyFailure(companyId, taskId, parked ?? error, agentRunId);
     } finally {
       lease.stop();
     }

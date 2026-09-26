@@ -32,6 +32,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { startToolBridge } from '../../src/runtime/tool-bridge.ts';
 import { Engine } from '../../src/engine/engine.ts';
+import { registerPlatformCapabilities } from '../../src/broker/platform-capabilities.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { CapabilityRegistry, type Capability } from '../../src/broker/registry.ts';
 import { createRootTask, getTask } from '../../src/engine/tasks.ts';
@@ -1851,4 +1852,50 @@ test('a usage report is read, not cast', () => {
     type: 'usage',
     usage: { model: 'm', inputTokens: 1, outputTokens: 1, costCents: 12, runTotal: true },
   });
+});
+
+/**
+ * A runtime's call that needs the owner parks the task; the run's ending does
+ * not complete it.
+ *
+ * The broker answers a tier 2 call by opening an approval and moving the task
+ * to `waiting_approval`. For an in-process handler that answer is a throw
+ * that ends the run. A runtime in another process is told it as a refused
+ * tool call and carries on -- and then says `done`, and the engine used to
+ * try to complete a task that was waiting for the owner.
+ */
+test('a runtime whose call needs the owner leaves its task waiting for the owner (F10.1, F13.4)', async () => {
+  const fixture = await createCompany('script-approval');
+  let executed = 0;
+  const transfer: Capability<{ zone: string }, { ok: boolean }> = {
+    name: 'dns.write',
+    adapter: 'test:dns',
+    // Tier 3: the owner is asked, whatever else is true.
+    defaultTier: 3,
+    async execute() {
+      executed += 1;
+      return { ok: true };
+    },
+    async verify() {
+      return true;
+    },
+  };
+  const registry = new CapabilityRegistry();
+  registry.register(transfer);
+  registerPlatformCapabilities(registry);
+  await registry.sync();
+  for (const name of ['dns.write', 'plan.record']) await grantCapability(fixture, name);
+  const broker = new CapabilityBroker(registry);
+  await configureRole(fixture, { runtime: 'script', tools: ['plan.record', 'dns.write'] });
+  const task = await newTask(fixture, { script: 'plan_then_write' });
+
+  const outcome = await engineWith(broker, scriptAdapter()).runTask(fixture.companyId, task.id, 'worker');
+  const after = await withTenant(fixture.companyId, (tx) => tx.query<{ status: string }>(
+    'SELECT status FROM tasks WHERE id = $1', [task.id]));
+  const items = await withTenant(fixture.companyId, (tx) => tx.query<{ kind: string; status: string }>(
+    'SELECT kind, status FROM inbox_items WHERE task_id = $1', [task.id]));
+  assert.deepEqual({ outcome: outcome.status, task: after.rows[0]!.status, items: items.rows }, {
+    outcome: 'waiting_approval', task: 'waiting_approval', items: [{ kind: 'approval', status: 'open' }],
+  }, JSON.stringify(outcome));
+  assert.equal(executed, 0, 'nothing irreversible ran before the owner said so');
 });

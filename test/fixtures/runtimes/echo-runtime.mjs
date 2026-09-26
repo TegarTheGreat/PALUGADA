@@ -70,6 +70,16 @@ async function act(req) {
     say({ type: 'done', output: { answer } });
     return;
   }
+  if (script === 'plan_then_write') {
+    // A tier 2 write the way a well-behaved runtime makes one: plan first,
+    // then the call, then whatever it says when the call is refused.
+    await callTool('plan.record', {
+      steps: [{ capability: 'dns.write', intent: 'point the apex at the new host', expectedEffect: 'the zone has the new record' }],
+    });
+    const answer = await callTool('dns.write', { zone: 'example.com' });
+    say({ type: 'done', output: { answer } });
+    return;
+  }
   if (script === 'call_forbidden') {
     const answer = await callTool('dns.write', { zone: 'example.com' });
     say({ type: 'done', output: { answer } });

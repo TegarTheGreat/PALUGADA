@@ -98,6 +98,8 @@ import {
   type StructuralChange,
 } from '../governance/structure.ts';
 import { putPolicy } from '../governance/store.ts';
+import { history as configHistory, type ConfigKind } from '../governance/config-versions.ts';
+import { rollBack } from '../governance/rollback.ts';
 import { assertValidCondition, type Condition } from '../policy/condition.ts';
 import { POLICY_EFFECTS, type PolicyEffect } from '../policy/engine.ts';
 import { setThresholds } from '../reporting/alerts.ts';
@@ -1574,6 +1576,62 @@ export class OwnerApi {
         },
       },
 
+      {
+        // What the company's policies are. The console could write one and
+        // not show any: an owner deciding whether to add a rule could not see
+        // the rules already there. The platform's own are listed too, because
+        // they outrank every company's and a company rule may only tighten
+        // them (F3.5).
+        method: 'GET',
+        pattern: '/api/companies/:companyId/policies',
+        handle: async ({ params }) => withTenant(params.companyId!, async (tx) => {
+          const { rows } = await tx.query<{
+            id: string; slug: string; effect: string; condition: unknown; mode: string;
+            scope: string; division: string | null; created_at: Date;
+          }>(
+            `SELECT p.id, p.slug, p.effect, p.condition, p.mode, p.created_at,
+                    CASE WHEN p.company_id IS NULL THEN 'platform'
+                         WHEN p.division_id IS NULL THEN 'company' ELSE 'division' END AS scope,
+                    d.name AS division
+               FROM policies p LEFT JOIN divisions d ON d.id = p.division_id
+              ORDER BY (p.company_id IS NULL) DESC, p.division_id NULLS FIRST, p.slug`,
+          );
+          return {
+            policies: rows.map((row) => ({
+              id: row.id, slug: row.slug, effect: row.effect, condition: row.condition, mode: row.mode,
+              scope: row.scope, division: row.division, createdAt: row.created_at,
+            })),
+          };
+        }),
+      },
+
+      {
+        // F3.9: every recorded version of one piece of configuration, newest
+        // first, with what it held.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/config/:kind/history',
+        handle: async ({ params, query }) => ({
+          versions: await configHistory(
+            params.companyId!, configKind(params.kind), query.get('subject') || null,
+          ),
+        }),
+      },
+
+      {
+        // F3.9's one click. A version put back can widen what a role may do
+        // or loosen a rule, so it takes the owner's device.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/config/:kind/rollback',
+        handle: async ({ params, body }) => {
+          const kind = configKind(params.kind);
+          const version = wholeNumber(body.version, 'version');
+          await this.#requireFactor(body.proof, `put back version ${version} of a ${kind}`, params.companyId!);
+          return rollBack(
+            params.companyId!, kind, typeof body.subjectId === 'string' ? body.subjectId : null, version,
+          );
+        },
+      },
+
       /* ------------------------------------------------------------ F15 --- */
 
       {
@@ -2244,6 +2302,13 @@ function statusFor(code: string): number {
   if (code === 'hook.unknown') return 404;
   if (code === 'hook.refused') return 401;
   return 400;
+}
+
+/** A configuration kind from a path, or a refusal that lists the ones there are. */
+function configKind(value: unknown): ConfigKind {
+  const kinds: readonly ConfigKind[] = ['charter', 'policy', 'role', 'grant', 'bundle', 'skill'];
+  if (typeof value === 'string' && (kinds as readonly string[]).includes(value)) return value as ConfigKind;
+  throw new PalugadaError('contract.violation', `a configuration kind is one of ${kinds.join(', ')}`, { kind: value });
 }
 
 function proofFrom(value: unknown): { totp: string } | { webauthn: WebAuthnAssertion } {

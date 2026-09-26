@@ -348,3 +348,27 @@ export interface Trigger {
   lastDeliveryAt: string | null;
   createdAt: string;
 }
+
+/** One recorded version of a piece of configuration (F3.9). */
+export interface ConfigVersion {
+  id: string;
+  kind: string;
+  subjectId: string | null;
+  version: number;
+  snapshot: Record<string, unknown>;
+  summary: string;
+  changedBy: string;
+  createdAt: string;
+}
+
+/** A policy as the company's policy list shows it. */
+export interface PolicyRow {
+  id: string;
+  slug: string;
+  effect: string;
+  condition: unknown;
+  mode: string;
+  scope: 'platform' | 'company' | 'division';
+  division: string | null;
+  createdAt: string;
+}

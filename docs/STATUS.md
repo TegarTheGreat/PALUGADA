@@ -2514,6 +2514,14 @@ rest are listed at the end.
   withdraws the run and parks the task on it.
 - *Company restore could not be reached.* `importCompany` was called only by
   tests while the README promised a restore.
+- *F3.9's rollback was half built.* Every change to a charter, a policy or a
+  role was recorded as a version, and `history` and `restore` had no caller;
+  `restore` returned a snapshot for a caller that did not exist, so nothing
+  was ever put back. `src/governance/rollback.ts` now makes a version live
+  through the write path a change takes, so the rollback is a version and an
+  event of its own. The console shows a role's history in its drawer and the
+  company's policies -- which it could write and not list -- each with theirs,
+  and putting one back takes the owner's device.
 
 **What the owner can now do**
 

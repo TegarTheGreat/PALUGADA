@@ -16,7 +16,7 @@ import {
 import { api, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { useLoad } from '../hooks.ts';
-import type { Division, Goal, Role, Schedule, Structure } from '../types.ts';
+import type { Division, Goal, PolicyRow, Role, Schedule, Structure } from '../types.ts';
 import { count, dateTime, goalKind, money, relative } from '../format.ts';
 import type { PageProps } from '../App.tsx';
 import { N, t } from '../i18n.ts';
@@ -25,6 +25,7 @@ import { ActionButton, ActionForm } from '../components/ActionForm.tsx';
 import { AssignWork } from '../components/AssignWork.tsx';
 import { GoalMetrics } from '../components/Metrics.tsx';
 import { Triggers } from '../components/Triggers.tsx';
+import { ConfigHistory } from '../components/ConfigHistory.tsx';
 
 export function Organization({ ctx }: PageProps) {
   const { companyId } = ctx;
@@ -285,6 +286,10 @@ function RoleDrawer({
             <Accordion.Item value="evals">
               <Accordion.Control>{t('Eval set and change requests')}</Accordion.Control>
               <Accordion.Panel><RoleEvals companyId={companyId} role={role} /></Accordion.Panel>
+            </Accordion.Item>
+            <Accordion.Item value="history">
+              <Accordion.Control>{t('History')}</Accordion.Control>
+              <Accordion.Panel><ConfigHistory companyId={companyId} kind="role" subjectId={role.id} changed={changed} /></Accordion.Panel>
             </Accordion.Item>
           </Accordion>
         </Stack>
@@ -713,6 +718,8 @@ function Policies({ companyId }: { companyId: string }) {
   };
 
   return (
+    <Stack gap="lg">
+    <PolicyList companyId={companyId} />
     <Section title={t('Write a policy')} description={t('The condition is JSON and the engine validates it. A lower scope may only tighten what a broader one set.')}>
       <Stack>
         <SimpleGrid cols={{ base: 1, sm: 2 }}>
@@ -727,7 +734,60 @@ function Policies({ companyId }: { companyId: string }) {
         <Group><Button disabled={!slug || !effect} onClick={() => void write()}>{t('Write it')}</Button></Group>
       </Stack>
     </Section>
+    </Stack>
   );
+}
+
+/** The rules the company works under, broadest first, each with its history (F3.5, F3.9). */
+function PolicyList({ companyId }: { companyId: string }) {
+  const view = useLoad(async () => {
+    const answer: { policies: PolicyRow[] } = await api('GET', `/api/companies/${companyId}/policies`);
+    return answer.policies;
+  }, [companyId], { every: 30_000 });
+  const [open, setOpen] = useState<PolicyRow | null>(null);
+  const scopeLabel = (policy: PolicyRow) => policy.scope === 'platform' ? t('Platform')
+    : policy.scope === 'company' ? t('Company') : t('Division {division}', { division: policy.division ?? '' });
+
+  return (
+    <Section title={t('Policies in force')} description={t('Broadest first. The platform\'s rules outrank the company\'s, and a narrower rule may only tighten a broader one.')} padding={0}>
+      {view.error && !view.data ? <LoadFailed message={view.error} retry={view.reload} /> : !view.data ? <Loading rows={2} /> : view.data.length === 0 ? (
+        <Text size="sm" c="dimmed" px="lg" pb="lg">{t('No policies. Tiers alone decide what needs you.')}</Text>
+      ) : (
+        <Table.ScrollContainer minWidth={560}>
+          <Table verticalSpacing="sm">
+            <Table.Tbody>
+              {view.data.map((policy) => (
+                <Table.Tr key={policy.id}>
+                  <Table.Td>
+                    <Text size="sm" fw={600}>{policy.slug}</Text>
+                    <Text size="xs" c="dimmed">{scopeLabel(policy)}{policy.mode === 'log_only' ? ` · ${t('Only logged')}` : ''}</Text>
+                  </Table.Td>
+                  <Table.Td><Badge variant="light" color={policy.effect === 'deny' ? 'red' : policy.effect === 'allow' ? 'teal' : 'orange'}>{policyEffectLabel(policy.effect)}</Badge></Table.Td>
+                  <Table.Td maw={320}><Text size="xs" ff="monospace" lineClamp={2}>{JSON.stringify(policy.condition)}</Text></Table.Td>
+                  <Table.Td ta="right">
+                    {policy.scope !== 'platform' && (
+                      <Button size="compact-xs" variant="subtle" onClick={() => setOpen(policy)}>{t('History')}</Button>
+                    )}
+                  </Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        </Table.ScrollContainer>
+      )}
+      <Modal opened={open !== null} onClose={() => setOpen(null)} title={open?.slug} size="lg" centered>
+        {open && <ConfigHistory companyId={companyId} kind="policy" subjectId={open.id} changed={view.reload} />}
+      </Modal>
+    </Section>
+  );
+}
+
+function policyEffectLabel(effect: string): string {
+  if (effect === 'allow') return t('Allow');
+  if (effect === 'deny') return t('Deny');
+  if (effect === 'require_review') return t('Require a review');
+  if (effect === 'require_approval') return t('Require your approval');
+  return effect;
 }
 
 function Mini({ label, value }: { label: string; value: string }) {

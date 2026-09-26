@@ -3591,3 +3591,44 @@ test('an outside service starts work through a trigger the owner opened (0054)',
     await owner.close();
   }
 });
+
+/**
+ * F3.9 from the console: the owner sees the company's policies, reads a
+ * role's versions, and puts one back with their device.
+ */
+test('the owner reads the policies and a role\'s history, and puts a version back (F3.5, F3.9)', async () => {
+  const owner = await console_();
+  try {
+    const fixture = await createCompany('rollback-http');
+    const token = await signIn(owner.url, owner.code());
+    const { applyRoleChange } = await import('../../src/governance/structure.ts');
+    const { putPolicy } = await import('../../src/governance/store.ts');
+    const { withTenant } = await import('../../src/db/tenant.ts');
+    await putPolicy({
+      companyId: fixture.companyId, slug: 'no-ads', effect: 'deny',
+      condition: { op: 'matches', field: 'tool', value: 'ads.*' },
+    });
+    await applyRoleChange(fixture.companyId, fixture.roleId, { systemPrompt: 'Be terse.' }, { ownerApproved: true });
+
+    const policies = await call(owner.url, 'GET', `/api/companies/${fixture.companyId}/policies`, { token });
+    const listed = policies.body.policies as Array<{ slug: string; scope: string }>;
+    assert.ok(listed.some((policy) => policy.slug === 'no-ads' && policy.scope === 'company'));
+
+    const base = `/api/companies/${fixture.companyId}/config/role`;
+    const history = await call(owner.url, 'GET', `${base}/history?subject=${fixture.roleId}`, { token });
+    assert.equal((history.body.versions as unknown[]).length, 1);
+    assert.equal((await call(owner.url, 'GET', `/api/companies/${fixture.companyId}/config/nonsense/history`, { token })).status, 400);
+
+    const unproven = await call(owner.url, 'POST', `${base}/rollback`, { token, body: { subjectId: fixture.roleId, version: 1 } });
+    assert.notEqual(unproven.status, 200, 'putting a version back takes the owner\'s device');
+    const done = await call(owner.url, 'POST', `${base}/rollback`, {
+      token, body: { subjectId: fixture.roleId, version: 1, proof: { totp: owner.code() } },
+    });
+    assert.equal(done.status, 200, JSON.stringify(done.body));
+    const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ system_prompt: string }>(
+      'SELECT system_prompt FROM roles WHERE id = $1', [fixture.roleId]));
+    assert.notEqual(rows[0]!.system_prompt, 'Be terse.');
+  } finally {
+    await owner.close();
+  }
+});

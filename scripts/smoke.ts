@@ -30,7 +30,7 @@ import {
 } from '../src/templates/company.ts';
 import { STANDARD_COMPANY_TEMPLATE } from '../src/templates/standard.ts';
 import { createRootTask, getTask } from '../src/engine/tasks.ts';
-import { withTenant, withControlPlane } from '../src/db/tenant.ts';
+import { withTenant } from '../src/db/tenant.ts';
 import { closePools } from '../src/db/pool.ts';
 import { raiseIncident, requestApproval, decide, listOpen } from '../src/inbox/inbox.ts';
 import { registerPlatformCapabilities } from '../src/capabilities/platform.ts';

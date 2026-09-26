@@ -15,7 +15,7 @@ import { generateKeyPairSync, sign } from 'node:crypto';
 import { mkdtemp, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { withTenant, withControlPlane } from '../../src/db/tenant.ts';
+import { withTenant } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
 import { isPalugadaError } from '../../src/errors.ts';
 import * as budget from '../../src/engine/budget.ts';

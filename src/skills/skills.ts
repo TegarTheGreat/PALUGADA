@@ -547,7 +547,10 @@ export interface ImportExternalSkillInput {
 export async function importExternalSkill(
   input: ImportExternalSkillInput,
 ): Promise<ProposedVersion & { quarantined: boolean }> {
-  const document = parseSkillDocument(input.source);
+  // Parsed first and thrown away: a document that is not a valid SKILL.md is
+  // refused before its signature is even looked at, and `proposeSkillVersion`
+  // parses it again from the source it stores.
+  parseSkillDocument(input.source);
 
   // Three outcomes, and the middle one is the useful part. A signature that
   // does not verify is refused outright — a false claim of provenance is worse

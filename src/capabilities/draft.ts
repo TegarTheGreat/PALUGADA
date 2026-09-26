@@ -29,7 +29,6 @@
  * called a tool, exactly as it would call `dns.read`. The engine decided
  * nothing. The difference is who holds the reins.
  */
-import { PalugadaError } from '../errors.ts';
 import type { Capability, CapabilityContext } from '../broker/registry.ts';
 import { companyRoot } from './files.ts';
 import type { LlmClient } from '../llm/client.ts';

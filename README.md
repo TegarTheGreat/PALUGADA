@@ -1,932 +1,338 @@
 # PALUGADA
 
-Orchestration platform for running one or more companies whose work is carried
-out entirely by AI agents, with exactly one human as owner. The owner is not a
-daily operator: they are the legal entity, the approver for irreversible
-actions, and the recipient of escalations.
+**Run companies staffed by AI agents, with one human who makes only the
+decisions that matter.**
 
-This is not a collaboration workspace and not a multi-agent chat. It is a
-**durable workflow engine + state store + policy engine + capability broker**,
-with a single human interface: a decision inbox.
+PALUGADA is the control plane for an AI-run company. Agents plan, build,
+market, support customers and keep the books. Every action they take goes
+through a broker that knows what it costs, how hard it is to undo, and who has
+to approve it. The owner does not manage agents. They answer an inbox of
+decisions from the console, a push notification or a Telegram button, and
+nothing irreversible happens until they do.
 
-The product specification is [`docs/PRD.md`](docs/PRD.md) — **v2.0**,
-Indonesian. Code and comments are English; requirement identifiers such as
-`F5.4` refer to sections of that document.
-
-v2 replaces v1, which is kept at [`docs/PRD-v1.md`](docs/PRD-v1.md) because
-most of this codebase was built against it and cites its numbering. Three
-identifiers changed meaning between the two, and
-[`docs/STATUS.md`](docs/STATUS.md) is the map: it lists those, and grades every
-v2 requirement as built, partial or not built.
-
-## Status
-
-**Everything the v1 specification asked for is implemented and tested**, with
-the whole suite running against a real PostgreSQL 16 with pgvector:
-tenant isolation and the durable engine, the charter and policy engine, scoped
-memory with distillation, typed contracts and handoff, adversarial review,
-the capability broker with tier calibration and cost control, durable
-scheduling, credentials and rotation, retention, replay, a code sandbox, and
-audit export. On top of that, **the standard company** — a calibrated
-capability catalogue and a template of function-based divisions that fit any
-line of business, which is the owner's answer to PRD section 14.2.
-
-**PRD v2 is built too**, with three exceptions named below, and there is now a
-worker that assembles the parts into something that runs (`src/worker.ts`) and
-a seed for what a fresh installation needs (`src/seed.ts`). v2 makes PALUGADA
-explicitly a control plane that employs third-party runtimes through an adapter
-protocol — `script`, `http`, `claude-code`, `docker` and the in-process one — and
-adds
-heartbeats and a wake queue, atomic checkout with leases and lanes, lifecycle
-hooks, plan steps, preflight, batch guards, per-scope budgets, a curated skill
-loop, signed bundles, and trajectory evaluation. Its NG6 forbids the platform
-from calling an LLM to do a task; the engine assembles a `RunRequest`, lends
-the runtime four services and does the accounting, and the old handler model is
-now the in-process adapter.
-
-**Every requirement in section 8 is built.** That includes the owner's
-console — `npm start` serves an inbox with the buttons, the trace behind each
-item, and a second factor asked for at the moment of a tier 3 decision — and
-the second factor itself, which is arithmetic rather than a vendor and is
-checked against RFC 6238's own published vectors.
-
-**What cannot be exercised here** is a vendor account: no push service, no bot
-token, no sandbox provider, and none of the four agent CLIs F13.3 names. The
-code for all of them is written and driven end to end against a server on
-loopback; what nobody here can check is whether the vendor on the other end
-agrees about a field name. [What is not exercised](#what-is-not-exercised) says
-which and why; [`docs/STATUS.md`](docs/STATUS.md) grades every requirement and
-records the deliberate deviations.
-
-Two questions in [PRD section 14](docs/PRD.md#14-pertanyaan-terbuka) are
-answered. **14.1: build, and stay adapter-compatible**, on the pass criteria
-the PRD set in advance — see
-[`docs/decisions/0001-fork-versus-build.md`](docs/decisions/0001-fork-versus-build.md).
-**14.3: USD 200 per company per month**, which is now the platform default
-ceiling. Seven remain open, and one of them is worth flagging rather than
-leaving in a list: **14.4, the timezone and owner window, is unset**, so
-everything falls back to UTC. That is a default nobody chose, not a decision —
-escalations and cheap hours are both keyed to it.
-
-## Running it
-
-```ts
-import { Engine } from './src/engine/engine.ts';
-import { CapabilityBroker } from './src/broker/broker.ts';
-import { Worker } from './src/worker.ts';
-import { baseRegistry, seed } from './src/seed.ts';
-
-// Once per installation: the built-in bundles, the standard template, and the
-// charters if they live on disk (F3.11).
-await seed({ charterRoot: '/etc/palugada/charters' });
-
-// `baseRegistry()` binds only what PALUGADA implements itself — memory.search
-// and skill.read. Binding `email.send` to a real provider is yours to do, with
-// your own credentials, and deliberately not something a seed invents.
-const registry = baseRegistry();
-// registry.register(yourEmailAdapter());
-await registry.sync();
-
-const worker = new Worker({
-  engine: new Engine({ broker: new CapabilityBroker(registry), adapters: yourAdapters }),
-  signal: shutdown.signal,
-});
-await worker.start();
-```
-
-A tick reclaims expired leases, fires due schedules, wakes dormant roles,
-drains the wake queue, claims and runs up to its budget, settles reviews and
-expiring approvals, then looks at the money and the failure rate — in that
-order, each position load-bearing, and bounded so that `stopEverything()` bites
-within one polling interval rather than one queue.
-
-### Checking an installation
+One installation runs any number of companies. Each one is isolated in the
+database and has its own structure, budget, memory and history.
 
 ```
+             owner  ── console · push · Telegram ──►  decisions inbox
+                                                           │
+  ┌─────────────────────────────── PALUGADA ───────────────┼──────────────┐
+  │  companies → divisions → roles → tasks           approvals, incidents │
+  │                                                                       │
+  │  durable engine ─► capability broker ─► tiers · policies · budgets    │
+  │        │                  │                                           │
+  │   journal, leases     read-back, plans, review, audit log             │
+  └────────┼──────────────────┼───────────────────────────────────────────┘
+           ▼                  ▼
+   agent runtimes        the outside world
+   (Claude Code, CLIs,   (email, DNS, invoices, deploys …)
+    HTTP, Docker, sandbox)
+```
+
+## Why PALUGADA
+
+### One human, one inbox
+
+PALUGADA is not a chat workspace or a multi-agent conversation. The owner's
+whole job is a queue of decisions, and every card carries what a decision
+needs: what the agent wants to do, which goal it serves (mission → objective →
+key result), how reversible it is, what it costs, what happens if it is
+refused, and the full trace behind it. The owner can approve, deny, or ask a
+question without leaving the task. Decided items move to a searchable history
+that includes the owner's own notes, so a decision never scrolls away.
+
+### The owner decides what cannot be undone
+
+Every capability is classified by its effect, not by the tool that performs
+it:
+
+| Tier | Effect | Examples | What PALUGADA does |
+|---|---|---|---|
+| 0 | Read only | DNS lookup, uptime check, listing files | Runs it |
+| 1 | Cheap to undo | A draft, a staging deploy | Runs it, then reads back to verify |
+| 2 | Costly or spends money | An external email, a purchase | Needs a recorded plan and a budget check first, verified after |
+| 3 | Irreversible | Nameservers, deletions, transfers, signatures | Waits for the owner, in the app, with a second factor |
+
+No policy, template or agent can move a tier 3 action out of the owner's
+hands. An approval nobody answers expires into a cancellation, so silence
+never executes anything. An approval covers exactly one action: if the agent
+comes back with a different amount or recipient, that is a new question.
+
+### Money cannot run away
+
+- Tokens and money are **reserved before a task starts**, charged on every
+  call, and settled against the runtime's own bill when it reports one.
+- **Two ceilings, each enforced on its own**: one per task, and one per
+  company per month (USD 200 by default), with division, project and role
+  accounts underneath.
+- **Warns at 80%, pauses at 100%.** An owner override always carries a
+  deadline.
+- **A circuit breaker watches the rate.** A role that spends more than three
+  times its seven-day average in an hour is stopped while there is still money
+  left.
+- **Usage the runtime did not price is never counted as free.** Until the
+  operator's price list covers the model, it is charged at a deliberately high
+  fallback.
+- **An idle agent costs nothing.** Roles sleep by default. A wake with no work
+  assembles no context and calls no model.
+
+### A crash loses nothing
+
+- Every step is journaled. A resumed run replays committed steps and never
+  repeats a side effect.
+- Atomic checkout with leases means two workers can never run the same task.
+  A dead worker's lease expires and its task resumes with the journal intact.
+- Deadlines, hop limits and cycle detection end runaway work. A halted task
+  goes to the owner and is never retried silently.
+- A vendor that answers "not now" (429 or `Retry-After`) parks the task until
+  the time the vendor gave, without spending any of the task's retries.
+
+### Bring any agent
+
+PALUGADA orchestrates; the agent runtime does the thinking. The engine never
+calls a model to do a task itself. It lends the runtime four things: tool
+calls through the broker, journaled steps, contained sub-tasks, and a way to
+report cost. A runtime never gets credentials or a database connection.
+
+Supported runtimes: in-process, a spawned script, HTTP, **Claude Code**,
+other agent CLIs added from configuration (`hermes`, `openclaw`, `codex`,
+`gemini-cli`), **Docker with no network**, and a remote sandbox. Each spawned
+runtime is killed as a whole process tree. An external runtime is a device:
+it proves who it is by signing a challenge, it is paired by the fingerprint
+of its key, and it stays read-only until the owner vouches for it.
+
+### Isolation lives in the database
+
+Row-level security is forced on every tenant table, and the agents' database
+role cannot bypass it. A row cannot even reference another company's row,
+because foreign keys are scoped to the company. Inside its own company, the
+agents' role can only write what the platform writes. It cannot lift a
+freeze, raise a ceiling, rewrite what a model call cost, or delete history.
+
+## How it compares
+
+PALUGADA was checked against four systems people use to run agents at work.
+The comparison looked for what goes wrong in each of them, and whether the
+same thing goes wrong here.
+
+| | Chat workspaces (Slack, Buzz) | auto-company | Paperclip | **PALUGADA** |
+|---|---|---|---|---|
+| **Who approves an irreversible action** | Buzz auto-approves every tool permission | Nobody: "do not wait for human approval" | An approval with no expiry and no second factor | The owner, in the app, with a second factor. An unanswered approval cancels |
+| **Isolation between companies** | — | — | Application code only (no row-level security policies) | Forced row-level security and company-scoped foreign keys |
+| **Usage an agent did not price** | — | Pauses as "unverifiable" | Recorded at 0¢, so the hard stop never trips | Priced from the operator's list or a high fallback, settled against the runtime's own bill when it reports one |
+| **Budget enforcement** | — | — | Checked at claim, summed afterwards | Reserved at admission, charged per call, rate circuit breaker |
+| **Agents triggering agents** | Buzz: no hop limit | — | — | Hop limit and cycle detection |
+| **Past decisions** | Lost as threads scroll | A consensus file the model rewrites every cycle | — | Stored as records with outcome and owner's note, searchable |
+
+— means not applicable, or not established by the review. Each cell comes
+from the source code at a fixed revision (file and line) or from public
+documentation, cited in
+[`docs/RESEARCH-2026-09.md`](docs/RESEARCH-2026-09.md).
+
+## What's inside
+
+**Companies and structure**
+- Start a company from a template, with no deploy. The standard template is
+  organised by function (Operations, Delivery and Build, Growth, Finance,
+  Support, Assurance, Lab) and has eight roles, so it fits any line of
+  business.
+- Divisions nest two levels deep. A role gets work only when it has an output
+  schema and at least one testable completion criterion.
+- A goal ladder (mission → objective → key result). Every task names the goal
+  it serves, agents can read the strategy but not change it, and the goal
+  chain travels into every approval.
+- Charters are files. Every change to a charter, policy, role or grant is
+  versioned and can be restored.
+
+**Work engine**
+- Durable tasks with journaled steps, atomic checkout, leases, and lanes for
+  work that must not overlap (one repository, one domain).
+- Typed contracts between tasks, handoff on completion, sub-tasks with a
+  mandatory timeout, and fan-out caps.
+- Dry-run replay of any past run, which cannot reach the outside world.
+
+**Capabilities and guardrails**
+- A calibrated capability catalogue. A binding can tighten a tier but never
+  loosen it.
+- Mandatory read-back verification for writes. Plans record a count
+  (contact 3 leads, not 23), and a batch guard holds each call to that count.
+- Preflight: a task whose capability is broken does not start. It raises an
+  incident instead.
+- Declarative policies, where lower scopes can only tighten. Lifecycle hooks
+  can refuse an action and never widen one.
+- Adversarial review by a different role with its own memory. After two
+  revisions, the decision goes to the owner.
+- A role that keeps being denied is frozen until the owner looks.
+- Code-executing capabilities can never also hold a credential or reach
+  tier 2. Capabilities cannot reach the private network.
+- A vendor integration is a JSON spec, not code: method, URL, body template,
+  read-back, idempotency key.
+
+**Scheduling**
+- Durable cron in each schedule's own time zone, with a priority.
+- Vendor windows that defer work instead of failing it. Owner hours that hold
+  non-urgent escalations until the owner is available, while incidents still
+  come through.
+- Cheap hours for batchable, read-only work.
+- A wake queue: roles sleep, wake on assignment or events, and nearby wakes
+  are merged into one run.
+- A schedule whose last five runs produced the same result asks the owner
+  whether it is still worth running.
+
+**Memory and learning**
+- Four kinds of memory (working, episodic, semantic, procedural), scoped per
+  company, project and division, and filtered before any similarity search.
+- Facts are versioned and superseded, never overwritten. Episodes are
+  distilled into facts, and facts into procedures, with the owner approving
+  new procedures.
+- Unverified facts are flagged to the agent in plain words.
+- Skills in an open document format. A candidate skill needs an eval case, a
+  reviewer and the owner before it goes live, and skills from outside start
+  quarantined.
+- Runs export as trajectories. A role eval scores a proposed change before
+  the owner decides on it.
+
+**The owner's console**
+- Tabs for Decisions, History, Money, Health, Settings, Structure, Skills,
+  Bundles and Devices.
+- Push for incidents and tier 3 approvals. Telegram buttons for the decisions
+  a chat is allowed to make, and those buttons are removed once the item is
+  decided elsewhere.
+- Sign-in and approvals with a TOTP code. The API also verifies passkeys,
+  though the console page cannot present one yet. Loosening a control needs a
+  second factor; tightening one needs only the session.
+- Stop everything, freeze a company, or kill one capability. A daily digest,
+  a weekly retro, and alerts that fire once per condition per day.
+
+**Security and audit**
+- An append-only event log with separate security events.
+- Secrets are references (`env://`, `file://`), redacted from anything on its
+  way to a durable record, and can be rotated without a restart.
+- Retention is the only code that deletes anything, and it records what it
+  removed.
+- A whole company can be exported and restored on another instance, with every
+  reference remapped.
+- Signed bundles and trusted publishers. An unsigned bundle installs with
+  read-only grants.
+- Console sessions are shared by every replica and stored hashed. They end
+  everywhere when their device is revoked. The console answers only to its
+  own host names, which blocks DNS rebinding.
+
+## Get started
+
+Requires **Node 22.18+**, which runs TypeScript directly with no build step,
+and **PostgreSQL 16** with [pgvector](https://github.com/pgvector/pgvector).
+
+```sh
+npm install
+npm run db:setup      # database and its three roles (needs a superuser for pgvector)
+npm run db:migrate
+npm run totp:new      # the owner's first factor: add it to an authenticator app
+npm start             # worker + owner console on http://127.0.0.1:8787
+```
+
+`npm run totp:new` prints a secret and an `otpauth://` link. Point
+`PALUGADA_OWNER_TOTP_REF` at where you keep the secret, and the first boot
+enrols it. Connection settings are in [`.env.example`](.env.example).
+
+Check an installation end to end:
+
+```sh
 npm run smoke
 ```
 
-Seeds the installation, builds a company, starts a worker, puts one task in
-front of it and waits — then prints the task's status and its audit trail, and
-exits non-zero if it did not complete. It uses the in-process runtime and calls
-no model: what it checks is the orchestration — claim, lease, run, contract,
-transition, settle — so it runs on an installation that has just been migrated
-and seeded and nothing else. It creates a company and leaves it behind, so
-point it at a development database.
-
-The company it builds grants only what PALUGADA implements itself. The standard
-template grants twenty-seven capabilities and twenty-five of those are catalogue
-declarations waiting for an adapter, so a fresh installation cannot build a
-standard company until an operator binds providers — which is correct, and the
-check reports exactly which names are still missing rather than failing on it.
-
-Each of its first three runs found something no test had caught, because no test
-did what a real run does. [`docs/STATUS.md`](docs/STATUS.md) §2.5 says what they
-were.
-
-## Quick start
-
-Requires Node 22.18+ (for native TypeScript execution) and PostgreSQL 16 with
-[pgvector](https://github.com/pgvector/pgvector).
-
-```bash
-npm install
-npm run db:setup      # creates the database and its three roles
-npm run db:migrate
-npm test
-```
-
-F5.11's acceptance criterion is twenty workers over a thousand claim races.
-That takes about seventy seconds, so `npm test` runs sixty rounds and the
-stated thousand runs on demand:
-
-```bash
-PALUGADA_SOAK=1 node --test --test-concurrency=1 test/acceptance/checkout-lease-lane.test.ts
-```
-
-CI runs it on a nightly schedule and on `workflow_dispatch`. The schedule
-fires on the default branch only, so on a feature branch use the manual
-trigger or the command above.
-
-`db:setup` connects as a superuser, because it installs pgvector — which is not
-a trusted extension — alongside the roles and the database. Set
-`PALUGADA_SUPERUSER_URL` to point at a superuser, or leave it unset to use a
-local peer-authenticated `postgres` account. Connection settings are listed in
-[`.env.example`](.env.example).
-
-## Layout
-
-```
-db/migrations/     schema and row-level security policies
-scripts/           database provisioning and the migration runner
-src/
-  config.ts        connection strings, one per role
-  db/              connection pools and tenant-scoped access
-  domain/          task state machine, reversibility tiers
-  engine/          step journal, budgets, task admission, contracts, handoff
-  broker/          capability registry, the standard catalogue, and the broker
-  policy/          declarative conditions and the policy engine
-  governance/      charter and policy administration, audited
-  review/          adversarial review and decision records
-  memory/          the four memory kinds, scoped retrieval, distillation
-  templates/       building a company from a stored shape, and the standard one
-  reporting/       cost, alerts, daily digest, weekly retro
-  context/         prompt assembly, charter first
-  scheduler/       durable cron, capability windows, the owner window
-  secrets/         secret references, redaction, rotation
-  retention/       the only code that deletes anything durable
-  sandbox/         constrained execution for code-running capabilities
-  inbox/           owner inbox: approvals, incidents, emergency controls
-  audit/           append-only event log, security events
-  llm/             model interface and a recording test double
-  worker.ts        the loop: reclaim, schedule, wake, claim, run, settle, watch
-  seed.ts          what a fresh installation needs before it can do anything
-  runtime/         the adapter protocol, the wire, and five runtimes
-  skills/          skill documents, the curation gates, and eval cases
-  eval/            trajectory export and the role eval set
-  bundles/         versioned packages, signing, trusted publishers, three bundles
-  gateway/         device pairing, signed challenges, idempotency
-test/acceptance/   one file per PRD acceptance criterion
-```
-
-## What Phase 0 covers
-
-| Requirement | Where | Verified by |
-|---|---|---|
-| F1.2, F1.3 tenant isolation via RLS | `db/migrations/0001_tenancy.sql`, `src/db/tenant.ts` | `tenant-isolation.test.ts` |
-| F1.4 company freeze | `src/engine/control.ts` | `owner-inbox.test.ts` |
-| F1.6, F5.4 inherited budget, one shared counter | `db/migrations/0003_execution.sql`, `src/engine/budget.ts` | `budget-inheritance.test.ts` |
-| F2.2 division depth, F2.6 tool ceiling | `db/migrations/0002_organization.sql` | `task-guards.test.ts` |
-| F2.4 capability grants enforced in the broker | `src/broker/broker.ts` | `capability-broker.test.ts` |
-| F5.1 durable resume after a crash | `src/engine/journal.ts` | `durable-resume.test.ts` |
-| F5.2 deterministic idempotency keys | `src/engine/hash.ts` | `durable-resume.test.ts` |
-| F5.5 hop limit, F5.6 deadline | `src/engine/tasks.ts`, `src/engine/engine.ts` | `task-guards.test.ts` |
-| F5.8, F10.7 stop everything | `src/inbox/inbox.ts` | `owner-inbox.test.ts` |
-| F6.5 fan-out cap, F6.6 cycle detection | `src/engine/tasks.ts` | `task-guards.test.ts` |
-| F8.1–F8.4 broker, registry, tiers, mandatory read-back | `src/broker/` | `capability-broker.test.ts` |
-| F8.6 rate limits, F8.8 kill switch | `src/broker/broker.ts`, `src/engine/control.ts` | `capability-broker.test.ts` |
-| F10.1–F10.4, F10.8 owner inbox | `src/inbox/inbox.ts` | `owner-inbox.test.ts` |
-| Section 7.4 append-only event log | `db/migrations/0004_audit_and_governance.sql` | `tenant-isolation.test.ts` |
-
-## What Phase 1 adds
-
-| Requirement | Where | Verified by |
-|---|---|---|
-| F3.1, F3.2 charter, injected first | `src/context/builder.ts` | `charter-context.test.ts` |
-| F3.3, F3.4 declarative policy | `src/policy/` | `policy-engine.test.ts` |
-| F3.5 lower scopes may only tighten | `db/migrations/0005_*.sql`, `src/policy/engine.ts` | `policy-engine.test.ts` |
-| F3.6 charter and policy edits audited with a diff | `src/governance/store.ts` | `policy-engine.test.ts`, `charter-context.test.ts` |
-| F3.8 audit-mode policies | `src/policy/engine.ts` | `policy-engine.test.ts` |
-| F4.1, F4.3 versioned facts, superseded not deleted | `src/memory/store.ts` | `memory-scope.test.ts` |
-| F4.2 scope filtered before similarity | `src/memory/store.ts` | `memory-scope.test.ts` (1,000 facts) |
-| F4.6 memory scoping per project and division | `src/memory/store.ts` | `memory-scope.test.ts` |
-| F6.1, F6.2 typed contracts both ways | `src/engine/contracts.ts` | `contracts-handoff.test.ts` |
-| F6.3 handoff triggered by completion, performed by the loop | `src/engine/handoff.ts`, `src/worker.ts` | `contracts-handoff.test.ts`, `worker.test.ts` |
-| F6.4 `awaitChild` with a mandatory timeout | `src/engine/engine.ts` | `contracts-handoff.test.ts` |
-| F8.9 external content marked as data | `src/context/builder.ts` | `charter-context.test.ts` |
-| F9.1 durable cron | `src/scheduler/scheduler.ts` | `scheduling-windows.test.ts` |
-| F9.2 external windows, deferring not failing | `src/scheduler/windows.ts`, `src/broker/broker.ts` | `scheduling-windows.test.ts` |
-| F9.3 owner window, incidents excepted | `src/scheduler/windows.ts` | `scheduling-windows.test.ts` |
-| F12.1, F12.2, F12.4 secret references, scope, redaction, and a capability that can ask for one | `src/secrets/manager.ts`, `src/secrets/rotation.ts`, `src/broker/broker.ts` | `credentials.test.ts` |
-| F12.6 least privilege: a token declares its scopes, and both ends refuse a lie | `src/secrets/scopes.ts`, `db/migrations/0030_*.sql` | `credentials.test.ts` |
-| F10.9, F10.10 what a message channel may act on, and what tier 3 needs | `src/inbox/inbox.ts` | `owner-inbox.test.ts` |
-
-## What Phase 2 adds
-
-| Requirement | Where | Verified by |
-|---|---|---|
-| F1.1, F2.5 a company from a template, no deploy | `src/templates/company.ts` | `company-template.test.ts` |
-| F4.4 episodic → semantic, semantic → procedural | `src/memory/distillation.ts` | `distillation.test.ts` |
-| F4.5 candidate SOPs need the owner | `src/memory/store.ts`, `src/inbox/inbox.ts` | `distillation.test.ts` |
-| F7.1 review gates the action | `src/review/review.ts`, `src/broker/broker.ts` | `adversarial-review.test.ts` |
-| F7.2 two revisions, then the owner | `src/review/review.ts` | `adversarial-review.test.ts` |
-| F7.3 a different role, its own working memory | `db/migrations/0006_*.sql`, `src/review/review.ts` | `adversarial-review.test.ts` |
-| F7.4, F7.5 decision records, remembered as decisions | `src/review/review.ts` | `adversarial-review.test.ts` |
-| F7.6 no scheduled reviews | — (asserted absent) | `adversarial-review.test.ts` |
-| F9.4, F10.6 daily digest, weekly retro | `src/reporting/digest.ts` | `reporting.test.ts` |
-| F11.3 cost per project, division, role, capability | `src/reporting/cost.ts` | `reporting.test.ts` |
-| F11.4 alerts on cost, failure rate, denials, verification | `src/reporting/alerts.ts` | `reporting.test.ts` |
-| Phase 2 exit: two companies in parallel, isolation green | — | `company-template.test.ts` |
-
-## What Phase 3 adds
-
-| Requirement | Where | Verified by |
-|---|---|---|
-| Section 9 durability under chaos | — | `chaos-durability.test.ts` |
-| F5.9 dry-run replay | `src/engine/replay.ts` | `replay.test.ts` |
-| F8.10 sandbox for code execution | `src/sandbox/sandbox.ts` | `sandbox.test.ts` |
-| F11.5 retention, with an archival path, applied by the worker loop | `src/retention/retention.ts`, `src/worker.ts`, `db/migrations/0007_*.sql` | `retention-rotation.test.ts`, `worker.test.ts` |
-| F11.6, F1.5 audit and company export, restored on another instance | `src/audit/export.ts`, `src/audit/import.ts` | `audit-export.test.ts` |
-| F11.2 the trace behind an inbox item, reached from the item | `src/reporting/trace.ts` | `reporting.test.ts` |
-| F12.3 secret rotation without a restart, effective on the next call | `src/secrets/rotation.ts` | `retention-rotation.test.ts`, `credentials.test.ts` |
-
-## What the standard company adds
-
-Section 14.2 asked which line of business the first company would be in,
-because that fixes the initial capabilities, the tier calibration and the
-division template. The owner's answer was that there is no single one: the
-platform runs companies of every kind. So the catalogue holds what *every*
-company does — correspond, keep records, publish, deploy, invoice, pay — and
-the template is organised by function rather than by industry.
-
-| Requirement | Where | Verified by |
-|---|---|---|
-| 14.2 capability catalogue and tier calibration | `src/broker/catalogue.ts` | `capability-catalogue.test.ts` |
-| F8.3 a binding may tighten the catalogue, never loosen it | `src/broker/registry.ts` | `capability-catalogue.test.ts` |
-| F8.10 untrusted code kept away from credentials and tier 2 | `db/migrations/0008_*.sql` | `capability-catalogue.test.ts` |
-| F1.1, F2.5 a general-purpose company template | `src/templates/standard.ts` | `capability-catalogue.test.ts` |
-| F2.3 a role's tools are a subset of its division's grants | `src/templates/company.ts` | `capability-catalogue.test.ts` |
-| Section 8.8 tier 2 is checked against the budget before the call | `src/broker/cost.ts` | `cost-control.test.ts` |
-| F8.5 estimate before, actual after, `cost.drift` past half | `src/broker/cost.ts` | `cost-control.test.ts` |
-| F11.3 per-capability cost from measured spend | `src/reporting/cost.ts` | `reporting.test.ts` |
-| F3.7 denials counted per role, the role frozen past the limit | `src/governance/role-freeze.ts` | `role-freeze.test.ts` |
-| F4.7 the run is told when it is leaning on an unverified fact | `src/context/builder.ts` | `charter-context.test.ts` |
-| F9.5 non-urgent, read-only work waits for cheap hours | `src/scheduler/windows.ts`, `src/engine/engine.ts` | `scheduling-windows.test.ts` |
-| v2 F8.11 a tier 2 action needs a recorded plan first | `src/engine/plan.ts` | `plan-and-batch.test.ts` |
-| v2 F8.13 batch guard: the call is held to the plan's count | `src/engine/plan.ts`, `src/broker/broker.ts` | `plan-and-batch.test.ts` |
-| v2 F8.12 preflight; a task with a broken capability does not start | `src/broker/preflight.ts` | `preflight.test.ts` |
-| v2 F12.3 a rotation triggers a fresh preflight | `src/secrets/rotation.ts` | `preflight.test.ts` |
-| v2 F1.7 warn at 80%, pause at 100%, owner override with a deadline | `src/governance/spend-guard.ts` | `spend-guard.test.ts` |
-| v2 F1.8 circuit breaker on the spending rate | `src/governance/spend-guard.ts` | `spend-guard.test.ts` |
-| v2 F1.9 the period ceiling and the per-task one are separate | `db/migrations/0014_*.sql` | `spend-guard.test.ts` |
-| v2 F2.7 goal ancestry, in the run context and the approval item | `src/domain/goals.ts` | `goals.test.ts` |
-| v2 F2.8 no work for a role that cannot say what finished looks like | `src/engine/tasks.ts`, `src/templates/company.ts` | `goals.test.ts` |
-| v2 F3.10 strategy is the owner's; agents read it and propose | `src/domain/goals.ts` | `goals.test.ts` |
-| v2 F5.11 atomic checkout; two workers cannot hold one task | `src/engine/checkout.ts` | `checkout-lease-lane.test.ts` |
-| v2 F5.12 leases, renewal by the holder, reclaim with the journal intact | `src/engine/checkout.ts` | `checkout-lease-lane.test.ts` |
-| v2 F5.13 one task at a time per lane | `src/engine/checkout.ts` | `checkout-lease-lane.test.ts` |
-| v2 F5.14 orphan recovery, with the abandoned spend recorded | `src/engine/checkout.ts` | `checkout-lease-lane.test.ts` |
-| v2 F9.7 a role sleeps four hours by default | `src/scheduler/wake.ts` | `wake-queue.test.ts` |
-| v2 F9.8 a database wake queue; assignment overtakes the schedule | `src/scheduler/wake.ts` | `wake-queue.test.ts` |
-| v2 F9.9 wakes for one role inside a minute become one run | `src/scheduler/wake.ts` | `wake-queue.test.ts` |
-| v2 F9.10, G8 a wake with nothing to do costs nothing | `src/scheduler/wake.ts` | `wake-queue.test.ts` |
-| v2 F10.11 the owner assigns work directly and the role wakes | `src/scheduler/wake.ts` | `wake-queue.test.ts` |
-| v2 NG6, F13.1 the engine orchestrates; a runtime executes | `src/runtime/protocol.ts` | `runtime-adapter.test.ts` |
-| v2 F13.4 a runtime holds no credentials and no database | `src/runtime/protocol.ts` | `runtime-adapter.test.ts` |
-| v2 F13.7 cost per run, or an estimate marked as one | `src/engine/engine.ts` | `runtime-adapter.test.ts` |
-| v2 F13.8 an unhealthy runtime receives no work | `src/engine/engine.ts` | `runtime-adapter.test.ts` |
-| v2 F13.2 a spawned script, a webhook and headless Claude Code | `src/runtime/script.ts`, `http.ts`, `claude-code.ts` | `out-of-process-runtimes.test.ts` |
-| v2 F13.4 a spawned runtime inherits no environment; its tools go through the broker | `src/runtime/script.ts`, `src/runtime/tool-bridge.ts` | `out-of-process-runtimes.test.ts` |
-| v2 F13.3 an agent CLI is employed from a configuration entry, not a new adapter | `src/runtime/cli.ts`, `known-clis.ts` | `out-of-process-runtimes.test.ts` |
-| v2 F13.5, F12.9 a runtime runs in a remote sandbox, destroyed on every path out | `src/runtime/sandbox-adapter.ts` | `out-of-process-runtimes.test.ts` |
-| v2 F12.5 the owner's second factor is verified, not asserted | `src/owner/mfa.ts` | `owner-mfa.test.ts` |
-| v2 F10.10 a tier 3 approval needs the app and a factor that checks out | `src/inbox/inbox.ts` | `owner-mfa.test.ts` |
-| v2 F10.5 push reaches the owner for an incident and a tier 3 approval, once | `src/owner/push.ts`, `notify.ts` | `owner-channels.test.ts` |
-| v2 F10.9 a chat carries buttons for what it may act on, and a link for the rest | `src/owner/telegram.ts` | `owner-channels.test.ts` |
-| v2 F10.1–F10.7 the owner's console: one queue, the buttons, the trace | `src/owner/api.ts`, `console/` | `owner-api.test.ts` |
-| v2 F12.9 a capability may not reach inside this network, whatever it is told | `src/capabilities/reachable.ts` | `platform-capabilities.test.ts` |
-| v2 F8 the five capabilities that need nobody's account | `src/capabilities/` | `platform-capabilities.test.ts` |
-| v2 F8, F12.8 a vendor capability is a spec, not four hundred lines | `src/capabilities/http.ts` | `http-capability.test.ts` |
-| v2 F13.6 fallback for tier 0–1; a role that can act irreversibly halts instead | `src/engine/engine.ts` | `out-of-process-runtimes.test.ts` |
-| v2 F14.1 a runtime cannot get past a hook | `src/engine/hooks.ts` | `hooks.test.ts` |
-| v2 F14.2 built-ins cannot be removed; an added hook may only tighten | `src/engine/hooks.ts` | `hooks.test.ts` |
-| v2 F14.3 every refusal names the hook and why | `src/engine/hooks.ts` | `hooks.test.ts` |
-| v2 F15.1 skills are open-format documents, and a round trip is lossless | `src/skills/skills.ts` | `skills.test.ts` |
-| v2 F15.3 a candidate needs a reviewer *and* the owner | `src/skills/skills.ts` | `skills.test.ts` |
-| v2 F15.4 no eval case, no activation — enforced by the database | `db/migrations/0021_skills.sql` | `skills.test.ts` |
-| v2 F15.7 the context pack carries summaries; `skill.read` fetches the rest | `src/context/builder.ts` | `skills.test.ts` |
-| v2 F17.1, F11.7 a run exports as a trajectory, hook decisions included | `src/eval/trajectory.ts` | `trajectory-eval.test.ts` |
-| v2 F17.2 a role with fewer than five references is unscored, not passing | `src/eval/role-eval.ts` | `trajectory-eval.test.ts` |
-| v2 F17.3 the owner sees the score before deciding | `src/eval/role-eval.ts` | `trajectory-eval.test.ts` |
-| v2 F17.4 a halted run becomes a negative candidate on its own | `src/engine/engine.ts` | `trajectory-eval.test.ts` |
-| v2 F1.6 a division's ceiling is its own and the company's, and a task draws on it | `src/engine/budget.ts`, `src/engine/tasks.ts`, `src/templates/standard.ts` | `control-plane.test.ts`, `capability-catalogue.test.ts` |
-| v2 F2.9 a grant is not something an agent can widen | `src/governance/structure.ts` | `control-plane.test.ts` |
-| v2 F3.9 any config version restores, and the restore is a version | `src/governance/config-versions.ts` | `control-plane.test.ts` |
-| v2 F3.11 charters are files; the files are the source | `src/governance/charter-files.ts` | `control-plane.test.ts` |
-| v2 F4.8 the pack is capped and says what it left out | `src/context/builder.ts` | `control-plane.test.ts` |
-| v2 F10.3 the owner asks inside the same task | `src/inbox/inbox.ts` | `control-plane.test.ts` |
-| v2 F12.7 a runtime is a device that signs a nonce | `src/gateway/gateway.ts` | `control-plane.test.ts` |
-| v2 F16.2 the hash recorded at install answers "is this still what was published" | `src/bundles/bundle.ts` | `bundles.test.ts` |
-| v2 F16.4 a company moves instances with every reference remapped | `src/audit/import.ts` | `bundles.test.ts` |
-| v2 F12.10 an unsigned bundle installs with tier 0 grants only | `src/bundles/bundle.ts` | `bundles.test.ts` |
-| v2 F16.2 a self-signed bundle is not a trusted one | `src/bundles/publishers.ts` | `bundles.test.ts` |
-| v2 F1.2 no table v2 added leaks a row across companies | `db/migrations/` | `tenant-isolation.test.ts` |
-| v2 F14.4 a bundle's hooks run, and can only refuse | `src/engine/hooks.ts`, `src/bundles/bundle.ts` | `bundles.test.ts` |
-| v2 F12.9 a containerised runtime has no network at all | `src/runtime/container.ts` | `out-of-process-runtimes.test.ts` |
-| v2 F10.10 a tier 3 approval is refused over a chat channel | `src/inbox/inbox.ts` | `owner-inbox.test.ts` |
-| v2 F15.8 an external skill enters quarantined, and quarantine is one division | `src/skills/skills.ts` | `skills.test.ts` |
-| v2 §6.2 the loop that assembles the parts, bounded so a stop bites | `src/worker.ts` | `worker.test.ts` |
-| v2 F16.5, F3.11 a fresh installation seeds its bundles and reads its charters | `src/seed.ts` | `worker.test.ts` |
-| v2 F3.9 charter, policy, role and grant each produce a restorable version | `src/governance/` | `control-plane.test.ts` |
-| v2 F2.1 a division's escalation policy shapes the escalation it raises | `src/inbox/inbox.ts` | `control-plane.test.ts` |
-
-## Decisions worth knowing
-
-**Isolation is a database boundary, not an application one.** Three roles
-exist. `palugada_app` is used by every agent run and holds `NOBYPASSRLS`;
-`palugada_admin` holds `BYPASSRLS` and is reachable only from the control
-plane; `palugada_owner` owns the schema and runs migrations. Every tenant table
-is `FORCE ROW LEVEL SECURITY`, so even the table owner is subject to the policy.
-
-**A query with no tenant context fails loudly.** `app.current_company_id()`
-raises rather than returning NULL. A NULL would make `company_id = NULL` filter
-every row away, which looks like an empty company instead of a bug.
-
-**Tenant scope is transaction-local.** It is set with
-`set_config(..., is_local => true)` inside an explicit transaction, so a pooled
-connection cannot carry one tenant's scope into the next borrower's request.
-
-**Step indices restart at zero on every run.** A step's identity is its
-position in the handler's call sequence. Handlers must therefore issue the same
-steps in the same order for the same input; branching on wall-clock time or
-randomness inside a handler is a defect.
-
-**`halted` is terminal, `cancelled` is the owner's.** A task stopped by budget,
-hop, deadline or a failed read-back never resumes automatically (PRD section
-6.3) and becomes an inbox item. Cancellation means a human stopped it.
-
-**Silence is safe.** An unanswered approval expires into a cancellation, never
-into an execution.
-
-**Policy is a second gate, not the first.** Capability grants and reversibility
-tiers run before it, so an unmatched action is allowed rather than denied. The
-strictest match wins across scopes, and a policy can never lower a tier 3
-action below owner approval.
-
-**A required review fails closed.** Adversarial reviewer roles arrive in Phase
-2, so until then a `require_review` policy escalates to the owner. A policy
-author who asked for a second pair of eyes did not ask for none.
-
-**A closed window defers, it does not fail.** The action is permitted, just not
-at this hour, so the task parks in `waiting_window` with a wake-up time instead
-of burning an attempt.
-
-**A schedule backlog collapses, and says so.** After a day of downtime an
-hourly schedule owes twenty-four runs; executing them would spend a day of
-budget in a minute. One catch-up run happens and the count of dropped
-occurrences goes into the event, because a silently skipped night looks
-identical to a quiet one.
-
-**Embeddings carry the model that produced them.** Vectors from different
-models are not comparable, and mixing them yields confident nonsense rather
-than an error, so retrieval filters on the model.
-
-**An aborted transaction never reports success.** PostgreSQL turns a COMMIT
-after an error into a rollback and says nothing; `withTenant` detects that and
-throws, so a caller that swallows an error inside a transaction cannot lose
-every write believing it succeeded.
-
-**An approval covers one action, not a mood.** A review is granted against a
-fingerprint of the capability and its input, so a proposer that comes back with
-a different amount or recipient is asking a new question.
-
-**The distiller never reads its own output.** A run records that it ran; without
-excluding those events the next run would distil its own housekeeping into
-"facts", and each retelling would look like fresh corroboration.
-
-**Watermarks are compared inside the database.** PostgreSQL timestamps hold
-microseconds and a JavaScript Date holds milliseconds, so a watermark that
-round-trips through the application is rounded down and reopens a window that
-was already consumed.
-
-**An unreadable verdict is not consent.** A reviewer that crashes or answers in
-prose escalates to the owner; treating it as approval would make the gate
-decorative in exactly the case it exists for.
-
-**Alerts fire once per condition per day.** A sweep every minute against a
-standing overspend would fill the inbox, and an owner who has learned to scroll
-past the inbox is worse off than one with no alerts.
-
-**Deleting history is one narrow, recorded exception.** Retention is the only
-code that removes anything durable. It works only inside an explicit purge
-marked by a transaction-local flag, only on rows the database re-checks as past
-the window, and it writes what it removed — so "there are no events from March"
-and "March was quiet" stay distinguishable. A missing retention policy forbids
-deletion rather than permitting it.
-
-**A crashed worker is not a failed task.** A handler that throws consumes a
-retry attempt; a process that is killed never reached the engine's error
-handling, so resuming it consumes none. Without that distinction a bad deploy
-restarting every process would exhaust `attempt_max` and fail every in-flight
-task.
-
-**A replay cannot reach the world.** The replay module imports no broker, no
-adapter and no model client — not disabled ones, none at all. A step the
-recorded run never took is reported as a divergence rather than invented.
-
-**The catalogue is the calibration, and it only tightens.** A capability the
-catalogue names cannot be registered below its catalogued tier. That is F8.3
-one level up: the same rule that stops a grant loosening the registry stops a
-registry entry loosening the catalogue. A registration is the last moment
-anyone reads a tier on purpose; afterwards the number is simply believed. It
-caught five miscalibrated bindings the day it was added.
-
-**The catalogue does not publish itself.** A row in `capabilities` means the
-broker can run the thing, and the table requires a read-back above tier 0
-(F8.4). Writing declarations into it would mean claiming a `verify()` that does
-not exist, so capabilities arrive there only through `registry.sync()`, when a
-real adapter is bound.
-
-**Untrusted code lives alone.** The sandbox does not isolate the network, so
-`src/sandbox` names the consequence: a code-executing capability must not also
-hold a credential or reach a tier 2 action. That was a comment, and a comment
-does not stop a grant. Two database triggers now enforce it from both sides, so
-the order in which somebody configures a division cannot decide whether the
-rule applies.
-
-**A reviewer holds nothing.** In the standard template the assurance division
-has no capability grants at all. A reviewer that can also execute is not a
-second pair of eyes, it is a second pair of hands.
-
-**The standard company's money ceiling is zero.** Section 14.3 is open, and
-inventing a number would settle it by default. Zero is the fail-closed reading:
-the company works from the first minute and every declared cost lands over
-budget in the cost report until the owner sets a ceiling.
-
-**Models are named by role, not by vendor.** The standard template asks for
-`fast`, `standard` or `deep`. Section 14.5 leaves the mapping open and F6 wants
-per-role model abstraction, so binding a vendor name into a stored template
-would pre-empt both.
-
-**The estimate is charged before the call, the actual after it.** A ceiling can
-only change the outcome while the money is unspent, so the budget is debited
-first and a refusal produces no downstream call — the rule F2.4 states for
-grants. Settlement afterwards is unconditional: the provider has already
-billed, and refusing the adjustment would leave the account claiming an amount
-the company does not owe. An overrun becomes a visible overspend rather than a
-quiet understatement.
-
-**"Cost nothing" and "nobody measured" are different facts.** A capability that
-reports no actual cost produces no drift event and no measured figure. Reading
-the second as the first would raise a 100% drift on every unmeasured capability
-and bury the real ones, and would print a guess on the dashboard next to a
-measurement without saying which is which.
-
-**A repeated denial is a role's problem, not a task's.** One task being denied
-is one task going wrong; a role being denied over and over is a prompt or a
-grant that is wrong, and it will be just as wrong for the next task that runs
-it. So F3.7 freezes the role — the smallest cut that actually stops the
-repetition — and the freeze covers admission as well as capability calls, or
-the role would keep starting tasks that cannot finish their work.
-
-**Nothing thaws on a timer.** A frozen role waits for the owner. The condition
-that caused the freeze does not fix itself overnight, and a role that unfroze
-by itself would spend tomorrow's allowance the same way.
-
-**Bookkeeping never changes the answer.** If the freeze counter fails, the
-caller still gets the denial it asked about, with the code the engine branches
-on. The counter's failure is recorded rather than swallowed, because a control
-that has quietly stopped working is worse than one that was never there.
-
-**A plan is a number, not a paragraph.** v2 records an outreach agent that
-contacted 23 leads when it should have contacted 3; nothing in the system knew
-what "3" was, so nothing could notice. A plan step names the capability, what
-it expects to be true afterwards, and — where the call is a batch — how many
-items it covers. Free text would be readable and uncheckable, which is the
-state that produced the 23.
-
-**A plan cannot be rewritten.** Recording one twice is refused. A plan that can
-be edited mid-task is a description rather than a commitment, and the failure
-it exists to prevent is precisely an agent finding itself with 23 recipients
-and deciding that was the plan all along. Changing course is a new task or an
-escalation, not an edit.
-
-**The batch size comes from the capability, not from the arguments.** The
-broker never guesses which parameter is the list. A guess breaks silently the
-day a field is renamed, and a guard that has quietly stopped guarding is worse
-than none.
-
-**The engine does not call a model to do a task.** NG6, and it is checked
-against the source rather than behaviourally, because a behavioural test would
-pass just as happily the day a model client reappears behind a condition. The
-engine assembles a request, lends the runtime four things, and does the
-accounting; the runtime decides what to say.
-
-**A runtime is lent four things and no more.** Tool calls resolved through the
-broker, a journalled step, a contained sub-task, and a way to report what a
-model call cost. No credentials — `allowedTools` carries names, schemas and
-tiers — and no database connection. A compromised runtime can ask for things
-and be refused; it cannot take them.
-
-**Durability differs by runtime, and the difference is stated.** The in-process
-runtime journals each model call, so a crash resumes without repeating one. An
-out-of-process runtime is a black box between tool calls: F5.1 journals the
-adapter round-trip, so a resumed run re-enters it and its internal reasoning
-happens again. Session continuity (F4.7) is what makes that bearable — the
-committed steps travel in the context pack — not what makes the two
-equivalent. That is the price of not being the runtime.
-
-**A missing prompt has two meanings, kept apart.** NULL means the runtime never
-shared it; the redaction marker means retention removed it. An auditor asking
-why a prompt is empty needs those told apart, so the scrubber leaves a NULL
-alone.
-
-**A wake is a reason to look, not a reason to run.** Dormant is the normal
-state (principle 13) and G8 puts a number on what that has to mean: zero tokens
-when there is no task. A wake with nothing claimable is consumed and recorded
-as idle — no context assembled, no model called, no run row written. That is
-the difference between an agent that is dormant and one that is merely quiet,
-and v2 traces real surprise bills to the second.
-
-**Coalescing keeps what it absorbed.** Four events in a minute produce one run,
-and the other three are marked as folded into it rather than deleted. "The
-queue asked four times and we looked once" is a fact about the system's rhythm
-the owner may need. An assignment is exempt: folding one into a heartbeat that
-is not due for another three hours would do the opposite of what an assignment
-is for.
-
-**A claim is one statement, and it is serialised.** Selecting a task, checking
-it can still be funded, checking its lane is free and writing the lease all
-happen together. `FOR UPDATE SKIP LOCKED` protects the row being claimed but
-says nothing about predicates over *other* rows, so claims within a company
-take an advisory lock: without it two concurrent claims cannot see each other's
-uncommitted checkout, and five tasks get claimed against an account with room
-for three.
-
-**A lease expires; it is not released.** A worker that dies releases nothing,
-so the only reclamation that works is one the dead worker is not involved in.
-Reclaiming returns the task to `pending` with its journal intact — a lost
-worker must not become lost work.
-
-**Lanes are opt-in.** Most tasks touch nothing shared, and serialising them
-would cost throughput for nothing. A lane key is the exception you declare for
-a repository, a domain or an account, where two concurrent tasks would
-interleave into a state neither intended.
-
-**An orphaned run is neither a success nor a failure.** Calling it "failed"
-would put a bad deploy's restart storm into the failure rate the alerts watch.
-Its spend is recorded before the task goes back, because a retry that did not
-carry the abandoned cost forward would let a crash loop cost an unbounded
-amount while every individual attempt looked affordable.
-
-**Every task can say why it exists.** A root task names the goal it serves and
-a sub-task inherits it, so the chain — mission, objective, key result — travels
-into the run context and into the approval item. F10.2 asks an item to say why,
-and an owner deciding on a phone at 07:00 will not follow a link to find out.
-
-**Agents read the strategy and cannot change it.** The application role holds
-`SELECT` on `goals` and nothing else, so F3.10 is a grant rather than a rule an
-agent is asked to follow. An agent that thinks the strategy is wrong raises an
-escalation — which parks nothing, because a question about strategy gates no
-particular action and an agent's opinion should not cost the company the task
-it was doing.
-
-**A role that cannot say what done looks like gets no work.** v2 traces a
-surprise bill to exactly that: vague instructions, an eager schedule, and
-nothing able to tell whether the work was finished, so it was asked again and
-again. A role needs an output schema and at least one testable completion
-criterion — checked when a template is saved, where it is still cheap to fix,
-and again at admission.
-
-**Two money ceilings, and neither substitutes for the other.** A single
-runaway task is caught by its budget account; a hundred well-behaved tasks that
-together cost more than the company can afford are caught only by the monthly
-ceiling. F1.9 asks for both and says both must hold.
-
-**Spend is derived, never counted twice.** The figure comes from the model
-traces and the `tool.cost` events that already record every cent. A second
-counter kept beside them is a second thing that can be wrong, and the one that
-is wrong is always the one being enforced.
-
-**The breaker watches the rate, so there is money left when it fires.** A role
-spending more than three times its own seven-day average in an hour is stopped
-— before the monthly ceiling is reached, which is the point: the owner finds
-out while there is still budget to work with. The last hour is excluded from
-the baseline, or a large enough spike would lift the average it is compared
-against and hide itself. A floor sits under the ratio for the same reason the
-alerts demand a minimum sample: three times almost nothing is still almost
-nothing.
-
-**An override carries a deadline.** One without an end would quietly become the
-new ceiling, which is the failure a ceiling exists to prevent.
-
-**A broken capability is an incident, not a retry.** v2 records a
-misconfigured secret that failed silently for half a day: every call failed,
-every failure looked transient, and the retries hid it. A capability that fails
-preflight raises an incident and the task does not start — starting it would
-spend tokens assembling context for work that cannot succeed and leave a
-half-finished task for somebody to interpret later.
-
-**Health is per division, because the credential is.** The same capability is
-healthy for the division whose token is valid and unhealthy for the one whose
-token expired, so a platform-wide answer would be answering a question nobody
-asked. A fresh result is reused for fifteen minutes, or probing would itself
-become the load; a rotation forces a new reading, because the old one describes
-the state the rotation replaced.
-
-**A tool nothing is bound to is a deployment gap, not ill health.** Preflight
-answers "does this capability work". A name no adapter carries has nothing to
-work or fail, and the broker refuses it by name at the moment it is used, which
-is both louder and more accurate than halting every task whose role mentions
-it.
-
-**Deferral is opt-in, and eligibility is not taken on trust.** F9.5's batching
-runs non-urgent work in cheap hours. A task waits only if it was marked
-non-urgent — defaulting to "wait until tonight" would make a forgotten flag the
-difference between a company that answers and one that does not — and only if
-its role holds no capability above tier 0, checked against the registry rather
-than against a claim in the request. A caller that could declare its own work
-read-only could park a production deploy until 02:00, by which time the world
-it was going to write to has moved.
-
-**No cheap hours means no waiting.** A company that has declared no batch
-window runs its batchable work immediately. Reading an absent window as "any
-hour will do" would park every such task for ever in the ordinary case of a
-company that never configured one.
-
-**Telling the agent means telling it, in words.** Memory confidence (v2 F4.1,
-F4.5) used to be a decimal in a heading, which is easy to skim and assumes the reader knows
-where the line is. A context carrying an unverified fact now opens with a
-warning that says how many and what to do about them, and each such fact is
-titled UNVERIFIED. The warning comes before the facts, for the same reason the
-charter does.
-
-## Deviations from the PRD found while building
-
-1. **`pending -> halted` is still missing from the section 8.5 diagram.** A
-   task can be admitted and then miss its deadline before a worker picks it up.
-   F5.6 requires that to halt, but the diagram offers a pending task only
-   `running` and `cancelled`. The transition was added; see
-   `src/domain/task.ts`. v2 redrew the diagram and did not add it, so the
-   deviation stands.
-
-2. **The append-only log makes company deletion impossible.** The trigger on
-   `events` rejects `DELETE`, including through a cascade, so a company row
-   cannot be removed once it has any event. This is consistent with section 7.4
-   and with F1.4/F1.5 offering freeze and export rather than deletion, but it
-   means retention (F11.5) will need an explicit archival path rather than a
-   delete.
-
-A third deviation recorded against v1 — `waiting_window` being absent from the
-state diagram although F9.2 named it — is resolved: v2 draws it.
-
-Two deliberate departures from v2's text, both recorded in
-[`docs/STATUS.md`](docs/STATUS.md) with the reasoning: F14.3 records hook
-refusals and not permissions, because an event per hook per tool call would
-spend most of section 9's event budget saying that nothing happened; and the
-broker's own gate chain stays inline rather than being registered as hooks,
-because it is one ordered read in a single transaction where each gate consumes
-what the last computed.
-
-## What PRD v2 adds
-
-| Requirement | Where | Verified by |
-|---|---|---|
-| F5.11–F5.14 atomic checkout, leases, lanes, orphan recovery | `src/engine/checkout.ts` | `checkout-lease-lane.test.ts` |
-| F9.7–F9.10 dormancy, the wake queue, coalescing | `src/scheduler/wake.ts` | `wake-queue.test.ts` |
-| F8.11–F8.13 plan steps, preflight, the batch guard | `src/engine/plan.ts`, `src/broker/preflight.ts` | `plan-and-batch.test.ts`, `preflight.test.ts` |
-| F2.7, F3.10 the goal ladder, and who may change it | `src/domain/goals.ts` | `goals.test.ts` |
-| F1.7–F1.9 the spend ceiling and its circuit breakers | `src/governance/spend-guard.ts` | `spend-guard.test.ts` |
-| F13 the runtime adapter protocol and four runtimes | `src/runtime/` | `runtime-adapter.test.ts`, `out-of-process-runtimes.test.ts` |
-| F14, F3.12 lifecycle hooks as enforcement | `src/engine/hooks.ts` | `hooks.test.ts` |
-| F15 skills and the curated learning loop | `src/skills/skills.ts` | `skills.test.ts` |
-| F16 signed bundles, and moving a company between instances | `src/bundles/`, `src/audit/import.ts` | `bundles.test.ts` |
-| F17 trajectories and the role eval set | `src/eval/` | `trajectory-eval.test.ts` |
-| F1.6, F2.9, F3.9, F3.11, F4.8, F5.10, F12.7–F12.10 | `src/governance/`, `src/gateway/` | `control-plane.test.ts` |
-
-## Running it
-
-```sh
-npm run db:setup && npm run db:migrate   # PostgreSQL 16 with pgvector
-npm run totp:new                         # the owner's first factor; follow what it prints
-npm start                                # worker + owner console on :8787
-```
-
-The console takes a code to sign in, so the owner's first authenticator comes
-from configuration: `npm run totp:new` prints a secret and an `otpauth://`
-link for an authenticator app, and `PALUGADA_OWNER_TOTP_REF` points at where
-the secret is kept. Boot enrols it once. Secrets are references, resolved from
-the two stores every host already has — `env://PALUGADA_SECRET_NAME`, and only
-variables with that prefix, so the process's own `DATABASE_URL` can never be
-handed out as a vendor credential; and `file:///run/secrets/name`, only under
-`PALUGADA_SECRET_DIRS` and checked after symlinks. A reference to a store the
-deployment does not have (`vault://`) is refused with the scheme named.
-
-`npm start` exits 78 (`EX_CONFIG`) when its configuration cannot be used — a
-malformed vendor or price file, a runtime spec, an owner factor that does not
-resolve — so a supervisor stops restarting it into the same refusal;
-`deploy/palugada.service` is a systemd unit that does exactly that, with the
-owner's secret as a systemd credential. It runs as its own unprivileged user
-(`DynamicUser`), never root, with `/var/lib/palugada` as the one writable
-directory and as `HOME`, where the agent CLIs keep their own configuration.
-SIGTERM stops the console first and lets the worker finish its step.
-
-A worker also needs a **runtime** — something that actually executes a role's
-turn. The in-process one needs a model client and handlers, which a deployment
-supplies in code; every other runtime in F13 needs a CLI on PATH, an image, a
-URL, or a sandbox account, so each is switched on by the variable that names
-it. A deployment with none registered says so at boot in those words, because
-a worker that can run nothing looks, from outside, exactly like a worker with
-nothing to do.
-
-The console is at `http://127.0.0.1:8787`. Starting a company is on the row
-where the companies are — and a template can only be used by a deployment that
-has bound every capability it grants, which the refusal names when it does not.
-The queue is the first tab because
-it is the one with a person waiting on it; behind it are Money, Health,
-Settings, Structure, Skills, Bundles and Devices. Two tests keep the page and
-the API from drifting apart: one lists every route no button presses, and one
-checks that every id the script reaches for exists on the page — which nothing
-else would notice, since the console has no build step and no framework. Two
-routes are on that list, both for signing in with a passkey: the platform
-verifies one and the page cannot yet present one. Behind it the API covers the
-operations an owner touches to *run* a company — the spend ceiling and what has
-been spent against it, lifting a pause, retention, the owner's own hours and a
-company's batch window, capability health, cost by day or by company, the
-governance log, a task's events, rotating a credential, answering an agent's
-question, and both halves of the stop switch. It also covers the operations that change how a
-company is *built* — the goal ladder, structural changes to a grant or a role,
-policies, skills, bundles and their publishers, the device gateway, and the
-eval set. The ones that *widen* what the platform will do take a second factor,
-because F2.9 makes them the owner's and a session is a browser tab: changing a
-grant or a role, editing a goal, widening a skill's scope, lifting a
-quarantine, trusting a publisher, installing a bundle and pairing a device.
-Revoking a publisher or a device does not — those only ever narrow what this
-installation accepts, and a revocation somebody hesitates over happens too
-late. Pairing a device names its key: the console shows the fingerprint the
-device registered with, the machine prints its own with
-`openssl pkey -pubin -in key.pem -outform DER | sha256sum`, and the pairing
-carries the one the owner compared, so a key swapped in between is refused.
-A revoked device is not paired back; it registers a new key.
-`test/documents/reachability.test.ts`
-lists what still has no route, by name, and fails if that list drifts. Signing in means presenting a second
-factor, because there are no accounts: PALUGADA has one human, so an identity
-system would be a table with one row and a password to lose. A sign-in lasts
-eight hours and is held in the database as the token's hash, so every console
-replica knows it, and it ends everywhere the moment its device is revoked. A fresh
-deployment has no authenticator enrolled and says so at boot, in those words —
-until one is, no tier 3 action can be approved, which is the right consequence
-of not meeting a P0 rather than a bug.
-
-Everything optional is optional because it needs something this process cannot
-conjure, and each says so at boot rather than at 3am:
+The smoke check builds a company and runs a task through the whole pipeline.
+It fails if the tier 3 gate does not refuse without a second factor, if no
+owner channel is reached, or if a built-in capability is missing.
+
+For production, [`deploy/palugada.service`](deploy/palugada.service) is a
+systemd unit. It runs as an unprivileged dynamic user and holds the owner's
+secret as a systemd credential. A configuration error exits with code 78, so
+the supervisor stops instead of restart-looping. SIGTERM closes the console
+first and lets the worker finish its step.
+
+## Configuration
+
+Everything optional needs something outside this process, such as a vendor
+account, a CLI or a URL. Each one reports at boot what is missing, so you
+find out at startup rather than at 3am.
 
 | Variable | What it turns on |
 |---|---|
-| `PALUGADA_OWNER_TOTP_REF` | the owner's first factor, enrolled at boot (see above) |
-| `PALUGADA_SECRET_DIRS` | where `file://` secrets may be read from; `/run/secrets` by default |
-| `PALUGADA_VENDORS` | the capabilities that need somebody's account (see below) |
-| `PALUGADA_MODEL_PRICES` | what a model call costs when the runtime reports tokens and no price — every agent CLI does (F13.7). Without it the estimate is a deliberately high fallback; `config/prices.example.json` is the shape |
-| `PALUGADA_DRAFT_MODEL` | the model the platform's own work uses: drafting, and the hourly pass that distils memory and screens skill candidates (F4.5, F15.3) |
-| `PALUGADA_CLAUDE_CODE_COMMAND` | the `claude-code` runtime (F13.2) |
-| `PALUGADA_RUNTIME_HTTP_URL` | a runtime that answers over HTTP (F13.4) |
-| `PALUGADA_RUNTIME_IMAGE` | the `docker` execution backend, the only one that isolates the network (F12.9) |
-| `PALUGADA_SANDBOX_URL`, `_IMAGE` | the remote sandbox backend (F12.9) |
-| `PALUGADA_RUNTIME_SPECS` | community CLI runtimes, as JSON (F13.3) |
-| `PALUGADA_FILES_ROOT` | `files.list`, and the drafting pair with a model |
-| `PALUGADA_PUSH_URL` | push for an incident or a tier 3 approval (F10.5) |
-| `PALUGADA_TELEGRAM_TOKEN`, `_CHAT`, `_WEBHOOK_SECRET` | the message channel (F10.9). `_CHAT` is the owner's own chat with the bot, whose id is the owner's user id: only that person's presses count, in any chat. Point the bot's `setWebhook` at `<PALUGADA_APP_URL_PUBLIC>/api/channels/telegram` with `secret_token` set to `_WEBHOOK_SECRET` |
-| `PALUGADA_APP_URL_PUBLIC` | where the console is reachable from the owner's phone; notifications link to the item there |
-| `PALUGADA_ALLOWED_HOSTS` | the names the console answers to, comma-separated. Anything else gets a 421, which closes DNS rebinding. Unset, it is the host of `PALUGADA_APP_URL_PUBLIC`, `PALUGADA_CONSOLE_ORIGIN` and `PALUGADA_ORIGIN` plus loopback; with none of those, a console bound to loopback answers to the loopback names, and one bound to every interface answers to anything and says so at boot |
-| `PALUGADA_RP_ID`, `PALUGADA_ORIGIN` | passkeys, for the console's own domain |
-| `PALUGADA_ALLOW_PRIVATE_HOSTS` | an internal host `web.fetch` may reach |
+| `PALUGADA_OWNER_TOTP_REF` | The owner's first factor, enrolled at boot |
+| `PALUGADA_SECRET_DIRS` | Where `file://` secrets may be read from (default `/run/secrets`) |
+| `PALUGADA_VENDORS` | Vendor capabilities from a JSON spec file (see [`config/vendors.example.json`](config/vendors.example.json)) |
+| `PALUGADA_MODEL_PRICES` | Model prices for runtimes that report tokens but no price (see [`config/prices.example.json`](config/prices.example.json)) |
+| `PALUGADA_DRAFT_MODEL` | The model used for drafting, memory distillation and skill screening |
+| `PALUGADA_CLAUDE_CODE_COMMAND` | The Claude Code runtime |
+| `PALUGADA_RUNTIME_SPECS` | Other agent CLIs, as JSON |
+| `PALUGADA_RUNTIME_HTTP_URL` | A runtime that answers over HTTP |
+| `PALUGADA_RUNTIME_IMAGE` | The Docker runtime, with no network |
+| `PALUGADA_SANDBOX_URL`, `_IMAGE` | A remote sandbox runtime |
+| `PALUGADA_FILES_ROOT` | The company's files, for `files.list` and drafting |
+| `PALUGADA_PUSH_URL` | Push notifications for incidents and tier 3 approvals |
+| `PALUGADA_TELEGRAM_TOKEN`, `_CHAT`, `_WEBHOOK_SECRET` | Telegram with decision buttons. Point the bot's webhook at `<PALUGADA_APP_URL_PUBLIC>/api/channels/telegram` |
+| `PALUGADA_APP_URL_PUBLIC` | Where the console is reached from the owner's phone. Notifications link there |
+| `PALUGADA_ALLOWED_HOSTS` | The host names the console answers to. Defaults to the hosts of the public URL and origins, plus loopback |
+| `PALUGADA_RP_ID`, `PALUGADA_ORIGIN` | Passkeys for the console's domain |
+| `PALUGADA_ALLOW_PRIVATE_HOSTS` | An internal host that `web.fetch` may reach |
 
-`npm run smoke` is the boot check. It builds a company, runs a task, and
-**fails** if the tick never reaches an owner channel, if the tier 3 gate does
-not refuse without a factor and accept with one, or if a capability the
-platform implements was not registered. Each of those is machinery that works,
-is tested alone, and would ship dormant — the defect this repository has found
-in itself more often than any other.
+**Capabilities.** PALUGADA implements the ones that need no vendor account:
+`web.fetch`, `uptime.check`, `files.list`, `doc.draft`, `email.draft`,
+`memory.search` and `skill.read`. Capabilities that need somebody's account,
+such as `email.send`, `invoice.issue` or `dns.update`, are bound by a vendor
+file. The file carries no code, and PALUGADA refuses one that writes without
+verifying, has a side effect without an idempotency key, or tries to loosen
+the catalogue's tier.
 
-A runtime is a process tree, not a process: each spawned runtime leads its own
-process group, and ending a run — done, cancelled, or past its task's deadline —
-signals the whole group, escalates to SIGKILL, and checks that it is empty. A
-runtime whose tree survives that reports itself unhealthy until it is gone, so
-the platform stops giving it work instead of starting another agent beside one
-nobody can stop.
+## Under the hood
 
-A vendor that answers "not now" — a 429, or a 503 that says when — parks the
-task until the time it named, spending none of its attempts; a read-back waits
-a short limit out in place. An approval stops asking the moment its task ends
-any other way, and a chat message the owner already answered elsewhere loses
-its buttons. A task left waiting on nothing — no approval open, no review
-pending, no time to wake at — is put to the owner once, and their answer runs
-it again or cancels it. What the owner decided stays findable: the History tab
-searches closed items by what they said as well as what was asked. A schedule
-whose last five runs produced the same result asks the owner once whether it
-is still worth running.
+- **Stack**: TypeScript on Node 22 with no build step, and PostgreSQL 16 with
+  pgvector. Three database roles: agents (row-level security enforced), the
+  control plane, and the schema owner.
+- **Tests**: acceptance tests grouped by requirement, run against a real
+  PostgreSQL. CI runs the type check, every migration and the whole suite on
+  each push, plus a nightly soak of twenty workers racing over a thousand
+  claims.
 
-## What is not exercised
+```
+src/
+  engine/       tasks, journal, checkout and leases, budgets, contracts, handoff
+  broker/       capability registry, catalogue, tiers, preflight, cost
+  runtime/      the adapter protocol and the runtimes
+  owner/        console API, sign-in, second factor, push, Telegram
+  inbox/        approvals, incidents, escalations
+  scheduler/    cron, windows, wake queue
+  memory/       scoped memory and distillation
+  skills/  eval/  bundles/  gateway/  governance/  policy/  review/
+  secrets/  retention/  audit/  reporting/  templates/  capabilities/
+console/        the owner's console (no framework, no build)
+db/migrations/  schema and row-level security
+test/           acceptance tests, one file per area of the specification
+```
 
-A vendor account, four times over: no push service, no bot token, no sandbox
-provider, and none of `hermes`, `openclaw`, `codex` or `gemini-cli` is
-installed. Every decision the platform makes *before* a request leaves is
-covered by the suite — which items may ring a phone, what a chat may put a
-button on, which second factors verify, whether a sandbox is destroyed on every
-path out, whether a capability may reach inside this network. What nobody here
-can check is whether the vendor on the other end agrees about a field name.
+## Limits worth knowing
 
-Twenty of the twenty-five capability names the standard template grants have no
-adapter bound *here*, and that is the design rather than a gap: `email.send` against Resend
-and against SES are different programs, and choosing one for every company that
-will ever use this platform is not a decision a control plane gets to make. The
-boot check names all twenty on every start, because a company granted a
-capability with nothing behind it is one whose agents are refused at the moment
-they try to work.
+- **Vendor integrations are verified up to the wire, not against the vendors
+  themselves.** Push, Telegram, the remote sandbox and the agent CLIs are
+  exercised end to end against local servers. The Claude Code and Docker
+  runtimes are verified up to the command line.
+- **The in-process sandbox does not isolate the network.** Use the Docker
+  runtime when that matters. The platform never gives code-executing
+  capabilities a credential, whichever runtime you use.
+- **Companies are frozen, exported or retained, never deleted.** The event log
+  is append-only by design.
+- **Vector search is exact.** That is correct at current volumes and keeps
+  "filter by scope before similarity" literally true. Very large memories
+  will need pgvector's iterative scans.
 
-What an operator writes for one of the twenty is a spec, not an integration,
-and it is a JSON file rather than a fork of this repository. `PALUGADA_VENDORS`
-points at it and `config/vendors.example.json` is a working one to copy;
-`httpCapability` carries the credential resolution, the reachability rules, the
-idempotency key, the read-back and the error translation, and refuses at
-construction a spec that writes without verifying, has a side effect without an
-idempotency key, or puts a credential in any of the three URLs it can name.
+## Documentation
 
-An entry names a method, a URL and four small things that would otherwise be
-code: a `body` as a JSON template, a `result` as a path into the answer, a
-`verify.matches` as a status and a comparison, and a `describe` mapping the
-four fields a policy can match on to input paths. Deliberately a small
-vocabulary — the alternative is an expression language, and an expression
-language in a configuration file is a program nobody reviews inside the one
-component standing between an agent and an irreversible action.
-
-A file that cannot be built from **stops the boot**, naming the entry and what
-is wrong with it. Every other missing piece leaves a capability unbound, which
-the broker refuses loudly at the moment of use; a malformed vendor file is
-different, because the operator believes they configured it — and a deployment
-that looks healthy and refuses every send is the failure v2 §2.3 records. The
-file also cannot loosen the catalogue: an entry binding `email.send` at tier 0
-is refused against the calibration, not believed.
-
-At the transport, a credential does not follow a redirect off the host it was
-issued for: `authorization`, `cookie` and the common API-key headers are
-dropped on any hop that changes origin, so a vendor answering
-`302 Location: https://attacker.example/` is not handed a live token. A `307`
-or `308` on a request with a side effect is refused rather than repeated,
-because the idempotency key that makes a retry safe means nothing to a party
-that never issued it.
-
-The five that need nobody's account — `web.fetch`, `uptime.check`,
-`files.list`, `doc.draft`, `email.draft` — are implemented. They were unbound
-alongside the other twenty for the same reason, which was the wrong reason:
-*a vendor account cannot be conjured, and code can be written.* That sentence
-is the correction this build made three times, on MFA, on the notification
-channels, and here.
-
-Two things are implemented and unverified end to end, which is not the same as
-built: the `claude-code` adapter (no CLI, no provider here) and the `docker`
-execution backend (a docker CLI, no daemon). What the suite covers in both
-cases is the command line — for the container, `--network none` and the rest of
-the flags *are* the security property — and the health check's refusal.
-
-Section 13 still ends with "evaluate migrating the engine or the vector store
-based on real data". That is not something to write ahead of the data: there is
-no production workload to measure yet, so the evaluation is deliberately not
-attempted rather than guessed at.
-
-## Limits worth knowing before you rely on them
-
-- **The sandbox does not isolate the network.** Node's permission model covers
-  the filesystem, child processes, workers and native addons, but not sockets.
-  Real network isolation needs a container or a namespace below the process.
-  The consequence is concrete: a capability that executes untrusted code must
-  not also hold a credential or reach a tier 2 action. `SANDBOX_GUARANTEES`
-  states this in code so it cannot drift out of the comment.
-- **Per-capability cost is measured where the capability measures it.** A
-  capability that reports what it was billed is counted at that figure; one
-  that reports nothing falls back to the estimate it was charged, and the row
-  is flagged `estimated`. The flag is pessimistic on purpose: one unmeasured
-  call marks the whole row.
-- **Semantic retrieval uses exact search.** That is correct at these volumes
-  and is what makes F4.2's "filter before similarity" literally true, but the
-  scale in section 9 will need pgvector's iterative scans or per-scope partial
-  indexes — not an ANN index bolted on, which would silently invert the filter
-  order.
-- **Deleting a company is still impossible**, by design: the append-only event
-  log has no cascade path. Freeze, export and retention are the supported
-  operations.
-
-`src/llm/client.ts` deliberately ships only an interface and a test double. The
-PRD leaves model-per-tier calibration open (section 14.5) and asks for
-per-role model abstraction so one provider outage cannot stop the platform, so
-binding to a vendor now would pre-empt a decision the owner has not made.
+- [`docs/PRD.md`](docs/PRD.md): the product specification (v2, in
+  Indonesian). Identifiers such as `F5.4` in the code refer to it.
+- [`docs/STATUS.md`](docs/STATUS.md): every requirement graded as built,
+  partial or not built, the design decisions, and the defects found and fixed.
+- [`docs/RESEARCH-2026-09.md`](docs/RESEARCH-2026-09.md): the comparison with
+  Slack, Buzz, auto-company and Paperclip.
+- [`docs/decisions/`](docs/decisions/): decision records, including why
+  PALUGADA was built rather than forked.

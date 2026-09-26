@@ -32,8 +32,11 @@ export async function resetData(): Promise<void> {
   await ensureSchema();
   await clearStopAll();
   // companies cascades to every tenant table; capabilities holds platform
-  // registry rows that each test registers for itself.
-  await ownerPool().query('TRUNCATE companies, capabilities CASCADE');
+  // registry rows that each test registers for itself. Published bundles are
+  // the deployment's too: a bundle one file published -- or one a mutation
+  // run let through -- was still there for every later file, and a count of
+  // them depended on what had run before.
+  await ownerPool().query('TRUNCATE companies, capabilities, bundles CASCADE');
 
   // The owner's own devices, which are not tenant data either.
   //

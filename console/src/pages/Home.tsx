@@ -10,9 +10,9 @@
  */
 import {
   Anchor, Avatar, Badge, Button, Grid, Group, Paper, Progress, SimpleGrid, Stack, Text, Title,
-  UnstyledButton,
+  Tooltip, UnstyledButton,
 } from '@mantine/core';
-import { IconArrowRight, IconChecklist, IconPlus } from '@tabler/icons-react';
+import { IconAlertTriangle, IconArrowRight, IconChecklist, IconPlus } from '@tabler/icons-react';
 import { api } from '../api.ts';
 import { useLoad } from '../hooks.ts';
 import type { CompanyPage } from '../router.ts';
@@ -21,6 +21,7 @@ import { money, relative } from '../format.ts';
 import { locale, t, tp } from '../i18n.ts';
 import { EmptyState, KindBadge, LiveIndicator, Loading, LoadFailed, Section, StatusBadge, TierBadge } from '../components/ui.tsx';
 import { TaskProgress } from './Work.tsx';
+import { metricValue } from '../components/Metrics.tsx';
 
 interface CompanyState {
   company: Company;
@@ -211,6 +212,7 @@ function CompanyCard({ state, open }: { state: CompanyState; open: (page: Compan
           <IconArrowRight size={18} color="var(--mantine-color-dimmed)" />
         </Group>
       </UnstyledButton>
+      {company.headline && <Headline headline={company.headline} onClick={() => open('team')} />}
       <SimpleGrid cols={3} spacing="xs">
         <Figure label={t('Needs you')} value={inbox.length} alert={inbox.length > 0} onClick={() => open('inbox')} />
         <Figure label={t('Running')} value={counts.active} onClick={() => open('work')} />
@@ -228,6 +230,30 @@ function CompanyCard({ state, open }: { state: CompanyState; open: (page: Compan
         <Anchor size="xs" onClick={() => open('inbox')}>{t('Open the inbox')}</Anchor>
       </Group>
     </Paper>
+  );
+}
+
+/** The number the company is judged by, and whether anyone checked it. */
+function Headline({ headline, onClick }: { headline: NonNullable<Company['headline']>; onClick: () => void }) {
+  const percent = headline.progress === null ? 0 : headline.progress * 100;
+  return (
+    <UnstyledButton w="100%" onClick={onClick} mb="md">
+      <Group justify="space-between" wrap="nowrap" gap="xs">
+        <Text size="xs" c="dimmed" truncate>{headline.name}</Text>
+        <Group gap={4} wrap="nowrap">
+          {headline.verified === false && (
+            <Tooltip label={t('An agent reported this and did not read it from the source')}>
+              <IconAlertTriangle size={12} color="var(--mantine-color-orange-6)" />
+            </Tooltip>
+          )}
+          <Text size="xs" className="tabular" style={{ whiteSpace: 'nowrap' }}>
+            {headline.value === null ? t('No value yet') : metricValue(headline, headline.value)}
+            <Text span c="dimmed" size="xs"> / {metricValue(headline, headline.target)}</Text>
+          </Text>
+        </Group>
+      </Group>
+      <Progress value={percent} size="sm" mt={6} radius="xl" color={percent >= 100 ? 'teal' : headline.verified === false ? 'orange' : 'brand'} />
+    </UnstyledButton>
   );
 }
 

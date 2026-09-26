@@ -23,6 +23,7 @@ import { N, t } from '../i18n.ts';
 import { LoadFailed, Loading, PageHeader, Section } from '../components/ui.tsx';
 import { ActionButton, ActionForm } from '../components/ActionForm.tsx';
 import { AssignWork } from '../components/AssignWork.tsx';
+import { GoalMetrics } from '../components/Metrics.tsx';
 
 export function Organization({ ctx }: PageProps) {
   const { companyId } = ctx;
@@ -520,6 +521,14 @@ function GoalLadder({ companyId, goals, changed }: { companyId: string; goals: G
             <Badge color={goal.status === 'active' ? 'brand' : goal.status === 'met' ? 'teal' : 'gray'} variant="light">{goalStatus(goal.status)}</Badge>
           </Group>
         </Group>
+        {(goal.kind !== 'mission' || goal.metrics.length > 0) && (
+          // The goal opens its editor on a click; recording a value or adding
+          // a measure is its own action, including inside the modals it opens,
+          // whose events still bubble through React to this card.
+          <div onClick={(event) => event.stopPropagation()}>
+            <GoalMetrics companyId={companyId} goal={goal} changed={changed} />
+          </div>
+        )}
       </Paper>
       {childrenOf(goal.id).map((child) => renderGoal(child, depth + 1))}
     </Box>

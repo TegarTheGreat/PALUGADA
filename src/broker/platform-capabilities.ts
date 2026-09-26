@@ -2,7 +2,7 @@
  * The capabilities PALUGADA implements itself (PRD v2 F4.8, F15.7).
  *
  * Almost every capability in the catalogue is a name waiting for an adapter
- * that talks to somebody else's service. These two are different: they read the
+ * that talks to somebody else's service. These are different: they use the
  * company's own store, and the platform is the thing that has it. They exist in
  * `src/` rather than in a test's stub file because they are not stand-ins for
  * something real -- they are the real implementations.
@@ -23,6 +23,7 @@ import { recall } from '../memory/store.ts';
 import { readSkill } from '../skills/skills.ts';
 import { TIER } from '../domain/tier.ts';
 import { recordPlan, type PlanStep } from '../engine/plan.ts';
+import { recordObservation } from '../domain/metrics.ts';
 import type { Capability } from './registry.ts';
 
 export interface MemorySearchInput {
@@ -168,13 +169,50 @@ export function planRecordCapability(): Capability<PlanRecordInput, { steps: num
   };
 }
 
+export interface MetricRecordInput {
+  /** The metric's slug, as the context pack names it. */
+  metric: string;
+  value: number;
+  /** Where the number came from, in a sentence. */
+  note?: string;
+}
+
+/**
+ * `metric.record`: an agent reports where a key result stands (0053).
+ *
+ * Tier 0 for the reason `plan.record` is: it changes nothing outside this
+ * database. What it records is marked verified only when this same task read
+ * the number from the metric's source capability -- so an agent can always say
+ * what it found, and can never make its own claim look like the ledger's.
+ */
+export function metricRecordCapability(): Capability<MetricRecordInput, { verified: boolean }> {
+  return {
+    name: 'metric.record',
+    adapter: 'platform',
+    defaultTier: TIER.READ_ONLY,
+    describe: () => ({ moneyCents: 0 }),
+    async execute(input, ctx) {
+      const recorded = await withTenant(ctx.companyId, (tx) => recordObservation(tx, {
+        companyId: ctx.companyId,
+        metric: String(input.metric ?? ''),
+        value: Number(input.value),
+        recordedBy: 'agent',
+        taskId: ctx.taskId,
+        note: input.note ?? null,
+      }));
+      return { verified: recorded.verified };
+    },
+  };
+}
+
 export function registerPlatformCapabilities(registry: {
   register(capability: Capability<never, never>): void;
 }): void {
   registry.register(memorySearchCapability() as unknown as Capability<never, never>);
   registry.register(skillReadCapability() as unknown as Capability<never, never>);
   registry.register(planRecordCapability() as unknown as Capability<never, never>);
+  registry.register(metricRecordCapability() as unknown as Capability<never, never>);
 }
 
 /** The names this module implements, for a caller that needs to know. */
-export const PLATFORM_CAPABILITIES = ['memory.search', 'skill.read', 'plan.record'] as const;
+export const PLATFORM_CAPABILITIES = ['memory.search', 'skill.read', 'plan.record', 'metric.record'] as const;

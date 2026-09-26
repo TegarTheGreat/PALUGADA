@@ -2457,6 +2457,42 @@ stand-in that reads its bridge from the spec's own files in the CLI's own
 format and answers in the CLI's own output. What remains is to run each once
 against the real binary.
 
+## 2.19 Goals were measured in effort
+
+Reading auto-company's source next to this one made a gap plain. There, every
+cycle starts from numbers: revenue, customers, what a price change did. Here,
+a key result's progress was the share of the tasks under it that had finished.
+That measures effort, and it does not compare: ten tasks done in a company that
+is losing money is not ahead of two done in one that is growing, and comparing
+companies is what one owner with several of them has to do.
+
+Migration 0053 adds `goal_metrics` and `metric_observations`
+(`src/domain/metrics.ts`):
+
+- **The owner sets the measure**: a unit, which way is better, a baseline, a
+  target, a date, and optionally the capability whose answer is the number.
+  The application role can read a metric and cannot insert or change one, nor
+  change or delete a recorded value.
+- **A run records a value with `metric.record`**, a tier 0 platform capability,
+  and the value is **verified** only when the same task has a committed call to
+  the metric's source capability whose result contains that number. Otherwise
+  it is kept and shown as the agent's claim. This is the read-back rule of F8.4
+  applied to results instead of writes.
+- **Every run under the goal is told** the measure it serves, where it stands,
+  and whether that standing is verified (`src/context/builder.ts`).
+- **The owner sees it** in three places: under each goal on the goal ladder,
+  where a value can be recorded; on a company's overview; and on the portfolio,
+  where each company shows the first measure on its highest active goal. A
+  company with nothing measured shows nothing there rather than being ranked
+  on effort.
+- Both tables travel with the company in the export and the import.
+
+The same work found a defect. The standard template granted `memory.search`
+and `skill.read` to every division but not `plan.record`, which a tier 2 grant
+requires a run to have called first. So every tier 2 grant in a company made
+from the template was unusable. `plan.record` and `metric.record` are now in
+the template and in the catalogue.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

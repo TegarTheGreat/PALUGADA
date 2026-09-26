@@ -97,6 +97,12 @@ const SECTIONS: Section[] = [
             FROM goals ORDER BY created_at`,
   },
   {
+    name: 'goal_metrics',
+    sql: `SELECT id, goal_id, slug, name, unit, direction, baseline, target, due_on,
+                 source_capability, created_at
+            FROM goal_metrics ORDER BY created_at`,
+  },
+  {
     name: 'capability_grants',
     sql: `SELECT id, division_id, capability_name, tier_override, rate_limit_per_hour, created_at
             FROM capability_grants ORDER BY created_at`,
@@ -125,6 +131,12 @@ const SECTIONS: Section[] = [
                  tokens_reserved, goal_id, lane_key, batchable, priority,
                  wait_until, plan, schedule_id, created_at, started_at, finished_at
             FROM tasks ORDER BY created_at`,
+  },
+  {
+    // After the tasks, which an agent's reading names.
+    name: 'metric_observations',
+    sql: `SELECT id, metric_id, value, observed_at, task_id, verified, recorded_by, note
+            FROM metric_observations ORDER BY observed_at`,
   },
   {
     name: 'task_steps',

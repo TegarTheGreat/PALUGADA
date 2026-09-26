@@ -84,6 +84,30 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
       'company and nothing inside it either.',
   },
   {
+    // F8.11. The plan a tier 2 action is held to; without it no run could
+    // take one.
+    name: 'plan.record',
+    adapter: 'platform',
+    tier: TIER.READ_ONLY,
+    summary: "Records the task's plan before its first costly action.",
+    calibration:
+      'Writes one row to the task it belongs to, once: a statement of intent ' +
+      'the broker then holds later actions to. Nothing outside the company ' +
+      'changes, and a second plan is refused rather than overwriting the first.',
+  },
+  {
+    // 0053. Where a key result stands, reported by the run that found out.
+    name: 'metric.record',
+    adapter: 'platform',
+    tier: TIER.READ_ONLY,
+    summary: "Records a value for one of the company's goal metrics.",
+    calibration:
+      'Appends a reading to the company\'s own records and changes nothing ' +
+      'outside it. The reading is marked verified only when the same task read ' +
+      'the number from the metric\'s source, so a run cannot pass off its own ' +
+      'claim as a measurement.',
+  },
+  {
     // F15.7. The pack carries a skill\'s summary; this fetches the document.
     name: 'skill.read',
     adapter: 'platform',

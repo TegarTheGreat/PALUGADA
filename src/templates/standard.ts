@@ -94,8 +94,15 @@ const WORK_OUTPUT = {
  *
  * Both are tier 0 reads of the company's own store, scoped to the asking
  * division by the same rules the pack uses, so granting them widens nothing.
+ *
+ * `plan.record` and `metric.record` join them. The first was missing, and
+ * with it every tier 2 grant in this template was one its holder could never
+ * use: F8.11 refuses a tier 2 action on a task with no plan, and the only way
+ * a run records one is this capability. The second is how a run says where a
+ * key result stands (0053). Both write only to the company's own records,
+ * which is why they are tier 0.
  */
-const PLATFORM_TOOLS = ['memory.search', 'skill.read'] as const;
+const PLATFORM_TOOLS = ['memory.search', 'skill.read', 'plan.record', 'metric.record'] as const;
 
 /**
  * The two divisions that do not get them, and why.

@@ -77,6 +77,7 @@ import { assignTask } from '../scheduler/wake.ts';
 import { createCompanyFromTemplate, readTemplate } from '../templates/company.ts';
 import { accountFor, chainFor, createAccount, snapshot } from '../engine/budget.ts';
 import { remember, supersede } from '../memory/store.ts';
+import { defineMetric, headlines, recordObservation, type Headline, type MetricUnit } from '../domain/metrics.ts';
 import {
   LANGUAGES, deploymentLanguages, languageCode, languagesFor, setCompanyLanguages, setDeploymentLanguages,
 } from '../domain/language.ts';
@@ -1009,6 +1010,49 @@ export class OwnerApi {
           }),
           }));
         },
+      },
+
+      /* ---------------------------------------------------- measured goals --- */
+
+      {
+        // What a goal is measured by (0053). The owner's, like the goal: an
+        // agent that could set its own target could meet any target. No
+        // factor, because adding a measure loosens nothing.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/goals/:goalId/metrics',
+        handle: async ({ params, body }) => {
+          const target = Number(body.target);
+          const baseline = body.baseline === undefined ? 0 : Number(body.baseline);
+          const id = await defineMetric(params.companyId!, {
+            goalId: params.goalId!,
+            slug: requireText(body.slug, 'slug'),
+            name: requireText(body.name, 'name'),
+            unit: requireText(body.unit, 'unit') as MetricUnit,
+            direction: body.direction === 'down' ? 'down' : 'up',
+            baseline,
+            target,
+            dueOn: typeof body.dueOn === 'string' && body.dueOn ? body.dueOn : null,
+            sourceCapability: typeof body.sourceCapability === 'string' && body.sourceCapability ? body.sourceCapability : null,
+          });
+          return { id };
+        },
+      },
+
+      {
+        // The owner's own reading of a number -- from a bank statement, a
+        // dashboard the platform cannot reach. Verified by being the owner's.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/metrics/:metricId/observations',
+        handle: async ({ params, body }) => withTenant(params.companyId!, async (tx) => {
+          const recorded = await recordObservation(tx, {
+            companyId: params.companyId!,
+            metric: params.metricId!,
+            value: Number(body.value),
+            recordedBy: 'owner',
+            note: typeof body.note === 'string' ? body.note : null,
+          });
+          return { id: recorded.id, verified: recorded.verified };
+        }),
       },
 
       /* ------------------------------------------------------------ F4.6 --- */
@@ -2234,6 +2278,7 @@ function send(res: ServerResponse, status: number, body: unknown): void {
 /** Every company the owner has, newest last, which is how they were made. */
 async function companies(): Promise<Array<{
   id: string; slug: string; name: string; frozen: boolean; workLanguage: string | null; talkLanguage: string | null;
+  headline: Headline | null;
 }>> {
   return withControlPlane(async (tx) => {
     const { rows } = await tx.query<{
@@ -2243,6 +2288,7 @@ async function companies(): Promise<Array<{
               work_language AS "workLanguage", talk_language AS "talkLanguage"
          FROM companies ORDER BY created_at`,
     );
-    return rows;
+    const measured = await headlines(tx);
+    return rows.map((row) => ({ ...row, headline: measured.get(row.id) ?? null }));
   });
 }

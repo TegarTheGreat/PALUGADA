@@ -17,6 +17,7 @@ import { recall, type MemoryItem } from '../memory/store.ts';
 import { ancestryForTask, renderAncestry } from '../domain/goals.ts';
 import { openQuestionsFor } from '../inbox/inbox.ts';
 import { languageName, languageRule, languagesFor } from '../domain/language.ts';
+import { metricsIn, renderMetrics } from '../domain/metrics.ts';
 
 export interface ContextSection {
   kind:
@@ -348,6 +349,14 @@ export async function buildContext(
         title: 'What this work is for',
         body: renderAncestry(chain),
       });
+      // And what those goals are measured by, with where each stands. A run
+      // that knows the number it serves can say whether its work moved it;
+      // one that knows only the goal's wording cannot.
+      const onChain = new Set(chain.map((goal) => goal.id));
+      const measured = (await metricsIn(tx)).filter((metric) => onChain.has(metric.goalId));
+      if (measured.length > 0) {
+        sections.push({ kind: 'goal_ancestry', title: 'How this work is measured', body: renderMetrics(measured) });
+      }
     }
 
     // F10.3: the owner asked something, and the answer belongs in this task

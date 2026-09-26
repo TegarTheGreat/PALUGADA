@@ -23,6 +23,7 @@ import { day, eventSentence, goalKind, money, relative } from '../format.ts';
 import { N, t } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
 import { KpiStrip, LoadFailed, Loading, PageHeader, Section, StatusBadge } from '../components/ui.tsx';
+import { MetricLine } from '../components/Metrics.tsx';
 import { TaskProgress } from './Work.tsx';
 
 const STAGES: Array<{ id: string; label: string; statuses: string[]; color: string; page: 'work' | 'inbox' }> = [
@@ -68,6 +69,7 @@ export function Overview({ ctx }: PageProps) {
   const chart = cost.timeline.map((row) => ({ day: day(row.period), cost: row.costCents / 100 }));
   const inFlight = work.items.filter((item) => ['checked_out', 'running', 'pending'].includes(item.status));
   const objectives = structure.goals.filter((goal) => goal.kind === 'objective' && goal.status === 'active');
+  const measured = structure.goals.filter((goal) => goal.status === 'active').flatMap((goal) => goal.metrics);
 
   return (
     <Stack gap="lg">
@@ -130,9 +132,14 @@ export function Overview({ ctx }: PageProps) {
         <Grid.Col span={{ base: 12, md: 5 }}>
           <Section
             title={t('Goals')}
-            description={t('Tasks finished under each objective.')}
+            description={measured.length > 0 ? t('What the goals are measured by, then tasks finished under each objective.') : t('Tasks finished under each objective.')}
             actions={<Anchor size="sm" onClick={() => ctx.open('team')}>{t('Goal ladder')}</Anchor>}
           >
+            {measured.length > 0 && (
+              <Stack gap="md" mb="lg">
+                {measured.slice(0, 4).map((metric) => <MetricLine key={metric.id} metric={metric} companyId={companyId} />)}
+              </Stack>
+            )}
             {objectives.length === 0 ? (
               <Text size="sm" c="dimmed">{t('No objective has been set yet.')}</Text>
             ) : (

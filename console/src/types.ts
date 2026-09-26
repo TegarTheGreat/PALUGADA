@@ -9,6 +9,15 @@ export interface Company {
   workLanguage: string | null;
   /** What its agents write to the owner and each other in; null follows the default. */
   talkLanguage: string | null;
+  /** The first metric on its highest active goal, or null when nothing is measured yet. */
+  headline: {
+    name: string;
+    unit: Metric['unit'];
+    target: number;
+    value: number | null;
+    verified: boolean | null;
+    progress: number | null;
+  } | null;
 }
 
 export interface InboxItem {
@@ -77,6 +86,24 @@ export interface Goal {
   /** Tasks under this goal or any goal beneath it: finished, and in all. */
   tasksDone: number;
   tasksTotal: number;
+  /** What the goal is measured by, with where each stands. */
+  metrics: Metric[];
+}
+
+export interface Metric {
+  id: string;
+  goalId: string;
+  slug: string;
+  name: string;
+  unit: 'currency' | 'count' | 'ratio' | 'percent';
+  direction: 'up' | 'down';
+  baseline: number;
+  target: number;
+  dueOn: string | null;
+  sourceCapability: string | null;
+  latest: { value: number; observedAt: string; verified: boolean; recordedBy: string } | null;
+  progress: number | null;
+  history: Array<{ value: number; observedAt: string; verified: boolean }>;
 }
 
 export interface Division {

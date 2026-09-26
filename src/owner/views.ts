@@ -13,6 +13,7 @@
  * returns plain data shaped for a screen -- names beside ids, counts already
  * counted -- so the page holds no queries and no rules.
  */
+import { metricsIn, type MetricView } from '../domain/metrics.ts';
 import { withTenant } from '../db/tenant.ts';
 import { fingerprint } from '../gateway/gateway.ts';
 import { TERMINAL_STATUSES, type TaskStatus } from '../domain/task.ts';
@@ -36,6 +37,8 @@ export interface StructureView {
      */
     tasksDone: number;
     tasksTotal: number;
+    /** What the goal is measured by, with the latest value and progress (0053). */
+    metrics: MetricView[];
   }>;
   divisions: Array<{
     id: string;
@@ -125,6 +128,8 @@ export async function structureOf(companyId: string): Promise<StructureView> {
       ),
     ]);
 
+    const metrics = await metricsIn(tx);
+
     // Rolled up the ladder: a goal counts its own tasks and every goal's under it.
     const own = new Map(goalWork.rows.map((row) => [row.goal_id, row]));
     const children = new Map<string, string[]>();
@@ -167,6 +172,7 @@ export async function structureOf(companyId: string): Promise<StructureView> {
         status: goal.status,
         tasksDone: roll(goal.id, new Set()).done,
         tasksTotal: roll(goal.id, new Set()).total,
+        metrics: metrics.filter((metric) => metric.goalId === goal.id),
       })),
       divisions: divisions.rows.map((division) => ({
         id: division.id,

@@ -88,6 +88,8 @@ const EVENT_SENTENCES: Record<string, string> = {
   'credential.rotated': N('Credential rotated'),
   'goal.created': N('Goal added'),
   'goal.changed': N('Goal changed'),
+  'metric.defined': N('Goal given a measure'),
+  'metric.recorded': N('Measure recorded'),
   'structure.changed': N('Structure changed'),
   'gateway.device_registered': N('Device registered'),
   'gateway.device_paired': N('Device paired'),

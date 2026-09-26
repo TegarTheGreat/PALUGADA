@@ -104,6 +104,7 @@ const SECTIONS: ImportSection[] = [
   { name: 'projects', table: 'projects', references: [] },
   { name: 'divisions', table: 'divisions', references: ['parent_division_id'] },
   { name: 'goals', table: 'goals', references: ['parent_goal_id'] },
+  { name: 'goal_metrics', table: 'goal_metrics', references: ['goal_id'] },
   { name: 'roles', table: 'roles', references: ['division_id'] },
   { name: 'capability_grants', table: 'capability_grants', references: ['division_id'] },
   {
@@ -143,6 +144,7 @@ const SECTIONS: ImportSection[] = [
     drop: ['lease_holder', 'lease_expires_at'],
   },
   { name: 'task_steps', table: 'task_steps', references: ['task_id'] },
+  { name: 'metric_observations', table: 'metric_observations', references: ['metric_id', 'task_id'] },
   { name: 'agent_runs', table: 'agent_runs', references: ['task_id', 'role_id'] },
   { name: 'events', table: 'events', references: ['project_id', 'task_id'] },
   {

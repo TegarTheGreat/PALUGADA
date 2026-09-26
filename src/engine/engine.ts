@@ -492,7 +492,12 @@ export class Engine {
         status: 'halted',
         reason:
           `role ${roleSlug} names runtime ${runtime.runtime}, which is not registered ` +
-          `(registered: ${this.#adapters.names().join(', ') || 'none'})`,
+          `(registered: ${this.#adapters.names().join(', ') || 'none'})` +
+          // The one an owner meets first: every template role names it, and
+          // it is missing for one reason only.
+          (runtime.runtime === 'in-process'
+            ? '; the in-process runtime needs a model -- set PALUGADA_MODEL_KEY_REF, or give the role another runtime'
+            : ''),
       };
     }
 

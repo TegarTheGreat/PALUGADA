@@ -2738,6 +2738,80 @@ work delegated (`begunOutside` in `src/engine/tasks.ts`).
 - Per-company connections to outside accounts from the console, and coding
   workspaces.
 
+## 2.21 Read against its own claims, again
+
+Four audits read the code against what the README and this file say: how
+memory is shared, how reliable a deployment is, what it can reach, and what
+the systems it is compared with actually do. Each finding below was
+reproduced by a failing test before it was fixed.
+
+### The owner's word reached the builder and no agent
+
+The context builder assembled the company's languages, its stage, how the
+goal is measured, the owner's question, their answers and their
+instructions; the engine then built the runtime's request from four of the
+pack's sections and dropped the rest. An owner who answered a task's
+question, told it "lead with the price change", or reran it with a note was
+heard by nothing that did the work, and the reminder after a language slip
+never reached a CLI either. The request now carries the pack's notes
+(`ContextPack.notes`, and on the wire), and every agent CLI reads them in
+the prompt after the charter and before the task (`renderPrompt` in
+`src/runtime/wire.ts`).
+
+Working memory was re-read after the context cap, whole, and travels in
+every run of a task. One large fetched page rode along in every later run,
+and a task waiting on its sub-tasks is run every few minutes, so its cost
+grew with the square of its steps. Each step's result is now bounded to
+4,000 characters, and the runtime is handed exactly the steps the cap kept.
+
+### A stock deployment could run no work at all
+
+Every role a template creates names the in-process runtime. The in-process
+runtime ran handlers, a deployment had none, and the only model client in
+the repository was the test double, so `npm start` registered no runtime
+and every task halted with `runtime_unavailable`. Drafting, distillation
+and skill screening were off for the same reason. And nothing the owner
+could reach changed a role's runtime: moving one onto Claude Code took SQL.
+
+- A model client for Anthropic's Messages API over `fetch`
+  (`src/llm/anthropic.ts`), configured by `PALUGADA_MODEL_KEY_REF`. A role
+  names a tier -- `fast`, `standard`, `deep` -- and the client resolves it
+  (`PALUGADA_MODEL_ALIASES`). Overloaded and rate-limited answers are retried
+  with the provider's `Retry-After`, then handed to the fallback model
+  (F13.6); a wrong key is said plainly and not retried. The system prompt is
+  marked for the provider's cache, since it is the same on every turn. Each
+  call is priced from the deployment's price list, cached input at the full
+  rate.
+- A role with no handler of its own is run by the model
+  (`src/runtime/agent-loop.ts`): it reads the charter and the notes as its
+  system prompt, calls the role's tools through the broker, and finishes
+  with the task's output. Every turn is a journalled step whose input is
+  its position, so a restart resumes at the turn it reached without paying
+  for the earlier ones or calling their tools again, and a fallback model
+  continues the conversation. A refusal comes back to the model as a failed
+  call it can work around; an approval, a question to the owner, a vendor's
+  "not now", the budget or a freeze ends the run and parks or halts the task.
+  Tool results reach the model inside the untrusted envelope (F8.9).
+- The owner sees each runtime this deployment runs, whether it answers, and
+  moves a role onto one from the role's page (`GET /api/runtimes`, and
+  `runtime` on a role change). The change is versioned like a prompt or a
+  model and rolled back the same way; a runtime nothing here runs is refused.
+- Without a key, the boot says what is missing, and a task that halts for
+  want of the in-process runtime names the setting.
+
+**Still open from these audits, in the order they would be taken**
+
+- A capability's input schema: the registry never writes one, so every tool
+  is offered to a model as "any object".
+- F8.9 for work that *reads* outside content, not only work begun by it: a
+  run that read an email and then sends one is not yet held back.
+- Memory retrieval ranked by relevance rather than recency, and a way for a
+  run to write what it learned.
+- A governed MCP client, so a company can use the integrations that already
+  exist as MCP servers.
+- Worker logs, a readiness endpoint, a statement timeout on the pool, and
+  the approval consumed before the action rather than after it.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

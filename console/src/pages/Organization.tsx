@@ -285,6 +285,55 @@ function DivisionCard({
 
 /* ------------------------------------------------------------ role drawer --- */
 
+interface RuntimeRow { name: string; backends: string[]; ok: boolean; detail?: string }
+
+/**
+ * Which runtime does the role's work, and the ones it could be moved to.
+ *
+ * Each with whether it answers now: a role moved onto a runtime that does not
+ * answer gets no work (F13.8), so the owner sees that before choosing it.
+ */
+function RoleRuntime({ companyId, role, changed }: { companyId: string; role: Role; changed: () => void }) {
+  const runtimes = useLoad(async () => ((await api('GET', '/api/runtimes')) as { runtimes: RuntimeRow[] }).runtimes, []);
+  if (runtimes.error) return <LoadFailed message={runtimes.error} retry={runtimes.reload} />;
+  if (!runtimes.data) return <Loading rows={1} />;
+  const current = runtimes.data.find((runtime) => runtime.name === role.runtime);
+  return (
+    <Stack gap="sm">
+      <Text size="sm">
+        {current
+          ? current.ok
+            ? t('{runtime} does its work, and answers now.', { runtime: current.name })
+            : t('{runtime} does its work, and is not answering: {detail}', { runtime: current.name, detail: current.detail ?? t('no detail') })
+          : t('Its runtime, {runtime}, does not run here, so it cannot work until it is moved to one that does.', { runtime: role.runtime ?? t('none') })}
+      </Text>
+      {runtimes.data.length === 0 ? (
+        <Text size="sm" c="dimmed">{t('No runtime runs here yet. Setting a model key in the deployment gives every role one.')}</Text>
+      ) : (
+        <ActionForm
+          columns={1}
+          fields={[{
+            name: 'runtime',
+            label: t('Move it to'),
+            type: 'select',
+            required: true,
+            initial: role.runtime,
+            options: runtimes.data.map((runtime) => ({
+              value: runtime.name,
+              label: runtime.ok ? runtime.name : t('{runtime} (not answering)', { runtime: runtime.name }),
+            })),
+          }]}
+          submit={(values, proof) => api('POST', `/api/companies/${companyId}/roles/${role.id}`, { ...values, proof })}
+          factor={t('Move {role} to another runtime', { role: role.slug })}
+          action={t('Move it')}
+          success={t('Role moved.')}
+          done={changed}
+        />
+      )}
+    </Stack>
+  );
+}
+
 function RoleDrawer({
   companyId, role, structure, close, changed,
 }: { companyId: string; role: Role | null; structure: Structure; close: () => void; changed: () => void }) {
@@ -370,6 +419,10 @@ function RoleDrawer({
             <Accordion.Item value="budget">
               <Accordion.Control>{t('What funds it')}</Accordion.Control>
               <Accordion.Panel><RoleBudget companyId={companyId} role={role} /></Accordion.Panel>
+            </Accordion.Item>
+            <Accordion.Item value="runtime">
+              <Accordion.Control>{t('Who does its work')}</Accordion.Control>
+              <Accordion.Panel><RoleRuntime companyId={companyId} role={role} changed={changed} /></Accordion.Panel>
             </Accordion.Item>
             <Accordion.Item value="change">
               <Accordion.Control>{t('Change its charter or model')}</Accordion.Control>

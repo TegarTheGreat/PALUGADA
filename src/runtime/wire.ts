@@ -126,11 +126,33 @@ export function toWireRequest(request: RunRequest): WireRequest {
  * does it.
  */
 export function renderPrompt(wire: WireRequest): string {
+  return [renderSystem(wire), renderTask(wire)].join('\n');
+}
+
+/**
+ * What governs the run: the charter, then the notes, then how to finish.
+ *
+ * The system prompt of a model the platform runs itself (the agent loop), and
+ * the first half of an agent CLI's prompt.
+ */
+export function renderSystem(wire: WireRequest): string {
   const notes = wire.contextPack.notes.flatMap((note) => [`## ${note.title}`, '', note.body, '']);
   return [
     wire.contextPack.charter,
     '',
     ...(notes.length > 0 ? ['# Before you start', '', ...notes] : []),
+    '# How you work',
+    '',
+    'Act only through the tools you have been given. When you are finished,',
+    'reply with a single JSON object and nothing else: that object is the',
+    "task's output and is validated against the role's output schema.",
+    '',
+  ].join('\n');
+}
+
+/** The task itself, and what the run has to work from, as JSON. */
+export function renderTask(wire: WireRequest): string {
+  return [
     '# Your task',
     JSON.stringify(
       {
@@ -143,10 +165,6 @@ export function renderPrompt(wire: WireRequest): string {
       null,
       2,
     ),
-    '',
-    'Act only through the tools you have been given. When you are finished,',
-    'reply with a single JSON object and nothing else: that object is the',
-    "task's output and is validated against the role's output schema.",
   ].join('\n');
 }
 

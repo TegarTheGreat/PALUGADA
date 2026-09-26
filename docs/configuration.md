@@ -50,10 +50,13 @@ find out at startup rather than at 3am.
 | Variable | What it turns on |
 |---|---|
 | `PALUGADA_OWNER_TOTP_REF` | The owner's first factor, enrolled at boot |
+| `PALUGADA_MODEL_KEY_REF` | The model the platform runs on, as a secret reference (`env://PALUGADA_SECRET_MODEL_KEY`). Without it, no role on the in-process runtime can work, and every role a template creates is on it |
+| `PALUGADA_MODEL_URL` | Where the model API is (default `https://api.anthropic.com`), for a gateway that speaks the same API |
+| `PALUGADA_MODEL_ALIASES` | Which model each tier a role names stands for, as JSON. Defaults: `fast` = `claude-haiku-4-5-20251001`, `standard` = `claude-sonnet-5`, `deep` = `claude-opus-5-5` |
 | `PALUGADA_SECRET_DIRS` | Where `file://` secrets may be read from (default `/run/secrets`) |
 | `PALUGADA_VENDORS` | Vendor capabilities from a JSON spec file (see [`config/vendors.example.json`](../config/vendors.example.json)) |
 | `PALUGADA_MODEL_PRICES` | Model prices for runtimes that report tokens but no price (see [`config/prices.example.json`](../config/prices.example.json)) |
-| `PALUGADA_DRAFT_MODEL` | The model used for drafting, memory distillation and skill screening |
+| `PALUGADA_DRAFT_MODEL` | The tier or model used for drafting, memory distillation and skill screening (default `standard`) |
 | `PALUGADA_CLAUDE_CODE_COMMAND` | The Claude Code runtime |
 | `PALUGADA_RUNTIME_SPECS` | Other agent CLIs, as JSON |
 | `PALUGADA_RUNTIME_HTTP_URL` | A runtime that answers over HTTP |
@@ -66,6 +69,14 @@ find out at startup rather than at 3am.
 | `PALUGADA_ALLOWED_HOSTS` | The host names the console answers to. Defaults to the hosts of the public URL and origins, plus loopback |
 | `PALUGADA_RP_ID`, `PALUGADA_ORIGIN` | Passkeys for the console's domain |
 | `PALUGADA_ALLOW_PRIVATE_HOSTS` | An internal host that `web.fetch` may reach |
+
+**Runtimes.** A role's work is done by the runtime it names. With a model
+key, the in-process runtime runs every role that has no handler of its own:
+the model reads the role's charter and the owner's notes, calls the role's
+tools through the broker, and finishes with the task's output. Each turn is
+a journalled step, so a restart resumes at the turn it reached. Any other
+runtime configured below can be chosen per role in the console (the role's
+*Who does its work*), and only one this deployment runs is accepted.
 
 **Capabilities.** PALUGADA implements the ones that need no vendor account:
 `web.fetch`, `uptime.check`, `files.list`, `doc.draft`, `email.draft`,

@@ -33,7 +33,7 @@ import { PalugadaError } from '../errors.ts';
 
 export interface RuntimeAssemblyOptions {
   env: NodeJS.ProcessEnv;
-  /** The in-process runtime's model client and handlers, when there are any. */
+  /** The in-process runtime's model client, and the handlers of any role that has its own. */
   llm?: LlmClient;
   handlers?: Map<string, TaskHandler>;
   /** A registry a caller already built, so a deployment can add its own. */
@@ -62,11 +62,16 @@ export function assembleRuntimes(options: RuntimeAssemblyOptions): RuntimeAssemb
   // is a worker that halts every task it touches. A deployment that configures
   // a real runtime keeps this one too: a role names its runtime, so having
   // both registered is not ambiguity, it is coverage.
-  if (options.llm && options.handlers) {
-    adapters.register(new InProcessAdapter({ handlers: options.handlers, llm: options.llm }));
+  //
+  // It needs a model client and nothing else: a role with a handler runs the
+  // handler, and a role without one is run by the model (`agent-loop.ts`).
+  // It used to need both, and a deployment had no handlers, so the runtime
+  // every template role names was registered by no deployment at all.
+  if (options.llm) {
+    adapters.register(new InProcessAdapter({ handlers: options.handlers ?? new Map(), llm: options.llm }));
   } else {
     notes.push(
-      'no in-process runtime: a deployment supplies a model client and handlers for it (F13.1)',
+      'no in-process runtime: it needs a model -- set PALUGADA_MODEL_KEY_REF (F13.1)',
     );
   }
 

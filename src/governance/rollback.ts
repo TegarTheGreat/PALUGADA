@@ -80,6 +80,9 @@ export async function rollBack(
       tools: snapshot.tools as string[],
       modelPrimary: String(snapshot.modelPrimary),
       modelFallback: snapshot.modelFallback as string[],
+      // Versions written before a role's runtime could change carry none, and
+      // restoring one of them leaves the runtime as it is.
+      ...(typeof snapshot.runtime === 'string' ? { runtime: snapshot.runtime } : {}),
     }, { ownerApproved: true, summary });
   }
 

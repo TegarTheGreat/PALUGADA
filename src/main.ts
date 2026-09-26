@@ -28,6 +28,7 @@ import { CapabilityBroker } from './broker/broker.ts';
 import { CapabilityRegistry } from './broker/registry.ts';
 import { Engine } from './engine/engine.ts';
 import { DEFAULT_PRICE_TABLE, loadPriceTable } from './engine/pricing.ts';
+import { modelAliasesFrom, modelClientFrom } from './llm/anthropic.ts';
 import { Worker, type WorkerOptions } from './worker.ts';
 import type { SecretManager } from './secrets/manager.ts';
 import { OwnerMfa, decodeBase32 } from './owner/mfa.ts';
@@ -289,6 +290,39 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     );
   }
 
+  // F13.7: the price list, before anything that prices a call. The model
+  // client prices each of its calls with it, and the engine estimates the
+  // agent CLIs' with it. Read at boot and refused whole when it is wrong, like
+  // the vendor file. Without one the fallback applies to every model, and it
+  // is set high on purpose -- so the note says so, because an owner reading
+  // an estimate should know whether it came from their own list.
+  const pricesFile = options.pricesFile ?? env.PALUGADA_MODEL_PRICES ?? null;
+  const prices = pricesFile ? await loadPriceTable(pricesFile) : DEFAULT_PRICE_TABLE;
+  notes.push(
+    pricesFile
+      ? `model prices from ${pricesFile}: ${prices.rates.length} model pattern(s), `
+        + `fallback ${prices.fallback.inputCentsPerMTok}/${prices.fallback.outputCentsPerMTok} cents per MTok`
+      : 'no model price list: unpriced usage is estimated at the conservative fallback -- '
+        + 'set PALUGADA_MODEL_PRICES (F13.7)',
+  );
+
+  // The model the platform runs on: the in-process runtime's, so a role with
+  // no handler of its own is run by it, and the drafting, distillation and
+  // screening that need one. Every role the standard template creates names
+  // the in-process runtime, so a deployment with no model can start a company
+  // and run none of its work -- which the note says in so many words.
+  const llm = options.llm ?? await modelClientFrom(env, secrets, prices);
+  if (!options.llm) {
+    notes.push(
+      llm
+        ? `model: ${env.PALUGADA_MODEL_URL ?? 'https://api.anthropic.com'}, roles name a tier and run on `
+          + Object.entries(modelAliasesFrom(env.PALUGADA_MODEL_ALIASES)).map(([tier, model]) => `${tier} = ${model}`).join(', ')
+        : 'no model: set PALUGADA_MODEL_KEY_REF to a model API key -- until then no role on the in-process '
+          + 'runtime can work, and every role a template creates is on it (F13.1)',
+    );
+  }
+  const draftModel = env.PALUGADA_DRAFT_MODEL ?? 'standard';
+
   const registry = options.registry ?? new CapabilityRegistry();
 
   // `memory.search` and `skill.read`, first and unconditionally.
@@ -318,13 +352,12 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // reading, and a root that silently did not reach the capability would
     // leave `files.list` unbound while the note said otherwise.
     ...(filesRoot ? { files: { root: filesRoot } } : {}),
-    ...(options.llm ? { llm: options.llm } : {}),
-    ...(env.PALUGADA_DRAFT_MODEL ? { draftModel: env.PALUGADA_DRAFT_MODEL } : {}),
+    ...(llm ? { llm, draftModel } : {}),
   });
   if (!filesRoot) {
     notes.push('files.list is unbound: set PALUGADA_FILES_ROOT to the company\'s files (F8)');
   }
-  if (!options.llm) {
+  if (!llm) {
     notes.push('doc.draft and email.draft are unbound: no model client was given (F8)');
     // Two more things that need one, and are silent rather than broken
     // without it -- which is the worse failure of the two.
@@ -416,25 +449,10 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   const runtimes = assembleRuntimes({
     env,
     ...(options.adapters ? { registry: options.adapters } : {}),
-    ...(options.llm ? { llm: options.llm } : {}),
+    ...(llm ? { llm } : {}),
     ...(options.handlers ? { handlers: options.handlers } : {}),
   });
   notes.push(...runtimes.notes);
-
-  // F13.7: the price list for runtimes that report tokens and no price, which
-  // is every agent CLI. Read at boot and refused whole when it is wrong, like
-  // the vendor file. Without one the fallback applies to every model, and it
-  // is set high on purpose -- so the note says so, because an owner reading
-  // an estimate should know whether it came from their own list.
-  const pricesFile = options.pricesFile ?? env.PALUGADA_MODEL_PRICES ?? null;
-  const prices = pricesFile ? await loadPriceTable(pricesFile) : DEFAULT_PRICE_TABLE;
-  notes.push(
-    pricesFile
-      ? `model prices from ${pricesFile}: ${prices.rates.length} model pattern(s), `
-        + `fallback ${prices.fallback.inputCentsPerMTok}/${prices.fallback.outputCentsPerMTok} cents per MTok`
-      : 'no model price list: unpriced usage is estimated at the conservative fallback -- '
-        + 'set PALUGADA_MODEL_PRICES (F13.7)',
-  );
 
   const engine = new Engine({
     broker,
@@ -466,14 +484,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // because a deployment that configured one meant it for the platform's own
     // work; without it the worker never distils and never screens, which the
     // note below says out loud.
-    ...(options.llm
-      ? {
-        learning: {
-          llm: options.llm,
-          model: env.PALUGADA_DRAFT_MODEL ?? 'claude-sonnet-5',
-        },
-      }
-      : {}),
+    ...(llm ? { learning: { llm, model: draftModel } } : {}),
     ...(env.PALUGADA_APP_URL_PUBLIC
       ? {
         ownerLinkFor: (item) => consoleLinkFor(env.PALUGADA_APP_URL_PUBLIC!, item),
@@ -524,6 +535,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // The same list the process prints, held by reference: notes added
     // after this point are still the deployment's, and still the owner's to see.
     deploymentNotes: notes,
+    runtimes: runtimes.adapters,
   });
   const { url } = await api.listen(options.port ?? Number(env.PALUGADA_PORT ?? 8787), bindHost);
 

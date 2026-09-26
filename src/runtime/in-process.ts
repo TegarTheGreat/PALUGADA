@@ -27,8 +27,15 @@
  * The model client lives here rather than in the engine. That is NG6 in one
  * line: the thing that decides what to say to a model is the runtime, and the
  * thing that decides whether the company can afford it is the platform.
+ *
+ * **A role with no handler is run by the model** (`agent-loop.ts`), when the
+ * client can let a model use tools. Handlers are how the platform's own tests
+ * and a deployment's bespoke roles work; a company started from a template
+ * has none, and until the loop every one of its roles was a name with nothing
+ * behind it.
  */
-import type { LlmClient, LlmRequest } from '../llm/client.ts';
+import { usesTools, type LlmClient, type LlmRequest } from '../llm/client.ts';
+import { runAgentLoop } from './agent-loop.ts';
 import type { StepKind } from '../engine/journal.ts';
 import type { TaskRow } from '../engine/tasks.ts';
 import type { ChildResult } from '../engine/containment.ts';
@@ -83,7 +90,12 @@ export class InProcessAdapter implements Adapter {
 
   async run(request: RunRequest, services: RunServices): Promise<AdapterResult> {
     const handler = this.#handlers.get(request.roleSlug);
-    if (!handler) throw new Error(`no handler registered for role ${request.roleSlug}`);
+    if (!handler) {
+      if (usesTools(this.#llm)) return { output: await runAgentLoop(request, services, this.#llm) };
+      throw new Error(
+        `no handler registered for role ${request.roleSlug}, and the model client cannot use tools to run it`,
+      );
+    }
 
     const ctx: TaskContext = {
       task: request.task,
@@ -110,7 +122,7 @@ export class InProcessAdapter implements Adapter {
           // cover it. That throw is how a runtime learns it has run out, and
           // there is deliberately no other channel.
           await services.reportUsage({
-            model: llmRequest.model ?? request.modelRouting.primary,
+            model: response.model ?? llmRequest.model ?? request.modelRouting.primary,
             inputTokens: response.inputTokens,
             outputTokens: response.outputTokens,
             costCents: response.costCents,

@@ -89,6 +89,7 @@ import {
 } from '../domain/language.ts';
 import { getTask } from '../engine/tasks.ts';
 import type { TaskHandler } from '../runtime/in-process.ts';
+import type { AdapterRegistry } from '../runtime/protocol.ts';
 import { collectExport } from '../audit/export.ts';
 import { archiveLines, importCompany, previewArchive } from '../audit/import.ts';
 import {
@@ -202,6 +203,12 @@ export interface OwnerApiOptions {
    * nobody running the company from a phone will ever read.
    */
   deploymentNotes?: readonly string[];
+  /**
+   * The runtimes this deployment employs (F13.1), so the owner can see which
+   * answer and move a role onto one. Absent means none can be chosen: a role
+   * change naming a runtime is refused rather than written unchecked.
+   */
+  runtimes?: AdapterRegistry;
   /**
    * The message channel whose button presses arrive at
    * `/api/channels/telegram` (F10.9). Absent means the route refuses.
@@ -537,13 +544,45 @@ export class OwnerApi {
       },
 
       {
+        // F13.1, F13.8: what can do a role's work here, and whether it answers.
+        // Asked of every runtime at once, each given two seconds: a runtime
+        // that does not answer in that time is not one to move a role onto.
+        method: 'GET',
+        pattern: '/api/runtimes',
+        handle: async () => {
+          const registry = this.#options.runtimes;
+          const names = registry?.names() ?? [];
+          const runtimes = await Promise.all(names.map(async (name) => {
+            const adapter = registry!.get(name)!;
+            let timer: NodeJS.Timeout | undefined;
+            const health = await Promise.race([
+              adapter.health().catch((failure: unknown) => ({ ok: false, detail: (failure as Error).message })),
+              new Promise<{ ok: boolean; detail?: string }>((resolve) => {
+                timer = setTimeout(() => resolve({ ok: false, detail: 'did not answer within two seconds' }), 2_000);
+              }),
+            ]).finally(() => clearTimeout(timer));
+            return {
+              name,
+              backends: [...adapter.backends],
+              ok: health.ok,
+              ...(health.detail === undefined ? {} : { detail: health.detail }),
+            };
+          }));
+          return { runtimes };
+        },
+      },
+
+      {
         method: 'GET',
         pattern: '/api/control/setup',
         handle: async () => {
           const notes = [...(this.#options.deploymentNotes ?? [])];
           // Two of the boot notes say what *is* set up; the rest are each
           // something switched off until the operator sets it.
-          return { notes, todo: notes.filter((note) => !/^(enrolled |bound by )/.test(note)) };
+          return {
+            notes,
+            todo: notes.filter((note) => !/^(enrolled |bound by |model: |model prices from |runtimes: |seeded )/.test(note)),
+          };
         },
       },
 
@@ -1710,6 +1749,19 @@ export class OwnerApi {
           }
           if (body.modelFallback !== undefined) {
             fields.modelFallback = textList(body.modelFallback, 'modelFallback');
+          }
+          if (body.runtime !== undefined) {
+            // Only one this deployment runs. A role moved onto a runtime
+            // nothing here employs halts on its next task, and the owner
+            // would learn of the typo from an incident.
+            const runtime = requireText(body.runtime, 'runtime');
+            const here = this.#options.runtimes?.names() ?? [];
+            if (!here.includes(runtime)) {
+              throw new PalugadaError('contract.violation',
+                `no runtime named ${runtime} runs here; this deployment runs ${here.join(', ') || 'none'}`,
+                { runtime });
+            }
+            fields.runtime = runtime;
           }
           if (Object.keys(fields).length === 0) {
             throw new PalugadaError('contract.violation', 'no role field was given', {});

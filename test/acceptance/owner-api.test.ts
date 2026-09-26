@@ -16,7 +16,10 @@ import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { closePools } from '../../src/db/pool.ts';
 import { InMemorySecretManager } from '../../src/secrets/manager.ts';
-import { OwnerApi } from '../../src/owner/api.ts';
+import { OwnerApi, type OwnerApiOptions } from '../../src/owner/api.ts';
+import { AdapterRegistry, type Adapter } from '../../src/runtime/protocol.ts';
+import { rollBack } from '../../src/governance/rollback.ts';
+import { withTenant as withTenantTx } from '../../src/db/tenant.ts';
 import {
   OwnerMfa,
   TOTP_STEP_SECONDS,
@@ -38,7 +41,7 @@ after(async () => {
 });
 
 /** The console, its verifier, and a way to mint a fresh code. */
-async function console_(): Promise<{
+async function console_(extra: Partial<OwnerApiOptions> = {}): Promise<{
   api: OwnerApi;
   url: string;
   code: () => string;
@@ -66,7 +69,7 @@ async function console_(): Promise<{
   // A signing secret for triggers the sender signs (0056), where the
   // deployment's store would keep it.
   secrets.set('vault://hooks/signing', 'hook-signing-secret-for-tests');
-  const api = new OwnerApi({ mfa, secrets });
+  const api = new OwnerApi({ mfa, secrets, ...extra });
   const { url } = await api.listen();
   return {
     api,
@@ -2262,6 +2265,51 @@ test('the owner can change a grant and a role, with their device (F2.9, F3.9)', 
     });
     assert.equal(changed.status, 200, JSON.stringify(changed.body));
     assert.equal(typeof changed.body.version, 'number');
+  } finally {
+    await owner.close();
+  }
+});
+
+test('the owner moves a role to another runtime, and only to one this deployment runs (F13.1)', async () => {
+  // Every role a template creates names the in-process runtime, and nothing
+  // the owner could reach changed it: a company whose owner had configured
+  // Claude Code could not put a single role on it without writing SQL.
+  const fixture = await createCompany('console-runtime');
+  const runtime = (name: string, health: () => Promise<{ ok: boolean; detail?: string }>): Adapter => ({
+    name, backends: ['local'], health, async run() { return { output: {} }; },
+  });
+  const adapters = new AdapterRegistry();
+  adapters.register(runtime('claude-code', async () => ({ ok: true, detail: 'claude 2.1' })));
+  adapters.register(runtime('in-process', async () => { throw new Error('no model answers'); }));
+  const owner = await console_({ runtimes: adapters });
+  try {
+    const token = await signIn(owner.url, owner.code());
+    const listed = await call(owner.url, 'GET', '/api/runtimes', { token });
+    assert.equal(listed.status, 200, JSON.stringify(listed.body));
+    assert.deepEqual(listed.body.runtimes, [
+      { name: 'claude-code', backends: ['local'], ok: true, detail: 'claude 2.1' },
+      { name: 'in-process', backends: ['local'], ok: false, detail: 'no model answers' },
+    ], 'a health check that throws has failed, and says why');
+
+    const rolePath = `/api/companies/${fixture.companyId}/roles/${fixture.roleId}`;
+    const unknown = await call(owner.url, 'POST', rolePath, {
+      token, body: { runtime: 'codex', proof: { totp: owner.code() } },
+    });
+    assert.equal(unknown.status, 400);
+    assert.match(String(unknown.body.error), /no runtime named codex runs here; this deployment runs claude-code, in-process/);
+
+    const moved = await call(owner.url, 'POST', rolePath, {
+      token, body: { runtime: 'claude-code', proof: { totp: owner.code() } },
+    });
+    assert.equal(moved.status, 200, JSON.stringify(moved.body));
+    const runtimeNow = async () => (await withTenantTx(fixture.companyId, (tx) => tx.query<{ runtime: string }>(
+      'SELECT runtime FROM roles WHERE id = $1', [fixture.roleId]))).rows[0]!.runtime;
+    assert.equal(await runtimeNow(), 'claude-code');
+
+    // A change of runtime is a change like any other: versioned, and undone
+    // by putting the version back (F3.9).
+    await rollBack(fixture.companyId, 'role', fixture.roleId, Number(moved.body.version));
+    assert.equal(await runtimeNow(), 'in-process');
   } finally {
     await owner.close();
   }

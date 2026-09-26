@@ -93,11 +93,13 @@ npm run db:setup && npm run db:migrate   # once; pgvector needs a Postgres super
 npm run console:build
 npm run totp:new                         # two variables, and a link for your authenticator app
 export PALUGADA_SECRET_OWNER_TOTP=<secret> PALUGADA_OWNER_TOTP_REF=env://PALUGADA_SECRET_OWNER_TOTP
+export PALUGADA_SECRET_MODEL_KEY=<Anthropic API key> PALUGADA_MODEL_KEY_REF=env://PALUGADA_SECRET_MODEL_KEY
 npm start
 ```
 
 Open **http://127.0.0.1:8787**, sign in with the six-digit code from your
-authenticator, and press **Start a company**. `npm run smoke` checks an
+authenticator, and press **Start a company**. The model key is what does the
+work: without it a company starts and none of its roles can act. `npm run smoke` checks an
 installation end to end. Production, vendor accounts, push, Telegram and
 every other setting are in [docs/configuration.md](docs/configuration.md).
 

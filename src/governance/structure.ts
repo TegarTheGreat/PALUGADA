@@ -185,6 +185,11 @@ export interface RoleFields {
   tools?: string[];
   modelPrimary?: string;
   modelFallback?: string[];
+  /**
+   * Which runtime does the role's work (F13.1). Routing, like the model: the
+   * same charter and tools, done by another agent.
+   */
+  runtime?: string;
 }
 
 /**
@@ -223,8 +228,9 @@ export async function applyRoleChange(
       model_primary: string | null;
       model: string;
       model_fallback: string[];
+      runtime: string;
     }>(
-      `SELECT slug, system_prompt, tools, model_primary, model, model_fallback
+      `SELECT slug, system_prompt, tools, model_primary, model, model_fallback, runtime
          FROM roles WHERE id = $1`,
       [roleId],
     );
@@ -241,6 +247,7 @@ export async function applyRoleChange(
         tools: before.tools,
         modelPrimary: before.model_primary ?? before.model,
         modelFallback: before.model_fallback,
+        runtime: before.runtime,
       },
       summary: options.summary ?? `State of ${before.slug} before this change`,
     });
@@ -250,7 +257,8 @@ export async function applyRoleChange(
           SET system_prompt  = coalesce($2, system_prompt),
               tools          = coalesce($3::text[], tools),
               model_primary  = coalesce($4, model_primary),
-              model_fallback = coalesce($5::text[], model_fallback)
+              model_fallback = coalesce($5::text[], model_fallback),
+              runtime        = coalesce($6, runtime)
         WHERE id = $1`,
       [
         roleId,
@@ -258,6 +266,7 @@ export async function applyRoleChange(
         fields.tools ?? null,
         fields.modelPrimary ?? null,
         fields.modelFallback ?? null,
+        fields.runtime ?? null,
       ],
     );
 

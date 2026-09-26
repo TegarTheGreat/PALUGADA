@@ -16,6 +16,7 @@ import { mkdtemp, writeFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { closePools } from '../../src/db/pool.ts';
+import { withControlPlane } from '../../src/db/tenant.ts';
 import { decodeBase32, newTotpSecret, stepFor, totpCode } from '../../src/owner/mfa.ts';
 import { LocalSecretManager } from '../../src/secrets/local.ts';
 import { isPalugadaError } from '../../src/errors.ts';
@@ -98,6 +99,45 @@ test('npm start serves the console, lets the owner in, and stops on SIGTERM', as
   }
   assert.equal(await within(deployment.exited, 20_000, 'a clean stop'), 0, deployment.output());
   assert.match(deployment.output(), /SIGTERM, stopping/);
+});
+
+/**
+ * A revoked factor stays revoked across a restart.
+ *
+ * The boot enrolled the configured secret whenever `enrolled()` did not list
+ * it, and `enrolled()` lists live factors only -- so the owner revokes the
+ * phone they lost, the process restarts for any reason at all, and the lost
+ * phone is an authenticator again.
+ */
+test('a restart does not bring back an authenticator the owner revoked (F12.5)', async () => {
+  const { secret } = newTotpSecret('owner');
+  const env = {
+    PALUGADA_SECRET_OWNER_TOTP: secret,
+    PALUGADA_OWNER_TOTP_REF: 'env://PALUGADA_SECRET_OWNER_TOTP',
+  };
+  const first = run(env);
+  await within(first.url, 20_000, `first boot (${first.output()})`);
+  first.signal('SIGTERM');
+  assert.equal(await within(first.exited, 20_000, 'first stop'), 0, first.output());
+
+  await withControlPlane((tx) =>
+    tx.query("UPDATE owner_authenticators SET revoked_at = now() WHERE secret_ref = 'env://PALUGADA_SECRET_OWNER_TOTP'"));
+
+  const second = run(env);
+  try {
+    await within(second.url, 20_000, `second boot (${second.output()})`);
+    assert.match(second.output(), /backs an authenticator the owner revoked; it is not enrolled again/);
+    const live = await withControlPlane(async (tx) => {
+      const { rows } = await tx.query<{ n: number }>(
+        'SELECT count(*)::int AS n FROM owner_authenticators WHERE revoked_at IS NULL',
+      );
+      return rows[0]!.n;
+    });
+    assert.equal(live, 0, 'the lost phone is still not a factor');
+  } finally {
+    second.signal('SIGTERM');
+  }
+  assert.equal(await within(second.exited, 20_000, 'second stop'), 0, second.output());
 });
 
 /**

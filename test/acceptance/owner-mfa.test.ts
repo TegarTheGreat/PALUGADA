@@ -674,6 +674,109 @@ test('a correct code clears the run of failures (F12.5)', async () => {
 });
 
 /**
+ * A success is not an amnesty.
+ *
+ * The tally asked whether *any* success fell inside the lockout window, so
+ * once the owner had signed in, every guess made in the next quarter of an
+ * hour counted as zero -- the window after the owner's own sign-in, which is
+ * exactly when somebody watching the owner would start guessing.
+ */
+test('the guesses after a success are counted (F12.5)', async () => {
+  const at = new Date('2026-09-07T05:00:00Z');
+  const { mfa, secrets } = mfaWith({ now: () => at, maxConsecutiveFailures: 3 });
+  const { secret } = newTotpSecret('owner phone');
+  secrets.set('vault://owner/totp', secret);
+  await mfa.enrolTotp({ label: 'owner phone', secretRef: 'vault://owner/totp' });
+
+  await mfa.verifyTotp(totpCode(decodeBase32(secret), stepFor(at)));
+  for (const guess of ['000000', '000001', '000002']) {
+    await assert.rejects(
+      () => mfa.verifyTotp(guess),
+      (error: unknown) => isPalugadaError(error, 'mfa.code_invalid'),
+    );
+  }
+  await assert.rejects(
+    () => mfa.verifyTotp(totpCode(decodeBase32(secret), stepFor(at) + 1)),
+    (error: unknown) => isPalugadaError(error, 'mfa.locked_out'),
+    'three guesses after the success are three in a row',
+  );
+});
+
+/**
+ * Guesses sent together are counted one by one.
+ *
+ * The check, the comparison and the record were three transactions, so a
+ * burst read "no failures yet" all at once and every guess in it was
+ * compared: the lockout bounded guesses sent politely, one after another,
+ * and nothing else.
+ */
+test('a burst of guesses is counted guess by guess (F12.5)', async () => {
+  const at = new Date('2026-09-07T05:00:00Z');
+  const { mfa, secrets } = mfaWith({ now: () => at, maxConsecutiveFailures: 3 });
+  const { secret } = newTotpSecret('owner phone');
+  secrets.set('vault://owner/totp', secret);
+  await mfa.enrolTotp({ label: 'owner phone', secretRef: 'vault://owner/totp' });
+
+  const outcomes = await Promise.allSettled(
+    Array.from({ length: 12 }, (_, n) => mfa.verifyTotp(String(n).padStart(6, '0'))),
+  );
+  const reasons = outcomes.map((outcome) =>
+    outcome.status === 'rejected' ? (outcome.reason as { code?: string }).code : 'accepted');
+  assert.equal(reasons.filter((code) => code === 'mfa.code_invalid').length, 3,
+    `only three were compared: ${reasons.join(', ')}`);
+  assert.equal(reasons.filter((code) => code === 'mfa.locked_out').length, 9);
+});
+
+/**
+ * A second authenticator is for the day the first one is unusable.
+ *
+ * Every TOTP factor's secret was resolved before any code was compared, and a
+ * secret the store could not produce threw out of the loop -- so one phone
+ * whose variable had been unset locked the owner out of the phone that still
+ * worked.
+ */
+test('an authenticator whose secret is gone does not lock out the others (F12.5)', async () => {
+  const at = new Date('2026-09-07T05:00:00Z');
+  const { mfa, secrets } = mfaWith({ now: () => at });
+  const lost = newTotpSecret('old phone');
+  const kept = newTotpSecret('new phone');
+  secrets.set('vault://owner/old', lost.secret);
+  secrets.set('vault://owner/new', kept.secret);
+  await mfa.enrolTotp({ label: 'old phone', secretRef: 'vault://owner/old' });
+  await mfa.enrolTotp({ label: 'new phone', secretRef: 'vault://owner/new' });
+
+  // The old phone's secret is no longer in the store.
+  const { mfa: after } = mfaWith({ now: () => at, secrets: withOnly(kept.secret, 'vault://owner/new') });
+  const verified = await after.verifyTotp(totpCode(decodeBase32(kept.secret), stepFor(at)));
+  assert.equal(verified.label, 'new phone');
+
+  // A wrong code says which factor went unchecked, so "not valid" is not the
+  // whole story when it is not.
+  await assert.rejects(
+    () => after.verifyTotp('000000'),
+    (error: unknown) => isPalugadaError(error, 'mfa.code_invalid')
+      && /old phone could not be read/.test((error as Error).message),
+  );
+
+  // And with no readable secret at all, the refusal names the store rather
+  // than the code -- and costs the owner no guess: one wrong code is already
+  // on the tally, and a limit of two is never reached.
+  const { mfa: none } = mfaWith({ now: () => at, maxConsecutiveFailures: 2 });
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await assert.rejects(
+      () => none.verifyTotp(totpCode(decodeBase32(kept.secret), stepFor(at))),
+      (error: unknown) => isPalugadaError(error, 'mfa.factor_unavailable'),
+    );
+  }
+});
+
+function withOnly(secret: string, reference: string): InMemorySecretManager {
+  const secrets = new InMemorySecretManager();
+  secrets.set(reference, secret);
+  return secrets;
+}
+
+/**
  * A factor enrolled against one company must not approve in another.
  *
  * The schema has always had `company_id` on an authenticator and the lookup
@@ -794,6 +897,31 @@ test('the same secret cannot be enrolled twice (F12.5)', async () => {
   // protects the working factor rather than replacing it.
   const verified = await mfa.verifyTotp(totpCode(decodeBase32(secret), stepFor(new Date())));
   assert.equal(verified.authenticatorId, first);
+
+  // Two processes enrolling one secret at the same moment -- two replicas
+  // booting with the same configured factor -- both pass the read. Held
+  // here: the other replica has inserted and not yet committed, so this one
+  // reads nothing, inserts, and waits on the index. The index is what holds,
+  // and the loser is told the same thing rather than handed a raw 23505.
+  const { withControlPlane } = await import('../../src/db/tenant.ts');
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let inserted!: () => void;
+  const holding = new Promise<void>((resolve) => { inserted = resolve; });
+  const otherReplica = withControlPlane(async (tx) => {
+    await tx.query(
+      `INSERT INTO owner_authenticators (kind, label, secret_ref)
+       VALUES ('totp', 'replica a', 'vault://owner/raced')`,
+    );
+    inserted();
+    await gate;
+  });
+  await holding;
+  const racing = mfa.enrolTotp({ label: 'replica b', secretRef: 'vault://owner/raced' });
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  release();
+  await otherReplica;
+  await assert.rejects(racing, (error: unknown) => isPalugadaError(error, 'mfa.already_enrolled'));
 
   // A revoked row is not in the way. Re-enrolling after losing a phone is the
   // ordinary case, and refusing that would make the guard worse than the bug.

@@ -45,7 +45,7 @@
  */
 import { createHmac, createPublicKey, createVerify, randomBytes, createHash, timingSafeEqual } from 'node:crypto';
 import { PalugadaError, type ErrorCode } from '../errors.ts';
-import { withControlPlane } from '../db/tenant.ts';
+import { withControlPlane, type TenantClient } from '../db/tenant.ts';
 import { redactor, type SecretManager } from '../secrets/manager.ts';
 
 export type FactorKind = 'totp' | 'webauthn';
@@ -346,6 +346,28 @@ export interface VerificationContext {
   companyId?: string | null;
 }
 
+/** What one verification decided, before it is recorded and answered. */
+type Attempt =
+  | { factor: VerifiedFactor }
+  | {
+    refused: ErrorCode;
+    message: string;
+    details: Record<string, unknown>;
+    authenticatorId: string | null;
+  };
+
+function refused(
+  code: ErrorCode,
+  message: string,
+  details: Record<string, unknown> = {},
+  authenticatorId: string | null = null,
+): Attempt {
+  return { refused: code, message, details, authenticatorId };
+}
+
+/** Refusals made without comparing anything, which the lockout does not count. */
+const NOT_A_GUESS: readonly ErrorCode[] = ['mfa.locked_out', 'mfa.not_enrolled', 'mfa.factor_unavailable'];
+
 /**
  * The owner's enrolled factors and the checks against them.
  *
@@ -417,12 +439,49 @@ export class OwnerMfa {
         );
       }
 
-      const { rows } = await tx.query<{ id: string }>(
-        `INSERT INTO owner_authenticators (company_id, kind, label, secret_ref)
-         VALUES ($1, 'totp', $2, $3) RETURNING id`,
-        [input.companyId ?? null, input.label, input.secretRef],
+      // The check above is a read, and two replicas enrolling the owner's
+      // configured factor at the same boot both pass it. The partial unique
+      // index from 0040 is what actually holds, and its violation is the same
+      // refusal rather than a raw database error.
+      try {
+        const { rows } = await tx.query<{ id: string }>(
+          `INSERT INTO owner_authenticators (company_id, kind, label, secret_ref)
+           VALUES ($1, 'totp', $2, $3) RETURNING id`,
+          [input.companyId ?? null, input.label, input.secretRef],
+        );
+        return rows[0]!.id;
+      } catch (error) {
+        if ((error as { code?: string }).code === '23505') {
+          throw new PalugadaError(
+            'mfa.already_enrolled',
+            `${input.secretRef} was enrolled by another process at the same moment`,
+            { secretRef: input.secretRef },
+          );
+        }
+        throw error;
+      }
+    });
+  }
+
+  /**
+   * Whether a secret reference has ever backed an authenticator, and whether
+   * that authenticator is still live.
+   *
+   * `enrolled()` lists live factors only, which is right for signing in and
+   * wrong for a boot deciding whether to enrol a configured secret: a factor
+   * the owner revoked -- because the phone was lost, because the secret
+   * leaked -- is absent from that list, and a boot that read absence as "not
+   * yet enrolled" put it straight back.
+   */
+  async secretRefState(secretRef: string): Promise<'unused' | 'live' | 'revoked'> {
+    return withControlPlane(async (tx) => {
+      const { rows } = await tx.query<{ live: boolean }>(
+        `SELECT bool_or(revoked_at IS NULL) AS live
+           FROM owner_authenticators WHERE secret_ref = $1`,
+        [secretRef],
       );
-      return rows[0]!.id;
+      const live = rows[0]?.live;
+      return live === null || live === undefined ? 'unused' : live ? 'live' : 'revoked';
     });
   }
 
@@ -510,51 +569,72 @@ export class OwnerMfa {
     code: string,
     context: VerificationContext = {},
   ): Promise<VerifiedFactor> {
-    await this.#assertNotLockedOut(context);
-    const candidates = (await this.enrolled(context.companyId ?? null))
+    const factors = (await this.enrolled(context.companyId ?? null))
       .filter((factor) => factor.kind === 'totp');
-    if (candidates.length === 0) {
-      await this.#record(null, 'totp', false, 'mfa.not_enrolled', context);
-      throw new PalugadaError(
-        'mfa.not_enrolled',
-        'the owner has no TOTP authenticator enrolled (PRD F12.5)',
-        {},
-      );
-    }
+    // Resolved before the attempt's lock is taken: a secret store can be a
+    // network hop away, and the lock queues every other attempt behind it.
+    const keyed = await Promise.all(factors.map(async (factor) => ({
+      factor,
+      secret: await this.#secretFor(factor),
+    })));
 
-    const now = stepFor(this.#now());
-    for (const factor of candidates) {
-      const secret = decodeBase32(await this.#secrets.resolve(factor.secretRef!));
-      for (let drift = -TOTP_DRIFT_STEPS; drift <= TOTP_DRIFT_STEPS; drift += 1) {
-        const step = now + drift;
-        if (!codesMatch(code, totpCode(secret, step))) continue;
-
-        // The code is right. Whether it may be *used* is a separate question:
-        // a code is valid for a whole step, so one seen in transit can be
-        // replayed inside that window unless the step is remembered.
-        //
-        // Claimed by the write rather than by a read before it. A read, a
-        // decision and then a write is a race, and the thing racing here is
-        // two presentations of the same intercepted code arriving together --
-        // which is exactly the shape an attacker who has the code produces,
-        // not a rare accident. The UPDATE only matches while the step is still
-        // unclaimed, so the second one changes no rows and is refused.
-        if (!(await this.#claimStep(factor.id, step))) {
-          await this.#record(factor.id, 'totp', false, 'mfa.replayed', context);
-          throw new PalugadaError(
-            'mfa.replayed',
-            'that code has already been used (PRD F12.5)',
-            { authenticatorId: factor.id },
-          );
-        }
-
-        await this.#record(factor.id, 'totp', true, null, context);
-        return { authenticatorId: factor.id, kind: 'totp', label: factor.label };
+    return this.#attempt('totp', context, async (tx) => {
+      if (factors.length === 0) {
+        return refused('mfa.not_enrolled', 'the owner has no TOTP authenticator enrolled');
       }
-    }
+      // One authenticator whose secret the store cannot produce any more --
+      // an unset variable, a file that was rotated away -- must not lock the
+      // owner out of the others. A second device is enrolled for exactly the
+      // day the first one is unusable.
+      const usable = keyed.filter((entry): entry is { factor: OwnerAuthenticator; secret: Buffer } =>
+        entry.secret !== null);
+      const unreadable = keyed.filter((entry) => entry.secret === null).map((entry) => entry.factor.label);
+      if (usable.length === 0) {
+        return refused(
+          'mfa.factor_unavailable',
+          `the secret behind ${unreadable.join(', ')} cannot be read from the secret store, `
+            + 'so no code can be checked',
+          { authenticators: unreadable },
+        );
+      }
 
-    await this.#record(null, 'totp', false, 'mfa.code_invalid', context);
-    throw new PalugadaError('mfa.code_invalid', 'that code is not valid (PRD F12.5)', {});
+      const now = stepFor(this.#now());
+      for (const { factor, secret } of usable) {
+        for (let drift = -TOTP_DRIFT_STEPS; drift <= TOTP_DRIFT_STEPS; drift += 1) {
+          const step = now + drift;
+          if (!codesMatch(code, totpCode(secret, step))) continue;
+
+          // The code is right. Whether it may be *used* is a separate
+          // question: a code is valid for a whole step, so one seen in transit
+          // can be replayed inside that window unless the step is remembered.
+          //
+          // Claimed by the write rather than by a read before it. The UPDATE
+          // only matches while the step is still unclaimed, so a second
+          // presentation of the same code changes no rows and is refused.
+          if (!(await this.#claimStep(tx, factor.id, step))) {
+            return refused('mfa.replayed', 'that code has already been used', { authenticatorId: factor.id }, factor.id);
+          }
+          return { factor: { authenticatorId: factor.id, kind: 'totp', label: factor.label } };
+        }
+      }
+
+      return refused(
+        'mfa.code_invalid',
+        unreadable.length === 0
+          ? 'that code is not valid'
+          : `that code is not valid; the secret behind ${unreadable.join(', ')} could not be read, `
+            + 'so codes from it were not checked',
+      );
+    });
+  }
+
+  /** The decoded secret behind a TOTP factor, or null when it cannot be had. */
+  async #secretFor(factor: OwnerAuthenticator): Promise<Buffer | null> {
+    try {
+      return decodeBase32(await this.#secrets.resolve(factor.secretRef!));
+    } catch {
+      return null;
+    }
   }
 
   /** A challenge for the phone to sign. Usable once and short-lived. */
@@ -573,28 +653,31 @@ export class OwnerMfa {
     assertion: WebAuthnAssertion,
     context: VerificationContext = {},
   ): Promise<VerifiedFactor> {
-    await this.#assertNotLockedOut(context);
-    const factor = (await this.enrolled(context.companyId ?? null)).find(
+    const enrolled = await this.enrolled(context.companyId ?? null);
+    return this.#attempt('webauthn', context, (tx) => this.#judgeAssertion(tx, enrolled, assertion));
+  }
+
+  async #judgeAssertion(
+    tx: TenantClient,
+    enrolled: readonly OwnerAuthenticator[],
+    assertion: WebAuthnAssertion,
+  ): Promise<Attempt> {
+    const factor = enrolled.find(
       (candidate) =>
         candidate.kind === 'webauthn' && candidate.credentialId === assertion.credentialId,
     );
     if (!factor) {
-      await this.#record(null, 'webauthn', false, 'mfa.unknown_credential', context);
-      throw new PalugadaError(
-        'mfa.unknown_credential',
-        'that credential is not enrolled (PRD F12.5)',
-        { credentialId: assertion.credentialId },
-      );
+      return refused('mfa.unknown_credential', 'that credential is not enrolled', {
+        credentialId: assertion.credentialId,
+      });
     }
 
     const authenticatorData = Buffer.from(assertion.authenticatorData, 'base64url');
     const clientDataJSON = Buffer.from(assertion.clientDataJSON, 'base64url');
     const signature = Buffer.from(assertion.signature, 'base64url');
 
-    const refuse = async (code: ErrorCode, message: string): Promise<never> => {
-      await this.#record(factor.id, 'webauthn', false, code, context);
-      throw new PalugadaError(code, `${message} (PRD F12.5)`, { authenticatorId: factor.id });
-    };
+    const refuse = (code: ErrorCode, message: string): Attempt =>
+      refused(code, message, { authenticatorId: factor.id }, factor.id);
 
     let clientData: { type?: string; challenge?: string; origin?: string };
     try {
@@ -624,9 +707,8 @@ export class OwnerMfa {
       return refuse('mfa.wrong_origin', `the assertion was collected at ${clientData.origin}`);
     }
 
-    // Through `refuse` rather than letting `parseAuthenticatorData` throw
-    // straight out: every attempt is supposed to reach
-    // `owner_authentications`, and a stream of malformed assertions is one of
+    // Returned as a refusal rather than thrown straight out: every attempt is
+    // supposed to reach `owner_authentications`, and a stream of malformed assertions is one of
     // the more informative things that table can hold -- it is what somebody
     // probing the endpoint produces.
     let parsed: ParsedAuthenticatorData;
@@ -667,68 +749,91 @@ export class OwnerMfa {
     //
     // Claimed by the write, for the same reason the TOTP step is: a read, a
     // decision and then a write lets two copies of one assertion both pass.
-    if (parsed.signCount !== 0 && !(await this.#claimSignCount(factor.id, parsed.signCount))) {
+    if (parsed.signCount !== 0 && !(await this.#claimSignCount(tx, factor.id, parsed.signCount))) {
       return refuse(
         'mfa.counter_did_not_advance',
         `the signature counter went from ${factor.signCount} to ${parsed.signCount}`,
       );
     }
-    if (parsed.signCount === 0) await this.#touch(factor.id);
-    await this.#record(factor.id, 'webauthn', true, null, context);
-    return { authenticatorId: factor.id, kind: 'webauthn', label: factor.label };
+    if (parsed.signCount === 0) await this.#touch(tx, factor.id);
+    return { factor: { authenticatorId: factor.id, kind: 'webauthn', label: factor.label } };
   }
 
   /**
-   * Refuses everything while the owner's factor is locked out.
+   * Runs one verification as one transaction, one at a time.
    *
-   * Consecutive failures, counted from the most recent attempt backwards, so a
-   * success clears the tally: an owner who mistypes three times and then gets
-   * it right has spent nothing. An attacker never gets a success, so their
-   * tally only grows.
+   * The lockout used to be a read, a comparison and a write in three
+   * transactions. An attacker does not send guesses one after another: a
+   * thousand sent at once all read "no failures yet", and all of them were
+   * compared. The transaction-scoped advisory lock queues them -- across
+   * replicas too, since it lives in the database -- so each attempt is on the
+   * record before the next one is judged. The owner makes a handful of these a
+   * day; a queue costs nothing.
    *
-   * Checked *before* the code is compared rather than after. A lockout that
-   * still told an attacker "wrong code" versus "locked out" by how long it
-   * took would be a lockout they could work around by watching the clock, and
-   * more importantly, a lockout that runs after the comparison is a lockout
-   * that still lets the millionth guess through.
+   * Checked *before* the factor is compared rather than after. A lockout that
+   * runs after the comparison is a lockout that still lets the millionth guess
+   * through, and the right code is refused while locked, so an attacker cannot
+   * tell a lockout from a wrong guess.
+   *
+   * A refusal is returned from inside rather than thrown, because a throw
+   * would roll back exactly the row that says somebody tried.
    */
-  async #assertNotLockedOut(context: VerificationContext): Promise<void> {
-    const since = new Date(this.#now().getTime() - this.#lockoutMs);
-    const failures = await withControlPlane(async (tx) => {
-      const { rows } = await tx.query<{ failures: string }>(
-        // Counts the run of failures at the end of the window: `succeeded` is
-        // ordered false-first descending, so the count stops at the most
-        // recent success. Done in SQL because doing it in TypeScript would
-        // mean fetching every attempt in the window to count the tail of it.
-        `SELECT count(*)::text AS failures
-           FROM (
-             SELECT succeeded
-               FROM owner_authentications
-              WHERE occurred_at >= $1
-              ORDER BY occurred_at DESC
-           ) recent
-          WHERE NOT succeeded
-            AND NOT EXISTS (
-              SELECT 1 FROM owner_authentications later
-               WHERE later.occurred_at >= $1 AND later.succeeded
-            )`,
-        [since],
-      );
-      return Number(rows[0]?.failures ?? 0);
+  async #attempt(
+    kind: FactorKind,
+    context: VerificationContext,
+    judge: (tx: TenantClient) => Promise<Attempt>,
+  ): Promise<VerifiedFactor> {
+    const attempt = await withControlPlane(async (tx) => {
+      await tx.query("SELECT pg_advisory_xact_lock(hashtext('palugada:owner-mfa'))");
+      const failures = await this.#consecutiveFailures(tx);
+      const decided = failures >= this.#maxConsecutiveFailures
+        ? refused(
+          'mfa.locked_out',
+          `too many failed attempts; the second factor is locked for `
+            + `${Math.round(this.#lockoutMs / 60_000)} minutes`,
+          { failures },
+        )
+        : await judge(tx);
+      // Recorded either way, so the lockout itself is visible: an owner
+      // asking "why will it not take my code" and an auditor asking "was
+      // somebody trying" are reading the same table.
+      await this.#record(tx, kind, decided, context);
+      return decided;
     });
+    if ('factor' in attempt) return attempt.factor;
+    throw new PalugadaError(attempt.refused, `${attempt.message} (PRD F12.5)`, attempt.details);
+  }
 
-    if (failures >= this.#maxConsecutiveFailures) {
-      // Recorded, so the lockout itself is visible: an owner asking "why will
-      // it not take my code" and an auditor asking "was somebody trying" are
-      // reading the same table.
-      await this.#record(null, 'totp', false, 'mfa.locked_out', context);
-      throw new PalugadaError(
-        'mfa.locked_out',
-        `too many failed attempts; the second factor is locked for `
-          + `${Math.round(this.#lockoutMs / 60_000)} minutes (PRD F12.5)`,
-        { failures },
-      );
-    }
+  /**
+   * The failed guesses since the owner last got in, within the lockout window.
+   *
+   * Counted from the most recent success, so an owner who mistypes three
+   * times and then gets it right has spent nothing -- and so a success is not
+   * an amnesty. The first version asked whether *any* success fell inside the
+   * window, which meant that once the owner had signed in, every guess an
+   * attacker made for the next quarter of an hour counted as zero.
+   *
+   * Only guesses count. A refusal made without comparing anything -- the
+   * lockout's own record, no factor enrolled, a secret the store cannot
+   * produce -- tells an attacker nothing, and counting the lockout's records
+   * would let anyone keep the owner locked out for as long as they kept
+   * knocking.
+   */
+  async #consecutiveFailures(tx: TenantClient): Promise<number> {
+    const since = new Date(this.#now().getTime() - this.#lockoutMs);
+    const { rows } = await tx.query<{ failures: number }>(
+      `SELECT count(*)::int AS failures
+         FROM owner_authentications
+        WHERE occurred_at >= $1
+          AND NOT succeeded
+          AND coalesce(reason, '') <> ALL ($2::text[])
+          AND occurred_at > coalesce(
+                (SELECT max(occurred_at) FROM owner_authentications
+                  WHERE succeeded AND occurred_at >= $1),
+                '-infinity')`,
+      [since, NOT_A_GUESS],
+    );
+    return rows[0]?.failures ?? 0;
   }
 
   /**
@@ -739,29 +844,25 @@ export class OwnerMfa {
    * so of two transactions presenting the same code the second re-evaluates
    * the predicate against the first one's result and matches nothing.
    */
-  async #claimStep(authenticatorId: string, step: number): Promise<boolean> {
-    return withControlPlane(async (tx) => {
-      const { rowCount } = await tx.query(
-        `UPDATE owner_authenticators
-            SET last_step = $2, last_used_at = now()
-          WHERE id = $1 AND (last_step IS NULL OR last_step < $2)`,
-        [authenticatorId, step],
-      );
-      return (rowCount ?? 0) === 1;
-    });
+  async #claimStep(tx: TenantClient, authenticatorId: string, step: number): Promise<boolean> {
+    const { rowCount } = await tx.query(
+      `UPDATE owner_authenticators
+          SET last_step = $2, last_used_at = now()
+        WHERE id = $1 AND (last_step IS NULL OR last_step < $2)`,
+      [authenticatorId, step],
+    );
+    return (rowCount ?? 0) === 1;
   }
 
   /** The same claim, for an authenticator's own signature counter. */
-  async #claimSignCount(authenticatorId: string, signCount: number): Promise<boolean> {
-    return withControlPlane(async (tx) => {
-      const { rowCount } = await tx.query(
-        `UPDATE owner_authenticators
-            SET sign_count = $2, last_used_at = now()
-          WHERE id = $1 AND sign_count < $2`,
-        [authenticatorId, signCount],
-      );
-      return (rowCount ?? 0) === 1;
-    });
+  async #claimSignCount(tx: TenantClient, authenticatorId: string, signCount: number): Promise<boolean> {
+    const { rowCount } = await tx.query(
+      `UPDATE owner_authenticators
+          SET sign_count = $2, last_used_at = now()
+        WHERE id = $1 AND sign_count < $2`,
+      [authenticatorId, signCount],
+    );
+    return (rowCount ?? 0) === 1;
   }
 
   /**
@@ -771,12 +872,10 @@ export class OwnerMfa {
    * The replay defence for these is the challenge, which `redeem` hands out
    * exactly once.
    */
-  async #touch(authenticatorId: string): Promise<void> {
-    await withControlPlane(async (tx) => {
-      await tx.query('UPDATE owner_authenticators SET last_used_at = now() WHERE id = $1', [
-        authenticatorId,
-      ]);
-    });
+  async #touch(tx: TenantClient, authenticatorId: string): Promise<void> {
+    await tx.query('UPDATE owner_authenticators SET last_used_at = now() WHERE id = $1', [
+      authenticatorId,
+    ]);
   }
 
   /**
@@ -787,27 +886,28 @@ export class OwnerMfa {
    * successes would hide exactly that.
    */
   async #record(
-    authenticatorId: string | null,
+    tx: TenantClient,
     kind: FactorKind,
-    succeeded: boolean,
-    reason: string | null,
+    attempt: Attempt,
     context: VerificationContext,
   ): Promise<void> {
-    await withControlPlane(async (tx) => {
-      await tx.query(
-        `INSERT INTO owner_authentications
-           (authenticator_id, kind, succeeded, reason, purpose, subject_id)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [
-          authenticatorId,
-          kind,
-          succeeded,
-          reason,
-          context.purpose ?? null,
-          context.subjectId ?? null,
-        ],
-      );
-    });
+    const succeeded = 'factor' in attempt;
+    // The wall clock rather than the transaction's start: attempts queue on
+    // the lock, and one that began before the success ahead of it must still
+    // be recorded after it, or it would not count as a failure since.
+    await tx.query(
+      `INSERT INTO owner_authentications
+         (authenticator_id, kind, succeeded, reason, purpose, subject_id, occurred_at)
+       VALUES ($1, $2, $3, $4, $5, $6, clock_timestamp())`,
+      [
+        succeeded ? attempt.factor.authenticatorId : attempt.authenticatorId,
+        kind,
+        succeeded,
+        succeeded ? null : attempt.refused,
+        context.purpose ?? null,
+        context.subjectId ?? null,
+      ],
+    );
   }
 }
 

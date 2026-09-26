@@ -87,6 +87,8 @@ export type ErrorCode =
   | 'mfa.signature_invalid'
   | 'mfa.counter_did_not_advance'
   | 'mfa.locked_out'
+  /** F12.5: no enrolled factor's secret can be read, so nothing can be checked. */
+  | 'mfa.factor_unavailable'
   /** F12.5: the owner's console was reached without a session. */
   | 'owner.unauthenticated'
   | 'review.required'
@@ -104,6 +106,11 @@ export type ErrorCode =
   | 'role.frozen'
   | 'platform.stopped'
   | 'task.invalid_transition'
+  /**
+   * F5.12: the worker running a task no longer holds its lease -- it lapsed
+   * and another worker took the task. Nothing more is done or committed.
+   */
+  | 'task.lease_lost'
   | 'tenant.context_missing';
 
 export class PalugadaError extends Error {

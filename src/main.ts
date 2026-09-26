@@ -227,10 +227,25 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
         { source: 'PALUGADA_OWNER_TOTP_REF' },
       );
     }
-    const enrolled = await mfa.enrolled();
-    if (!enrolled.some((factor) => factor.secretRef === ownerTotp)) {
-      await mfa.enrolTotp({ label: 'owner (PALUGADA_OWNER_TOTP_REF)', secretRef: ownerTotp });
-      notes.push(`enrolled the owner's authenticator from ${ownerTotp}`);
+    // Enrolled once, and never again after the owner revoked it. The
+    // reference usually stays in the unit file long after the factor is
+    // retired, and a boot that re-enrolled every secret it was pointed at
+    // would restore a factor the owner revoked because it leaked.
+    const state = await mfa.secretRefState(ownerTotp);
+    if (state === 'revoked') {
+      notes.push(
+        `PALUGADA_OWNER_TOTP_REF ${ownerTotp} backs an authenticator the owner revoked; it is `
+          + 'not enrolled again -- generate a new secret with npm run totp:new',
+      );
+    } else if (state === 'unused') {
+      try {
+        await mfa.enrolTotp({ label: 'owner (PALUGADA_OWNER_TOTP_REF)', secretRef: ownerTotp });
+        notes.push(`enrolled the owner's authenticator from ${ownerTotp}`);
+      } catch (failure) {
+        // Another replica enrolled it at the same boot, which is the outcome
+        // wanted: one live factor for this secret.
+        if (!(failure instanceof PalugadaError) || failure.code !== 'mfa.already_enrolled') throw failure;
+      }
     }
   }
 

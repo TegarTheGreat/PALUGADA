@@ -11,7 +11,7 @@ import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { glob } from 'node:fs/promises';
-import { withTenant } from '../../src/db/tenant.ts';
+import { withTenant, withControlPlane } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
 import {
   InMemorySecretManager,
@@ -588,7 +588,7 @@ test('revoking the grant that justified a scope is refused while the token decla
 
   // Removing the credential first is the order that works, which is the order
   // least privilege wants anyway: stop holding the token, then stop needing it.
-  await withTenant(fixture.companyId, async (tx) => {
+  await withControlPlane(async (tx) => {
     await tx.query('DELETE FROM credentials WHERE division_id = $1', [fixture.divisionId]);
     await tx.query('DELETE FROM capability_grants WHERE division_id = $1', [fixture.divisionId]);
   });

@@ -482,3 +482,51 @@ test('a capability denied by row-level security is recorded as a security event 
   assert.equal(events.length, 1, 'the denial left no trace');
   assert.equal(events[0]!.payload.statement, 'capability memory.search');
 });
+
+/**
+ * Inside its own company the application role could do anything to anything
+ * -- clear the company's freeze, raise its own budget ceilings, rewrite the
+ * traces its monthly spend is summed from, delete history -- none of which
+ * the code does. The grants are what the code writes now (0047), asked of
+ * the database rather than assumed.
+ */
+test('the application role may write what the platform writes, and no more (F12, 0047)', async () => {
+  const may = async (check: string) => withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ ok: boolean }>(`SELECT ${check} AS ok`);
+    return rows[0]!.ok;
+  });
+  const app = "'palugada_app'";
+
+  // What it needs.
+  assert.equal(await may(`has_column_privilege(${app}, 'budget_accounts', 'tokens_spent', 'UPDATE')`), true);
+  assert.equal(await may(`has_column_privilege(${app}, 'budget_accounts', 'tokens_reserved', 'UPDATE')`), true);
+  assert.equal(await may(`has_column_privilege(${app}, 'budget_accounts', 'money_spent_cents', 'UPDATE')`), true);
+  assert.equal(await may(`has_table_privilege(${app}, 'capability_grants', 'DELETE')`), true,
+    'revoking a grant is a delete');
+  assert.equal(await may(`has_table_privilege(${app}, 'tasks', 'UPDATE')`), true);
+
+  // What it does not.
+  for (const [check, why] of [
+    [`has_table_privilege(${app}, 'companies', 'UPDATE')`, 'a company unfreezing itself'],
+    [`has_table_privilege(${app}, 'companies', 'INSERT')`, 'a company created outside the control plane'],
+    [`has_column_privilege(${app}, 'budget_accounts', 'tokens_max', 'UPDATE')`, 'raising its own ceiling'],
+    [`has_column_privilege(${app}, 'budget_accounts', 'money_max_cents', 'UPDATE')`, 'or its money ceiling'],
+    [`has_table_privilege(${app}, 'llm_traces', 'UPDATE')`, 'rewriting what a call cost'],
+    [`has_table_privilege(${app}, 'llm_traces', 'DELETE')`, 'erasing it'],
+    [`has_table_privilege(${app}, 'decision_records', 'UPDATE')`, 'rewriting what a reviewer said'],
+    [`has_table_privilege(${app}, 'tasks', 'DELETE')`, 'deleting work'],
+    [`has_table_privilege(${app}, 'task_steps', 'DELETE')`, 'or its journal'],
+    [`has_table_privilege(${app}, 'inbox_items', 'DELETE')`, 'or the owner\'s questions'],
+  ] as const) {
+    assert.equal(await may(check), false, why);
+  }
+
+  // And a table added later does not inherit a delete nobody decided on.
+  const inherits = await withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ body: string }>(
+      "SELECT prosrc AS body FROM pg_proc WHERE proname = 'enable_tenant_rls'",
+    );
+    return rows[0]!.body;
+  });
+  assert.doesNotMatch(inherits, /UPDATE, DELETE ON %s TO palugada_app/);
+});

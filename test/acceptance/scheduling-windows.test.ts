@@ -7,7 +7,7 @@
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { withTenant } from '../../src/db/tenant.ts';
+import { withTenant, withControlPlane } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
 import { nextOccurrence, runDueSchedules, upsertSchedule } from '../../src/scheduler/scheduler.ts';
 import {
@@ -865,7 +865,7 @@ test('a schedule that cannot fire says so once, not every pass (F9.1)', async ()
   assert.equal(await failures(), 1, 'five passes, one record');
 
   // Funded, it fires on the next pass, and the record is cleared.
-  await withTenant(fixture.companyId, (tx) => tx.query(
+  await withControlPlane((tx) => tx.query(
     'UPDATE budget_accounts SET tokens_max = 100000 WHERE id = $1', [fixture.budgetAccountId],
   ));
   assert.equal((await runDueSchedules(new Date())).length, 1);

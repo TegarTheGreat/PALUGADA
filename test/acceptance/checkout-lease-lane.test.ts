@@ -8,7 +8,7 @@
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { withTenant } from '../../src/db/tenant.ts';
+import { withTenant, withControlPlane } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
 import {
   DEFAULT_LEASE_MS,
@@ -53,9 +53,13 @@ async function newTask(
   });
 }
 
-/** Sets the account's ceiling directly, as an owner lowering a budget would. */
+/**
+ * Sets the account's ceiling directly, as an owner lowering a budget would --
+ * on the control plane, because a ceiling is the owner's and the application
+ * role may only move the running totals (0047).
+ */
 async function setTokenCeiling(fixture: Fixture, tokensMax: number): Promise<void> {
-  await withTenant(fixture.companyId, async (tx) => {
+  await withControlPlane(async (tx) => {
     await tx.query('UPDATE budget_accounts SET tokens_max = $2 WHERE id = $1', [
       fixture.budgetAccountId,
       tokensMax,

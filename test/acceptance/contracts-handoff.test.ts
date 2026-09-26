@@ -10,7 +10,7 @@ import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { glob } from 'node:fs/promises';
-import { withTenant } from '../../src/db/tenant.ts';
+import { withTenant, withControlPlane } from '../../src/db/tenant.ts';
 import {
   CHILD_SUMMARY_TOKEN_LIMIT,
   estimateTokens,
@@ -214,7 +214,8 @@ test('a refused handoff is recorded once, and retried only if it can lift (F6.1)
   // With no budget left for a successor: a refusal the owner can lift.
   const starved = await rootTask(fixture, fixture.roleId, { n: 'starved' });
   await engine.runTask(fixture.companyId, starved.id, 'worker');
-  const tokensMax = await withTenant(fixture.companyId, async (tx) => {
+  // On the control plane: a ceiling is the owner's to set (0047).
+  const tokensMax = await withControlPlane(async (tx) => {
     const { rows } = await tx.query<{ tokens_max: string }>(
       'SELECT tokens_max FROM budget_accounts WHERE id = $1', [fixture.budgetAccountId]);
     await tx.query('UPDATE budget_accounts SET tokens_max = GREATEST(1, tokens_spent + tokens_reserved) WHERE id = $1',
@@ -246,7 +247,7 @@ test('a refused handoff is recorded once, and retried only if it can lift (F6.1)
 
   // The owner raises the budget: the lifted refusal goes through, the final
   // one stays refused.
-  await withTenant(fixture.companyId, (tx) =>
+  await withControlPlane((tx) =>
     tx.query('UPDATE budget_accounts SET tokens_max = $2 WHERE id = $1', [fixture.budgetAccountId, tokensMax]));
   const created = await processHandoffs(fixture.companyId, rules);
   assert.deepEqual(created.map((handoff) => handoff.fromTaskId), [starved.id]);

@@ -9,7 +9,7 @@
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { withTenant } from '../../src/db/tenant.ts';
+import { withTenant, withControlPlane } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
 import { AdapterRegistry, type RunEvent } from '../../src/runtime/protocol.ts';
 import { parseRunEvent } from '../../src/runtime/wire.ts';
@@ -1591,7 +1591,7 @@ test('a runtime cannot report a negative cost to erase its company\'s spend (F13
   const fixture = await createCompany('usage-negative');
   const broker = await brokerFor(fixture, []);
   await configureRole(fixture, { runtime: 'script' });
-  await withTenant(fixture.companyId, (tx) => tx.query(
+  await withControlPlane((tx) => tx.query(
     'UPDATE budget_accounts SET money_spent_cents = 5000 WHERE id = $1', [fixture.budgetAccountId],
   ));
   const task = await newTask(fixture, { ask: 'anything' });

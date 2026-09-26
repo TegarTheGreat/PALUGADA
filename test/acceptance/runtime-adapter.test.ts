@@ -9,7 +9,7 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { withTenant } from '../../src/db/tenant.ts';
+import { withTenant, withControlPlane } from '../../src/db/tenant.ts';
 import { isPalugadaError } from '../../src/errors.ts';
 import { closePools } from '../../src/db/pool.ts';
 import {
@@ -419,8 +419,11 @@ test('a prompt the runtime never shared stays distinguishable from a scrubbed on
   });
   await engineWith(adapter).runTask(fixture.companyId, task.id, 'worker');
 
-  await withTenant(fixture.companyId, async (tx) => {
-    await tx.query("UPDATE llm_traces SET occurred_at = now() - interval '200 days'");
+  await withControlPlane(async (tx) => {
+    await tx.query(
+      "UPDATE llm_traces SET occurred_at = now() - interval '200 days' WHERE company_id = $1",
+      [fixture.companyId],
+    );
   });
   await scrubExpiredPrompts(fixture.companyId);
 
@@ -516,7 +519,7 @@ test('the engine refuses a negative usage report from any runtime (F13.7)', asyn
   const task = await newTask(fixture);
   // Spend already on the account, so a negative report has something to erase
   // rather than tripping the non-negative constraint on an empty one.
-  await withTenant(fixture.companyId, (tx) => tx.query(
+  await withControlPlane((tx) => tx.query(
     'UPDATE budget_accounts SET tokens_spent = 5000 WHERE id = $1', [fixture.budgetAccountId],
   ));
   const { adapter } = spyAdapter({

@@ -212,9 +212,12 @@ test('a runtime is given tools as names and schemas, never credentials (F13.4)',
   assert.equal(serialised.includes('secret_ref'), false);
 });
 
-test('a runtime is lent four things and no more', async () => {
-  // A runtime that needed a fifth would be asking for something the platform
+test('a runtime is lent what it needs and no more', async () => {
+  // A runtime that needed more would be asking for something the platform
   // is not supposed to hand over -- a database connection most of all.
+  // `narrate` (0055) is the one added since, and it is the narrowest thing
+  // here: it appends a bounded, redacted line to this run's own transcript,
+  // and cannot read anything back.
   const fixture = await createCompany('runtime-services');
   await useRuntime(fixture, 'spy');
   const { adapter, seen } = spyAdapter();
@@ -223,7 +226,7 @@ test('a runtime is lent four things and no more', async () => {
 
   assert.deepEqual(
     Object.keys(seen.services!).sort(),
-    ['awaitChild', 'callTool', 'reportUsage', 'signal', 'step'],
+    ['awaitChild', 'callTool', 'narrate', 'reportUsage', 'signal', 'step'],
   );
 });
 

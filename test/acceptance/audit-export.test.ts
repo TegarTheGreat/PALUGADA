@@ -688,3 +688,132 @@ test('an archive carries no platform configuration (F1.5, F3.1)', async () => {
     'the platform charter is not this company\'s to carry',
   );
 });
+
+/**
+ * Columns, not just sections.
+ *
+ * The section test above catches a table left out. It could not catch what
+ * actually went missing, which was columns: every migration since 0015 added
+ * some, and the export's hand-written column lists did not move -- so a
+ * restored credential lost its scopes and every scoped capability refused
+ * it, an abandoned goal came back active, a parked task lost the time it was
+ * waiting for, a division lost its escalation policy. Nothing failed; the
+ * archive simply said less than the database knew.
+ *
+ * Read from the database itself, so a column added tomorrow fails here until
+ * somebody decides which side it belongs on. The omissions are named with
+ * their reasons, the same way the section list is.
+ */
+test('every column of every exported table travels, or is named as deliberately not (F16.4)', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const source = await readFile(new URL('../../src/audit/export.ts', import.meta.url), 'utf8');
+  const queries = [
+    ...source.matchAll(/name: '([a-z_]+)',[\s\S]*?sql:\s*(`[\s\S]*?`|'[^']*')/g),
+    ...source.matchAll(/const (TRACES_WITH_PROMPTS) = (`[\s\S]*?`)/g),
+  ].map((match) => [match[1]!, match[2]!.slice(1, -1)] as const);
+  assert.ok(queries.length > 30, `only ${queries.length} queries were found; the scan is broken`);
+
+  const LEFT_BEHIND: Record<string, string> = {
+    // The destination company is created by the import, with the caller's
+    // slug and a fresh id; the archive's own row is read for its name.
+    'companies.frozen_at': 'a freeze is a fact about the instance it was pressed on',
+    'tasks.lease_holder': 'the worker that held it is on the other instance',
+    'tasks.lease_expires_at': 'the same lease',
+    'spend_limits.paused_at': 'a pause is spending that has not happened here',
+    'spend_limits.pause_reason': 'the same pause',
+    'schedules.fire_failed_for': 'why the last occurrence failed there, not here',
+    'schedules.fire_failure': 'the same failure',
+  };
+
+  const missing: string[] = [];
+  for (const [name, sql] of queries) {
+    const table = /FROM\s+([a-z_]+)/.exec(sql)?.[1];
+    assert.ok(table, `${name} names no table`);
+    const selected = new Set(
+      /SELECT([\s\S]*?)FROM/.exec(sql)![1]!.split(',').map((column) => column.trim().split(/\s+/)[0]!),
+    );
+    const columns = await withControlPlane(async (tx) => {
+      const { rows } = await tx.query<{ column_name: string }>(
+        `SELECT column_name FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = $1`,
+        [table],
+      );
+      return rows.map((row) => row.column_name);
+    });
+    for (const column of columns) {
+      // Every row's company is the one being exported, and the import writes
+      // the destination's.
+      if (column === 'company_id') continue;
+      if (selected.has(column) || `${table}.${column}` in LEFT_BEHIND) continue;
+      missing.push(`${table}.${column}`);
+    }
+  }
+  assert.deepEqual(missing, [],
+    'columns the archive would silently drop -- export them, or say why not in LEFT_BEHIND');
+});
+
+/**
+ * And what those columns hold arrives intact. Each of these went missing
+ * once, and each is a behaviour rather than a detail: scoped capabilities
+ * refused the restored credential, the abandoned goal's work resumed, the
+ * division's escalations skipped the role meant to see them first, the
+ * company ran under no charter of its own, and distillation read the whole
+ * history again and paid for it.
+ */
+test('scopes, goal status, escalation policy, charter and watermark are restored (F16.4)', async () => {
+  const fixture = await createCompany('export-columns');
+  await seedCompany(fixture, 'columns');
+  const { publishCharter } = await import('../../src/governance/store.ts');
+  await publishCharter({ companyId: fixture.companyId, body: 'We answer within a day.' });
+  await withControlPlane(async (tx) => {
+    // A scope has to be one a granted capability needs (F12.6), so the
+    // capability says it needs one first.
+    await tx.query(
+      "UPDATE capabilities SET required_scopes = ARRAY['deploy:write'] WHERE name = 'deploy.staging'");
+    await tx.query(
+      "UPDATE credentials SET scopes = ARRAY['deploy:write'] WHERE company_id = $1", [fixture.companyId]);
+    await tx.query("UPDATE goals SET status = 'abandoned' WHERE id = $1", [fixture.goalId]);
+    await tx.query(
+      `UPDATE divisions SET escalation_role_slug = 'worker', escalate_after_minutes = 45
+        WHERE id = $1`,
+      [fixture.divisionId],
+    );
+    await tx.query(
+      `INSERT INTO distillation_state (company_id, scope_id, kind, through_at)
+       VALUES ($1, $2, 'episodic_to_semantic', timestamptz '2026-09-01 00:00:00+00')`,
+      [fixture.companyId, fixture.divisionId],
+    );
+  });
+
+  const lines: ArchiveLine[] = [];
+  await exportCompany(fixture.companyId, (line) => {
+    lines.push(line);
+  });
+  const restored = await importCompany(lines, { slug: `${fixture.slug}-restored` });
+
+  const found = await withControlPlane(async (tx) => {
+    const one = async <T,>(sql: string) =>
+      (await tx.query<T & Record<string, unknown>>(sql, [restored.companyId])).rows[0];
+    return {
+      scopes: (await one<{ scopes: string[] }>(
+        'SELECT scopes FROM credentials WHERE company_id = $1'))?.scopes,
+      goals: (await tx.query<{ status: string }>(
+        'SELECT status FROM goals WHERE company_id = $1 ORDER BY status', [restored.companyId],
+      )).rows.map((row) => row.status),
+      escalation: await one<{ escalation_role_slug: string; escalate_after_minutes: number }>(
+        `SELECT escalation_role_slug, escalate_after_minutes FROM divisions
+          WHERE company_id = $1 AND escalation_role_slug IS NOT NULL`),
+      charter: (await one<{ body: string }>(
+        'SELECT body FROM charters WHERE company_id = $1'))?.body,
+      watermark: (await one<{ through_at: Date; mapped: boolean }>(
+        `SELECT through_at, scope_id IN (SELECT id FROM divisions WHERE company_id = $1) AS mapped
+           FROM distillation_state WHERE company_id = $1`)),
+    };
+  });
+  assert.deepEqual(found.scopes, ['deploy:write']);
+  assert.ok(found.goals.includes('abandoned'), `the abandoned goal stays abandoned: ${found.goals.join(', ')}`);
+  assert.deepEqual(found.escalation, { escalation_role_slug: 'worker', escalate_after_minutes: 45 });
+  assert.equal(found.charter, 'We answer within a day.');
+  assert.equal(found.watermark?.through_at.toISOString(), '2026-09-01T00:00:00.000Z');
+  assert.equal(found.watermark?.mapped, true, 'and it is this company\'s division it names');
+});

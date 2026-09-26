@@ -69,9 +69,9 @@ interface ImportSection {
 /**
  * Sections in import order.
  *
- * A section appears after everything it references. Three of the export's
+ * A section appears after everything it references. Four of the export's
  * sections are deliberately absent, and `audit-export.test.ts` asserts that
- * the difference between the two lists is exactly these three -- so a fourth
+ * the difference between the two lists is exactly these four -- so a fifth
  * cannot be dropped by accident, which is how the first four went missing:
  *
  *   - `bundle_installs`: an install points at a bundle row in the *platform's*
@@ -90,8 +90,13 @@ interface ImportSection {
  *     somewhere else. A genuine migration wants that spend carried and a clone
  *     does not, and nothing in an archive says which this is, so the import
  *     does not decide for the operator.
+ *   - `gateway_devices`: pairing a device is a decision about trusting it on
+ *     *this* instance, made with a challenge this instance issued. A restored
+ *     device would act here on the strength of a pairing nobody made here --
+ *     the argument F15.8 makes about outside knowledge, made about machines.
+ *     The owner pairs them again.
  *
- * All three stay in the archive. An auditor reading it is exactly who should
+ * All four stay in the archive. An auditor reading it is exactly who should
  * see what was installed, what was deleted, and what it cost -- what they must
  * not do is silently become the destination's own history.
  */
@@ -186,6 +191,11 @@ const SECTIONS: ImportSection[] = [
   { name: 'skill_evals', table: 'skill_evals', references: ['skill_id'] },
   { name: 'skill_versions', table: 'skill_versions', references: ['skill_id', 'review_request_id'] },
   { name: 'role_eval_cases', table: 'role_eval_cases', references: ['role_id', 'source_agent_run_id'] },
+  { name: 'role_eval_runs', table: 'role_eval_runs', references: ['role_id'] },
+  { name: 'task_handoffs', table: 'task_handoffs', references: ['from_task_id', 'to_task_id'] },
+  // A distillation's scope is the division it read.
+  { name: 'distillation_state', table: 'distillation_state', references: ['scope_id'] },
+  { name: 'charters', table: 'charters', references: [] },
   {
     name: 'schedules',
     table: 'schedules',
@@ -245,7 +255,9 @@ export const IMPORT_SECTION_NAMES: readonly string[] = [
  * the list rather than in a commit message. Each one is explained on SECTIONS
  * above.
  */
-export const NOT_RESTORED: readonly string[] = ['bundle_installs', 'retention_log', 'llm_traces'];
+export const NOT_RESTORED: readonly string[] = [
+  'bundle_installs', 'retention_log', 'llm_traces', 'gateway_devices',
+];
 
 export interface ImportSummary {
   companyId: string;

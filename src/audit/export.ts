@@ -72,7 +72,11 @@ const SECTIONS: Section[] = [
   { name: 'projects', sql: 'SELECT id, slug, name, created_at FROM projects ORDER BY created_at' },
   {
     name: 'divisions',
-    sql: `SELECT id, parent_division_id, depth, slug, name, max_concurrency, created_at
+    // With its escalation policy (F2.1): who hears about a problem first and
+    // how long they have. A division restored without it sends every
+    // escalation straight to the owner.
+    sql: `SELECT id, parent_division_id, depth, slug, name, max_concurrency,
+                 escalation_role_slug, escalate_after_minutes, created_at
             FROM divisions ORDER BY depth, slug`,
   },
   {
@@ -83,12 +87,13 @@ const SECTIONS: Section[] = [
     sql: `SELECT id, division_id, slug, system_prompt, model, tools, input_schema,
                  output_schema, max_tokens_per_run, attempt_max, done_criteria,
                  runtime, backend, model_primary, model_fallback,
-                 heartbeat_minutes, frozen_at, frozen_reason, created_at
+                 heartbeat_minutes, dormant_until, frozen_at, frozen_reason, created_at
             FROM roles ORDER BY slug`,
   },
   {
     name: 'goals',
-    sql: `SELECT id, parent_goal_id, kind, slug, statement, created_at
+    // `status`, or an abandoned goal comes back active and its work with it.
+    sql: `SELECT id, parent_goal_id, kind, slug, statement, status, created_at
             FROM goals ORDER BY created_at`,
   },
   {
@@ -100,7 +105,9 @@ const SECTIONS: Section[] = [
     name: 'credentials',
     // Reference and version only. There is no secret value in this database to
     // export, and this list says so explicitly rather than relying on that.
-    sql: `SELECT id, division_id, alias, secret_ref, version, rotated_at, created_at
+    // `scopes` too (F12.6): a credential restored without its declared scopes
+    // is refused by every capability that checks them.
+    sql: `SELECT id, division_id, alias, secret_ref, scopes, version, rotated_at, created_at
             FROM credentials ORDER BY created_at`,
   },
   {
@@ -115,8 +122,8 @@ const SECTIONS: Section[] = [
     sql: `SELECT id, project_id, division_id, role_id, parent_task_id, budget_account_id,
                  status, halt_reason, input, output, hop_depth, hop_max, deadline_at,
                  idempotency_key, input_hash, created_by, attempt, attempt_max,
-                 tokens_reserved, goal_id, lane_key, batchable,
-                 priority, created_at, started_at, finished_at
+                 tokens_reserved, goal_id, lane_key, batchable, priority,
+                 wait_until, plan, created_at, started_at, finished_at
             FROM tasks ORDER BY created_at`,
   },
   {
@@ -127,7 +134,8 @@ const SECTIONS: Section[] = [
   },
   {
     name: 'agent_runs',
-    sql: `SELECT id, task_id, role_id, attempt, status, tokens_used, started_at, finished_at
+    sql: `SELECT id, task_id, role_id, attempt, status, tokens_used, started_at,
+                 last_heartbeat_at, finished_at
             FROM agent_runs ORDER BY started_at`,
   },
   {
@@ -139,7 +147,7 @@ const SECTIONS: Section[] = [
     name: 'memories',
     sql: `SELECT id, memory_type, scope_type, scope_id, body, confidence, source,
                  shared, source_event_id, valid_from, superseded_by, approval_state,
-                 approved_at, fact_kind, embedding_model, created_at
+                 approved_at, fact_kind, embedding, embedding_model, created_at
             FROM memories ORDER BY created_at`,
   },
   {
@@ -173,7 +181,7 @@ const SECTIONS: Section[] = [
     name: 'schedules',
     sql: `SELECT id, project_id, division_id, role_id, budget_account_id, slug,
                  cron_expression, timezone, input, reserve_tokens, batchable, goal_id,
-                 enabled, last_run_at, next_run_at, created_at
+                 priority, enabled, last_run_at, next_run_at, created_at
             FROM schedules ORDER BY created_at`,
   },
   {
@@ -229,7 +237,7 @@ const SECTIONS: Section[] = [
   },
   {
     name: 'bundle_installs',
-    sql: `SELECT id, slug, version, installed_hash, quarantined, installed_at
+    sql: `SELECT id, bundle_id, slug, version, installed_hash, quarantined, installed_at
             FROM bundle_installs ORDER BY installed_at`,
   },
   {
@@ -266,8 +274,46 @@ const SECTIONS: Section[] = [
   {
     name: 'alert_thresholds',
     sql: `SELECT id, daily_cost_cents, policy_denials_per_day,
-                 verification_failures_per_day, created_at
+                 verification_failures_per_day, task_failure_rate,
+                 role_freeze_denials_per_day, spend_rate_multiple, spend_rate_floor_cents,
+                 created_at
             FROM alert_thresholds WHERE company_id IS NOT NULL`,
+  },
+  {
+    // The company's own charter (F3.2), every version. Company rows only, for
+    // the reason `config_versions` gives: the platform's charter is readable
+    // here and is not this company's to carry.
+    name: 'charters',
+    sql: `SELECT id, version, body, created_at
+            FROM charters WHERE company_id IS NOT NULL ORDER BY version`,
+  },
+  {
+    // How far distillation has read (F4.5). Without it the destination starts
+    // from the beginning of the company's history: every fact distilled again,
+    // as a duplicate, and paid for again in model calls.
+    name: 'distillation_state',
+    sql: `SELECT scope_id, kind, through_at, updated_at
+            FROM distillation_state ORDER BY kind, scope_id`,
+  },
+  {
+    // What each completion's handoff came to (0042). Without it every
+    // completion still inside the handoff window is decided again.
+    name: 'task_handoffs',
+    sql: `SELECT from_task_id, to_role_slug, outcome, to_task_id, reason_code, reason, decided_at
+            FROM task_handoffs ORDER BY decided_at`,
+  },
+  {
+    // A role's eval history (F17): how it scored, run by run.
+    name: 'role_eval_runs',
+    sql: `SELECT id, role_id, triggered_by, passed, failed, detail, ran_at
+            FROM role_eval_runs ORDER BY ran_at`,
+  },
+  {
+    // Carried for the auditor, not restored; the import's section list says why.
+    name: 'gateway_devices',
+    sql: `SELECT id, name, runtime, public_key, status, quarantined, paired_at,
+                 last_seen_at, created_at
+            FROM gateway_devices ORDER BY created_at`,
   },
   {
     name: 'retention_policies',

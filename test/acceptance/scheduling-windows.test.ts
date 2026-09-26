@@ -895,7 +895,9 @@ async function scheduleWithHistory(fixture: Fixture, outputs: Array<Record<strin
       input: { kind: 'report' },
       reserveTokens: 1000,
     },
-    new Date(Date.now() - 30 * 60_000),
+    // Ninety minutes back, so an hourly occurrence has fallen due whatever
+    // the minute is now. Thirty was due only in the first half of the hour.
+    new Date(Date.now() - 90 * 60_000),
   );
   const scheduleId = await withTenant(fixture.companyId, async (tx) => {
     const { rows } = await tx.query<{ id: string }>(

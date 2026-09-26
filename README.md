@@ -773,7 +773,12 @@ grant or a role, editing a goal, widening a skill's scope, lifting a
 quarantine, trusting a publisher, installing a bundle and pairing a device.
 Revoking a publisher or a device does not — those only ever narrow what this
 installation accepts, and a revocation somebody hesitates over happens too
-late. `test/documents/reachability.test.ts`
+late. Pairing a device names its key: the console shows the fingerprint the
+device registered with, the machine prints its own with
+`openssl pkey -pubin -in key.pem -outform DER | sha256sum`, and the pairing
+carries the one the owner compared, so a key swapped in between is refused.
+A revoked device is not paired back; it registers a new key.
+`test/documents/reachability.test.ts`
 lists what still has no route, by name, and fails if that list drifts. Signing in means presenting a second
 factor, because there are no accounts: PALUGADA has one human, so an identity
 system would be a table with one row and a password to lose. A sign-in lasts

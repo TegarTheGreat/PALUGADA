@@ -44,6 +44,7 @@ import {
   issueChallenge,
   pairDevice,
   registerDevice,
+  revokeDevice,
   assertWithinQuarantine,
 } from '../../src/gateway/gateway.ts';
 import { chooseReviewerModel } from '../../src/review/review.ts';
@@ -876,7 +877,7 @@ test('a new device can do nothing until the owner pairs it (F12.7)', async () =>
     (error: unknown) => isPalugadaError(error, 'gateway.unpaired'),
   );
 
-  await pairDevice(fixture.companyId, device.id);
+  await pairDevice(fixture.companyId, device.id, { keyFingerprint: device.keyFingerprint });
   const second = await issueChallenge(fixture.companyId, device.id);
   const connection = await connect({
     companyId: fixture.companyId,
@@ -885,6 +886,79 @@ test('a new device can do nothing until the owner pairs it (F12.7)', async () =>
     signatureBase64: signedNonce(privateKey, second),
   });
   assert.equal(connection.runtime, 'claude-code');
+});
+
+/**
+ * Pairing trusts a key, so it names one.
+ *
+ * A re-registration under the same name keeps the device's id and swaps its
+ * key, so a pairing by id alone trusted whichever key had registered last --
+ * between the owner reading the fingerprint and pressing the button. And a
+ * revoked key was one pairing away from trusted again.
+ */
+test('pairing names the key it trusts, and does not undo a revocation (F12.7)', async () => {
+  const fixture = await createCompany('gateway-fingerprint');
+  const register = (publicKeyPem: string, name = 'laptop') => registerDevice({
+    companyId: fixture.companyId, name, runtime: 'script', publicKeyPem,
+  });
+  const status = () => withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ status: string }>('SELECT status FROM gateway_devices');
+    return rows.map((row) => row.status);
+  });
+
+  const seen = await register(keypair().publicKey);
+  const swappedKey = keypair().publicKey;
+  const swapped = await register(swappedKey);
+  assert.equal(swapped.id, seen.id, 'the same device, wearing another key');
+  assert.notEqual(swapped.keyFingerprint, seen.keyFingerprint);
+
+  await assert.rejects(
+    () => pairDevice(fixture.companyId, seen.id, { keyFingerprint: seen.keyFingerprint }),
+    (error: unknown) => isPalugadaError(error, 'gateway.key_mismatch'),
+  );
+  assert.deepEqual(await status(), ['pending']);
+
+  // What the machine prints, the way OpenSSL prints it...
+  const { createHash, createPublicKey } = await import('node:crypto');
+  assert.equal(swapped.keyFingerprint, createHash('sha256')
+    .update(createPublicKey(swappedKey).export({ type: 'spki', format: 'der' }))
+    .digest('hex'));
+  // ...and typed off its screen, in pairs and capitals.
+  await pairDevice(fixture.companyId, swapped.id, {
+    keyFingerprint: ` ${swapped.keyFingerprint.toUpperCase().match(/../g)!.join(':')} `,
+  });
+  assert.deepEqual(await status(), ['paired']);
+
+  await revokeDevice(fixture.companyId, swapped.id);
+  await assert.rejects(
+    () => pairDevice(fixture.companyId, swapped.id, { keyFingerprint: swapped.keyFingerprint }),
+    (error: unknown) => isPalugadaError(error, 'gateway.not_pairable'),
+  );
+  assert.deepEqual(await status(), ['revoked']);
+
+  // The machine comes back with a new key, which is new, and pending.
+  const back = await register(keypair().publicKey);
+  assert.equal(back.status, 'pending');
+  await pairDevice(fixture.companyId, back.id, { keyFingerprint: back.keyFingerprint });
+  assert.deepEqual(await status(), ['paired']);
+
+  await assert.rejects(
+    () => register('-----BEGIN PUBLIC KEY-----\nnot a key\n-----END PUBLIC KEY-----', 'typo'),
+    (error: unknown) => isPalugadaError(error, 'contract.violation'),
+  );
+  await assert.rejects(
+    () => pairDevice(fixture.companyId, '00000000-0000-4000-8000-000000000000', { keyFingerprint: 'x' }),
+    (error: unknown) => isPalugadaError(error, 'gateway.not_pairable'),
+  );
+
+  // One stored before keys were checked at registration is refused, not a crash.
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    "UPDATE gateway_devices SET public_key = 'not a key', status = 'pending', paired_at = NULL",
+  ));
+  await assert.rejects(
+    () => pairDevice(fixture.companyId, back.id, { keyFingerprint: back.keyFingerprint }),
+    (error: unknown) => isPalugadaError(error, 'gateway.not_pairable'),
+  );
 });
 
 test('a stolen device id without the key is not a device (F12.7)', async () => {
@@ -898,7 +972,7 @@ test('a stolen device id without the key is not a device (F12.7)', async () => {
     runtime: 'script',
     publicKeyPem: publicKey,
   });
-  await pairDevice(fixture.companyId, device.id);
+  await pairDevice(fixture.companyId, device.id, { keyFingerprint: device.keyFingerprint });
 
   const nonce = await issueChallenge(fixture.companyId, device.id);
   await assert.rejects(
@@ -930,7 +1004,7 @@ test('a captured signature cannot be presented twice (F12.7)', async () => {
     runtime: 'script',
     publicKeyPem: publicKey,
   });
-  await pairDevice(fixture.companyId, device.id);
+  await pairDevice(fixture.companyId, device.id, { keyFingerprint: device.keyFingerprint });
 
   const nonce = await issueChallenge(fixture.companyId, device.id);
   const signature = signedNonce(privateKey, nonce);
@@ -957,7 +1031,7 @@ test('a quarantined device may read and may not change anything (F12.10)', async
     runtime: 'http',
     publicKeyPem: publicKey,
   });
-  await pairDevice(fixture.companyId, device.id);
+  await pairDevice(fixture.companyId, device.id, { keyFingerprint: device.keyFingerprint });
 
   const nonce = await issueChallenge(fixture.companyId, device.id);
   const quarantined = await connect({
@@ -975,7 +1049,10 @@ test('a quarantined device may read and may not change anything (F12.10)', async
 
   // Lifting quarantine is the owner vouching for the device, and it is the only
   // thing that widens what the device may reach.
-  await pairDevice(fixture.companyId, device.id, { liftQuarantine: true });
+  await pairDevice(fixture.companyId, device.id, {
+    keyFingerprint: device.keyFingerprint,
+    liftQuarantine: true,
+  });
   const fresh = await issueChallenge(fixture.companyId, device.id);
   const lifted = await connect({
     companyId: fixture.companyId,

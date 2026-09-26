@@ -2142,11 +2142,27 @@ test('the owner can register, pair and revoke a device (F12.7, F12.10)', async (
     assert.equal(registered.status, 200, JSON.stringify(registered.body));
     const deviceId = String(registered.body.id);
 
-    const without = await call(owner.url, 'POST', `${base}/${deviceId}/pair`, { token, body: {} });
+    const fingerprint = String(registered.body.keyFingerprint);
+    const without = await call(owner.url, 'POST', `${base}/${deviceId}/pair`, {
+      token, body: { keyFingerprint: fingerprint },
+    });
     assert.equal(without.status, 403, JSON.stringify(without.body));
 
+    // A pairing names the key it trusts, and one that does not is refused
+    // before the code is spent: the same code still works afterwards.
+    const code = owner.code();
+    const unnamed = await call(owner.url, 'POST', `${base}/${deviceId}/pair`, {
+      token, body: { proof: { totp: code } },
+    });
+    assert.equal(unnamed.status, 400, JSON.stringify(unnamed.body));
+    const wrongKey = await call(owner.url, 'POST', `${base}/${deviceId}/pair`, {
+      token, body: { keyFingerprint: '0000000000000000', proof: { totp: code } },
+    });
+    assert.equal(wrongKey.body.code, 'gateway.key_mismatch', JSON.stringify(wrongKey.body));
+
     const paired = await call(owner.url, 'POST', `${base}/${deviceId}/pair`, {
-      token, body: { proof: { totp: owner.code() } },
+      token,
+      body: { keyFingerprint: fingerprint, proof: { totp: owner.code() } },
     });
     assert.equal(paired.status, 200, JSON.stringify(paired.body));
 

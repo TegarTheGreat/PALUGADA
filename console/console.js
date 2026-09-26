@@ -1477,18 +1477,23 @@ async function drawDevices() {
       ],
       async (values) => {
         const device = await api('POST', `${company()}/devices`, values);
-        panel.append(note(`Registered. Its id is ${device.id}.`));
+        panel.append(note(
+          `Registered. Its id is ${device.id} and its key fingerprint is ${device.keyFingerprint}: `
+            + 'pair it only if the machine shows the same fingerprint.',
+        ));
       },
       { action: 'Register' },
     ),
     heading('Pair one'),
-    note('Pairing is what makes its signature count, so it takes your authenticator.'),
+    note('Pairing is what makes its signature count, so it takes your authenticator, '
+      + 'and the key fingerprint the machine itself shows: it pairs that key and no other.'),
     form(
       [{ name: 'deviceId', label: 'Device id', required: true },
+        { name: 'keyFingerprint', label: 'Key fingerprint, as the machine shows it', required: true },
         { name: 'liftQuarantine', label: 'Also lift its quarantine (yes/no)' }],
-      ({ deviceId, liftQuarantine }, proof) => api(
+      ({ deviceId, keyFingerprint, liftQuarantine }, proof) => api(
         'POST', `${company()}/devices/${deviceId}/pair`,
-        { liftQuarantine: liftQuarantine === 'yes', proof },
+        { keyFingerprint, liftQuarantine: liftQuarantine === 'yes', proof },
       ),
       { action: 'Pair', factor: 'pair a device' },
     ),

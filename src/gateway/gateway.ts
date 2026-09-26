@@ -50,6 +50,11 @@ export interface Device {
   status: DeviceStatus;
   quarantined: boolean;
   lastSeenAt: Date | null;
+  /**
+   * What the owner compares with the fingerprint the machine itself shows
+   * before pairing it, and what the pairing then names (see `pairDevice`).
+   */
+  keyFingerprint: string;
 }
 
 /**
@@ -65,6 +70,17 @@ export async function registerDevice(input: {
   runtime: string;
   publicKeyPem: string;
 }): Promise<Device> {
+  // A key nothing can verify with would be paired, and then refuse every
+  // connection as a bad signature -- which reads as an attack, not a typo.
+  try {
+    createPublicKey(input.publicKeyPem);
+  } catch {
+    throw new PalugadaError(
+      'contract.violation',
+      'publicKeyPem is not a public key in PEM form',
+      { field: 'publicKeyPem' },
+    );
+  }
   return withTenant(input.companyId, async (tx) => {
     const { rows } = await tx.query<{
       id: string;
@@ -114,28 +130,77 @@ export async function registerDevice(input: {
       status: row.status,
       quarantined: row.quarantined,
       lastSeenAt: row.last_seen_at,
+      keyFingerprint: fingerprint(input.publicKeyPem),
     };
   });
 }
 
-/** The owner's decision (F12.7). `quarantined` stays true unless lifted. */
+/**
+ * The owner's decision (F12.7). `quarantined` stays true unless lifted.
+ *
+ * **It names the key.** Pairing says "this key is the machine I mean", and a
+ * device id does not say which key: a re-registration under the same name
+ * keeps the id and swaps the key. So the owner confirms the fingerprint the
+ * machine shows, and a pairing whose fingerprint is not the registered key's
+ * is refused -- otherwise whichever key registered last, between the owner
+ * looking and the owner pressing, is the one that would be trusted.
+ *
+ * **A revoked key stays revoked.** Pairing it again would undo the revocation
+ * through the door meant for new machines; a machine coming back registers a
+ * new key, which is pending like any other.
+ */
 export async function pairDevice(
   companyId: string,
   deviceId: string,
-  options: { liftQuarantine?: boolean } = {},
+  options: { keyFingerprint: string; liftQuarantine?: boolean },
 ): Promise<void> {
+  const quarantined = !(options.liftQuarantine ?? false);
   await withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<{ status: DeviceStatus; public_key: string }>(
+      'SELECT status, public_key FROM gateway_devices WHERE id = $1 FOR UPDATE',
+      [deviceId],
+    );
+    const device = rows[0];
+    if (!device || device.status === 'revoked') {
+      throw new PalugadaError(
+        'gateway.not_pairable',
+        device
+          ? `device ${deviceId} was revoked; register the machine with a new key to pair it`
+          : `no device ${deviceId}`,
+        { deviceId, status: device?.status ?? null },
+      );
+    }
+    let registered: string;
+    try {
+      registered = fingerprint(device.public_key);
+    } catch {
+      // Registered before keys were checked at the door: nothing could verify
+      // its signatures, so pairing it would trust nothing in particular.
+      throw new PalugadaError(
+        'gateway.not_pairable',
+        `device ${deviceId} is registered with something that is not a public key; register it again`,
+        { deviceId, status: device.status },
+      );
+    }
+    if (registered !== typedFingerprint(options.keyFingerprint)) {
+      throw new PalugadaError(
+        'gateway.key_mismatch',
+        `device ${deviceId} is registered with key ${registered}, not the key confirmed; `
+          + 'compare again with the fingerprint the machine shows',
+        { deviceId, registered, confirmed: options.keyFingerprint },
+      );
+    }
     await tx.query(
       `UPDATE gateway_devices
-          SET status = 'paired', paired_at = now(), quarantined = $3
-        WHERE id = $1 AND company_id = $2`,
-      [deviceId, companyId, !(options.liftQuarantine ?? false)],
+          SET status = 'paired', paired_at = now(), quarantined = $2
+        WHERE id = $1`,
+      [deviceId, quarantined],
     );
     await appendEvent(tx, {
       companyId,
       type: 'gateway.device_paired',
       actor: 'owner',
-      payload: { deviceId, quarantined: !(options.liftQuarantine ?? false) },
+      payload: { deviceId, keyFingerprint: registered, quarantined },
     });
   });
 }
@@ -387,9 +452,24 @@ function verifySignature(publicKeyPem: string, nonce: string, signatureBase64: s
   }
 }
 
-/** A short, stable name for a key, for logs that must not carry the key. */
+/**
+ * A key's name: the SHA-256 of its DER encoding, in hex.
+ *
+ * What the owner compares with the machine before pairing it, so it is the
+ * whole digest of the key itself rather than of how the PEM happened to be
+ * wrapped, and the machine can print it with nothing but OpenSSL:
+ * `openssl pkey -pubin -in key.pem -outform DER | sha256sum`. (Events from
+ * before pairing named the key carry the first sixteen digits of the PEM
+ * text's hash instead.)
+ */
 export function fingerprint(publicKeyPem: string): string {
-  return createHash('sha256').update(publicKeyPem.trim()).digest('hex').slice(0, 16);
+  const der = createPublicKey(publicKeyPem).export({ type: 'spki', format: 'der' });
+  return createHash('sha256').update(der).digest('hex');
+}
+
+/** A fingerprint as the owner typed it: case, spaces and colons ignored. */
+function typedFingerprint(value: string): string {
+  return value.replace(/[\s:]/g, '').toLowerCase();
 }
 
 /** Constant-time comparison, for anywhere a bearer token is checked. */

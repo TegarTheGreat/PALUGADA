@@ -1375,8 +1375,12 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/devices/:deviceId/pair',
         handle: async ({ params, body }) => {
+          // Read before the factor is spent, so a pairing missing its key
+          // does not cost the owner a code.
+          const keyFingerprint = requireText(body.keyFingerprint, 'keyFingerprint');
           await this.#requireFactor(body.proof, 'pair a device', params.companyId!);
           await pairDevice(params.companyId!, params.deviceId!, {
+            keyFingerprint,
             liftQuarantine: body.liftQuarantine === true,
           });
           return { ok: true };

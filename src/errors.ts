@@ -56,6 +56,10 @@ export type ErrorCode =
   | 'gateway.bad_signature'
   | 'gateway.quarantined'
   | 'gateway.replayed'
+  /** F12.7: pairing names a key, and this device's is not the one named. */
+  | 'gateway.key_mismatch'
+  /** F12.7: no such device, or one revoked, which a pairing does not undo. */
+  | 'gateway.not_pairable'
   | 'bundle.invalid'
   | 'bundle.unknown'
   | 'bundle.bad_signature'

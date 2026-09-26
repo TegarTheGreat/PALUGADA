@@ -1,15 +1,16 @@
 /* What Mantine's components do not already say. Kept small on purpose. */
 
+/* The logo as drawn in brand/: the app icon where there is room for a square,
+   the lockup where there is room for the name. Images, never a styled letter. */
 .brand-mark {
-  display: inline-grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  background: linear-gradient(135deg, var(--mantine-color-brand-6), var(--mantine-color-grape-5));
-  color: #fff;
-  font-weight: 800;
-  font-size: 16px;
+  display: block;
+  flex-shrink: 0;
+}
+
+.brand-lockup {
+  display: block;
+  width: auto;
+  flex-shrink: 0;
 }
 
 .queue-row {

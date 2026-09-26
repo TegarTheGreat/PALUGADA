@@ -96,6 +96,10 @@ test('the session token is held in memory and nowhere else', async () => {
   for (const [path, source] of files) {
     assert.doesNotMatch(source, /\b(localStorage|sessionStorage)\.|document\.cookie\s*=/, `${path} stores something in the browser`);
   }
+  // Nor does a library write there on the console's behalf: Mantine keeps the
+  // colour scheme in localStorage unless it is handed a manager that does not.
+  assert.match(files.get('main.tsx') ?? '', /colorSchemeManager=\{memoryColorSchemeManager\(\)\}/,
+    'Mantine is left to keep the colour scheme in localStorage');
 });
 
 test('approving is never the prettiest button, and never a keystroke', async () => {

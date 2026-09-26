@@ -21,7 +21,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Alert, Anchor, Badge, Box, Button, Checkbox, Collapse, Divider, Grid, Group, Kbd, Menu, Modal, Paper,
+  Alert, Anchor, Avatar, Badge, Box, Button, Checkbox, Collapse, Divider, Grid, Group, Kbd, Menu, Modal, Paper,
   ScrollArea, SegmentedControl, SimpleGrid, Stack, Text, Textarea, Title, Tooltip,
 } from '@mantine/core';
 import { useHotkeys, useMediaQuery } from '@mantine/hooks';
@@ -38,6 +38,7 @@ import { dateTime, goalKind, money, relative } from '../format.ts';
 import { t, tp } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
 import { EmptyState, KindBadge, KpiStrip, LoadFailed, Loading, PageHeader, TierBadge } from '../components/ui.tsx';
+import { rolePicture } from '../images.ts';
 import { TraceView } from '../components/Trace.tsx';
 
 type Filter = 'all' | 'approval' | 'incident' | 'escalation';
@@ -524,7 +525,10 @@ function Detail({
           )}
         </Group>
         <Title order={3} fz={20} lh={1.3}>{item.title}</Title>
-        <Text size="sm" c="dimmed" mt={6}>{asker} · {relative(item.createdAt)}</Text>
+        <Group gap={8} mt={8} wrap="nowrap">
+          <Avatar size={26} radius="xl" src={item.roleSlug ? rolePicture(item.roleSlug) : '/brand/palugada-app-icon.svg'} alt="" />
+          <Text size="sm" c="dimmed">{asker} · {relative(item.createdAt)}</Text>
+        </Group>
       </Box>
       <Divider />
       <Stack p="lg" gap="md">

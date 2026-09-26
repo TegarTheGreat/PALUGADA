@@ -22,6 +22,7 @@ import { locale, t, tp } from '../i18n.ts';
 import { EmptyState, KindBadge, LiveIndicator, Loading, LoadFailed, Section, StatusBadge, TierBadge } from '../components/ui.tsx';
 import { TaskProgress } from './Work.tsx';
 import { metricValue } from '../components/Metrics.tsx';
+import { companyEmblem, rolePicture } from '../images.ts';
 
 interface CompanyState {
   company: Company;
@@ -142,7 +143,8 @@ export function Home({
                     {waiting.slice(0, 7).map(({ item, company }) => (
                       <UnstyledButton key={item.id} className="list-row" onClick={() => openCompany(company.id, 'inbox', item.id)}>
                         <Group justify="space-between" wrap="nowrap" gap="sm">
-                          <div style={{ minWidth: 0 }}>
+                          <Avatar size={32} radius="md" src={companyEmblem(company)} alt="" />
+                          <div style={{ minWidth: 0, flex: 1 }}>
                             <Text size="sm" fw={600} lineClamp={1}>{item.title}</Text>
                             <Group gap={6} mt={4}>
                               <TierBadge tier={item.tier} />
@@ -169,12 +171,17 @@ export function Home({
                   <Stack gap={0}>
                     {running.slice(0, 6).map(({ item, company }) => (
                       <UnstyledButton key={item.id} className="list-row" onClick={() => openCompany(company.id, 'work', item.id)}>
-                        <Text size="sm" fw={600} lineClamp={1}>{item.summary}</Text>
-                        <Group gap={6} mt={2} mb={6}>
-                          <StatusBadge status={item.status} />
-                          <Text size="xs" c="dimmed">{company.name} · {item.roleSlug}</Text>
+                        <Group gap="sm" wrap="nowrap" align="flex-start">
+                          <Avatar size={36} radius="xl" src={rolePicture(item.roleSlug)} alt="" />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <Text size="sm" fw={600} lineClamp={1}>{item.summary}</Text>
+                            <Group gap={6} mt={2} mb={6}>
+                              <StatusBadge status={item.status} />
+                              <Text size="xs" c="dimmed">{company.name} · {item.roleSlug}</Text>
+                            </Group>
+                            <TaskProgress item={item} />
+                          </div>
                         </Group>
-                        <TaskProgress item={item} />
                       </UnstyledButton>
                     ))}
                   </Stack>
@@ -186,9 +193,14 @@ export function Home({
                   <Stack gap={0}>
                     {delivered.slice(0, 5).map(({ item, company }) => (
                       <UnstyledButton key={item.id} className="list-row" onClick={() => openCompany(company.id, 'work', item.id)}>
-                        <Text size="sm" fw={600} lineClamp={1}>{item.summary}</Text>
-                        {item.result && <Text size="xs" c="teal.8" lineClamp={2} mt={2}>{item.result}</Text>}
-                        <Text size="xs" c="dimmed" mt={4}>{company.name} · {item.roleSlug} · {relative(item.finishedAt ?? item.createdAt)}</Text>
+                        <Group gap="sm" wrap="nowrap" align="flex-start">
+                          <Avatar size={36} radius="xl" src={rolePicture(item.roleSlug)} alt="" />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <Text size="sm" fw={600} lineClamp={1}>{item.summary}</Text>
+                            {item.result && <Text size="xs" c="teal.8" lineClamp={2} mt={2}>{item.result}</Text>}
+                            <Text size="xs" c="dimmed" mt={4}>{company.name} · {item.roleSlug} · {relative(item.finishedAt ?? item.createdAt)}</Text>
+                          </div>
+                        </Group>
                       </UnstyledButton>
                     ))}
                   </Stack>
@@ -231,7 +243,7 @@ function CompanyCard({ state, open }: { state: CompanyState; open: (page: Compan
       <UnstyledButton w="100%" onClick={() => open('overview')}>
         <Group justify="space-between" wrap="nowrap" mb="md">
           <Group gap="sm" wrap="nowrap" style={{ minWidth: 0 }}>
-            <Avatar color="brand" radius="md" size={40}>{company.name.slice(0, 1).toUpperCase()}</Avatar>
+            <Avatar radius="md" size={40} src={companyEmblem(company)} alt="" />
             <div style={{ minWidth: 0 }}>
               <Text fw={700} truncate>{company.name}</Text>
               <Badge size="sm" variant="dot" color={health.color}>{health.label}</Badge>

@@ -10,7 +10,7 @@
  */
 import { useState } from 'react';
 import {
-  Badge, Button, Code, CopyButton, Drawer, Group, Modal, Paper, Progress, ScrollArea, SegmentedControl, SimpleGrid,
+  Avatar, Badge, Button, Code, CopyButton, Drawer, Group, Modal, Paper, Progress, ScrollArea, SegmentedControl, SimpleGrid,
   Spoiler, Stack, Table, Text, Textarea, ThemeIcon, Timeline, Tooltip,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
@@ -26,6 +26,7 @@ import { dateTime, eventSentence, haltReason, humanize, money, relative, time } 
 import { t } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
 import { EmptyState, LoadFailed, Loading, PageHeader, StatusBadge } from '../components/ui.tsx';
+import { rolePicture } from '../images.ts';
 
 type Filter = WorkGroup | 'all';
 
@@ -92,7 +93,10 @@ export function Work({ ctx, route }: PageProps) {
                 <Table.Tbody>
                   {work.data.items.map((item) => (
                     <Table.Tr key={item.id} className="clickable-row" onClick={() => openTask(item.id)}>
-                      <Table.Td maw={340}>
+                      <Table.Td maw={380}>
+                        <Group gap="sm" wrap="nowrap" align="flex-start">
+                        <Avatar size={34} radius="xl" src={rolePicture(item.roleSlug)} alt="" mt={2} />
+                        <div style={{ minWidth: 0 }}>
                         <Text size="sm" fw={600} lineClamp={1}>{item.summary}</Text>
                         {item.result && (
                           <Group gap={4} wrap="nowrap">
@@ -104,6 +108,8 @@ export function Work({ ctx, route }: PageProps) {
                           <Text size="xs" c="dimmed">{item.roleSlug} · {item.divisionName} · {relative(item.startedAt ?? item.createdAt)}</Text>
                           {item.schedule && <Badge size="xs" variant="outline" color="gray">{item.schedule}</Badge>}
                           {item.parentTaskId && <Badge size="xs" variant="outline" color="gray">{t('sub-task')}</Badge>}
+                        </Group>
+                        </div>
                         </Group>
                       </Table.Td>
                       <Table.Td>
@@ -223,7 +229,10 @@ export function TaskDrawer({ companyId, task, close, changed, openTask }: {
           <div>
             <Group gap="xs" mb={6}><StatusBadge status={task.status} />{task.haltReason && <Badge color="red" variant="light">{haltReason(task.haltReason)}</Badge>}</Group>
             <Text fw={700} size="lg">{task.summary}</Text>
-            <Text size="sm" c="dimmed">{task.roleSlug} · {task.divisionName}</Text>
+            <Group gap="xs" mt={4} wrap="nowrap">
+              <Avatar size={28} radius="xl" src={rolePicture(task.roleSlug)} alt="" />
+              <Text size="sm" c="dimmed">{task.roleSlug} · {task.divisionName}</Text>
+            </Group>
           </div>
           <Paper withBorder radius="md" p="md">
             <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb="xs">{t('Progress')}</Text>

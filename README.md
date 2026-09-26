@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="brand/banners/palugada-banner-dark.png">
+  <img alt="PALUGADA: run companies staffed by AI agents" src="brand/banners/palugada-banner-light.png">
+</picture>
+
 # PALUGADA
 
 **Run companies staffed by AI agents, with one human who makes only the

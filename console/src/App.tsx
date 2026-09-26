@@ -14,7 +14,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActionIcon, Alert, AppShell, Avatar, Badge, Box, Button, Divider, Drawer, FileInput, Group, Menu, Modal,
   NavLink, Paper, Progress, ScrollArea, SimpleGrid, Stack, Text, TextInput, Tooltip, UnstyledButton,
-  useMantineColorScheme,
+  useComputedColorScheme, useMantineColorScheme,
 } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
@@ -30,6 +30,7 @@ import { useLoad } from './hooks.ts';
 import { LANGUAGES, N, isLanguage, language, setLanguage, t, useLanguage, type Language } from './i18n.ts';
 import { go, takeLinkedRoute, useRoute, type CompanyPage, type Route, type SettingsSection } from './router.ts';
 import type { Company, SearchHit, Structure } from './types.ts';
+import { companyEmblem, OWNER_PICTURE } from './images.ts';
 import { SignIn } from './pages/SignIn.tsx';
 import { Home } from './pages/Home.tsx';
 import { Decisions } from './pages/Decisions.tsx';
@@ -113,7 +114,11 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
   const route = useRoute();
   const mobile = useMediaQuery('(max-width: 48em)') ?? false;
   const requireFactor = useFactor();
-  const { colorScheme, toggleColorScheme } = useMantineColorScheme();
+  const { toggleColorScheme } = useMantineColorScheme();
+  // What is on the screen, not what was chosen: under "auto" the choice is
+  // neither light nor dark, and the menu would offer the dark theme to an owner
+  // already looking at it.
+  const colorScheme = useComputedColorScheme('light');
   const [openCount, setOpenCount] = useState<Record<string, number>>({});
   const [lastCompany, setLastCompany] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
@@ -222,7 +227,7 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
       id: `company-${one.id}`,
       label: t('Switch to {company}', { company: one.name }),
       description: t('Company'),
-      leftSection: <Avatar size={20} radius="sm" color="brand">{one.name.slice(0, 1)}</Avatar>,
+      leftSection: <Avatar size={20} radius="sm" src={companyEmblem(one)} alt="" />,
       onClick: () => open('inbox', { companyId: one.id }),
     })),
     { id: 'give-work', label: t('Give a role something to do'), description: t('Wakes the role now'), leftSection: <IconPlus size={18} />, onClick: () => setGiving(true) },
@@ -322,7 +327,7 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
       {mobile && <AppShell.Header px="md">
         <Group h="100%" justify="space-between" wrap="nowrap">
           <Group gap="xs" wrap="nowrap" style={{ minWidth: 0 }}>
-            <span className="brand-mark" aria-hidden="true">P</span>
+            <img className="brand-mark" src="/brand/palugada-app-icon.svg" alt="" width={30} height={30} />
             <CompanyMenu companies={companies} company={company} openCount={openCount} compact
               pick={(id) => open(route.kind === 'company' ? route.page : 'inbox', { companyId: id })} start={() => setStarting(true)} />
           </Group>
@@ -339,8 +344,12 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
         <AppShell.Section>
           <Group justify="space-between" px={6} pt={4} pb="sm" wrap="nowrap">
             <Group gap={10} wrap="nowrap">
-              <span className="brand-mark" aria-hidden="true">P</span>
-              <Text fw={800} lts="0.1em" size="sm">PALUGADA</Text>
+              <img
+                className="brand-lockup"
+                src={colorScheme === 'dark' ? '/brand/palugada-lockup-on-dark.svg' : '/brand/palugada-lockup.svg'}
+                alt="PALUGADA"
+                height={26}
+              />
             </Group>
             <Tooltip label={t('Search and jump (⌘K)')}>
               <ActionIcon variant="subtle" color="gray" onClick={() => spotlight.open()} aria-label={t('Search')}><IconSearch size={18} /></ActionIcon>
@@ -394,7 +403,7 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
             <Menu.Target>
               <UnstyledButton w="100%" px={6} py={4} style={{ borderRadius: 'var(--mantine-radius-md)' }}>
                 <Group gap="sm" wrap="nowrap">
-                  <Avatar color="teal" radius="xl" size={32}>{device.slice(0, 1).toUpperCase()}</Avatar>
+                  <Avatar radius="xl" size={32} src={OWNER_PICTURE} alt="" />
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <Text size="sm" fw={600}>{t('Owner')}</Text>
                     <Text size="xs" c="dimmed" truncate>{device}</Text>
@@ -544,7 +553,7 @@ function CompanyMenu({
           style={compact ? undefined : { borderRadius: 'var(--mantine-radius-md)', border: '1px solid var(--mantine-color-default-border)', background: 'var(--mantine-color-body)' }}
         >
           <Group gap="sm" wrap="nowrap">
-            {!compact && <Avatar color="brand" radius="md" size={34}>{company?.name.slice(0, 1).toUpperCase() ?? '?'}</Avatar>}
+            {!compact && <Avatar radius="md" size={34} src={company ? companyEmblem(company) : '/brand/palugada-app-icon.svg'} alt="" />}
             <div style={{ flex: 1, minWidth: 0 }}>
               {!compact && <Text size="xs" c="dimmed">{t('Company')}</Text>}
               <Text fw={700} size="sm" truncate maw={compact ? 170 : undefined}>{company?.name ?? t('No company yet')}</Text>
@@ -558,7 +567,7 @@ function CompanyMenu({
         {companies.map((one) => (
           <Menu.Item
             key={one.id}
-            leftSection={<Avatar size={22} radius="sm" color="brand">{one.name.slice(0, 1).toUpperCase()}</Avatar>}
+            leftSection={<Avatar size={22} radius="sm" src={companyEmblem(one)} alt="" />}
             rightSection={openCount[one.id] ? <Badge size="xs" color="red" circle>{openCount[one.id]}</Badge> : one.frozen ? <Badge size="xs" color="gray">{t('frozen')}</Badge> : null}
             onClick={() => pick(one.id)}
           >

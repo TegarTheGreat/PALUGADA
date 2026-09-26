@@ -86,7 +86,9 @@ export function Bundles({ ctx }: PageProps) {
             />
             {verdict && (
               <Alert mt="md" color={verdict.intact ? 'teal' : 'red'} variant="light">
-                <Group gap="xs">{verdict.slug} {verdict.intact ? 'is unchanged since it was installed.' : 'has been changed since it was installed.'}</Group>
+                <Group gap="xs">{verdict.intact
+                  ? t('{bundle} is unchanged since it was installed.', { bundle: verdict.slug })
+                  : t('{bundle} has been changed since it was installed.', { bundle: verdict.slug })}</Group>
               </Alert>
             )}
           </Section>

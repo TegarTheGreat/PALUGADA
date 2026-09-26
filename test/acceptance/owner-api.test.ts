@@ -1136,6 +1136,17 @@ test('the deployment boots, serves the console, and takes a decision', async () 
       assert.match(served.headers.get('cache-control') ?? '', /immutable/, `${asset} is content-hashed and may be kept`);
     }
     assert.equal((await fetch(`${deployment.url}/illustrations/inbox-zero.webp`)).headers.get('content-type'), 'image/webp');
+    // The icons the page names and its manifest, each with the type a browser
+    // needs to use it: served as octet-stream under `nosniff`, a favicon or a
+    // manifest is simply ignored.
+    for (const [path, type] of [
+      ['/favicon.ico', 'image/x-icon'], ['/favicon.svg', 'image/svg+xml'], ['/apple-touch-icon.png', 'image/png'],
+      ['/manifest.webmanifest', 'application/manifest+json'], ['/avatars/owner.webp', 'image/webp'],
+    ] as const) {
+      const served = await fetch(`${deployment.url}${path}`);
+      assert.equal(served.status, 200, path);
+      assert.equal(served.headers.get('content-type'), type, path);
+    }
     void join;
 
     // A notification's link opens the console on its item. It pointed at

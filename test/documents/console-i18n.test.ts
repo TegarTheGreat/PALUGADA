@@ -122,6 +122,19 @@ function strays(path: string, source: string): string[] {
     for (const match of line.matchAll(/[?:]\s*(['"])([A-Z][a-z]+(?:-[a-z]+)?)\1/g)) {
       found.push(`${path}:${index + 1} "${match[2]}"`);
     }
+    // Words between values between tags: `>{count} capabilities · up to {max} at once<`
+    // reads as a sentence and never passed `t`. The values are cut out and
+    // what is left is judged; nested braces are code, not text. Only in
+    // .tsx, where there is markup: in .ts, `<T>(...) => {...}` is a generic.
+    for (const match of path.endsWith('.tsx') ? line.matchAll(/(?<![=\-])>([^<>\n]*\{[^<>\n]*)</g) : []) {
+      const outside = match[1]!.replace(/\{[^{}]*\}/g, ' ');
+      if (/[{}]/.test(outside) || /=>|&&|\|\|/.test(match[1]!)) continue;
+      if ((outside.match(/[A-Za-z]{2,}/g) ?? []).length >= 2) found.push(`${path}:${index + 1} text "${match[1]!.trim()}"`);
+    }
+    // A lower-case sentence as a ternary's branch: `? 'is unchanged since it was installed.'`.
+    for (const match of line.matchAll(/[?:]\s*(['"])([a-z]+(?: [a-z,']+){2,}[.!?]?)\1/g)) {
+      found.push(`${path}:${index + 1} "${match[2]}"`);
+    }
   });
   return found;
 }

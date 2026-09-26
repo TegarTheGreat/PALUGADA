@@ -2674,6 +2674,26 @@ rest are listed at the end.
   its count and is not sent to a channel until then; it is listed apart,
   where "Now" brings it back. Never past the item's own expiry, since
   silence still refuses (F10.4), and at most thirty days.
+- Pictures instead of initials, and a logo (`brand/`, `console/src/images.ts`).
+  The console drew each company as the first letter of its name, each role as
+  the first two of its slug and itself as a gradient "P", so two companies
+  that start alike looked the same and nothing said what a role did. A
+  company is now drawn as what its name says it sells (Kopi Nusantara as
+  coffee), or by an emblem chosen from its id when the name says nothing; a
+  role is drawn doing the job its slug names, or as a plain agent when it
+  names none; the owner is one person. The logo is a vector kit in every
+  shape a place asks for -- mark, wordmark, lockups, one-colour, app icons,
+  favicons, and a web manifest so the console can sit on a phone's home
+  screen -- with banners for the README and for link previews, all made with
+  fal and described in `brand/README.md`. Three defects found on the way:
+  the server sent `.ico` and the manifest as `application/octet-stream`,
+  which a browser ignores under `nosniff`; three sentences reached the page
+  without the dictionary, which the stray-English scan now catches; and
+  Mantine kept the colour scheme in localStorage, against the console's rule
+  of storing nothing in the browser, while the theme menu read "auto" as
+  light and offered the dark theme to an owner already looking at it. The
+  scheme is held for the life of the tab now, and the menu reads what is
+  on the screen.
 - Measure goals by numbers (section 2.19).
 
 **F8.9, enforced where it does not depend on the model.** The untrusted

@@ -9,8 +9,8 @@
  */
 import { useState } from 'react';
 import {
-  Alert, Box, Button, Center, Grid, Group, Image, List, Paper, PinInput, SegmentedControl, Stack, Text,
-  ThemeIcon, Title,
+  Alert, Button, Center, Grid, Group, Image, List, Paper, PinInput, SegmentedControl, Stack, Text,
+  ThemeIcon, Title, useComputedColorScheme,
 } from '@mantine/core';
 import { IconCheck } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
@@ -20,6 +20,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: (session: { token: string; 
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const scheme = useComputedColorScheme('light');
 
   const submit = async (value: string) => {
     if (value.length !== 6 || busy) return;
@@ -40,6 +41,12 @@ export function SignIn({ onSignedIn }: { onSignedIn: (session: { token: string; 
       <Grid.Col span={{ base: 12, md: 6 }} className="signin-art" visibleFrom="md">
         <Center h="100%" p="xl">
           <Stack maw={520} gap="lg">
+            <img
+              className="brand-lockup"
+              src={scheme === 'dark' ? '/brand/palugada-lockup-on-dark.svg' : '/brand/palugada-lockup.svg'}
+              alt="PALUGADA"
+              height={34}
+            />
             <Image src="/illustrations/owner-and-agents.webp" alt="" />
             <Title order={2}>{t('Your companies run themselves. You decide what matters.')}</Title>
             <List
@@ -66,7 +73,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: (session: { token: string; 
           </Group>
           <Paper withBorder shadow="md" radius="lg" p={36} w="100%" maw={440}>
             <Stack gap="lg" align="center">
-              <Box className="brand-mark" style={{ width: 48, height: 48, fontSize: 22, borderRadius: 12 }}>P</Box>
+              <img className="brand-mark" src="/brand/palugada-app-icon.svg" alt="" width={56} height={56} />
               <div style={{ textAlign: 'center' }}>
                 <Title order={2}>{t('Welcome back')}</Title>
                 <Text c="dimmed" size="sm" mt={6}>{t('Enter the six-digit code from your authenticator app.')}</Text>

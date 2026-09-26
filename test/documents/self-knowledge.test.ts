@@ -40,7 +40,7 @@ test('every command the guides name is a script this repository has', async () =
 
 test('every path the guide names exists', async () => {
   const text = await readFile(join(ROOT, 'AGENTS.md'), 'utf8');
-  const paths = [...text.matchAll(/`((?:src|test|console|db|docs|scripts|deploy|\.github)\/[^`\s]*|\.env\.example|AGENTS\.md|CLAUDE\.md|CONTRIBUTING\.md)`/g)]
+  const paths = [...text.matchAll(/`((?:src|test|console|db|docs|scripts|deploy|brand|\.github)\/[^`\s]*|\.env\.example|AGENTS\.md|CLAUDE\.md|CONTRIBUTING\.md)`/g)]
     .map((match) => match[1]!.replace(/\/$/, ''));
   assert.ok(paths.length >= 15, `only ${paths.length} paths were found; the scan is broken`);
   const missing: string[] = [];

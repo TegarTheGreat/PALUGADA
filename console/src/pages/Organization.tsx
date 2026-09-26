@@ -11,7 +11,7 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
-  IconArrowsRight, IconBuilding, IconCalendarTime, IconFlag, IconPlus, IconShieldCheck, IconTarget, IconUserCircle, IconUsersGroup, IconWebhook,
+  IconArrowsRight, IconCalendarTime, IconFlag, IconPlus, IconShieldCheck, IconTarget, IconUserCircle, IconUsersGroup, IconWebhook,
 } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
@@ -27,6 +27,7 @@ import { GoalMetrics } from '../components/Metrics.tsx';
 import { Triggers } from '../components/Triggers.tsx';
 import { Handoffs } from '../components/Handoffs.tsx';
 import { ConfigHistory } from '../components/ConfigHistory.tsx';
+import { companyEmblem, rolePicture } from '../images.ts';
 
 export function Organization({ ctx }: PageProps) {
   const { companyId } = ctx;
@@ -71,7 +72,7 @@ export function Organization({ ctx }: PageProps) {
 
         <Tabs.Panel value="chart">
           <Grow companyId={companyId} structure={structure} changed={view.reload} />
-          <OrgChart structure={structure} company={ctx.company.name} openRole={setRole} openDivision={setDivision} />
+          <OrgChart structure={structure} company={ctx.company} openRole={setRole} openDivision={setDivision} />
         </Tabs.Panel>
         <Tabs.Panel value="goals">
           <GoalLadder companyId={companyId} goals={structure.goals} changed={view.reload} />
@@ -195,7 +196,7 @@ function OrgChart({
   structure, company, openRole, openDivision,
 }: {
   structure: Structure;
-  company: string;
+  company: { id: string; name: string };
   openRole: (role: Role) => void;
   openDivision: (division: Division) => void;
 }) {
@@ -206,9 +207,9 @@ function OrgChart({
       <Group justify="center">
         <Paper withBorder radius="md" px="lg" py="sm" shadow="xs">
           <Group gap="sm">
-            <ThemeIcon radius="md" size="lg"><IconBuilding size={18} /></ThemeIcon>
+            <Avatar radius="md" size={40} src={companyEmblem(company)} alt="" />
             <div>
-              <Text fw={800}>{company}</Text>
+              <Text fw={800}>{company.name}</Text>
               <Text size="xs" c="dimmed">{t('{divisions} divisions · {roles} roles · you own it', { divisions: structure.divisions.length, roles: structure.roles.length })}</Text>
             </div>
           </Group>
@@ -253,7 +254,7 @@ function DivisionCard({
       <Group justify="space-between" onClick={() => openDivision(division)} style={{ cursor: 'pointer' }} wrap="nowrap">
         <div style={{ minWidth: 0 }}>
           <Text fw={700} truncate>{division.name}</Text>
-          <Text size="xs" c="dimmed">{division.grants.length} capabilities · up to {division.maxConcurrency} at once</Text>
+          <Text size="xs" c="dimmed">{t('{count} capabilities · up to {max} at once', { count: division.grants.length, max: division.maxConcurrency })}</Text>
         </div>
         {division.openTasks > 0 ? <Badge color="teal" variant="light">{t('{count} open', { count: division.openTasks })}</Badge> : <Badge color="gray" variant="light">{t('quiet')}</Badge>}
       </Group>
@@ -265,7 +266,7 @@ function DivisionCard({
           return (
             <Paper key={role.id} withBorder radius="md" px="sm" py={8} className="org-node" onClick={() => openRole(role)}>
               <Group gap="sm" wrap="nowrap">
-                <Avatar size={30} radius="xl" color={state.color === 'teal' ? 'teal' : 'blue'}>{role.slug.slice(0, 2).toUpperCase()}</Avatar>
+                <Avatar size={34} radius="xl" src={rolePicture(role.slug)} alt="" />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <Text size="sm" fw={600} truncate>{role.slug}</Text>
                   <Text size="xs" c="dimmed" truncate>{role.model}{role.runtime ? ` · ${role.runtime}` : ''}</Text>
@@ -289,7 +290,12 @@ function RoleDrawer({
 }: { companyId: string; role: Role | null; structure: Structure; close: () => void; changed: () => void }) {
   const division = structure.divisions.find((one) => one.id === role?.divisionId);
   return (
-    <Drawer opened={role !== null} onClose={close} position="right" size="xl" title={<Text fw={700}>{role?.slug}</Text>}>
+    <Drawer opened={role !== null} onClose={close} position="right" size="xl" title={
+      <Group gap="sm" wrap="nowrap">
+        {role && <Avatar size={40} radius="xl" src={rolePicture(role.slug)} alt="" />}
+        <Text fw={700}>{role?.slug}</Text>
+      </Group>
+    }>
       {role && division && (
         <Stack gap="lg">
           <Group gap="xs">

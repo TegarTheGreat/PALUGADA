@@ -9,7 +9,7 @@
  * a pile in "queued" is capacity, a pile in "in review" is the reviewer.
  */
 import {
-  Anchor, Badge, Grid, Group, Paper, Progress, RingProgress, SimpleGrid, Stack, Table, Text,
+  Anchor, Avatar, Badge, Grid, Group, Paper, Progress, RingProgress, SimpleGrid, Stack, Table, Text,
   Timeline, UnstyledButton,
 } from '@mantine/core';
 import { AreaChart } from '@mantine/charts';
@@ -26,6 +26,7 @@ import { KpiStrip, LoadFailed, Loading, PageHeader, Section, StatusBadge } from 
 import { MetricLine } from '../components/Metrics.tsx';
 import { StageCard } from '../components/Stage.tsx';
 import { TaskProgress } from './Work.tsx';
+import { rolePicture } from '../images.ts';
 
 const STAGES: Array<{ id: string; label: string; statuses: string[]; color: string; page: 'work' | 'inbox' }> = [
   { id: 'queued', label: N('Queued'), statuses: ['pending'], color: 'var(--mantine-color-gray-5)', page: 'work' },
@@ -118,10 +119,15 @@ export function Overview({ ctx }: PageProps) {
                   {inFlight.slice(0, 6).map((item) => (
                     <Table.Tr key={item.id} className="clickable-row" onClick={() => ctx.open('work', { item: item.id })}>
                       <Table.Td>
-                        <Text size="sm" fw={600} lineClamp={1}>{item.summary}</Text>
-                        <Group gap={6}>
-                          <StatusBadge status={item.status} />
-                          <Text size="xs" c="dimmed">{item.roleSlug} · {relative(item.startedAt ?? item.createdAt)}</Text>
+                        <Group gap="sm" wrap="nowrap">
+                          <Avatar size={34} radius="xl" src={rolePicture(item.roleSlug)} alt="" />
+                          <div style={{ minWidth: 0 }}>
+                            <Text size="sm" fw={600} lineClamp={1}>{item.summary}</Text>
+                            <Group gap={6}>
+                              <StatusBadge status={item.status} />
+                              <Text size="xs" c="dimmed">{item.roleSlug} · {relative(item.startedAt ?? item.createdAt)}</Text>
+                            </Group>
+                          </div>
                         </Group>
                       </Table.Td>
                       <Table.Td w={200}><TaskProgress item={item} /></Table.Td>

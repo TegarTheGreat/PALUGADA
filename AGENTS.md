@@ -36,6 +36,8 @@ in code and tests refer to it. `docs/STATUS.md` grades every requirement.
 | `src/bundles/` | bundles, including the built-in ones in `builtin.ts` |
 | `console/src/` | the owner's console: React and Mantine, built by Vite into `console/dist` |
 | `console/src/locales/` | the console's translations, keyed by the English sentence |
+| `console/public/` | the console's icons, manifest and pictures; `console/src/images.ts` picks a company's emblem and a role's picture |
+| `brand/` | the logo in every shape, the banners, and how they were made (`brand/README.md`) |
 | `db/migrations/` | the schema, numbered, append-only |
 | `test/acceptance/` | behaviour, one file per area of the specification, against a real database |
 | `test/documents/` | tests about the source and the documents: routes, translations, requirements, this file |
@@ -90,6 +92,9 @@ Each of these is a test, and each exists because the mistake was made once.
   translation in `console/src/locales/id.ts`. Write the English in the source;
   add the Indonesian to the dictionary. `test/documents/console-i18n.test.ts`
   names anything missing.
+- **Nothing is drawn from the letters of a name.** A company, a role and the
+  owner are pictures (`console/src/images.ts`), and every image the console
+  names ships in `console/public`. `test/documents/console-images.test.ts`.
 - **The console stores nothing in the browser.** The session lives in memory;
   preferences live in the owner API.
 - **Every column of an exported table is exported**, or listed with a reason

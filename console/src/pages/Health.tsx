@@ -6,10 +6,9 @@
  */
 import { useState } from 'react';
 import {
-  Alert, Badge, Grid, Group, Paper, Stack, Table, Text, TextInput, Timeline,
+  Alert, Avatar, Badge, Grid, Group, Paper, Stack, Table, Text, TextInput, Timeline,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconSnowflake } from '@tabler/icons-react';
 import { api } from '../api.ts';
 import { useLoad } from '../hooks.ts';
 import { dateTime } from '../format.ts';
@@ -17,6 +16,7 @@ import type { PageProps } from '../App.tsx';
 import { t } from '../i18n.ts';
 import { LoadFailed, Loading, Section } from '../components/ui.tsx';
 import { ActionButton, ActionForm } from '../components/ActionForm.tsx';
+import { rolePicture } from '../images.ts';
 
 export function Health({ ctx }: PageProps) {
   const { companyId } = ctx;
@@ -50,13 +50,13 @@ export function Health({ ctx }: PageProps) {
                   <Paper key={role.roleId} withBorder radius="md" p="sm">
                     <Group justify="space-between" wrap="nowrap">
                       <Group gap="sm" wrap="nowrap">
-                        <IconSnowflake size={18} color="var(--mantine-color-blue-6)" />
+                        <Avatar size={34} radius="xl" src={rolePicture(role.slug)} alt="" />
                         <div>
                           <Text size="sm" fw={600}>{role.slug}</Text>
                           <Text size="xs" c="dimmed">{role.reason ?? t('Repeatedly denied')} · {dateTime(role.frozenAt)}</Text>
                         </div>
                       </Group>
-                      <ActionButton size="xs" variant="light" label={t('Resume')} factor={`Resume ${role.slug}`}
+                      <ActionButton size="xs" variant="light" label={t('Resume')} factor={t('Resume {role}', { role: role.slug })}
                         run={(proof) => api('POST', `/api/control/company/${companyId}/role/${role.roleId}/resume`, { proof })}
                         done={view.reload} />
                     </Group>

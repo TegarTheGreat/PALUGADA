@@ -35,6 +35,18 @@ query() {
   fi
 }
 
+# Refused over a database that already exists, unless asked for by name.
+# This drops everything, and it is the second line of the quickstart: an
+# operator who runs it again to "set up" a deployment that holds companies
+# would lose all of them to a command that says nothing about deleting.
+if [ "$(query "SELECT 1 FROM pg_database WHERE datname = '${DB_NAME}'")" = "1" ] \
+   && [ "${PALUGADA_RESET_DATABASE:-}" != "yes" ]; then
+  echo "db:setup: database ${DB_NAME} already exists, and this would drop it with everything in it." >&2
+  echo "  To bring it up to date instead:  npm run db:migrate" >&2
+  echo "  To start again from nothing:     PALUGADA_RESET_DATABASE=yes npm run db:setup" >&2
+  exit 1
+fi
+
 echo "==> Dropping existing database and roles (development only)"
 run_sql "DROP DATABASE IF EXISTS ${DB_NAME}"
 run_sql "DROP ROLE IF EXISTS palugada_app"

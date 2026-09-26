@@ -229,23 +229,31 @@ export async function findGrantedApproval(
 }
 
 /**
- * Marks an approval as spent, once the action it approved has executed.
+ * Spends an approval, immediately before the action it approved.
  *
- * After the execution rather than before it, so an action that failed can be
- * retried on the same approval; and once, so the same approval cannot carry
- * the same irreversible action a second time.
+ * Before, not after. It used to be spent once the vendor had answered, and a
+ * worker that died between the two left the approval unspent and the step
+ * unfinished: the next worker resumed the step, found the yes still there,
+ * and did the irreversible thing a second time. Spent first, a death in
+ * between leaves the step to be asked about again (`spentBy`), and the owner
+ * is told it may already have happened.
+ *
+ * False when another attempt spent it first, which is the same as there being
+ * no approval: one yes carries one attempt.
  */
-export async function consumeApproval(
+export async function spendApproval(
   companyId: string,
   itemId: string,
-  context: { taskId: string; capability: string },
-): Promise<void> {
-  await withTenant(companyId, async (tx) => {
+  context: { taskId: string; capability: string; idempotencyKey: string },
+): Promise<boolean> {
+  return withTenant(companyId, async (tx) => {
     const { rowCount } = await tx.query(
-      'UPDATE inbox_items SET consumed_at = now() WHERE id = $1 AND consumed_at IS NULL',
-      [itemId],
+      `UPDATE inbox_items
+          SET consumed_at = now(), payload = payload || jsonb_build_object('spentBy', $2::text)
+        WHERE id = $1 AND consumed_at IS NULL`,
+      [itemId, context.idempotencyKey],
     );
-    if (rowCount !== 1) return;
+    if (rowCount !== 1) return false;
     await appendEvent(tx, {
       companyId,
       taskId: context.taskId,
@@ -253,16 +261,75 @@ export async function consumeApproval(
       actor: 'broker',
       payload: { inboxItemId: itemId, capability: context.capability },
     });
+    return true;
   });
 }
 
-export async function raiseIncident(input: {
+/**
+ * Gives a spent approval back, when the action it was spent on failed.
+ *
+ * A vendor that refused before doing anything should not cost the owner a
+ * second decision to retry. What a failure cannot say is whether the vendor
+ * acted before failing; that is what the step's idempotency key is for, and
+ * it travels with the retry.
+ */
+export async function returnApproval(
+  companyId: string,
+  itemId: string,
+  context: { taskId: string; capability: string; reason: string },
+): Promise<void> {
+  await withTenant(companyId, async (tx) => {
+    const { rowCount } = await tx.query(
+      `UPDATE inbox_items SET consumed_at = NULL, payload = payload - 'spentBy'
+        WHERE id = $1 AND consumed_at IS NOT NULL`,
+      [itemId],
+    );
+    if (rowCount !== 1) return;
+    await appendEvent(tx, {
+      companyId,
+      taskId: context.taskId,
+      type: 'approval.returned',
+      actor: 'broker',
+      payload: { inboxItemId: itemId, capability: context.capability, reason: context.reason.slice(0, 500) },
+    });
+  });
+}
+
+/**
+ * Whether this very step already spent an approval for this action and never
+ * said how it went: the worker carrying it out stopped in the middle.
+ */
+export async function spentByInterruptedStep(
+  tx: TenantClient,
+  taskId: string,
+  capabilityName: string,
+  actionFingerprint: string,
+  idempotencyKey: string,
+): Promise<boolean> {
+  const { rows } = await tx.query(
+    `SELECT 1 FROM inbox_items
+      WHERE task_id = $1 AND capability_name = $2 AND action_fingerprint = $3
+        AND kind = 'approval' AND consumed_at IS NOT NULL AND payload->>'spentBy' = $4
+      LIMIT 1`,
+    [taskId, capabilityName, actionFingerprint, idempotencyKey],
+  );
+  return rows.length > 0;
+}
+
+export interface IncidentInput {
   companyId: string;
   taskId?: string | undefined;
   title: string;
   detail: string;
-}): Promise<string> {
-  return withTenant(input.companyId, async (tx) => {
+}
+
+export async function raiseIncident(input: IncidentInput): Promise<string> {
+  return withTenant(input.companyId, (tx) => raiseIncidentWithin(tx, input));
+}
+
+/** The same, inside a transaction that also changed what the incident is about. */
+export async function raiseIncidentWithin(tx: TenantClient, input: IncidentInput): Promise<string> {
+  {
     const { rows } = await tx.query<{ id: string }>(
       `INSERT INTO inbox_items
          (company_id, task_id, kind, title, action_summary, rationale,
@@ -280,7 +347,7 @@ export async function raiseIncident(input: {
       payload: { inboxItemId: id, title: input.title },
     });
     return id;
-  });
+  }
 }
 
 /**
@@ -1133,13 +1200,27 @@ export async function decide(
   // tier 3 action. The safe default is the one that refuses.
   let assurance: OwnerAssurance = options.assurance ?? 'none';
   // F10.10: read the tier before the update, so a refusal changes nothing.
-  const { tier, stageChange } = await withTenant(companyId, async (tx) => {
-    const { rows } = await tx.query<{ tier: number | null; stage_change: StageChange | null }>(
-      "SELECT tier, payload->'stageChange' AS stage_change FROM inbox_items WHERE id = $1 AND status = 'open'",
+  const { tier, stageChange, overdue } = await withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<{ tier: number | null; stage_change: StageChange | null; overdue: boolean }>(
+      `SELECT tier, payload->'stageChange' AS stage_change,
+              (expires_at IS NOT NULL AND expires_at <= now()) AS overdue
+         FROM inbox_items WHERE id = $1 AND status = 'open'`,
       [itemId],
     );
-    return { tier: rows[0]?.tier ?? null, stageChange: rows[0]?.stage_change ?? null };
+    return {
+      tier: rows[0]?.tier ?? null,
+      stageChange: rows[0]?.stage_change ?? null,
+      overdue: rows[0]?.overdue ?? false,
+    };
   });
+  // Past its deadline, the owner's silence has already answered: the sweep
+  // that says so runs once a tick, and an answer landing in between was
+  // honoured -- a late yes overturning a no nobody was asked to confirm.
+  // The sweep runs now instead, and the answer is refused as too late.
+  if (overdue) {
+    await expireOverdue(companyId);
+    throw await withTenant(companyId, (tx) => notOpen(tx, itemId));
+  }
   // Approving a stage proposal moves the company, which the application role
   // may not write (0047), so that one decision is made on the control plane --
   // still one transaction, so the answer and the move happen together. The
@@ -1237,7 +1318,7 @@ export async function decide(
               owner_note = $3,
               decided_via = $4,
               status = CASE WHEN $2 = 'ask' THEN 'open' ELSE 'decided' END
-        WHERE id = $1 AND status = 'open'
+        WHERE id = $1 AND status = 'open' AND (expires_at IS NULL OR expires_at > now())
         RETURNING task_id, kind, payload`,
       [itemId, decision, note, channel],
     );
@@ -1539,9 +1620,11 @@ const WAITING_STATUSES: ReadonlySet<string> = new Set([
  */
 async function notOpen(tx: TenantClient, itemId: string): Promise<PalugadaError> {
   const { rows } = await tx.query<{
-    status: InboxStatus; decision: string | null; closed_reason: string | null;
+    status: InboxStatus; decision: string | null; closed_reason: string | null; overdue: boolean;
   }>(
-    'SELECT status, decision, closed_reason FROM inbox_items WHERE id = $1',
+    `SELECT status, decision, closed_reason,
+            (expires_at IS NOT NULL AND expires_at <= now()) AS overdue
+       FROM inbox_items WHERE id = $1`,
     [itemId],
   );
   const row = rows[0];
@@ -1552,7 +1635,7 @@ async function notOpen(tx: TenantClient, itemId: string): Promise<PalugadaError>
   }
   const why =
     row.status === 'decided' ? `it was already decided (${row.decision})`
-    : row.status === 'expired' ? 'it expired unanswered'
+    : row.status === 'expired' || (row.status === 'open' && row.overdue) ? 'it expired unanswered'
     : `it was withdrawn (${row.closed_reason})`;
   return new PalugadaError('inbox.not_open', `inbox item ${itemId} is closed: ${why}`, {
     inboxItemId: itemId,

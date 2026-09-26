@@ -140,6 +140,13 @@ export interface WorkerOptions {
    * deployment can log or alert without this module choosing a logger.
    */
   onTickError?: (error: Error) => void;
+  /**
+   * Where the worker says what happened, one structured entry at a time: a
+   * tick that failed, a stage that failed, a task that ran. Absent means
+   * nothing is said, which is what a test wants; a deployment passes a
+   * writer of JSON lines, which is what a log collector reads.
+   */
+  log?: (entry: Record<string, unknown>) => void;
 }
 
 export interface TickReport {
@@ -229,6 +236,17 @@ export class Worker {
   readonly #retainedAt = new Map<string, number>();
   /** Which company this worker starts its tick on. See `#rotate`. */
   #turn = 0;
+  #lastTickAt: Date | null = null;
+
+  /**
+   * When this worker last finished a tick, or null before its first.
+   *
+   * What a readiness check reads: a process that is up and whose loop has
+   * stopped going round is the failure a supervisor cannot see from outside.
+   */
+  get lastTickAt(): Date | null {
+    return this.#lastTickAt;
+  }
 
   constructor(options: WorkerOptions) {
     this.#options = options;
@@ -433,6 +451,8 @@ export class Worker {
       let report: TickReport;
       try {
         report = await this.tick();
+        this.#lastTickAt = new Date();
+        this.#say(report);
       } catch (error) {
         // A tick can fail outside any stage — the database went away, the
         // platform-stop read threw. Sleeping and trying again is right for a
@@ -440,6 +460,7 @@ export class Worker {
         // A permanent failure keeps failing and stays visible in the logs
         // rather than leaving a process that exited for reasons nobody saw.
         this.#options.onTickError?.(error as Error);
+        this.#options.log?.({ level: 'error', event: 'tick.failed', message: (error as Error).message });
         await sleep(idle, signal);
         continue;
       }
@@ -447,6 +468,28 @@ export class Worker {
       if (madeProgress(report) && !report.stopped) continue;
 
       await sleep(idle, signal);
+    }
+  }
+
+  /**
+   * What a tick did that somebody operating this should read.
+   *
+   * A stage that failed used to go into the report, and the report into
+   * nothing: `start()` never looked at it, so a notifier failing on every
+   * tick for a week looked, from outside, exactly like a notifier with
+   * nothing to send.
+   */
+  #say(report: TickReport): void {
+    const log = this.#options.log;
+    if (!log) return;
+    for (const failure of report.errors) {
+      log({ level: 'error', event: 'stage.failed', stage: failure.stage, message: failure.message });
+    }
+    for (const run of report.ran) {
+      log({
+        level: run.status === 'failed' || run.status === 'halted' ? 'warn' : 'info',
+        event: 'task.ran', taskId: run.taskId, status: run.status,
+      });
     }
   }
 

@@ -49,7 +49,14 @@ import { registerPlatformCapabilities as registerPlatformTools, PLATFORM_CAPABIL
   from './broker/platform-capabilities.ts';
 import { CachedSecretManager } from './secrets/rotation.ts';
 import type { LlmClient } from './llm/client.ts';
-import { closePools } from './db/pool.ts';
+import { appPool, closePools } from './db/pool.ts';
+
+/**
+ * How long the worker's loop may go without finishing a tick before the
+ * process reports itself unable to work. One tick can hold a run for its
+ * whole lease, so this is two leases' worth rather than a few seconds.
+ */
+const WORKER_STALL_MS = 30 * 60_000;
 import { existsSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { hostname } from 'node:os';
@@ -112,6 +119,11 @@ export interface DeploymentOptions {
   host?: string;
   env?: NodeJS.ProcessEnv;
   worker?: Partial<WorkerOptions>;
+  /**
+   * Where the deployment says what happens while it runs. JSON lines on
+   * standard error unless a caller -- a test, an embedding -- takes them.
+   */
+  log?: (entry: Record<string, unknown>) => void;
 }
 
 export interface Deployment {
@@ -485,6 +497,12 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // work; without it the worker never distils and never screens, which the
     // note below says out loud.
     ...(llm ? { learning: { llm, model: draftModel } } : {}),
+    // What failed, in lines a log collector reads. A worker whose stage
+    // failures went only into a report nobody read looked, from outside,
+    // exactly like one with nothing to do.
+    log: options.log ?? ((entry) => {
+      process.stderr.write(`${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`);
+    }),
     ...(env.PALUGADA_APP_URL_PUBLIC
       ? {
         ownerLinkFor: (item) => consoleLinkFor(env.PALUGADA_APP_URL_PUBLIC!, item),
@@ -536,6 +554,22 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // after this point are still the deployment's, and still the owner's to see.
     deploymentNotes: notes,
     runtimes: runtimes.adapters,
+    // Whether this process can work: the database answers, and the worker's
+    // loop has gone round lately. A process that is up and whose loop has
+    // stopped is the failure a supervisor cannot see from outside.
+    health: async () => {
+      const database = await appPool().query('SELECT 1').then(() => 'ok', (failure: Error) => failure.message);
+      const lastTickAt = worker.lastTickAt;
+      const stalled = lastTickAt !== null && Date.now() - lastTickAt.getTime() > WORKER_STALL_MS;
+      return {
+        ok: database === 'ok' && !stalled,
+        database,
+        worker: {
+          lastTickAt: lastTickAt?.toISOString() ?? null,
+          ...(stalled ? { problem: `no tick has finished since ${lastTickAt!.toISOString()}` } : {}),
+        },
+      };
+    },
   });
   const { url } = await api.listen(options.port ?? Number(env.PALUGADA_PORT ?? 8787), bindHost);
 

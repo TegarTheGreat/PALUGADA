@@ -163,6 +163,7 @@ const HALT_REASONS: Record<string, string> = {
   owner_cancel: N('Cancelled by you'),
   company_frozen: N('The company is frozen'),
   journal_divergence: N('Its record did not match on replay'),
+  crash_loop: N('It kept stopping the worker running it'),
 };
 
 export function haltReason(code: string): string {

@@ -210,6 +210,12 @@ export interface OwnerApiOptions {
    */
   runtimes?: AdapterRegistry;
   /**
+   * Whether this process can do its work: the database answers, the worker's
+   * loop is going round. Read by `GET /api/health`, which a supervisor or a
+   * load balancer asks without a session.
+   */
+  health?: () => Promise<{ ok: boolean } & Record<string, unknown>>;
+  /**
    * The message channel whose button presses arrive at
    * `/api/channels/telegram` (F10.9). Absent means the route refuses.
    */
@@ -237,6 +243,17 @@ interface Handler {
     params: Record<string, string>;
     query: URLSearchParams;
   }): Promise<unknown>;
+}
+
+/** A route's answer with a status other than 200: only the health check needs one. */
+class WithStatus {
+  readonly status: number;
+  readonly body: unknown;
+
+  constructor(status: number, body: unknown) {
+    this.status = status;
+    this.body = body;
+  }
 }
 
 interface Route {
@@ -540,6 +557,19 @@ export class OwnerApi {
             superseded: query.get('superseded') === 'include',
             ...(query.get('limit') === null ? {} : { limit: wholeNumber(query.get('limit'), 'limit') }),
           });
+        },
+      },
+
+      {
+        // Open, because what asks is a supervisor rather than the owner, and
+        // what it says is only whether this process is working: nothing
+        // about any company.
+        method: 'GET',
+        pattern: '/api/health',
+        open: true,
+        handle: async () => {
+          const health = this.#options.health ? await this.#options.health() : { ok: true };
+          return new WithStatus(health.ok ? 200 : 503, health);
         },
       },
 
@@ -2396,7 +2426,8 @@ export class OwnerApi {
         params: match.params,
         query: url.searchParams,
       });
-      send(res, 200, answer ?? { ok: true });
+      if (answer instanceof WithStatus) send(res, answer.status, answer.body);
+      else send(res, 200, answer ?? { ok: true });
     } catch (error) {
       // A refusal is an answer. `decide` refusing a tier 3 approval without a
       // factor, the broker refusing a capability, MFA refusing a code -- all

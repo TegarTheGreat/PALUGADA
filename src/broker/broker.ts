@@ -494,11 +494,17 @@ export class CapabilityBroker {
         inbox.findGrantedApproval(tx, ctx.taskId, name, fingerprint!));
     }
 
-    if (needsOwner && !grantedApproval) {
+    const askOwner = async (): Promise<never> => {
       // F10.2 asks the item to say why. The plan says what will happen; the
       // goal chain says what it is ultimately for. An owner reading this on a
       // phone gets both without following a link.
-      const chain = await withTenant(ctx.companyId, (tx) => ancestryForTask(tx, ctx.taskId));
+      const { chain, interrupted } = await withTenant(ctx.companyId, async (tx) => ({
+        chain: await ancestryForTask(tx, ctx.taskId),
+        // This very step spent a yes for this action and never said how it
+        // went: the worker carrying it out stopped in the middle. The owner
+        // is asked again, and told the first attempt may have acted.
+        interrupted: await inbox.spentByInterruptedStep(tx, ctx.taskId, name, fingerprint!, ctx.idempotencyKey),
+      }));
       await inbox.requestApproval({
         actionFingerprint: fingerprint!,
         companyId: ctx.companyId,
@@ -507,6 +513,10 @@ export class CapabilityBroker {
         tier,
         actionSummary: `Run ${name}`,
         rationale:
+          (interrupted
+            ? 'You approved this once already, and the worker carrying it out stopped before it could say ' +
+              'whether it happened: it may already have happened. Check before approving it again.\n\n'
+            : '') +
           `Task ${ctx.taskId} requested ${name} at tier ${tier}` +
           (policy.effect === 'require_approval'
             ? `, and policy ${policy.matched.map((m) => m.slug).join(', ')} requires your approval.`
@@ -529,7 +539,8 @@ export class CapabilityBroker {
         `capability ${name} requires owner approval`,
         { name, tier },
       );
-    }
+    };
+    if (needsOwner && !grantedApproval) await askOwner();
 
     const controller = new AbortController();
     const signal = ctx.signal ?? controller.signal;
@@ -572,12 +583,33 @@ export class CapabilityBroker {
     const estimatedCents = estimateFor(capability, input);
     const charged = await chargeEstimate(costContext, name, estimatedCents);
 
+    // The owner's yes is spent now, immediately before the call, and not
+    // after it: see `spendApproval`. Another attempt that spent it first
+    // leaves this one with no approval, which is the same as never having
+    // had one.
+    if (grantedApproval) {
+      const spent = await inbox.spendApproval(ctx.companyId, grantedApproval, {
+        taskId: ctx.taskId, capability: name, idempotencyKey: ctx.idempotencyKey,
+      });
+      if (!spent) {
+        if (charged) await refundEstimate(costContext, charged.accountId, estimatedCents);
+        await askOwner();
+      }
+    }
+
     let output: O;
     try {
       output = (await capability.execute(input as never, capabilityContext)) as O;
     } catch (error) {
       // An action that did not happen must not leave a charge behind.
       if (charged) await refundEstimate(costContext, charged.accountId, estimatedCents);
+      // Nor spend the owner's yes: a vendor that refused should not cost them
+      // a second decision to retry.
+      if (grantedApproval) {
+        await inbox.returnApproval(ctx.companyId, grantedApproval, {
+          taskId: ctx.taskId, capability: name, reason: (error as Error).message ?? String(error),
+        });
+      }
 
       // F1.3, F1.4. A capability that reached past its own company is the one
       // failure here that is not about the vendor: the database refused it,
@@ -600,15 +632,6 @@ export class CapabilityBroker {
         });
       }
       throw error;
-    }
-
-    // The action has happened, so the approval that allowed it is spent. Not
-    // before the call -- a vendor that failed should not cost the owner a
-    // second decision to retry -- and not after the read-back, because a
-    // write that verifies badly still happened and must not run again on the
-    // same yes.
-    if (grantedApproval) {
-      await inbox.consumeApproval(ctx.companyId, grantedApproval, { taskId: ctx.taskId, capability: name });
     }
 
     // Settled before the read-back, because the provider billed for the call

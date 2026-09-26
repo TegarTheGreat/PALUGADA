@@ -10,7 +10,7 @@ and **PostgreSQL 16** with [pgvector](https://github.com/pgvector/pgvector).
 
 ```sh
 npm install
-npm run db:setup         # database and its three roles (needs a superuser for pgvector)
+npm run db:setup         # database and its three roles (needs a superuser for pgvector); refuses an existing one
 npm run db:migrate
 npm run console:install  # the owner's console: React, Mantine, Vite
 npm run console:build    # built into console/dist, which the server serves
@@ -34,6 +34,20 @@ npm run smoke
 The smoke check builds a company and runs a task through the whole pipeline.
 It fails if the tier 3 gate does not refuse without a second factor, if no
 owner channel is reached, or if a built-in capability is missing.
+
+`db:setup` creates the database from nothing, and refuses when one already
+exists, because it would drop it: bring an existing database up to date with
+`npm run db:migrate`, or start again deliberately with
+`PALUGADA_RESET_DATABASE=yes npm run db:setup`.
+
+**Watching it run.** The worker writes one JSON line to standard error for
+each task it runs and for anything that failed: a whole tick
+(`tick.failed`), one stage of it (`stage.failed`), or a database connection
+dropped under it (`db.connection_lost`). `GET /api/health` needs no session
+and answers 200 when the database answers and the worker's loop has gone
+round in the last half hour, and 503 with the reason when not. A task that
+loses its worker three times is halted and raised to the owner as an
+incident rather than put back again.
 
 For production, [`deploy/palugada.service`](../deploy/palugada.service) is a
 systemd unit. It runs as an unprivileged dynamic user and holds the owner's

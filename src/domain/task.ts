@@ -105,4 +105,6 @@ export type HaltReason =
   | 'owner_cancel'
   | 'company_frozen'
   /** F5.1: the journal holds a different step where this one should be. */
-  | 'journal_divergence';
+  | 'journal_divergence'
+  /** F5.14: the task lost its worker too many times; its work may be what kills it. */
+  | 'crash_loop';

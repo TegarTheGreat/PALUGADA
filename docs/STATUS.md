@@ -2799,6 +2799,37 @@ could reach changed a role's runtime: moving one onto Claude Code took SQL.
 - Without a key, the boot says what is missing, and a task that halts for
   want of the in-process runtime names the setting.
 
+### What an operator met at 3am
+
+- A worker's failures went nowhere. A stage that failed went into the tick's
+  report and `start()` never read it; there was no logging anywhere in
+  `src/`. The worker now writes a JSON line for a failed tick, a failed
+  stage and every task it ran, and remembers when it last finished a tick.
+- A Postgres restart took the process down. pg-pool emits `error` when an
+  idle connection is closed under it, and nothing listened, so the throw
+  bypassed the worker's own sleep-and-retry. The pools now listen, and bound
+  a statement to two minutes and an idle transaction to ten.
+- Nothing could tell a supervisor whether the process could work.
+  `GET /api/health` answers without a session: 200 when the database answers
+  and the loop has gone round lately, 503 and the reason when not.
+- An answer after the deadline was honoured. Expiry was a sweep once a
+  tick, and an approval landing between the deadline and the sweep went
+  through: the owner's silence had already said no, and a late yes
+  overturned it. The item now expires at the answer, and the work is
+  cancelled as silence would have had it.
+- One yes could carry an irreversible action twice. The approval was spent
+  after the vendor answered; a worker that died in between left it unspent,
+  and the next worker resumed the step and acted again. It is now spent
+  immediately before the call, given back when the vendor refuses, and a
+  step that spent one and never said how it went asks the owner again,
+  telling them the first attempt may already have happened.
+- A task whose work kills its worker went back to the queue for ever. After
+  three lost workers -- leases that ran out or runs that stopped reporting
+  -- it is halted and raised to the owner as an incident.
+- `npm run db:setup`, the quickstart's second line, dropped the database
+  without asking. It now refuses one that exists unless told
+  `PALUGADA_RESET_DATABASE=yes`.
+
 **Still open from these audits, in the order they would be taken**
 
 - A capability's input schema: the registry never writes one, so every tool
@@ -2809,8 +2840,6 @@ could reach changed a role's runtime: moving one onto Claude Code took SQL.
   run to write what it learned.
 - A governed MCP client, so a company can use the integrations that already
   exist as MCP servers.
-- Worker logs, a readiness endpoint, a statement timeout on the pool, and
-  the approval consumed before the action rather than after it.
 
 ## 3. Decisions, deviations, and what is unverified
 

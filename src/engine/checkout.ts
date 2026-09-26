@@ -33,6 +33,8 @@
  */
 import { appendEvent } from '../audit/event-log.ts';
 import { withTenant, type TenantClient } from '../db/tenant.ts';
+import { transitionWithin } from './tasks.ts';
+import { raiseIncidentWithin } from '../inbox/inbox.ts';
 
 /** F5.12. Long enough for a slow run, short enough that a crash is not a day. */
 export const DEFAULT_LEASE_MS = 15 * 60_000;
@@ -297,6 +299,44 @@ export async function clearLease(
   });
 }
 
+/**
+ * How many times a task may lose its worker before it stops being put back.
+ *
+ * A lease that runs out, or a run that stops reporting, is a worker that
+ * died. Putting the task back with its journal is right the first time and
+ * the second. A task whose work is what kills the worker -- a handler that
+ * exhausts memory, a CLI that takes the process with it -- went back for
+ * ever, taking a worker down each time, and nothing counted.
+ */
+export const MAX_RECLAIMS = 3;
+
+/**
+ * Halts a task that has lost its worker `MAX_RECLAIMS` times, and tells the
+ * owner, in the transaction that took it back. True when it was halted.
+ */
+async function haltIfCrashLooping(tx: TenantClient, companyId: string, taskId: string): Promise<boolean> {
+  const { rows } = await tx.query<{ n: number }>(
+    `SELECT count(*)::int AS n FROM events
+      WHERE task_id = $1 AND type IN ('task.lease_expired', 'agent_run.orphaned')`,
+    [taskId],
+  );
+  const lost = rows[0]?.n ?? 0;
+  if (lost < MAX_RECLAIMS) return false;
+  const { rows: live } = await tx.query<{ status: string }>('SELECT status FROM tasks WHERE id = $1', [taskId]);
+  if (live[0]?.status !== 'pending') return false;
+  await transitionWithin(tx, companyId, taskId, 'halted', { haltReason: 'crash_loop' });
+  await raiseIncidentWithin(tx, {
+    companyId,
+    taskId,
+    title: 'A task keeps stopping the worker running it',
+    detail:
+      `Task ${taskId} lost its worker ${lost} times: each time the worker running it stopped ` +
+      'answering before the work finished. What it had done is kept. It is halted so it cannot take ' +
+      'another worker down; rerun it once the cause is found, or cancel it.',
+  });
+  return true;
+}
+
 export interface Reclaimed {
   taskId: string;
   previousHolder: string;
@@ -353,6 +393,7 @@ export async function reclaimExpiredLeases(
         actor: 'system',
         payload: { holder: row.lease_holder, reclaimedFrom: row.previous_status },
       });
+      await haltIfCrashLooping(tx, companyId, row.id);
     }
 
     return rows.map((row) => ({
@@ -433,6 +474,7 @@ export async function reclaimOrphans(
           WHERE id = $1 AND status IN ('checked_out', 'running')`,
         [row.task_id],
       );
+      await haltIfCrashLooping(tx, companyId, row.task_id);
     }
 
     return rows.map((row) => ({

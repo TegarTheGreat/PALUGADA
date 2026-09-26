@@ -332,6 +332,7 @@ export const ID: Readonly<Record<string, string>> = {
   "Installed.": "Terpasang.",
   "Is it still what was signed?": "Masih sama dengan yang ditandatangani?",
   "It is true": "Ini benar",
+  "It kept stopping the worker running it": "Tugas ini terus menghentikan worker yang menjalankannya",
   "It stays frozen until you look.": "Tetap beku sampai Anda memeriksanya.",
   "Its charter: the persona and rules it is given first in every run, before anything it reads.": "Piagamnya: persona dan aturan yang diberikan paling awal di setiap run, sebelum apa pun yang dibacanya.",
   "Its division has no grant yet for {tools}. Open the division to grant them.": "Divisinya belum punya izin untuk {tools}. Buka divisinya untuk memberi izin.",

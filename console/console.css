@@ -4,188 +4,509 @@
  * Plain CSS, one file, no preprocessor. The page it styles is where somebody
  * approves things that cannot be undone, and the visual job is exactly two
  * things: make the tier obvious, and make "approve" harder to hit by accident
- * than "deny". Everything else is out of the way on purpose.
+ * than "deny". Everything else is a calm, familiar application shell -- the
+ * palette, spacing and components follow Mantine's defaults, so the page
+ * reads like the tools the owner already uses, without depending on any of
+ * them.
  */
 
 :root {
-  color-scheme: light dark;
-  --bg: #fbfbfa;
-  --fg: #1a1a19;
-  --muted: #6b6b68;
-  --line: #e2e2df;
-  --card: #ffffff;
-  --accent: #2f5d50;
-  --danger: #a3301f;
-  --warn: #8a5a00;
+  color-scheme: light;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --body: #f8f9fa;
+  --surface: #ffffff;
+  --surface-2: #f8f9fa;
+  --hover: #f1f3f5;
+  --border: #dee2e6;
+  --border-soft: #e9ecef;
+  --border-strong: #ced4da;
+  --text: #212529;
+  --text-2: #495057;
+  --dimmed: #868e96;
+  --placeholder: #adb5bd;
+
+  --primary: #228be6;
+  --primary-hover: #1c7ed6;
+  --primary-light: #e7f5ff;
+  --primary-text: #1971c2;
+  --red: #fa5252;
+  --red-text: #e03131;
+  --red-light: #fff5f5;
+  --orange: #fd7e14;
+  --orange-text: #e8590c;
+  --orange-light: #fff4e6;
+  --teal: #12b886;
+  --teal-text: #099268;
+  --teal-light: #e6fcf5;
+  --violet: #7950f2;
+  --gray-light: #f1f3f5;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --shadow-xs: 0 1px 3px rgb(0 0 0 / 5%), 0 1px 2px rgb(0 0 0 / 10%);
+  --shadow-xl: 0 1px 3px rgb(0 0 0 / 5%), 0 36px 28px -7px rgb(0 0 0 / 5%), 0 17px 17px -7px rgb(0 0 0 / 4%);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #17181a;
-    --fg: #ececea;
-    --muted: #9a9a97;
-    --line: #2c2e31;
-    --card: #1f2124;
-    --accent: #7fbfa8;
-    --danger: #e0705c;
-    --warn: #d9a441;
+    color-scheme: dark;
+    --body: #1a1b1e;
+    --surface: #25262b;
+    --surface-2: #2c2e33;
+    --hover: #2c2e33;
+    --border: #373a40;
+    --border-soft: #2c2e33;
+    --border-strong: #4a4d52;
+    --text: #c1c2c5;
+    --text-2: #a6a7ab;
+    --dimmed: #909296;
+    --placeholder: #5c5f66;
+
+    --primary: #339af0;
+    --primary-hover: #228be6;
+    --primary-light: rgb(34 139 230 / 15%);
+    --primary-text: #4dabf7;
+    --red: #fa5252;
+    --red-text: #ff6b6b;
+    --red-light: rgb(250 82 82 / 15%);
+    --orange-text: #ff922b;
+    --orange-light: rgb(253 126 20 / 15%);
+    --teal-text: #20c997;
+    --teal-light: rgb(18 184 134 / 15%);
+    --violet: #9775fa;
+    --gray-light: #373a40;
+    /* Transparent rather than `none`: it sits in shadow lists, and `none`
+       there would void the whole list -- the card's kind stripe with it. */
+    --shadow-xs: 0 0 0 transparent;
   }
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 
 body {
   margin: 0;
-  padding: 0 1rem 4rem;
-  background: var(--bg);
-  color: var(--fg);
-  font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--body);
+  color: var(--text);
+  font: 400 14px/1.55 var(--font);
+  -webkit-font-smoothing: antialiased;
 }
+
+h1, h2 { color: var(--text); }
+p { margin: 0; }
+.muted { color: var(--dimmed); }
+.error { color: var(--red-text); margin: 8px 0 0; font-size: 14px; }
+
+/* ----------------------------------------------------------------- header --- */
 
 header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  height: 60px;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
-  gap: 1rem;
-  max-width: 46rem;
-  margin: 0 auto;
-  padding: 1.25rem 0;
-  border-bottom: 1px solid var(--line);
+  gap: 16px;
+  padding: 0 max(16px, calc((100vw - 1200px) / 2));
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
 }
 
-h1 { font-size: 1.05rem; letter-spacing: 0.14em; margin: 0; }
-h2 { font-size: 1rem; margin: 0 0 0.4rem; }
+h1 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
 
-main { max-width: 46rem; margin: 0 auto; }
-section { padding: 1.5rem 0; }
+.mark {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, #228be6, #15aabf);
+  color: #fff;
+  font-size: 15px;
+  letter-spacing: 0;
+}
 
-#who { display: flex; gap: 0.75rem; align-items: baseline; font-size: 0.85rem; }
-#device { color: var(--muted); }
+#who { display: flex; align-items: center; gap: 12px; font-size: 13px; }
+#device {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-2);
+  max-width: 40vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#device::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--teal);
+  flex: none;
+}
 
-.muted { color: var(--muted); }
-.error { color: var(--danger); margin: 0.5rem 0 0; }
+main { max-width: 1232px; margin: 0 auto; padding: 0 16px 64px; }
 
-/* ------------------------------------------------------------------ forms --- */
+/* ---------------------------------------------------------------- buttons --- */
 
-input {
-  font: inherit;
-  padding: 0.5rem 0.65rem;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--card);
-  color: inherit;
-  width: 8ch;
-  letter-spacing: 0.3em;
+button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 18px;
+  font: 600 14px/1 var(--font);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+button:hover { background: var(--hover); }
+button:active { transform: translateY(1px); }
+button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* A form's own submit: the one filled button on a panel. */
+#sign-in-form button,
+.panel-form button[type="submit"],
+dialog button[type="submit"] {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+#sign-in-form button:hover,
+.panel-form button[type="submit"]:hover,
+dialog button[type="submit"]:hover { background: var(--primary-hover); }
+
+button.link {
+  height: 30px;
+  padding: 0 10px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--primary-text);
+  font-weight: 500;
+}
+button.link:hover { background: var(--primary-light); }
+
+button.danger { color: var(--red-text); border-color: var(--red); background: var(--surface); }
+button.danger:hover { background: var(--red-light); }
+
+/* ----------------------------------------------------------------- inputs --- */
+
+input,
+textarea {
+  width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  font: 400 14px/1.55 var(--font);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  transition: border-color 120ms ease;
+}
+textarea { height: auto; min-height: 88px; padding: 8px 12px; resize: vertical; }
+input:focus,
+textarea:focus { outline: none; border-color: var(--primary); }
+::placeholder { color: var(--placeholder); }
+
+/* The six digits: large and spaced, because they are read off a phone. */
+#code,
+#factor-code {
+  height: 48px;
+  font-size: 22px;
+  letter-spacing: 0.5em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------- sign in --- */
+
+#sign-in {
+  max-width: 420px;
+  margin: 12vh auto 0;
+  padding: 32px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xl);
+}
+#sign-in h2 { margin: 0 0 6px; font-size: 26px; font-weight: 800; text-align: center; }
+#sign-in > .muted { text-align: center; margin-bottom: 24px; }
+#sign-in-form { display: grid; gap: 12px; }
+#sign-in-form button { height: 42px; }
+
+/* ------------------------------------------------------------ app shell --- */
+
+#console {
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+  gap: 32px;
+  align-items: start;
+  padding-top: 24px;
+}
+
+#sidebar {
+  position: sticky;
+  top: 84px;
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xs);
+}
+
+.nav-label {
+  margin: 12px 12px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--dimmed);
+}
+.nav-label:first-child { margin-top: 6px; }
+
+#companies,
+#tabs { display: flex; flex-direction: column; gap: 2px; }
+
+#sidebar .tab {
+  justify-content: flex-start;
+  gap: 12px;
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-weight: 500;
+}
+#sidebar .tab span:not([class]) { overflow: hidden; text-overflow: ellipsis; }
+#sidebar .tab:hover { background: var(--hover); color: var(--text); }
+#sidebar .tab.current { background: var(--primary-light); color: var(--primary-text); }
+#sidebar .tab.add { color: var(--dimmed); }
+
+.icon {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--gray-light);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 700;
+}
+.tab.current .avatar { background: var(--primary); color: #fff; }
+
+.count {
+  margin-left: auto;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: var(--red);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 20px;
   text-align: center;
 }
 
-button {
-  font: inherit;
-  padding: 0.45rem 0.9rem;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--card);
-  color: inherit;
-  cursor: pointer;
+#page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 24px;
 }
-
-button:hover { border-color: var(--muted); }
-button.link { border: 0; background: none; color: var(--muted); padding: 0.45rem 0; }
-button.link:hover { color: var(--fg); text-decoration: underline; }
-
-form { display: flex; gap: 0.5rem; align-items: center; }
+#page-company { font-size: 13px; font-weight: 600; color: var(--dimmed); }
+#page-title { margin: 2px 0 0; font-size: 28px; font-weight: 800; line-height: 1.2; }
+#controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+#control-note { font-size: 13px; }
 
 /* ------------------------------------------------------------- the queue --- */
 
-#controls {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding-bottom: 1rem;
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 16px;
+  margin-bottom: 12px;
+}
+.stat {
+  padding: 16px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xs);
+}
+.stat-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--dimmed);
+}
+.stat-value { margin-top: 6px; font-size: 24px; font-weight: 700; line-height: 1.2; }
+.stat.bad .stat-value { color: var(--red-text); }
+.digest { margin-bottom: 24px; }
+.digest > .muted { margin: 4px 2px; font-size: 13px; }
+
+ul#inbox { list-style: none; margin: 0; padding: 0; display: grid; gap: 16px; }
+
+#empty {
+  padding: 48px 24px;
+  text-align: center;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
 }
 
-button.danger { border-color: var(--danger); color: var(--danger); }
-
-nav#companies { display: flex; gap: 0.4rem; flex-wrap: wrap; padding-bottom: 1rem; }
-.tab { font-size: 0.85rem; }
-.tab.current { border-color: var(--accent); color: var(--accent); }
-
-.digest {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 0.75rem 1rem;
-  margin-bottom: 1.25rem;
-  font-size: 0.9rem;
-}
-.digest p { margin: 0.15rem 0; }
-
-ul#inbox { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.85rem; }
-
+/*
+ * One decision. Its kind is the stripe down the left and the dot on its
+ * badge: red for an incident, orange for an approval, violet for a question.
+ */
 .card {
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--line);
-  border-radius: 8px;
-  background: var(--card);
-  padding: 0.9rem 1rem;
+  --kind: var(--border-strong);
+  padding: 18px 20px 16px 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: inset 4px 0 0 var(--kind), var(--shadow-xs);
 }
-
-.card p { margin: 0.35rem 0; }
+.kind-incident { --kind: var(--red); }
+.kind-approval { --kind: var(--orange); }
+.kind-escalation { --kind: var(--violet); }
 
 /* The item a notification's link pointed at. */
-.card.linked { border-color: var(--accent); border-left-color: var(--accent); }
+.card.linked { outline: 2px solid var(--primary); outline-offset: 2px; }
 
-.head { display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; }
+.head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.head strong { margin-right: 4px; font-size: 16px; font-weight: 600; line-height: 1.4; }
 
-.kind { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+.card p { margin: 6px 0; color: var(--text-2); }
+.card p em {
+  margin-right: 4px;
+  font-style: normal;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.tier,
+.kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 32px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
 
 /*
  * The tier is the single most important thing on the card: it is the
  * difference between a question and a payment that cannot be recalled. So it
- * is the one thing that carries colour, and tier 3 is the only thing on the
- * page that is loud.
+ * is the badge that carries colour, and tier 3 is the only filled thing on
+ * the page.
  */
-.tier { font-size: 0.75rem; padding: 0.05rem 0.4rem; border-radius: 999px; border: 1px solid var(--line); }
-.tier-2 { color: var(--warn); border-color: var(--warn); }
-.tier-3 { color: var(--danger); border-color: var(--danger); font-weight: 600; }
+.tier-0 { background: var(--gray-light); color: var(--text-2); }
+.tier-1 { background: var(--primary-light); color: var(--primary-text); }
+.tier-2 { background: var(--orange-light); color: var(--orange-text); }
+.tier-3 { background: var(--red); color: #fff; }
 
-.kind-incident { border-left-color: var(--danger); }
-.kind-approval { border-left-color: var(--warn); }
-.kind-escalation { border-left-color: var(--accent); }
+.kind { border: 1px solid var(--border); color: var(--text-2); }
+.kind::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--kind);
+}
 
-.actions { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.75rem; flex-wrap: wrap; }
+.actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-soft);
+}
 
 /*
- * "Approve" is the irreversible one, so it is not the easiest to hit. It
- * carries no fill and no emphasis; "deny" is the quiet default. A console that
- * made approving the prettiest button would be a console that got approvals it
- * did not mean.
+ * "Approve" is the irreversible one, so it is not the easiest to hit. It is
+ * an outline, never filled; "deny" is the quiet default beside it. A console
+ * that made approving the prettiest button would be a console that got
+ * approvals it did not mean.
  */
-button.approve { border-color: var(--accent); color: var(--accent); }
-button.deny { color: var(--muted); }
+button.approve,
+button.deny { text-transform: capitalize; }
+button.approve { color: var(--teal-text); border-color: var(--teal); }
+button.approve:hover { background: var(--teal-light); }
+button.deny { color: var(--text-2); }
+button.ask { border-color: transparent; background: var(--primary-light); color: var(--primary-text); }
+button.ask:hover { background: var(--primary-light); border-color: var(--primary); }
+.actions button.link:first-of-type { margin-left: auto; }
 
 /* ---------------------------------------------------------------- dialogs --- */
 
 dialog {
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--card);
-  color: inherit;
-  padding: 1.25rem;
-  max-width: min(42rem, 92vw);
+  width: min(440px, 92vw);
+  padding: 20px 24px;
+  color: var(--text);
+  background: var(--surface);
+  border: 0;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xl);
 }
-dialog::backdrop { background: rgb(0 0 0 / 45%); }
-dialog menu { display: flex; gap: 0.5rem; justify-content: flex-end; margin: 1rem 0 0; padding: 0; }
+dialog#trace { width: min(760px, 94vw); }
+dialog::backdrop { background: rgb(0 0 0 / 55%); backdrop-filter: blur(2px); }
+dialog h2 { margin: 0 0 8px; font-size: 18px; font-weight: 600; }
 dialog form { display: block; }
-dialog input { margin-top: 0.5rem; }
+dialog input { margin-top: 16px; }
+dialog menu { display: flex; justify-content: flex-end; gap: 8px; margin: 20px 0 0; padding: 0; }
 
 #trace-body {
   max-height: 60vh;
   overflow: auto;
-  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 0.75rem;
+  margin: 12px 0 0;
+  padding: 12px;
+  font: 12px/1.5 var(--mono);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -195,91 +516,150 @@ dialog input { margin-top: 0.5rem; }
 /*
  * The rest of what an owner does, behind the tabs.
  *
- * Visually quieter than the queue on purpose. The inbox is the thing with a
- * person waiting on it and should be the loudest thing on the page; a ceiling
- * being set or a publisher being listed is work the owner came looking for,
- * and work you went looking for does not need to shout.
+ * Quieter than the queue on purpose. The inbox is the thing with a person
+ * waiting on it; a ceiling being set or a publisher being listed is work the
+ * owner came looking for, and work you went looking for does not need to
+ * shout. Each section is a heading over a card.
  */
-#tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  margin: 0.75rem 0 0.25rem;
-  border-bottom: 1px solid var(--line);
-  padding-bottom: 0.5rem;
+.panel > .muted { margin: 0 0 12px; }
+.panel h2 {
+  margin: 32px 0 6px;
+  font-size: 17px;
+  font-weight: 700;
 }
-
-.panel { padding: 0.5rem 0 2rem; }
-.panel h2 { margin-top: 1.75rem; }
-.panel h2:first-child { margin-top: 0.5rem; }
+.panel h2:first-child { margin-top: 0; }
+.panel h2 + .muted { margin: 0 0 12px; font-size: 13px; }
 
 .facts {
   display: grid;
   grid-template-columns: max-content 1fr;
-  gap: 0.2rem 1rem;
-  margin: 0.5rem 0 1rem;
+  gap: 10px 32px;
+  margin: 8px 0 16px;
+  padding: 16px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xs);
 }
-.facts dt { color: var(--muted); }
-.facts dd { margin: 0; }
+.facts dt { color: var(--dimmed); }
+.facts dd { margin: 0; font-weight: 500; }
 
 .panel table {
   width: 100%;
-  border-collapse: collapse;
-  margin: 0.5rem 0 1rem;
-  font-size: 0.92rem;
+  margin: 8px 0 16px;
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xs);
 }
 .panel th {
+  padding: 10px 16px;
   text-align: left;
+  font-size: 13px;
   font-weight: 600;
-  color: var(--muted);
-  border-bottom: 1px solid var(--line);
-  padding: 0.3rem 0.5rem 0.3rem 0;
+  color: var(--text-2);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
 }
 .panel td {
-  border-bottom: 1px solid var(--line);
-  padding: 0.35rem 0.5rem 0.35rem 0;
+  padding: 10px 16px;
   vertical-align: top;
+  border-bottom: 1px solid var(--border-soft);
 }
+.panel tbody tr:last-child td { border-bottom: 0; }
+.panel tbody tr:hover td { background: var(--surface-2); }
 
+/*
+ * A form is a card of fields laid out in a grid: short fields side by side,
+ * anything multi-line across the whole width, the button and any error on
+ * their own row beneath.
+ */
 .panel-form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  margin: 0.5rem 0 1.5rem;
-  max-width: 34rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  align-items: end;
+  gap: 14px 16px;
+  max-width: 760px;
+  margin: 8px 0 16px;
+  padding: 18px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xs);
 }
 .panel-form label {
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
-  color: var(--muted);
-  font-size: 0.9rem;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
 }
-.panel-form input,
-.panel-form textarea {
-  font: inherit;
-  color: var(--fg);
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  padding: 0.4rem 0.5rem;
-}
-.panel-form textarea { min-height: 5.5rem; resize: vertical; }
-.panel-form button { align-self: flex-start; }
+.panel-form label:has(textarea) { grid-column: 1 / -1; }
+.panel-form button,
+.panel-form .error { grid-column: 1 / -1; justify-self: start; }
+.panel-form .error { margin: 0; }
 
-.group { display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: flex-start; }
+.group { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; margin: 8px 0 16px; }
 
 /* A nonce the owner has to carry to a device by hand. Selectable, monospace,
    and wrapped -- it is a string somebody copies, not one they read. */
 .nonce {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.85rem;
+  padding: 10px 12px;
+  font: 13px/1.5 var(--mono);
   word-break: break-all;
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  padding: 0.5rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   user-select: all;
 }
 
-#controls { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+/* ----------------------------------------------------------------- phone --- */
+
+/*
+ * On a phone the sidebar becomes two scrolling rows -- companies, then the
+ * tabs -- above the page, and the queue gets the whole width. Most tier 3
+ * decisions are made here, at seven in the morning.
+ */
+@media (max-width: 900px) {
+  #console { grid-template-columns: minmax(0, 1fr); gap: 16px; padding-top: 16px; }
+  #sidebar {
+    position: static;
+    padding: 6px;
+    gap: 6px;
+  }
+  .nav-label { display: none; }
+  #companies,
+  #tabs {
+    flex-direction: row;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  #tabs { border-top: 1px solid var(--border-soft); padding-top: 6px; }
+  #sidebar .tab { width: auto; height: 36px; flex: none; }
+  #sidebar .tab .icon { display: none; }
+  #tabs .tab.current { box-shadow: inset 0 -2px 0 var(--primary); }
+  #page-head { margin-bottom: 16px; }
+  #page-title { font-size: 22px; }
+  .panel table { display: block; overflow-x: auto; white-space: nowrap; }
+}
+
+@media (max-width: 520px) {
+  main { padding: 0 12px 48px; }
+  header { padding: 0 12px; }
+  h1 { letter-spacing: 0.08em; }
+  /* The device's name is on the sign-in screen and in the history; here the
+     dot says "signed in" and the room goes to the sign-out button. */
+  #device { font-size: 0; gap: 0; }
+  #sign-in { margin-top: 6vh; padding: 24px 20px; }
+  .card { padding: 16px 16px 14px 20px; }
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .stat { padding: 12px 14px; }
+  .stat-value { font-size: 20px; }
+  .actions button.link:first-of-type { margin-left: 0; }
+  #controls { width: 100%; }
+  #controls button { flex: 1; }
+}

@@ -30,6 +30,9 @@ const state = {
   // clears both, so a page marker from one is never sent to another.
   historyQuery: '',
   historyBefore: null,
+  // How many items the queue held when it was last drawn, and for which
+  // company, so the tab can say so without drawing the queue again.
+  openCount: null,
   // Where a notification's link pointed: `/?company=<id>&item=<id>`. Read
   // once, on the first draw, and then forgotten, so the page does not keep
   // jumping back to it.
@@ -166,16 +169,14 @@ function drawControls(control) {
 function drawCompanies() {
   const nav = el('companies');
   nav.replaceChildren();
-  // "One human runs many companies", so starting one is on the row where the
-  // companies are, not buried in a settings tab.
-  const start = document.createElement('button');
-  start.className = 'tab';
-  start.textContent = '+ New company';
-  start.onclick = () => startCompany();
-  nav.append(start);
   for (const company of state.companies) {
     const button = document.createElement('button');
-    button.textContent = company.name + (company.frozen ? ' (frozen)' : '');
+    const avatar = document.createElement('span');
+    avatar.className = 'avatar';
+    avatar.textContent = company.name.slice(0, 1).toUpperCase();
+    const name = document.createElement('span');
+    name.textContent = company.name + (company.frozen ? ' (frozen)' : '');
+    button.append(avatar, name);
     button.className = company.id === state.companyId ? 'tab current' : 'tab';
     button.onclick = async () => {
       state.companyId = company.id;
@@ -186,6 +187,15 @@ function drawCompanies() {
     };
     nav.append(button);
   }
+  // "One human runs many companies", so starting one is where the companies
+  // are, not buried in a settings tab.
+  const start = document.createElement('button');
+  start.className = 'tab add';
+  const label = document.createElement('span');
+  label.textContent = 'New company';
+  start.append(icon('add'), label);
+  start.onclick = () => startCompany();
+  nav.append(start);
 }
 
 /**
@@ -223,6 +233,8 @@ async function drawInbox() {
     api('GET', `/api/companies/${state.companyId}/digest`),
   ]);
   state.items = items;
+  state.openCount = { companyId: state.companyId, count: items.length };
+  drawTabs();
 
   drawDigest(digest);
   el('empty').hidden = items.length > 0;
@@ -256,11 +268,26 @@ function drawDigest(digest) {
   // draws what it is given rather than deciding what fits, so the requirement
   // has one home.
   const box = el('digest');
-  const line = document.createElement('p');
-  line.textContent =
-    `${digest.tasksCompleted} done · ${digest.tasksFailed} failed · `
-    + `${digest.tasksHalted} halted · ${money(digest.moneySpentCents)} spent today`;
-  box.append(line);
+  const stats = document.createElement('div');
+  stats.className = 'stats';
+  for (const [label, value, bad] of [
+    ['Done today', digest.tasksCompleted, false],
+    ['Failed', digest.tasksFailed, digest.tasksFailed > 0],
+    ['Halted', digest.tasksHalted, digest.tasksHalted > 0],
+    ['Spent today', money(digest.moneySpentCents), false],
+  ]) {
+    const stat = document.createElement('div');
+    stat.className = bad ? 'stat bad' : 'stat';
+    const name = document.createElement('p');
+    name.className = 'stat-label';
+    name.textContent = label;
+    const figure = document.createElement('p');
+    figure.className = 'stat-value';
+    figure.textContent = String(value);
+    stat.append(name, figure);
+    stats.append(stat);
+  }
+  box.append(stats);
   for (const highlight of digest.highlights ?? []) {
     const item = document.createElement('p');
     item.className = 'muted';
@@ -537,7 +564,16 @@ function drawTabs() {
   nav.replaceChildren();
   for (const [id, label] of TABS) {
     const button = document.createElement('button');
-    button.textContent = label;
+    const text = document.createElement('span');
+    text.textContent = label;
+    button.append(icon(id), text);
+    const open = state.openCount;
+    if (id === 'decisions' && open?.companyId === state.companyId && open.count > 0) {
+      const count = document.createElement('span');
+      count.className = 'count';
+      count.textContent = String(open.count);
+      button.append(count);
+    }
     button.className = id === state.tab ? 'tab current' : 'tab';
     button.onclick = async () => {
       state.tab = id;
@@ -552,6 +588,9 @@ async function drawTab() {
   for (const [id] of TABS) el(`panel-${id}`).hidden = id !== state.tab;
   const entry = TABS.find(([id]) => id === state.tab);
   if (!entry) return;
+  el('page-title').textContent = entry[1];
+  el('page-company').textContent =
+    state.companies.find((one) => one.id === state.companyId)?.name ?? '';
   const panel = el(`panel-${entry[0]}`);
   if (entry[0] !== 'decisions') panel.replaceChildren(loading());
   try {
@@ -564,6 +603,40 @@ async function drawTab() {
 }
 
 /* --------------------------------------------------------- small builders --- */
+
+/**
+ * The navigation icons, built as SVG elements rather than loaded as images.
+ *
+ * The page's content security policy takes images from this origin only, so a
+ * `data:` icon would be refused, and markup assembled from strings is what
+ * this file never does. Each icon is path data on a 24-unit grid, stroked in
+ * the current text colour.
+ */
+const ICONS = {
+  decisions: ['M4 13h4l1.5 3h5l1.5-3h4', 'M4 13l2.5-8h11l2.5 8v6H4z'],
+  history: ['M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18', 'M12 7v5l3 2'],
+  money: ['M3 6h18v12H3z', 'M12 9.5a2.5 2.5 0 1 0 0 5a2.5 2.5 0 1 0 0-5', 'M6.5 9.5v.01', 'M17.5 14.5v.01'],
+  health: ['M3 12h4l3-7l4 14l3-7h4'],
+  settings: ['M4 6h9', 'M17 6h3', 'M4 12h3', 'M11 12h9', 'M4 18h11', 'M19 18h1', 'M15 4v4', 'M9 10v4', 'M17 16v4'],
+  structure: ['M9 3h6v5H9z', 'M3 16h6v5H3z', 'M15 16h6v5h-6z', 'M12 8v4', 'M6 16v-4h12v4'],
+  skills: ['M12 3l2.2 5.3L20 10l-5.8 1.7L12 17l-2.2-5.3L4 10l5.8-1.7z', 'M18.5 16l.7 1.8l1.8.7l-1.8.7l-.7 1.8l-.7-1.8l-1.8-.7l1.8-.7z'],
+  supply: ['M12 3l8 4.5v9L12 21l-8-4.5v-9z', 'M4 7.5l8 4.5l8-4.5', 'M12 12v9'],
+  devices: ['M5 5h14v10H5z', 'M3 19h18'],
+  add: ['M12 5v14', 'M5 12h14'],
+};
+
+function icon(name) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.classList.add('icon');
+  for (const data of ICONS[name] ?? []) {
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', data);
+    svg.append(path);
+  }
+  return svg;
+}
 
 function loading() {
   return note('Loading…', 'muted');

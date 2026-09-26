@@ -23,7 +23,7 @@
   to get wrong.
 -->
 <header>
-  <h1>PALUGADA</h1>
+  <h1><span class="mark" aria-hidden="true">P</span>PALUGADA</h1>
   <div id="who" hidden>
     <span id="device"></span>
     <button id="sign-out" class="link">Sign out</button>
@@ -34,7 +34,7 @@
   <!-- Signing in is presenting a second factor. There are no accounts. -->
   <section id="sign-in">
     <h2>Sign in</h2>
-    <p class="muted">Enter the code from your authenticator.</p>
+    <p class="muted">There are no accounts: enter the six-digit code from your authenticator.</p>
     <form id="sign-in-form">
       <input id="code" inputmode="numeric" autocomplete="one-time-code"
              pattern="[0-9]{6}" maxlength="6" placeholder="000000" required>
@@ -44,40 +44,51 @@
   </section>
 
   <section id="console" hidden>
-    <!-- F10.7. The global controls, where they can be reached in one press.
-         Two buttons, because they are two decisions: "stop" raises a flag the
-         engine reads at every step, so work stops cleanly and resumes when the
-         flag clears; "cancel everything" ends the tasks outright and cannot be
-         undone, which is why it asks for the authenticator. -->
-    <div id="controls">
-      <button id="stop-all" class="danger"></button>
-      <button id="cancel-all" class="danger">Cancel everything</button>
-      <span id="control-note" class="muted"></span>
+    <aside id="sidebar">
+      <p class="nav-label">Companies</p>
+      <nav id="companies"></nav>
+      <p class="nav-label">Run the company</p>
+      <!-- The rest of what an owner does. The inbox is first because it is the
+           thing with a person waiting on it; everything else is running the
+           company rather than being interrupted by it. -->
+      <nav id="tabs"></nav>
+    </aside>
+
+    <div id="content">
+      <div id="page-head">
+        <div>
+          <p id="page-company"></p>
+          <h2 id="page-title"></h2>
+        </div>
+        <!-- F10.7. The global controls, where they can be reached in one press.
+             Two buttons, because they are two decisions: "stop" raises a flag the
+             engine reads at every step, so work stops cleanly and resumes when the
+             flag clears; "cancel everything" ends the tasks outright and cannot be
+             undone, which is why it asks for the authenticator. -->
+        <div id="controls">
+          <span id="control-note" class="muted"></span>
+          <button id="stop-all" class="danger"></button>
+          <button id="cancel-all" class="danger">Cancel everything</button>
+        </div>
+      </div>
+
+      <div id="panel-decisions" class="panel">
+        <div id="digest" class="digest"></div>
+        <!-- F10.1. One queue, and F10.2 puts everything a judgement needs on the
+             card: what, why, tier, cost, and what happens if it is refused. -->
+        <ul id="inbox"></ul>
+        <p id="empty" class="muted" hidden>Nothing is waiting.</p>
+      </div>
+
+      <div id="panel-history" class="panel" hidden></div>
+      <div id="panel-money" class="panel" hidden></div>
+      <div id="panel-health" class="panel" hidden></div>
+      <div id="panel-settings" class="panel" hidden></div>
+      <div id="panel-structure" class="panel" hidden></div>
+      <div id="panel-skills" class="panel" hidden></div>
+      <div id="panel-supply" class="panel" hidden></div>
+      <div id="panel-devices" class="panel" hidden></div>
     </div>
-
-    <nav id="companies"></nav>
-
-    <!-- The rest of what an owner does. The inbox is first because it is the
-         thing with a person waiting on it; everything else is running the
-         company rather than being interrupted by it. -->
-    <nav id="tabs"></nav>
-
-    <div id="panel-decisions" class="panel">
-      <div id="digest" class="digest"></div>
-      <!-- F10.1. One queue, and F10.2 puts everything a judgement needs on the
-           card: what, why, tier, cost, and what happens if it is refused. -->
-      <ul id="inbox"></ul>
-      <p id="empty" class="muted" hidden>Nothing is waiting.</p>
-    </div>
-
-    <div id="panel-history" class="panel" hidden></div>
-    <div id="panel-money" class="panel" hidden></div>
-    <div id="panel-health" class="panel" hidden></div>
-    <div id="panel-settings" class="panel" hidden></div>
-    <div id="panel-structure" class="panel" hidden></div>
-    <div id="panel-skills" class="panel" hidden></div>
-    <div id="panel-supply" class="panel" hidden></div>
-    <div id="panel-devices" class="panel" hidden></div>
   </section>
 </main>
 

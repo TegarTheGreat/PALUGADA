@@ -43,6 +43,7 @@ import { claimTask, reclaimExpiredLeases, reclaimOrphans } from './engine/checko
 import { getTask } from './engine/tasks.ts';
 import { withTenant } from './db/tenant.ts';
 import { isStopAllRequested } from './engine/control.ts';
+import { reportStranded } from './engine/liveness.ts';
 import { runDueSchedules } from './scheduler/scheduler.ts';
 import { drainWakes, scheduleHeartbeats } from './scheduler/wake.ts';
 import { settleCompletedReviews } from './review/review.ts';
@@ -159,6 +160,8 @@ export interface TickReport {
   distilled: number;
   /** Skill candidates screened against their own eval cases (F15.3). */
   screened: number;
+  /** Live tasks found with nothing left to move them, and put to the owner. */
+  stranded: number;
   /** Set when the platform stop is in effect: the tick did nothing else. */
   stopped: boolean;
   errors: Array<{ stage: string; message: string }>;
@@ -240,6 +243,7 @@ export class Worker {
       retracted: 0,
       distilled: 0,
       screened: 0,
+      stranded: 0,
       stopped: false, errors: [],
     };
 
@@ -334,6 +338,10 @@ export class Worker {
       await this.#stage(report, 'settle', async () => {
         await settleCompletedReviews(company);
         await inbox.expireOverdue(company);
+        // After the two above, which are what normally move a waiting task:
+        // anything still waiting with nothing left to move it is stranded,
+        // and the owner is asked once what to do with it.
+        report.stranded += await reportStranded(company, now);
 
         // F6.3: a completed task's output is what starts its successor, and
         // the engine is what starts it -- not the finishing agent naming who

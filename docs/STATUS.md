@@ -2148,6 +2148,39 @@ admission is enforced where it can still change the outcome, in
 `budget_spend`, and the test shows both halves: the overrun is recorded above
 the ceiling, and the next charge is still refused.
 
+### And a net under all of them
+
+Paperclip states a contract its code enforces with a sweep: every task that
+is not finished has a typed "next mover" -- a worker, an open decision, a
+reviewer, a clock -- and a task found without one is put to a human rather
+than silently reassigned (`doc/execution-semantics.md` §8-9). This round
+found three separate ways of losing the mover here, and each was fixed where
+it happened; `src/engine/liveness.ts` is for the ones not found yet. A task in
+`waiting_approval` with no approval or escalation open, in `waiting_review`
+with no review pending, or in `waiting_window` with no time to wake at -- the
+last is a state a test in this repository asserts "stays parked however long
+anyone waits", correctly, and nothing ever told the owner it was there -- is
+put to the owner once, as an escalation. The answer is the repair: `decide`
+already moves an escalation's task to `running` on approve and `cancelled` on
+deny, and all three statuses have both edges. An escalation rather than an
+incident because nothing is on fire, and an open escalation is itself a mover,
+so the task is not reported again while the owner thinks about it. Two workers
+that find the same task raise one escalation between them: the record is
+written under the task's advisory lock, and the test holds that lock in a
+second transaction to prove it.
+
+### A schedule that could not fire said so every five seconds
+
+`runDueSchedules` leaves a schedule it could not fund where it is, so the
+occurrence fires the moment the owner raises the budget -- right -- and it
+recorded the failure on every pass, which the worker makes every few seconds:
+about seventeen thousand `schedule.fire_failed` events a day, per schedule,
+into a log retention keeps for a year. A log that repeats itself every five
+seconds is one nobody reads, which is Slack's notification lesson applied to
+an audit trail. Migration 0038 lets the schedule remember which occurrence
+last failed and why; the event is written when that changes, the retry still
+happens every pass, and a successful fire clears it.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

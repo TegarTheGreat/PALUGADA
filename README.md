@@ -798,7 +798,9 @@ A vendor that answers "not now" — a 429, or a 503 that says when — parks the
 task until the time it named, spending none of its attempts; a read-back waits
 a short limit out in place. An approval stops asking the moment its task ends
 any other way, and a chat message the owner already answered elsewhere loses
-its buttons.
+its buttons. A task left waiting on nothing — no approval open, no review
+pending, no time to wake at — is put to the owner once, and their answer runs
+it again or cancels it.
 
 ## What is not exercised
 

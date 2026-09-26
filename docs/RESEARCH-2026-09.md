@@ -43,6 +43,7 @@ PALUGADA when this round started.
 | Every tool permission auto-approved | Buzz `crates/buzz-acp/src/acp.rs:1981-2030` | Not here: every action goes through the broker's tier and policy | — |
 | Autonomy as a principle | auto-company `CLAUDE.md:11-15`: "Do not wait for human approval" | Not here: tier 3 is the owner's, over the app, with a second factor | — |
 | Model-written state fed back verbatim every cycle | auto-company `auto-loop.sh:708,756-758` | Not here: external content is data (F8.9); memory is scoped and distilled with a curation gate | — |
+| A retried failure logged on every retry | auto-company's breaker loop (`auto-loop.sh:934-940`); Slack's notification overload, applied to an audit trail | **Was here.** A schedule that could not be funded wrote `schedule.fire_failed` every worker tick, ~17,000 times a day | The schedule remembers the failed occurrence and reason; the event is written when either changes (migration 0038) |
 | Money only as a post-hoc sum | Paperclip `budgets.ts:143-166`, checked only at claim | Not here: reservation at admission and a spend per call | — |
 
 ## 2. What was adopted, and what was not
@@ -57,6 +58,10 @@ Adopted, because it answered a defect this repository had:
 - **Paperclip's `retryNotBefore`** (`packages/adapter-utils/src/types.ts:69-91`),
   as `notBefore` on `capability.rate_limited`, parking on F9.2's existing
   `waiting_window` rather than a new status.
+- **Paperclip's liveness contract** (`doc/execution-semantics.md` §8-9): every
+  live task has a next mover, and a sweep finds the ones that do not. Here the
+  owner's escalation is the recovery action, rather than a second table, and
+  their answer moves the task.
 
 Considered and left:
 

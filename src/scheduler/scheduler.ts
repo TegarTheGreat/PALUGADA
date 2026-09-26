@@ -252,13 +252,33 @@ export async function runDueSchedules(now = new Date()): Promise<FiredOccurrence
       // it, and must not silently vanish either. Record it and move on; the
       // occurrence is retried on the next pass because the schedule was never
       // advanced.
+      //
+      // Recorded once per occurrence and reason, not once per pass (0038).
+      // The pass runs every few seconds, and a schedule in a company whose
+      // spend is paused wrote this event about seventeen thousand times a
+      // day into a log retention keeps for a year. The row remembers what
+      // last failed; the event is written only when that changes.
+      const message = (error as Error).message;
       await withTenant(schedule.company_id, async (tx) => {
+        const { rowCount } = await tx.query(
+          `UPDATE schedules
+              SET fire_failed_for = $2, fire_failure = $3
+            WHERE id = $1
+              AND (fire_failed_for IS DISTINCT FROM $2 OR fire_failure IS DISTINCT FROM $3)`,
+          [schedule.id, occurrence, message],
+        );
+        if (rowCount !== 1) return;
         await appendEvent(tx, {
           companyId: schedule.company_id,
           projectId: schedule.project_id,
           type: 'schedule.fire_failed',
           actor: 'scheduler',
-          payload: { scheduleId: schedule.id, slug: schedule.slug, error: (error as Error).message },
+          payload: {
+            scheduleId: schedule.id,
+            slug: schedule.slug,
+            occurrence: occurrence.toISOString(),
+            error: message,
+          },
         });
       });
       continue;
@@ -277,7 +297,8 @@ export async function runDueSchedules(now = new Date()): Promise<FiredOccurrence
       );
       const { rowCount } = await tx.query(
         `UPDATE schedules
-            SET last_run_at = $2, next_run_at = $3
+            SET last_run_at = $2, next_run_at = $3,
+                fire_failed_for = NULL, fire_failure = NULL
           WHERE id = $1 AND next_run_at = $2`,
         [schedule.id, occurrence, next],
       );

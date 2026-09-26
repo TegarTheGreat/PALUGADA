@@ -825,3 +825,55 @@ test('a division over its hourly allowance waits for the next slot (F9.2)', asyn
   assert.equal(calls.executions, 1, 'the second call was never made');
   assert.equal(await attemptOf(fixture, second.id), 0);
 });
+
+/**
+ * A schedule its company cannot fund is left where it is and retried every
+ * pass, which is right -- the owner raising the budget should fire it at
+ * once. It also recorded the failure every pass: every few seconds, into an
+ * append-only log kept for a year. Once per occurrence and reason now, and a
+ * success clears the record so the next failure is news again.
+ */
+test('a schedule that cannot fire says so once, not every pass (F9.1)', async () => {
+  const fixture = await createCompany('schedule-unfunded', { tokensMax: 1_000 });
+  await upsertSchedule(
+    {
+      companyId: fixture.companyId,
+      projectId: fixture.projectId,
+      divisionId: fixture.divisionId,
+      roleId: fixture.roleId,
+      budgetAccountId: fixture.budgetAccountId,
+      goalId: fixture.goalId,
+      slug: 'too-big',
+      cronExpression: '0 * * * *',
+      timezone: 'UTC',
+      input: { kind: 'report' },
+      reserveTokens: 5_000,
+    },
+    new Date(Date.now() - 3_600_000),
+  );
+
+  const failures = async () => withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ count: string }>(
+      "SELECT count(*)::text AS count FROM events WHERE type = 'schedule.fire_failed'",
+    );
+    return Number(rows[0]!.count);
+  });
+
+  for (let pass = 0; pass < 5; pass += 1) {
+    assert.equal((await runDueSchedules(new Date())).length, 0);
+  }
+  assert.equal(await failures(), 1, 'five passes, one record');
+
+  // Funded, it fires on the next pass, and the record is cleared.
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    'UPDATE budget_accounts SET tokens_max = 100000 WHERE id = $1', [fixture.budgetAccountId],
+  ));
+  assert.equal((await runDueSchedules(new Date())).length, 1);
+  const row = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ fire_failed_for: Date | null; fire_failure: string | null }>(
+      "SELECT fire_failed_for, fire_failure FROM schedules WHERE slug = 'too-big'",
+    );
+    return rows[0]!;
+  });
+  assert.deepEqual(row, { fire_failed_for: null, fire_failure: null });
+});

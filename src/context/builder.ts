@@ -15,7 +15,7 @@ import type { TenantClient } from '../db/tenant.ts';
 import { skillSummariesFor } from '../skills/skills.ts';
 import { recall, type MemoryItem } from '../memory/store.ts';
 import { ancestryForTask, renderAncestry } from '../domain/goals.ts';
-import { openQuestionsFor } from '../inbox/inbox.ts';
+import { answersFor, openQuestionsFor } from '../inbox/inbox.ts';
 import { languageName, languageRule, languagesFor } from '../domain/language.ts';
 import { metricsIn, renderMetrics } from '../domain/metrics.ts';
 import { instructionsFor } from '../engine/owner-control.ts';
@@ -373,6 +373,16 @@ export async function buildContext(
           `${question.question}\n\n` +
           'Answer it before proposing the action again. Record your answer ' +
           `against inbox item ${question.inboxItemId}.`,
+      });
+    }
+
+    // The owner's answers to what this task asked them (`owner.ask`), so a
+    // run resumed after the answer starts from it rather than asking again.
+    for (const answered of await answersFor(tx, options.taskId)) {
+      sections.push({
+        kind: 'owner_note',
+        title: 'The owner answered your question',
+        body: `You asked: ${answered.question}\nThe owner answered: ${answered.answer || '(no words, only a yes: go ahead)'}\n\nWork from this answer.`,
       });
     }
 

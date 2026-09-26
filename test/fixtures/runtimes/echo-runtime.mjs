@@ -70,6 +70,13 @@ async function act(req) {
     say({ type: 'done', output: { answer } });
     return;
   }
+  if (script === 'ask_owner') {
+    // Asks, and reports whatever came back: the answer on a resumed run, the
+    // refusal on a first one (which the engine withdraws anyway).
+    const answer = await callTool('owner.ask', { question: 'Which supplier did you mean?', why: 'Two match the brief.' });
+    say({ type: 'done', output: { answer } });
+    return;
+  }
   if (script === 'plan_then_write') {
     // A tier 2 write the way a well-behaved runtime makes one: plan first,
     // then the call, then whatever it says when the call is refused.

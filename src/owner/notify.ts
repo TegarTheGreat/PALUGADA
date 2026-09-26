@@ -68,6 +68,8 @@ export interface NotifiableItem {
   url: string | null;
   /** The owner's language, for what the platform itself says (src/owner/say.ts). English when unset. */
   language?: string;
+  /** A question a run asked with `owner.ask`: the owner answers it rather than approving it. */
+  question?: string | null;
 }
 
 export interface DeliveryResult {
@@ -186,9 +188,11 @@ export async function undelivered(
       action_summary: string;
       consequence_if_denied: string | null;
       language: string | null;
+      question: string | null;
     }>(
       `SELECT i.id, i.kind, i.tier, i.title, i.action_summary, i.consequence_if_denied,
-              (SELECT console_language FROM platform_control) AS language
+              (SELECT console_language FROM platform_control) AS language,
+              CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->>'question' END AS question
          FROM inbox_items i
     LEFT JOIN owner_notifications n
            ON n.inbox_item_id = i.id AND n.channel = $2 AND n.company_id = $1
@@ -217,6 +221,7 @@ export async function undelivered(
         delivery,
         url: null,
         language: row.language ?? 'en',
+        question: row.question,
       }];
     });
   });
@@ -590,10 +595,11 @@ export async function retryFailed(
     const { rows } = await tx.query<{
       id: string; kind: string; tier: number | null; title: string;
       action_summary: string; consequence_if_denied: string | null; delivery: string;
-      language: string | null;
+      language: string | null; question: string | null;
     }>(
       `SELECT i.id, i.kind, i.tier, i.title, i.action_summary, i.consequence_if_denied,
-              n.delivery, (SELECT console_language FROM platform_control) AS language
+              n.delivery, (SELECT console_language FROM platform_control) AS language,
+              CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->>'question' END AS question
          FROM owner_notifications n
          JOIN inbox_items i ON i.id = n.inbox_item_id
         WHERE n.company_id = $1
@@ -634,6 +640,7 @@ export async function retryFailed(
       delivery: row.delivery as Exclude<ChannelDelivery, 'none'>,
       url: null,
       language: row.language ?? 'en',
+      question: row.question,
     };
     item.url = options.linkFor?.(item) ?? null;
 

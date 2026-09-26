@@ -151,7 +151,7 @@ export interface RunOutcome {
  * The broker's refusals that mean "wait", not "no": the task parks on them
  * rather than failing, however the runtime reacted to being told.
  */
-const PARKING_CODES: ReadonlySet<string> = new Set(['approval.required', 'review.required', 'window.closed']);
+const PARKING_CODES: ReadonlySet<string> = new Set(['approval.required', 'owner.asked', 'review.required', 'window.closed']);
 
 export class Engine {
   readonly #options: EngineOptions;
@@ -1124,7 +1124,9 @@ export class Engine {
       };
     }
 
-    if (code === 'approval.required') {
+    // Both leave the task in `waiting_approval` with an item open: the broker
+    // parked it for the owner's yes, `owner.ask` for their answer.
+    if (code === 'approval.required' || code === 'owner.asked') {
       return { status: 'waiting_approval', reason: code };
     }
 

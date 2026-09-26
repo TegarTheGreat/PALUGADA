@@ -34,8 +34,10 @@ import { startToolBridge } from '../../src/runtime/tool-bridge.ts';
 import { Engine } from '../../src/engine/engine.ts';
 import { registerPlatformCapabilities } from '../../src/broker/platform-capabilities.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
+import * as inbox from '../../src/inbox/inbox.ts';
+import { buildContext } from '../../src/context/builder.ts';
 import { CapabilityRegistry, type Capability } from '../../src/broker/registry.ts';
-import { createRootTask, getTask } from '../../src/engine/tasks.ts';
+import { createRootTask, getTask, transition } from '../../src/engine/tasks.ts';
 import { createCompany, grantCapability, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
@@ -1898,4 +1900,71 @@ test('a runtime whose call needs the owner leaves its task waiting for the owner
     outcome: 'waiting_approval', task: 'waiting_approval', items: [{ kind: 'approval', status: 'open' }],
   }, JSON.stringify(outcome));
   assert.equal(executed, 0, 'nothing irreversible ran before the owner said so');
+});
+
+/**
+ * `owner.ask`: a run in any runtime can put a question to the owner, and the
+ * task waits for the answer rather than guessing.
+ *
+ * A runtime had two ways forward when only the owner knew something: guess,
+ * which spends money on what may be the wrong thing, or fail into an
+ * incident. Buzz makes asking mandatory when a person is needed; Paperclip's
+ * agents ask the board. Here the question is an item in the owner's inbox,
+ * the task parks on it, and the run after the answer is given it.
+ */
+test('a runtime asks the owner, waits, and carries on with the answer (owner.ask)', async () => {
+  const fixture = await createCompany('script-ask');
+  const registry = new CapabilityRegistry();
+  registerPlatformCapabilities(registry);
+  await registry.sync();
+  await grantCapability(fixture, 'owner.ask');
+  const broker = new CapabilityBroker(registry);
+  await configureRole(fixture, { runtime: 'script', tools: ['owner.ask'] });
+  const task = await newTask(fixture, { script: 'ask_owner' });
+  const engine = engineWith(broker, scriptAdapter());
+
+  const first = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(first.status, 'waiting_approval', first.reason);
+  const { rows: items } = await withTenant(fixture.companyId, (tx) => tx.query<{
+    id: string; kind: string; status: string; title: string; payload: { askedBy: string; question: string };
+  }>('SELECT id, kind, status, title, payload FROM inbox_items WHERE task_id = $1', [task.id]));
+  assert.equal(items.length, 1);
+  assert.equal(items[0]!.kind, 'escalation');
+  assert.match(items[0]!.title, /asks: Which supplier did you mean\?/);
+  assert.deepEqual([items[0]!.payload.askedBy, items[0]!.payload.question], ['agent', 'Which supplier did you mean?']);
+
+  // The owner answers with the note on their yes.
+  await inbox.decide(fixture.companyId, items[0]!.id, 'approve', 'Supplier B, the one in Bandung.', { channel: 'app' });
+
+  const context = await withTenant(fixture.companyId, (tx) =>
+    buildContext(tx, { companyId: fixture.companyId, divisionId: fixture.divisionId, taskId: task.id }));
+  const told = context.sections.find((section) => section.title === 'The owner answered your question');
+  assert.ok(told, 'the run after the answer is not told it');
+  assert.match(told.body, /The owner answered: Supplier B, the one in Bandung\./);
+
+  const second = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(second.status, 'completed', second.reason);
+  const answer = (second.output as { answer: { output?: { answered: boolean; answer: string } } }).answer;
+  assert.deepEqual(answer.output, { answered: true, answer: 'Supplier B, the one in Bandung.' });
+  const asked = await withTenant(fixture.companyId, (tx) => tx.query(
+    "SELECT 1 FROM inbox_items WHERE task_id = $1 AND kind = 'escalation'", [task.id]));
+  assert.equal(asked.rowCount, 1, 'the same question is not asked twice');
+});
+
+test('a task asks the owner three things at most, and an unanswered question is said to be one', async () => {
+  const fixture = await createCompany('ask-bounds');
+  const task = await newTask(fixture, { script: 'done' });
+  await transition(fixture.companyId, task.id, 'running');
+  const ask = (question: string) => inbox.askOwner({ companyId: fixture.companyId, taskId: task.id, question });
+
+  const one = await ask('Which supplier?');
+  assert.equal(one.state, 'waiting');
+  assert.equal((await withTenant(fixture.companyId, (tx) => getTask(tx, task.id)))!.status, 'waiting_approval');
+  assert.equal((await ask('Which supplier?')).inboxItemId, one.inboxItemId, 'asked again, it is the same item');
+  await ask('Which week?');
+  await ask('Which price?');
+  await assert.rejects(ask('Which colour?'), /asked the owner 3 questions/);
+
+  await withControlPlane((tx) => tx.query("UPDATE inbox_items SET status = 'expired' WHERE id = $1", [one.inboxItemId]));
+  assert.equal((await ask('Which supplier?')).state, 'unanswered');
 });

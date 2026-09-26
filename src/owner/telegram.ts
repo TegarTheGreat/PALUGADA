@@ -124,7 +124,7 @@ export interface TelegramUpdate {
  * about what. It is not an authority: the reply is still only the owner's if
  * the owner sent it, and the item is still only asked if it is open.
  */
-const ASK_REFERENCE = /(?:^|\n)ref ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+const ASK_REFERENCE = /(?:^|\n)(ref|answer) ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
 
 /** The longest question a chat reply may carry, the same bound as the app's. */
 const QUESTION_MAX = 2_000;
@@ -184,6 +184,20 @@ export class TelegramChannel implements OwnerChannel {
         ...(item.url
           ? { reply_markup: { inline_keyboard: [[{ text: say(item.language, 'Open in PALUGADA'), url: item.url }]] } }
           : {}),
+      };
+    }
+
+    // A run's question is answered, not approved: "Answer" asks for the words
+    // and records them on the yes; "Stop" is the no that cancels the task.
+    if (item.question) {
+      return {
+        text: lines.join('\n'),
+        reply_markup: {
+          inline_keyboard: [[
+            { text: say(item.language, 'Answer'), callback_data: encodeAction({ itemId: item.id, decision: 'approve' }) },
+            { text: say(item.language, 'Stop the task'), callback_data: encodeAction({ itemId: item.id, decision: 'deny' }) },
+          ]],
+        },
       };
     }
 
@@ -329,7 +343,11 @@ export class TelegramChannel implements OwnerChannel {
     // owner had asked it "via chat". So the press asks for the question
     // instead, with a reply box already open, and `onReply` records it.
     if (action.decision === 'ask') {
-      return this.#promptForQuestion(companyId, action.itemId, query.id);
+      return this.#promptForReply(companyId, action.itemId, query.id, 'ask');
+    }
+    // The same for a run's question: "Answer" needs the answer's words.
+    if (action.decision === 'approve' && await this.#isQuestion(companyId, action.itemId)) {
+      return this.#promptForReply(companyId, action.itemId, query.id, 'answer');
     }
 
     try {
@@ -400,7 +418,9 @@ export class TelegramChannel implements OwnerChannel {
     const prompt = message.reply_to_message;
     const reference = prompt?.from?.is_bot ? ASK_REFERENCE.exec(prompt.text ?? '') : null;
     if (!reference) return { handled: false, reason: 'not_a_reply' };
-    const itemId = reference[1]!;
+    const answering = reference[1] === 'answer';
+    const decision: inbox.Decision = answering ? 'approve' : 'ask';
+    const itemId = reference[2]!;
     const companyId = await inbox.companyOfItem(itemId);
     if (!companyId) return { handled: false, reason: 'unknown_item' };
 
@@ -411,7 +431,9 @@ export class TelegramChannel implements OwnerChannel {
           companyId,
           type: 'security.chat_stranger_refused',
           actor: 'system',
-          payload: { inboxItemId: itemId, decision: 'ask', chatId: from, username: message.from?.username ?? null },
+          payload: {
+            inboxItemId: itemId, decision, chatId: from, username: message.from?.username ?? null,
+          },
         });
       });
       return { handled: false, reason: 'wrong_chat' };
@@ -421,15 +443,17 @@ export class TelegramChannel implements OwnerChannel {
     const question = (message.text ?? '').trim();
     if (!question) return { handled: false, reason: 'empty' };
     if (question.length > QUESTION_MAX) {
-      await this.#say(say(language, 'That is too long for one question; keep it under {max} characters.', { max: String(QUESTION_MAX) }));
+      await this.#tell(say(language, 'That is too long for one question; keep it under {max} characters.', { max: String(QUESTION_MAX) }));
       return { handled: false, reason: 'too_long' };
     }
     try {
-      await inbox.decide(companyId, itemId, 'ask', question, { channel: 'chat' });
-      await this.#say(say(language, 'Asked. The answer will be on the item in the app.'));
+      await inbox.decide(companyId, itemId, decision, question, { channel: 'chat' });
+      await this.#tell(answering
+        ? say(language, 'Answered. The task carries on with it.')
+        : say(language, 'Asked. The answer will be on the item in the app.'));
       return { handled: true };
     } catch (error) {
-      await this.#say(
+      await this.#tell(
         error instanceof PalugadaError && error.code === 'inbox.not_open'
           ? say(language, 'Already closed: {reason}.', {
             reason: String(error.message).replace(/^inbox item \S+ is closed: /, ''),
@@ -440,16 +464,27 @@ export class TelegramChannel implements OwnerChannel {
     }
   }
 
-  /** Asks the owner to type the question, as a reply the bot can read back. */
-  async #promptForQuestion(
+  /** Whether an item is a run's question (`owner.ask`), which is answered rather than approved. */
+  async #isQuestion(companyId: string, itemId: string): Promise<boolean> {
+    const { rows } = await withTenant(companyId, (tx) => tx.query<{ question: boolean }>(
+      "SELECT payload->>'askedBy' = 'agent' AS question FROM inbox_items WHERE id = $1", [itemId]));
+    return rows[0]?.question ?? false;
+  }
+
+  /**
+   * Asks the owner to type something -- their question, or their answer to a
+   * run's -- as a reply the bot can read back.
+   */
+  async #promptForReply(
     companyId: string,
     itemId: string,
     callbackQueryId: string,
+    mode: 'ask' | 'answer',
   ): Promise<{ handled: boolean; reason?: string }> {
     const language = await ownerLanguage();
     const { rows } = await withTenant(companyId, (tx) =>
-      tx.query<{ title: string; status: string; closed_reason: string | null }>(
-        'SELECT title, status, closed_reason FROM inbox_items WHERE id = $1', [itemId]));
+      tx.query<{ title: string; status: string; closed_reason: string | null; question: string | null }>(
+        "SELECT title, status, closed_reason, payload->>'question' AS question FROM inbox_items WHERE id = $1", [itemId]));
     const item = rows[0];
     if (!item || item.status !== 'open') {
       await this.#answer(callbackQueryId, say(language, 'Already closed: {reason}.', {
@@ -460,18 +495,23 @@ export class TelegramChannel implements OwnerChannel {
     await this.#call('sendMessage', {
       chat_id: this.#options.chatId,
       text: [
-        say(language, 'What do you want to ask about "{title}"? Reply to this message.', { title: item.title }),
+        mode === 'answer'
+          ? say(language, 'Your answer to "{question}"? Reply to this message.', { question: item.question ?? item.title })
+          : say(language, 'What do you want to ask about "{title}"? Reply to this message.', { title: item.title }),
         '',
-        `ref ${itemId}`,
+        `${mode === 'answer' ? 'answer' : 'ref'} ${itemId}`,
       ].join('\n'),
-      reply_markup: { force_reply: true, input_field_placeholder: say(language, 'Your question') },
+      reply_markup: {
+        force_reply: true,
+        input_field_placeholder: say(language, mode === 'answer' ? 'Your answer' : 'Your question'),
+      },
     });
-    await this.#answer(callbackQueryId, say(language, 'Type your question as a reply.'));
+    await this.#answer(callbackQueryId, say(language, mode === 'answer' ? 'Type your answer as a reply.' : 'Type your question as a reply.'));
     return { handled: true };
   }
 
   /** A plain message to the owner, for an answer to something they typed. */
-  async #say(text: string): Promise<void> {
+  async #tell(text: string): Promise<void> {
     await this.#call('sendMessage', { chat_id: this.#options.chatId, text }).catch(() => undefined);
   }
 

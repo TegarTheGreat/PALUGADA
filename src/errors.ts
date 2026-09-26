@@ -98,6 +98,8 @@ export type ErrorCode =
   | 'review.required'
   | 'window.closed'
   | 'approval.required'
+  /** A run asked the owner something with `owner.ask`; the task waits for the answer. */
+  | 'owner.asked'
   | 'approval.denied'
   | 'budget.exceeded'
   | 'budget.reservation_refused'

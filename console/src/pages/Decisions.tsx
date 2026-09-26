@@ -269,7 +269,9 @@ function Detail({
       }
       notifications.show({
         color: decision === 'approve' ? 'teal' : decision === 'deny' ? 'gray' : 'blue',
-        message: decision === 'approve' ? t('Approved.') : decision === 'deny' ? t('Denied.') : t('Question sent to the agent.'),
+        message: decision === 'approve'
+          ? item.question ? t('Answer sent. The task carries on with it.') : t('Approved.')
+          : decision === 'deny' ? t('Denied.') : t('Question sent to the agent.'),
       });
       decided();
     } catch (failure) {
@@ -375,16 +377,34 @@ function Detail({
           <Box>{trace ? <TraceView trace={trace} /> : <Text size="sm" c="dimmed">{t('Loading…')}</Text>}</Box>
         </Collapse>
 
-        <Textarea
-          label={t('Your note')}
-          description={t('Kept with the decision in your history. For “Ask”, this is the question.')}
-          autosize
-          minRows={2}
-          value={note}
-          onChange={(event) => setNote(event.currentTarget.value)}
-        />
+        {item.question ? (
+          // An agent asked with `owner.ask` and its task is parked on the
+          // answer. The answer is the note on a yes; "stop" is a no, which
+          // cancels the task, as it does for any escalation about live work.
+          <Paper withBorder radius="md" p="md" bg="var(--mantine-color-blue-light)">
+            <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb={4}>{t('The agent asks')}</Text>
+            <Text size="sm" fw={600} mb="sm" style={{ whiteSpace: 'pre-wrap' }}>{item.question}</Text>
+            <Textarea
+              label={t('Your answer')}
+              description={t('The task waits for it, then carries on with it.')}
+              autosize
+              minRows={2}
+              value={note}
+              onChange={(event) => setNote(event.currentTarget.value)}
+            />
+          </Paper>
+        ) : (
+          <Textarea
+            label={t('Your note')}
+            description={t('Kept with the decision in your history. For “Ask”, this is the question.')}
+            autosize
+            minRows={2}
+            value={note}
+            onChange={(event) => setNote(event.currentTarget.value)}
+          />
+        )}
 
-        {item.kind === 'escalation' && (
+        {item.kind === 'escalation' && !item.question && (
           <Paper withBorder radius="md" p="sm" bg="var(--mantine-color-default-hover)">
             <Textarea
               label={t('Answer the agent instead')}
@@ -405,6 +425,16 @@ function Detail({
         {error && <Alert color="red" variant="light">{error}</Alert>}
       </Stack>
       <Divider />
+      {item.question ? (
+        <Group p="md" justify="flex-end" wrap="wrap" gap="xs" bg="var(--mantine-color-default-hover)">
+          <Button variant="default" leftSection={<IconX size={16} />} loading={busy === 'deny'} onClick={() => void decide('deny')}>
+            {t('Stop the task')}
+          </Button>
+          <Button variant="outline" color="teal" leftSection={<IconCheck size={16} />} disabled={!note.trim()} loading={busy === 'approve'} onClick={() => void decide('approve')}>
+            {t('Send the answer')}
+          </Button>
+        </Group>
+      ) : (
       <Group p="md" justify="space-between" wrap="wrap" gap="xs" bg="var(--mantine-color-default-hover)">
         <Button variant="subtle" leftSection={<IconMessageQuestion size={16} />} loading={busy === 'ask'} onClick={() => void decide('ask')}>
           {t('Ask a question')}
@@ -418,6 +448,7 @@ function Detail({
           </Button>
         </Group>
       </Group>
+      )}
     </Paper>
   );
 }

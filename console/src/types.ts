@@ -36,6 +36,8 @@ export interface InboxItem {
   capabilityName: string | null;
   roleSlug: string | null;
   divisionName: string | null;
+  /** A question an agent asked with `owner.ask`: answered, not approved. */
+  question: string | null;
   goalChain: Array<{ kind: string; statement: string }>;
 }
 

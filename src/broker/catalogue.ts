@@ -96,6 +96,17 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
       'changes, and a second plan is refused rather than overwriting the first.',
   },
   {
+    // A run asking the owner what only the owner can answer; the task waits.
+    name: 'owner.ask',
+    adapter: 'platform',
+    tier: TIER.READ_ONLY,
+    summary: 'Asks the owner a question and waits for the answer.',
+    calibration:
+      'Opens one item in the owner\'s inbox and parks the task until it is ' +
+      'answered. Nothing outside the company changes and nothing is spent; ' +
+      'a task may ask at most three questions.',
+  },
+  {
     // 0053. Where a key result stands, reported by the run that found out.
     name: 'metric.record',
     adapter: 'platform',

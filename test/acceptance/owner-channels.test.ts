@@ -1310,3 +1310,56 @@ test('every sentence the platform says to the owner has its translation (src/own
     assert.deepEqual(Object.keys(sentences).filter((sentence) => !said.has(sentence)), [], `${language} keeps sentences nothing says`);
   }
 });
+
+/**
+ * A run's question (`owner.ask`) reaches the chat as something to answer, not
+ * approve, and the owner's reply is the answer the task resumes with.
+ */
+test("a run's question is answered from the chat, in the owner's words (owner.ask, F10.9)", async () => {
+  const fixture = await createCompany('chat-answer');
+  const vendor = await fakeTelegram();
+  try {
+    const { createRootTask, transition, getTask } = await import('../../src/engine/tasks.ts');
+    const task = await createRootTask({
+      companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+      roleId: fixture.roleId, budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId,
+      input: { goal: 'order the beans' }, createdBy: 'owner', reserveTokens: 1_000,
+    });
+    await transition(fixture.companyId, task.id, 'running');
+    const asked = await inbox.askOwner({ companyId: fixture.companyId, taskId: task.id, question: 'Arabica or robusta?' });
+    const channel = telegram({ url: vendor.url, secret: 'webhook-secret' });
+
+    await dispatch(fixture.companyId, channel, { now: tomorrow() });
+    const sent = vendor.calls.find((call) => call.path.endsWith('/sendMessage'))!;
+    const buttons = (sent.body.reply_markup as { inline_keyboard: Array<Array<{ text: string }>> }).inline_keyboard[0]!;
+    assert.deepEqual(buttons.map((button) => button.text), ['Answer', 'Stop the task']);
+
+    const owner = { id: 55555 };
+    const pressed = await channel.onUpdate({
+      callback_query: { id: 'cb-answer', data: encodeAction({ itemId: asked.inboxItemId, decision: 'approve' }), message: { chat: owner }, from: owner },
+    }, { secretHeader: 'webhook-secret' });
+    assert.equal(pressed.handled, true);
+    const still = await withTenant(fixture.companyId, (tx) => tx.query<{ status: string }>(
+      'SELECT status FROM inbox_items WHERE id = $1', [asked.inboxItemId]));
+    assert.equal(still.rows[0]!.status, 'open', 'pressing Answer answers nothing yet');
+
+    const prompt = vendor.calls.filter((call) => call.path.endsWith('/sendMessage')).at(-1)!;
+    assert.match(String(prompt.body.text), /Arabica or robusta\?/);
+    const replied = await channel.onUpdate({
+      message: {
+        message_id: 9, text: 'Arabica, from Gayo.', chat: owner, from: owner,
+        reply_to_message: { message_id: 8, text: String(prompt.body.text), from: { is_bot: true } },
+      },
+    }, { secretHeader: 'webhook-secret' });
+    assert.equal(replied.handled, true);
+
+    const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ decision: string; owner_note: string; status: string }>(
+      'SELECT decision, owner_note, status FROM inbox_items WHERE id = $1', [asked.inboxItemId]));
+    assert.deepEqual(rows[0], { decision: 'approve', owner_note: 'Arabica, from Gayo.', status: 'decided' });
+    assert.equal((await withTenant(fixture.companyId, (tx) => getTask(tx, task.id)))!.status, 'running');
+    assert.deepEqual(await withTenant(fixture.companyId, (tx) => inbox.answersFor(tx, task.id)),
+      [{ question: 'Arabica or robusta?', answer: 'Arabica, from Gayo.' }]);
+  } finally {
+    await vendor.close();
+  }
+});

@@ -100,9 +100,11 @@ const WORK_OUTPUT = {
  * use: F8.11 refuses a tier 2 action on a task with no plan, and the only way
  * a run records one is this capability. The second is how a run says where a
  * key result stands (0053). Both write only to the company's own records,
- * which is why they are tier 0.
+ * which is why they are tier 0. The third, `owner.ask`, is how a run that
+ * needs the owner asks rather than guesses; it opens an item and parks the
+ * task, and nothing leaves the company.
  */
-const PLATFORM_TOOLS = ['memory.search', 'skill.read', 'plan.record', 'metric.record'] as const;
+const PLATFORM_TOOLS = ['memory.search', 'skill.read', 'plan.record', 'metric.record', 'owner.ask'] as const;
 
 /**
  * The two divisions that do not get them, and why.
@@ -189,7 +191,6 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     { division: 'ops', capability: 'uptime.check' },
     { division: 'ops', capability: 'metrics.read' },
     { division: 'ops', capability: 'files.list' },
-    { division: 'ops', capability: 'web.fetch' },
     { division: 'ops', capability: 'calendar.read' },
     { division: 'ops', capability: 'calendar.hold' },
     { division: 'ops', capability: 'doc.draft' },
@@ -223,7 +224,12 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     { division: 'growth', capability: 'email.draft' },
     { division: 'growth', capability: 'email.send', rateLimitPerHour: 20 },
     { division: 'growth', capability: 'social.publish', rateLimitPerHour: 4 },
-    { division: 'growth', capability: 'ads.campaign.start', rateLimitPerHour: 1 },
+    // Not `ads.campaign.start`. Paid reach is the fastest way for a company
+    // with nothing proven to spend its budget, and a standing grant for it
+    // made every new company one prompt away from buying ads. The owner adds
+    // it -- the grant here and the tool on the marketer -- once there is
+    // something worth advertising.
+
 
     // Finance. Deliberately no `funds.transfer`: a transfer with no invoice to
     // check the amount and the recipient against is tier 3, and a template
@@ -270,7 +276,8 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
         'uptime.check',
         'metrics.read',
         'files.list',
-        'web.fetch',
+        // Not `web.fetch`: nothing in the charter above reads the web, and
+        // F2.4's twelve is a budget -- `owner.ask` spent the last place.
         'calendar.read',
         'calendar.hold',
         'doc.draft',
@@ -347,7 +354,6 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
         'email.draft',
         'email.send',
         'social.publish',
-        'ads.campaign.start',
       ],
       inputSchema: WORK_INPUT,
       outputSchema: WORK_OUTPUT,

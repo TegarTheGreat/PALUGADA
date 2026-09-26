@@ -24,6 +24,8 @@ import { readSkill } from '../skills/skills.ts';
 import { TIER } from '../domain/tier.ts';
 import { recordPlan, type PlanStep } from '../engine/plan.ts';
 import { recordObservation } from '../domain/metrics.ts';
+import { askOwner } from '../inbox/inbox.ts';
+import { PalugadaError } from '../errors.ts';
 import type { Capability } from './registry.ts';
 
 export interface MemorySearchInput {
@@ -212,7 +214,72 @@ export function registerPlatformCapabilities(registry: {
   registry.register(skillReadCapability() as unknown as Capability<never, never>);
   registry.register(planRecordCapability() as unknown as Capability<never, never>);
   registry.register(metricRecordCapability() as unknown as Capability<never, never>);
+  registry.register(ownerAskCapability() as unknown as Capability<never, never>);
+}
+
+export interface OwnerAskInput {
+  /** One question, answerable by the owner alone. */
+  question: string;
+  /** What depends on the answer, so the owner can answer the right thing. */
+  why?: string;
+}
+
+export interface OwnerAskResult {
+  answered: boolean;
+  answer?: string;
+  /** Said when there is no answer to give. */
+  note?: string;
+}
+
+/** The longest question: the owner reads it on a phone. */
+export const QUESTION_MAX = 1_000;
+
+/**
+ * `owner.ask`: a run asking the owner what only the owner can answer.
+ *
+ * Tier 0 because nothing leaves the company and nothing is spent: an item
+ * opens in the owner's inbox and the task waits. The waiting is the point.
+ * The call does not return a guess; it ends the run with `owner.asked`, which
+ * parks the task until the owner answers, whatever runtime made the call.
+ * The run after it is told the answer in its context, and the same question
+ * asked again returns it -- so a runtime that replays its calls picks up
+ * where it stopped.
+ */
+export function ownerAskCapability(): Capability<OwnerAskInput, OwnerAskResult> {
+  return {
+    name: 'owner.ask',
+    adapter: 'platform',
+    defaultTier: TIER.READ_ONLY,
+    describe: () => ({ moneyCents: 0 }),
+    async execute(input, ctx) {
+      const question = String(input.question ?? '').trim();
+      if (!question) {
+        throw new PalugadaError('contract.violation', 'owner.ask needs a question', { field: 'question' });
+      }
+      if (question.length > QUESTION_MAX) {
+        throw new PalugadaError('contract.violation', `a question is at most ${QUESTION_MAX} characters`, { field: 'question' });
+      }
+      const asked = await askOwner({
+        companyId: ctx.companyId,
+        taskId: ctx.taskId,
+        question,
+        why: typeof input.why === 'string' ? input.why : null,
+      });
+      if (asked.state === 'answered') return { answered: true, answer: asked.answer };
+      if (asked.state === 'unanswered') {
+        return {
+          answered: false,
+          note: 'The owner closed this question without answering it. Decide with what you have and say what you assumed.',
+        };
+      }
+      throw new PalugadaError(
+        'owner.asked',
+        'the owner has been asked; this task waits for the answer and resumes with it',
+        { inboxItemId: asked.inboxItemId },
+      );
+    },
+  };
 }
 
 /** The names this module implements, for a caller that needs to know. */
-export const PLATFORM_CAPABILITIES = ['memory.search', 'skill.read', 'plan.record', 'metric.record'] as const;
+export const PLATFORM_CAPABILITIES = ['memory.search', 'skill.read', 'plan.record', 'metric.record', 'owner.ask'] as const;

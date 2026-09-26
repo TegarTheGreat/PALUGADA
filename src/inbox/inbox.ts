@@ -85,6 +85,8 @@ export interface InboxItem {
   /** Who is asking: the role and division of the task behind the item. */
   roleSlug: string | null;
   divisionName: string | null;
+  /** A question a run put to the owner with `owner.ask`, which the owner answers rather than approves. */
+  question: string | null;
   /**
    * F2.7, F10.2: why this work exists, mission first. An owner deciding on a
    * phone at seven in the morning reads it on the item rather than following
@@ -299,6 +301,8 @@ export interface EscalationInput {
    * action rather than a note they then have to go and carry out.
    */
   scheduleId?: string | undefined;
+  /** Anything else the item carries for whoever answers it, merged into its payload. */
+  payload?: Record<string, unknown> | undefined;
 }
 
 export async function raiseEscalation(input: EscalationInput): Promise<string> {
@@ -369,6 +373,7 @@ export async function raiseEscalationWithin(tx: TenantClient, input: EscalationI
             ? { divisionId: input.divisionId, escalationRole: null }
             : {}),
         ...(input.scheduleId ? { scheduleId: input.scheduleId } : {}),
+        ...(input.payload ?? {}),
       }),
     ],
   );
@@ -387,6 +392,112 @@ export async function raiseEscalationWithin(tx: TenantClient, input: EscalationI
     },
   });
   return id;
+}
+
+/** How many questions one task may put to the owner. */
+export const QUESTIONS_PER_TASK = 3;
+
+export type AgentQuestion =
+  | { state: 'answered'; inboxItemId: string; answer: string }
+  | { state: 'waiting'; inboxItemId: string }
+  | { state: 'unanswered'; inboxItemId: string };
+
+/**
+ * A run asking the owner something only the owner can answer, and parking
+ * until they do.
+ *
+ * Without it a run had two outcomes left when it needed the owner: guess,
+ * which spends money on what may be the wrong thing, or fail into an
+ * incident. Buzz makes a question mandatory when a person is needed, and
+ * Paperclip's agents can put one to the board; this is the same, as an
+ * escalation the owner answers from the inbox or a chat. The answer is the
+ * note on their approve, and a deny stops the task, as it does for any
+ * escalation about work in progress.
+ *
+ * Asked again -- a runtime resumed after the answer, replaying its own steps
+ * -- the same question is answered from the item rather than asked twice.
+ * One still open parks the task again. One that closed without an answer
+ * says so, and the run decides with what it has. Past `QUESTIONS_PER_TASK`
+ * a task is being run by the owner a question at a time, and is refused.
+ */
+export async function askOwner(input: {
+  companyId: string;
+  taskId: string;
+  question: string;
+  why?: string | null;
+}): Promise<AgentQuestion> {
+  const question = input.question.trim();
+  return withTenant(input.companyId, async (tx) => {
+    // The task before the item, the order every other writer takes them in.
+    const task = await tx.query<{ status: string; role: string }>(
+      `SELECT t.status, r.slug AS role FROM tasks t JOIN roles r ON r.id = t.role_id
+        WHERE t.id = $1 FOR NO KEY UPDATE OF t`, [input.taskId]);
+    if (!task.rows[0]) {
+      throw new PalugadaError('contract.violation', 'no such task in this company', { taskId: input.taskId });
+    }
+    const { rows: asked } = await tx.query<{
+      id: string; status: string; decision: string | null; owner_note: string | null; question: string;
+    }>(
+      `SELECT id, status, decision, owner_note, payload->>'question' AS question FROM inbox_items
+        WHERE task_id = $1 AND kind = 'escalation' AND payload->>'askedBy' = 'agent'
+        ORDER BY created_at`,
+      [input.taskId],
+    );
+    const park = async () => {
+      if (task.rows[0]!.status !== 'waiting_approval') {
+        await transitionWithin(tx, input.companyId, input.taskId, 'waiting_approval');
+      }
+    };
+
+    const same = asked.find((row) => row.question === question);
+    if (same) {
+      if (same.status === 'open') {
+        await park();
+        return { state: 'waiting', inboxItemId: same.id };
+      }
+      if (same.status === 'decided' && same.decision === 'approve') {
+        return { state: 'answered', inboxItemId: same.id, answer: same.owner_note ?? '' };
+      }
+      return { state: 'unanswered', inboxItemId: same.id };
+    }
+    if (asked.length >= QUESTIONS_PER_TASK) {
+      throw new PalugadaError(
+        'contract.violation',
+        `this task has asked the owner ${QUESTIONS_PER_TASK} questions; decide with what you have, ` +
+          'say what you assumed, or stop',
+        { taskId: input.taskId },
+      );
+    }
+
+    const id = await raiseEscalationWithin(tx, {
+      companyId: input.companyId,
+      taskId: input.taskId,
+      title: `${task.rows[0]!.role} asks: ${question.length > 140 ? `${question.slice(0, 139)}…` : question}`,
+      detail: input.why?.trim() ? `${question}\n\nWhy it matters: ${input.why.trim()}` : question,
+      payload: { askedBy: 'agent', question, role: task.rows[0]!.role },
+    });
+    await park();
+    return { state: 'waiting', inboxItemId: id };
+  });
+}
+
+/**
+ * The owner's answers to what this task asked, for the run that asked. Read
+ * from the decided items rather than from the journal, so a runtime that
+ * cannot replay its own calls is told them anyway.
+ */
+export async function answersFor(
+  tx: TenantClient,
+  taskId: string,
+): Promise<Array<{ question: string; answer: string }>> {
+  const { rows } = await tx.query<{ question: string; answer: string | null }>(
+    `SELECT payload->>'question' AS question, owner_note AS answer FROM inbox_items
+      WHERE task_id = $1 AND kind = 'escalation' AND payload->>'askedBy' = 'agent'
+        AND status = 'decided' AND decision = 'approve'
+      ORDER BY created_at`,
+    [taskId],
+  );
+  return rows.map((row) => ({ question: row.question, answer: row.answer ?? '' }));
 }
 
 /**
@@ -530,10 +641,12 @@ export async function listOpen(companyId: string): Promise<InboxItem[]> {
       estimated_cost_cents: number; consequence_if_denied: string;
       task_id: string | null; expires_at: Date | null; created_at: Date;
       capability_name: string | null; role_slug: string | null; division_name: string | null;
+      question: string | null;
     }>(
       `SELECT i.id, i.kind, i.status, i.title, i.action_summary, i.rationale, i.tier,
               i.estimated_cost_cents, i.consequence_if_denied, i.task_id, i.expires_at,
-              i.created_at, i.capability_name, r.slug AS role_slug, d.name AS division_name
+              i.created_at, i.capability_name, r.slug AS role_slug, d.name AS division_name,
+              CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->>'question' END AS question
          FROM inbox_items i
          LEFT JOIN tasks t ON t.id = i.task_id
          LEFT JOIN roles r ON r.id = t.role_id
@@ -551,6 +664,7 @@ export async function listOpen(companyId: string): Promise<InboxItem[]> {
         consequenceIfDenied: r.consequence_if_denied,
         taskId: r.task_id, expiresAt: r.expires_at, createdAt: r.created_at,
         capabilityName: r.capability_name, roleSlug: r.role_slug, divisionName: r.division_name,
+        question: r.question,
         goalChain: chain.map((goal) => ({ kind: goal.kind, statement: goal.statement })),
       });
     }

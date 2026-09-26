@@ -60,7 +60,7 @@ means less than that, the row says so.
 | F2 organisation | F2.1–F2.9 | — | — |
 | F3 charter, policy | F3.1–F3.12 | — | — |
 | F4 memory | F4.1–F4.8 | — | — |
-| F5 engine | F5.1–F5.14 | — | — |
+| F5 engine | F5.1–F5.6, F5.8–F5.14 | F5.7 (per division, enforced at the claim; per capability, not built -- see 2.22) | — |
 | F6 agent communication | F6.1–F6.7 | — | — |
 | F7 adversarial review | F7.1–F7.7 | — | — |
 | F8 broker, tiers | F8.1–F8.13 | — | — |
@@ -3094,6 +3094,22 @@ remembers (0064), because the console stores nothing in the browser and a
 tour that came back on every new phone would be one the owner dismisses
 unread; it is in the owner's menu to take again. Checked in a browser, on a
 desktop and a phone, in English and Indonesian.
+
+### F5.7 was graded built and was not
+
+The user guide's page on scale was written from the code, and it found
+that a division's **Runs at once, at most** -- stored since the second
+migration, shown on the division's page, changed by the owner -- was read by
+no claim: a division set to one ran as many tasks at once as there were
+workers. The claim now counts a division's tasks in flight under the same
+per-company lock that makes the lane and the budget exact. A child its own
+running parent drives is inside the parent's place, or a full division
+would leave the parent waiting on a child nothing could start.
+
+The requirement's other half, a limit per capability, is not built: a
+vendor's own limits are met by its 429s and `Retry-After` (F9.2), and a
+count shared by every replica needs a slot table this has not got. F5.7 is
+graded partial until it has.
 
 **Still open.** Claude Code's run is not given a home of its own, because its
 login lives in the operator's; its settings and memory are shut out by flag

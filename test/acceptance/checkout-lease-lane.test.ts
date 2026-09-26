@@ -18,7 +18,7 @@ import {
   releaseTask,
   renewLease,
 } from '../../src/engine/checkout.ts';
-import { createRootTask, getTask, transition } from '../../src/engine/tasks.ts';
+import { createRootTask, createSubTask, getTask, transition } from '../../src/engine/tasks.ts';
 import { Engine } from '../../src/engine/engine.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { CapabilityRegistry } from '../../src/broker/registry.ts';
@@ -90,6 +90,9 @@ const ITERATIONS = process.env.PALUGADA_SOAK === '1' ? SOAK_ITERATIONS : QUICK_I
 
 test('twenty workers racing for five tasks claim each exactly once (F5.11)', async () => {
   const fixture = await createCompany('claim-race', { tokensMax: 100_000_000 });
+  // Room for all five in the division (F5.7), so what is measured is the
+  // claim's atomicity and nothing else.
+  await withControlPlane((tx) => tx.query('UPDATE divisions SET max_concurrency = 20 WHERE id = $1', [fixture.divisionId]));
 
   for (let round = 0; round < ITERATIONS; round += 1) {
     const tasks = await Promise.all([
@@ -628,4 +631,35 @@ test('two replicas creating one occurrence both get the same task (F9.1)', async
     return Number(rows[0]!.tokens_reserved);
   });
   assert.equal(reserved, 1_000, 'one reservation held, the losers\' given back');
+});
+
+test('a division runs no more at once than its limit says (F5.7)', async () => {
+  // The limit was stored, shown on the division's page and changed by the
+  // owner -- and no claim read it, so a division set to one ran as many
+  // tasks as there were workers.
+  const fixture = await createCompany('division-limit');
+  await withControlPlane((tx) => tx.query('UPDATE divisions SET max_concurrency = 2 WHERE id = $1', [fixture.divisionId]));
+  const tasks = [await newTask(fixture), await newTask(fixture), await newTask(fixture)];
+
+  const a = await claimTask(fixture.companyId, { holder: 'worker-a' });
+  const b = await claimTask(fixture.companyId, { holder: 'worker-b' });
+  assert.ok(a && b);
+  assert.equal(await claimTask(fixture.companyId, { holder: 'worker-c' }), null, 'a third run would exceed the division\'s two');
+
+  // A run that ends frees its place, whichever way it ended.
+  await transition(fixture.companyId, a.taskId, 'running');
+  await transition(fixture.companyId, a.taskId, 'completed');
+  const c = await claimTask(fixture.companyId, { holder: 'worker-c' });
+  assert.equal(c!.taskId, tasks.find((task) => task.id !== a.taskId && task.id !== b.taskId)!.id);
+
+  // A child its own running parent drives is inside the parent's place, even
+  // with the division full; anyone else still waits for room.
+  await transition(fixture.companyId, b.taskId, 'running');
+  const child = await createSubTask(b.taskId, {
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    roleId: fixture.roleId, goalId: fixture.goalId, input: { goal: 'the part handed down' }, reserveTokens: 100,
+  });
+  assert.equal(await claimTask(fixture.companyId, { holder: 'worker-c', taskId: child.id }), null);
+  const driven = await claimTask(fixture.companyId, { holder: 'worker-b', taskId: child.id });
+  assert.equal(driven?.taskId, child.id, 'the parent\'s run is not made to wait on itself');
 });

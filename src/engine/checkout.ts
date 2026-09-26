@@ -112,6 +112,25 @@ const CLAIM_SQL = `
               WHERE busy.lane_key = t.lane_key
                 AND busy.id <> t.id
                 AND busy.status IN ('checked_out', 'running')))
+       -- F5.7: no more of a division's tasks at once than its limit. The
+       -- limit was stored, shown and changed by the owner, and read by no
+       -- claim, so a division set to one ran as many as there were workers.
+       -- Exact under the company's claim lock above, like the lane.
+       --
+       -- Except a child its own running parent is driving: that is the
+       -- parent's run going on, in the place the parent already holds, and a
+       -- division full with the parent would otherwise leave the parent
+       -- waiting on a child nothing could start until its deadline.
+       AND ((SELECT count(*) FROM tasks busy
+              WHERE busy.division_id = t.division_id
+                AND busy.id <> t.id
+                AND busy.status IN ('checked_out', 'running'))
+            < (SELECT d.max_concurrency FROM divisions d WHERE d.id = t.division_id)
+            OR ($2::uuid IS NOT NULL AND EXISTS (
+              SELECT 1 FROM tasks parent
+               WHERE parent.id = t.parent_task_id
+                 AND parent.lease_holder = $1
+                 AND parent.status IN ('checked_out', 'running'))))
        AND (SELECT b.tokens_max - b.tokens_spent
               FROM budget_accounts b WHERE b.id = t.budget_account_id)
            >= t.tokens_reserved

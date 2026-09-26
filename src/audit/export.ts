@@ -157,9 +157,16 @@ const SECTIONS: Section[] = [
   },
   {
     name: 'inbox_items',
+    // `closed_reason` because a withdrawn item without one is refused by 0036,
+    // so an archive holding one could not be restored; `payload` because it is
+    // what an answer acts on -- the memory an SOP candidate is, the schedule
+    // an escalation is about -- and an item without it is a question whose
+    // answer does nothing.
     sql: `SELECT id, task_id, kind, status, title, action_summary, rationale, tier,
                  estimated_cost_cents, consequence_if_denied, capability_name,
-                 expires_at, decision, decided_at, owner_note, created_at
+                 expires_at, decision, decided_at, decided_via, owner_note,
+                 closed_reason, notify_after, payload, action_fingerprint,
+                 consumed_at, created_at
             FROM inbox_items ORDER BY created_at`,
   },
   {

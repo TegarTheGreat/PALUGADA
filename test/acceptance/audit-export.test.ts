@@ -499,6 +499,139 @@ test('a company with an approved skill restores, and external knowledge is re-ga
     skillSummariesFor(tx, { companyId: restored.companyId }),
   );
   assert.deepEqual(live.map((entry) => entry.slug), ['refund-policy']);
+
+  // And only there. The re-gating runs on the control plane now, where row
+  // security narrows nothing, so it has to name the company itself -- or
+  // restoring one company would have sent every other company's vouched-for
+  // skills back to candidates.
+  const source = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ slug: string; quarantined: boolean; state: string }>(
+      `SELECT s.slug, s.quarantined, v.state
+         FROM skills s JOIN skill_versions v ON v.skill_id = s.id
+        ORDER BY s.slug`,
+    );
+    return rows;
+  });
+  assert.deepEqual(source, [
+    { slug: 'cold-outreach', quarantined: false, state: 'active' },
+    { slug: 'refund-policy', quarantined: false, state: 'active' },
+  ], 'the source company\'s skills are exactly as they were');
+});
+
+/**
+ * A company that has lived a while restores.
+ *
+ * Two ordinary histories made an archive unrestorable. A corrected fact: the
+ * older memory points at the one that replaced it, the archive lists oldest
+ * first, and an immediate foreign key refused the older row. A withdrawn
+ * approval: the export left out `closed_reason`, which 0036 requires of a
+ * withdrawn item. And an escalation about a schedule came back naming the
+ * source's schedule, so the owner's answer would have acted on nothing.
+ */
+test('corrected facts, withdrawn approvals and schedule escalations restore (F16.4)', async () => {
+  const fixture = await createCompany('export-history');
+  await seedCompany(fixture, 'history');
+  const { supersede } = await import('../../src/memory/store.ts');
+  const { requestApproval, raiseEscalation } = await import('../../src/inbox/inbox.ts');
+  const { transition } = await import('../../src/engine/tasks.ts');
+  const { upsertSchedule } = await import('../../src/scheduler/scheduler.ts');
+
+  // Two transactions, so the correction is later than the fact it corrects --
+  // which is the order the archive lists them in and the one that failed.
+  const wrong = await withTenant(fixture.companyId, (tx) => remember(tx, {
+    companyId: fixture.companyId, memoryType: 'semantic', scopeType: 'company',
+    body: 'The office closes at five.',
+  }));
+  await withTenant(fixture.companyId, (tx) => supersede(tx, wrong, {
+    companyId: fixture.companyId, memoryType: 'semantic', scopeType: 'company',
+    body: 'The office closes at six.',
+  }));
+
+  const task = await createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    roleId: fixture.roleId, budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId,
+    input: { marker: 'withdrawn' }, createdBy: 'owner', reserveTokens: 1_000,
+  });
+  await transition(fixture.companyId, task.id, 'running');
+  await requestApproval({
+    companyId: fixture.companyId, taskId: task.id, capabilityName: 'deploy.staging', tier: 2,
+    actionSummary: 'Deploy', rationale: 'because', consequenceIfDenied: 'nothing',
+  });
+  await transition(fixture.companyId, task.id, 'cancelled', { haltReason: 'owner_stop' });
+
+  await upsertSchedule({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    roleId: fixture.roleId, budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId,
+    slug: 'nightly', cronExpression: '0 2 * * *', timezone: 'UTC', input: {}, reserveTokens: 100,
+  });
+  const scheduleId = await withTenant(fixture.companyId, async (tx) =>
+    (await tx.query<{ id: string }>("SELECT id FROM schedules WHERE slug = 'nightly'")).rows[0]!.id);
+  await raiseEscalation({
+    companyId: fixture.companyId, scheduleId, title: 'Nightly repeats itself', detail: 'Five times.',
+  });
+
+  const lines: ArchiveLine[] = [];
+  await exportCompany(fixture.companyId, (line) => {
+    lines.push(line);
+  });
+  const restored = await importCompany(lines, { slug: `${fixture.slug}-restored` });
+
+  const found = await withTenant(restored.companyId, async (tx) => {
+    const memories = await tx.query<{ body: string; replaced_by: string | null }>(
+      `SELECT m.body, newer.body AS replaced_by
+         FROM memories m LEFT JOIN memories newer ON newer.id = m.superseded_by
+        WHERE m.body LIKE 'The office%' ORDER BY m.body`,
+    );
+    const withdrawn = await tx.query<{ closed_reason: string }>(
+      "SELECT closed_reason FROM inbox_items WHERE status = 'withdrawn'",
+    );
+    const escalation = await tx.query<{ schedule: string | null }>(
+      `SELECT s.slug AS schedule FROM inbox_items i
+         LEFT JOIN schedules s ON s.id::text = i.payload->>'scheduleId'
+        WHERE i.kind = 'escalation'`,
+    );
+    return {
+      memories: memories.rows.map((row) => [row.body, row.replaced_by]),
+      withdrawn: withdrawn.rows.map((row) => row.closed_reason),
+      escalation: escalation.rows.map((row) => row.schedule),
+    };
+  });
+  assert.deepEqual(found.memories, [
+    ['The office closes at five.', 'The office closes at six.'],
+    ['The office closes at six.', null],
+  ]);
+  assert.deepEqual(found.withdrawn, ['task_cancelled']);
+  assert.deepEqual(found.escalation, ['nightly'], 'the answer acts on the schedule here');
+});
+
+/**
+ * All of it or none of it. Sections committed one at a time after the
+ * company row did, so an archive that failed half-way left a company with a
+ * slug and some of its divisions -- and a retry under the same slug was
+ * refused because the slug was taken.
+ */
+test('an archive that cannot be restored leaves nothing behind (F16.4)', async () => {
+  const fixture = await createCompany('export-atomic');
+  await seedCompany(fixture, 'atomic');
+  const lines: ArchiveLine[] = [];
+  await exportCompany(fixture.companyId, (line) => {
+    lines.push(line);
+  });
+
+  // A role that breaks a rule the schema states: more tools than a role may hold.
+  const broken = lines.map((line) => (line.section === 'roles'
+    ? { ...line, row: { ...line.row, tools: Array.from({ length: 40 }, (_, n) => `tool.${n}`) } }
+    : line));
+  const slug = `${fixture.slug}-restored`;
+  await assert.rejects(importCompany(broken, { slug }));
+  const leftovers = await withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ n: number }>('SELECT count(*)::int AS n FROM companies WHERE slug = $1', [slug]);
+    return rows[0]!.n;
+  });
+  assert.equal(leftovers, 0, 'no half-built company');
+
+  const restored = await importCompany(lines, { slug });
+  assert.equal(restored.slug, slug, 'and the slug is free for the retry');
 });
 
 /**

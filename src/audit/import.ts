@@ -35,7 +35,7 @@
  *     not coming.
  */
 import { randomUUID } from 'node:crypto';
-import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
+import { withControlPlane, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
 import type { ArchiveLine } from './export.ts';
@@ -58,18 +58,12 @@ interface ImportSection {
    */
   force?: Record<string, unknown>;
   /**
-   * Written through the control plane instead of the tenant scope.
-   *
-   * For the tables the application role cannot write. `goals` is one -- F3.10
-   * makes strategy the owner's, so an agent cannot write one -- and so is
-   * every configuration table that carries a rule: a policy, a ceiling or a
-   * window an agent could rewrite is not a rule (F2.9, F3.10). Restoring a
-   * company is an owner action, so it goes the way the owner console goes
-   * rather than the application role quietly gaining a privilege it must not
-   * have. Marked explicitly per section rather than inferred, so adding a
-   * section is a decision about which role writes it.
+   * JSON columns whose values may carry ids from the archive -- an inbox
+   * item's payload names the memory, skill or schedule its answer acts on.
+   * Any string in them that is an id this import has mapped is replaced by
+   * the id it has here.
    */
-  viaControlPlane?: boolean;
+  remapJson?: readonly string[];
 }
 
 /**
@@ -104,7 +98,7 @@ interface ImportSection {
 const SECTIONS: ImportSection[] = [
   { name: 'projects', table: 'projects', references: [] },
   { name: 'divisions', table: 'divisions', references: ['parent_division_id'] },
-  { name: 'goals', table: 'goals', references: ['parent_goal_id'], viaControlPlane: true },
+  { name: 'goals', table: 'goals', references: ['parent_goal_id'] },
   { name: 'roles', table: 'roles', references: ['division_id'] },
   { name: 'capability_grants', table: 'capability_grants', references: ['division_id'] },
   {
@@ -183,7 +177,6 @@ const SECTIONS: ImportSection[] = [
     name: 'governance_log',
     table: 'governance_log',
     references: ['subject_id', 'division_id'],
-    viaControlPlane: true,
   },
   // Before `skill_versions`, and the ordering is load-bearing rather than
   // tidy: 0021's `skill_versions_require_an_eval` refuses an `active` version
@@ -192,17 +185,18 @@ const SECTIONS: ImportSection[] = [
   // whose skills were all still `candidate` restored at all.
   { name: 'skill_evals', table: 'skill_evals', references: ['skill_id'] },
   { name: 'skill_versions', table: 'skill_versions', references: ['skill_id', 'review_request_id'] },
-  { name: 'config_versions', table: 'config_versions', references: ['subject_id'] },
   { name: 'role_eval_cases', table: 'role_eval_cases', references: ['role_id', 'source_agent_run_id'] },
-  {
-    name: 'inbox_items',
-    table: 'inbox_items',
-    references: ['task_id'],
-  },
   {
     name: 'schedules',
     table: 'schedules',
     references: ['project_id', 'division_id', 'role_id', 'budget_account_id', 'goal_id'],
+  },
+  {
+    // After everything its payload can name: memories, skills, schedules.
+    name: 'inbox_items',
+    table: 'inbox_items',
+    references: ['task_id'],
+    remapJson: ['payload'],
   },
 
   // F1.5's configuration, restored last because it references divisions and
@@ -215,27 +209,18 @@ const SECTIONS: ImportSection[] = [
   // could rewrite is not a rule (F2.9, F3.10). Restoring a company is an owner
   // action, so it goes the same way the owner console does rather than the
   // application role quietly gaining a privilege it must not have.
-  {
-    name: 'policies',
-    table: 'policies',
-    references: ['division_id'],
-    viaControlPlane: true,
-  },
-  { name: 'spend_limits', table: 'spend_limits', references: [], viaControlPlane: true },
-  { name: 'alert_thresholds', table: 'alert_thresholds', references: [], viaControlPlane: true },
-  {
-    name: 'retention_policies',
-    table: 'retention_policies',
-    references: [],
-    viaControlPlane: true,
-  },
-  { name: 'batch_windows', table: 'batch_windows', references: [], viaControlPlane: true },
-  {
-    name: 'capability_windows',
-    table: 'capability_windows',
-    references: ['division_id'],
-    viaControlPlane: true,
-  },
+  { name: 'policies', table: 'policies', references: ['division_id'] },
+  { name: 'spend_limits', table: 'spend_limits', references: [] },
+  { name: 'alert_thresholds', table: 'alert_thresholds', references: [] },
+  { name: 'retention_policies', table: 'retention_policies', references: [] },
+  { name: 'batch_windows', table: 'batch_windows', references: [] },
+  { name: 'capability_windows', table: 'capability_windows', references: ['division_id'] },
+  // Last, because a version's subject can be anything above: a role, a
+  // charter, a policy. Before `policies`, a policy's history had nothing to
+  // map its subject to, came in with a NULL subject, and collided with the
+  // next one on the identity index -- which ON CONFLICT DO NOTHING dropped
+  // without a word.
+  { name: 'config_versions', table: 'config_versions', references: ['subject_id'] },
 ];
 
 /**
@@ -299,44 +284,56 @@ export async function importCompany(
     throw new PalugadaError('archive.invalid', 'the archive has no company section', {});
   }
 
-  const companyId = await withControlPlane(async (tx) => {
-    const { rows } = await tx.query<{ id: string }>(
-      'INSERT INTO companies (slug, name, timezone) VALUES ($1, $2, $3) RETURNING id',
-      [options.slug, options.name ?? String(source!.name ?? options.slug), String(source!.timezone ?? 'UTC')],
-    );
-    return rows[0]!.id;
-  });
-
-  // Every id the archive carried, mapped to the one it has here. Seeded with
-  // the company itself so that a reference to the old company id -- which
-  // should not appear, but might in a payload -- resolves rather than dangles.
-  const remap = new Map<string, string>([[String(source.id), companyId]]);
-  const counts: Record<string, number> = {};
-
-  for (const section of SECTIONS) {
-    const rows = bySection.get(section.name) ?? [];
-    if (rows.length === 0) continue;
-    counts[section.name] = section.viaControlPlane
-      ? await withControlPlane((tx) => importSection(tx, companyId, section, rows, remap))
-      : await withTenant(companyId, (tx) => importSection(tx, companyId, section, rows, remap));
-  }
-
-  await requireLocalVouching(companyId);
-
   const skipped = [...bySection.keys()].filter(
     (name) => !SECTIONS.some((section) => section.name === name),
   );
 
-  await withTenant(companyId, async (tx) => {
+  // One transaction, on the control plane, for the whole company.
+  //
+  // Each section used to commit on its own after the company row had, so an
+  // archive that failed half-way -- a constraint, a reference, a malformed
+  // row -- left a company with a slug, some divisions and no tasks, and a
+  // retry under the same slug was refused because the slug was taken. All of
+  // it lands now or none of it does.
+  //
+  // The control plane rather than the tenant scope, because several sections
+  // are tables the application role may not write -- goals, the governance
+  // log, every table that carries a rule -- and restoring a company is an
+  // owner action that goes the way the owner console does. What row security
+  // would have checked, `importSection` states: every row is written with this
+  // company's id and no other.
+  return withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ id: string }>(
+      'INSERT INTO companies (slug, name, timezone) VALUES ($1, $2, $3) RETURNING id',
+      [options.slug, options.name ?? String(source!.name ?? options.slug), String(source!.timezone ?? 'UTC')],
+    );
+    const companyId = rows[0]!.id;
+    // For anything below that asks which tenant it is working for.
+    await tx.query("SELECT set_config('app.company_id', $1, true)", [companyId]);
+
+    // Every id the archive carried, mapped to the one it has here. Seeded with
+    // the company itself so that a reference to the old company id -- which
+    // should not appear, but might in a payload -- resolves rather than dangles.
+    const remap = new Map<string, string>([[String(source!.id), companyId]]);
+    const counts: Record<string, number> = {};
+
+    for (const section of SECTIONS) {
+      const sectionRows = bySection.get(section.name) ?? [];
+      if (sectionRows.length === 0) continue;
+      counts[section.name] = await importSection(tx, companyId, section, sectionRows, remap);
+    }
+
+    await requireLocalVouching(tx, companyId);
+
     await appendEvent(tx, {
       companyId,
       type: 'company.imported',
       actor: 'owner',
       payload: { slug: options.slug, sections: counts, skipped },
     });
-  });
 
-  return { companyId, slug: options.slug, sections: counts, skipped };
+    return { companyId, slug: options.slug, sections: counts, skipped };
+  });
 }
 
 async function importSection(
@@ -384,6 +381,11 @@ async function importSection(
         // than the old id: a foreign key pointing at nothing is a broken row,
         // and one pointing at *something else here* would be far worse.
         values[column] = mapped ?? null;
+      }
+    }
+    for (const column of section.remapJson ?? []) {
+      if (values[column] !== null && values[column] !== undefined) {
+        values[column] = remapIds(values[column], remap);
       }
     }
 
@@ -467,27 +469,50 @@ async function jsonColumnsFor(tx: TenantClient, table: string): Promise<Set<stri
  * holds at any scope, needs no trigger to cooperate, and leaves a company's own
  * skills exactly as they were -- which is what restoring a company means.
  */
-async function requireLocalVouching(companyId: string): Promise<void> {
-  await withTenant(companyId, async (tx) => {
-    // Quarantine where the database allows it, which is division scope (0026).
-    // This is the caveat F15.8 wants printed above the procedure in every
-    // context pack that carries it.
-    await tx.query(
-      `UPDATE skills SET quarantined = true
-        WHERE provenance = 'external' AND scope_type = 'division' AND NOT quarantined`,
-    );
+async function requireLocalVouching(tx: TenantClient, companyId: string): Promise<void> {
+  // The company named in every statement: this runs on the control plane,
+  // where row security does not narrow anything, and an UPDATE without it
+  // would re-gate every company's external skills.
+  // Quarantine where the database allows it, which is division scope (0026).
+  // This is the caveat F15.8 wants printed above the procedure in every
+  // context pack that carries it.
+  await tx.query(
+    `UPDATE skills SET quarantined = true
+      WHERE company_id = $1
+        AND provenance = 'external' AND scope_type = 'division' AND NOT quarantined`,
+    [companyId],
+  );
 
-    // And the gate that holds at any scope. A skill too wide to quarantine
-    // cannot be marked, so it must not be live: its versions come back as
-    // candidates and it reaches no context until a reviewer and the owner here
-    // have said so, with F15.4's eval behind them.
-    await tx.query(
-      `UPDATE skill_versions SET state = 'candidate',
-              reviewed_at = NULL, approved_at = NULL, activated_at = NULL
-        WHERE state <> 'candidate'
-          AND skill_id IN (SELECT id FROM skills WHERE provenance = 'external')`,
+  // And the gate that holds at any scope. A skill too wide to quarantine
+  // cannot be marked, so it must not be live: its versions come back as
+  // candidates and it reaches no context until a reviewer and the owner here
+  // have said so, with F15.4's eval behind them.
+  await tx.query(
+    `UPDATE skill_versions SET state = 'candidate',
+            reviewed_at = NULL, approved_at = NULL, activated_at = NULL
+      WHERE company_id = $1
+        AND state <> 'candidate'
+        AND skill_id IN (SELECT id FROM skills WHERE company_id = $1 AND provenance = 'external')`,
+    [companyId],
+  );
+}
+
+/**
+ * The same value with every string that is a mapped id replaced.
+ *
+ * Only whole strings, and only ids this import itself assigned: text that
+ * merely contains an id is left alone, and a string that happens to look
+ * like one but was never in the archive is not rewritten into something else.
+ */
+function remapIds(value: unknown, remap: ReadonlyMap<string, string>): unknown {
+  if (typeof value === 'string') return remap.get(value) ?? value;
+  if (Array.isArray(value)) return value.map((item) => remapIds(item, remap));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, remapIds(item, remap)]),
     );
-  });
+  }
+  return value;
 }
 
 function normalise(value: unknown, isJson: boolean): unknown {

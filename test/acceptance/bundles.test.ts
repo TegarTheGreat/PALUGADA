@@ -16,6 +16,7 @@ import { closePools } from '../../src/db/pool.ts';
 import { isPalugadaError } from '../../src/errors.ts';
 import {
   BUILT_IN_BUNDLES,
+  COMPANY_OS,
   CONTENT_OPS,
   QA_REVIEW,
   WEB_OPS,
@@ -307,7 +308,91 @@ test('a company can be assembled from several bundles (F16.3, F16.5)', async () 
     const { rows } = await tx.query<{ slug: string }>('SELECT slug FROM divisions ORDER BY slug');
     return rows.map((row) => row.slug);
   });
-  assert.deepEqual(divisions, ['content', 'ops', 'platform', 'platform-review', 'review', 'web']);
+  assert.deepEqual(divisions, ['content', 'ops', 'platform', 'platform-review', 'review', 'strategy', 'web']);
+});
+
+/**
+ * auto-company's value is its operating frameworks -- validate before
+ * building, premortems, value pricing, unit economics, a weekly review against
+ * the numbers -- and a company here had none of them and nobody whose job was
+ * "what should we do next". The kit brings them: a strategist that proposes
+ * and never applies, the frameworks as skills that still go through review and
+ * the owner (F15.3), and the weekly business review on the company's own
+ * clock.
+ */
+test('the operating kit brings a strategist, its frameworks for review, and a weekly review on the company clock', async () => {
+  const fixture = await createCompany('bundle-company-os');
+  await registerStandardCatalogue();
+  const keys = publisher();
+  await trustPublisher({ publicKeyPem: keys.publicKey, label: 'the test publisher', ownerApproved: true });
+  await withControlPlane((tx) => tx.query("UPDATE companies SET timezone = 'Asia/Jakarta' WHERE id = $1", [fixture.companyId]));
+
+  await publishBundle(signBundle(COMPANY_OS, keys));
+  const installed = await installBundle({ companyId: fixture.companyId, slug: 'company-os', version: COMPANY_OS.version });
+  assert.deepEqual(installed.roles, ['strategist']);
+
+  const { rows: schedules } = await withTenant(fixture.companyId, (tx) => tx.query<{
+    slug: string; cron_expression: string; timezone: string; enabled: boolean; goal: string; kind: string; role: string;
+  }>(
+    `SELECT s.slug, s.cron_expression, s.timezone, s.enabled, s.input->>'goal' AS goal, g.kind, r.slug AS role
+       FROM schedules s JOIN goals g ON g.id = s.goal_id JOIN roles r ON r.id = s.role_id`,
+  ));
+  assert.equal(schedules.length, 1);
+  assert.deepEqual(
+    [schedules[0]!.slug, schedules[0]!.cron_expression, schedules[0]!.timezone, schedules[0]!.enabled, schedules[0]!.kind, schedules[0]!.role],
+    ['weekly-business-review', '45 7 * * 1', 'Asia/Jakarta', true, 'mission', 'strategist'],
+  );
+  assert.match(schedules[0]!.goal, /Weekly business review/);
+
+  // The frameworks arrive as candidates: somebody reviews them and the owner
+  // approves before any agent reads one.
+  const { rows: skills } = await withTenant(fixture.companyId, (tx) => tx.query<{ slug: string; active_version: number | null }>(
+    'SELECT slug, active_version FROM skills ORDER BY slug'));
+  assert.deepEqual(skills.map((skill) => skill.slug), COMPANY_OS.body.skills.map((skill) => skill.slug).sort());
+  assert.ok(skills.every((skill) => skill.active_version === null), 'no skill of a bundle activates itself');
+
+});
+
+test("an unsigned kit's clock does not start", async () => {
+  // Quarantined (F12.10), the bundle gets tier 0 and nothing else -- and a
+  // schedule of its own making would have it spend the company's money every
+  // week on the strength of a document nobody vouched for.
+  const fixture = await createCompany('bundle-company-os-unsigned');
+  await registerStandardCatalogue();
+  await publishBundle(COMPANY_OS);
+  const installed = await installBundle({ companyId: fixture.companyId, slug: 'company-os', version: COMPANY_OS.version });
+  assert.equal(installed.quarantined, true);
+  const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ enabled: boolean }>(
+    "SELECT enabled FROM schedules WHERE slug = 'weekly-business-review'"));
+  assert.deepEqual(rows, [{ enabled: false }]);
+
+  // And a cadence that could never fire is refused when it is published, not
+  // discovered on a Monday morning.
+  const broken = {
+    ...COMPANY_OS,
+    slug: 'company-os-broken',
+    body: { ...COMPANY_OS.body, cadences: [{ ...COMPANY_OS.body.cadences![0]!, cron: 'every monday' }] },
+  };
+  await assert.rejects(publishBundle(broken), /invalid cron expression/);
+  const orphan = {
+    ...COMPANY_OS,
+    slug: 'company-os-orphan',
+    body: { ...COMPANY_OS.body, cadences: [{ ...COMPANY_OS.body.cadences![0]!, roleSlug: 'nobody' }] },
+  };
+  await assert.rejects(publishBundle(orphan), /names role nobody/);
+});
+
+test("each of the kit's frameworks says what its eval asks for", () => {
+  // An eval that asks for a sentence the skill does not contain could never
+  // pass, and a skill whose eval cannot pass can never be activated (F15.4).
+  for (const skill of COMPANY_OS.body.skills) {
+    for (const evalCase of skill.evals) {
+      for (const phrase of evalCase.expectContains) {
+        assert.ok(skill.source.includes(phrase), `${skill.slug} does not say "${phrase}"`);
+      }
+    }
+    assert.ok(skill.source.split('\n').length <= 60, `${skill.slug} is longer than a run should read`);
+  }
 });
 
 /* ------------------------------------------------------------------ F14.4 --- */

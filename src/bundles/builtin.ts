@@ -1,8 +1,8 @@
 /**
  * The bundles that ship with v1 (PRD v2 F16.5).
  *
- * `content-ops`, `web-ops`, `qa-review` and `palugada-dev`, the last being
- * PALUGADA's own engineering team. They are deliberately narrow: a
+ * `content-ops`, `web-ops`, `qa-review`, `palugada-dev` -- PALUGADA's own
+ * engineering team -- and `company-os`, the operating kit. They are deliberately narrow: a
  * bundle that tried to be a whole company would be a template, and the point
  * of a bundle is that a company can be assembled from several.
  *
@@ -480,4 +480,353 @@ Approving is a claim that you checked. Say what you checked.
   },
 };
 
-export const BUILT_IN_BUNDLES: readonly Bundle[] = [CONTENT_OPS, WEB_OPS, QA_REVIEW, PALUGADA_DEV];
+/**
+ * `company-os`: how a company decides what to do, as knowledge rather than
+ * machinery.
+ *
+ * The rest of the platform keeps a company safe -- tiers, reviews, budgets --
+ * and none of it makes the company any good. auto-company's value is mostly in
+ * its operating frameworks: validate an idea before building it, run a
+ * premortem, price on value, read the unit economics, review the week against
+ * the numbers. Those arrive here as skills, which is the platform's channel
+ * for knowledge that is not enforcement: a run sees each one's summary and
+ * opens the whole with `skill.read`, and each one goes through review and the
+ * owner before any agent reads it (F15.3).
+ *
+ * With them comes a strategist: the role nobody else is, which reads the
+ * goals, their numbers and last week's work, and proposes at most three bets
+ * -- never applies them. And the one cadence every company needs: the weekly
+ * business review, Monday morning in the company's time zone.
+ *
+ * Written for this platform rather than copied: each skill is short, says what
+ * a run must do rather than what an expert believes, and has an eval naming the
+ * sentence that must not be lost.
+ */
+export const COMPANY_OS: Bundle = {
+  slug: 'company-os',
+  version: '1.0.0',
+  name: 'Company operating kit',
+  description:
+    'A strategist, a weekly business review, and the operating skills a company decides with: ' +
+    'validating an idea, premortems, pricing, unit economics, customer discovery, launch readiness, ' +
+    'outbound rules and the weekly review.',
+  body: {
+    divisions: [{ slug: 'strategy', name: 'Strategy', maxConcurrency: 1 }],
+    roles: [
+      role({
+        slug: 'strategist',
+        division: 'strategy',
+        prompt:
+          'You decide what the company should do next and whether what it is doing is working. ' +
+          'Read the goals, their numbers and what was done since the last review. Propose at most ' +
+          'three bets, each with the customer it is for, the evidence and how sure you are ' +
+          '(confirmed, likely or speculative), what it costs, the number it should move and the ' +
+          'result that would make you stop. You propose; you never change a goal, a budget or a ' +
+          'grant. When only the owner can answer something, ask them with owner.ask rather than ' +
+          'guessing. Write for the owner in the company\'s language, briefly.',
+        tools: [
+          'memory.search', 'skill.read', 'plan.record', 'metric.record', 'owner.ask',
+          'metrics.read', 'ledger.read', 'web.fetch', 'doc.draft',
+        ],
+        doneCriteria: [
+          'every claim names where it came from and how sure it is: confirmed, likely or speculative',
+          'each bet has the number it should move, a target and a date, and the result that would stop it',
+          'a change to a goal is written as a proposal for the owner, never applied',
+        ],
+      }),
+    ],
+    grants: [
+      { division: 'strategy', capability: 'memory.search' },
+      { division: 'strategy', capability: 'skill.read' },
+      { division: 'strategy', capability: 'plan.record' },
+      { division: 'strategy', capability: 'metric.record' },
+      { division: 'strategy', capability: 'owner.ask' },
+      { division: 'strategy', capability: 'metrics.read' },
+      { division: 'strategy', capability: 'ledger.read' },
+      { division: 'strategy', capability: 'web.fetch' },
+      { division: 'strategy', capability: 'doc.draft' },
+    ],
+    policies: [],
+    skills: [
+      {
+        slug: 'idea-validation',
+        scope: 'company',
+        source: `---
+name: idea-validation
+description: Whether an idea is worth building, answered with evidence before anything is built.
+---
+
+# Validating an idea
+
+Before anything is built, answer four questions and write the evidence next to
+each one:
+
+1. Is the problem real? Name people who have it and what it costs them now.
+2. Will they pay? Evidence of willingness to pay is money or a signed
+   commitment. Interest is not evidence; "I would use that" is not payment.
+3. Can a first version be built in two weeks with what the company has?
+4. Can the company reach these people through a channel it already has?
+
+A "no" or "unknown" on the first two ends the idea for now: say "No market
+yet" and what would change your mind. Otherwise write the next experiment:
+the cheapest test that could prove the idea wrong, what result would count,
+and by when.
+
+Record the problem, the willingness-to-pay evidence and the next experiment in
+memory, so the next run does not start again from nothing.
+`,
+        evals: [
+          {
+            name: 'separates interest from payment',
+            input: { idea: 'a tool people say they would love' },
+            expectContains: ['willingness to pay', 'next experiment', 'No market'],
+          },
+        ],
+      },
+      {
+        slug: 'premortem',
+        scope: 'company',
+        source: `---
+name: premortem
+description: Imagine the plan has already failed, and find out why before spending on it.
+---
+
+# Premortem
+
+Before a launch, a large spend or anything that cannot be undone, assume it is
+six months from now and the plan has already failed. Write the story of how.
+
+1. List every plausible cause of the failure: the market, the product, the
+   money, the people, the law, a supplier, timing.
+2. Rank them by likelihood times damage and keep the top 3.
+3. For each of the top 3, write an early warning -- the first observable sign
+   it is happening -- and what the company will do when it sees it.
+4. If one of them has no early warning and would be fatal, stop and tell the
+   owner before going on.
+
+A premortem that finds nothing was not done. There is always a way to fail.
+`,
+        evals: [
+          {
+            name: 'names the three causes with warnings',
+            input: { plan: 'launch a paid newsletter' },
+            expectContains: ['already failed', 'top 3', 'early warning'],
+          },
+        ],
+      },
+      {
+        slug: 'pricing',
+        scope: 'company',
+        source: `---
+name: pricing
+description: How to set and change a price: value, not cost; tested, not guessed.
+---
+
+# Pricing
+
+Price on the value to the customer, not on the company's cost. Find the
+value metric -- the unit the customer gets more value from as they use more of
+it (seats, orders, messages) -- and charge along it.
+
+Do not ask customers what they would pay; people answer that question badly.
+Use a Van Westendorp survey (too cheap, a bargain, getting expensive, too
+expensive) or, better, real offers at different prices.
+
+A first price is usually 20-50% of what the customer's current alternative
+costs them. Signs the price is too low: nobody pushes back, conversion is
+high and churn is low.
+
+When raising a price, grandfather existing customers for a stated period, say
+so plainly, and never change a price without the owner's approval: a price
+change is a proposal, not an action.
+`,
+        evals: [
+          {
+            name: 'names value metric and grandfathering',
+            input: { question: 'should we raise the price?' },
+            expectContains: ['value metric', 'Van Westendorp', 'grandfather'],
+          },
+        ],
+      },
+      {
+        slug: 'unit-economics',
+        scope: 'company',
+        source: `---
+name: unit-economics
+description: Whether each customer makes the company money, and how to say so honestly.
+---
+
+# Unit economics
+
+Report these, each with where the number came from:
+
+- CAC: what it cost to win one customer, all channels.
+- LTV: margin per customer per month times expected months.
+- LTV:CAC -- healthy above 3.
+- Payback: months to earn back the CAC -- healthy under 12.
+- Gross margin -- software should be above 70%.
+- Ramen profitability: monthly recurring revenue above fixed monthly costs.
+
+Label every figure as measured or as an estimate. An estimate presented as a
+measurement is the most expensive mistake in a financial report, because every
+decision after it inherits the error. When a figure comes from the ledger,
+record it with metric.record so it is verified.
+`,
+        evals: [
+          {
+            name: 'labels estimates',
+            input: { question: 'are we profitable per customer?' },
+            expectContains: ['LTV:CAC', 'Payback', 'estimate'],
+          },
+        ],
+      },
+      {
+        slug: 'customer-discovery',
+        scope: 'company',
+        source: `---
+name: customer-discovery
+description: Finding out what customers need by talking to them and reading what they say.
+---
+
+# Customer discovery
+
+The first ten customers are found by hand, one at a time. Do not wait for a
+channel to scale before anyone has asked for the product.
+
+When reading feedback -- support messages, reviews, interviews -- classify
+each item as exactly one of: bug, feature request, confusion, praise. Count
+them. Confusion is a design problem, not a documentation one.
+
+Look for the same need said three different ways by different people before
+calling it a pattern, and triangulate: what people say, what they do in the
+product, and what they pay for. When the three disagree, what they pay for
+wins.
+
+Write findings with the customer's own words quoted, and without their name
+unless they agreed to be named.
+`,
+        evals: [
+          {
+            name: 'classifies feedback',
+            input: { feedback: 'I could not find the export button' },
+            expectContains: ['bug, feature request, confusion, praise', 'triangulate'],
+          },
+        ],
+      },
+      {
+        slug: 'launch-readiness',
+        scope: 'company',
+        source: `---
+name: launch-readiness
+description: What must be true before something goes in front of customers.
+---
+
+# Launch readiness
+
+Before a launch, check each of these and write the result next to it:
+
+- Payment works end to end with a real card, including a refund.
+- Sign-up, sign-in and password reset work from a clean browser.
+- The obvious attacks are closed: input is escaped, forms carry CSRF
+  protection, secrets are not in the page.
+- A backup exists and a restore has been tried.
+- There is a rollback: how to put the previous version back, in minutes,
+  written down.
+- The privacy policy and terms are published, and say what is actually done
+  with customer data.
+- Someone is watching for errors for the first day.
+
+A launch with an unchecked item goes to the owner with the item named. Launch
+where the customers already are, and be a member of a community before posting
+in it.
+`,
+        evals: [
+          {
+            name: 'covers the non-negotiables',
+            input: { launch: 'the new checkout' },
+            expectContains: ['rollback', 'privacy', 'Payment'],
+          },
+        ],
+      },
+      {
+        slug: 'outbound-compliance',
+        scope: 'company',
+        source: `---
+name: outbound-compliance
+description: The rules every commercial message to a person outside the company follows.
+---
+
+# Outbound messages
+
+Every commercial email or message:
+
+- says who it is from, truthfully, with a way to reach the company;
+- carries a working way to unsubscribe, and an unsubscribe is honoured at
+  once and for good;
+- goes only to people with a lawful basis to receive it -- consent where the
+  recipient's law requires it (the EU's GDPR and ePrivacy rules, the UK's
+  PECR, Indonesia's personal data protection law, UU PDP 27/2022), and never
+  to a bought list;
+- has a subject line that says what the message is.
+
+When in doubt about a recipient's jurisdiction, treat it as the strictest one.
+A message that breaks these is not sent, whatever the campaign.
+`,
+        evals: [
+          {
+            name: 'names unsubscribe and consent',
+            input: { campaign: 'cold email to a list' },
+            expectContains: ['unsubscribe', 'consent'],
+          },
+        ],
+      },
+      {
+        slug: 'weekly-business-review',
+        scope: 'company',
+        source: `---
+name: weekly-business-review
+description: The weekly review of the numbers, what changed, and what to continue or stop.
+---
+
+# Weekly business review
+
+One page, for the owner, in this order:
+
+1. The numbers: every goal metric against its target, verified or not, and
+   the change since last week. No number without its source.
+2. What changed: what shipped, what was learned, what broke.
+3. Continue or stop: for each piece of work in flight, one line -- continue,
+   change, or stop -- and why, in terms of the numbers.
+4. At most three bets for next week, each with the metric it should move.
+5. Asks for the owner: only what needs them, each answerable in a sentence.
+
+Weekly growth of 5-7% is a useful heuristic for a young company, not a rule.
+Say plainly when a number is flat. A review that only reports good news is not
+a review.
+`,
+        evals: [
+          {
+            name: 'has the continue-or-stop section',
+            input: { week: 'a slow week' },
+            expectContains: ['target', 'continue', 'stop'],
+          },
+        ],
+      },
+    ],
+    hooks: [],
+    schedules: [{ roleSlug: 'strategist', heartbeatMinutes: 720 }],
+    cadences: [
+      {
+        slug: 'weekly-business-review',
+        roleSlug: 'strategist',
+        // Monday, a quarter to eight, in the company's own time zone.
+        cron: '45 7 * * 1',
+        goal:
+          'Weekly business review: follow the weekly-business-review skill, using this week\'s numbers ' +
+          'and work.',
+      },
+    ],
+  },
+};
+
+export const BUILT_IN_BUNDLES: readonly Bundle[] = [CONTENT_OPS, WEB_OPS, QA_REVIEW, PALUGADA_DEV, COMPANY_OS];

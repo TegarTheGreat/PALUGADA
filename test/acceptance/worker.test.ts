@@ -297,7 +297,7 @@ test('seeding publishes the built-in bundles and the standard template (F16.5)',
 
   assert.deepEqual(
     report.bundles.map((bundle) => bundle.slug).sort(),
-    ['content-ops', 'palugada-dev', 'qa-review', 'web-ops'],
+    ['company-os', 'content-ops', 'palugada-dev', 'qa-review', 'web-ops'],
   );
   for (const bundle of report.bundles) {
     assert.equal(bundle.signed, false, 'unsigned unless an installation signs them');
@@ -335,7 +335,7 @@ test('seeding twice changes nothing (F16.2, F3.11)', async () => {
     );
     return Number(rows[0]!.count);
   });
-  assert.equal(rows, 4, 'four bundles, not eight');
+  assert.equal(rows, 5, 'five bundles, not ten');
 });
 
 /** The registry a deployment starts from binds what the platform implements. */

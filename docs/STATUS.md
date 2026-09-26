@@ -2527,6 +2527,12 @@ rest are listed at the end.
   owner's device to apply, or with `npm run company:import`.
 - Be asked. `owner.ask` lets any runtime put a question to the owner and park
   until it is answered, from the console or a Telegram reply.
+- Install the operating kit (`company-os` in `src/bundles/builtin.ts`): a
+  strategist that proposes at most three bets and applies none, eight
+  operating skills with evals that go through review and the owner like any
+  other, and the weekly business review as a schedule on the company's own
+  clock -- bundles can now bring recurring work (`cadences`), made switched
+  off when the bundle is quarantined.
 - Let another service start work (0054, `src/scheduler/triggers.ts`): a
   trigger URL the owner opens with their device, a bearer token stored only
   as its hash, one task per delivery however often it is retried, an hourly
@@ -2546,9 +2552,8 @@ work delegated (`begunOutside` in `src/engine/tasks.ts`).
   rather than a bearer token, and bodies that are not JSON.
 - Structured choices on a decision (pick one of three, approve seven of ten).
 - Delegation for out-of-process runtimes: `awaitChild` is in-process only.
-- A company operating kit: skills with evals for pricing, unit economics,
-  premortems and a weekly business review, a strategy role, and business
-  cadences as schedules in the template.
+- A strategy role in the standard template itself, and stage gates (explore,
+  validate, build, launch, grow) that policies can read.
 - Per-company connections to outside accounts from the console, a config
   history with restore, coding workspaces, and live run transcripts.
 

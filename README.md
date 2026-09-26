@@ -241,6 +241,19 @@ documentation, cited in
   the role's next run is reminded of its own slip; a draft in the wrong
   language is asked for again before it is kept.
 
+**Running a company well, not only safely**
+- Goals are measured by numbers with targets, and an agent's number counts as
+  verified only when it read that number from its source.
+- The built-in `company-os` bundle adds a strategist that proposes at most
+  three bets and never applies them, a weekly business review every Monday
+  morning in the company's time zone, and operating skills -- validating an
+  idea, premortems, pricing, unit economics, customer discovery, launch
+  readiness, outbound rules -- that still go through review and the owner.
+- Other services can start work through a trigger URL the owner opens; what
+  they send is data, and work that began outside takes no tier 2 action
+  without the owner.
+- An agent that needs the owner asks, and its task waits for the answer.
+
 **PALUGADA develops PALUGADA**
 - [`AGENTS.md`](AGENTS.md) is the guide for changing this repository, read by
   coding agents by convention and by `CLAUDE.md` through an import. A test

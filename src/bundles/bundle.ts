@@ -35,6 +35,7 @@ import { TIER } from '../domain/tier.ts';
 import { isTrustedPublisher, keyFingerprint } from './publishers.ts';
 import type { CompanyTemplate, TemplateGrant, TemplateRole } from '../templates/company.ts';
 import type { Hook, HookName, HookPipeline } from '../engine/hooks.ts';
+import { assertValidCron, upsertSchedule } from '../scheduler/scheduler.ts';
 
 export interface BundleSkill {
   slug: string;
@@ -78,6 +79,21 @@ export interface BundleSchedule {
   heartbeatMinutes: number;
 }
 
+/**
+ * Recurring work a bundle brings: a cron expression in the company's own time
+ * zone, the role that does it, and the brief it is given each time. The
+ * weekly business review is the reason this exists; a company whose only
+ * recurring work was a heartbeat had no rhythm of its own.
+ */
+export interface BundleCadence {
+  slug: string;
+  roleSlug: string;
+  cron: string;
+  /** The brief each occurrence's task is given. */
+  goal: string;
+  priority?: number;
+}
+
 export interface BundleBody {
   divisions: CompanyTemplate['divisions'];
   roles: TemplateRole[];
@@ -93,6 +109,8 @@ export interface BundleBody {
   skills: BundleSkill[];
   hooks: BundleHook[];
   schedules: BundleSchedule[];
+  /** Optional, because bundles published before it existed have none. */
+  cadences?: BundleCadence[];
 }
 
 export interface Bundle {
@@ -380,6 +398,8 @@ export async function installBundle(input: {
     return { roleSlugs, divisionIds };
   });
 
+  await installCadences(input.companyId, body, installed.divisionIds, quarantined);
+
   // The bundle's skills go in as candidates, not as active skills. F15.3 is
   // not waived by the knowledge arriving in a package: somebody still has to
   // review it and the owner still has to approve it, and a bundle that could
@@ -401,6 +421,62 @@ export async function installBundle(input: {
     roles: installed.roleSlugs,
     skills,
   };
+}
+
+/**
+ * A bundle's recurring work, as schedules on the company's own clock.
+ *
+ * Each serves the company's mission -- F2.7 wants a goal on every task, and
+ * the rhythm of the whole company is what a weekly review is for -- and runs
+ * in the company's time zone, so "Monday morning" is the owner's Monday. A
+ * quarantined bundle's schedules are made switched off: the bundle gets tier
+ * 0 and nothing else (F12.10), and a schedule of its own making would have it
+ * spend the company's money every week on a document nobody vouched for.
+ */
+async function installCadences(
+  companyId: string,
+  body: BundleBody,
+  divisionIds: Map<string, string>,
+  quarantined: boolean,
+): Promise<void> {
+  const cadences = body.cadences ?? [];
+  if (cadences.length === 0) return;
+  const place = await withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<{ project_id: string | null; goal_id: string | null; timezone: string }>(
+      `SELECT (SELECT id FROM projects ORDER BY created_at LIMIT 1) AS project_id,
+              (SELECT id FROM goals WHERE status = 'active'
+                ORDER BY CASE kind WHEN 'mission' THEN 0 WHEN 'objective' THEN 1 ELSE 2 END, created_at
+                LIMIT 1) AS goal_id,
+              (SELECT timezone FROM companies WHERE id = $1) AS timezone`,
+      [companyId],
+    );
+    const roles = await tx.query<{ id: string; slug: string }>(
+      'SELECT id, slug FROM roles WHERE slug = ANY($1::text[])', [cadences.map((cadence) => cadence.roleSlug)]);
+    return { ...rows[0]!, roles: new Map(roles.rows.map((row) => [row.slug, row.id])) };
+  });
+  if (!place.project_id || !place.goal_id) {
+    throw new PalugadaError(
+      'bundle.invalid',
+      'this bundle schedules recurring work, which needs a project and an active goal in the company first',
+      { companyId },
+    );
+  }
+  const roleDivision = new Map(body.roles.map((role) => [role.slug, role.division]));
+  for (const cadence of cadences) {
+    await upsertSchedule({
+      companyId,
+      projectId: place.project_id,
+      divisionId: divisionIds.get(roleDivision.get(cadence.roleSlug)!)!,
+      roleId: place.roles.get(cadence.roleSlug)!,
+      goalId: place.goal_id,
+      slug: cadence.slug,
+      cronExpression: cadence.cron,
+      timezone: place.timezone || 'UTC',
+      input: { goal: cadence.goal },
+      priority: cadence.priority ?? 2,
+      enabled: !quarantined,
+    });
+  }
 }
 
 /**
@@ -568,6 +644,24 @@ export function assertBundleIsCoherent(bundle: Bundle): void {
         { slug: bundle.slug },
       );
     }
+  }
+  for (const cadence of bundle.body.cadences ?? []) {
+    if (!roleSlugs.has(cadence.roleSlug)) {
+      throw new PalugadaError(
+        'bundle.invalid',
+        `cadence ${cadence.slug} names role ${cadence.roleSlug}, which the bundle does not define`,
+        { slug: bundle.slug },
+      );
+    }
+    if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(cadence.slug) || !cadence.goal?.trim()) {
+      throw new PalugadaError(
+        'bundle.invalid',
+        `cadence ${cadence.slug} needs a lowercase slug and a brief`,
+        { slug: bundle.slug },
+      );
+    }
+    // A typo fails when the bundle is published, not on Monday morning.
+    assertValidCron(cadence.cron, 'UTC');
   }
 }
 

@@ -798,7 +798,8 @@ conjure, and each says so at boot rather than at 3am:
 | `PALUGADA_RUNTIME_SPECS` | community CLI runtimes, as JSON (F13.3) |
 | `PALUGADA_FILES_ROOT` | `files.list`, and the drafting pair with a model |
 | `PALUGADA_PUSH_URL` | push for an incident or a tier 3 approval (F10.5) |
-| `PALUGADA_TELEGRAM_TOKEN`, `_CHAT`, `_WEBHOOK_SECRET` | the message channel (F10.9) |
+| `PALUGADA_TELEGRAM_TOKEN`, `_CHAT`, `_WEBHOOK_SECRET` | the message channel (F10.9). `_CHAT` is the owner's own chat with the bot, whose id is the owner's user id: only that person's presses count, in any chat. Point the bot's `setWebhook` at `<PALUGADA_APP_URL_PUBLIC>/api/channels/telegram` with `secret_token` set to `_WEBHOOK_SECRET` |
+| `PALUGADA_APP_URL_PUBLIC` | where the console is reachable from the owner's phone; notifications link to the item there |
 | `PALUGADA_RP_ID`, `PALUGADA_ORIGIN` | passkeys, for the console's own domain |
 | `PALUGADA_ALLOW_PRIVATE_HOSTS` | an internal host `web.fetch` may reach |
 

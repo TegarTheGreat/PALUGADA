@@ -1047,9 +1047,23 @@ async function drawSettings() {
     // a kind is what a person needs to recognise a device.
     await (async () => {
       const { authenticators } = await api('GET', '/api/mfa/authenticators');
-      return authenticators.length === 0
-        ? note('None enrolled. No tier 3 action can be approved until one is.')
-        : table(['Label', 'Kind'], authenticators.map((one) => [one.label, one.kind]));
+      if (authenticators.length === 0) {
+        return note('None enrolled. No tier 3 action can be approved until one is.');
+      }
+      // Revoking takes a code from a device that is staying, and ends every
+      // session the revoked one signed in. The last device cannot be revoked.
+      return group(
+        table(['Label', 'Kind'], authenticators.map((one) => [one.label, one.kind])),
+        ...authenticators.map((one) => action(
+          `Revoke ${one.label}`,
+          (proof) => api('POST', `/api/mfa/authenticators/${one.id}/revoke`, { proof }),
+          { factor: `Revoke ${one.label}`, danger: true },
+        )),
+        action('Sign out everywhere', async () => {
+          await api('POST', '/api/auth/sign-out-everywhere', {});
+          window.location.reload();
+        }),
+      );
     })(),
 
     heading('This week'),

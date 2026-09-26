@@ -373,6 +373,23 @@ export async function raiseEscalationWithin(tx: TenantClient, input: EscalationI
 }
 
 /**
+ * Which company an item belongs to, for a caller that has only the item.
+ *
+ * A chat button carries the item and nothing else. Read on the control plane,
+ * because the question is exactly the one tenant isolation cannot answer
+ * from inside a tenant.
+ */
+export async function companyOfItem(itemId: string): Promise<string | null> {
+  return withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ company_id: string }>(
+      'SELECT company_id FROM inbox_items WHERE id = $1',
+      [itemId],
+    );
+    return rows[0]?.company_id ?? null;
+  });
+}
+
+/**
  * Puts a distilled SOP in front of the owner (F4.5).
  *
  * Waits for the owner's window like any other non-urgent item: a proposed

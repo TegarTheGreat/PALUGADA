@@ -538,6 +538,44 @@ export class OwnerMfa {
   }
 
   /**
+   * Revokes one of the owner's own devices, and never the last.
+   *
+   * The owner's platform-wide factors are the only way in: without one the
+   * console cannot be signed in to and no tier 3 action can ever be approved,
+   * and the way back is a restart with a new secret configured. So the last
+   * is refused, with the way out named. Under the verification lock, so two
+   * revocations at once -- one per remaining device -- cannot both see the
+   * other still standing.
+   */
+  async revokeOwnDevice(authenticatorId: string): Promise<void> {
+    await withControlPlane(async (tx) => {
+      await tx.query("SELECT pg_advisory_xact_lock(hashtext('palugada:owner-mfa'))");
+      const { rows } = await tx.query<{ id: string }>(
+        `SELECT id FROM owner_authenticators
+          WHERE company_id IS NULL AND revoked_at IS NULL`,
+      );
+      if (!rows.some((row) => row.id === authenticatorId)) {
+        throw new PalugadaError(
+          'contract.violation',
+          'no live authenticator of the owner has that id',
+          { authenticatorId },
+        );
+      }
+      if (rows.length === 1) {
+        throw new PalugadaError(
+          'contract.violation',
+          'that is the owner\'s only authenticator: enrol another before revoking it, or '
+            + 'nothing could sign in or approve a tier 3 action again (PRD F12.5)',
+          { authenticatorId },
+        );
+      }
+      await tx.query('UPDATE owner_authenticators SET revoked_at = now() WHERE id = $1', [
+        authenticatorId,
+      ]);
+    });
+  }
+
+  /**
    * The factors that may answer for this company.
    *
    * A platform-scoped row -- `company_id IS NULL` -- is the owner's own device

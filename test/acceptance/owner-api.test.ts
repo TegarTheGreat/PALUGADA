@@ -41,6 +41,8 @@ async function console_(): Promise<{
   api: OwnerApi;
   url: string;
   code: () => string;
+  /** Enrols a second device and returns its code source. */
+  secondDevice: (label: string) => Promise<{ id: string; code: () => string }>;
   close: () => Promise<void>;
 }> {
   const secrets = new InMemorySecretManager();
@@ -68,6 +70,18 @@ async function console_(): Promise<{
     code: () => {
       steps += 1;
       return totpCode(decodeBase32(secret), stepFor(at()));
+    },
+    secondDevice: async (label) => {
+      const other = newTotpSecret(label).secret;
+      secrets.set(`vault://owner/${label}`, other);
+      const id = await mfa.enrolTotp({ label, secretRef: `vault://owner/${label}` });
+      return {
+        id,
+        code: () => {
+          steps += 1;
+          return totpCode(decodeBase32(other), stepFor(at()));
+        },
+      };
     },
     close: () => api.close(),
   };
@@ -508,6 +522,50 @@ test('a session alone can tighten any control and loosen none (F12.5, F10.7)', a
     }
   } finally {
     await clearStopAll();
+    await owner.close();
+  }
+});
+
+/**
+ * A lost phone is revoked from a phone the owner still has, and whatever the
+ * lost one signed in to ends with it. The last device is not revocable: with
+ * none, nothing could sign in or approve anything again.
+ */
+test('revoking a lost device ends its sessions, and the last device stays (F12.5)', async () => {
+  const owner = await console_();
+  try {
+    const lostToken = await signIn(owner.url, owner.code());
+    const spare = await owner.secondDevice('spare');
+    const spareToken = await signIn(owner.url, spare.code());
+    const devices = await call(owner.url, 'GET', '/api/mfa/authenticators', { token: spareToken });
+    const lost = (devices.body.authenticators as Array<{ id: string; label: string }>)
+      .find((one) => one.label === 'owner phone')!;
+
+    const unproven = await call(owner.url, 'POST', `/api/mfa/authenticators/${lost.id}/revoke`, {
+      token: spareToken, body: {},
+    });
+    assert.equal(unproven.status, 403, 'revoking takes a factor');
+    const revoked = await call(owner.url, 'POST', `/api/mfa/authenticators/${lost.id}/revoke`, {
+      token: spareToken, body: { proof: { totp: spare.code() } },
+    });
+    assert.equal(revoked.status, 200, JSON.stringify(revoked.body));
+    assert.equal(revoked.body.signedOut, 1);
+    assert.equal((await call(owner.url, 'GET', '/api/companies', { token: lostToken })).status, 401,
+      'the lost phone\'s session ended with it');
+    assert.equal((await call(owner.url, 'GET', '/api/companies', { token: spareToken })).status, 200);
+
+    const last = await call(owner.url, 'POST', `/api/mfa/authenticators/${spare.id}/revoke`, {
+      token: spareToken, body: { proof: { totp: spare.code() } },
+    });
+    assert.equal(last.status, 400, JSON.stringify(last.body));
+    assert.match(String(last.body.error), /only authenticator/);
+
+    const everywhere = await call(owner.url, 'POST', '/api/auth/sign-out-everywhere', {
+      token: spareToken, body: {},
+    });
+    assert.equal(everywhere.status, 200);
+    assert.equal((await call(owner.url, 'GET', '/api/companies', { token: spareToken })).status, 401);
+  } finally {
     await owner.close();
   }
 });

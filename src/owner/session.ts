@@ -121,6 +121,23 @@ export class OwnerSessions {
     this.#live.delete(token);
   }
 
+  /**
+   * Every session signed in with one authenticator.
+   *
+   * A revoked device's sessions are the device's reach after the revocation:
+   * a phone lost while signed in stays signed in until its session expires
+   * unless this ends it.
+   */
+  signOutFactor(authenticatorId: string): number {
+    let ended = 0;
+    for (const [token, session] of this.#live) {
+      if (session.factor.authenticatorId !== authenticatorId) continue;
+      this.#live.delete(token);
+      ended += 1;
+    }
+    return ended;
+  }
+
   /** Every live session, for a "sign out everywhere" the owner can reach. */
   signOutAll(): number {
     const count = this.#live.size;

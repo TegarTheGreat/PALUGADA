@@ -22,11 +22,13 @@
  *      request without it is not from Telegram. Compared in constant time,
  *      because it is a shared secret and a length-and-prefix oracle is enough
  *      to find one.
- *   2. **The chat id.** A bot is reachable by anyone who learns its name, so
+ *   2. **Who pressed.** A bot is reachable by anyone who learns its name, so
  *      "it came from Telegram" is not "it came from the owner". Only the
- *      configured chat may press anything, and a press from anywhere else is
- *      recorded as a security event rather than quietly dropped — somebody
- *      finding the bot is worth knowing about.
+ *      configured owner may press anything -- the person, not the chat: in a
+ *      group every member presses in the same chat, and a check on the chat
+ *      let all of them decide. A press from anyone else is recorded as a
+ *      security event rather than quietly dropped — somebody finding the bot
+ *      is worth knowing about.
  *   3. **The tier.** `decide` refuses tier 3 over `chat` regardless, so even a
  *      forged press cannot approve an irreversible action. That check is not
  *      here on purpose: it belongs where every channel meets it.
@@ -49,7 +51,10 @@ import type {
 export interface TelegramOptions {
   /** The bot token, already resolved from the secret manager. */
   token: string;
-  /** The owner's chat. The only chat that may press anything. */
+  /**
+   * The owner's own chat with the bot, whose id is the owner's user id. The
+   * only person who may press anything.
+   */
   chatId: string;
   /** The header value Telegram is configured to send back. */
   webhookSecret?: string;
@@ -273,10 +278,11 @@ export class TelegramChannel implements OwnerChannel {
     if (!action) return { handled: false, reason: 'not_a_button' };
 
     // The bot is reachable by anyone who learns its name, so "Telegram sent
-    // it" is not "the owner sent it". A well-formed press from another chat is
+    // it" is not "the owner sent it". A well-formed press from anyone else is
     // somebody who found the bot, which is worth a security event rather than
-    // a silent drop.
-    const from = String(query.message?.chat?.id ?? query.from?.id ?? '');
+    // a silent drop. The presser, not the chat the button sat in: a group is
+    // one chat with many people in it.
+    const from = String(query.from?.id ?? '');
     if (from !== String(this.#options.chatId)) {
       await withTenant(companyId, async (tx) => {
         await appendEvent(tx, {
@@ -318,6 +324,33 @@ export class TelegramChannel implements OwnerChannel {
         reason: error instanceof PalugadaError ? error.code : 'failed',
       };
     }
+  }
+
+  /**
+   * An update as Telegram posts it to the webhook.
+   *
+   * A button carries only its item -- Telegram allows sixty-four bytes of
+   * callback data, and an item and a company are seventy-two -- so the
+   * company is read from the item, after the secret has been checked and
+   * before anything else: a request that is not from Telegram learns nothing
+   * about which items exist.
+   */
+  async onUpdate(
+    update: TelegramUpdate,
+    options: { secretHeader?: string } = {},
+  ): Promise<{ handled: boolean; reason?: string }> {
+    if (!this.authenticWebhook(options.secretHeader)) {
+      return { handled: false, reason: 'webhook_secret' };
+    }
+    const query = update.callback_query;
+    const action = query?.data ? decodeAction(query.data) : null;
+    if (!query || !action) return { handled: false, reason: 'not_a_button' };
+    const companyId = await inbox.companyOfItem(action.itemId);
+    if (!companyId) {
+      await this.#answer(query.id, 'That item no longer exists.');
+      return { handled: false, reason: 'unknown_item' };
+    }
+    return this.onCallback(companyId, update, options);
   }
 
   /** Clears the spinner on the pressed button. Failure here is cosmetic. */

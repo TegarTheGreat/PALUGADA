@@ -51,6 +51,9 @@ const API_ONLY: Record<string, string> = {
     + 'one and the page cannot present one',
   'GET /api/mfa/challenge':
     'todo: the same, for a second factor at the moment of a decision',
+  // Not a page's at all: Telegram posts button presses here.
+  'POST /api/channels/telegram':
+    'machine: Telegram posts the owner\'s button presses here, authenticated by the webhook secret',
 };
 
 const PATTERN = /method: '([A-Z]+)',\s*\n\s*pattern: '([^']+)'/g;

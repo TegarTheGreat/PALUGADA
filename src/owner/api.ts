@@ -119,6 +119,7 @@ import {
 } from '../eval/role-eval.ts';
 import type { CapabilityRegistry } from '../broker/registry.ts';
 import type { OwnerMfa, WebAuthnAssertion } from './mfa.ts';
+import type { TelegramChannel, TelegramUpdate } from './telegram.ts';
 import { OwnerSessions, type OwnerSession } from './session.ts';
 
 export interface OwnerApiOptions {
@@ -152,6 +153,11 @@ export interface OwnerApiOptions {
    * this process could call.
    */
   replayHandlers?: Map<string, TaskHandler>;
+  /**
+   * The message channel whose button presses arrive at
+   * `/api/channels/telegram` (F10.9). Absent means the route refuses.
+   */
+  telegram?: TelegramChannel;
   /** How that sweep resolves a division's credential. Comes from the broker. */
   credentialFor?: (
     companyId: string,
@@ -227,6 +233,33 @@ export class OwnerApi {
         pattern: '/api/auth/challenge',
         open: true,
         handle: async () => ({ challenge: this.#sessions.challenge() }),
+      },
+
+      {
+        // F10.9: where Telegram posts a button press. Open, because Telegram
+        // has no session; what stands in for one is the webhook secret, which
+        // the channel checks first, and then who pressed. Register it with
+        // `setWebhook` and the same `secret_token` as
+        // PALUGADA_TELEGRAM_WEBHOOK_SECRET.
+        method: 'POST',
+        pattern: '/api/channels/telegram',
+        open: true,
+        handle: async ({ request, body }) => {
+          const channel = this.#options.telegram;
+          if (!channel) {
+            throw new PalugadaError('contract.violation', 'this deployment has no Telegram channel', {});
+          }
+          const secret = request.headers['x-telegram-bot-api-secret-token'];
+          const outcome = await channel.onUpdate(body as TelegramUpdate, {
+            ...(typeof secret === 'string' ? { secretHeader: secret } : {}),
+          });
+          if (outcome.reason === 'webhook_secret') {
+            throw new PalugadaError('owner.unauthenticated', 'that request is not from Telegram', {});
+          }
+          // Anything else is an answer Telegram should not retry: a press
+          // refused, a stale button, an item closed since.
+          return outcome;
+        },
       },
 
       {
@@ -1464,6 +1497,27 @@ export class OwnerApi {
       },
 
       /* ----------------------------------------------------------- F12.5 --- */
+
+      {
+        // The answer to "I lost my phone". The factor is presented from a
+        // device the owner still has, the lost one stops answering, and every
+        // session it signed in is ended with it.
+        method: 'POST',
+        pattern: '/api/mfa/authenticators/:authenticatorId/revoke',
+        handle: async ({ params, body }) => {
+          await this.#requireFactor(body.proof, 'revoke an authenticator');
+          await this.#options.mfa.revokeOwnDevice(params.authenticatorId!);
+          return { signedOut: this.#sessions.signOutFactor(params.authenticatorId!) };
+        },
+      },
+
+      {
+        // Every session on every browser, this one included. Ending sessions
+        // only takes power away, so the session is enough to ask.
+        method: 'POST',
+        pattern: '/api/auth/sign-out-everywhere',
+        handle: async () => ({ signedOut: this.#sessions.signOutAll() }),
+      },
 
       {
         method: 'GET',

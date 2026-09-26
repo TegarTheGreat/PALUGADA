@@ -440,6 +440,12 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     ...options.worker,
   });
 
+  // F10.9's inbound half. The channel sent buttons and nothing received the
+  // presses: no route called it, so every button in every message did
+  // nothing at all.
+  const telegram = channels.find((channel): channel is TelegramChannel =>
+    channel instanceof TelegramChannel);
+
   const api = new OwnerApi({
     mfa,
     // The registry and the resolver, so F12.3's rotation can sweep the
@@ -454,6 +460,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     ...(options.handlers ? { replayHandlers: options.handlers } : {}),
     ...(options.consoleRoot ? { staticRoot: options.consoleRoot } : {}),
     ...(env.PALUGADA_CONSOLE_ORIGIN ? { origin: env.PALUGADA_CONSOLE_ORIGIN } : {}),
+    ...(telegram ? { telegram } : {}),
   });
   const { url } = await api.listen(
     options.port ?? Number(env.PALUGADA_PORT ?? 8787),

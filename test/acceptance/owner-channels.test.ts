@@ -483,6 +483,7 @@ test('a button press from the owner records the decision (F10.9)', async () => {
           id: 'cb1',
           data: encodeAction({ itemId, decision: 'deny' }),
           message: { chat: { id: 55555 } },
+          from: { id: 55555 },
         },
       },
       { secretHeader: 'webhook-secret' },
@@ -515,6 +516,7 @@ test('a press is refused without the webhook secret, and from the wrong chat (F1
         id: 'cb1',
         data: encodeAction({ itemId, decision: 'approve' }),
         message: { chat: { id: 55555 } },
+          from: { id: 55555 },
       },
     };
 
@@ -545,6 +547,22 @@ test('a press is refused without the webhook secret, and from the wrong chat (F1
     );
     assert.deepEqual(stranger, { handled: false, reason: 'wrong_chat' });
 
+    // In the owner's chat, pressed by somebody else: a group is one chat
+    // with many people in it, and the check was on the chat.
+    const bystander = await channel.onCallback(
+      fixture.companyId,
+      {
+        callback_query: {
+          id: 'cb3',
+          data: encodeAction({ itemId, decision: 'approve' }),
+          message: { chat: { id: 55555 } },
+          from: { id: 77777, username: 'group_member' },
+        },
+      },
+      { secretHeader: 'webhook-secret' },
+    );
+    assert.deepEqual(bystander, { handled: false, reason: 'wrong_chat' });
+
     // Recorded rather than silently dropped: somebody finding the bot is worth
     // knowing about.
     const refusals = await withTenant(fixture.companyId, async (tx) => {
@@ -553,8 +571,8 @@ test('a press is refused without the webhook secret, and from the wrong chat (F1
       );
       return rows;
     });
-    assert.equal(refusals.length, 1);
-    assert.equal(refusals[0]!.payload.username, 'passer_by');
+    assert.equal(refusals.length, 2);
+    assert.deepEqual(refusals.map((row) => row.payload.username).sort(), ['group_member', 'passer_by']);
 
     // And through all of it, nothing was decided.
     assert.equal((await inbox.listOpen(fixture.companyId)).length, 1);
@@ -585,6 +603,7 @@ test('a forged tier 3 press cannot approve, even from the owner\'s chat (F10.10)
           id: 'cb1',
           data: encodeAction({ itemId, decision: 'approve' }),
           message: { chat: { id: 55555 } },
+          from: { id: 55555 },
         },
       },
       { secretHeader: 'webhook-secret' },
@@ -607,7 +626,7 @@ test('a callback that is not one of ours is ignored rather than an error (F10.9)
   for (const data of ['', 'hello', 'palugada:not-a-uuid:approve', 'palugada:x:explode']) {
     assert.equal(
       (await channel.onCallback(fixture.companyId, {
-        callback_query: { id: 'c', data, message: { chat: { id: 55555 } } },
+        callback_query: { id: 'c', data, message: { chat: { id: 55555 } }, from: { id: 55555 } },
       }, { secretHeader: 's' })).reason,
       'not_a_button',
     );
@@ -1062,6 +1081,7 @@ test('a press on a closed item says what happened to it (F10.9)', async () => {
           id: 'cb-stale',
           data: encodeAction({ itemId, decision: 'approve' }),
           message: { chat: { id: 55555 } },
+          from: { id: 55555 },
         },
       },
       { secretHeader: 'webhook-secret' },
@@ -1093,3 +1113,54 @@ test('the sweep leaves a channel with nothing to retract alone', async () => {
     await vendor.close();
   }
 });
+
+/**
+ * The route the presses arrive at.
+ *
+ * The channel sent buttons, verified presses and recorded decisions -- and no
+ * route called it. Every button in every message did nothing. The webhook is
+ * the console's own server now, and the press finds its company from its
+ * item, because sixty-four bytes of callback data will not hold both.
+ */
+test('a press posted to the webhook is decided, and one without the secret is refused (F10.9)', async () => {
+  const fixture = await createCompany('chat-webhook');
+  const vendor = await fakeVendor(() => ({ status: 200, body: { ok: true, result: {} } }));
+  const { OwnerApi } = await import('../../src/owner/api.ts');
+  const { OwnerMfa } = await import('../../src/owner/mfa.ts');
+  const { InMemorySecretManager } = await import('../../src/secrets/manager.ts');
+  const api = new OwnerApi({
+    mfa: new OwnerMfa({ secrets: new InMemorySecretManager() }),
+    telegram: telegram({ url: vendor.url, secret: 'webhook-secret' }),
+  });
+  const { url } = await api.listen();
+  try {
+    const itemId = await inbox.raiseEscalation({
+      companyId: fixture.companyId, title: 'Which supplier?', detail: 'Two match.',
+    });
+    const post = (headers: Record<string, string>) => fetch(`${url}/api/channels/telegram`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...headers },
+      body: JSON.stringify({
+        callback_query: {
+          id: 'cb1',
+          data: encodeAction({ itemId, decision: 'deny' }),
+          message: { chat: { id: 55555 } },
+          from: { id: 55555 },
+        },
+      }),
+    });
+
+    assert.equal((await post({})).status, 401, 'not from Telegram');
+    assert.equal((await post({ 'x-telegram-bot-api-secret-token': 'guess' })).status, 401);
+    assert.equal((await inbox.listOpen(fixture.companyId)).length, 1, 'nothing decided');
+
+    const pressed = await post({ 'x-telegram-bot-api-secret-token': 'webhook-secret' });
+    assert.equal(pressed.status, 200);
+    assert.deepEqual(await pressed.json(), { handled: true });
+    assert.equal((await inbox.listOpen(fixture.companyId)).length, 0);
+  } finally {
+    await api.close();
+    await vendor.close();
+  }
+});
+

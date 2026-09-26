@@ -25,7 +25,7 @@ import { TIER } from '../domain/tier.ts';
 import { recordPlan, type PlanStep } from '../engine/plan.ts';
 import { recordObservation } from '../domain/metrics.ts';
 import { askOwner, raiseEscalationWithin } from '../inbox/inbox.ts';
-import { assertStage, loosens, stageOf, type Stage } from '../domain/stage.ts';
+import { STAGES, assertStage, loosens, stageOf, type Stage } from '../domain/stage.ts';
 import { createSubTask, getTask } from '../engine/tasks.ts';
 import { containChildResult } from '../engine/containment.ts';
 import { enqueueWake } from '../scheduler/wake.ts';
@@ -62,6 +62,15 @@ export const MEMORY_SEARCH_MAX_RESULTS = 20;
 export function memorySearchCapability(): Capability<MemorySearchInput, MemorySearchResult> {
   return {
     name: 'memory.search',
+    inputSchema: {
+      type: 'object',
+      required: ['query'],
+      properties: {
+        query: { type: 'string', minLength: 1, description: 'What to look for, in a few words.' },
+        limit: { type: 'integer', minimum: 1, maximum: MEMORY_SEARCH_MAX_RESULTS, description: 'How many facts to return (default 5).' },
+        memoryType: { enum: ['semantic', 'procedural', 'episodic'], description: 'Facts (default), procedures, or past events.' },
+      },
+    },
     adapter: 'platform',
     defaultTier: TIER.READ_ONLY,
     describe: () => ({ moneyCents: 0 }),
@@ -111,6 +120,11 @@ export interface SkillReadResult {
 export function skillReadCapability(): Capability<SkillReadInput, SkillReadResult> {
   return {
     name: 'skill.read',
+    inputSchema: {
+      type: 'object',
+      required: ['slug'],
+      properties: { slug: { type: 'string', minLength: 1, description: 'The skill, as its summary names it.' } },
+    },
     adapter: 'platform',
     defaultTier: TIER.READ_ONLY,
     describe: () => ({ moneyCents: 0 }),
@@ -167,6 +181,27 @@ export interface PlanRecordInput {
 export function planRecordCapability(): Capability<PlanRecordInput, { steps: number }> {
   return {
     name: 'plan.record',
+    inputSchema: {
+      type: 'object',
+      required: ['steps'],
+      properties: {
+        steps: {
+          type: 'array',
+          minItems: 1,
+          description: 'Every action at tier 2 or above this task will take, before it takes any.',
+          items: {
+            type: 'object',
+            required: ['capability', 'intent', 'expectedEffect'],
+            properties: {
+              capability: { type: 'string', minLength: 1, description: 'The capability the step will use.' },
+              intent: { type: 'string', minLength: 1, description: 'What the step is for.' },
+              expectedEffect: { type: 'string', minLength: 1, description: 'What will be true once it has run.' },
+              batchSize: { type: 'integer', minimum: 1, description: 'How many items the call covers, when it is a batch.' },
+            },
+          },
+        },
+      },
+    },
     adapter: 'platform',
     defaultTier: TIER.READ_ONLY,
     async execute(input, ctx) {
@@ -195,6 +230,15 @@ export interface MetricRecordInput {
 export function metricRecordCapability(): Capability<MetricRecordInput, { verified: boolean }> {
   return {
     name: 'metric.record',
+    inputSchema: {
+      type: 'object',
+      required: ['metric', 'value'],
+      properties: {
+        metric: { type: 'string', minLength: 1, description: 'The metric, as the context names it.' },
+        value: { type: 'number', description: 'Where it stands now.' },
+        note: { type: 'string', description: 'Where the number came from, in a sentence.' },
+      },
+    },
     adapter: 'platform',
     defaultTier: TIER.READ_ONLY,
     describe: () => ({ moneyCents: 0 }),
@@ -250,6 +294,15 @@ const EVIDENCE_MAX = 4_000;
 export function stageProposeCapability(): Capability<StageProposeInput, { proposed: boolean; inboxItemId: string; note?: string }> {
   return {
     name: 'stage.propose',
+    inputSchema: {
+      type: 'object',
+      required: ['to', 'evidence'],
+      properties: {
+        to: { enum: [...STAGES], description: 'The stage the company should move to.' },
+        evidence: { type: 'string', minLength: 1, maxLength: EVIDENCE_MAX, description: 'What shows it is time, with where each piece came from.' },
+        why: { type: 'string', description: 'What the move should change, and what would make the owner move it back.' },
+      },
+    },
     adapter: 'platform',
     defaultTier: TIER.READ_ONLY,
     describe: () => ({ moneyCents: 0 }),
@@ -340,6 +393,15 @@ export const QUESTION_MAX = 1_000;
 export function ownerAskCapability(): Capability<OwnerAskInput, OwnerAskResult> {
   return {
     name: 'owner.ask',
+    inputSchema: {
+      type: 'object',
+      required: ['question'],
+      properties: {
+        question: { type: 'string', minLength: 1, description: 'One question only the owner can answer.' },
+        why: { type: 'string', description: 'What depends on the answer.' },
+        options: { type: 'array', minItems: 2, maxItems: 6, items: { type: 'string', minLength: 1 }, description: 'Two to six answers the owner can press.' },
+      },
+    },
     adapter: 'platform',
     defaultTier: TIER.READ_ONLY,
     describe: () => ({ moneyCents: 0 }),
@@ -401,6 +463,16 @@ export const AWAIT_POLL_MS = 2 * 60_000;
 export function taskDelegateCapability(): Capability<TaskDelegateInput, { childId: string; role: string; deadlineAt: string }> {
   return {
     name: 'task.delegate',
+    inputSchema: {
+      type: 'object',
+      required: ['role', 'brief'],
+      properties: {
+        role: { type: 'string', minLength: 1, description: 'The slug of the role whose job it is.' },
+        brief: { type: 'string', minLength: 1, description: 'What it should do, and what done looks like.' },
+        context: { type: 'string', description: 'Anything it needs to know that the brief does not say.' },
+        timeoutMinutes: { type: 'integer', minimum: 1, description: 'How long it has (default 60).' },
+      },
+    },
     adapter: 'platform',
     defaultTier: TIER.READ_ONLY,
     describe: () => ({ moneyCents: 0 }),
@@ -466,6 +538,11 @@ export interface TaskAwaitResult {
 export function taskAwaitCapability(): Capability<{ childId: string }, TaskAwaitResult> {
   return {
     name: 'task.await',
+    inputSchema: {
+      type: 'object',
+      required: ['childId'],
+      properties: { childId: { type: 'string', minLength: 1, description: 'The id task.delegate returned.' } },
+    },
     adapter: 'platform',
     defaultTier: TIER.READ_ONLY,
     describe: () => ({ moneyCents: 0 }),

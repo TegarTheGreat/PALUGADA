@@ -95,6 +95,16 @@ export function docDraft(options: DraftOptions): Capability<DocDraftInput, DocDr
 
   return {
     name: 'doc.draft',
+    inputSchema: {
+      type: 'object',
+      required: ['brief'],
+      properties: {
+        brief: { type: 'string', minLength: 1, description: 'What the document should say and who it is for.' },
+        context: { type: 'string', description: 'Material to draw on.' },
+        kind: { type: 'string', description: 'memo, proposal, summary, and the like.' },
+        language: { type: 'string', description: 'Only when the task asks for a language on purpose.' },
+      },
+    },
     adapter: 'platform:draft',
     // Tier 1, as §8.8 calibrates it. It writes, and rewriting undoes it.
     defaultTier: 1,
@@ -185,6 +195,17 @@ export function emailDraft(options: DraftOptions): Capability<EmailDraftInput, E
 
   return {
     name: 'email.draft',
+    inputSchema: {
+      type: 'object',
+      required: ['to', 'brief'],
+      properties: {
+        to: { type: 'string', minLength: 3, description: 'Who it is to.' },
+        subject: { type: 'string' },
+        brief: { type: 'string', minLength: 1, description: 'What the email should say.' },
+        context: { type: 'string', description: 'Material to draw on.' },
+        language: { type: 'string', description: 'Only when the task asks for a language on purpose.' },
+      },
+    },
     adapter: 'platform:draft',
     // Tier 1, and the gap to `email.send`'s tier is the whole point of the
     // split: a draft is the reversible half of correspondence.

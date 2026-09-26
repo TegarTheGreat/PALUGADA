@@ -23,9 +23,17 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { PalugadaError } from '../errors.ts';
+import { wrapUntrusted } from '../context/builder.ts';
+import { toolsForModel } from './tool-names.ts';
 import type { RunServices, ToolDeclaration } from './protocol.ts';
 
-const PROTOCOL_VERSION = '2024-11-05';
+/**
+ * The MCP revisions this bridge answers in. It serves tools over plain
+ * request-and-answer HTTP and nothing else, which every revision here
+ * describes the same way, so a client asking for a newer one is answered
+ * in its own terms rather than told to fall back.
+ */
+const PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'] as const;
 
 interface JsonRpcRequest {
   jsonrpc: '2.0';
@@ -50,6 +58,9 @@ export async function startToolBridge(
   const token = randomBytes(32).toString('hex');
   const calls: Array<{ name: string; input: unknown }> = [];
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
+  // What the CLI's model is shown, under names its provider accepts, and the
+  // way back to the capability each stands for.
+  const { tools: shown, platformName } = toolsForModel(tools);
 
   const server: Server = createServer((req, res) => {
     void handle(req, res).catch(() => {
@@ -99,11 +110,12 @@ export async function startToolBridge(
     const { id, method } = message;
 
     if (method === 'initialize') {
+      const asked = String((message.params ?? {}).protocolVersion ?? '');
       return {
         jsonrpc: '2.0',
         id,
         result: {
-          protocolVersion: PROTOCOL_VERSION,
+          protocolVersion: (PROTOCOL_VERSIONS as readonly string[]).includes(asked) ? asked : PROTOCOL_VERSIONS[0],
           capabilities: { tools: {} },
           serverInfo: { name: 'palugada-broker', version: '1' },
         },
@@ -114,29 +126,22 @@ export async function startToolBridge(
       return {
         jsonrpc: '2.0',
         id,
-        result: {
-          tools: tools.map((tool) => ({
-            name: tool.name,
-            // The tier is in the description because a runtime deciding
-            // whether to attempt something should know that tier 3 means the
-            // owner will be asked. It is advice, not enforcement: the broker
-            // decides regardless of what the runtime believed.
-            description: `PALUGADA capability ${tool.name} (tier ${tool.tier}).`,
-            inputSchema: tool.inputSchema,
-          })),
-        },
+        result: { tools: shown },
       };
     }
 
     if (method === 'tools/call') {
       const params = (message.params ?? {}) as { name?: string; arguments?: unknown };
-      const name = String(params.name ?? '');
+      const asked = String(params.name ?? '');
+      // The name it was shown, or the capability's own for a runtime that
+      // reads the wire request rather than the list.
+      const name = platformName.get(asked) ?? (byName.has(asked) ? asked : null);
 
-      if (!byName.has(name)) {
+      if (name === null) {
         // Not an exception: F2.4 says a tool outside the role's allow-list is
         // refused, and a refusal the runtime can read is more useful than a
         // transport error it has to guess about.
-        return toolError(id, `capability ${name} is not available to this role`);
+        return toolError(id, `capability ${asked} is not available to this role`);
       }
 
       calls.push({ name, input: params.arguments });
@@ -146,7 +151,9 @@ export async function startToolBridge(
           jsonrpc: '2.0',
           id,
           result: {
-            content: [{ type: 'text', text: JSON.stringify(output) }],
+            // Data from wherever the capability reached, never instructions
+            // (F8.9): the same envelope the platform's own loop uses.
+            content: [{ type: 'text', text: wrapUntrusted(`tool ${name}`, JSON.stringify(output ?? null)) }],
             isError: false,
           },
         };

@@ -97,6 +97,10 @@ export function filesList(options: FilesOptions): Capability<ListInput, ListOutp
 
   return {
     name: 'files.list',
+    inputSchema: {
+      type: 'object',
+      properties: { path: { type: 'string', description: 'A folder under the company\'s files; omitted, the top.' } },
+    },
     adapter: 'platform:files',
     defaultTier: 0,
     async execute(input, ctx) {

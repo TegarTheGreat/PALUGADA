@@ -27,10 +27,10 @@
  */
 import { PalugadaError } from '../errors.ts';
 import { wrapUntrusted } from '../context/builder.ts';
-import { declarationFor } from '../broker/catalogue.ts';
 import { renderSystem, renderTask, toWireRequest } from './wire.ts';
-import type { LlmBlock, LlmTool, ToolUsingLlmClient } from '../llm/client.ts';
-import type { RunRequest, RunServices, ToolDeclaration } from './protocol.ts';
+import { toolsForModel } from './tool-names.ts';
+import type { LlmBlock, ToolUsingLlmClient } from '../llm/client.ts';
+import type { RunRequest, RunServices } from './protocol.ts';
 
 /** Enough for real work; a run that needs more is going round in circles. */
 export const MAX_TURNS = 40;
@@ -48,47 +48,6 @@ const ENDS_THE_RUN: ReadonlySet<string> = new Set([
   'platform.stopped', 'company.frozen', 'role.frozen', 'deadline.exceeded', 'task.lease_lost',
   'task.invalid_transition', 'journal.divergence', 'tenant.context_missing', 'model.unavailable',
 ]);
-
-/**
- * The names the model is given for the role's tools, and the way back.
- *
- * A capability is named `email.send`; the providers accept letters, digits,
- * `_` and `-`. The dot becomes `__`, which no catalogued name contains, and a
- * name that would still collide is numbered rather than silently shadowed.
- */
-export function toolNamesFor(tools: readonly ToolDeclaration[]): { tools: LlmTool[]; platformName: Map<string, string> } {
-  const platformName = new Map<string, string>();
-  const described: LlmTool[] = [];
-  for (const tool of tools) {
-    const base = tool.name.replace(/\./g, '__').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 60);
-    let name = base;
-    for (let n = 2; platformName.has(name); n += 1) name = `${base}_${n}`;
-    platformName.set(name, tool.name);
-    const declaration = declarationFor(tool.name);
-    described.push({
-      name,
-      description:
-        `${declaration?.summary ?? `The capability ${tool.name}.`} ` +
-        `PALUGADA capability ${tool.name}, tier ${tool.tier}: ${TIER_MEANING[tool.tier] ?? TIER_MEANING[3]}`,
-      inputSchema: objectSchema(tool.inputSchema),
-    });
-  }
-  return { tools: described, platformName };
-}
-
-const TIER_MEANING: Record<number, string> = {
-  0: 'it only reads, and runs at once.',
-  1: 'it writes something that can be undone, and is read back to check it happened.',
-  2: 'it spends money or reaches people: record a plan with plan.record first, and it is checked against that plan.',
-  3: 'it cannot be undone: calling it asks the owner, and the task waits for their answer.',
-};
-
-/** A provider takes an object schema for every tool; a capability that declared none takes any object. */
-function objectSchema(schema: Record<string, unknown>): Record<string, unknown> {
-  if (schema.type === 'object') return schema;
-  if (Object.keys(schema).length === 0) return { type: 'object', additionalProperties: true };
-  return { type: 'object', ...schema };
-}
 
 function bounded(text: string): string {
   if (text.length <= TOOL_RESULT_LIMIT) return text;
@@ -131,7 +90,7 @@ export async function runAgentLoop(
 ): Promise<Record<string, unknown>> {
   const wire = toWireRequest(request);
   const system = renderSystem(wire);
-  const { tools, platformName } = toolNamesFor(request.allowedTools);
+  const { tools, platformName } = toolsForModel(request.allowedTools);
   const messages: Array<{ role: 'user' | 'assistant'; content: string | LlmBlock[] }> = [
     { role: 'user', content: renderTask(wire) },
   ];

@@ -2830,12 +2830,38 @@ could reach changed a role's runtime: moving one onto Claude Code took SQL.
   without asking. It now refuses one that exists unless told
   `PALUGADA_RESET_DATABASE=yes`.
 
+### Tools, as a model sees them
+
+- Every tool was offered as "any object": the registry never wrote a
+  capability's input schema, so a model guessed its arguments and a wrong
+  guess reached the capability (`memory.search` without a query threw a
+  TypeError from inside the platform). Each capability the platform
+  implements now declares what it takes, with a sentence per argument; a
+  vendor file may declare it (`input`), and otherwise every field its
+  templates read is required. The broker holds every call to it before
+  anything reads the input, and says what was wrong.
+- Every tool's name had a dot in it, which the model providers refuse, so
+  through Claude Code, any other agent CLI and the platform's own loop a
+  role's tools were refused before the model saw them. All three now show
+  `email__send` and map it back (`src/runtime/tool-names.ts`).
+- What a tool returned reached an agent CLI as bare text; it now arrives in
+  the untrusted envelope, as it does for the platform's own loop.
+- The bridge's token was on Claude Code's command line, readable by anything
+  that can list processes, and Claude Code also loaded whatever MCP servers
+  the operator's own configuration named. The configuration is a 0600 file
+  in a private directory, and `--strict-mcp-config` loads only the bridge.
+- F8.9 was held only for work an inbound trigger began. Work that has read
+  something written outside the company -- an email, a web page, a
+  customer's record, a calendar invitation, a pull request -- now carries
+  that provenance too (`readsOutside` in the catalogue, recorded as
+  `content.read_outside`), and the owner is asked before any tier 2 or
+  higher action in it or in work it delegated. The PRD says such an action
+  is denied; asking the owner is the stricter reading this platform already
+  took for triggers, since a denial the owner cannot overrule would make a
+  support role that reads mail unable ever to answer it.
+
 **Still open from these audits, in the order they would be taken**
 
-- A capability's input schema: the registry never writes one, so every tool
-  is offered to a model as "any object".
-- F8.9 for work that *reads* outside content, not only work begun by it: a
-  run that read an email and then sends one is not yet held back.
 - Memory retrieval ranked by relevance rather than recency, and a way for a
   run to write what it learned.
 - A governed MCP client, so a company can use the integrations that already

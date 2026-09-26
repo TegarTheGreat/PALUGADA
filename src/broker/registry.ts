@@ -47,6 +47,16 @@ export interface Capability<I = unknown, O = unknown> {
   name: string;
   adapter: string;
   defaultTier: Tier;
+  /**
+   * What the capability accepts, as a JSON Schema (draft-07).
+   *
+   * What a model is shown as the tool's parameters, and what the broker holds
+   * a call to before anything else happens. Without one, a tool is offered as
+   * "any object", the model guesses its arguments, and a wrong guess reaches
+   * the capability -- `memory.search` called without a query threw a
+   * TypeError from inside the platform.
+   */
+  inputSchema?: Record<string, unknown>;
   estimatedCostCents?: number;
   execute(input: I, ctx: CapabilityContext): Promise<O>;
   /**
@@ -207,10 +217,11 @@ export class CapabilityRegistry {
         await tx.query(
           `INSERT INTO capabilities
              (name, adapter, default_tier, estimated_cost_cents, has_verify,
-              executes_untrusted_code, required_scopes)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
+              executes_untrusted_code, required_scopes, input_schema)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
            ON CONFLICT (name) DO UPDATE
              SET adapter = EXCLUDED.adapter,
+                 input_schema = EXCLUDED.input_schema,
                  default_tier = EXCLUDED.default_tier,
                  estimated_cost_cents = EXCLUDED.estimated_cost_cents,
                  has_verify = EXCLUDED.has_verify,
@@ -224,6 +235,7 @@ export class CapabilityRegistry {
             typeof capability.verify === 'function',
             capability.executesUntrustedCode ?? false,
             [...(capability.requiredScopes ?? [])],
+            JSON.stringify(capability.inputSchema ?? { type: 'object' }),
           ],
         );
       }

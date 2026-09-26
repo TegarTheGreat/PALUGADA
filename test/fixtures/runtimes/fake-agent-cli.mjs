@@ -84,7 +84,12 @@ if (argv.includes('--dump-env')) {
 }
 
 if (toCall !== null) {
-  answer.tool = await callTool(config, toCall, { zone: 'example.com' });
+  // Like a real CLI: told which tools it may use, it uses no other. The list
+  // names the tools as the bridge shows them, `mcp__palugada__` first.
+  const allowed = flag('--allowed');
+  answer.tool = allowed !== null && !allowed.split(',').includes(`mcp__palugada__${toCall}`)
+    ? { isError: true, text: `this CLI was not allowed ${toCall}; it was allowed ${allowed}` }
+    : await callTool(config, toCall, { zone: 'example.com' });
 }
 
 if (dialect === 'text') {

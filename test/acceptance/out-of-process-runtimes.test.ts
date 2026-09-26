@@ -568,18 +568,30 @@ test('the tool bridge exposes only the role\'s tools and routes them to the brok
   );
 
   try {
+    // Under a name the model's provider accepts: a dot is refused before the
+    // model ever sees the tool.
     const list = await rpc(bridge, { jsonrpc: '2.0', id: 1, method: 'tools/list' });
-    const tools = (list as { result: { tools: Array<{ name: string }> } }).result.tools;
-    assert.deepEqual(tools.map((tool) => tool.name), ['dns.read']);
+    const tools = (list as { result: { tools: Array<{ name: string; description: string }> } }).result.tools;
+    assert.deepEqual(tools.map((tool) => tool.name), ['dns__read']);
+    assert.match(tools[0]!.description, /PALUGADA capability dns\.read, tier 0/);
 
     const ok = await rpc(bridge, {
       jsonrpc: '2.0',
       id: 2,
       method: 'tools/call',
-      params: { name: 'dns.read', arguments: { zone: 'example.com' } },
+      params: { name: 'dns__read', arguments: { zone: 'example.com' } },
     });
-    assert.equal((ok as { result: { isError: boolean } }).result.isError, false);
+    const answered = (ok as { result: { isError: boolean; content: Array<{ text: string }> } }).result;
+    assert.equal(answered.isError, false);
     assert.deepEqual(calls, [{ name: 'dns.read', input: { zone: 'example.com' } }]);
+    // What the capability returned reaches the CLI's model as data (F8.9).
+    assert.match(answered.content[0]!.text, /UNTRUSTED_CONTENT[\s\S]*"records":\["a"\]/);
+
+    // A runtime that reads the wire request calls it by its own name.
+    await rpc(bridge, {
+      jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'dns.read', arguments: { zone: 'example.org' } },
+    });
+    assert.equal(calls.length, 2);
 
     // A tool outside the role's list is refused here, before the broker is
     // troubled with it -- and refused as an answer the runtime can read.
@@ -590,7 +602,13 @@ test('the tool bridge exposes only the role\'s tools and routes them to the brok
       params: { name: 'dns.write', arguments: {} },
     });
     assert.equal((refused as { result: { isError: boolean } }).result.isError, true);
-    assert.equal(calls.length, 1);
+    assert.equal(calls.length, 2);
+
+    // A client on a newer revision is answered in it.
+    const hello = await rpc(bridge, {
+      jsonrpc: '2.0', id: 5, method: 'initialize', params: { protocolVersion: '2025-06-18' },
+    });
+    assert.equal((hello as { result: { protocolVersion: string } }).result.protocolVersion, '2025-06-18');
   } finally {
     await bridge.close();
   }
@@ -719,7 +737,7 @@ test('the claude-code runtime disallows the CLI\'s own tools and points it at th
       modelRouting: { primary: 'claude-x', fallback: [] },
       allowedTools: [{ name: 'dns.read', inputSchema: {}, tier: 0 }],
     } as never,
-    { url: 'http://127.0.0.1:1/mcp', token: 'secret-token' },
+    '/run/palugada-claude-x/mcp.json',
   );
 
   const disallowed = argv[argv.indexOf('--disallowedTools') + 1]!.split(',');
@@ -727,14 +745,15 @@ test('the claude-code runtime disallows the CLI\'s own tools and points it at th
     assert.ok(disallowed.includes(tool), `${tool} must be disallowed`);
   }
 
-  assert.equal(argv[argv.indexOf('--allowedTools') + 1], 'mcp__palugada__dns.read');
+  assert.equal(argv[argv.indexOf('--allowedTools') + 1], 'mcp__palugada__dns__read',
+    'the name the bridge shows, which is one the provider accepts');
   assert.equal(argv[argv.indexOf('--model') + 1], 'claude-x');
 
-  const config = JSON.parse(argv[argv.indexOf('--mcp-config') + 1]!) as {
-    mcpServers: { palugada: { url: string; headers: Record<string, string> } };
-  };
-  assert.equal(config.mcpServers.palugada.url, 'http://127.0.0.1:1/mcp');
-  assert.equal(config.mcpServers.palugada.headers.Authorization, 'Bearer secret-token');
+  // The bridge's token travels in a private file, never on the command line,
+  // and only the bridge's server is loaded.
+  assert.equal(argv[argv.indexOf('--mcp-config') + 1], '/run/palugada-claude-x/mcp.json');
+  assert.ok(argv.includes('--strict-mcp-config'), 'the operator\'s own MCP servers are not the role\'s tools');
+  assert.ok(!argv.some((arg) => /Bearer/.test(arg)));
 });
 
 /* ---------------------------------------------------------------- cli --- */
@@ -787,7 +806,8 @@ test('an agent CLI is employed from a configuration entry alone (F13.3)', async 
     {
       name: 'codex',
       command: process.execPath,
-      args: [AGENT_CLI, '--model', '{model}', '--mcp-config', '{mcpConfig}', '--call', 'dns.read'],
+      // The tool as the bridge shows it, and the list the CLI is held to.
+      args: [AGENT_CLI, '--model', '{model}', '--mcp-config', '{mcpConfig}', '--allowed', '{allowedTools}', '--call', 'dns__read'],
     },
   ]);
 
@@ -799,8 +819,11 @@ test('an agent CLI is employed from a configuration entry alone (F13.3)', async 
 
   assert.equal(outcome.status, 'completed', outcome.reason);
   const output = outcome.output as { tool: { isError: boolean; text: string }; model: string };
-  assert.equal(output.tool.isError, false, 'the capability was resolved by the broker');
-  assert.deepEqual(JSON.parse(output.tool.text), { records: ['a.example.com'] });
+  assert.equal(output.tool.isError, false, `the capability was resolved by the broker: ${output.tool.text}`);
+  // The answer, inside the envelope that says it is data (F8.9).
+  const text = String(output.tool.text);
+  assert.match(text, /^<<<UNTRUSTED_CONTENT>>> source="tool dns\.read"/);
+  assert.deepEqual(JSON.parse(text.split('\n').at(-2)!), { records: ['a.example.com'] });
   // The role's model reached the command line through the placeholder.
   assert.equal(output.model, 'test-model');
 

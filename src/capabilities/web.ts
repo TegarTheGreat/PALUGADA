@@ -59,6 +59,11 @@ export interface FetchOutput {
 export function webFetch(options: WebOptions = {}): Capability<FetchInput, FetchOutput> {
   return {
     name: 'web.fetch',
+    inputSchema: {
+      type: 'object',
+      required: ['url'],
+      properties: { url: { type: 'string', pattern: '^https?://', description: 'The page to read, http or https.' } },
+    },
     adapter: 'platform:web',
     defaultTier: 0,
     async execute(input, ctx) {
@@ -123,6 +128,14 @@ export interface UptimeOutput {
 export function uptimeCheck(options: WebOptions = {}): Capability<UptimeInput, UptimeOutput> {
   return {
     name: 'uptime.check',
+    inputSchema: {
+      type: 'object',
+      required: ['url'],
+      properties: {
+        url: { type: 'string', pattern: '^https?://', description: 'The address to check.' },
+        expectStatus: { type: 'array', items: { type: 'integer' }, description: 'Statuses that count as up (default: below 400).' },
+      },
+    },
     adapter: 'platform:web',
     defaultTier: 0,
     async execute(input, ctx) {

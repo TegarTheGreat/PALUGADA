@@ -54,8 +54,9 @@ import { chargeEstimate, estimateFor, refundEstimate, settleActual } from './cos
 import { evaluateRoleFreeze, isRoleFrozen } from '../governance/role-freeze.ts';
 import { ancestryForTask, renderAncestry } from '../domain/goals.ts';
 import { checkAgainstPlan, readPlan, type TaskPlan } from '../engine/plan.ts';
-import { begunOutside } from '../engine/tasks.ts';
-import type { CapabilityContext, CapabilityRegistry } from './registry.ts';
+import { outsideContentIn } from '../engine/tasks.ts';
+import { Ajv, type ValidateFunction } from 'ajv';
+import type { Capability, CapabilityContext, CapabilityRegistry } from './registry.ts';
 import { declarationFor } from './catalogue.ts';
 import { CachedSecretManager, resolveCurrent } from '../secrets/rotation.ts';
 import { assertScopesCover } from '../secrets/scopes.ts';
@@ -106,6 +107,25 @@ type Verdict =
       /** For a rate limit: when a slot frees, so the engine can wait for it. */
       notBefore?: Date;
     };
+
+const inputs = new Ajv({ allErrors: true, strict: false });
+const acceptors = new WeakMap<object, ValidateFunction>();
+
+function assertAccepted(capability: Capability<never, never>, name: string, input: unknown): void {
+  const schema = capability.inputSchema;
+  if (!schema) return;
+  let validate = acceptors.get(capability);
+  if (!validate) {
+    validate = inputs.compile(schema);
+    acceptors.set(capability, validate);
+  }
+  if (validate(input)) return;
+  throw new PalugadaError(
+    'contract.violation',
+    `${name} was called with input it does not accept: ${inputs.errorsText(validate.errors, { dataVar: 'input' })}`,
+    { name, field: 'input' },
+  );
+}
 
 export class CapabilityBroker {
   readonly #registry: CapabilityRegistry;
@@ -278,6 +298,12 @@ export class CapabilityBroker {
         hook: preTool.refusedBy,
       });
     }
+
+    // The call is held to what the capability says it accepts before
+    // anything reads it: policy facts are built from the input, and a
+    // capability handed the wrong shape failed from inside with a TypeError
+    // the model could do nothing with. Refused here, it is told what to send.
+    assertAccepted(capability, name, input);
 
     const now = new Date();
 
@@ -486,8 +512,9 @@ export class CapabilityBroker {
     // run was persuaded; the envelope around the event is the first defence
     // and this is the one that does not depend on the model.
     const outside = tier >= 2
-      && await withTenant(ctx.companyId, (tx) => begunOutside(tx, ctx.taskId));
-    const needsOwner = requiresOwnerApproval(tier) || policy.effect === 'require_approval' || outside;
+      ? await withTenant(ctx.companyId, (tx) => outsideContentIn(tx, ctx.taskId))
+      : null;
+    const needsOwner = requiresOwnerApproval(tier) || policy.effect === 'require_approval' || outside !== null;
     const fingerprint = needsOwner ? fingerprintAction(name, input) : null;
     if (needsOwner) {
       grantedApproval = await withTenant(ctx.companyId, (tx) =>
@@ -521,7 +548,9 @@ export class CapabilityBroker {
           (policy.effect === 'require_approval'
             ? `, and policy ${policy.matched.map((m) => m.slug).join(', ')} requires your approval.`
             : outside && !requiresOwnerApproval(tier)
-              ? ', and the task began with content from outside the company (F8.9).'
+              ? outside === 'begun'
+                ? ', and the task began with content from outside the company (F8.9).'
+                : ', and the work read content from outside the company before asking (F8.9).'
               : ', which cannot be reversed.') +
           (chain.length > 0 ? `\n\nWhat this is for — ${renderAncestry(chain)}` : ''),
         consequenceIfDenied: 'The task halts and no external change is made.',
@@ -632,6 +661,20 @@ export class CapabilityBroker {
         });
       }
       throw error;
+    }
+
+    // F8.9: what this returned was written outside the company, and the
+    // work now carries it. Recorded once the read has happened, where the
+    // audit trail shows it and where the next tier 2 action looks.
+    if (declarationFor(name)?.readsOutside) {
+      await withTenant(ctx.companyId, (tx) => appendEvent(tx, {
+        companyId: ctx.companyId,
+        projectId: ctx.projectId,
+        taskId: ctx.taskId,
+        type: 'content.read_outside',
+        actor: 'broker',
+        payload: { capability: name },
+      }));
     }
 
     // Settled before the read-back, because the provider billed for the call

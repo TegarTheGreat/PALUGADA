@@ -35,6 +35,10 @@ import type {
 } from './protocol.ts';
 import { driveRun, renderPrompt, toWireRequest, type Transport } from './wire.ts';
 import { startToolBridge } from './tool-bridge.ts';
+import { toolsForModel } from './tool-names.ts';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 export interface ClaudeCodeAdapterOptions {
   name?: string;
@@ -124,7 +128,7 @@ export class ClaudeCodeAdapter implements Adapter {
    * of its own tools, and no permission mode that would let it grant itself
    * any.
    */
-  argv(request: RunRequest, bridge: { url: string; token: string }): string[] {
+  argv(request: RunRequest, mcpConfigFile: string): string[] {
     return [
       '-p',
       '--output-format', 'stream-json',
@@ -133,18 +137,16 @@ export class ClaudeCodeAdapter implements Adapter {
       '--max-turns', String(this.#options.maxTurns ?? 40),
       // F13.4. Everything the CLI could otherwise do to the world directly.
       '--disallowedTools', 'Bash,Write,Edit,NotebookEdit,WebFetch,WebSearch,Read,Glob,Grep',
-      // The broker, and nothing else.
-      '--allowedTools', request.allowedTools.map((tool) => `mcp__palugada__${tool.name}`).join(','),
-      '--mcp-config',
-      JSON.stringify({
-        mcpServers: {
-          palugada: {
-            type: 'http',
-            url: bridge.url,
-            headers: { Authorization: `Bearer ${bridge.token}` },
-          },
-        },
-      }),
+      // The broker, and nothing else: under the names the bridge shows, which
+      // are the names the model's provider accepts.
+      '--allowedTools', toolsForModel(request.allowedTools).tools.map((tool) => `mcp__palugada__${tool.name}`).join(','),
+      // A file, not the JSON itself: the bridge's token on the command line
+      // was readable by anything on the machine that can list processes.
+      '--mcp-config', mcpConfigFile,
+      // Only that server. Without this the CLI also loads whatever MCP
+      // servers the operator's own configuration names, and the role gains
+      // tools the broker never sees.
+      '--strict-mcp-config',
     ];
   }
 
@@ -155,6 +157,14 @@ export class ClaudeCodeAdapter implements Adapter {
 
   async run(request: RunRequest, services: RunServices): Promise<AdapterResult> {
     const bridge = await startToolBridge(request.allowedTools, services);
+    // 0700 from mkdtemp, and the file 0600 from the start: the token is in it.
+    const runDir = await mkdtemp(join(tmpdir(), 'palugada-claude-'));
+    const mcpConfigFile = join(runDir, 'mcp.json');
+    await writeFile(mcpConfigFile, JSON.stringify({
+      mcpServers: {
+        palugada: { type: 'http', url: bridge.url, headers: { Authorization: `Bearer ${bridge.token}` } },
+      },
+    }), { mode: 0o600 });
 
     const env: Record<string, string> = { PATH: process.env.PATH ?? '', ...(this.#options.env ?? {}) };
     if (this.#options.apiKeyEnvVar) {
@@ -162,7 +172,7 @@ export class ClaudeCodeAdapter implements Adapter {
       if (value) env[this.#options.apiKeyEnvVar] = value;
     }
 
-    const child = spawnTree(this.command, this.argv(request, bridge), {
+    const child = spawnTree(this.command, this.argv(request, mcpConfigFile), {
       ...(this.#options.cwd ? { cwd: this.#options.cwd } : {}),
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -196,6 +206,7 @@ export class ClaudeCodeAdapter implements Adapter {
       async close() {
         services.signal.removeEventListener('abort', withdraw);
         await bridge.close();
+        await rm(runDir, { recursive: true, force: true });
         // The whole group, and whether or not the CLI itself is still there:
         // one that finished and left a server running is the case where
         // nothing else would ever clean up.

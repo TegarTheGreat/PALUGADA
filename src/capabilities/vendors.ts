@@ -86,6 +86,11 @@ export interface VendorSpec {
   headers?: Record<string, string>;
   /** A JSON template. Strings may hold `{input.x}` and `{idempotencyKey}`. */
   body?: Json;
+  /**
+   * What a call carries, as a JSON Schema. Optional: without one, every field
+   * a template reads (`{input.to}`) is a field the call must have.
+   */
+  input?: Record<string, unknown>;
   /** A path into `{ status, body }`. Omitted answers with the parsed body. */
   result?: string;
   credentialAlias?: string;
@@ -138,6 +143,7 @@ const SCHEMA = {
           url: { type: 'string', minLength: 1 },
           headers: { type: 'object', additionalProperties: { type: 'string' } },
           body: {},
+          input: { type: 'object' },
           result: { type: 'string', minLength: 1 },
           credentialAlias: { type: 'string', minLength: 1 },
           requiredScopes: { type: 'array', items: { type: 'string' } },
@@ -435,9 +441,40 @@ function hostOf(value: string): string | null {
 /* --------------------------------------------------------------- the build --- */
 
 /** Turns one validated entry into the spec `httpCapability` takes. */
+/**
+ * What a call must carry, when the file does not say: every field a template
+ * reads. A model shown "any object" guesses, and a guess of `recipient` for
+ * `to` sent a literal "{input.to}" to the vendor.
+ */
+function inputSchemaFrom(entry: VendorSpec): Record<string, unknown> {
+  const fields = new Set<string>();
+  const collect = (value: unknown): void => {
+    if (typeof value === 'string') {
+      for (const match of value.matchAll(/\{input\.([A-Za-z0-9_]+)/g)) fields.add(match[1]!);
+    } else if (Array.isArray(value)) {
+      value.forEach(collect);
+    } else if (value && typeof value === 'object') {
+      Object.values(value).forEach(collect);
+    }
+  };
+  collect([entry.url, entry.headers, entry.body, entry.verify?.url, entry.verify?.headers]);
+  const names = [...fields].sort();
+  return { type: 'object', required: names, properties: Object.fromEntries(names.map((name) => [name, {}])) };
+}
+
+const inputs = new Ajv({ strict: false });
+
 export function specFrom(entry: VendorSpec): HttpCapabilitySpec {
+  if (entry.input) {
+    try {
+      inputs.compile(entry.input);
+    } catch (failure) {
+      throw new Error(`its input is not a schema the validator can read: ${(failure as Error).message}`);
+    }
+  }
   const spec: HttpCapabilitySpec = {
     name: entry.name,
+    inputSchema: entry.input ?? inputSchemaFrom(entry),
     adapter: entry.adapter,
     tier: entry.tier,
     method: entry.method,

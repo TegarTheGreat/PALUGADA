@@ -105,12 +105,17 @@ export async function getTask(tx: TenantClient, taskId: string): Promise<TaskRow
 }
 
 /**
- * Whether a task, or any task above it, was begun by an inbound trigger --
- * whether the work started from text that came from outside the company.
- * Delegating does not launder it: a child of such a task is the same work.
+ * Whether outside text is in a task's work (F8.9), and how it got there.
+ *
+ * `begun`: the task, or one above it, was begun by an inbound trigger.
+ * `read`: the task, or one above it, read something written outside the
+ * company through a capability the catalogue marks `readsOutside` -- an
+ * email, a web page, a customer's record. Null when neither. Delegating does
+ * not launder it: a child of such a task is the same work, carrying the same
+ * text in its brief.
  */
-export async function begunOutside(tx: TenantClient, taskId: string): Promise<boolean> {
-  const { rows } = await tx.query<{ outside: boolean | null }>(
+export async function outsideContentIn(tx: TenantClient, taskId: string): Promise<'begun' | 'read' | null> {
+  const { rows } = await tx.query<{ begun: boolean | null; read: boolean }>(
     `WITH RECURSIVE chain AS (
        SELECT id, parent_task_id, created_by, 0 AS depth FROM tasks WHERE id = $1
        UNION ALL
@@ -118,10 +123,14 @@ export async function begunOutside(tx: TenantClient, taskId: string): Promise<bo
          FROM tasks t JOIN chain ON t.id = chain.parent_task_id
         WHERE chain.depth < 64
      )
-     SELECT bool_or(created_by = 'webhook') AS outside FROM chain`,
+     SELECT bool_or(created_by = 'webhook') AS begun,
+            EXISTS (SELECT 1 FROM events e
+                     WHERE e.task_id IN (SELECT id FROM chain) AND e.type = 'content.read_outside') AS read
+       FROM chain`,
     [taskId],
   );
-  return rows[0]?.outside ?? false;
+  const row = rows[0];
+  return row?.begun ? 'begun' : row?.read ? 'read' : null;
 }
 
 export interface CreateTaskInput {

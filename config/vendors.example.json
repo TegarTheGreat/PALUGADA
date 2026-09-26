@@ -16,6 +16,19 @@
         "subject": "{input.subject}",
         "text": "{input.body}"
       },
+      "input": {
+        "type": "object",
+        "required": ["from", "to", "subject", "body"],
+        "properties": {
+          "from": { "type": "string", "description": "The sender: an address on a domain verified with Resend." },
+          "to": {
+            "anyOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 50 }],
+            "description": "One address, or up to fifty for a batch."
+          },
+          "subject": { "type": "string", "minLength": 1 },
+          "body": { "type": "string", "minLength": 1, "description": "The message, as plain text." }
+        }
+      },
       "result": "body.id",
       "credentialAlias": "email",
       "requiredScopes": ["email:send"],

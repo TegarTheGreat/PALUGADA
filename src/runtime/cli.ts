@@ -56,6 +56,7 @@ import type {
   RunServices,
 } from './protocol.ts';
 import { driveRun, renderPrompt, toWireRequest, type Transport } from './wire.ts';
+import { toolsForModel } from './tool-names.ts';
 import { startToolBridge, type ToolBridge } from './tool-bridge.ts';
 import { asOutput, translateStreamJsonLine, type StreamJsonLine } from './claude-code.ts';
 import {
@@ -313,7 +314,9 @@ export class CliAdapter implements Adapter {
       mcpConfigFile: join(runDir, 'mcp.json'),
       mcpUrl: bridge.url,
       mcpToken: bridge.token,
-      allowedTools: request.allowedTools
+      // The names the bridge shows, which are the names a model's provider
+      // accepts: a dotted one is refused before the model sees it.
+      allowedTools: toolsForModel(request.allowedTools).tools
         .map((tool) => `mcp__palugada__${tool.name}`)
         .join(','),
       prompt,

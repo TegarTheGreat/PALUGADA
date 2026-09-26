@@ -239,6 +239,34 @@ test('a read-back can check the record says what was set (F8.4)', async () => {
 
 /* -------------------------------------------------------------- refusals --- */
 
+test('a vendor capability says what it takes: the fields its templates use, or what the file declares (F13.4)', () => {
+  // Offered as "any object", a model guessed a send's arguments, and a guess
+  // of `recipient` for `to` sent a literal "{input.to}" to the vendor.
+  const derived = build('https://mail.example');
+  assert.deepEqual(derived.inputSchema, {
+    type: 'object',
+    required: ['body', 'subject', 'to'],
+    properties: { body: {}, subject: {}, to: {} },
+  }, 'every field a template reads is one the call must carry');
+
+  const declared = httpCapability(parseVendors({
+    capabilities: [{
+      ...sendEntry('https://mail.example'),
+      input: {
+        type: 'object', required: ['to', 'subject', 'body'],
+        properties: { to: { type: 'string', description: 'One address.' }, subject: { type: 'string' }, body: { type: 'string' } },
+      },
+    }],
+  })[0]!);
+  assert.equal((declared.inputSchema!.properties as Record<string, { description?: string }>).to!.description, 'One address.');
+
+  assert.throws(
+    () => parseVendors({ capabilities: [{ ...sendEntry('https://mail.example'), input: { type: 'object', required: 'to' } }] }, 'vendors.json'),
+    (error: unknown) => isPalugadaError(error, 'config.invalid') && /email\.send.*input/.test((error as Error).message),
+    'a schema the validator cannot read is refused at boot, not at the first send',
+  );
+});
+
 test('a file naming a field this platform does not have is refused (F8)', () => {
   // `additionalProperties: false` throughout, and this is why: an operator who
   // writes `credential_alias` would otherwise get a capability that sends no

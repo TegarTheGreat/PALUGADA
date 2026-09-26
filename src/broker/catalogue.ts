@@ -53,6 +53,15 @@ export interface CapabilityDeclaration {
    * network and therefore cannot stop code from posting either one somewhere.
    */
   executesUntrustedCode?: boolean;
+  /**
+   * Whether what it returns was written outside the company (F8.9): a web
+   * page, an email, a customer's record, an invitation, somebody else's pull
+   * request. Work that has read it carries that provenance, and the broker
+   * asks the owner before any action at tier 2 or above in it, however the
+   * run was persuaded -- the untrusted envelope is the first defence, and
+   * this is the one that does not depend on the model.
+   */
+  readsOutside?: boolean;
 }
 
 /**
@@ -180,6 +189,7 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
     adapter: 'http',
     tier: TIER.READ_ONLY,
     summary: 'Fetches a public page or document.',
+    readsOutside: true,
     calibration:
       'Reading changes nothing outside. What it returns is external text, so ' +
       'it reaches the model inside the untrusted envelope F8.9 requires -- ' +
@@ -190,6 +200,7 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
     adapter: 'vcs',
     tier: TIER.READ_ONLY,
     summary: 'Reads files, history and pull requests in a repository.',
+    readsOutside: true,
     calibration:
       'Cloning and reading leave nothing behind that anyone has to undo. ' +
       'Writing is `repo.branch`, which is separate so that reading code -- ' +
@@ -202,6 +213,7 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
     adapter: 'mail',
     tier: TIER.READ_ONLY,
     summary: 'Reads messages in a company mailbox.',
+    readsOutside: true,
     calibration:
       'Reading is tier 0 even though the content is sensitive: the tier ' +
       'classifies how hard the effect is to reverse, and confidentiality is ' +
@@ -213,6 +225,7 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
     adapter: 'calendar',
     tier: TIER.READ_ONLY,
     summary: 'Reads the company calendar.',
+    readsOutside: true,
     calibration:
       'Reading availability changes nothing. Putting something in the ' +
       'calendar is `calendar.hold`, and inviting a person to it is not a ' +
@@ -235,6 +248,7 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
     adapter: 'crm',
     tier: TIER.READ_ONLY,
     summary: 'Reads customer records and their history.',
+    readsOutside: true,
     calibration:
       'Reading a record changes nothing about the customer. What it exposes ' +
       'is personal data, which the credential scope and the retention window ' +

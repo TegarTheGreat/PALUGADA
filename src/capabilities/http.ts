@@ -88,6 +88,8 @@ export interface VerifySpec {
 
 export interface HttpCapabilitySpec {
   name: string;
+  /** What a call carries, as a JSON Schema: shown to the model and held by the broker. */
+  inputSchema?: Record<string, unknown>;
   /** The vendor, for the catalogue: `resend`, `cloudflare`, `stripe`. */
   adapter: string;
   tier: Tier;
@@ -199,6 +201,7 @@ export function httpCapability(spec: HttpCapabilitySpec): Capability<
     name: spec.name,
     adapter: spec.adapter,
     defaultTier: spec.tier,
+    ...(spec.inputSchema ? { inputSchema: spec.inputSchema } : {}),
     ...(spec.estimatedCostCents === undefined
       ? {}
       : { estimatedCostCents: spec.estimatedCostCents }),

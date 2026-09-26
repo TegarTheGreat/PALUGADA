@@ -154,6 +154,17 @@ export interface OwnerApiOptions {
    */
   replayHandlers?: Map<string, TaskHandler>;
   /**
+   * The names this console answers to, from the `Host` header.
+   *
+   * DNS rebinding points a name the attacker owns at 127.0.0.1, and a page
+   * on that name can then reach a console bound to loopback as though it were
+   * same-origin -- the browser checks the name, not the address. A console
+   * that refuses every Host it was not given closes that. Omitted, a console
+   * bound to loopback answers to the loopback names only, and one bound to
+   * every interface answers to anything, which the deployment says at boot.
+   */
+  allowedHosts?: readonly string[];
+  /**
    * The message channel whose button presses arrive at
    * `/api/channels/telegram` (F10.9). Absent means the route refuses.
    */
@@ -189,6 +200,7 @@ export class OwnerApi {
   readonly #sessions: OwnerSessions;
   readonly #routes: Route[];
   #server: Server | null = null;
+  #allowedHosts: ReadonlySet<string> | null = null;
 
   constructor(options: OwnerApiOptions) {
     this.#options = options;
@@ -213,6 +225,10 @@ export class OwnerApi {
       throw new Error('the owner API did not bind to a port');
     }
     this.#server = server;
+    const given = this.#options.allowedHosts;
+    this.#allowedHosts = given
+      ? new Set([...given, host].map(normaliseHost))
+      : LOOPBACK_HOSTS.has(normaliseHost(host)) ? LOOPBACK_HOSTS : null;
     return { url: `http://${host}:${address.port}`, port: address.port };
   }
 
@@ -1585,6 +1601,18 @@ export class OwnerApi {
   async #handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? '/', 'http://localhost');
 
+    // Before anything else, the console's own page included: a page served
+    // to a rebound name is the page that would then make the requests.
+    const asked = hostOf(req.headers.host);
+    if (this.#allowedHosts && (!asked || !this.#allowedHosts.has(asked))) {
+      send(res, 421, {
+        error: `this console does not answer to ${asked ?? 'a request without a Host'}; `
+          + 'add the name to PALUGADA_ALLOWED_HOSTS if it is meant to',
+        code: 'owner.wrong_host',
+      });
+      return;
+    }
+
     // Only the configured origin, and only when one is configured. An API that
     // reflects whatever `Origin` it was sent has no origin policy at all,
     // which is worse than none because it looks like one.
@@ -1928,6 +1956,25 @@ const GOAL_KINDS = ['mission', 'objective', 'key_result'] as const;
 const GOAL_STATUSES = ['active', 'met', 'abandoned'] as const;
 const SKILL_SCOPES = ['company', 'platform', 'division'] as const;
 const BUDGET_SCOPES = ['project', 'division', 'role'] as const;
+
+/** The names a console bound to loopback answers to when it is told none. */
+const LOOPBACK_HOSTS: ReadonlySet<string> = new Set(['127.0.0.1', 'localhost', '[::1]']);
+
+/** A host name as compared: lower case, no port, IPv6 in brackets. */
+function normaliseHost(name: string): string {
+  const bare = name.trim().toLowerCase();
+  return bare.includes(':') && !bare.startsWith('[') ? `[${bare}]` : bare;
+}
+
+/** The name a request asked for, from its `Host` header, without the port. */
+function hostOf(header: string | undefined): string | null {
+  if (!header) return null;
+  try {
+    return normaliseHost(new URL(`http://${header}`).hostname);
+  } catch {
+    return null;
+  }
+}
 
 function bearer(req: IncomingMessage): string | undefined {
   const header = req.headers.authorization ?? '';

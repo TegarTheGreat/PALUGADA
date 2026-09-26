@@ -189,9 +189,37 @@ export function channelsFrom(env: NodeJS.ProcessEnv): {
   return { channels, notes };
 }
 
+/**
+ * The Host names the console should answer to, or null to leave it to the
+ * bind address. PALUGADA_ALLOWED_HOSTS names them outright; otherwise the
+ * public URL, the console origin and the passkey origin, where given, are the
+ * names the owner's browser uses -- plus loopback, for the operator on the
+ * machine itself.
+ */
+function allowedHostsFrom(env: NodeJS.ProcessEnv): string[] | null {
+  if (env.PALUGADA_ALLOWED_HOSTS) {
+    return env.PALUGADA_ALLOWED_HOSTS.split(',').map((name) => name.trim()).filter(Boolean);
+  }
+  const named: string[] = [];
+  for (const source of ['PALUGADA_APP_URL_PUBLIC', 'PALUGADA_CONSOLE_ORIGIN', 'PALUGADA_ORIGIN'] as const) {
+    const value = env[source];
+    if (!value) continue;
+    try {
+      named.push(new URL(value).hostname);
+    } catch {
+      throw new PalugadaError('config.invalid', `${source} ${value} is not a URL`, { source });
+    }
+  }
+  return named.length > 0 ? [...named, '127.0.0.1', 'localhost', '[::1]'] : null;
+}
+
 export async function start(options: DeploymentOptions = {}): Promise<Deployment> {
   const env = options.env ?? process.env;
   const notes: string[] = [];
+
+  // The names the console answers to (see `OwnerApiOptions.allowedHosts`).
+  // Read first, so a malformed URL is refused before anything is built.
+  const allowedHosts = allowedHostsFrom(env);
 
   // The stores every deployment already has: its environment and its mounted
   // secret files. The in-memory manager this fell back to was empty and
@@ -446,6 +474,14 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   const telegram = channels.find((channel): channel is TelegramChannel =>
     channel instanceof TelegramChannel);
 
+  const bindHost = options.host ?? env.PALUGADA_HOST ?? '127.0.0.1';
+  if (!allowedHosts && ['0.0.0.0', '::', '[::]'].includes(bindHost)) {
+    notes.push(
+      'the console listens on every interface and answers to any Host: set '
+        + 'PALUGADA_ALLOWED_HOSTS or PALUGADA_APP_URL_PUBLIC to the names it is reached by',
+    );
+  }
+
   const api = new OwnerApi({
     mfa,
     // The registry and the resolver, so F12.3's rotation can sweep the
@@ -461,11 +497,9 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     ...(options.consoleRoot ? { staticRoot: options.consoleRoot } : {}),
     ...(env.PALUGADA_CONSOLE_ORIGIN ? { origin: env.PALUGADA_CONSOLE_ORIGIN } : {}),
     ...(telegram ? { telegram } : {}),
+    ...(allowedHosts ? { allowedHosts } : {}),
   });
-  const { url } = await api.listen(
-    options.port ?? Number(env.PALUGADA_PORT ?? 8787),
-    options.host ?? env.PALUGADA_HOST ?? '127.0.0.1',
-  );
+  const { url } = await api.listen(options.port ?? Number(env.PALUGADA_PORT ?? 8787), bindHost);
 
   // Started last, so a console that failed to bind does not leave a worker
   // running with nobody able to stop it.

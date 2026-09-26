@@ -709,6 +709,102 @@ test('a body that is not a JSON object is refused rather than coerced', async ()
   }
 });
 
+/** A GET sent with a `Host` of the test's choosing, which `fetch` will not send. */
+async function getAs(url: string, path: string, host: string): Promise<Answer> {
+  const { request } = await import('node:http');
+  return new Promise((resolve, reject) => {
+    const sent = request(`${url}${path}`, { headers: { host } }, (response) => {
+      let text = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk: string) => { text += chunk; });
+      response.on('end', () => {
+        let body: Record<string, unknown> = {};
+        try {
+          body = JSON.parse(text) as Record<string, unknown>;
+        } catch {
+          // The console's own page, or nothing: the status is what is asked.
+        }
+        resolve({ status: response.statusCode ?? 0, body });
+      });
+    });
+    sent.on('error', reject);
+    sent.end();
+  });
+}
+
+/**
+ * DNS rebinding. A page on a name the attacker owns, re-pointed at
+ * 127.0.0.1, reaches a console bound to loopback as though it were
+ * same-origin -- the browser checks the name, never the address. So the
+ * console answers only to the names it was given, and on loopback with none
+ * given, to the loopback names.
+ */
+test('the console answers only to its own names (DNS rebinding)', async () => {
+  const owner = await console_();
+  const port = new URL(owner.url).port;
+  const named = new OwnerApi({
+    mfa: new OwnerMfa({ secrets: new InMemorySecretManager(), rpId: 'palugada.local' }),
+    allowedHosts: ['console.example.com'],
+  });
+  const { url: namedUrl, port: namedPort } = await named.listen();
+  try {
+    for (const host of [`127.0.0.1:${port}`, `localhost:${port}`, `LOCALHOST:${port}`, `[::1]:${port}`]) {
+      assert.equal((await getAs(owner.url, '/api/auth/challenge', host)).status, 200, host);
+    }
+    for (const path of ['/api/auth/challenge', '/', '/api/companies']) {
+      const rebound = await getAs(owner.url, path, `rebound.attacker.example:${port}`);
+      assert.equal(rebound.status, 421, path);
+      assert.equal(rebound.body.code, 'owner.wrong_host', path);
+    }
+
+    // Given names are the names: the one it is published under, and the
+    // address it is bound to.
+    for (const host of ['console.example.com', 'console.example.com:443', `127.0.0.1:${namedPort}`]) {
+      assert.equal((await getAs(namedUrl, '/api/auth/challenge', host)).status, 200, host);
+    }
+    for (const host of ['rebound.attacker.example', 'console.example.com.attacker.example']) {
+      assert.equal((await getAs(namedUrl, '/api/auth/challenge', host)).status, 421, host);
+    }
+  } finally {
+    await named.close();
+    await owner.close();
+  }
+});
+
+/**
+ * The deployment gives the console the names the owner reaches it by: the
+ * ones listed outright, or the public URL's -- and refuses to start on a URL
+ * that is not one, rather than guessing.
+ */
+test('the deployment answers to its public name and refuses a malformed one', async () => {
+  const { start } = await import('../../src/main.ts');
+  const deployment = await start({
+    port: 0,
+    env: { PALUGADA_APP_URL_PUBLIC: 'https://console.example.com/palugada' },
+    worker: { idleMs: 60_000 },
+  });
+  try {
+    const port = new URL(deployment.url).port;
+    assert.equal((await getAs(deployment.url, '/api/auth/challenge', 'console.example.com')).status, 200);
+    assert.equal((await getAs(deployment.url, '/api/auth/challenge', `localhost:${port}`)).status, 200,
+      'the operator on the machine itself');
+    assert.equal((await getAs(deployment.url, '/api/auth/challenge', 'rebound.attacker.example')).status, 421);
+  } finally {
+    await deployment.stop();
+  }
+
+  let started: Awaited<ReturnType<typeof start>> | null = null;
+  let refusal: unknown = null;
+  try {
+    started = await start({ port: 0, env: { PALUGADA_APP_URL_PUBLIC: 'console dot example' }, worker: { idleMs: 50 } });
+  } catch (failure) {
+    refusal = failure;
+  }
+  if (started) await started.stop();
+  assert.equal(started, null, 'a public URL that is not one started a deployment anyway');
+  assert.equal((refusal as { code?: string }).code, 'config.invalid');
+});
+
 /**
  * An API with no origin policy is safer than one that echoes back whatever it
  * was sent, because the second looks like a policy.

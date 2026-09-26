@@ -802,6 +802,7 @@ conjure, and each says so at boot rather than at 3am:
 | `PALUGADA_PUSH_URL` | push for an incident or a tier 3 approval (F10.5) |
 | `PALUGADA_TELEGRAM_TOKEN`, `_CHAT`, `_WEBHOOK_SECRET` | the message channel (F10.9). `_CHAT` is the owner's own chat with the bot, whose id is the owner's user id: only that person's presses count, in any chat. Point the bot's `setWebhook` at `<PALUGADA_APP_URL_PUBLIC>/api/channels/telegram` with `secret_token` set to `_WEBHOOK_SECRET` |
 | `PALUGADA_APP_URL_PUBLIC` | where the console is reachable from the owner's phone; notifications link to the item there |
+| `PALUGADA_ALLOWED_HOSTS` | the names the console answers to, comma-separated. Anything else gets a 421, which closes DNS rebinding. Unset, it is the host of `PALUGADA_APP_URL_PUBLIC`, `PALUGADA_CONSOLE_ORIGIN` and `PALUGADA_ORIGIN` plus loopback; with none of those, a console bound to loopback answers to the loopback names, and one bound to every interface answers to anything and says so at boot |
 | `PALUGADA_RP_ID`, `PALUGADA_ORIGIN` | passkeys, for the console's own domain |
 | `PALUGADA_ALLOW_PRIVATE_HOSTS` | an internal host `web.fetch` may reach |
 

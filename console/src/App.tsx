@@ -22,7 +22,7 @@ import { Spotlight, spotlight, type SpotlightActionData } from '@mantine/spotlig
 import {
   IconActivity, IconAlertOctagon, IconBrain, IconBuildingStore, IconCheck, IconChecklist, IconChevronDown,
   IconCoin, IconDots, IconHistory, IconHome, IconInbox, IconLanguage, IconLayoutDashboard, IconLogout, IconMap,
-  IconMoon, IconPlayerPlay, IconPlayerStop, IconPlus, IconSearch, IconSettings, IconSitemap, IconSun,
+  IconMoon, IconPlayerPlay, IconPlayerStop, IconPlus, IconSearch, IconServer2, IconSettings, IconSitemap, IconSun,
 } from '@tabler/icons-react';
 import { api, explain, setToken, whenSignedOut } from './api.ts';
 import { useFactor } from './factor.tsx';
@@ -33,6 +33,7 @@ import type { Company, SearchHit, Structure } from './types.ts';
 import { companyEmblem, OWNER_PICTURE } from './images.ts';
 import { SignIn } from './pages/SignIn.tsx';
 import { Home } from './pages/Home.tsx';
+import { DeploymentSettings } from './pages/Deployment.tsx';
 import { Decisions } from './pages/Decisions.tsx';
 import { Overview } from './pages/Overview.tsx';
 import { Work } from './pages/Work.tsx';
@@ -250,6 +251,7 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
     })),
     { id: 'give-work', label: t('Give a role something to do'), description: t('Wakes the role now'), leftSection: <IconPlus size={18} />, onClick: () => setGiving(true) },
     { id: 'start-company', label: t('Start a company'), description: t('From the standard template'), leftSection: <IconBuildingStore size={18} />, onClick: () => setStarting(true) },
+    { id: 'deployment', label: t('Model'), description: t('This deployment'), leftSection: <IconServer2 size={18} />, onClick: () => go({ kind: 'deployment', section: 'model' }) },
     { id: 'languages', label: t('Languages'), description: t('The panel, and what your agents write in'), leftSection: <IconLanguage size={18} />, onClick: () => open('settings', { section: 'language' }) },
     { id: 'stop', label: stopAll ? t('Resume everything') : t('Stop everything'), description: t('Every company'), leftSection: <IconPlayerStop size={18} />, onClick: () => void toggleStop() },
     { id: 'theme', label: colorScheme === 'dark' ? t('Light theme') : t('Dark theme'), description: t('Appearance'), leftSection: <IconMoon size={18} />, onClick: toggleColorScheme },
@@ -290,7 +292,7 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
 
   const setup = base.data?.setup ?? { notes: [], todo: [] };
   const inboxCount = company ? openCount[company.id] ?? 0 : 0;
-  const active = route.kind === 'home' ? 'home' : route.page;
+  const active = route.kind === 'company' ? route.page : route.kind;
 
   const navLink = (page: (typeof PAGES)[number]) => (
     <NavLink
@@ -406,6 +408,13 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
             </Paper>
           )}
           {PAGES.filter((page) => page.group === 'setup').map(navLink)}
+          <NavLink
+            label={t('This deployment')}
+            leftSection={<IconServer2 size={18} stroke={1.7} />}
+            active={active === 'deployment'}
+            onClick={() => go({ kind: 'deployment', section: 'model' })}
+            className="nav-link"
+          />
           <Button
             fullWidth
             mt="xs"
@@ -457,7 +466,9 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
           </Box>
         )}
         <Box className="app-content" px={{ base: 'md', sm: 'xl' }} py={{ base: 'md', sm: 'xl' }}>
-          {!base.data ? null : route.kind === 'home' || !context ? (
+          {!base.data ? null : route.kind === 'deployment' ? (
+            <DeploymentSettings section={route.section} />
+          ) : route.kind === 'home' || !context ? (
             <Home
               companies={companies}
               openCompany={(id, page, item) => open(page, { companyId: id, item: item ?? null })}
@@ -487,7 +498,7 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
               {tab.label}
             </UnstyledButton>
           ))}
-          <UnstyledButton className="bottom-tab" data-active={['team', 'memory', 'history', 'settings', 'overview'].includes(active) || undefined} onClick={() => setMore(true)}>
+          <UnstyledButton className="bottom-tab" data-active={['team', 'memory', 'history', 'settings', 'overview', 'deployment'].includes(active) || undefined} onClick={() => setMore(true)}>
             <IconDots size={22} stroke={1.7} />
             {t('More')}
           </UnstyledButton>
@@ -497,6 +508,8 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
       <Drawer opened={more} onClose={() => setMore(false)} position="bottom" size="auto" title={company?.name} radius="lg">
         <Stack gap={4} pb="md">
           {PAGES.filter((page) => !['inbox', 'work', 'money'].includes(page.id)).map(navLink)}
+          <NavLink label={t('This deployment')} leftSection={<IconServer2 size={18} stroke={1.7} />} active={active === 'deployment'}
+            onClick={() => { setMore(false); go({ kind: 'deployment', section: 'model' }); }} />
           <Divider my="xs" />
           {LANGUAGES.map((one) => (
             <NavLink key={one.code} label={one.name} leftSection={<IconLanguage size={18} />} active={one.code === language()} onClick={() => void pickLanguage(one.code)} />
@@ -522,8 +535,11 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
 
       <Modal opened={checklist} onClose={() => setChecklist(false)} title={t('Finish setting up this deployment')} size="lg" centered>
         <Text size="sm" c="dimmed" mb="md">
-          {t('What the deployment reported when it started. Each one is something switched off until the operator configures it; the README lists every variable.')}
+          {t('What the deployment reported when it started. Each one is something switched off until it is configured: the model is set on the This deployment page, and the rest in the environment, which docs/configuration.md lists.')}
         </Text>
+        <Button mb="md" variant="light" leftSection={<IconServer2 size={16} />} onClick={() => { setChecklist(false); go({ kind: 'deployment', section: 'model' }); }}>
+          {t('Set the model')}
+        </Button>
         <Stack gap="xs">
           {setup.notes.map((note) => {
             const done = !setup.todo.includes(note);

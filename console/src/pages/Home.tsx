@@ -15,7 +15,7 @@ import {
 import { IconAlertTriangle, IconArrowRight, IconChecklist, IconPlus, IconUpload } from '@tabler/icons-react';
 import { api } from '../api.ts';
 import { useLoad } from '../hooks.ts';
-import type { CompanyPage } from '../router.ts';
+import { go, type CompanyPage } from '../router.ts';
 import type { Company, Digest, InboxItem, Spend, WorkGroup, WorkItem } from '../types.ts';
 import { money, relative } from '../format.ts';
 import { locale, t, tp } from '../i18n.ts';
@@ -129,6 +129,9 @@ export function Home({
                   {tp('This deployment has {count} thing switched off until it is configured.', 'This deployment has {count} things switched off until they are configured.', setup.todo.length)}
                 </Text>
                 <Text size="sm" c="dimmed" visibleFrom="sm">{t('The checklist is at the foot of the sidebar.')}</Text>
+                <Button size="compact-sm" variant="light" color="yellow" ml="auto" onClick={() => go({ kind: 'deployment', section: 'model' })}>
+                  {t('Set the model')}
+                </Button>
               </Group>
             </Paper>
           )}

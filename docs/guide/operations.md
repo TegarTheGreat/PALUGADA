@@ -85,17 +85,24 @@ every route needs a signed-in session.
 
 ## Secrets
 
-The database never holds a secret. The settings and credentials that need
-one hold a reference to it, resolved when it is used, and the value is
-redacted from anything written down afterwards. This deployment resolves two
-kinds of reference:
+The database never holds a secret it can open by itself. The settings and
+credentials that need one hold a reference to it, resolved when it is used,
+and the value is redacted from anything written down afterwards. This
+deployment resolves three kinds of reference:
 
 | Reference | Where the value is | Rule |
 |---|---|---|
 | `env://NAME` | An environment variable of the platform's process | Only names starting with `PALUGADA_SECRET_`, so a reference cannot hand out the database URL or anything else in the environment |
 | `file:///path` | A file | Only under the directories in `PALUGADA_SECRET_DIRS` (colon-separated, default `/run/secrets`), checked after following links; at most 64 KB; one trailing newline is ignored |
+| `db://name` | A key the owner typed in the console, sealed in the database | Sealed with AES-256-GCM under the master key, with its name bound in, so it opens only with that key and under that name |
 
 Anything else, such as `vault://`, is refused with the scheme named.
+
+The master key is `PALUGADA_MASTER_KEY` when it is set, and otherwise the
+file `master.key` in `PALUGADA_STATE_DIR` (default `~/.palugada`; under
+Docker Compose, in the `home` volume), made the first time the owner saves a
+key, readable by the platform's user alone. **This deployment** in the
+console names which one is in use.
 References are used for the owner's authenticator
 (`PALUGADA_OWNER_TOTP_REF`), the model key (`PALUGADA_MODEL_KEY_REF`), every
 division's credentials, and the signing secrets of triggers.
@@ -128,7 +135,11 @@ and the record of applied migrations.
 It does not hold the secrets themselves, the vendor, MCP and price files,
 the built console, or the agent CLIs' home directory. Back those up
 separately: above all `.env` or the environment file and the authenticator
-secret, without which you cannot sign in.
+secret, without which you cannot sign in, and the master key
+(`PALUGADA_MASTER_KEY`, or `master.key` in the state directory). The keys
+the owner saved in the console are in the database, sealed; a restored
+database opens them only with the same master key. Keep the two apart, so
+that one stolen backup is not both the lock and the key.
 
 Dump the database as a PostgreSQL superuser. Row-level security is forced on
 every tenant table, even for the role that owns the schema, and a superuser

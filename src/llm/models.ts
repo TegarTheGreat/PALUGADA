@@ -31,6 +31,12 @@ export const MODEL_TIERS = ['fast', 'standard', 'deep'] as const;
 
 export type ModelProvider = 'anthropic' | 'openai';
 
+/** Where each protocol's own API is, when no address is set. */
+export const DEFAULT_MODEL_URLS: Readonly<Record<ModelProvider, string>> = {
+  anthropic: 'https://api.anthropic.com',
+  openai: 'https://api.openai.com/v1',
+};
+
 const refuse = (source: string, message: string): never => {
   throw new PalugadaError('config.invalid', message, { source });
 };
@@ -85,7 +91,7 @@ export function modelSettingsFrom(env: NodeJS.ProcessEnv): ModelSettings | null 
     refuse('PALUGADA_MODEL_KEY_REF', 'the anthropic provider needs PALUGADA_MODEL_KEY_REF');
   }
 
-  const url = env.PALUGADA_MODEL_URL ?? (provider === 'anthropic' ? 'https://api.anthropic.com' : 'https://api.openai.com/v1');
+  const url = env.PALUGADA_MODEL_URL ?? DEFAULT_MODEL_URLS[provider];
   let parsed: URL | null = null;
   try {
     parsed = new URL(url);

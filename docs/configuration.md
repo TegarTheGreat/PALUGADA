@@ -63,6 +63,35 @@ Everything optional needs something outside this process, such as a vendor
 account, a CLI or a URL. Each one reports at boot what is missing, so you
 find out at startup rather than at 3am.
 
+**Set in the console, or here.** The model can be chosen in the console, on
+the **This deployment** page, by an owner who has no shell: they pick a
+provider from a list, paste its key, pick the model from the list the
+provider serves, test it, and confirm with their authenticator. What they
+save is kept in the database and laid over this environment each time the
+platform starts; an area set in the console replaces that whole area of the
+environment (a model chosen there does not inherit `PALUGADA_MODEL_ALIASES`
+from here), and **Go back to the environment's model** hands it back. A save
+restarts the platform in its own process, so work in flight is handed back
+and resumed and the owner stays signed in; another replica notices within
+thirty seconds and restarts too. A saved setting that would stop the boot is
+set aside with a note, so the console always comes back.
+
+Keys typed in the console are sealed with AES-256-GCM before they are
+stored, under a master key the database never holds: `PALUGADA_MASTER_KEY`
+when it is set, or else a key file the platform makes the first time it
+needs one, `master.key` in `PALUGADA_STATE_DIR`, readable by its own user
+alone. A backup of the database alone is then not a list of every key the
+company pays for. **Back the master key up apart from the database**: a
+restored database with a different key cannot open the keys it holds, says
+so, and names both keys' fingerprints; the owner then types the keys again.
+A secret the owner saved is named like any other, as a reference:
+`db://<name>` (the model's key is `db://model-key`).
+
+| Variable | What it is for |
+|---|---|
+| `PALUGADA_MASTER_KEY` | The key that seals secrets set in the console: 32 bytes, as 64 hex characters or base64 (`openssl rand -hex 32`). Without it, the key file below is used |
+| `PALUGADA_STATE_DIR` | Where the platform keeps its own state: the master key file. Default `~/.palugada`; under Docker Compose, a volume |
+
 | Variable | What it turns on |
 |---|---|
 | `PALUGADA_OWNER_TOTP_REF` | The owner's first factor, enrolled at boot |

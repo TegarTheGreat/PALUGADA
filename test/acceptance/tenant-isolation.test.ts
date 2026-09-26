@@ -133,6 +133,12 @@ test('every table holding tenant data is protected', async () => {
     // reach entirely: an agent that could add a publisher could vouch for its
     // own payload, which is the attack the list exists to stop.
     'trusted_publishers',
+    // What the owner set for the whole deployment from the console, and the
+    // sealed secrets it names (0065). Read by the control plane when it
+    // starts; an agent that could read them could read every provider key,
+    // and one that could write them could choose the model it runs on.
+    'deployment_settings',
+    'deployment_secrets',
   ]);
 
   const rows = await withControlPlane(async (tx) => {

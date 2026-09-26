@@ -2,7 +2,9 @@
  * Where the owner is, kept in the address bar.
  *
  * `#/home` is the portfolio; `#/c/<company>/<page>` a page of one company;
- * `#/c/<company>/settings/<section>` a section of its settings. In the hash
+ * `#/c/<company>/settings/<section>` a section of its settings;
+ * `#/deployment/<section>` what the whole deployment runs on, which belongs
+ * to no company and is reachable before there is one. In the hash
  * rather than the path so the server has one page to serve, and in the
  * address at all so that a reload, the back button and a shared link all
  * land where the owner was.
@@ -15,8 +17,12 @@ export type CompanyPage = (typeof COMPANY_PAGES)[number];
 export const SETTINGS_SECTIONS = ['company', 'language', 'safeguards', 'skills', 'bundles', 'devices', 'security'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
+export const DEPLOYMENT_SECTIONS = ['model'] as const;
+export type DeploymentSection = (typeof DEPLOYMENT_SECTIONS)[number];
+
 export type Route =
   | { kind: 'home' }
+  | { kind: 'deployment'; section: DeploymentSection }
   | { kind: 'company'; companyId: string; page: CompanyPage; section: SettingsSection; item: string | null };
 
 export function parse(hash: string): Route {
@@ -27,11 +33,16 @@ export function parse(hash: string): Route {
     const section = (SETTINGS_SECTIONS as readonly string[]).includes(parts[3] ?? '') ? parts[3] as SettingsSection : 'company';
     return { kind: 'company', companyId: parts[1], page, section, item: new URLSearchParams(query).get('item') };
   }
+  if (parts[0] === 'deployment') {
+    const section = (DEPLOYMENT_SECTIONS as readonly string[]).includes(parts[1] ?? '') ? parts[1] as DeploymentSection : 'model';
+    return { kind: 'deployment', section };
+  }
   return { kind: 'home' };
 }
 
 export function href(route: Route): string {
   if (route.kind === 'home') return '#/home';
+  if (route.kind === 'deployment') return `#/deployment/${route.section}`;
   const base = `#/c/${route.companyId}/${route.page}`;
   const withSection = route.page === 'settings' ? `${base}/${route.section}` : base;
   return route.item ? `${withSection}?item=${encodeURIComponent(route.item)}` : withSection;

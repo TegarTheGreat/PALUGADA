@@ -24,9 +24,9 @@ import { Writable } from 'node:stream';
 import { parseEnv } from 'node:util';
 import { decodeBase32, newTotpSecret, stepFor, totpCode, TOTP_DRIFT_STEPS } from '../src/owner/mfa.ts';
 import { qrForTerminal, qrMatrix } from '../src/owner/qr.ts';
-import { modelClientFrom, modelSettingsFrom } from '../src/llm/models.ts';
+import { modelSettingsFrom } from '../src/llm/models.ts';
+import { checkModel as checkModelAnswers } from '../src/llm/check.ts';
 import { LocalSecretManager } from '../src/secrets/local.ts';
-import { DEFAULT_PRICE_TABLE } from '../src/engine/pricing.ts';
 import { connectionString } from '../src/config.ts';
 import pg from 'pg';
 
@@ -38,7 +38,7 @@ export interface SetupIo {
   terminal: boolean;
 }
 
-/** What the model said to a request that offered it one tool: null when it called it. */
+/** What the model said to a request that offered it one tool (src/llm/check.ts). */
 export type ModelCheck = (env: NodeJS.ProcessEnv) => Promise<{ problem: string | null; warning: string | null }>;
 
 export interface SetupOptions {
@@ -266,29 +266,8 @@ function forThisMachine(env: Record<string, string>): NodeJS.ProcessEnv {
     : env;
 }
 
-/** One tool offered, one turn: the key, the address, the model's name and its tool use, proved at once. */
-const checkModel: ModelCheck = async (env) => {
-  try {
-    const client = await modelClientFrom(env, new LocalSecretManager({ env }), DEFAULT_PRICE_TABLE);
-    if (!client) return { problem: 'no model is configured', warning: null };
-    const turn = await client.turn({
-      model: 'standard',
-      system: 'You are checking a connection. Call the ping tool once, with no arguments.',
-      messages: [{ role: 'user', content: 'Call ping.' }],
-      tools: [{ name: 'ping', description: 'Answers pong.', inputSchema: { type: 'object', properties: {} } }],
-      maxTokens: 256,
-    }, AbortSignal.timeout(90_000));
-    return turn.content.some((block) => block.type === 'tool_use')
-      ? { problem: null, warning: null }
-      : {
-        problem: null,
-        warning: 'It answered, but did not call the tool it was offered. A role on it can only answer in words, '
-          + 'not act: choose a model that supports tool calling (function calling).',
-      };
-  } catch (failure) {
-    return { problem: (failure as Error).message, warning: null };
-  }
-};
+/** The same check the console makes before it saves a model (src/llm/check.ts). */
+const checkModel: ModelCheck = (env) => checkModelAnswers(env, new LocalSecretManager({ env }));
 
 async function probeDatabase(url: string): Promise<boolean> {
   const client = new pg.Client({ connectionString: url, connectionTimeoutMillis: 3_000 });

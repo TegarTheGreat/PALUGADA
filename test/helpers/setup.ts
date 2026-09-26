@@ -67,6 +67,11 @@ export async function resetData(): Promise<void> {
   // own role could delete would not be much of a record.
   await ownerPool().query('TRUNCATE owner_authenticators, owner_authentications CASCADE');
 
+  // The deployment's own settings and sealed secrets (0065): a model one
+  // test chose in the console would otherwise be the model every later
+  // file's deployment starts on.
+  await ownerPool().query('TRUNCATE deployment_settings, deployment_secrets');
+
   // TRUNCATE ... CASCADE empties the whole referencing table, not only the
   // rows that pointed at a company -- so it also removes the platform-default
   // rows (company_id IS NULL) that the migrations seeded. Restoring them keeps

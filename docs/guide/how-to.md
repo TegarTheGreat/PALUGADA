@@ -191,8 +191,37 @@ that used it asks you before its next tier 2 action.
 
 ## Choose or change the model
 
-Run `npm run setup` again and answer yes to "Change it?". It proves the new
-model answers and calls tools before it writes `.env`. Then restart.
+In the console, open **This deployment** at the foot of the sidebar (on a
+phone, under **More**). The page says which model every role runs on now,
+per tier, and whether the console or the environment set it.
+
+1. Choose the **Provider**: Anthropic, OpenAI, Google Gemini, OpenRouter, a
+   model on this machine (Ollama), or another OpenAI-compatible API. Its
+   address comes with it; for your own server, type the address up to `/v1`.
+2. Paste the **API key**, if it takes one. **Get a key** opens the
+   provider's own page for making one. The key is sealed before it is
+   stored and is never shown again; leave the field empty later to keep it.
+3. Once the address and key are there, the page asks the provider which
+   models it serves. Pick **The model every role runs on** from that list,
+   or type a name. For Anthropic you may leave it empty to use Claude's own
+   model for each tier. **A different model for each tier** puts the fast,
+   standard or deep tier on a cheaper or stronger model.
+4. Press **Test it**. The page sends the model one request offering one
+   tool, and says whether it answered and called it, answered without
+   calling it (a role on it could only answer in words), or did not answer,
+   and why.
+5. Press **Save** and type a code from your authenticator. PALUGADA starts
+   itself again on the new model; tasks in flight carry on from where they
+   were, and you stay signed in.
+
+**Go back to the environment's model** removes the console's choice and its
+key. Back up the master key the page names: it is what opens the saved keys
+([operations](operations.md#backups)).
+
+From the terminal, run `npm run setup` again and answer yes to "Change
+it?". It proves the new model answers and calls tools before it writes
+`.env`. Then restart. A model chosen in the console takes precedence over
+`.env` until you go back to the environment's.
 
 To set it by hand, the variables are `PALUGADA_MODEL_PROVIDER`
 (`anthropic` or `openai` for any OpenAI-compatible API),

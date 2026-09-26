@@ -3143,6 +3143,51 @@ login lives in the operator's; its settings and memory are shut out by flag
 instead. The container image carries no agent CLI: one is added by extending
 it.
 
+## 2.23 Set up from the panel
+
+Read against Hermes Agent's and OpenClaw's setup, which walk an operator
+through a provider, a model from the provider's own list, tools and chat
+platforms, the owner could do none of it without a shell: the model was
+four environment variables and a restart. Buzz, which does all of it from a
+window, can because its window is a desktop app on the owner's own machine;
+PALUGADA's console is a web page in front of a server, so what Buzz does with
+a local browser and an OS terminal has to be done here with what a server
+has.
+
+- **The model is chosen in the console.** A provider from a list (with its
+  address and the page for making a key), the key pasted, the model picked
+  from the list the provider itself serves (`GET /models`), one request to
+  prove it answers and calls a tool, then the owner's authenticator to save.
+  It is stored in the database and laid over the environment at each start
+  (`src/settings/`); an area set in the console replaces that area of the
+  environment rather than merging with it, so what the owner sees is what
+  runs.
+- **A key typed in the console is sealed.** AES-256-GCM under a master key
+  the database does not hold (`PALUGADA_MASTER_KEY`, or a file the platform
+  makes, readable by its user alone), with the secret's name bound in, so a
+  dump is not the company's keys and a sealed value copied under another
+  name does not open. A restored database with the wrong key says so, with
+  both keys' fingerprints. The key never comes back out of the API.
+- **Saving restarts the platform in its own process.** The first version
+  took a setting "at the next start", which for an owner without a shell is
+  never. `runFromCommandLine` now stops and starts the deployment in place:
+  work in flight is handed back and resumed, the session survives because
+  sessions live in the database, and another replica sees the change within
+  thirty seconds. The acceptance test runs the real `src/main.ts`, saves a
+  model through the API, and watches it come back on the new one.
+- **A saved setting that would stop the boot is set aside with a note.** The
+  console is the only place an owner can undo it, so the console must always
+  come back.
+
+**Still open, next.** Installing and signing in to the agent CLIs from the
+panel; the provider catalogue beyond the six entries `npm run setup` offered;
+tool providers (PALUGADA has `web.fetch` and no `web.search`, which Hermes
+offers from fifteen providers); and the owner's channels (Telegram, push)
+still come from the environment. A research pass on Hermes also found that
+its entry here gives it no credential and a per-run `HERMES_HOME`, which
+places its installed packages inside a throwaway directory; both are for
+the next change.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

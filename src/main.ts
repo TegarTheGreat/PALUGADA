@@ -33,6 +33,10 @@ import { registerMcpServers } from './capabilities/mcp.ts';
 import { Worker, type WorkerOptions } from './worker.ts';
 import type { SecretManager } from './secrets/manager.ts';
 import { OwnerMfa, decodeBase32 } from './owner/mfa.ts';
+import {
+  DeploymentSecretManager, masterKeyFrom, readSettings, settingsVersion, type MasterKey,
+} from './settings/store.ts';
+import { withSettings } from './settings/overlay.ts';
 import { LocalSecretManager } from './secrets/local.ts';
 import { PalugadaError } from './errors.ts';
 import { OwnerApi } from './owner/api.ts';
@@ -121,6 +125,14 @@ export interface DeploymentOptions {
   host?: string;
   env?: NodeJS.ProcessEnv;
   worker?: Partial<WorkerOptions>;
+  /**
+   * How to start the deployment again with new settings: the process's own
+   * loop gives one, and a deployment without it takes settings at its next
+   * start.
+   */
+  restart?: () => void;
+  /** Start on the environment alone, as when the settings refused to boot. */
+  ignoreSettings?: boolean;
   /** How long `stop()` lets a run in flight finish before it hands its task back. */
   stopGraceMs?: number;
   /**
@@ -262,7 +274,7 @@ async function pendingMigrations(): Promise<string[]> {
 }
 
 export async function start(options: DeploymentOptions = {}): Promise<Deployment> {
-  const env = options.env ?? process.env;
+  const baseEnv = options.env ?? process.env;
   const notes: string[] = [];
 
   const pending = await pendingMigrations();
@@ -273,20 +285,46 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
         + 'run `npm run db:migrate`, then start again', { source: 'schema_migrations' });
   }
 
+  // What the owner set in the console, laid over the environment (0065). A
+  // setting that would stop the boot is set aside rather than obeyed: the
+  // console is where it was made and the only place it can be fixed, so the
+  // console has to come up.
+  const settingsVersionAtBoot = await settingsVersion();
+  let settings = options.ignoreSettings ? {} : await readSettings();
+  try {
+    modelSettingsFrom(withSettings(baseEnv, settings));
+  } catch (failure) {
+    notes.push(`the model set in the console was set aside: ${(failure as Error).message}`);
+    settings = { ...settings };
+    delete settings.model;
+  }
+  const env = withSettings(baseEnv, settings);
+
   // The names the console answers to (see `OwnerApiOptions.allowedHosts`).
   // Read first, so a malformed URL is refused before anything is built.
   const allowedHosts = allowedHostsFrom(env);
 
+  // Read when a sealed secret is first needed, and made only when one is
+  // first written: a deployment that never uses the console's secrets never
+  // has a key file.
+  let masterKey: MasterKey | null | undefined;
+  const master = (create = false): MasterKey | null => {
+    if (masterKey) return masterKey;
+    masterKey = masterKeyFrom(env, create);
+    return masterKey;
+  };
+
   // The stores every deployment already has: its environment and its mounted
-  // secret files. The in-memory manager this fell back to was empty and
-  // forgot everything on restart, so a deployment started from the README had
-  // nowhere for a vendor credential or the owner's own factor to live.
-  const secrets = options.secrets ?? new LocalSecretManager({
+  // secret files -- and the owner's own, sealed in the database, as db://.
+  // The in-memory manager this fell back to was empty and forgot everything
+  // on restart, so a deployment started from the README had nowhere for a
+  // vendor credential or the owner's own factor to live.
+  const secrets = options.secrets ?? new DeploymentSecretManager(new LocalSecretManager({
     env,
     ...(env.PALUGADA_SECRET_DIRS
       ? { directories: env.PALUGADA_SECRET_DIRS.split(':').filter(Boolean) }
       : {}),
-  });
+  }), () => master());
   const mfa = new OwnerMfa({
     secrets,
     ...(env.PALUGADA_RP_ID ? { rpId: env.PALUGADA_RP_ID } : {}),
@@ -612,6 +650,14 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // after this point are still the deployment's, and still the owner's to see.
     deploymentNotes: notes,
     runtimes: runtimes.adapters,
+    deploymentSettings: {
+      baseEnv,
+      env,
+      settings,
+      master,
+      secrets,
+      ...(options.restart ? { restart: options.restart } : {}),
+    },
     // Whether this process can work: the database answers, and the worker's
     // loop has gone round lately. A process that is up and whose loop has
     // stopped is the failure a supervisor cannot see from outside.
@@ -635,6 +681,18 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   // running with nobody able to stop it.
   const running = worker.start();
 
+  // Settings changed on another replica: this one is running on the old ones
+  // until it starts again, so it does. Checked every half minute, which is as
+  // stale as a replica's settings can get.
+  const watching = options.restart
+    ? setInterval(() => {
+      void settingsVersion().then((now) => {
+        if (now !== settingsVersionAtBoot) options.restart!();
+      }, () => undefined);
+    }, SETTINGS_POLL_MS)
+    : null;
+  watching?.unref();
+
   return {
     worker,
     api,
@@ -644,6 +702,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     url,
     notes,
     async stop() {
+      if (watching) clearInterval(watching);
       // The console first: a worker still ticking while the owner can no
       // longer reach it is the one order that has a bad minute in it.
       await api.close();
@@ -662,6 +721,9 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     },
   };
 }
+
+/** How often a replica looks for settings changed elsewhere. */
+const SETTINGS_POLL_MS = 30_000;
 
 /** Twenty seconds: most steps finish in that, and it leaves forty before a supervisor's kill. */
 const STOP_GRACE_MS = 20_000;
@@ -697,11 +759,36 @@ export const EXIT_CONFIG = 78;
 
 export async function runFromCommandLine(env: NodeJS.ProcessEnv = process.env): Promise<number> {
   let deployment: Deployment;
+  let stopping = false;
+  // One restart at a time, and none once the process is stopping: a restart
+  // is a stop and a start, and two interleaved would start two deployments.
+  let restarting: Promise<void> | null = null;
+  const boot = (): Promise<Deployment> => start({
+    env,
+    consoleRoot: fileURLToPath(new URL('../console/dist', import.meta.url)),
+    restart: () => { void restart(); },
+  });
+  const announce = (started: Deployment) => {
+    for (const note of started.notes) process.stdout.write(`palugada: ${note}\n`);
+    process.stdout.write(`palugada: console at ${started.url}\n`);
+  };
+  const restart = async (): Promise<void> => {
+    if (stopping || restarting) return restarting ?? undefined;
+    restarting = (async () => {
+      process.stdout.write('palugada: settings changed, starting again\n');
+      await deployment.stop();
+      deployment = await boot();
+      announce(deployment);
+    })().catch((failure: unknown) => {
+      // The console must come back, or nothing can undo what stopped it.
+      process.stderr.write(`palugada: could not start again: ${(failure as Error).message}\n`);
+      process.exit(1);
+    }).finally(() => { restarting = null; });
+    return restarting;
+  };
+
   try {
-    deployment = await start({
-      env,
-      consoleRoot: fileURLToPath(new URL('../console/dist', import.meta.url)),
-    });
+    deployment = await boot();
   } catch (failure) {
     const configuration = failure instanceof PalugadaError && failure.code === 'config.invalid';
     process.stderr.write(
@@ -710,17 +797,14 @@ export async function runFromCommandLine(env: NodeJS.ProcessEnv = process.env): 
     );
     return configuration ? EXIT_CONFIG : 1;
   }
-
-  for (const note of deployment.notes) process.stdout.write(`palugada: ${note}\n`);
-  process.stdout.write(`palugada: console at ${deployment.url}\n`);
+  announce(deployment);
 
   return new Promise<number>((resolveExit) => {
-    let stopping = false;
     const stop = (signal: NodeJS.Signals) => {
       if (stopping) return;
       stopping = true;
       process.stdout.write(`palugada: ${signal}, stopping\n`);
-      deployment.stop().then(
+      Promise.resolve(restarting).then(() => deployment.stop()).then(
         () => resolveExit(0),
         (failure: unknown) => {
           process.stderr.write(`palugada: stop failed: ${(failure as Error).message}\n`);

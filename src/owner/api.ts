@@ -141,6 +141,13 @@ import type { CapabilityRegistry } from '../broker/registry.ts';
 import type { OwnerMfa, WebAuthnAssertion } from './mfa.ts';
 import type { TelegramChannel, TelegramUpdate } from './telegram.ts';
 import { OwnerSessions, type OwnerSession } from './session.ts';
+import { MODEL_TIERS, modelSettingsFrom } from '../llm/models.ts';
+import { checkModel, listModels } from '../llm/check.ts';
+import { MODEL_PROVIDERS, modelProvider } from '../llm/providers.ts';
+import {
+  deleteSecret, putSecret, readSettings, secretNames, writeSetting, type MasterKey, type Settings,
+} from '../settings/store.ts';
+import { modelSource, withSettings, type ModelSetting } from '../settings/overlay.ts';
 import {
   accountsOf,
   activityOf,
@@ -216,6 +223,20 @@ export interface OwnerApiOptions {
    * change naming a runtime is refused rather than written unchecked.
    */
   runtimes?: AdapterRegistry;
+  /**
+   * The deployment's own settings, set from the console (0065): what the
+   * environment said before them, what they are, the key they are sealed
+   * with, and how to take a change up. Omitted, the console cannot change
+   * them, as with a deployment built by hand.
+   */
+  deploymentSettings?: {
+    baseEnv: NodeJS.ProcessEnv;
+    env: NodeJS.ProcessEnv;
+    settings: Settings;
+    master: (create: boolean) => MasterKey | null;
+    secrets: SecretManager;
+    restart?: () => void;
+  };
   /**
    * Whether this process can do its work: the database answers, the worker's
    * loop is going round. Read by `GET /api/health`, which a supervisor or a
@@ -985,6 +1006,112 @@ export class OwnerApi {
           ...(await deploymentLanguages()),
           supported: LANGUAGES.map((language) => ({ ...language })),
         }),
+      },
+
+      /* ------------------------------------------- the deployment's settings --- */
+
+      {
+        // What the deployment runs on, and where each choice came from. Secrets
+        // are said to be set or not; their values never leave the server.
+        method: 'GET',
+        pattern: '/api/control/settings',
+        handle: async () => {
+          const deployment = this.#deploymentSettings();
+          const effective = modelSettingsFrom(deployment.env);
+          // What is stored now, which a save changes before the restart that takes it up.
+          const stored = await readSettings();
+          const chosen = stored.model as ModelSetting | undefined;
+          return {
+            model: {
+              source: modelSource(deployment.baseEnv, deployment.settings),
+              provider: effective?.provider ?? null,
+              url: effective?.url ?? null,
+              tiers: effective ? Object.fromEntries(MODEL_TIERS.map((tier) => [tier, effective.aliases[tier] ?? null])) : null,
+              keySet: Boolean(deployment.env.PALUGADA_MODEL_KEY_REF),
+              chosen: chosen
+                ? {
+                  preset: chosen.preset ?? null, provider: chosen.provider, url: chosen.url ?? null,
+                  model: chosen.model ?? null, aliases: chosen.aliases ?? {},
+                }
+                : null,
+            },
+            providers: MODEL_PROVIDERS,
+            secrets: await secretNames(),
+            masterKey: deployment.master(false)?.source ?? null,
+            applies: deployment.restart ? 'now' : 'next_start',
+            // Saved, and not yet what this process runs on.
+            pending: JSON.stringify(stored) !== JSON.stringify(deployment.settings),
+          };
+        },
+      },
+
+      {
+        // Asks the model the owner is about to save one question that offers it
+        // one tool. Nothing is saved; the key typed is used for this call only.
+        method: 'POST',
+        pattern: '/api/control/settings/model/test',
+        handle: async ({ body }) => {
+          const { env, secrets } = await this.#modelCandidate(body);
+          try {
+            modelSettingsFrom(env);
+          } catch (failure) {
+            return { problem: (failure as Error).message, warning: null };
+          }
+          return checkModel(env, secrets);
+        },
+      },
+
+      {
+        // The models the chosen API serves, so the owner picks one from a list
+        // rather than typing a name from the provider's documentation.
+        method: 'POST',
+        pattern: '/api/control/settings/model/models',
+        handle: async ({ body }) => {
+          const { env, secrets } = await this.#modelCandidate(body);
+          return listModels(env, secrets);
+        },
+      },
+
+      {
+        // Changes what every role runs on and what it costs, so it takes the
+        // owner's device, like every other change of that weight.
+        method: 'POST',
+        pattern: '/api/control/settings/model',
+        handle: async ({ body }) => {
+          const deployment = this.#deploymentSettings();
+          await this.#requireFactor(body.proof, 'change the model');
+          // The stored model, not the one this process booted on: two saves
+          // before a restart are two edits of the same setting.
+          const stored = await readSettings();
+          const candidate = modelSettingFrom(body, stored.model as ModelSetting | undefined);
+          const typed = typeof body.key === 'string' && body.key.trim() !== '' ? body.key.trim() : null;
+          if (typed) candidate.keySecret = 'model-key';
+          // Refused here, with the reason, rather than at the next boot.
+          modelSettingsFrom(withSettings(deployment.baseEnv, { ...stored, model: candidate }));
+          if (candidate.provider === 'anthropic' && !candidate.keySecret) {
+            throw new PalugadaError('contract.violation', 'Anthropic\'s API needs a key', { field: 'key' });
+          }
+          if (typed) {
+            const master = deployment.master(true);
+            if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
+            await putSecret('model-key', typed, master);
+          }
+          await writeSetting('model', candidate);
+          return this.#applySettings();
+        },
+      },
+
+      {
+        // Back to what the environment says, and the stored key with it.
+        method: 'POST',
+        pattern: '/api/control/settings/model/clear',
+        handle: async ({ body }) => {
+          this.#deploymentSettings();
+          await this.#requireFactor(body.proof, 'change the model');
+          await writeSetting('model', null);
+          await deleteSecret('model-key');
+          return this.#applySettings();
+        },
       },
 
       {
@@ -2386,6 +2513,46 @@ export class OwnerApi {
    * is also what a scheduled job does, and a job has no phone. The surface
    * that has a human in front of it is the surface that can ask for one.
    */
+  #deploymentSettings(): NonNullable<OwnerApiOptions['deploymentSettings']> {
+    const deployment = this.#options.deploymentSettings;
+    if (!deployment) {
+      throw new PalugadaError('contract.violation',
+        'this deployment was built without console settings; its environment is its configuration', {});
+    }
+    return deployment;
+  }
+
+  /**
+   * The model the console is asking about, as the environment it would be,
+   * with the key the owner typed -- used for this one request, never saved --
+   * or else the one already stored.
+   */
+  async #modelCandidate(body: Record<string, unknown>): Promise<{ env: NodeJS.ProcessEnv; secrets: SecretManager }> {
+    const deployment = this.#deploymentSettings();
+    const stored = await readSettings();
+    const candidate = modelSettingFrom(body, stored.model as ModelSetting | undefined);
+    const env = withSettings(deployment.baseEnv, { ...stored, model: candidate });
+    const typed = typeof body.key === 'string' && body.key.trim() !== '' ? body.key.trim() : null;
+    if (!typed) return { env, secrets: deployment.secrets };
+    env.PALUGADA_MODEL_KEY_REF = 'typed://model-key';
+    return {
+      env,
+      secrets: { resolve: async (reference) => (reference === 'typed://model-key' ? typed : deployment.secrets.resolve(reference)) },
+    };
+  }
+
+  /**
+   * A saved setting counts from the deployment's next start. Where the
+   * process can start itself again, it does, just after this answer is sent:
+   * work in flight is handed back and resumed, and the console reconnects.
+   */
+  #applySettings(): { applies: 'now' | 'next_start' } {
+    const restart = this.#options.deploymentSettings?.restart;
+    if (!restart) return { applies: 'next_start' };
+    setTimeout(restart, 250).unref();
+    return { applies: 'now' };
+  }
+
   async #requireFactor(
     proof: unknown,
     purpose: string,
@@ -2718,6 +2885,51 @@ function configKind(value: unknown): ConfigKind {
   const kinds: readonly ConfigKind[] = ['charter', 'policy', 'role', 'grant', 'bundle', 'skill'];
   if (typeof value === 'string' && (kinds as readonly string[]).includes(value)) return value as ConfigKind;
   throw new PalugadaError('contract.violation', `a configuration kind is one of ${kinds.join(', ')}`, { kind: value });
+}
+
+/**
+ * The model the console sent, checked for shape; what it leaves out is kept
+ * from the model already chosen, so saving a new tier does not forget the key.
+ */
+function modelSettingFrom(body: Record<string, unknown>, previous: ModelSetting | undefined): ModelSetting {
+  const provider = body.provider;
+  if (provider !== 'anthropic' && provider !== 'openai') {
+    throw new PalugadaError('contract.violation', 'provider is anthropic or openai', { field: 'provider' });
+  }
+  const text = (field: string): string | undefined => {
+    const value = body[field];
+    if (value === undefined || value === null || value === '') return undefined;
+    if (typeof value !== 'string') throw new PalugadaError('contract.violation', `${field} is text`, { field });
+    return value.trim();
+  };
+  const aliases: Record<string, string> = {};
+  if (body.aliases !== undefined && body.aliases !== null) {
+    if (typeof body.aliases !== 'object' || Array.isArray(body.aliases)) {
+      throw new PalugadaError('contract.violation', 'aliases maps fast, standard and deep to a model', { field: 'aliases' });
+    }
+    for (const [tier, model] of Object.entries(body.aliases as Record<string, unknown>)) {
+      if (!(MODEL_TIERS as readonly string[]).includes(tier)) {
+        throw new PalugadaError('contract.violation', `a tier is fast, standard or deep; got ${tier}`, { field: 'aliases' });
+      }
+      if (typeof model === 'string' && model.trim() !== '') aliases[tier] = model.trim();
+    }
+  }
+  const url = text('url');
+  const model = text('model');
+  const preset = text('preset');
+  if (preset !== undefined && !modelProvider(preset)) {
+    throw new PalugadaError('contract.violation',
+      `preset is one of ${MODEL_PROVIDERS.map((entry) => entry.id).join(', ')}; got ${preset}`, { field: 'preset' });
+  }
+  const keep = previous && previous.provider === provider ? previous.keySecret : undefined;
+  return {
+    ...(preset ? { preset } : {}),
+    provider,
+    ...(url ? { url } : {}),
+    ...(model ? { model } : {}),
+    ...(Object.keys(aliases).length > 0 ? { aliases } : {}),
+    ...(body.clearKey === true || !keep ? {} : { keySecret: keep }),
+  };
 }
 
 function proofFrom(value: unknown): { totp: string } | { webauthn: WebAuthnAssertion } {

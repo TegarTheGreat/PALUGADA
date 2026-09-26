@@ -135,7 +135,9 @@ take the answer in brackets.
      address, or a model name the API does not know.
 
    If you choose to decide later, the console still starts, and no role can
-   work until a model is set.
+   work until a model is set. You can then choose it in the console, under
+   **This deployment**, without touching `.env`
+   ([how-to](how-to.md#choose-or-change-the-model)).
 
 Run `npm run setup` again at any time. It keeps what `.env` holds, asks only
 what is missing, and offers to change the model. The only request it sends

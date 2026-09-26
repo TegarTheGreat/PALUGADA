@@ -25,6 +25,10 @@ import { TIER } from '../domain/tier.ts';
 import { recordPlan, type PlanStep } from '../engine/plan.ts';
 import { recordObservation } from '../domain/metrics.ts';
 import { askOwner } from '../inbox/inbox.ts';
+import { createSubTask, getTask } from '../engine/tasks.ts';
+import { containChildResult } from '../engine/containment.ts';
+import { enqueueWake } from '../scheduler/wake.ts';
+import { isTerminal, type TaskStatus } from '../domain/task.ts';
 import { PalugadaError } from '../errors.ts';
 import type { Capability } from './registry.ts';
 
@@ -215,6 +219,8 @@ export function registerPlatformCapabilities(registry: {
   registry.register(planRecordCapability() as unknown as Capability<never, never>);
   registry.register(metricRecordCapability() as unknown as Capability<never, never>);
   registry.register(ownerAskCapability() as unknown as Capability<never, never>);
+  registry.register(taskDelegateCapability() as unknown as Capability<never, never>);
+  registry.register(taskAwaitCapability() as unknown as Capability<never, never>);
 }
 
 export interface OwnerAskInput {
@@ -281,5 +287,146 @@ export function ownerAskCapability(): Capability<OwnerAskInput, OwnerAskResult> 
   };
 }
 
+export interface TaskDelegateInput {
+  /** The slug of the role to hand the work to. */
+  role: string;
+  /** What the other role should do, as its brief. */
+  brief: string;
+  context?: string;
+  /** How long it has, in minutes. Required in effect: a default of an hour applies (F6.4). */
+  timeoutMinutes?: number;
+}
+
+/** How often a parent waiting on a child looks again. */
+export const AWAIT_POLL_MS = 2 * 60_000;
+
+/**
+ * `task.delegate`: hand part of the work to another role, as a sub-task.
+ *
+ * `awaitChild` did this for in-process handlers and nothing did it for a
+ * runtime in another process, so an agent CLI -- where the real work runs --
+ * could not split a job. This is the same `createSubTask`, with everything it
+ * holds: the hop limit, the fan-out cap, the parent's budget chain (F5.4), and
+ * a deadline, because a delegation with none is one nobody would notice had
+ * stalled (F6.4). Asked again for the same role and brief -- a resumed run
+ * replaying its steps -- it returns the child it already started.
+ */
+export function taskDelegateCapability(): Capability<TaskDelegateInput, { childId: string; role: string; deadlineAt: string }> {
+  return {
+    name: 'task.delegate',
+    adapter: 'platform',
+    defaultTier: TIER.READ_ONLY,
+    describe: () => ({ moneyCents: 0 }),
+    async execute(input, ctx) {
+      const brief = String(input.brief ?? '').trim();
+      if (!brief) throw new PalugadaError('contract.violation', 'task.delegate needs a brief', { field: 'brief' });
+      if (brief.length > 4_000) {
+        throw new PalugadaError('contract.violation', 'a brief is at most 4000 characters', { field: 'brief' });
+      }
+      const minutes = input.timeoutMinutes ?? 60;
+      if (!Number.isInteger(minutes) || minutes < 1 || minutes > 1_440) {
+        throw new PalugadaError('contract.violation', 'timeoutMinutes is a whole number from 1 to 1440', { field: 'timeoutMinutes' });
+      }
+      const found = await withTenant(ctx.companyId, async (tx) => {
+        const role = await tx.query<{ id: string; division_id: string }>(
+          'SELECT id, division_id FROM roles WHERE slug = $1', [String(input.role ?? '')]);
+        const parent = await getTask(tx, ctx.taskId);
+        return { role: role.rows[0], parent };
+      });
+      if (!found.role) {
+        throw new PalugadaError('contract.violation', `no role ${input.role} in this company`, { field: 'role' });
+      }
+      if (!found.parent) throw new PalugadaError('contract.violation', 'no such task', { taskId: ctx.taskId });
+      const deadlineAt = new Date(Date.now() + minutes * 60_000);
+      const child = await createSubTask(ctx.taskId, {
+        companyId: ctx.companyId,
+        projectId: found.parent.projectId,
+        divisionId: found.role.division_id,
+        roleId: found.role.id,
+        input: { goal: brief, ...(typeof input.context === 'string' ? { context: input.context } : {}) },
+        createdBy: 'agent_run',
+        deadlineAt,
+      });
+      await withTenant(ctx.companyId, (tx) =>
+        tx.query('UPDATE roles SET dormant_until = NULL WHERE id = $1', [found.role!.id]));
+      await enqueueWake({
+        companyId: ctx.companyId,
+        roleId: found.role.id,
+        reason: 'event',
+        detail: `task ${ctx.taskId} delegated task ${child.id}`,
+      });
+      return { childId: child.id, role: String(input.role), deadlineAt: (child.deadlineAt ?? deadlineAt).toISOString() };
+    },
+  };
+}
+
+export interface TaskAwaitResult {
+  status: string;
+  /** The child's output, contained to what a parent may be handed (F6.7); null unless it completed. */
+  output: Record<string, unknown> | null;
+  summary: string;
+}
+
+/**
+ * `task.await`: the result of work this task delegated.
+ *
+ * Done, it answers with the child's output, held to the size a sub-agent may
+ * hand back (F6.7). Not done, it ends the run with `task.waiting_child`: the
+ * parent parks and looks again in a few minutes, or at the child's deadline if
+ * that is sooner, holding no worker in between. Only a task's own children
+ * can be awaited; another task's are not this one's business.
+ */
+export function taskAwaitCapability(): Capability<{ childId: string }, TaskAwaitResult> {
+  return {
+    name: 'task.await',
+    adapter: 'platform',
+    defaultTier: TIER.READ_ONLY,
+    describe: () => ({ moneyCents: 0 }),
+    async execute(input, ctx) {
+      const found = await withTenant(ctx.companyId, async (tx) => {
+        const { rows } = await tx.query<{
+          status: TaskStatus; output: Record<string, unknown> | null; halt_reason: string | null;
+          parent_task_id: string | null; deadline_at: Date | null; role: string; steps: number;
+        }>(
+          `SELECT t.status, t.output, t.halt_reason, t.parent_task_id, t.deadline_at, r.slug AS role,
+                  (SELECT count(*)::int FROM task_steps s WHERE s.task_id = t.id AND s.status = 'committed') AS steps
+             FROM tasks t JOIN roles r ON r.id = t.role_id WHERE t.id = $1`,
+          [String(input.childId ?? '')],
+        );
+        return rows[0] ?? null;
+      });
+      if (!found || found.parent_task_id !== ctx.taskId) {
+        throw new PalugadaError(
+          'contract.violation',
+          `task ${input.childId} is not one this task delegated`,
+          { childId: input.childId },
+        );
+      }
+      if (found.status === 'completed') {
+        const contained = containChildResult(found.role, found.output ?? {}, {
+          status: found.status, steps: found.steps, costCents: 0,
+        });
+        return { status: found.status, output: contained.output, summary: contained.summary };
+      }
+      if (isTerminal(found.status)) {
+        return {
+          status: found.status,
+          output: null,
+          summary: `${found.role} ${found.status}${found.halt_reason ? ` (${found.halt_reason})` : ''} without a result`,
+        };
+      }
+      const next = Date.now() + AWAIT_POLL_MS;
+      const reopensAt = found.deadline_at ? Math.min(next, found.deadline_at.getTime() + 1_000) : next;
+      throw new PalugadaError(
+        'task.waiting_child',
+        `${found.role} is still working on it; this task waits and looks again`,
+        { childTaskId: input.childId, reopensAt: new Date(reopensAt).toISOString() },
+      );
+    },
+  };
+}
+
 /** The names this module implements, for a caller that needs to know. */
-export const PLATFORM_CAPABILITIES = ['memory.search', 'skill.read', 'plan.record', 'metric.record', 'owner.ask'] as const;
+export const PLATFORM_CAPABILITIES = [
+  'memory.search', 'skill.read', 'plan.record', 'metric.record', 'owner.ask', 'task.delegate', 'task.await',
+] as const;

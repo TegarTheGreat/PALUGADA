@@ -151,7 +151,7 @@ export interface RunOutcome {
  * The broker's refusals that mean "wait", not "no": the task parks on them
  * rather than failing, however the runtime reacted to being told.
  */
-const PARKING_CODES: ReadonlySet<string> = new Set(['approval.required', 'owner.asked', 'review.required', 'window.closed']);
+const PARKING_CODES: ReadonlySet<string> = new Set(['approval.required', 'owner.asked', 'review.required', 'window.closed', 'task.waiting_child']);
 
 export class Engine {
   readonly #options: EngineOptions;
@@ -969,7 +969,16 @@ export class Engine {
       // The run may have ended on something else by the time it stopped --
       // the runtime reacting to the withdrawal, or failing on its own -- but
       // the reason it stopped is the wait.
-      return this.#classifyFailure(companyId, taskId, parked ?? error, agentRunId);
+      const outcome = await this.#classifyFailure(companyId, taskId, parked ?? error, agentRunId);
+      // A parked task is not being worked, so it names no worker. The lease
+      // used to stay behind, and a task approved a minute later could not be
+      // resumed by any other worker until it expired -- half an hour of an
+      // approved action waiting on a lease nobody held in earnest.
+      if (outcome.status === 'waiting_approval' || outcome.status === 'waiting_review'
+          || outcome.status === 'waiting_window') {
+        await clearLease(companyId, taskId, this.#workerId);
+      }
+      return outcome;
     } finally {
       lease.stop();
     }
@@ -1136,6 +1145,17 @@ export class Engine {
     if (code === 'window.closed') {
       const reopensAt = (error as PalugadaError).details.reopensAt;
       const waitUntil = typeof reopensAt === 'string' ? new Date(reopensAt) : null;
+      await transition(companyId, taskId, 'waiting_window', { waitUntil });
+      return { status: 'waiting_window', reason: code, waitUntil };
+    }
+
+    // `task.await` on a child still working. The parent parks until the time
+    // the answer names -- a few minutes, or the child's own deadline if that
+    // is sooner -- and resumes from its journal to look again, so waiting on
+    // a child holds no worker and no lease.
+    if (code === 'task.waiting_child') {
+      const at = (error as PalugadaError).details.reopensAt;
+      const waitUntil = typeof at === 'string' ? new Date(at) : new Date(Date.now() + 60_000);
       await transition(companyId, taskId, 'waiting_window', { waitUntil });
       return { status: 'waiting_window', reason: code, waitUntil };
     }

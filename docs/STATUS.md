@@ -2512,6 +2512,10 @@ rest are listed at the end.
   engine tried to complete a task waiting for the owner and threw out of
   `runTask` with the approval open. The engine now keeps the first "wait",
   withdraws the run and parks the task on it.
+- *A parked task kept its worker's lease.* A task waiting for an approval, a
+  review or a window still named the worker that parked it, so once the owner
+  approved, no other worker could resume it until the lease ran out. Parking
+  now clears the lease.
 - *Company restore could not be reached.* `importCompany` was called only by
   tests while the README promised a restore.
 - *F3.9's rollback was half built.* Every change to a charter, a policy or a
@@ -2535,6 +2539,11 @@ rest are listed at the end.
   owner's device to apply, or with `npm run company:import`.
 - Be asked. `owner.ask` lets any runtime put a question to the owner and park
   until it is answered, from the console or a Telegram reply.
+- Have work split by whatever runtime does it. `task.delegate` hands part of a
+  task to another role as a sub-task with a deadline, under the hop limit, the
+  fan-out cap and the parent's budget; `task.await` reads its contained result,
+  and while the child works the parent parks and looks again every few minutes,
+  holding no worker. `awaitChild` had done this for in-process handlers only.
 - Install the operating kit (`company-os` in `src/bundles/builtin.ts`): a
   strategist that proposes at most three bets and applies none, eight
   operating skills with evals that go through review and the owner like any
@@ -2559,7 +2568,6 @@ work delegated (`begunOutside` in `src/engine/tasks.ts`).
 - Triggers signed by the sender (HMAC, as Stripe and GitHub sign theirs)
   rather than a bearer token, and bodies that are not JSON.
 - Structured choices on a decision (pick one of three, approve seven of ten).
-- Delegation for out-of-process runtimes: `awaitChild` is in-process only.
 - A strategy role in the standard template itself, and stage gates (explore,
   validate, build, launch, grow) that policies can read.
 - Per-company connections to outside accounts from the console, a config

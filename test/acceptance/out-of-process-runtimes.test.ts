@@ -1900,6 +1900,9 @@ test('a runtime whose call needs the owner leaves its task waiting for the owner
     outcome: 'waiting_approval', task: 'waiting_approval', items: [{ kind: 'approval', status: 'open' }],
   }, JSON.stringify(outcome));
   assert.equal(executed, 0, 'nothing irreversible ran before the owner said so');
+  const { rows: lease } = await withTenant(fixture.companyId, (tx) => tx.query<{ lease_holder: string | null }>(
+    'SELECT lease_holder FROM tasks WHERE id = $1', [task.id]));
+  assert.equal(lease[0]!.lease_holder, null, 'a task waiting for the owner names no worker, so any worker can resume it');
 });
 
 /**
@@ -1967,4 +1970,68 @@ test('a task asks the owner three things at most, and an unanswered question is 
 
   await withControlPlane((tx) => tx.query("UPDATE inbox_items SET status = 'expired' WHERE id = $1", [one.inboxItemId]));
   assert.equal((await ask('Which supplier?')).state, 'unanswered');
+});
+
+/**
+ * `task.delegate` and `task.await`: a runtime in another process splits a
+ * job. `awaitChild` existed for in-process handlers only, so an agent CLI --
+ * the runtimes that do real work -- could not hand anything to another role.
+ * Waiting does not hold a worker: the parent parks until the child is done,
+ * and the run after it reads the child's contained result.
+ */
+test('a runtime hands work to another role and carries on with its result', async () => {
+  const fixture = await createCompany('script-delegate');
+  const registry = new CapabilityRegistry();
+  registerPlatformCapabilities(registry);
+  await registry.sync();
+  for (const name of ['task.delegate', 'task.await']) await grantCapability(fixture, name);
+  const broker = new CapabilityBroker(registry);
+  await configureRole(fixture, { runtime: 'script', tools: ['task.delegate', 'task.await'] });
+  const slug = (await withTenant(fixture.companyId, (tx) => tx.query<{ slug: string }>(
+    'SELECT slug FROM roles WHERE id = $1', [fixture.roleId]))).rows[0]!.slug;
+  const parent = await newTask(fixture, { script: 'delegate', to: slug });
+  const engine = engineWith(broker, scriptAdapter());
+
+  const first = await engine.runTask(fixture.companyId, parent.id, 'worker');
+  assert.equal(first.status, 'waiting_window', first.reason);
+  const { rows: parked } = await withTenant(fixture.companyId, (tx) => tx.query<{ wait_until: Date | null; lease_holder: string | null }>(
+    'SELECT wait_until, lease_holder FROM tasks WHERE id = $1', [parent.id]));
+  assert.ok(parked[0]!.wait_until && parked[0]!.wait_until.getTime() > Date.now(), 'the parent waits for a time, then looks again');
+  assert.equal(parked[0]!.lease_holder, null, 'and holds no worker while it waits');
+  const { rows: children } = await withTenant(fixture.companyId, (tx) => tx.query<{ id: string; status: string; deadline_at: Date | null }>(
+    'SELECT id, status, deadline_at FROM tasks WHERE parent_task_id = $1', [parent.id]));
+  assert.equal(children.length, 1);
+  assert.ok(children[0]!.deadline_at, 'a delegated task has a deadline (F6.4)');
+
+  // The child runs as any task does, and the parent resumes to read it.
+  const child = await engine.runTask(fixture.companyId, children[0]!.id, 'worker');
+  assert.equal(child.status, 'completed', child.reason);
+  const second = await engine.runTask(fixture.companyId, parent.id, 'worker');
+  assert.equal(second.status, 'completed', second.reason);
+  const output = second.output as { child: string; answer: { output: { status: string; output: unknown; summary: string } } };
+  assert.equal(output.child, children[0]!.id, 'the replayed delegation is the same child');
+  assert.equal(output.answer.output.status, 'completed');
+  assert.deepEqual(output.answer.output.output, { ok: true });
+  const { rows: count } = await withTenant(fixture.companyId, (tx) => tx.query(
+    'SELECT 1 FROM tasks WHERE parent_task_id = $1', [parent.id]));
+  assert.equal(count.length, 1, 'resuming did not delegate again');
+});
+
+test('a task waits only on work it delegated, and delegates only to a role that exists', async () => {
+  const fixture = await createCompany('delegate-bounds');
+  const registry = new CapabilityRegistry();
+  registerPlatformCapabilities(registry);
+  await registry.sync();
+  for (const name of ['task.delegate', 'task.await']) await grantCapability(fixture, name);
+  const broker = new CapabilityBroker(registry);
+  const one = await newTask(fixture, { script: 'done' });
+  const other = await newTask(fixture, { script: 'done' });
+  await transition(fixture.companyId, one.id, 'running');
+  const ctx = (taskId: string, key: string) => ({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    roleId: fixture.roleId, taskId, idempotencyKey: key,
+  });
+  await assert.rejects(broker.invoke(ctx(one.id, 'd1'), 'task.delegate', { role: 'nobody', brief: 'x' }), /no role nobody/);
+  await assert.rejects(broker.invoke(ctx(one.id, 'd2'), 'task.await', { childId: other.id }), /not one this task delegated/);
+  await assert.rejects(broker.invoke(ctx(one.id, 'd3'), 'task.delegate', { role: 'x', brief: '  ' }), /needs a brief/);
 });

@@ -100,6 +100,8 @@ export type ErrorCode =
   | 'approval.required'
   /** A run asked the owner something with `owner.ask`; the task waits for the answer. */
   | 'owner.asked'
+  /** A task is waiting for work it delegated with `task.delegate` (it parks, then looks again). */
+  | 'task.waiting_child'
   /** An inbound trigger's URL names nothing open (0054). */
   | 'hook.unknown'
   /** An inbound trigger was called without its token (0054). */

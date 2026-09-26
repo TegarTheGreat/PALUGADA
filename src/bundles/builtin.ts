@@ -522,11 +522,13 @@ export const COMPANY_OS: Bundle = {
           'three bets, each with the customer it is for, the evidence and how sure you are ' +
           '(confirmed, likely or speculative), what it costs, the number it should move and the ' +
           'result that would make you stop. You propose; you never change a goal, a budget or a ' +
-          'grant. When only the owner can answer something, ask them with owner.ask rather than ' +
-          'guessing. Write for the owner in the company\'s language, briefly.',
+          'grant. When another role holds a number you need, delegate the question with ' +
+          'task.delegate and read the answer with task.await. When only the owner can answer ' +
+          'something, ask them with owner.ask rather than guessing. Write for the owner in the ' +
+          'company\'s language, briefly.',
         tools: [
           'memory.search', 'skill.read', 'plan.record', 'metric.record', 'owner.ask',
-          'metrics.read', 'ledger.read', 'web.fetch', 'doc.draft',
+          'task.delegate', 'task.await', 'metrics.read', 'ledger.read', 'web.fetch', 'doc.draft',
         ],
         doneCriteria: [
           'every claim names where it came from and how sure it is: confirmed, likely or speculative',
@@ -541,6 +543,10 @@ export const COMPANY_OS: Bundle = {
       { division: 'strategy', capability: 'plan.record' },
       { division: 'strategy', capability: 'metric.record' },
       { division: 'strategy', capability: 'owner.ask' },
+      // To send a question to the role that can answer it -- the analyst for
+      // a number, the bookkeeper for the ledger -- rather than guessing.
+      { division: 'strategy', capability: 'task.delegate' },
+      { division: 'strategy', capability: 'task.await' },
       { division: 'strategy', capability: 'metrics.read' },
       { division: 'strategy', capability: 'ledger.read' },
       { division: 'strategy', capability: 'web.fetch' },

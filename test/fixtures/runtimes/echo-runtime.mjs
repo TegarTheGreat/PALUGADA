@@ -70,6 +70,18 @@ async function act(req) {
     say({ type: 'done', output: { answer } });
     return;
   }
+  if (script === 'delegate') {
+    // Hands a piece of the work to another role and waits for it: the way a
+    // runtime in another process splits a job (task.delegate, task.await).
+    const started = await callTool('task.delegate', { role: req.task.input.to, brief: 'Check the zone for stale records.' });
+    if (started.type !== 'tool_result') {
+      say({ type: 'done', output: { refused: started } });
+      return;
+    }
+    const answer = await callTool('task.await', { childId: started.output.childId });
+    say({ type: 'done', output: { child: started.output.childId, answer } });
+    return;
+  }
   if (script === 'ask_owner') {
     // Asks, and reports whatever came back: the answer on a resumed run, the
     // refusal on a first one (which the engine withdraws anyway).

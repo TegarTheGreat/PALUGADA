@@ -96,6 +96,27 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
       'changes, and a second plan is refused rather than overwriting the first.',
   },
   {
+    // Part of the work handed to another role, as a sub-task with a deadline.
+    name: 'task.delegate',
+    adapter: 'platform',
+    tier: TIER.READ_ONLY,
+    summary: 'Hands part of the task to another role as a sub-task.',
+    calibration:
+      'Creates a sub-task inside the company, under the hop limit, the fan-out ' +
+      'cap and the parent\'s budget, with a deadline. Nothing outside the ' +
+      'company changes; what the sub-task then does is judged at its own tier.',
+  },
+  {
+    // The result of a sub-task this task delegated; waiting parks the task.
+    name: 'task.await',
+    adapter: 'platform',
+    tier: TIER.READ_ONLY,
+    summary: 'Reads the result of work this task delegated, waiting if it is not done.',
+    calibration:
+      'Reads one row of the company\'s own tasks. Waiting parks the task until ' +
+      'it looks again, and holds no worker in between.',
+  },
+  {
     // A run asking the owner what only the owner can answer; the task waits.
     name: 'owner.ask',
     adapter: 'platform',

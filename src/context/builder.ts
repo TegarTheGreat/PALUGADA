@@ -347,9 +347,17 @@ export async function buildContext(
     });
   }
 
+  // What the task is about, in its own words: what the pack's memories are
+  // ranked against. The pack took the newest ten of each kind, so the owner's
+  // own word on delivered work aged out of every run behind ten distilled
+  // procedures, and a fact about the task could not reach the run past ten
+  // newer ones about something else.
+  const about = options.taskId ? await taskWords(tx, options.taskId) : '';
+
   const sops = await recall(tx, options.companyId, {
     memoryType: 'procedural',
     divisionId: options.divisionId,
+    relevantTo: about,
     limit: options.sopLimit ?? 10,
   });
   for (const sop of sops) {
@@ -361,6 +369,8 @@ export async function buildContext(
     divisionId: options.divisionId,
     embedding: options.queryEmbedding,
     embeddingModel: options.embeddingModel,
+    // Similarity decides when there is an embedding; the task's words when not.
+    ...(options.queryEmbedding ? {} : { relevantTo: about }),
     limit: options.semanticLimit ?? 10,
   });
   const lowConfidenceMemories = semanticMemories.filter(
@@ -507,6 +517,19 @@ export async function buildContext(
     dropped: trimmed.dropped,
     workingMemory: steps.filter((step) => kept.has(step.section)).map((step) => step.item),
   };
+}
+
+/** Every string in a task's input, which is what the task says it is about. */
+async function taskWords(tx: TenantClient, taskId: string): Promise<string> {
+  const { rows } = await tx.query<{ input: unknown }>('SELECT input FROM tasks WHERE id = $1', [taskId]);
+  const words: string[] = [];
+  const collect = (value: unknown): void => {
+    if (typeof value === 'string') words.push(value);
+    else if (Array.isArray(value)) value.forEach(collect);
+    else if (value && typeof value === 'object') Object.values(value).forEach(collect);
+  };
+  collect(rows[0]?.input);
+  return words.join(' ').slice(0, 2_000);
 }
 
 /** Four characters a token: enough to bound a document, not to bill for one. */

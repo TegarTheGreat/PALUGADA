@@ -1,0 +1,12 @@
+-- Finding a fact by its words (F4.1, F4.8).
+--
+-- memory.search read the eighty newest facts and kept those containing the
+-- query as written, so a fact older than eighty others could not be found by
+-- any words at all, and the context pack chose its facts by age alone. Both
+-- now rank by the words a fact shares with the query or the task.
+--
+-- The 'simple' configuration: no stemming, no stop words, for any language.
+-- The companies here write in Indonesian as often as English, and a stemmer
+-- for one would mangle the other; prefix matching in the query covers most
+-- of what stemming would have.
+CREATE INDEX memories_body_search_idx ON memories USING gin (to_tsvector('simple', body));

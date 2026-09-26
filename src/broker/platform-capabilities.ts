@@ -76,19 +76,18 @@ export function memorySearchCapability(): Capability<MemorySearchInput, MemorySe
     describe: () => ({ moneyCents: 0 }),
     async execute(input, ctx) {
       const limit = Math.min(Math.max(1, input.limit ?? 5), MEMORY_SEARCH_MAX_RESULTS);
-      const needle = input.query.trim().toLowerCase();
-
-      const facts = await withTenant(ctx.companyId, async (tx) => {
-        const found = await recall(tx, ctx.companyId, {
-          memoryType: input.memoryType ?? 'semantic',
-          divisionId: ctx.divisionId,
-          // Over-fetch, then filter by text. The scope rules live in `recall`
-          // and must not be reimplemented here: a search that reached past its
-          // division would make F4.6 a matter of which code path was used.
-          limit: MEMORY_SEARCH_MAX_RESULTS * 4,
-        });
-        return found.filter((memory) => memory.body.toLowerCase().includes(needle));
-      });
+      // Ranked by the words a fact shares with the query, in the database,
+      // across everything the division may see. It read the eighty newest
+      // and kept those containing the query as written, so an old fact could
+      // not be found by any words. The scope rules stay in `recall`: a search
+      // that reached past its division would make F4.6 a matter of which code
+      // path was used.
+      const facts = await withTenant(ctx.companyId, (tx) => recall(tx, ctx.companyId, {
+        memoryType: input.memoryType ?? 'semantic',
+        divisionId: ctx.divisionId,
+        text: input.query,
+        limit: limit + 1,
+      }));
 
       return {
         facts: facts.slice(0, limit).map((memory) => ({

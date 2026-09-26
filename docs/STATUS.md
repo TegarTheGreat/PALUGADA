@@ -2860,10 +2860,27 @@ could reach changed a role's runtime: moving one onto Claude Code took SQL.
   took for triggers, since a denial the owner cannot overrule would make a
   support role that reads mail unable ever to answer it.
 
+### Finding what the company knows
+
+Retrieval was by age alone. `memory.search` read the eighty newest facts
+and kept those containing the whole query as written, so a fact older than
+eighty others could not be found by any words, and "refund approval" found
+nothing in "Refunds need the owner's approval". The context pack took the
+ten newest facts and the ten newest procedures, so the owner's own word on
+delivered work aged out of every run behind ten distilled procedures. Both
+now rank in the database (0062, full text in the `simple` configuration so
+Indonesian and English are treated alike, each word a prefix): a search
+returns the facts sharing the most words with the query, and the pack puts
+the owner's word first, then what shares the most words with the task, then
+the newest.
+
 **Still open from these audits, in the order they would be taken**
 
-- Memory retrieval ranked by relevance rather than recency, and a way for a
-  run to write what it learned.
+- A way for a run to write down what it learned. A `memory.note` would be a
+  thirteenth tool for every role in the standard company but one, and F2.4
+  caps a role at twelve; until a role can spare one, what a run learned
+  reaches memory through distillation, which now runs whenever a model is
+  configured, and through the owner's word on delivered work.
 - A governed MCP client, so a company can use the integrations that already
   exist as MCP servers.
 

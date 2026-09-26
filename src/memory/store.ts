@@ -162,6 +162,37 @@ export interface RecallOptions {
    */
   approvalState?: ApprovalState | undefined;
   factKind?: FactKind | undefined;
+  /**
+   * Only facts sharing a word with this, the most words first (F4.8's
+   * `memory.search`). Any word counts, and each as a prefix: "refund"
+   * finds "refunds".
+   */
+  text?: string | undefined;
+  /**
+   * Every fact the scope allows, the owner's word first, then those sharing
+   * the most words with this -- the task, for the context pack -- then the
+   * newest. Ordering only: a pack with nothing about the task still gets the
+   * newest facts, as before.
+   */
+  relevantTo?: string | undefined;
+}
+
+/** Words that say nothing about what a fact is about, in the two languages the platform ships. */
+const STOP_WORDS = new Set([
+  'the', 'and', 'for', 'with', 'that', 'this', 'from', 'are', 'was', 'were', 'has', 'have', 'its', 'our', 'your',
+  'yang', 'dan', 'untuk', 'dengan', 'ini', 'itu', 'dari', 'pada', 'atau', 'akan', 'ke', 'di', 'kita', 'kami',
+]);
+
+/**
+ * A full-text query from somebody's words: any of them, each as a prefix.
+ * Null when nothing is left to look for. Only letters and digits reach the
+ * query, so nothing a model writes can be read as query syntax.
+ */
+export function searchTerms(text: string): string | null {
+  const words = [...new Set(
+    (text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter((word) => word.length >= 2 && !STOP_WORDS.has(word)),
+  )].slice(0, 24);
+  return words.length > 0 ? words.map((word) => `${word}:*`).join(' | ') : null;
 }
 
 interface RawMemory {
@@ -235,6 +266,24 @@ export async function recall(
 
   let distance = 'NULL::float8 AS distance';
   let orderBy = 'm.valid_from DESC, m.id';
+
+  if (options.text !== undefined) {
+    const terms = searchTerms(options.text);
+    if (!terms) return [];
+    params.push(terms);
+    const query = `to_tsquery('simple', $${params.length})`;
+    where.push(`to_tsvector('simple', m.body) @@ ${query}`);
+    orderBy = `ts_rank_cd(to_tsvector('simple', m.body), ${query}) DESC, m.confidence DESC, m.valid_from DESC, m.id`;
+  } else if (options.relevantTo !== undefined) {
+    const terms = searchTerms(options.relevantTo);
+    if (terms) {
+      params.push(terms);
+      orderBy = `(m.source = 'owner') DESC, `
+        + `ts_rank_cd(to_tsvector('simple', m.body), to_tsquery('simple', $${params.length})) DESC, m.valid_from DESC, m.id`;
+    } else {
+      orderBy = `(m.source = 'owner') DESC, m.valid_from DESC, m.id`;
+    }
+  }
 
   if (options.embedding) {
     params.push(options.embeddingModel);

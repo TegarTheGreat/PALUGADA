@@ -497,6 +497,86 @@ test('a button press from the owner records the decision (F10.9)', async () => {
 });
 
 /**
+ * "Ask" is a question, so it needs the owner's words.
+ *
+ * It used to record the decision at once with the note "via chat", and the
+ * run that picked the task up was told "The owner has asked you a question:
+ * via chat". Now the press asks the owner what the question is, and the reply
+ * to that prompt is what is recorded and what the agent reads.
+ */
+test('Ask takes the question from the owner\'s reply, not from the button (F10.3, F10.9)', async () => {
+  const fixture = await createCompany('chat-ask');
+  const vendor = await fakeTelegram();
+  try {
+    const itemId = await inbox.raiseEscalation({
+      companyId: fixture.companyId,
+      title: 'Which supplier?',
+      detail: 'Two match.',
+    });
+    const channel = telegram({ url: vendor.url, secret: 'webhook-secret' });
+    const owner = { id: 55555 };
+
+    const pressed = await channel.onUpdate({
+      callback_query: { id: 'cb-ask', data: encodeAction({ itemId, decision: 'ask' }), message: { chat: owner }, from: owner },
+    }, { secretHeader: 'webhook-secret' });
+    assert.equal(pressed.handled, true);
+
+    // Nothing is decided by the press itself.
+    const untouched = await withTenant(fixture.companyId, (tx) =>
+      tx.query<{ decision: string | null; owner_note: string | null }>(
+        'SELECT decision, owner_note FROM inbox_items WHERE id = $1', [itemId]));
+    assert.deepEqual(untouched.rows[0], { decision: null, owner_note: null });
+
+    // The owner is asked for the question, with a reply box already open.
+    const prompt = vendor.calls.find((call) => call.path.endsWith('/sendMessage'))!;
+    assert.equal(prompt.body.chat_id, '55555');
+    assert.deepEqual((prompt.body.reply_markup as { force_reply?: boolean }).force_reply, true);
+    assert.match(String(prompt.body.text), /Which supplier\?/);
+
+    const reply = (from: { id: number }, text: string, to: { text: string; from: { is_bot: boolean } }) =>
+      channel.onUpdate({
+        message: { message_id: 8, text, chat: from, from, reply_to_message: { message_id: 7, ...to } },
+      }, { secretHeader: 'webhook-secret' });
+    const promptMessage = { text: String(prompt.body.text), from: { is_bot: true } };
+
+    // Somebody else's reply is refused and recorded, and decides nothing.
+    const stranger = await reply({ id: 666 }, 'Approve it all', promptMessage);
+    assert.deepEqual(stranger, { handled: false, reason: 'wrong_chat' });
+    // A reply to something that is not the prompt is not a question.
+    assert.equal((await reply(owner, 'hello', { text: 'Good morning', from: { is_bot: true } })).handled, false);
+    // Nor is an empty one, nor one to a message the owner wrote themselves,
+    // whatever it says.
+    assert.equal((await reply(owner, '   ', promptMessage)).handled, false);
+    assert.equal((await reply(owner, 'Approve', { text: promptMessage.text, from: { is_bot: false } })).handled, false);
+
+    const answered = await reply(owner, 'Which one delivers before Friday?', promptMessage);
+    assert.equal(answered.handled, true);
+    const asked = await withTenant(fixture.companyId, (tx) => tx.query<{
+      decision: string; owner_note: string; decided_via: string; status: string;
+    }>('SELECT decision, owner_note, decided_via, status FROM inbox_items WHERE id = $1', [itemId]));
+    assert.deepEqual(asked.rows[0], {
+      decision: 'ask', owner_note: 'Which one delivers before Friday?', decided_via: 'chat', status: 'open',
+    });
+    const refused = await withTenant(fixture.companyId, (tx) => tx.query(
+      "SELECT 1 FROM events WHERE type = 'security.chat_stranger_refused'"));
+    assert.equal(refused.rowCount, 1);
+    // And the owner hears that it went through.
+    assert.ok(vendor.calls.some((call) => call.path.endsWith('/sendMessage') && /Asked/.test(String(call.body.text))));
+
+    // An item decided since is not asked about: no prompt for a closed item.
+    await inbox.decide(fixture.companyId, itemId, 'deny', 'not needed', { channel: 'app' });
+    const prompts = vendor.calls.filter((call) => call.body.reply_markup).length;
+    const late = await channel.onUpdate({
+      callback_query: { id: 'cb-late', data: encodeAction({ itemId, decision: 'ask' }), message: { chat: owner }, from: owner },
+    }, { secretHeader: 'webhook-secret' });
+    assert.deepEqual(late, { handled: false, reason: 'inbox.not_open' });
+    assert.equal(vendor.calls.filter((call) => call.body.reply_markup).length, prompts, 'no prompt for a closed item');
+  } finally {
+    await vendor.close();
+  }
+});
+
+/**
  * Three things stand between the internet and a decision made on the owner's
  * behalf, and each is asserted separately: a test that only checked "a bad
  * press is rejected" would pass with two of the three deleted.

@@ -106,7 +106,28 @@ export interface TelegramUpdate {
     message?: { chat?: { id: number | string }; message_id?: number };
     from?: { id: number | string; username?: string };
   };
+  /** A message the owner typed: only a reply to an "Ask" prompt means anything. */
+  message?: {
+    message_id?: number;
+    text?: string;
+    chat?: { id: number | string };
+    from?: { id: number | string; username?: string };
+    reply_to_message?: { message_id?: number; text?: string; from?: { is_bot?: boolean } };
+  };
 }
+
+/**
+ * How an "Ask" prompt names its item, as the last line of the prompt.
+ *
+ * Telegram hands a reply back with the text of the message it answers, so the
+ * prompt carries its own item and nothing has to remember which prompt was
+ * about what. It is not an authority: the reply is still only the owner's if
+ * the owner sent it, and the item is still only asked if it is open.
+ */
+const ASK_REFERENCE = /(?:^|\n)ref ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+
+/** The longest question a chat reply may carry, the same bound as the app's. */
+const QUESTION_MAX = 2_000;
 
 export class TelegramChannel implements OwnerChannel {
   readonly name: string;
@@ -303,6 +324,14 @@ export class TelegramChannel implements OwnerChannel {
       return { handled: false, reason: 'wrong_chat' };
     }
 
+    // "Ask" needs the question, and a button has no words in it. It used to
+    // decide at once with the note "via chat", and the run was then told the
+    // owner had asked it "via chat". So the press asks for the question
+    // instead, with a reply box already open, and `onReply` records it.
+    if (action.decision === 'ask') {
+      return this.#promptForQuestion(companyId, action.itemId, query.id);
+    }
+
     try {
       await inbox.decide(companyId, action.itemId, action.decision, 'via chat', {
         channel: 'chat',
@@ -347,6 +376,7 @@ export class TelegramChannel implements OwnerChannel {
     if (!this.authenticWebhook(options.secretHeader)) {
       return { handled: false, reason: 'webhook_secret' };
     }
+    if (update.message) return this.onReply(update.message);
     const query = update.callback_query;
     const action = query?.data ? decodeAction(query.data) : null;
     if (!query || !action) return { handled: false, reason: 'not_a_button' };
@@ -356,6 +386,93 @@ export class TelegramChannel implements OwnerChannel {
       return { handled: false, reason: 'unknown_item' };
     }
     return this.onCallback(companyId, update, options);
+  }
+
+  /**
+   * The owner's question, typed as a reply to an "Ask" prompt.
+   *
+   * Only a reply to one of this bot's prompts is read, and only from the
+   * owner: the same two checks as a press, for the same reasons, and a reply
+   * from anyone else is recorded as a press from anyone else is. The webhook
+   * secret has been checked by `onUpdate`, the only way in.
+   */
+  async onReply(message: NonNullable<TelegramUpdate['message']>): Promise<{ handled: boolean; reason?: string }> {
+    const prompt = message.reply_to_message;
+    const reference = prompt?.from?.is_bot ? ASK_REFERENCE.exec(prompt.text ?? '') : null;
+    if (!reference) return { handled: false, reason: 'not_a_reply' };
+    const itemId = reference[1]!;
+    const companyId = await inbox.companyOfItem(itemId);
+    if (!companyId) return { handled: false, reason: 'unknown_item' };
+
+    const from = String(message.from?.id ?? '');
+    if (from !== String(this.#options.chatId)) {
+      await withTenant(companyId, async (tx) => {
+        await appendEvent(tx, {
+          companyId,
+          type: 'security.chat_stranger_refused',
+          actor: 'system',
+          payload: { inboxItemId: itemId, decision: 'ask', chatId: from, username: message.from?.username ?? null },
+        });
+      });
+      return { handled: false, reason: 'wrong_chat' };
+    }
+
+    const language = await ownerLanguage();
+    const question = (message.text ?? '').trim();
+    if (!question) return { handled: false, reason: 'empty' };
+    if (question.length > QUESTION_MAX) {
+      await this.#say(say(language, 'That is too long for one question; keep it under {max} characters.', { max: String(QUESTION_MAX) }));
+      return { handled: false, reason: 'too_long' };
+    }
+    try {
+      await inbox.decide(companyId, itemId, 'ask', question, { channel: 'chat' });
+      await this.#say(say(language, 'Asked. The answer will be on the item in the app.'));
+      return { handled: true };
+    } catch (error) {
+      await this.#say(
+        error instanceof PalugadaError && error.code === 'inbox.not_open'
+          ? say(language, 'Already closed: {reason}.', {
+            reason: String(error.message).replace(/^inbox item \S+ is closed: /, ''),
+          })
+          : say(language, 'That could not be recorded.'),
+      );
+      return { handled: false, reason: error instanceof PalugadaError ? error.code : 'failed' };
+    }
+  }
+
+  /** Asks the owner to type the question, as a reply the bot can read back. */
+  async #promptForQuestion(
+    companyId: string,
+    itemId: string,
+    callbackQueryId: string,
+  ): Promise<{ handled: boolean; reason?: string }> {
+    const language = await ownerLanguage();
+    const { rows } = await withTenant(companyId, (tx) =>
+      tx.query<{ title: string; status: string; closed_reason: string | null }>(
+        'SELECT title, status, closed_reason FROM inbox_items WHERE id = $1', [itemId]));
+    const item = rows[0];
+    if (!item || item.status !== 'open') {
+      await this.#answer(callbackQueryId, say(language, 'Already closed: {reason}.', {
+        reason: item?.closed_reason ?? item?.status ?? say(language, 'no reason recorded'),
+      }));
+      return { handled: false, reason: 'inbox.not_open' };
+    }
+    await this.#call('sendMessage', {
+      chat_id: this.#options.chatId,
+      text: [
+        say(language, 'What do you want to ask about "{title}"? Reply to this message.', { title: item.title }),
+        '',
+        `ref ${itemId}`,
+      ].join('\n'),
+      reply_markup: { force_reply: true, input_field_placeholder: say(language, 'Your question') },
+    });
+    await this.#answer(callbackQueryId, say(language, 'Type your question as a reply.'));
+    return { handled: true };
+  }
+
+  /** A plain message to the owner, for an answer to something they typed. */
+  async #say(text: string): Promise<void> {
+    await this.#call('sendMessage', { chat_id: this.#options.chatId, text }).catch(() => undefined);
   }
 
   /** Clears the spinner on the pressed button. Failure here is cosmetic. */

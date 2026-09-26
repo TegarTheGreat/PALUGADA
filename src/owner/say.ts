@@ -37,6 +37,13 @@ const ID: Readonly<Record<string, string>> = {
   'Already closed: {reason}.': 'Sudah ditutup: {reason}.',
   'That could not be recorded.': 'Itu tidak bisa dicatat.',
   'That item no longer exists.': 'Item itu sudah tidak ada.',
+  'What do you want to ask about "{title}"? Reply to this message.':
+    'Apa yang ingin Anda tanyakan tentang "{title}"? Balas pesan ini.',
+  'Your question': 'Pertanyaan Anda',
+  'Type your question as a reply.': 'Ketik pertanyaan Anda sebagai balasan.',
+  'Asked. The answer will be on the item in the app.': 'Sudah ditanyakan. Jawabannya akan muncul di item itu di aplikasi.',
+  'That is too long for one question; keep it under {max} characters.':
+    'Terlalu panjang untuk satu pertanyaan; buat di bawah {max} karakter.',
 };
 
 /** The sentences each language has, for a test to hold complete. */

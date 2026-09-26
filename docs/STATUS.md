@@ -2660,6 +2660,14 @@ rest are listed at the end.
   opens the task. A schedule's routine run and a step an agent delegated
   are not news. A notice whose send failed is tried again a few minutes
   later, a few times, by the same claim-first row every notification keeps.
+- One search across every company (`src/owner/search.ts`, the console's
+  search box). The owner could search one company's decisions and one
+  company's memory and nothing else. The box now finds the work, what it
+  produced, the decisions and what the companies know, in every company,
+  newest first and capped per kind, and opens what it found. A defect found
+  on the way: the memory page's search did not escape `%` and `_`, so a
+  search for "40%" matched every fact with a 40 in it; both searches take
+  the query literally now.
 - Measure goals by numbers (section 2.19).
 
 **F8.9, enforced where it does not depend on the model.** The untrusted

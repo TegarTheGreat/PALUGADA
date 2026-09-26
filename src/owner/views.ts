@@ -15,6 +15,7 @@
  */
 import { metricsIn, type MetricView } from '../domain/metrics.ts';
 import { withTenant } from '../db/tenant.ts';
+import { likePattern } from './search.ts';
 import { redactor } from '../secrets/manager.ts';
 import { fingerprint } from '../gateway/gateway.ts';
 import { TERMINAL_STATUSES, type TaskStatus } from '../domain/task.ts';
@@ -739,11 +740,13 @@ export async function memoriesOf(
          LEFT JOIN divisions d ON m.scope_type = 'division' AND d.id = m.scope_id
          LEFT JOIN projects p ON m.scope_type = 'project' AND p.id = m.scope_id
         WHERE ($1::text IS NULL OR m.memory_type = $1)
-          AND ($2::text IS NULL OR m.body ILIKE '%' || $2 || '%')
+          AND ($2::text IS NULL OR m.body ILIKE $2 ESCAPE '\\')
           AND ($3 OR m.superseded_by IS NULL)
         ORDER BY m.created_at DESC
         LIMIT $4`,
-      [options.kind ?? null, options.query?.trim() || null, options.superseded ?? false, limit],
+      // Taken literally: "40%" is forty per cent, not everything with a 40 in it.
+      [options.kind ?? null, options.query?.trim() ? likePattern(options.query.trim()) : null,
+        options.superseded ?? false, limit],
     );
     const { rows: grouped } = await tx.query<{ memory_type: MemoryKind; n: number; candidates: number }>(
       `SELECT memory_type, count(*)::int AS n,

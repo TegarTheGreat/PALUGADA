@@ -339,6 +339,18 @@ export interface TaskDetail {
   feedback: { verdict: 'good' | 'needs_work'; note: string | null; at: string } | null;
 }
 
+/** One thing the search found, in any company (`GET /api/search`). */
+export interface SearchHit {
+  kind: 'task' | 'decision' | 'memory';
+  id: string;
+  companyId: string;
+  company: string;
+  title: string;
+  detail: string | null;
+  status: string | null;
+  at: string;
+}
+
 /** When one role finishes, another takes over (0058). */
 export interface HandoffRule {
   id: string;

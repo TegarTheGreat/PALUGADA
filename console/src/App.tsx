@@ -29,7 +29,7 @@ import { useFactor } from './factor.tsx';
 import { useLoad } from './hooks.ts';
 import { LANGUAGES, N, isLanguage, language, setLanguage, t, useLanguage, type Language } from './i18n.ts';
 import { go, takeLinkedRoute, useRoute, type CompanyPage, type Route, type SettingsSection } from './router.ts';
-import type { Company, Structure } from './types.ts';
+import type { Company, SearchHit, Structure } from './types.ts';
 import { SignIn } from './pages/SignIn.tsx';
 import { Home } from './pages/Home.tsx';
 import { Decisions } from './pages/Decisions.tsx';
@@ -232,6 +232,39 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
     { id: 'theme', label: colorScheme === 'dark' ? t('Light theme') : t('Dark theme'), description: t('Appearance'), leftSection: <IconMoon size={18} />, onClick: toggleColorScheme },
   ];
 
+  // What the search box found in every company (src/owner/search.ts): asked
+  // once the owner has typed two characters and paused, and shown beside the
+  // pages and commands whose names match.
+  const [query, setQuery] = useState('');
+  const [found, setFound] = useState<SearchHit[]>([]);
+  useEffect(() => {
+    const text = query.trim();
+    if (text.length < 2) {
+      setFound([]);
+      return;
+    }
+    const timer = setTimeout(() => {
+      api('GET', `/api/search?q=${encodeURIComponent(text)}`)
+        .then((answer: { hits: SearchHit[] }) => setFound(answer.hits))
+        .catch(() => setFound([]));
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [query]);
+  const HIT_LABEL: Record<SearchHit['kind'], string> = { task: t('Task'), decision: t('Decision'), memory: t('Memory') };
+  const foundActions: SpotlightActionData[] = found.map((hit) => ({
+    id: `found-${hit.kind}-${hit.id}`,
+    label: hit.title,
+    description: `${HIT_LABEL[hit.kind]} · ${hit.company}${hit.detail && hit.kind !== 'memory' ? ` · ${hit.detail}` : ''}`,
+    leftSection: hit.kind === 'task' ? <IconSitemap size={18} /> : hit.kind === 'decision' ? <IconCheck size={18} /> : <IconBrain size={18} />,
+    onClick: () => (hit.kind === 'task' ? open('work', { companyId: hit.companyId, item: hit.id })
+      : hit.kind === 'decision' ? open(hit.status === 'open' ? 'inbox' : 'history', { companyId: hit.companyId, item: hit.status === 'open' ? hit.id : null })
+        : open('memory', { companyId: hit.companyId })),
+  }));
+  const matches = (action: SpotlightActionData) => {
+    const text = query.trim().toLowerCase();
+    return !text || `${action.label ?? ''} ${action.description ?? ''}`.toLowerCase().includes(text);
+  };
+
   const setup = base.data?.setup ?? { notes: [], todo: [] };
   const inboxCount = company ? openCount[company.id] ?? 0 : 0;
   const active = route.kind === 'home' ? 'home' : route.page;
@@ -273,7 +306,13 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
       padding={0}
     >
       <Spotlight
-        actions={spotlightActions}
+        query={query}
+        onQueryChange={setQuery}
+        // The pages and commands that match, then what the search found --
+        // which matched on the server, perhaps in a result the title does
+        // not show, so it is not filtered again here.
+        actions={[...spotlightActions.filter(matches), ...(foundActions.length > 0 ? [{ group: t('Found'), actions: foundActions }] : [])]}
+        filter={(_, actions) => actions}
         nothingFound={t('Nothing matches')}
         highlightQuery
         searchProps={{ leftSection: <IconSearch size={18} />, placeholder: t('Go to a page, switch company, or do something…') }}

@@ -76,6 +76,7 @@ import { rotateCredential } from '../secrets/rotation.ts';
 import type { SecretManager } from '../secrets/manager.ts';
 import { assertStage, loosens, setStage, stageOf, type Stage } from '../domain/stage.ts';
 import { createHandoffRule, handoffRulesOf, setHandoffRuleEnabled } from '../engine/handoff-rules.ts';
+import { searchEverywhere } from './search.ts';
 import { appendEvent, readTaskEvents } from '../audit/event-log.ts';
 import { describeReplay, replayTask } from '../engine/replay.ts';
 import { assignTask } from '../scheduler/wake.ts';
@@ -409,6 +410,14 @@ export class OwnerApi {
         handle: async ({ params }) => ({
           items: await inbox.listOpen(params.companyId!),
         }),
+      },
+
+      {
+        // One search across every company: the work, what it produced, the
+        // decisions and what the companies know (src/owner/search.ts).
+        method: 'GET',
+        pattern: '/api/search',
+        handle: async ({ query }) => ({ hits: await searchEverywhere(query.get('q') ?? '') }),
       },
 
       {

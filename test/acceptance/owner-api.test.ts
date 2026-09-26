@@ -3645,6 +3645,27 @@ test('the owner hires a role and opens a division with the device, and starts a 
   }
 });
 
+/** Search over HTTP: every company, and a query too short is refused, not run. */
+test('the owner searches every company from one box', async () => {
+  const owner = await console_();
+  try {
+    const fixture = await createCompany('search-http');
+    const token = await signIn(owner.url, owner.code());
+    await inbox.requestApproval({
+      companyId: fixture.companyId, capabilityName: 'email.send', tier: 2,
+      actionSummary: 'Send the roastery tour invitation', rationale: 'r', consequenceIfDenied: 'c',
+    });
+    const found = await call(owner.url, 'GET', `/api/search?q=${encodeURIComponent('roastery tour')}`, { token });
+    assert.equal(found.status, 200, JSON.stringify(found.body));
+    assert.deepEqual((found.body.hits as Array<{ kind: string; companyId: string }>).map((hit) => [hit.kind, hit.companyId]),
+      [['decision', fixture.companyId]]);
+    assert.equal((await call(owner.url, 'GET', '/api/search?q=r', { token })).status, 400);
+    assert.equal((await call(owner.url, 'GET', '/api/search?q=roastery')).status, 401, 'a session, like every read');
+  } finally {
+    await owner.close();
+  }
+});
+
 /** The owner's word on finished work, over HTTP, and read back on the task. */
 test('the owner says what finished work needed, and the task shows it', async () => {
   const owner = await console_();

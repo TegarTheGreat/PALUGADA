@@ -59,6 +59,7 @@ import {
 } from '../engine/control.ts';
 import { frozenRoles, pauseRole, unfreezeRole } from '../governance/role-freeze.ts';
 import { cancelTask, instructTask, rerunTask } from '../engine/owner-control.ts';
+import { transcriptOf } from '../engine/transcript.ts';
 import {
   clearSpendPause,
   limitFor,
@@ -940,6 +941,17 @@ export class OwnerApi {
           }
           return { task };
         },
+      },
+
+      {
+        // What the task's runs said as they worked, oldest first (0055). The
+        // console polls it while the task is live, which is as close to
+        // watching an agent think as the owner needs to get.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/tasks/:taskId/transcript',
+        handle: async ({ params, query }) => ({
+          notes: await transcriptOf(params.companyId!, params.taskId!, Number(query.get('limit') ?? 200) || 200),
+        }),
       },
 
       {

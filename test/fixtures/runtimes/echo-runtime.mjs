@@ -70,6 +70,17 @@ async function act(req) {
     say({ type: 'done', output: { answer } });
     return;
   }
+  if (script === 'narrate') {
+    // Says each line it was given, as an agent CLI narrates, then finishes.
+    // A line given as parts is joined here, so the runtime can say something
+    // the request it was sent never contained whole -- the way a model can
+    // assemble a secret it was never shown in one piece.
+    for (const line of req.task.input.lines ?? []) {
+      say({ type: 'text', text: Array.isArray(line) ? line.join('') : line });
+    }
+    say({ type: 'done', output: { said: (req.task.input.lines ?? []).length } });
+    return;
+  }
   if (script === 'delegate') {
     // Hands a piece of the work to another role and waits for it: the way a
     // runtime in another process splits a job (task.delegate, task.await).

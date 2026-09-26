@@ -156,6 +156,7 @@ const SECTIONS: ImportSection[] = [
   { name: 'trigger_deliveries', table: 'trigger_deliveries', references: ['trigger_id', 'task_id'] },
   { name: 'metric_observations', table: 'metric_observations', references: ['metric_id', 'task_id'] },
   { name: 'agent_runs', table: 'agent_runs', references: ['task_id', 'role_id'] },
+  { name: 'run_notes', table: 'run_notes', references: ['task_id', 'agent_run_id'] },
   { name: 'events', table: 'events', references: ['project_id', 'task_id'] },
   {
     name: 'memories',

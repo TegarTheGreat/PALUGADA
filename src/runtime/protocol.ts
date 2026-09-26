@@ -157,6 +157,12 @@ export interface RunServices {
    * has run out -- there is no other channel, and there should not be.
    */
   reportUsage(usage: ModelUsage): Promise<void>;
+  /**
+   * What the runtime says as it works, for the owner to read (0055). Optional:
+   * a caller with nowhere to keep it may leave it out, and a failure to keep
+   * a line never fails the run.
+   */
+  narrate?(text: string): Promise<void>;
   signal: AbortSignal;
 }
 

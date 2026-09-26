@@ -40,6 +40,11 @@ export function dateTime(iso: string | null | undefined): string {
   });
 }
 
+/** A time of day, to the second: for lines said a moment apart. */
+export function time(iso: string): string {
+  return new Date(iso).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
 export function day(iso: string): string {
   return new Date(iso).toLocaleDateString(locale(), { month: 'short', day: 'numeric' });
 }

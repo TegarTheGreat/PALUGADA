@@ -22,7 +22,7 @@ import { api, explain } from '../api.ts';
 import { useLoad, useNow } from '../hooks.ts';
 import { go } from '../router.ts';
 import type { Deliverable, TaskDetail, WorkGroup, WorkItem } from '../types.ts';
-import { dateTime, eventSentence, haltReason, humanize, money, relative } from '../format.ts';
+import { dateTime, eventSentence, haltReason, humanize, money, relative, time } from '../format.ts';
 import { t } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
 import { EmptyState, LoadFailed, Loading, PageHeader, StatusBadge } from '../components/ui.tsx';
@@ -242,6 +242,7 @@ export function TaskDrawer({ companyId, task, close, changed, openTask }: {
           </SimpleGrid>
           <TaskControls companyId={companyId} task={task} changed={changed} openTask={openTask} />
           <TaskOutput companyId={companyId} task={task} />
+          <Transcript companyId={companyId} task={task} />
           <div>
             <Text fw={700} mb="sm">{t('What it did')}</Text>
             {events.error ? <Text c="red" size="sm">{events.error}</Text> : !events.data ? <Loading rows={2} /> : events.data.length === 0 ? (
@@ -354,6 +355,37 @@ function TaskControls({ companyId, task, changed, openTask }: {
         </Text>
       )}
     </Paper>
+  );
+}
+
+/**
+ * What the task's runs said as they worked (0055), newest at the bottom,
+ * refreshed while the task is live: the closest the owner gets to watching
+ * the agent think, and usually enough to see it going the wrong way.
+ */
+function Transcript({ companyId, task }: { companyId: string; task: WorkItem }) {
+  const notes = useLoad(async () => {
+    const answer: { notes: Array<{ seq: number; body: string; saidAt: string; attempt: number }> } =
+      await api('GET', `/api/companies/${companyId}/tasks/${task.id}/transcript?limit=200`);
+    return answer.notes;
+  }, [companyId, task.id], { every: LIVE.includes(task.status) ? 5_000 : undefined });
+
+  if (notes.error) return <Text c="red" size="sm">{notes.error}</Text>;
+  if (!notes.data || notes.data.length === 0) return null;
+  return (
+    <div>
+      <Text fw={700} mb="sm">{t('What it said')}</Text>
+      <ScrollArea.Autosize mah={260} type="auto">
+        <Stack gap={6}>
+          {notes.data.map((note, index) => (
+            <Group key={`${note.attempt}-${note.seq}-${index}`} gap="xs" wrap="nowrap" align="flex-start">
+              <Text size="xs" c="dimmed" className="tabular" style={{ flexShrink: 0 }}>{time(note.saidAt)}</Text>
+              <Text size="sm" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{note.body}</Text>
+            </Group>
+          ))}
+        </Stack>
+      </ScrollArea.Autosize>
+    </div>
   );
 }
 

@@ -2035,3 +2035,51 @@ test('a task waits only on work it delegated, and delegates only to a role that 
   await assert.rejects(broker.invoke(ctx(one.id, 'd2'), 'task.await', { childId: other.id }), /not one this task delegated/);
   await assert.rejects(broker.invoke(ctx(one.id, 'd3'), 'task.delegate', { role: 'x', brief: '  ' }), /needs a brief/);
 });
+
+/**
+ * What a runtime says while it works is kept for the owner to read: redacted
+ * like everything else that is stored, bounded per run, and in order. The
+ * wire used to throw every line away.
+ */
+test('what a runtime says is kept, redacted and bounded, beside the task', async () => {
+  const fixture = await createCompany('script-narrate');
+  const broker = await brokerFor(fixture, []);
+  await configureRole(fixture, { runtime: 'script' });
+  const { redactor } = await import('../../src/secrets/manager.ts');
+  const { transcriptOf, NOTES_PER_RUN } = await import('../../src/engine/transcript.ts');
+  redactor.register('sk-live-narration-7777');
+  const lines: Array<string | string[]> = [
+    'Reading the zone for example.com',
+    // In parts, so the request's own redaction does not hide it: the
+    // runtime says it whole, and only the transcript's redaction can catch it.
+    ['Using key sk-live-', 'narration-7777 to check'],
+    'x'.repeat(3_000),
+    ...Array.from({ length: NOTES_PER_RUN }, (_, index) => `line ${index}`),
+  ];
+  const task = await newTask(fixture, { script: 'narrate', lines });
+
+  const outcome = await engineWith(broker, scriptAdapter()).runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(outcome.status, 'completed', outcome.reason);
+
+  const notes = await transcriptOf(fixture.companyId, task.id);
+  assert.equal(notes[0]!.body, 'Reading the zone for example.com');
+  assert.doesNotMatch(notes[1]!.body, /sk-live-narration-7777/, 'redacted before it is stored');
+  assert.equal(notes[2]!.body.length <= 2_000, true, 'a long line is cut, not refused');
+  assert.equal(notes.length, NOTES_PER_RUN + 1, 'bounded per run, and the bound says so');
+  assert.match(notes.at(-1)!.body, /no more of this run's narration is kept/);
+  assert.deepEqual(notes.map((note) => note.seq), notes.map((_, index) => index + 1));
+
+  // Another company's task is not there to read.
+  const other = await createCompany('script-narrate-other');
+  assert.deepEqual(await transcriptOf(other.companyId, task.id), []);
+
+  // And it travels with the company, pointed at the restored task.
+  const { exportCompany } = await import('../../src/audit/export.ts');
+  const { importCompany } = await import('../../src/audit/import.ts');
+  const archive: Array<{ section: string; row: Record<string, unknown> }> = [];
+  await exportCompany(fixture.companyId, (line) => { archive.push(line); });
+  const restored = await importCompany(archive, { slug: 'script-narrate-restored' });
+  const { rows } = await withTenant(restored.companyId, (tx) => tx.query<{ id: string }>('SELECT id FROM tasks'));
+  const copied = await transcriptOf(restored.companyId, rows[0]!.id);
+  assert.deepEqual(copied.map((note) => note.body), notes.map((note) => note.body));
+});

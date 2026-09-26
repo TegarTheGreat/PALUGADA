@@ -208,8 +208,11 @@ export async function driveRun(
         }
 
         case 'text':
-          // Narration. Not journalled: F11.1 asks for a trace of model calls
-          // and tool calls, and a runtime's running commentary is neither.
+          // Narration. Not journalled -- F11.1 asks for a trace of model calls
+          // and tool calls, and a runtime's running commentary is neither --
+          // but kept for the owner to read, where it used to be thrown away.
+          // A line that cannot be kept is lost, never the run.
+          await services.narrate?.(event.text).catch(() => undefined);
           break;
 
         case 'done':

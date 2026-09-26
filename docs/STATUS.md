@@ -2541,6 +2541,11 @@ rest are listed at the end.
   until it is answered, from the console or a Telegram reply. A question may
   offer two to six answers, and the owner answers with one press on either
   surface; the text is read from the item, never from the button.
+- Read what a run is saying as it works. An agent CLI's narration was thrown
+  away by the wire; it is now kept per run (0055, `src/engine/transcript.ts`),
+  redacted before it is stored -- including a secret the runtime assembled
+  itself -- each line bounded and each run's narration capped, and the task's
+  drawer shows it, refreshing while the task is live.
 - Have work split by whatever runtime does it. `task.delegate` hands part of a
   task to another role as a sub-task with a deadline, under the hop limit, the
   fan-out cap and the parent's budget; `task.await` reads its contained result,
@@ -2572,8 +2577,8 @@ work delegated (`begunOutside` in `src/engine/tasks.ts`).
 - Batch verdicts on a decision (approve seven of ten drafts in one go).
 - A strategy role in the standard template itself, and stage gates (explore,
   validate, build, launch, grow) that policies can read.
-- Per-company connections to outside accounts from the console, a config
-  history with restore, coding workspaces, and live run transcripts.
+- Per-company connections to outside accounts from the console, and coding
+  workspaces.
 
 ## 3. Decisions, deviations, and what is unverified
 

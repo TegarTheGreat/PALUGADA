@@ -16,6 +16,7 @@ import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError, isPalugadaError } from '../errors.ts';
 import { createSubTask, getTask, transition, type TaskRow } from './tasks.ts';
 import { validateContract } from './contracts.ts';
+import { narrator } from './transcript.ts';
 import { containChildResult, type ChildResult } from './containment.ts';
 import { isTerminal } from '../domain/task.ts';
 import { DEFAULT_PRICE_TABLE, estimateCents, type PriceTable } from './pricing.ts';
@@ -903,6 +904,7 @@ export class Engine {
       callTool,
       awaitChild,
       reportUsage,
+      narrate: narrator(companyId, taskId, agentRunId),
       signal: controller.signal,
     };
 

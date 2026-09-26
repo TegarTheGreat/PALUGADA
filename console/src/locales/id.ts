@@ -729,6 +729,7 @@ export const ID: Readonly<Record<string, string>> = {
   "What it held": "Isinya",
   "What it produced": "Hasilnya",
   "What it produces: documents, emails, content for customers, code comments.": "Bahasa hasil kerjanya: dokumen, email, konten untuk pelanggan, komentar kode.",
+  "What it said": "Yang dikatakannya",
   "What it should say": "Seharusnya berbunyi",
   "What its agents write to you and to each other: approvals, questions, reports, handoffs.": "Bahasa agent saat menulis ke Anda dan ke sesama agent: persetujuan, pertanyaan, laporan, serah terima.",
   "What should be different this time? (optional)": "Apa yang harus berbeda kali ini? (opsional)",

@@ -165,6 +165,12 @@ const SECTIONS: Section[] = [
             FROM agent_runs ORDER BY started_at`,
   },
   {
+    // 0055. What each run said as it worked, already redacted when it was kept.
+    name: 'run_notes',
+    sql: `SELECT id, task_id, agent_run_id, seq, body, said_at
+            FROM run_notes ORDER BY said_at, seq`,
+  },
+  {
     name: 'events',
     sql: `SELECT id, project_id, task_id, type, actor, payload, trace_id, occurred_at
             FROM events ORDER BY occurred_at, id`,

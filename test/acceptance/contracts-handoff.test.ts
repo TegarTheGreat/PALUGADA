@@ -186,6 +186,97 @@ test('a handoff rule may decline without a condition language', async () => {
   assert.equal(created.length, 0, 'nothing to write about, so nothing is started');
 });
 
+/**
+ * A refusal is news once.
+ *
+ * A handoff refused for good -- here the hop limit -- was attempted again on
+ * every tick, and wrote `handoff.refused` every time: the log said the same
+ * thing seventeen thousand times a day. And every tick re-read every
+ * completion the source role had ever produced. Each completion's handoff is
+ * decided once now, and only a refusal that can lift is tried again.
+ */
+test('a refused handoff is recorded once, and retried only if it can lift (F6.1)', async () => {
+  const fixture = await createCompany('handoff-refused');
+  await addRole(fixture, 'writer');
+  const engine = engineWith({ worker: async () => ({ findings: ['a'] }) });
+  const rules = [{
+    fromRoleSlug: 'worker',
+    toRoleSlug: 'writer',
+    mapInput: (output: Record<string, unknown>) => ({ findings: output.findings }),
+  }];
+
+  // At the hop limit: the successor would be one level too deep.
+  const deep = await rootTask(fixture, fixture.roleId, { n: 'deep' });
+  await withTenant(fixture.companyId, (tx) =>
+    tx.query('UPDATE tasks SET hop_max = 0 WHERE id = $1', [deep.id]));
+  await engine.runTask(fixture.companyId, deep.id, 'worker');
+
+  // With no budget left for a successor: a refusal the owner can lift.
+  const starved = await rootTask(fixture, fixture.roleId, { n: 'starved' });
+  await engine.runTask(fixture.companyId, starved.id, 'worker');
+  const tokensMax = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ tokens_max: string }>(
+      'SELECT tokens_max FROM budget_accounts WHERE id = $1', [fixture.budgetAccountId]);
+    await tx.query('UPDATE budget_accounts SET tokens_max = GREATEST(1, tokens_spent + tokens_reserved) WHERE id = $1',
+      [fixture.budgetAccountId]);
+    return rows[0]!.tokens_max;
+  });
+
+  const decidedAt = () => withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ at: string }>(
+      'SELECT decided_at::text AS at FROM task_handoffs WHERE from_task_id = $1', [deep.id]);
+    return rows[0]?.at ?? null;
+  });
+  assert.deepEqual(await processHandoffs(fixture.companyId, rules), []);
+  const firstDecision = await decidedAt();
+  assert.ok(firstDecision, 'the refusal is on the ledger');
+  for (let tick = 0; tick < 2; tick += 1) {
+    assert.deepEqual(await processHandoffs(fixture.companyId, rules), []);
+  }
+  assert.equal(await decidedAt(), firstDecision, 'a final refusal is decided once, not re-tried');
+  const refusals = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ task_id: string; final: boolean }>(
+      `SELECT task_id, (payload->>'final')::boolean AS final FROM events
+        WHERE type = 'handoff.refused' ORDER BY occurred_at`,
+    );
+    return rows.map((row) => [row.task_id, row.final]);
+  });
+  assert.deepEqual(refusals.sort(), [[deep.id, true], [starved.id, false]].sort(),
+    'each said once, and which one is final');
+
+  // The owner raises the budget: the lifted refusal goes through, the final
+  // one stays refused.
+  await withTenant(fixture.companyId, (tx) =>
+    tx.query('UPDATE budget_accounts SET tokens_max = $2 WHERE id = $1', [fixture.budgetAccountId, tokensMax]));
+  const created = await processHandoffs(fixture.companyId, rules);
+  assert.deepEqual(created.map((handoff) => handoff.fromTaskId), [starved.id]);
+  assert.deepEqual(await processHandoffs(fixture.companyId, rules), []);
+});
+
+/**
+ * A rule is code and carries no date. Without a bound, a deployment that
+ * added one handed off every completion in the company's history on its first
+ * tick -- a year of reports each starting a writer.
+ */
+test('a new rule is owed only recent completions (F6.1)', async () => {
+  const fixture = await createCompany('handoff-history');
+  await addRole(fixture, 'writer');
+  const engine = engineWith({ worker: async () => ({ findings: ['a'] }) });
+  const old = await rootTask(fixture, fixture.roleId, { n: 'last year' });
+  await engine.runTask(fixture.companyId, old.id, 'worker');
+  await withTenant(fixture.companyId, (tx) =>
+    tx.query("UPDATE tasks SET finished_at = now() - interval '1 year' WHERE id = $1", [old.id]));
+  const recent = await rootTask(fixture, fixture.roleId, { n: 'today' });
+  await engine.runTask(fixture.companyId, recent.id, 'worker');
+
+  const created = await processHandoffs(fixture.companyId, [{
+    fromRoleSlug: 'worker',
+    toRoleSlug: 'writer',
+    mapInput: (output) => ({ findings: output.findings }),
+  }]);
+  assert.deepEqual(created.map((handoff) => handoff.fromTaskId), [recent.id]);
+});
+
 test('awaitChild requires a timeout and enforces it (F6.4)', async () => {
   const fixture = await createCompany('await-child');
   await addRole(fixture, 'slow');

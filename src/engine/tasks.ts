@@ -444,16 +444,33 @@ export async function createSubTask(
       );
     }
 
-    return insertTask(
-      tx,
-      {
-        ...input,
-        budgetAccountId: parent.budgetAccountId,
-        createdBy: input.createdBy ?? 'agent_run',
-        goalId: inherited,
-      },
-      { parentTaskId, hopDepth, reserveTokens },
-    );
+    // The lookup above is a read, and two passes creating the same child --
+    // two workers handing off one completion -- can both get past it. The
+    // key settles which insert wins, and the other adopts that child, inside
+    // a savepoint for the same reason as `createRootTask`.
+    await tx.query('SAVEPOINT insert_child');
+    try {
+      const child = await insertTask(
+        tx,
+        {
+          ...input,
+          budgetAccountId: parent.budgetAccountId,
+          createdBy: input.createdBy ?? 'agent_run',
+          goalId: inherited,
+        },
+        { parentTaskId, hopDepth, reserveTokens },
+      );
+      await tx.query('RELEASE SAVEPOINT insert_child');
+      return child;
+    } catch (error) {
+      if ((error as { code?: string }).code === '23505') {
+        await tx.query('ROLLBACK TO SAVEPOINT insert_child');
+        await budget.release(tx, parent.budgetAccountId, reserveTokens);
+        const winner = await findByIdempotencyKey(tx, key);
+        if (winner && winner.parentTaskId === parentTaskId) return winner;
+      }
+      throw error;
+    }
   });
 }
 

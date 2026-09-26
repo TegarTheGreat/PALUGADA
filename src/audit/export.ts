@@ -133,6 +133,20 @@ const SECTIONS: Section[] = [
             FROM tasks ORDER BY created_at`,
   },
   {
+    // 0054. The door without its key: the URL's id and the token's hash are
+    // this instance's, and a restored trigger is given new ones, closed.
+    name: 'triggers',
+    sql: `SELECT id, slug, project_id, division_id, role_id, goal_id, instruction, max_per_hour,
+                 enabled, created_at
+            FROM triggers ORDER BY created_at`,
+  },
+  {
+    // After the tasks, which a delivery names.
+    name: 'trigger_deliveries',
+    sql: `SELECT id, trigger_id, delivery_key, received_at, outcome, task_id
+            FROM trigger_deliveries ORDER BY received_at`,
+  },
+  {
     // After the tasks, which an agent's reading names.
     name: 'metric_observations',
     sql: `SELECT id, metric_id, value, observed_at, task_id, verified, recorded_by, note

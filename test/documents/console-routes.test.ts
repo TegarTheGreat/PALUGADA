@@ -55,6 +55,8 @@ const API_ONLY: Record<string, string> = {
   // Not a page's at all: Telegram posts button presses here.
   'POST /api/channels/telegram':
     'machine: Telegram posts the owner\'s button presses here, authenticated by the webhook secret',
+  'POST /api/hooks/:publicId':
+    'machine: another service posts its events here, authenticated by the trigger\'s token',
 };
 
 const PATTERN = /method: '([A-Z]+)',\s*\n\s*pattern: '([^']+)'/g;

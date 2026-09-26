@@ -11,7 +11,7 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
-  IconBuilding, IconCalendarTime, IconFlag, IconPlus, IconShieldCheck, IconTarget, IconUserCircle, IconUsersGroup,
+  IconBuilding, IconCalendarTime, IconFlag, IconPlus, IconShieldCheck, IconTarget, IconUserCircle, IconUsersGroup, IconWebhook,
 } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
@@ -24,6 +24,7 @@ import { LoadFailed, Loading, PageHeader, Section } from '../components/ui.tsx';
 import { ActionButton, ActionForm } from '../components/ActionForm.tsx';
 import { AssignWork } from '../components/AssignWork.tsx';
 import { GoalMetrics } from '../components/Metrics.tsx';
+import { Triggers } from '../components/Triggers.tsx';
 
 export function Organization({ ctx }: PageProps) {
   const { companyId } = ctx;
@@ -61,6 +62,7 @@ export function Organization({ ctx }: PageProps) {
           <Tabs.Tab value="chart" leftSection={<IconUsersGroup size={16} />}>{t('Divisions & roles')}</Tabs.Tab>
           <Tabs.Tab value="goals" leftSection={<IconTarget size={16} />}>{t('Goals')}</Tabs.Tab>
           <Tabs.Tab value="schedules" leftSection={<IconCalendarTime size={16} />}>{t('Schedules')}</Tabs.Tab>
+          <Tabs.Tab value="triggers" leftSection={<IconWebhook size={16} />}>{t('Triggers')}</Tabs.Tab>
           <Tabs.Tab value="policies" leftSection={<IconShieldCheck size={16} />}>{t('Policies')}</Tabs.Tab>
         </Tabs.List>
 
@@ -72,6 +74,9 @@ export function Organization({ ctx }: PageProps) {
         </Tabs.Panel>
         <Tabs.Panel value="schedules">
           <Schedules companyId={companyId} structure={structure} schedules={schedules} changed={view.reload} />
+        </Tabs.Panel>
+        <Tabs.Panel value="triggers">
+          <Triggers companyId={companyId} structure={structure} />
         </Tabs.Panel>
         <Tabs.Panel value="policies">
           <Policies companyId={companyId} />

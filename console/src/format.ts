@@ -102,6 +102,12 @@ const EVENT_SENTENCES: Record<string, string> = {
   'company.languages_changed': N('Languages changed'),
   'memory.told': N('You told the company something'),
   'company.imported': N('Company imported'),
+  'trigger.created': N('Trigger opened for outside events'),
+  'trigger.fired': N('An outside event started work'),
+  'trigger.rotated': N("Trigger's token replaced"),
+  'trigger.opened': N('Trigger opened again'),
+  'trigger.closed': N('Trigger closed'),
+  'security.hook_refused': N('A trigger refused a caller without its token'),
 };
 
 export function eventSentence(type: string): string {

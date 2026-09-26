@@ -3536,3 +3536,58 @@ test('a company is restored from the archive the console downloads (F16.4)', asy
     await owner.close();
   }
 });
+
+/**
+ * Inbound triggers over HTTP (0054): the owner opens one with their device,
+ * another service posts to its URL with its token, and a wrong token, an
+ * unknown URL or a closed door answer as HTTP says they should.
+ */
+test('an outside service starts work through a trigger the owner opened (0054)', async () => {
+  const owner = await console_();
+  try {
+    const fixture = await createCompany('hook-http');
+    const token = await signIn(owner.url, owner.code());
+    const base = `/api/companies/${fixture.companyId}/triggers`;
+    const definition = {
+      slug: 'orders', roleId: fixture.roleId, goalId: fixture.goalId, instruction: 'Confirm the order.', maxPerHour: 5,
+    };
+
+    const unproven = await call(owner.url, 'POST', base, { token, body: definition });
+    assert.notEqual(unproven.status, 200, 'opening a door takes the owner\'s device');
+    const opened = await call(owner.url, 'POST', base, { token, body: { ...definition, proof: { totp: owner.code() } } });
+    assert.equal(opened.status, 200, JSON.stringify(opened.body));
+    const { id, publicId, token: secret } = opened.body as { id: string; publicId: string; token: string };
+
+    const post = async (path: string, bearer: string | null, body: unknown, headers: Record<string, string> = {}) => {
+      const response = await fetch(`${owner.url}${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...(bearer ? { authorization: `Bearer ${bearer}` } : {}), ...headers },
+        body: JSON.stringify(body),
+      });
+      return { status: response.status, body: await response.json().catch(() => ({})) as Record<string, unknown> };
+    };
+    assert.equal((await post(`/api/hooks/${publicId}`, null, { order: 1 })).status, 401);
+    assert.equal((await post(`/api/hooks/${publicId}`, 'wrong', { order: 1 })).status, 401);
+    assert.equal((await post(`/api/hooks/${'f'.repeat(32)}`, secret, { order: 1 })).status, 404);
+    const started = await post(`/api/hooks/${publicId}`, secret, { order: 1 }, { 'x-delivery-id': 'evt-1' });
+    assert.equal(started.status, 200, JSON.stringify(started.body));
+    assert.equal(started.body.duplicate, false);
+    const retried = await post(`/api/hooks/${publicId}`, secret, { order: 1, retried: true }, { 'x-delivery-id': 'evt-1' });
+    assert.deepEqual(retried.body, { taskId: started.body.taskId, duplicate: true }, 'the sender\'s delivery id decides');
+
+    const listed = await call(owner.url, 'GET', base, { token });
+    const triggers = listed.body.triggers as Array<{ slug: string; deliveriesLastHour: number }>;
+    assert.deepEqual(triggers.map((one) => [one.slug, one.deliveriesLastHour]), [['orders', 1]]);
+
+    const rotated = await call(owner.url, 'POST', `${base}/${id}/rotate`, { token, body: {} });
+    assert.equal((await post(`/api/hooks/${publicId}`, secret, { order: 2 })).status, 401);
+    assert.equal((await post(`/api/hooks/${publicId}`, String(rotated.body.token), { order: 2 })).status, 200);
+
+    assert.equal((await call(owner.url, 'POST', `${base}/${id}`, { token, body: { enabled: false } })).status, 200);
+    assert.equal((await post(`/api/hooks/${publicId}`, String(rotated.body.token), { order: 3 })).status, 404);
+    const reopen = await call(owner.url, 'POST', `${base}/${id}`, { token, body: { enabled: true } });
+    assert.notEqual(reopen.status, 200, 'opening it again takes the device too');
+  } finally {
+    await owner.close();
+  }
+});

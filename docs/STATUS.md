@@ -2527,12 +2527,23 @@ rest are listed at the end.
   owner's device to apply, or with `npm run company:import`.
 - Be asked. `owner.ask` lets any runtime put a question to the owner and park
   until it is answered, from the console or a Telegram reply.
+- Let another service start work (0054, `src/scheduler/triggers.ts`): a
+  trigger URL the owner opens with their device, a bearer token stored only
+  as its hash, one task per delivery however often it is retried, an hourly
+  limit, and the event handed to the run as untrusted data. A restored
+  trigger arrives closed, at a new address, with no token.
 - Measure goals by numbers (section 2.19).
+
+**F8.9, enforced where it does not depend on the model.** The untrusted
+envelope was the only part of F8.9 that existed; nothing held a run begun by
+outside text back from a tier 2 action. The broker now asks the owner before
+any tier 2 or higher action in work an inbound trigger began, or work that
+work delegated (`begunOutside` in `src/engine/tasks.ts`).
 
 **Still open, in the order they would be taken**
 
-- Inbound triggers: a signed webhook that starts work, with a replay window
-  and a rate limit. Only cron starts work today.
+- Triggers signed by the sender (HMAC, as Stripe and GitHub sign theirs)
+  rather than a bearer token, and bodies that are not JSON.
 - Structured choices on a decision (pick one of three, approve seven of ten).
 - Delegation for out-of-process runtimes: `awaitChild` is in-process only.
 - A company operating kit: skills with evals for pricing, unit economics,

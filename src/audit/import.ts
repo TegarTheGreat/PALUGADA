@@ -144,6 +144,16 @@ const SECTIONS: ImportSection[] = [
     drop: ['lease_holder', 'lease_expires_at'],
   },
   { name: 'task_steps', table: 'task_steps', references: ['task_id'] },
+  {
+    // A door into the company is not left open by a restore: it arrives
+    // closed, at a new address, with no token, and the owner opens it by
+    // making one (0054).
+    name: 'triggers',
+    table: 'triggers',
+    references: ['project_id', 'division_id', 'role_id', 'goal_id'],
+    force: { enabled: false },
+  },
+  { name: 'trigger_deliveries', table: 'trigger_deliveries', references: ['trigger_id', 'task_id'] },
   { name: 'metric_observations', table: 'metric_observations', references: ['metric_id', 'task_id'] },
   { name: 'agent_runs', table: 'agent_runs', references: ['task_id', 'role_id'] },
   { name: 'events', table: 'events', references: ['project_id', 'task_id'] },

@@ -724,6 +724,8 @@ test('every column of every exported table travels, or is named as deliberately 
     'spend_limits.pause_reason': 'the same pause',
     'schedules.fire_failed_for': 'why the last occurrence failed there, not here',
     'schedules.fire_failure': 'the same failure',
+    'triggers.public_id': "a trigger's address is this instance's; a restored one gets a new one",
+    'triggers.token_hash': 'the key to that address; a restored trigger waits closed for the owner to make one',
   };
 
   const missing: string[] = [];

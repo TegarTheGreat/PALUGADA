@@ -330,3 +330,21 @@ export interface TaskDetail {
   output: unknown;
   deliverables: Deliverable[];
 }
+
+/** An inbound trigger (0054): a URL another service posts events to. */
+export interface Trigger {
+  id: string;
+  slug: string;
+  publicId: string;
+  roleId: string;
+  roleSlug: string;
+  goalId: string;
+  instruction: string;
+  maxPerHour: number;
+  enabled: boolean;
+  /** False for a restored trigger until a token is made for it. */
+  hasToken: boolean;
+  deliveriesLastHour: number;
+  lastDeliveryAt: string | null;
+  createdAt: string;
+}

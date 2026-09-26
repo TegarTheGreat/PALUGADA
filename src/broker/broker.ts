@@ -54,6 +54,7 @@ import { chargeEstimate, estimateFor, refundEstimate, settleActual } from './cos
 import { evaluateRoleFreeze, isRoleFrozen } from '../governance/role-freeze.ts';
 import { ancestryForTask, renderAncestry } from '../domain/goals.ts';
 import { checkAgainstPlan, readPlan, type TaskPlan } from '../engine/plan.ts';
+import { begunOutside } from '../engine/tasks.ts';
 import type { CapabilityContext, CapabilityRegistry } from './registry.ts';
 import { CachedSecretManager, resolveCurrent } from '../secrets/rotation.ts';
 import { assertScopesCover } from '../secrets/scopes.ts';
@@ -469,7 +470,14 @@ export class CapabilityBroker {
     // the gate again, found the item it had raised already closed, and asked
     // again -- an approved action never ran (migration 0041).
     let grantedApproval: string | null = null;
-    const needsOwner = requiresOwnerApproval(tier) || policy.effect === 'require_approval';
+    // F8.9: an action at tier 2 or above is never taken on the strength of
+    // text from outside alone. Work an inbound trigger began -- a customer's
+    // message, a form, a payment notice -- asks the owner first, however the
+    // run was persuaded; the envelope around the event is the first defence
+    // and this is the one that does not depend on the model.
+    const outside = tier >= 2
+      && await withTenant(ctx.companyId, (tx) => begunOutside(tx, ctx.taskId));
+    const needsOwner = requiresOwnerApproval(tier) || policy.effect === 'require_approval' || outside;
     const fingerprint = needsOwner ? fingerprintAction(name, input) : null;
     if (needsOwner) {
       grantedApproval = await withTenant(ctx.companyId, (tx) =>
@@ -492,7 +500,9 @@ export class CapabilityBroker {
           `Task ${ctx.taskId} requested ${name} at tier ${tier}` +
           (policy.effect === 'require_approval'
             ? `, and policy ${policy.matched.map((m) => m.slug).join(', ')} requires your approval.`
-            : ', which cannot be reversed.') +
+            : outside && !requiresOwnerApproval(tier)
+              ? ', and the task began with content from outside the company (F8.9).'
+              : ', which cannot be reversed.') +
           (chain.length > 0 ? `\n\nWhat this is for — ${renderAncestry(chain)}` : ''),
         consequenceIfDenied: 'The task halts and no external change is made.',
         estimatedCostCents: capability.estimatedCostCents ?? 0,

@@ -86,6 +86,9 @@ import { getTask } from '../engine/tasks.ts';
 import type { TaskHandler } from '../runtime/in-process.ts';
 import { collectExport } from '../audit/export.ts';
 import { archiveLines, importCompany, previewArchive } from '../audit/import.ts';
+import {
+  createTrigger, receiveHook, rotateTriggerToken, setTriggerEnabled, triggersOf,
+} from '../scheduler/triggers.ts';
 import { applyGoalChange, createGoal, readGoal } from '../domain/goals.ts';
 import {
   applyGrantChange,
@@ -967,6 +970,72 @@ export class OwnerApi {
         pattern: '/api/companies/:companyId/tasks/:taskId/instruct',
         handle: async ({ params, body }) => {
           await instructTask(params.companyId!, params.taskId!, requireText(body.text, 'text'));
+          return { ok: true };
+        },
+      },
+
+      {
+        // An inbound trigger (0054): the one route a service outside the
+        // company calls. No session, because the caller is not the owner; the
+        // trigger's bearer token stands in for one, checked before anything
+        // else is read. The sender's delivery id, when it sends one under any
+        // of the common names, makes a retried delivery the same delivery.
+        method: 'POST',
+        pattern: '/api/hooks/:publicId',
+        open: true,
+        maxBodyBytes: 256 * 1024,
+        handle: async ({ params, request, body }) => {
+          const header = request.headers.authorization ?? '';
+          const delivery = ['x-delivery-id', 'idempotency-key', 'x-github-delivery', 'x-request-id']
+            .map((name) => request.headers[name])
+            .find((value): value is string => typeof value === 'string' && value.trim() !== '');
+          return receiveHook(params.publicId!, {
+            token: header.startsWith('Bearer ') ? header.slice(7).trim() : null,
+            body,
+            deliveryId: delivery ?? null,
+          });
+        },
+      },
+
+      {
+        method: 'GET',
+        pattern: '/api/companies/:companyId/triggers',
+        handle: async ({ params }) => ({ triggers: await triggersOf(params.companyId!) }),
+      },
+
+      {
+        // Opening a door for outside events loosens what can start work in the
+        // company, so it takes the owner's device. The token is in this answer
+        // and nowhere else, ever.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/triggers',
+        handle: async ({ params, body }) => {
+          await this.#requireFactor(body.proof, 'let outside events start work', params.companyId!);
+          return createTrigger(params.companyId!, {
+            slug: requireText(body.slug, 'slug'),
+            roleId: requireText(body.roleId, 'roleId'),
+            goalId: requireText(body.goalId, 'goalId'),
+            instruction: requireText(body.instruction, 'instruction'),
+            ...(body.maxPerHour === undefined ? {} : { maxPerHour: wholeNumber(body.maxPerHour, 'maxPerHour') }),
+          });
+        },
+      },
+
+      {
+        // A new token, the old one dead at once: tightening, so the session.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/triggers/:triggerId/rotate',
+        handle: async ({ params }) => rotateTriggerToken(params.companyId!, params.triggerId!),
+      },
+
+      {
+        // Closing is the session's; opening again is the device's.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/triggers/:triggerId',
+        handle: async ({ params, body }) => {
+          const enabled = body.enabled === true;
+          if (enabled) await this.#requireFactor(body.proof, 'open a trigger again', params.companyId!);
+          await setTriggerEnabled(params.companyId!, params.triggerId!, enabled);
           return { ok: true };
         },
       },
@@ -2171,7 +2240,9 @@ function statusFor(code: string): number {
   if (code === 'mfa.locked_out') return 429;
   if (code.startsWith('mfa.')) return 401;
   if (code === 'approval.channel_forbidden' || code === 'policy.denied') return 403;
-  if (code === 'capability.rate_limited') return 429;
+  if (code === 'capability.rate_limited' || code === 'hook.rate_limited') return 429;
+  if (code === 'hook.unknown') return 404;
+  if (code === 'hook.refused') return 401;
   return 400;
 }
 

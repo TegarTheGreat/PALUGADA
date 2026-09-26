@@ -100,6 +100,12 @@ export type ErrorCode =
   | 'approval.required'
   /** A run asked the owner something with `owner.ask`; the task waits for the answer. */
   | 'owner.asked'
+  /** An inbound trigger's URL names nothing open (0054). */
+  | 'hook.unknown'
+  /** An inbound trigger was called without its token (0054). */
+  | 'hook.refused'
+  /** An inbound trigger has had its events for the hour (0054). */
+  | 'hook.rate_limited'
   | 'approval.denied'
   | 'budget.exceeded'
   | 'budget.reservation_refused'

@@ -104,6 +104,26 @@ export async function getTask(tx: TenantClient, taskId: string): Promise<TaskRow
   return rows[0] ? toTask(rows[0]) : null;
 }
 
+/**
+ * Whether a task, or any task above it, was begun by an inbound trigger --
+ * whether the work started from text that came from outside the company.
+ * Delegating does not launder it: a child of such a task is the same work.
+ */
+export async function begunOutside(tx: TenantClient, taskId: string): Promise<boolean> {
+  const { rows } = await tx.query<{ outside: boolean | null }>(
+    `WITH RECURSIVE chain AS (
+       SELECT id, parent_task_id, created_by, 0 AS depth FROM tasks WHERE id = $1
+       UNION ALL
+       SELECT t.id, t.parent_task_id, t.created_by, chain.depth + 1
+         FROM tasks t JOIN chain ON t.id = chain.parent_task_id
+        WHERE chain.depth < 64
+     )
+     SELECT bool_or(created_by = 'webhook') AS outside FROM chain`,
+    [taskId],
+  );
+  return rows[0]?.outside ?? false;
+}
+
 export interface CreateTaskInput {
   companyId: string;
   projectId: string;
@@ -117,7 +137,8 @@ export interface CreateTaskInput {
    * `createSubTask` does to satisfy F5.4.
    */
   budgetAccountId?: string;
-  createdBy: 'scheduler' | 'event' | 'agent_run' | 'owner';
+  /** `webhook`: begun by an inbound trigger, so from outside the company (0054, F8.9). */
+  createdBy: 'scheduler' | 'event' | 'agent_run' | 'owner' | 'webhook';
   deadlineAt?: Date | undefined;
   hopMax?: number | undefined;
   attemptMax?: number | undefined;

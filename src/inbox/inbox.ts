@@ -14,7 +14,8 @@
 import { withTenant, withControlPlane, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
-import { getTask, transition } from '../engine/tasks.ts';
+import { getTask, transitionWithin } from '../engine/tasks.ts';
+import { TERMINAL_STATUSES, isTerminal } from '../domain/task.ts';
 import { notifyAfterFor } from '../scheduler/windows.ts';
 import { escalationPolicyFor } from '../governance/structure.ts';
 import { approveCandidate, rejectCandidate } from '../memory/store.ts';
@@ -26,6 +27,11 @@ export const DEFAULT_APPROVAL_TTL_HOURS = 72;
 
 export type InboxKind = 'approval' | 'escalation' | 'incident' | 'sop_candidate' | 'budget_alert';
 export type Decision = 'approve' | 'deny' | 'ask';
+/**
+ * `withdrawn` is an approval whose task ended some other way (migration 0036):
+ * there is nothing left to consent to, so it stops asking.
+ */
+export type InboxStatus = 'open' | 'decided' | 'expired' | 'withdrawn';
 
 export interface ApprovalInput {
   companyId: string;
@@ -51,7 +57,7 @@ export interface ApprovalInput {
 export interface InboxItem {
   id: string;
   kind: InboxKind;
-  status: 'open' | 'decided' | 'expired';
+  status: InboxStatus;
   title: string;
   actionSummary: string;
   rationale: string;
@@ -63,12 +69,26 @@ export interface InboxItem {
 }
 
 export async function requestApproval(input: ApprovalInput): Promise<string> {
-  // An approval already open for this task and capability is *this* approval.
-  // The broker re-reaches this point every time the task runs again -- after an
-  // owner question under F10.3, after a restart -- and a second item would ask
-  // the owner the same thing twice and let them answer it differently.
-  if (input.taskId) {
-    const existing = await withTenant(input.companyId, async (tx) => {
+  const ttl = input.ttlHours ?? DEFAULT_APPROVAL_TTL_HOURS;
+  // F9.3: a tier 3 approval may wake the owner; anything gentler waits for
+  // their window. The item is created either way -- only the moment they are
+  // told about it moves.
+  const notifyAfter = await notifyAfterFor('approval', { tier: input.tier });
+
+  // One transaction for the item and the task it parks. As two, a crash
+  // between them left an approval open against a task still `running`, and
+  // an owner quick enough to answer it moved a task that was not waiting --
+  // which the state machine refused, *after* the decision had been recorded.
+  return withTenant(input.companyId, async (tx) => {
+    // The task first, as every writer here takes it: task, then its items.
+    if (input.taskId) {
+      await tx.query('SELECT 1 FROM tasks WHERE id = $1 FOR UPDATE', [input.taskId]);
+
+      // An approval already open for this task and capability is *this*
+      // approval. The broker re-reaches this point every time the task runs
+      // again -- after an owner question under F10.3, after a restart -- and a
+      // second item would ask the owner the same thing twice and let them
+      // answer it differently.
       const { rows } = await tx.query<{ id: string }>(
         `SELECT id FROM inbox_items
           WHERE task_id = $1 AND kind = 'approval' AND status = 'open'
@@ -76,27 +96,19 @@ export async function requestApproval(input: ApprovalInput): Promise<string> {
           ORDER BY created_at LIMIT 1`,
         [input.taskId, input.capabilityName],
       );
-      return rows[0]?.id ?? null;
-    });
-    if (existing) {
-      // Only if the task is actually somewhere it can wait from. A task already
-      // parked on this item needs no second transition, and one that has since
-      // been cancelled must not be dragged back.
-      const current = await withTenant(input.companyId, (tx) => getTask(tx, input.taskId!));
-      if (current?.status === 'running') {
-        await transition(input.companyId, input.taskId, 'waiting_approval');
+      const existing = rows[0]?.id ?? null;
+      if (existing) {
+        // Only if the task is actually somewhere it can wait from. A task
+        // already parked on this item needs no second transition, and one that
+        // has since been cancelled must not be dragged back.
+        const current = await getTask(tx, input.taskId);
+        if (current?.status === 'running') {
+          await transitionWithin(tx, input.companyId, input.taskId, 'waiting_approval');
+        }
+        return existing;
       }
-      return existing;
     }
-  }
 
-  const ttl = input.ttlHours ?? DEFAULT_APPROVAL_TTL_HOURS;
-  // F9.3: a tier 3 approval may wake the owner; anything gentler waits for
-  // their window. The item is created either way -- only the moment they are
-  // told about it moves.
-  const notifyAfter = await notifyAfterFor('approval', { tier: input.tier });
-
-  const itemId = await withTenant(input.companyId, async (tx) => {
     const { rows } = await tx.query<{ id: string }>(
       `INSERT INTO inbox_items (
          company_id, task_id, kind, title, action_summary, rationale, tier,
@@ -120,11 +132,11 @@ export async function requestApproval(input: ApprovalInput): Promise<string> {
       actor: 'broker',
       payload: { inboxItemId: id, capability: input.capabilityName, tier: input.tier },
     });
+    if (input.taskId) {
+      await transitionWithin(tx, input.companyId, input.taskId, 'waiting_approval');
+    }
     return id;
   });
-
-  if (input.taskId) await transition(input.companyId, input.taskId, 'waiting_approval');
-  return itemId;
 }
 
 export async function raiseIncident(input: {
@@ -374,7 +386,7 @@ export async function raiseBudgetAlert(input: {
 export async function listOpen(companyId: string): Promise<InboxItem[]> {
   return withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
-      id: string; kind: InboxKind; status: 'open' | 'decided' | 'expired';
+      id: string; kind: InboxKind; status: InboxStatus;
       title: string; action_summary: string; rationale: string; tier: number | null;
       estimated_cost_cents: number; consequence_if_denied: string;
       task_id: string | null; expires_at: Date | null;
@@ -607,7 +619,25 @@ export async function decide(
     assurance = 'mfa';
   }
 
-  const item = await withTenant(companyId, async (tx) => {
+  // One transaction for the decision and the task it releases. As two, a
+  // crash between them recorded the owner's answer and left the task in
+  // `waiting_approval` for ever -- with nothing open in the inbox to say so,
+  // because the item was already decided. Buzz ships this exact defect (an
+  // approval committed, then the run resumed from a detached task), and so
+  // did this.
+  await withTenant(companyId, async (tx) => {
+    // The task before the item, which is the order every other writer takes
+    // them in -- the stop button's trigger included -- so a decision racing a
+    // stop waits for it rather than deadlocking against it.
+    const { rows: target } = await tx.query<{ task_id: string | null }>(
+      'SELECT task_id FROM inbox_items WHERE id = $1',
+      [itemId],
+    );
+    const lockedTaskId = target[0]?.task_id ?? null;
+    if (lockedTaskId) {
+      await tx.query('SELECT 1 FROM tasks WHERE id = $1 FOR UPDATE', [lockedTaskId]);
+    }
+
     const { rows } = await tx.query<{
       task_id: string | null;
       kind: InboxKind;
@@ -623,7 +653,7 @@ export async function decide(
       [itemId, decision, note],
     );
     const row = rows[0];
-    if (!row) throw new Error(`inbox item ${itemId} is not open`);
+    if (!row) throw await notOpen(tx, itemId);
 
     await appendEvent(tx, {
       companyId,
@@ -665,34 +695,98 @@ export async function decide(
       }
     }
 
-    return row;
-  });
+    if (!row.task_id) return;
 
-  if (!item.task_id) return;
-
-  if (decision === 'ask') {
-    // F10.3: the clarification happens inside this task rather than becoming a
-    // second one. The question goes onto the task's record, the task goes back
-    // on the queue, and the run that picks it up reads the question in its
-    // context. The approval item stays open: asking is not deciding, and the
-    // owner still has to say yes.
-    await withTenant(companyId, async (tx) => {
+    if (decision === 'ask') {
+      // F10.3: the clarification happens inside this task rather than
+      // becoming a second one. The question goes onto the task's record, the
+      // task goes back on the queue, and the run that picks it up reads the
+      // question in its context. The approval item stays open: asking is not
+      // deciding, and the owner still has to say yes.
       await appendEvent(tx, {
         companyId,
-        taskId: item.task_id!,
+        taskId: row.task_id,
         type: 'owner.asked',
         actor: 'owner',
         payload: { inboxItemId: itemId, question: note },
       });
+    }
+    // Through `running` for a question too, because that is the only edge out
+    // of waiting_approval and the task genuinely is running again -- with a
+    // question to answer before it re-proposes whatever it was proposing.
+    await settleTask(
+      tx, companyId, row.task_id, itemId,
+      decision === 'deny' ? 'cancelled' : 'running',
+    );
+  });
+}
+
+/**
+ * Moves the task the decision was about, unless it has already ended.
+ *
+ * The owner has more than one surface, and a task can end while an item about
+ * it is still open -- a press in the chat and a click in the console, or an
+ * approval raised a moment before the task finished some other way. The
+ * decision is still the owner's and stays recorded; what must not happen is an
+ * error telling them it failed, when what actually happened is that the task
+ * was already gone. So a task found terminal is recorded as such, and every
+ * other refusal the state machine gives still throws -- and rolls the decision
+ * back with it, since it is the same transaction.
+ */
+async function settleTask(
+  tx: TenantClient,
+  companyId: string,
+  taskId: string,
+  itemId: string,
+  to: 'running' | 'cancelled',
+): Promise<void> {
+  const task = await getTask(tx, taskId);
+  if (task && isTerminal(task.status)) {
+    await appendEvent(tx, {
+      companyId,
+      projectId: task.projectId,
+      taskId,
+      type: 'owner.decision_moot',
+      actor: 'system',
+      payload: { inboxItemId: itemId, taskStatus: task.status, wanted: to },
     });
-    // Through `running`, because that is the only edge out of waiting_approval
-    // and the task genuinely is running again -- with a question to answer
-    // before it re-proposes whatever it was proposing.
-    await transition(companyId, item.task_id, 'running');
     return;
   }
+  await transitionWithin(tx, companyId, taskId, to);
+}
 
-  await transition(companyId, item.task_id, decision === 'approve' ? 'running' : 'cancelled');
+/**
+ * Why an item cannot be decided, in words the owner can act on.
+ *
+ * "is not open" was the whole message, and it is the answer to four different
+ * questions: somebody already decided it (on another surface), it expired, its
+ * task ended and it was withdrawn, or it never existed. Only the last is a
+ * mistake; the other three are the owner learning that the decision is no
+ * longer theirs to make, and they deserve to be told which.
+ */
+async function notOpen(tx: TenantClient, itemId: string): Promise<PalugadaError> {
+  const { rows } = await tx.query<{
+    status: InboxStatus; decision: string | null; closed_reason: string | null;
+  }>(
+    'SELECT status, decision, closed_reason FROM inbox_items WHERE id = $1',
+    [itemId],
+  );
+  const row = rows[0];
+  if (!row) {
+    return new PalugadaError('inbox.not_open', `inbox item ${itemId} does not exist`, {
+      inboxItemId: itemId, status: null,
+    });
+  }
+  const why =
+    row.status === 'decided' ? `it was already decided (${row.decision})`
+    : row.status === 'expired' ? 'it expired unanswered'
+    : `it was withdrawn (${row.closed_reason})`;
+  return new PalugadaError('inbox.not_open', `inbox item ${itemId} is closed: ${why}`, {
+    inboxItemId: itemId,
+    status: row.status,
+    decision: row.decision,
+    closedReason: row.closed_reason,
+  });
 }
 
 /**
@@ -726,7 +820,7 @@ export async function answerOwnerQuestion(
       [itemId, answer],
     );
     const row = rows[0];
-    if (!row) throw new Error(`inbox item ${itemId} is not open`);
+    if (!row) throw await notOpen(tx, itemId);
 
     await appendEvent(tx, {
       companyId,
@@ -760,7 +854,20 @@ export async function openQuestionsFor(
  * inbox a liability instead of a control.
  */
 export async function expireOverdue(companyId: string): Promise<number> {
-  const expired = await withTenant(companyId, async (tx) => {
+  // One transaction, for the reason `decide` has one: as two, a crash between
+  // expiring the item and cancelling its task left the task waiting on an
+  // item that no longer asks anybody anything.
+  return withTenant(companyId, async (tx) => {
+    // Tasks first, in id order, which is the order the stop button takes them
+    // in too: two sweeps and a stop can then only queue, never deadlock.
+    await tx.query(
+      `SELECT 1 FROM tasks
+        WHERE id IN (SELECT task_id FROM inbox_items
+                      WHERE status = 'open' AND expires_at IS NOT NULL
+                        AND expires_at <= now() AND task_id IS NOT NULL)
+        ORDER BY id
+        FOR UPDATE`,
+    );
     const { rows } = await tx.query<{ id: string; task_id: string | null }>(
       `UPDATE inbox_items
           SET status = 'expired'
@@ -775,31 +882,68 @@ export async function expireOverdue(companyId: string): Promise<number> {
         actor: 'system',
         payload: { inboxItemId: row.id },
       });
+      if (!row.task_id) continue;
+      // A task that already ended has nothing to cancel -- the expiry is
+      // still recorded, because the owner never answered either way.
+      const task = await getTask(tx, row.task_id);
+      if (!task || isTerminal(task.status)) continue;
+      await transitionWithin(tx, companyId, row.task_id, 'cancelled', {
+        haltReason: 'approval_expired',
+      });
     }
-    return rows;
+    return rows.length;
   });
-
-  for (const row of expired) {
-    if (row.task_id) {
-      await transition(companyId, row.task_id, 'cancelled', { haltReason: 'approval_expired' });
-    }
-  }
-  return expired.length;
 }
 
-/** F10.7: cancels every task on the platform. */
+/**
+ * F10.7: cancels every task on the platform.
+ *
+ * "Every" is every task that is not already finished, and it is spelled that
+ * way -- as the complement of the terminal statuses -- rather than as a list
+ * of live ones. The list it replaced named four statuses and the state machine
+ * has six live ones, so a task a worker had just claimed (`checked_out`) or
+ * one parked on a closed window (`waiting_window`) survived the stop button:
+ * held back only by the stop flag, and back to work the moment the owner
+ * cleared it, after being told everything had been cancelled.
+ *
+ * One statement, because a stop that is a loop is a stop a crash can
+ * interrupt half-way. And it does in bulk what `transition()` does one task at
+ * a time, because this path skips `transition()`: the lease is cleared (a
+ * lease left on a cancelled task holds its lane for fifteen minutes) and the
+ * reservation goes back to its account (a reservation left on a cancelled task
+ * is budget no task can ever use again, which after a stop is every
+ * reservation there was). Open approvals for these tasks are withdrawn by the
+ * trigger in 0036, which is why that rule lives in the database.
+ */
 export async function stopEverything(): Promise<number> {
   await withControlPlane(async (tx) => {
     await tx.query('UPDATE platform_control SET stop_all_requested_at = now(), updated_at = now()');
   });
 
   return withControlPlane(async (tx) => {
-    const { rows } = await tx.query<{ id: string; company_id: string; project_id: string }>(
-      `UPDATE tasks SET status = 'cancelled', halt_reason = 'owner_stop', finished_at = now()
-        WHERE status IN ('pending', 'running', 'waiting_approval', 'waiting_review')
-        RETURNING id, company_id, project_id`,
+    const { rows } = await tx.query<{
+      id: string; company_id: string; project_id: string;
+      budget_account_id: string | null; released: string;
+    }>(
+      `WITH doomed AS (
+         SELECT id, tokens_reserved FROM tasks
+          WHERE status <> ALL($1::text[])
+          ORDER BY id
+          FOR UPDATE
+       )
+       UPDATE tasks t
+          SET status = 'cancelled', halt_reason = 'owner_stop', finished_at = now(),
+              lease_holder = NULL, lease_expires_at = NULL, tokens_reserved = 0
+         FROM doomed d
+        WHERE t.id = d.id
+       RETURNING t.id, t.company_id, t.project_id, t.budget_account_id,
+                 d.tokens_reserved AS released`,
+      [TERMINAL_STATUSES],
     );
     for (const row of rows) {
+      if (row.budget_account_id && Number(row.released) > 0) {
+        await tx.query('SELECT app.budget_release($1, $2)', [row.budget_account_id, row.released]);
+      }
       await tx.query(
         `INSERT INTO events (company_id, project_id, task_id, type, actor, payload)
          VALUES ($1, $2, $3, 'task.cancelled', 'owner', '{"haltReason":"owner_stop"}'::jsonb)`,

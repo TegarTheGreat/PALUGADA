@@ -24,6 +24,7 @@ import * as inbox from '../../src/inbox/inbox.ts';
 import {
   dispatch,
   retryFailed,
+  retractClosed,
   undelivered,
   isPushWorthy,
   RETRY_BASE_MS,
@@ -910,4 +911,185 @@ test('the digest is not built for a day already sent (F10.6)', async () => {
   assert.deepEqual(await digestOwed(fixture.companyId, [channel], '2026-09-07'), []);
   // A different day is still owed.
   assert.equal((await digestOwed(fixture.companyId, [channel], '2026-09-08')).length, 1);
+});
+
+/* ------------------------------------------------ a message outlives its item --- */
+
+/**
+ * A fake Telegram that answers `sendMessage` with a message id and every other
+ * method with whatever `edit` says, so each test decides how the edit goes.
+ */
+async function fakeTelegram(
+  edit: (index: number) => { status: number; body: unknown } = () => ({
+    status: 200, body: { ok: true, result: true },
+  }),
+) {
+  let edits = 0;
+  return fakeVendor((call) => {
+    if (call.path.endsWith('/sendMessage')) {
+      return { status: 200, body: { ok: true, result: { message_id: 7 } } };
+    }
+    if (call.path.endsWith('/editMessageText')) return edit(edits++);
+    return { status: 200, body: { ok: true, result: true } };
+  });
+}
+
+async function retraction(fixture: Fixture, itemId: string) {
+  return withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{
+      retracted_at: Date | null; retract_attempts: number; retract_error: string | null;
+    }>(
+      `SELECT retracted_at, retract_attempts, retract_error FROM owner_notifications
+        WHERE inbox_item_id = $1`,
+      [itemId],
+    );
+    return rows[0]!;
+  });
+}
+
+/**
+ * Slack's best-known human-in-the-loop defect, and it was this platform's too:
+ * `external_ref` was stored "so a later edit can find it" and nothing edited,
+ * so a chat message kept Approve and Deny after the owner had decided in the
+ * console. The edit is exactly-once, like the send.
+ */
+test('a chat message loses its buttons once the item is decided elsewhere (F10.9)', async () => {
+  const fixture = await createCompany('chat-retract');
+  const vendor = await fakeTelegram();
+  try {
+    const itemId = await inbox.raiseEscalation({
+      companyId: fixture.companyId, title: 'Which supplier?', detail: 'Two match.',
+    });
+    const channel = telegram({ url: vendor.url });
+    await dispatch(fixture.companyId, channel, { now: tomorrow() });
+
+    // Still open: nothing to retract, and nothing is called.
+    assert.deepEqual(await retractClosed(fixture.companyId, channel), { retracted: 0, failed: 0 });
+    assert.equal(vendor.calls.length, 1);
+
+    await inbox.decide(fixture.companyId, itemId, 'deny', 'neither', { channel: 'app' });
+    assert.deepEqual(await retractClosed(fixture.companyId, channel), { retracted: 1, failed: 0 });
+
+    const edit = vendor.calls[1]!;
+    assert.match(edit.path, /\/editMessageText$/);
+    assert.equal(edit.body.message_id, 7);
+    assert.equal(edit.body.chat_id, '55555');
+    assert.equal(edit.body.reply_markup, undefined, 'no reply_markup is what removes the buttons');
+    assert.match(String(edit.body.text), /Denied/);
+
+    // Exactly once.
+    assert.deepEqual(await retractClosed(fixture.companyId, channel), { retracted: 0, failed: 0 });
+    assert.equal(vendor.calls.length, 2);
+    assert.ok((await retraction(fixture, itemId)).retracted_at);
+  } finally {
+    await vendor.close();
+  }
+});
+
+/**
+ * Two of Telegram's refusals mean there is nothing to fix -- the owner deleted
+ * the message -- and one is an ordinary failure that deserves a retry, after a
+ * wait. Spending the retry budget on a deleted message, or retrying a failure
+ * in the same tick, would each be wrong in its own direction.
+ */
+test('a deleted message is not retried, and a failed edit is retried after a wait (F10.9)', async () => {
+  const fixture = await createCompany('chat-retract-fail');
+  const vendor = await fakeTelegram((index) =>
+    index === 0
+      ? { status: 400, body: { ok: false, description: 'Bad Request: message to edit not found' } }
+      : index === 1
+        ? { status: 502, body: { ok: false, description: 'Bad Gateway' } }
+        : { status: 200, body: { ok: true, result: true } });
+  try {
+    const channel = telegram({ url: vendor.url });
+    const deleted = await inbox.raiseEscalation({
+      companyId: fixture.companyId, title: 'First', detail: 'one',
+    });
+    const flaky = await inbox.raiseEscalation({
+      companyId: fixture.companyId, title: 'Second', detail: 'two',
+    });
+    await dispatch(fixture.companyId, channel, { now: tomorrow() });
+    await inbox.decide(fixture.companyId, deleted, 'deny');
+    await inbox.decide(fixture.companyId, flaky, 'deny');
+
+    const now = new Date();
+    assert.deepEqual(
+      await retractClosed(fixture.companyId, channel, { now }),
+      { retracted: 1, failed: 1 },
+    );
+    assert.ok((await retraction(fixture, deleted)).retracted_at, 'gone counts as done');
+    const failed = await retraction(fixture, flaky);
+    assert.equal(failed.retracted_at, null);
+    assert.match(failed.retract_error ?? '', /Bad Gateway/);
+
+    // Not in the same breath...
+    assert.deepEqual(
+      await retractClosed(fixture.companyId, channel, { now: new Date(now.getTime() + 1_000) }),
+      { retracted: 0, failed: 0 },
+    );
+    // ...but once the wait has passed.
+    assert.deepEqual(
+      await retractClosed(fixture.companyId, channel, {
+        now: new Date(now.getTime() + RETRY_BASE_MS + 1_000),
+      }),
+      { retracted: 1, failed: 0 },
+    );
+    assert.equal((await retraction(fixture, flaky)).retract_error, null);
+  } finally {
+    await vendor.close();
+  }
+});
+
+/**
+ * A press on a button the sweep has not reached yet is the ordinary way to
+ * find a closed item, and "could not be recorded" read as a fault. The owner
+ * is told what happened to it.
+ */
+test('a press on a closed item says what happened to it (F10.9)', async () => {
+  const fixture = await createCompany('chat-stale-press');
+  const vendor = await fakeTelegram();
+  try {
+    const itemId = await inbox.raiseEscalation({
+      companyId: fixture.companyId, title: 'Which supplier?', detail: 'Two match.',
+    });
+    await inbox.decide(fixture.companyId, itemId, 'deny', 'neither', { channel: 'app' });
+
+    const channel = telegram({ url: vendor.url, secret: 'webhook-secret' });
+    const outcome = await channel.onCallback(
+      fixture.companyId,
+      {
+        callback_query: {
+          id: 'cb-stale',
+          data: encodeAction({ itemId, decision: 'approve' }),
+          message: { chat: { id: 55555 } },
+        },
+      },
+      { secretHeader: 'webhook-secret' },
+    );
+    assert.deepEqual(outcome, { handled: false, reason: 'inbox.not_open' });
+    const answer = vendor.calls.find((call) => call.path.endsWith('/answerCallbackQuery'))!;
+    assert.equal(answer.body.text, 'Already closed: it was already decided (deny).');
+  } finally {
+    await vendor.close();
+  }
+});
+
+/**
+ * Push has no buttons, so it has nothing dangerous left behind and no
+ * `retract`: a "that is over now" notification would be a second interruption
+ * to say the first one no longer matters.
+ */
+test('the sweep leaves a channel with nothing to retract alone', async () => {
+  const fixture = await createCompany('push-no-retract');
+  const vendor = await fakeVendor(() => ({ status: 200, body: { id: 'receipt-1' } }));
+  try {
+    const push = new WebhookPush({ url: vendor.url });
+    const itemId = await incident(fixture, 'Gateway down');
+    await dispatch(fixture.companyId, push);
+    await inbox.decide(fixture.companyId, itemId, 'deny');
+    assert.deepEqual(await retractClosed(fixture.companyId, push), { retracted: 0, failed: 0 });
+    assert.equal(vendor.calls.length, 1);
+  } finally {
+    await vendor.close();
+  }
 });

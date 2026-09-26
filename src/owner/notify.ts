@@ -56,6 +56,32 @@ export interface DeliveryResult {
 }
 
 /**
+ * An item that is no longer open, as a transport needs to see it to say so.
+ *
+ * `decided` carries the owner's decision; `expired` and `withdrawn` carry no
+ * decision because nobody made one -- `closedReason` says what happened
+ * instead (`task_cancelled`, for an approval whose task ended some other way).
+ */
+export interface ClosedItem {
+  id: string;
+  companyId: string;
+  kind: string;
+  title: string;
+  status: 'decided' | 'expired' | 'withdrawn';
+  decision: string | null;
+  closedReason: string | null;
+}
+
+/**
+ * What became of the message.
+ *
+ * `gone` is not a failure: the owner deleted the message, or the transport
+ * never gave it an id, and in both cases there is nothing left that could be
+ * pressed. It is recorded exactly like success so it is not asked again.
+ */
+export type RetractOutcome = 'retracted' | 'gone';
+
+/**
  * A pipe to the owner.
  *
  * `name` is stored on the delivery record and must be stable across restarts:
@@ -88,6 +114,18 @@ export interface OwnerChannel {
    * who is not looking at the console never sees it.
    */
   deliverDigest?(digest: { companyId: string; day: string; text: string }): Promise<void>;
+  /**
+   * Rewrites a delivered message once its item has closed.
+   *
+   * Optional, because only a channel whose message can be *acted on* has
+   * something dangerous left behind: a chat message with Approve and Deny on
+   * it is one tap from a decision after the owner has already made one
+   * elsewhere, after the item expired, after its task was cancelled. A push
+   * notification has no buttons -- tapping it opens the app, which shows the
+   * item closed -- so a push transport leaves this out rather than sending a
+   * second notification to say the first one is over.
+   */
+  retract?(closed: ClosedItem, ref: string | null): Promise<RetractOutcome>;
 }
 
 /**
@@ -613,6 +651,133 @@ export async function retryFailed(
   }
 
   return report;
+}
+
+/**
+ * Rewrites every delivered message whose item has closed (migration 0036).
+ *
+ * The delivery record already kept `external_ref` "so a later edit or deletion
+ * can find it", and nothing ever edited: a chat message kept its buttons after
+ * the owner decided in the console, after the item expired, after its task was
+ * cancelled. Slack's best-known human-in-the-loop defect is exactly this -- a
+ * stale Approve button on a message nobody updated -- and the fix is the same
+ * shape as the send: find what is owed, claim it, call the transport, record
+ * the outcome.
+ *
+ * `last_attempt_at` is reused for the backoff because the send retry never
+ * reads it again once a row is delivered, and this sweep only reads delivered
+ * rows: the two filters are disjoint, so the column has one meaning at a time.
+ */
+export async function retractClosed(
+  companyId: string,
+  channel: OwnerChannel,
+  options: { maxAttempts?: number; baseDelayMs?: number; now?: Date } = {},
+): Promise<{ retracted: number; failed: number }> {
+  const report = { retracted: 0, failed: 0 };
+  if (!channel.retract) return report;
+  const maxAttempts = options.maxAttempts ?? 3;
+  const baseDelayMs = options.baseDelayMs ?? RETRY_BASE_MS;
+  const now = options.now ?? new Date();
+
+  const owed = await withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<{
+      id: string; kind: string; title: string; status: ClosedItem['status'];
+      decision: string | null; closed_reason: string | null;
+      external_ref: string | null; retract_attempts: number;
+    }>(
+      `SELECT i.id, i.kind, i.title, i.status, i.decision, i.closed_reason,
+              n.external_ref, n.retract_attempts
+         FROM owner_notifications n
+         JOIN inbox_items i ON i.id = n.inbox_item_id
+        WHERE n.company_id = $1
+          AND n.channel = $2
+          AND n.delivered_at IS NOT NULL
+          AND n.retracted_at IS NULL
+          AND n.retract_attempts < $3
+          AND i.status <> 'open'
+          AND (n.retract_attempts = 0
+               OR n.last_attempt_at
+                  <= $4::timestamptz - make_interval(secs => $5 * power(2, n.retract_attempts - 1)))
+        ORDER BY n.created_at`,
+      [companyId, channel.name, maxAttempts, now, baseDelayMs / 1000],
+    );
+    return rows;
+  });
+
+  for (const row of owed) {
+    // Claimed on the attempt count that was read, so two workers sweeping the
+    // same company cannot both edit one message: the second finds the count
+    // already moved and walks away.
+    const claimed = await withTenant(companyId, async (tx) => {
+      const { rowCount } = await tx.query(
+        `UPDATE owner_notifications
+            SET retract_attempts = retract_attempts + 1, last_attempt_at = $4
+          WHERE inbox_item_id = $1 AND channel = $2
+            AND retracted_at IS NULL AND retract_attempts = $3`,
+        [row.id, channel.name, row.retract_attempts, now],
+      );
+      return (rowCount ?? 0) === 1;
+    });
+    if (!claimed) continue;
+
+    const closed: ClosedItem = {
+      id: row.id,
+      companyId,
+      kind: row.kind,
+      title: row.title,
+      status: row.status,
+      decision: row.decision,
+      closedReason: row.closed_reason,
+    };
+    try {
+      await channel.retract(closed, row.external_ref);
+    } catch (error) {
+      await withTenant(companyId, async (tx) => {
+        await tx.query(
+          `UPDATE owner_notifications SET retract_error = $3
+            WHERE inbox_item_id = $1 AND channel = $2`,
+          [row.id, channel.name,
+           redactor.redact(String((error as Error).message ?? error)).slice(0, 500)],
+        );
+      });
+      report.failed += 1;
+      continue;
+    }
+    await withTenant(companyId, async (tx) => {
+      await tx.query(
+        `UPDATE owner_notifications SET retracted_at = now(), retract_error = NULL
+          WHERE inbox_item_id = $1 AND channel = $2`,
+        [row.id, channel.name],
+      );
+    });
+    report.retracted += 1;
+  }
+  return report;
+}
+
+/**
+ * What a closed item says in place of its buttons.
+ *
+ * Shared by every transport that implements `retract`, so "why is this
+ * greyed out" has one answer however the owner reads it.
+ */
+export function closureText(closed: ClosedItem): string {
+  if (closed.status === 'decided') {
+    const verb =
+      closed.decision === 'approve' ? 'Approved'
+      : closed.decision === 'deny' ? 'Denied'
+      : `Decided (${closed.decision ?? 'unknown'})`;
+    return `${verb}. Nothing left to press here.`;
+  }
+  if (closed.status === 'expired') {
+    return 'Expired unanswered. Silence is a refusal, so nothing was done.';
+  }
+  const task = closed.closedReason?.startsWith('task_')
+    ? closed.closedReason.slice('task_'.length)
+    : null;
+  return task
+    ? `Withdrawn: the task it was asking about is ${task}.`
+    : `Withdrawn (${closed.closedReason ?? 'no reason recorded'}).`;
 }
 
 /**

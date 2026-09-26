@@ -57,6 +57,7 @@ import {
   dispatchDigest,
   retryDigests,
   retryFailed,
+  retractClosed,
   type OwnerChannel,
   type NotifiableItem,
 } from './owner/notify.ts';
@@ -149,6 +150,11 @@ export interface TickReport {
   notified: number;
   /** Daily digests sent to a channel this tick (F10.6). */
   digests: number;
+  /**
+   * Delivered messages rewritten because their item closed (migration 0036):
+   * the buttons taken off a chat message the owner already answered elsewhere.
+   */
+  retracted: number;
   /** Facts distilled from events, and SOP candidates raised from them (F4.5). */
   distilled: number;
   /** Skill candidates screened against their own eval cases (F15.3). */
@@ -231,6 +237,7 @@ export class Worker {
       reclaimed: 0, scheduled: 0, woken: 0, ran: [], alerts: 0, retained: 0, handedOff: 0,
       notified: 0,
       digests: 0,
+      retracted: 0,
       distilled: 0,
       screened: 0,
       stopped: false, errors: [],
@@ -627,6 +634,13 @@ export class Worker {
         // attempts would be spent milliseconds apart and a relay restarting
         // would exhaust the row before it came back.
         report.notified += (await retryFailed(company, channel, options)).delivered;
+        // And the other end of a message's life. A chat message with Approve
+        // on it is still a way to decide after the item has closed -- decided
+        // in the console, expired, withdrawn when the stop button cancelled its
+        // task -- so it is rewritten to say which. Here, inside the notify
+        // stage, because the stop button is exactly when this matters and the
+        // notify stage is the one a halt still runs.
+        report.retracted += (await retractClosed(company, channel, { now })).retracted;
       }
 
       // F10.6, once a day, to whichever channels take one.

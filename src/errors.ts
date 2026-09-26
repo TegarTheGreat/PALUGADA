@@ -47,6 +47,11 @@ export type ErrorCode =
   | 'config.invalid'
   /** F12.5: that secret is already enrolled, so a second row would fight it. */
   | 'mfa.already_enrolled'
+  /**
+   * An inbox item that is no longer the owner's to decide: decided on another
+   * surface, expired, or withdrawn because its task ended. Carries which.
+   */
+  | 'inbox.not_open'
   | 'gateway.unpaired'
   | 'gateway.bad_signature'
   | 'gateway.quarantined'

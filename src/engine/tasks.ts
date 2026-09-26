@@ -517,20 +517,50 @@ async function insertTask(
   return task;
 }
 
-/** Moves a task to a new status, refusing transitions the PRD does not allow. */
+export interface TransitionOptions {
+  haltReason?: HaltReason;
+  output?: Record<string, unknown>;
+  /** When a task parked on a closed window may be picked up again (F9.2). */
+  waitUntil?: Date | null;
+}
 
+/** Moves a task to a new status, refusing transitions the PRD does not allow. */
 export async function transition(
   companyId: string,
   taskId: string,
   to: TaskStatus,
-  options: {
-    haltReason?: HaltReason;
-    output?: Record<string, unknown>;
-    /** When a task parked on a closed window may be picked up again (F9.2). */
-    waitUntil?: Date | null;
-  } = {},
+  options: TransitionOptions = {},
 ): Promise<void> {
-  await withTenant(companyId, async (tx) => {
+  await withTenant(companyId, (tx) => transitionWithin(tx, companyId, taskId, to, options));
+}
+
+/**
+ * The same move, inside a transaction the caller already holds.
+ *
+ * For the writers whose change to something else and whose move of the task
+ * are one fact: an owner's decision and the task it releases, an approval
+ * request and the task it parks. As two transactions a crash between them left
+ * a decision recorded against a task that never moved -- `waiting_approval`
+ * for ever, with nothing left open in the inbox to say so.
+ *
+ * **The row is locked before it is read.** The status check and the write are
+ * two statements, and without the lock a stop that committed between them was
+ * silently undone: the check read `running`, the stop wrote `cancelled`, and
+ * this wrote `completed` over it. With it, the second writer waits, reads what
+ * the first committed, and is refused by the state machine rather than
+ * overwriting it. Every writer takes the task before its inbox items, which is
+ * the order the stop button's trigger takes them in too, so the lock cannot
+ * deadlock against it.
+ */
+export async function transitionWithin(
+  tx: TenantClient,
+  companyId: string,
+  taskId: string,
+  to: TaskStatus,
+  options: TransitionOptions = {},
+): Promise<void> {
+  {
+    await tx.query('SELECT 1 FROM tasks WHERE id = $1 FOR UPDATE', [taskId]);
     const task = await getTask(tx, taskId);
     if (!task) throw new Error(`task ${taskId} not found`);
     assertTransition(task.status, to);
@@ -580,5 +610,5 @@ export async function transition(
       actor: 'system',
       payload: options.haltReason ? { haltReason: options.haltReason } : {},
     });
-  });
+  }
 }

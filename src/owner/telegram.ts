@@ -41,7 +41,10 @@ import { appendEvent } from '../audit/event-log.ts';
 import { redactor } from '../secrets/manager.ts';
 import { PalugadaError } from '../errors.ts';
 import * as inbox from '../inbox/inbox.ts';
-import type { DeliveryResult, NotifiableItem, OwnerChannel } from './notify.ts';
+import { closureText } from './notify.ts';
+import type {
+  ClosedItem, DeliveryResult, NotifiableItem, OwnerChannel, RetractOutcome,
+} from './notify.ts';
 
 export interface TelegramOptions {
   /** The bot token, already resolved from the secret manager. */
@@ -194,6 +197,42 @@ export class TelegramChannel implements OwnerChannel {
   }
 
   /**
+   * Replaces a closed item's message with what happened to it.
+   *
+   * `editMessageText` without a `reply_markup` is what removes the inline
+   * keyboard -- Telegram drops the buttons of an edited message unless new
+   * ones are given -- so the text and the disarming are one call and cannot
+   * half-succeed.
+   *
+   * Three of Telegram's refusals mean there is nothing to fix rather than
+   * that the edit failed: the owner deleted the message, it can no longer be
+   * edited, or it already says this. Treating those as failures would spend
+   * the retry budget on a message that is not there.
+   */
+  async retract(closed: ClosedItem, ref: string | null): Promise<RetractOutcome> {
+    const messageId = ref === null ? NaN : Number(ref);
+    if (!Number.isSafeInteger(messageId)) return 'gone';
+    try {
+      await this.#call('editMessageText', {
+        chat_id: this.#options.chatId,
+        message_id: messageId,
+        parse_mode: 'MarkdownV2',
+        text: [
+          `*${escapeMarkdown(closed.title)}*`,
+          '',
+          escapeMarkdown(closureText(closed)),
+        ].join('\n'),
+      });
+      return 'retracted';
+    } catch (error) {
+      const message = (error as Error).message ?? '';
+      if (/message is not modified/i.test(message)) return 'retracted';
+      if (/message to edit not found|message can't be edited/i.test(message)) return 'gone';
+      throw error;
+    }
+  }
+
+  /**
    * Checks the header Telegram was told to send.
    *
    * Constant time, because it is a shared secret and an attacker who can learn
@@ -263,10 +302,16 @@ export class TelegramChannel implements OwnerChannel {
       await this.#answer(query.id, `Recorded: ${action.decision}.`);
       return { handled: true };
     } catch (error) {
+      // A stale button -- one the retraction sweep has not reached yet, or one
+      // it could not edit -- is the ordinary way to arrive here, and "could
+      // not be recorded" would read as a fault. The owner is told what
+      // actually happened to the item instead.
       const refusal =
         error instanceof PalugadaError && error.code === 'approval.channel_forbidden'
           ? 'That one has to be approved in the app.'
-          : 'That could not be recorded.';
+          : error instanceof PalugadaError && error.code === 'inbox.not_open'
+            ? `Already closed: ${String(error.message).replace(/^inbox item \S+ is closed: /, '')}.`
+            : 'That could not be recorded.';
       await this.#answer(query.id, refusal);
       return {
         handled: false,

@@ -72,12 +72,17 @@ export interface TelegramOptions {
 export interface ButtonAction {
   itemId: string;
   decision: inbox.Decision;
+  /** Which of a question's choices was pressed; its text is read from the item, never from the button. */
+  choice?: number;
 }
 
 export const CALLBACK_PREFIX = 'palugada';
 
 export function encodeAction(action: ButtonAction): string {
-  return `${CALLBACK_PREFIX}:${action.itemId}:${action.decision}`;
+  // A choice is `c<n>` in the decision's place: Telegram allows sixty-four
+  // bytes of callback data and a fourth part would not fit a uuid beside it.
+  const decision = action.choice === undefined ? action.decision : `c${action.choice}`;
+  return `${CALLBACK_PREFIX}:${action.itemId}:${decision}`;
 }
 
 /**
@@ -93,8 +98,10 @@ export function decodeAction(data: string): ButtonAction | null {
   const parts = data.split(':');
   if (parts.length !== 3 || parts[0] !== CALLBACK_PREFIX) return null;
   const [, itemId, decision] = parts;
-  if (decision !== 'approve' && decision !== 'deny' && decision !== 'ask') return null;
   if (!/^[0-9a-f-]{36}$/.test(itemId!)) return null;
+  const choice = /^c([0-5])$/.exec(decision!);
+  if (choice) return { itemId: itemId!, decision: 'approve', choice: Number(choice[1]) };
+  if (decision !== 'approve' && decision !== 'deny' && decision !== 'ask') return null;
   return { itemId: itemId!, decision };
 }
 
@@ -190,13 +197,24 @@ export class TelegramChannel implements OwnerChannel {
     // A run's question is answered, not approved: "Answer" asks for the words
     // and records them on the yes; "Stop" is the no that cancels the task.
     if (item.question) {
+      // Choices, when the run offered some, one to a row so each can be read
+      // whole; the words are still there for an answer that is none of them.
+      const choices = (item.options ?? []).map((option, index) => [
+        { text: option, callback_data: encodeAction({ itemId: item.id, decision: 'approve', choice: index }) },
+      ]);
       return {
         text: lines.join('\n'),
         reply_markup: {
-          inline_keyboard: [[
-            { text: say(item.language, 'Answer'), callback_data: encodeAction({ itemId: item.id, decision: 'approve' }) },
-            { text: say(item.language, 'Stop the task'), callback_data: encodeAction({ itemId: item.id, decision: 'deny' }) },
-          ]],
+          inline_keyboard: [
+            ...choices,
+            [
+              {
+                text: say(item.language, choices.length > 0 ? 'Answer in words' : 'Answer'),
+                callback_data: encodeAction({ itemId: item.id, decision: 'approve' }),
+              },
+              { text: say(item.language, 'Stop the task'), callback_data: encodeAction({ itemId: item.id, decision: 'deny' }) },
+            ],
+          ],
         },
       };
     }
@@ -345,6 +363,11 @@ export class TelegramChannel implements OwnerChannel {
     if (action.decision === 'ask') {
       return this.#promptForReply(companyId, action.itemId, query.id, 'ask');
     }
+    // A choice is an answer whose words the item already holds: the button
+    // says which, and the text is read from the item, not from the press.
+    if (action.choice !== undefined) {
+      return this.#choose(companyId, action.itemId, action.choice, query.id);
+    }
     // The same for a run's question: "Answer" needs the answer's words.
     if (action.decision === 'approve' && await this.#isQuestion(companyId, action.itemId)) {
       return this.#promptForReply(companyId, action.itemId, query.id, 'answer');
@@ -460,6 +483,33 @@ export class TelegramChannel implements OwnerChannel {
           })
           : say(language, 'That could not be recorded.'),
       );
+      return { handled: false, reason: error instanceof PalugadaError ? error.code : 'failed' };
+    }
+  }
+
+  /** One of a question's choices, pressed. */
+  async #choose(
+    companyId: string,
+    itemId: string,
+    index: number,
+    callbackQueryId: string,
+  ): Promise<{ handled: boolean; reason?: string }> {
+    const language = await ownerLanguage();
+    const { rows } = await withTenant(companyId, (tx) => tx.query<{ options: string[] | null }>(
+      "SELECT payload->'options' AS options FROM inbox_items WHERE id = $1", [itemId]));
+    const chosen = rows[0]?.options?.[index];
+    if (!chosen) {
+      await this.#answer(callbackQueryId, say(language, 'That choice is not on this question.'));
+      return { handled: false, reason: 'no_such_choice' };
+    }
+    try {
+      await inbox.decide(companyId, itemId, 'approve', chosen, { channel: 'chat' });
+      await this.#answer(callbackQueryId, say(language, 'Chosen: {choice}.', { choice: chosen }));
+      return { handled: true };
+    } catch (error) {
+      await this.#answer(callbackQueryId, error instanceof PalugadaError && error.code === 'inbox.not_open'
+        ? say(language, 'Already closed: {reason}.', { reason: String(error.message).replace(/^inbox item \S+ is closed: /, '') })
+        : say(language, 'That could not be recorded.'));
       return { handled: false, reason: error instanceof PalugadaError ? error.code : 'failed' };
     }
   }

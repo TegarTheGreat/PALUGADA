@@ -281,6 +281,22 @@ function Detail({
     }
   };
 
+  // One of the answers the agent offered, pressed: the answer is its text,
+  // on a yes, exactly as if it had been typed.
+  const choose = async (option: string) => {
+    setBusy(`choose:${option}`);
+    setError(null);
+    try {
+      await api('POST', `/api/companies/${companyId}/inbox/${item.id}/decide`, { decision: 'approve', note: option });
+      notifications.show({ color: 'teal', message: t('Answer sent. The task carries on with it.') });
+      decided();
+    } catch (failure) {
+      setError(explain(failure));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const showTrace = async () => {
     setTraceOpen((open) => !open);
     if (trace) return;
@@ -384,8 +400,18 @@ function Detail({
           <Paper withBorder radius="md" p="md" bg="var(--mantine-color-blue-light)">
             <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb={4}>{t('The agent asks')}</Text>
             <Text size="sm" fw={600} mb="sm" style={{ whiteSpace: 'pre-wrap' }}>{item.question}</Text>
+            {item.options && item.options.length > 0 && (
+              <Stack gap={6} mb="sm">
+                {item.options.map((option) => (
+                  <Button key={option} variant="default" justify="flex-start" loading={busy === `choose:${option}`}
+                    onClick={() => void choose(option)} styles={{ label: { whiteSpace: 'normal', textAlign: 'left' } }}>
+                    {option}
+                  </Button>
+                ))}
+              </Stack>
+            )}
             <Textarea
-              label={t('Your answer')}
+              label={item.options && item.options.length > 0 ? t('Or answer in words') : t('Your answer')}
               description={t('The task waits for it, then carries on with it.')}
               autosize
               minRows={2}

@@ -70,6 +70,8 @@ export interface NotifiableItem {
   language?: string;
   /** A question a run asked with `owner.ask`: the owner answers it rather than approving it. */
   question?: string | null;
+  /** The answers it offered to choose from, if any. */
+  options?: string[] | null;
 }
 
 export interface DeliveryResult {
@@ -189,10 +191,12 @@ export async function undelivered(
       consequence_if_denied: string | null;
       language: string | null;
       question: string | null;
+      options: string[] | null;
     }>(
       `SELECT i.id, i.kind, i.tier, i.title, i.action_summary, i.consequence_if_denied,
               (SELECT console_language FROM platform_control) AS language,
-              CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->>'question' END AS question
+              CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->>'question' END AS question,
+              CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'options' END AS options
          FROM inbox_items i
     LEFT JOIN owner_notifications n
            ON n.inbox_item_id = i.id AND n.channel = $2 AND n.company_id = $1
@@ -222,6 +226,7 @@ export async function undelivered(
         url: null,
         language: row.language ?? 'en',
         question: row.question,
+        options: row.options,
       }];
     });
   });
@@ -595,11 +600,12 @@ export async function retryFailed(
     const { rows } = await tx.query<{
       id: string; kind: string; tier: number | null; title: string;
       action_summary: string; consequence_if_denied: string | null; delivery: string;
-      language: string | null; question: string | null;
+      language: string | null; question: string | null; options: string[] | null;
     }>(
       `SELECT i.id, i.kind, i.tier, i.title, i.action_summary, i.consequence_if_denied,
               n.delivery, (SELECT console_language FROM platform_control) AS language,
-              CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->>'question' END AS question
+              CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->>'question' END AS question,
+              CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'options' END AS options
          FROM owner_notifications n
          JOIN inbox_items i ON i.id = n.inbox_item_id
         WHERE n.company_id = $1
@@ -641,6 +647,7 @@ export async function retryFailed(
       url: null,
       language: row.language ?? 'en',
       question: row.question,
+      options: row.options,
     };
     item.url = options.linkFor?.(item) ?? null;
 

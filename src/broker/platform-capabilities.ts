@@ -228,6 +228,8 @@ export interface OwnerAskInput {
   question: string;
   /** What depends on the answer, so the owner can answer the right thing. */
   why?: string;
+  /** Two to six answers to choose from, when there are that few: the owner presses one. */
+  options?: string[];
 }
 
 export interface OwnerAskResult {
@@ -270,6 +272,7 @@ export function ownerAskCapability(): Capability<OwnerAskInput, OwnerAskResult> 
         taskId: ctx.taskId,
         question,
         why: typeof input.why === 'string' ? input.why : null,
+        options: Array.isArray(input.options) ? input.options.map(String) : null,
       });
       if (asked.state === 'answered') return { answered: true, answer: asked.answer };
       if (asked.state === 'unanswered') {

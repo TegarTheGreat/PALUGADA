@@ -87,6 +87,8 @@ export interface InboxItem {
   divisionName: string | null;
   /** A question a run put to the owner with `owner.ask`, which the owner answers rather than approves. */
   question: string | null;
+  /** The answers the run offered to choose from, when it offered some. */
+  options: string[] | null;
   /**
    * F2.7, F10.2: why this work exists, mission first. An owner deciding on a
    * phone at seven in the morning reads it on the item rather than following
@@ -425,8 +427,25 @@ export async function askOwner(input: {
   taskId: string;
   question: string;
   why?: string | null;
+  /**
+   * The answers to choose from, when there are a few: the owner presses one
+   * instead of writing it. Two to six, each short and different.
+   */
+  options?: string[] | null;
 }): Promise<AgentQuestion> {
   const question = input.question.trim();
+  const options = input.options ? input.options.map((option) => String(option ?? '').trim()) : null;
+  if (options && (
+    options.length < 2 || options.length > 6
+    || options.some((option) => !option || option.length > 80)
+    || new Set(options).size !== options.length
+  )) {
+    throw new PalugadaError(
+      'contract.violation',
+      'choices are two to six different answers of at most 80 characters each',
+      { field: 'options' },
+    );
+  }
   return withTenant(input.companyId, async (tx) => {
     // The task before the item, the order every other writer takes them in.
     const task = await tx.query<{ status: string; role: string }>(
@@ -474,7 +493,7 @@ export async function askOwner(input: {
       taskId: input.taskId,
       title: `${task.rows[0]!.role} asks: ${question.length > 140 ? `${question.slice(0, 139)}…` : question}`,
       detail: input.why?.trim() ? `${question}\n\nWhy it matters: ${input.why.trim()}` : question,
-      payload: { askedBy: 'agent', question, role: task.rows[0]!.role },
+      payload: { askedBy: 'agent', question, role: task.rows[0]!.role, ...(options ? { options } : {}) },
     });
     await park();
     return { state: 'waiting', inboxItemId: id };
@@ -641,12 +660,13 @@ export async function listOpen(companyId: string): Promise<InboxItem[]> {
       estimated_cost_cents: number; consequence_if_denied: string;
       task_id: string | null; expires_at: Date | null; created_at: Date;
       capability_name: string | null; role_slug: string | null; division_name: string | null;
-      question: string | null;
+      question: string | null; options: string[] | null;
     }>(
       `SELECT i.id, i.kind, i.status, i.title, i.action_summary, i.rationale, i.tier,
               i.estimated_cost_cents, i.consequence_if_denied, i.task_id, i.expires_at,
               i.created_at, i.capability_name, r.slug AS role_slug, d.name AS division_name,
-              CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->>'question' END AS question
+              CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->>'question' END AS question,
+              CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'options' END AS options
          FROM inbox_items i
          LEFT JOIN tasks t ON t.id = i.task_id
          LEFT JOIN roles r ON r.id = t.role_id
@@ -665,6 +685,7 @@ export async function listOpen(companyId: string): Promise<InboxItem[]> {
         taskId: r.task_id, expiresAt: r.expires_at, createdAt: r.created_at,
         capabilityName: r.capability_name, roleSlug: r.role_slug, divisionName: r.division_name,
         question: r.question,
+        options: r.options,
         goalChain: chain.map((goal) => ({ kind: goal.kind, statement: goal.statement })),
       });
     }

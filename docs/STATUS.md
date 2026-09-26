@@ -2538,7 +2538,9 @@ rest are listed at the end.
 - Restore a company from the console's export, with a preview first and the
   owner's device to apply, or with `npm run company:import`.
 - Be asked. `owner.ask` lets any runtime put a question to the owner and park
-  until it is answered, from the console or a Telegram reply.
+  until it is answered, from the console or a Telegram reply. A question may
+  offer two to six answers, and the owner answers with one press on either
+  surface; the text is read from the item, never from the button.
 - Have work split by whatever runtime does it. `task.delegate` hands part of a
   task to another role as a sub-task with a deadline, under the hop limit, the
   fan-out cap and the parent's budget; `task.await` reads its contained result,
@@ -2567,7 +2569,7 @@ work delegated (`begunOutside` in `src/engine/tasks.ts`).
 
 - Triggers signed by the sender (HMAC, as Stripe and GitHub sign theirs)
   rather than a bearer token, and bodies that are not JSON.
-- Structured choices on a decision (pick one of three, approve seven of ten).
+- Batch verdicts on a decision (approve seven of ten drafts in one go).
 - A strategy role in the standard template itself, and stage gates (explore,
   validate, build, launch, grow) that policies can read.
 - Per-company connections to outside accounts from the console, a config

@@ -1363,3 +1363,63 @@ test("a run's question is answered from the chat, in the owner's words (owner.as
     await vendor.close();
   }
 });
+
+/**
+ * A question with choices (Paperclip's decisions carry options): the owner
+ * answers with one press, on the phone, and the task resumes with the choice.
+ * "Which of these three domains?" used to be a round of asking and answering
+ * in words.
+ */
+test("a run's question with choices is answered with one press (owner.ask)", async () => {
+  const fixture = await createCompany('chat-choice');
+  const vendor = await fakeTelegram();
+  try {
+    const { createRootTask, transition } = await import('../../src/engine/tasks.ts');
+    const task = await createRootTask({
+      companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+      roleId: fixture.roleId, budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId,
+      input: { goal: 'register a domain' }, createdBy: 'owner', reserveTokens: 1_000,
+    });
+    await transition(fixture.companyId, task.id, 'running');
+    const options = ['kopi.id', 'kopinusantara.com', 'kopi.co'];
+    const asked = await inbox.askOwner({ companyId: fixture.companyId, taskId: task.id, question: 'Which domain?', options });
+    const [open] = await inbox.listOpen(fixture.companyId);
+    assert.deepEqual(open!.options, options);
+
+    const channel = telegram({ url: vendor.url, secret: 'webhook-secret' });
+    await dispatch(fixture.companyId, channel, { now: tomorrow() });
+    const sent = vendor.calls.find((call) => call.path.endsWith('/sendMessage'))!;
+    const rows = (sent.body.reply_markup as { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> }).inline_keyboard;
+    assert.deepEqual(rows.map((row) => row.map((button) => button.text)),
+      [['kopi.id'], ['kopinusantara.com'], ['kopi.co'], ['Answer in words', 'Stop the task']]);
+
+    const owner = { id: 55555 };
+    const press = (data: string) => channel.onUpdate({
+      callback_query: { id: `cb-${data}`, data, message: { chat: owner }, from: owner },
+    }, { secretHeader: 'webhook-secret' });
+    // A choice the question does not have is not a choice.
+    assert.equal((await press(`palugada:${asked.inboxItemId}:c5`)).handled, false);
+    assert.equal((await press(rows[1]![0]!.callback_data)).handled, true);
+
+    const { rows: item } = await withTenant(fixture.companyId, (tx) => tx.query<{ decision: string; owner_note: string }>(
+      'SELECT decision, owner_note FROM inbox_items WHERE id = $1', [asked.inboxItemId]));
+    assert.deepEqual(item[0], { decision: 'approve', owner_note: 'kopinusantara.com' });
+  } finally {
+    await vendor.close();
+  }
+});
+
+test('choices are two to six short, different answers', async () => {
+  const fixture = await createCompany('chat-choice-bounds');
+  const { createRootTask, transition } = await import('../../src/engine/tasks.ts');
+  const task = await createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    roleId: fixture.roleId, budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId,
+    input: { goal: 'decide' }, createdBy: 'owner', reserveTokens: 1_000,
+  });
+  await transition(fixture.companyId, task.id, 'running');
+  const ask = (options: string[]) => inbox.askOwner({ companyId: fixture.companyId, taskId: task.id, question: 'Which?', options });
+  for (const bad of [['only one'], ['a', 'b', 'c', 'd', 'e', 'f', 'g'], ['same', 'same'], ['fine', '  '], ['x'.repeat(81), 'y']]) {
+    await assert.rejects(ask(bad), /choices/);
+  }
+});

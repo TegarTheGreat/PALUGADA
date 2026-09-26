@@ -423,6 +423,7 @@ export const ID: Readonly<Record<string, string>> = {
   "Open the inbox": "Buka kotak masuk",
   "Open the task": "Buka tugasnya",
   "Open {trigger} again": "Buka {trigger} lagi",
+  "Or answer in words": "Atau jawab dengan kata-kata",
   "Or override until": "Atau kecualikan sampai",
   "Origin": "Asal",
   "Out of budget": "Kehabisan anggaran",

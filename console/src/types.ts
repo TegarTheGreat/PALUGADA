@@ -38,6 +38,8 @@ export interface InboxItem {
   divisionName: string | null;
   /** A question an agent asked with `owner.ask`: answered, not approved. */
   question: string | null;
+  /** The answers it offered to choose from, when it offered some. */
+  options: string[] | null;
   goalChain: Array<{ kind: string; statement: string }>;
 }
 

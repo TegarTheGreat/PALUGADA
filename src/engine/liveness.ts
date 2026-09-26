@@ -146,7 +146,7 @@ export async function reportStranded(companyId: string, now = new Date()): Promi
  * then finds its record. Returns whether this call was the one that asked.
  */
 export async function askAboutStranded(companyId: string, task: StrandedTask): Promise<boolean> {
-  const first = await withTenant(companyId, async (tx) => {
+  return withTenant(companyId, async (tx) => {
     await tx.query("SELECT pg_advisory_xact_lock(hashtext('stranded:' || $1))", [task.taskId]);
     const { rows } = await tx.query(
       `SELECT 1 FROM events
@@ -163,18 +163,17 @@ export async function askAboutStranded(companyId: string, task: StrandedTask): P
       actor: 'system',
       payload: { shape: task.shape, status: task.status, since: task.since.toISOString() },
     });
+    // In the same transaction as the record that says it was asked, so the
+    // record cannot outlive a question that was never put.
+    await inbox.raiseEscalationWithin(tx, {
+      companyId,
+      taskId: task.taskId,
+      title: 'A task is waiting on nothing',
+      detail:
+        `Task ${task.taskId} has been ${task.status} since ${task.since.toISOString()}. `
+        + `${EXPLANATIONS[task.shape]} Approve to run it again from where it stopped, `
+        + 'or deny to cancel it.',
+    });
     return true;
   });
-  if (!first) return false;
-
-  await inbox.raiseEscalation({
-    companyId,
-    taskId: task.taskId,
-    title: 'A task is waiting on nothing',
-    detail:
-      `Task ${task.taskId} has been ${task.status} since ${task.since.toISOString()}. `
-      + `${EXPLANATIONS[task.shape]} Approve to run it again from where it stopped, `
-      + 'or deny to cancel it.',
-  });
-  return true;
 }

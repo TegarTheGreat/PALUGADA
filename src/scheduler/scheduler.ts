@@ -25,7 +25,7 @@ import { withControlPlane, withTenant } from '../db/tenant.ts';
 import { createRootTask, type TaskRow } from '../engine/tasks.ts';
 import * as budget from '../engine/budget.ts';
 import { appendEvent } from '../audit/event-log.ts';
-import { raiseScheduleEscalation } from '../inbox/inbox.ts';
+import { raiseEscalationWithin } from '../inbox/inbox.ts';
 
 const { parseExpression } = cronParser;
 
@@ -366,7 +366,7 @@ export const REPETITION_RUNS = 5;
  * be the reason a schedule did not run.
  */
 async function askAboutRepetition(schedule: DueSchedule, justFired: string): Promise<void> {
-  const repeated = await withTenant(schedule.company_id, async (tx) => {
+  await withTenant(schedule.company_id, async (tx) => {
     // The runs before the one just created, which has not run yet.
     const { rows } = await tx.query<{ status: string; digest: string | null }>(
       `SELECT status, md5(output::text) AS digest FROM tasks
@@ -375,10 +375,10 @@ async function askAboutRepetition(schedule: DueSchedule, justFired: string): Pro
         LIMIT $3`,
       [schedule.company_id, `schedule:${schedule.id}:%`, REPETITION_RUNS, justFired],
     );
-    if (rows.length < REPETITION_RUNS) return null;
-    if (rows.some((row) => row.status !== 'completed' || row.digest === null)) return null;
+    if (rows.length < REPETITION_RUNS) return;
+    if (rows.some((row) => row.status !== 'completed' || row.digest === null)) return;
     const digest = rows[0]!.digest!;
-    if (rows.some((row) => row.digest !== digest)) return null;
+    if (rows.some((row) => row.digest !== digest)) return;
 
     // Once per result, under a lock, so two workers firing the same schedule
     // ask once between them.
@@ -390,7 +390,7 @@ async function askAboutRepetition(schedule: DueSchedule, justFired: string): Pro
         LIMIT 1`,
       [schedule.company_id, schedule.id, digest],
     );
-    if (seen.length > 0) return null;
+    if (seen.length > 0) return;
     await appendEvent(tx, {
       companyId: schedule.company_id,
       projectId: schedule.project_id,
@@ -398,18 +398,16 @@ async function askAboutRepetition(schedule: DueSchedule, justFired: string): Pro
       actor: 'scheduler',
       payload: { scheduleId: schedule.id, slug: schedule.slug, outputDigest: digest, runs: REPETITION_RUNS },
     });
-    return digest;
-  });
-  if (!repeated) return;
-
-  await raiseScheduleEscalation({
-    companyId: schedule.company_id,
-    scheduleId: schedule.id,
-    title: `Schedule ${schedule.slug} keeps producing the same result`,
-    detail:
-      `Its last ${REPETITION_RUNS} runs all completed with identical output. That is sometimes `
-      + 'exactly right -- a report that has nothing new to say -- and often a schedule that '
-      + 'stopped doing anything useful while still being paid for. Deny to turn it off; '
-      + 'approve to keep it running and not be asked about this result again.',
+    // With the record, so "noticed" never stands without the question.
+    await raiseEscalationWithin(tx, {
+      companyId: schedule.company_id,
+      scheduleId: schedule.id,
+      title: `Schedule ${schedule.slug} keeps producing the same result`,
+      detail:
+        `Its last ${REPETITION_RUNS} runs all completed with identical output. That is sometimes `
+        + 'exactly right -- a report that has nothing new to say -- and often a schedule that '
+        + 'stopped doing anything useful while still being paid for. Deny to turn it off; '
+        + 'approve to keep it running and not be asked about this result again.',
+    });
   });
 }

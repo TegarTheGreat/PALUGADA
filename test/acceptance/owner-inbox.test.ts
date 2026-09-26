@@ -839,3 +839,42 @@ test('a transition racing a cancellation is refused rather than overwriting it',
   const stored = await withTenant(fixture.companyId, (tx) => getTask(tx, task.id));
   assert.equal(stored!.status, 'cancelled', 'the stop was not overwritten');
 });
+
+/**
+ * A page boundary inside one millisecond.
+ *
+ * The page marker was the last item's timestamp read out through a Date, in
+ * milliseconds, and the column holds microseconds: every item created later
+ * in that same millisecond compared as newer than the marker and was on
+ * neither page.
+ */
+test('paging the decision history loses nothing that closed in the same millisecond (F10.8)', async () => {
+  const fixture = await createCompany('history-micros');
+  const ids: string[] = [];
+  for (let n = 0; n < 4; n += 1) {
+    const id = await inbox.raiseEscalation({
+      companyId: fixture.companyId, title: `item ${n}`, detail: 'closed below',
+    });
+    await inbox.decide(fixture.companyId, id, 'deny');
+    ids.push(id);
+  }
+  // Four items one microsecond apart, inside a single millisecond.
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    `UPDATE inbox_items SET created_at = timestamptz '2026-09-01 10:00:00.123001+00'
+                                         + (ordinality * interval '1 microsecond')
+       FROM unnest($1::uuid[]) WITH ORDINALITY AS listed(id, ordinality)
+      WHERE inbox_items.id = listed.id`,
+    [ids],
+  ));
+
+  const seen: string[] = [];
+  let before: string | null = null;
+  for (let page = 0; page < 10; page += 1) {
+    const result: inbox.HistoryPage = await inbox.history(fixture.companyId, { limit: 1, before });
+    seen.push(...result.items.map((item) => item.id));
+    if (!result.next) break;
+    before = result.next;
+  }
+  assert.deepEqual(seen, [...ids].reverse(), 'every item, newest first, once each');
+});
+

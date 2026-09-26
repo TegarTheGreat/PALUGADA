@@ -260,7 +260,7 @@ export async function raiseIncident(input: {
  * someone at 03:00 for a decision that keeps until morning is exactly the
  * noise principle 1 exists to prevent.
  */
-export async function raiseEscalation(input: {
+export interface EscalationInput {
   companyId: string;
   taskId?: string | undefined;
   title: string;
@@ -275,14 +275,35 @@ export async function raiseEscalation(input: {
    * reason to delay telling somebody.
    */
   divisionId?: string | undefined;
-}): Promise<string> {
+  /**
+   * A schedule the escalation is about, rather than a task (F9.1). The
+   * answer acts on it -- deny turns it off, approve leaves it running --
+   * because `decide` reads it from the payload, so the owner's answer is the
+   * action rather than a note they then have to go and carry out.
+   */
+  scheduleId?: string | undefined;
+}
+
+export async function raiseEscalation(input: EscalationInput): Promise<string> {
+  return withTenant(input.companyId, (tx) => raiseEscalationWithin(tx, input));
+}
+
+/**
+ * The same, inside the caller's transaction.
+ *
+ * For a caller that records why it is asking -- "this task is stranded",
+ * "this schedule repeats itself" -- and uses that record to ask only once.
+ * The record and the question were two transactions: a crash, or a refused
+ * insert, between them left the record saying the owner had been asked and
+ * no item the owner could see, and the next pass read the record and did not
+ * ask again. Written together, they exist together or not at all.
+ */
+export async function raiseEscalationWithin(tx: TenantClient, input: EscalationInput): Promise<string> {
   const windowOpens = await notifyAfterFor('escalation', { tier: input.tier ?? null });
 
   // F2.1. Read before the insert so the policy shapes the item rather than
   // being noticed afterwards.
-  const policy = input.divisionId
-    ? await withTenant(input.companyId, (tx) => escalationPolicyFor(tx, input.divisionId!))
-    : null;
+  const policy = input.divisionId ? await escalationPolicyFor(tx, input.divisionId) : null;
 
   // The later of the two: the owner's window and the division's own grace
   // period. A division that is allowed four hours to handle something should
@@ -302,80 +323,53 @@ export async function raiseEscalation(input: {
     : windowOpens;
   const notifyAfter = divisionHasUntil > windowOpens ? divisionHasUntil : windowOpens;
 
-  return withTenant(input.companyId, async (tx) => {
-    const { rows } = await tx.query<{ id: string }>(
-      `INSERT INTO inbox_items
-         (company_id, task_id, kind, title, action_summary, rationale,
-          consequence_if_denied, tier, notify_after, payload)
-       VALUES ($1,$2,'escalation',$3,$3,$4,'The task stays blocked until you decide.',$5,$6,$7)
-       RETURNING id`,
-      [
-        input.companyId, input.taskId ?? null, input.title,
-        // The owner is told who was supposed to handle it. An escalation that
-        // reaches them without saying whose it was is one they have to trace.
-        handledBy
-          ? `${input.detail}\n\n${handledBy.roleSlug} was asked first and has had ` +
-            `${handledBy.afterMinutes} minutes.`
-          : input.detail,
-        input.tier ?? null, notifyAfter,
-        // The recorded grace period is the one that was actually granted, so
-        // an item whose division names nobody does not read as though four
-        // hours were given to someone.
-        JSON.stringify(
-          handledBy
-            ? {
-                divisionId: input.divisionId,
-                escalationRole: handledBy.roleSlug,
-                afterMinutes: handledBy.afterMinutes,
-              }
-            : input.divisionId
-              ? { divisionId: input.divisionId, escalationRole: null }
-              : {},
-        ),
-      ],
-    );
-    const id = rows[0]!.id;
-    await appendEvent(tx, {
-      companyId: input.companyId,
-      taskId: input.taskId,
-      type: 'escalation.raised',
-      actor: 'system',
-      payload: {
-        inboxItemId: id,
-        title: input.title,
+  const { rows } = await tx.query<{ id: string }>(
+    `INSERT INTO inbox_items
+       (company_id, task_id, kind, title, action_summary, rationale,
+        consequence_if_denied, tier, notify_after, payload)
+     VALUES ($1,$2,'escalation',$3,$3,$4,'The task stays blocked until you decide.',$5,$6,$7)
+     RETURNING id`,
+    [
+      input.companyId, input.taskId ?? null, input.title,
+      // The owner is told who was supposed to handle it. An escalation that
+      // reaches them without saying whose it was is one they have to trace.
+      handledBy
+        ? `${input.detail}\n\n${handledBy.roleSlug} was asked first and has had ` +
+          `${handledBy.afterMinutes} minutes.`
+        : input.detail,
+      input.tier ?? null, notifyAfter,
+      // The recorded grace period is the one that was actually granted, so
+      // an item whose division names nobody does not read as though four
+      // hours were given to someone.
+      JSON.stringify({
         ...(handledBy
-          ? { escalationRole: handledBy.roleSlug, afterMinutes: handledBy.afterMinutes }
-          : {}),
-      },
-    });
-    return id;
-  });
-}
-
-/**
- * An escalation about a schedule rather than a task (F9.1).
- *
- * The answer acts on the schedule: deny turns it off, approve leaves it
- * running. Carried in the payload, and `decide` reads it, so the owner's
- * answer is the action rather than a note they then have to go and carry out.
- */
-export async function raiseScheduleEscalation(input: {
-  companyId: string;
-  scheduleId: string;
-  title: string;
-  detail: string;
-}): Promise<string> {
-  const itemId = await raiseEscalation({
+          ? {
+              divisionId: input.divisionId,
+              escalationRole: handledBy.roleSlug,
+              afterMinutes: handledBy.afterMinutes,
+            }
+          : input.divisionId
+            ? { divisionId: input.divisionId, escalationRole: null }
+            : {}),
+        ...(input.scheduleId ? { scheduleId: input.scheduleId } : {}),
+      }),
+    ],
+  );
+  const id = rows[0]!.id;
+  await appendEvent(tx, {
     companyId: input.companyId,
-    title: input.title,
-    detail: input.detail,
+    taskId: input.taskId,
+    type: 'escalation.raised',
+    actor: 'system',
+    payload: {
+      inboxItemId: id,
+      title: input.title,
+      ...(handledBy
+        ? { escalationRole: handledBy.roleSlug, afterMinutes: handledBy.afterMinutes }
+        : {}),
+    },
   });
-  await withTenant(input.companyId, (tx) => tx.query(
-    `UPDATE inbox_items SET payload = payload || jsonb_build_object('scheduleId', $2::text)
-      WHERE id = $1`,
-    [itemId, input.scheduleId],
-  ));
-  return itemId;
+  return id;
 }
 
 /**
@@ -569,10 +563,16 @@ export async function history(
       tier: number | null; status: Exclude<InboxStatus, 'open'>; decision: Decision | null;
       owner_note: string | null; decided_via: DecisionChannel | null;
       closed_reason: string | null; task_id: string | null;
-      created_at: Date; decided_at: Date | null;
+      created_at: Date; decided_at: Date | null; created_micros: string;
     }>(
+      // The page marker carries the row's own timestamp in whole
+      // microseconds, which is what the column holds. It used to be the
+      // timestamp read out through a Date, in milliseconds: every item
+      // created later in the same millisecond as a page's last one compared
+      // as newer than the marker, and fell between the pages.
       `SELECT id, kind, title, action_summary, tier, status, decision, owner_note,
-              decided_via, closed_reason, task_id, created_at, decided_at
+              decided_via, closed_reason, task_id, created_at, decided_at,
+              (extract(epoch FROM created_at) * 1000000)::bigint::text AS created_micros
          FROM inbox_items
         WHERE status <> 'open'
           AND ($1::text IS NULL
@@ -580,10 +580,12 @@ export async function history(
                OR action_summary ILIKE $1 ESCAPE '\\'
                OR rationale ILIKE $1 ESCAPE '\\'
                OR coalesce(owner_note, '') ILIKE $1 ESCAPE '\\')
-          AND ($2::timestamptz IS NULL OR (created_at, id) < ($2::timestamptz, $3::uuid))
+          AND ($2::bigint IS NULL
+               OR (created_at, id) < (timestamptz 'epoch' + $2::bigint * interval '1 microsecond',
+                                      $3::uuid))
         ORDER BY created_at DESC, id DESC
         LIMIT $4`,
-      [pattern, cursor?.createdAt ?? null, cursor?.id ?? null, limit + 1],
+      [pattern, cursor?.createdMicros ?? null, cursor?.id ?? null, limit + 1],
     );
     const page = rows.slice(0, limit);
     const last = page[page.length - 1];
@@ -603,23 +605,23 @@ export async function history(
         createdAt: row.created_at,
         decidedAt: row.decided_at,
       })),
-      next: rows.length > limit && last ? writeCursor(last.created_at, last.id) : null,
+      next: rows.length > limit && last ? writeCursor(last.created_micros, last.id) : null,
     };
   });
 }
 
-function writeCursor(createdAt: Date, id: string): string {
-  return Buffer.from(`${createdAt.toISOString()}|${id}`, 'utf8').toString('base64url');
+function writeCursor(createdMicros: string, id: string): string {
+  return Buffer.from(`${createdMicros}|${id}`, 'utf8').toString('base64url');
 }
 
 /** A cursor is the owner's own input on the way back, so it is read, not trusted. */
-function readCursor(raw: string): { createdAt: string; id: string } {
-  const [createdAt, id] = Buffer.from(raw, 'base64url').toString('utf8').split('|');
-  if (!createdAt || !id || !Number.isFinite(Date.parse(createdAt))
+function readCursor(raw: string): { createdMicros: string; id: string } {
+  const [createdMicros, id] = Buffer.from(raw, 'base64url').toString('utf8').split('|');
+  if (!createdMicros || !id || !/^\d{1,18}$/.test(createdMicros)
     || !/^[0-9a-f-]{36}$/.test(id)) {
     throw new PalugadaError('contract.violation', 'that page marker is not one this history issued', {});
   }
-  return { createdAt, id };
+  return { createdMicros, id };
 }
 
 /**

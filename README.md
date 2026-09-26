@@ -736,8 +736,10 @@ deployment does not have (`vault://`) is refused with the scheme named.
 malformed vendor or price file, a runtime spec, an owner factor that does not
 resolve — so a supervisor stops restarting it into the same refusal;
 `deploy/palugada.service` is a systemd unit that does exactly that, with the
-owner's secret as a systemd credential. SIGTERM stops the console first and
-lets the worker finish its step.
+owner's secret as a systemd credential. It runs as its own unprivileged user
+(`DynamicUser`), never root, with `/var/lib/palugada` as the one writable
+directory and as `HOME`, where the agent CLIs keep their own configuration.
+SIGTERM stops the console first and lets the worker finish its step.
 
 A worker also needs a **runtime** — something that actually executes a role's
 turn. The in-process one needs a model client and handlers, which a deployment

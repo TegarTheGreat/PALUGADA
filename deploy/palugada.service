@@ -9,6 +9,21 @@
 # console and lets the worker finish its step; the agent runtimes it started
 # lead their own process groups and are ended by it. Anything still running
 # when TimeoutStopSec expires gets SIGKILL.
+#
+# Not as root. The platform starts agent CLIs and runs code on a company's
+# behalf, and a process that can do that as root can do anything to the host
+# a runtime is talked into. DynamicUser gives the service its own unprivileged
+# account, allocated by systemd and stable across restarts, with no login and
+# nothing else on the machine owned by it. /opt/palugada must be readable by
+# others (it is code, not configuration; the configuration is the env file
+# and the credential below, which systemd hands over itself).
+#
+# The one writable place is the state directory. It is also HOME, because the
+# agent CLIs keep their own configuration and login there (~/.claude,
+# ~/.codex), and under ProtectHome a home in /home or /root would be neither
+# readable nor writable. A company's files for files.list and the drafting
+# capabilities belong under it too: set PALUGADA_FILES_ROOT in the env file to
+# a directory below /var/lib/palugada.
 [Unit]
 Description=PALUGADA control plane
 After=network-online.target postgresql.service
@@ -24,6 +39,9 @@ RestartSec=10
 RestartPreventExitStatus=78
 KillMode=mixed
 TimeoutStopSec=60
+DynamicUser=true
+StateDirectory=palugada
+Environment=HOME=/var/lib/palugada
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true

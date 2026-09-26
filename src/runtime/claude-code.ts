@@ -22,6 +22,7 @@
  * rather than letting a green suite imply more than it checked.
  */
 import { spawn } from 'node:child_process';
+import { spawnTree, TreeKeeper } from './process-tree.ts';
 import type {
   Adapter,
   AdapterHealth,
@@ -73,6 +74,7 @@ export class ClaudeCodeAdapter implements Adapter {
   readonly name: string;
   readonly backends: readonly ExecutionBackend[];
   readonly #options: ClaudeCodeAdapterOptions;
+  readonly #trees = new TreeKeeper();
 
   constructor(options: ClaudeCodeAdapterOptions = {}) {
     this.name = options.name ?? 'claude-code';
@@ -89,6 +91,8 @@ export class ClaudeCodeAdapter implements Adapter {
   }
 
   async health(): Promise<AdapterHealth> {
+    const stuck = this.#trees.unhealthy();
+    if (stuck) return stuck;
     return new Promise((resolve) => {
       const child = spawn(this.command, ['--version'], {
         env: { PATH: process.env.PATH ?? '' },
@@ -184,33 +188,48 @@ export class ClaudeCodeAdapter implements Adapter {
       if (value) env[this.#options.apiKeyEnvVar] = value;
     }
 
-    const child = spawn(this.command, this.argv(request, bridge), {
+    const child = spawnTree(this.command, this.argv(request, bridge), {
       ...(this.#options.cwd ? { cwd: this.#options.cwd } : {}),
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
     let stderr = '';
-    child.stderr.setEncoding('utf8');
-    child.stderr.on('data', (chunk: string) => {
+    child.stderr!.setEncoding('utf8');
+    child.stderr!.on('data', (chunk: string) => {
       stderr = (stderr + chunk).slice(-8_192);
     });
-    child.stdin.on('error', () => {});
+    child.stdin!.on('error', () => {});
     child.on('error', () => {});
 
+    // A withdrawn run ends its process now, not when the process next says
+    // something. This CLI has no cancel message to receive, and one that has
+    // gone quiet -- thinking, or hung -- would otherwise have been waited on
+    // for as long as it took, holding a worker and spending the owner's key.
+    const withdraw = () => void this.#trees.end(child);
+    services.signal.addEventListener('abort', withdraw, { once: true });
+
+    const trees = this.#trees;
     const transport: Transport = {
       events: this.#translate(child.stdout!, () => stderr),
       async send() {
         // Nothing to send. Tool answers reach this runtime over MCP, and a
-        // cancellation reaches it as the killed process below.
+        // cancellation reaches it as the ended process tree above.
+      },
+      async terminate() {
+        await trees.end(child);
       },
       async close() {
+        services.signal.removeEventListener('abort', withdraw);
         await bridge.close();
-        if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+        // The whole group, and whether or not the CLI itself is still there:
+        // one that finished and left a server running is the case where
+        // nothing else would ever clean up.
+        await trees.end(child);
       },
     };
 
-    child.stdin.end(this.prompt(request));
+    child.stdin!.end(this.prompt(request));
     return driveRun(request, services, transport);
   }
 

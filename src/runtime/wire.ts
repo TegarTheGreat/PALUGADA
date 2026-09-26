@@ -114,6 +114,14 @@ export interface Transport {
   events: AsyncIterable<RunEvent>;
   send(message: EngineMessage): Promise<void>;
   close(): Promise<void>;
+  /**
+   * Ends the runtime now, for a transport that has something to end.
+   *
+   * A spawned runtime implements it by ending its process tree, which also
+   * ends `events`. Optional because a remote runtime has nothing local to
+   * stop: its request is aborted instead, and the loop ends with it.
+   */
+  terminate?(): Promise<void>;
 }
 
 /**
@@ -151,6 +159,32 @@ export async function driveRun(
   };
   services.signal.addEventListener('abort', abort, { once: true });
 
+  // F5.6 and F6.4, for a runtime that has gone quiet. The engine checks the
+  // deadline before every step, which is enough for a runtime that keeps
+  // taking steps and no use at all against one that has hung: no step, no
+  // check, and `limits.wallClockMs` was sent to every runtime and enforced by
+  // none. So the deadline is a timer here. The runtime is told first, and
+  // then ended -- a runtime past its deadline has had its chance to stop.
+  const deadlineAt = request.task.deadlineAt;
+  let overran = false;
+  const deadline = deadlineAt
+    ? setTimeout(() => {
+        overran = true;
+        void transport
+          .send({ type: 'cancel', reason: 'the task deadline has passed' })
+          .catch(() => {})
+          .then(() => transport.terminate?.());
+      }, Math.max(0, deadlineAt.getTime() - Date.now()))
+    : null;
+  deadline?.unref();
+  const overranError = () =>
+    new PalugadaError(
+      'deadline.exceeded',
+      `run ${request.runId} was still going at its task deadline `
+        + `${deadlineAt!.toISOString()} and was ended (PRD F5.6, F6.4)`,
+      { runId: request.runId, deadlineAt: deadlineAt!.toISOString() },
+    );
+
   try {
     for await (const event of transport.events) {
       switch (event.type) {
@@ -184,10 +218,19 @@ export async function driveRun(
       }
     }
 
+    if (overran) throw overranError();
     throw new Error(
       `runtime ended without producing an output for run ${request.runId}`,
     );
+  } catch (error) {
+    // Ending the tree usually surfaces as whatever the runtime said as it
+    // died -- a broken pipe, an unreadable half-line. The deadline is the
+    // reason, and it is the one the engine needs: it halts the task rather
+    // than spending an attempt on a retry that would overrun the same way.
+    if (overran && !(error instanceof PalugadaError)) throw overranError();
+    throw error;
   } finally {
+    if (deadline) clearTimeout(deadline);
     services.signal.removeEventListener('abort', abort);
     await transport.close();
   }

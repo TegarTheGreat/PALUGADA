@@ -25,7 +25,9 @@ import {
 } from '../../src/runtime/sandbox-adapter.ts';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { readdir } from 'node:fs/promises';
+import { readdir, readFile, mkdtemp } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { startToolBridge } from '../../src/runtime/tool-bridge.ts';
 import { Engine } from '../../src/engine/engine.ts';
@@ -103,7 +105,7 @@ let sequence = 0;
 async function newTask(
   fixture: Fixture,
   input: Record<string, unknown>,
-  options: { attemptMax?: number } = {},
+  options: { attemptMax?: number; deadlineAt?: Date } = {},
 ) {
   sequence += 1;
   return createRootTask({
@@ -117,6 +119,7 @@ async function newTask(
     createdBy: 'owner',
     reserveTokens: 20_000,
     ...(options.attemptMax === undefined ? {} : { attemptMax: options.attemptMax }),
+    ...(options.deadlineAt === undefined ? {} : { deadlineAt: options.deadlineAt }),
   });
 }
 
@@ -1382,4 +1385,120 @@ test('a known spec drives a real run once the binary exists (F13.3)', async () =
 
   assert.equal(outcome.status, 'completed', outcome.reason);
   assert.equal((outcome.output as { tool: { isError: boolean } }).tool.isError, false);
+});
+
+/* ------------------------------------------------------- the process tree --- */
+
+/**
+ * Whether a pid is still a running process. A zombie is not: it has exited
+ * and is only waiting for a parent that, in a container, may never come.
+ */
+function running(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+  } catch {
+    return false;
+  }
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    return stat.slice(stat.lastIndexOf(')') + 2).split(' ')[0] !== 'Z';
+  } catch {
+    return true;
+  }
+}
+
+async function pidFrom(file: string): Promise<number> {
+  for (let tries = 0; tries < 100; tries += 1) {
+    const text = await readFile(file, 'utf8').catch(() => '');
+    if (text) return Number(text);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`no pid written to ${file}`);
+}
+
+/**
+ * An agent CLI is a parent. It starts shells, test runners, dev servers --
+ * and one that finishes its answer and exits can leave any of them running.
+ * The adapter used to signal only the CLI, and only if it was still alive, so
+ * the case that most needed cleaning up was the one never cleaned up at all:
+ * a finished run, with a process of its own still holding a port and the
+ * owner's key.
+ */
+test('a process an agent CLI leaves behind does not outlive the run (F13.2)', async () => {
+  const fixture = await createCompany('cli-orphan');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'codex', tools: ['dns.read'] });
+  const task = await newTask(fixture, { ask: 'read the zone' });
+  const dir = await mkdtemp(join(tmpdir(), 'palugada-orphan-'));
+  const pidFile = join(dir, 'orphan.pid');
+
+  const [spec] = runtimeSpecsFrom([{
+    name: 'codex',
+    command: process.execPath,
+    args: [AGENT_CLI, '--mcp-config', '{mcpConfig}', '--spawn-orphan', pidFile],
+  }]);
+  const outcome = await engineWith(broker, new CliAdapter(spec!)).runTask(
+    fixture.companyId, task.id, 'worker',
+  );
+  assert.equal(outcome.status, 'completed', outcome.reason);
+
+  const orphan = await pidFrom(pidFile);
+  assert.equal(running(orphan), false, `pid ${orphan} was left running after the run ended`);
+});
+
+/**
+ * F5.6 said a task past its deadline halts, and the engine checked that
+ * before every step -- which does nothing against a runtime that has hung and
+ * takes no steps. `limits.wallClockMs` was sent to every runtime and enforced
+ * by none. This one ignores SIGTERM as well, so the escalation to SIGKILL is
+ * what ends it.
+ */
+test('a runtime that hangs past its deadline is ended, and the task halts (F5.6, F6.4)', async () => {
+  const fixture = await createCompany('cli-hang');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'codex', tools: ['dns.read'] });
+  const task = await newTask(fixture, { ask: 'read the zone' }, { deadlineAt: new Date(Date.now() + 1_500) });
+  const dir = await mkdtemp(join(tmpdir(), 'palugada-hang-'));
+  const pidFile = join(dir, 'hung.pid');
+
+  const [spec] = runtimeSpecsFrom([{
+    name: 'codex',
+    command: process.execPath,
+    args: [AGENT_CLI, '--mcp-config', '{mcpConfig}', '--hang', pidFile],
+  }]);
+  const started = Date.now();
+  const outcome = await engineWith(broker, new CliAdapter(spec!)).runTask(
+    fixture.companyId, task.id, 'worker',
+  );
+  const hung = await pidFrom(pidFile);
+
+  assert.equal(outcome.status, 'halted', outcome.reason);
+  assert.equal(outcome.reason, 'deadline_passed');
+  assert.equal(running(hung), false, 'a runtime that ignored SIGTERM was still killed');
+  assert.ok(Date.now() - started < 15_000, 'ended at its deadline, not whenever it chose');
+});
+
+/**
+ * Ended mid-sentence, a runtime's last words are a broken line, and the
+ * script adapter reads a broken line as "not speaking the protocol" -- an
+ * ordinary failure, which spends an attempt and runs the same overrun again.
+ * The deadline is why it stopped, and the deadline is what the engine is told.
+ */
+test('a runtime ended mid-line at its deadline halts on the deadline, not on the garbage', async () => {
+  const fixture = await createCompany('script-hang');
+  const broker = await brokerFor(fixture, []);
+  await configureRole(fixture, { runtime: 'script' });
+  const task = await newTask(fixture, { ask: 'anything' }, { deadlineAt: new Date(Date.now() + 1_000) });
+
+  const hangsMidLine = [
+    "process.on('SIGTERM', () => {});",
+    "process.stdin.resume();",
+    "process.stdout.write('{\"type\":\"text\",\"text\":\"half a thou');",
+    'setInterval(() => {}, 1000);',
+  ].join('\n');
+  const adapter = new ScriptAdapter({ command: process.execPath, args: ['-e', hangsMidLine] });
+  const outcome = await engineWith(broker, adapter).runTask(fixture.companyId, task.id, 'worker');
+
+  assert.equal(outcome.status, 'halted', outcome.reason);
+  assert.equal(outcome.reason, 'deadline_passed');
 });

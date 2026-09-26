@@ -42,6 +42,7 @@
  *     feature, because it reads like a choice somebody made.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
+import { spawnTree, TreeKeeper } from './process-tree.ts';
 import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -180,6 +181,7 @@ export class CliAdapter implements Adapter {
    */
   readonly backends: readonly ExecutionBackend[] = ['local'];
   readonly #spec: CliRuntimeSpec;
+  readonly #trees = new TreeKeeper();
 
   constructor(spec: CliRuntimeSpec) {
     const argv = spec.args.join(' ');
@@ -195,6 +197,8 @@ export class CliAdapter implements Adapter {
   }
 
   async health(): Promise<AdapterHealth> {
+    const stuck = this.#trees.unhealthy();
+    if (stuck) return stuck;
     const args = this.#spec.versionArgs ?? ['--version'];
     return new Promise((resolve) => {
       const child = spawn(this.#spec.command, args, {
@@ -278,7 +282,7 @@ export class CliAdapter implements Adapter {
     // credential on disk for a runtime that has already exited.
     const configFile = await this.#writeMcpConfig(bridge);
 
-    const child = spawn(
+    const child = spawnTree(
       this.#spec.command,
       this.argv({
         model: request.modelRouting.primary,
@@ -317,6 +321,12 @@ export class CliAdapter implements Adapter {
     child.stdin!.on('error', () => {});
     child.on('error', () => {});
 
+    // A withdrawn run ends its process now, not when the process next says
+    // something: these CLIs have no cancel message to receive, and one that
+    // has gone quiet would otherwise hold a worker for as long as it liked.
+    const withdraw = () => void this.#trees.end(child);
+    services.signal.addEventListener('abort', withdraw, { once: true });
+
     const transport: Transport = {
       events:
         (this.#spec.dialect ?? 'stream-json') === 'text'
@@ -326,10 +336,15 @@ export class CliAdapter implements Adapter {
         // Nothing to send. Tool answers reach this runtime over MCP, and a
         // cancellation reaches it as the killed process below.
       },
+      terminate: async () => {
+        await this.#trees.end(child);
+      },
       close: async () => {
+        services.signal.removeEventListener('abort', withdraw);
         await bridge.close();
         await configFile?.remove();
-        if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+        // The whole group, whether or not the CLI itself is still running.
+        await this.#trees.end(child);
       },
     };
 

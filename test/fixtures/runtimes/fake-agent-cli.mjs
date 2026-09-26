@@ -22,8 +22,13 @@
  *   --exit <code>                exit with this code instead of answering
  *   --dump-env                   answer with the environment it was given
  *   --prompt <text>              take the prompt here instead of on stdin
+ *   --spawn-orphan <pidfile>     start a child that outlives this process, and
+ *                                write its pid -- a CLI that leaves a dev
+ *                                server or a watcher running behind it
+ *   --hang <pidfile>             write this pid, ignore SIGTERM, never answer
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 
 const argv = process.argv.slice(2);
 const flag = (name) => {
@@ -40,6 +45,23 @@ const model = flag('--model') ?? 'unknown';
 // it unread would make the adapter's write succeed for the wrong reason.
 const fromStdin = await readAll(process.stdin);
 const prompt = flag('--prompt') ?? fromStdin;
+
+const hang = flag('--hang');
+if (hang !== null) {
+  writeFileSync(hang, String(process.pid));
+  process.on('SIGTERM', () => {});
+  setInterval(() => {}, 1_000);
+  await new Promise(() => {});
+}
+
+const orphan = flag('--spawn-orphan');
+if (orphan !== null) {
+  // Not detached: it stays in this process's group, which is exactly what an
+  // agent CLI's own children do.
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  child.unref();
+  writeFileSync(orphan, String(child.pid));
+}
 
 if (exitWith !== null) {
   process.stderr.write('the fake CLI was told to fail\n');

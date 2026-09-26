@@ -19,6 +19,7 @@
  * the keys.
  */
 import { spawn } from 'node:child_process';
+import { spawnTree, TreeKeeper } from './process-tree.ts';
 import type {
   Adapter,
   AdapterHealth,
@@ -48,12 +49,21 @@ export interface ScriptAdapterOptions {
    * exists and is executable, which is the failure that actually happens.
    */
   health?: () => Promise<AdapterHealth>;
+  /**
+   * How long a withdrawn run's script is given to act on `cancel` before its
+   * process tree is ended.
+   */
+  cancelGraceMs?: number;
 }
+
+/** Five seconds: enough to finish writing a line, not enough to start new work. */
+export const DEFAULT_CANCEL_GRACE_MS = 5_000;
 
 export class ScriptAdapter implements Adapter {
   readonly name: string;
   readonly backends: readonly ExecutionBackend[];
   readonly #options: ScriptAdapterOptions;
+  readonly #trees = new TreeKeeper();
 
   constructor(options: ScriptAdapterOptions) {
     this.name = options.name ?? 'script';
@@ -66,6 +76,8 @@ export class ScriptAdapter implements Adapter {
   }
 
   async health(): Promise<AdapterHealth> {
+    const stuck = this.#trees.unhealthy();
+    if (stuck) return stuck;
     if (this.#options.health) return this.#options.health();
     try {
       const { access, constants } = await import('node:fs/promises');
@@ -82,7 +94,7 @@ export class ScriptAdapter implements Adapter {
   }
 
   async run(request: RunRequest, services: RunServices): Promise<AdapterResult> {
-    const child = spawn(this.#options.command, this.#options.args ?? [], {
+    const child = spawnTree(this.#options.command, this.#options.args ?? [], {
       ...(this.#options.cwd ? { cwd: this.#options.cwd } : {}),
       // Not `process.env`. See the module comment: the parent's environment is
       // where the credentials are.
@@ -91,8 +103,8 @@ export class ScriptAdapter implements Adapter {
     });
 
     let stderr = '';
-    child.stderr.setEncoding('utf8');
-    child.stderr.on('data', (chunk: string) => {
+    child.stderr!.setEncoding('utf8');
+    child.stderr!.on('data', (chunk: string) => {
       // Bounded: a runtime that writes a gigabyte to stderr should not take the
       // orchestrator with it. The tail is kept because the last thing a dying
       // process says is usually why.
@@ -102,22 +114,41 @@ export class ScriptAdapter implements Adapter {
     // Errors on the pipes are expected: a runtime that exits while the engine
     // is answering a tool call closes stdin under it. Unhandled, that would be
     // an EPIPE crash of the orchestrator over a child process misbehaving.
-    child.stdin.on('error', () => {});
+    child.stdin!.on('error', () => {});
     child.on('error', () => {});
+
+    // A script speaks the protocol, so a withdrawn run is first *told*: the
+    // engine sends `cancel` and a well-behaved script finishes its step and
+    // stops. One that does not -- hung, or ignoring the message -- is ended
+    // after a grace period rather than waited on for ever.
+    const trees = this.#trees;
+    const graceMs = this.#options.cancelGraceMs ?? DEFAULT_CANCEL_GRACE_MS;
+    let deadline: NodeJS.Timeout | null = null;
+    const withdraw = () => {
+      deadline = setTimeout(() => void trees.end(child), graceMs);
+      deadline.unref();
+    };
+    services.signal.addEventListener('abort', withdraw, { once: true });
 
     const transport: Transport = {
       events: this.#events(child, () => stderr),
       async send(message: EngineMessage) {
-        if (child.stdin.destroyed) return;
-        child.stdin.write(`${JSON.stringify(message)}\n`);
+        if (child.stdin!.destroyed) return;
+        child.stdin!.write(`${JSON.stringify(message)}\n`);
+      },
+      async terminate() {
+        await trees.end(child);
       },
       async close() {
-        child.stdin.end();
-        if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
+        services.signal.removeEventListener('abort', withdraw);
+        if (deadline) clearTimeout(deadline);
+        child.stdin!.end();
+        // The whole group, whether or not the script itself is still running.
+        await trees.end(child);
       },
     };
 
-    child.stdin.write(`${JSON.stringify(toWireRequest(request))}\n`);
+    child.stdin!.write(`${JSON.stringify(toWireRequest(request))}\n`);
     return driveRun(request, services, transport);
   }
 

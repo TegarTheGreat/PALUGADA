@@ -229,6 +229,8 @@ export async function undelivered(
            ON n.inbox_item_id = i.id AND n.channel = $2 AND n.company_id = $1
         WHERE i.status = 'open'
           AND i.notify_after <= $3
+          -- Put off by the owner (0060): not sent until then.
+          AND (i.snoozed_until IS NULL OR i.snoozed_until <= $3)
           AND n.id IS NULL
         ORDER BY i.created_at`,
       [companyId, channel, now],

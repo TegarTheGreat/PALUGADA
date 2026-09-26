@@ -103,6 +103,8 @@ export interface InboxItem {
    * a link to find it.
    */
   goalChain: Array<{ kind: string; statement: string }>;
+  /** When an item the owner put off comes back (0060); null when it is not put off. */
+  snoozedUntil: Date | null;
 }
 
 export async function requestApproval(input: ApprovalInput): Promise<string> {
@@ -667,7 +669,14 @@ export async function raiseBudgetAlert(input: {
   });
 }
 
-export async function listOpen(companyId: string): Promise<InboxItem[]> {
+/**
+ * The open items: the queue by default, or the ones the owner put off (0060).
+ *
+ * Put off means out of the queue and its count until then, which is the
+ * whole of what snoozing is for; they are listed on their own so the owner
+ * can still find and wake one.
+ */
+export async function listOpen(companyId: string, options: { snoozed?: boolean } = {}): Promise<InboxItem[]> {
   return withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
       id: string; kind: InboxKind; status: InboxStatus;
@@ -675,9 +684,9 @@ export async function listOpen(companyId: string): Promise<InboxItem[]> {
       estimated_cost_cents: number; consequence_if_denied: string;
       task_id: string | null; expires_at: Date | null; created_at: Date;
       capability_name: string | null; role_slug: string | null; division_name: string | null;
-      question: string | null; options: string[] | null;
+      question: string | null; options: string[] | null; snoozed_until: Date | null;
     }>(
-      `SELECT i.id, i.kind, i.status, i.title, i.action_summary, i.rationale, i.tier,
+      `SELECT i.id, i.kind, i.status, i.title, i.action_summary, i.rationale, i.tier, i.snoozed_until,
               i.estimated_cost_cents, i.consequence_if_denied, i.task_id, i.expires_at,
               i.created_at, i.capability_name, r.slug AS role_slug, d.name AS division_name,
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->>'question' END AS question,
@@ -687,7 +696,10 @@ export async function listOpen(companyId: string): Promise<InboxItem[]> {
          LEFT JOIN roles r ON r.id = t.role_id
          LEFT JOIN divisions d ON d.id = t.division_id
         WHERE i.status = 'open'
+          AND (CASE WHEN $1 THEN i.snoozed_until > now()
+                    ELSE i.snoozed_until IS NULL OR i.snoozed_until <= now() END)
         ORDER BY i.created_at`,
+      [options.snoozed ?? false],
     );
     const items: InboxItem[] = [];
     for (const r of rows) {
@@ -702,6 +714,7 @@ export async function listOpen(companyId: string): Promise<InboxItem[]> {
         question: r.question,
         options: r.options,
         goalChain: chain.map((goal) => ({ kind: goal.kind, statement: goal.statement })),
+        snoozedUntil: r.snoozed_until,
       });
     }
     return items;
@@ -1178,6 +1191,48 @@ export async function decide(
       tx, companyId, row.task_id, itemId,
       decision === 'deny' ? 'cancelled' : 'running',
     );
+  });
+}
+
+/** The furthest an item may be put off. A month is "later"; past that it is "never". */
+const SNOOZE_MAX_MS = 30 * 24 * 60 * 60_000;
+
+/**
+ * Puts an open item off until a time, or brings it back with `null` (0060).
+ *
+ * Never past the item's own expiry: silence is a refusal (F10.4), and an
+ * item that expired while it was put off is one the owner never saw before
+ * it was refused for them.
+ */
+export async function snooze(companyId: string, itemId: string, until: Date | null): Promise<void> {
+  if (until !== null) {
+    if (!(until instanceof Date) || Number.isNaN(until.getTime()) || until.getTime() <= Date.now()) {
+      throw new PalugadaError('contract.violation', 'put it off until a time in the future', { field: 'until' });
+    }
+    if (until.getTime() - Date.now() > SNOOZE_MAX_MS) {
+      throw new PalugadaError('contract.violation', 'an item is put off for at most 30 days', { field: 'until' });
+    }
+  }
+  await withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<{ status: InboxStatus; expires_at: Date | null }>(
+      'SELECT status, expires_at FROM inbox_items WHERE id = $1 FOR UPDATE', [itemId]);
+    const item = rows[0];
+    if (!item || item.status !== 'open') throw await notOpen(tx, itemId);
+    if (until && item.expires_at && until >= item.expires_at) {
+      throw new PalugadaError(
+        'contract.violation',
+        `it expires before then, at ${item.expires_at.toISOString()}, and an unanswered item is refused; `
+          + 'put it off to before that, or decide it',
+        { field: 'until', expiresAt: item.expires_at },
+      );
+    }
+    await tx.query('UPDATE inbox_items SET snoozed_until = $2 WHERE id = $1', [itemId, until]);
+    await appendEvent(tx, {
+      companyId,
+      type: until ? 'owner.snoozed' : 'owner.woke',
+      actor: 'owner',
+      payload: { inboxItemId: itemId, ...(until ? { until: until.toISOString() } : {}) },
+    });
   });
 }
 

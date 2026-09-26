@@ -3645,6 +3645,30 @@ test('the owner hires a role and opens a division with the device, and starts a 
   }
 });
 
+/** Putting an item off over HTTP (0060), and finding it among the put-off ones. */
+test('the owner puts an item off and brings it back', async () => {
+  const owner = await console_();
+  try {
+    const fixture = await createCompany('snooze-http');
+    const token = await signIn(owner.url, owner.code());
+    const item = await inbox.requestApproval({
+      companyId: fixture.companyId, capabilityName: 'email.send', tier: 2, ttlHours: 72,
+      actionSummary: 'Send the Monday note', rationale: 'r', consequenceIfDenied: 'c',
+    });
+    const base = `/api/companies/${fixture.companyId}/inbox`;
+    const until = new Date(Date.now() + 24 * 60 * 60_000).toISOString();
+    assert.equal((await call(owner.url, 'POST', `${base}/${item}/snooze`, { token, body: { until: 'soon' } })).status, 400);
+    assert.equal((await call(owner.url, 'POST', `${base}/${item}/snooze`, { token, body: { until } })).status, 200);
+    assert.deepEqual((await call(owner.url, 'GET', base, { token })).body.items, []);
+    const later = (await call(owner.url, 'GET', `${base}?snoozed=1`, { token })).body.items as Array<{ id: string }>;
+    assert.deepEqual(later.map((one) => one.id), [item]);
+    assert.equal((await call(owner.url, 'POST', `${base}/${item}/snooze`, { token, body: { until: null } })).status, 200);
+    assert.equal(((await call(owner.url, 'GET', base, { token })).body.items as unknown[]).length, 1);
+  } finally {
+    await owner.close();
+  }
+});
+
 /** Search over HTTP: every company, and a query too short is refused, not run. */
 test('the owner searches every company from one box', async () => {
   const owner = await console_();

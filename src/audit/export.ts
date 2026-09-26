@@ -214,7 +214,7 @@ const SECTIONS: Section[] = [
                  estimated_cost_cents, consequence_if_denied, capability_name,
                  expires_at, decision, decided_at, decided_via, owner_note,
                  closed_reason, notify_after, payload, action_fingerprint,
-                 consumed_at, created_at
+                 consumed_at, snoozed_until, created_at
             FROM inbox_items ORDER BY created_at`,
   },
   {

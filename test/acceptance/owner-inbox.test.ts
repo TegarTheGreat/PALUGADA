@@ -878,3 +878,46 @@ test('paging the decision history loses nothing that closed in the same millisec
   assert.deepEqual(seen, [...ids].reverse(), 'every item, newest first, once each');
 });
 
+
+/**
+ * Putting an item off (0060). The inbox had one state for "not decided yet",
+ * so an item meant for Monday sat at the top all weekend. A snoozed item is
+ * out of the queue and its count, and not sent to a channel, until then --
+ * never past its own expiry, because silence still refuses (F10.4).
+ */
+test('an item put off leaves the queue until then, and comes back', async () => {
+  const fixture = await createCompany('snooze');
+  const later = await inbox.requestApproval({
+    companyId: fixture.companyId, capabilityName: 'email.send', tier: 2,
+    actionSummary: 'Send the Monday newsletter', rationale: 'r', consequenceIfDenied: 'c', ttlHours: 72,
+  });
+  const now = await inbox.requestApproval({
+    companyId: fixture.companyId, capabilityName: 'email.send', tier: 2,
+    actionSummary: 'Reply to the angry customer', rationale: 'r', consequenceIfDenied: 'c', ttlHours: 72,
+  });
+  const hour = 60 * 60_000;
+
+  await assert.rejects(inbox.snooze(fixture.companyId, later, new Date(Date.now() - hour)), /in the future/);
+  await assert.rejects(inbox.snooze(fixture.companyId, later, new Date(Date.now() + 80 * hour)), /expires before then/);
+  await inbox.snooze(fixture.companyId, later, new Date(Date.now() + 24 * hour));
+
+  assert.deepEqual((await inbox.listOpen(fixture.companyId)).map((item) => item.id), [now]);
+  const snoozed = await inbox.listOpen(fixture.companyId, { snoozed: true });
+  assert.deepEqual(snoozed.map((item) => item.id), [later]);
+  assert.ok(snoozed[0]!.snoozedUntil);
+
+  const { undelivered } = await import('../../src/owner/notify.ts');
+  const owed = await undelivered(fixture.companyId, 'test:chat', new Date(Date.now() + 25 * 60 * 60_000));
+  assert.deepEqual(owed.map((item) => item.id).sort(), [later, now].sort(), 'once the snooze ends it is sent');
+  const today = await undelivered(fixture.companyId, 'test:chat', new Date(Date.now() + 60_000));
+  assert.deepEqual(today.map((item) => item.id), [now], 'and not before');
+
+  // Woken early, it is back at once; a decided item cannot be put off.
+  await inbox.snooze(fixture.companyId, later, null);
+  assert.equal((await inbox.listOpen(fixture.companyId)).length, 2);
+  await inbox.decide(fixture.companyId, now, 'deny', 'no');
+  await assert.rejects(inbox.snooze(fixture.companyId, now, new Date(Date.now() + hour)), /already decided/);
+  const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ type: string }>(
+    "SELECT type FROM events WHERE type LIKE 'owner.%snooz%' OR type = 'owner.woke' ORDER BY occurred_at"));
+  assert.deepEqual(rows.map((row) => row.type), ['owner.snoozed', 'owner.woke']);
+});

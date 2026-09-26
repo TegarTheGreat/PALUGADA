@@ -407,8 +407,9 @@ export class OwnerApi {
         // The queue, grouped per company, which is F10.1's own shape.
         method: 'GET',
         pattern: '/api/companies/:companyId/inbox',
-        handle: async ({ params }) => ({
-          items: await inbox.listOpen(params.companyId!),
+        // `?snoozed=1` lists the items the owner put off instead (0060).
+        handle: async ({ params, query }) => ({
+          items: await inbox.listOpen(params.companyId!, { snoozed: query.get('snoozed') === '1' }),
         }),
       },
 
@@ -562,6 +563,18 @@ export class OwnerApi {
             },
           );
           void session;
+          return { ok: true };
+        },
+      },
+
+      {
+        // Putting an item off until later, or bringing it back with null
+        // (0060). Decides nothing, so the session is enough.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/inbox/:itemId/snooze',
+        handle: async ({ params, body }) => {
+          const until = body.until === null || body.until === undefined ? null : new Date(String(body.until));
+          await inbox.snooze(params.companyId!, params.itemId!, until);
           return { ok: true };
         },
       },

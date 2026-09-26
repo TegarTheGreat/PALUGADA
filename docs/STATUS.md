@@ -2668,6 +2668,12 @@ rest are listed at the end.
   on the way: the memory page's search did not escape `%` and `_`, so a
   search for "40%" matched every fact with a 40 in it; both searches take
   the query literally now.
+- Put an item off (0060, `snooze` in `src/inbox/inbox.ts`; the inbox's
+  "Later"). The inbox had one state for "not decided yet", so an item meant
+  for Monday sat at the top all weekend. A put-off item leaves the queue and
+  its count and is not sent to a channel until then; it is listed apart,
+  where "Now" brings it back. Never past the item's own expiry, since
+  silence still refuses (F10.4), and at most thirty days.
 - Measure goals by numbers (section 2.19).
 
 **F8.9, enforced where it does not depend on the model.** The untrusted

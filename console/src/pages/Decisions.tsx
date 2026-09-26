@@ -21,13 +21,13 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Alert, Anchor, Badge, Box, Button, Checkbox, Collapse, Divider, Grid, Group, Kbd, Modal, Paper,
+  Alert, Anchor, Badge, Box, Button, Checkbox, Collapse, Divider, Grid, Group, Kbd, Menu, Modal, Paper,
   ScrollArea, SegmentedControl, SimpleGrid, Stack, Text, Textarea, Title, Tooltip,
 } from '@mantine/core';
 import { useHotkeys, useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import {
-  IconArrowLeft, IconCheck, IconClock, IconMessageQuestion, IconRoute, IconTarget, IconX,
+  IconArrowLeft, IconCheck, IconClock, IconClockPause, IconMessageQuestion, IconRoute, IconTarget, IconX,
 } from '@tabler/icons-react';
 import { api, ApiError, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
@@ -59,11 +59,12 @@ function urgency(item: InboxItem): number {
 export function Decisions({ ctx, route }: PageProps) {
   const { companyId } = ctx;
   const queue = useLoad(async () => {
-    const [{ items }, digest]: [{ items: InboxItem[] }, Digest] = await Promise.all([
+    const [{ items }, digest, later]: [{ items: InboxItem[] }, Digest, { items: InboxItem[] }] = await Promise.all([
       api('GET', `/api/companies/${companyId}/inbox`),
       api('GET', `/api/companies/${companyId}/digest`),
+      api('GET', `/api/companies/${companyId}/inbox?snoozed=1`),
     ]);
-    return { items, digest };
+    return { items, digest, later: later.items };
   }, [companyId], { every: 15_000 });
   const [filter, setFilter] = useState<Filter>('all');
   const [missingLink, setMissingLink] = useState(false);
@@ -246,6 +247,26 @@ export function Decisions({ ctx, route }: PageProps) {
                     ))}
                   </Stack>
                 </ScrollArea.Autosize>
+                {queue.data.later.length > 0 && (
+                  <Box mt="xs" px={4}>
+                    <Divider mb="xs" label={t('Put off ({count})', { count: queue.data.later.length })} labelPosition="left" />
+                    <Stack gap={4}>
+                      {queue.data.later.map((item) => (
+                        <Group key={item.id} justify="space-between" wrap="nowrap" gap="xs">
+                          <Box style={{ minWidth: 0 }}>
+                            <Text size="sm" lineClamp={1}>{item.title}</Text>
+                            <Text size="xs" c="dimmed">{t('Back {when}', { when: relative(item.snoozedUntil!) })}</Text>
+                          </Box>
+                          <Button size="compact-xs" variant="subtle" onClick={() => {
+                            void api('POST', `/api/companies/${companyId}/inbox/${item.id}/snooze`, { until: null })
+                              .then(() => { select(item.id); queue.reload(); })
+                              .catch((failure) => notifications.show({ color: 'red', message: explain(failure) }));
+                          }}>{t('Now')}</Button>
+                        </Group>
+                      ))}
+                    </Stack>
+                  </Box>
+                )}
               </Paper>
             </Grid.Col>
           )}
@@ -486,7 +507,10 @@ function Detail({
               {t('All decisions')}
             </Button>
           ) : <span />}
-          <Text size="xs" c="dimmed">{position}</Text>
+          <Group gap="xs" wrap="nowrap">
+            <Later companyId={companyId} item={item} done={decided} />
+            <Text size="xs" c="dimmed">{position}</Text>
+          </Group>
         </Group>
         <Group gap="xs" mb="xs">
           <TierBadge tier={item.tier} />
@@ -626,6 +650,52 @@ function Detail({
       </Group>
       )}
     </Paper>
+  );
+}
+
+/**
+ * Putting an item off (0060): out of the queue and its count until then.
+ * The choices that would outlive the item are not offered -- it would be
+ * refused unanswered while the owner thought it was waiting for them.
+ */
+function Later({ companyId, item, done }: { companyId: string; item: InboxItem; done: () => void }) {
+  const at = (hours: number, hourOfDay?: number) => {
+    const when = new Date(Date.now() + hours * 60 * 60_000);
+    if (hourOfDay !== undefined) when.setHours(hourOfDay, 0, 0, 0);
+    return when;
+  };
+  const choices = [
+    { label: t('In an hour'), until: at(1) },
+    { label: t('Tomorrow morning'), until: at(24, 8) },
+    { label: t('In three days'), until: at(72) },
+    { label: t('Next week'), until: at(24 * 7) },
+  ];
+  const put = async (until: Date) => {
+    try {
+      await api('POST', `/api/companies/${companyId}/inbox/${item.id}/snooze`, { until: until.toISOString() });
+      notifications.show({ message: t('Put off until {when}.', { when: dateTime(until.toISOString()) }) });
+      done();
+    } catch (failure) {
+      notifications.show({ color: 'red', message: explain(failure) });
+    }
+  };
+  return (
+    <Menu position="bottom-end" withinPortal>
+      <Menu.Target>
+        <Button size="compact-xs" variant="subtle" color="gray" leftSection={<IconClockPause size={14} />}>{t('Later')}</Button>
+      </Menu.Target>
+      <Menu.Dropdown>
+        {choices.map((choice) => (
+          <Menu.Item
+            key={choice.label}
+            disabled={item.expiresAt !== null && choice.until >= new Date(item.expiresAt)}
+            onClick={() => void put(choice.until)}
+          >
+            {choice.label}
+          </Menu.Item>
+        ))}
+      </Menu.Dropdown>
+    </Menu>
   );
 }
 

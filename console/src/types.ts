@@ -45,6 +45,8 @@ export interface InboxItem {
   /** The answers it offered to choose from, when it offered some. */
   options: string[] | null;
   goalChain: Array<{ kind: string; statement: string }>;
+  /** When an item the owner put off comes back (0060). */
+  snoozedUntil: string | null;
 }
 
 export interface Digest {

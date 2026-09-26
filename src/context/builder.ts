@@ -19,12 +19,14 @@ import { answersFor, openQuestionsFor } from '../inbox/inbox.ts';
 import { languageName, languageRule, languagesFor } from '../domain/language.ts';
 import { metricsIn, renderMetrics } from '../domain/metrics.ts';
 import { instructionsFor } from '../engine/owner-control.ts';
+import { STAGE_PURPOSE, stageOf } from '../domain/stage.ts';
 
 export interface ContextSection {
   kind:
     | 'platform_charter'
     | 'company_charter'
     | 'language'
+    | 'stage'
     | 'sop'
     | 'confidence_warning'
     | 'semantic_memory'
@@ -242,12 +244,33 @@ async function languageSections(
   return [{ kind: 'language', title: 'Language', body }];
 }
 
+/**
+ * The company's stage (0057), after the language and before any knowledge.
+ *
+ * What the stage is for decides what good work looks like this month: in
+ * validate, a run that ships a feature has done the wrong job well. Nothing
+ * when the owner has not set one, rather than a guess.
+ */
+async function stageSections(tx: TenantClient, companyId: string): Promise<ContextSection[]> {
+  const stage = await stageOf(tx, companyId);
+  if (!stage) return [];
+  return [{
+    kind: 'stage',
+    title: 'Stage',
+    body:
+      `The company is in the ${stage.replace('_', ' ')} stage. ${STAGE_PURPOSE[stage]} ` +
+      'Only the owner moves the company to another stage; when you have the evidence that it ' +
+      'should move, propose it with stage.propose if you hold it, and otherwise say so in your result.',
+  }];
+}
+
 export async function buildContext(
   tx: TenantClient,
   options: BuildContextOptions,
 ): Promise<AssembledContext> {
   const sections: ContextSection[] = await readCharters(tx, options.companyId);
   sections.push(...await languageSections(tx, options.companyId, options.taskId));
+  sections.push(...await stageSections(tx, options.companyId));
   const granted = await grantedHere(tx, options.divisionId, ['skill.read', 'memory.search']);
 
   // F15.7: skills travel as summaries. A company with forty of them would

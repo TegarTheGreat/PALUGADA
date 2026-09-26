@@ -695,8 +695,8 @@ async function buildFacts(
   described: { moneyCents?: number; recipientDomain?: string | null; urlHost?: string | null } | undefined,
   now: Date,
 ): Promise<ActionFacts> {
-  const { rows } = await tx.query<{ timezone: string; division_slug: string }>(
-    `SELECT c.timezone, d.slug AS division_slug
+  const { rows } = await tx.query<{ timezone: string; division_slug: string; stage: string | null }>(
+    `SELECT c.timezone, c.stage, d.slug AS division_slug
        FROM companies c, divisions d
       WHERE c.id = $1 AND d.id = $2`,
     [ctx.companyId, ctx.divisionId],
@@ -713,6 +713,7 @@ async function buildFacts(
     url_host: described?.urlHost?.toLowerCase() ?? null,
     hour_local: localTimeIn(timezone, now).hour,
     calls_in_window: await countRecentInvocations(tx, ctx.divisionId, name),
+    stage: row?.stage ?? null,
   };
 }
 

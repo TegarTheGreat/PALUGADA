@@ -24,7 +24,8 @@ import { readSkill } from '../skills/skills.ts';
 import { TIER } from '../domain/tier.ts';
 import { recordPlan, type PlanStep } from '../engine/plan.ts';
 import { recordObservation } from '../domain/metrics.ts';
-import { askOwner } from '../inbox/inbox.ts';
+import { askOwner, raiseEscalationWithin } from '../inbox/inbox.ts';
+import { assertStage, loosens, stageOf, type Stage } from '../domain/stage.ts';
 import { createSubTask, getTask } from '../engine/tasks.ts';
 import { containChildResult } from '../engine/containment.ts';
 import { enqueueWake } from '../scheduler/wake.ts';
@@ -221,6 +222,89 @@ export function registerPlatformCapabilities(registry: {
   registry.register(ownerAskCapability() as unknown as Capability<never, never>);
   registry.register(taskDelegateCapability() as unknown as Capability<never, never>);
   registry.register(taskAwaitCapability() as unknown as Capability<never, never>);
+  registry.register(stageProposeCapability() as unknown as Capability<never, never>);
+}
+
+export interface StageProposeInput {
+  /** The stage the company should move to. */
+  to: string;
+  /** What shows it is time: numbers, what customers said and paid, with where each came from. */
+  evidence: string;
+  /** What the move should change, and what would make the owner move it back. */
+  why?: string;
+}
+
+/** The longest evidence a proposal carries; past it, the run should link to a document. */
+const EVIDENCE_MAX = 4_000;
+
+/**
+ * `stage.propose`: ask the owner to move the company to another stage (0057).
+ *
+ * auto-company's GO/NO-GO, as an item the owner answers. Approving it is what
+ * moves the company, in the same transaction as the answer; a move that
+ * loosens what the company may do is raised at tier 3, so it takes the
+ * owner's device and never happens in a batch or over chat. The item is not
+ * tied to the task that raised it: a "no" to the proposal is not a "stop" to
+ * the work that made it.
+ */
+export function stageProposeCapability(): Capability<StageProposeInput, { proposed: boolean; inboxItemId: string; note?: string }> {
+  return {
+    name: 'stage.propose',
+    adapter: 'platform',
+    defaultTier: TIER.READ_ONLY,
+    describe: () => ({ moneyCents: 0 }),
+    async execute(input, ctx) {
+      const to = assertStage(input.to);
+      const evidence = String(input.evidence ?? '').trim();
+      if (!evidence) {
+        throw new PalugadaError(
+          'contract.violation',
+          'a stage proposal needs its evidence: the numbers, what customers said and paid, and where each came from',
+          { field: 'evidence' },
+        );
+      }
+      if (evidence.length > EVIDENCE_MAX) {
+        throw new PalugadaError(
+          'contract.violation',
+          `evidence is at most ${EVIDENCE_MAX} characters; put the rest in a document and name it`,
+          { field: 'evidence' },
+        );
+      }
+      return withTenant(ctx.companyId, async (tx) => {
+        const from = await stageOf(tx, ctx.companyId);
+        if (from === to) {
+          throw new PalugadaError('contract.violation', `the company is already in the ${to} stage`, { stage: to });
+        }
+        // One proposal at a time: two open ones would let the owner approve
+        // both, and the second would move from a stage the first had left.
+        const { rows } = await tx.query<{ id: string; to: Stage }>(
+          `SELECT id, payload->'stageChange'->>'to' AS to FROM inbox_items
+            WHERE status = 'open' AND kind = 'escalation' AND payload ? 'stageChange'`,
+        );
+        const open = rows[0];
+        if (open) {
+          return {
+            proposed: false,
+            inboxItemId: open.id,
+            note: `A move to ${open.to} is already waiting for the owner; nothing more was proposed.`,
+          };
+        }
+        const tier = loosens(from, to) ? 3 : 2;
+        const why = typeof input.why === 'string' && input.why.trim() ? `\n\n${input.why.trim()}` : '';
+        const inboxItemId = await raiseEscalationWithin(tx, {
+          companyId: ctx.companyId,
+          title: `Move the company from ${from ?? 'no stage'} to ${to}?`,
+          detail: `${evidence}${why}`,
+          tier,
+          payload: { stageChange: { from, to }, proposedByTask: ctx.taskId },
+          consequenceIfDenied: from
+            ? `The company stays in the ${from} stage.`
+            : 'The company stays without a stage.',
+        });
+        return { proposed: true, inboxItemId };
+      });
+    },
+  };
 }
 
 export interface OwnerAskInput {
@@ -432,4 +516,5 @@ export function taskAwaitCapability(): Capability<{ childId: string }, TaskAwait
 /** The names this module implements, for a caller that needs to know. */
 export const PLATFORM_CAPABILITIES = [
   'memory.search', 'skill.read', 'plan.record', 'metric.record', 'owner.ask', 'task.delegate', 'task.await',
+  'stage.propose',
 ] as const;

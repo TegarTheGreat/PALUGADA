@@ -117,6 +117,17 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
       'it looks again, and holds no worker in between.',
   },
   {
+    // 0057. A run proposing that the company move to another stage.
+    name: 'stage.propose',
+    adapter: 'platform',
+    tier: TIER.READ_ONLY,
+    summary: 'Proposes to the owner that the company move to another stage, with the evidence.',
+    calibration:
+      'Opens one item in the owner\'s inbox and changes nothing: the stage ' +
+      'moves only when the owner approves, with their device when the move ' +
+      'loosens what the company may do.',
+  },
+  {
     // A run asking the owner what only the owner can answer; the task waits.
     name: 'owner.ask',
     adapter: 'platform',

@@ -99,7 +99,7 @@ test('PALUGADA can develop PALUGADA, and only by pull request', () => {
 
   // Every push waits for a reviewer that exists in the bundle and holds
   // nothing that writes.
-  const policy = body.policies.find((one) => one.condition.includes('repo.branch'))!;
+  const policy = body.policies.find((one) => JSON.stringify(one.condition).includes('repo.branch'))!;
   assert.equal(policy.effect, 'require_review');
   const reviewer = body.roles.find((role) => role.slug === (policy.params as { reviewer_role: string }).reviewer_role)!;
   assert.ok(reviewer, 'the review policy names a reviewer the bundle does not have');

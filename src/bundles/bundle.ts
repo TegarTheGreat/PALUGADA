@@ -36,6 +36,9 @@ import { isTrustedPublisher, keyFingerprint } from './publishers.ts';
 import type { CompanyTemplate, TemplateGrant, TemplateRole } from '../templates/company.ts';
 import type { Hook, HookName, HookPipeline } from '../engine/hooks.ts';
 import { assertValidCron, upsertSchedule } from '../scheduler/scheduler.ts';
+import { assertValidCondition, type Condition } from '../policy/condition.ts';
+import { POLICY_EFFECTS, type PolicyEffect } from '../policy/engine.ts';
+import { putPolicy } from '../governance/store.ts';
 
 export interface BundleSkill {
   slug: string;
@@ -94,18 +97,28 @@ export interface BundleCadence {
   priority?: number;
 }
 
+/**
+ * A rule the bundle brings (F3.4, F16.1).
+ *
+ * The condition is data, in the policy engine's own form. The first bundles
+ * wrote it as text -- `tool == "repo.branch"` -- which nothing parsed, and
+ * `installBundle` never installed a policy at all, so every review and
+ * approval a built-in bundle promised was a promise in a file.
+ */
+export interface BundlePolicy {
+  slug: string;
+  scope: 'company' | 'division';
+  division?: string;
+  condition: Condition;
+  effect: PolicyEffect;
+  params?: Record<string, unknown>;
+}
+
 export interface BundleBody {
   divisions: CompanyTemplate['divisions'];
   roles: TemplateRole[];
   grants: TemplateGrant[];
-  policies: Array<{
-    slug: string;
-    scope: 'company' | 'division';
-    division?: string;
-    condition: string;
-    effect: string;
-    params?: Record<string, unknown>;
-  }>;
+  policies: BundlePolicy[];
   skills: BundleSkill[];
   hooks: BundleHook[];
   schedules: BundleSchedule[];
@@ -252,6 +265,8 @@ export interface InstalledBundle {
   quarantined: boolean;
   roles: string[];
   skills: string[];
+  /** The policies now in force from it; a quarantined bundle's permissions are not among them. */
+  policies: string[];
 }
 
 /**
@@ -299,6 +314,23 @@ export async function installBundle(input: {
   const body = stored.body;
 
   const installed = await withTenant(input.companyId, async (tx) => {
+    // A review nobody in the company can give would hold the work it covers
+    // for ever. Asked before anything is written, so a refusal leaves nothing
+    // half installed.
+    const { rows: present } = await tx.query<{ slug: string }>('SELECT slug FROM roles');
+    const roles = new Set([...present.map((row) => row.slug), ...body.roles.map((role) => role.slug)]);
+    for (const policy of body.policies) {
+      const reviewer = policy.params?.reviewer_role;
+      if (policy.effect === 'require_review' && typeof reviewer === 'string' && !roles.has(reviewer)) {
+        throw new PalugadaError(
+          'bundle.invalid',
+          `policy ${policy.slug} is reviewed by ${reviewer}, which neither this bundle nor the company has; `
+            + 'install the bundle that brings that role first',
+          { slug: input.slug, policy: policy.slug, reviewer },
+        );
+      }
+    }
+
     const divisionIds = new Map<string, string>();
     for (const division of body.divisions) {
       const { rows } = await tx.query<{ id: string }>(
@@ -399,6 +431,7 @@ export async function installBundle(input: {
   });
 
   await installCadences(input.companyId, body, installed.divisionIds, quarantined);
+  const policies = await installPolicies(input.companyId, body, installed.divisionIds, quarantined);
 
   // The bundle's skills go in as candidates, not as active skills. F15.3 is
   // not waived by the knowledge arriving in a package: somebody still has to
@@ -420,7 +453,48 @@ export async function installBundle(input: {
     quarantined,
     roles: installed.roleSlugs,
     skills,
+    policies,
   };
+}
+
+/**
+ * A bundle's rules, through the owner's own write path.
+ *
+ * `putPolicy`, so each is versioned (F3.9) and the database's refusal to let a
+ * narrower scope loosen a broader one (F3.5) applies to a bundle exactly as it
+ * does to the owner. A quarantined bundle brings its restrictions and none of
+ * its permissions: an `allow` from a publisher nobody vouched for is the one
+ * kind of rule that could widen what the company does (F12.10).
+ */
+async function installPolicies(
+  companyId: string,
+  body: BundleBody,
+  divisionIds: Map<string, string>,
+  quarantined: boolean,
+): Promise<string[]> {
+  const installed: string[] = [];
+  for (const policy of body.policies) {
+    // A bundle published before conditions were data, still in the table.
+    if (typeof policy.condition !== 'object' || policy.condition === null) {
+      throw new PalugadaError(
+        'bundle.invalid',
+        `policy ${policy.slug} was published with its condition as text, which nothing reads; `
+          + 'publish the bundle again with the condition as data',
+        { policy: policy.slug },
+      );
+    }
+    if (quarantined && policy.effect === 'allow') continue;
+    await putPolicy({
+      companyId,
+      ...(policy.scope === 'division' ? { divisionId: divisionIds.get(policy.division!) } : {}),
+      slug: policy.slug,
+      effect: policy.effect,
+      condition: policy.condition,
+      ...(policy.params ? { params: policy.params } : {}),
+    });
+    installed.push(policy.slug);
+  }
+  return installed;
 }
 
 /**
@@ -636,6 +710,33 @@ export function assertBundleIsCoherent(bundle: Bundle): void {
   }
 
   const roleSlugs = new Set(bundle.body.roles.map((role) => role.slug));
+  for (const policy of bundle.body.policies) {
+    const invalid = (why: string) => new PalugadaError(
+      'bundle.invalid', `policy ${policy.slug} ${why}`, { slug: bundle.slug, policy: policy.slug },
+    );
+    if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(policy.slug ?? '')) throw invalid('needs a lowercase slug');
+    if (!(POLICY_EFFECTS as readonly string[]).includes(policy.effect)) {
+      throw invalid(`has effect ${String(policy.effect)}; it is one of ${POLICY_EFFECTS.join(', ')}`);
+    }
+    if (policy.scope !== 'company' && policy.scope !== 'division') throw invalid('is scoped to company or division');
+    if (policy.scope === 'division' && !divisions.has(policy.division ?? '')) {
+      throw invalid(`names division ${String(policy.division)}, which the bundle does not define`);
+    }
+    if (typeof policy.condition !== 'object' || policy.condition === null) {
+      throw invalid('writes its condition as text; write the condition as data, as the policy engine reads it');
+    }
+    try {
+      assertValidCondition(policy.condition);
+    } catch (error) {
+      throw invalid(`has a condition the policy engine refuses: ${(error as Error).message}`);
+    }
+    // The reviewer may come from another bundle -- qa-review brings the
+    // reviewer content-ops names -- so whether it exists is asked at install.
+    const reviewer = policy.params?.reviewer_role;
+    if (policy.effect === 'require_review' && (typeof reviewer !== 'string' || !reviewer.trim())) {
+      throw invalid('is a review and names no reviewer_role');
+    }
+  }
   for (const schedule of bundle.body.schedules) {
     if (!roleSlugs.has(schedule.roleSlug)) {
       throw new PalugadaError(

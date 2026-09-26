@@ -33,6 +33,7 @@ import {
   type SignedBundle,
 } from '../../src/bundles/bundle.ts';
 import { HookPipeline } from '../../src/engine/hooks.ts';
+import { evaluate } from '../../src/policy/engine.ts';
 import {
   isTrustedPublisher,
   keyFingerprint,
@@ -309,6 +310,66 @@ test('a company can be assembled from several bundles (F16.3, F16.5)', async () 
     return rows.map((row) => row.slug);
   });
   assert.deepEqual(divisions, ['content', 'ops', 'platform', 'platform-review', 'review', 'strategy', 'web']);
+
+  // And the rules they came with are in force. Every built-in bundle declared
+  // its policies and none was ever installed, so "a push waits for the
+  // reviewer" and "a DNS change waits for the owner" were promises in a file.
+  const { rows: policies } = await withControlPlane((tx) => tx.query<{ slug: string; effect: string; division: string | null }>(
+    `SELECT p.slug, p.effect, d.slug AS division FROM policies p LEFT JOIN divisions d ON d.id = p.division_id
+      WHERE p.company_id = $1 ORDER BY p.slug`, [fixture.companyId]));
+  assert.deepEqual(policies.map((row) => [row.slug, row.effect, row.division]), [
+    ['content-external-publish-needs-review', 'require_review', 'content'],
+    ['no-paid-reach-before-launch', 'deny', null],
+    ['palugada-dev-push-is-reviewed', 'require_review', 'platform'],
+    ['web-dns-always-owner', 'require_approval', 'web'],
+    ['wind-down-starts-nothing', 'deny', null],
+  ]);
+});
+
+/**
+ * A bundle's policy is a rule, so it is data the policy engine reads -- the
+ * first versions wrote it as text nothing parsed -- checked when the bundle is
+ * published, and in force once it is installed. A quarantined bundle brings
+ * its restrictions and none of its permissions.
+ */
+test("a bundle's policies are checked when published and in force once installed (F16.1, F3.4)", async () => {
+  const fixture = await createCompany('bundle-policies');
+  const text = { ...CONTENT_OPS, slug: 'as-text', body: { ...CONTENT_OPS.body, policies: [
+    { ...CONTENT_OPS.body.policies[0]!, condition: 'tool == "social.publish"' as never },
+  ] } };
+  await assert.rejects(publishBundle(text), (error: unknown) =>
+    isPalugadaError(error, 'bundle.invalid') && /condition as data/.test((error as Error).message));
+  const unnamed = { ...CONTENT_OPS, slug: 'no-reviewer', body: { ...CONTENT_OPS.body, policies: [
+    { ...CONTENT_OPS.body.policies[0]!, params: { criteria: 'x' } },
+  ] } };
+  await assert.rejects(publishBundle(unnamed), /is a review and names no reviewer_role/);
+
+  // The reviewer content-ops names comes from qa-review; without it, nothing
+  // is installed rather than a review nobody can give.
+  await registerStandardCatalogue();
+  await publishBundle(CONTENT_OPS);
+  await assert.rejects(installBundle({ companyId: fixture.companyId, slug: CONTENT_OPS.slug, version: CONTENT_OPS.version }),
+    /reviewed by qa-reviewer, which neither this bundle nor the company has/);
+  const { rows: nothing } = await withTenant(fixture.companyId, (tx) => tx.query("SELECT 1 FROM divisions WHERE slug = 'content'"));
+  assert.equal(nothing.length, 0, 'a refused install leaves nothing behind');
+  await installable(fixture, QA_REVIEW);
+  const loose: Bundle = { ...CONTENT_OPS, slug: 'loosening', body: { ...CONTENT_OPS.body, policies: [
+    ...CONTENT_OPS.body.policies,
+    { slug: 'publish-freely', scope: 'company', condition: { field: 'tool', op: 'eq', value: 'social.publish' }, effect: 'allow' },
+  ] } };
+
+  // Unsigned, so quarantined: the review comes in, the permission does not.
+  const installed = await installable(fixture, loose);
+  assert.equal(installed.quarantined, true);
+  assert.deepEqual(installed.policies, ['content-external-publish-needs-review']);
+  const decision = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ id: string }>("SELECT id FROM divisions WHERE slug = 'content'");
+    return evaluate(tx, fixture.companyId, rows[0]!.id, {
+      tool: 'social.publish', tier: 2, division: 'content', money_cents: 0, recipient_domain: null,
+      url_host: null, hour_local: 10, calls_in_window: 0, stage: null,
+    });
+  });
+  assert.equal(decision.effect, 'require_review');
 });
 
 /**
@@ -529,12 +590,11 @@ test('a company exports and imports with every reference remapped (F16.4)', asyn
     label: 'the test publisher',
     ownerApproved: true,
   });
-  await publishBundle(signBundle(CONTENT_OPS, keys));
-  await installBundle({
-    companyId: fixture.companyId,
-    slug: CONTENT_OPS.slug,
-    version: CONTENT_OPS.version,
-  });
+  // qa-review first: it brings the reviewer content-ops's policy names.
+  for (const bundle of [QA_REVIEW, CONTENT_OPS]) {
+    await publishBundle(signBundle(bundle, keys));
+    await installBundle({ companyId: fixture.companyId, slug: bundle.slug, version: bundle.version });
+  }
 
   const imported = await importCompany(
     await archiveLines(fixture.companyId),
@@ -569,11 +629,11 @@ test('a company exports and imports with every reference remapped (F16.4)', asyn
   // F1.5: the skills came with it, still as candidates.
   const skills = await withTenant(imported.companyId, async (tx) => {
     const { rows } = await tx.query<{ slug: string; state: string }>(
-      `SELECT s.slug, v.state FROM skills s JOIN skill_versions v ON v.skill_id = s.id`,
+      `SELECT s.slug, v.state FROM skills s JOIN skill_versions v ON v.skill_id = s.id ORDER BY s.slug`,
     );
     return rows;
   });
-  assert.deepEqual(skills, [{ slug: 'sourcing', state: 'candidate' }]);
+  assert.deepEqual(skills, [{ slug: 'reviewing', state: 'candidate' }, { slug: 'sourcing', state: 'candidate' }]);
 
   // An install points at a bundle in the platform's catalogue, which the
   // destination may not have, so it is reinstalled deliberately rather than

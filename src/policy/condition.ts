@@ -10,8 +10,10 @@
  *
  * F3.4 requires conditions to reference the tool, the tier, the division, an
  * amount of money, a destination (email domain or URL), the hour, and a call
- * count within a window. Those are exactly the fields below; adding another is
- * a change here rather than a new expression language.
+ * count within a window. Those are the fields below, with one more: the
+ * company's stage (0057), so "no paid reach before launch" is a policy rather
+ * than a hope. Adding another is a change here rather than a new expression
+ * language.
  */
 import { PalugadaError } from '../errors.ts';
 
@@ -33,6 +35,8 @@ export interface ActionFacts {
   hour_local: number;
   /** Calls to this capability by this division in the trailing window. */
   calls_in_window: number;
+  /** The company's stage (src/domain/stage.ts); null until the owner sets one. */
+  stage: string | null;
 }
 
 export type FactName = keyof ActionFacts;
@@ -58,6 +62,7 @@ const FACT_NAMES: ReadonlySet<string> = new Set([
   'url_host',
   'hour_local',
   'calls_in_window',
+  'stage',
 ]);
 
 /**

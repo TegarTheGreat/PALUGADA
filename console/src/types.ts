@@ -1,5 +1,7 @@
 /** The shapes the owner API answers with, as the pages read them. */
 
+export type Stage = 'explore' | 'validate' | 'build' | 'launch' | 'grow' | 'wind_down';
+
 export interface Company {
   id: string;
   slug: string;
@@ -9,6 +11,8 @@ export interface Company {
   workLanguage: string | null;
   /** What its agents write to the owner and each other in; null follows the default. */
   talkLanguage: string | null;
+  /** Where the company is in its life (0057); null until the owner sets one. */
+  stage: Stage | null;
   /** The first metric on its highest active goal, or null when nothing is measured yet. */
   headline: {
     name: string;

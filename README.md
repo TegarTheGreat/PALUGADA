@@ -254,6 +254,10 @@ documentation, cited in
   Standard Webhooks are checked exactly as they sign; what they send (JSON, a
   form or text) is data, and work that began outside takes no tier 2 action
   without the owner.
+- A company has a stage -- explore, validate, build, launch, grow, wind down
+  -- that the owner sets and policies read: no paid reach before launch is a
+  rule, not a hope. The strategist proposes a move with the evidence; the
+  GO takes the owner's device.
 - An agent that needs the owner asks, and its task waits for the answer.
 
 **PALUGADA develops PALUGADA**

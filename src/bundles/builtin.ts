@@ -59,7 +59,7 @@ function role(input: {
 
 export const CONTENT_OPS: Bundle = {
   slug: 'content-ops',
-  version: '1.0.0',
+  version: '1.1.0',
   name: 'Content operations',
   description: 'Researches, drafts and publishes written material.',
   body: {
@@ -102,7 +102,12 @@ export const CONTENT_OPS: Bundle = {
         slug: 'content-external-publish-needs-review',
         scope: 'division',
         division: 'content',
-        condition: 'tool == "social.publish" or tool == "email.send"',
+        condition: {
+          any: [
+            { field: 'tool', op: 'eq', value: 'social.publish' },
+            { field: 'tool', op: 'eq', value: 'email.send' },
+          ],
+        },
         effect: 'require_review',
         params: {
           reviewer_role: 'qa-reviewer',
@@ -163,7 +168,7 @@ find the primary source, not a substitute for it.
 
 export const WEB_OPS: Bundle = {
   slug: 'web-ops',
-  version: '1.0.0',
+  version: '1.1.0',
   name: 'Web operations',
   description: 'Hosting, domains and deployment, with the tiers the catalogue calibrated.',
   body: {
@@ -197,7 +202,12 @@ export const WEB_OPS: Bundle = {
         slug: 'web-dns-always-owner',
         scope: 'division',
         division: 'web',
-        condition: 'tool == "dns.update" and tier >= 3',
+        condition: {
+          all: [
+            { field: 'tool', op: 'eq', value: 'dns.update' },
+            { field: 'tier', op: 'gte', value: 3 },
+          ],
+        },
         effect: 'require_approval',
       },
     ],
@@ -336,7 +346,7 @@ Approving is a claim that you checked. "It looks fine" is not a review.
  */
 export const PALUGADA_DEV: Bundle = {
   slug: 'palugada-dev',
-  version: '1.0.0',
+  version: '1.1.0',
   name: 'Develop PALUGADA',
   description: 'A platform engineer and a reviewer that change PALUGADA itself, by pull request.',
   body: {
@@ -390,7 +400,7 @@ export const PALUGADA_DEV: Bundle = {
         slug: 'palugada-dev-push-is-reviewed',
         scope: 'division',
         division: 'platform',
-        condition: 'tool == "repo.branch"',
+        condition: { field: 'tool', op: 'eq', value: 'repo.branch' },
         effect: 'require_review',
         params: {
           reviewer_role: 'platform-reviewer',
@@ -498,18 +508,23 @@ Approving is a claim that you checked. Say what you checked.
  * -- never applies them. And the one cadence every company needs: the weekly
  * business review, Monday morning in the company's time zone.
  *
+ * And the stage gates (0057): the strategist proposes a move with the evidence
+ * the stage-gates skill names, the owner decides, and two rules read the
+ * stage -- no paid reach before launch, and nothing new once the company is
+ * winding down.
+ *
  * Written for this platform rather than copied: each skill is short, says what
  * a run must do rather than what an expert believes, and has an eval naming the
  * sentence that must not be lost.
  */
 export const COMPANY_OS: Bundle = {
   slug: 'company-os',
-  version: '1.0.0',
+  version: '1.1.0',
   name: 'Company operating kit',
   description:
-    'A strategist, a weekly business review, and the operating skills a company decides with: ' +
-    'validating an idea, premortems, pricing, unit economics, customer discovery, launch readiness, ' +
-    'outbound rules and the weekly review.',
+    'A strategist, a weekly business review, stage gates, and the operating skills a company decides ' +
+    'with: validating an idea, premortems, pricing, unit economics, customer discovery, launch ' +
+    'readiness, outbound rules and the weekly review.',
   body: {
     divisions: [{ slug: 'strategy', name: 'Strategy', maxConcurrency: 1 }],
     roles: [
@@ -524,11 +539,12 @@ export const COMPANY_OS: Bundle = {
           'result that would make you stop. You propose; you never change a goal, a budget or a ' +
           'grant. When another role holds a number you need, delegate the question with ' +
           'task.delegate and read the answer with task.await. When only the owner can answer ' +
-          'something, ask them with owner.ask rather than guessing. Write for the owner in the ' +
-          'company\'s language, briefly.',
+          'something, ask them with owner.ask rather than guessing. When the evidence says the ' +
+          'company should move to another stage -- or back -- propose it with stage.propose, ' +
+          'following the stage-gates skill. Write for the owner in the company\'s language, briefly.',
         tools: [
           'memory.search', 'skill.read', 'plan.record', 'metric.record', 'owner.ask',
-          'task.delegate', 'task.await', 'metrics.read', 'ledger.read', 'web.fetch', 'doc.draft',
+          'task.delegate', 'task.await', 'stage.propose', 'metrics.read', 'ledger.read', 'web.fetch', 'doc.draft',
         ],
         doneCriteria: [
           'every claim names where it came from and how sure it is: confirmed, likely or speculative',
@@ -547,12 +563,44 @@ export const COMPANY_OS: Bundle = {
       // a number, the bookkeeper for the ledger -- rather than guessing.
       { division: 'strategy', capability: 'task.delegate' },
       { division: 'strategy', capability: 'task.await' },
+      // To ask the owner for the GO or NO-GO, which only they give (0057).
+      { division: 'strategy', capability: 'stage.propose' },
       { division: 'strategy', capability: 'metrics.read' },
       { division: 'strategy', capability: 'ledger.read' },
       { division: 'strategy', capability: 'web.fetch' },
       { division: 'strategy', capability: 'doc.draft' },
     ],
-    policies: [],
+    // The stage gates (0057), as rules. Company-wide, because paid reach and
+    // new work are the company's to hold back, whichever division reaches for
+    // them. A company with no stage set has proved nothing a stage policy
+    // allows, so it is held back too.
+    policies: [
+      {
+        slug: 'no-paid-reach-before-launch',
+        scope: 'company',
+        condition: {
+          all: [
+            { field: 'tool', op: 'matches', value: 'ads.*' },
+            { not: { field: 'stage', op: 'in', value: ['launch', 'grow'] } },
+          ],
+        },
+        effect: 'deny',
+      },
+      {
+        // Winding down: what is owed is finished, and nothing new reaches
+        // anybody outside. Finance still pays and invoices what is owed.
+        slug: 'wind-down-starts-nothing',
+        scope: 'company',
+        condition: {
+          all: [
+            { field: 'stage', op: 'eq', value: 'wind_down' },
+            { field: 'tier', op: 'gte', value: 2 },
+            { not: { field: 'division', op: 'eq', value: 'finance' } },
+          ],
+        },
+        effect: 'deny',
+      },
+    ],
     skills: [
       {
         slug: 'idea-validation',
@@ -787,6 +835,43 @@ A message that breaks these is not sent, whatever the campaign.
         ],
       },
       {
+        slug: 'stage-gates',
+        scope: 'company',
+        source: `---
+name: stage-gates
+description: When the company moves from one stage to the next, and what the move must carry.
+---
+
+# Stage gates
+
+The company is in one stage at a time: explore, validate, build, launch, grow,
+or wind down. Only the owner moves it. Propose a move with stage.propose, with
+the evidence, and never act as though it had moved before they approve.
+
+- **Explore to validate:** a problem people have, named, with what it costs
+  them now, heard from at least five of them.
+- **Validate to build (the GO):** willingness to pay shown by money or a signed
+  commitment, the idea-validation memo and a premortem. Interest is not
+  evidence. A NO-GO is a result, not a failure: say it plainly.
+- **Build to launch:** the launch-readiness checklist, every item checked.
+- **Launch to grow:** a number the goals name moving the right way for four
+  weeks, and customers who stay.
+- **To wind down:** the numbers have not moved for long enough that the
+  weekly review keeps saying stop. Propose it; say what is owed to customers.
+
+Going back a stage is allowed and is often right. Propose it the same way.
+Each proposal names the evidence, where each piece came from, and what result
+would make the owner move the company back.
+`,
+        evals: [
+          {
+            name: 'names the GO evidence',
+            input: { question: 'are we ready to build?' },
+            expectContains: ['willingness to pay', 'premortem', 'NO-GO'],
+          },
+        ],
+      },
+      {
         slug: 'weekly-business-review',
         scope: 'company',
         source: `---
@@ -835,4 +920,5 @@ a review.
   },
 };
 
-export const BUILT_IN_BUNDLES: readonly Bundle[] = [CONTENT_OPS, WEB_OPS, QA_REVIEW, PALUGADA_DEV, COMPANY_OS];
+// In the order they install: qa-review brings the reviewer content-ops names.
+export const BUILT_IN_BUNDLES: readonly Bundle[] = [QA_REVIEW, CONTENT_OPS, WEB_OPS, PALUGADA_DEV, COMPANY_OS];

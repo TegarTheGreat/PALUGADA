@@ -3575,6 +3575,39 @@ test('the owner approves several items in one press, and tier 3 waits for the de
 });
 
 /**
+ * The stage over HTTP (0057): forward with the device, back with the session,
+ * and the company list says where each company is.
+ */
+test('the owner moves a company forward with the device and back with the session (0057)', async () => {
+  const owner = await console_();
+  try {
+    const fixture = await createCompany('stage-http');
+    const token = await signIn(owner.url, owner.code());
+    const path = `/api/companies/${fixture.companyId}/stage`;
+
+    const unproven = await call(owner.url, 'POST', path, { token, body: { stage: 'launch' } });
+    assert.notEqual(unproven.status, 200, 'forward loosens, so it takes the device');
+    const wrong = await call(owner.url, 'POST', path, { token, body: { stage: 'scale' } });
+    assert.equal(wrong.status, 400);
+    const moved = await call(owner.url, 'POST', path, {
+      token, body: { stage: 'launch', note: 'ready', proof: { totp: owner.code() } },
+    });
+    assert.equal(moved.status, 200, JSON.stringify(moved.body));
+    assert.deepEqual(moved.body, { from: null, to: 'launch' });
+    const back = await call(owner.url, 'POST', path, { token, body: { stage: 'build' } });
+    assert.equal(back.status, 200, JSON.stringify(back.body));
+    const down = await call(owner.url, 'POST', path, { token, body: { stage: 'wind_down' } });
+    assert.equal(down.status, 200, 'winding down only closes things');
+
+    const listed = await call(owner.url, 'GET', '/api/companies', { token });
+    const mine = (listed.body.companies as Array<{ id: string; stage: string | null }>).find((one) => one.id === fixture.companyId);
+    assert.equal(mine!.stage, 'wind_down');
+  } finally {
+    await owner.close();
+  }
+});
+
+/**
  * Inbound triggers over HTTP (0054): the owner opens one with their device,
  * another service posts to its URL with its token, and a wrong token, an
  * unknown URL or a closed door answer as HTTP says they should.

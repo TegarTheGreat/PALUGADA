@@ -731,7 +731,7 @@ function Policies({ companyId }: { companyId: string }) {
         </SimpleGrid>
         <Textarea
           label={t('Condition')}
-          description={t('A field, a comparison and a value. Fields: tool, tier, division, money_cents, recipient_domain, url_host, hour_local, calls_in_window. Comparisons: eq, ne, gt, gte, lt, lte, in, not_in, matches. Combine with "all", "any" and "not".')}
+          description={t('A field, a comparison and a value. Fields: tool, tier, division, money_cents, recipient_domain, url_host, hour_local, calls_in_window, stage. Comparisons: eq, ne, gt, gte, lt, lte, in, not_in, matches. Combine with "all", "any" and "not".')}
           autosize minRows={4} ff="monospace" value={condition} onChange={(event) => setCondition(event.currentTarget.value)}
         />
         {error && <Alert color="red" variant="light">{error}</Alert>}

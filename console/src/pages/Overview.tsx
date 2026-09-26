@@ -24,6 +24,7 @@ import { N, t } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
 import { KpiStrip, LoadFailed, Loading, PageHeader, Section, StatusBadge } from '../components/ui.tsx';
 import { MetricLine } from '../components/Metrics.tsx';
+import { StageCard } from '../components/Stage.tsx';
 import { TaskProgress } from './Work.tsx';
 
 const STAGES: Array<{ id: string; label: string; statuses: string[]; color: string; page: 'work' | 'inbox' }> = [
@@ -81,6 +82,8 @@ export function Overview({ ctx }: PageProps) {
         { label: t('Done this week'), value: retro.tasksCompleted, hint: t('Week ending {day}', { day: day(retro.weekEnding) }) },
         { label: t('Spent this period'), value: money(spend.spentCents), hint: t('of {limit}', { limit: money(spend.limitCents) }), alert: used >= 100, onClick: () => ctx.open('money') },
       ]} />
+
+      <StageCard companyId={companyId} stage={ctx.company.stage} changed={() => { void ctx.refreshCompanies(); }} />
 
       <Section title={t('Where the work is')} description={t('Tasks by stage, right now. A pile in one stage is where things are stuck.')}>
         <SimpleGrid cols={{ base: 2, sm: 3, md: 5 }} spacing="sm">

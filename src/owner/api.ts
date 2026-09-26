@@ -74,6 +74,7 @@ import { healthFor } from '../broker/preflight.ts';
 import { costTimeline, platformCost } from '../reporting/cost.ts';
 import { rotateCredential } from '../secrets/rotation.ts';
 import type { SecretManager } from '../secrets/manager.ts';
+import { assertStage, loosens, setStage, stageOf, type Stage } from '../domain/stage.ts';
 import { appendEvent, readTaskEvents } from '../audit/event-log.ts';
 import { describeReplay, replayTask } from '../engine/replay.ts';
 import { assignTask } from '../scheduler/wake.ts';
@@ -887,6 +888,23 @@ export class OwnerApi {
           const talk = body.talk === null ? null : languageCode(body.talk, 'talk');
           await setCompanyLanguages(params.companyId!, { work, talk });
           return withTenant(params.companyId!, (tx) => languagesFor(tx, params.companyId!));
+        },
+      },
+
+      {
+        // Where the company is in its life (0057). Moving it to a later stage
+        // loosens whatever policies read the stage -- paid reach opens at
+        // launch -- so that takes the owner's device; moving back or to
+        // winding down only closes things, and the session is enough.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/stage',
+        handle: async ({ params, body }) => {
+          const to = assertStage(body.stage);
+          const current = await withTenant(params.companyId!, (tx) => stageOf(tx, params.companyId!));
+          if (loosens(current, to)) {
+            await this.#requireFactor(body.proof, `move the company to the ${to} stage`, params.companyId!);
+          }
+          return setStage(params.companyId!, to, typeof body.note === 'string' ? body.note : undefined);
         },
       },
 
@@ -2557,14 +2575,15 @@ function send(res: ServerResponse, status: number, body: unknown): void {
 /** Every company the owner has, newest last, which is how they were made. */
 async function companies(): Promise<Array<{
   id: string; slug: string; name: string; frozen: boolean; workLanguage: string | null; talkLanguage: string | null;
-  headline: Headline | null;
+  stage: Stage | null; headline: Headline | null;
 }>> {
   return withControlPlane(async (tx) => {
     const { rows } = await tx.query<{
       id: string; slug: string; name: string; frozen: boolean; workLanguage: string | null; talkLanguage: string | null;
+      stage: Stage | null;
     }>(
       `SELECT id, slug, name, frozen_at IS NOT NULL AS frozen,
-              work_language AS "workLanguage", talk_language AS "talkLanguage"
+              work_language AS "workLanguage", talk_language AS "talkLanguage", stage
          FROM companies ORDER BY created_at`,
     );
     const measured = await headlines(tx);

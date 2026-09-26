@@ -68,7 +68,7 @@ interface Section {
 }
 
 const SECTIONS: Section[] = [
-  { name: 'company', sql: 'SELECT id, slug, name, timezone, frozen_at, created_at, work_language, talk_language FROM companies' },
+  { name: 'company', sql: 'SELECT id, slug, name, timezone, frozen_at, created_at, work_language, talk_language, stage FROM companies' },
   { name: 'projects', sql: 'SELECT id, slug, name, created_at FROM projects ORDER BY created_at' },
   {
     name: 'divisions',

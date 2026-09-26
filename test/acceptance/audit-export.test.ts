@@ -323,6 +323,7 @@ test('a restored company still refuses what its policy refused (F1.5, F3.3)', as
       url_host: null,
       hour_local: 12,
       calls_in_window: 0,
+      stage: null,
     });
   });
   assert.equal(decision.effect, 'require_approval', 'a restored company that deploys freely');

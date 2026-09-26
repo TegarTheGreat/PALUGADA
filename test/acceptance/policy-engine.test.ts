@@ -35,6 +35,7 @@ const FACTS: ActionFacts = {
   url_host: null,
   hour_local: 14,
   calls_in_window: 0,
+  stage: null,
 };
 
 function policy(overrides: Partial<PolicyRow>): PolicyRow {

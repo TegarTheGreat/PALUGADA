@@ -22,6 +22,13 @@ import { notifyAfterFor } from '../scheduler/windows.ts';
 import { escalationPolicyFor } from '../governance/structure.ts';
 import { ancestryForTask } from '../domain/goals.ts';
 import { approveCandidate, rejectCandidate } from '../memory/store.ts';
+import { setStageWithin, stageOf, type Stage } from '../domain/stage.ts';
+
+/** What a stage proposal's item carries (`stage.propose`). */
+interface StageChange {
+  from: Stage | null;
+  to: Stage;
+}
 import type { Tier } from '../domain/tier.ts';
 import type { OwnerMfa, VerifiedFactor, WebAuthnAssertion } from '../owner/mfa.ts';
 
@@ -965,13 +972,21 @@ export async function decide(
   // tier 3 action. The safe default is the one that refuses.
   let assurance: OwnerAssurance = options.assurance ?? 'none';
   // F10.10: read the tier before the update, so a refusal changes nothing.
-  const tier = await withTenant(companyId, async (tx) => {
-    const { rows } = await tx.query<{ tier: number | null }>(
-      "SELECT tier FROM inbox_items WHERE id = $1 AND status = 'open'",
+  const { tier, stageChange } = await withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<{ tier: number | null; stage_change: StageChange | null }>(
+      "SELECT tier, payload->'stageChange' AS stage_change FROM inbox_items WHERE id = $1 AND status = 'open'",
       [itemId],
     );
-    return rows[0]?.tier ?? null;
+    return { tier: rows[0]?.tier ?? null, stageChange: rows[0]?.stage_change ?? null };
   });
+  // Approving a stage proposal moves the company, which the application role
+  // may not write (0047), so that one decision is made on the control plane --
+  // still one transaction, so the answer and the move happen together. The
+  // item was just read inside this company's scope, which is the check row
+  // security would have made.
+  const moving = stageChange !== null && decision === 'approve';
+  const transaction = <T>(fn: (tx: TenantClient) => Promise<T>) =>
+    moving ? withControlPlane(fn) : withTenant(companyId, fn);
 
   let factor: VerifiedFactor | null = null;
   if (decision === 'approve' && (tier ?? 0) >= 3) {
@@ -1037,7 +1052,7 @@ export async function decide(
   // because the item was already decided. Buzz ships this exact defect (an
   // approval committed, then the run resumed from a detached task), and so
   // did this.
-  await withTenant(companyId, async (tx) => {
+  await transaction(async (tx) => {
     // The task before the item, which is the order every other writer takes
     // them in -- the stop button's trigger included -- so a decision racing a
     // stop waits for it rather than deadlocking against it.
@@ -1107,6 +1122,21 @@ export async function decide(
           payload: { memoryId, applied: activated },
         });
       }
+    }
+
+    // 0057: a proposal to move the company's stage is answered by moving it,
+    // from where the proposal said it was and nowhere else.
+    if (moving) {
+      const current = await stageOf(tx, companyId);
+      if (current !== stageChange!.from) {
+        throw new PalugadaError(
+          'contract.violation',
+          `the company is no longer in the ${stageChange!.from ?? 'unset'} stage this proposed moving from; `
+            + 'deny it, and ask for a new proposal',
+          { inboxItemId: itemId, stage: current },
+        );
+      }
+      await setStageWithin(tx, companyId, stageChange!.to, { inboxItemId: itemId, note });
     }
 
     // F9.1: an escalation about a schedule is answered by acting on it. Deny

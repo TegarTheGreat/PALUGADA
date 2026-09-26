@@ -2585,6 +2585,30 @@ rest are listed at the end.
   run's question and an incident are never approved in a batch -- they come
   back unapproved with the reason and stay in the inbox -- and any of them may
   be denied, because no is never the dangerous direction.
+- Stage gates (0057, `src/domain/stage.ts`): a company is in explore,
+  validate, build, launch, grow or wind down, set by the owner and by no
+  run (the application role cannot write `companies`). Policies read it as
+  the `stage` fact, every run is told it with what the stage is for, and a
+  run proposes a move with `stage.propose` -- an escalation the owner
+  answers, raised at tier 3 when the move loosens, so the GO takes their
+  device and never happens in a batch or over chat. Approving moves the
+  company in the same transaction as the answer, and only from the stage
+  the proposal was made in; a proposal the owner overtakes is withdrawn.
+  `company-os` 1.1.0 brings the rules (no paid reach before launch; nothing
+  new while winding down), a `stage-gates` skill naming the evidence each
+  gate needs, and `stage.propose` for the strategist. The console shows the
+  stage on the company's overview.
+- A defect found building that: `installBundle` never installed a bundle's
+  policies, and their conditions were text nothing parsed. Every review and
+  approval a built-in bundle promised -- content-ops' review before
+  publishing, web-ops' owner approval for DNS, palugada-dev's review before
+  a push -- was a promise in a file. Conditions are now data in the policy
+  engine's form, checked when a bundle is published, and installed through
+  `putPolicy`; a quarantined bundle brings its restrictions and none of its
+  `allow`s, and a review naming a reviewer the company does not have
+  refuses the install before anything is written. The changed built-ins are
+  version 1.1.0, and qa-review installs first because it brings the reviewer
+  content-ops names.
 - Measure goals by numbers (section 2.19).
 
 **F8.9, enforced where it does not depend on the model.** The untrusted
@@ -2595,8 +2619,8 @@ work delegated (`begunOutside` in `src/engine/tasks.ts`).
 
 **Still open, in the order they would be taken**
 
-- A strategy role in the standard template itself, and stage gates (explore,
-  validate, build, launch, grow) that policies can read.
+- A strategy role in the standard template itself; for now the company-os
+  bundle brings one.
 - Per-company connections to outside accounts from the console, and coding
   workspaces.
 

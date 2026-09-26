@@ -35,6 +35,7 @@
  *     not coming.
  */
 import { randomUUID } from 'node:crypto';
+import { isStage } from '../domain/stage.ts';
 import { withControlPlane, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
@@ -419,14 +420,16 @@ export async function importCompany(
   // company's id and no other.
   return withControlPlane(async (tx) => {
     const { rows } = await tx.query<{ id: string }>(
-      `INSERT INTO companies (slug, name, timezone, work_language, talk_language)
-       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      `INSERT INTO companies (slug, name, timezone, work_language, talk_language, stage)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
       [
         options.slug, options.name ?? String(source!.name ?? options.slug), String(source!.timezone ?? 'UTC'),
         // What the company works and talks in travels with it; an archive from
         // before languages existed has neither, and gets the default here.
         typeof source!.work_language === 'string' ? source!.work_language : null,
         typeof source!.talk_language === 'string' ? source!.talk_language : null,
+        // And where it is in its life (0057), which the stage policies read.
+        isStage(source!.stage) ? source!.stage : null,
       ],
     );
     const companyId = rows[0]!.id;

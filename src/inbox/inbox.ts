@@ -15,10 +15,11 @@ import { randomUUID } from 'node:crypto';
 import { withTenant, withControlPlane, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
-import { getTask, transitionWithin } from '../engine/tasks.ts';
+import { createRootTask, getTask, transitionWithin } from '../engine/tasks.ts';
 import { releaseReservations } from '../engine/owner-control.ts';
 import { TERMINAL_STATUSES, isTerminal } from '../domain/task.ts';
 import { notifyAfterFor } from '../scheduler/windows.ts';
+import { enqueueWake } from '../scheduler/wake.ts';
 import { escalationPolicyFor } from '../governance/structure.ts';
 import { ancestryForTask } from '../domain/goals.ts';
 import { approveCandidate, rejectCandidate } from '../memory/store.ts';
@@ -407,6 +408,136 @@ export async function raiseEscalationWithin(tx: TenantClient, input: EscalationI
     },
   });
   return id;
+}
+
+/** How much of the handling role's own account the owner's item carries. */
+const HANDLED_NOTE_LIMIT = 1_000;
+
+/**
+ * Hands each escalation to the role its division names (F2.1), and adds what
+ * that role did to the item the owner reads.
+ *
+ * The item already said "ops-lead was asked first and has had 45 minutes", and
+ * nothing asked ops-lead: the grace period was a delay with nobody in it. Now
+ * the named role gets a task carrying the escalation, serving the goal the
+ * stuck work served, and when that task ends its summary is written under the
+ * escalation. The item stays the owner's. A role can do something about the
+ * problem; it cannot decide it for them, and the owner is still told when the
+ * grace period ends, with the role's account of what it did.
+ *
+ * Driven from state and keyed by the item, so a worker that was down hands the
+ * escalation when it comes back and one that looks twice hands it once. A named
+ * role that is not in the company, or that cannot take work, is no grace
+ * period at all: the owner is told now, and told why.
+ */
+export async function handEscalations(companyId: string): Promise<number> {
+  const { rows } = await withTenant(companyId, (tx) => tx.query<{
+    id: string; task_id: string | null; title: string; rationale: string; notify_after: Date;
+    payload: { escalationRole: string; afterMinutes?: number; handedTaskId?: string };
+  }>(
+    `SELECT id, task_id, title, rationale, notify_after, payload FROM inbox_items
+      WHERE kind = 'escalation' AND status = 'open'
+        AND payload ? 'escalationRole' AND payload->>'escalationRole' IS NOT NULL
+        AND NOT payload ? 'handledOutcome' AND NOT payload ? 'handoffFailed'
+      ORDER BY created_at
+      LIMIT 50`,
+  ));
+  let handed = 0;
+  for (const item of rows) {
+    if (item.payload.handedTaskId) await noteHandling(companyId, item);
+    else if (await handOver(companyId, item)) handed += 1;
+  }
+  return handed;
+}
+
+async function handOver(companyId: string, item: {
+  id: string; task_id: string | null; title: string; rationale: string; notify_after: Date;
+  payload: { escalationRole: string; afterMinutes?: number };
+}): Promise<boolean> {
+  const role = item.payload.escalationRole;
+  const found = await withTenant(companyId, async (tx) => {
+    const { rows: roles } = await tx.query<{ id: string; division_id: string }>(
+      'SELECT id, division_id FROM roles WHERE slug = $1', [role]);
+    // The goal the stuck work served, or the company's own purpose when the
+    // escalation is not about a task (F2.7: every task hangs from a goal).
+    const { rows: stuck } = await tx.query<{ goal_id: string | null; project_id: string }>(
+      'SELECT goal_id, project_id FROM tasks WHERE id = $1', [item.task_id]);
+    const { rows: goal } = await tx.query<{ id: string }>(
+      `SELECT id FROM goals WHERE status = 'active'
+        ORDER BY CASE kind WHEN 'mission' THEN 0 ELSE 1 END, created_at LIMIT 1`);
+    const { rows: project } = await tx.query<{ id: string }>('SELECT id FROM projects ORDER BY created_at LIMIT 1');
+    return {
+      role: roles[0] ?? null,
+      goalId: stuck[0]?.goal_id ?? goal[0]?.id ?? null,
+      projectId: stuck[0]?.project_id ?? project[0]?.id ?? null,
+    };
+  });
+
+  const toOwnerNow = async (why: string) => {
+    const said = `\n\n${role} was asked first and has had ${item.payload.afterMinutes ?? 0} minutes.`;
+    const rationale = `${item.rationale.endsWith(said) ? item.rationale.slice(0, -said.length) : item.rationale}\n\n${why}`;
+    await withTenant(companyId, (tx) => tx.query(
+      `UPDATE inbox_items SET rationale = $2, notify_after = least(notify_after, now()),
+              payload = payload || jsonb_build_object('handoffFailed', $3::text)
+        WHERE id = $1`,
+      [item.id, rationale, why],
+    ));
+    return false;
+  };
+
+  if (!found.role) return toOwnerNow(`${role} is not a role in this company, so this came to you at once.`);
+  if (!found.goalId || !found.projectId) {
+    return toOwnerNow(`${role} could not be given this: the company has no active goal or project to hang it from.`);
+  }
+
+  const until = item.notify_after.toISOString();
+  let taskId: string;
+  try {
+    const task = await createRootTask({
+      companyId, projectId: found.projectId, divisionId: found.role.division_id, roleId: found.role.id,
+      goalId: found.goalId, createdBy: 'event', idempotencyKey: `escalation:${item.id}`,
+      input: {
+        goal: `Escalated to you: ${item.title}`,
+        context:
+          `${item.rationale}\n\nDo what you can about it before ${until}; the owner is told then, ` +
+          'with what you did. You cannot decide it for them: fix the cause, hand it to the role ' +
+          'that can, or say plainly why neither is possible.',
+      },
+    });
+    taskId = task.id;
+  } catch (error) {
+    // A frozen role, a paused company, a role that cannot be given work: each
+    // is a reason nobody will handle it, which is a reason to tell the owner.
+    return toOwnerNow(`${role} could not be given this (${(error as Error).message}), so this came to you at once.`);
+  }
+
+  await withTenant(companyId, (tx) => tx.query(
+    `UPDATE inbox_items SET payload = payload || jsonb_build_object('handedTaskId', $2::text) WHERE id = $1`,
+    [item.id, taskId],
+  ));
+  await enqueueWake({ companyId, roleId: found.role.id, reason: 'event', detail: `escalation ${item.id} handed to ${role}` });
+  return true;
+}
+
+async function noteHandling(companyId: string, item: {
+  id: string; payload: { escalationRole: string; handedTaskId?: string };
+}): Promise<void> {
+  await withTenant(companyId, async (tx) => {
+    const task = await getTask(tx, item.payload.handedTaskId!);
+    if (!task || !isTerminal(task.status)) return;
+    const said = typeof task.output?.summary === 'string' && task.output.summary.trim()
+      ? task.output.summary.trim().slice(0, HANDLED_NOTE_LIMIT)
+      : `the task ended ${task.status}${task.haltReason ? ` (${task.haltReason})` : ''} without an account of itself.`;
+    // Guarded on the marker, so a second pass -- or a second worker -- adds
+    // the note once.
+    await tx.query(
+      `UPDATE inbox_items
+          SET rationale = rationale || $2,
+              payload = payload || jsonb_build_object('handledOutcome', $3::text)
+        WHERE id = $1 AND NOT payload ? 'handledOutcome'`,
+      [item.id, `\n\n${item.payload.escalationRole}: ${said}`, task.status],
+    );
+  });
 }
 
 /** How many questions one task may put to the owner. */

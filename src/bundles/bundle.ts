@@ -277,6 +277,20 @@ export interface InstalledBundle {
  * simply is not created. A flag somebody has to check is a flag somebody
  * eventually does not.
  */
+/**
+ * The newest published version of a bundle, or null when none is published.
+ *
+ * For callers that name a bundle rather than a release -- starting a company
+ * "with company-os" means whatever company-os this installation carries.
+ */
+export async function latestBundleVersion(slug: string): Promise<string | null> {
+  return withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ version: string }>(
+      'SELECT version FROM bundles WHERE slug = $1 ORDER BY created_at DESC LIMIT 1', [slug]);
+    return rows[0]?.version ?? null;
+  });
+}
+
 export async function installBundle(input: {
   companyId: string;
   slug: string;

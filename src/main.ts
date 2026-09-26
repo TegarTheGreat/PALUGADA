@@ -43,6 +43,7 @@ import type { TaskHandler } from './runtime/in-process.ts';
 import { registerPlatformCapabilities } from './capabilities/platform.ts';
 import { registerVendorCapabilities } from './capabilities/vendors.ts';
 import { STANDARD_CATALOGUE } from './broker/catalogue.ts';
+import { seed } from './seed.ts';
 import { registerPlatformCapabilities as registerPlatformTools, PLATFORM_CAPABILITIES }
   from './broker/platform-capabilities.ts';
 import { CachedSecretManager } from './secrets/rotation.ts';
@@ -370,9 +371,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   // in this repository's history -- both times because something was
   // registered and nothing looked -- so this reads the registry rather than
   // subtracting numbers.
-  const unbound = STANDARD_CATALOGUE
-    .map((entry) => entry.name)
-    .filter((name) => registry.get(name) === undefined);
+  const unbound = await registry.recordUnbound(STANDARD_CATALOGUE);
   if (unbound.length > 0) {
     notes.push(
       `${unbound.length} catalogued ${unbound.length === 1 ? 'capability needs' : 'capabilities need'} `
@@ -380,6 +379,18 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
       + (vendorsFile ? '' : ' -- set PALUGADA_VENDORS to a file that binds them'),
     );
   }
+
+  // What a fresh database needs before the owner can start a company: the
+  // standard template and the built-in bundles. `src/seed.ts` said it ran on
+  // every deploy and only the smoke script called it, so on a fresh install
+  // the console's "Start a company" answered "no company template named
+  // standard-company". Idempotent, and it leaves a bundle an operator already
+  // published -- perhaps signed -- as it is.
+  const seeded = await seed({ keepPublished: true });
+  notes.push(
+    `seeded the standard company template and ${seeded.bundles.length} built-in bundles`
+    + (seeded.bundles.length === 0 ? ' (all were already published)' : ''),
+  );
 
   const broker = new CapabilityBroker(
     registry,

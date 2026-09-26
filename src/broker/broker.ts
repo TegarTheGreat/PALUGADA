@@ -56,6 +56,7 @@ import { ancestryForTask, renderAncestry } from '../domain/goals.ts';
 import { checkAgainstPlan, readPlan, type TaskPlan } from '../engine/plan.ts';
 import { begunOutside } from '../engine/tasks.ts';
 import type { CapabilityContext, CapabilityRegistry } from './registry.ts';
+import { declarationFor } from './catalogue.ts';
 import { CachedSecretManager, resolveCurrent } from '../secrets/rotation.ts';
 import { assertScopesCover } from '../secrets/scopes.ts';
 import { HookPipeline } from '../engine/hooks.ts';
@@ -244,6 +245,15 @@ export class CapabilityBroker {
   async invoke<I, O>(ctx: InvokeContext, name: string, input: I): Promise<InvokeResult<O>> {
     const capability = this.#registry.get(name);
     if (!capability) {
+      // A catalogued capability is one the platform knows and cannot yet do;
+      // the owner is told what would let it, rather than that it does not exist.
+      if (declarationFor(name)) {
+        throw new PalugadaError(
+          'capability.unknown',
+          `${name} needs a vendor: bind it in the file PALUGADA_VENDORS names`,
+          { name, unbound: true },
+        );
+      }
       throw new PalugadaError('capability.unknown', `capability ${name} is not registered`, { name });
     }
 

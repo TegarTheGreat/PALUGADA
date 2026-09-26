@@ -2694,6 +2694,35 @@ rest are listed at the end.
   light and offered the dark theme to an owner already looking at it. The
   scheme is held for the life of the tab now, and the menu reads what is
   on the screen.
+- The organisation moves between the owner's decisions. Asked "is the
+  structure right, mature and automatic", the answer was right and mature,
+  and still: the owner had to pick a role for every piece of work, because
+  no role in the standard company could hand anything on -- the
+  coordinator's charter said "hand it off" and it held no way to. The
+  coordinator now routes what arrives without a role (the console picks it
+  by default when the owner gives work), and the planner hands a finished
+  plan to the builder, both with `task.delegate` and `task.await` inside
+  F2.4's twelve tools. Starting a company offers "Let it run itself", which
+  installs `company-os` with the same factor: a strategist, a weekly review
+  and the operating skills.
+- An escalation reaches the role its division names (F2.1,
+  `handEscalations` in `src/inbox/inbox.ts`). A defect: the item told the
+  owner "ops-lead was asked first and has had 45 minutes" and nothing asked
+  ops-lead -- the grace period was a delay with nobody in it. The named role
+  now gets a task carrying the escalation, serving the goal the stuck work
+  served, and its account of what it did is written under the item the
+  owner reads; the item stays the owner's to decide. A named role that is
+  not in the company, or cannot take work, sends the escalation to the owner
+  at once, saying why. Every division of the standard company but the
+  coordinator's own asks the coordinator first, for an hour.
+- A fresh installation can start a company. A defect: `npm start` on an
+  empty database saved no template and published no bundle -- `src/seed.ts`
+  said it ran on every deploy and only the smoke script called it -- and
+  the capabilities the template grants that wait for a vendor were written
+  nowhere, so the owner's first "Start a company" failed. The boot now seeds
+  (leaving a bundle an operator already published, perhaps signed, as it
+  is), and records each catalogued capability by name (0061): it can be
+  granted, and a call to it is refused saying it needs a vendor.
 - Measure goals by numbers (section 2.19).
 
 **F8.9, enforced where it does not depend on the model.** The untrusted
@@ -2704,8 +2733,8 @@ work delegated (`begunOutside` in `src/engine/tasks.ts`).
 
 **Still open, in the order they would be taken**
 
-- A strategy role in the standard template itself; for now the company-os
-  bundle brings one.
+- A strategy role in the standard template itself. Starting a company
+  offers the company-os bundle, which brings one, and ticks it by default.
 - Per-company connections to outside accounts from the console, and coding
   workspaces.
 

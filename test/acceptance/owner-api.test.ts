@@ -1186,6 +1186,69 @@ test('the deployment boots, serves the console, and takes a decision', async () 
   }
 });
 
+/**
+ * A fresh deployment can start a company from its console.
+ *
+ * `npm start` on an empty database saved no template and published no bundle
+ * -- `src/seed.ts` said it ran on every deploy, and only the smoke script
+ * called it -- and the capabilities the standard template grants that wait for
+ * a vendor were written nowhere, so granting one was refused. The owner's
+ * first "Start a company" failed with "no company template named
+ * standard-company". The boot seeds now, and a catalogued capability with no
+ * vendor yet is known by name: it can be granted, and a call to it says what
+ * is missing.
+ */
+test('a fresh deployment starts the standard company, and can let it run itself', async () => {
+  const { start } = await import('../../src/main.ts');
+  const { withControlPlane } = await import('../../src/db/tenant.ts');
+  const { CapabilityBroker } = await import('../../src/broker/broker.ts');
+  const { CapabilityRegistry } = await import('../../src/broker/registry.ts');
+  const secrets = new InMemorySecretManager();
+  const { secret } = newTotpSecret('owner phone');
+  secrets.set('vault://owner/totp', secret);
+
+  const deployment = await start({ secrets, port: 0, env: {}, worker: { idleMs: 50 } });
+  try {
+    assert.ok(deployment.notes.some((note) => /seeded the standard company template and \d+ built-in bundles/.test(note)),
+      deployment.notes.join(' | '));
+    const token = await signInTo(deployment, secret);
+    const code = totpCode(decodeBase32(secret), stepFor(new Date()) + 1);
+    const start_ = (bundles: string[]) => call(deployment.url, 'POST', '/api/companies', {
+      token,
+      body: { templateSlug: 'standard-company', companySlug: 'first-co', name: 'First Co', bundles, proof: { totp: code } },
+    });
+
+    // Refused before the code is spent and before anything is written.
+    const refused = await start_(['no-such-bundle']);
+    assert.equal(refused.status, 400);
+    assert.match(String(refused.body.error), /no bundle named no-such-bundle/);
+    const none = await withControlPlane((tx) => tx.query('SELECT 1 FROM companies'));
+    assert.equal(none.rows.length, 0);
+
+    const created = await start_(['company-os']);
+    assert.equal(created.status, 200, JSON.stringify(created.body));
+    assert.deepEqual(created.body.bundles, ['company-os']);
+    const companyId = String(created.body.companyId);
+    const roles = await withControlPlane((tx) => tx.query<{ slug: string }>(
+      'SELECT slug FROM roles WHERE company_id = $1 ORDER BY slug', [companyId]));
+    const slugs = roles.rows.map((row) => row.slug);
+    assert.ok(slugs.includes('coordinator') && slugs.includes('strategist'), slugs.join(', '));
+
+    // A capability waiting for its vendor is granted, and says so when called.
+    const unbound = await withControlPlane((tx) => tx.query<{ adapter: string; has_grant: boolean }>(
+      `SELECT c.adapter, EXISTS (SELECT 1 FROM capability_grants g WHERE g.capability_name = c.name AND g.company_id = $1) AS has_grant
+         FROM capabilities c WHERE c.name = 'email.send'`, [companyId]));
+    assert.deepEqual(unbound.rows[0], { adapter: 'unbound', has_grant: true });
+    const broker = new CapabilityBroker(new CapabilityRegistry());
+    await assert.rejects(
+      broker.invoke({ companyId, projectId: companyId, divisionId: companyId, roleId: companyId, taskId: companyId, idempotencyKey: 'x' }, 'email.send', {}),
+      /email\.send needs a vendor: bind it in the file PALUGADA_VENDORS names/,
+    );
+  } finally {
+    await deployment.stop();
+  }
+});
+
 /* ------------------------------------------- what the second review found --- */
 
 /**

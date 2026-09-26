@@ -11,7 +11,7 @@
 import { PalugadaError } from '../errors.ts';
 import { isTier, requiresVerification, type Tier } from '../domain/tier.ts';
 import { withControlPlane } from '../db/tenant.ts';
-import { assertCalibrated } from './catalogue.ts';
+import { assertCalibrated, type CapabilityDeclaration } from './catalogue.ts';
 
 export interface CapabilityContext {
   companyId: string;
@@ -172,6 +172,34 @@ export class CapabilityRegistry {
   }
 
   /** Mirrors registered capabilities into the platform registry table. */
+  /**
+   * Records each catalogued capability no adapter is registered for, by name.
+   *
+   * The standard template grants capabilities that need somebody's account,
+   * and a grant is a foreign key into `capabilities`. Written only when bound,
+   * those rows did not exist on a deployment with no vendor file, and the
+   * owner could not start a company. An unbound row carries the catalogue's
+   * tier and its untrusted-code flag -- which the database's F8.10 checks read
+   * whether or not anything is bound -- and `adapter = 'unbound'`, which the
+   * broker refuses to call (0061). Never overwrites a row: a bound capability
+   * stays bound, and `sync` replaces an unbound one when its adapter arrives.
+   * Returns the names recorded unbound, bound or not before.
+   */
+  async recordUnbound(catalogue: readonly CapabilityDeclaration[]): Promise<string[]> {
+    const unbound = catalogue.filter((declaration) => !this.#capabilities.has(declaration.name));
+    await withControlPlane(async (tx) => {
+      for (const declaration of unbound) {
+        await tx.query(
+          `INSERT INTO capabilities (name, adapter, default_tier, has_verify, executes_untrusted_code, required_scopes)
+           VALUES ($1, 'unbound', $2, false, $3, '{}')
+           ON CONFLICT (name) DO NOTHING`,
+          [declaration.name, declaration.tier, declaration.executesUntrustedCode ?? false],
+        );
+      }
+    });
+    return unbound.map((declaration) => declaration.name);
+  }
+
   async sync(): Promise<void> {
     const rows = [...this.#capabilities.values()];
     await withControlPlane(async (tx) => {

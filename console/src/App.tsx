@@ -13,7 +13,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActionIcon, Alert, AppShell, Avatar, Badge, Box, Button, Divider, Drawer, FileInput, Group, Menu, Modal,
-  NavLink, Paper, Progress, ScrollArea, SimpleGrid, Stack, Text, TextInput, Tooltip, UnstyledButton,
+  NavLink, Paper, Progress, ScrollArea, SimpleGrid, Stack, Switch, Text, TextInput, Tooltip, UnstyledButton,
   useComputedColorScheme, useMantineColorScheme,
 } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
@@ -693,6 +693,7 @@ function StartCompany({ opened, close, started }: { opened: boolean; close: () =
   const requireFactor = useFactor();
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
+  const [runsItself, setRunsItself] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const submit = async () => {
@@ -700,7 +701,11 @@ function StartCompany({ opened, close, started }: { opened: boolean; close: () =
     let created: { companyId?: string } = {};
     try {
       const done = await requireFactor(t('Start {company}', { company: name }), async (proof) => {
-        created = await api('POST', '/api/companies', { templateSlug: 'standard-company', companySlug: slug, name, proof });
+        created = await api('POST', '/api/companies', {
+          templateSlug: 'standard-company', companySlug: slug, name, proof,
+          // company-os: a strategist, a weekly review and the operating skills.
+          ...(runsItself ? { bundles: ['company-os'] } : {}),
+        });
       });
       if (!done) return;
       notifications.show({ color: 'teal', message: t('{company} is running.', { company: name }) });
@@ -717,7 +722,7 @@ function StartCompany({ opened, close, started }: { opened: boolean; close: () =
     <Modal opened={opened} onClose={close} title={t('Start a company')} centered>
       <Stack>
         <Text size="sm" c="dimmed">
-          {t('Built from the standard template: operations, delivery, growth, finance, support, assurance and a lab, with a role in each. Every capability the template grants must be bound on this deployment, and the refusal names any that are not.')}
+          {t('Built from the standard template: operations, delivery, growth, finance, support, assurance and a lab, with a role in each. The coordinator routes work you give without naming a role. A capability that needs an outside account waits until you bind one.')}
         </Text>
         <TextInput label={t('Name')} placeholder={t('e.g. Kopi Nusantara')} value={name} onChange={(e) => {
           const value = e.currentTarget.value;
@@ -725,6 +730,12 @@ function StartCompany({ opened, close, started }: { opened: boolean; close: () =
           setSlug(value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''));
         }} required />
         <TextInput label={t('Short name')} description={t('Used in links and exports')} value={slug} onChange={(e) => setSlug(e.currentTarget.value)} required />
+        <Switch
+          checked={runsItself}
+          onChange={(e) => setRunsItself(e.currentTarget.checked)}
+          label={t('Let it run itself')}
+          description={t('Adds a strategist who reviews the week every Monday and proposes what to do next. Nothing it proposes happens without you.')}
+        />
         {error && <Text c="red" size="sm">{error}</Text>}
         <Group justify="flex-end">
           <Button variant="default" onClick={close}>{t('Cancel')}</Button>

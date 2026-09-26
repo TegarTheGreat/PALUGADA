@@ -167,6 +167,8 @@ export interface TickReport {
   screened: number;
   /** Live tasks found with nothing left to move them, and put to the owner. */
   stranded: number;
+  /** Escalations handed to the role their division names (F2.1). */
+  escalated: number;
   /** Set when the platform stop is in effect: the tick did nothing else. */
   stopped: boolean;
   errors: Array<{ stage: string; message: string }>;
@@ -249,6 +251,7 @@ export class Worker {
       distilled: 0,
       screened: 0,
       stranded: 0,
+      escalated: 0,
       stopped: false, errors: [],
     };
 
@@ -371,6 +374,12 @@ export class Worker {
         await evaluateSpendLimit(company, now);
         await evaluateCircuitBreakers(company, now);
         report.alerts += (await evaluateAlerts(company, now)).length;
+      });
+
+      // F2.1. Before `notify`, because an escalation whose named role cannot
+      // take it goes to the owner at once, and should go on this tick.
+      await this.#stage(report, 'escalate', async () => {
+        report.escalated += await inbox.handEscalations(company);
       });
 
       // F10.5, F10.9. After `watch`, because that stage is what raises the

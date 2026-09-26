@@ -122,7 +122,7 @@ import {
   skillSummariesFor,
   type SkillScopeTarget,
 } from '../skills/skills.ts';
-import { installBundle, verifyInstall } from '../bundles/bundle.ts';
+import { installBundle, latestBundleVersion, verifyInstall } from '../bundles/bundle.ts';
 import {
   listTrustedPublishers,
   revokePublisher,
@@ -378,6 +378,20 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies',
         handle: async ({ body }) => {
+          // The bundles to start with -- "company-os" makes the company run
+          // itself -- resolved before the factor is spent and before anything
+          // is written, so a wrong name costs the owner neither a code nor a
+          // half-made company.
+          const wanted = body.bundles === undefined ? [] : body.bundles;
+          if (!Array.isArray(wanted) || wanted.length > 5 || !wanted.every((slug) => typeof slug === 'string' && slug)) {
+            throw new PalugadaError('contract.violation', 'bundles is a list of at most five bundle names', { field: 'bundles' });
+          }
+          const bundles: Array<{ slug: string; version: string }> = [];
+          for (const slug of new Set(wanted as string[])) {
+            const version = await latestBundleVersion(slug);
+            if (!version) throw new PalugadaError('contract.violation', `no bundle named ${slug} is published here`, { slug });
+            bundles.push({ slug, version });
+          }
           await this.#requireFactor(body.proof, 'start a company');
           const templateSlug = requireText(body.templateSlug, 'templateSlug');
           // Checked here so the refusal names the template rather than
@@ -395,10 +409,16 @@ export class OwnerApi {
               ? {}
               : { timezone: requireText(body.timezone, 'timezone') }),
           });
+          // One factor covers the company and what it starts with: installing
+          // a bundle is the same structural change F2.9 already approved here.
+          for (const bundle of bundles) {
+            await installBundle({ companyId: created.companyId, slug: bundle.slug, version: bundle.version });
+          }
           return {
             companyId: created.companyId,
             divisions: Object.keys(created.divisionIds),
             roles: Object.keys(created.roleIds),
+            bundles: bundles.map((bundle) => bundle.slug),
           };
         },
       },

@@ -14,7 +14,12 @@ import { t } from '../i18n.ts';
 export function AssignWork({
   companyId, structure, roleId: fixedRole, done,
 }: { companyId: string; structure: Structure; roleId?: string; done: () => void }) {
-  const [roleId, setRoleId] = useState<string | null>(fixedRole ?? null);
+  // The role that routes work -- the standard company's coordinator -- is
+  // where work goes when the owner does not know whose it is, so it is picked
+  // unless the owner picks someone else.
+  const router = structure.roles.find((role) => role.slug === 'coordinator')
+    ?? structure.roles.find((role) => role.tools?.includes('task.delegate'));
+  const [roleId, setRoleId] = useState<string | null>(fixedRole ?? router?.id ?? null);
   const [projectId, setProjectId] = useState<string | null>(structure.projects[0]?.id ?? null);
   const leaf = structure.goals.filter((goal) => goal.status === 'active');
   const [goalId, setGoalId] = useState<string | null>(
@@ -55,7 +60,16 @@ export function AssignWork({
     <Stack>
       <SimpleGrid cols={{ base: 1, sm: 2 }}>
         {!fixedRole && (
-          <Select label={t('Role')} placeholder={t('Who does it')} data={roleOptions} value={roleId} onChange={setRoleId} searchable required />
+          <Select
+            label={t('Role')}
+            placeholder={t('Who does it')}
+            description={router && roleId === router.id ? t('{role} hands it to whoever should do it', { role: router.slug }) : undefined}
+            data={roleOptions}
+            value={roleId}
+            onChange={setRoleId}
+            searchable
+            required
+          />
         )}
         <Select
           label={t('Project')}

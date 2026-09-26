@@ -134,19 +134,39 @@ const NO_PLATFORM_TOOLS = new Set(['lab', 'assurance']);
  * tools automatically, which is the difference between a rule and a list
  * somebody has to remember to extend.
  */
+/**
+ * F2.1: when something in a division is stuck, the coordinator is asked first
+ * and has an hour before the owner is told, with the coordinator's account of
+ * what it did. The coordinator's own division goes straight to the owner:
+ * there is nobody above it to ask.
+ */
+const TO_THE_COORDINATOR = { role: 'coordinator', afterMinutes: 60 } as const;
+
 const DIVISIONS = [
   { slug: 'ops', name: 'Operations', maxConcurrency: 4 },
-  { slug: 'delivery', name: 'Delivery', maxConcurrency: 4 },
+  { slug: 'delivery', name: 'Delivery', maxConcurrency: 4, escalateTo: TO_THE_COORDINATOR },
   // The one sub-division. Depth is capped at two (F2.2), and the split earns
   // its place: planning and building fail differently and deserve different
   // concurrency and different grants.
-  { slug: 'build', name: 'Build', parent: 'delivery', maxConcurrency: 6 },
-  { slug: 'growth', name: 'Growth', maxConcurrency: 3 },
-  { slug: 'finance', name: 'Finance', maxConcurrency: 2 },
-  { slug: 'support', name: 'Support', maxConcurrency: 6 },
-  { slug: 'assurance', name: 'Assurance', maxConcurrency: 2 },
-  { slug: 'lab', name: 'Lab', maxConcurrency: 2 },
+  { slug: 'build', name: 'Build', parent: 'delivery', maxConcurrency: 6, escalateTo: TO_THE_COORDINATOR },
+  { slug: 'growth', name: 'Growth', maxConcurrency: 3, escalateTo: TO_THE_COORDINATOR },
+  { slug: 'finance', name: 'Finance', maxConcurrency: 2, escalateTo: TO_THE_COORDINATOR },
+  { slug: 'support', name: 'Support', maxConcurrency: 6, escalateTo: TO_THE_COORDINATOR },
+  { slug: 'assurance', name: 'Assurance', maxConcurrency: 2, escalateTo: TO_THE_COORDINATOR },
+  { slug: 'lab', name: 'Lab', maxConcurrency: 2, escalateTo: TO_THE_COORDINATOR },
 ] as const;
+
+/**
+ * Handing work on: a sub-task to another role, and its result back.
+ *
+ * Two divisions hold them. Operations, because the coordinator is where work
+ * arrives when nobody said who should do it, and routing it is the job.
+ * Delivery, because a plan the planner cannot hand to the builder is a plan
+ * the owner has to carry across by hand. Both are tier 0 and write only the
+ * company's own tasks; the hop limit, the fan-out cap and the parent's budget
+ * chain bound what a delegation can start (F5.4, F6.4).
+ */
+const HAND_ON = ['task.delegate', 'task.await'] as const;
 
 export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
   projects: [{ slug: 'main', name: 'Main' }],
@@ -195,6 +215,7 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     { division: 'ops', capability: 'calendar.hold' },
     { division: 'ops', capability: 'doc.draft' },
     { division: 'ops', capability: 'ticket.create' },
+    ...HAND_ON.map((capability) => ({ division: 'ops', capability })),
 
     // Delivery plans; it does not deploy. The separation is what makes the
     // build division's tier 2 grant reviewable rather than routine.
@@ -203,6 +224,7 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     { division: 'delivery', capability: 'files.list' },
     { division: 'delivery', capability: 'doc.draft' },
     { division: 'delivery', capability: 'ticket.create' },
+    ...HAND_ON.map((capability) => ({ division: 'delivery', capability })),
 
     // Build ships. It holds the only production deploy in the company, rate
     // limited because a deploy loop is the cheapest way to spend an afternoon
@@ -266,20 +288,23 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
       model: 'standard',
       maxTokensPerRun: 60_000,
       systemPrompt:
-        'You run the company\'s own operations. You keep the record of what is happening: ' +
-        'you check that services are up, read the metrics, hold time on the calendar and ' +
-        'write things down. You do not contact anyone outside the company and you do not ' +
-        'ship anything. When work belongs to another division, hand it off rather than ' +
-        'attempting it.',
+        'You run the company\'s own operations, and you are where work arrives when the owner ' +
+        'did not say who should do it. Route it: decide which role\'s job it is, hand it over ' +
+        'with task.delegate and a brief that says what done looks like, wait for the result ' +
+        'with task.await, and report what came back. Do the work yourself only when it is ' +
+        'operations: checking that services are up, reading the metrics, reading the calendar ' +
+        'and writing things down. When a division escalates something to you, fix the cause ' +
+        'or hand it to the role that can; you cannot decide for the owner. You do not contact ' +
+        'anyone outside the company and you do not ship anything.',
       tools: [
         ...PLATFORM_TOOLS,
+        ...HAND_ON,
         'uptime.check',
         'metrics.read',
-        'files.list',
-        // Not `web.fetch`: nothing in the charter above reads the web, and
-        // F2.4's twelve is a budget -- `owner.ask` spent the last place.
+        // Not `web.fetch`, `files.list` or `calendar.hold`: F2.4's twelve is a
+        // budget, and routing work is worth more places than those. The
+        // division still holds them, for a role hired to use them.
         'calendar.read',
-        'calendar.hold',
         'doc.draft',
         'ticket.create',
       ],
@@ -299,8 +324,10 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
         'You turn a goal into a plan the build division can execute. You read the ' +
         'repository, the existing documents and public sources, and you produce a written ' +
         'plan and the tickets that follow from it. You have no deploy capability, by ' +
-        'design: deciding what to ship and shipping it are separate jobs here.',
-      tools: [...PLATFORM_TOOLS, 'repo.read', 'web.fetch', 'files.list', 'doc.draft', 'ticket.create'],
+        'design: deciding what to ship and shipping it are separate jobs here. When the plan ' +
+        'is ready, hand the build to the builder with task.delegate, the plan as its brief, ' +
+        'and wait for the result with task.await.',
+      tools: [...PLATFORM_TOOLS, ...HAND_ON, 'repo.read', 'web.fetch', 'files.list', 'doc.draft', 'ticket.create'],
       inputSchema: WORK_INPUT,
       outputSchema: WORK_OUTPUT,
     },

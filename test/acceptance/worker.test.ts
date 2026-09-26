@@ -742,7 +742,7 @@ test('a tick that only met an unhealthy runtime is not progress (F13.8)', async 
 
 test('a tick that only met an unhealthy runtime sleeps rather than spinning (F13.8)', () => {
   const base = { reclaimed: 0, scheduled: 0, woken: 0, alerts: 0, retained: 0, handedOff: 0,
-    notified: 0, digests: 0, retracted: 0, stranded: 0, distilled: 0, screened: 0, stopped: false, errors: [] };
+    notified: 0, digests: 0, retracted: 0, stranded: 0, escalated: 0, distilled: 0, screened: 0, stopped: false, errors: [] };
 
   // The case the loop got wrong: a run happened, and it got nowhere.
   assert.equal(
@@ -1147,4 +1147,25 @@ test('a long timer waits out a delay longer than setTimeout can', (t) => {
     t.mock.timers.tick(1_000);
     assert.equal(fired, 1, 'when it is due');
   });
+});
+
+/**
+ * F2.1 on the worker's clock: an escalation reaches the role its division
+ * names without anybody calling for it. `handEscalations` is tested in
+ * org-automation.test.ts; this is that the worker is the one that calls it.
+ */
+test('a tick hands an escalation to the role its division names', async () => {
+  const fixture = await createCompany('tick-escalation');
+  const leadId = await addRole(fixture, 'ops-lead');
+  const { setEscalationPolicy } = await import('../../src/governance/structure.ts');
+  await setEscalationPolicy(fixture.companyId, fixture.divisionId, { roleSlug: 'ops-lead', afterMinutes: 30 });
+  await inbox.raiseEscalation({
+    companyId: fixture.companyId, divisionId: fixture.divisionId,
+    title: 'The courier lost the parcel', detail: 'Tracking stopped two days ago.',
+  });
+  const report = await workerFor(fixture, async () => ({ summary: 'done' })).tick();
+  assert.equal(report.escalated, 1, JSON.stringify(report.errors));
+  const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ n: number }>(
+    'SELECT count(*)::int AS n FROM tasks WHERE role_id = $1', [leadId]));
+  assert.equal(rows[0]!.n, 1);
 });

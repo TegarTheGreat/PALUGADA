@@ -23,6 +23,11 @@ export interface TemplateDivision {
   name: string;
   parent?: string;
   maxConcurrency?: number;
+  /**
+   * F2.1: who is asked first when something in this division is stuck, and
+   * for how long before the owner is told. Omitted, the owner is told at once.
+   */
+  escalateTo?: { role: string; afterMinutes: number };
 }
 
 export interface TemplateRole {
@@ -179,6 +184,16 @@ export function assertTemplateIsCoherent(template: CompanyTemplate): void {
     }
     if (division.parent === division.slug) {
       throw new Error(`division ${division.slug} cannot be its own parent`);
+    }
+    // An escalation role the company will not have is a grace period nobody
+    // is in: refused here, rather than discovered at the first escalation.
+    if (division.escalateTo) {
+      if (!template.roles.some((role) => role.slug === division.escalateTo!.role)) {
+        throw new Error(`division ${division.slug} escalates to ${division.escalateTo.role}, which the template does not define`);
+      }
+      if (!Number.isInteger(division.escalateTo.afterMinutes) || division.escalateTo.afterMinutes < 1) {
+        throw new Error(`division ${division.slug} gives its escalation role a whole number of minutes, at least one`);
+      }
     }
   }
 
@@ -466,14 +481,17 @@ async function insertDivisions(
   ];
   for (const division of ordered) {
     const { rows } = await tx.query<{ id: string }>(
-      `INSERT INTO divisions (company_id, parent_division_id, slug, name, max_concurrency)
-       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      `INSERT INTO divisions (company_id, parent_division_id, slug, name, max_concurrency,
+                              escalation_role_slug, escalate_after_minutes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
       [
         companyId,
         division.parent ? ids[division.parent] : null,
         division.slug,
         division.name,
         division.maxConcurrency ?? 4,
+        division.escalateTo?.role ?? null,
+        division.escalateTo?.afterMinutes ?? null,
       ],
     );
     ids[division.slug] = rows[0]!.id;

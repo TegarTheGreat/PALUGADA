@@ -61,7 +61,6 @@ const UNREACHABLE: Record<string, string> = {
 
   // F8: the catalogue and preflight.
   catalogueNames: 'helper: the catalogue as names, asserted directly',
-  declarationFor: 'helper: one catalogue entry, asserted directly',
 
   // F16: bundles.
   forgetBundleHooks: 'helper: a cache reset a test needs between installs',

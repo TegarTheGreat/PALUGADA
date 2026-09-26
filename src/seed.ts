@@ -25,6 +25,7 @@ import { BUILT_IN_BUNDLES } from './bundles/builtin.ts';
 import { publishBundle, type Bundle, type SignedBundle } from './bundles/bundle.ts';
 import { importFromDisk } from './governance/charter-files.ts';
 import { saveTemplate } from './templates/company.ts';
+import { withControlPlane } from './db/tenant.ts';
 import { STANDARD_COMPANY_TEMPLATE, STANDARD_TEMPLATE_SLUG } from './templates/standard.ts';
 
 export interface SeedOptions {
@@ -46,6 +47,14 @@ export interface SeedOptions {
    * read-only until somebody does both.
    */
   signedBundles?: SignedBundle[];
+  /**
+   * Leave a built-in bundle alone when that version is already published.
+   *
+   * The boot seeds with this set. Publishing replaces the row, signature and
+   * all, so re-publishing the unsigned built-in on every start would undo an
+   * operator who signed it and made its grants usable.
+   */
+  keepPublished?: boolean;
 }
 
 export interface SeedReport {
@@ -82,7 +91,12 @@ export async function seed(options: SeedOptions = {}): Promise<SeedReport> {
   );
 
   const bundles: SeedReport['bundles'] = [];
+  const alreadyPublished = options.keepPublished
+    ? await withControlPlane(async (tx) => new Set((await tx.query<{ key: string }>(
+      "SELECT slug || '@' || version AS key FROM bundles")).rows.map((row) => row.key)))
+    : new Set<string>();
   for (const builtIn of BUILT_IN_BUNDLES) {
+    if (alreadyPublished.has(`${builtIn.slug}@${builtIn.version}`)) continue;
     const toPublish: Bundle | SignedBundle =
       signed.get(`${builtIn.slug}@${builtIn.version}`) ?? builtIn;
     const published = await publishBundle(toPublish);

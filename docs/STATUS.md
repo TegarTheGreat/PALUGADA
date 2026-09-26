@@ -2302,6 +2302,101 @@ read out through a JavaScript Date. A `next_run_at` with microseconds in it
 rounded copy, so the schedule never advanced and fired its occurrence on every
 tick. It is compared at the millisecond now.
 
+## 2.17 This platform's own defects, looked for on purpose
+
+After the comparison with other systems, the same scrutiny was turned on this
+repository: three independent reviews -- the execution core, the data layer,
+and the owner's surface -- each told to find what would fail under a second
+replica, a crash, or somebody hostile. Every finding below was reproduced
+before it was fixed, and each fix is held by a test that fails without it
+(checked by reverting the fix, not by reading the test).
+
+### An approved action never ran
+
+The broker never asked whether the owner had already said yes. An approved
+task resumed, reached the same capability, found its item closed, raised
+another and parked again -- so an irreversible action the owner approved
+never happened, and every approval produced another request for one. An
+approval now carries the fingerprint of the action it describes (0041); the
+broker lets a decided, unconsumed approval for this task, capability and
+fingerprint through, and marks it consumed once the action has executed. A
+changed proposal supersedes the open item instead of hiding behind it.
+
+### Two workers could run one task
+
+Four ways, which combined: a tick claimed with the clock it read at its
+start, so a late claim's lease was already over; the lease was renewed only
+when a step committed, and a failed renewal was ignored; a resumed attempt
+kept its first start time and was swept as orphaned; and a task past
+`pending` ran without being claimed at all. Leases now run from the wall
+clock, a `LeaseKeeper` renews them while a run is in flight -- bounded by the
+run's own limits, so a hung handler still loses its task -- every step
+confirms the lease before its side effect and before its commit, and
+`runTask` adopts a lease in one conditional write. A worker that lost its
+task commits nothing more and does not classify the task.
+
+### Replay trusted position alone
+
+A committed step was handed back to whatever asked at its index. A handler
+that branched differently on a retry got another call's answer, and a model
+fallback carried on counting steps from where the failed run stopped. A
+mismatched step now halts the task (`journal_divergence`); the fallback
+restarts the count, so identical steps replay and the rest run in place.
+
+### Delegation could not survive a retry
+
+A parent retried or resumed asked for the same child again and failed on its
+key every time; a child's first retryable failure was treated as final and
+halted with the reason "deadline passed". The parent now picks its child back
+up and drives it to its end, bounded by the child's own recorded deadline.
+
+### The owner's second factor
+
+A success anywhere in the lockout window reset the count of failed guesses,
+so the quarter hour after the owner signed in was unlimited guessing; and a
+burst of guesses all read "no failures yet" at once. Each verification is now
+one transaction under a lock, failures count from the last success, and a
+refusal that compared nothing does not count. A revoked factor was enrolled
+again by the next boot; a secret can back only one live factor; a device can
+be revoked from the console, ending its sessions; loosening a control --
+lifting a stop, unfreezing, reviving, raising a ceiling, writing a policy --
+takes the factor, while tightening one takes only the session.
+
+### Money read from the wrong place
+
+A CLI's own total settled the budget accounts and nothing else, while every
+spend guard and report read `llm_traces`; the settlement is a trace now
+(0043). A fallback's total erased the failed attempt's bill; each model call
+drew the task's whole reservation from the chain; a fraction of a cent
+failed the run on a bigint cast. All fixed where the money moves.
+
+### Time
+
+`setTimeout` fires at once past about twenty-five days, so a task due in a
+month was cancelled as overdue when it started. The decision history's page
+marker dropped microseconds, so items fell between pages. A zone `Intl` does
+not know was stored, and broke every notification afterwards.
+
+### The data layer
+
+Every tick scanned whole tables for spend, orphans and metrics (0042 adds the
+indexes). Handoffs re-read every completion ever and repeated a final
+refusal every tick (a ledger, 0042). A company-wide policy "updated" by
+inserting a second row, because its unique key treated NULLs as distinct
+(0044). An archive with a corrected fact or a withdrawn approval could not be
+restored, and a failed import left half a company behind; import is one
+transaction now (0045). Retention reaches the journal's copies of model
+replies and the bookkeeping tables (0046).
+
+### Not changed, and why
+
+The application role still holds broader grants than the code uses. Narrowing
+them is right and is also the one change here that could break a path only
+production exercises; it is left for a migration with its own review.
+Sessions are held in each process's memory, so a deployment with two console
+replicas signs the owner in to one of them; that is a documented property of
+the design rather than a defect found today.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

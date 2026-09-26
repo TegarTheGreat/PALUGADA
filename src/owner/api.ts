@@ -89,6 +89,7 @@ import {
   type StructuralChange,
 } from '../governance/structure.ts';
 import { putPolicy } from '../governance/store.ts';
+import { assertValidCondition, type Condition } from '../policy/condition.ts';
 import { POLICY_EFFECTS, type PolicyEffect } from '../policy/engine.ts';
 import { setThresholds } from '../reporting/alerts.ts';
 import { pendingReviews } from '../review/review.ts';
@@ -418,9 +419,16 @@ export class OwnerApi {
           // Reversible on purpose, and both directions are one route: a stop
           // the owner cannot lift without a database console is a stop they
           // will hesitate to use, and hesitating is the failure mode F10.7
-          // exists to remove.
-          if (body.on === false) await clearStopAll();
-          else await requestStopAll();
+          // exists to remove. Pressing it takes the session. Lifting it takes
+          // the second factor, like every control here that loosens: whoever
+          // stole a session must not be able to undo the stop the owner
+          // pressed because of them.
+          if (body.on === false) {
+            await this.#requireFactor(body.proof, 'resume everything');
+            await clearStopAll();
+          } else {
+            await requestStopAll();
+          }
           return { stopAll: await isStopAllRequested() };
         },
       },
@@ -429,8 +437,12 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/control/company/:companyId/freeze',
         handle: async ({ params, body }) => {
-          if (body.on === false) await unfreezeCompany(params.companyId!);
-          else await freezeCompany(params.companyId!);
+          if (body.on === false) {
+            await this.#requireFactor(body.proof, 'unfreeze a company', params.companyId!);
+            await unfreezeCompany(params.companyId!);
+          } else {
+            await freezeCompany(params.companyId!);
+          }
           return { ok: true };
         },
       },
@@ -454,11 +466,22 @@ export class OwnerApi {
       },
 
       {
+        // Stopping is a session's to do; starting again is not. The rule for
+        // every control on this surface: whatever tightens -- a kill, a lower
+        // ceiling, a deny -- takes the owner's session, because the moment
+        // something looks wrong is not the moment to go looking for a phone.
+        // Whatever loosens takes the second factor, because a stolen session
+        // that could turn a capability back on, lift a spend pause or unfreeze
+        // a role could undo every stop the owner made with it.
         method: 'POST',
         pattern: '/api/control/capability/:name/kill',
         handle: async ({ params, body }) => {
-          if (body.on === false) await reviveCapability(params.name!);
-          else await killCapability(params.name!);
+          if (body.on === false) {
+            await this.#requireFactor(body.proof, `allow ${params.name!} again`);
+            await reviveCapability(params.name!);
+          } else {
+            await killCapability(params.name!);
+          }
           return { ok: true };
         },
       },
@@ -466,7 +489,8 @@ export class OwnerApi {
       {
         method: 'POST',
         pattern: '/api/control/company/:companyId/role/:roleId/resume',
-        handle: async ({ params }) => {
+        handle: async ({ params, body }) => {
+          await this.#requireFactor(body.proof, 'resume a frozen role', params.companyId!);
           await unfreezeRole(params.companyId!, params.roleId!);
           return { ok: true };
         },
@@ -502,7 +526,14 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/spend/limit',
         handle: async ({ params, body }) => {
-          await setSpendLimit(params.companyId!, wholeNumber(body.moneyMaxCents, 'moneyMaxCents'));
+          const ceiling = wholeNumber(body.moneyMaxCents, 'moneyMaxCents');
+          // Lowering is a session's; raising is the factor's (see the kill
+          // switch above).
+          const current = await limitFor(params.companyId!);
+          if (ceiling > current.moneyMaxCents) {
+            await this.#requireFactor(body.proof, 'raise the spend ceiling', params.companyId!);
+          }
+          await setSpendLimit(params.companyId!, ceiling);
           return { ok: true };
         },
       },
@@ -515,6 +546,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/spend/resume',
         handle: async ({ params, body }) => {
+          await this.#requireFactor(body.proof, 'let spending resume', params.companyId!);
           if (body.until === undefined || body.until === null) {
             await clearSpendPause(params.companyId!);
             return { ok: true, override: null };
@@ -1071,16 +1103,24 @@ export class OwnerApi {
         // The condition is validated by `putPolicy` itself, which is where the
         // grammar lives. A policy the console accepted and the engine could
         // not read would be a rule that looks enforced and is not.
+        //
+        // Behind the factor, all of it. A policy is the rule the engine
+        // enforces on every agent, and a new or changed one is as likely to
+        // loosen as to tighten -- a condition narrowed, a mode set to
+        // log_only -- so a session alone could have switched enforcement off.
         method: 'POST',
         pattern: '/api/policies',
-        handle: async ({ body }) => ({
-          id: await putPolicy({
+        handle: async ({ body }) => {
+          // Everything that can be checked without the factor is checked
+          // first, so a typo in a condition costs the owner a correction
+          // rather than a code.
+          const policy = {
             slug: requireText(body.slug, 'slug'),
             // Checked against the list rather than cast: an effect the engine
             // does not know is a policy that reads as a rule and enforces
             // nothing, and `putPolicy` would store it happily.
             effect: policyEffect(body.effect),
-            condition: body.condition as never,
+            condition: body.condition as Condition,
             ...(body.companyId === undefined ? {} : { companyId: String(body.companyId) }),
             ...(body.divisionId === undefined ? {} : { divisionId: String(body.divisionId) }),
             ...(body.mode === undefined
@@ -1089,8 +1129,11 @@ export class OwnerApi {
             ...(body.params === undefined
               ? {}
               : { params: body.params as Record<string, unknown> }),
-          }),
-        }),
+          };
+          assertValidCondition(policy.condition);
+          await this.#requireFactor(body.proof, 'write a policy', policy.companyId ?? null);
+          return { id: await putPolicy(policy) };
+        },
       },
 
       /* ------------------------------------------------------------ F15 --- */
@@ -1133,8 +1176,12 @@ export class OwnerApi {
       {
         method: 'POST',
         pattern: '/api/companies/:companyId/skills/versions/:versionId/approve',
-        handle: async ({ params }) =>
-          approveSkillVersion(params.companyId!, params.versionId!),
+        // Activating a skill puts its text in front of every agent it reaches,
+        // which is the one thing a skill's review exists to control.
+        handle: async ({ params, body }) => {
+          await this.#requireFactor(body.proof, 'activate a skill', params.companyId!);
+          return approveSkillVersion(params.companyId!, params.versionId!);
+        },
       },
 
       {

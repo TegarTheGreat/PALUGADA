@@ -418,13 +418,21 @@ test('stop-all is reachable and reversible from the console (F10.7)', async () =
     const state = await call(owner.url, 'GET', '/api/control', { token });
     assert.equal(state.body.stopAll, true);
 
-    const lifted = await call(owner.url, 'POST', '/api/control/stop-all', {
+    // Pressing it takes the session; lifting it takes the authenticator, so
+    // whoever stole a session cannot undo the stop pressed because of them.
+    const unproven = await call(owner.url, 'POST', '/api/control/stop-all', {
       token, body: { on: false },
+    });
+    assert.equal(unproven.status, 403, JSON.stringify(unproven.body));
+    assert.equal(await isStopAllRequested(), true, 'still stopped');
+    const lifted = await call(owner.url, 'POST', '/api/control/stop-all', {
+      token, body: { on: false, proof: { totp: owner.code() } },
     });
     assert.equal(lifted.body.stopAll, false);
     assert.equal(await isStopAllRequested(), false);
 
-    // And the narrower three answer too.
+    // And the narrower ones answer the same way: stopping on the session,
+    // starting again on the factor.
     for (const path of [
       `/api/control/company/${fixture.companyId}/freeze`,
       '/api/control/capability/dns.read/kill',
@@ -436,9 +444,67 @@ test('stop-all is reachable and reversible from the console (F10.7)', async () =
       );
       assert.equal(
         (await call(owner.url, 'POST', path, { token, body: { on: false } })).status,
+        403,
+        `${path} is not undone by a session alone`,
+      );
+      assert.equal(
+        (await call(owner.url, 'POST', path, {
+          token, body: { on: false, proof: { totp: owner.code() } },
+        })).status,
         200,
         path,
       );
+    }
+  } finally {
+    await clearStopAll();
+    await owner.close();
+  }
+});
+
+/**
+ * Every control that loosens asks for the authenticator; every one that
+ * tightens does not.
+ *
+ * A session is a bearer token in a browser. The owner presses stop, freezes,
+ * kills and lowers with one -- the moment something looks wrong is not the
+ * moment to go looking for a phone -- but a session that could also lift the
+ * stop, unfreeze, revive a capability, raise a ceiling, rewrite a policy or
+ * activate a skill could undo every one of those, and would be the most
+ * valuable thing on the machine to steal.
+ */
+test('a session alone can tighten any control and loosen none (F12.5, F10.7)', async () => {
+  const fixture = await createCompany('api-loosening');
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+    const company = `/api/companies/${fixture.companyId}`;
+    const loosening: Array<[string, Record<string, unknown>]> = [
+      ['/api/control/stop-all', { on: false }],
+      [`/api/control/company/${fixture.companyId}/freeze`, { on: false }],
+      ['/api/control/capability/dns.read/kill', { on: false }],
+      [`/api/control/company/${fixture.companyId}/role/${fixture.roleId}/resume`, {}],
+      [`${company}/spend/limit`, { moneyMaxCents: 10_000_000 }],
+      [`${company}/spend/resume`, {}],
+      ['/api/policies', {
+        slug: 'quiet', effect: 'deny', companyId: fixture.companyId, mode: 'log_only',
+        condition: { field: 'tier', op: 'gte', value: 2 },
+      }],
+      [`${company}/skills/versions/${fixture.roleId}/approve`, {}],
+    ];
+    for (const [path, body] of loosening) {
+      const answer = await call(owner.url, 'POST', path, { token, body });
+      assert.equal(answer.status, 403, `${path}: ${JSON.stringify(answer.body)}`);
+      assert.equal(answer.body.code, 'approval.channel_forbidden', path);
+    }
+
+    const tightening: Array<[string, Record<string, unknown>]> = [
+      [`/api/control/company/${fixture.companyId}/freeze`, { on: true }],
+      ['/api/control/capability/dns.read/kill', { on: true }],
+      [`${company}/spend/limit`, { moneyMaxCents: 1 }],
+    ];
+    for (const [path, body] of tightening) {
+      const answer = await call(owner.url, 'POST', path, { token, body });
+      assert.equal(answer.status, 200, `${path}: ${JSON.stringify(answer.body)}`);
     }
   } finally {
     await clearStopAll();
@@ -666,6 +732,20 @@ test('the deployment boots, serves the console, and takes a decision', async () 
       assert.equal((await fetch(`${deployment.url}${asset}`)).status, 200, asset);
     }
     void join;
+
+    // A notification's link opens the console on its item. It pointed at
+    // `/i/<id>`, which nothing served; it is the console with the company and
+    // the item in the query now, which the page reads.
+    const { consoleLinkFor } = await import('../../src/owner/notify.ts');
+    const link = new URL(consoleLinkFor(deployment.url, { id: 'item-1', companyId: fixture.companyId }));
+    assert.equal(link.searchParams.get('company'), fixture.companyId);
+    assert.equal(link.searchParams.get('item'), 'item-1');
+    const opened = await fetch(link);
+    assert.equal(opened.status, 200, 'the link lands on the console');
+    assert.match(await opened.text(), /<title>PALUGADA<\/title>/);
+    const script = await (await fetch(`${deployment.url}/console.js`)).text();
+    assert.match(script, /query\.get\('company'\)/);
+    assert.match(script, /query\.get\('item'\)/);
 
     // Now enrol, sign in, and take a real decision through the API the page
     // uses -- which is the whole chain the owner touches.
@@ -1208,14 +1288,31 @@ test('the owner can set the ceiling and lift the pause (F1.7, F1.9)', async () =
     const token = await signIn(owner.url, owner.code());
     const base = `/api/companies/${fixture.companyId}/spend`;
 
-    const set = await call(owner.url, 'POST', `${base}/limit`, {
+    // Raising the ceiling loosens a control, so a session alone is not
+    // enough: a stolen one could otherwise undo every limit the owner set.
+    const unproven = await call(owner.url, 'POST', `${base}/limit`, {
       token, body: { moneyMaxCents: 250_00 },
+    });
+    assert.equal(unproven.status, 403, JSON.stringify(unproven.body));
+    assert.equal(unproven.body.code, 'approval.channel_forbidden');
+    const set = await call(owner.url, 'POST', `${base}/limit`, {
+      token, body: { moneyMaxCents: 250_00, proof: { totp: owner.code() } },
     });
     assert.equal(set.status, 200, JSON.stringify(set.body));
 
     const read = await call(owner.url, 'GET', base, { token });
     assert.equal(read.status, 200);
     assert.equal(read.body.limitCents, 250_00);
+
+    // Lowering it tightens, and the session is enough: the moment something
+    // looks wrong is not the moment to go looking for a phone.
+    const lowered = await call(owner.url, 'POST', `${base}/limit`, {
+      token, body: { moneyMaxCents: 200_00 },
+    });
+    assert.equal(lowered.status, 200, JSON.stringify(lowered.body));
+    await call(owner.url, 'POST', `${base}/limit`, {
+      token, body: { moneyMaxCents: 250_00, proof: { totp: owner.code() } },
+    });
     assert.equal(typeof read.body.spentCents, 'number');
 
     // A ceiling of zero set by a typo stops every company; `NaN` is a
@@ -1247,14 +1344,18 @@ test('the owner can set the ceiling and lift the pause (F1.7, F1.9)', async () =
       'the guard did not pause, so there is nothing to lift',
     );
 
-    const resumed = await call(owner.url, 'POST', `${base}/resume`, { token, body: {} });
+    const refused = await call(owner.url, 'POST', `${base}/resume`, { token, body: {} });
+    assert.equal(refused.status, 403, 'lifting a pause takes the second factor');
+    const resumed = await call(owner.url, 'POST', `${base}/resume`, {
+      token, body: { proof: { totp: owner.code() } },
+    });
     assert.equal(resumed.status, 200, JSON.stringify(resumed.body));
     assert.equal((await call(owner.url, 'GET', base, { token })).body.pausedAt, null);
 
     // An override is bounded. F1.9 exists for "this one campaign is worth it",
     // and an override with no end is a ceiling removed rather than raised.
     const past = await call(owner.url, 'POST', `${base}/resume`, {
-      token, body: { until: '2020-01-01T00:00:00Z' },
+      token, body: { until: '2020-01-01T00:00:00Z', proof: { totp: owner.code() } },
     });
     assert.equal(past.status, 400, JSON.stringify(past.body));
   } finally {
@@ -1327,6 +1428,21 @@ test('the owner can set their own hours, and a company\'s batch window (F9.5, F9
       { token, body: { timezone: 'UTC', startHour: 2, endHour: 5, daysOfWeek: [1, 2, 3, 4, 5] } },
     );
     assert.equal(batch.status, 200, JSON.stringify(batch.body));
+
+    // A zone `Intl` does not know was stored, and from then on every
+    // notification and every cheap-hours check threw on it. Refused on the
+    // way in, by name, and what was there before still stands.
+    for (const path of ['/api/control/owner-window', `/api/companies/${fixture.companyId}/batch-window`]) {
+      const nowhere = await call(owner.url, 'POST', path, {
+        token, body: { timezone: 'Jakarta', startHour: 8, endHour: 21 },
+      });
+      assert.equal(nowhere.status, 400, `${path}: ${JSON.stringify(nowhere.body)}`);
+      assert.match(String(nowhere.body.error), /not a time zone.*Asia\/Jakarta/);
+    }
+    assert.equal((await call(owner.url, 'GET', '/api/control/owner-window', { token })).body.timezone,
+      'Asia/Jakarta');
+    const { assertValidCron } = await import('../../src/scheduler/scheduler.ts');
+    assert.throws(() => assertValidCron('0 9 * * *', 'Jakarta'), /not a time zone/);
   } finally {
     await owner.close();
   }
@@ -1651,6 +1767,7 @@ test('the owner can write a policy, and cannot write one the engine cannot read 
     const written = await call(owner.url, 'POST', '/api/policies', {
       token,
       body: {
+        proof: { totp: owner.code() },
         slug: 'external-mail-is-the-owners',
         effect: 'require_approval',
         companyId: fixture.companyId,
@@ -1664,6 +1781,7 @@ test('the owner can write a policy, and cannot write one the engine cannot read 
     const unknown = await call(owner.url, 'POST', '/api/policies', {
       token,
       body: {
+        proof: { totp: owner.code() },
         slug: 'nonsense', effect: 'shrug', companyId: fixture.companyId,
         condition: { field: 'tier', op: 'gte', value: 2 },
       },
@@ -1675,6 +1793,7 @@ test('the owner can write a policy, and cannot write one the engine cannot read 
     const bad = await call(owner.url, 'POST', '/api/policies', {
       token,
       body: {
+        proof: { totp: owner.code() },
         slug: 'bad-condition', effect: 'deny', companyId: fixture.companyId,
         condition: { field: 'whatever', op: 'eq', value: 1 },
       },
@@ -2006,6 +2125,7 @@ test('a bad condition and a bad cron are refused by name, not as a crash (F3.4, 
     const field = await call(owner.url, 'POST', '/api/policies', {
       token,
       body: {
+        proof: { totp: owner.code() },
         slug: 'unknown-field', effect: 'deny', companyId: fixture.companyId,
         condition: { field: 'whatever', op: 'eq', value: 1 },
       },
@@ -2016,6 +2136,7 @@ test('a bad condition and a bad cron are refused by name, not as a crash (F3.4, 
     const scoped = await call(owner.url, 'POST', '/api/policies', {
       token,
       body: {
+        proof: { totp: owner.code() },
         slug: 'division-without-company', effect: 'deny', divisionId: fixture.divisionId,
         condition: { field: 'tier', op: 'gte', value: 2 },
       },

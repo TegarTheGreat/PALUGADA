@@ -26,6 +26,7 @@ import { createRootTask, type TaskRow } from '../engine/tasks.ts';
 import * as budget from '../engine/budget.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { raiseEscalationWithin } from '../inbox/inbox.ts';
+import { assertTimeZone } from './windows.ts';
 
 const { parseExpression } = cronParser;
 
@@ -79,6 +80,10 @@ export function nextOccurrence(
 
 /** Validates a cron expression, so a typo fails on save rather than at 03:00. */
 export function assertValidCron(cronExpression: string, timezone: string): void {
+  // The zone first: cron-parser refuses an unknown one too, but as "invalid
+  // cron expression ... unhandled timestamp: null", which sends the owner to
+  // look at the expression they typed correctly.
+  assertTimeZone(timezone);
   try {
     parseExpression(cronExpression, { tz: timezone });
   } catch (error) {

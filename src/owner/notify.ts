@@ -36,6 +36,23 @@ import { channelDelivery, type ChannelDelivery } from '../inbox/inbox.ts';
 import { buildDailyDigest, renderDailyDigest } from '../reporting/digest.ts';
 
 /** One item, as a transport needs to see it. */
+/**
+ * Where a notification about an item takes the owner: the console, opened on
+ * that company and that item.
+ *
+ * The console reads both from the query. The link used to be `/i/<id>`, a
+ * path nothing served, so every notification's "open" went to a 404.
+ */
+export function consoleLinkFor(
+  publicUrl: string,
+  item: Pick<NotifiableItem, 'id' | 'companyId'>,
+): string {
+  const link = new URL(publicUrl);
+  link.searchParams.set('company', item.companyId);
+  link.searchParams.set('item', item.id);
+  return link.toString();
+}
+
 export interface NotifiableItem {
   id: string;
   companyId: string;

@@ -131,6 +131,9 @@ ul#inbox { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.85rem;
 
 .card p { margin: 0.35rem 0; }
 
+/* The item a notification's link pointed at. */
+.card.linked { border-color: var(--accent); border-left-color: var(--accent); }
+
 .head { display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; }
 
 .kind { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }

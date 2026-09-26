@@ -52,6 +52,7 @@ import { realpathSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { consoleLinkFor } from './owner/notify.ts';
 
 export interface DeploymentOptions {
   /**
@@ -434,7 +435,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
       }
       : {}),
     ...(env.PALUGADA_APP_URL_PUBLIC
-      ? { ownerLinkFor: (item) => `${env.PALUGADA_APP_URL_PUBLIC}/i/${item.id}` }
+      ? { ownerLinkFor: (item) => consoleLinkFor(env.PALUGADA_APP_URL_PUBLIC!, item) }
       : {}),
     ...options.worker,
   });

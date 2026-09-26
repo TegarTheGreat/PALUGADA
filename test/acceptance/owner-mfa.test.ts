@@ -436,6 +436,29 @@ test('a signature counter that does not advance is refused (F12.5)', async () =>
     () => mfa.verifyWebAuthn(device.assert({ challenge: mfa.challenge(), signCount: 11 })),
     (error: unknown) => isPalugadaError(error, 'mfa.counter_did_not_advance'),
   );
+
+  // Zero is "this authenticator does not count" only from one that never
+  // has. From one that has counted to eleven it is a counter that went back
+  // -- the number a cloned key would present to step around this check.
+  await assert.rejects(
+    () => mfa.verifyWebAuthn(device.assert({ challenge: mfa.challenge(), signCount: 0 })),
+    (error: unknown) => isPalugadaError(error, 'mfa.counter_did_not_advance'),
+  );
+});
+
+/**
+ * The sign-in page asks for a challenge before anyone has signed in, so
+ * issuing one is open to anybody who can reach the console. Held without a
+ * bound, a stranger could fill the process's memory at the speed of their
+ * connection.
+ */
+test('outstanding challenges are bounded, oldest dropped first (F12.5)', () => {
+  const store = new ChallengeStore(120_000, 3);
+  const first = store.issue(0);
+  const kept = [store.issue(1), store.issue(2), store.issue(3)];
+  assert.equal(store.size, 3);
+  assert.equal(store.redeem(first, 4), false, 'the oldest made room');
+  for (const challenge of kept) assert.equal(store.redeem(challenge, 5), true);
 });
 
 /* --------------------------------------------------------------- F10.10 --- */

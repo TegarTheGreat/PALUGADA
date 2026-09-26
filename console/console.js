@@ -30,6 +30,13 @@ const state = {
   // clears both, so a page marker from one is never sent to another.
   historyQuery: '',
   historyBefore: null,
+  // Where a notification's link pointed: `/?company=<id>&item=<id>`. Read
+  // once, on the first draw, and then forgotten, so the page does not keep
+  // jumping back to it.
+  linked: (() => {
+    const query = new URLSearchParams(window.location.search);
+    return { companyId: query.get('company'), itemId: query.get('item') };
+  })(),
 };
 
 const el = (id) => document.getElementById(id);
@@ -97,6 +104,11 @@ async function refresh() {
   ]);
 
   state.companies = companies;
+  const linkedCompany = state.linked.companyId;
+  if (linkedCompany && companies.some((c) => c.id === linkedCompany)) {
+    state.companyId = linkedCompany;
+    state.linked.companyId = null;
+  }
   state.companyId = state.companyId && companies.some((c) => c.id === state.companyId)
     ? state.companyId
     : companies[0]?.id ?? null;
@@ -117,9 +129,17 @@ function drawControls(control) {
   button.onclick = async () => {
     // Reversible, and both directions are the same button. A stop the owner
     // cannot lift without a database console is one they hesitate to press,
-    // and hesitating is the failure F10.7 exists to remove.
+    // and hesitating is the failure F10.7 exists to remove. Stopping takes one
+    // press; resuming takes the authenticator, so a stolen session cannot
+    // undo the stop.
     try {
-      await api('POST', '/api/control/stop-all', { on: !control.stopAll });
+      if (control.stopAll) {
+        const done = await withFactor('Resume everything', (proof) =>
+          api('POST', '/api/control/stop-all', { on: false, proof }));
+        if (!done) return;
+      } else {
+        await api('POST', '/api/control/stop-all', { on: true });
+      }
       el('control-note').textContent = '';
     } catch (failure) {
       // Said out loud. A stop that silently did not happen is worse than one
@@ -207,6 +227,28 @@ async function drawInbox() {
   drawDigest(digest);
   el('empty').hidden = items.length > 0;
   for (const item of items) list.append(card(item));
+  showLinkedItem(list);
+}
+
+/**
+ * Brings the item a notification linked to into view.
+ *
+ * An item that has closed since the notification went out is not in the
+ * queue any more, and the owner is told so rather than shown a queue that
+ * silently lacks the thing they tapped on.
+ */
+function showLinkedItem(list) {
+  const itemId = state.linked.itemId;
+  if (!itemId) return;
+  state.linked.itemId = null;
+  window.history.replaceState(null, '', window.location.pathname);
+  const card = [...list.children].find((child) => child.dataset.itemId === itemId);
+  if (!card) {
+    list.before(note('The item you followed has already been decided or closed; it is in the history.'));
+    return;
+  }
+  card.classList.add('linked');
+  card.scrollIntoView({ block: 'center' });
 }
 
 function drawDigest(digest) {
@@ -759,7 +801,12 @@ async function drawMoney() {
     form(
       [{ name: 'moneyMaxCents', label: 'Ceiling, in cents', type: 'number',
         value: spend.limitCents, required: true }],
-      (values) => api('POST', `${company()}/spend/limit`, values),
+      // Lowering the ceiling is the session's; raising it takes the factor,
+      // like everything else here that loosens a control.
+      (values) => (values.moneyMaxCents > spend.limitCents
+        ? withFactor('Raise the spend ceiling', (proof) =>
+          api('POST', `${company()}/spend/limit`, { ...values, proof }))
+        : api('POST', `${company()}/spend/limit`, values)),
       { action: 'Set the ceiling' },
     ),
     // Both directions of F1.9 on one row, because they are one decision: an
@@ -767,13 +814,15 @@ async function drawMoney() {
     // ceiling was wrong".
     spend.pausedAt
       ? group(
-        action('Lift the pause', () => api('POST', `${company()}/spend/resume`, {})),
+        action('Lift the pause', (proof) => api('POST', `${company()}/spend/resume`, { proof }),
+          { factor: 'Lift the spend pause' }),
         form(
           [{ name: 'until', label: 'Or override until', type: 'datetime-local', required: true }],
-          (values) => api('POST', `${company()}/spend/resume`, {
+          (values, proof) => api('POST', `${company()}/spend/resume`, {
             until: new Date(values.until).toISOString(),
+            proof,
           }),
-          { action: 'Override' },
+          { action: 'Override', factor: 'Override the spend pause' },
         ),
       )
       : note('Not paused.'),
@@ -872,8 +921,10 @@ async function drawHealth() {
     ),
     form(
       [{ name: 'name', label: 'Capability', required: true }],
-      (values) => api('POST', `/api/control/capability/${values.name}/kill`, { on: false }),
-      { action: 'Allow it again' },
+      (values, proof) => api('POST', `/api/control/capability/${values.name}/kill`, {
+        on: false, proof,
+      }),
+      { action: 'Allow it again', factor: 'Allow the capability again' },
     ),
 
     // F3.12. A role freezes itself when it keeps being denied, and stays
@@ -881,10 +932,10 @@ async function drawHealth() {
     heading('Resume a frozen role'),
     form(
       [{ name: 'roleId', label: 'Role id', required: true }],
-      (values) => api(
-        'POST', `/api/control/company/${state.companyId}/role/${values.roleId}/resume`, {},
+      (values, proof) => api(
+        'POST', `/api/control/company/${state.companyId}/role/${values.roleId}/resume`, { proof },
       ),
-      { action: 'Resume it' },
+      { action: 'Resume it', factor: 'Resume the role' },
     ),
 
     heading('Correct something the platform believes'),
@@ -1017,8 +1068,9 @@ async function drawSettings() {
       action('Freeze', () =>
         api('POST', `/api/control/company/${state.companyId}/freeze`, { on: true }),
       { danger: true }),
-      action('Unfreeze', () =>
-        api('POST', `/api/control/company/${state.companyId}/freeze`, { on: false })),
+      action('Unfreeze', (proof) =>
+        api('POST', `/api/control/company/${state.companyId}/freeze`, { on: false, proof }),
+      { factor: 'Unfreeze the company' }),
     ),
 
     heading('Export'),
@@ -1136,13 +1188,14 @@ async function drawStructure() {
           required: true },
         { name: 'condition', label: 'Condition, as JSON', type: 'textarea', required: true },
       ],
-      (values) => api('POST', '/api/policies', {
+      (values, proof) => api('POST', '/api/policies', {
         slug: values.slug,
         effect: values.effect,
         companyId: state.companyId,
         condition: JSON.parse(values.condition),
+        proof,
       }),
-      { action: 'Write it' },
+      { action: 'Write it', factor: 'Write the policy' },
     ),
 
     heading('Rotate a credential'),
@@ -1296,10 +1349,10 @@ async function drawSkills() {
     group(
       form(
         [{ name: 'versionId', label: 'Version id', required: true }],
-        (values) => api(
+        (values, proof) => api(
           'POST', `${company()}/skills/versions/${values.versionId}/review`, { approved: true },
-        ).then(() => api('POST', `${company()}/skills/versions/${values.versionId}/approve`, {})),
-        { action: 'Approve and activate' },
+        ).then(() => api('POST', `${company()}/skills/versions/${values.versionId}/approve`, { proof })),
+        { action: 'Approve and activate', factor: 'Activate the skill' },
       ),
       form(
         [

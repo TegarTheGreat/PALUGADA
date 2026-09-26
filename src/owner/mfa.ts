@@ -199,16 +199,35 @@ function codesMatch(presented: string, expected: string): boolean {
 export class ChallengeStore {
   readonly #issued = new Map<string, number>();
   readonly #ttlMs: number;
+  readonly #max: number;
 
-  constructor(ttlMs = 120_000) {
+  /**
+   * `max` bounds what is held at once. The sign-in page asks for a challenge
+   * before anyone has signed in, so issuing one is open to anybody who can
+   * reach the console, and an unbounded map is memory a stranger can fill at
+   * the speed of their connection. Past the bound the oldest outstanding
+   * challenge is dropped: an owner whose challenge was pushed out by a flood
+   * asks for another, which is a retry, not an outage.
+   */
+  constructor(ttlMs = 120_000, max = 1_000) {
     this.#ttlMs = ttlMs;
+    this.#max = max;
   }
 
   issue(now: number = Date.now()): string {
     this.#sweep(now);
+    // A Map iterates in insertion order, so the first key is the oldest.
+    while (this.#issued.size >= this.#max) {
+      this.#issued.delete(this.#issued.keys().next().value!);
+    }
     const challenge = randomBytes(32).toString('base64url');
     this.#issued.set(challenge, now + this.#ttlMs);
     return challenge;
+  }
+
+  /** How many challenges are outstanding. */
+  get size(): number {
+    return this.#issued.size;
   }
 
   /** True once per challenge, and only inside its window. */
@@ -749,13 +768,20 @@ export class OwnerMfa {
     //
     // Claimed by the write, for the same reason the TOTP step is: a read, a
     // decision and then a write lets two copies of one assertion both pass.
-    if (parsed.signCount !== 0 && !(await this.#claimSignCount(tx, factor.id, parsed.signCount))) {
+    //
+    // And a zero from an authenticator that has counted before is not "this
+    // one does not count" -- it is a counter that went backwards, which is
+    // what a cloned key reports to skip this check. WebAuthn's own rule: if
+    // either the stored count or the presented one is non-zero, the presented
+    // one must be greater.
+    const counts = parsed.signCount !== 0 || factor.signCount !== 0;
+    if (counts && !(await this.#claimSignCount(tx, factor.id, parsed.signCount))) {
       return refuse(
         'mfa.counter_did_not_advance',
         `the signature counter went from ${factor.signCount} to ${parsed.signCount}`,
       );
     }
-    if (parsed.signCount === 0) await this.#touch(tx, factor.id);
+    if (!counts) await this.#touch(tx, factor.id);
     return { factor: { authenticatorId: factor.id, kind: 'webauthn', label: factor.label } };
   }
 

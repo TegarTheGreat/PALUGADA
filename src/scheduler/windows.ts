@@ -12,6 +12,7 @@
  * time zone database instead of by assumptions that break twice a year.
  */
 import { withTenant, withControlPlane, type TenantClient } from '../db/tenant.ts';
+import { PalugadaError } from '../errors.ts';
 import { channelDelivery, type ChannelDelivery } from '../inbox/inbox.ts';
 
 export interface LocalTime {
@@ -167,6 +168,27 @@ export async function batchWindow(
   };
 }
 
+/**
+ * Refuses a name that is not an IANA time zone.
+ *
+ * Checked when a window is written rather than when it is read, because a
+ * window is read on every notification and every batch check: an owner who
+ * typed "Jakarta" instead of "Asia/Jakarta" stored a zone `Intl` throws on,
+ * and from then on every approval's notification and every cheap-hours check
+ * failed -- the platform broken by a settings form.
+ */
+export function assertTimeZone(timezone: string): void {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: timezone });
+  } catch {
+    throw new PalugadaError(
+      'contract.violation',
+      `${JSON.stringify(timezone)} is not a time zone; use an IANA name such as Asia/Jakarta`,
+      { field: 'timezone' },
+    );
+  }
+}
+
 export async function setBatchWindow(input: {
   companyId: string;
   timezone: string;
@@ -174,6 +196,7 @@ export async function setBatchWindow(input: {
   endHour: number;
   daysOfWeek?: number[];
 }): Promise<void> {
+  assertTimeZone(input.timezone);
   await withControlPlane(async (tx) => {
     await tx.query(
       `INSERT INTO batch_windows (company_id, timezone, start_hour, end_hour, days_of_week)
@@ -221,6 +244,7 @@ export async function setOwnerWindow(input: {
   startHour: number;
   endHour: number;
 }): Promise<void> {
+  assertTimeZone(input.timezone);
   await withControlPlane(async (tx) => {
     await tx.query(
       `UPDATE platform_control

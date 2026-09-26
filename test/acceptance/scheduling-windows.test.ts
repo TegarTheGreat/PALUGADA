@@ -23,7 +23,7 @@ import { Engine } from '../../src/engine/engine.ts';
 import { CapabilityRegistry, type Capability } from '../../src/broker/registry.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';
-import { createRootTask, getTask } from '../../src/engine/tasks.ts';
+import { createRootTask, getTask, transition } from '../../src/engine/tasks.ts';
 import { claimTask, releaseTask } from '../../src/engine/checkout.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import * as budget from '../../src/engine/budget.ts';
@@ -876,4 +876,101 @@ test('a schedule that cannot fire says so once, not every pass (F9.1)', async ()
     return rows[0]!;
   });
   assert.deepEqual(row, { fire_failed_for: null, fire_failure: null });
+});
+
+/* ------------------------------------------------- a schedule repeating itself --- */
+
+async function scheduleWithHistory(fixture: Fixture, outputs: Array<Record<string, unknown>>) {
+  const schedule = await upsertSchedule(
+    {
+      companyId: fixture.companyId,
+      projectId: fixture.projectId,
+      divisionId: fixture.divisionId,
+      roleId: fixture.roleId,
+      budgetAccountId: fixture.budgetAccountId,
+      goalId: fixture.goalId,
+      slug: 'morning-report',
+      cronExpression: '0 * * * *',
+      timezone: 'UTC',
+      input: { kind: 'report' },
+      reserveTokens: 1000,
+    },
+    new Date(Date.now() - 30 * 60_000),
+  );
+  const scheduleId = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ id: string }>(
+      "SELECT id FROM schedules WHERE slug = 'morning-report'",
+    );
+    return rows[0]!.id;
+  });
+  void schedule;
+  for (const [index, output] of outputs.entries()) {
+    const task = await createRootTask({
+      companyId: fixture.companyId,
+      projectId: fixture.projectId,
+      divisionId: fixture.divisionId,
+      roleId: fixture.roleId,
+      budgetAccountId: fixture.budgetAccountId,
+      goalId: fixture.goalId,
+      input: { kind: 'report' },
+      createdBy: 'scheduler',
+      reserveTokens: 100,
+      idempotencyKey: `schedule:${scheduleId}:2026-09-0${index + 1}T08:00:00.000Z`,
+    });
+    await transition(fixture.companyId, task.id, 'running');
+    await transition(fixture.companyId, task.id, 'completed', { output });
+  }
+  return scheduleId;
+}
+
+async function scheduleEscalations(fixture: Fixture) {
+  return withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ id: string; status: string }>(
+      "SELECT id, status FROM inbox_items WHERE kind = 'escalation' AND payload ? 'scheduleId'",
+    );
+    return rows;
+  });
+}
+
+/**
+ * auto-company calls it stalling, Paperclip throttles it: work that repeats
+ * itself exactly has usually stopped being useful, and a schedule does not
+ * notice that about itself. Five identical results are put to the owner once,
+ * and the answer acts on the schedule.
+ */
+test('a schedule that keeps producing the same result is put to the owner, and deny turns it off (F9.1)', async () => {
+  const fixture = await createCompany('schedule-repeats');
+  const same = { summary: 'Nothing new since yesterday.' };
+  const scheduleId = await scheduleWithHistory(fixture, [same, same, same, same, same]);
+
+  const fired = await runDueSchedules(new Date());
+  assert.equal(fired.length, 1, 'the occurrence still fires');
+  const [asked] = await scheduleEscalations(fixture);
+  assert.ok(asked, 'the owner is asked');
+
+  // Once per result, not once per fire: the sixth run says the same thing
+  // again, the next occurrence fires, and nobody is asked twice.
+  await transition(fixture.companyId, fired[0]!.taskId, 'running');
+  await transition(fixture.companyId, fired[0]!.taskId, 'completed', { output: same });
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    "UPDATE schedules SET next_run_at = now() - interval '1 minute' WHERE id = $1", [scheduleId],
+  ));
+  assert.equal((await runDueSchedules(new Date())).length, 1);
+  assert.equal((await scheduleEscalations(fixture)).length, 1);
+
+  await inbox.decide(fixture.companyId, asked!.id, 'deny', 'it has nothing to say');
+  const enabled = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ enabled: boolean }>('SELECT enabled FROM schedules WHERE id = $1', [scheduleId]);
+    return rows[0]!.enabled;
+  });
+  assert.equal(enabled, false, 'deny is the action, not a note to go and take it');
+});
+
+test('a schedule whose results differ is left alone', async () => {
+  const fixture = await createCompany('schedule-varies');
+  await scheduleWithHistory(fixture, [
+    { summary: 'a' }, { summary: 'b' }, { summary: 'a' }, { summary: 'a' }, { summary: 'a' },
+  ]);
+  await runDueSchedules(new Date());
+  assert.deepEqual(await scheduleEscalations(fixture), []);
 });

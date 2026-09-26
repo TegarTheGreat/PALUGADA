@@ -268,6 +268,32 @@ export async function raiseEscalation(input: {
 }
 
 /**
+ * An escalation about a schedule rather than a task (F9.1).
+ *
+ * The answer acts on the schedule: deny turns it off, approve leaves it
+ * running. Carried in the payload, and `decide` reads it, so the owner's
+ * answer is the action rather than a note they then have to go and carry out.
+ */
+export async function raiseScheduleEscalation(input: {
+  companyId: string;
+  scheduleId: string;
+  title: string;
+  detail: string;
+}): Promise<string> {
+  const itemId = await raiseEscalation({
+    companyId: input.companyId,
+    title: input.title,
+    detail: input.detail,
+  });
+  await withTenant(input.companyId, (tx) => tx.query(
+    `UPDATE inbox_items SET payload = payload || jsonb_build_object('scheduleId', $2::text)
+      WHERE id = $1`,
+    [itemId, input.scheduleId],
+  ));
+  return itemId;
+}
+
+/**
  * Puts a distilled SOP in front of the owner (F4.5).
  *
  * Waits for the owner's window like any other non-urgent item: a proposed
@@ -800,6 +826,22 @@ export async function decide(
           payload: { memoryId, applied: activated },
         });
       }
+    }
+
+    // F9.1: an escalation about a schedule is answered by acting on it. Deny
+    // turns it off in the same transaction as the decision, so there is no
+    // moment where the owner has said "stop" and the next occurrence fires.
+    const scheduleId = typeof row.payload.scheduleId === 'string' ? row.payload.scheduleId : null;
+    if (row.kind === 'escalation' && scheduleId && decision !== 'ask') {
+      if (decision === 'deny') {
+        await tx.query('UPDATE schedules SET enabled = false WHERE id = $1', [scheduleId]);
+      }
+      await appendEvent(tx, {
+        companyId,
+        type: decision === 'deny' ? 'schedule.disabled' : 'schedule.kept',
+        actor: 'owner',
+        payload: { scheduleId, inboxItemId: itemId },
+      });
     }
 
     if (!row.task_id) return;

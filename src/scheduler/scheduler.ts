@@ -25,6 +25,7 @@ import { withControlPlane, withTenant } from '../db/tenant.ts';
 import { createRootTask, type TaskRow } from '../engine/tasks.ts';
 import * as budget from '../engine/budget.ts';
 import { appendEvent } from '../audit/event-log.ts';
+import { raiseScheduleEscalation } from '../inbox/inbox.ts';
 
 const { parseExpression } = cronParser;
 
@@ -287,6 +288,12 @@ export async function runDueSchedules(now = new Date()): Promise<FiredOccurrence
     // Advance only after the task exists. The guard on next_run_at makes this
     // safe when two workers scan at once: the loser updates nothing and its
     // task creation was idempotent, so the occurrence fires exactly once.
+    //
+    // Compared at the millisecond, because `occurrence` came out of the column
+    // through a JavaScript Date. A next_run_at with microseconds in it -- set
+    // by hand, or by anything other than `nextOccurrence` -- never equalled
+    // its own rounded copy, so the schedule never advanced and fired the same
+    // occurrence on every tick.
     const advanced = await withTenant(schedule.company_id, async (tx) => {
       const next = nextOccurrence(schedule.cron_expression, schedule.timezone, now);
       const skipped = countOccurrences(
@@ -299,7 +306,7 @@ export async function runDueSchedules(now = new Date()): Promise<FiredOccurrence
         `UPDATE schedules
             SET last_run_at = $2, next_run_at = $3,
                 fire_failed_for = NULL, fire_failure = NULL
-          WHERE id = $1 AND next_run_at = $2`,
+          WHERE id = $1 AND date_trunc('milliseconds', next_run_at) = $2`,
         [schedule.id, occurrence, next],
       );
       if (rowCount === 1) {
@@ -322,6 +329,10 @@ export async function runDueSchedules(now = new Date()): Promise<FiredOccurrence
     });
 
     if (advanced) {
+      // After the occurrence fired, never instead of it: whether a schedule is
+      // still worth paying for is the owner's question, and a schedule that
+      // stopped itself on a guess would be the platform deciding it.
+      await askAboutRepetition(schedule, task.id).catch(() => undefined);
       fired.push({
         scheduleId: schedule.id,
         slug: schedule.slug,
@@ -333,4 +344,72 @@ export async function runDueSchedules(now = new Date()): Promise<FiredOccurrence
   }
 
   return fired;
+}
+
+/** How many identical results in a row make a schedule worth asking about. */
+export const REPETITION_RUNS = 5;
+
+/**
+ * Asks the owner once when a schedule keeps producing the same result.
+ *
+ * auto-company calls it stalling -- "the same next action two cycles running"
+ * -- and Paperclip throttles an agent whose runs leave no visible trace; both
+ * are the same observation: work that repeats itself exactly is usually work
+ * that has stopped being useful, and a schedule does not notice that about
+ * itself. Five completed runs with byte-identical output are put to the owner
+ * as an escalation: deny turns the schedule off, approve keeps it and is not
+ * asked again about that same result. Once per result, recorded as
+ * `schedule.repetition_noticed`, so a schedule that is fine producing the
+ * same report every morning is asked once and then left alone.
+ *
+ * Best-effort, and after the occurrence has fired: failing to ask must never
+ * be the reason a schedule did not run.
+ */
+async function askAboutRepetition(schedule: DueSchedule, justFired: string): Promise<void> {
+  const repeated = await withTenant(schedule.company_id, async (tx) => {
+    // The runs before the one just created, which has not run yet.
+    const { rows } = await tx.query<{ status: string; digest: string | null }>(
+      `SELECT status, md5(output::text) AS digest FROM tasks
+        WHERE company_id = $1 AND idempotency_key LIKE $2 AND id <> $4
+        ORDER BY created_at DESC
+        LIMIT $3`,
+      [schedule.company_id, `schedule:${schedule.id}:%`, REPETITION_RUNS, justFired],
+    );
+    if (rows.length < REPETITION_RUNS) return null;
+    if (rows.some((row) => row.status !== 'completed' || row.digest === null)) return null;
+    const digest = rows[0]!.digest!;
+    if (rows.some((row) => row.digest !== digest)) return null;
+
+    // Once per result, under a lock, so two workers firing the same schedule
+    // ask once between them.
+    await tx.query("SELECT pg_advisory_xact_lock(hashtext('repetition:' || $1))", [schedule.id]);
+    const { rows: seen } = await tx.query(
+      `SELECT 1 FROM events
+        WHERE company_id = $1 AND type = 'schedule.repetition_noticed'
+          AND payload->>'scheduleId' = $2 AND payload->>'outputDigest' = $3
+        LIMIT 1`,
+      [schedule.company_id, schedule.id, digest],
+    );
+    if (seen.length > 0) return null;
+    await appendEvent(tx, {
+      companyId: schedule.company_id,
+      projectId: schedule.project_id,
+      type: 'schedule.repetition_noticed',
+      actor: 'scheduler',
+      payload: { scheduleId: schedule.id, slug: schedule.slug, outputDigest: digest, runs: REPETITION_RUNS },
+    });
+    return digest;
+  });
+  if (!repeated) return;
+
+  await raiseScheduleEscalation({
+    companyId: schedule.company_id,
+    scheduleId: schedule.id,
+    title: `Schedule ${schedule.slug} keeps producing the same result`,
+    detail:
+      `Its last ${REPETITION_RUNS} runs all completed with identical output. That is sometimes `
+      + 'exactly right -- a report that has nothing new to say -- and often a schedule that '
+      + 'stopped doing anything useful while still being paid for. Deny to turn it off; '
+      + 'approve to keep it running and not be asked about this result again.',
+  });
 }

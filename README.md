@@ -821,7 +821,9 @@ any other way, and a chat message the owner already answered elsewhere loses
 its buttons. A task left waiting on nothing — no approval open, no review
 pending, no time to wake at — is put to the owner once, and their answer runs
 it again or cancels it. What the owner decided stays findable: the History tab
-searches closed items by what they said as well as what was asked.
+searches closed items by what they said as well as what was asked. A schedule
+whose last five runs produced the same result asks the owner once whether it
+is still worth running.
 
 ## What is not exercised
 

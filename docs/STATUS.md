@@ -2280,6 +2280,28 @@ one. It is `worker-<host>-<pid>-<boot id>` now. Two deployments in one process
 share a PID as well, which makes the collision reproducible: the test claims a
 task as one and has the other try to run it, and the old name lets it.
 
+### A schedule does not notice when it has stopped being useful
+
+auto-company stops a loop whose "next action" is the same two cycles running;
+Paperclip throttles an agent whose runs leave no visible trace. Both are the
+same observation -- work that repeats itself exactly has usually stopped
+earning its cost -- and PRD §2.3 lists Paperclip's surprise bills from
+aggressive heartbeats as a defect this platform answers. A schedule here fired
+for ever whatever it produced. When a schedule's last five runs all completed
+with byte-identical output, the owner is asked once, as an escalation about
+the schedule: deny turns it off in the same transaction as the decision, and
+approve keeps it and is not asked about that same result again. It asks after
+the occurrence has fired, never instead of it -- whether a schedule is worth
+paying for is the owner's question, and one that stopped itself on a guess
+would be the platform deciding it.
+
+Writing its test found one more of today's precision defects. The scheduler
+advanced a schedule with `WHERE next_run_at = $2`, where `$2` was the column
+read out through a JavaScript Date. A `next_run_at` with microseconds in it
+-- set by hand, or by anything but `nextOccurrence` -- never equalled its own
+rounded copy, so the schedule never advanced and fired its occurrence on every
+tick. It is compared at the millisecond now.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

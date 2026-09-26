@@ -61,6 +61,9 @@ Adopted, because it answered a defect this repository had:
 - **Paperclip's `retryNotBefore`** (`packages/adapter-utils/src/types.ts:69-91`),
   as `notBefore` on `capability.rate_limited`, parking on F9.2's existing
   `waiting_window` rather than a new status.
+- **Paperclip's boot-id run ownership** (`legacy-controller-lease.ts`): a
+  worker is named for its boot, not its PID, since every container replica is
+  PID 1.
 - **Paperclip's liveness contract** (`doc/execution-semantics.md` §8-9): every
   live task has a next mover, and a sweep finds the ones that do not. Here the
   owner's escalation is the recovery action, rather than a second table, and

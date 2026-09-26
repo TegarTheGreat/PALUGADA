@@ -2268,6 +2268,18 @@ into a Date and sent back as the bound, so a run's last event, in its last
 microsecond, was not in its own trajectory -- and bounds against the row in
 SQL now.
 
+### Two replicas were one worker
+
+Paperclip keys run ownership on a per-boot id rather than a PID, because a PID
+is reused (`legacy-controller-lease.ts`). The deployment here named its worker
+`worker-${pid}` -- and every replica of a container image is usually PID 1, so
+two replicas had one identity, and each could renew and run the other's
+claim, which is the one thing F5.11's lease exists to prevent. The engine's
+own default was already a random id; the deployment replaced it with a worse
+one. It is `worker-<host>-<pid>-<boot id>` now. Two deployments in one process
+share a PID as well, which makes the collision reproducible: the test claims a
+task as one and has the other try to run it, and the old name lets it.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

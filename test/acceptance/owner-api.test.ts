@@ -2770,3 +2770,48 @@ test('what the owner decided can be found again, by what they wrote (F10.8)', as
     await console.close();
   }
 });
+
+/**
+ * Two replicas are two workers.
+ *
+ * The deployment named its worker `worker-${pid}`, and every replica of a
+ * container image is usually PID 1 -- so two replicas were one identity, and
+ * each could renew and run the other's claim, which is the one thing F5.11's
+ * lease exists to prevent. Two deployments in one process share a PID too,
+ * which makes that exact collision reproducible here.
+ */
+test('two deployments on one PID are two workers, and one cannot run the other\'s claim (F5.11)', async () => {
+  const { start } = await import('../../src/main.ts');
+  const { createRootTask } = await import('../../src/engine/tasks.ts');
+  const { claimTask } = await import('../../src/engine/checkout.ts');
+
+  const fixture = await createCompany('replicas');
+  const elsewhere = await createCompany('replicas-idle');
+  const quiet = { companyId: elsewhere.companyId, idleMs: 60_000 };
+  const first = await start({ port: 0, env: {}, worker: quiet });
+  const second = await start({ port: 0, env: {}, worker: quiet });
+  try {
+    assert.notEqual(first.engine.workerId, second.engine.workerId);
+    assert.match(first.engine.workerId, new RegExp(`-${process.pid}-[0-9a-f]{8}$`));
+
+    const task = await createRootTask({
+      companyId: fixture.companyId,
+      projectId: fixture.projectId,
+      divisionId: fixture.divisionId,
+      roleId: fixture.roleId,
+      budgetAccountId: fixture.budgetAccountId,
+      goalId: fixture.goalId,
+      input: { goal: 'held by the first replica' },
+      createdBy: 'owner',
+      reserveTokens: 10_000,
+    });
+    const claim = await claimTask(fixture.companyId, { holder: first.engine.workerId, taskId: task.id });
+    assert.equal(claim?.taskId, task.id);
+
+    const outcome = await second.engine.runTask(fixture.companyId, task.id, 'worker');
+    assert.equal(outcome.status, 'not_claimed', outcome.reason);
+  } finally {
+    await first.stop();
+    await second.stop();
+  }
+});

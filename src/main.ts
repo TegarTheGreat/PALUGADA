@@ -49,6 +49,8 @@ import { CachedSecretManager } from './secrets/rotation.ts';
 import type { LlmClient } from './llm/client.ts';
 import { closePools } from './db/pool.ts';
 import { realpathSync } from 'node:fs';
+import { hostname } from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 export interface DeploymentOptions {
@@ -381,7 +383,16 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   const engine = new Engine({
     broker,
     adapters: runtimes.adapters,
-    workerId: env.PALUGADA_WORKER_ID ?? `worker-${process.pid}`,
+    // Unique per boot, not per PID. Every replica of a container image is
+    // usually PID 1, so `worker-${pid}` gave two replicas one identity -- and
+    // a shared identity is the one thing a lease cannot survive: each renews
+    // the other's claim and both run the task. The engine's own default was
+    // already a random id; this line replaced it with a worse one. Host and
+    // PID stay in it for a person reading `lease_holder`, and the boot id is
+    // what makes it unique (Paperclip keys run ownership on a boot id for the
+    // same reason). An operator who sets PALUGADA_WORKER_ID owns its
+    // uniqueness.
+    workerId: env.PALUGADA_WORKER_ID ?? defaultWorkerId(),
     prices,
   });
 
@@ -453,6 +464,11 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
       await running;
     },
   };
+}
+
+/** `host-pid-bootid`: readable, and unique across replicas and restarts. */
+export function defaultWorkerId(): string {
+  return `worker-${hostname()}-${process.pid}-${randomUUID().slice(0, 8)}`;
 }
 
 /* ------------------------------------------------------------ the process --- */

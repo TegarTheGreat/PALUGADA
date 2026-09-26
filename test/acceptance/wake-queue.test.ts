@@ -195,6 +195,31 @@ test('a wake with work to do claims it (F9.8)', async () => {
   assert.equal(stored!.leaseHolder, 'wake-worker');
 });
 
+/**
+ * A claim is a lease, a lane and budget headroom held for fifteen minutes.
+ * The drain claimed one task per due wake however many the worker would run,
+ * and the rest sat `checked_out` -- holding all three -- until their leases
+ * ran out.
+ */
+test('a drain claims no more than the worker will run (F9.8, F5.11)', async () => {
+  const fixture = await createCompany('wake-bounded');
+  const tasks = [await newTask(fixture), await newTask(fixture), await newTask(fixture)];
+  for (let n = 0; n < 3; n += 1) {
+    await enqueueWake({ companyId: fixture.companyId, roleId: fixture.roleId, reason: 'assignment' });
+  }
+
+  const outcomes = await drainWakes(fixture.companyId, { holder: 'wake-worker', maxClaims: 1 });
+  assert.deepEqual(outcomes.map((wake) => wake.taskId !== null), [true]);
+
+  const statuses = await withTenant(fixture.companyId, async (tx) =>
+    Promise.all(tasks.map(async (task) => (await getTask(tx, task.id))!.status)));
+  assert.deepEqual(statuses.sort(), ['checked_out', 'pending', 'pending']);
+
+  // The wakes it did not act on are still due, for the next tick.
+  const next = await drainWakes(fixture.companyId, { holder: 'wake-worker' });
+  assert.equal(next.filter((wake) => wake.taskId !== null).length, 2);
+});
+
 test('a wake claims only for the role it names', async () => {
   // Waking the marketing role must not hand it the operator's work.
   const fixture = await createCompany('wake-role-scope');

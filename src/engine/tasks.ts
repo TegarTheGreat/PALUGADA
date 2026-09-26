@@ -228,17 +228,27 @@ export async function createRootTask(input: CreateTaskInput): Promise<TaskRow> {
       );
     }
 
+    // Inside a savepoint, because the recovery below runs in this same
+    // transaction and PostgreSQL refuses every statement after an error until
+    // the transaction is rolled back. Without it the release and the lookup
+    // both failed with 25P02, and the race the comment below describes -- two
+    // replicas firing one schedule occurrence -- ended with the loser
+    // recording a failure for a task that had been created.
+    await tx.query('SAVEPOINT insert_task');
     try {
-      return await insertTask(
+      const task = await insertTask(
         tx,
         { ...input, budgetAccountId },
         { parentTaskId: null, hopDepth: 0, reserveTokens },
       );
+      await tx.query('RELEASE SAVEPOINT insert_task');
+      return task;
     } catch (error) {
       // Two workers raced for the same occurrence. The unique constraint on
       // (company_id, idempotency_key) settled it; this side gives its
       // reservation back and adopts the winner's task.
       if ((error as { code?: string }).code === '23505' && input.idempotencyKey) {
+        await tx.query('ROLLBACK TO SAVEPOINT insert_task');
         await budget.release(tx, budgetAccountId, reserveTokens);
         const existing = await findByIdempotencyKey(tx, input.idempotencyKey);
         if (existing) return existing;
@@ -549,8 +559,14 @@ export async function transition(
  * this wrote `completed` over it. With it, the second writer waits, reads what
  * the first committed, and is refused by the state machine rather than
  * overwriting it. Every writer takes the task before its inbox items, which is
- * the order the stop button's trigger takes them in too, so the lock cannot
- * deadlock against it.
+ * the order the stop button's trigger takes them in too.
+ *
+ * `FOR NO KEY UPDATE`, not `FOR UPDATE`: the second conflicts with the key
+ * share lock every foreign-key insert takes on its parent, so a transaction
+ * holding the budget chain and inserting an event for this task would wait on
+ * this lock while this transaction waited on the chain. The weaker lock is all
+ * a status change needs -- it does not touch the key -- and it lets those
+ * inserts through.
  */
 export async function transitionWithin(
   tx: TenantClient,
@@ -560,7 +576,7 @@ export async function transitionWithin(
   options: TransitionOptions = {},
 ): Promise<void> {
   {
-    await tx.query('SELECT 1 FROM tasks WHERE id = $1 FOR UPDATE', [taskId]);
+    await tx.query('SELECT 1 FROM tasks WHERE id = $1 FOR NO KEY UPDATE', [taskId]);
     const task = await getTask(tx, taskId);
     if (!task) throw new Error(`task ${taskId} not found`);
     assertTransition(task.status, to);

@@ -134,7 +134,7 @@ export async function claimTask(
   options: ClaimOptions,
 ): Promise<Claim | null> {
   const now = options.now ?? new Date();
-  const expiresAt = new Date(now.getTime() + (options.leaseMs ?? DEFAULT_LEASE_MS));
+  const expiresAt = leaseUntil(now, options.leaseMs);
 
   return withTenant(companyId, async (tx) => {
     // Claims within a company are serialised, and this is load-bearing rather
@@ -176,6 +176,56 @@ export async function claimTask(
 }
 
 /**
+ * When a lease taken at `now` runs out.
+ *
+ * From the later of the caller's clock and the wall clock. A worker tick reads
+ * the time once, at its start, and hands it to every claim it makes; after
+ * the tick has run eight tasks of two minutes each, a claim at "now" is a
+ * claim sixteen minutes ago, and a fifteen-minute lease taken then was over
+ * before the task started -- another replica reclaimed it while this one was
+ * running it. The caller's clock still wins when it is ahead, which is how a
+ * test asks about the future.
+ */
+export function leaseUntil(now: Date | undefined, leaseMs = DEFAULT_LEASE_MS): Date {
+  return new Date(Math.max(now?.getTime() ?? 0, Date.now()) + leaseMs);
+}
+
+/**
+ * Takes the lease on a task that is already past `pending`.
+ *
+ * A task this worker claimed is `checked_out` under its own lease; a task
+ * resumed after an approval, a review or a window is `running` or waiting
+ * under whichever lease it had when it parked, usually long expired. Either
+ * way the run may start only once this worker holds it, and "holds" is
+ * decided by one conditional write rather than by a read and a comparison:
+ * the lease is free, already this worker's, or expired. Two workers resuming
+ * the same task both reach this statement, and the row lock lets exactly one
+ * of them through.
+ *
+ * Null when the task is somebody else's, or has ended.
+ */
+export async function adoptLease(
+  companyId: string,
+  taskId: string,
+  holder: string,
+  options: { leaseMs?: number } = {},
+): Promise<Date | null> {
+  const now = new Date();
+  return withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<{ lease_expires_at: Date }>(
+      `UPDATE tasks SET lease_holder = $2, lease_expires_at = $3
+        WHERE id = $1
+          AND status IN ('checked_out', 'running', 'waiting_approval', 'waiting_review', 'waiting_window')
+          AND (lease_holder IS NULL OR lease_holder = $2
+               OR lease_expires_at IS NULL OR lease_expires_at <= $4)
+        RETURNING lease_expires_at`,
+      [taskId, holder, leaseUntil(now, options.leaseMs), now],
+    );
+    return rows[0]?.lease_expires_at ?? null;
+  });
+}
+
+/**
  * Pushes a lease out, for a worker that is still alive and still working.
  *
  * Only the holder may renew. A renewal from anyone else would let a worker
@@ -188,8 +238,7 @@ export async function renewLease(
   holder: string,
   options: { leaseMs?: number; now?: Date } = {},
 ): Promise<Date | null> {
-  const now = options.now ?? new Date();
-  const expiresAt = new Date(now.getTime() + (options.leaseMs ?? DEFAULT_LEASE_MS));
+  const expiresAt = leaseUntil(options.now, options.leaseMs);
 
   return withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{ lease_expires_at: Date }>(
@@ -282,6 +331,10 @@ export async function reclaimExpiredLeases(
           WHERE lease_expires_at IS NOT NULL
             AND lease_expires_at <= $1
             AND status IN ('checked_out', 'running')
+          -- Locked in id order, the order the stop button and the expiry
+          -- sweep lock tasks in, so two sweeps over overlapping sets wait for
+          -- each other rather than deadlock.
+          ORDER BY id
           FOR UPDATE
        ), reclaimed AS (
          UPDATE tasks
@@ -346,13 +399,22 @@ export async function reclaimOrphans(
       task_id: string;
       tokens_used: string;
     }>(
-      `UPDATE agent_runs
+      // Not while the task's lease is live. The lease is the claim, and the
+      // worker holding it is renewing it; a run whose heartbeat looks old
+      // under a lease that does not is a run doing one long thing, not a dead
+      // one, and taking its task back would put a second worker on it.
+      `UPDATE agent_runs run
           SET status = 'orphaned', finished_at = $1
-        WHERE status = 'running'
-          AND coalesce(last_heartbeat_at, started_at) < $2
-        RETURNING id, task_id, tokens_used`,
+        WHERE run.status = 'running'
+          AND coalesce(run.last_heartbeat_at, run.started_at) < $2
+          AND NOT EXISTS (
+                SELECT 1 FROM tasks task
+                 WHERE task.id = run.task_id AND task.lease_expires_at > $1)
+        RETURNING run.id, run.task_id, run.tokens_used`,
       [now, staleBefore],
     );
+    // Tasks are locked in id order, as everywhere else that locks several.
+    rows.sort((a, b) => (a.task_id < b.task_id ? -1 : a.task_id > b.task_id ? 1 : 0));
 
     for (const row of rows) {
       await appendEvent(tx, {

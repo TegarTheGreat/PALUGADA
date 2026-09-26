@@ -75,7 +75,6 @@ const UNREACHABLE: Record<string, string> = {
   countCommittedSteps: 'helper: a journal count, asserted directly',
 
   // Predicates every caller writes inline.
-  isPalugadaError: 'helper: production narrows on `instanceof` and `code` directly',
   isTenantContextMissing: 'helper: the RLS probe, asserted directly',
 
   // F17: role evals.

@@ -21,6 +21,7 @@ import { isTerminal } from '../domain/task.ts';
 import { DEFAULT_PRICE_TABLE, estimateCents, type PriceTable } from './pricing.ts';
 import { checkUsage } from '../runtime/wire.ts';
 import { runStep, type StepKind } from './journal.ts';
+import { LeaseKeeper } from './lease-keeper.ts';
 import { isCompanyFrozen, isStopAllRequested } from './control.ts';
 import type { HookPipeline } from './hooks.ts';
 import { batchWindow, isWithin, nextOpening } from '../scheduler/windows.ts';
@@ -39,12 +40,12 @@ import { buildContext } from '../context/builder.ts';
 import { ancestryForTask } from '../domain/goals.ts';
 import { preflightForRole } from '../broker/preflight.ts';
 import {
-  DEFAULT_LEASE_MS, claimTask, clearLease, recordRunHeartbeat, renewLease,
+  DEFAULT_LEASE_MS, adoptLease, claimTask, clearLease, recordRunHeartbeat, renewLease,
 } from './checkout.ts';
 import * as budget from './budget.ts';
 import * as inbox from '../inbox/inbox.ts';
 import type { CapabilityBroker } from '../broker/broker.ts';
-import type { LlmClient, LlmRequest } from '../llm/client.ts';
+import type { LlmClient } from '../llm/client.ts';
 
 /**
  * The handler shape, re-exported from the runtime that defines it.
@@ -93,6 +94,12 @@ export interface EngineOptions {
    * provider billed.
    */
   prices?: PriceTable;
+  /**
+   * F5.12: how long a lease lasts, and so how long a worker that died holding
+   * a task keeps it from everyone else. Defaulted to `DEFAULT_LEASE_MS`; a
+   * test that needs a lease to lapse sets it short.
+   */
+  leaseMs?: number;
 }
 
 /**
@@ -328,8 +335,44 @@ export class Engine {
     const task = await withTenant(companyId, (tx) => getTask(tx, taskId));
     if (!task) throw new Error(`task ${taskId} not found`);
 
+    // An ended task is reported, not run. A wake can hand over a task that
+    // was claimed and then cancelled before its turn came, and running it
+    // anyway spends a whole agent run -- side effects included -- on work the
+    // owner stopped.
+    if (isTerminal(task.status)) {
+      return { status: task.status as RunOutcome['status'], reason: task.haltReason ?? 'already settled' };
+    }
+
     const blocked = await this.#checkGuards(task);
     if (blocked) return blocked;
+
+    // F5.11: claim it before running it. A pending task is claimed by the one
+    // statement that also checks it can still be funded and its lane is free.
+    // Anything further along -- claimed by this worker, or resumed after an
+    // approval, a review or a window -- is adopted: the lease is taken only
+    // if it is free, already ours, or expired, in one conditional write. The
+    // old check read the lease and compared it here, so two workers resuming
+    // one task could both find it free, and a task another worker had just
+    // claimed ran twice.
+    const leaseMs = this.#options.leaseMs ?? DEFAULT_LEASE_MS;
+    if (task.status === 'pending') {
+      const claim = await claimTask(companyId, { holder: this.#workerId, taskId, leaseMs });
+      if (!claim) {
+        return {
+          status: 'not_claimed',
+          reason:
+            'another worker holds this task, its lane is busy, or its budget can no longer ' +
+            'fund it',
+        };
+      }
+    } else if (!(await adoptLease(companyId, taskId, this.#workerId, { leaseMs }))) {
+      return {
+        status: 'not_claimed',
+        reason: task.leaseExpiresAt
+          ? `another worker holds this task until ${task.leaseExpiresAt.toISOString()}`
+          : 'another worker holds this task',
+      };
+    }
 
     // F6.2: the contract is checked before the run starts. A run that begins
     // on malformed input spends tokens discovering what a schema could have
@@ -345,36 +388,6 @@ export class Engine {
       // it -- so that one stays on the ordinary retry path.
       await transition(companyId, taskId, 'halted', { haltReason: 'contract_violation' });
       return { status: 'halted', reason: (error as Error).message };
-    }
-
-    // F5.11: claim it before running it. One statement selects the task,
-    // checks it can still be funded, checks its lane is free and writes the
-    // lease, so two workers cannot both believe they hold it. A task that is
-    // already running here was claimed on an earlier pass and is being
-    // resumed, so it is not re-claimed.
-    if (task.status === 'pending') {
-      const claim = await claimTask(companyId, { holder: this.#workerId, taskId });
-      if (!claim) {
-        return {
-          status: 'not_claimed',
-          reason:
-            'another worker holds this task, its lane is busy, or its budget can no longer ' +
-            'fund it',
-        };
-      }
-    } else if (
-      task.leaseHolder !== null
-      && task.leaseHolder !== this.#workerId
-      && task.leaseExpiresAt !== null
-      && task.leaseExpiresAt > new Date()
-    ) {
-      // Already claimed, and not by us. Running it anyway would produce the
-      // exact situation the lease exists to prevent: two workers journalling
-      // steps against one task, each believing it holds it.
-      return {
-        status: 'not_claimed',
-        reason: `another worker holds this task until ${task.leaseExpiresAt.toISOString()}`,
-      };
     }
 
     if (
@@ -515,9 +528,30 @@ export class Engine {
     // randomness inside a handler is a defect.
     let stepIndex = 0;
 
+    // F5.12: the lease is kept while the run is in flight, not only when a
+    // step commits. One step can be long -- a child task awaited, an agent CLI
+    // thinking with no tool call to show for it -- and a lease renewed only at
+    // commits lapsed in the middle of one, so another replica reclaimed the
+    // task and ran it alongside this one.
+    //
+    // Bounded by the work's own limits rather than by the process being alive:
+    // the lease is kept up to one lease past the last sign of progress, or up
+    // to a deadline the run is waiting on. A handler stuck on a promise that
+    // never settles stops being covered, its lease lapses, and the task goes
+    // back to the queue -- which is what a lease is for.
+    const lease = new LeaseKeeper({
+      renew: () => this.#holdLease(companyId, taskId, agentRunId, leaseMs),
+      onLost: () => controller.abort(),
+      leaseMs,
+      coverUntil: task.deadlineAt?.getTime() ?? Date.now() + leaseMs,
+    });
+
     const step = async <T,>(name: string, kind: StepKind, input: unknown, fn: (key: string) => Promise<T>) => {
         const guard = await this.#checkGuards(task);
         if (guard) throw new PalugadaError('platform.stopped', guard.reason ?? 'halted', {});
+        // Before the side effect, not only after it: a worker that has lost
+        // the task must not send the email and then find out.
+        await lease.confirm();
         const index = stepIndex++;
         const { value } = await runStep(
           { companyId, taskId },
@@ -554,12 +588,13 @@ export class Engine {
                 );
               }
 
-              // F5.12, F5.14: a committed step is proof this worker is alive,
-              // so it is the natural place to push the lease out and mark the
-              // run as still breathing. A separate timer would be one more
-              // thing that can be running while the work is not.
-              await renewLease(companyId, taskId, this.#workerId);
-              await withTenant(companyId, (tx) => recordRunHeartbeat(tx, agentRunId));
+              // F5.12, F5.14: a committed step is proof this worker is alive
+              // and the work is moving, so it pushes the lease out and extends
+              // how long the keeper may go on renewing it. A renewal that
+              // finds the lease gone means another worker has the task, and
+              // this step's result is not committed against it.
+              await lease.confirm();
+              lease.progressed();
             },
           },
           fn,
@@ -607,6 +642,10 @@ export class Engine {
             // The deadline is written onto the child as well as raced here, so
             // a child that outlives this process is still bounded by its own
             // record rather than by a timer that died with the caller.
+            // The parent does nothing while it waits, and is alive for all of
+            // it: the keeper covers the parent's lease until the child's own
+            // deadline.
+            lease.cover(Date.now() + childOptions.timeoutMs);
             const child = await createSubTask(taskId, {
               companyId,
               projectId: task.projectId,
@@ -680,6 +719,9 @@ export class Engine {
       // authority, and a negative figure from anywhere is a way to erase
       // spend rather than report it.
       const usage = checkUsage(reported);
+      // A model call is progress, and for an agent CLI it is often the only
+      // sign of it between tool calls.
+      lease.progressed();
 
       // The provider's own bill for the run. It replaces what the estimates
       // charged rather than adding to it, and settles in either direction --
@@ -784,6 +826,7 @@ export class Engine {
       signal: controller.signal,
     };
 
+    lease.start();
     try {
       const { output } = await this.#runWithFallback(
         adapter,
@@ -829,8 +872,31 @@ export class Engine {
       return { status: 'completed', output };
     } catch (error) {
       await this.#finishAgentRun(companyId, agentRunId, 'failed');
+      // A worker that lost the task does not get to say how it went: the
+      // attempt, the status and the lease are the new holder's now.
+      if (lease.lost) {
+        return { status: 'not_claimed', reason: 'the lease was lost while the run was in flight' };
+      }
       return this.#classifyFailure(companyId, taskId, error, agentRunId);
+    } finally {
+      lease.stop();
     }
+  }
+
+  /**
+   * Renews this worker's lease and marks the run as breathing, or throws
+   * `task.lease_lost` when the lease is no longer this worker's.
+   */
+  async #holdLease(companyId: string, taskId: string, agentRunId: string, leaseMs: number): Promise<void> {
+    const renewed = await renewLease(companyId, taskId, this.#workerId, { leaseMs });
+    if (!renewed) {
+      throw new PalugadaError(
+        'task.lease_lost',
+        `worker ${this.#workerId} no longer holds task ${taskId}`,
+        { taskId, workerId: this.#workerId },
+      );
+    }
+    await withTenant(companyId, (tx) => recordRunHeartbeat(tx, agentRunId));
   }
 
   /**
@@ -1245,7 +1311,13 @@ export class Engine {
       const { rows } = await tx.query<{ id: string }>(
         `INSERT INTO agent_runs (company_id, task_id, role_id, attempt)
          VALUES ($1, $2, $3, $4)
-         ON CONFLICT (task_id, attempt) DO UPDATE SET status = 'running'
+         -- The same attempt resumed -- after an approval, a review, a window
+         -- -- is a run starting now. Keeping the first start's timestamps made
+         -- a run that had waited half an hour look orphaned before its first
+         -- step, and the sweep took its task back.
+         ON CONFLICT (task_id, attempt) DO UPDATE
+           SET status = 'running', started_at = now(), last_heartbeat_at = now(),
+               finished_at = NULL
          RETURNING id`,
         [task.companyId, task.id, task.roleId, task.attempt],
       );

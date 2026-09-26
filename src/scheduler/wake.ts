@@ -238,13 +238,25 @@ export interface WakeOutcome {
  */
 export async function drainWakes(
   companyId: string,
-  options: { holder: string; now?: Date },
+  options: {
+    holder: string;
+    now?: Date;
+    /**
+     * The most tasks this drain may claim. A claim is a lease, lane and
+     * budget headroom held for fifteen minutes, so a worker that will run
+     * three tasks this tick claims three; the wakes after that stay due for
+     * the next tick rather than being spent on claims nobody runs.
+     */
+    maxClaims?: number;
+  },
 ): Promise<WakeOutcome[]> {
   const now = options.now ?? new Date();
   const entries = await dueWakes(companyId, now);
   const outcomes: WakeOutcome[] = [];
+  let claimed = 0;
 
   for (const entry of entries) {
+    if (options.maxClaims !== undefined && claimed >= options.maxClaims) break;
     const claim = await claimTask(companyId, {
       holder: options.holder,
       roleId: entry.roleId,
@@ -263,6 +275,7 @@ export async function drainWakes(
       }
     });
 
+    if (claim) claimed += 1;
     outcomes.push({
       wakeId: entry.id,
       roleId: entry.roleId,

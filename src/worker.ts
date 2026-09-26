@@ -39,7 +39,7 @@
  */
 import { withControlPlane } from './db/tenant.ts';
 import { Engine, type RunOutcome } from './engine/engine.ts';
-import { claimTask, reclaimExpiredLeases, reclaimOrphans } from './engine/checkout.ts';
+import { claimTask, reclaimExpiredLeases, reclaimOrphans, releaseTask } from './engine/checkout.ts';
 import { getTask } from './engine/tasks.ts';
 import { withTenant } from './db/tenant.ts';
 import { isStopAllRequested } from './engine/control.ts';
@@ -298,20 +298,28 @@ export class Worker {
       let runtimeDown = false;
 
       await this.#stage(report, 'wakes', async () => {
-        const drained = await drainWakes(company, { holder: this.id, now });
+        const budget = this.#options.maxRunsPerTick ?? DEFAULT_MAX_RUNS_PER_TICK;
+        const drained = await drainWakes(company, {
+          holder: this.id,
+          now,
+          maxClaims: Math.max(0, budget - report.ran.length),
+        });
         report.woken += drained.length;
 
         // A wake that found no claimable task has already been consumed and
         // costs nothing (F9.10). One that found a task hands it over here.
-        const budget = this.#options.maxRunsPerTick ?? DEFAULT_MAX_RUNS_PER_TICK;
-        for (const wake of drained) {
-          if (report.ran.length >= budget) break;
-          if (!wake.taskId) continue;
-          const status = await this.#runClaimed(report, company, wake.taskId);
-          if (status === 'runtime_unavailable') {
-            runtimeDown = true;
-            break;
-          }
+        const claimed = drained.flatMap((wake) => (wake.taskId ? [wake.taskId] : []));
+        let next = 0;
+        while (next < claimed.length && !runtimeDown) {
+          const status = await this.#runClaimed(report, company, claimed[next]!);
+          next += 1;
+          if (status === 'runtime_unavailable') runtimeDown = true;
+        }
+        // Claims this tick will not run -- the runtime went down under them --
+        // go straight back rather than holding their lanes and budget until
+        // the lease runs out.
+        for (const taskId of claimed.slice(next)) {
+          await releaseTask(company, taskId, this.id);
         }
       });
 
@@ -430,12 +438,19 @@ export class Worker {
   /** Waits, and stops waiting the moment the signal aborts. */
   async #sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
     if (signal?.aborted) return;
+    // The listener is removed when the timer wins. The shutdown signal lives
+    // as long as the process, and a listener left behind by every idle sleep
+    // is one more per tick until Node warns about a leak -- which it would be.
     await new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, ms);
-      signal?.addEventListener('abort', () => {
+      const wake = () => {
         clearTimeout(timer);
         resolve();
-      }, { once: true });
+      };
+      const timer = setTimeout(() => {
+        signal?.removeEventListener('abort', wake);
+        resolve();
+      }, ms);
+      signal?.addEventListener('abort', wake, { once: true });
     });
   }
 

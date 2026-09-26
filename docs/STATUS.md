@@ -2181,6 +2181,24 @@ an audit trail. Migration 0038 lets the schedule remember which occurrence
 last failed and why; the event is written when that changes, the retry still
 happens every pass, and a successful fire clears it.
 
+### A decision left the only screen the owner has
+
+Slack's most repeated complaint is not about sending a message; it is that a
+decision made in a thread cannot be found a month later. This platform
+avoided the first half by design -- a decision is a structured row, not a
+message -- and reproduced the second: the console drew open items and nothing
+else, so an answered one disappeared, and the record lived in the event log,
+which is an audit trail rather than something a person searches. The History
+tab lists what closed, newest first, with the outcome, the surface the answer
+came from (`decided_via`, migration 0039, which was in the event payload and
+nowhere a list could read), and the owner's own note -- and searches that
+note, because it is where the reason was written and the reason is what gets
+looked for. A search for "50%" means fifty percent, not every item with a 50
+in it. It pages by `(created_at, id)` rather than by offset, the way Buzz
+pages its threads (NIP-CW), so a page boundary holds still while new items
+close; the page marker is the owner's input on the way back and is refused
+when it is not one the history issued.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

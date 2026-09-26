@@ -308,6 +308,18 @@ export class OwnerApi {
         }),
       },
 
+      {
+        // F10.8: what was decided, searchable. The queue above is what is
+        // waiting; this is what the owner said, and what closed without them.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/decisions',
+        handle: async ({ params, query }) => inbox.history(params.companyId!, {
+          query: query.get('q'),
+          before: query.get('before'),
+          limit: query.get('limit') === null ? 25 : wholeNumber(query.get('limit'), 'limit'),
+        }),
+      },
+
       /* ---------------------------------------------------- F10.2, F10.3 --- */
 
       {

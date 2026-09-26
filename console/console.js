@@ -26,6 +26,10 @@ const state = {
   companyId: null,
   items: [],
   tab: 'decisions',
+  // The history's search and page marker. Per company: switching companies
+  // clears both, so a page marker from one is never sent to another.
+  historyQuery: '',
+  historyBefore: null,
 };
 
 const el = (id) => document.getElementById(id);
@@ -155,6 +159,8 @@ function drawCompanies() {
     button.className = company.id === state.companyId ? 'tab current' : 'tab';
     button.onclick = async () => {
       state.companyId = company.id;
+      state.historyQuery = '';
+      state.historyBefore = null;
       drawCompanies();
       await drawTab();
     };
@@ -474,6 +480,7 @@ function money(cents) {
  */
 const TABS = [
   ['decisions', 'Decisions', drawInbox],
+  ['history', 'History', drawHistory],
   ['money', 'Money', drawMoney],
   ['health', 'Health', drawHealth],
   ['settings', 'Settings', drawSettings],
@@ -666,6 +673,67 @@ function group(...children) {
 }
 
 const company = () => `/api/companies/${state.companyId}`;
+
+/* ------------------------------------------------------------------ F10.8 --- */
+
+/**
+ * What was decided, and what closed without a decision.
+ *
+ * The inbox is a queue, so an answered item left the only screen there is.
+ * The search reads the owner's own note as well as the item, because the
+ * note is where the reason was written and the reason is what is looked for
+ * a month later. `before` is the page marker the API hands back; it is kept
+ * in `state` so "Older" survives the redraw every action ends with.
+ */
+async function drawHistory() {
+  const panel = el('panel-history');
+  if (!state.companyId) return panel.replaceChildren(note('No company.'));
+
+  const params = new URLSearchParams();
+  if (state.historyQuery) params.set('q', state.historyQuery);
+  if (state.historyBefore) params.set('before', state.historyBefore);
+  const search = params.size > 0 ? `?${params}` : '';
+  const page = await api('GET', `${company()}/decisions` + search);
+
+  const outcome = (item) => {
+    if (item.status === 'decided') return item.decision ?? 'decided';
+    if (item.status === 'expired') return 'expired unanswered';
+    return `withdrawn (${item.closedReason ?? 'no reason'})`;
+  };
+
+  panel.replaceChildren(
+    heading('What was decided'),
+    form(
+      [{ name: 'q', label: 'Search titles, summaries and your notes', value: state.historyQuery ?? '' }],
+      async (values) => {
+        state.historyQuery = values.q ?? '';
+        state.historyBefore = null;
+      },
+      { action: 'Search' },
+    ),
+    page.items.length === 0
+      ? note(state.historyQuery ? 'Nothing matches.' : 'Nothing has been decided yet.')
+      : table(
+        ['When', 'Kind', 'What', 'Outcome', 'Via', 'Your note'],
+        page.items.map((item) => [
+          new Date(item.decidedAt ?? item.createdAt).toLocaleString(),
+          item.kind,
+          item.title,
+          outcome(item),
+          item.via ?? '—',
+          item.note ?? '',
+        ]),
+      ),
+    group(
+      state.historyBefore
+        ? action('Newest', async () => { state.historyBefore = null; })
+        : null,
+      page.next
+        ? action('Older', async () => { state.historyBefore = page.next; })
+        : null,
+    ),
+  );
+}
 
 /* --------------------------------------------------- F1.5, F1.7-F1.9, F11.5 --- */
 

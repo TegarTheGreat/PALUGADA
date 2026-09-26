@@ -800,7 +800,8 @@ a short limit out in place. An approval stops asking the moment its task ends
 any other way, and a chat message the owner already answered elsewhere loses
 its buttons. A task left waiting on nothing — no approval open, no review
 pending, no time to wake at — is put to the owner once, and their answer runs
-it again or cancels it.
+it again or cancels it. What the owner decided stays findable: the History tab
+searches closed items by what they said as well as what was asked.
 
 ## What is not exercised
 

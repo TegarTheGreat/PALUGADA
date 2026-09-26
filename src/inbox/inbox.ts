@@ -405,6 +405,112 @@ export async function listOpen(companyId: string): Promise<InboxItem[]> {
   });
 }
 
+/** One closed item, as the owner's history shows it. */
+export interface ClosedDecision {
+  id: string;
+  kind: InboxKind;
+  title: string;
+  actionSummary: string;
+  tier: number | null;
+  status: Exclude<InboxStatus, 'open'>;
+  decision: Decision | null;
+  note: string | null;
+  via: DecisionChannel | null;
+  closedReason: string | null;
+  taskId: string | null;
+  createdAt: Date;
+  decidedAt: Date | null;
+}
+
+export interface HistoryPage {
+  items: ClosedDecision[];
+  /** Pass back as `before` for the next page; null when there is none. */
+  next: string | null;
+}
+
+/**
+ * What the owner decided, and what closed without them (F10.8).
+ *
+ * The inbox is a queue, so a decided item left the only screen the owner has,
+ * and "what did I say about the Acme renewal" had no answer short of reading
+ * the event log. Slack's version of this is the thread that scrolled away.
+ *
+ * `query` matches the words on the item and the owner's own note -- the note
+ * is usually where the reason is, and the reason is what gets searched for a
+ * month later. Paged by (created_at, id) rather than by offset, so a page
+ * boundary does not shift while new items close: Buzz pages its threads the
+ * same way (NIP-CW), for the same reason.
+ */
+export async function history(
+  companyId: string,
+  options: { query?: string | null; before?: string | null; limit?: number } = {},
+): Promise<HistoryPage> {
+  const limit = Math.min(Math.max(Math.trunc(options.limit ?? 25), 1), 100);
+  const cursor = options.before ? readCursor(options.before) : null;
+  const text = options.query?.trim() ? options.query.trim().slice(0, 200) : null;
+  // `%` and `_` are ILIKE's own wildcards; a search for "50%" should not
+  // match everything with a 50 in it.
+  const pattern = text ? `%${text.replace(/[\\%_]/g, (char) => `\\${char}`)}%` : null;
+
+  return withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<{
+      id: string; kind: InboxKind; title: string; action_summary: string;
+      tier: number | null; status: Exclude<InboxStatus, 'open'>; decision: Decision | null;
+      owner_note: string | null; decided_via: DecisionChannel | null;
+      closed_reason: string | null; task_id: string | null;
+      created_at: Date; decided_at: Date | null;
+    }>(
+      `SELECT id, kind, title, action_summary, tier, status, decision, owner_note,
+              decided_via, closed_reason, task_id, created_at, decided_at
+         FROM inbox_items
+        WHERE status <> 'open'
+          AND ($1::text IS NULL
+               OR title ILIKE $1 ESCAPE '\\'
+               OR action_summary ILIKE $1 ESCAPE '\\'
+               OR rationale ILIKE $1 ESCAPE '\\'
+               OR coalesce(owner_note, '') ILIKE $1 ESCAPE '\\')
+          AND ($2::timestamptz IS NULL OR (created_at, id) < ($2::timestamptz, $3::uuid))
+        ORDER BY created_at DESC, id DESC
+        LIMIT $4`,
+      [pattern, cursor?.createdAt ?? null, cursor?.id ?? null, limit + 1],
+    );
+    const page = rows.slice(0, limit);
+    const last = page[page.length - 1];
+    return {
+      items: page.map((row) => ({
+        id: row.id,
+        kind: row.kind,
+        title: row.title,
+        actionSummary: row.action_summary,
+        tier: row.tier,
+        status: row.status,
+        decision: row.decision,
+        note: row.owner_note,
+        via: row.decided_via,
+        closedReason: row.closed_reason,
+        taskId: row.task_id,
+        createdAt: row.created_at,
+        decidedAt: row.decided_at,
+      })),
+      next: rows.length > limit && last ? writeCursor(last.created_at, last.id) : null,
+    };
+  });
+}
+
+function writeCursor(createdAt: Date, id: string): string {
+  return Buffer.from(`${createdAt.toISOString()}|${id}`, 'utf8').toString('base64url');
+}
+
+/** A cursor is the owner's own input on the way back, so it is read, not trusted. */
+function readCursor(raw: string): { createdAt: string; id: string } {
+  const [createdAt, id] = Buffer.from(raw, 'base64url').toString('utf8').split('|');
+  if (!createdAt || !id || !Number.isFinite(Date.parse(createdAt))
+    || !/^[0-9a-f-]{36}$/.test(id)) {
+    throw new PalugadaError('contract.violation', 'that page marker is not one this history issued', {});
+  }
+  return { createdAt, id };
+}
+
 /**
  * Records the owner's decision (F10.8) and moves the waiting task.
  *
@@ -647,10 +753,11 @@ export async function decide(
           SET decision = $2,
               decided_at = now(),
               owner_note = $3,
+              decided_via = $4,
               status = CASE WHEN $2 = 'ask' THEN 'open' ELSE 'decided' END
         WHERE id = $1 AND status = 'open'
         RETURNING task_id, kind, payload`,
-      [itemId, decision, note],
+      [itemId, decision, note, channel],
     );
     const row = rows[0];
     if (!row) throw await notOpen(tx, itemId);

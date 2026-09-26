@@ -2700,3 +2700,73 @@ test('the owner can start a company from a template (section 5, F2)', async () =
     await owner.close();
   }
 });
+
+/* ------------------------------------------------------------ F10.8 history --- */
+
+/**
+ * The inbox is a queue, so a decided item left the only screen the owner has
+ * -- Slack's thread that scrolled away, rebuilt. The history is searchable by
+ * the owner's own note, because that is where the reason was written.
+ */
+test('what the owner decided can be found again, by what they wrote (F10.8)', async () => {
+  const fixture = await createCompany('history');
+  const console = await console_();
+  try {
+    const token = await signIn(console.url, console.code());
+    const renewal = await inbox.raiseEscalation({
+      companyId: fixture.companyId, title: 'Renew the Acme contract?', detail: 'It lapses Friday.',
+    });
+    const refund = await inbox.raiseEscalation({
+      companyId: fixture.companyId, title: 'Refund order 1182?', detail: 'Damaged in transit.',
+    });
+    await inbox.raiseEscalation({
+      companyId: fixture.companyId, title: 'Still open', detail: 'Nobody has answered this.',
+    });
+    await call(console.url, 'POST', `/api/companies/${fixture.companyId}/inbox/${renewal}/decide`, {
+      token, body: { decision: 'approve', note: 'yes, but only at the 50% discount they offered' },
+    });
+    await inbox.decide(fixture.companyId, refund, 'deny', 'photos show it arrived fine', { channel: 'chat' });
+
+    const all = await call(console.url, 'GET', `/api/companies/${fixture.companyId}/decisions`, { token });
+    assert.equal(all.status, 200, JSON.stringify(all.body));
+    const items = all.body.items as Array<Record<string, unknown>>;
+    assert.deepEqual(
+      items.map((item) => [item.title, item.decision, item.via]),
+      [['Refund order 1182?', 'deny', 'chat'], ['Renew the Acme contract?', 'approve', 'app']],
+      'closed items only, newest first, with the surface each answer came from',
+    );
+
+    // By the note, case-insensitively, and literally: "50%" is not a wildcard.
+    const byNote = await call(
+      console.url, 'GET', `/api/companies/${fixture.companyId}/decisions?q=${encodeURIComponent('50% DISCOUNT')}`, { token },
+    );
+    assert.deepEqual((byNote.body.items as Array<{ title: string }>).map((item) => item.title),
+      ['Renew the Acme contract?']);
+    const wildcard = await call(
+      console.url, 'GET', `/api/companies/${fixture.companyId}/decisions?q=_`, { token },
+    );
+    assert.deepEqual(wildcard.body.items, [], 'an underscore matches an underscore, not every character');
+
+    // A page at a time, with a marker that holds still.
+    const first = await call(console.url, 'GET', `/api/companies/${fixture.companyId}/decisions?limit=1`, { token });
+    assert.equal((first.body.items as unknown[]).length, 1);
+    assert.equal(typeof first.body.next, 'string');
+    const second = await call(
+      console.url, 'GET',
+      `/api/companies/${fixture.companyId}/decisions?limit=1&before=${first.body.next}`, { token },
+    );
+    assert.deepEqual((second.body.items as Array<{ title: string }>).map((item) => item.title),
+      ['Renew the Acme contract?']);
+    assert.equal(second.body.next, null);
+
+    const forged = await call(
+      console.url, 'GET', `/api/companies/${fixture.companyId}/decisions?before=not-a-marker`, { token },
+    );
+    assert.equal(forged.status, 400);
+
+    const anonymous = await call(console.url, 'GET', `/api/companies/${fixture.companyId}/decisions`);
+    assert.equal(anonymous.status, 401);
+  } finally {
+    await console.close();
+  }
+});

@@ -281,7 +281,7 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/auth/sign-out',
         handle: async ({ session }) => {
-          this.#sessions.signOut(session!.token);
+          await this.#sessions.signOut(session!.token);
           return { ok: true };
         },
       },
@@ -1508,7 +1508,7 @@ export class OwnerApi {
         handle: async ({ params, body }) => {
           await this.#requireFactor(body.proof, 'revoke an authenticator');
           await this.#options.mfa.revokeOwnDevice(params.authenticatorId!);
-          return { signedOut: this.#sessions.signOutFactor(params.authenticatorId!) };
+          return { signedOut: await this.#sessions.signOutFactor(params.authenticatorId!) };
         },
       },
 
@@ -1517,7 +1517,7 @@ export class OwnerApi {
         // only takes power away, so the session is enough to ask.
         method: 'POST',
         pattern: '/api/auth/sign-out-everywhere',
-        handle: async () => ({ signedOut: this.#sessions.signOutAll() }),
+        handle: async () => ({ signedOut: await this.#sessions.signOutAll() }),
       },
 
       {
@@ -1606,7 +1606,7 @@ export class OwnerApi {
 
     let session: OwnerSession | null = null;
     if (!match.route.open) {
-      session = this.#sessions.verify(bearer(req));
+      session = await this.#sessions.verify(bearer(req));
       if (!session) {
         // 401 rather than 404: the owner whose session expired should be told
         // to sign in, not told the console has moved.

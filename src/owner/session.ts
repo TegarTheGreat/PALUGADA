@@ -20,17 +20,21 @@
  * different questions and collapsing them is exactly the shortcut F10.10
  * exists to forbid.
  *
- * **Held in memory, deliberately.** A session outlives a request and should
- * not outlive a restart: the owner signs in again, which costs one code and
- * removes a whole class of problem -- a stolen token that survives the process
- * that issued it, a table of them to sweep, a revocation path to get wrong.
- * A deployment that wants sessions across a restart is a deployment with more
- * than one process, and that is a different design decision to make
- * deliberately rather than to inherit from a convenience.
+ * **Held in the database, as a hash.** They were held in each process's
+ * memory, on the argument that a session should not outlive the process that
+ * issued it. The cost of that turned out to be the property it bought: a
+ * deployment with two consoles behind one address signed the owner in to one
+ * of them, and a device revoked through one process stayed signed in on every
+ * other. So a session is a row (0050) that every process reads -- and what is
+ * stored is the token's hash, so a backup is not a way in. A session ends when
+ * it is signed out, when its time is up, or when the device that signed it in
+ * is revoked, which is checked on every request rather than remembered, so it
+ * holds whichever process and whichever path did the revoking.
  */
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
+import { withControlPlane } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';
-import type { OwnerMfa, VerifiedFactor, WebAuthnAssertion } from './mfa.ts';
+import type { FactorKind, OwnerMfa, VerifiedFactor, WebAuthnAssertion } from './mfa.ts';
 
 export interface OwnerSession {
   token: string;
@@ -53,7 +57,6 @@ export class OwnerSessions {
   readonly #mfa: OwnerMfa;
   readonly #ttlMs: number;
   readonly #now: () => Date;
-  readonly #live = new Map<string, OwnerSession>();
 
   constructor(options: SessionOptions) {
     this.#mfa = options.mfa;
@@ -89,73 +92,98 @@ export class OwnerSessions {
       issuedAt,
       expiresAt: new Date(issuedAt.getTime() + this.#ttlMs),
     };
-    this.#sweep(issuedAt);
-    this.#live.set(session.token, session);
+    await withControlPlane(async (tx) => {
+      // Sessions over and done with for a day are litter, and swept by the
+      // next sign-in rather than by a job of their own.
+      await tx.query(
+        `DELETE FROM owner_sessions
+          WHERE expires_at < $1::timestamptz - interval '1 day'
+             OR ended_at < $1::timestamptz - interval '1 day'`,
+        [issuedAt],
+      );
+      await tx.query(
+        `INSERT INTO owner_sessions (token_hash, authenticator_id, issued_at, expires_at)
+         VALUES ($1, $2, $3, $4)`,
+        [hashToken(session.token), factor.authenticatorId, session.issuedAt, session.expiresAt],
+      );
+    });
     return session;
   }
 
   /**
    * The session behind a request, or nothing.
    *
-   * Compared in constant time and only after a length check, because a token
-   * is a shared secret and a comparison that returns early on the first
-   * differing byte is one an attacker can walk.
+   * Looked up by the token's hash. The comparison that matters is the
+   * database's equality on a digest of 32 random bytes, which leaks nothing a
+   * timing attack could walk.
    */
-  verify(token: string | undefined): OwnerSession | null {
+  async verify(token: string | undefined): Promise<OwnerSession | null> {
     if (!token) return null;
-    const now = this.#now();
-    for (const [candidate, session] of this.#live) {
-      const a = Buffer.from(candidate);
-      const b = Buffer.from(token);
-      if (a.length !== b.length || !timingSafeEqual(a, b)) continue;
-      if (session.expiresAt <= now) {
-        this.#live.delete(candidate);
-        return null;
-      }
-      return session;
-    }
-    return null;
+    return withControlPlane(async (tx) => {
+      const { rows } = await tx.query<{
+        issued_at: Date; expires_at: Date; authenticator_id: string; kind: FactorKind; label: string;
+      }>(
+        `SELECT s.issued_at, s.expires_at, a.id AS authenticator_id, a.kind, a.label
+           FROM owner_sessions s
+           JOIN owner_authenticators a ON a.id = s.authenticator_id
+          WHERE s.token_hash = $1
+            AND s.ended_at IS NULL
+            AND s.expires_at > $2
+            AND a.revoked_at IS NULL`,
+        [hashToken(token), this.#now()],
+      );
+      const row = rows[0];
+      if (!row) return null;
+      return {
+        token,
+        factor: { authenticatorId: row.authenticator_id, kind: row.kind, label: row.label },
+        issuedAt: row.issued_at,
+        expiresAt: row.expires_at,
+      };
+    });
   }
 
-  signOut(token: string): void {
-    this.#live.delete(token);
+  async signOut(token: string): Promise<void> {
+    await this.#end('token_hash = $1', [hashToken(token)]);
   }
 
   /**
    * Every session signed in with one authenticator.
    *
-   * A revoked device's sessions are the device's reach after the revocation:
-   * a phone lost while signed in stays signed in until its session expires
-   * unless this ends it.
+   * Redundant with the check `verify` makes on every request, and kept: the
+   * rows say they ended, which is what an auditor reading them needs.
    */
-  signOutFactor(authenticatorId: string): number {
-    let ended = 0;
-    for (const [token, session] of this.#live) {
-      if (session.factor.authenticatorId !== authenticatorId) continue;
-      this.#live.delete(token);
-      ended += 1;
-    }
-    return ended;
+  async signOutFactor(authenticatorId: string): Promise<number> {
+    return this.#end('authenticator_id = $1', [authenticatorId]);
   }
 
   /** Every live session, for a "sign out everywhere" the owner can reach. */
-  signOutAll(): number {
-    const count = this.#live.size;
-    this.#live.clear();
-    return count;
+  async signOutAll(): Promise<number> {
+    return this.#end('true', []);
   }
 
-  require(token: string | undefined): OwnerSession {
-    const session = this.verify(token);
+  async require(token: string | undefined): Promise<OwnerSession> {
+    const session = await this.verify(token);
     if (!session) {
       throw new PalugadaError('owner.unauthenticated', 'sign in first (PRD F12.5)', {});
     }
     return session;
   }
 
-  #sweep(now: Date): void {
-    for (const [token, session] of this.#live) {
-      if (session.expiresAt <= now) this.#live.delete(token);
-    }
+  /** Ends the live sessions `where` selects; `$1` in it is the first value. */
+  async #end(where: string, values: unknown[]): Promise<number> {
+    return withControlPlane(async (tx) => {
+      const { rowCount } = await tx.query(
+        `UPDATE owner_sessions SET ended_at = $${values.length + 1}
+          WHERE ended_at IS NULL AND ${where}`,
+        [...values, this.#now()],
+      );
+      return rowCount ?? 0;
+    });
   }
+}
+
+/** What is stored in place of a token: its SHA-256, hex. */
+function hashToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
 }

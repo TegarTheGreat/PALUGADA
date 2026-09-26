@@ -570,6 +570,72 @@ test('revoking a lost device ends its sessions, and the last device stays (F12.5
   }
 });
 
+/**
+ * Two consoles behind one address are one console to the owner.
+ *
+ * Sessions were held in each process's memory, so a second replica answered
+ * "sign in first" to a token the first had just issued, and a device revoked
+ * through one process stayed signed in on the other until its session ran
+ * out. A session is a row now, stored as the token's hash, and a revocation
+ * is checked on every request rather than remembered by whoever made it.
+ */
+test('a session is known to every console and ends on all of them at once (F12.5)', async () => {
+  const { withControlPlane } = await import('../../src/db/tenant.ts');
+  const { createHash } = await import('node:crypto');
+  const owner = await console_();
+  const replica = new OwnerApi({
+    mfa: new OwnerMfa({ secrets: new InMemorySecretManager(), rpId: 'palugada.local' }),
+  });
+  const { url: other } = await replica.listen();
+  try {
+    const token = await signIn(owner.url, owner.code());
+    assert.equal((await call(other, 'GET', '/api/companies', { token })).status, 200,
+      'signed in on one console, known to the other');
+
+    const stored = await withControlPlane(async (tx) => {
+      const { rows } = await tx.query<{ token_hash: string }>('SELECT token_hash FROM owner_sessions');
+      return rows.map((row) => row.token_hash);
+    });
+    assert.deepEqual(stored, [createHash('sha256').update(token).digest('hex')],
+      'the hash is stored, never the token');
+
+    await call(other, 'POST', '/api/auth/sign-out', { token, body: {} });
+    assert.equal((await call(owner.url, 'GET', '/api/companies', { token })).status, 401,
+      'signed out on the other console, signed out on this one');
+
+    // A session whose time is up is over, and one over for more than a day is
+    // swept by the next sign-in rather than kept for ever.
+    const stale = await signIn(owner.url, owner.code());
+    await withControlPlane((tx) => tx.query(
+      `UPDATE owner_sessions
+          SET issued_at = now() - interval '3 days', expires_at = now() - interval '2 days'
+        WHERE token_hash = $1`,
+      [createHash('sha256').update(stale).digest('hex')],
+    ));
+    assert.equal((await call(other, 'GET', '/api/companies', { token: stale })).status, 401);
+    const again = await signIn(owner.url, owner.code());
+    const left = await withControlPlane(async (tx) => {
+      const { rows } = await tx.query<{ n: number }>(
+        'SELECT count(*)::int AS n FROM owner_sessions WHERE token_hash = $1',
+        [createHash('sha256').update(stale).digest('hex')],
+      );
+      return rows[0]!.n;
+    });
+    assert.equal(left, 0, 'swept');
+
+    // Revoked by a path that tells no console anything -- another process,
+    // or the database directly -- and still ended on both.
+    await withControlPlane((tx) => tx.query(
+      "UPDATE owner_authenticators SET revoked_at = now() WHERE label = 'owner phone'",
+    ));
+    assert.equal((await call(owner.url, 'GET', '/api/companies', { token: again })).status, 401);
+    assert.equal((await call(other, 'GET', '/api/companies', { token: again })).status, 401);
+  } finally {
+    await replica.close();
+    await owner.close();
+  }
+});
+
 /* ------------------------------------------------------------------ F12.5 --- */
 
 /**

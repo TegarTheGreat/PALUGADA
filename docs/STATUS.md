@@ -2199,6 +2199,37 @@ pages its threads (NIP-CW), so a page boundary holds still while new items
 close; the page marker is the owner's input on the way back and is refused
 when it is not one the history issued.
 
+### `npm start` started nothing, and the owner could not have signed in
+
+Found by looking for auto-company's "a config error must not crash-loop the
+daemon" and running the command to see what it did. `package.json` has run
+`node src/main.ts` since the deployment file was written, and the README says
+it serves the worker and the console on :8787. The module exported `start()`
+and called nothing: the command loaded it and exited 0. Every test calls
+`start()` itself and the smoke check builds its own assembly, so the one
+caller nobody wrote was the process -- the sixth time this repository has
+found machinery that works, is tested, and is assembled by nobody, and the
+first time the nobody was the entry point.
+
+Fixing it showed the next thing a real start would have hit. The only
+`SecretManager` was the in-memory one, "for development and test", and
+`start()` fell back to it: empty, and forgotten on restart. So no vendor
+credential could resolve, and the owner's own factor -- a secret reference
+like any other -- had nowhere to live; with no enrolled factor the console,
+which takes a code to sign in, could not be entered at all.
+`src/secrets/local.ts` resolves `env://` (only `PALUGADA_SECRET_*`, so a
+credential reference can never read the platform's own `DATABASE_URL`) and
+`file://` (only under the secret directories, after symlinks). Boot enrols
+`PALUGADA_OWNER_TOTP_REF` once; `npm run totp:new` prints a secret and the
+link for an authenticator app. A configuration the deployment cannot use
+exits 78, which `deploy/palugada.service` tells systemd not to restart, and
+SIGTERM stops it the way `stop()` does.
+
+The test runs the file as an operator would: a child process with its own
+environment, a TOTP code computed from the secret it was given, a sign-in that
+has to succeed, and a SIGTERM that has to end in exit 0. Five configurations
+that cannot be used have to end in 78, each saying which.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

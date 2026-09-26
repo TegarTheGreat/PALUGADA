@@ -29,8 +29,10 @@ import { CapabilityRegistry } from './broker/registry.ts';
 import { Engine } from './engine/engine.ts';
 import { DEFAULT_PRICE_TABLE, loadPriceTable } from './engine/pricing.ts';
 import { Worker, type WorkerOptions } from './worker.ts';
-import { InMemorySecretManager, type SecretManager } from './secrets/manager.ts';
-import { OwnerMfa } from './owner/mfa.ts';
+import type { SecretManager } from './secrets/manager.ts';
+import { OwnerMfa, decodeBase32 } from './owner/mfa.ts';
+import { LocalSecretManager } from './secrets/local.ts';
+import { PalugadaError } from './errors.ts';
 import { OwnerApi } from './owner/api.ts';
 import { WebhookPush } from './owner/push.ts';
 import { TelegramChannel } from './owner/telegram.ts';
@@ -45,9 +47,16 @@ import { registerPlatformCapabilities as registerPlatformTools, PLATFORM_CAPABIL
   from './broker/platform-capabilities.ts';
 import { CachedSecretManager } from './secrets/rotation.ts';
 import type { LlmClient } from './llm/client.ts';
+import { closePools } from './db/pool.ts';
+import { realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 export interface DeploymentOptions {
-  /** Where the secrets actually live. The in-memory one is for a test. */
+  /**
+   * Where the secrets actually live. Defaults to the process's environment
+   * and mounted secret files (`LocalSecretManager`); a test passes an
+   * in-memory one.
+   */
   secrets?: SecretManager;
   /**
    * Adapters a deployment binds for itself, on top of what the environment
@@ -181,12 +190,47 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   const env = options.env ?? process.env;
   const notes: string[] = [];
 
-  const secrets = options.secrets ?? new InMemorySecretManager();
+  // The stores every deployment already has: its environment and its mounted
+  // secret files. The in-memory manager this fell back to was empty and
+  // forgot everything on restart, so a deployment started from the README had
+  // nowhere for a vendor credential or the owner's own factor to live.
+  const secrets = options.secrets ?? new LocalSecretManager({
+    env,
+    ...(env.PALUGADA_SECRET_DIRS
+      ? { directories: env.PALUGADA_SECRET_DIRS.split(':').filter(Boolean) }
+      : {}),
+  });
   const mfa = new OwnerMfa({
     secrets,
     ...(env.PALUGADA_RP_ID ? { rpId: env.PALUGADA_RP_ID } : {}),
     ...(env.PALUGADA_ORIGIN ? { origin: env.PALUGADA_ORIGIN } : {}),
   });
+
+  // The owner's first factor, from configuration. Signing in to the console
+  // takes a code, and enrolling an authenticator took a signed-in console --
+  // so a fresh deployment had no way in at all. The operator generates a
+  // secret (`npm run totp:new`), puts it where the reference points, and adds
+  // it to their authenticator app; boot enrols it once. Whoever sets this
+  // process's environment already holds the machine, so this grants nothing
+  // they did not have.
+  const ownerTotp = env.PALUGADA_OWNER_TOTP_REF;
+  if (ownerTotp) {
+    try {
+      decodeBase32(await secrets.resolve(ownerTotp));
+    } catch (failure) {
+      throw new PalugadaError(
+        'config.invalid',
+        `PALUGADA_OWNER_TOTP_REF ${ownerTotp} is not a usable TOTP secret: `
+          + (failure as Error).message,
+        { source: 'PALUGADA_OWNER_TOTP_REF' },
+      );
+    }
+    const enrolled = await mfa.enrolled();
+    if (!enrolled.some((factor) => factor.secretRef === ownerTotp)) {
+      await mfa.enrolTotp({ label: 'owner (PALUGADA_OWNER_TOTP_REF)', secretRef: ownerTotp });
+      notes.push(`enrolled the owner's authenticator from ${ownerTotp}`);
+    }
+  }
 
   // F12.5 as a boot check rather than a discovery. A deployment with no
   // enrolled factor cannot approve anything irreversible, and the moment to
@@ -409,4 +453,74 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
       await running;
     },
   };
+}
+
+/* ------------------------------------------------------------ the process --- */
+
+/**
+ * What `npm start` runs.
+ *
+ * `package.json` has said `node src/main.ts` since the deployment file was
+ * written, the README says it serves the worker and the console on :8787 --
+ * and this module exported `start()` and called nothing. Every test calls
+ * `start()` itself and the smoke check builds its own assembly, so the one
+ * caller nobody wrote was the process: `npm start` loaded the module and
+ * exited 0. The sixth time this repository has found machinery that works,
+ * is tested, and is assembled by nobody -- and the first time the nobody was
+ * the entry point.
+ *
+ * **A configuration error exits 78** (`EX_CONFIG`, sysexits.h), everything
+ * else 1. A supervisor restarting a process whose vendor file is malformed
+ * restarts it into the same refusal for ever; auto-company's daemon units
+ * stop that with `RestartPreventExitStatus=78`, and
+ * `deploy/palugada.service` does the same. SIGTERM and SIGINT stop the
+ * deployment the way `stop()` does -- the console first, then the worker --
+ * so a restart does not abandon a run half-journalled.
+ */
+export const EXIT_CONFIG = 78;
+
+export async function runFromCommandLine(env: NodeJS.ProcessEnv = process.env): Promise<number> {
+  let deployment: Deployment;
+  try {
+    deployment = await start({
+      env,
+      consoleRoot: fileURLToPath(new URL('../console', import.meta.url)),
+    });
+  } catch (failure) {
+    const configuration = failure instanceof PalugadaError && failure.code === 'config.invalid';
+    process.stderr.write(
+      `palugada: ${configuration ? 'configuration refused' : 'failed to start'}: `
+        + `${(failure as Error).message}\n`,
+    );
+    return configuration ? EXIT_CONFIG : 1;
+  }
+
+  for (const note of deployment.notes) process.stdout.write(`palugada: ${note}\n`);
+  process.stdout.write(`palugada: console at ${deployment.url}\n`);
+
+  return new Promise<number>((resolveExit) => {
+    let stopping = false;
+    const stop = (signal: NodeJS.Signals) => {
+      if (stopping) return;
+      stopping = true;
+      process.stdout.write(`palugada: ${signal}, stopping\n`);
+      deployment.stop().then(
+        () => resolveExit(0),
+        (failure: unknown) => {
+          process.stderr.write(`palugada: stop failed: ${(failure as Error).message}\n`);
+          resolveExit(1);
+        },
+      );
+    };
+    process.once('SIGTERM', stop);
+    process.once('SIGINT', stop);
+  });
+}
+
+// Run only when this file is the program, not when a test imports `start`.
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  runFromCommandLine().then(async (code) => {
+    await closePools().catch(() => undefined);
+    process.exit(code);
+  });
 }

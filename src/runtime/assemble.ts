@@ -29,6 +29,7 @@ import { HttpAdapter } from './http.ts';
 import { ContainerAdapter } from './container.ts';
 import { HttpSandboxProvider, RemoteSandboxAdapter } from './sandbox-adapter.ts';
 import type { LlmClient } from '../llm/client.ts';
+import { PalugadaError } from '../errors.ts';
 
 export interface RuntimeAssemblyOptions {
   env: NodeJS.ProcessEnv;
@@ -138,8 +139,12 @@ export function assembleRuntimes(options: RuntimeAssemblyOptions): RuntimeAssemb
         adapters.register(new CliAdapter(spec));
       }
     } catch (failure) {
-      throw new Error(
+      // `config.invalid`, so the process exits 78 and a supervisor stops
+      // restarting it into the same refusal.
+      throw new PalugadaError(
+        'config.invalid',
         `PALUGADA_RUNTIME_SPECS could not be read: ${(failure as Error).message}`,
+        { source: 'PALUGADA_RUNTIME_SPECS' },
       );
     }
   }

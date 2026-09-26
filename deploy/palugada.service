@@ -1,0 +1,40 @@
+# systemd unit for one PALUGADA deployment.
+#
+# Restart on failure, but not on a configuration error: the process exits 78
+# (EX_CONFIG) when a vendor file, price file, runtime spec or the owner's TOTP
+# reference cannot be used, and restarting it would only reach the same
+# refusal again, every ten seconds, for ever.
+#
+# KillMode=mixed sends SIGTERM to the main process first, which stops the
+# console and lets the worker finish its step; the agent runtimes it started
+# lead their own process groups and are ended by it. Anything still running
+# when TimeoutStopSec expires gets SIGKILL.
+[Unit]
+Description=PALUGADA control plane
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/palugada
+EnvironmentFile=/etc/palugada/palugada.env
+ExecStart=/usr/bin/node src/main.ts
+Restart=on-failure
+RestartSec=10
+RestartPreventExitStatus=78
+KillMode=mixed
+TimeoutStopSec=60
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadOnlyPaths=/opt/palugada
+# The owner's TOTP secret as a systemd credential rather than an environment
+# variable: it is readable only by this service, at the path below, for as
+# long as the service runs. Generate one with `npm run totp:new`.
+LoadCredential=owner-totp:/etc/palugada/owner-totp
+Environment=PALUGADA_SECRET_DIRS=/run/credentials/palugada.service
+Environment=PALUGADA_OWNER_TOTP_REF=file:///run/credentials/palugada.service/owner-totp
+
+[Install]
+WantedBy=multi-user.target

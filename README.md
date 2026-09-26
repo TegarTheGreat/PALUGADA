@@ -718,8 +718,26 @@ what the last computed.
 
 ```sh
 npm run db:setup && npm run db:migrate   # PostgreSQL 16 with pgvector
+npm run totp:new                         # the owner's first factor; follow what it prints
 npm start                                # worker + owner console on :8787
 ```
+
+The console takes a code to sign in, so the owner's first authenticator comes
+from configuration: `npm run totp:new` prints a secret and an `otpauth://`
+link for an authenticator app, and `PALUGADA_OWNER_TOTP_REF` points at where
+the secret is kept. Boot enrols it once. Secrets are references, resolved from
+the two stores every host already has — `env://PALUGADA_SECRET_NAME`, and only
+variables with that prefix, so the process's own `DATABASE_URL` can never be
+handed out as a vendor credential; and `file:///run/secrets/name`, only under
+`PALUGADA_SECRET_DIRS` and checked after symlinks. A reference to a store the
+deployment does not have (`vault://`) is refused with the scheme named.
+
+`npm start` exits 78 (`EX_CONFIG`) when its configuration cannot be used — a
+malformed vendor or price file, a runtime spec, an owner factor that does not
+resolve — so a supervisor stops restarting it into the same refusal;
+`deploy/palugada.service` is a systemd unit that does exactly that, with the
+owner's secret as a systemd credential. SIGTERM stops the console first and
+lets the worker finish its step.
 
 A worker also needs a **runtime** — something that actually executes a role's
 turn. The in-process one needs a model client and handlers, which a deployment
@@ -766,6 +784,8 @@ conjure, and each says so at boot rather than at 3am:
 
 | Variable | What it turns on |
 |---|---|
+| `PALUGADA_OWNER_TOTP_REF` | the owner's first factor, enrolled at boot (see above) |
+| `PALUGADA_SECRET_DIRS` | where `file://` secrets may be read from; `/run/secrets` by default |
 | `PALUGADA_VENDORS` | the capabilities that need somebody's account (see below) |
 | `PALUGADA_MODEL_PRICES` | what a model call costs when the runtime reports tokens and no price — every agent CLI does (F13.7). Without it the estimate is a deliberately high fallback; `config/prices.example.json` is the shape |
 | `PALUGADA_DRAFT_MODEL` | the model the platform's own work uses: drafting, and the hourly pass that distils memory and screens skill candidates (F4.5, F15.3) |

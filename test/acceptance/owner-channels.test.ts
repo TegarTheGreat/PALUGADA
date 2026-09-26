@@ -1164,3 +1164,69 @@ test('a press posted to the webhook is decided, and one without the secret is re
   }
 });
 
+
+/* ------------------------------------------------------------- language --- */
+
+/**
+ * What the platform says on the owner's phone is in the owner's language --
+ * the panel's, which they chose for reading PALUGADA -- and what an agent
+ * wrote is passed through as written. A push in English opening an app in
+ * Indonesian is the same owner spoken to by two products.
+ */
+test("notifications speak the owner's language, and an agent's words are left as they are", async () => {
+  const fixture = await createCompany('owner-language');
+  const { setDeploymentLanguages } = await import('../../src/domain/language.ts');
+  const { closureText } = await import('../../src/owner/notify.ts');
+  await setDeploymentLanguages({ console: 'id' });
+  await inbox.requestApproval({
+    companyId: fixture.companyId,
+    capabilityName: 'payment.send',
+    tier: 2,
+    actionSummary: 'Pay the supplier',
+    rationale: 'The invoice is verified.',
+    consequenceIfDenied: 'The supplier is not paid.',
+  });
+
+  const [item] = await undelivered(fixture.companyId, 'chat:telegram', new Date(Date.now() + 86_400_000));
+  assert.ok(item, 'the approval is waiting to be sent');
+  assert.equal(item.language, 'id');
+
+  const pushed = new WebhookPush({ url: 'http://127.0.0.1:1' }).message(item);
+  assert.equal(pushed.title, 'Perlu persetujuan: Pay the supplier', 'the agent wrote the title; the platform wrote the rest');
+  assert.equal(pushed.body, 'Pay the supplier — jika ditolak: The supplier is not paid.');
+
+  const chat = telegram({ url: 'http://127.0.0.1:1' }).render(item);
+  assert.match(chat.text, /Jika ditolak:/);
+  const buttons = (chat.reply_markup as { inline_keyboard: Array<Array<{ text: string }>> }).inline_keyboard[0]!;
+  assert.deepEqual(buttons.map((button) => button.text), ['Setujui', 'Tolak', 'Tanya']);
+
+  assert.equal(
+    closureText({ id: item.id, companyId: fixture.companyId, kind: 'approval', title: 't', status: 'expired', decision: null, closedReason: null, language: 'id' }),
+    'Kedaluwarsa tanpa jawaban. Diam berarti menolak, jadi tidak ada yang dijalankan.',
+  );
+
+  // Unset, it is English, exactly as before there was a choice.
+  await setDeploymentLanguages({ console: null });
+  const [english] = await undelivered(fixture.companyId, 'chat:telegram', new Date(Date.now() + 86_400_000));
+  assert.equal(new WebhookPush({ url: 'http://127.0.0.1:1' }).message(english!).title, 'Approval needed: Pay the supplier');
+});
+
+test('every sentence the platform says to the owner has its translation (src/owner/say.ts)', async () => {
+  const { readdir, readFile } = await import('node:fs/promises');
+  const { OWNER_SENTENCES } = await import('../../src/owner/say.ts');
+  const directory = new URL('../../src/owner/', import.meta.url);
+  const said = new Set<string>();
+  for (const name of await readdir(directory)) {
+    if (!name.endsWith('.ts') || name === 'say.ts') continue;
+    const source = await readFile(new URL(name, directory), 'utf8');
+    for (const match of source.matchAll(/\bsay\([^,]+,\s*(?:[^?]+\?\s*)?'((?:[^'\\]|\\.)*)'(?:\s*:\s*'((?:[^'\\]|\\.)*)')?/g)) {
+      said.add(match[1]!);
+      if (match[2]) said.add(match[2]);
+    }
+  }
+  assert.ok(said.size >= 15, `only ${said.size} sentences were found; the scan is broken`);
+  for (const [language, sentences] of Object.entries(OWNER_SENTENCES)) {
+    assert.deepEqual([...said].filter((sentence) => !(sentence in sentences)), [], `${language} is missing sentences`);
+    assert.deepEqual(Object.keys(sentences).filter((sentence) => !said.has(sentence)), [], `${language} keeps sentences nothing says`);
+  }
+});

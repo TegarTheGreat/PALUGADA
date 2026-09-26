@@ -29,6 +29,7 @@
  * to press. Both are correct for the same item, so a delivery record keyed on
  * the item alone would have let whichever ran first silence the other.
  */
+import { say } from './say.ts';
 import { withTenant } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { redactor } from '../secrets/manager.ts';
@@ -65,6 +66,8 @@ export interface NotifiableItem {
   delivery: Exclude<ChannelDelivery, 'none'>;
   /** Deep link into the owner's app, when the deployment has one. */
   url: string | null;
+  /** The owner's language, for what the platform itself says (src/owner/say.ts). English when unset. */
+  language?: string;
 }
 
 export interface DeliveryResult {
@@ -87,6 +90,8 @@ export interface ClosedItem {
   status: 'decided' | 'expired' | 'withdrawn';
   decision: string | null;
   closedReason: string | null;
+  /** As for `NotifiableItem`. */
+  language?: string;
 }
 
 /**
@@ -180,8 +185,10 @@ export async function undelivered(
       title: string;
       action_summary: string;
       consequence_if_denied: string | null;
+      language: string | null;
     }>(
-      `SELECT i.id, i.kind, i.tier, i.title, i.action_summary, i.consequence_if_denied
+      `SELECT i.id, i.kind, i.tier, i.title, i.action_summary, i.consequence_if_denied,
+              (SELECT console_language FROM platform_control) AS language
          FROM inbox_items i
     LEFT JOIN owner_notifications n
            ON n.inbox_item_id = i.id AND n.channel = $2 AND n.company_id = $1
@@ -209,6 +216,7 @@ export async function undelivered(
         consequenceIfDenied: row.consequence_if_denied,
         delivery,
         url: null,
+        language: row.language ?? 'en',
       }];
     });
   });
@@ -582,9 +590,10 @@ export async function retryFailed(
     const { rows } = await tx.query<{
       id: string; kind: string; tier: number | null; title: string;
       action_summary: string; consequence_if_denied: string | null; delivery: string;
+      language: string | null;
     }>(
       `SELECT i.id, i.kind, i.tier, i.title, i.action_summary, i.consequence_if_denied,
-              n.delivery
+              n.delivery, (SELECT console_language FROM platform_control) AS language
          FROM owner_notifications n
          JOIN inbox_items i ON i.id = n.inbox_item_id
         WHERE n.company_id = $1
@@ -624,6 +633,7 @@ export async function retryFailed(
       consequenceIfDenied: row.consequence_if_denied,
       delivery: row.delivery as Exclude<ChannelDelivery, 'none'>,
       url: null,
+      language: row.language ?? 'en',
     };
     item.url = options.linkFor?.(item) ?? null;
 
@@ -700,10 +710,11 @@ export async function retractClosed(
     const { rows } = await tx.query<{
       id: string; kind: string; title: string; status: ClosedItem['status'];
       decision: string | null; closed_reason: string | null;
-      external_ref: string | null; retract_attempts: number;
+      external_ref: string | null; retract_attempts: number; language: string | null;
     }>(
       `SELECT i.id, i.kind, i.title, i.status, i.decision, i.closed_reason,
-              n.external_ref, n.retract_attempts
+              n.external_ref, n.retract_attempts,
+              (SELECT console_language FROM platform_control) AS language
          FROM owner_notifications n
          JOIN inbox_items i ON i.id = n.inbox_item_id
         WHERE n.company_id = $1
@@ -745,6 +756,7 @@ export async function retractClosed(
       status: row.status,
       decision: row.decision,
       closedReason: row.closed_reason,
+      language: row.language ?? 'en',
     };
     try {
       await channel.retract(closed, row.external_ref);
@@ -779,22 +791,21 @@ export async function retractClosed(
  * greyed out" has one answer however the owner reads it.
  */
 export function closureText(closed: ClosedItem): string {
+  const language = closed.language;
   if (closed.status === 'decided') {
-    const verb =
-      closed.decision === 'approve' ? 'Approved'
-      : closed.decision === 'deny' ? 'Denied'
-      : `Decided (${closed.decision ?? 'unknown'})`;
-    return `${verb}. Nothing left to press here.`;
+    return closed.decision === 'approve' ? say(language, 'Approved. Nothing left to press here.')
+      : closed.decision === 'deny' ? say(language, 'Denied. Nothing left to press here.')
+        : say(language, 'Decided ({decision}). Nothing left to press here.', { decision: closed.decision ?? 'unknown' });
   }
   if (closed.status === 'expired') {
-    return 'Expired unanswered. Silence is a refusal, so nothing was done.';
+    return say(language, 'Expired unanswered. Silence is a refusal, so nothing was done.');
   }
   const task = closed.closedReason?.startsWith('task_')
     ? closed.closedReason.slice('task_'.length)
     : null;
   return task
-    ? `Withdrawn: the task it was asking about is ${task}.`
-    : `Withdrawn (${closed.closedReason ?? 'no reason recorded'}).`;
+    ? say(language, 'Withdrawn: the task it was asking about is {state}.', { state: task })
+    : say(language, 'Withdrawn ({reason}).', { reason: closed.closedReason ?? say(language, 'no reason recorded') });
 }
 
 /**

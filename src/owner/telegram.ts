@@ -44,6 +44,8 @@ import { redactor } from '../secrets/manager.ts';
 import { PalugadaError } from '../errors.ts';
 import * as inbox from '../inbox/inbox.ts';
 import { closureText } from './notify.ts';
+import { say } from './say.ts';
+import { deploymentLanguages } from '../domain/language.ts';
 import type {
   ClosedItem, DeliveryResult, NotifiableItem, OwnerChannel, RetractOutcome,
 } from './notify.ts';
@@ -148,18 +150,18 @@ export class TelegramChannel implements OwnerChannel {
       escapeMarkdown(item.actionSummary),
     ];
     if (item.consequenceIfDenied) {
-      lines.push('', `_If denied:_ ${escapeMarkdown(item.consequenceIfDenied)}`);
+      lines.push('', `_${escapeMarkdown(say(item.language, 'If denied:'))}_ ${escapeMarkdown(item.consequenceIfDenied)}`);
     }
 
     if (item.delivery === 'link_only') {
       // F10.10. The chat says what happened and where to go; it does not offer
       // a way to say yes. A tier 3 approval with no link is still correct —
       // the owner opens the app — so a deployment without one is not broken.
-      lines.push('', escapeMarkdown('This one is decided in the app.'));
+      lines.push('', escapeMarkdown(say(item.language, 'This one is decided in the app.')));
       return {
         text: lines.join('\n'),
         ...(item.url
-          ? { reply_markup: { inline_keyboard: [[{ text: 'Open in PALUGADA', url: item.url }]] } }
+          ? { reply_markup: { inline_keyboard: [[{ text: say(item.language, 'Open in PALUGADA'), url: item.url }]] } }
           : {}),
       };
     }
@@ -168,9 +170,9 @@ export class TelegramChannel implements OwnerChannel {
       text: lines.join('\n'),
       reply_markup: {
         inline_keyboard: [[
-          { text: 'Approve', callback_data: encodeAction({ itemId: item.id, decision: 'approve' }) },
-          { text: 'Deny', callback_data: encodeAction({ itemId: item.id, decision: 'deny' }) },
-          { text: 'Ask', callback_data: encodeAction({ itemId: item.id, decision: 'ask' }) },
+          { text: say(item.language, 'Approve'), callback_data: encodeAction({ itemId: item.id, decision: 'approve' }) },
+          { text: say(item.language, 'Deny'), callback_data: encodeAction({ itemId: item.id, decision: 'deny' }) },
+          { text: say(item.language, 'Ask'), callback_data: encodeAction({ itemId: item.id, decision: 'ask' }) },
         ]],
       },
     };
@@ -297,7 +299,7 @@ export class TelegramChannel implements OwnerChannel {
           },
         });
       });
-      await this.#answer(query.id, 'This bot only answers to its owner.');
+      await this.#answer(query.id, say(await ownerLanguage(), 'This bot only answers to its owner.'));
       return { handled: false, reason: 'wrong_chat' };
     }
 
@@ -305,19 +307,22 @@ export class TelegramChannel implements OwnerChannel {
       await inbox.decide(companyId, action.itemId, action.decision, 'via chat', {
         channel: 'chat',
       });
-      await this.#answer(query.id, `Recorded: ${action.decision}.`);
+      await this.#answer(query.id, say(await ownerLanguage(), 'Recorded: {decision}.', { decision: action.decision }));
       return { handled: true };
     } catch (error) {
       // A stale button -- one the retraction sweep has not reached yet, or one
       // it could not edit -- is the ordinary way to arrive here, and "could
       // not be recorded" would read as a fault. The owner is told what
       // actually happened to the item instead.
+      const language = await ownerLanguage();
       const refusal =
         error instanceof PalugadaError && error.code === 'approval.channel_forbidden'
-          ? 'That one has to be approved in the app.'
+          ? say(language, 'That one has to be approved in the app.')
           : error instanceof PalugadaError && error.code === 'inbox.not_open'
-            ? `Already closed: ${String(error.message).replace(/^inbox item \S+ is closed: /, '')}.`
-            : 'That could not be recorded.';
+            ? say(language, 'Already closed: {reason}.', {
+              reason: String(error.message).replace(/^inbox item \S+ is closed: /, ''),
+            })
+            : say(language, 'That could not be recorded.');
       await this.#answer(query.id, refusal);
       return {
         handled: false,
@@ -347,7 +352,7 @@ export class TelegramChannel implements OwnerChannel {
     if (!query || !action) return { handled: false, reason: 'not_a_button' };
     const companyId = await inbox.companyOfItem(action.itemId);
     if (!companyId) {
-      await this.#answer(query.id, 'That item no longer exists.');
+      await this.#answer(query.id, say(await ownerLanguage(), 'That item no longer exists.'));
       return { handled: false, reason: 'unknown_item' };
     }
     return this.onCallback(companyId, update, options);
@@ -400,4 +405,9 @@ export class TelegramChannel implements OwnerChannel {
  */
 export function escapeMarkdown(text: string): string {
   return text.replace(/[_*[\]()~`>#+\-=|{}.!\\]/g, (char) => `\\${char}`);
+}
+
+/** The owner's language, for the answer to a button: the panel's, or English. */
+async function ownerLanguage(): Promise<string> {
+  return (await deploymentLanguages()).console ?? 'en';
 }

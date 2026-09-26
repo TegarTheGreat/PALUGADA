@@ -24,6 +24,7 @@
  * and a link — and the substance stays behind the app where F10.10's second
  * factor is.
  */
+import { say } from './say.ts';
 import { redactor } from '../secrets/manager.ts';
 import type { DeliveryResult, NotifiableItem, OwnerChannel } from './notify.ts';
 import { isPushWorthy } from './notify.ts';
@@ -101,10 +102,12 @@ export class WebhookPush implements OwnerChannel {
   message(item: NotifiableItem): PushMessage {
     const urgent = item.kind === 'incident';
     return {
-      title: urgent ? `Incident: ${item.title}` : `Approval needed: ${item.title}`,
-      body: urgent
+      title: say(item.language, urgent ? 'Incident: {title}' : 'Approval needed: {title}', { title: item.title }),
+      body: urgent || !item.consequenceIfDenied
         ? item.actionSummary
-        : `${item.actionSummary}${item.consequenceIfDenied ? ` — if denied: ${item.consequenceIfDenied}` : ''}`,
+        : say(item.language, '{summary} — if denied: {consequence}', {
+          summary: item.actionSummary, consequence: item.consequenceIfDenied,
+        }),
       url: item.url,
       urgent,
       tag: item.id,

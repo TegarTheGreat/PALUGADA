@@ -14,7 +14,9 @@
     "typecheck": "tsc --noEmit",
     "smoke": "node scripts/smoke.ts",
     "totp:new": "node scripts/new-totp.ts",
-    "start": "node src/main.ts"
+    "start": "node src/main.ts",
+    "console:install": "npm --prefix console ci",
+    "console:build": "npm --prefix console run build"
   },
   "dependencies": {
     "ajv": "^8.20.0",

@@ -38,11 +38,17 @@ export async function appendEvent(tx: TenantClient, event: EventInput): Promise<
 export async function readTaskEvents(
   tx: TenantClient,
   taskId: string,
-): Promise<Array<{ type: string; actor: string; payload: Record<string, unknown> }>> {
-  const { rows } = await tx.query<{ type: string; actor: string; payload: Record<string, unknown> }>(
-    `SELECT type, actor, payload FROM events
+): Promise<Array<{ type: string; actor: string; payload: Record<string, unknown>; occurredAt: Date }>> {
+  const { rows } = await tx.query<{
+    type: string; actor: string; payload: Record<string, unknown>; occurred_at: Date;
+  }>(
+    `SELECT type, actor, payload, occurred_at FROM events
       WHERE task_id = $1 ORDER BY occurred_at, id`,
     [taskId],
   );
-  return rows;
+  // When, because the console draws these as a timeline and a timeline
+  // without times is a list.
+  return rows.map((row) => ({
+    type: row.type, actor: row.actor, payload: row.payload, occurredAt: row.occurred_at,
+  }));
 }

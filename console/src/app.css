@@ -1,0 +1,54 @@
+/* What Mantine's components do not already say. Kept small on purpose. */
+
+.brand-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--mantine-color-blue-6), var(--mantine-color-cyan-6));
+  color: #fff;
+  font-weight: 800;
+  font-size: 16px;
+}
+
+.queue-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  border-radius: var(--mantine-radius-md);
+  border: 1px solid transparent;
+  border-left: 3px solid var(--kind-color, var(--mantine-color-gray-4));
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.queue-row:hover { background: var(--mantine-color-default-hover); }
+.queue-row[data-active] {
+  background: var(--mantine-color-blue-light);
+  border-color: var(--mantine-color-blue-light);
+  border-left-color: var(--kind-color, var(--mantine-color-blue-6));
+}
+
+.org-node {
+  transition: box-shadow 120ms ease, border-color 120ms ease;
+  cursor: pointer;
+}
+.org-node:hover { border-color: var(--mantine-color-blue-5); box-shadow: var(--mantine-shadow-sm); }
+
+.org-connector {
+  width: 2px;
+  height: 20px;
+  margin: 0 auto;
+  background: var(--mantine-color-default-border);
+}
+
+.clickable-row { cursor: pointer; }
+
+.signin-art {
+  background:
+    radial-gradient(circle at 20% 20%, rgba(34, 139, 230, 0.18), transparent 55%),
+    radial-gradient(circle at 80% 80%, rgba(21, 170, 191, 0.18), transparent 55%),
+    var(--mantine-color-body);
+}

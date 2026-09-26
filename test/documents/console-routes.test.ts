@@ -16,7 +16,8 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
@@ -61,15 +62,20 @@ const PATTERN = /method: '([A-Z]+)',\s*\n\s*pattern: '([^']+)'/g;
 /**
  * What the page fetches, as route patterns.
  *
- * `company()` is a helper that builds `/api/companies/${state.companyId}`, so
- * a literal in the source reads `` `${company()}/spend` `` and does not start
- * with `/api/`. Expanded here rather than banned there: a helper that keeps
- * the company id out of forty template strings is the right shape, and a guard
- * that made the code worse to keep itself simple would be the wrong trade.
+ * Read from every `api('METHOD', '/api/...')` call in `console/src`. The
+ * console writes each path out in full at the call, never in a variable, so
+ * that this reading is complete (see `console/src/api.ts`).
  */
 async function pathsThePageFetches(): Promise<Set<string>> {
-  const page = await readFile(new URL('../../console/console.js', import.meta.url), 'utf8');
-  const expanded = page.replaceAll('${company()}', '/api/companies/:x');
+  // Every source file of the console, read as one: a route pressed from any
+  // page is pressed.
+  const page = (await Promise.all(
+    (await readdir(join(ROOT, 'console', 'src'), { recursive: true }))
+      .filter((file) => /\.(ts|tsx)$/.test(file))
+      .map((file) => readFile(join(ROOT, 'console', 'src', file), 'utf8')),
+  )).join('\n');
+  assert.ok(page.length > 10_000, 'the console source was not found; the scan is broken');
+  const expanded = page;
   const found = new Set<string>();
   // The method travels with the path. Without it a `POST /goals/:id` makes a
   // `GET /goals/:id` look pressed, and the guard reports a button that is not
@@ -80,9 +86,12 @@ async function pathsThePageFetches(): Promise<Set<string>> {
   return found;
 }
 
-/** A path with every id and every `${...}` reduced to the same placeholder. */
+/**
+ * A path with every id and every `${...}` reduced to the same placeholder,
+ * and without its query: `/work?group=done` presses `/work`.
+ */
 function normalise(path: string): string {
-  return path.replace(/\$\{[^}]*\}/g, ':x').replace(/:[A-Za-z]\w*/g, ':x');
+  return path.split('?')[0]!.replace(/\$\{[^}]*\}/g, ':x').replace(/:[A-Za-z]\w*/g, ':x');
 }
 
 test('every API route is either pressed by the console or recorded as API-only', async () => {

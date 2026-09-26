@@ -48,7 +48,8 @@ import { registerPlatformCapabilities as registerPlatformTools, PLATFORM_CAPABIL
 import { CachedSecretManager } from './secrets/rotation.ts';
 import type { LlmClient } from './llm/client.ts';
 import { closePools } from './db/pool.ts';
-import { realpathSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
+import { join } from 'node:path';
 import { hostname } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -475,6 +476,12 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     channel instanceof TelegramChannel);
 
   const bindHost = options.host ?? env.PALUGADA_HOST ?? '127.0.0.1';
+  // The console is a built page. A deployment started from a fresh checkout
+  // serves the API and a 404 where the page should be, and says why here
+  // rather than leaving the owner to guess from a blank tab.
+  if (options.consoleRoot && !existsSync(join(options.consoleRoot, 'index.html'))) {
+    notes.push(`the console is not built: run \`npm run console:build\` (looked in ${options.consoleRoot})`);
+  }
   if (!allowedHosts && ['0.0.0.0', '::', '[::]'].includes(bindHost)) {
     notes.push(
       'the console listens on every interface and answers to any Host: set '
@@ -498,6 +505,9 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     ...(env.PALUGADA_CONSOLE_ORIGIN ? { origin: env.PALUGADA_CONSOLE_ORIGIN } : {}),
     ...(telegram ? { telegram } : {}),
     ...(allowedHosts ? { allowedHosts } : {}),
+    // The same list the process prints, held by reference: notes added
+    // after this point are still the deployment's, and still the owner's to see.
+    deploymentNotes: notes,
   });
   const { url } = await api.listen(options.port ?? Number(env.PALUGADA_PORT ?? 8787), bindHost);
 
@@ -557,7 +567,7 @@ export async function runFromCommandLine(env: NodeJS.ProcessEnv = process.env): 
   try {
     deployment = await start({
       env,
-      consoleRoot: fileURLToPath(new URL('../console', import.meta.url)),
+      consoleRoot: fileURLToPath(new URL('../console/dist', import.meta.url)),
     });
   } catch (failure) {
     const configuration = failure instanceof PalugadaError && failure.code === 'config.invalid';

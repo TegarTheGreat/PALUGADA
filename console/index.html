@@ -3,118 +3,23 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <title>PALUGADA</title>
-<link rel="stylesheet" href="/console.css">
 </head>
-<body>
 <!--
   The owner's console (PRD v2 §5 principle 1, F10).
 
-  One page, one script, no build step and no framework. That is not
-  minimalism for its own sake: this page is the surface where a person
-  approves things that cannot be undone, and a dependency tree is a set of
-  things that can change what the button under their finger does. Everything
-  here is readable in one sitting, which is the property that matters.
+  React and Mantine, built by Vite into `dist/` and served by the owner API
+  from its own origin: the content security policy there allows no script and
+  no stylesheet from anywhere else, so nothing here is fetched from a CDN.
 
   The page holds no rules. Which items exist, what may be pressed, whether a
   tier 3 approval needs a second factor -- all of it is answered by the API,
-  which asks `decide`, which is where every surface meets the same gate. A
-  console that decided any of that for itself would be a second implementation
-  to get wrong.
+  which asks `decide`, where every surface meets the same gate.
 -->
-<header>
-  <h1><span class="mark" aria-hidden="true">P</span>PALUGADA</h1>
-  <div id="who" hidden>
-    <span id="device"></span>
-    <button id="sign-out" class="link">Sign out</button>
-  </div>
-</header>
-
-<main>
-  <!-- Signing in is presenting a second factor. There are no accounts. -->
-  <section id="sign-in">
-    <h2>Sign in</h2>
-    <p class="muted">There are no accounts: enter the six-digit code from your authenticator.</p>
-    <form id="sign-in-form">
-      <input id="code" inputmode="numeric" autocomplete="one-time-code"
-             pattern="[0-9]{6}" maxlength="6" placeholder="000000" required>
-      <button type="submit">Sign in</button>
-    </form>
-    <p id="sign-in-error" class="error" hidden></p>
-  </section>
-
-  <section id="console" hidden>
-    <aside id="sidebar">
-      <p class="nav-label">Companies</p>
-      <nav id="companies"></nav>
-      <p class="nav-label">Run the company</p>
-      <!-- The rest of what an owner does. The inbox is first because it is the
-           thing with a person waiting on it; everything else is running the
-           company rather than being interrupted by it. -->
-      <nav id="tabs"></nav>
-    </aside>
-
-    <div id="content">
-      <div id="page-head">
-        <div>
-          <p id="page-company"></p>
-          <h2 id="page-title"></h2>
-        </div>
-        <!-- F10.7. The global controls, where they can be reached in one press.
-             Two buttons, because they are two decisions: "stop" raises a flag the
-             engine reads at every step, so work stops cleanly and resumes when the
-             flag clears; "cancel everything" ends the tasks outright and cannot be
-             undone, which is why it asks for the authenticator. -->
-        <div id="controls">
-          <span id="control-note" class="muted"></span>
-          <button id="stop-all" class="danger"></button>
-          <button id="cancel-all" class="danger">Cancel everything</button>
-        </div>
-      </div>
-
-      <div id="panel-decisions" class="panel">
-        <div id="digest" class="digest"></div>
-        <!-- F10.1. One queue, and F10.2 puts everything a judgement needs on the
-             card: what, why, tier, cost, and what happens if it is refused. -->
-        <ul id="inbox"></ul>
-        <p id="empty" class="muted" hidden>Nothing is waiting.</p>
-      </div>
-
-      <div id="panel-history" class="panel" hidden></div>
-      <div id="panel-money" class="panel" hidden></div>
-      <div id="panel-health" class="panel" hidden></div>
-      <div id="panel-settings" class="panel" hidden></div>
-      <div id="panel-structure" class="panel" hidden></div>
-      <div id="panel-skills" class="panel" hidden></div>
-      <div id="panel-supply" class="panel" hidden></div>
-      <div id="panel-devices" class="panel" hidden></div>
-    </div>
-  </section>
-</main>
-
-<!-- F10.10. A tier 3 approval asks for the factor again, here, at the moment
-     of the decision -- not once at sign-in and then trusted all day. -->
-<dialog id="factor">
-  <form method="dialog" id="factor-form">
-    <h2>Confirm with your authenticator</h2>
-    <p id="factor-what" class="muted"></p>
-    <input id="factor-code" inputmode="numeric" autocomplete="one-time-code"
-           pattern="[0-9]{6}" maxlength="6" placeholder="000000" required>
-    <p id="factor-error" class="error" hidden></p>
-    <menu>
-      <button value="cancel" type="button" id="factor-cancel" class="link">Cancel</button>
-      <button value="confirm" type="submit">Confirm</button>
-    </menu>
-  </form>
-</dialog>
-
-<!-- F11.2: the trace behind an item, one hop from the item. -->
-<dialog id="trace">
-  <h2>What happened</h2>
-  <pre id="trace-body"></pre>
-  <menu><button type="button" id="trace-close">Close</button></menu>
-</dialog>
-
-<script src="/console.js"></script>
+<body>
+<div id="root"></div>
+<script type="module" src="/src/main.tsx"></script>
 </body>
 </html>

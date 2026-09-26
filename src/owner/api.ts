@@ -121,6 +121,15 @@ import type { CapabilityRegistry } from '../broker/registry.ts';
 import type { OwnerMfa, WebAuthnAssertion } from './mfa.ts';
 import type { TelegramChannel, TelegramUpdate } from './telegram.ts';
 import { OwnerSessions, type OwnerSession } from './session.ts';
+import {
+  accountsOf,
+  activityOf,
+  devicesOf,
+  isWorkGroup,
+  schedulesOf,
+  structureOf,
+  workOf,
+} from './views.ts';
 
 export interface OwnerApiOptions {
   mfa: OwnerMfa;
@@ -164,6 +173,13 @@ export interface OwnerApiOptions {
    * every interface answers to anything, which the deployment says at boot.
    */
   allowedHosts?: readonly string[];
+  /**
+   * What the deployment said about itself at boot: each capability left
+   * unbound, each channel not configured, each runtime missing. Shown to the
+   * owner as what is left to set up, because a note in a service log is one
+   * nobody running the company from a phone will ever read.
+   */
+  deploymentNotes?: readonly string[];
   /**
    * The message channel whose button presses arrive at
    * `/api/channels/telegram` (F10.9). Absent means the route refuses.
@@ -368,6 +384,77 @@ export class OwnerApi {
           before: query.get('before'),
           limit: query.get('limit') === null ? 25 : wholeNumber(query.get('limit'), 'limit'),
         }),
+      },
+
+      /* -------------------------------------------- what the pages draw --- */
+
+      // The company's shape, work, recent events, accounts, schedules and
+      // devices, so the console can offer a choice instead of asking for an
+      // id (src/owner/views.ts).
+      {
+        method: 'GET',
+        pattern: '/api/companies/:companyId/structure',
+        handle: async ({ params }) => structureOf(params.companyId!),
+      },
+
+      {
+        method: 'GET',
+        pattern: '/api/companies/:companyId/work',
+        handle: async ({ params, query }) => {
+          const group = query.get('group');
+          if (group !== null && group !== '' && !isWorkGroup(group)) {
+            throw new PalugadaError(
+              'contract.violation',
+              `group must be active, waiting, done or stopped; got ${group}`,
+              { field: 'group' },
+            );
+          }
+          return workOf(params.companyId!, {
+            ...(group ? { group } : {}),
+            ...(query.get('limit') === null ? {} : { limit: wholeNumber(query.get('limit'), 'limit') }),
+          });
+        },
+      },
+
+      {
+        method: 'GET',
+        pattern: '/api/companies/:companyId/activity',
+        handle: async ({ params, query }) => ({
+          items: await activityOf(
+            params.companyId!,
+            query.get('limit') === null ? 30 : wholeNumber(query.get('limit'), 'limit'),
+            { routine: query.get('routine') === 'include' },
+          ),
+        }),
+      },
+
+      {
+        method: 'GET',
+        pattern: '/api/companies/:companyId/budget-accounts',
+        handle: async ({ params }) => ({ accounts: await accountsOf(params.companyId!) }),
+      },
+
+      {
+        method: 'GET',
+        pattern: '/api/companies/:companyId/schedules',
+        handle: async ({ params }) => ({ schedules: await schedulesOf(params.companyId!) }),
+      },
+
+      {
+        method: 'GET',
+        pattern: '/api/companies/:companyId/devices',
+        handle: async ({ params }) => ({ devices: await devicesOf(params.companyId!) }),
+      },
+
+      {
+        method: 'GET',
+        pattern: '/api/control/setup',
+        handle: async () => {
+          const notes = [...(this.#options.deploymentNotes ?? [])];
+          // Two of the boot notes say what *is* set up; the rest are each
+          // something switched off until the operator sets it.
+          return { notes, todo: notes.filter((note) => !/^(enrolled |bound by )/.test(note)) };
+        },
       },
 
       /* ---------------------------------------------------- F10.2, F10.3 --- */
@@ -1789,6 +1876,12 @@ export class OwnerApi {
           + "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'",
         'x-content-type-options': 'nosniff',
         'referrer-policy': 'no-referrer',
+        // The build names every asset by its content hash, so an asset never
+        // changes under its name and may be kept; the page that names them
+        // must be asked for again, or a release would never reach the owner.
+        'cache-control': wanted.startsWith('/assets/')
+          ? 'public, max-age=31536000, immutable'
+          : 'no-cache',
       });
       res.end(file);
     } catch {
@@ -1802,6 +1895,9 @@ const CONTENT_TYPES: Record<string, string> = {
   '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml',
+  '.webp': 'image/webp',
+  '.png': 'image/png',
+  '.woff2': 'font/woff2',
   '.json': 'application/json; charset=utf-8',
 };
 

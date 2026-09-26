@@ -193,8 +193,20 @@ documentation, cited in
   the owner decides on it.
 
 **The owner's console**
-- Tabs for Decisions, History, Money, Health, Settings, Structure, Skills,
-  Bundles and Devices.
+- A React and Mantine app with light and dark themes that works on a phone.
+  Its pages:
+  - **Decisions**: the queue on one side and the chosen item on the other,
+    with its goal chain, the requesting role, an expiry countdown and a
+    step-by-step trace.
+  - **Overview**: spending gauge, cost per day, work in progress, recent
+    activity and a setup checklist.
+  - **Work**: every task by state, with its event timeline and a dry replay.
+  - **Organization**: an org chart where each division and role opens its own
+    controls, the goal ladder, schedules and policies.
+  - **Money**: the ceiling, daily cost and the account tree.
+  - **History**, **Health**, **Skills**, **Bundles**, **Devices** and
+    **Settings**.
+- Everything is picked from the company's own shape, never typed in as ids.
 - Push for incidents and tier 3 approvals. Telegram buttons for the decisions
   a chat is allowed to make, and those buttons are removed once the item is
   decided elsewhere.
@@ -225,11 +237,16 @@ and **PostgreSQL 16** with [pgvector](https://github.com/pgvector/pgvector).
 
 ```sh
 npm install
-npm run db:setup      # database and its three roles (needs a superuser for pgvector)
+npm run db:setup         # database and its three roles (needs a superuser for pgvector)
 npm run db:migrate
-npm run totp:new      # the owner's first factor: add it to an authenticator app
-npm start             # worker + owner console on http://127.0.0.1:8787
+npm run console:install  # the owner's console: React, Mantine, Vite
+npm run console:build    # built into console/dist, which the server serves
+npm run totp:new         # the owner's first factor: add it to an authenticator app
+npm start                # worker + owner console on http://127.0.0.1:8787
 ```
+
+While working on the console itself, `npm --prefix console run dev` serves it
+with hot reload and proxies `/api` to a running deployment on :8787.
 
 `npm run totp:new` prints a secret and an `otpauth://` link. Point
 `PALUGADA_OWNER_TOTP_REF` at where you keep the secret, and the first boot
@@ -287,9 +304,11 @@ the catalogue's tier.
 
 ## Under the hood
 
-- **Stack**: TypeScript on Node 22 with no build step, and PostgreSQL 16 with
-  pgvector. Three database roles: agents (row-level security enforced), the
-  control plane, and the schema owner.
+- **Stack**: TypeScript on Node 22 with no build step for the server, and
+  PostgreSQL 16 with pgvector. Three database roles: agents (row-level
+  security enforced), the control plane, and the schema owner. The console is
+  React with [Mantine](https://mantine.dev), built by Vite and served from the
+  same origin under a strict content security policy.
 - **Tests**: acceptance tests grouped by requirement, run against a real
   PostgreSQL. CI runs the type check, every migration and the whole suite on
   each push, plus a nightly soak of twenty workers racing over a thousand
@@ -306,7 +325,7 @@ src/
   memory/       scoped memory and distillation
   skills/  eval/  bundles/  gateway/  governance/  policy/  review/
   secrets/  retention/  audit/  reporting/  templates/  capabilities/
-console/        the owner's console (no framework, no build)
+console/        the owner's console: React + Mantine (src/), built to dist/
 db/migrations/  schema and row-level security
 test/           acceptance tests, one file per area of the specification
 ```

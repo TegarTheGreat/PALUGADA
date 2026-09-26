@@ -636,6 +636,138 @@ test('a session is known to every console and ends on all of them at once (F12.5
   }
 });
 
+/* ------------------------------------------------- what the pages draw --- */
+
+/**
+ * The console picks from the company's own shape instead of asking for ids.
+ *
+ * Every form in the Structure tab asked for a "Division id" or a "Role id"
+ * typed in by hand, because nothing listed them. These routes are what the
+ * pages draw from: the structure, the work, what happened, the accounts, the
+ * schedules and the devices -- each as the tenant, so another company's rows
+ * are not merely filtered out by the page but never sent.
+ */
+test('the console reads a company\'s shape, work and recent history (F10.1, F10.2)', async () => {
+  const { createRootTask, transition } = await import('../../src/engine/tasks.ts');
+  const { upsertSchedule } = await import('../../src/scheduler/scheduler.ts');
+  const { registerDevice } = await import('../../src/gateway/gateway.ts');
+  const { generateKeyPairSync } = await import('node:crypto');
+  const mine = await createCompany('views-mine');
+  const theirs = await createCompany('views-theirs');
+  const task = (fixture: Fixture, input: Record<string, unknown>) => createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    roleId: fixture.roleId, budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId,
+    input, createdBy: 'owner', reserveTokens: 100,
+  });
+
+  const running = await task(mine, { goal: 'Reconcile the September ledger' });
+  await transition(mine.companyId, running.id, 'running');
+  const finished = await task(mine, { title: 'Answer the refund email' });
+  await transition(mine.companyId, finished.id, 'running');
+  await transition(mine.companyId, finished.id, 'completed', { output: { ok: true } });
+  await task(theirs, { goal: 'Somebody else\'s work' });
+  await upsertSchedule({
+    companyId: mine.companyId, projectId: mine.projectId, divisionId: mine.divisionId,
+    roleId: mine.roleId, budgetAccountId: mine.budgetAccountId, goalId: mine.goalId,
+    slug: 'nightly-ledger', cronExpression: '0 2 * * *', timezone: 'Asia/Jakarta',
+    input: { goal: 'nightly' }, reserveTokens: 100,
+  });
+  const pem = generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'pem' }).toString();
+  const device = await registerDevice({ companyId: mine.companyId, name: 'build box', runtime: 'script', publicKeyPem: pem });
+
+  const owner = await console_();
+  const replica = new OwnerApi({
+    mfa: new OwnerMfa({ secrets: new InMemorySecretManager(), rpId: 'palugada.local' }),
+    deploymentNotes: [
+      'bound by the platform: memory.search, skill.read',
+      'no push channel: set PALUGADA_PUSH_URL (F10.5)',
+    ],
+  });
+  const { url: noted } = await replica.listen();
+  try {
+    const token = await signIn(owner.url, owner.code());
+    const base = `/api/companies/${mine.companyId}`;
+    const get = async (path: string) => {
+      const answer = await call(owner.url, 'GET', `${base}${path}`, { token });
+      assert.equal(answer.status, 200, `${path}: ${JSON.stringify(answer.body)}`);
+      return answer.body as Record<string, any>;
+    };
+
+    const structure = await get('/structure');
+    assert.deepEqual(structure.divisions.map((d: { id: string }) => d.id), [mine.divisionId]);
+    assert.equal(structure.divisions[0].openTasks, 1, 'the running task is open; the finished one is not');
+    assert.deepEqual(structure.roles.map((r: { id: string }) => r.id), [mine.roleId]);
+    assert.equal(structure.roles[0].doneLastWeek, 1);
+    assert.ok(structure.goals.some((g: { id: string }) => g.id === mine.goalId));
+
+    const all = await get('/work');
+    assert.deepEqual(all.items.map((t: { id: string }) => t.id).sort(), [running.id, finished.id].sort(),
+      'another company\'s task is not sent at all');
+    assert.deepEqual(all.counts, { active: 1, waiting: 0, done: 1, stopped: 0 });
+    const active = await get('/work?group=active');
+    assert.deepEqual(active.items.map((t: { summary: string }) => t.summary), ['Reconcile the September ledger']);
+    const done = await get('/work?group=done');
+    assert.deepEqual(done.items.map((t: { summary: string }) => t.summary), ['Answer the refund email']);
+    const bad = await call(owner.url, 'GET', `${base}/work?group=everything`, { token });
+    assert.equal(bad.status, 400);
+
+    const activity = await get('/activity?limit=5');
+    assert.ok(activity.items.length > 0 && activity.items.length <= 5);
+    const times = activity.items.map((e: { occurredAt: string }) => Date.parse(e.occurredAt));
+    assert.deepEqual(times, [...times].sort((a, b) => b - a), 'newest first');
+    // A dormant role waking to nothing is the platform's rhythm, not news.
+    const { appendEvent } = await import('../../src/audit/event-log.ts');
+    const { withTenant } = await import('../../src/db/tenant.ts');
+    await withTenant(mine.companyId, (tx) => appendEvent(tx, {
+      companyId: mine.companyId, type: 'wake.idle', actor: 'system', payload: {},
+    }));
+    const types = async (path: string) => (await get(path)).items.map((e: { type: string }) => e.type);
+    assert.ok(!(await types('/activity')).includes('wake.idle'), 'an idle wake drowned the feed');
+    assert.ok((await types('/activity?routine=include')).includes('wake.idle'), 'and is there when asked for');
+
+    // The queue says why and who: the goal chain and the role behind an item.
+    await inbox.requestApproval({
+      companyId: mine.companyId, taskId: running.id, capabilityName: 'payment.send', tier: 3,
+      actionSummary: 'Pay the roaster', rationale: 'Invoice verified.', consequenceIfDenied: 'Unpaid.',
+    });
+    const queue = await get('/inbox');
+    const asked = queue.items.find((item: { taskId: string }) => item.taskId === running.id);
+    assert.equal(asked.roleSlug, (structure.roles[0] as { slug: string }).slug);
+    assert.ok(asked.goalChain.length >= 1, 'the item says which goal it serves');
+    assert.ok(asked.createdAt);
+
+    const accounts = await get('/budget-accounts');
+    assert.ok(accounts.accounts.some((a: { id: string }) => a.id === mine.budgetAccountId));
+
+    const schedules = await get('/schedules');
+    assert.deepEqual(schedules.schedules.map((s: { slug: string }) => s.slug), ['nightly-ledger']);
+    assert.equal(schedules.schedules[0].timezone, 'Asia/Jakarta');
+
+    const devices = await get('/devices');
+    assert.deepEqual(devices.devices.map((d: { id: string }) => d.id), [device.id]);
+    assert.equal(devices.devices[0].keyFingerprint, device.keyFingerprint);
+
+    // What the deployment is missing, where the owner will see it. The
+    // session is the database's, so the other console takes the same token.
+    const setup = await call(noted, 'GET', '/api/control/setup', { token });
+    assert.equal((setup.body.notes as string[]).length, 2);
+    assert.deepEqual(setup.body.todo, ['no push channel: set PALUGADA_PUSH_URL (F10.5)'],
+      'what is set up is not on the list of what is not');
+  } finally {
+    await replica.close();
+    await owner.close();
+  }
+});
+
+test('a task\'s input reads as one line, whatever its shape', async () => {
+  const { summarise } = await import('../../src/owner/views.ts');
+  assert.equal(summarise({ goal: 'Ship the landing page' }), 'Ship the landing page');
+  assert.equal(summarise({ amount: 3, recipient: 'ops@example.test' }), 'ops@example.test');
+  assert.equal(summarise({ count: 3 }), '{"count":3}');
+  assert.equal(summarise({}), 'No description');
+  assert.equal(summarise('x'.repeat(200)).length, 140);
+});
+
 /* ------------------------------------------------------------------ F12.5 --- */
 
 /**
@@ -922,7 +1054,8 @@ test('the deployment boots, serves the console, and takes a decision', async () 
   const { secret } = newTotpSecret('owner phone');
   secrets.set('vault://owner/totp', secret);
 
-  const consoleRoot = fileURLToPath(new URL('../../console', import.meta.url));
+  // The built console, as `npm start` serves it (`npm run console:build`).
+  const consoleRoot = fileURLToPath(new URL('../../console/dist', import.meta.url));
   const deployment = await start({
     secrets,
     consoleRoot,
@@ -942,15 +1075,22 @@ test('the deployment boots, serves the console, and takes a decision', async () 
     assert.ok(deployment.notes.some((note) => /no push channel/.test(note)));
     assert.ok(deployment.notes.some((note) => /no message channel/.test(note)));
 
-    // The console itself, from the repository rather than from a fixture.
+    // The console itself, from the repository's build rather than a fixture:
+    // the page, its script and its stylesheet, from this origin only.
     const page = await fetch(`${deployment.url}/`);
     assert.equal(page.status, 200);
+    assert.match(page.headers.get('content-security-policy') ?? '', /script-src 'self'/);
     const html = await page.text();
     assert.match(html, /<title>PALUGADA<\/title>/);
-    assert.match(html, /console\.js/);
-    for (const asset of ['/console.js', '/console.css']) {
-      assert.equal((await fetch(`${deployment.url}${asset}`)).status, 200, asset);
+    const assets = [...html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map((match) => match[1]!);
+    assert.ok(assets.some((asset) => asset.endsWith('.js')) && assets.some((asset) => asset.endsWith('.css')),
+      `the page names no built script or stylesheet: ${assets.join(', ')}`);
+    for (const asset of assets) {
+      const served = await fetch(`${deployment.url}${asset}`);
+      assert.equal(served.status, 200, asset);
+      assert.match(served.headers.get('cache-control') ?? '', /immutable/, `${asset} is content-hashed and may be kept`);
     }
+    assert.equal((await fetch(`${deployment.url}/illustrations/inbox-zero.webp`)).headers.get('content-type'), 'image/webp');
     void join;
 
     // A notification's link opens the console on its item. It pointed at
@@ -963,9 +1103,10 @@ test('the deployment boots, serves the console, and takes a decision', async () 
     const opened = await fetch(link);
     assert.equal(opened.status, 200, 'the link lands on the console');
     assert.match(await opened.text(), /<title>PALUGADA<\/title>/);
-    const script = await (await fetch(`${deployment.url}/console.js`)).text();
-    assert.match(script, /query\.get\('company'\)/);
-    assert.match(script, /query\.get\('item'\)/);
+    const entry = assets.find((asset) => /\/index-[^/]+\.js$/.test(asset))!;
+    const script = await (await fetch(`${deployment.url}${entry}`)).text();
+    assert.match(script, /get\(["'`]company["'`]\)/, 'the page reads the company from the link');
+    assert.match(script, /get\(["'`]item["'`]\)/, 'and the item');
 
     // Now enrol, sign in, and take a real decision through the API the page
     // uses -- which is the whole chain the owner touches.

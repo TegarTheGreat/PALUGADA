@@ -57,11 +57,24 @@ jobs:
         with:
           node-version: '22'
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            console/package-lock.json
 
       - run: npm ci
 
       - name: Type check
         run: npm run typecheck
+
+      # The owner's console is a React and Mantine page built by Vite, and the
+      # acceptance suite serves the build: the deployment test fetches the page
+      # and its assets, and the route guard reads the source. Its own type
+      # check runs as part of the build.
+      - name: Install the console
+        run: npm run console:install
+
+      - name: Build the console
+        run: npm run console:build
 
       - name: Provision database
         run: npm run db:setup

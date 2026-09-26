@@ -18,6 +18,7 @@ import { getTask, transitionWithin } from '../engine/tasks.ts';
 import { TERMINAL_STATUSES, isTerminal } from '../domain/task.ts';
 import { notifyAfterFor } from '../scheduler/windows.ts';
 import { escalationPolicyFor } from '../governance/structure.ts';
+import { ancestryForTask } from '../domain/goals.ts';
 import { approveCandidate, rejectCandidate } from '../memory/store.ts';
 import type { Tier } from '../domain/tier.ts';
 import type { OwnerMfa, VerifiedFactor, WebAuthnAssertion } from '../owner/mfa.ts';
@@ -77,6 +78,18 @@ export interface InboxItem {
   consequenceIfDenied: string;
   taskId: string | null;
   expiresAt: Date | null;
+  createdAt: Date;
+  /** The capability an approval is for; null for anything that is not one. */
+  capabilityName: string | null;
+  /** Who is asking: the role and division of the task behind the item. */
+  roleSlug: string | null;
+  divisionName: string | null;
+  /**
+   * F2.7, F10.2: why this work exists, mission first. An owner deciding on a
+   * phone at seven in the morning reads it on the item rather than following
+   * a link to find it.
+   */
+  goalChain: Array<{ kind: string; statement: string }>;
 }
 
 export async function requestApproval(input: ApprovalInput): Promise<string> {
@@ -514,19 +527,33 @@ export async function listOpen(companyId: string): Promise<InboxItem[]> {
       id: string; kind: InboxKind; status: InboxStatus;
       title: string; action_summary: string; rationale: string; tier: number | null;
       estimated_cost_cents: number; consequence_if_denied: string;
-      task_id: string | null; expires_at: Date | null;
+      task_id: string | null; expires_at: Date | null; created_at: Date;
+      capability_name: string | null; role_slug: string | null; division_name: string | null;
     }>(
-      `SELECT id, kind, status, title, action_summary, rationale, tier,
-              estimated_cost_cents, consequence_if_denied, task_id, expires_at
-         FROM inbox_items WHERE status = 'open' ORDER BY created_at`,
+      `SELECT i.id, i.kind, i.status, i.title, i.action_summary, i.rationale, i.tier,
+              i.estimated_cost_cents, i.consequence_if_denied, i.task_id, i.expires_at,
+              i.created_at, i.capability_name, r.slug AS role_slug, d.name AS division_name
+         FROM inbox_items i
+         LEFT JOIN tasks t ON t.id = i.task_id
+         LEFT JOIN roles r ON r.id = t.role_id
+         LEFT JOIN divisions d ON d.id = t.division_id
+        WHERE i.status = 'open'
+        ORDER BY i.created_at`,
     );
-    return rows.map((r) => ({
-      id: r.id, kind: r.kind, status: r.status, title: r.title,
-      actionSummary: r.action_summary, rationale: r.rationale, tier: r.tier,
-      estimatedCostCents: r.estimated_cost_cents,
-      consequenceIfDenied: r.consequence_if_denied,
-      taskId: r.task_id, expiresAt: r.expires_at,
-    }));
+    const items: InboxItem[] = [];
+    for (const r of rows) {
+      const chain = r.task_id ? await ancestryForTask(tx, r.task_id) : [];
+      items.push({
+        id: r.id, kind: r.kind, status: r.status, title: r.title,
+        actionSummary: r.action_summary, rationale: r.rationale, tier: r.tier,
+        estimatedCostCents: r.estimated_cost_cents,
+        consequenceIfDenied: r.consequence_if_denied,
+        taskId: r.task_id, expiresAt: r.expires_at, createdAt: r.created_at,
+        capabilityName: r.capability_name, roleSlug: r.role_slug, divisionName: r.division_name,
+        goalChain: chain.map((goal) => ({ kind: goal.kind, statement: goal.statement })),
+      });
+    }
+    return items;
   });
 }
 

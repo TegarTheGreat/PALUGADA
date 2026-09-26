@@ -55,8 +55,17 @@ export interface ContextPack {
   /** F2.7: mission → objective → key result. */
   goalAncestry: Goal[];
   /**
+   * What governs this run besides the charter, in the order it was built:
+   * the company's languages and stage, how the goal is measured, and every
+   * word the owner has said to this task -- a question, an answer, an
+   * instruction, the note on a rerun. None of it may be dropped to fit, and a
+   * runtime that is not handed it cannot follow it.
+   */
+  notes: Array<{ title: string; body: string }>;
+  /**
    * F4.7: what this task already did, so a resumed run continues rather than
-   * starting again.
+   * starting again. Each result is bounded (`STEP_OUTPUT_LIMIT`), and only
+   * the steps the context cap kept are here.
    */
   workingMemory: Array<{ name: string; output: unknown }>;
 }

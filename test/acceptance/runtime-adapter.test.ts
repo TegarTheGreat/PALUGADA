@@ -29,6 +29,9 @@ import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { CapabilityRegistry, type Capability } from '../../src/broker/registry.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';
 import { createRootTask, getTask } from '../../src/engine/tasks.ts';
+import { instructTask } from '../../src/engine/owner-control.ts';
+import { setCompanyLanguages } from '../../src/domain/language.ts';
+import { renderPrompt, toWireRequest } from '../../src/runtime/wire.ts';
 import { scrubExpiredPrompts } from '../../src/retention/retention.ts';
 import { createCompany, grantCapability, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
@@ -260,6 +263,52 @@ test('the context pack carries the goal chain and the work already done (F2.7, F
   ]);
   assert.equal(seen.request!.modelRouting.primary, 'test-model');
   assert.equal(seen.request!.backend, 'local');
+});
+
+test('what the pack was built with reaches the runtime: the language, the owner\'s word, a bounded working memory (F4.7, F4.8)', async () => {
+  // The pack is built with the company's language, its stage, how the goal
+  // is measured and every word the owner has said to the task. A runtime is
+  // handed a request, not the pack, so whatever the request leaves out was
+  // built for nobody: an owner who told a task "lead with the price" and saw
+  // it ignored had been heard by the builder and by no agent.
+  const fixture = await createCompany('runtime-notes');
+  await useRuntime(fixture, 'spy');
+  await setCompanyLanguages(fixture.companyId, { work: 'id', talk: 'id' });
+  const task = await newTask(fixture);
+  await instructTask(fixture.companyId, task.id, 'Lead with the price change, not the new hire.');
+  await withTenant(fixture.companyId, async (tx) => {
+    await tx.query(
+      `INSERT INTO task_steps (company_id, task_id, step_index, name, kind, status,
+                               idempotency_key, input_hash, output, committed_at)
+       VALUES ($1, $2, 0, 'fetched', 'tool', 'committed', 'k0', 'h0', $3::jsonb, now()),
+              ($1, $2, 1, 'noted', 'llm', 'committed', 'k1', 'h1', '{"said":"something"}'::jsonb, now())`,
+      [fixture.companyId, task.id, JSON.stringify({ page: 'x'.repeat(60_000) })],
+    );
+  });
+
+  const { adapter, seen } = spyAdapter();
+  await engineWith(adapter).runTask(fixture.companyId, task.id, 'worker');
+  const pack = seen.request!.contextPack;
+
+  assert.ok(pack.notes.some((note) => note.title === 'Language' && /Indonesian/.test(note.body)), 'the language rule');
+  assert.ok(pack.notes.some((note) => /Lead with the price change, not the new hire\./.test(note.body)), 'the owner\'s word');
+
+  // Every run of a task carries what it already did, so one large page would
+  // ride along in full in every later run of it, and the cost of a task would
+  // grow with the square of its steps.
+  assert.deepEqual(pack.workingMemory.map((step) => step.name), ['fetched', 'noted']);
+  assert.deepEqual(pack.workingMemory[1]!.output, { said: 'something' }, 'a small result is passed as it is');
+  const large = JSON.stringify(pack.workingMemory[0]!.output);
+  assert.ok(large.length < 5_000, `a 60 kB result arrived as ${large.length} characters`);
+  assert.match(large, /cut short/);
+
+  // The agent CLIs are given it in the prompt, after the charter and before
+  // the task: an instruction below the work it governs is read too late.
+  const prompt = renderPrompt(toWireRequest(seen.request!));
+  const at = (pattern: RegExp) => prompt.search(pattern);
+  assert.ok(at(/Lead with the price change/) > 0);
+  assert.ok(at(/Write everything in Indonesian/) > 0);
+  assert.ok(at(/Lead with the price change/) < at(/# Your task/), prompt.slice(0, 2_000));
 });
 
 test('a model call the runtime makes is traced and charged (F11.1)', async () => {

@@ -63,6 +63,7 @@ export interface WireRequest {
     skills: string[];
     memories: string[];
     goalAncestry: Array<{ kind: string; statement: string }>;
+    notes: Array<{ title: string; body: string }>;
     workingMemory: Array<{ name: string; output: unknown }>;
   };
   allowedTools: Array<{ name: string; inputSchema: Record<string, unknown>; tier: number }>;
@@ -92,6 +93,7 @@ export function toWireRequest(request: RunRequest): WireRequest {
         kind: goal.kind,
         statement: goal.statement,
       })),
+      notes: request.contextPack.notes,
       workingMemory: request.contextPack.workingMemory,
     },
     allowedTools: request.allowedTools.map((tool) => ({
@@ -103,6 +105,49 @@ export function toWireRequest(request: RunRequest): WireRequest {
     backend: request.backend,
     limits: request.limits,
   });
+}
+
+/**
+ * The prompt an agent CLI is given, whichever CLI it is.
+ *
+ * The charter first, because F3.2 says the platform charter outranks the
+ * company's and a prompt that buries it has already lost that argument. Then
+ * the notes -- the languages, the stage, how the goal is measured, and what
+ * the owner said to this task -- as prose, because they are instructions to
+ * be read before the work rather than data to be parsed with it: an owner's
+ * "lead with the price" placed under the task is read after the task has
+ * already been understood. The rest travels as JSON: a runtime is a program,
+ * and asking it to parse prose it was handed would add a failure mode for
+ * nothing.
+ *
+ * One function for every CLI, deliberately. A role moved from one runtime to
+ * another should be doing the same job, and a prompt that changed with the
+ * adapter would make the runtime a variable in the work rather than in who
+ * does it.
+ */
+export function renderPrompt(wire: WireRequest): string {
+  const notes = wire.contextPack.notes.flatMap((note) => [`## ${note.title}`, '', note.body, '']);
+  return [
+    wire.contextPack.charter,
+    '',
+    ...(notes.length > 0 ? ['# Before you start', '', ...notes] : []),
+    '# Your task',
+    JSON.stringify(
+      {
+        task: wire.task,
+        goalAncestry: wire.contextPack.goalAncestry,
+        skills: wire.contextPack.skills,
+        memories: wire.contextPack.memories,
+        workingMemory: wire.contextPack.workingMemory,
+      },
+      null,
+      2,
+    ),
+    '',
+    'Act only through the tools you have been given. When you are finished,',
+    'reply with a single JSON object and nothing else: that object is the',
+    "task's output and is validated against the role's output schema.",
+  ].join('\n');
 }
 
 /**

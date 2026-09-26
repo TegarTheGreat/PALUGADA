@@ -55,7 +55,7 @@ import type {
   RunRequest,
   RunServices,
 } from './protocol.ts';
-import { driveRun, toWireRequest, type Transport } from './wire.ts';
+import { driveRun, renderPrompt, toWireRequest, type Transport } from './wire.ts';
 import { startToolBridge, type ToolBridge } from './tool-bridge.ts';
 import { asOutput, translateStreamJsonLine, type StreamJsonLine } from './claude-code.ts';
 import {
@@ -289,41 +289,9 @@ export class CliAdapter implements Adapter {
     };
   }
 
-  /**
-   * The prompt.
-   *
-   * The charter first, because F3.2 says the platform charter outranks the
-   * company's and a prompt that buries it has already lost that argument. The
-   * rest travels as JSON: a runtime is a program, and asking it to parse prose
-   * it was handed would add a failure mode for nothing.
-   *
-   * The same shape `claude-code` sends, deliberately. A role moved from one
-   * runtime to another should be doing the same job, and a prompt that changed
-   * with the adapter would make the runtime a variable in the work rather than
-   * in who does it.
-   */
+  /** The prompt every agent CLI is given (`renderPrompt`). */
   prompt(request: RunRequest): string {
-    const wire = toWireRequest(request);
-    return [
-      wire.contextPack.charter,
-      '',
-      '# Your task',
-      JSON.stringify(
-        {
-          task: wire.task,
-          goalAncestry: wire.contextPack.goalAncestry,
-          skills: wire.contextPack.skills,
-          memories: wire.contextPack.memories,
-          workingMemory: wire.contextPack.workingMemory,
-        },
-        null,
-        2,
-      ),
-      '',
-      'Act only through the tools you have been given. When you are finished,',
-      'reply with a single JSON object and nothing else: that object is the',
-      "task's output and is validated against the role's output schema.",
-    ].join('\n');
+    return renderPrompt(toWireRequest(request));
   }
 
   async run(request: RunRequest, services: RunServices): Promise<AdapterResult> {

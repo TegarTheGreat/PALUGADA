@@ -159,6 +159,17 @@ test('working memory carries committed steps, and only committed ones', async ()
   const working = context.sections.filter((s) => s.kind === 'working_memory');
   assert.equal(working.length, 1, 'an uncommitted step is not yet a fact about the run');
   assert.match(working[0]!.title, /finished/);
+  assert.deepEqual(context.workingMemory, [{ name: 'finished', output: 'done' }]);
+
+  // A step the cap left out of the pack is left out of what the runtime is
+  // handed too: the run is told the pack is incomplete, and it must not be
+  // handed, alongside that, the very thing it was told is missing.
+  const tight = await withTenant(fixture.companyId, (tx) =>
+    buildContext(tx, { companyId: fixture.companyId, divisionId: fixture.divisionId, taskId, tokenLimit: 1 }),
+  );
+  assert.ok(tight.dropped > 0);
+  assert.equal(tight.sections.filter((s) => s.kind === 'working_memory').length, 0);
+  assert.deepEqual(tight.workingMemory, []);
 });
 
 test('external content is marked as data, not instructions (F8.9)', () => {

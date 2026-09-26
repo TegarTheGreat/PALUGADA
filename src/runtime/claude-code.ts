@@ -33,7 +33,7 @@ import type {
   RunRequest,
   RunServices,
 } from './protocol.ts';
-import { driveRun, toWireRequest, type Transport } from './wire.ts';
+import { driveRun, renderPrompt, toWireRequest, type Transport } from './wire.ts';
 import { startToolBridge } from './tool-bridge.ts';
 
 export interface ClaudeCodeAdapterOptions {
@@ -148,36 +148,9 @@ export class ClaudeCodeAdapter implements Adapter {
     ];
   }
 
-  /**
-   * The prompt.
-   *
-   * The charter first, because F3.2 says the platform charter outranks the
-   * company's and a prompt that buries it has already lost that argument. The
-   * request itself travels as JSON: the runtime is a program, and asking it to
-   * parse prose it was given would add a failure mode for nothing.
-   */
+  /** The prompt every agent CLI is given (`renderPrompt`). */
   prompt(request: RunRequest): string {
-    const wire = toWireRequest(request);
-    return [
-      wire.contextPack.charter,
-      '',
-      '# Your task',
-      JSON.stringify(
-        {
-          task: wire.task,
-          goalAncestry: wire.contextPack.goalAncestry,
-          skills: wire.contextPack.skills,
-          memories: wire.contextPack.memories,
-          workingMemory: wire.contextPack.workingMemory,
-        },
-        null,
-        2,
-      ),
-      '',
-      'Act only through the tools you have been given. When you are finished,',
-      'reply with a single JSON object and nothing else: that object is the',
-      "task's output and is validated against the role's output schema.",
-    ].join('\n');
+    return renderPrompt(toWireRequest(request));
   }
 
   async run(request: RunRequest, services: RunServices): Promise<AdapterResult> {

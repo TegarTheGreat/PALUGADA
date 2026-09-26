@@ -31,6 +31,7 @@ export interface ContextSection {
     | 'confidence_warning'
     | 'semantic_memory'
     | 'goal_ancestry'
+    | 'goal_measure'
     | 'owner_question'
     | 'owner_note'
     | 'working_memory';
@@ -61,6 +62,33 @@ export const LOW_CONFIDENCE = 0.6;
 export const CONTEXT_PACK_TOKEN_LIMIT = 40_000;
 
 /**
+ * How much of one committed step's result every later run of the task is
+ * handed again (F4.7).
+ *
+ * Working memory travels in every run of a task, and a task that waits on
+ * its sub-tasks is run again every few minutes. A page fetched once would
+ * otherwise be paid for in full on every one of those runs, so the cost of a
+ * task would grow with the square of its steps. Four thousand characters
+ * keeps what a step decided and the start of what it read; the rest stays in
+ * the journal.
+ */
+export const STEP_OUTPUT_LIMIT = 4_000;
+
+/** One committed step as the run is given it: its name and a bounded result. */
+export interface WorkingMemoryItem {
+  name: string;
+  output: unknown;
+}
+
+function boundedOutput(output: unknown): unknown {
+  const text = JSON.stringify(output) ?? 'null';
+  if (text.length <= STEP_OUTPUT_LIMIT) return output;
+  return `${text.slice(0, STEP_OUTPUT_LIMIT)} ... [cut short: the result was ${text.length} characters. ` +
+    'The step is done and its whole result is kept in the journal; if you need a part of it that is ' +
+    'not shown here, ask for that part again rather than guessing it.]';
+}
+
+/**
  * The order in which sections are given up when the pack is too large.
  *
  * The charter is never dropped -- F3.2 requires it in every run, and a run that
@@ -72,6 +100,7 @@ export const CONTEXT_PACK_TOKEN_LIMIT = 40_000;
 const DROP_ORDER: ContextSection['kind'][] = [
   'semantic_memory',
   'sop',
+  'goal_measure',
   'goal_ancestry',
   'working_memory',
 ];
@@ -108,6 +137,12 @@ export interface AssembledContext {
   lowConfidenceMemories: MemoryItem[];
   /** F4.8: how many sections did not fit. Zero when the pack was under budget. */
   dropped: number;
+  /**
+   * F4.7: the committed steps that survived the cap, each result bounded by
+   * `STEP_OUTPUT_LIMIT`. What a runtime is handed, so that what it is told
+   * it already did is exactly what the pack was built with.
+   */
+  workingMemory: WorkingMemoryItem[];
 }
 
 /**
@@ -269,6 +304,7 @@ export async function buildContext(
   options: BuildContextOptions,
 ): Promise<AssembledContext> {
   const sections: ContextSection[] = await readCharters(tx, options.companyId);
+  const steps: Array<{ section: ContextSection; item: WorkingMemoryItem }> = [];
   sections.push(...await languageSections(tx, options.companyId, options.taskId));
   sections.push(...await stageSections(tx, options.companyId));
   const granted = await grantedHere(tx, options.divisionId, ['skill.read', 'memory.search']);
@@ -381,7 +417,7 @@ export async function buildContext(
       const onChain = new Set(chain.map((goal) => goal.id));
       const measured = (await metricsIn(tx)).filter((metric) => onChain.has(metric.goalId));
       if (measured.length > 0) {
-        sections.push({ kind: 'goal_ancestry', title: 'How this work is measured', body: renderMetrics(measured) });
+        sections.push({ kind: 'goal_measure', title: 'How this work is measured', body: renderMetrics(measured) });
       }
     }
 
@@ -438,11 +474,14 @@ export async function buildContext(
       [options.taskId],
     );
     for (const step of rows) {
-      sections.push({
+      const item = { name: step.name, output: boundedOutput(step.output) };
+      const section: ContextSection = {
         kind: 'working_memory',
         title: `Completed step: ${step.name}`,
-        body: JSON.stringify(step.output),
-      });
+        body: JSON.stringify(item.output),
+      };
+      steps.push({ section, item });
+      sections.push(section);
     }
   }
 
@@ -459,12 +498,14 @@ export async function buildContext(
     .map((section) => `## ${section.title}\n\n${section.body}`)
     .join('\n\n');
 
+  const kept = new Set(trimmed.sections);
   return {
     sections: trimmed.sections,
     text,
     semanticMemories,
     lowConfidenceMemories,
     dropped: trimmed.dropped,
+    workingMemory: steps.filter((step) => kept.has(step.section)).map((step) => step.item),
   };
 }
 

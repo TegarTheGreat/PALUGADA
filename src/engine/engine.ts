@@ -38,7 +38,7 @@ import {
 import { InProcessAdapter, type TaskHandler } from '../runtime/in-process.ts';
 import { ProviderFailure } from '../runtime/wire.ts';
 import { proposeNegativeCase } from '../eval/role-eval.ts';
-import { buildContext } from '../context/builder.ts';
+import { buildContext, type ContextSection } from '../context/builder.ts';
 import { ancestryForTask } from '../domain/goals.ts';
 import { preflightForRole } from '../broker/preflight.ts';
 import {
@@ -152,6 +152,15 @@ export interface RunOutcome {
  * The broker's refusals that mean "wait", not "no": the task parks on them
  * rather than failing, however the runtime reacted to being told.
  */
+/**
+ * The sections of a context pack a runtime is handed as notes: everything
+ * that governs the run besides the charter, the skills, the memories and the
+ * structured goal chain, each of which travels in a field of its own.
+ */
+const NOTE_KINDS: ReadonlySet<ContextSection['kind']> = new Set([
+  'language', 'stage', 'goal_measure', 'owner_question', 'owner_note',
+]);
+
 const PARKING_CODES: ReadonlySet<string> = new Set(['approval.required', 'owner.asked', 'review.required', 'window.closed', 'task.waiting_child']);
 
 export class Engine {
@@ -281,12 +290,6 @@ export class Engine {
         [runtime.tools],
       );
 
-      const { rows: steps } = await tx.query<{ name: string; output: unknown }>(
-        `SELECT name, output FROM task_steps
-          WHERE task_id = $1 AND status = 'committed' ORDER BY step_index`,
-        [task.id],
-      );
-
       return {
         runId: input.agentRunId,
         task,
@@ -301,7 +304,10 @@ export class Engine {
             .filter((s) => s.kind === 'semantic_memory' || s.kind === 'confidence_warning')
             .map((s) => `${s.title}\n${s.body}`),
           goalAncestry,
-          workingMemory: steps.map((row) => ({ name: row.name, output: row.output })),
+          notes: context.sections
+            .filter((s) => NOTE_KINDS.has(s.kind))
+            .map((s) => ({ title: s.title, body: s.body })),
+          workingMemory: context.workingMemory,
         },
         allowedTools: toolRows.map((row) => ({
           name: row.name,

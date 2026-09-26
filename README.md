@@ -258,6 +258,8 @@ documentation, cited in
   -- that the owner sets and policies read: no paid reach before launch is a
   rule, not a hope. The strategist proposes a move with the evidence; the
   GO takes the owner's device.
+- The owner hires a role, opens a division or starts a project from the
+  console; hiring and opening a division take the owner's device.
 - An agent that needs the owner asks, and its task waits for the answer.
 
 **PALUGADA develops PALUGADA**

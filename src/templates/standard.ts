@@ -54,7 +54,7 @@ import { saveTemplate, type CompanyTemplate } from './company.ts';
 export const STANDARD_TEMPLATE_SLUG = 'standard-company';
 
 /** The shape of a task handed to any role in this template. */
-const WORK_INPUT = {
+export const WORK_INPUT = {
   type: 'object',
   additionalProperties: true,
   required: ['goal'],
@@ -71,7 +71,7 @@ const WORK_INPUT = {
  * cannot be reviewed, digested or distilled -- and those three are most of
  * what makes the company improve.
  */
-const WORK_OUTPUT = {
+export const WORK_OUTPUT = {
   type: 'object',
   additionalProperties: true,
   required: ['summary'],
@@ -104,7 +104,7 @@ const WORK_OUTPUT = {
  * needs the owner asks rather than guesses; it opens an item and parks the
  * task, and nothing leaves the company.
  */
-const PLATFORM_TOOLS = ['memory.search', 'skill.read', 'plan.record', 'metric.record', 'owner.ask'] as const;
+export const PLATFORM_TOOLS = ['memory.search', 'skill.read', 'plan.record', 'metric.record', 'owner.ask'] as const;
 
 /**
  * The two divisions that do not get them, and why.

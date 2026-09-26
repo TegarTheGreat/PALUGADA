@@ -94,6 +94,9 @@ import {
 } from '../scheduler/triggers.ts';
 import { applyGoalChange, createGoal, readGoal } from '../domain/goals.ts';
 import {
+  addDivision,
+  addProject,
+  addRole,
   applyGrantChange,
   applyRoleChange,
   setEscalationPolicy,
@@ -1544,6 +1547,54 @@ export class OwnerApi {
           await applyGrantChange(params.companyId!, change, { ownerApproved: true });
           return { ok: true };
         },
+      },
+
+      {
+        // Hiring (F2.9: adding a role is tier 3, so it takes the owner's
+        // device). The role is complete enough to be given work at once, and
+        // the answer names any tool its division cannot use yet.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/roles',
+        handle: async ({ params, body }) => {
+          await this.#requireFactor(body.proof, 'hire a role', params.companyId!);
+          return addRole(params.companyId!, {
+            divisionId: requireText(body.divisionId, 'divisionId'),
+            slug: requireText(body.slug, 'slug'),
+            systemPrompt: requireText(body.systemPrompt, 'systemPrompt'),
+            tools: body.tools === undefined ? [] : textList(body.tools, 'tools'),
+            doneCriteria: body.doneCriteria === undefined ? [] : textList(body.doneCriteria, 'doneCriteria'),
+            ...(body.model === undefined ? {} : { model: requireText(body.model, 'model') }),
+          }, { ownerApproved: true });
+        },
+      },
+
+      {
+        // A new division is tier 3 as well (F2.9).
+        method: 'POST',
+        pattern: '/api/companies/:companyId/divisions',
+        handle: async ({ params, body }) => {
+          await this.#requireFactor(body.proof, 'open a division', params.companyId!);
+          return {
+            divisionId: await addDivision(params.companyId!, {
+              slug: requireText(body.slug, 'slug'),
+              name: requireText(body.name, 'name'),
+              ...(typeof body.parentDivisionId === 'string' && body.parentDivisionId
+                ? { parentDivisionId: body.parentDivisionId } : {}),
+              ...(body.maxConcurrency === undefined ? {} : { maxConcurrency: wholeNumber(body.maxConcurrency, 'maxConcurrency') }),
+            }, { ownerApproved: true }),
+          };
+        },
+      },
+
+      {
+        // A project groups work and grants nothing, so the session is enough.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/projects',
+        handle: async ({ params, body }) => ({
+          projectId: await addProject(params.companyId!, {
+            slug: requireText(body.slug, 'slug'), name: requireText(body.name, 'name'),
+          }),
+        }),
       },
 
       {

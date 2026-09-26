@@ -101,6 +101,9 @@ Each of these is a test, and each exists because the mistake was made once.
   database and each file resets it.
 - **A test that changes deployment-wide state** (`platform_control`) resets it
   in `test/helpers/setup.ts`, or every later file inherits it.
+- **A transaction runs its queries one at a time.** No `Promise.all` over one
+  `tx`: `pg` queues the second query and warns, and its next major version
+  refuses. `test/helpers/setup.ts` turns the warning into a failure.
 
 ## Style
 

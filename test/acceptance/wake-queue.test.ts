@@ -211,8 +211,11 @@ test('a drain claims no more than the worker will run (F9.8, F5.11)', async () =
   const outcomes = await drainWakes(fixture.companyId, { holder: 'wake-worker', maxClaims: 1 });
   assert.deepEqual(outcomes.map((wake) => wake.taskId !== null), [true]);
 
-  const statuses = await withTenant(fixture.companyId, async (tx) =>
-    Promise.all(tasks.map(async (task) => (await getTask(tx, task.id))!.status)));
+  const statuses = await withTenant(fixture.companyId, async (tx) => {
+    const found: string[] = [];
+    for (const task of tasks) found.push((await getTask(tx, task.id))!.status);
+    return found;
+  });
   assert.deepEqual(statuses.sort(), ['checked_out', 'pending', 'pending']);
 
   // The wakes it did not act on are still due, for the next tick.

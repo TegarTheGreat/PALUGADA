@@ -68,6 +68,7 @@ export function Organization({ ctx }: PageProps) {
         </Tabs.List>
 
         <Tabs.Panel value="chart">
+          <Grow companyId={companyId} structure={structure} changed={view.reload} />
           <OrgChart structure={structure} company={ctx.company.name} openRole={setRole} openDivision={setDivision} />
         </Tabs.Panel>
         <Tabs.Panel value="goals">
@@ -87,6 +88,99 @@ export function Organization({ ctx }: PageProps) {
       <RoleDrawer companyId={companyId} role={openRole} structure={structure} close={() => setRole(null)} changed={view.reload} />
       <DivisionDrawer companyId={companyId} division={openDivision} structure={structure} close={() => setDivision(null)} changed={view.reload} />
     </Stack>
+  );
+}
+
+/* ------------------------------------------------------------- growing it --- */
+
+/**
+ * Hiring a role, opening a division, starting a project (F2.9). The first two
+ * change what the company can do and take the owner's device; a project only
+ * groups work. A hire whose tools its division has no grant for is made, and
+ * the owner is told which ones, rather than refused: granting them is the
+ * next thing they will do, from the division.
+ */
+function Grow({ companyId, structure, changed }: { companyId: string; structure: Structure; changed: () => void }) {
+  const [open, setOpen] = useState<'role' | 'division' | 'project' | null>(null);
+  const list = (value: string | number | undefined, separator: RegExp) =>
+    String(value ?? '').split(separator).map((part) => part.trim()).filter(Boolean);
+  const done = (message: string) => () => {
+    setOpen(null);
+    notifications.show({ color: 'teal', message });
+    changed();
+  };
+  return (
+    <>
+      <Group justify="flex-end" gap="xs" mb="md">
+        <Button size="xs" variant="default" leftSection={<IconPlus size={14} />} onClick={() => setOpen('project')}>{t('New project')}</Button>
+        <Button size="xs" variant="default" leftSection={<IconPlus size={14} />} onClick={() => setOpen('division')}>{t('New division')}</Button>
+        <Button size="xs" leftSection={<IconUserCircle size={14} />} onClick={() => setOpen('role')}>{t('Hire a role')}</Button>
+      </Group>
+
+      <Modal opened={open === 'role'} onClose={() => setOpen(null)} title={t('Hire a role')} centered size="lg">
+        <ActionForm
+          fields={[
+            { name: 'divisionId', label: t('Division'), type: 'select', required: true,
+              options: structure.divisions.map((division) => ({ value: division.id, label: division.name })) },
+            { name: 'slug', label: t('Short name'), required: true, placeholder: 'content-writer' },
+            { name: 'systemPrompt', label: t('What the role is for'), type: 'textarea', required: true, wide: true,
+              placeholder: t('e.g. You write the words customers read: product pages and newsletters. Draft first; nothing goes out without review.') },
+            { name: 'tools', label: t('Tools'), wide: true, placeholder: 'doc.draft',
+              description: t('Capabilities, separated by commas; at most twelve. It can use only those its division is granted.') },
+            { name: 'doneCriteria', label: t('How to know it is done'), type: 'textarea', required: true, wide: true,
+              description: t('One per line. Work is checked against these before it counts as finished.'),
+              placeholder: t('e.g. every claim about the product is one the product page makes') },
+          ]}
+          factor={t('Hire a role')}
+          submit={async (values, proof) => {
+            const hired: { roleId: string; ungranted: string[] } = await api('POST', `/api/companies/${companyId}/roles`, {
+              divisionId: values.divisionId, slug: values.slug, systemPrompt: values.systemPrompt,
+              tools: list(values.tools, /,/), doneCriteria: list(values.doneCriteria, /\n/), proof,
+            });
+            if (hired.ungranted.length > 0) {
+              notifications.show({
+                color: 'orange',
+                message: t('Its division has no grant yet for {tools}. Open the division to grant them.', { tools: hired.ungranted.join(', ') }),
+              });
+            }
+            return hired;
+          }}
+          action={t('Hire')}
+          done={done(t('Hired. It can be given work now.'))}
+        />
+      </Modal>
+
+      <Modal opened={open === 'division'} onClose={() => setOpen(null)} title={t('New division')} centered>
+        <ActionForm
+          columns={1}
+          fields={[
+            { name: 'name', label: t('Name'), required: true, placeholder: t('e.g. Sales') },
+            { name: 'slug', label: t('Short name'), required: true, placeholder: 'field-sales' },
+            { name: 'parentDivisionId', label: t('Inside'), type: 'select',
+              description: t('Leave empty for a division of its own. Divisions go two levels deep at most.'),
+              options: structure.divisions.filter((division) => division.parentId === null).map((division) => ({ value: division.id, label: division.name })) },
+            { name: 'maxConcurrency', label: t('Runs at once, at most'), type: 'number', initial: 4 },
+          ]}
+          factor={t('Open a division')}
+          submit={(values, proof) => api('POST', `/api/companies/${companyId}/divisions`, { ...values, proof })}
+          action={t('Open it')}
+          done={done(t('The division is open. It can read its own memory and skills; grant it anything else from the division.'))}
+        />
+      </Modal>
+
+      <Modal opened={open === 'project'} onClose={() => setOpen(null)} title={t('New project')} centered>
+        <ActionForm
+          columns={1}
+          fields={[
+            { name: 'name', label: t('Name'), required: true, placeholder: t('e.g. Wholesale') },
+            { name: 'slug', label: t('Short name'), required: true, placeholder: 'wholesale-2026' },
+          ]}
+          submit={(values) => api('POST', `/api/companies/${companyId}/projects`, values)}
+          action={t('Start it')}
+          done={done(t('The project is started. Work given to the company can be put in it.'))}
+        />
+      </Modal>
+    </>
   );
 }
 
@@ -110,7 +204,7 @@ function OrgChart({
             <ThemeIcon radius="md" size="lg"><IconBuilding size={18} /></ThemeIcon>
             <div>
               <Text fw={800}>{company}</Text>
-              <Text size="xs" c="dimmed">{structure.divisions.length} divisions · {structure.roles.length} roles · you own it</Text>
+              <Text size="xs" c="dimmed">{t('{divisions} divisions · {roles} roles · you own it', { divisions: structure.divisions.length, roles: structure.roles.length })}</Text>
             </div>
           </Group>
         </Paper>

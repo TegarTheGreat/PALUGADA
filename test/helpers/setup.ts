@@ -17,6 +17,19 @@ import { clearStopAll } from '../../src/engine/control.ts';
 let migrated = false;
 let owner: pg.Pool | null = null;
 
+// A transaction is one connection, and a connection runs one query at a time.
+// `pg` 8 queues a second query sent while one is running and warns; `pg` 9
+// throws. So a `Promise.all` over one transaction's queries is a page that
+// works today and fails on the next upgrade -- the company's structure was
+// read that way. Every file loads this module, so the warning fails the file
+// that caused it, with the stack that says where.
+process.traceDeprecation = true;
+process.on('warning', (warning) => {
+  if (/already executing a query/.test(warning.message)) {
+    throw new Error(`two queries at once on one connection: ${warning.stack ?? warning.message}`);
+  }
+});
+
 function ownerPool(): pg.Pool {
   owner ??= new pg.Pool({ connectionString: connectionString('owner'), max: 4 });
   return owner;

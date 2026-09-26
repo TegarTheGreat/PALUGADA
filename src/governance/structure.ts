@@ -29,6 +29,7 @@ import { PalugadaError } from '../errors.ts';
 import { TIER } from '../domain/tier.ts';
 import * as inbox from '../inbox/inbox.ts';
 import { recordVersion } from './config-versions.ts';
+import { PLATFORM_TOOLS, WORK_INPUT, WORK_OUTPUT } from '../templates/standard.ts';
 
 export type StructuralChange =
   | { kind: 'add_division'; slug: string; name: string; parentDivisionId?: string | null }
@@ -268,6 +269,207 @@ export async function applyRoleChange(
     });
 
     return version;
+  });
+}
+
+/* ------------------------------------------------------ F2.9, F2.6, F2.8 --- */
+
+const SLUG = /^[a-z0-9][a-z0-9-]{0,62}$/;
+
+function slugOf(value: unknown, what: string): string {
+  const slug = String(value ?? '');
+  if (!SLUG.test(slug)) {
+    throw new PalugadaError(
+      'contract.violation',
+      `a ${what} slug is lowercase letters, digits and hyphens, starting with a letter or digit`,
+      { field: 'slug' },
+    );
+  }
+  return slug;
+}
+
+export interface NewRole {
+  divisionId: string;
+  slug: string;
+  systemPrompt: string;
+  tools?: string[];
+  doneCriteria: string[];
+  /** The model tier the role's runtime resolves; `standard` unless said. */
+  model?: string;
+  maxTokensPerRun?: number;
+}
+
+/**
+ * Hires a role the owner approved (F2.9: adding a role is tier 3).
+ *
+ * Complete enough to be given work the moment it exists (F2.8): the standard
+ * input and output contracts, and the done criteria the owner wrote. It runs
+ * where the company's other roles run -- a company whose roles are all Claude
+ * Code hires one more Claude Code role -- because a hire on the development
+ * runtime in a company that has none would halt on its first task. Its tools
+ * must be capabilities the platform has, twelve at most (F2.6); tools its
+ * division has no grant for are allowed, since the owner may be about to grant
+ * them, and are returned so the console can say so.
+ */
+export async function addRole(
+  companyId: string,
+  role: NewRole,
+  options: { ownerApproved: boolean },
+): Promise<{ roleId: string; ungranted: string[] }> {
+  assertOwnerApproved(options.ownerApproved, { kind: 'add_role', divisionId: role.divisionId, slug: role.slug });
+  const slug = slugOf(role.slug, 'role');
+  const systemPrompt = String(role.systemPrompt ?? '').trim();
+  if (!systemPrompt) {
+    throw new PalugadaError('contract.violation', 'say what the role is for: its system prompt is empty', { field: 'systemPrompt' });
+  }
+  const doneCriteria = (role.doneCriteria ?? []).map((line) => String(line).trim()).filter(Boolean);
+  if (doneCriteria.length === 0) {
+    throw new PalugadaError(
+      'contract.violation',
+      'a role needs at least one done criterion: how anyone will know its work is finished (F2.8)',
+      { field: 'doneCriteria' },
+    );
+  }
+  const tools = (role.tools ?? []).map(String);
+  if (tools.length > 12) {
+    throw new PalugadaError('contract.violation', 'a role has at most 12 tools (F2.6)', { field: 'tools' });
+  }
+
+  return withTenant(companyId, async (tx) => {
+    const division = await tx.query('SELECT 1 FROM divisions WHERE id = $1', [role.divisionId]);
+    if (division.rowCount !== 1) {
+      throw new PalugadaError('contract.violation', 'no such division in this company', { field: 'divisionId' });
+    }
+    const taken = await tx.query('SELECT 1 FROM roles WHERE slug = $1', [slug]);
+    if (taken.rowCount) {
+      throw new PalugadaError('contract.violation', `there is already a role named ${slug}`, { field: 'slug' });
+    }
+    const { rows: known } = await tx.query<{ name: string }>(
+      'SELECT name FROM capabilities WHERE name = ANY($1::text[])', [tools]);
+    const unknown = tools.find((tool) => !known.some((row) => row.name === tool));
+    if (unknown) {
+      throw new PalugadaError('contract.violation', `there is no capability named ${unknown}`, { field: 'tools' });
+    }
+    const { rows: granted } = await tx.query<{ capability_name: string }>(
+      'SELECT capability_name FROM capability_grants WHERE division_id = $1', [role.divisionId]);
+    const ungranted = tools.filter((tool) => !granted.some((row) => row.capability_name === tool));
+
+    // Where the company's roles run; the column's default when it has none.
+    const { rows: usual } = await tx.query<{ runtime: string; backend: string }>(
+      `SELECT runtime, backend FROM roles GROUP BY runtime, backend ORDER BY count(*) DESC, runtime LIMIT 1`);
+    const { rows } = await tx.query<{ id: string }>(
+      `INSERT INTO roles (company_id, division_id, slug, system_prompt, model, tools, input_schema, output_schema,
+                          max_tokens_per_run, done_criteria, runtime, backend)
+       VALUES ($1, $2, $3, $4, $5, $6::text[], $7, $8, $9, $10::text[],
+               coalesce($11, 'in-process'), coalesce($12, 'local'))
+       RETURNING id`,
+      [
+        companyId, role.divisionId, slug, systemPrompt, role.model ?? 'standard', tools,
+        JSON.stringify(WORK_INPUT), JSON.stringify(WORK_OUTPUT), role.maxTokensPerRun ?? 60_000, doneCriteria,
+        usual[0]?.runtime ?? null, usual[0]?.backend ?? null,
+      ],
+    );
+    const roleId = rows[0]!.id;
+    await recordVersion(tx, {
+      companyId,
+      kind: 'role',
+      subjectId: roleId,
+      snapshot: { slug, systemPrompt, tools, modelPrimary: role.model ?? 'standard', modelFallback: [] },
+      summary: `Hired ${slug}`,
+    });
+    await appendEvent(tx, {
+      companyId,
+      type: 'structure.changed',
+      actor: 'owner',
+      payload: { change: 'add_role', division: role.divisionId, slug, roleId },
+    });
+    return { roleId, ungranted };
+  });
+}
+
+/**
+ * Opens a division the owner approved (F2.9: adding a division is tier 3).
+ *
+ * Granted the platform's own tier 0 tools, as every division of the standard
+ * template is: a division whose roles are told to search their memory and
+ * read their skills, and are refused when they do, is one where following
+ * the instructions fails. Only the ones this deployment has registered.
+ */
+export async function addDivision(
+  companyId: string,
+  division: { slug: string; name: string; parentDivisionId?: string | null; maxConcurrency?: number },
+  options: { ownerApproved: boolean },
+): Promise<string> {
+  assertOwnerApproved(options.ownerApproved, {
+    kind: 'add_division', slug: division.slug, name: division.name, parentDivisionId: division.parentDivisionId ?? null,
+  });
+  const slug = slugOf(division.slug, 'division');
+  const name = String(division.name ?? '').trim();
+  if (!name) throw new PalugadaError('contract.violation', 'a division needs a name', { field: 'name' });
+  const maxConcurrency = division.maxConcurrency ?? 4;
+  if (!Number.isInteger(maxConcurrency) || maxConcurrency < 1 || maxConcurrency > 64) {
+    throw new PalugadaError('contract.violation', 'maxConcurrency is a whole number from 1 to 64', { field: 'maxConcurrency' });
+  }
+
+  return withTenant(companyId, async (tx) => {
+    if ((await tx.query('SELECT 1 FROM divisions WHERE slug = $1', [slug])).rowCount) {
+      throw new PalugadaError('contract.violation', `there is already a division named ${slug}`, { field: 'slug' });
+    }
+    let depth = 0;
+    if (division.parentDivisionId) {
+      const { rows: parent } = await tx.query<{ depth: number }>(
+        'SELECT depth FROM divisions WHERE id = $1', [division.parentDivisionId]);
+      if (!parent[0]) {
+        throw new PalugadaError('contract.violation', 'no such parent division in this company', { field: 'parentDivisionId' });
+      }
+      if (parent[0].depth >= 1) {
+        throw new PalugadaError(
+          'contract.violation',
+          'divisions go two levels deep at most; put this one beside its would-be parent',
+          { field: 'parentDivisionId' },
+        );
+      }
+      depth = 1;
+    }
+    const { rows } = await tx.query<{ id: string }>(
+      `INSERT INTO divisions (company_id, parent_division_id, depth, slug, name, max_concurrency)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      [companyId, division.parentDivisionId ?? null, depth, slug, name, maxConcurrency],
+    );
+    const divisionId = rows[0]!.id;
+    await tx.query(
+      `INSERT INTO capability_grants (company_id, division_id, capability_name)
+       SELECT $1, $2, name FROM capabilities WHERE name = ANY($3::text[])`,
+      [companyId, divisionId, [...PLATFORM_TOOLS]],
+    );
+    await appendEvent(tx, {
+      companyId,
+      type: 'structure.changed',
+      actor: 'owner',
+      payload: { change: 'add_division', division: divisionId, slug },
+    });
+    return divisionId;
+  });
+}
+
+/**
+ * Starts a project. Not structural in F2.9's sense -- a project groups work
+ * and grants nothing -- so it needs the owner's session and not their device.
+ */
+export async function addProject(companyId: string, project: { slug: string; name: string }): Promise<string> {
+  const slug = slugOf(project.slug, 'project');
+  const name = String(project.name ?? '').trim();
+  if (!name) throw new PalugadaError('contract.violation', 'a project needs a name', { field: 'name' });
+  return withTenant(companyId, async (tx) => {
+    if ((await tx.query('SELECT 1 FROM projects WHERE slug = $1', [slug])).rowCount) {
+      throw new PalugadaError('contract.violation', `there is already a project named ${slug}`, { field: 'slug' });
+    }
+    const { rows } = await tx.query<{ id: string }>(
+      'INSERT INTO projects (company_id, slug, name) VALUES ($1, $2, $3) RETURNING id', [companyId, slug, name]);
+    await appendEvent(tx, {
+      companyId, type: 'project.created', actor: 'owner', payload: { projectId: rows[0]!.id, slug },
+    });
+    return rows[0]!.id;
   });
 }
 

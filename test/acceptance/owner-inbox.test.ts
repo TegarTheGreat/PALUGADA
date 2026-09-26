@@ -789,7 +789,7 @@ test('an overdue approval for a finished task still expires, and the others with
 
   assert.equal(await inbox.expireOverdue(fixture.companyId), 2);
   const [a, b] = await withTenant(fixture.companyId, async (tx) =>
-    Promise.all([getTask(tx, finished.id), getTask(tx, live.id)]));
+    [await getTask(tx, finished.id), await getTask(tx, live.id)]);
   assert.equal(a!.status, 'completed', 'a finished task is left finished');
   assert.equal(b!.status, 'cancelled');
   assert.equal(b!.haltReason, 'approval_expired');

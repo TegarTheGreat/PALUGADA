@@ -77,57 +77,57 @@ export interface StructureView {
 /** The company's shape: goal ladder, divisions with their grants, roles. */
 export async function structureOf(companyId: string): Promise<StructureView> {
   return withTenant(companyId, async (tx) => {
-    const [projects, goals, divisions, grants, roles, goalWork] = await Promise.all([
-      tx.query<{ id: string; slug: string; name: string }>(
-        'SELECT id, slug, name FROM projects ORDER BY created_at',
-      ),
-      tx.query<{
-        id: string; parent_goal_id: string | null; kind: string; slug: string;
-        statement: string; status: string;
-      }>(
-        `SELECT id, parent_goal_id, kind, slug, statement, status
-           FROM goals ORDER BY created_at`,
-      ),
-      tx.query<{
-        id: string; parent_division_id: string | null; slug: string; name: string;
-        depth: number; max_concurrency: number; escalation_role_slug: string | null;
-        escalate_after_minutes: number | null; open_tasks: number;
-      }>(
-        `SELECT d.id, d.parent_division_id, d.slug, d.name, d.depth, d.max_concurrency,
-                d.escalation_role_slug, d.escalate_after_minutes,
-                (SELECT count(*)::int FROM tasks t
-                  WHERE t.division_id = d.id AND NOT (t.status = ANY ($1))) AS open_tasks
-           FROM divisions d
-          ORDER BY d.depth, d.created_at`,
-        [TERMINAL_STATUSES],
-      ),
-      tx.query<{ division_id: string; capability_name: string; tier_override: number | null }>(
-        `SELECT division_id, capability_name, tier_override
-           FROM capability_grants ORDER BY capability_name`,
-      ),
-      tx.query<{
-        id: string; division_id: string; slug: string; model: string; runtime: string | null;
-        tools: string[]; heartbeat_minutes: number | null; dormant_until: Date | null;
-        frozen_at: Date | null; frozen_reason: string | null;
-        open_tasks: number; done_last_week: number; system_prompt: string; done_criteria: string[] | null;
-      }>(
-        `SELECT r.id, r.division_id, r.slug, coalesce(r.model_primary, r.model) AS model,
-                r.runtime, r.tools, r.heartbeat_minutes, r.dormant_until,
-                r.frozen_at, r.frozen_reason, r.system_prompt, r.done_criteria,
-                (SELECT count(*)::int FROM tasks t
-                  WHERE t.role_id = r.id AND NOT (t.status = ANY ($1))) AS open_tasks,
-                (SELECT count(*)::int FROM tasks t
-                  WHERE t.role_id = r.id AND t.status = 'completed'
-                    AND t.finished_at > now() - interval '7 days') AS done_last_week
-           FROM roles r
-          ORDER BY r.created_at`,
-        [TERMINAL_STATUSES],
-      ),
-      tx.query<{ goal_id: string; done: number; total: number }>(
-        `SELECT goal_id, count(*) FILTER (WHERE status = 'completed')::int AS done, count(*)::int AS total
-           FROM tasks WHERE goal_id IS NOT NULL GROUP BY goal_id`,
-      ),
-    ]);
+    // One after another: a transaction is one connection, and one connection
+    // runs one query at a time (pg queues a second and will refuse it).
+    const projects = await tx.query<{ id: string; slug: string; name: string }>(
+      'SELECT id, slug, name FROM projects ORDER BY created_at',
+    );
+    const goals = await tx.query<{
+      id: string; parent_goal_id: string | null; kind: string; slug: string;
+      statement: string; status: string;
+    }>(
+      `SELECT id, parent_goal_id, kind, slug, statement, status
+         FROM goals ORDER BY created_at`,
+    );
+    const divisions = await tx.query<{
+      id: string; parent_division_id: string | null; slug: string; name: string;
+      depth: number; max_concurrency: number; escalation_role_slug: string | null;
+      escalate_after_minutes: number | null; open_tasks: number;
+    }>(
+      `SELECT d.id, d.parent_division_id, d.slug, d.name, d.depth, d.max_concurrency,
+              d.escalation_role_slug, d.escalate_after_minutes,
+              (SELECT count(*)::int FROM tasks t
+                WHERE t.division_id = d.id AND NOT (t.status = ANY ($1))) AS open_tasks
+         FROM divisions d
+        ORDER BY d.depth, d.created_at`,
+      [TERMINAL_STATUSES],
+    );
+    const grants = await tx.query<{ division_id: string; capability_name: string; tier_override: number | null }>(
+      `SELECT division_id, capability_name, tier_override
+         FROM capability_grants ORDER BY capability_name`,
+    );
+    const roles = await tx.query<{
+      id: string; division_id: string; slug: string; model: string; runtime: string | null;
+      tools: string[]; heartbeat_minutes: number | null; dormant_until: Date | null;
+      frozen_at: Date | null; frozen_reason: string | null;
+      open_tasks: number; done_last_week: number; system_prompt: string; done_criteria: string[] | null;
+    }>(
+      `SELECT r.id, r.division_id, r.slug, coalesce(r.model_primary, r.model) AS model,
+              r.runtime, r.tools, r.heartbeat_minutes, r.dormant_until,
+              r.frozen_at, r.frozen_reason, r.system_prompt, r.done_criteria,
+              (SELECT count(*)::int FROM tasks t
+                WHERE t.role_id = r.id AND NOT (t.status = ANY ($1))) AS open_tasks,
+              (SELECT count(*)::int FROM tasks t
+                WHERE t.role_id = r.id AND t.status = 'completed'
+                  AND t.finished_at > now() - interval '7 days') AS done_last_week
+         FROM roles r
+        ORDER BY r.created_at`,
+      [TERMINAL_STATUSES],
+    );
+    const goalWork = await tx.query<{ goal_id: string; done: number; total: number }>(
+      `SELECT goal_id, count(*) FILTER (WHERE status = 'completed')::int AS done, count(*)::int AS total
+         FROM tasks WHERE goal_id IS NOT NULL GROUP BY goal_id`,
+    );
 
     const metrics = await metricsIn(tx);
 

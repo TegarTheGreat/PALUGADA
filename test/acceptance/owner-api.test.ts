@@ -3608,6 +3608,44 @@ test('the owner moves a company forward with the device and back with the sessio
 });
 
 /**
+ * Growing the company from the console (F2.9): hiring a role and opening a
+ * division take the device; starting a project takes the session.
+ */
+test('the owner hires a role and opens a division with the device, and starts a project with the session', async () => {
+  const owner = await console_();
+  try {
+    const fixture = await createCompany('grow-http');
+    const token = await signIn(owner.url, owner.code());
+    const base = `/api/companies/${fixture.companyId}`;
+    const hire = {
+      divisionId: fixture.divisionId, slug: 'copywriter', systemPrompt: 'You write product pages.',
+      tools: [], doneCriteria: ['every claim is on the product page'],
+    };
+    const unproven = await call(owner.url, 'POST', `${base}/roles`, { token, body: hire });
+    assert.notEqual(unproven.status, 200, 'hiring takes the device');
+    const hired = await call(owner.url, 'POST', `${base}/roles`, { token, body: { ...hire, proof: { totp: owner.code() } } });
+    assert.equal(hired.status, 200, JSON.stringify(hired.body));
+    assert.deepEqual(hired.body.ungranted, []);
+
+    assert.notEqual((await call(owner.url, 'POST', `${base}/divisions`, { token, body: { slug: 'sales', name: 'Sales' } })).status, 200);
+    const opened = await call(owner.url, 'POST', `${base}/divisions`, {
+      token, body: { slug: 'sales', name: 'Sales', proof: { totp: owner.code() } },
+    });
+    assert.equal(opened.status, 200, JSON.stringify(opened.body));
+    const started = await call(owner.url, 'POST', `${base}/projects`, { token, body: { slug: 'wholesale', name: 'Wholesale' } });
+    assert.equal(started.status, 200, JSON.stringify(started.body));
+
+    const structure = await call(owner.url, 'GET', `${base}/structure`, { token });
+    const body = structure.body as { roles: Array<{ slug: string }>; divisions: Array<{ slug: string }>; projects: Array<{ name: string }> };
+    assert.ok(body.roles.some((role) => role.slug === 'copywriter'));
+    assert.ok(body.divisions.some((division) => division.slug === 'sales'));
+    assert.ok(body.projects.some((project) => project.name === 'Wholesale'));
+  } finally {
+    await owner.close();
+  }
+});
+
+/**
  * Inbound triggers over HTTP (0054): the owner opens one with their device,
  * another service posts to its URL with its token, and a wrong token, an
  * unknown URL or a closed door answer as HTTP says they should.

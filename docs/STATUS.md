@@ -2609,6 +2609,23 @@ rest are listed at the end.
   refuses the install before anything is written. The changed built-ins are
   version 1.1.0, and qa-review installs first because it brings the reviewer
   content-ops names.
+- Grow the company from the console (`addRole`, `addDivision`, `addProject`
+  in `src/governance/structure.ts`; Team, "Hire a role"). The owner could
+  change a role and could not hire one, open a division or start a
+  project: every one came from a template or a bundle. Hiring and opening a
+  division are tier 3 (F2.9) and take the device; a project grants nothing
+  and takes the session. A hire is complete enough to be given work at once
+  (F2.8: the standard contracts and the owner's done criteria), runs where
+  the company's other roles run, may name only capabilities the platform
+  has and at most twelve (F2.6), and is versioned from its first state
+  (F3.9); tools its division has no grant for are reported, not refused. A
+  new division is granted the platform's tier 0 tools, as every template
+  division is, so its roles can read their own memory and skills.
+- A defect the demo server's log showed: the company's structure (the Team
+  page) was read with six queries at once on one transaction's connection.
+  `pg` 8 queues them and warns; `pg` 9 refuses, so the page would have
+  stopped working on the next upgrade. They run in order now, and the test
+  setup turns that warning into a failure for whichever file causes it.
 - Measure goals by numbers (section 2.19).
 
 **F8.9, enforced where it does not depend on the model.** The untrusted

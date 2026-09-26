@@ -3179,14 +3179,41 @@ has.
   console is the only place an owner can undo it, so the console must always
   come back.
 
-**Still open, next.** Installing and signing in to the agent CLIs from the
-panel; the provider catalogue beyond the six entries `npm run setup` offered;
-tool providers (PALUGADA has `web.fetch` and no `web.search`, which Hermes
-offers from fifteen providers); and the owner's channels (Telegram, push)
-still come from the environment. A research pass on Hermes also found that
-its entry here gives it no credential and a per-run `HERMES_HOME`, which
-places its installed packages inside a throwaway directory; both are for
-the next change.
+- **Eighty-nine providers, by name.** The catalogue was rebuilt from
+  Hermes' and OpenClaw's registries and checked against each provider's own
+  documentation, and each route was asked for its models without a key to
+  see that it exists. It found that Hermes still offers a Qwen login whose
+  free tier ended, that GitHub Models is retired, and that several "plan"
+  keys are sold for coding tools only: those are grouped apart, with a
+  warning. `npm run setup` offers the catalogue's six featured entries.
+- **Agent CLIs are installed and signed in from the console.** Claude Code,
+  Codex, Gemini CLI and OpenCode from their publishers' npm packages at the
+  versions the specs were checked against, into the deployment's own
+  directory, with the owner's device first because installing is running
+  code on the host. A CLI is signed in with a key, sealed and handed to each
+  run under the one variable it reads -- or, for Claude Code on a Claude
+  plan, from the console itself: `claude setup-token` runs under a terminal
+  (`script`), the owner opens the page it prints and pastes back the code,
+  and the token it prints is sealed without ever reaching the log. Every
+  flow was checked against the real binaries first.
+- **Codex was given no key.** `codex exec` 0.157.1 reads `CODEX_API_KEY` and
+  ignores `OPENAI_API_KEY`, which is what its entry named; found by running
+  it with `env -i` against a server that logged the header.
+- **A halted task now says why.** The halt carried a code and nothing else,
+  so a task stopped for want of a key read "runtime unavailable". The
+  message travels with the halt and the task shows it.
+
+**Still open, next.** Tool providers (PALUGADA has `web.fetch` and no
+`web.search`, which Hermes offers from fifteen providers); the owner's
+channels (Telegram, push) still come from the environment. Subscription
+logins whose tokens rotate (ChatGPT, Hermes' Nous and Codex logins) are not
+offered: every run would hold a copy and the first to refresh would sign
+the rest out. Hermes' entry still gives each run its own `HERMES_HOME`,
+which the research predicts puts its packages in a throwaway directory for
+a source install; a key reaches it now, and the directory is the next fix.
+Claude Code reads a host-wide credential outside `HOME` when one exists
+(a managed settings directory, a remote session's token), which only a
+mount namespace could hide.
 
 ## 3. Decisions, deviations, and what is unverified
 

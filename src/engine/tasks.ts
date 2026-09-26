@@ -594,6 +594,12 @@ async function insertTask(
 
 export interface TransitionOptions {
   haltReason?: HaltReason;
+  /**
+   * Why, in the words of whatever refused: the code says which kind of halt,
+   * and this says what to change -- the key that could not be opened, the
+   * setting that names no model -- for the owner reading the task.
+   */
+  detail?: string;
   output?: Record<string, unknown>;
   /** When a task parked on a closed window may be picked up again (F9.2). */
   waitUntil?: Date | null;
@@ -703,7 +709,9 @@ export async function transitionWithin(
       taskId,
       type: `task.${to}`,
       actor: 'system',
-      payload: options.haltReason ? { haltReason: options.haltReason } : {},
+      payload: options.haltReason
+        ? { haltReason: options.haltReason, ...(options.detail ? { detail: options.detail.slice(0, 2_000) } : {}) }
+        : {},
     });
   }
 }

@@ -169,7 +169,11 @@ const SPECS: Record<KnownCliName, CliRuntimeSpec> = {
     promptVia: 'stdin',
     dialect: 'codex-jsonl',
     env: { HOME: '{runDir}', CODEX_HOME: '{runDir}/.codex', PALUGADA_MCP_TOKEN: '{mcpToken}' },
-    apiKeyEnvVar: 'OPENAI_API_KEY',
+    // `codex exec` reads its key from CODEX_API_KEY and ignores
+    // OPENAI_API_KEY in the environment (checked against 0.157.1 with `env -i`
+    // and a server that logged the header): the first entry named the other,
+    // and a run was given no key at all.
+    apiKeyEnvVar: 'CODEX_API_KEY',
     files: {
       '.codex/config.toml': [
         'web_search = "disabled"',

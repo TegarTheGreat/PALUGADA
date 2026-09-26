@@ -29,6 +29,7 @@ import { checkModel as checkModelAnswers } from '../src/llm/check.ts';
 import { LocalSecretManager } from '../src/secrets/local.ts';
 import { connectionString } from '../src/config.ts';
 import pg from 'pg';
+import { MODEL_PROVIDERS } from '../src/llm/providers.ts';
 
 export interface SetupIo {
   /** One answer, trimmed; a secret is asked without echoing it. */
@@ -64,24 +65,18 @@ interface ModelChoice {
   askUrl?: boolean;
 }
 
-const MODEL_CHOICES: readonly ModelChoice[] = [
-  { label: 'Anthropic (Claude)', provider: 'anthropic', key: 'required' },
-  { label: 'OpenAI', provider: 'openai', key: 'required', example: 'gpt-5-mini' },
-  {
-    label: 'OpenRouter: models from every lab behind one key', provider: 'openai',
-    url: 'https://openrouter.ai/api/v1', key: 'required', example: 'deepseek/deepseek-chat',
-  },
-  {
-    label: 'Google Gemini', provider: 'openai',
-    url: 'https://generativelanguage.googleapis.com/v1beta/openai', key: 'required', example: 'gemini-2.5-flash',
-  },
-  {
-    label: 'A model on this machine: Ollama, vLLM, LM Studio or llama.cpp', provider: 'openai',
-    url: 'http://localhost:11434/v1', dockerUrl: 'http://host.docker.internal:11434/v1',
-    key: 'none', example: 'qwen3:32b', askUrl: true,
-  },
-  { label: 'Another OpenAI-compatible API', provider: 'openai', key: 'optional', askUrl: true, example: 'the name the API lists' },
-];
+// The console's catalogue (src/llm/providers.ts), its featured entries only:
+// a terminal list of ninety is not a question anyone can answer, and every
+// other provider is one choice away in the console.
+const MODEL_CHOICES: readonly ModelChoice[] = MODEL_PROVIDERS.filter((entry) => entry.featured).map((entry) => ({
+  label: entry.about ? `${entry.name}: ${entry.about}` : entry.name,
+  provider: entry.protocol,
+  ...(entry.url ? { url: entry.url } : {}),
+  ...(entry.dockerUrl ? { dockerUrl: entry.dockerUrl } : {}),
+  key: entry.key,
+  example: entry.example ?? 'the name the API lists',
+  askUrl: entry.group === 'local' || entry.group === 'custom',
+}));
 
 const MODEL_KEYS = [
   'PALUGADA_MODEL_PROVIDER', 'PALUGADA_MODEL_URL', 'PALUGADA_MODEL', 'PALUGADA_MODEL_ALIASES',

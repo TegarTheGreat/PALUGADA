@@ -90,7 +90,7 @@ A secret the owner saved is named like any other, as a reference:
 | Variable | What it is for |
 |---|---|
 | `PALUGADA_MASTER_KEY` | The key that seals secrets set in the console: 32 bytes, as 64 hex characters or base64 (`openssl rand -hex 32`). Without it, the key file below is used |
-| `PALUGADA_STATE_DIR` | Where the platform keeps its own state: the master key file. Default `~/.palugada`; under Docker Compose, a volume |
+| `PALUGADA_STATE_DIR` | Where the platform keeps its own state: the master key file, and the agent CLIs the console installs (`tools/`). Default `~/.palugada`; under Docker Compose, the `home` volume |
 
 | Variable | What it turns on |
 |---|---|
@@ -106,6 +106,7 @@ A secret the owner saved is named like any other, as a reference:
 | `PALUGADA_MODEL_PRICES` | Model prices for runtimes that report tokens but no price (see [`config/prices.example.json`](../config/prices.example.json)) |
 | `PALUGADA_DRAFT_MODEL` | The tier or model used for drafting, memory distillation and skill screening (default `standard`) |
 | `PALUGADA_AGENT_CLIS` | Agent CLIs this platform knows, by name, found on `PATH`: `claude-code`, `codex`, `gemini-cli`, `opencode`, `hermes`, `openclaw`. See **Agent CLIs** below |
+| `PALUGADA_AGENT_SETTINGS` | Per agent CLI, where its binary is, its tiers, and its credential by reference, as JSON; written by the console. See **Agent CLIs** below |
 | `PALUGADA_CLAUDE_CODE_COMMAND` | Where the Claude Code binary is, when it is not `claude` on `PATH` |
 | `PALUGADA_CLAUDE_CODE_KEY_VAR` | The one variable of this process's environment Claude Code is given, such as `ANTHROPIC_API_KEY` |
 | `PALUGADA_RUNTIME_SPECS` | Any other agent CLI, as JSON; or a correction to a known one, such as `[{"name":"codex","command":"/opt/codex/bin/codex"}]` |
@@ -164,16 +165,38 @@ rate, so a budget is never understated; `PALUGADA_MODEL_PRICES` gives it its
 real price, which for a model on your own machine is zero.
 
 **Agent CLIs.** A role can be done by an agent CLI instead of the
-platform's own loop: set `PALUGADA_AGENT_CLIS=codex` (or several, comma
-separated), and choose the runtime on the role's page in the console. Each
-runs in a directory of its own that is removed afterwards, with `HOME` set
-there, none of its own shell, file or web tools, and the role's granted
-capabilities as its only tools, through a bridge that exists for that run.
-Claude Code is the exception to `HOME`: its login lives in the operator's
-home, so it keeps that one and is shut out of the operator's settings,
-hooks and memory by flag instead. None sees anything of this process's
+platform's own loop. The console installs, signs in and turns on the known
+ones (**This deployment**, **Agent CLIs**; see the
+[how-to](guide/how-to.md#put-a-role-on-an-agent-cli)); from the environment,
+set `PALUGADA_AGENT_CLIS=codex` (or several, comma separated). Either way,
+choose the runtime on the role's page in the console. Each runs in a
+directory of its own that is removed afterwards, with `HOME` set there, none
+of its own shell, file or web tools, and the role's granted capabilities as
+its only tools, through a bridge that exists for that run. Claude Code keeps
+the operator's home only when its key comes from this process's environment,
+since then its login may live there; it is shut out of the operator's
+settings, hooks and memory by flag. None sees anything of this process's
 environment except `PATH` and the one variable its entry names for its
-provider key.
+provider key, or the credential the owner saved in the console.
+
+What the console saves reaches the platform as `PALUGADA_AGENT_CLIS` and
+`PALUGADA_AGENT_SETTINGS`, which can also be written by hand: a JSON object
+by CLI name, each with any of `command` (where the binary is), `models`
+(what each tier means to it), `secretEnv` (a variable the CLI reads, and the
+secret reference to fill it from, such as
+`{"CLAUDE_CODE_OAUTH_TOKEN":"db://agent-claude-code"}`) and `env` (anything
+else it reads, never a secret: Hermes is told its provider with
+`HERMES_INFERENCE_PROVIDER`). The console installs into `tools/<name>` in
+`PALUGADA_STATE_DIR` with `npm install --prefix`, at the version in the
+table below; that directory belongs to the machine it is on, so a
+deployment with several replicas installs on each, or bakes the CLI into its
+image.
+
+A host-wide Claude Code credential outside `HOME` -- a managed settings
+file in `/etc/claude-code`, or a remote session's token in a fixed path --
+is read by Claude Code whatever its environment says. PALUGADA cannot hide a
+file from a process without a mount namespace, so do not run PALUGADA on a
+machine that holds one you do not want its roles to use.
 
 A role names a tier, and each CLI is told what the tier means to it:
 Claude Code by its own aliases (`haiku`, `sonnet`, `opus`), Gemini CLI by
@@ -185,7 +208,7 @@ setting:
 | Name | Binary | Its key, from this process's environment | Checked |
 |---|---|---|---|
 | `claude-code` | `claude` | `PALUGADA_CLAUDE_CODE_KEY_VAR` names it, such as `ANTHROPIC_API_KEY` | Run, 2.1.283 |
-| `codex` | `codex` | `OPENAI_API_KEY` | Run, 0.157.1 |
+| `codex` | `codex` | `CODEX_API_KEY` (`codex exec` ignores `OPENAI_API_KEY`) | Run, 0.157.1 |
 | `gemini-cli` | `gemini` | `GEMINI_API_KEY` | Run, 0.61.0 |
 | `opencode` | `opencode` | none by default: name one with `apiKeyEnvVar` | Run, 1.18.32 |
 | `hermes` | `hermes` | none by default | From source, v2026.9.24 or later |

@@ -43,6 +43,7 @@
  * cost is that the console has to hold the token itself, which it does.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { join } from 'node:path';
 import { PalugadaError } from '../errors.ts';
 import { withControlPlane, withTenant } from '../db/tenant.ts';
 import * as inbox from '../inbox/inbox.ts';
@@ -145,9 +146,12 @@ import { MODEL_TIERS, modelSettingsFrom } from '../llm/models.ts';
 import { checkModel, listModels } from '../llm/check.ts';
 import { MODEL_PROVIDERS, modelProvider } from '../llm/providers.ts';
 import {
-  deleteSecret, putSecret, readSettings, secretNames, writeSetting, type MasterKey, type Settings,
+  deleteSecret, putSecret, readSettings, secretNames, stateDirFrom, writeSetting, type MasterKey, type Settings,
 } from '../settings/store.ts';
-import { modelSource, withSettings, type ModelSetting } from '../settings/overlay.ts';
+import { modelSource, withSettings, type AgentSetting, type ModelSetting } from '../settings/overlay.ts';
+import {
+  AGENT_CATALOGUE, AgentJobs, agentEntry, cannotInstall, claudeSetupToken, findAgent, installAgent, type AgentEntry,
+} from '../settings/agents.ts';
 import {
   accountsOf,
   activityOf,
@@ -306,6 +310,7 @@ export class OwnerApi {
   readonly #sessions: OwnerSessions;
   readonly #routes: Route[];
   readonly #signInThrottle = new SignInThrottle();
+  readonly #agentJobs = new AgentJobs();
   #server: Server | null = null;
   #allowedHosts: ReadonlySet<string> | null = null;
 
@@ -1110,6 +1115,231 @@ export class OwnerApi {
           await this.#requireFactor(body.proof, 'change the model');
           await writeSetting('model', null);
           await deleteSecret('model-key');
+          return this.#applySettings();
+        },
+      },
+
+      /* ------------------------------------------------ the agent CLIs --- */
+
+      {
+        // Each agent CLI this platform knows: whether it is installed and
+        // where, whether it is signed in (never with what), and whether roles
+        // may run on it -- saved, and in use now, which differ until a restart.
+        method: 'GET',
+        pattern: '/api/control/agents',
+        handle: async () => {
+          const deployment = this.#deploymentSettings();
+          const stored = await readSettings();
+          const agents = agentsFrom(stored, deployment.baseEnv);
+          const stateDir = stateDirFrom(deployment.baseEnv);
+          const inUse = (deployment.env.PALUGADA_AGENT_CLIS ?? '').split(',').map((name) => name.trim());
+          const rows = [];
+          for (const entry of AGENT_CATALOGUE) {
+            const setting = agents[entry.name];
+            rows.push({
+              name: entry.name,
+              title: entry.title,
+              about: entry.about,
+              installed: await findAgent(entry, stateDir),
+              cannotInstall: cannotInstall(entry),
+              tested: entry.install.kind === 'npm' ? entry.install.tested : null,
+              enabled: setting?.enabled ?? false,
+              inUse: inUse.includes(entry.name),
+              credential: setting?.credential
+                ? { kind: setting.credential.kind ?? null, variable: setting.credential.variable }
+                : null,
+              credentialKinds: entry.credentials,
+              models: setting?.models ?? {},
+              job: this.#agentJobs.get(entry.name),
+            });
+          }
+          return { agents: rows, source: stored.agents ? 'console' : 'environment', applies: deployment.restart ? 'now' : 'next_start' };
+        },
+      },
+
+      {
+        // Runs the publisher's package installer on this machine, so it takes
+        // the owner's device. The install runs on after this answers; the
+        // console follows it on the route below.
+        method: 'POST',
+        pattern: '/api/control/agents/:name/install',
+        handle: async ({ params, body }) => {
+          const deployment = this.#deploymentSettings();
+          const entry = agentNamed(params.name!);
+          const refused = cannotInstall(entry);
+          if (refused) throw new PalugadaError('contract.violation', refused, { agent: entry.name });
+          const version = body.version === 'latest' ? 'latest' : 'tested';
+          await this.#requireFactor(body.proof, `install ${entry.title} on this server`);
+          const stateDir = stateDirFrom(deployment.baseEnv);
+          const job = this.#agentJobs.start(entry.name, 'install', async ({ log }) => {
+            const found = await installAgent(entry, stateDir, version, log);
+            // Read again now, not when the install began: the owner may have
+            // changed another CLI in the minutes it took.
+            const agents = agentsFrom(await readSettings(), deployment.baseEnv);
+            const current = agents[entry.name] ?? { enabled: false };
+            agents[entry.name] = { ...current, command: found.command };
+            await writeSetting('agents', agents);
+            if (current.enabled) this.#applySettings();
+          });
+          return { job };
+        },
+      },
+
+      {
+        method: 'GET',
+        pattern: '/api/control/agents/:name/job',
+        handle: async ({ params }) => {
+          this.#deploymentSettings();
+          return { job: this.#agentJobs.get(agentNamed(params.name!).name) };
+        },
+      },
+
+      {
+        // Signs the CLI in with the owner's subscription, driven from here: the
+        // CLI prints a page, the owner opens it in their own browser, and the
+        // code that page shows comes back through the route below. The token
+        // it ends with is sealed like any other credential.
+        method: 'POST',
+        pattern: '/api/control/agents/:name/login',
+        handle: async ({ params, body }) => {
+          const deployment = this.#deploymentSettings();
+          const entry = agentNamed(params.name!);
+          const kind = entry.credentials.find((one) => one.login);
+          if (!kind) {
+            throw new PalugadaError('contract.violation',
+              `${entry.title} cannot be signed in from the console; paste its key instead`, { agent: entry.name });
+          }
+          const stateDir = stateDirFrom(deployment.baseEnv);
+          const found = await findAgent(entry, stateDir);
+          if (!found) {
+            throw new PalugadaError('contract.violation', `${entry.title} is not installed where PALUGADA runs: install it first`, { agent: entry.name });
+          }
+          await this.#requireFactor(body.proof, `sign ${entry.title} in with your subscription`);
+          const master = deployment.master(true);
+          if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
+          const job = this.#agentJobs.start(entry.name, 'login', (controls) => claudeSetupToken(found.command, join(stateDir, 'agents'), controls, async (token) => {
+            const secret = `agent-${entry.name}`;
+            await putSecret(secret, token, master);
+            const agents = agentsFrom(await readSettings(), deployment.baseEnv);
+            const current = agents[entry.name] ?? { enabled: false };
+            agents[entry.name] = { ...current, credential: { kind: kind.id, variable: kind.variable, secret }, env: { ...(kind.env ?? {}) } };
+            await writeSetting('agents', agents);
+            if (current.enabled) this.#applySettings();
+          }));
+          return { job };
+        },
+      },
+
+      {
+        // The code the sign-in page showed the owner. The sign-in was started
+        // with their device; the code is proof of the account, not of them.
+        method: 'POST',
+        pattern: '/api/control/agents/:name/login/code',
+        handle: async ({ params, body }) => {
+          this.#deploymentSettings();
+          const entry = agentNamed(params.name!);
+          const code = typeof body.code === 'string' ? body.code.trim() : '';
+          if (code === '') throw new PalugadaError('contract.violation', 'paste the code the sign-in page shows', { field: 'code' });
+          const job = this.#agentJobs.answer(entry.name, code);
+          if (!job) {
+            throw new PalugadaError('contract.violation', `no sign-in of ${entry.title} is waiting for a code: start it again`, { agent: entry.name });
+          }
+          return { job };
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/control/agents/:name/login/cancel',
+        handle: async ({ params }) => {
+          this.#deploymentSettings();
+          const entry = agentNamed(params.name!);
+          this.#agentJobs.cancel(entry.name);
+          return { job: this.#agentJobs.get(entry.name) };
+        },
+      },
+
+      {
+        // The CLI's own credential: an API key, or a subscription's token. It
+        // is sealed like the model's key and handed to each run under the one
+        // variable the CLI reads; the value is never shown again.
+        method: 'POST',
+        pattern: '/api/control/agents/:name/credential',
+        handle: async ({ params, body }) => {
+          const deployment = this.#deploymentSettings();
+          const entry = agentNamed(params.name!);
+          const kind = entry.credentials.find((one) => one.id === body.kind);
+          if (!kind) {
+            throw new PalugadaError('contract.violation',
+              `${entry.title} signs in with one of ${entry.credentials.map((one) => one.id).join(', ')}; got ${String(body.kind)}`,
+              { field: 'kind' });
+          }
+          const value = typeof body.value === 'string' ? body.value.trim() : '';
+          if (value.length < 8 || /\s/.test(value)) {
+            throw new PalugadaError('contract.violation', `paste the whole ${kind.label}, with no spaces in it`, { field: 'value' });
+          }
+          await this.#requireFactor(body.proof, `sign ${entry.title} in`);
+          const master = deployment.master(true);
+          if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
+          const secret = `agent-${entry.name}`;
+          await putSecret(secret, value, master);
+          const agents = agentsFrom(await readSettings(), deployment.baseEnv);
+          const current = agents[entry.name] ?? { enabled: false };
+          agents[entry.name] = { ...current, credential: { kind: kind.id, variable: kind.variable, secret }, env: { ...(kind.env ?? {}) } };
+          await writeSetting('agents', agents);
+          return current.enabled ? this.#applySettings() : { applies: 'when_enabled' };
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/control/agents/:name/credential/clear',
+        handle: async ({ params, body }) => {
+          const deployment = this.#deploymentSettings();
+          const entry = agentNamed(params.name!);
+          await this.#requireFactor(body.proof, `sign ${entry.title} out`);
+          const agents = agentsFrom(await readSettings(), deployment.baseEnv);
+          const current = agents[entry.name] ?? { enabled: false };
+          const { credential: _credential, env: _env, ...rest } = current;
+          agents[entry.name] = rest;
+          await writeSetting('agents', agents);
+          await deleteSecret(`agent-${entry.name}`);
+          return current.enabled ? this.#applySettings() : { applies: 'when_enabled' };
+        },
+      },
+
+      {
+        // Whether roles may run on it, and what each tier means to it. A role
+        // already naming it keeps doing so; one that names a CLI that is off
+        // halts with the reason, which is why turning one off asks too.
+        method: 'POST',
+        pattern: '/api/control/agents/:name/settings',
+        handle: async ({ params, body }) => {
+          const deployment = this.#deploymentSettings();
+          const entry = agentNamed(params.name!);
+          if (typeof body.enabled !== 'boolean') {
+            throw new PalugadaError('contract.violation', 'enabled is true or false', { field: 'enabled' });
+          }
+          const models: Record<string, string> = {};
+          if (body.models !== undefined && body.models !== null) {
+            if (typeof body.models !== 'object' || Array.isArray(body.models)) {
+              throw new PalugadaError('contract.violation', 'models maps fast, standard and deep to a model', { field: 'models' });
+            }
+            for (const [tier, name] of Object.entries(body.models as Record<string, unknown>)) {
+              if (!(MODEL_TIERS as readonly string[]).includes(tier)) {
+                throw new PalugadaError('contract.violation', `a tier is fast, standard or deep; got ${tier}`, { field: 'models' });
+              }
+              if (typeof name === 'string' && name.trim() !== '') models[tier] = name.trim();
+            }
+          }
+          if (body.enabled && !(await findAgent(entry, stateDirFrom(deployment.baseEnv)))) {
+            throw new PalugadaError('contract.violation',
+              `${entry.title} is not installed where PALUGADA runs: install it first`, { agent: entry.name });
+          }
+          await this.#requireFactor(body.proof, `change whether roles run on ${entry.title}`);
+          const agents = agentsFrom(await readSettings(), deployment.baseEnv);
+          agents[entry.name] = { ...(agents[entry.name] ?? {}), enabled: body.enabled, models };
+          await writeSetting('agents', agents);
           return this.#applySettings();
         },
       },
@@ -2885,6 +3115,31 @@ function configKind(value: unknown): ConfigKind {
   const kinds: readonly ConfigKind[] = ['charter', 'policy', 'role', 'grant', 'bundle', 'skill'];
   if (typeof value === 'string' && (kinds as readonly string[]).includes(value)) return value as ConfigKind;
   throw new PalugadaError('contract.violation', `a configuration kind is one of ${kinds.join(', ')}`, { kind: value });
+}
+
+/** An agent CLI the console can manage, by the name in the address. */
+function agentNamed(name: string): AgentEntry {
+  const entry = agentEntry(name);
+  if (!entry) {
+    throw new PalugadaError('contract.violation',
+      `the agent CLIs are ${AGENT_CATALOGUE.map((one) => one.name).join(', ')}; got ${name}`, { agent: name });
+  }
+  return entry;
+}
+
+/**
+ * The agent CLIs as the console last saved them -- or, before it ever has,
+ * as the environment turns them on, so that the first change made here does
+ * not switch off a CLI the operator had running.
+ */
+function agentsFrom(stored: Settings, env: NodeJS.ProcessEnv): Record<string, AgentSetting> {
+  if (stored.agents) return { ...(stored.agents as Record<string, AgentSetting>) };
+  const named = (env.PALUGADA_AGENT_CLIS ?? '').split(',').map((name) => name.trim()).filter(Boolean);
+  const seeded: Record<string, AgentSetting> = Object.fromEntries(named.map((name) => [name, { enabled: true }]));
+  if (env.PALUGADA_CLAUDE_CODE_COMMAND) {
+    seeded['claude-code'] = { ...(seeded['claude-code'] ?? {}), enabled: true, command: env.PALUGADA_CLAUDE_CODE_COMMAND };
+  }
+  return seeded;
 }
 
 /**

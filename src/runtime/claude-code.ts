@@ -36,6 +36,8 @@ import type {
 import { driveRun, renderPrompt, toWireRequest, type Transport } from './wire.ts';
 import { startToolBridge } from './tool-bridge.ts';
 import { cliModelFor } from './cli-models.ts';
+import { resolveSecretEnv } from './credentials.ts';
+import type { SecretManager } from '../secrets/manager.ts';
 import { toolsForModel } from './tool-names.ts';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -57,6 +59,14 @@ export interface ClaudeCodeAdapterOptions {
    * what the child can see.
    */
   apiKeyEnvVar?: string;
+  /**
+   * The same credential from a secret the deployment holds -- an API key or a
+   * `claude setup-token` login the owner saved in the console
+   * (`credentials.ts`). With one, the run is given a home of its own: its
+   * login no longer lives in the operator's.
+   */
+  secretEnv?: Record<string, string>;
+  secrets?: SecretManager;
   maxTurns?: number;
   /** What each tier means to Claude Code. Default its own aliases: haiku, sonnet, opus. */
   models?: Record<string, string>;
@@ -180,6 +190,7 @@ export class ClaudeCodeAdapter implements Adapter {
     // Refused before anything is started, so a refusal leaves no bridge
     // listening; `argv` below reads the same answer.
     cliModelFor(this.name, request.modelRouting.primary, this.#options.models ?? CLAUDE_CODE_TIERS);
+    const credentials = await resolveSecretEnv(this.name, this.#options.secretEnv, this.#options.secrets);
     const bridge = await startToolBridge(request.allowedTools, services);
     // 0700 from mkdtemp, and the file 0600 from the start: the token is in it.
     const runDir = await mkdtemp(join(tmpdir(), 'palugada-claude-'));
@@ -195,6 +206,10 @@ export class ClaudeCodeAdapter implements Adapter {
       const value = process.env[this.#options.apiKeyEnvVar];
       if (value) env[this.#options.apiKeyEnvVar] = value;
     }
+    // A credential the deployment holds needs nothing of the operator's
+    // home, so the run is given its own, as every other CLI is: the
+    // operator's settings, hooks, memory and other logins stay out of it.
+    if (Object.keys(credentials).length > 0) Object.assign(env, { HOME: runDir }, credentials);
 
     const child = spawnTree(this.command, this.argv(request, mcpConfigFile), {
       ...(this.#options.cwd ? { cwd: this.#options.cwd } : {}),

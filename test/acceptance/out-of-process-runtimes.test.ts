@@ -27,8 +27,11 @@ import {
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { readdir, readFile, mkdtemp } from 'node:fs/promises';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { createHash, randomBytes } from 'node:crypto';
+import { InMemorySecretManager } from '../../src/secrets/manager.ts';
+import { DeploymentSecretManager, putSecret } from '../../src/settings/store.ts';
 import { tmpdir } from 'node:os';
 import { startToolBridge } from '../../src/runtime/tool-bridge.ts';
 import { Engine } from '../../src/engine/engine.ts';
@@ -764,6 +767,48 @@ test('the claude-code runtime disallows the CLI\'s own tools and points it at th
   assert.ok(argv.includes('--no-session-persistence'));
 });
 
+/**
+ * A Claude subscription signed in from the console: the token is sealed, and
+ * each run is handed it and a home of its own -- so the operator's login,
+ * settings and memory are no longer where the run's login comes from.
+ */
+test('claude-code is handed a token saved in the console, and a home of its own instead of the operator\'s', async () => {
+  const master = { id: 'test-master', key: randomBytes(32), source: 'test' };
+  await putSecret('agent-claude-code', 'sk-ant-oat01-saved-in-the-console', master);
+  const bin = await mkdtemp(join(tmpdir(), 'palugada-fake-claude-'));
+  const seen = join(bin, 'seen.json');
+  const fake = join(bin, 'claude');
+  writeFileSync(fake, [
+    `#!${process.execPath}`,
+    "const { createHash } = require('node:crypto');",
+    "const token = process.env.CLAUDE_CODE_OAUTH_TOKEN ?? '';",
+    `require('node:fs').writeFileSync(${JSON.stringify(seen)}, JSON.stringify({`,
+    '  env: Object.keys(process.env).sort(), home: process.env.HOME,',
+    "  sha: createHash('sha256').update(token).digest('hex'),",
+    '}));',
+    "process.stdin.resume(); process.stdin.on('end', () => {",
+    "  console.log(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: { done: true }, usage: { input_tokens: 1, output_tokens: 1 } }));",
+    '});',
+  ].join('\n'), { mode: 0o755 });
+
+  const fixture = await createCompany('claude-token');
+  const broker = await brokerFor(fixture, []);
+  await configureRole(fixture, { runtime: 'claude-code' });
+  const task = await newTask(fixture, { ask: 'anything' });
+  const outcome = await engineWith(broker, new ClaudeCodeAdapter({
+    command: fake,
+    secretEnv: { CLAUDE_CODE_OAUTH_TOKEN: 'db://agent-claude-code' },
+    secrets: new DeploymentSecretManager(new InMemorySecretManager(), () => master),
+  })).runTask(fixture.companyId, task.id, 'worker');
+
+  assert.equal(outcome.status, 'completed', outcome.reason);
+  const record = JSON.parse(readFileSync(seen, 'utf8')) as { env: string[]; home: string; sha: string };
+  assert.deepEqual(record.env, ['CLAUDE_CODE_OAUTH_TOKEN', 'HOME', 'PATH']);
+  assert.equal(record.sha, createHash('sha256').update('sk-ant-oat01-saved-in-the-console').digest('hex'));
+  assert.notEqual(record.home, process.env.HOME);
+  assert.match(record.home, /palugada-claude-/, 'the run\'s own directory, removed when it ends');
+});
+
 /* ---------------------------------------------------------------- cli --- */
 
 const AGENT_CLI = new URL('../fixtures/runtimes/fake-agent-cli.mjs', import.meta.url).pathname;
@@ -909,6 +954,67 @@ test('an agent CLI does not inherit the orchestrator environment (F13.3, F13.4)'
   } finally {
     delete process.env.PALUGADA_TEST_SENTINEL;
   }
+});
+
+/**
+ * The CLI's own key, from a secret the owner saved in the console.
+ *
+ * `apiKeyEnvVar` passes a variable of this process's environment, which only
+ * an operator with a shell can set. A key typed in the console is sealed in
+ * the database instead, and a run is handed it under the name the CLI reads
+ * -- and only that run, and only that one variable.
+ */
+test('an agent CLI is handed its own key from a secret saved in the console, and nothing else', async () => {
+  const master = { id: 'test-master', key: randomBytes(32), source: 'test' };
+  await putSecret('agent-hermes', 'sk-or-saved-in-the-console', master);
+  process.env.OPENROUTER_API_KEY = 'a key of this process the run must not get';
+  try {
+    const fixture = await createCompany('cli-secret');
+    const broker = await brokerFor(fixture, []);
+    await configureRole(fixture, { runtime: 'hermes' });
+    const task = await newTask(fixture, { ask: 'which key' });
+    const outcome = await engineWith(
+      broker,
+      new CliAdapter({
+        name: 'hermes',
+        command: process.execPath,
+        args: [AGENT_CLI, '--mcp-config', '{mcpConfig}', '--dump-env', '--env-sha', 'OPENROUTER_API_KEY'],
+        secretEnv: { OPENROUTER_API_KEY: 'db://agent-hermes' },
+      }, { secrets: new DeploymentSecretManager(new InMemorySecretManager(), () => master) }),
+    ).runTask(fixture.companyId, task.id, 'worker');
+
+    assert.equal(outcome.status, 'completed', outcome.reason);
+    const output = outcome.output as { env: string[]; envSha: string };
+    assert.deepEqual(output.env, ['OPENROUTER_API_KEY', 'PATH']);
+    assert.equal(output.envSha, createHash('sha256').update('sk-or-saved-in-the-console').digest('hex'));
+  } finally {
+    delete process.env.OPENROUTER_API_KEY;
+  }
+});
+
+test('an agent CLI whose saved key cannot be opened halts the task and says where to set it', async () => {
+  const fixture = await createCompany('cli-secret-missing');
+  const broker = await brokerFor(fixture, []);
+  await configureRole(fixture, { runtime: 'codex' });
+  const task = await newTask(fixture, { ask: 'anything' });
+  const master = { id: 'test-master', key: randomBytes(32), source: 'test' };
+  const outcome = await engineWith(
+    broker,
+    new CliAdapter({
+      name: 'codex',
+      command: process.execPath,
+      args: [AGENT_CLI, '--mcp-config', '{mcpConfig}'],
+      secretEnv: { CODEX_API_KEY: 'db://agent-codex' },
+    }, { secrets: new DeploymentSecretManager(new InMemorySecretManager(), () => master) }),
+  ).runTask(fixture.companyId, task.id, 'worker');
+
+  assert.equal(outcome.status, 'halted');
+  assert.equal(outcome.reason, 'runtime_unavailable');
+  const events = await eventTypes(fixture.companyId, task.id);
+  const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ payload: { message?: string } }>(
+    "SELECT payload FROM events WHERE task_id = $1 AND type = 'task.halted'", [task.id]));
+  assert.ok(events.includes('task.halted'), events.join(', '));
+  assert.match(JSON.stringify(rows[0]?.payload), /codex has no CODEX_API_KEY: .*nothing is stored.*This deployment, Agents/);
 });
 
 /**
@@ -1570,9 +1676,21 @@ for (const [name, from] of [
       args: [AGENT_CLI, '--dialect', real.dialect!, ...from, '--call', 'dns.read', '--dump-env'],
     });
 
-    const outcome = await engineWith(broker, new CliAdapter(spec)).runTask(fixture.companyId, task.id, 'worker');
+    // Every key a CLI might read is in this process; each run is given the
+    // one its CLI actually reads, and no other. Codex's entry named
+    // OPENAI_API_KEY, which `codex exec` ignores, and a run had no key.
+    const keys = ['OPENAI_API_KEY', 'CODEX_API_KEY', 'GEMINI_API_KEY', 'ANTHROPIC_API_KEY'];
+    for (const key of keys) process.env[key] = `a value for ${key}`;
+    let outcome: Awaited<ReturnType<Engine['runTask']>>;
+    try {
+      outcome = await engineWith(broker, new CliAdapter(spec)).runTask(fixture.companyId, task.id, 'worker');
+    } finally {
+      for (const key of keys) delete process.env[key];
+    }
     assert.equal(outcome.status, 'completed', outcome.reason);
     const output = outcome.output as { tool: { isError: boolean }; home: string; env: string[] };
+    const expected = { codex: ['CODEX_API_KEY'], 'gemini-cli': ['GEMINI_API_KEY'] }[name as string] ?? [];
+    assert.deepEqual(output.env.filter((key) => keys.includes(key)), expected, `${name} is given the key it reads`);
     assert.equal(output.tool.isError, false, 'the tool call went through the bridge');
     // Its home was the run's own directory, which is gone now.
     assert.match(output.home, /palugada-run-/);

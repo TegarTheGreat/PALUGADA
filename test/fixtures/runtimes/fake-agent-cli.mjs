@@ -27,6 +27,9 @@
  *   --call <capability>          call this capability before answering
  *   --exit <code>                exit with this code instead of answering
  *   --dump-env                   answer with the environment it was given
+ *   --env-sha <var>              answer with the SHA-256 of that variable's
+ *                                value: proves which credential arrived
+ *                                without writing it into the task's output
  *   --prompt <text>              take the prompt here instead of on stdin
  *   --spawn-orphan <pidfile>     start a child that outlives this process, and
  *                                write its pid -- a CLI that leaves a dev
@@ -37,6 +40,7 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 
 const argv = process.argv.slice(2);
 const flag = (name) => {
@@ -82,6 +86,11 @@ const answer = { sawCharter: prompt.split('\n')[0] ?? '', promptLength: prompt.l
 if (argv.includes('--dump-env')) {
   answer.env = Object.keys(process.env).sort();
   answer.home = process.env.HOME ?? null;
+}
+const shaOf = flag('--env-sha');
+if (shaOf !== null) {
+  const value = process.env[shaOf];
+  answer.envSha = value === undefined ? null : createHash('sha256').update(value).digest('hex');
 }
 
 if (toCall !== null) {

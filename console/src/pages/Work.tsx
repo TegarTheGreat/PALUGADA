@@ -10,7 +10,7 @@
  */
 import { useState } from 'react';
 import {
-  Avatar, Badge, Button, Code, CopyButton, Drawer, Group, Modal, Paper, Progress, ScrollArea, SegmentedControl, SimpleGrid,
+  Alert, Avatar, Badge, Button, Code, CopyButton, Drawer, Group, Modal, Paper, Progress, ScrollArea, SegmentedControl, SimpleGrid,
   Spoiler, Stack, Table, Text, Textarea, ThemeIcon, Timeline, Tooltip,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
@@ -222,12 +222,16 @@ export function TaskDrawer({ companyId, task, close, changed, openTask }: {
     }
   };
 
+  const halted = task?.status === 'halted' ? events.data?.findLast((event) => event.type === 'task.halted') : undefined;
+  const haltDetail = typeof halted?.payload.detail === 'string' ? halted.payload.detail : null;
+
   return (
     <Drawer opened={task !== null} onClose={() => { setReplay(null); close(); }} position="right" size="lg" title={<Text fw={700}>{t('Task')}</Text>}>
       {task && (
         <Stack gap="lg">
           <div>
             <Group gap="xs" mb={6}><StatusBadge status={task.status} />{task.haltReason && <Badge color="red" variant="light">{haltReason(task.haltReason)}</Badge>}</Group>
+            {haltDetail && <Alert color="red" variant="light" mb="sm" title={t('Why it stopped')}>{haltDetail}</Alert>}
             <Text fw={700} size="lg">{task.summary}</Text>
             <Group gap="xs" mt={4} wrap="nowrap">
               <Avatar size={28} radius="xl" src={rolePicture(task.roleSlug)} alt="" />
@@ -263,6 +267,10 @@ export function TaskDrawer({ companyId, task, close, changed, openTask }: {
                   <Timeline.Item key={`${event.type}-${index}`} title={<Text size="sm" fw={600}>{eventSentence(event.type)}</Text>}
                     color={/refused|denied|failed|halt/.test(event.type) ? 'red' : 'blue'}>
                     <Text size="xs" c="dimmed">{event.actor} · {dateTime(event.occurredAt)}</Text>
+                    {/* Why it halted or failed, as whatever refused put it: the next thing to change. */}
+                    {typeof (event.payload.detail ?? event.payload.error) === 'string' && (
+                      <Text size="xs" c="red.7" mt={2} style={{ whiteSpace: 'pre-wrap' }}>{String(event.payload.detail ?? event.payload.error)}</Text>
+                    )}
                   </Timeline.Item>
                 ))}
               </Timeline>

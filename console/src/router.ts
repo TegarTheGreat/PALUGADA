@@ -17,7 +17,7 @@ export type CompanyPage = (typeof COMPANY_PAGES)[number];
 export const SETTINGS_SECTIONS = ['company', 'language', 'safeguards', 'skills', 'bundles', 'devices', 'security'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
-export const DEPLOYMENT_SECTIONS = ['model'] as const;
+export const DEPLOYMENT_SECTIONS = ['model', 'agents'] as const;
 export type DeploymentSection = (typeof DEPLOYMENT_SECTIONS)[number];
 
 export type Route =

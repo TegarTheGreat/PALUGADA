@@ -27,6 +27,25 @@ export interface ModelSetting {
   keySecret?: string;
 }
 
+/** One agent CLI, as the console sets it. */
+export interface AgentSetting {
+  /** Whether roles may run on it. Installing or signing in does not turn it on by itself. */
+  enabled?: boolean;
+  /** Where its binary is, when the console installed it; otherwise its usual name on PATH. */
+  command?: string;
+  /** Its own credential: the variable it reads, and the name of the sealed secret (`db://<secret>`). */
+  credential?: { kind?: string; variable: string; secret: string };
+  /** What each tier means to it. */
+  models?: Record<string, string>;
+  /** What else it reads to choose its provider, such as Hermes's HERMES_INFERENCE_PROVIDER. Never a secret. */
+  env?: Record<string, string>;
+}
+
+/** The variables the agent CLIs were configured by, which a console choice replaces together. */
+const AGENT_KEYS = [
+  'PALUGADA_AGENT_CLIS', 'PALUGADA_AGENT_SETTINGS', 'PALUGADA_CLAUDE_CODE_COMMAND', 'PALUGADA_CLAUDE_CODE_KEY_VAR',
+] as const;
+
 const MODEL_KEYS = [
   'PALUGADA_MODEL_PROVIDER', 'PALUGADA_MODEL_URL', 'PALUGADA_MODEL', 'PALUGADA_MODEL_ALIASES', 'PALUGADA_MODEL_KEY_REF',
 ] as const;
@@ -43,6 +62,26 @@ export function withSettings(env: NodeJS.ProcessEnv, settings: Settings): NodeJS
       .filter(([tier, name]) => (MODEL_TIERS as readonly string[]).includes(tier) && name.trim() !== ''));
     if (Object.keys(aliases).length > 0) out.PALUGADA_MODEL_ALIASES = JSON.stringify(aliases);
     if (model.keySecret) out.PALUGADA_MODEL_KEY_REF = `db://${model.keySecret}`;
+  }
+  const agents = settings.agents as Record<string, AgentSetting> | undefined;
+  if (agents) {
+    for (const key of AGENT_KEYS) {
+      // A key named from this process's environment stays, unless the owner
+      // gave Claude Code one of its own: two credentials, and the CLI's own
+      // precedence would decide which one paid.
+      if (key === 'PALUGADA_CLAUDE_CODE_KEY_VAR' && !agents['claude-code']?.credential) continue;
+      delete out[key];
+    }
+    const enabled = Object.entries(agents).filter(([, agent]) => agent.enabled);
+    if (enabled.length > 0) {
+      out.PALUGADA_AGENT_CLIS = enabled.map(([name]) => name).join(',');
+      out.PALUGADA_AGENT_SETTINGS = JSON.stringify(Object.fromEntries(enabled.map(([name, agent]) => [name, {
+        ...(agent.command ? { command: agent.command } : {}),
+        ...(agent.models && Object.keys(agent.models).length > 0 ? { models: agent.models } : {}),
+        ...(agent.credential ? { secretEnv: { [agent.credential.variable]: `db://${agent.credential.secret}` } } : {}),
+        ...(agent.env && Object.keys(agent.env).length > 0 ? { env: agent.env } : {}),
+      }])));
+    }
   }
   return out;
 }

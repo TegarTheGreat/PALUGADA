@@ -9,11 +9,13 @@
  * which is exactly when an owner needs it.
  */
 import {
-  Accordion, Alert, Anchor, Autocomplete, Badge, Button, Grid, Group, NavLink, Paper, PasswordInput, Select, Stack,
-  Table, Text, TextInput,
+  Accordion, Alert, Anchor, Autocomplete, Badge, Button, Code, Grid, Group, NavLink, Paper, PasswordInput,
+  Select, SimpleGrid, Stack, Switch, Table, Text, TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconBrain, IconCheck, IconExternalLink, IconKey, IconListSearch, IconPlugConnected } from '@tabler/icons-react';
+import {
+  IconBrain, IconCheck, IconDownload, IconExternalLink, IconKey, IconListSearch, IconPlugConnected, IconTerminal2,
+} from '@tabler/icons-react';
 import { useEffect, useMemo, useState } from 'react';
 import { api, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
@@ -28,8 +30,8 @@ type Tier = (typeof TIERS)[number];
 interface ProviderEntry {
   id: string;
   name: string;
-  about: string;
-  group: 'lab' | 'router' | 'cloud' | 'local' | 'custom';
+  about?: string;
+  group: 'lab' | 'router' | 'cloud' | 'plan' | 'local' | 'custom';
   protocol: 'anthropic' | 'openai';
   url?: string;
   urlExample?: string;
@@ -63,12 +65,14 @@ interface SettingsView {
 
 const SECTIONS: Array<{ id: DeploymentSection; label: string; hint: string; icon: typeof IconBrain }> = [
   { id: 'model', label: N('Model'), hint: N('What every role thinks with, unless a role is given its own.'), icon: IconBrain },
+  { id: 'agents', label: N('Agent CLIs'), hint: N('Claude Code, Codex, Gemini CLI and others: install them here, sign them in, and let roles run on them.'), icon: IconTerminal2 },
 ];
 
 const GROUPS: Array<{ id: ProviderEntry['group']; label: string }> = [
   { id: 'lab', label: N('Model makers') },
   { id: 'router', label: N('One key, many models') },
   { id: 'cloud', label: N('Clouds and inference hosts') },
+  { id: 'plan', label: N('Plans sold for coding tools') },
   { id: 'local', label: N('On this machine') },
   { id: 'custom', label: N('Anything else') },
 ];
@@ -101,6 +105,7 @@ export function DeploymentSettings({ section }: { section: DeploymentSection }) 
         </Grid.Col>
         <Grid.Col span={{ base: 12, md: 9 }}>
           {current.id === 'model' && <ModelSettings />}
+          {current.id === 'agents' && <AgentSettings />}
         </Grid.Col>
       </Grid>
     </Stack>
@@ -136,7 +141,8 @@ function ModelForm({ view, reload }: { view: SettingsView; reload: () => void })
   const pick = (id: string | null) => {
     setPresetId(id);
     const next = view.providers.find((entry) => entry.id === id);
-    setUrl(next?.url ?? '');
+    // A per-account address starts as its template, for the owner to fill in.
+    setUrl(next?.url ?? (next?.urlExample?.includes('{') ? next.urlExample : ''));
     setKey('');
     setModels([]);
     setListProblem(null);
@@ -219,7 +225,7 @@ function ModelForm({ view, reload }: { view: SettingsView; reload: () => void })
   const anthropic = preset?.protocol === 'anthropic';
   const tiersNamed = anthropic || model.trim() !== '' || TIERS.every((tier) => (aliases[tier] ?? '').trim() !== '');
   const keyMissing = preset?.key === 'required' && key.trim() === '' && !keyKept;
-  const ready = preset !== null && tiersNamed && !keyMissing && (preset.url !== undefined || url.trim() !== '');
+  const ready = preset !== null && tiersNamed && !keyMissing && (preset.url !== undefined || url.trim() !== '') && !url.includes('{');
 
   return (
     <Stack gap="lg">
@@ -279,22 +285,29 @@ function ModelForm({ view, reload }: { view: SettingsView; reload: () => void })
           />
           {preset && (
             <>
-              <Text size="sm" c="dimmed">
-                {preset.about}
-                {preset.keyUrl && (
-                  <>
-                    {' · '}
+              {(preset.about || preset.keyUrl) && (
+                <Text size="sm" c="dimmed">
+                  {preset.about}
+                  {preset.about && preset.keyUrl ? ' · ' : null}
+                  {preset.keyUrl && (
                     <Anchor href={preset.keyUrl} target="_blank" rel="noreferrer" size="sm">
                       {t('Get a key')} <IconExternalLink size={12} />
                     </Anchor>
-                  </>
-                )}
-              </Text>
+                  )}
+                </Text>
+              )}
+              {preset.group === 'plan' && (
+                <Alert color="yellow" variant="light">
+                  {t('This is a subscription sold for use in coding tools. It works here, but its terms may not cover a company run by agents: read them before you save it.')}
+                </Alert>
+              )}
               <TextInput
                 label={t('Address')}
                 description={preset.dockerUrl
                   ? t('Under Docker Compose, the machine\'s own models are at {url}.', { url: preset.dockerUrl })
-                  : t('Up to /v1, as the provider documents it.')}
+                  : preset.urlExample?.includes('{')
+                    ? t('Your own account\'s address: put your values in place of the parts in braces.')
+                    : t('Up to /v1, as the provider documents it.')}
                 placeholder={preset.url ?? preset.urlExample ?? ''}
                 value={url}
                 onChange={(event) => setUrl(event.currentTarget.value)}
@@ -379,5 +392,269 @@ function ModelForm({ view, reload }: { view: SettingsView; reload: () => void })
           : t('The first key you save makes this deployment\'s master key, in its state directory. Back it up apart from the database.')}
       </Text>
     </Stack>
+  );
+}
+
+interface AgentCredentialKind {
+  id: string;
+  label: string;
+  variable: string;
+  keyUrl?: string;
+  howTo?: string;
+  login?: string;
+}
+
+interface AgentJob {
+  kind: 'install' | 'login';
+  state: 'running' | 'succeeded' | 'failed';
+  log: string;
+  url: string | null;
+  waitingForCode: boolean;
+  error: string | null;
+}
+
+interface AgentRow {
+  name: string;
+  title: string;
+  about: string;
+  installed: { command: string; managed: boolean; version: string | null } | null;
+  cannotInstall: string | null;
+  tested: string | null;
+  enabled: boolean;
+  inUse: boolean;
+  credential: { kind: string | null; variable: string } | null;
+  credentialKinds: AgentCredentialKind[];
+  models: Partial<Record<Tier, string>>;
+  job: AgentJob | null;
+}
+
+/** The same words the server sends, here so that they are translated: keyed by CLI, and by CLI and credential. */
+const AGENT_ABOUT: Record<string, string> = {
+  'claude-code': N('Anthropic\'s agent, on an API key or a Claude subscription'),
+  codex: N('OpenAI\'s agent'),
+  'gemini-cli': N('Google\'s agent'),
+  opencode: N('An open-source agent for any provider'),
+  hermes: N('Nous Research\'s agent, for some thirty providers'),
+  openclaw: N('An open-source agent gateway'),
+};
+const CREDENTIAL_LABEL: Record<string, string> = {
+  anthropic: N('Anthropic API key'),
+  openai: N('OpenAI API key'),
+  openrouter: N('OpenRouter API key'),
+  gemini: N('Gemini API key'),
+  subscription: N('Claude subscription token'),
+};
+const CREDENTIAL_HOW_TO: Record<string, string> = {
+  'claude-code:subscription': N('Run `claude setup-token` on a computer with a browser, sign in with your Claude plan, and paste the token it prints (it starts with sk-ant-oat).'),
+};
+
+function AgentSettings() {
+  const view = useLoad(async (): Promise<{ agents: AgentRow[]; applies: 'now' | 'next_start' }> => api('GET', '/api/control/agents'), []);
+  if (view.error) return <LoadFailed message={view.error} retry={view.reload} />;
+  if (!view.data) return <Loading rows={6} />;
+  return (
+    <Stack gap="lg">
+      <Text size="sm" c="dimmed">
+        {t('A role can be done by an agent CLI instead of PALUGADA\'s own loop. Each run gets a directory of its own, none of the CLI\'s own shell, file or web tools, and the role\'s capabilities as its only tools.')}
+      </Text>
+      {view.data.agents.map((agent) => <AgentCard key={agent.name} agent={agent} reload={view.reload} />)}
+    </Stack>
+  );
+}
+
+function AgentCard({ agent, reload }: { agent: AgentRow; reload: () => void }) {
+  const requireFactor = useFactor();
+  const [job, setJob] = useState<AgentJob | null>(agent.job);
+  const [kindId, setKindId] = useState(agent.credential?.kind ?? agent.credentialKinds[0]?.id ?? '');
+  const [value, setValue] = useState('');
+  const [enabled, setEnabled] = useState(agent.enabled);
+  const [models, setModels] = useState<Partial<Record<Tier, string>>>(agent.models);
+  const kind = agent.credentialKinds.find((one) => one.id === kindId) ?? null;
+
+  // An install runs on after it is started; follow it until it ends.
+  useEffect(() => {
+    if (job?.state !== 'running') return;
+    const timer = setInterval(() => {
+      void api('GET', `/api/control/agents/${agent.name}/job`).then((answer: { job: AgentJob | null }) => {
+        setJob(answer.job);
+        if (answer.job?.state !== 'running') reload();
+      }).catch(() => undefined);
+    }, 1_000);
+    return () => clearInterval(timer);
+  }, [job?.state, agent.name, reload]);
+
+  const install = async (version: 'tested' | 'latest') => {
+    await requireFactor(t('Install {agent} on this server', { agent: agent.title }), async (proof) => {
+      const answer: { job: AgentJob } = await api('POST', `/api/control/agents/${agent.name}/install`, { version, proof });
+      setJob(answer.job);
+    });
+  };
+
+  const signIn = async () => {
+    const done = await requireFactor(t('Sign {agent} in', { agent: agent.title }), (proof) =>
+      api('POST', `/api/control/agents/${agent.name}/credential`, { kind: kindId, value, proof }));
+    if (done) {
+      setValue('');
+      notifications.show({ color: 'teal', message: t('{agent} is signed in.', { agent: agent.title }) });
+      reload();
+    }
+  };
+
+  const [code, setCode] = useState('');
+  const startLogin = async () => {
+    await requireFactor(t('Sign {agent} in with your subscription', { agent: agent.title }), async (proof) => {
+      const answer: { job: AgentJob } = await api('POST', `/api/control/agents/${agent.name}/login`, { proof });
+      setJob(answer.job);
+    });
+  };
+  const sendCode = async () => {
+    try {
+      const answer: { job: AgentJob } = await api('POST', `/api/control/agents/${agent.name}/login/code`, { code });
+      setCode('');
+      setJob(answer.job);
+    } catch (failure) {
+      notifications.show({ color: 'red', message: explain(failure) });
+    }
+  };
+  const cancelLogin = async () => {
+    const answer: { job: AgentJob | null } = await api('POST', `/api/control/agents/${agent.name}/login/cancel`, {});
+    setJob(answer.job);
+  };
+  const signingIn = job?.kind === 'login' && job.state === 'running';
+
+  const signOut = async () => {
+    const done = await requireFactor(t('Sign {agent} out', { agent: agent.title }), (proof) =>
+      api('POST', `/api/control/agents/${agent.name}/credential/clear`, { proof }));
+    if (done) reload();
+  };
+
+  const save = async () => {
+    const done = await requireFactor(t('Change whether roles run on {agent}', { agent: agent.title }), (proof) =>
+      api('POST', `/api/control/agents/${agent.name}/settings`, { enabled, models, proof }));
+    if (done) {
+      notifications.show({ color: 'teal', message: t('Saved. PALUGADA is starting again to use it; work in flight carries on where it was.') });
+      setTimeout(reload, 3_000);
+    }
+  };
+
+  const changed = enabled !== agent.enabled || JSON.stringify(models) !== JSON.stringify(agent.models);
+
+  return (
+    <Section
+      title={agent.title}
+      description={AGENT_ABOUT[agent.name] ? t(AGENT_ABOUT[agent.name]!) : agent.about}
+      actions={
+        <Group gap={6}>
+          <Badge variant="light" color={agent.installed ? 'teal' : 'gray'}>
+            {agent.installed ? (agent.installed.version ?? t('installed')) : t('not installed')}
+          </Badge>
+          <Badge variant="light" color={agent.credential ? 'teal' : 'gray'}>{agent.credential ? t('signed in') : t('not signed in')}</Badge>
+          <Badge variant="light" color={agent.inUse ? 'teal' : agent.enabled ? 'yellow' : 'gray'}>
+            {agent.inUse ? t('roles can use it') : agent.enabled ? t('starting') : t('off')}
+          </Badge>
+        </Group>
+      }
+    >
+      <Stack gap="md">
+        {agent.installed ? (
+          <Group justify="space-between" wrap="nowrap" gap="sm">
+            <Text size="xs" c="dimmed" ff="monospace" truncate style={{ minWidth: 0, flex: 1 }} title={agent.installed.command}>{agent.installed.command}</Text>
+            {agent.installed.managed && (
+              <Button size="compact-sm" variant="subtle" style={{ flexShrink: 0 }} leftSection={<IconDownload size={14} />} loading={job?.state === 'running'} onClick={() => void install('latest')}>
+                {t('Update to the newest')}
+              </Button>
+            )}
+          </Group>
+        ) : agent.cannotInstall ? (
+          <Alert color="gray" variant="light">{agent.cannotInstall}</Alert>
+        ) : (
+          <Group gap="sm">
+            <Button leftSection={<IconDownload size={16} />} loading={job?.state === 'running'} onClick={() => void install('tested')}>
+              {t('Install {agent}', { agent: agent.title })}
+            </Button>
+            <Text size="xs" c="dimmed">{t('Version {version}, the one PALUGADA was checked against. It goes in this deployment\'s own directory.', { version: agent.tested ?? '' })}</Text>
+          </Group>
+        )}
+        {job?.kind === 'install' && job.state !== 'succeeded' && (
+          <div>
+            <Text size="xs" fw={600} c={job.state === 'failed' ? 'red' : 'dimmed'} mb={4}>
+              {job.state === 'running' ? t('Installing…') : t('The install failed: {error}', { error: job.error ?? '' })}
+            </Text>
+            <Code block style={{ maxHeight: 180, overflow: 'auto', fontSize: 11 }}>{job.log || '…'}</Code>
+          </div>
+        )}
+
+        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+          <Stack gap="xs">
+            <Text size="sm" fw={600}>{t('Sign in')}</Text>
+            {agent.credentialKinds.length > 1 && (
+              <Select size="xs" value={kindId} onChange={(next) => next && setKindId(next)} allowDeselect={false}
+                data={agent.credentialKinds.map((one) => ({ value: one.id, label: CREDENTIAL_LABEL[one.id] ? t(CREDENTIAL_LABEL[one.id]!) : one.label }))} />
+            )}
+            {kind?.login && agent.installed && (
+              signingIn ? (
+                <Paper withBorder radius="md" p="sm">
+                  {job?.url ? (
+                    <Stack gap={6}>
+                      <Text size="xs">{t('1. Open the sign-in page, and sign in with your plan.')}</Text>
+                      <Anchor href={job.url} target="_blank" rel="noreferrer" size="sm" fw={600}>{t('Open the sign-in page')} <IconExternalLink size={12} /></Anchor>
+                      <Text size="xs">{t('2. Paste the code the page shows you.')}</Text>
+                      <Group gap="xs" wrap="nowrap">
+                        <TextInput size="xs" style={{ flex: 1 }} value={code} onChange={(event) => setCode(event.currentTarget.value)} autoComplete="off" />
+                        <Button size="xs" disabled={code.trim() === '' || !job.waitingForCode} onClick={() => void sendCode()}>{t('Finish signing in')}</Button>
+                      </Group>
+                      {!job.waitingForCode && <Text size="xs" c="dimmed">{t('Checking the code…')}</Text>}
+                    </Stack>
+                  ) : <Text size="xs" c="dimmed">{t('Starting the sign-in…')}</Text>}
+                  <Button size="compact-xs" variant="subtle" color="gray" mt={6} onClick={() => void cancelLogin()}>{t('Cancel')}</Button>
+                </Paper>
+              ) : (
+                <Button size="xs" variant="light" onClick={() => void startLogin()}>{t('Sign in with your Claude plan')}</Button>
+              )
+            )}
+            {job?.kind === 'login' && job.state === 'failed' && <Text size="xs" c="red">{job.error}</Text>}
+            {kind?.howTo && (
+              <Text size="xs" c="dimmed">
+                {kind.login ? t('Or paste a token you made elsewhere:') : null}{' '}
+                {CREDENTIAL_HOW_TO[`${agent.name}:${kind.id}`] ? t(CREDENTIAL_HOW_TO[`${agent.name}:${kind.id}`]!) : kind.howTo}
+              </Text>
+            )}
+            <PasswordInput
+              size="sm"
+              leftSection={<IconKey size={16} />}
+              placeholder={agent.credential ? t('Signed in. Paste a new one to replace it.') : kind && CREDENTIAL_LABEL[kind.id] ? t(CREDENTIAL_LABEL[kind.id]!) : (kind?.label ?? '')}
+              value={value}
+              onChange={(event) => setValue(event.currentTarget.value)}
+              autoComplete="off"
+            />
+            <Group gap="xs">
+              <Button size="xs" disabled={value.trim().length < 8} onClick={() => void signIn()}>{t('Save and sign in')}</Button>
+              {kind?.keyUrl && (
+                <Anchor href={kind.keyUrl} target="_blank" rel="noreferrer" size="xs">{t('Get a key')} <IconExternalLink size={11} /></Anchor>
+              )}
+              {agent.credential && <Button size="xs" variant="subtle" color="gray" onClick={() => void signOut()}>{t('Sign out')}</Button>}
+            </Group>
+            <Text size="xs" c="dimmed">{t('Given to each run as {variable}, and to nothing else.', { variable: kind?.variable ?? '' })}</Text>
+          </Stack>
+
+          <Stack gap="xs">
+            <Text size="sm" fw={600}>{t('What each tier runs on')}</Text>
+            {TIERS.map((tier) => (
+              <TextInput key={tier} size="xs" label={t(TIER_LABEL[tier])} placeholder={t('its own default')}
+                value={models[tier] ?? ''} onChange={(event) => { const next = event.currentTarget.value; setModels((current) => ({ ...current, [tier]: next })); }} />
+            ))}
+          </Stack>
+        </SimpleGrid>
+
+        <Group justify="space-between">
+          <Switch label={t('Roles may run on it')} checked={enabled} disabled={!agent.installed && !agent.enabled}
+            onChange={(event) => setEnabled(event.currentTarget.checked)} />
+          <Button disabled={!changed} onClick={() => void save()}>{t('Save')}</Button>
+        </Group>
+        {enabled && !agent.credential && (
+          <Text size="xs" c="orange">{t('It is not signed in here: a run uses whatever login the CLI already has on this machine, or fails.')}</Text>
+        )}
+      </Stack>
+    </Section>
   );
 }

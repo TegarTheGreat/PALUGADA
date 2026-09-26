@@ -59,6 +59,8 @@ import { driveRun, renderPrompt, toWireRequest, type Transport } from './wire.ts
 import { toolsForModel } from './tool-names.ts';
 import { startToolBridge, type ToolBridge } from './tool-bridge.ts';
 import { cliModelFor } from './cli-models.ts';
+import { resolveSecretEnv } from './credentials.ts';
+import type { SecretManager } from '../secrets/manager.ts';
 import { asOutput, translateStreamJsonLine, type StreamJsonLine } from './claude-code.ts';
 import {
   codexEvents, geminiEvents, hermesEvents, openCodeEvents, openClawEvents,
@@ -165,6 +167,14 @@ export interface CliRuntimeSpec {
    * through the broker, which is the whole of F13.4.
    */
   apiKeyEnvVar?: string;
+  /**
+   * The runtime's own credential, from a secret the deployment holds: the
+   * variable the CLI reads, and the reference to resolve for each run --
+   * `{"ANTHROPIC_API_KEY": "db://agent-claude-code"}` for a key the owner
+   * saved in the console. Resolved per run, never written to a file, and
+   * refused before anything starts when it cannot be opened.
+   */
+  secretEnv?: Record<string, string>;
   maxTurns?: number;
   cwd?: string;
   /**
@@ -211,6 +221,10 @@ export function runtimeSpecsFrom(value: unknown): CliRuntimeSpec[] {
     if (spec.dialect !== undefined && !(CLI_DIALECTS as readonly unknown[]).includes(spec.dialect)) {
       throw new Error(`runtime spec ${spec.name} names dialect ${String(spec.dialect)}; one of ${CLI_DIALECTS.join(', ')}`);
     }
+    if (spec.secretEnv !== undefined && (typeof spec.secretEnv !== 'object' || spec.secretEnv === null
+      || Object.entries(spec.secretEnv).some(([name, reference]) => !/^[A-Z][A-Z0-9_]*$/.test(name) || typeof reference !== 'string'))) {
+      throw new Error(`runtime spec ${spec.name} has a secretEnv that is not a map from a variable name to a secret reference`);
+    }
     return spec as unknown as CliRuntimeSpec;
   });
 }
@@ -225,9 +239,10 @@ export class CliAdapter implements Adapter {
    */
   readonly backends: readonly ExecutionBackend[] = ['local'];
   readonly #spec: CliRuntimeSpec;
+  readonly #secrets: SecretManager | undefined;
   readonly #trees = new TreeKeeper();
 
-  constructor(spec: CliRuntimeSpec) {
+  constructor(spec: CliRuntimeSpec, options: { secrets?: SecretManager } = {}) {
     // Anywhere the CLI will read it: its arguments, its environment, or a
     // configuration file written for it. Most agent CLIs take MCP servers
     // only from a file in their own format, so arguments alone was a check
@@ -250,6 +265,7 @@ export class CliAdapter implements Adapter {
     }
     this.name = spec.name;
     this.#spec = spec;
+    this.#secrets = options.secrets;
   }
 
   async health(): Promise<AdapterHealth> {
@@ -314,6 +330,7 @@ export class CliAdapter implements Adapter {
     // Before anything is started: a refusal here leaves no bridge listening
     // and no directory behind.
     const model = cliModelFor(this.name, request.modelRouting.primary, this.#spec.models);
+    const credentials = await resolveSecretEnv(this.name, this.#spec.secretEnv, this.#secrets);
     const bridge = await startToolBridge(request.allowedTools, services);
     const prompt = this.prompt(request);
 
@@ -362,7 +379,7 @@ export class CliAdapter implements Adapter {
         // and every provider key live, and a child that inherited it would
         // have been handed the platform's own credentials without anything
         // failing to say so.
-        env: this.#childEnv(layout.env),
+        env: { ...this.#childEnv(layout.env), ...credentials },
         stdio: ['pipe', 'pipe', 'pipe'],
       },
     );

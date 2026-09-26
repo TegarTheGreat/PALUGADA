@@ -251,16 +251,52 @@ shell, file or web tools, and the role's granted capabilities as its only
 tools, through a bridge that exists for that run. It sees nothing of the
 platform's environment except `PATH` and the one variable named for its key.
 
+From the console, open **This deployment**, **Agent CLIs**. Each CLI shows
+whether it is installed (and which version, and where), whether it is signed
+in, and whether roles can use it now.
+
+1. **Install it.** Press **Install Claude Code** (or Codex, Gemini CLI,
+   OpenCode) and confirm with a code. It is installed from its publisher's
+   npm package, at the version PALUGADA was checked against, into this
+   deployment's own directory (`tools/` in `PALUGADA_STATE_DIR`), and the
+   card follows the install as it runs. **Update to the newest** installs
+   the latest version instead. A CLI already on the `PATH` of the PALUGADA
+   process is found and shown; Hermes, which installs with its own script
+   and Python, is installed that way and then found. OpenClaw needs Node 24.
+2. **Sign it in.** Paste its API key and press **Save and sign in**, or,
+   for Claude Code on a Claude plan, press **Sign in with your Claude plan**:
+   the card shows a sign-in page to open in your own browser, and a field
+   for the code that page shows you. The credential is sealed like the
+   model's key and given to each run under the one variable the CLI reads
+   (`CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `CODEX_API_KEY`,
+   `GEMINI_API_KEY`, and for Hermes the provider's key with the provider
+   named). A Claude Code run signed in this way also gets a home directory
+   of its own instead of the operator's.
+3. **Turn it on.** Switch on **Roles may run on it**, name what each tier
+   means to it if you want to, press **Save** and confirm. PALUGADA starts
+   itself again, and the CLI is offered to roles.
+
+A ChatGPT or other subscription login whose tokens rotate is not offered:
+every run would hold a copy, and the first to refresh would sign the rest
+out. Use an API key for those.
+
+From the environment instead:
+
 1. Install the CLI where PALUGADA runs, on the `PATH` of the PALUGADA
-   process. The container image has none; under Docker, build an image from
-   it that adds one.
+   process. The container image has none; under Docker, install it from
+   the console into the state volume, or build an image that adds one.
 2. Name it in `PALUGADA_AGENT_CLIS`, for example `claude-code` or
    `claude-code,codex`, and make its provider key available as the table in
    the "Agent CLIs" paragraph of [docs/configuration.md](../configuration.md)
    says. For Claude Code, `PALUGADA_CLAUDE_CODE_KEY_VAR` names the variable
    it is given, and `PALUGADA_CLAUDE_CODE_COMMAND` says where the binary is
-   when it is not `claude` on the `PATH`.
+   when it is not `claude` on the `PATH`. Once the owner has changed a CLI
+   in the console, the console's list is the one that counts; the CLIs the
+   environment turned on are carried into it the first time.
 3. Restart. The boot line `runtimes: …` lists it.
+
+Then, however it was set up:
+
 4. On **Team**, open the role, open **Who does its work**, choose the CLI
    under **Move it to**, press **Move it** and confirm with a code. A runtime
    that is not answering is marked so in the list; a role on it gets no work

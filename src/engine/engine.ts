@@ -1287,7 +1287,7 @@ export class Engine {
 
     const haltReason = code ? haltCodes[code] : undefined;
     if (haltReason) {
-      await transition(companyId, taskId, 'halted', { haltReason });
+      await transition(companyId, taskId, 'halted', { haltReason, detail: (error as Error).message });
       await this.#onHalt(companyId, settled, haltReason, error, agentRunId);
       if (haltReason === 'verification_failed') {
         // F8.4: a write that reports success but reads back differently is an

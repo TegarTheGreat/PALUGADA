@@ -31,6 +31,7 @@ import { ContainerAdapter } from './container.ts';
 import { HttpSandboxProvider, RemoteSandboxAdapter } from './sandbox-adapter.ts';
 import type { LlmClient } from '../llm/client.ts';
 import { PalugadaError } from '../errors.ts';
+import type { SecretManager } from '../secrets/manager.ts';
 
 export interface RuntimeAssemblyOptions {
   env: NodeJS.ProcessEnv;
@@ -39,11 +40,74 @@ export interface RuntimeAssemblyOptions {
   handlers?: Map<string, TaskHandler>;
   /** A registry a caller already built, so a deployment can add its own. */
   registry?: AdapterRegistry;
+  /** Where a CLI's own credential is resolved from, when its entry names one by reference. */
+  secrets?: SecretManager;
 }
 
 export interface RuntimeAssembly {
   adapters: AdapterRegistry;
   notes: string[];
+}
+
+/** What the console sets for one agent CLI, over its known entry (`settings/overlay.ts`). */
+interface AgentTuning {
+  command?: string;
+  models?: Record<string, string>;
+  secretEnv?: Record<string, string>;
+  env?: Record<string, string>;
+}
+
+const STRING_MAPS = ['models', 'secretEnv', 'env'] as const;
+
+/**
+ * `PALUGADA_AGENT_SETTINGS`: per agent CLI, where its binary is, what each
+ * tier means to it, its credential by reference, and what else it reads.
+ * Written by the console when the owner installs or signs in to one; a
+ * malformed entry stops the boot naming it, like every other setting here.
+ */
+function agentSettingsFrom(value: string | undefined): Record<string, AgentTuning> {
+  if (!value) return {};
+  const refuse = (message: string) => {
+    throw new PalugadaError('config.invalid', `PALUGADA_AGENT_SETTINGS ${message}`, { source: 'PALUGADA_AGENT_SETTINGS' });
+  };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch (failure) {
+    return refuse(`is not JSON: ${(failure as Error).message}`);
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return refuse('is a JSON object, by CLI name');
+  for (const [name, entry] of Object.entries(parsed)) {
+    if (name !== 'claude-code' && !(KNOWN_CLI_NAMES as readonly string[]).includes(name)) {
+      refuse(`names ${name}; the ones known here are claude-code, ${KNOWN_CLI_NAMES.join(', ')}`);
+    }
+    if (typeof entry !== 'object' || entry === null) refuse(`gives ${name} something that is not an object`);
+    const tuning = entry as Record<string, unknown>;
+    if (tuning.command !== undefined && (typeof tuning.command !== 'string' || tuning.command === '')) {
+      refuse(`gives ${name} a command that is not a path`);
+    }
+    for (const field of STRING_MAPS) {
+      const map = tuning[field];
+      if (map !== undefined && (typeof map !== 'object' || map === null || Array.isArray(map)
+        || Object.values(map).some((one) => typeof one !== 'string'))) {
+        refuse(`gives ${name} a ${field} that is not an object of strings`);
+      }
+    }
+  }
+  return parsed as Record<string, AgentTuning>;
+}
+
+/** A known CLI's entry with what the console set laid over it; its environment is added to, not replaced. */
+function tunedCli(name: KnownCliName, tuning: AgentTuning | undefined) {
+  const known = knownCli(name);
+  if (!tuning) return known;
+  return {
+    ...known,
+    ...(tuning.command ? { command: tuning.command } : {}),
+    ...(tuning.models ? { models: tuning.models } : {}),
+    ...(tuning.secretEnv ? { secretEnv: tuning.secretEnv } : {}),
+    env: { ...(known.env ?? {}), ...(tuning.env ?? {}) },
+  };
 }
 
 /**
@@ -90,6 +154,10 @@ export function assembleRuntimes(options: RuntimeAssemblyOptions): RuntimeAssemb
     }
   }
 
+  const tuned = agentSettingsFrom(env.PALUGADA_AGENT_SETTINGS);
+  const claudeCode = tuned['claude-code'];
+  const secretOptions = options.secrets ? { secrets: options.secrets } : {};
+
   if (env.PALUGADA_CLAUDE_CODE_COMMAND || agentClis.includes('claude-code')) {
     adapters.register(new ClaudeCodeAdapter({
       command: env.PALUGADA_CLAUDE_CODE_COMMAND ?? 'claude',
@@ -99,6 +167,9 @@ export function assembleRuntimes(options: RuntimeAssemblyOptions): RuntimeAssemb
       ...(env.PALUGADA_CLAUDE_CODE_KEY_VAR
         ? { apiKeyEnvVar: env.PALUGADA_CLAUDE_CODE_KEY_VAR }
         : {}),
+      ...(claudeCode?.command ? { command: claudeCode.command } : {}),
+      ...(claudeCode?.models ? { models: claudeCode.models } : {}),
+      ...(claudeCode?.secretEnv ? { secretEnv: claudeCode.secretEnv, ...secretOptions } : {}),
     }));
   }
 
@@ -150,7 +221,8 @@ export function assembleRuntimes(options: RuntimeAssemblyOptions): RuntimeAssemb
   // Refusing here rather than at the first run means the deployment stops with
   // a message about the settings file.
   const clis = new Map<string, CliAdapter>(
-    agentClis.filter((name) => name !== 'claude-code').map((name) => [name, new CliAdapter(knownCli(name as KnownCliName))]),
+    agentClis.filter((name) => name !== 'claude-code')
+      .map((name) => [name, new CliAdapter(tunedCli(name as KnownCliName, tuned[name]), secretOptions)]),
   );
   if (env.PALUGADA_RUNTIME_SPECS) {
     // Parsing and construction are both inside, because `CliAdapter` is where
@@ -171,7 +243,7 @@ export function assembleRuntimes(options: RuntimeAssemblyOptions): RuntimeAssemb
             : entry;
         })
         : entries;
-      for (const spec of runtimeSpecsFrom(completed)) clis.set(spec.name, new CliAdapter(spec));
+      for (const spec of runtimeSpecsFrom(completed)) clis.set(spec.name, new CliAdapter(spec, secretOptions));
     } catch (failure) {
       // `config.invalid`, so the process exits 78 and a supervisor stops
       // restarting it into the same refusal.

@@ -551,6 +551,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   // was the one caller nobody wrote.
   const runtimes = assembleRuntimes({
     env,
+    secrets,
     ...(options.adapters ? { registry: options.adapters } : {}),
     ...(llm ? { llm } : {}),
     ...(options.handlers ? { handlers: options.handlers } : {}),

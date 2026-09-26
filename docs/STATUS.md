@@ -2230,6 +2230,44 @@ environment, a TOTP code computed from the secret it was given, a sign-in that
 has to succeed, and a SIGTERM that has to end in exit 0. Five configurations
 that cannot be used have to end in 78, each saying which.
 
+### A gate that opened when it could not read its own rules
+
+Paperclip's code has 318 empty or swallowing `catch` blocks, and the audit
+report's point was not the count but that a few of them sit on paths that
+decide things. This repository has 47, so each was read. Forty-six are what
+they say: a line that does not parse, a signature that does not verify, a
+cleanup that is best-effort. One was a gate. When a company's bundle hooks
+could not be read, the hook pipeline fell back to the built-ins alone -- and
+its comment called that "the safe direction", because the built-ins are the
+ones a company cannot remove. It was the other direction: a bundle hook can
+only tighten, so losing one loses a *restriction*, and a company that
+installed "never email outside our domain" had that rule silently absent for
+as long as its bundles could not be read. The empty list was also cached, so
+one failed query switched the rule off for a minute. The pipeline already
+treats a hook that throws as a refusal, "because otherwise the easiest way
+past a gate is to break it"; hooks that could not be loaded are treated the
+same way now, and the failure is not cached, so the gate stays closed exactly
+as long as the fault does.
+
+### A failure CI saw and this machine did not
+
+The commit that added the liveness sweep failed on the CI runner in two
+distillation tests it did not touch, and passed here and on the next push.
+Neither was re-run until green: a failure that comes and goes is a failure
+with a cause. The distiller bounded its window with `new Date()` -- this
+process's clock, in milliseconds -- against `occurred_at`, the database's, in
+microseconds, so an event written in the same millisecond the pass began and
+a few hundred microseconds later fell outside it. Not lost: the next pass
+read it, which is exactly what the watermark test then saw. On a fast runner
+the seed and the pass land in one millisecond often enough to fail one run in
+a few. The window is bounded by the database's own `now()` when the caller
+gives no bound, and a test pins the process clock to the event's millisecond
+with Node's mock timers, which fails every time against the old code. The
+trajectory export had the same shape one step removed -- `finished_at` read
+into a Date and sent back as the bound, so a run's last event, in its last
+microsecond, was not in its own trajectory -- and bounds against the row in
+SQL now.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

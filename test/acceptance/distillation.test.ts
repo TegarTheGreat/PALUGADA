@@ -536,3 +536,53 @@ test('each division distils its own events, not the first one to run (F4.4, F4.6
     'one division\'s work reached another division\'s model call',
   );
 });
+
+/**
+ * The flake CI caught, made deterministic.
+ *
+ * The window's upper bound was `new Date()` -- this process's clock, in
+ * milliseconds -- compared against `occurred_at`, the database's, in
+ * microseconds. An event written in the same millisecond the pass began, a
+ * few hundred microseconds later, fell outside the window: the injection test
+ * then found no untrusted text in the prompt at all, and the watermark test
+ * read on its second pass what the first should have read. On a fast runner
+ * that happened one run in a few. Here the process clock is pinned to the
+ * event's own millisecond, which is exactly that interleaving.
+ */
+test('an event in the same millisecond as the pass is in the window (F4.4)', async (t) => {
+  const fixture = await createCompany('distil-same-ms');
+  await seedEvents(fixture, []);
+  // Inserted rather than appended, to place it at a chosen microsecond: 900
+  // of them into a millisecond fifty milliseconds ago. The log is
+  // append-only, so this is a new row, not an edit.
+  const occurredAt = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ at: Date }>(
+      `INSERT INTO events (company_id, project_id, task_id, type, actor, payload, occurred_at)
+       SELECT $1, $2, t.id, 'task.completed', 'agent_run', '{"note":"written a moment ago"}'::jsonb,
+              date_trunc('milliseconds', now()) - interval '50 milliseconds'
+                + interval '900 microseconds'
+         FROM tasks t WHERE t.company_id = $1
+       RETURNING occurred_at AS at`,
+      [fixture.companyId, fixture.projectId],
+    );
+    return rows[0]!.at;
+  });
+
+  // `occurredAt` came back through a Date, so it is already the event's
+  // millisecond with the microseconds cut off -- which is what `new Date()`
+  // would have returned had the pass started in that millisecond.
+  t.mock.timers.enable({ apis: ['Date'], now: occurredAt.getTime() });
+  const llm = factsClient([{ body: 'A fact.' }]);
+  const result = await distillEpisodicToSemantic({
+    companyId: fixture.companyId,
+    projectId: fixture.projectId,
+    divisionId: fixture.divisionId,
+    llm,
+    model: MODEL,
+  });
+  t.mock.timers.reset();
+
+  // The crafted event, and the task's own `task.created`, which is later
+  // still: a bound from the pinned clock would have excluded both.
+  assert.equal(result.eventsRead, 2);
+});

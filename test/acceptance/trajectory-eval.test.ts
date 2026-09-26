@@ -395,3 +395,38 @@ test('an expectation is derived from the run rather than written by hand', () =>
   assert.deepEqual(expectation.capabilities, ['dns.read', 'email.send']);
   assert.equal(expectation.failureMode, null);
 });
+
+/**
+ * The run's own window, at the database's precision.
+ *
+ * `finished_at` was read out into a Date and sent back as the upper bound,
+ * which rounds it down to the millisecond -- so the run's last event, written
+ * in the same millisecond it finished, was outside its own trajectory. The
+ * row is written here with the last event at exactly `finished_at`, which is
+ * the ordinary case for the read-back that ends a run.
+ */
+test('a run\'s last event, in its last microsecond, is in its trajectory (F17.1)', async () => {
+  const fixture = await createCompany('trajectory-precision');
+  const task = await newTask(fixture);
+  const runId = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ id: string }>(
+      `INSERT INTO agent_runs (company_id, task_id, role_id, attempt, status, started_at, finished_at)
+       VALUES ($1, $2, $3, 1, 'succeeded',
+               date_trunc('milliseconds', now()) - interval '10 milliseconds',
+               date_trunc('milliseconds', now()) - interval '5 milliseconds' + interval '700 microseconds')
+       RETURNING id`,
+      [fixture.companyId, task.id, fixture.roleId],
+    );
+    await tx.query(
+      `INSERT INTO events (company_id, project_id, task_id, type, actor, payload, occurred_at)
+       SELECT $1, $2, $3, 'tool.verified', 'broker', '{"capability":"dns.read"}'::jsonb, finished_at
+         FROM agent_runs WHERE id = $4`,
+      [fixture.companyId, fixture.projectId, task.id, rows[0]!.id],
+    );
+    return rows[0]!.id;
+  });
+
+  const trajectory = await exportTrajectory(fixture.companyId, runId);
+  assert.deepEqual(trajectory!.steps.map((step) => step.name), ['tool.verified'],
+    'the read-back that ended the run is part of it');
+});

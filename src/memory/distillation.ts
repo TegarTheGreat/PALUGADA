@@ -144,7 +144,16 @@ async function advanceWatermark(
 export async function distillEpisodicToSemantic(
   input: DistillEpisodicInput,
 ): Promise<DistillEpisodicResult> {
-  const until = input.until ?? new Date();
+  // No default here, on purpose. The bound used to be `new Date()`, which is
+  // this process's clock at millisecond precision, compared against
+  // `occurred_at`, which is the database's at microseconds. An event written
+  // in the same millisecond as the pass began, a few microseconds later, fell
+  // outside the window: not lost -- the next pass read it -- but late, and a
+  // test that seeds and distils in one breath failed on the fast CI runner
+  // and passed here. Without an explicit bound the query uses the database's
+  // own `now()`, so both sides of the comparison come from one clock at one
+  // precision.
+  const until = input.until ?? null;
 
   const events = await withTenant(input.companyId, async (tx) => {
     const { rows } = await tx.query<{
@@ -180,7 +189,7 @@ export async function distillEpisodicToSemantic(
                   WHERE company_id = $5 AND scope_id = $7
                     AND kind = 'episodic_to_semantic'),
                 '-infinity'::timestamptz)
-          AND e.occurred_at <= $3
+          AND e.occurred_at <= COALESCE($3::timestamptz, now())
           AND e.type <> ALL($6::text[])
         ORDER BY e.occurred_at, e.id
         LIMIT $4`,

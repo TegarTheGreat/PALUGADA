@@ -101,19 +101,26 @@ export async function exportTrajectory(
     // The window is the run's own. Two attempts against one task write to the
     // same event stream, so a trajectory that took everything for the task
     // would attribute the first attempt's mistakes to the second.
-    const until = run.finished_at ?? new Date();
-
+    //
+    // Bounded in SQL against the run's own row, not with its timestamps read
+    // out and sent back: a JavaScript Date keeps milliseconds and the column
+    // keeps microseconds, so `finished_at` came back rounded down and the
+    // run's last event -- written in the same millisecond it finished --
+    // fell outside its own trajectory.
     const { rows: events } = await tx.query<{
       type: string;
       actor: string;
       payload: Record<string, unknown>;
       occurred_at: Date;
     }>(
-      `SELECT type, actor, payload, occurred_at
-         FROM events
-        WHERE task_id = $1 AND occurred_at >= $2 AND occurred_at <= $3
-        ORDER BY occurred_at`,
-      [run.task_id, run.started_at, until],
+      `SELECT e.type, e.actor, e.payload, e.occurred_at
+         FROM events e
+         JOIN agent_runs r ON r.id = $2
+        WHERE e.task_id = $1
+          AND e.occurred_at >= r.started_at
+          AND e.occurred_at <= COALESCE(r.finished_at, now())
+        ORDER BY e.occurred_at`,
+      [run.task_id, agentRunId],
     );
 
     const { rows: steps } = await tx.query<{

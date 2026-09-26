@@ -12,7 +12,7 @@ import {
   Anchor, Avatar, Badge, Button, Grid, Group, Paper, Progress, SimpleGrid, Stack, Text, Title,
   Tooltip, UnstyledButton,
 } from '@mantine/core';
-import { IconAlertTriangle, IconArrowRight, IconChecklist, IconPlus } from '@tabler/icons-react';
+import { IconAlertTriangle, IconArrowRight, IconChecklist, IconPlus, IconUpload } from '@tabler/icons-react';
 import { api } from '../api.ts';
 import { useLoad } from '../hooks.ts';
 import type { CompanyPage } from '../router.ts';
@@ -42,11 +42,12 @@ function greeting(): string {
 }
 
 export function Home({
-  companies, openCompany, startCompany, setup,
+  companies, openCompany, startCompany, restoreCompany, setup,
 }: {
   companies: Company[];
   openCompany: (id: string, page: CompanyPage, item?: string | null) => void;
   startCompany: () => void;
+  restoreCompany: () => void;
   setup: { notes: string[]; todo: string[] };
 }) {
   const view = useLoad(async () => Promise.all(companies.map(async (company): Promise<CompanyState> => {
@@ -71,7 +72,12 @@ export function Home({
           image="/illustrations/owner-and-agents.webp"
           title={t('Start your first company')}
           description={t('A company is a set of divisions and roles that work towards goals you set, within a budget you set. It starts from a template and you shape it from there.')}
-          action={<Button leftSection={<IconPlus size={16} />} onClick={startCompany}>{t('Start a company')}</Button>}
+          action={(
+            <Group justify="center">
+              <Button leftSection={<IconPlus size={16} />} onClick={startCompany}>{t('Start a company')}</Button>
+              <Button variant="default" leftSection={<IconUpload size={16} />} onClick={restoreCompany}>{t('Restore from an export')}</Button>
+            </Group>
+          )}
         />
       </Paper>
     );
@@ -195,7 +201,10 @@ export function Home({
           <div>
             <Group justify="space-between" mb="sm">
               <Text fw={700}>{t('Your companies')}</Text>
-              <Button variant="subtle" size="xs" leftSection={<IconPlus size={14} />} onClick={startCompany}>{t('Start a company')}</Button>
+              <Group gap="xs">
+                <Button variant="subtle" size="xs" color="gray" leftSection={<IconUpload size={14} />} onClick={restoreCompany}>{t('Restore from an export')}</Button>
+                <Button variant="subtle" size="xs" leftSection={<IconPlus size={14} />} onClick={startCompany}>{t('Start a company')}</Button>
+              </Group>
             </Group>
             <SimpleGrid cols={{ base: 1, sm: 2, xl: 3 }} spacing="lg">
               {states.map((state) => <CompanyCard key={state.company.id} state={state} open={(page) => openCompany(state.company.id, page)} />)}

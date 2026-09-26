@@ -85,6 +85,7 @@ import {
 import { getTask } from '../engine/tasks.ts';
 import type { TaskHandler } from '../runtime/in-process.ts';
 import { collectExport } from '../audit/export.ts';
+import { archiveLines, importCompany, previewArchive } from '../audit/import.ts';
 import { applyGoalChange, createGoal, readGoal } from '../domain/goals.ts';
 import {
   applyGrantChange,
@@ -216,6 +217,8 @@ interface Route {
   pattern: string;
   /** Whether a session is required. Only sign-in and the challenge are not. */
   open?: boolean;
+  /** The largest body this route reads. A megabyte unless the route says otherwise. */
+  maxBodyBytes?: number;
   handle: Handler;
 }
 
@@ -1834,6 +1837,31 @@ export class OwnerApi {
         }),
       },
 
+      {
+        // The other half of the export above (F16.4). `importCompany` existed
+        // and only tests reached it, so the README's "exported and restored
+        // on another instance" was an export and no restore for an owner
+        // without a terminal.
+        //
+        // `preview` answers what would come back and writes nothing. The
+        // restore itself creates a company -- divisions, roles, grants, a
+        // budget tree -- so, like starting one, it takes the owner's device.
+        // The archive is the only large thing the console sends, so this
+        // route alone reads more than a megabyte.
+        method: 'POST',
+        pattern: '/api/companies/import',
+        maxBodyBytes: 64 * 1_048_576,
+        handle: async ({ body }) => {
+          const lines = archiveLines(body.archive);
+          if (body.preview === true) return { preview: previewArchive(lines) };
+          await this.#requireFactor(body.proof, 'restore a company');
+          return importCompany(lines, {
+            slug: requireText(body.slug, 'slug'),
+            ...(typeof body.name === 'string' && body.name.trim() ? { name: body.name.trim() } : {}),
+          });
+        },
+      },
+
       /* ----------------------------------------------------------- F12.5 --- */
 
       {
@@ -1967,7 +1995,7 @@ export class OwnerApi {
     let body: Record<string, unknown> = {};
     if (req.method === 'POST') {
       try {
-        body = await readJson(req);
+        body = await readJson(req, match.route.maxBodyBytes);
       } catch (error) {
         send(res, 400, { error: (error as Error).message });
         return;
@@ -2311,14 +2339,14 @@ function bearer(req: IncomingMessage): string | undefined {
   return header.startsWith('Bearer ') ? header.slice(7) : undefined;
 }
 
-async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
+async function readJson(req: IncomingMessage, limit = 1_048_576): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
     size += (chunk as Buffer).length;
     // A decision is a few hundred bytes. A megabyte is far more than one needs
     // and far less than enough to exhaust the console.
-    if (size > 1_048_576) throw new Error('request body is too large');
+    if (size > limit) throw new Error('request body is too large');
     chunks.push(chunk as Buffer);
   }
   const raw = Buffer.concat(chunks).toString('utf8').trim();

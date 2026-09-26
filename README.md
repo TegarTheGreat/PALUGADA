@@ -257,7 +257,8 @@ documentation, cited in
 - Retention is the only code that deletes anything, and it records what it
   removed.
 - A whole company can be exported and restored on another instance, with every
-  reference remapped.
+  reference remapped: from the console's Home, or with
+  `npm run company:import -- <archive> <slug>`.
 - Signed bundles and trusted publishers. An unsigned bundle installs with
   read-only grants.
 - Console sessions are shared by every replica and stored hashed. They end

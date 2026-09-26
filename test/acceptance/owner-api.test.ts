@@ -3470,3 +3470,69 @@ test('two deployments on one PID are two workers, and one cannot run the other\'
     await second.stop();
   }
 });
+
+/**
+ * F16.4 from the console: a company comes back from the file the console
+ * downloaded.
+ *
+ * `importCompany` existed and only tests called it, while the README said a
+ * company "can be exported and restored on another instance". An owner with
+ * the archive and no terminal had an export and no restore. The route takes
+ * the archive as the console downloads it, shows what would come back before
+ * anything is written, and restores only with the owner's device, because it
+ * creates a company. An archive is larger than any other body the console
+ * sends, so this one route takes more than a megabyte and no other does.
+ */
+test('a company is restored from the archive the console downloads (F16.4)', async () => {
+  const owner = await console_();
+  try {
+    const fixture = await createCompany('restore-source');
+    const token = await signIn(owner.url, owner.code());
+    const archive = (await call(owner.url, 'GET', `/api/companies/${fixture.companyId}/export`, { token })).body;
+    // Something only an archive this size would carry, and a section this
+    // instance does not know.
+    (archive.sections as Record<string, unknown[]>).padding = [{ text: 'x'.repeat(1_200_000) }];
+    const companies = async () =>
+      ((await call(owner.url, 'GET', '/api/companies', { token })).body.companies as Array<{ slug: string }>)
+        .map((company) => company.slug);
+    const before = await companies();
+
+    const preview = await call(owner.url, 'POST', '/api/companies/import', { token, body: { archive, preview: true } });
+    assert.equal(preview.status, 200, JSON.stringify(preview.body).slice(0, 300));
+    const seen = preview.body.preview as {
+      company: { slug: string; name: string }; sections: Record<string, number>; skipped: string[];
+    };
+    assert.equal(seen.company.slug, fixture.slug);
+    assert.equal(seen.sections.roles, (archive.sections as Record<string, unknown[]>).roles!.length);
+    assert.ok(seen.skipped.includes('padding'), 'an unknown section is named, not silently dropped');
+    assert.deepEqual(await companies(), before, 'a preview writes nothing');
+
+    const unproven = await call(owner.url, 'POST', '/api/companies/import', {
+      token, body: { archive, slug: 'restored' },
+    });
+    assert.notEqual(unproven.status, 200);
+    assert.deepEqual(await companies(), before, 'nothing is restored without the owner\'s device');
+
+    const restored = await call(owner.url, 'POST', '/api/companies/import', {
+      token, body: { archive, slug: 'restored', name: 'Restored Co', proof: { totp: owner.code() } },
+    });
+    assert.equal(restored.status, 200, JSON.stringify(restored.body).slice(0, 300));
+    assert.equal(restored.body.slug, 'restored');
+    assert.ok((await companies()).includes('restored'));
+
+    const broken = await call(owner.url, 'POST', '/api/companies/import', {
+      token, body: { archive: { sections: { roles: [] } }, preview: true },
+    });
+    assert.equal(broken.status, 400);
+    assert.match(String(broken.body.error), /no company section/);
+
+    // And every other route keeps its megabyte.
+    const large = await call(owner.url, 'POST', `/api/companies/${fixture.companyId}/tasks/${fixture.goalId}/instruct`, {
+      token, body: { text: 'x'.repeat(1_200_000) },
+    });
+    assert.equal(large.status, 400);
+    assert.match(String(large.body.error), /too large/);
+  } finally {
+    await owner.close();
+  }
+});

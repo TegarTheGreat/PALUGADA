@@ -15,6 +15,7 @@
     "check": "npm run typecheck && npm run console:build && npm test",
     "smoke": "node scripts/smoke.ts",
     "totp:new": "node scripts/new-totp.ts",
+    "company:import": "node scripts/import-company.ts",
     "start": "node src/main.ts",
     "console:install": "npm --prefix console ci",
     "console:build": "npm --prefix console run build"

@@ -12,8 +12,8 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActionIcon, AppShell, Avatar, Badge, Box, Button, Divider, Drawer, Group, Menu, Modal,
-  NavLink, Paper, Progress, ScrollArea, Stack, Text, TextInput, Tooltip, UnstyledButton,
+  ActionIcon, Alert, AppShell, Avatar, Badge, Box, Button, Divider, Drawer, FileInput, Group, Menu, Modal,
+  NavLink, Paper, Progress, ScrollArea, SimpleGrid, Stack, Text, TextInput, Tooltip, UnstyledButton,
   useMantineColorScheme,
 } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
@@ -117,6 +117,7 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
   const [openCount, setOpenCount] = useState<Record<string, number>>({});
   const [lastCompany, setLastCompany] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const [restoring, setRestoring] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [more, setMore] = useState(false);
   const [giving, setGiving] = useState(false);
@@ -393,6 +394,7 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
               companies={companies}
               openCompany={(id, page, item) => open(page, { companyId: id, item: item ?? null })}
               startCompany={() => setStarting(true)}
+              restoreCompany={() => setRestoring(true)}
               setup={setup}
             />
           ) : (
@@ -437,6 +439,7 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
       </Drawer>
 
       <StartCompany opened={starting} close={() => setStarting(false)} started={(id) => { base.reload(); open('overview', { companyId: id }); }} />
+      <RestoreCompany opened={restoring} close={() => setRestoring(false)} restored={(id) => { base.reload(); open('overview', { companyId: id }); }} />
 
       <GiveWork companyId={company?.id ?? null} opened={giving} close={() => setGiving(false)} />
 
@@ -549,6 +552,95 @@ function GiveWork({ companyId, opened, close }: { companyId: string | null; open
  * A structural change if anything is -- it writes divisions, roles, grants and
  * a budget tree in one transaction -- so the API asks for the owner's device.
  */
+interface ArchivePreview {
+  company: { slug: string; name: string };
+  sections: Record<string, number>;
+  skipped: string[];
+}
+
+/**
+ * A company back from the file the console's export downloads (F16.4): read
+ * in the browser, previewed by the server -- what comes back and what does
+ * not -- and restored only with the owner's device, because it creates a
+ * company. Nothing is kept in the browser after it is sent.
+ */
+function RestoreCompany({ opened, close, restored }: { opened: boolean; close: () => void; restored: (id: string) => void }) {
+  const requireFactor = useFactor();
+  const [archive, setArchive] = useState<unknown>(null);
+  const [preview, setPreview] = useState<ArchivePreview | null>(null);
+  const [name, setName] = useState('');
+  const [slug, setSlug] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [reading, setReading] = useState(false);
+
+  const reset = () => { setArchive(null); setPreview(null); setName(''); setSlug(''); setError(null); };
+  const choose = async (file: File | null) => {
+    reset();
+    if (!file) return;
+    setReading(true);
+    try {
+      const parsed: unknown = JSON.parse(await file.text());
+      const answer: { preview: ArchivePreview } = await api('POST', '/api/companies/import', { archive: parsed, preview: true });
+      setArchive(parsed);
+      setPreview(answer.preview);
+      setName(answer.preview.company.name);
+      setSlug(`${answer.preview.company.slug}-restored`);
+    } catch (failure) {
+      setError(failure instanceof SyntaxError ? t('That file is not an export from this console.') : explain(failure));
+    } finally {
+      setReading(false);
+    }
+  };
+  const submit = async () => {
+    setError(null);
+    let answer: { companyId?: string } = {};
+    try {
+      const done = await requireFactor(t('Restore {company}', { company: name || slug }), async (proof) => {
+        answer = await api('POST', '/api/companies/import', { archive, slug, name, proof });
+      });
+      if (!done) return;
+      notifications.show({ color: 'teal', message: t('{company} is restored.', { company: name || slug }) });
+      reset();
+      close();
+      if (answer.companyId) restored(answer.companyId);
+    } catch (failure) {
+      setError(explain(failure));
+    }
+  };
+  const rows = preview ? Object.values(preview.sections).reduce((total, count) => total + count, 0) : 0;
+
+  return (
+    <Modal opened={opened} onClose={() => { reset(); close(); }} title={t('Restore a company')} centered size="lg">
+      <Stack>
+        <Text size="sm" c="dimmed">
+          {t('From the file a company\'s export downloads, on this deployment or another. It comes back as a new company beside any that exist; credentials come back as references to set up again, and skills from outside come back quarantined.')}
+        </Text>
+        <FileInput label={t('Export file')} placeholder={t('Choose the .json file')} accept="application/json,.json" onChange={(file) => void choose(file)} clearable disabled={reading} />
+        {preview && (
+          <Alert variant="light" color="brand" title={t('{company}: {rows} rows in {sections} sections', {
+            company: preview.company.name, rows, sections: Object.keys(preview.sections).length,
+          })}>
+            {preview.skipped.length > 0 && (
+              <Text size="sm">{t('Not restored: {sections}.', { sections: preview.skipped.join(', ') })}</Text>
+            )}
+          </Alert>
+        )}
+        {preview && (
+          <SimpleGrid cols={{ base: 1, sm: 2 }}>
+            <TextInput label={t('Name')} value={name} onChange={(e) => setName(e.currentTarget.value)} required />
+            <TextInput label={t('Short name')} description={t('Used in links and exports')} value={slug} onChange={(e) => setSlug(e.currentTarget.value)} required />
+          </SimpleGrid>
+        )}
+        {error && <Text c="red" size="sm">{error}</Text>}
+        <Group justify="flex-end">
+          <Button variant="default" onClick={() => { reset(); close(); }}>{t('Cancel')}</Button>
+          <Button disabled={!preview || !slug} onClick={() => void submit()}>{t('Restore it')}</Button>
+        </Group>
+      </Stack>
+    </Modal>
+  );
+}
+
 function StartCompany({ opened, close, started }: { opened: boolean; close: () => void; started: (id: string) => void }) {
   const requireFactor = useFactor();
   const [name, setName] = useState('');

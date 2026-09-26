@@ -24,6 +24,7 @@ import { createRootTask } from '../../src/engine/tasks.ts';
 import { remember } from '../../src/memory/store.ts';
 import {
   importCompany,
+  parseArchive,
   IMPORT_SECTION_NAMES,
   NOT_RESTORED,
 } from '../../src/audit/import.ts';
@@ -816,4 +817,43 @@ test('scopes, goal status, escalation policy, charter and watermark are restored
   assert.equal(found.charter, 'We answer within a day.');
   assert.equal(found.watermark?.through_at.toISOString(), '2026-09-01T00:00:00.000Z');
   assert.equal(found.watermark?.mapped, true, 'and it is this company\'s division it names');
+});
+
+/**
+ * The terminal's restore reads the same file the console downloads, and the
+ * line-per-row form a streaming export writes, and says plainly what is wrong
+ * with anything else.
+ */
+test('an archive restores from a terminal, in either form it is kept in (F16.4)', async () => {
+  const { mkdtemp, writeFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const run = promisify(execFile);
+
+  const fixture = await createCompany('terminal-restore');
+  const downloaded = await collectExport(fixture.companyId);
+  const lines: ArchiveLine[] = [];
+  await exportCompany(fixture.companyId, (line) => { lines.push(line); });
+  const fromJson = parseArchive(JSON.stringify(downloaded));
+  const fromLines = parseArchive(lines.map((line) => JSON.stringify(line)).join('\n'));
+  assert.equal(fromJson.length, lines.length);
+  assert.deepEqual(fromLines, JSON.parse(JSON.stringify(lines)), "a line-per-row file reads back line for line");
+  assert.throws(() => parseArchive('{"sections":{"roles":[]}}'), /no company section/);
+  assert.throws(() => parseArchive('{"section":"company","row":{}}\nnot json'), /line 2 of the archive is not JSON/);
+
+  const folder = await mkdtemp(join(tmpdir(), 'palugada-archive-'));
+  const file = join(folder, 'company.json');
+  await writeFile(file, JSON.stringify(downloaded));
+  const { stdout } = await run(process.execPath, ['scripts/import-company.ts', file, 'from-terminal', 'From', 'Terminal'], {
+    cwd: process.cwd(), env: process.env,
+  });
+  assert.match(stdout, /^restored from-terminal as company [0-9a-f-]{36}: \d+ rows/);
+  const { rows } = await withControlPlane((tx) => tx.query<{ name: string }>(
+    "SELECT name FROM companies WHERE slug = 'from-terminal'"));
+  assert.deepEqual(rows, [{ name: 'From Terminal' }]);
+
+  await assert.rejects(run(process.execPath, ['scripts/import-company.ts', file], { cwd: process.cwd(), env: process.env }),
+    (error: { code?: number; stderr?: string }) => error.code === 64 && /usage: npm run company:import/.test(error.stderr ?? ''));
 });

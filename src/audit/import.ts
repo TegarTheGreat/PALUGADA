@@ -263,6 +263,94 @@ export const NOT_RESTORED: readonly string[] = [
   'bundle_installs', 'retention_log', 'llm_traces', 'gateway_devices',
 ];
 
+/**
+ * An archive as lines, from either form it is kept in.
+ *
+ * The console downloads `{ summary, sections }` -- what `collectExport`
+ * returns -- and a deployment streaming a large company writes one
+ * `{ section, row }` per line. Both are the same archive; this reads either,
+ * and refuses anything else by saying what an archive looks like, because the
+ * person holding the wrong file is the owner.
+ */
+export function archiveLines(value: unknown): ArchiveLine[] {
+  const invalid = (why: string) =>
+    new PalugadaError('archive.invalid', `${why}; an archive is the file the console's export downloads`, {});
+  if (Array.isArray(value)) {
+    return value.map((line) => {
+      const { section, row } = (line ?? {}) as Partial<ArchiveLine>;
+      if (typeof section !== 'string' || !row || typeof row !== 'object' || Array.isArray(row)) {
+        throw invalid('a line of the archive is not { section, row }');
+      }
+      return { section, row };
+    });
+  }
+  const sections = (value as { sections?: unknown } | null)?.sections;
+  if (!sections || typeof sections !== 'object' || Array.isArray(sections)) {
+    throw invalid('the archive has no sections');
+  }
+  const lines: ArchiveLine[] = [];
+  for (const [section, rows] of Object.entries(sections as Record<string, unknown>)) {
+    if (!Array.isArray(rows)) throw invalid(`section ${section} is not a list of rows`);
+    for (const row of rows) {
+      if (!row || typeof row !== 'object' || Array.isArray(row)) throw invalid(`section ${section} holds something that is not a row`);
+      lines.push({ section, row: row as Record<string, unknown> });
+    }
+  }
+  if (!lines.some((line) => line.section === 'company')) {
+    throw new PalugadaError('archive.invalid', 'the archive has no company section', {});
+  }
+  return lines;
+}
+
+/** An archive from a file: the console's JSON, or one line per row. */
+export function parseArchive(text: string): ArchiveLine[] {
+  const trimmed = text.trim();
+  try {
+    return archiveLines(JSON.parse(trimmed));
+  } catch (error) {
+    if (error instanceof PalugadaError) throw error;
+  }
+  return archiveLines(trimmed.split('\n').filter((line) => line.trim()).map((line, index) => {
+    try {
+      return JSON.parse(line) as unknown;
+    } catch {
+      throw new PalugadaError('archive.invalid', `line ${index + 1} of the archive is not JSON`, { line: index + 1 });
+    }
+  }));
+}
+
+export interface ArchivePreview {
+  company: { slug: string; name: string };
+  /** Rows per section that would be restored. */
+  sections: Record<string, number>;
+  /** Sections in the archive that would not be, deliberately or unknown here. */
+  skipped: string[];
+}
+
+/**
+ * What an import would restore, without writing anything: the owner reads
+ * this before pressing the button that creates a company.
+ */
+export function previewArchive(lines: ArchiveLine[]): ArchivePreview {
+  const company = lines.find((line) => line.section === 'company')?.row;
+  if (!company) throw new PalugadaError('archive.invalid', 'the archive has no company section', {});
+  const sections: Record<string, number> = {};
+  const skipped = new Set<string>();
+  for (const line of lines) {
+    if (line.section === 'company') continue;
+    if (SECTIONS.some((section) => section.name === line.section)) {
+      sections[line.section] = (sections[line.section] ?? 0) + 1;
+    } else {
+      skipped.add(line.section);
+    }
+  }
+  return {
+    company: { slug: String(company.slug ?? ''), name: String(company.name ?? '') },
+    sections,
+    skipped: [...skipped].sort(),
+  };
+}
+
 export interface ImportSummary {
   companyId: string;
   slug: string;

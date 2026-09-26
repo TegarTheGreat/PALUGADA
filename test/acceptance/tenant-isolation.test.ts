@@ -530,3 +530,50 @@ test('the application role may write what the platform writes, and no more (F12,
   });
   assert.doesNotMatch(inherits, /UPDATE, DELETE ON %s TO palugada_app/);
 });
+
+/**
+ * Row security keeps a company from reading another's rows; it never kept a
+ * row from pointing at one. A foreign key is checked past row security, so a
+ * task could name another company's role or be charged to another company's
+ * budget -- the worker could then never run it, and the other company's
+ * account would have paid. Every reference between tenant tables is on
+ * (company_id, id) now (0048), so the database refuses it whatever the code
+ * sent.
+ */
+test('a row cannot point into another company (F1.1, 0048)', async () => {
+  const mine = await createCompany('fk-mine');
+  const theirs = await createCompany('fk-theirs');
+  const { createRootTask } = await import('../../src/engine/tasks.ts');
+
+  // Refused by the foreign key, or earlier by code that cannot see the other
+  // company's row -- a budget it cannot see is one it cannot reserve from.
+  const refused = async (what: string, attempt: () => Promise<unknown>) => {
+    await assert.rejects(attempt, (error: unknown) =>
+      ['23503', 'budget.reservation_refused'].includes(String((error as { code?: string }).code)),
+    what);
+  };
+
+  await refused('a task run by their role', () => createRootTask({
+    companyId: mine.companyId, projectId: mine.projectId, divisionId: mine.divisionId,
+    roleId: theirs.roleId, budgetAccountId: mine.budgetAccountId, goalId: mine.goalId,
+    input: {}, createdBy: 'owner', reserveTokens: 10,
+  }));
+  await refused('a task charged to their budget', () => createRootTask({
+    companyId: mine.companyId, projectId: mine.projectId, divisionId: mine.divisionId,
+    roleId: mine.roleId, budgetAccountId: theirs.budgetAccountId, goalId: mine.goalId,
+    input: {}, createdBy: 'owner', reserveTokens: 10,
+  }));
+  await refused('a grant to their division', () => withTenant(mine.companyId, (tx) => tx.query(
+    `INSERT INTO capability_grants (company_id, division_id, capability_name)
+     VALUES ($1, $2, 'dns.read')`,
+    [mine.companyId, theirs.divisionId],
+  )));
+
+  // And a reference inside the company is exactly as it was.
+  const ours = await createRootTask({
+    companyId: mine.companyId, projectId: mine.projectId, divisionId: mine.divisionId,
+    roleId: mine.roleId, budgetAccountId: mine.budgetAccountId, goalId: mine.goalId,
+    input: {}, createdBy: 'owner', reserveTokens: 10,
+  });
+  assert.ok(ours.id);
+});

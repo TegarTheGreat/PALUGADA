@@ -1029,3 +1029,34 @@ test('a retried side effect gets the first answer, not a second effect (F12.8)',
   assert.equal(afterCrash.replayed, true);
   if (afterCrash.replayed) assert.equal(afterCrash.response, null);
 });
+
+/**
+ * Updating a company-wide policy updates it.
+ *
+ * The upsert's unique key counted NULLs as distinct, and a company-wide
+ * policy has a NULL division: every "update" inserted a second row. The log
+ * said the owner had relaxed the deny, and the old deny went on being
+ * enforced beside the new rule.
+ */
+test('a policy written twice at company or platform scope is one policy (F3.4)', async () => {
+  const fixture = await createCompany('policy-upsert');
+  const { withControlPlane } = await import('../../src/db/tenant.ts');
+  const rows = (slug: string) => withControlPlane(async (tx) => {
+    const { rows: found } = await tx.query<{ id: string; mode: string }>(
+      'SELECT id, mode FROM policies WHERE slug = $1', [slug],
+    );
+    return found;
+  });
+
+  const condition = { field: 'tool', op: 'eq', value: 'email.send' } as const;
+  const first = await putPolicy({ companyId: fixture.companyId, slug: 'company-wide', effect: 'deny', condition });
+  const second = await putPolicy({
+    companyId: fixture.companyId, slug: 'company-wide', effect: 'deny', condition, mode: 'log_only',
+  });
+  assert.equal(second, first, 'the same policy, changed');
+  assert.deepEqual((await rows('company-wide')).map((row) => row.mode), ['log_only']);
+
+  const platform = await putPolicy({ slug: 'platform-wide', effect: 'deny', condition });
+  await putPolicy({ slug: 'platform-wide', effect: 'deny', condition, mode: 'log_only' });
+  assert.deepEqual((await rows('platform-wide')).map((row) => [row.id, row.mode]), [[platform, 'log_only']]);
+});

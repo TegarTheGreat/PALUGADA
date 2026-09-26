@@ -6,8 +6,10 @@
 import { useMemo, useState } from 'react';
 import { Alert, Button, Group, NumberInput, Select, SimpleGrid, Stack, Textarea } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { api } from '../api.ts';
+import { api, explain } from '../api.ts';
 import type { Structure } from '../types.ts';
+import { goalKind } from '../format.ts';
+import { t } from '../i18n.ts';
 
 export function AssignWork({
   companyId, structure, roleId: fixedRole, done,
@@ -39,11 +41,11 @@ export function AssignWork({
         projectId, divisionId: role.divisionId, roleId: role.id, goalId, goal,
         ...(reserve === '' ? {} : { reserveTokens: Number(reserve) }),
       });
-      notifications.show({ color: 'teal', title: 'Assigned', message: `${role.slug} is awake and has it (task ${assigned.taskId.slice(0, 8)}).` });
+      notifications.show({ color: 'teal', title: t('Assigned'), message: t('{role} is awake and has it (task {task}).', { role: role.slug, task: assigned.taskId.slice(0, 8) }) });
       setGoal('');
       done();
     } catch (failure) {
-      setError((failure as Error).message);
+      setError(explain(failure));
     } finally {
       setBusy(false);
     }
@@ -53,31 +55,31 @@ export function AssignWork({
     <Stack>
       <SimpleGrid cols={{ base: 1, sm: 2 }}>
         {!fixedRole && (
-          <Select label="Role" placeholder="Who does it" data={roleOptions} value={roleId} onChange={setRoleId} searchable required />
+          <Select label={t('Role')} placeholder={t('Who does it')} data={roleOptions} value={roleId} onChange={setRoleId} searchable required />
         )}
         <Select
-          label="Project"
+          label={t('Project')}
           data={structure.projects.map((project) => ({ value: project.id, label: project.name }))}
           value={projectId}
           onChange={setProjectId}
           required
         />
         <Select
-          label="Serves"
-          description="Every task hangs from a goal (F2.7)"
-          data={leaf.map((one) => ({ value: one.id, label: `${one.kind.replace('_', ' ')}: ${one.statement}` }))}
+          label={t('Serves')}
+          description={t('Every task hangs from a goal')}
+          data={leaf.map((one) => ({ value: one.id, label: `${goalKind(one.kind)}: ${one.statement}` }))}
           value={goalId}
           onChange={setGoalId}
           required
           style={{ gridColumn: '1 / -1' }}
         />
       </SimpleGrid>
-      <Textarea label="What to do" autosize minRows={3} value={goal} onChange={(event) => setGoal(event.currentTarget.value)} required />
-      <NumberInput label="Tokens to reserve" description="Blank uses the role's default" value={reserve} onChange={setReserve} min={0} maw={260} />
+      <Textarea label={t('What to do')} autosize minRows={3} value={goal} onChange={(event) => setGoal(event.currentTarget.value)} required />
+      <NumberInput label={t('Tokens to reserve')} description={t("Blank uses the role's default")} value={reserve} onChange={setReserve} min={0} maw={260} />
       {error && <Alert color="red" variant="light">{error}</Alert>}
       <Group justify="flex-end">
         <Button loading={busy} disabled={!roleId || !projectId || !goalId || !goal.trim()} onClick={() => void submit()}>
-          Assign it
+          {t('Assign it')}
         </Button>
       </Group>
     </Stack>

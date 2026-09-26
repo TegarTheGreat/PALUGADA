@@ -7,20 +7,20 @@
  */
 import { useState } from 'react';
 import {
-  Accordion, Alert, Avatar, Badge, Box, Button, Card, Divider, Drawer, Group, Modal, Paper, Select,
-  SimpleGrid, Stack, Table, Tabs, Text, Textarea, TextInput, ThemeIcon, Title, Tooltip,
+  Accordion, Alert, Avatar, Badge, Box, Button, Card, Divider, Drawer, Group, List, Modal, Paper, Progress, Select, SimpleGrid, Spoiler, Stack, Table, Tabs, Text, TextInput, Textarea, ThemeIcon, Tooltip,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
-  IconBuilding, IconCalendarTime, IconFlag, IconPlus, IconShieldCheck, IconTarget, IconUsersGroup,
+  IconBuilding, IconCalendarTime, IconFlag, IconPlus, IconShieldCheck, IconTarget, IconUserCircle, IconUsersGroup,
 } from '@tabler/icons-react';
-import { api } from '../api.ts';
+import { api, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { useLoad } from '../hooks.ts';
 import type { Division, Goal, Role, Schedule, Structure } from '../types.ts';
-import { dateTime, money, relative } from '../format.ts';
+import { count, dateTime, goalKind, money, relative } from '../format.ts';
 import type { PageProps } from '../App.tsx';
-import { LoadFailed, Loading, Section } from '../components/ui.tsx';
+import { N, t } from '../i18n.ts';
+import { LoadFailed, Loading, PageHeader, Section } from '../components/ui.tsx';
 import { ActionButton, ActionForm } from '../components/ActionForm.tsx';
 import { AssignWork } from '../components/AssignWork.tsx';
 
@@ -32,27 +32,35 @@ export function Organization({ ctx }: PageProps) {
       api('GET', `/api/companies/${companyId}/schedules`),
     ]);
     return { structure, schedules: schedules.schedules };
-  }, [companyId]);
+  }, [companyId], { every: 30_000 });
   const [role, setRole] = useState<Role | null>(null);
   const [division, setDivision] = useState<Division | null>(null);
 
-  if (view.error) return <LoadFailed message={view.error} retry={view.reload} />;
-  if (!view.data) return <Loading rows={5} />;
+  const header = (
+    <PageHeader
+      crumbs={[ctx.company.name]}
+      title={t('Team')}
+      description={t('Who does the work: divisions and the roles in them, the goals they work towards, their schedules and the policies they work under.')}
+      live={view.updatedAt}
+      actions={<Button leftSection={<IconPlus size={16} />} onClick={ctx.giveWork}>{t('Give work')}</Button>}
+    />
+  );
+  if (view.error && !view.data) return <>{header}<LoadFailed message={view.error} retry={view.reload} /></>;
+  if (!view.data) return <>{header}<Loading rows={5} /></>;
   const { structure, schedules } = view.data;
+  const openRole = role ? structure.roles.find((one) => one.id === role.id) ?? null : null;
+  const openDivision = division ? structure.divisions.find((one) => one.id === division.id) ?? null : null;
 
   return (
     <Stack gap="lg">
-      <div>
-        <Text size="sm" c="dimmed" fw={600}>{ctx.company.name}</Text>
-        <Title order={2}>Organization</Title>
-      </div>
+      {header}
 
       <Tabs defaultValue="chart" keepMounted={false}>
         <Tabs.List mb="lg">
-          <Tabs.Tab value="chart" leftSection={<IconUsersGroup size={16} />}>Divisions & roles</Tabs.Tab>
-          <Tabs.Tab value="goals" leftSection={<IconTarget size={16} />}>Goals</Tabs.Tab>
-          <Tabs.Tab value="schedules" leftSection={<IconCalendarTime size={16} />}>Schedules</Tabs.Tab>
-          <Tabs.Tab value="policies" leftSection={<IconShieldCheck size={16} />}>Policies</Tabs.Tab>
+          <Tabs.Tab value="chart" leftSection={<IconUsersGroup size={16} />}>{t('Divisions & roles')}</Tabs.Tab>
+          <Tabs.Tab value="goals" leftSection={<IconTarget size={16} />}>{t('Goals')}</Tabs.Tab>
+          <Tabs.Tab value="schedules" leftSection={<IconCalendarTime size={16} />}>{t('Schedules')}</Tabs.Tab>
+          <Tabs.Tab value="policies" leftSection={<IconShieldCheck size={16} />}>{t('Policies')}</Tabs.Tab>
         </Tabs.List>
 
         <Tabs.Panel value="chart">
@@ -69,8 +77,8 @@ export function Organization({ ctx }: PageProps) {
         </Tabs.Panel>
       </Tabs>
 
-      <RoleDrawer companyId={companyId} role={role} structure={structure} close={() => setRole(null)} changed={view.reload} />
-      <DivisionDrawer companyId={companyId} division={division} structure={structure} close={() => setDivision(null)} changed={view.reload} />
+      <RoleDrawer companyId={companyId} role={openRole} structure={structure} close={() => setRole(null)} changed={view.reload} />
+      <DivisionDrawer companyId={companyId} division={openDivision} structure={structure} close={() => setDivision(null)} changed={view.reload} />
     </Stack>
   );
 }
@@ -117,11 +125,18 @@ function OrgChart({
   );
 }
 
+const GOAL_STATUS: Record<string, string> = { active: N('Active'), met: N('Met'), abandoned: N('Abandoned') };
+
+function goalStatus(status: string): string {
+  const label = GOAL_STATUS[status];
+  return label ? t(label) : status;
+}
+
 function roleState(role: Role): { label: string; color: string } {
-  if (role.frozenAt) return { label: 'Frozen', color: 'red' };
-  if (role.openTasks > 0) return { label: 'Working', color: 'teal' };
-  if (role.dormantUntil && new Date(role.dormantUntil) > new Date()) return { label: 'Asleep', color: 'gray' };
-  return { label: 'Idle', color: 'gray' };
+  if (role.frozenAt) return { label: t('Frozen'), color: 'red' };
+  if (role.openTasks > 0) return { label: t('Working'), color: 'teal' };
+  if (role.dormantUntil && new Date(role.dormantUntil) > new Date()) return { label: t('Asleep'), color: 'gray' };
+  return { label: t('Idle'), color: 'gray' };
 }
 
 function DivisionCard({
@@ -134,11 +149,11 @@ function DivisionCard({
           <Text fw={700} truncate>{division.name}</Text>
           <Text size="xs" c="dimmed">{division.grants.length} capabilities · up to {division.maxConcurrency} at once</Text>
         </div>
-        {division.openTasks > 0 ? <Badge color="teal" variant="light">{division.openTasks} open</Badge> : <Badge color="gray" variant="light">quiet</Badge>}
+        {division.openTasks > 0 ? <Badge color="teal" variant="light">{t('{count} open', { count: division.openTasks })}</Badge> : <Badge color="gray" variant="light">{t('quiet')}</Badge>}
       </Group>
       <Divider my="sm" />
       <Stack gap={6}>
-        {roles.length === 0 && <Text size="xs" c="dimmed">No roles.</Text>}
+        {roles.length === 0 && <Text size="xs" c="dimmed">{t('No roles.')}</Text>}
         {roles.map((role) => {
           const state = roleState(role);
           return (
@@ -149,7 +164,7 @@ function DivisionCard({
                   <Text size="sm" fw={600} truncate>{role.slug}</Text>
                   <Text size="xs" c="dimmed" truncate>{role.model}{role.runtime ? ` · ${role.runtime}` : ''}</Text>
                 </div>
-                <Tooltip label={role.frozenReason ?? `${role.openTasks} open · ${role.doneLastWeek} done this week`}>
+                <Tooltip label={role.frozenReason ?? t('{open} open · {done} done this week', { open: role.openTasks, done: role.doneLastWeek })}>
                   <Badge size="sm" variant="dot" color={state.color}>{state.label}</Badge>
                 </Tooltip>
               </Group>
@@ -178,60 +193,77 @@ function RoleDrawer({
             {role.runtime && <Badge variant="outline" color="gray">{role.runtime}</Badge>}
           </Group>
           {role.frozenAt && (
-            <Alert color="red" variant="light" title="Frozen">
-              <Text size="sm">{role.frozenReason ?? 'Repeatedly denied.'} It stays frozen until you look (F3.7).</Text>
+            <Alert color="red" variant="light" title={t('Frozen')}>
+              <Text size="sm">{role.frozenReason ?? t('Repeatedly denied.')} {t('It stays frozen until you look.')}</Text>
               <Group mt="sm">
                 <ActionButton
-                  label="Resume this role"
+                  label={t('Resume this role')}
                   color="red"
                   variant="light"
-                  factor={`Resume ${role.slug}`}
+                  factor={t('Resume {role}', { role: role.slug })}
                   run={(proof) => api('POST', `/api/control/company/${companyId}/role/${role.id}/resume`, { proof })}
-                  done={() => { notifications.show({ color: 'teal', message: `${role.slug} resumed.` }); changed(); close(); }}
+                  done={() => { notifications.show({ color: 'teal', message: t('{role} resumed.', { role: role.slug }) }); changed(); close(); }}
                 />
               </Group>
             </Alert>
           )}
           <SimpleGrid cols={3} spacing="sm">
-            <Mini label="Open tasks" value={String(role.openTasks)} />
-            <Mini label="Done this week" value={String(role.doneLastWeek)} />
-            <Mini label="Heartbeat" value={role.heartbeatMinutes ? `${role.heartbeatMinutes} min` : 'Default'} />
+            <Mini label={t('Open tasks')} value={String(role.openTasks)} />
+            <Mini label={t('Done this week')} value={String(role.doneLastWeek)} />
+            <Mini label={t('Heartbeat')} value={role.heartbeatMinutes ? t('{minutes} min', { minutes: role.heartbeatMinutes }) : t('Default')} />
           </SimpleGrid>
+          <Paper withBorder radius="md" p="md">
+            <Group gap={6} mb={6}><IconUserCircle size={16} /><Text size="xs" fw={700} tt="uppercase" c="dimmed">{t('Who it is')}</Text></Group>
+            <Text size="xs" c="dimmed" mb="xs">{t('Its charter: the persona and rules it is given first in every run, before anything it reads.')}</Text>
+            {role.charter.trim() ? (
+              <Spoiler maxHeight={120} showLabel={t('Show all')} hideLabel={t('Show less')}>
+                <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{role.charter}</Text>
+              </Spoiler>
+            ) : <Text size="sm" c="dimmed">{t('No charter yet. It works from the company charter alone.')}</Text>}
+            {role.doneCriteria.length > 0 && (
+              <>
+                <Text size="xs" fw={700} tt="uppercase" c="dimmed" mt="md" mb={6}>{t('Done means')}</Text>
+                <List size="sm" spacing={4}>
+                  {role.doneCriteria.map((criterion) => <List.Item key={criterion}>{criterion}</List.Item>)}
+                </List>
+              </>
+            )}
+          </Paper>
           <div>
-            <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb={6}>Tools</Text>
-            <Group gap={6}>{role.tools.length === 0 ? <Text size="sm" c="dimmed">None</Text> : role.tools.map((tool) => <Badge key={tool} variant="light" color="gray" radius="sm">{tool}</Badge>)}</Group>
+            <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb={6}>{t('Tools')}</Text>
+            <Group gap={6}>{role.tools.length === 0 ? <Text size="sm" c="dimmed">{t('None')}</Text> : role.tools.map((tool) => <Badge key={tool} variant="light" color="gray" radius="sm">{tool}</Badge>)}</Group>
           </div>
 
           <Accordion variant="separated" radius="md" defaultValue="work">
             <Accordion.Item value="work">
-              <Accordion.Control>Give it something to do</Accordion.Control>
+              <Accordion.Control>{t('Give it something to do')}</Accordion.Control>
               <Accordion.Panel>
                 <AssignWork companyId={companyId} structure={structure} roleId={role.id} done={changed} />
               </Accordion.Panel>
             </Accordion.Item>
             <Accordion.Item value="budget">
-              <Accordion.Control>What funds it</Accordion.Control>
+              <Accordion.Control>{t('What funds it')}</Accordion.Control>
               <Accordion.Panel><RoleBudget companyId={companyId} role={role} /></Accordion.Panel>
             </Accordion.Item>
             <Accordion.Item value="change">
-              <Accordion.Control>Change its charter or model</Accordion.Control>
+              <Accordion.Control>{t('Change its charter or model')}</Accordion.Control>
               <Accordion.Panel>
                 <ActionForm
                   columns={1}
                   fields={[
-                    { name: 'systemPrompt', label: 'Charter', type: 'textarea', description: 'Blank keeps the current one' },
-                    { name: 'modelPrimary', label: 'Primary model', initial: role.model },
+                    { name: 'systemPrompt', label: t('Charter'), type: 'textarea', description: t('Blank keeps the current one') },
+                    { name: 'modelPrimary', label: t('Primary model'), initial: role.model },
                   ]}
                   submit={(values, proof) => api('POST', `/api/companies/${companyId}/roles/${role.id}`, { ...values, proof })}
-                  factor={`Change ${role.slug}`}
-                  action="Change it"
-                  success="Role changed."
+                  factor={t('Change {role}', { role: role.slug })}
+                  action={t('Change it')}
+                  success={t('Role changed.')}
                   done={changed}
                 />
               </Accordion.Panel>
             </Accordion.Item>
             <Accordion.Item value="evals">
-              <Accordion.Control>Eval set and change requests</Accordion.Control>
+              <Accordion.Control>{t('Eval set and change requests')}</Accordion.Control>
               <Accordion.Panel><RoleEvals companyId={companyId} role={role} /></Accordion.Panel>
             </Accordion.Item>
           </Accordion>
@@ -253,12 +285,12 @@ function RoleBudget({ companyId, role }: { companyId: string; role: Role }) {
   if (!budget.data) return <Loading rows={1} />;
   return (
     <SimpleGrid cols={2} spacing="sm">
-      <Mini label="Tokens" value={`${budget.data.snapshot.tokensSpent.toLocaleString()} of ${budget.data.snapshot.tokensMax.toLocaleString()}`} />
+      <Mini label={t('Tokens')} value={t('{spent} of {max}', { spent: count(budget.data.snapshot.tokensSpent), max: count(budget.data.snapshot.tokensMax) })} />
       {budget.data.snapshot.moneyMaxCents !== undefined && (
-        <Mini label="Money" value={`${money(budget.data.snapshot.moneySpentCents ?? 0)} of ${money(budget.data.snapshot.moneyMaxCents)}`} />
+        <Mini label={t('Money')} value={t('{spent} of {max}', { spent: money(budget.data.snapshot.moneySpentCents ?? 0), max: money(budget.data.snapshot.moneyMaxCents) })} />
       )}
       <Paper withBorder radius="md" p="sm" style={{ gridColumn: '1 / -1' }}>
-        <Text size="xs" c="dimmed">Rolls up through</Text>
+        <Text size="xs" c="dimmed">{t('Rolls up through')}</Text>
         <Text size="sm" ff="monospace">{budget.data.chain.map((id) => id.slice(0, 8)).join(' → ')}</Text>
       </Paper>
     </SimpleGrid>
@@ -284,7 +316,7 @@ function RoleEvals({ companyId, role }: { companyId: string; role: Role }) {
           <Badge color={evals.data.latest.failed ? 'red' : 'gray'} variant="light">{evals.data.latest.failed} failed</Badge>
           <Text size="xs" c="dimmed">{relative(evals.data.latest.ranAt)} · {evals.data.latest.triggeredBy}</Text>
         </Group>
-      ) : <Text size="sm" c="dimmed">Never scored. A role with fewer than five references is unscored, not passing (F17.2).</Text>}
+      ) : <Text size="sm" c="dimmed">{t('Never scored. A role with fewer than five references is unscored, not passing.')}</Text>}
       {evals.data.cases.length > 0 && (
         <Table verticalSpacing={6}>
           <Table.Tbody>
@@ -293,8 +325,8 @@ function RoleEvals({ companyId, role }: { companyId: string; role: Role }) {
                 <Table.Td><Text size="sm">{one.name}</Text></Table.Td>
                 <Table.Td><Badge size="sm" variant="light" color={one.polarity === 'negative' ? 'red' : 'teal'}>{one.polarity}</Badge></Table.Td>
                 <Table.Td ta="right">
-                  {one.accepted ? <Badge size="sm" variant="outline" color="gray">accepted</Badge> : (
-                    <ActionButton size="xs" variant="light" label="Accept" run={() => api('POST', `/api/companies/${companyId}/evals/${one.id}/accept`, {})} done={evals.reload} />
+                  {one.accepted ? <Badge size="sm" variant="outline" color="gray">{t('accepted')}</Badge> : (
+                    <ActionButton size="xs" variant="light" label={t('Accept')} run={() => api('POST', `/api/companies/${companyId}/evals/${one.id}/accept`, {})} done={evals.reload} />
                   )}
                 </Table.Td>
               </Table.Tr>
@@ -302,21 +334,21 @@ function RoleEvals({ companyId, role }: { companyId: string; role: Role }) {
           </Table.Tbody>
         </Table>
       )}
-      <Divider label="Request a change, scored before you decide (F17.3)" labelPosition="left" />
+      <Divider label={t('Request a change, scored before you decide')} labelPosition="left" />
       <ActionForm
         columns={1}
         fields={[
-          { name: 'change', label: 'What changes', type: 'select', required: true, options: [
-            { value: 'charter', label: 'Charter' }, { value: 'skills', label: 'Skills' }, { value: 'model_routing', label: 'Model routing' },
+          { name: 'change', label: t('What changes'), type: 'select', required: true, options: [
+            { value: 'charter', label: t('Charter') }, { value: 'skills', label: t('Skills') }, { value: 'model_routing', label: t('Model routing') },
           ] },
-          { name: 'summary', label: 'What and why', type: 'textarea', required: true },
+          { name: 'summary', label: t('What and why'), type: 'textarea', required: true },
         ]}
         submit={async (values) => {
           const answer: { score: { passed: number; failed: number } } =
             await api('POST', `/api/companies/${companyId}/roles/${role.id}/change-request`, { ...values, tools: [] });
-          setAsked(`Filed in your decisions. It scored ${answer.score.passed} passed, ${answer.score.failed} failed.`);
+          setAsked(t('Filed in your inbox. It scored {passed} passed, {failed} failed.', { passed: answer.score.passed, failed: answer.score.failed }));
         }}
-        action="Request the change"
+        action={t('Request the change')}
         done={() => undefined}
       />
       {asked && <Alert color="blue" variant="light">{asked}</Alert>}
@@ -342,14 +374,14 @@ function DivisionDrawer({
       {division && (
         <Stack gap="lg">
           <SimpleGrid cols={3} spacing="sm">
-            <Mini label="Roles" value={String(roles.length)} />
-            <Mini label="Open tasks" value={String(division.openTasks)} />
-            <Mini label="At once" value={String(division.maxConcurrency)} />
+            <Mini label={t('Roles')} value={String(roles.length)} />
+            <Mini label={t('Open tasks')} value={String(division.openTasks)} />
+            <Mini label={t('At once')} value={String(division.maxConcurrency)} />
           </SimpleGrid>
 
-          <Section title="Capabilities it may use" description="A grant may tighten a tier and never loosen it; the database is what says so (F8.3).">
+          <Section title={t('Capabilities it may use')} description={t('A grant may tighten a tier and never loosen it; the database is what says so.')}>
             <Group gap={6}>
-              {division.grants.length === 0 && <Text size="sm" c="dimmed">None.</Text>}
+              {division.grants.length === 0 && <Text size="sm" c="dimmed">{t('None.')}</Text>}
               {division.grants.map((grant) => (
                 <Badge key={grant.capability} variant="light" color={grant.tier === null ? 'gray' : ['gray', 'blue', 'orange', 'red'][grant.tier]} radius="sm">
                   {grant.capability}{grant.tier !== null ? ` · T${grant.tier}` : ''}
@@ -360,14 +392,14 @@ function DivisionDrawer({
 
           <Accordion variant="separated" radius="md">
             <Accordion.Item value="grant">
-              <Accordion.Control>Change a grant</Accordion.Control>
+              <Accordion.Control>{t('Change a grant')}</Accordion.Control>
               <Accordion.Panel>
                 <ActionForm
                   fields={[
-                    { name: 'capabilityName', label: 'Capability', required: true, placeholder: 'email.send' },
-                    { name: 'tierOverride', label: 'Tier', type: 'select', description: 'Blank revokes the grant', options: [
-                      { value: '0', label: 'Tier 0 · read only' }, { value: '1', label: 'Tier 1 · cheap to undo' },
-                      { value: '2', label: 'Tier 2 · costly' }, { value: '3', label: 'Tier 3 · irreversible' },
+                    { name: 'capabilityName', label: t('Capability'), required: true, placeholder: 'email.send' },
+                    { name: 'tierOverride', label: t('Tier'), type: 'select', description: t('Blank revokes the grant'), options: [
+                      { value: '0', label: t('Tier 0 · read only') }, { value: '1', label: t('Tier 1 · cheap to undo') },
+                      { value: '2', label: t('Tier 2 · costly') }, { value: '3', label: t('Tier 3 · irreversible') },
                     ] },
                   ]}
                   submit={(values, proof) => api('POST', `/api/companies/${companyId}/structure/grant`, {
@@ -376,39 +408,41 @@ function DivisionDrawer({
                     ...(values.tierOverride === undefined ? { revoke: true } : { tierOverride: Number(values.tierOverride) }),
                     proof,
                   })}
-                  factor={`Change a grant in ${division.name}`}
-                  action="Apply"
-                  success="Grant changed."
+                  factor={t('Change a grant in {division}', { division: division.name })}
+                  action={t('Apply')}
+                  success={t('Grant changed.')}
                   done={changed}
                 />
               </Accordion.Panel>
             </Accordion.Item>
             <Accordion.Item value="escalation">
-              <Accordion.Control>Who hears about trouble first</Accordion.Control>
+              <Accordion.Control>{t('Who hears about trouble first')}</Accordion.Control>
               <Accordion.Panel>
                 <Text size="sm" c="dimmed" mb="sm">
-                  Now: {division.escalationRole ? `${division.escalationRole}, for ${division.escalateAfterMinutes ?? 240} minutes, then you` : 'straight to you'} (F2.6).
+                  {division.escalationRole
+                    ? t('Now: {role}, for {minutes} minutes, then you.', { role: division.escalationRole, minutes: division.escalateAfterMinutes ?? 240 })
+                    : t('Now: straight to you.')}
                 </Text>
                 <ActionForm
                   fields={[
-                    { name: 'roleSlug', label: 'Escalate to', type: 'select', description: 'Blank sends it straight to you',
+                    { name: 'roleSlug', label: t('Escalate to'), type: 'select', description: t('Blank sends it straight to you'),
                       options: roles.map((role) => ({ value: role.slug, label: role.slug })), initial: division.escalationRole },
-                    { name: 'afterMinutes', label: 'Then you, after (minutes)', type: 'number', initial: division.escalateAfterMinutes },
+                    { name: 'afterMinutes', label: t('Then you, after (minutes)'), type: 'number', initial: division.escalateAfterMinutes },
                   ]}
                   submit={(values) => api('POST', `/api/companies/${companyId}/divisions/${division.id}/escalation`, {
                     roleSlug: values.roleSlug === undefined ? null : values.roleSlug,
                     ...(values.afterMinutes === undefined ? {} : { afterMinutes: values.afterMinutes }),
                   })}
-                  success="Escalation policy saved."
+                  success={t('Escalation policy saved.')}
                   done={changed}
                 />
               </Accordion.Panel>
             </Accordion.Item>
             <Accordion.Item value="health">
-              <Accordion.Control>Capability health</Accordion.Control>
+              <Accordion.Control>{t('Capability health')}</Accordion.Control>
               <Accordion.Panel>
-                <Button variant="light" onClick={() => void readHealth()} mb="sm">Read the last check</Button>
-                {health && (health.length === 0 ? <Text size="sm" c="dimmed">Nothing checked yet.</Text> : (
+                <Button variant="light" onClick={() => void readHealth()} mb="sm">{t('Read the last check')}</Button>
+                {health && (health.length === 0 ? <Text size="sm" c="dimmed">{t('Nothing checked yet.')}</Text> : (
                   <Table verticalSpacing={6}>
                     <Table.Tbody>
                       {health.map((row) => (
@@ -425,23 +459,23 @@ function DivisionDrawer({
               </Accordion.Panel>
             </Accordion.Item>
             <Accordion.Item value="rotate">
-              <Accordion.Control>Rotate a credential</Accordion.Control>
+              <Accordion.Control>{t('Rotate a credential')}</Accordion.Control>
               <Accordion.Panel>
-                <Text size="sm" c="dimmed" mb="sm">The answer to “that token leaked”. Effective on the next call, no restart (F12.3).</Text>
+                <Text size="sm" c="dimmed" mb="sm">{t('The answer to “that token leaked”. Effective on the next call, no restart.')}</Text>
                 <ActionForm
                   fields={[
-                    { name: 'alias', label: 'Credential alias', required: true },
-                    { name: 'newSecretRef', label: 'New reference', description: 'Blank keeps the same path' },
+                    { name: 'alias', label: t('Credential alias'), required: true },
+                    { name: 'newSecretRef', label: t('New reference'), description: t('Blank keeps the same path') },
                   ]}
                   submit={async (values, proof) => {
                     const rotated: { alias: string; version: number } = await api(
                       'POST', `/api/companies/${companyId}/divisions/${division.id}/credentials/${values.alias}/rotate`,
                       { ...(values.newSecretRef === undefined ? {} : { newSecretRef: values.newSecretRef }), proof },
                     );
-                    notifications.show({ color: 'teal', message: `${rotated.alias} is now version ${rotated.version}.` });
+                    notifications.show({ color: 'teal', message: t('{alias} is now version {version}.', { alias: rotated.alias, version: rotated.version }) });
                   }}
-                  factor="Rotate a credential"
-                  action="Rotate"
+                  factor={t('Rotate a credential')}
+                  action={t('Rotate')}
                   done={() => undefined}
                 />
               </Accordion.Panel>
@@ -470,11 +504,21 @@ function GoalLadder({ companyId, goals, changed }: { companyId: string; goals: G
               {goal.kind === 'mission' ? <IconFlag size={16} /> : <IconTarget size={16} />}
             </ThemeIcon>
             <div style={{ minWidth: 0 }}>
-              <Text size="xs" c="dimmed" tt="uppercase" fw={700}>{goal.kind.replace('_', ' ')}</Text>
+              <Text size="xs" c="dimmed" tt="uppercase" fw={700}>{goalKind(goal.kind)}</Text>
               <Text size="sm" fw={600}>{goal.statement}</Text>
             </div>
           </Group>
-          <Badge color={goal.status === 'active' ? 'blue' : goal.status === 'met' ? 'teal' : 'gray'} variant="light">{goal.status}</Badge>
+          <Group gap="sm" wrap="nowrap">
+            {goal.tasksTotal > 0 && (
+              <Tooltip label={t('{done} of {total} tasks under it are done', { done: goal.tasksDone, total: goal.tasksTotal })}>
+                <Group gap={6} wrap="nowrap" w={140} visibleFrom="sm">
+                  <Progress value={(goal.tasksDone / goal.tasksTotal) * 100} size="sm" radius="xl" style={{ flex: 1 }} color={goal.tasksDone === goal.tasksTotal ? 'teal' : 'brand'} />
+                  <Text size="xs" c="dimmed" className="tabular">{goal.tasksDone}/{goal.tasksTotal}</Text>
+                </Group>
+              </Tooltip>
+            )}
+            <Badge color={goal.status === 'active' ? 'brand' : goal.status === 'met' ? 'teal' : 'gray'} variant="light">{goalStatus(goal.status)}</Badge>
+          </Group>
         </Group>
       </Paper>
       {childrenOf(goal.id).map((child) => renderGoal(child, depth + 1))}
@@ -483,25 +527,25 @@ function GoalLadder({ companyId, goals, changed }: { companyId: string; goals: G
 
   return (
     <Section
-      title="The goal ladder"
-      description="A mission, the objectives under it, and the key results under those. Agents read it; only you change it (F2.7, F3.10)."
-      actions={<Button size="xs" leftSection={<IconPlus size={14} />} onClick={() => setAdding(true)}>Add a goal</Button>}
+      title={t('The goal ladder')}
+      description={t('A mission, the objectives under it, and the key results under those. Agents read it; only you change it.')}
+      actions={<Button size="xs" leftSection={<IconPlus size={14} />} onClick={() => setAdding(true)}>{t('Add a goal')}</Button>}
     >
-      {roots.length === 0 ? <Text size="sm" c="dimmed">No goals yet.</Text> : roots.map((goal) => renderGoal(goal, 0))}
+      {roots.length === 0 ? <Text size="sm" c="dimmed">{t('No goals yet.')}</Text> : roots.map((goal) => renderGoal(goal, 0))}
 
-      <Modal opened={adding} onClose={() => setAdding(false)} title="Add a goal" centered size="lg">
+      <Modal opened={adding} onClose={() => setAdding(false)} title={t('Add a goal')} centered size="lg">
         <ActionForm
           fields={[
-            { name: 'kind', label: 'Kind', type: 'select', required: true, options: [
-              { value: 'mission', label: 'Mission' }, { value: 'objective', label: 'Objective' }, { value: 'key_result', label: 'Key result' },
+            { name: 'kind', label: t('Kind'), type: 'select', required: true, options: [
+              { value: 'mission', label: t('Mission') }, { value: 'objective', label: t('Objective') }, { value: 'key_result', label: t('Key result') },
             ] },
-            { name: 'slug', label: 'Short name', required: true, placeholder: 'grow-revenue' },
-            { name: 'parentGoalId', label: 'Under', type: 'select', options: goals.map((goal) => ({ value: goal.id, label: `${goal.kind.replace('_', ' ')}: ${goal.statement}` })), wide: true },
-            { name: 'statement', label: 'Statement', type: 'textarea', required: true },
+            { name: 'slug', label: t('Short name'), required: true, placeholder: 'grow-revenue' },
+            { name: 'parentGoalId', label: t('Under'), type: 'select', options: goals.map((goal) => ({ value: goal.id, label: `${goalKind(goal.kind)}: ${goal.statement}` })), wide: true },
+            { name: 'statement', label: t('Statement'), type: 'textarea', required: true },
           ]}
           submit={(values) => api('POST', `/api/companies/${companyId}/goals`, values)}
-          action="Add it"
-          success="Goal added."
+          action={t('Add it')}
+          success={t('Goal added.')}
           done={() => { setAdding(false); changed(); }}
         />
       </Modal>
@@ -518,22 +562,22 @@ function GoalEditor({ companyId, goal, close, changed }: { companyId: string; go
     return answer;
   }, [companyId, goal?.id]);
   return (
-    <Modal opened={goal !== null} onClose={close} title="Change a goal" centered size="lg">
+    <Modal opened={goal !== null} onClose={close} title={t('Change a goal')} centered size="lg">
       {goal && (
         <Stack>
-          {detail.data && <Text size="sm" c="dimmed">{detail.data.kind.replace('_', ' ')} · {detail.data.slug} · {detail.data.status}</Text>}
+          {detail.data && <Text size="sm" c="dimmed">{goalKind(detail.data.kind)} · {detail.data.slug} · {goalStatus(detail.data.status)}</Text>}
           <ActionForm
             columns={1}
             fields={[
-              { name: 'statement', label: 'Statement', type: 'textarea', initial: goal.statement },
-              { name: 'status', label: 'Status', type: 'select', initial: goal.status, options: [
-                { value: 'active', label: 'Active' }, { value: 'met', label: 'Met' }, { value: 'abandoned', label: 'Abandoned' },
+              { name: 'statement', label: t('Statement'), type: 'textarea', initial: goal.statement },
+              { name: 'status', label: t('Status'), type: 'select', initial: goal.status, options: [
+                { value: 'active', label: t('Active') }, { value: 'met', label: t('Met') }, { value: 'abandoned', label: t('Abandoned') },
               ] },
             ]}
             submit={(values, proof) => api('POST', `/api/companies/${companyId}/goals/${goal.id}`, { ...values, proof })}
-            factor="Change a goal"
-            action="Change it"
-            success="Goal changed."
+            factor={t('Change a goal')}
+            action={t('Change it')}
+            success={t('Goal changed.')}
             done={() => { close(); changed(); }}
           />
         </Stack>
@@ -552,16 +596,16 @@ function Schedules({
   const [adding, setAdding] = useState(false);
   return (
     <Section
-      title="Schedules"
-      description="Durable cron in the schedule's own time zone (F9.1). A schedule whose last five runs said the same thing asks you whether it is still worth running."
-      actions={<Button size="xs" leftSection={<IconPlus size={14} />} onClick={() => setAdding(true)}>New schedule</Button>}
+      title={t('Schedules')}
+      description={t("Durable cron in the schedule's own time zone. A schedule whose last five runs said the same thing asks you whether it is still worth running.")}
+      actions={<Button size="xs" leftSection={<IconPlus size={14} />} onClick={() => setAdding(true)}>{t('New schedule')}</Button>}
       padding="lg"
     >
-      {schedules.length === 0 ? <Text size="sm" c="dimmed">No schedules.</Text> : (
+      {schedules.length === 0 ? <Text size="sm" c="dimmed">{t('No schedules.')}</Text> : (
         <Table.ScrollContainer minWidth={640}>
           <Table verticalSpacing="sm" highlightOnHover>
             <Table.Thead>
-              <Table.Tr><Table.Th>Schedule</Table.Th><Table.Th>When</Table.Th><Table.Th>Role</Table.Th><Table.Th>Next</Table.Th><Table.Th>State</Table.Th></Table.Tr>
+              <Table.Tr><Table.Th>{t('Schedule')}</Table.Th><Table.Th>{t('When')}</Table.Th><Table.Th>{t('Role')}</Table.Th><Table.Th>{t('Next')}</Table.Th><Table.Th>{t('State')}</Table.Th></Table.Tr>
             </Table.Thead>
             <Table.Tbody>
               {schedules.map((schedule) => (
@@ -571,8 +615,8 @@ function Schedules({
                   <Table.Td><Text size="sm">{schedule.roleSlug}</Text><Text size="xs" c="dimmed">{schedule.divisionName}</Text></Table.Td>
                   <Table.Td><Text size="sm">{relative(schedule.nextRunAt)}</Text></Table.Td>
                   <Table.Td>
-                    {schedule.failure ? <Tooltip label={schedule.failure}><Badge color="red" variant="light">Cannot fire</Badge></Tooltip>
-                      : schedule.enabled ? <Badge color="teal" variant="light">On</Badge> : <Badge color="gray" variant="light">Off</Badge>}
+                    {schedule.failure ? <Tooltip label={schedule.failure}><Badge color="red" variant="light">{t('Cannot fire')}</Badge></Tooltip>
+                      : schedule.enabled ? <Badge color="teal" variant="light">{t('On')}</Badge> : <Badge color="gray" variant="light">{t('Off')}</Badge>}
                   </Table.Td>
                 </Table.Tr>
               ))}
@@ -580,19 +624,19 @@ function Schedules({
           </Table>
         </Table.ScrollContainer>
       )}
-      <Modal opened={adding} onClose={() => setAdding(false)} title="New schedule" centered size="lg">
+      <Modal opened={adding} onClose={() => setAdding(false)} title={t('New schedule')} centered size="lg">
         <ActionForm
           fields={[
-            { name: 'roleId', label: 'Role', type: 'select', required: true, options: structure.roles.map((role) => ({
+            { name: 'roleId', label: t('Role'), type: 'select', required: true, options: structure.roles.map((role) => ({
               value: role.id, label: `${role.slug} · ${structure.divisions.find((d) => d.id === role.divisionId)?.name ?? ''}`,
             })) },
-            { name: 'projectId', label: 'Project', type: 'select', required: true, initial: structure.projects[0]?.id ?? null,
+            { name: 'projectId', label: t('Project'), type: 'select', required: true, initial: structure.projects[0]?.id ?? null,
               options: structure.projects.map((project) => ({ value: project.id, label: project.name })) },
-            { name: 'slug', label: 'Short name', required: true, placeholder: 'weekly-invoices' },
-            { name: 'cronExpression', label: 'Cron', required: true, placeholder: '0 3 * * *', description: 'minute hour day month weekday' },
-            { name: 'timezone', label: 'Time zone', type: 'select', initial: 'UTC', options: ZONES.map((zone) => ({ value: zone, label: zone })) },
-            { name: 'priority', label: 'Priority', type: 'select', initial: '2', options: [
-              { value: '0', label: 'P0 · first' }, { value: '1', label: 'P1' }, { value: '2', label: 'P2 · normal' }, { value: '3', label: 'P3 · last' },
+            { name: 'slug', label: t('Short name'), required: true, placeholder: 'weekly-invoices' },
+            { name: 'cronExpression', label: t('Cron'), required: true, placeholder: '0 3 * * *', description: t('minute hour day month weekday') },
+            { name: 'timezone', label: t('Time zone'), type: 'select', initial: 'UTC', options: ZONES.map((zone) => ({ value: zone, label: zone })) },
+            { name: 'priority', label: t('Priority'), type: 'select', initial: '2', options: [
+              { value: '0', label: t('P0 · first') }, { value: '1', label: 'P1' }, { value: '2', label: t('P2 · normal') }, { value: '3', label: t('P3 · last') },
             ] },
           ]}
           submit={(values) => {
@@ -603,8 +647,8 @@ function Schedules({
               ...(values.priority === undefined ? {} : { priority: Number(values.priority) }),
             });
           }}
-          action="Schedule it"
-          success="Scheduled."
+          action={t('Schedule it')}
+          success={t('Scheduled.')}
           done={() => { setAdding(false); changed(); }}
         />
       </Modal>
@@ -627,32 +671,32 @@ function Policies({ companyId }: { companyId: string }) {
     try {
       parsed = JSON.parse(condition);
     } catch {
-      setError('The condition is not valid JSON.');
+      setError(t('The condition is not valid JSON.'));
       return;
     }
     try {
-      const done = await requireFactor('Write the policy', (proof) => api('POST', '/api/policies', {
+      const done = await requireFactor(t('Write the policy'), (proof) => api('POST', '/api/policies', {
         slug, effect, companyId, condition: parsed, proof,
       }));
-      if (done) notifications.show({ color: 'teal', message: `Policy ${slug} written.` });
+      if (done) notifications.show({ color: 'teal', message: t('Policy {slug} written.', { slug }) });
     } catch (failure) {
-      setError((failure as Error).message);
+      setError(explain(failure));
     }
   };
 
   return (
-    <Section title="Write a policy" description="The condition is JSON and the engine validates it (F3.4). A lower scope may only tighten what a broader one set (F3.5).">
+    <Section title={t('Write a policy')} description={t('The condition is JSON and the engine validates it. A lower scope may only tighten what a broader one set.')}>
       <Stack>
         <SimpleGrid cols={{ base: 1, sm: 2 }}>
-          <TextInput label="Short name" value={slug} onChange={(event) => setSlug(event.currentTarget.value)} required />
-          <Select label="Effect" value={effect} onChange={setEffect} data={[
-            { value: 'allow', label: 'Allow' }, { value: 'require_review', label: 'Require a review' },
-            { value: 'require_approval', label: 'Require your approval' }, { value: 'deny', label: 'Deny' },
+          <TextInput label={t('Short name')} value={slug} onChange={(event) => setSlug(event.currentTarget.value)} required />
+          <Select label={t('Effect')} value={effect} onChange={setEffect} data={[
+            { value: 'allow', label: t('Allow') }, { value: 'require_review', label: t('Require a review') },
+            { value: 'require_approval', label: t('Require your approval') }, { value: 'deny', label: t('Deny') },
           ]} required />
         </SimpleGrid>
-        <Textarea label="Condition" autosize minRows={4} ff="monospace" value={condition} onChange={(event) => setCondition(event.currentTarget.value)} />
+        <Textarea label={t('Condition')} autosize minRows={4} ff="monospace" value={condition} onChange={(event) => setCondition(event.currentTarget.value)} />
         {error && <Alert color="red" variant="light">{error}</Alert>}
-        <Group><Button disabled={!slug || !effect} onClick={() => void write()}>Write it</Button></Group>
+        <Group><Button disabled={!slug || !effect} onClick={() => void write()}>{t('Write it')}</Button></Group>
       </Stack>
     </Section>
   );

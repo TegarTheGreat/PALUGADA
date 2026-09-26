@@ -5,6 +5,10 @@ export interface Company {
   slug: string;
   name: string;
   frozen: boolean;
+  /** What the company produces in; null follows the deployment's default. */
+  workLanguage: string | null;
+  /** What its agents write to the owner and each other in; null follows the default. */
+  talkLanguage: string | null;
 }
 
 export interface InboxItem {
@@ -70,6 +74,9 @@ export interface Goal {
   slug: string;
   statement: string;
   status: string;
+  /** Tasks under this goal or any goal beneath it: finished, and in all. */
+  tasksDone: number;
+  tasksTotal: number;
 }
 
 export interface Division {
@@ -98,6 +105,9 @@ export interface Role {
   frozenReason: string | null;
   openTasks: number;
   doneLastWeek: number;
+  /** Who the role is and how it works: first in every run's context. */
+  charter: string;
+  doneCriteria: string[];
 }
 
 export interface Structure {
@@ -126,6 +136,15 @@ export interface WorkItem {
   finishedAt: string | null;
   costCents: number;
   parentTaskId: string | null;
+  progress: {
+    stepsDone: number;
+    currentStep: string | null;
+    currentStepStatus: string | null;
+    planSteps: number | null;
+    worker: string | null;
+    heartbeatAt: string | null;
+    deadlineAt: string | null;
+  };
 }
 
 export interface ActivityItem {
@@ -241,4 +260,21 @@ export interface Publisher {
   label: string;
   fingerprint: string;
   revokedAt: string | null;
+}
+
+export type MemoryKind = 'working' | 'episodic' | 'semantic' | 'procedural';
+
+export interface MemoryItem {
+  id: string;
+  kind: MemoryKind;
+  body: string;
+  scopeType: string;
+  scopeName: string | null;
+  confidence: number;
+  unverified: boolean;
+  source: string;
+  factKind: string | null;
+  approval: string;
+  supersededBy: string | null;
+  createdAt: string;
 }

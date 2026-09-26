@@ -52,7 +52,10 @@ test('the charter comes first, before SOPs and memory (F3.2)', async () => {
   const kinds = context.sections.map((section) => section.kind);
   assert.deepEqual(
     kinds,
-    ['platform_charter', 'company_charter', 'sop', 'semantic_memory'],
+    // The language rule is a rule of the same kind as the charters and sits
+    // directly under them (src/domain/language.ts), above everything a run
+    // might be pulled into another language by.
+    ['platform_charter', 'company_charter', 'language', 'sop', 'semantic_memory'],
     'charters must precede SOPs, and SOPs must precede recalled facts',
   );
 
@@ -91,7 +94,7 @@ test("another company's charter is never visible", async () => {
   );
 
   assert.ok(!context.text.includes('Secret competitor strategy'));
-  assert.deepEqual(context.sections.map((s) => s.kind), ['platform_charter']);
+  assert.deepEqual(context.sections.map((s) => s.kind), ['platform_charter', 'language']);
 });
 
 test('charter versions accumulate and are audited (F3.6)', async () => {

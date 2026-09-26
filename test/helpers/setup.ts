@@ -87,7 +87,12 @@ export async function resetData(): Promise<void> {
       `UPDATE platform_control
           SET owner_timezone = 'UTC',
               owner_window_start_hour = 8,
-              owner_window_end_hour = 22`,
+              owner_window_end_hour = 22,
+              -- And the languages (0052), for the same reason: a test that sets
+              -- the agents' default to Indonesian would otherwise hand it to
+              -- every file after it.
+              console_language = NULL,
+              agent_language = 'en'`,
     );
   });
 }

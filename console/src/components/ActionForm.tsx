@@ -8,12 +8,14 @@
  * need, which is the harmless direction of being wrong.
  */
 import { useState } from 'react';
+import { explain } from '../api.ts';
 import {
   Alert, Button, Group, NumberInput, Select, SimpleGrid, Stack, Textarea, TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import type { Proof } from '../api.ts';
 import { useFactor } from '../factor.tsx';
+import { t } from '../i18n.ts';
 
 export interface Field {
   name: string;
@@ -32,7 +34,7 @@ export interface Field {
 export type Values = Record<string, string | number>;
 
 export function ActionForm({
-  fields, submit, action = 'Save', factor, done, columns = 2, success,
+  fields, submit, action, factor, done, columns = 2, success,
 }: {
   fields: Field[];
   submit: (values: Values, proof?: Proof) => Promise<unknown>;
@@ -76,10 +78,10 @@ export function ActionForm({
       } else {
         result = await submit(collected);
       }
-      if (success || !done) notifications.show({ color: 'teal', message: success ?? 'Saved.' });
+      if (success || !done) notifications.show({ color: 'teal', message: success ?? t('Saved.') });
       done?.(result);
     } catch (failure) {
-      setError((failure as Error).message);
+      setError(explain(failure));
     } finally {
       setBusy(false);
     }
@@ -115,7 +117,7 @@ export function ActionForm({
         </SimpleGrid>
         {error && <Alert color="red" variant="light">{error}</Alert>}
         <Group>
-          <Button type="submit" loading={busy}>{action}</Button>
+          <Button type="submit" loading={busy}>{action ?? t('Save')}</Button>
         </Group>
       </Stack>
     </form>
@@ -148,7 +150,7 @@ export function ActionButton({
       }
       done?.();
     } catch (failure) {
-      notifications.show({ color: 'red', title: label, message: (failure as Error).message });
+      notifications.show({ color: 'red', title: label, message: explain(failure) });
     } finally {
       setBusy(false);
     }

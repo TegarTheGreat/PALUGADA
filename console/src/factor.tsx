@@ -16,9 +16,11 @@
  * worst failure this page could have.
  */
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react';
+import { explain } from './api.ts';
 import { Alert, Button, Group, Modal, PinInput, Stack, Text, ThemeIcon } from '@mantine/core';
 import { IconShieldLock } from '@tabler/icons-react';
 import type { Proof } from './api.ts';
+import { t } from './i18n.ts';
 
 type Attempt = (proof: Proof) => Promise<unknown>;
 
@@ -70,7 +72,7 @@ export function FactorProvider({ children }: { children: ReactNode }) {
     } catch (failure) {
       // Shown here, where the owner is looking: "that code is wrong", "that
       // has been used" and "locked out" are three different next actions.
-      setError((failure as Error).message);
+      setError(explain(failure));
       setCode('');
       setBusy(false);
     }
@@ -92,7 +94,7 @@ export function FactorProvider({ children }: { children: ReactNode }) {
             <IconShieldLock size={28} />
           </ThemeIcon>
           <div style={{ textAlign: 'center' }}>
-            <Text fw={700} size="lg">Confirm with your authenticator</Text>
+            <Text fw={700} size="lg">{t('Confirm with your authenticator')}</Text>
             <Text c="dimmed" size="sm" mt={4}>{pending?.what}</Text>
           </div>
           <PinInput
@@ -106,13 +108,13 @@ export function FactorProvider({ children }: { children: ReactNode }) {
             onComplete={(value) => void submit(value)}
             disabled={busy}
             error={error !== null}
-            aria-label="Six-digit code"
+            aria-label={t('Six-digit code')}
           />
           {error && <Alert color="red" variant="light" w="100%">{error}</Alert>}
           <Group justify="flex-end" w="100%" mt="xs">
-            <Button variant="default" onClick={() => close(false)}>Cancel</Button>
+            <Button variant="default" onClick={() => close(false)}>{t('Cancel')}</Button>
             <Button loading={busy} disabled={code.length !== 6} onClick={() => void submit(code)}>
-              Confirm
+              {t('Confirm')}
             </Button>
           </Group>
         </Stack>

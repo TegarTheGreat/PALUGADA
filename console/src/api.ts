@@ -12,6 +12,8 @@
  * these calls to prove every route the API offers can be pressed from here.
  */
 
+import { N, t } from './i18n.ts';
+
 export class ApiError extends Error {
   constructor(message: string, readonly status: number, readonly code: string | undefined) {
     super(message);
@@ -62,4 +64,39 @@ export async function api<T = any>(method: 'GET' | 'POST', path: string, body?: 
 /** A second factor, as the API takes it. */
 export interface Proof {
   totp: string;
+}
+
+/**
+ * The refusals an owner meets in the console, in their language. Anything not
+ * here is shown as the API said it: the code is stable, the message carries
+ * the particulars, and a translation that dropped them would be worse.
+ */
+const EXPLAINED: Record<string, string> = {
+  'owner.unauthenticated': N('Your session has ended. Sign in again.'),
+  'mfa.code_invalid': N('That code is not right. Check the time on your phone and try the current one.'),
+  'mfa.replayed': N('That code has already been used. Wait for the next one.'),
+  'mfa.locked_out': N('Too many wrong codes. Wait a few minutes before trying again.'),
+  'mfa.not_enrolled': N('No authenticator is enrolled on this deployment yet.'),
+  'mfa.factor_unavailable': N('The authenticator secret cannot be read on this deployment; ask the operator.'),
+  'inbox.not_open': N('This has already been decided or has closed.'),
+  'approval.channel_forbidden': N('This needs your authenticator.'),
+  'company.frozen': N('This company is frozen. Unfreeze it in its settings first.'),
+  'platform.stopped': N('Everything is stopped. Resume first.'),
+  'role.frozen': N('This role is frozen until you resume it.'),
+  'spend.paused': N('Spending is paused for this company.'),
+  'budget.exceeded': N('That would go over the budget.'),
+  'gateway.key_mismatch': N('That fingerprint is not the key this device holds.'),
+  'gateway.not_pairable': N('This device cannot be paired in its current state.'),
+  'bundle.bad_signature': N('The bundle signature does not check out.'),
+  'publisher.invalid_key': N('That is not a valid publisher key.'),
+  'capability.unknown': N('No capability by that name is bound on this deployment.'),
+  'goal.required': N('Pick the goal this work serves.'),
+};
+
+/** What went wrong, in words for the owner. */
+export function explain(failure: unknown): string {
+  if (failure instanceof ApiError && failure.code && EXPLAINED[failure.code]) return t(EXPLAINED[failure.code]!);
+  // `fetch` itself failing: the server is down or the network is.
+  if (failure instanceof TypeError) return t('Could not reach PALUGADA. Check the connection and try again.');
+  return failure instanceof Error ? failure.message : String(failure);
 }

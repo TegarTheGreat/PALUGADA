@@ -16,6 +16,7 @@
 import { withTenant } from '../db/tenant.ts';
 import { fingerprint } from '../gateway/gateway.ts';
 import { TERMINAL_STATUSES, type TaskStatus } from '../domain/task.ts';
+import { LOW_CONFIDENCE } from '../context/builder.ts';
 
 /* -------------------------------------------------------------- structure --- */
 
@@ -28,6 +29,13 @@ export interface StructureView {
     slug: string;
     statement: string;
     status: string;
+    /**
+     * How far the work under this goal has got: tasks hanging from it or from
+     * any goal under it, finished and in all. A goal's progress is what its
+     * key results' work adds up to, so the counts roll up the ladder.
+     */
+    tasksDone: number;
+    tasksTotal: number;
   }>;
   divisions: Array<{
     id: string;
@@ -55,13 +63,17 @@ export interface StructureView {
     frozenReason: string | null;
     openTasks: number;
     doneLastWeek: number;
+    /** The role's charter: who it is and how it works, first in every run's context (F3.1). */
+    charter: string;
+    /** What finished looks like for this role, testable (F2.8). */
+    doneCriteria: string[];
   }>;
 }
 
 /** The company's shape: goal ladder, divisions with their grants, roles. */
 export async function structureOf(companyId: string): Promise<StructureView> {
   return withTenant(companyId, async (tx) => {
-    const [projects, goals, divisions, grants, roles] = await Promise.all([
+    const [projects, goals, divisions, grants, roles, goalWork] = await Promise.all([
       tx.query<{ id: string; slug: string; name: string }>(
         'SELECT id, slug, name FROM projects ORDER BY created_at',
       ),
@@ -93,11 +105,11 @@ export async function structureOf(companyId: string): Promise<StructureView> {
         id: string; division_id: string; slug: string; model: string; runtime: string | null;
         tools: string[]; heartbeat_minutes: number | null; dormant_until: Date | null;
         frozen_at: Date | null; frozen_reason: string | null;
-        open_tasks: number; done_last_week: number;
+        open_tasks: number; done_last_week: number; system_prompt: string; done_criteria: string[] | null;
       }>(
         `SELECT r.id, r.division_id, r.slug, coalesce(r.model_primary, r.model) AS model,
                 r.runtime, r.tools, r.heartbeat_minutes, r.dormant_until,
-                r.frozen_at, r.frozen_reason,
+                r.frozen_at, r.frozen_reason, r.system_prompt, r.done_criteria,
                 (SELECT count(*)::int FROM tasks t
                   WHERE t.role_id = r.id AND NOT (t.status = ANY ($1))) AS open_tasks,
                 (SELECT count(*)::int FROM tasks t
@@ -107,7 +119,35 @@ export async function structureOf(companyId: string): Promise<StructureView> {
           ORDER BY r.created_at`,
         [TERMINAL_STATUSES],
       ),
+      tx.query<{ goal_id: string; done: number; total: number }>(
+        `SELECT goal_id, count(*) FILTER (WHERE status = 'completed')::int AS done, count(*)::int AS total
+           FROM tasks WHERE goal_id IS NOT NULL GROUP BY goal_id`,
+      ),
     ]);
+
+    // Rolled up the ladder: a goal counts its own tasks and every goal's under it.
+    const own = new Map(goalWork.rows.map((row) => [row.goal_id, row]));
+    const children = new Map<string, string[]>();
+    for (const goal of goals.rows) {
+      if (!goal.parent_goal_id) continue;
+      children.set(goal.parent_goal_id, [...(children.get(goal.parent_goal_id) ?? []), goal.id]);
+    }
+    const rolled = new Map<string, { done: number; total: number }>();
+    const roll = (id: string, seen: Set<string>): { done: number; total: number } => {
+      const cached = rolled.get(id);
+      if (cached) return cached;
+      const sum = { done: own.get(id)?.done ?? 0, total: own.get(id)?.total ?? 0 };
+      if (!seen.has(id)) {
+        seen.add(id);
+        for (const child of children.get(id) ?? []) {
+          const below = roll(child, seen);
+          sum.done += below.done;
+          sum.total += below.total;
+        }
+      }
+      rolled.set(id, sum);
+      return sum;
+    };
 
     const grantsBy = new Map<string, Array<{ capability: string; tier: number | null }>>();
     for (const grant of grants.rows) {
@@ -125,6 +165,8 @@ export async function structureOf(companyId: string): Promise<StructureView> {
         slug: goal.slug,
         statement: goal.statement,
         status: goal.status,
+        tasksDone: roll(goal.id, new Set()).done,
+        tasksTotal: roll(goal.id, new Set()).total,
       })),
       divisions: divisions.rows.map((division) => ({
         id: division.id,
@@ -151,6 +193,8 @@ export async function structureOf(companyId: string): Promise<StructureView> {
         frozenReason: role.frozen_reason,
         openTasks: role.open_tasks,
         doneLastWeek: role.done_last_week,
+        charter: role.system_prompt,
+        doneCriteria: role.done_criteria ?? [],
       })),
     };
   });
@@ -194,6 +238,21 @@ export interface WorkItem {
   finishedAt: Date | null;
   costCents: number;
   parentTaskId: string | null;
+  /**
+   * How far it has got, from its own journal: steps committed, the step it
+   * is on or last took, how many actions its plan named, which worker holds
+   * it and when that worker last said it was alive. What an owner asks of a
+   * task that has been "running" for an hour is exactly these.
+   */
+  progress: {
+    stepsDone: number;
+    currentStep: string | null;
+    currentStepStatus: string | null;
+    planSteps: number | null;
+    worker: string | null;
+    heartbeatAt: Date | null;
+    deadlineAt: Date | null;
+  };
 }
 
 export interface WorkView {
@@ -214,19 +273,31 @@ export async function workOf(
       role_slug: string; division_name: string; goal: string | null; schedule: string | null;
       priority: number; attempt: number; attempt_max: number; created_at: Date;
       started_at: Date | null; finished_at: Date | null; cost_cents: string;
-      parent_task_id: string | null;
+      parent_task_id: string | null; steps_done: number; current_step: string | null;
+      current_step_status: string | null; plan_steps: number | null; lease_holder: string | null;
+      heartbeat_at: Date | null; deadline_at: Date | null;
     }>(
       `SELECT t.id, t.status, t.halt_reason, t.input, r.slug AS role_slug,
               d.name AS division_name, g.statement AS goal, s.slug AS schedule,
               t.priority, t.attempt, t.attempt_max, t.created_at, t.started_at,
-              t.finished_at, t.parent_task_id,
+              t.finished_at, t.parent_task_id, t.lease_holder, t.deadline_at,
               coalesce((SELECT sum(l.cost_cents) FROM llm_traces l WHERE l.task_id = t.id), 0)
-                AS cost_cents
+                AS cost_cents,
+              (SELECT count(*)::int FROM task_steps j
+                WHERE j.task_id = t.id AND j.status = 'committed') AS steps_done,
+              last.name AS current_step, last.status AS current_step_status,
+              CASE WHEN jsonb_typeof(t.plan -> 'steps') = 'array'
+                   THEN jsonb_array_length(t.plan -> 'steps') END AS plan_steps,
+              (SELECT max(a.last_heartbeat_at) FROM agent_runs a WHERE a.task_id = t.id) AS heartbeat_at
          FROM tasks t
          JOIN roles r ON r.id = t.role_id
          JOIN divisions d ON d.id = t.division_id
          LEFT JOIN goals g ON g.id = t.goal_id
          LEFT JOIN schedules s ON s.id = t.schedule_id
+         LEFT JOIN LATERAL (
+           SELECT j.name, j.status FROM task_steps j
+            WHERE j.task_id = t.id ORDER BY j.step_index DESC LIMIT 1
+         ) last ON true
         WHERE $1::text[] IS NULL OR t.status = ANY ($1)
         ORDER BY t.created_at DESC
         LIMIT $2`,
@@ -262,6 +333,15 @@ export async function workOf(
         finishedAt: row.finished_at,
         costCents: Number(row.cost_cents),
         parentTaskId: row.parent_task_id,
+        progress: {
+          stepsDone: row.steps_done,
+          currentStep: row.current_step,
+          currentStepStatus: row.current_step_status,
+          planSteps: row.plan_steps,
+          worker: row.lease_holder,
+          heartbeatAt: row.heartbeat_at,
+          deadlineAt: row.deadline_at,
+        },
       })),
     };
   });
@@ -489,5 +569,96 @@ export async function devicesOf(companyId: string): Promise<DeviceView[]> {
         keyFingerprint,
       };
     });
+  });
+}
+
+/* ----------------------------------------------------------------- memory --- */
+
+export const MEMORY_KINDS = ['working', 'episodic', 'semantic', 'procedural'] as const;
+export type MemoryKind = (typeof MEMORY_KINDS)[number];
+
+export function isMemoryKind(value: unknown): value is MemoryKind {
+  return typeof value === 'string' && (MEMORY_KINDS as readonly string[]).includes(value);
+}
+
+export interface MemoryView {
+  id: string;
+  kind: MemoryKind;
+  body: string;
+  scopeType: string;
+  /** The project or division it is scoped to, by name; null for the company. */
+  scopeName: string | null;
+  confidence: number;
+  /**
+   * Under the confidence a run is told to treat as unverified (F4.5). Said
+   * here as the context builder says it, so the page and the agent see the
+   * same fact the same way.
+   */
+  unverified: boolean;
+  source: string;
+  factKind: string | null;
+  approval: string;
+  supersededBy: string | null;
+  createdAt: Date;
+}
+
+/**
+ * What the company knows (F4): facts, procedures, episodes and working notes,
+ * where each applies and how sure the platform is of it. The owner reads it
+ * to see what the agents will be told, and corrects it from here.
+ */
+export async function memoriesOf(
+  companyId: string,
+  options: { kind?: MemoryKind; query?: string; superseded?: boolean; limit?: number } = {},
+): Promise<{ items: MemoryView[]; counts: Record<MemoryKind, number>; candidates: number }> {
+  const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
+  return withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<{
+      id: string; memory_type: MemoryKind; body: string; scope_type: string; scope_name: string | null;
+      confidence: number; source: string; fact_kind: string | null; approval_state: string;
+      superseded_by: string | null; created_at: Date;
+    }>(
+      `SELECT m.id, m.memory_type, m.body, m.scope_type, m.confidence, m.source, m.fact_kind,
+              m.approval_state, m.superseded_by, m.created_at,
+              coalesce(d.name, p.name) AS scope_name
+         FROM memories m
+         LEFT JOIN divisions d ON m.scope_type = 'division' AND d.id = m.scope_id
+         LEFT JOIN projects p ON m.scope_type = 'project' AND p.id = m.scope_id
+        WHERE ($1::text IS NULL OR m.memory_type = $1)
+          AND ($2::text IS NULL OR m.body ILIKE '%' || $2 || '%')
+          AND ($3 OR m.superseded_by IS NULL)
+        ORDER BY m.created_at DESC
+        LIMIT $4`,
+      [options.kind ?? null, options.query?.trim() || null, options.superseded ?? false, limit],
+    );
+    const { rows: grouped } = await tx.query<{ memory_type: MemoryKind; n: number; candidates: number }>(
+      `SELECT memory_type, count(*)::int AS n,
+              count(*) FILTER (WHERE approval_state = 'candidate')::int AS candidates
+         FROM memories WHERE superseded_by IS NULL GROUP BY memory_type`,
+    );
+    const counts = { working: 0, episodic: 0, semantic: 0, procedural: 0 } as Record<MemoryKind, number>;
+    let candidates = 0;
+    for (const row of grouped) {
+      counts[row.memory_type] = row.n;
+      candidates += row.candidates;
+    }
+    return {
+      counts,
+      candidates,
+      items: rows.map((row) => ({
+        id: row.id,
+        kind: row.memory_type,
+        body: row.body,
+        scopeType: row.scope_type,
+        scopeName: row.scope_name,
+        confidence: row.confidence,
+        unverified: row.confidence < LOW_CONFIDENCE,
+        source: row.source,
+        factKind: row.fact_kind,
+        approval: row.approval_state,
+        supersededBy: row.superseded_by,
+        createdAt: row.created_at,
+      })),
+    };
   });
 }

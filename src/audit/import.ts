@@ -318,8 +318,15 @@ export async function importCompany(
   // company's id and no other.
   return withControlPlane(async (tx) => {
     const { rows } = await tx.query<{ id: string }>(
-      'INSERT INTO companies (slug, name, timezone) VALUES ($1, $2, $3) RETURNING id',
-      [options.slug, options.name ?? String(source!.name ?? options.slug), String(source!.timezone ?? 'UTC')],
+      `INSERT INTO companies (slug, name, timezone, work_language, talk_language)
+       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+      [
+        options.slug, options.name ?? String(source!.name ?? options.slug), String(source!.timezone ?? 'UTC'),
+        // What the company works and talks in travels with it; an archive from
+        // before languages existed has neither, and gets the default here.
+        typeof source!.work_language === 'string' ? source!.work_language : null,
+        typeof source!.talk_language === 'string' ? source!.talk_language : null,
+      ],
     );
     const companyId = rows[0]!.id;
     // For anything below that asks which tenant it is working for.

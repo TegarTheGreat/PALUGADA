@@ -736,6 +736,47 @@ test('the console reads a company\'s shape, work and recent history (F10.1, F10.
     assert.ok(asked.goalChain.length >= 1, 'the item says which goal it serves');
     assert.ok(asked.createdAt);
 
+    // How far the running task has got, from its own journal: two steps
+    // committed, a third begun.
+    const { withTenant: asTenant } = await import('../../src/db/tenant.ts');
+    await asTenant(mine.companyId, async (tx) => {
+      for (const [index, name, status] of [[0, 'read the ledger', 'committed'], [1, 'match invoices', 'committed'], [2, 'draft the summary', 'started']] as const) {
+        await tx.query(
+          `INSERT INTO task_steps (task_id, step_index, company_id, name, kind, status, input_hash,
+                                   idempotency_key, output, committed_at)
+           VALUES ($1, $2, $3, $4, 'tool', $5, 'h', $6, $7, $8)`,
+          [running.id, index, mine.companyId, name, status, `k-${index}`,
+           status === 'committed' ? '{}' : null, status === 'committed' ? new Date() : null],
+        );
+      }
+    });
+    const progress = (await get('/work')).items.find((item: { id: string }) => item.id === running.id).progress;
+    assert.equal(progress.stepsDone, 2);
+    assert.equal(progress.currentStep, 'draft the summary');
+    assert.equal(progress.currentStepStatus, 'started');
+
+    // A goal's progress is its work's, rolled up the ladder: the objective's
+    // two tasks, one finished, count for the mission above it too.
+    const ladder = (await get('/structure')).goals as Array<{ id: string; parentId: string | null; tasksDone: number; tasksTotal: number }>;
+    const objective = ladder.find((goal) => goal.id === mine.goalId)!;
+    assert.deepEqual([objective.tasksDone, objective.tasksTotal], [1, 2]);
+    const mission = ladder.find((goal) => goal.id === objective.parentId)!;
+    assert.deepEqual([mission.tasksDone, mission.tasksTotal], [1, 2], 'the mission counts what is under it');
+    assert.equal(typeof (structure.roles[0] as { charter: string }).charter, 'string', 'the role says who it is');
+
+    // What the company knows, with how sure it is.
+    const { remember } = await import('../../src/memory/store.ts');
+    await asTenant(mine.companyId, async (tx) => {
+      await remember(tx, { companyId: mine.companyId, memoryType: 'semantic', scopeType: 'company', body: 'Our roaster ships on Tuesdays', confidence: 0.4, source: 'test' });
+      await remember(tx, { companyId: mine.companyId, memoryType: 'procedural', scopeType: 'company', body: 'Refunds over 500k need the owner', confidence: 1, source: 'test' });
+    });
+    const known = await get('/memories?kind=semantic');
+    assert.deepEqual(known.items.map((m: { body: string }) => m.body), ['Our roaster ships on Tuesdays']);
+    assert.equal(known.items[0].unverified, true, 'a fact under the confidence line is said to be unverified');
+    assert.equal(known.counts.procedural, 1);
+    assert.deepEqual((await get('/memories?q=refunds')).items.map((m: { kind: string }) => m.kind), ['procedural']);
+    assert.equal((await call(owner.url, 'GET', `${base}/memories?kind=dreams`, { token })).status, 400);
+
     const accounts = await get('/budget-accounts');
     assert.ok(accounts.accounts.some((a: { id: string }) => a.id === mine.budgetAccountId));
 
@@ -3087,6 +3128,122 @@ test('a fact is superseded rather than deleted (F4.6)', async () => {
     assert.equal(kept.memory_type, 'procedural', 'the procedure stopped being one');
     assert.equal(kept.scope_type, 'division');
     assert.equal(kept.scope_id, fixture.divisionId);
+
+    // A correction says whose it is. The page shows where a fact came from,
+    // and the owner's own correction read "not recorded".
+    const told = await tenant(fixture.companyId, async (tx) => (await tx.query<{ source: string }>(
+      'SELECT source FROM memories WHERE id = $1', [corrected.body.id],
+    )).rows[0]!.source);
+    assert.equal(told, 'owner');
+  } finally {
+    await owner.close();
+  }
+});
+
+/**
+ * The owner telling the company something, without waiting for it to learn:
+ * a fact, or a way to work, for the company or one division. The owner's
+ * word, so it is known at once -- full confidence, active, sourced to them --
+ * and the next run of that division is told.
+ */
+test('the owner can tell the company a fact or a way to work', async () => {
+  const fixture = await createCompany('console-tell');
+  const other = await createCompany('console-tell-other');
+  const { withTenant: tenant } = await import('../../src/db/tenant.ts');
+  const { buildContext } = await import('../../src/context/builder.ts');
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+    const base = `/api/companies/${fixture.companyId}/memories`;
+
+    const fact = await call(owner.url, 'POST', base, { token, body: { kind: 'semantic', body: 'Our prices include VAT.' } });
+    assert.equal(fact.status, 200, JSON.stringify(fact.body));
+    const procedure = await call(owner.url, 'POST', base, {
+      token, body: { kind: 'procedural', body: 'Always quote in rupiah.', divisionId: fixture.divisionId },
+    });
+    assert.equal(procedure.status, 200, JSON.stringify(procedure.body));
+
+    const rows = await tenant(fixture.companyId, async (tx) => (await tx.query<{
+      id: string; memory_type: string; scope_type: string; confidence: number; source: string; approval_state: string;
+    }>(
+      'SELECT id, memory_type, scope_type, confidence, source, approval_state FROM memories ORDER BY created_at',
+    )).rows);
+    assert.deepEqual(rows.map((row) => [row.memory_type, row.scope_type, row.confidence, row.source, row.approval_state]), [
+      ['semantic', 'company', 1, 'owner', 'active'],
+      ['procedural', 'division', 1, 'owner', 'active'],
+    ]);
+
+    // The next run of that division is told both, the procedure as a
+    // procedure and the fact as a known fact.
+    const context = await tenant(fixture.companyId, (tx) =>
+      buildContext(tx, { companyId: fixture.companyId, divisionId: fixture.divisionId }));
+    assert.ok(context.sections.some((section) => section.kind === 'sop' && section.body === 'Always quote in rupiah.'));
+    assert.ok(context.sections.some((section) => /^Known fact/.test(section.title) && section.body === 'Our prices include VAT.'));
+
+    // Not a kind the owner writes directly, and not another company's division.
+    assert.equal((await call(owner.url, 'POST', base, { token, body: { kind: 'working', body: 'x' } })).status, 400);
+    assert.equal((await call(owner.url, 'POST', base, {
+      token, body: { kind: 'procedural', body: 'x', divisionId: other.divisionId },
+    })).status, 400);
+    assert.equal((await call(owner.url, 'POST', base, { token, body: { kind: 'semantic', body: '  ' } })).status, 400);
+    // And a session is required, like everything else here.
+    assert.equal((await call(owner.url, 'POST', base, { body: { kind: 'semantic', body: 'x' } })).status, 401);
+  } finally {
+    await owner.close();
+  }
+});
+
+/**
+ * Languages: the panel's, the agents' default, and each company's two
+ * (src/domain/language.ts). Kept by the deployment, so the panel opens in
+ * the owner's language on every device, and changed without a factor: a
+ * language changes what is written, never what is allowed.
+ */
+test('the panel and the agents speak the languages the owner chose', async () => {
+  const fixture = await createCompany('console-languages');
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+
+    const initial = await call(owner.url, 'GET', '/api/control/languages', { token });
+    assert.equal(initial.status, 200);
+    assert.equal(initial.body.console, null, 'the panel follows the browser until the owner chooses');
+    assert.equal(initial.body.agents, 'en');
+    const supported = initial.body.supported as Array<{ code: string; name: string; native: string }>;
+    assert.ok(supported.some((one) => one.code === 'id' && one.native === 'Bahasa Indonesia'));
+
+    const chosen = await call(owner.url, 'POST', '/api/control/languages', { token, body: { console: 'id', agents: 'id' } });
+    assert.equal(chosen.status, 200, JSON.stringify(chosen.body));
+    assert.deepEqual(chosen.body, { console: 'id', agents: 'id' });
+    // Partial: naming one leaves the other.
+    assert.deepEqual((await call(owner.url, 'POST', '/api/control/languages', { token, body: { console: null } })).body,
+      { console: null, agents: 'id' });
+    assert.equal((await call(owner.url, 'POST', '/api/control/languages', { token, body: { agents: 'klingon' } })).status, 400);
+    assert.equal((await call(owner.url, 'POST', '/api/control/languages', { token, body: {} })).status, 400);
+
+    const company = `/api/companies/${fixture.companyId}/languages`;
+    const set = await call(owner.url, 'POST', company, { token, body: { work: 'en', talk: null } });
+    assert.equal(set.status, 200, JSON.stringify(set.body));
+    assert.deepEqual(set.body, { work: 'en', talk: 'id', workIsDefault: false, talkIsDefault: true });
+    // Both are required: leaving one out is not the same as the default.
+    const half = await call(owner.url, 'POST', company, { token, body: { work: 'en' } });
+    assert.equal(half.status, 400);
+    assert.match(String(half.body.error), /null means the default/);
+    assert.equal((await call(owner.url, 'POST', company, { token, body: { work: 'xx', talk: null } })).status, 400);
+
+    const listed = (await call(owner.url, 'GET', '/api/companies', { token })).body.companies as Array<Record<string, unknown>>;
+    const mine = listed.find((one) => one.id === fixture.companyId)!;
+    assert.equal(mine.workLanguage, 'en');
+    assert.equal(mine.talkLanguage, null);
+
+    // The change is in the company's own history.
+    const { withTenant: tenant } = await import('../../src/db/tenant.ts');
+    const events = await tenant(fixture.companyId, async (tx) => (await tx.query<{ payload: Record<string, unknown> }>(
+      "SELECT payload FROM events WHERE type = 'company.languages_changed'",
+    )).rows);
+    assert.deepEqual(events.map((event) => event.payload), [{ work: 'en', talk: null }]);
+
+    assert.equal((await call(owner.url, 'GET', '/api/control/languages')).status, 401);
   } finally {
     await owner.close();
   }

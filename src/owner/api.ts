@@ -71,12 +71,15 @@ import { ownerWindow, setBatchWindow, setOwnerWindow } from '../scheduler/window
 import { healthFor } from '../broker/preflight.ts';
 import { costTimeline, platformCost } from '../reporting/cost.ts';
 import { rotateCredential } from '../secrets/rotation.ts';
-import { readTaskEvents } from '../audit/event-log.ts';
+import { appendEvent, readTaskEvents } from '../audit/event-log.ts';
 import { describeReplay, replayTask } from '../engine/replay.ts';
 import { assignTask } from '../scheduler/wake.ts';
 import { createCompanyFromTemplate, readTemplate } from '../templates/company.ts';
 import { accountFor, chainFor, createAccount, snapshot } from '../engine/budget.ts';
-import { supersede } from '../memory/store.ts';
+import { remember, supersede } from '../memory/store.ts';
+import {
+  LANGUAGES, deploymentLanguages, languageCode, languagesFor, setCompanyLanguages, setDeploymentLanguages,
+} from '../domain/language.ts';
 import { getTask } from '../engine/tasks.ts';
 import type { TaskHandler } from '../runtime/in-process.ts';
 import { collectExport } from '../audit/export.ts';
@@ -125,7 +128,9 @@ import {
   accountsOf,
   activityOf,
   devicesOf,
+  isMemoryKind,
   isWorkGroup,
+  memoriesOf,
   schedulesOf,
   structureOf,
   workOf,
@@ -447,6 +452,29 @@ export class OwnerApi {
       },
 
       {
+        // F4: what the company knows, filtered by kind or words, current
+        // facts only unless the replaced ones are asked for.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/memories',
+        handle: async ({ params, query }) => {
+          const kind = query.get('kind');
+          if (kind !== null && kind !== '' && !isMemoryKind(kind)) {
+            throw new PalugadaError(
+              'contract.violation',
+              `kind must be working, episodic, semantic or procedural; got ${kind}`,
+              { field: 'kind' },
+            );
+          }
+          return memoriesOf(params.companyId!, {
+            ...(kind ? { kind } : {}),
+            ...(query.get('q') ? { query: query.get('q')! } : {}),
+            superseded: query.get('superseded') === 'include',
+            ...(query.get('limit') === null ? {} : { limit: wholeNumber(query.get('limit'), 'limit') }),
+          });
+        },
+      },
+
+      {
         method: 'GET',
         pattern: '/api/control/setup',
         handle: async () => {
@@ -758,6 +786,56 @@ export class OwnerApi {
         },
       },
 
+      /* ------------------------------------------------------- languages --- */
+
+      {
+        // The panel's language, the agents' default, and what is offered.
+        // The panel's is kept here rather than in the browser, which the
+        // console never writes to, so it follows the owner to every device.
+        method: 'GET',
+        pattern: '/api/control/languages',
+        handle: async () => ({
+          ...(await deploymentLanguages()),
+          supported: LANGUAGES.map((language) => ({ ...language })),
+        }),
+      },
+
+      {
+        // Not a loosening of anything, so no factor: a language changes what
+        // is written, never what is allowed.
+        method: 'POST',
+        pattern: '/api/control/languages',
+        handle: async ({ body }) => {
+          const change: { console?: string | null; agents?: string } = {};
+          if (body.console !== undefined) {
+            change.console = body.console === null ? null : languageCode(body.console, 'console');
+          }
+          if (body.agents !== undefined) change.agents = languageCode(body.agents, 'agents');
+          if (Object.keys(change).length === 0) {
+            throw new PalugadaError('contract.violation', 'give console, agents, or both', {});
+          }
+          return setDeploymentLanguages(change);
+        },
+      },
+
+      {
+        // What the company produces in, and what its agents say to the owner
+        // and each other in. Both are required, and null is an answer: the
+        // deployment's default. Every run from here on is told the new rule
+        // first (src/context/builder.ts).
+        method: 'POST',
+        pattern: '/api/companies/:companyId/languages',
+        handle: async ({ params, body }) => {
+          if (body.work === undefined || body.talk === undefined) {
+            throw new PalugadaError('contract.violation', 'give work and talk; null means the default', {});
+          }
+          const work = body.work === null ? null : languageCode(body.work, 'work');
+          const talk = body.talk === null ? null : languageCode(body.talk, 'talk');
+          await setCompanyLanguages(params.companyId!, { work, talk });
+          return withTenant(params.companyId!, (tx) => languagesFor(tx, params.companyId!));
+        },
+      },
+
       {
         method: 'POST',
         pattern: '/api/companies/:companyId/batch-window',
@@ -936,6 +1014,47 @@ export class OwnerApi {
       /* ------------------------------------------------------------ F4.6 --- */
 
       {
+        // The owner telling the company something: a fact to know, or a way
+        // to work, for the whole company or one division. Said by the owner,
+        // so it is written at full confidence and is active at once -- the
+        // review a learned fact waits for exists to get the owner's word,
+        // and this is the owner's word.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/memories',
+        handle: async ({ params, body }) => withTenant(params.companyId!, async (tx) => {
+          if (body.kind !== 'semantic' && body.kind !== 'procedural') {
+            throw new PalugadaError(
+              'contract.violation', 'kind must be semantic (a fact) or procedural (a way to work)', { field: 'kind' },
+            );
+          }
+          const divisionId = body.divisionId === undefined || body.divisionId === null
+            ? null : requireText(body.divisionId, 'divisionId');
+          if (divisionId) {
+            const { rows } = await tx.query('SELECT 1 FROM divisions WHERE id = $1', [divisionId]);
+            if (rows.length === 0) {
+              throw new PalugadaError('contract.violation', 'no such division in this company', { field: 'divisionId' });
+            }
+          }
+          const id = await remember(tx, {
+            companyId: params.companyId!,
+            memoryType: body.kind,
+            scopeType: divisionId ? 'division' : 'company',
+            ...(divisionId ? { scopeId: divisionId } : {}),
+            body: requireText(body.body, 'body'),
+            confidence: 1,
+            source: 'owner',
+          });
+          await appendEvent(tx, {
+            companyId: params.companyId!,
+            type: 'memory.told',
+            actor: 'owner',
+            payload: { memoryId: id, kind: body.kind, divisionId },
+          });
+          return { id };
+        }),
+      },
+
+      {
         // Replacing a fact rather than deleting it.
         //
         // A memory that turned out to be wrong is not removed: it is
@@ -973,6 +1092,10 @@ export class OwnerApi {
               scopeType: original.scope_type as 'company',
               ...(original.scope_id === null ? {} : { scopeId: original.scope_id }),
               body: requireText(body.body, 'body'),
+              // A correction is the owner's word, and says so: the page shows
+              // where a fact came from, and "not recorded" for the owner's own
+              // correction was a fact about this route rather than the fact.
+              source: 'owner',
               ...(body.confidence === undefined
                 ? {}
                 : { confidence: Number(body.confidence) }),
@@ -2109,12 +2232,15 @@ function send(res: ServerResponse, status: number, body: unknown): void {
 }
 
 /** Every company the owner has, newest last, which is how they were made. */
-async function companies(): Promise<Array<{ id: string; slug: string; name: string; frozen: boolean }>> {
+async function companies(): Promise<Array<{
+  id: string; slug: string; name: string; frozen: boolean; workLanguage: string | null; talkLanguage: string | null;
+}>> {
   return withControlPlane(async (tx) => {
     const { rows } = await tx.query<{
-      id: string; slug: string; name: string; frozen: boolean;
+      id: string; slug: string; name: string; frozen: boolean; workLanguage: string | null; talkLanguage: string | null;
     }>(
-      `SELECT id, slug, name, frozen_at IS NOT NULL AS frozen
+      `SELECT id, slug, name, frozen_at IS NOT NULL AS frozen,
+              work_language AS "workLanguage", talk_language AS "talkLanguage"
          FROM companies ORDER BY created_at`,
     );
     return rows;

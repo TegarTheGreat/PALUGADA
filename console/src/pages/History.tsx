@@ -7,22 +7,26 @@
  * month later.
  */
 import { useState } from 'react';
-import { Badge, Button, Group, Paper, Stack, Table, Text, TextInput, Title } from '@mantine/core';
+import { Badge, Button, Group, Paper, Stack, Table, Text, TextInput } from '@mantine/core';
 import { IconSearch } from '@tabler/icons-react';
 import { api } from '../api.ts';
 import { useLoad } from '../hooks.ts';
 import type { ClosedDecision } from '../types.ts';
 import { dateTime, humanize } from '../format.ts';
 import type { PageProps } from '../App.tsx';
-import { EmptyState, KindBadge, LoadFailed, Loading, TierBadge } from '../components/ui.tsx';
+import { N, t } from '../i18n.ts';
+import { EmptyState, KindBadge, LoadFailed, Loading, PageHeader, TierBadge } from '../components/ui.tsx';
+
+const DECISIONS: Record<string, string> = { approve: N('Approved'), deny: N('Denied'), ask: N('Asked a question') };
 
 function outcome(item: ClosedDecision): { label: string; color: string } {
   if (item.status === 'decided') {
-    const decision = item.decision ?? 'decided';
-    return { label: decision, color: decision === 'approve' ? 'teal' : decision === 'deny' ? 'gray' : 'blue' };
+    const decision = item.decision ?? '';
+    const label = DECISIONS[decision];
+    return { label: label ? t(label) : t('Decided'), color: decision === 'approve' ? 'teal' : decision === 'deny' ? 'gray' : 'blue' };
   }
-  if (item.status === 'expired') return { label: 'expired unanswered', color: 'orange' };
-  return { label: `withdrawn · ${humanize(item.closedReason ?? 'no reason')}`, color: 'gray' };
+  if (item.status === 'expired') return { label: t('expired unanswered'), color: 'orange' };
+  return { label: item.closedReason ? t('withdrawn · {reason}', { reason: humanize(item.closedReason) }) : t('withdrawn'), color: 'gray' };
 }
 
 export function History({ ctx }: PageProps) {
@@ -43,31 +47,32 @@ export function History({ ctx }: PageProps) {
 
   return (
     <Stack gap="lg">
-      <div>
-        <Text size="sm" c="dimmed" fw={600}>{ctx.company.name}</Text>
-        <Title order={2}>History</Title>
-      </div>
+      <PageHeader
+        crumbs={[ctx.company.name]}
+        title={t('History')}
+        description={t('Every decision you made, and every item that closed without one. Your notes are searched too: that is where the reasons are.')}
+      />
       <form onSubmit={(event) => { event.preventDefault(); setBefore(null); setSearch(query.trim()); }}>
         <Group gap="xs" align="flex-end">
           <TextInput
             style={{ flex: 1, maxWidth: 520 }}
             leftSection={<IconSearch size={16} />}
-            placeholder="Search titles, summaries and your notes"
+            placeholder={t('Search titles, summaries and your notes')}
             value={query}
             onChange={(event) => setQuery(event.currentTarget.value)}
           />
-          <Button type="submit">Search</Button>
+          <Button type="submit">{t('Search')}</Button>
         </Group>
       </form>
       {page.error ? <LoadFailed message={page.error} retry={page.reload} /> : !page.data ? <Loading /> : (
-        <Paper withBorder radius="md" style={{ overflow: 'hidden' }}>
+        <Paper withBorder radius="lg" style={{ overflow: 'hidden' }}>
           {page.data.items.length === 0 ? (
-            <EmptyState title={search ? 'Nothing matches' : 'Nothing decided yet'} description={search ? 'Try other words; your notes are searched too.' : 'Decided items land here with your note.'} />
+            <EmptyState title={search ? t('Nothing matches') : t('Nothing decided yet')} description={search ? t('Try other words; your notes are searched too.') : t('Decided items land here with your note.')} />
           ) : (
             <Table.ScrollContainer minWidth={760}>
               <Table verticalSpacing="sm" horizontalSpacing="md" highlightOnHover>
                 <Table.Thead>
-                  <Table.Tr><Table.Th>When</Table.Th><Table.Th>What</Table.Th><Table.Th>Outcome</Table.Th><Table.Th>Via</Table.Th><Table.Th>Your note</Table.Th></Table.Tr>
+                  <Table.Tr><Table.Th>{t('When')}</Table.Th><Table.Th>{t('What')}</Table.Th><Table.Th>{t('Outcome')}</Table.Th><Table.Th>{t('Via')}</Table.Th><Table.Th>{t('Your note')}</Table.Th></Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>
                   {page.data.items.map((item) => {
@@ -92,8 +97,8 @@ export function History({ ctx }: PageProps) {
         </Paper>
       )}
       <Group>
-        {before && <Button variant="default" onClick={() => setBefore(null)}>Newest</Button>}
-        {page.data?.next && <Button variant="default" onClick={() => setBefore(page.data!.next)}>Older</Button>}
+        {before && <Button variant="default" onClick={() => setBefore(null)}>{t('Newest')}</Button>}
+        {page.data?.next && <Button variant="default" onClick={() => setBefore(page.data!.next)}>{t('Older')}</Button>}
       </Group>
     </Stack>
   );

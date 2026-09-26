@@ -48,16 +48,31 @@ test('the console renders every string as text, never as markup', async () => {
 
 test('every page in the navigation has a component behind it, and the reverse', async () => {
   const app = await readFile(join(CONSOLE, 'src', 'App.tsx'), 'utf8');
-  const listed = [...app.matchAll(/\{ id: '([a-z]+)', label: '[^']+', icon: \w+, group: '(run|guard)' \}/g)]
+  const router = await readFile(join(CONSOLE, 'src', 'router.ts'), 'utf8');
+  const listed = [...app.matchAll(/\{ id: '([a-z]+)', label: N\('[^']+'\), icon: \w+, group: '(decide|company|setup)' \}/g)]
     .map((match) => match[1]!);
   assert.ok(listed.length >= 8, `only ${listed.length} pages were found; the scan is broken`);
-  const routed = [...app.matchAll(/case '([a-z]+)': return (\w+);/g)].map((match) => match[1]!);
-  assert.deepEqual([...listed].sort(), [...routed].sort(),
+  const routed = [...app.matchAll(/case '([a-z]+)': return <(\w+) ctx=\{ctx\} route=\{route\} \/>;/g)];
+  assert.deepEqual([...listed].sort(), routed.map((match) => match[1]!).sort(),
     'a page in the navigation with no component, or a component nothing navigates to');
-  for (const match of app.matchAll(/case '[a-z]+': return (\w+);/g)) {
-    assert.match(app, new RegExp(`import \\{ ${match[1]} \\} from './pages/${match[1]}\\.tsx';`),
-      `${match[1]} is routed to and never imported`);
+  // And the address knows every page, or a reload lands somewhere else.
+  const known = router.match(/COMPANY_PAGES = \[([^\]]+)\]/)?.[1] ?? '';
+  assert.deepEqual([...known.matchAll(/'([a-z]+)'/g)].map((match) => match[1]!).sort(), [...listed].sort());
+  for (const [, , component] of routed) {
+    assert.match(app, new RegExp(`import \\{ ${component} \\} from './pages/${component}\\.tsx';`),
+      `${component} is routed to and never imported`);
   }
+});
+
+test('every section of the settings has a component behind it, and the reverse', async () => {
+  const hub = await readFile(join(CONSOLE, 'src', 'pages', 'SettingsHub.tsx'), 'utf8');
+  const router = await readFile(join(CONSOLE, 'src', 'router.ts'), 'utf8');
+  const listed = [...hub.matchAll(/\{ id: '([a-z]+)', label: N\(/g)].map((match) => match[1]!);
+  const drawn = [...hub.matchAll(/case '([a-z]+)': return </g)].map((match) => match[1]!);
+  const known = router.match(/SETTINGS_SECTIONS = \[([^\]]+)\]/)?.[1] ?? '';
+  assert.ok(listed.length >= 6, `only ${listed.length} sections were found; the scan is broken`);
+  assert.deepEqual([...drawn].sort(), [...listed].sort());
+  assert.deepEqual([...known.matchAll(/'([a-z]+)'/g)].map((match) => match[1]!).sort(), [...listed].sort());
 });
 
 test('the console loads nothing from another origin', async () => {

@@ -32,6 +32,8 @@
 import type { Capability, CapabilityContext } from '../broker/registry.ts';
 import { companyRoot } from './files.ts';
 import type { LlmClient } from '../llm/client.ts';
+import { withTenant } from '../db/tenant.ts';
+import { driftFrom, languageCode, languageName, languagesFor, noteDrift } from '../domain/language.ts';
 
 export interface DraftOptions {
   llm: LlmClient;
@@ -54,6 +56,12 @@ export interface DocDraftInput {
   context?: string;
   /** A hint, not a contract: 'memo', 'proposal', 'summary'. */
   kind?: string;
+  /**
+   * The language to write in, when the task asks for one on purpose -- a
+   * translation, a reply in a customer's language. Omitted, the company's
+   * work language applies.
+   */
+  language?: string;
 }
 
 export interface DocDraftOutput {
@@ -91,22 +99,16 @@ export function docDraft(options: DraftOptions): Capability<DocDraftInput, DocDr
     // Tier 1, as §8.8 calibrates it. It writes, and rewriting undoes it.
     defaultTier: 1,
     async execute(input, ctx) {
-      const answer = await options.llm.complete(
-        {
-          model,
-          system: DOC_SYSTEM,
-          messages: [{
-            role: 'user',
-            content: [
-              input.kind ? `Kind: ${input.kind}` : null,
-              `Brief: ${String(input.brief ?? '').trim()}`,
-              input.context ? `Context:\n${input.context}` : null,
-            ].filter(Boolean).join('\n\n'),
-          }],
-          maxTokens: options.maxTokens ?? 2_000,
-        },
-        ctx.signal,
-      );
+      const answer = await composeIn(options.llm, ctx, {
+        model,
+        system: DOC_SYSTEM,
+        content: [
+          input.kind ? `Kind: ${input.kind}` : null,
+          `Brief: ${String(input.brief ?? '').trim()}`,
+          input.context ? `Context:\n${input.context}` : null,
+        ].filter(Boolean).join('\n\n'),
+        maxTokens: options.maxTokens ?? 2_000,
+      }, input.language, 'doc.draft');
       costs.set(ctx.idempotencyKey, answer.costCents);
 
       const path = await write(
@@ -150,6 +152,8 @@ export interface EmailDraftInput {
   subject?: string;
   brief: string;
   context?: string;
+  /** As for `doc.draft`: only when the task asks for a language on purpose. */
+  language?: string;
 }
 
 export interface EmailDraftOutput {
@@ -186,23 +190,17 @@ export function emailDraft(options: DraftOptions): Capability<EmailDraftInput, E
     // split: a draft is the reversible half of correspondence.
     defaultTier: 1,
     async execute(input, ctx) {
-      const answer = await options.llm.complete(
-        {
-          model,
-          system: EMAIL_SYSTEM,
-          messages: [{
-            role: 'user',
-            content: [
-              `To: ${String(input.to ?? '').trim()}`,
-              input.subject ? `Suggested subject: ${input.subject}` : null,
-              `Brief: ${String(input.brief ?? '').trim()}`,
-              input.context ? `Context:\n${input.context}` : null,
-            ].filter(Boolean).join('\n\n'),
-          }],
-          maxTokens: options.maxTokens ?? 1_200,
-        },
-        ctx.signal,
-      );
+      const answer = await composeIn(options.llm, ctx, {
+        model,
+        system: EMAIL_SYSTEM,
+        content: [
+          `To: ${String(input.to ?? '').trim()}`,
+          input.subject ? `Suggested subject: ${input.subject}` : null,
+          `Brief: ${String(input.brief ?? '').trim()}`,
+          input.context ? `Context:\n${input.context}` : null,
+        ].filter(Boolean).join('\n\n'),
+        maxTokens: options.maxTokens ?? 1_200,
+      }, input.language, 'email.draft');
       costs.set(ctx.idempotencyKey, answer.costCents);
 
       const { subject, body } = splitEmail(answer.content, input.subject ?? '');
@@ -244,6 +242,61 @@ export function emailDraft(options: DraftOptions): Capability<EmailDraftInput, E
       return cents;
     },
   };
+}
+
+/**
+ * Composes in the company's work language, and holds the model to it.
+ *
+ * The drafting model is told the language in its instructions, because the
+ * brief it is handed may be in another -- an agent summarising an English
+ * supplier email for an Indonesian shop -- and a model writes in the language
+ * of what it read last. When the draft still comes back in another language
+ * it is asked once more, with the first draft in hand; and if that does not
+ * take either, the draft is kept (a draft is reversible, and the task is not
+ * failed on a detector's guess) and the slip is recorded as
+ * `language.drifted` for the owner to see.
+ */
+async function composeIn(
+  llm: LlmClient,
+  ctx: CapabilityContext,
+  request: { model: string; system: string; content: string; maxTokens: number },
+  requested: string | undefined,
+  where: string,
+): Promise<{ content: string; costCents: number }> {
+  const language = requested === undefined || requested === ''
+    ? (await withTenant(ctx.companyId, (tx) => languagesFor(tx, ctx.companyId))).work
+    : languageCode(requested, 'language');
+  const system =
+    `${request.system}\n\nWrite it in ${languageName(language)}. The brief and the context may be ` +
+    'in another language; what you return is not.';
+  const first = await llm.complete(
+    { model: request.model, system, messages: [{ role: 'user', content: request.content }], maxTokens: request.maxTokens },
+    ctx.signal,
+  );
+  const drifted = driftFrom(first.content, language);
+  if (!drifted) return { content: first.content, costCents: first.costCents };
+
+  const second = await llm.complete(
+    {
+      model: request.model,
+      system,
+      messages: [
+        { role: 'user', content: request.content },
+        { role: 'assistant', content: first.content },
+        {
+          role: 'user',
+          content: `That is written in ${languageName(drifted)}. Write the same thing in ` +
+            `${languageName(language)}, in the same format, and return only that.`,
+        },
+      ],
+      maxTokens: request.maxTokens,
+    },
+    ctx.signal,
+  );
+  await withTenant(ctx.companyId, (tx) => noteDrift(tx, {
+    companyId: ctx.companyId, taskId: ctx.taskId, where, text: second.content, expected: language,
+  }));
+  return { content: second.content, costCents: first.costCents + second.costCents };
 }
 
 /**

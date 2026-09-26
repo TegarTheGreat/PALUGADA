@@ -6,16 +6,17 @@
 import { useState } from 'react';
 import {
   Alert, Badge, Button, Checkbox, Code, CopyButton, Group, Modal, Paper, Stack, Table, Text,
-  TextInput, Title, Tooltip,
+  TextInput, Tooltip,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconCopy, IconPlus } from '@tabler/icons-react';
-import { api } from '../api.ts';
+import { api, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { useLoad } from '../hooks.ts';
 import type { Device } from '../types.ts';
 import { relative } from '../format.ts';
 import type { PageProps } from '../App.tsx';
+import { t } from '../i18n.ts';
 import { EmptyState, LoadFailed, Loading } from '../components/ui.tsx';
 import { ActionButton, ActionForm } from '../components/ActionForm.tsx';
 
@@ -39,28 +40,24 @@ export function Devices({ ctx }: PageProps) {
       const answer: { nonce: string } = await api('POST', `/api/companies/${companyId}/devices/${device.id}/challenge`, {});
       setNonce(answer.nonce);
     } catch (failure) {
-      notifications.show({ color: 'red', message: (failure as Error).message });
+      notifications.show({ color: 'red', message: explain(failure) });
     }
   };
 
   return (
     <Stack gap="lg">
       <Group justify="space-between" align="flex-end">
-        <div>
-          <Text size="sm" c="dimmed" fw={600}>{ctx.company.name}</Text>
-          <Title order={2}>Devices</Title>
-        </div>
-        <Button leftSection={<IconPlus size={16} />} onClick={() => setRegistering(true)}>Register a device</Button>
+        <Button leftSection={<IconPlus size={16} />} onClick={() => setRegistering(true)}>{t('Register a device')}</Button>
       </Group>
 
       {devices.error ? <LoadFailed message={devices.error} retry={devices.reload} /> : !devices.data ? <Loading /> : (
         <Paper withBorder radius="md" style={{ overflow: 'hidden' }}>
           {devices.data.length === 0 ? (
-            <EmptyState title="No devices" description="A runtime outside this process -- a laptop running an agent CLI, a build box -- registers its public key here, and does nothing until you pair it." />
+            <EmptyState title={t('No devices')} description={t('A runtime outside this process -- a laptop running an agent CLI, a build box -- registers its public key here, and does nothing until you pair it.')} />
           ) : (
             <Table.ScrollContainer minWidth={720}>
               <Table verticalSpacing="sm" horizontalSpacing="md" highlightOnHover>
-                <Table.Thead><Table.Tr><Table.Th>Device</Table.Th><Table.Th>Status</Table.Th><Table.Th>Key</Table.Th><Table.Th>Last seen</Table.Th><Table.Th /></Table.Tr></Table.Thead>
+                <Table.Thead><Table.Tr><Table.Th>{t('Device')}</Table.Th><Table.Th>{t('Status')}</Table.Th><Table.Th>{t('Key')}</Table.Th><Table.Th>{t('Last seen')}</Table.Th><Table.Th /></Table.Tr></Table.Thead>
                 <Table.Tbody>
                   {devices.data.map((device) => (
                     <Table.Tr key={device.id}>
@@ -68,31 +65,31 @@ export function Devices({ ctx }: PageProps) {
                       <Table.Td>
                         <Group gap={6}>
                           <Badge color={STATUS[device.status] ?? 'gray'} variant="light">{device.status}</Badge>
-                          {device.quarantined && device.status !== 'revoked' && <Tooltip label="May read; may not change anything (F12.10)"><Badge color="orange" variant="outline">read only</Badge></Tooltip>}
+                          {device.quarantined && device.status !== 'revoked' && <Tooltip label={t('May read; may not change anything')}><Badge color="orange" variant="outline">{t('read only')}</Badge></Tooltip>}
                         </Group>
                       </Table.Td>
                       <Table.Td>
                         {device.keyFingerprint ? (
                           <CopyButton value={device.keyFingerprint}>
                             {({ copied, copy }) => (
-                              <Tooltip label={copied ? 'Copied' : device.keyFingerprint}>
+                              <Tooltip label={copied ? t('Copied') : device.keyFingerprint}>
                                 <Code style={{ cursor: 'pointer' }} onClick={copy}>{device.keyFingerprint!.slice(0, 16)}…</Code>
                               </Tooltip>
                             )}
                           </CopyButton>
-                        ) : <Badge color="red" variant="light">not a key</Badge>}
+                        ) : <Badge color="red" variant="light">{t('not a key')}</Badge>}
                       </Table.Td>
                       <Table.Td><Text size="sm" c="dimmed">{relative(device.lastSeenAt)}</Text></Table.Td>
                       <Table.Td>
                         <Group gap="xs" justify="flex-end" wrap="nowrap">
                           {device.status !== 'revoked' && (
                             <Button size="xs" variant="light" onClick={() => setPairing(device)}>
-                              {device.status === 'paired' ? 'Re-pair' : 'Pair'}
+                              {device.status === 'paired' ? t('Re-pair') : t('Pair')}
                             </Button>
                           )}
-                          {device.status === 'paired' && <Button size="xs" variant="default" onClick={() => void challenge(device)}>Challenge</Button>}
+                          {device.status === 'paired' && <Button size="xs" variant="default" onClick={() => void challenge(device)}>{t('Challenge')}</Button>}
                           {device.status !== 'revoked' && (
-                            <ActionButton size="xs" color="red" variant="subtle" label="Revoke"
+                            <ActionButton size="xs" color="red" variant="subtle" label={t('Revoke')}
                               run={() => api('POST', `/api/companies/${companyId}/devices/${device.id}/revoke`, {})} done={devices.reload} />
                           )}
                         </Group>
@@ -106,25 +103,25 @@ export function Devices({ ctx }: PageProps) {
         </Paper>
       )}
 
-      <Modal opened={registering} onClose={() => { setRegistering(false); setRegistered(null); }} title="Register a device" centered size="lg">
+      <Modal opened={registering} onClose={() => { setRegistering(false); setRegistered(null); }} title={t('Register a device')} centered size="lg">
         {registered ? (
           <Stack>
-            <Alert color="teal" variant="light" title="Registered">
-              Pair it only if the machine shows the same fingerprint:
+            <Alert color="teal" variant="light" title={t('Registered')}>
+              {t('Pair it only if the machine shows the same fingerprint:')}
             </Alert>
             <Code block>{registered.keyFingerprint}</Code>
-            <Text size="xs" c="dimmed">On the machine: <Code>openssl pkey -pubin -in key.pem -outform DER | sha256sum</Code></Text>
+            <Text size="xs" c="dimmed">{t('On the machine:')} <Code>{'openssl pkey -pubin -in key.pem -outform DER | sha256sum'}</Code></Text>
           </Stack>
         ) : (
           <ActionForm
             columns={2}
             fields={[
-              { name: 'name', label: 'Name', required: true, placeholder: 'build box' },
-              { name: 'runtime', label: 'Runtime', required: true, placeholder: 'claude-code' },
-              { name: 'publicKeyPem', label: 'Public key, PEM', type: 'textarea', required: true },
+              { name: 'name', label: t('Name'), required: true, placeholder: t('build box') },
+              { name: 'runtime', label: t('Runtime'), required: true, placeholder: 'claude-code' },
+              { name: 'publicKeyPem', label: t('Public key, PEM'), type: 'textarea', required: true },
             ]}
             submit={(values) => api('POST', `/api/companies/${companyId}/devices`, values)}
-            action="Register"
+            action={t('Register')}
             done={(result) => { setRegistered(result as { id: string; keyFingerprint: string }); devices.reload(); }}
           />
         )}
@@ -132,11 +129,11 @@ export function Devices({ ctx }: PageProps) {
 
       <PairModal companyId={companyId} device={pairing} close={() => setPairing(null)} paired={devices.reload} />
 
-      <Modal opened={nonce !== null} onClose={() => setNonce(null)} title="Hand this to the device" centered>
+      <Modal opened={nonce !== null} onClose={() => setNonce(null)} title={t('Hand this to the device')} centered>
         <Stack>
-          <Text size="sm" c="dimmed">The device signs it and connects. It is good for two minutes, once.</Text>
+          <Text size="sm" c="dimmed">{t('The device signs it and connects. It is good for two minutes, once.')}</Text>
           <Code block style={{ wordBreak: 'break-all', userSelect: 'all' }}>{nonce}</Code>
-          <CopyButton value={nonce ?? ''}>{({ copied, copy }) => <Button leftSection={<IconCopy size={16} />} onClick={copy} variant="light">{copied ? 'Copied' : 'Copy'}</Button>}</CopyButton>
+          <CopyButton value={nonce ?? ''}>{({ copied, copy }) => <Button leftSection={<IconCopy size={16} />} onClick={copy} variant="light">{copied ? t('Copied') : t('Copy')}</Button>}</CopyButton>
         </Stack>
       </Modal>
     </Stack>
@@ -167,19 +164,19 @@ function PairModal({ companyId, device, close, paired }: { companyId: string; de
       close();
       paired();
     } catch (failure) {
-      setError((failure as Error).message);
+      setError(explain(failure));
     }
   };
   return (
     <Modal opened={device !== null} onClose={close} title={`Pair ${device?.name ?? ''}`} centered size="lg">
       <Stack>
-        <Text size="sm">Compare with the fingerprint the machine itself prints, then type or paste it here.</Text>
-        <TextInput label="Key fingerprint, as the machine shows it" value={fingerprint} onChange={(event) => setFingerprint(event.currentTarget.value)} ff="monospace" required />
-        <Checkbox label="Also lift its quarantine (let it change things, not only read)" checked={lift} onChange={(event) => setLift(event.currentTarget.checked)} />
+        <Text size="sm">{t('Compare with the fingerprint the machine itself prints, then type or paste it here.')}</Text>
+        <TextInput label={t('Key fingerprint, as the machine shows it')} value={fingerprint} onChange={(event) => setFingerprint(event.currentTarget.value)} ff="monospace" required />
+        <Checkbox label={t('Also lift its quarantine (let it change things, not only read)')} checked={lift} onChange={(event) => setLift(event.currentTarget.checked)} />
         {error && <Alert color="red" variant="light">{error}</Alert>}
         <Group justify="flex-end">
-          <Button variant="default" onClick={close}>Cancel</Button>
-          <Button disabled={!fingerprint.trim()} onClick={() => void pair()}>Pair it</Button>
+          <Button variant="default" onClick={close}>{t('Cancel')}</Button>
+          <Button disabled={!fingerprint.trim()} onClick={() => void pair()}>{t('Pair it')}</Button>
         </Group>
       </Stack>
     </Modal>

@@ -9,25 +9,29 @@
  * beside it. A console that made approving the prettiest button would be a
  * console that got approvals it did not mean. There is no keyboard shortcut
  * for approving, for the same reason; the arrows only move between items.
+ *
+ * After a decision the next item opens by itself, so a morning's queue is
+ * read top to bottom without going back to the list each time.
  */
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Alert, Anchor, Badge, Box, Breadcrumbs, Button, Collapse, Divider, Grid, Group, Kbd, Paper,
+  Alert, Anchor, Badge, Box, Button, Collapse, Divider, Grid, Group, Kbd, Paper,
   ScrollArea, SegmentedControl, SimpleGrid, Stack, Text, Textarea, Title, Tooltip,
 } from '@mantine/core';
 import { useHotkeys, useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import {
-  IconAlertTriangle, IconArrowLeft, IconCheck, IconClock, IconCoin, IconInbox, IconMessageQuestion,
-  IconRoute, IconTarget, IconX,
+  IconArrowLeft, IconCheck, IconClock, IconMessageQuestion, IconRoute, IconTarget, IconX,
 } from '@tabler/icons-react';
-import { api, ApiError } from '../api.ts';
+import { api, ApiError, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { useLoad } from '../hooks.ts';
+import { go } from '../router.ts';
 import type { Digest, InboxItem, Trace } from '../types.ts';
-import { money, relative } from '../format.ts';
+import { dateTime, goalKind, money, relative } from '../format.ts';
+import { t, tp } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
-import { EmptyState, KindBadge, LoadFailed, Loading, StatCard, TierBadge } from '../components/ui.tsx';
+import { EmptyState, KindBadge, KpiStrip, LoadFailed, Loading, PageHeader, TierBadge } from '../components/ui.tsx';
 import { TraceView } from '../components/Trace.tsx';
 
 type Filter = 'all' | 'approval' | 'incident' | 'escalation';
@@ -38,7 +42,12 @@ const KIND_COLOR: Record<string, string> = {
   escalation: 'var(--mantine-color-violet-6)',
 };
 
-export function Decisions({ ctx, linkedItem, clearLinked }: PageProps) {
+/** Tier 3 first, then incidents, then oldest: what costs most to leave waiting. */
+function urgency(item: InboxItem): number {
+  return item.tier === 3 ? 0 : item.kind === 'incident' ? 1 : 2;
+}
+
+export function Decisions({ ctx, route }: PageProps) {
   const { companyId } = ctx;
   const queue = useLoad(async () => {
     const [{ items }, digest]: [{ items: InboxItem[] }, Digest] = await Promise.all([
@@ -46,115 +55,128 @@ export function Decisions({ ctx, linkedItem, clearLinked }: PageProps) {
       api('GET', `/api/companies/${companyId}/digest`),
     ]);
     return { items, digest };
-  }, [companyId]);
+  }, [companyId], { every: 15_000 });
   const [filter, setFilter] = useState<Filter>('all');
-  const [selected, setSelected] = useState<string | null>(null);
   const [missingLink, setMissingLink] = useState(false);
-  const narrow = useMediaQuery('(max-width: 62em)');
+  const narrow = useMediaQuery('(max-width: 62em)') ?? false;
+  const selected = route.item;
+  const select = (id: string | null) => go({ ...route, item: id }, { replace: true });
 
-  const items = useMemo(() => {
-    const all = queue.data?.items ?? [];
-    // Tier 3 first, then incidents, then oldest: what costs most to leave waiting.
-    const weight = (item: InboxItem) => (item.tier === 3 ? 0 : item.kind === 'incident' ? 1 : 2);
-    return all
-      .filter((item) => filter === 'all' || item.kind === filter)
-      .sort((a, b) => weight(a) - weight(b) || a.createdAt.localeCompare(b.createdAt));
-  }, [queue.data, filter]);
+  const items = useMemo(() => (queue.data?.items ?? [])
+    .filter((item) => filter === 'all' || item.kind === filter)
+    .sort((a, b) => urgency(a) - urgency(b) || a.createdAt.localeCompare(b.createdAt)), [queue.data, filter]);
 
   useEffect(() => {
     if (!queue.data) return;
     ctx.setOpenCount(queue.data.items.length);
-    if (linkedItem) {
-      // An item that has closed since the notification went out is not in
-      // the queue any more, and the owner is told so rather than shown a
-      // queue that silently lacks the thing they tapped on.
-      if (queue.data.items.some((item) => item.id === linkedItem)) setSelected(linkedItem);
-      else setMissingLink(true);
-      clearLinked();
+    if (selected && !queue.data.items.some((item) => item.id === selected)) {
+      // An item that has closed since the link went out -- decided on the
+      // phone, expired -- is said to be gone rather than silently missing.
+      setMissingLink(true);
+      select(null);
       return;
     }
-    if (!narrow && (!selected || !items.some((item) => item.id === selected))) setSelected(items[0]?.id ?? null);
+    if (!narrow && !selected && items[0]) select(items[0].id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queue.data, items]);
+  }, [queue.data, items, narrow]);
 
   const move = (step: number) => {
     const index = items.findIndex((item) => item.id === selected);
     const next = items[Math.min(Math.max(index + step, 0), items.length - 1)];
-    if (next) setSelected(next.id);
+    if (next) select(next.id);
   };
   useHotkeys([['ArrowDown', () => move(1)], ['j', () => move(1)], ['ArrowUp', () => move(-1)], ['k', () => move(-1)]]);
 
-  if (queue.error) return <LoadFailed message={queue.error} retry={queue.reload} />;
-  if (!queue.data) return <Loading rows={4} />;
+  const header = (
+    <PageHeader
+      crumbs={[ctx.company.name]}
+      title={t('Inbox')}
+      description={t('Everything waiting on you, most urgent first. Nothing here runs until you say so, and silence never approves.')}
+      live={queue.updatedAt}
+      actions={(
+        <Group gap={6} visibleFrom="md">
+          <Text size="xs" c="dimmed">{t('Move with')}</Text><Kbd size="xs">↑</Kbd><Kbd size="xs">↓</Kbd>
+        </Group>
+      )}
+    />
+  );
+
+  if (queue.error && !queue.data) return <>{header}<LoadFailed message={queue.error} retry={queue.reload} /></>;
+  if (!queue.data) return <>{header}<Loading rows={4} /></>;
 
   const { digest } = queue.data;
   const current = items.find((item) => item.id === selected) ?? null;
   const showList = !narrow || !current;
-  const showDetail = !narrow || current;
+  const showDetail = !narrow || current !== null;
+
+  // After a decision: the next item in the list, or none.
+  const decided = (id: string) => {
+    const index = items.findIndex((item) => item.id === id);
+    const next = items[index + 1] ?? items[index - 1] ?? null;
+    select(next && next.id !== id ? next.id : null);
+    queue.reload();
+  };
 
   return (
     <Stack gap="lg">
-      <Group justify="space-between" align="flex-end" wrap="wrap">
-        <div>
-          <Text size="sm" c="dimmed" fw={600}>{ctx.company.name}</Text>
-          <Title order={2}>Decisions</Title>
-        </div>
-        <Group gap={6} visibleFrom="sm">
-          <Text size="xs" c="dimmed">Move with</Text><Kbd size="xs">↑</Kbd><Kbd size="xs">↓</Kbd>
-        </Group>
-      </Group>
+      {header}
 
-      {!(narrow && current) && (<>
-      <SimpleGrid cols={{ base: 2, md: 4 }} spacing="md">
-        <StatCard label="Needs you" value={queue.data.items.length} icon={<IconInbox size={20} />} color="red"
-          hint={digest.openIncidents > 0 ? `${digest.openIncidents} incident${digest.openIncidents === 1 ? '' : 's'}` : 'No incidents'} />
-        <StatCard label="Done today" value={digest.tasksCompleted} icon={<IconCheck size={20} />} color="teal" />
-        <StatCard label="Failed or halted" value={digest.tasksFailed + digest.tasksHalted}
-          alert={digest.tasksFailed + digest.tasksHalted > 0} icon={<IconAlertTriangle size={20} />} color="orange" />
-        <StatCard label="Spent today" value={money(digest.moneySpentCents)} icon={<IconCoin size={20} />} color="blue" />
-      </SimpleGrid>
-
-      {digest.highlights.length > 0 && (
-        <Alert variant="light" color="blue" title="Today">
-          <Stack gap={2}>{digest.highlights.map((line) => <Text key={line} size="sm">{line}</Text>)}</Stack>
-        </Alert>
+      {!(narrow && current) && (
+        <KpiStrip items={[
+          {
+            label: t('Needs you'),
+            value: queue.data.items.length,
+            hint: digest.openIncidents > 0 ? tp('{count} incident', '{count} incidents', digest.openIncidents) : t('No incidents'),
+            alert: digest.openIncidents > 0,
+          },
+          { label: t('Done today'), value: digest.tasksCompleted, onClick: () => ctx.open('work') },
+          {
+            label: t('Failed or halted'),
+            value: digest.tasksFailed + digest.tasksHalted,
+            alert: digest.tasksFailed + digest.tasksHalted > 0,
+            onClick: () => ctx.open('work'),
+          },
+          { label: t('Spent today'), value: money(digest.moneySpentCents), onClick: () => ctx.open('money') },
+        ]} />
       )}
-      </>)}
+
       {missingLink && (
         <Alert color="gray" variant="light" withCloseButton onClose={() => setMissingLink(false)}>
-          The item you followed has already been decided or closed; it is in the history.
+          {t('The item you followed has already been decided or closed. It is in the history.')}
+          {' '}<Anchor size="sm" onClick={() => ctx.open('history')}>{t('Open the history')}</Anchor>
         </Alert>
       )}
 
       {queue.data.items.length === 0 ? (
-        <Paper withBorder radius="md">
+        <Paper withBorder radius="lg">
           <EmptyState
             image="/illustrations/inbox-zero.webp"
-            title="Nothing needs you"
-            description="Every approval, incident and question has been answered. New ones arrive here, and on your phone if a push channel is set."
+            title={t('Nothing needs you')}
+            description={t('Every approval, incident and question has been answered. New ones arrive here, and on your phone if a push channel is set.')}
+            action={<Button variant="light" onClick={() => ctx.open('work')}>{t('See the work in progress')}</Button>}
           />
         </Paper>
       ) : (
         <Grid gap="lg" align="flex-start">
           {showList && (
             <Grid.Col span={{ base: 12, md: 5 }}>
-              <Paper withBorder radius="md" p="xs">
+              <Paper withBorder radius="lg" p="xs">
                 <SegmentedControl
                   fullWidth
                   size="xs"
                   value={filter}
                   onChange={(value) => setFilter(value as Filter)}
                   data={[
-                    { value: 'all', label: `All ${queue.data.items.length}` },
-                    { value: 'approval', label: 'Approvals' },
-                    { value: 'incident', label: 'Incidents' },
-                    { value: 'escalation', label: 'Questions' },
+                    { value: 'all', label: t('All {count}', { count: queue.data.items.length }) },
+                    { value: 'approval', label: t('Approvals') },
+                    { value: 'incident', label: t('Incidents') },
+                    { value: 'escalation', label: t('Questions') },
                   ]}
                   mb="xs"
                 />
-                <ScrollArea.Autosize mah="calc(100vh - 360px)" type="auto">
+                <ScrollArea.Autosize mah="calc(100vh - 330px)" type="auto">
                   <Stack gap={4}>
-                    {items.length === 0 && <Text c="dimmed" size="sm" p="md" ta="center">Nothing of this kind.</Text>}
+                    {items.length === 0 && <Text c="dimmed" size="sm" p="md" ta="center">{t('Nothing of this kind.')}</Text>}
                     {items.map((item) => (
                       <button
                         key={item.id}
@@ -162,7 +184,7 @@ export function Decisions({ ctx, linkedItem, clearLinked }: PageProps) {
                         className="queue-row"
                         data-active={item.id === selected || undefined}
                         style={{ ['--kind-color' as string]: KIND_COLOR[item.kind] }}
-                        onClick={() => setSelected(item.id)}
+                        onClick={() => select(item.id)}
                       >
                         <Text fw={600} size="sm" lineClamp={2}>{item.title}</Text>
                         <Group gap={6} mt={6}>
@@ -185,11 +207,13 @@ export function Decisions({ ctx, linkedItem, clearLinked }: PageProps) {
                   key={current.id}
                   item={current}
                   companyId={companyId}
-                  back={narrow ? () => setSelected(null) : undefined}
-                  decided={() => { setSelected(null); queue.reload(); }}
+                  position={t('{index} of {total}', { index: items.indexOf(current) + 1, total: items.length })}
+                  back={narrow ? () => select(null) : undefined}
+                  decided={() => decided(current.id)}
+                  openTask={() => ctx.open('work', { item: current.taskId })}
                 />
               ) : (
-                <Paper withBorder radius="md" p="xl"><Text c="dimmed" ta="center">Choose an item.</Text></Paper>
+                <Paper withBorder radius="lg" p="xl"><Text c="dimmed" ta="center">{t('Choose an item.')}</Text></Paper>
               )}
             </Grid.Col>
           )}
@@ -200,8 +224,15 @@ export function Decisions({ ctx, linkedItem, clearLinked }: PageProps) {
 }
 
 function Detail({
-  item, companyId, back, decided,
-}: { item: InboxItem; companyId: string; back: (() => void) | undefined; decided: () => void }) {
+  item, companyId, position, back, decided, openTask,
+}: {
+  item: InboxItem;
+  companyId: string;
+  position: string;
+  back: (() => void) | undefined;
+  decided: () => void;
+  openTask: () => void;
+}) {
   const requireFactor = useFactor();
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
@@ -217,7 +248,7 @@ function Detail({
 
   const decide = async (decision: 'approve' | 'deny' | 'ask') => {
     if (decision === 'ask' && !note.trim()) {
-      setError('Write the question in the note first.');
+      setError(t('Write the question in the note first.'));
       return;
     }
     setBusy(decision);
@@ -238,11 +269,11 @@ function Detail({
       }
       notifications.show({
         color: decision === 'approve' ? 'teal' : decision === 'deny' ? 'gray' : 'blue',
-        message: decision === 'approve' ? 'Approved.' : decision === 'deny' ? 'Denied.' : 'Question sent to the agent.',
+        message: decision === 'approve' ? t('Approved.') : decision === 'deny' ? t('Denied.') : t('Question sent to the agent.'),
       });
       decided();
     } catch (failure) {
-      setError((failure as Error).message);
+      setError(explain(failure));
     } finally {
       setBusy(null);
     }
@@ -254,7 +285,7 @@ function Detail({
     try {
       setTrace(await api('GET', `/api/companies/${companyId}/inbox/${item.id}/trace`));
     } catch (failure) {
-      setTrace({ reason: (failure as Error).message, runs: [], calls: [] });
+      setTrace({ reason: explain(failure), runs: [], calls: [] });
     }
   };
 
@@ -265,10 +296,10 @@ function Detail({
     setError(null);
     try {
       await api('POST', `/api/companies/${companyId}/inbox/${item.id}/answer`, { answer });
-      notifications.show({ color: 'blue', message: 'Answer sent; the task is back in the queue.' });
+      notifications.show({ color: 'blue', message: t('Answer sent; the task is back in the queue.') });
       decided();
     } catch (failure) {
-      setError((failure as Error).message);
+      setError(explain(failure));
     } finally {
       setBusy(null);
     }
@@ -276,68 +307,77 @@ function Detail({
 
   const expires = item.expiresAt ? new Date(item.expiresAt) : null;
   const soon = expires !== null && expires.getTime() - Date.now() < 6 * 3_600_000;
+  const asker = item.roleSlug
+    ? item.divisionName ? t('Asked by {role} in {division}', { role: item.roleSlug, division: item.divisionName }) : t('Asked by {role}', { role: item.roleSlug })
+    : t('Raised by the platform');
 
   return (
-    <Paper withBorder radius="md" shadow="xs" style={{ overflow: 'hidden' }}>
+    <Paper withBorder radius="lg" shadow="xs" style={{ overflow: 'hidden' }}>
       <Box p="lg" style={{ borderTop: `4px solid ${KIND_COLOR[item.kind] ?? 'var(--mantine-color-gray-4)'}` }}>
-        {back && (
-          <Button variant="subtle" size="xs" leftSection={<IconArrowLeft size={14} />} onClick={back} mb="sm" px={4}>
-            All decisions
-          </Button>
-        )}
+        <Group justify="space-between" mb="sm">
+          {back ? (
+            <Button variant="subtle" size="xs" leftSection={<IconArrowLeft size={14} />} onClick={back} px={4}>
+              {t('All decisions')}
+            </Button>
+          ) : <span />}
+          <Text size="xs" c="dimmed">{position}</Text>
+        </Group>
         <Group gap="xs" mb="xs">
           <TierBadge tier={item.tier} />
           <KindBadge kind={item.kind} />
           {expires && (
-            <Tooltip label={`Unanswered, it is cancelled ${expires.toLocaleString()} -- silence never executes anything`}>
+            <Tooltip label={t('Unanswered, it is cancelled {when}. Silence never executes anything.', { when: dateTime(item.expiresAt) })}>
               <Badge color={soon ? 'red' : 'gray'} variant="light" leftSection={<IconClock size={12} />}>
-                Expires {relative(item.expiresAt)}
+                {t('Expires {when}', { when: relative(item.expiresAt) })}
               </Badge>
             </Tooltip>
           )}
         </Group>
         <Title order={3} fz={20} lh={1.3}>{item.title}</Title>
-        <Text size="sm" c="dimmed" mt={6}>
-          {item.roleSlug ? `Asked by ${item.roleSlug}` : 'Raised by the platform'}
-          {item.divisionName ? ` in ${item.divisionName}` : ''} · {relative(item.createdAt)}
-        </Text>
+        <Text size="sm" c="dimmed" mt={6}>{asker} · {relative(item.createdAt)}</Text>
       </Box>
       <Divider />
       <Stack p="lg" gap="md">
         {item.actionSummary && item.actionSummary !== item.title && (
-          <Block label="What will happen">{item.actionSummary}</Block>
+          <Block label={t('What will happen')}>{item.actionSummary}</Block>
         )}
-        {item.rationale && <Block label="Why">{item.rationale}</Block>}
-        {item.consequenceIfDenied && <Block label="If you refuse">{item.consequenceIfDenied}</Block>}
+        {item.rationale && <Block label={t('Why')}>{item.rationale}</Block>}
+        {item.consequenceIfDenied && <Block label={t('If you refuse')}>{item.consequenceIfDenied}</Block>}
 
         {item.goalChain.length > 0 && (
           <div>
-            <Group gap={6} mb={6}><IconTarget size={16} /><Text size="xs" fw={700} tt="uppercase" c="dimmed">Serves</Text></Group>
-            <Breadcrumbs separator="→" separatorMargin={6} style={{ flexWrap: 'wrap' }}>
-              {item.goalChain.map((goal) => (
-                <Text key={goal.statement} size="sm"><Text span c="dimmed" size="xs">{goal.kind.replace('_', ' ')}: </Text>{goal.statement}</Text>
+            <Group gap={6} mb={6}><IconTarget size={16} /><Text size="xs" fw={700} tt="uppercase" c="dimmed">{t('Serves')}</Text></Group>
+            {/* Top of the ladder first, one rung a line: a chain of long
+                statements side by side ran off a phone's screen. */}
+            <Stack gap={4}>
+              {item.goalChain.map((goal, index) => (
+                <Text key={goal.statement} size="sm" pl={index * 14} style={{ overflowWrap: 'anywhere' }}>
+                  {index > 0 && <Text span c="dimmed">↳ </Text>}
+                  <Text span c="dimmed" size="xs">{goalKind(goal.kind)}: </Text>{goal.statement}
+                </Text>
               ))}
-            </Breadcrumbs>
+            </Stack>
           </div>
         )}
 
         <SimpleGrid cols={{ base: 1, xs: 2 }} spacing="sm">
-          {item.capabilityName && <Fact label="Capability" value={item.capabilityName} />}
-          <Fact label="Estimated cost" value={item.estimatedCostCents > 0 ? money(item.estimatedCostCents) : 'None declared'} />
+          {item.capabilityName && <Fact label={t('Capability')} value={item.capabilityName} />}
+          <Fact label={t('Estimated cost')} value={item.estimatedCostCents > 0 ? money(item.estimatedCostCents) : t('None declared')} />
         </SimpleGrid>
 
-        <div>
+        <Group gap="lg">
           <Anchor component="button" size="sm" onClick={() => void showTrace()}>
-            <Group gap={6}><IconRoute size={16} />{traceOpen ? 'Hide what happened' : 'What happened'}</Group>
+            <Group gap={6}><IconRoute size={16} />{traceOpen ? t('Hide what happened') : t('What happened')}</Group>
           </Anchor>
-          <Collapse expanded={traceOpen}>
-            <Box mt="sm">{trace ? <TraceView trace={trace} /> : <Text size="sm" c="dimmed">Loading…</Text>}</Box>
-          </Collapse>
-        </div>
+          {item.taskId && <Anchor component="button" size="sm" onClick={openTask}>{t('Open the task')}</Anchor>}
+        </Group>
+        <Collapse expanded={traceOpen}>
+          <Box>{trace ? <TraceView trace={trace} /> : <Text size="sm" c="dimmed">{t('Loading…')}</Text>}</Box>
+        </Collapse>
 
         <Textarea
-          label="Your note"
-          description="Kept with the decision in your history. For “Ask”, this is the question."
+          label={t('Your note')}
+          description={t('Kept with the decision in your history. For “Ask”, this is the question.')}
           autosize
           minRows={2}
           value={note}
@@ -347,8 +387,8 @@ function Detail({
         {item.kind === 'escalation' && (
           <Paper withBorder radius="md" p="sm" bg="var(--mantine-color-default-hover)">
             <Textarea
-              label="Answer the agent instead"
-              description="Sends your answer and puts the task back on the queue, without deciding the item."
+              label={t('Answer the agent instead')}
+              description={t('Sends your answer and puts the task back on the queue, without deciding the item.')}
               autosize
               minRows={2}
               value={answer}
@@ -356,7 +396,7 @@ function Detail({
             />
             <Group justify="flex-end" mt="xs">
               <Button size="xs" variant="light" disabled={!answer.trim()} loading={busy === 'answer'} onClick={() => void sendAnswer()}>
-                Send answer
+                {t('Send answer')}
               </Button>
             </Group>
           </Paper>
@@ -367,14 +407,14 @@ function Detail({
       <Divider />
       <Group p="md" justify="space-between" wrap="wrap" gap="xs" bg="var(--mantine-color-default-hover)">
         <Button variant="subtle" leftSection={<IconMessageQuestion size={16} />} loading={busy === 'ask'} onClick={() => void decide('ask')}>
-          Ask a question
+          {t('Ask a question')}
         </Button>
         <Group gap="xs">
           <Button variant="default" leftSection={<IconX size={16} />} loading={busy === 'deny'} onClick={() => void decide('deny')}>
-            Deny
+            {t('Deny')}
           </Button>
           <Button variant="outline" color="teal" leftSection={<IconCheck size={16} />} loading={busy === 'approve'} onClick={() => void decide('approve')}>
-            Approve
+            {t('Approve')}
           </Button>
         </Group>
       </Group>
@@ -386,7 +426,7 @@ function Block({ label, children }: { label: string; children: React.ReactNode }
   return (
     <div>
       <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb={4}>{label}</Text>
-      <Text size="sm">{children}</Text>
+      <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{children}</Text>
     </div>
   );
 }

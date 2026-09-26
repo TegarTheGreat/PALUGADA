@@ -16,11 +16,13 @@ import { skillSummariesFor } from '../skills/skills.ts';
 import { recall, type MemoryItem } from '../memory/store.ts';
 import { ancestryForTask, renderAncestry } from '../domain/goals.ts';
 import { openQuestionsFor } from '../inbox/inbox.ts';
+import { languageName, languageRule, languagesFor } from '../domain/language.ts';
 
 export interface ContextSection {
   kind:
     | 'platform_charter'
     | 'company_charter'
+    | 'language'
     | 'sop'
     | 'confidence_warning'
     | 'semantic_memory'
@@ -70,6 +72,7 @@ const DROP_ORDER: ContextSection['kind'][] = [
 ];
 // `owner_question` is deliberately absent, like the charters: a run that lost
 // the owner's question to make room for a fact would answer the wrong thing.
+// So is `language`: a run that lost it writes in whatever it read last.
 
 export interface BuildContextOptions {
   companyId: string;
@@ -192,11 +195,55 @@ async function readCharters(
   return sections;
 }
 
+/**
+ * The company's languages, right after the charters (src/domain/language.ts).
+ *
+ * Second only to the charters because it is a rule of the same kind: it
+ * governs everything after it, and a model reads the pack in order. Placed
+ * lower, it would sit under a web page or an email the run was shown, which
+ * is exactly the material that pulls a model into another language.
+ *
+ * When this role has drifted lately -- an agent of it wrote to the owner in
+ * a language that was not the company's -- the rule says so. A reminder about
+ * this role's own slip is what changes the next run; a general instruction it
+ * already had did not.
+ */
+async function languageSections(
+  tx: TenantClient,
+  companyId: string,
+  taskId: string | undefined,
+): Promise<ContextSection[]> {
+  const languages = await languagesFor(tx, companyId);
+  let body = languageRule(languages);
+  if (taskId) {
+    const { rows } = await tx.query<{ found: string; n: number }>(
+      `SELECT e.payload->>'found' AS found, count(*)::int AS n
+         FROM events e
+         JOIN tasks drifted ON drifted.id = e.task_id
+         JOIN tasks current ON current.id = $1 AND current.role_id = drifted.role_id
+        WHERE e.type = 'language.drifted' AND e.occurred_at > now() - interval '7 days'
+          -- What the role wrote itself; a drafting model's slip is not the role's.
+          AND e.payload->>'where' NOT LIKE '%.draft'
+        GROUP BY 1 ORDER BY 2 DESC LIMIT 1`,
+      [taskId],
+    );
+    const slip = rows[0];
+    if (slip) {
+      body +=
+        `\n\nA reminder: in the last week this role wrote ${slip.n === 1 ? 'once' : `${slip.n} times`} ` +
+        `in ${languageName(slip.found)} where the rule above asked for another. Check the language ` +
+        'of what you write before you send it.';
+    }
+  }
+  return [{ kind: 'language', title: 'Language', body }];
+}
+
 export async function buildContext(
   tx: TenantClient,
   options: BuildContextOptions,
 ): Promise<AssembledContext> {
   const sections: ContextSection[] = await readCharters(tx, options.companyId);
+  sections.push(...await languageSections(tx, options.companyId, options.taskId));
   const granted = await grantedHere(tx, options.divisionId, ['skill.read', 'memory.search']);
 
   // F15.7: skills travel as summaries. A company with forty of them would
@@ -392,7 +439,8 @@ function trimToBudget(
     // Placed after the charter so it is read subject to it, and before
     // everything it qualifies.
     const afterCharter = kept.findIndex(
-      (section) => section.kind !== 'platform_charter' && section.kind !== 'company_charter',
+      (section) => section.kind !== 'platform_charter' && section.kind !== 'company_charter'
+        && section.kind !== 'language',
     );
     kept.splice(afterCharter === -1 ? kept.length : afterCharter, 0, {
       kind: 'confidence_warning',

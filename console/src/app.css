@@ -6,7 +6,7 @@
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  background: linear-gradient(135deg, var(--mantine-color-blue-6), var(--mantine-color-cyan-6));
+  background: linear-gradient(135deg, var(--mantine-color-brand-6), var(--mantine-color-grape-5));
   color: #fff;
   font-weight: 800;
   font-size: 16px;
@@ -26,16 +26,16 @@
 }
 .queue-row:hover { background: var(--mantine-color-default-hover); }
 .queue-row[data-active] {
-  background: var(--mantine-color-blue-light);
-  border-color: var(--mantine-color-blue-light);
-  border-left-color: var(--kind-color, var(--mantine-color-blue-6));
+  background: var(--mantine-color-brand-light);
+  border-color: var(--mantine-color-brand-light);
+  border-left-color: var(--kind-color, var(--mantine-color-brand-6));
 }
 
 .org-node {
   transition: box-shadow 120ms ease, border-color 120ms ease;
   cursor: pointer;
 }
-.org-node:hover { border-color: var(--mantine-color-blue-5); box-shadow: var(--mantine-shadow-sm); }
+.org-node:hover { border-color: var(--mantine-color-brand-4); box-shadow: var(--mantine-shadow-sm); }
 
 .org-connector {
   width: 2px;
@@ -48,7 +48,105 @@
 
 .signin-art {
   background:
-    radial-gradient(circle at 20% 20%, rgba(34, 139, 230, 0.18), transparent 55%),
-    radial-gradient(circle at 80% 80%, rgba(21, 170, 191, 0.18), transparent 55%),
+    radial-gradient(circle at 20% 20%, rgba(79, 70, 229, 0.16), transparent 55%),
+    radial-gradient(circle at 80% 80%, rgba(190, 75, 219, 0.12), transparent 55%),
     var(--mantine-color-body);
 }
+
+/* ---------------------------------------------------------------- shell --- */
+
+body { background: var(--mantine-color-body); }
+:root[data-mantine-color-scheme='light'] { --app-canvas: #f7f8fa; --app-sidebar: #ffffff; }
+:root[data-mantine-color-scheme='dark'] { --app-canvas: var(--mantine-color-dark-8); --app-sidebar: var(--mantine-color-dark-7); }
+
+.app-main { background: var(--app-canvas); min-height: 100vh; }
+.app-content { max-width: 1320px; margin: 0 auto; }
+
+.tabular { font-variant-numeric: tabular-nums; }
+
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--mantine-color-teal-6);
+  box-shadow: 0 0 0 0 rgba(18, 184, 134, 0.6);
+  animation: live-pulse 2s infinite;
+}
+@keyframes live-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(18, 184, 134, 0.55); }
+  70% { box-shadow: 0 0 0 7px rgba(18, 184, 134, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(18, 184, 134, 0); }
+}
+@media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
+
+.kpi {
+  display: block;
+  padding: 18px 22px;
+  border-left: 1px solid var(--mantine-color-default-border);
+  text-align: left;
+}
+.kpi[data-first] { border-left: 0; }
+.kpi:not(:disabled):hover { background: var(--mantine-color-default-hover); }
+@media (max-width: 62em) {
+  .kpi:nth-child(odd) { border-left: 0; }
+  .kpi:nth-child(n + 3) { border-top: 1px solid var(--mantine-color-default-border); }
+}
+
+.nav-section-label {
+  padding: 16px 12px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--mantine-color-dimmed);
+}
+
+.pipeline-stage {
+  position: relative;
+  padding: 16px 18px;
+  border-radius: var(--mantine-radius-md);
+  border: 1px solid var(--mantine-color-default-border);
+  background: var(--mantine-color-body);
+  text-align: left;
+  width: 100%;
+  cursor: pointer;
+  border-top: 3px solid var(--stage-color);
+}
+.pipeline-stage:hover { box-shadow: var(--mantine-shadow-sm); }
+
+.bottom-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 0 6px;
+  color: var(--mantine-color-dimmed);
+  font-size: 11px;
+  font-weight: 600;
+}
+.bottom-tab[data-active] { color: var(--mantine-color-brand-6); }
+
+/* Rows in a list on a card: the whole row is the button. */
+.list-row {
+  display: block;
+  width: 100%;
+  padding: 12px var(--mantine-spacing-lg);
+  border-top: 1px solid var(--mantine-color-default-border);
+  text-align: left;
+}
+.list-row:hover { background: var(--mantine-color-default-hover); }
+
+.company-card { transition: box-shadow 120ms ease, border-color 120ms ease; }
+.company-card:hover { border-color: var(--mantine-color-brand-3); box-shadow: var(--mantine-shadow-sm); }
+
+.figure {
+  display: block;
+  padding: 8px 10px;
+  border-radius: var(--mantine-radius-md);
+  background: var(--mantine-color-default-hover);
+  text-align: left;
+}
+.figure:hover { background: var(--mantine-color-brand-light); }
+
+.nav-link { border-radius: var(--mantine-radius-md); font-weight: 500; }

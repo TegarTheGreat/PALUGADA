@@ -3,12 +3,13 @@
  * used, and the gate a new one passes -- an eval case, a reviewer, and you.
  */
 import { useState } from 'react';
-import { Badge, Group, Modal, Paper, Button, Stack, Table, Tabs, Text, Title } from '@mantine/core';
+import { Badge, Group, Modal, Paper, Button, Stack, Table, Tabs, Text } from '@mantine/core';
 import { IconPlus } from '@tabler/icons-react';
 import { api } from '../api.ts';
 import { useLoad } from '../hooks.ts';
 import type { Skill, Structure } from '../types.ts';
 import type { PageProps } from '../App.tsx';
+import { t } from '../i18n.ts';
 import { EmptyState, LoadFailed, Loading, Section } from '../components/ui.tsx';
 import { ActionButton, ActionForm } from '../components/ActionForm.tsx';
 
@@ -31,18 +32,14 @@ export function Skills({ ctx }: PageProps) {
   return (
     <Stack gap="lg">
       <Group justify="space-between" align="flex-end">
-        <div>
-          <Text size="sm" c="dimmed" fw={600}>{ctx.company.name}</Text>
-          <Title order={2}>Skills</Title>
-        </div>
-        <Button leftSection={<IconPlus size={16} />} onClick={() => setImporting(true)}>Import a skill</Button>
+        <Button leftSection={<IconPlus size={16} />} onClick={() => setImporting(true)}>{t('Import a skill')}</Button>
       </Group>
 
       <Paper withBorder radius="md" style={{ overflow: 'hidden' }}>
-        {skills.length === 0 ? <EmptyState title="No skills yet" description="Candidates arrive from the roles' own work, or you import one." /> : (
+        {skills.length === 0 ? <EmptyState title={t('No skills yet')} description={t("Candidates arrive from the roles' own work, or you import one.")} /> : (
           <Table.ScrollContainer minWidth={640}>
             <Table verticalSpacing="sm" horizontalSpacing="md" highlightOnHover>
-              <Table.Thead><Table.Tr><Table.Th>Skill</Table.Th><Table.Th>Scope</Table.Th><Table.Th>Version</Table.Th><Table.Th>Origin</Table.Th><Table.Th /></Table.Tr></Table.Thead>
+              <Table.Thead><Table.Tr><Table.Th>{t('Skill')}</Table.Th><Table.Th>{t('Scope')}</Table.Th><Table.Th>{t('Version')}</Table.Th><Table.Th>{t('Origin')}</Table.Th><Table.Th /></Table.Tr></Table.Thead>
               <Table.Tbody>
                 {skills.map((skill) => (
                   <Table.Tr key={skill.id}>
@@ -53,12 +50,12 @@ export function Skills({ ctx }: PageProps) {
                     <Table.Td ta="right">
                       {skill.quarantined ? (
                         <Group gap="xs" justify="flex-end">
-                          <Badge color="orange" variant="light">quarantined</Badge>
-                          <ActionButton size="xs" variant="light" label="Lift" factor={`Lift the quarantine on ${skill.slug}`}
+                          <Badge color="orange" variant="light">{t('quarantined')}</Badge>
+                          <ActionButton size="xs" variant="light" label={t('Lift')} factor={t('Lift the quarantine on {skill}', { skill: skill.slug })}
                             run={(proof) => api('POST', `/api/companies/${companyId}/skills/${skill.id}/quarantine/lift`, { proof })}
                             done={view.reload} />
                         </Group>
-                      ) : <Badge color="teal" variant="light">active</Badge>}
+                      ) : <Badge color="teal" variant="light">{t('active')}</Badge>}
                     </Table.Td>
                   </Table.Tr>
                 ))}
@@ -70,71 +67,71 @@ export function Skills({ ctx }: PageProps) {
 
       <Tabs defaultValue="review">
         <Tabs.List mb="md">
-          <Tabs.Tab value="review">Review a version</Tabs.Tab>
-          <Tabs.Tab value="scope">Widen or narrow a scope</Tabs.Tab>
+          <Tabs.Tab value="review">{t('Review a version')}</Tabs.Tab>
+          <Tabs.Tab value="scope">{t('Widen or narrow a scope')}</Tabs.Tab>
         </Tabs.List>
         <Tabs.Panel value="review">
-          <Section description="A candidate needs a reviewer and you, and no eval case means no activation -- the database refuses it (F15.3, F15.4).">
+          <Section description={t('A candidate needs a reviewer and you, and no eval case means no activation -- the database refuses it.')}>
             <Stack gap="lg">
               <ActionForm
                 columns={1}
-                fields={[{ name: 'versionId', label: 'Version', required: true, description: 'From the decision that proposed it' }]}
+                fields={[{ name: 'versionId', label: t('Version'), required: true, description: t('From the decision that proposed it') }]}
                 submit={async ({ versionId }, proof) => {
                   await api('POST', `/api/companies/${companyId}/skills/versions/${versionId}/review`, { approved: true });
                   await api('POST', `/api/companies/${companyId}/skills/versions/${versionId}/approve`, { proof });
                 }}
-                factor="Activate the skill"
-                action="Approve and activate"
-                success="Activated."
+                factor={t('Activate the skill')}
+                action={t('Approve and activate')}
+                success={t('Activated.')}
                 done={view.reload}
               />
               <ActionForm
                 fields={[
-                  { name: 'versionId', label: 'Version', required: true },
-                  { name: 'reason', label: 'Why not', required: true },
+                  { name: 'versionId', label: t('Version'), required: true },
+                  { name: 'reason', label: t('Why not'), required: true },
                 ]}
                 submit={({ versionId, reason }) => api('POST', `/api/companies/${companyId}/skills/versions/${versionId}/review`, { approved: false, reason })}
-                action="Reject"
-                success="Rejected."
+                action={t('Reject')}
+                success={t('Rejected.')}
                 done={view.reload}
               />
             </Stack>
           </Section>
         </Tabs.Panel>
         <Tabs.Panel value="scope">
-          <Section description="Widening vouches for a skill somewhere it has not been used, so it takes your authenticator (F15.5).">
+          <Section description={t('Widening vouches for a skill somewhere it has not been used, so it takes your authenticator.')}>
             <ActionForm
               fields={[
-                { name: 'skillId', label: 'Skill', type: 'select', required: true, options: skills.map((skill) => ({ value: skill.id, label: skill.slug })) },
-                { name: 'scopeType', label: 'Scope', type: 'select', required: true, options: [
-                  { value: 'division', label: 'One division' }, { value: 'company', label: 'This company' }, { value: 'platform', label: 'Every company' },
+                { name: 'skillId', label: t('Skill'), type: 'select', required: true, options: skills.map((skill) => ({ value: skill.id, label: skill.slug })) },
+                { name: 'scopeType', label: t('Scope'), type: 'select', required: true, options: [
+                  { value: 'division', label: t('One division') }, { value: 'company', label: t('This company') }, { value: 'platform', label: t('Every company') },
                 ] },
-                { name: 'scopeId', label: 'Division', type: 'select', description: 'For a division scope', options: divisions },
+                { name: 'scopeId', label: t('Division'), type: 'select', description: t('For a division scope'), options: divisions },
               ]}
               submit={({ skillId, ...rest }, proof) => api('POST', `/api/companies/${companyId}/skills/${skillId}/scope`, { ...rest, proof })}
-              factor="Change a skill's scope"
-              action="Set the scope"
-              success="Scope changed."
+              factor={t("Change a skill's scope")}
+              action={t('Set the scope')}
+              success={t('Scope changed.')}
               done={view.reload}
             />
           </Section>
         </Tabs.Panel>
       </Tabs>
 
-      <Modal opened={importing} onClose={() => setImporting(false)} title="Import a skill from outside" centered size="lg">
-        <Text size="sm" c="dimmed" mb="md">Unsigned means quarantined, and quarantine means one division (F15.8, F12.10).</Text>
+      <Modal opened={importing} onClose={() => setImporting(false)} title={t('Import a skill from outside')} centered size="lg">
+        <Text size="sm" c="dimmed" mb="md">{t('Unsigned means quarantined, and quarantine means one division.')}</Text>
         <ActionForm
           fields={[
-            { name: 'slug', label: 'Short name', required: true },
-            { name: 'origin', label: 'Where from', required: true, placeholder: 'https://…' },
-            { name: 'divisionId', label: 'Division', type: 'select', required: true, options: divisions },
+            { name: 'slug', label: t('Short name'), required: true },
+            { name: 'origin', label: t('Where from'), required: true, placeholder: 'https://…' },
+            { name: 'divisionId', label: t('Division'), type: 'select', required: true, options: divisions },
             { name: 'source', label: 'SKILL.md', type: 'textarea', required: true },
-            { name: 'signature', label: 'Signature, base64' },
-            { name: 'publisherKey', label: 'Publisher key, PEM', type: 'textarea' },
+            { name: 'signature', label: t('Signature, base64') },
+            { name: 'publisherKey', label: t('Publisher key, PEM'), type: 'textarea' },
           ]}
           submit={(values) => api('POST', `/api/companies/${companyId}/skills/import`, values)}
-          action="Import"
-          success="Imported."
+          action={t('Import')}
+          success={t('Imported.')}
           done={() => { setImporting(false); view.reload(); }}
         />
       </Modal>

@@ -300,11 +300,11 @@ A bundle is a package of divisions, roles, grants, policies, skills with
 their eval cases, and schedules, installed into a company. The built-in ones
 are `company-os`, `content-ops`, `web-ops`, `qa-review` and `palugada-dev`
 (PALUGADA's own engineering team; see [AGENTS.md](../../AGENTS.md)). A bundle
-signed by a publisher you trust installs as written. An unsigned one,
-which is how the built-in bundles are published unless the operator signs
-them, installs quarantined: only grants it names at tier 0 are created, its
-schedules start switched off, and its policies that allow something are left
-out. A bundle's skills always arrive as candidates for review and your
+signed by a publisher you trust installs as written, and so does a built-in
+one that is exactly what this version ships. Any other unsigned bundle,
+including a built-in one somebody changed, installs quarantined: only grants
+it names at tier 0 are created, its schedules start switched off, and its
+policies that allow something are left out. A bundle's skills always arrive as candidates for review and your
 approval. Bundles are under **Settings**, **Bundles**.
 
 ## Runtimes

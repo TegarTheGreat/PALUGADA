@@ -1588,6 +1588,43 @@ for (const [name, from] of [
   });
 }
 
+/**
+ * A role names a tier; an agent CLI knows only its own model names. The
+ * tier used to reach the CLI as written -- `--model standard` -- and every
+ * template role put on one failed at its first run.
+ */
+test('a tier becomes the model each CLI knows, and one it cannot is refused by name (F13.6)', async () => {
+  const fixture = await createCompany('cli-tiers');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'codex', tools: ['dns.read'] });
+  await withTenant(fixture.companyId, (tx) => tx.query("UPDATE roles SET model = 'standard' WHERE id = $1", [fixture.roleId]));
+
+  const told = knownCli('codex', {
+    command: process.execPath,
+    args: [AGENT_CLI, '--dialect', 'codex-jsonl', '--mcp-config-from', '{runDir}/.codex/config.toml', '--model', '{model}'],
+    models: { standard: 'gpt-something' },
+  });
+  const ran = await engineWith(broker, new CliAdapter(told)).runTask(fixture.companyId, (await newTask(fixture, { ask: 'x' })).id, 'worker');
+  assert.equal(ran.status, 'completed', ran.reason);
+  assert.equal((ran.output as { model: string }).model, 'gpt-something');
+
+  const untold = knownCli('codex', {
+    command: process.execPath,
+    args: [AGENT_CLI, '--dialect', 'codex-jsonl', '--mcp-config-from', '{runDir}/.codex/config.toml', '--model', '{model}'],
+  });
+  const refused = await engineWith(broker, new CliAdapter(untold)).runTask(fixture.companyId, (await newTask(fixture, { ask: 'x' })).id, 'worker');
+  assert.equal(refused.status, 'halted', 'a model that will not exist next time either is not retried');
+  assert.equal(refused.reason, 'runtime_unavailable');
+
+  // Claude Code's own aliases follow the latest model of each size.
+  const argv = new ClaudeCodeAdapter().argv(
+    { runId: 'r', roleSlug: 'worker', modelRouting: { primary: 'deep', fallback: [] }, allowedTools: [] } as never, '/run/x/mcp.json');
+  assert.equal(argv[argv.indexOf('--model') + 1], 'opus');
+  const named = new ClaudeCodeAdapter().argv(
+    { runId: 'r', roleSlug: 'worker', modelRouting: { primary: 'claude-x-1', fallback: [] }, allowedTools: [] } as never, '/run/x/mcp.json');
+  assert.equal(named[named.indexOf('--model') + 1], 'claude-x-1', 'a model named outright is passed as it is');
+});
+
 /** What each dialect makes of the failures its CLI can print. */
 test('each CLI dialect reads a failure as a failure (F13.3)', async () => {
   const { hermesEvents, openClawEvents, openCodeEvents, codexEvents, geminiEvents } = await import('../../src/runtime/cli-dialects.ts');

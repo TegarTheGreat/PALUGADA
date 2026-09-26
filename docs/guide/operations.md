@@ -245,7 +245,9 @@ database:
 
 - A task is claimed in one statement that locks it and skips rows another
   worker holds, so two workers never take the same task. The same statement
-  checks that the task's budget still has room for what is already running.
+  checks that the task's budget still has room for what is already running,
+  and that its division is under its **Runs at once, at most**, counted
+  across every worker.
 - Each process names itself for its leases with its host, its process id and
   a random part, so two containers that are both process 1 are still two
   workers. `PALUGADA_WORKER_ID` overrides it; if you set it, keep it unique.

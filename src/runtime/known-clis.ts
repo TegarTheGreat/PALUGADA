@@ -214,6 +214,8 @@ const SPECS: Record<KnownCliName, CliRuntimeSpec> = {
     ],
     promptVia: 'stdin',
     dialect: 'gemini-stream-json',
+    // Gemini CLI's own default is the pro model; flash is its fast one.
+    models: { fast: 'gemini-2.5-flash', standard: 'gemini-2.5-pro', deep: 'gemini-2.5-pro' },
     cwd: '{runDir}',
     env: { HOME: '{runDir}', PALUGADA_MCP_TOKEN: '{mcpToken}' },
     apiKeyEnvVar: 'GEMINI_API_KEY',

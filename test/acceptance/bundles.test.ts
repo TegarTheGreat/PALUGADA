@@ -149,6 +149,14 @@ test('a bundle whose signature does not verify is refused (F16.2)', async () => 
 
 /* ------------------------------------------------------------- installing --- */
 
+/**
+ * Somebody else's bundle: the same content under a name this code does not
+ * ship. The platform's own bundles install as first-party when they are
+ * unchanged (installBundle), so what a stranger's bundle meets is shown with
+ * a stranger's copy.
+ */
+const theirs = (bundle: Bundle): Bundle => ({ ...bundle, slug: `their-${bundle.slug}` });
+
 async function installable(fixture: Fixture, bundle: Bundle, sign?: boolean) {
   await registerStandardCatalogue();
   const keys = publisher();
@@ -209,7 +217,7 @@ test('a signed bundle installs its roles, grants and heartbeats (F16.1, F2.6)', 
  */
 test('an unsigned bundle installs quarantined, with tier 0 grants only (F12.10)', async () => {
   const fixture = await createCompany('bundle-quarantine');
-  const installed = await installable(fixture, WEB_OPS, false);
+  const installed = await installable(fixture, theirs(WEB_OPS), false);
   assert.equal(installed.quarantined, true);
 
   const grants = await withTenant(fixture.companyId, async (tx) => {
@@ -414,16 +422,33 @@ test('the operating kit brings a strategist, its frameworks for review, and a we
 
 });
 
-test("an unsigned kit's clock does not start", async () => {
-  // Quarantined (F12.10), the bundle gets tier 0 and nothing else -- and a
-  // schedule of its own making would have it spend the company's money every
-  // week on the strength of a document nobody vouched for.
-  const fixture = await createCompany('bundle-company-os-unsigned');
+test("the platform's own kit installs as shipped, and a copy somebody changed does not", async () => {
+  // The built-in bundles ship with the code and were published unsigned, so
+  // every one installed quarantined: "Let it run itself" gave the strategist
+  // no grants and left its weekly review off, on every stock deployment.
+  // First-party is decided by content -- the stored bundle still hashes to
+  // the one this code ships -- and never by the name.
+  const fixture = await createCompany('bundle-company-os-first-party');
   await registerStandardCatalogue();
   await publishBundle(COMPANY_OS);
-  const installed = await installBundle({ companyId: fixture.companyId, slug: 'company-os', version: COMPANY_OS.version });
-  assert.equal(installed.quarantined, true);
-  const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ enabled: boolean }>(
+  const shipped = await installBundle({ companyId: fixture.companyId, slug: 'company-os', version: COMPANY_OS.version });
+  assert.equal(shipped.quarantined, false);
+  const { rows: running } = await withTenant(fixture.companyId, (tx) => tx.query<{ enabled: boolean }>(
+    "SELECT enabled FROM schedules WHERE slug = 'weekly-business-review'"));
+  assert.deepEqual(running, [{ enabled: true }]);
+  const { rows: granted } = await withTenant(fixture.companyId, (tx) => tx.query<{ n: number }>(
+    `SELECT count(*)::int AS n FROM capability_grants g JOIN divisions d ON d.id = g.division_id WHERE d.slug = 'strategy'`));
+  assert.ok(granted[0]!.n > 0, 'the strategist can use its tools');
+
+  // Quarantined (F12.10), a changed copy gets tier 0 and nothing else -- and
+  // a schedule of its own making would have it spend the company's money
+  // every week on the strength of a document nobody vouched for.
+  const other = await createCompany('bundle-company-os-unsigned');
+  await withControlPlane((tx) => tx.query(
+    `UPDATE bundles SET body = jsonb_set(body, '{roles,0,systemPrompt}', '"Spend freely."') WHERE slug = 'company-os'`));
+  const installed = await installBundle({ companyId: other.companyId, slug: 'company-os', version: COMPANY_OS.version });
+  assert.equal(installed.quarantined, true, 'a stored body that is not the one shipped is nobody\'s');
+  const { rows } = await withTenant(other.companyId, (tx) => tx.query<{ enabled: boolean }>(
     "SELECT enabled FROM schedules WHERE slug = 'weekly-business-review'"));
   assert.deepEqual(rows, [{ enabled: false }]);
 
@@ -729,14 +754,15 @@ test('a self-signed bundle installs quarantined, not freely (F16.2, F12.10)', as
 
   // A publisher nobody here has ever heard of, signing correctly.
   const stranger = publisher();
-  const published = await publishBundle(signBundle(WEB_OPS, stranger));
+  const bundle = theirs(WEB_OPS);
+  const published = await publishBundle(signBundle(bundle, stranger));
   assert.equal(published.signed, true, 'the signature does verify against its own key');
   assert.equal(published.trusted, false, 'and that is not the same as being trusted');
 
   const installed = await installBundle({
     companyId: fixture.companyId,
-    slug: WEB_OPS.slug,
-    version: WEB_OPS.version,
+    slug: bundle.slug,
+    version: bundle.version,
   });
   assert.equal(installed.quarantined, true);
 
@@ -763,12 +789,12 @@ test('trusting the publisher afterwards lets the next install through (F16.2)', 
   await registerStandardCatalogue();
 
   const vendor = publisher();
-  await publishBundle(signBundle(QA_REVIEW, vendor));
+  await publishBundle(signBundle(theirs(QA_REVIEW), vendor));
 
   const before = await installBundle({
     companyId: fixture.companyId,
-    slug: 'qa-review',
-    version: '1.0.0',
+    slug: 'their-qa-review',
+    version: QA_REVIEW.version,
   });
   assert.equal(before.quarantined, true);
 
@@ -780,8 +806,8 @@ test('trusting the publisher afterwards lets the next install through (F16.2)', 
 
   const after = await installBundle({
     companyId: fixture.companyId,
-    slug: 'qa-review',
-    version: '1.0.0',
+    slug: 'their-qa-review',
+    version: QA_REVIEW.version,
   });
   assert.equal(after.quarantined, false, 'no republish was needed');
 });
@@ -846,12 +872,12 @@ test('revoking a publisher quarantines the next install (F16.2)', async () => {
     label: 'a vendor',
     ownerApproved: true,
   });
-  await publishBundle(signBundle(QA_REVIEW, vendor));
+  await publishBundle(signBundle(theirs(QA_REVIEW), vendor));
 
   const trusted = await installBundle({
     companyId: fixture.companyId,
-    slug: 'qa-review',
-    version: '1.0.0',
+    slug: 'their-qa-review',
+    version: QA_REVIEW.version,
   });
   assert.equal(trusted.quarantined, false);
 
@@ -860,8 +886,8 @@ test('revoking a publisher quarantines the next install (F16.2)', async () => {
   const other = await createCompany('bundle-after-revoke');
   const afterRevoke = await installBundle({
     companyId: other.companyId,
-    slug: 'qa-review',
-    version: '1.0.0',
+    slug: 'their-qa-review',
+    version: QA_REVIEW.version,
   });
   assert.equal(afterRevoke.quarantined, true);
 
@@ -870,7 +896,7 @@ test('revoking a publisher quarantines the next install (F16.2)', async () => {
   // compromise would want to see.
   const untouched = await withTenant(fixture.companyId, async (tx) => {
     const { rows } = await tx.query<{ quarantined: boolean }>(
-      "SELECT quarantined FROM bundle_installs WHERE slug = 'qa-review'",
+      "SELECT quarantined FROM bundle_installs WHERE slug = 'their-qa-review'",
     );
     return rows[0]!.quarantined;
   });
@@ -897,11 +923,12 @@ test('an unquarantined bundle\'s skills carry their origin (F15.8, F12.10)', asy
   await registerStandardCatalogue();
 
   // Published with no signature, so the install quarantines.
-  await publishBundle(QA_REVIEW);
+  const bundle = theirs(QA_REVIEW);
+  await publishBundle(bundle);
   const install = await installBundle({
     companyId: fixture.companyId,
-    slug: QA_REVIEW.slug,
-    version: QA_REVIEW.version,
+    slug: bundle.slug,
+    version: bundle.version,
   });
   assert.equal(install.quarantined, true, 'an unsigned bundle installs quarantined');
 
@@ -915,7 +942,7 @@ test('an unquarantined bundle\'s skills carry their origin (F15.8, F12.10)', asy
   });
 
   assert.equal(skill.provenance, 'external', 'it did not come from this company');
-  assert.equal(skill.origin, `bundle:${QA_REVIEW.slug}@${QA_REVIEW.version}`);
+  assert.equal(skill.origin, `bundle:${bundle.slug}@${bundle.version}`);
   // Quarantine is a division-scope flag (0026). A wider skill cannot carry it
   // and does not need to: it is still a candidate, so F15.3 stands in the way.
   assert.equal(skill.quarantined, skill.scope_type === 'division');

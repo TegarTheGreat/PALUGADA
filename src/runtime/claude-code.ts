@@ -35,6 +35,7 @@ import type {
 } from './protocol.ts';
 import { driveRun, renderPrompt, toWireRequest, type Transport } from './wire.ts';
 import { startToolBridge } from './tool-bridge.ts';
+import { cliModelFor } from './cli-models.ts';
 import { toolsForModel } from './tool-names.ts';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -57,7 +58,12 @@ export interface ClaudeCodeAdapterOptions {
    */
   apiKeyEnvVar?: string;
   maxTurns?: number;
+  /** What each tier means to Claude Code. Default its own aliases: haiku, sonnet, opus. */
+  models?: Record<string, string>;
 }
+
+/** Claude Code's own aliases, which follow the latest model of each size. */
+const CLAUDE_CODE_TIERS: Readonly<Record<string, string>> = { fast: 'haiku', standard: 'sonnet', deep: 'opus' };
 
 /** What `claude -p --output-format stream-json` writes, in the parts used here. */
 export interface StreamJsonLine {
@@ -135,7 +141,7 @@ export class ClaudeCodeAdapter implements Adapter {
       '-p',
       '--output-format', 'stream-json',
       '--verbose',
-      '--model', request.modelRouting.primary,
+      '--model', cliModelFor(this.name, request.modelRouting.primary, this.#options.models ?? CLAUDE_CODE_TIERS),
       '--max-turns', String(this.#options.maxTurns ?? 40),
       // F13.4. None of its built-in tools. Naming the ones to disallow left
       // seventeen others offered to the model -- sub-agents, scheduled tasks,
@@ -171,6 +177,9 @@ export class ClaudeCodeAdapter implements Adapter {
   }
 
   async run(request: RunRequest, services: RunServices): Promise<AdapterResult> {
+    // Refused before anything is started, so a refusal leaves no bridge
+    // listening; `argv` below reads the same answer.
+    cliModelFor(this.name, request.modelRouting.primary, this.#options.models ?? CLAUDE_CODE_TIERS);
     const bridge = await startToolBridge(request.allowedTools, services);
     // 0700 from mkdtemp, and the file 0600 from the start: the token is in it.
     const runDir = await mkdtemp(join(tmpdir(), 'palugada-claude-'));

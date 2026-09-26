@@ -33,6 +33,7 @@ import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
 import { TIER } from '../domain/tier.ts';
 import { isTrustedPublisher, keyFingerprint } from './publishers.ts';
+import { BUILT_IN_BUNDLES } from './builtin.ts';
 import type { CompanyTemplate, TemplateGrant, TemplateRole } from '../templates/company.ts';
 import type { Hook, HookName, HookPipeline } from '../engine/hooks.ts';
 import { assertValidCron, upsertSchedule } from '../scheduler/scheduler.ts';
@@ -169,6 +170,12 @@ export function hashBundle(bundle: Bundle): string {
     .digest('hex');
 }
 
+/** Whether this is, to the byte, one of the bundles this code ships. */
+function isShippedBundle(bundle: Bundle): boolean {
+  const shipped = BUILT_IN_BUNDLES.find((one) => one.slug === bundle.slug && one.version === bundle.version);
+  return shipped !== undefined && hashBundle(shipped) === hashBundle(bundle);
+}
+
 /**
  * Checks a signature against the publisher's key.
  *
@@ -299,12 +306,14 @@ export async function installBundle(input: {
   const stored = await withControlPlane(async (tx) => {
     const { rows } = await tx.query<{
       id: string;
+      name: string;
+      description: string;
       body: BundleBody;
       content_hash: string;
       signature: string | null;
       publisher_key: string | null;
     }>(
-      `SELECT id, body, content_hash, signature, publisher_key
+      `SELECT id, name, description, body, content_hash, signature, publisher_key
          FROM bundles WHERE slug = $1 AND version = $2`,
       [input.slug, input.version],
     );
@@ -323,8 +332,18 @@ export async function installBundle(input: {
   // against a key that arrived with it, which proves the bundle is internally
   // consistent and nothing about who made it. Quarantine lifts only for a
   // publisher this installation was told to accept.
-  const quarantined = stored.signature === null
-    || !(await isTrustedPublisher(stored.publisher_key));
+  //
+  // Or the platform's own: a bundle this code ships, whose stored content --
+  // hashed again here, not read from the row -- is still exactly what the
+  // code ships. It is as trusted as the code that runs it, and quarantining
+  // it left "Let it run itself" with no grants and its weekly review off on
+  // every deployment. A copy somebody changed hashes differently and is
+  // nobody's, like any other unsigned bundle.
+  const firstParty = isShippedBundle({
+    slug: input.slug, version: input.version, name: stored.name, description: stored.description, body: stored.body,
+  });
+  const quarantined = !firstParty
+    && (stored.signature === null || !(await isTrustedPublisher(stored.publisher_key)));
   const body = stored.body;
 
   const installed = await withTenant(input.companyId, async (tx) => {

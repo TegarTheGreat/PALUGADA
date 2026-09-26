@@ -58,6 +58,7 @@ import type {
 import { driveRun, renderPrompt, toWireRequest, type Transport } from './wire.ts';
 import { toolsForModel } from './tool-names.ts';
 import { startToolBridge, type ToolBridge } from './tool-bridge.ts';
+import { cliModelFor } from './cli-models.ts';
 import { asOutput, translateStreamJsonLine, type StreamJsonLine } from './claude-code.ts';
 import {
   codexEvents, geminiEvents, hermesEvents, openCodeEvents, openClawEvents,
@@ -166,6 +167,12 @@ export interface CliRuntimeSpec {
   apiKeyEnvVar?: string;
   maxTurns?: number;
   cwd?: string;
+  /**
+   * What each tier a role names means to this CLI, such as
+   * `{"standard": "gpt-5"}`. A role that names a model rather than a tier is
+   * passed as it is (`cli-models.ts`).
+   */
+  models?: Record<string, string>;
   /** How to ask the binary whether it is there (F13.8). Default `--version`. */
   versionArgs?: string[];
 }
@@ -304,6 +311,9 @@ export class CliAdapter implements Adapter {
   }
 
   async run(request: RunRequest, services: RunServices): Promise<AdapterResult> {
+    // Before anything is started: a refusal here leaves no bridge listening
+    // and no directory behind.
+    const model = cliModelFor(this.name, request.modelRouting.primary, this.#spec.models);
     const bridge = await startToolBridge(request.allowedTools, services);
     const prompt = this.prompt(request);
 
@@ -316,7 +326,7 @@ export class CliAdapter implements Adapter {
     const runDir = await mkdtemp(join(tmpdir(), 'palugada-run-'));
     await chmod(runDir, 0o700);
     const values: CliPlaceholders = {
-      model: request.modelRouting.primary,
+      model,
       maxTurns: String(this.#spec.maxTurns ?? 40),
       mcpConfig: mcpConfigJson(bridge),
       mcpConfigFile: join(runDir, 'mcp.json'),

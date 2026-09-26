@@ -174,7 +174,8 @@ rebinding.
 
 **Fix.** Add the name to `PALUGADA_ALLOWED_HOSTS`, or set
 `PALUGADA_APP_URL_PUBLIC` to the address you use. Under Compose, set
-`PALUGADA_ALLOWED_HOSTS` itself ([operations](operations.md#https-in-front-of-it)).
+`PALUGADA_ALLOWED_HOSTS` itself
+([operations](operations.md#https-in-front-of-it)).
 
 ### "Your session has ended. Sign in again."
 
@@ -292,52 +293,23 @@ may not have happened.
 
 ### A schedule shows **Cannot fire**
 
-**Cause.** The badge's tooltip gives the reason. A schedule made with the
-console form has no goal, and every task must name one: `a root task must
-name the goal it serves (PRD F2.7)`.
+**Cause.** The task it would create was refused, and the badge's tooltip
+gives the reason as the platform said it: the company's spending is paused,
+the role is frozen, or the budget cannot cover the reservation, for
+example. The same occurrence is tried again on every pass until it can be.
 
-**Fix.** Create it with a goal and a brief through the owner API
-([how-to](how-to.md#schedule-recurring-work)).
-
-### The strategist does nothing
-
-**Cause.** The built-in bundles are published unsigned unless the operator
-signs them, and an unsigned bundle installs quarantined. `company-os`, which
-**Let it run itself** installs, therefore arrives with no grants for its
-Strategy division, its `weekly-business-review` schedule **Off**, and its
-skills as candidates. The same applies to any built-in bundle installed
-under **Settings**, **Bundles**.
-
-**Fix.**
-1. Open the Strategy division on **Team** and use **Change a grant** for
-   each capability the strategist's drawer lists under **Tools**, at its
-   catalogue tier.
-2. Turn the weekly review on through the owner API: the same `slug`, with
-   its role, division, project, `goalId`, `input` and `"enabled": true`, on
-   `POST /api/companies/<id>/schedules` ([how-to](how-to.md#schedule-recurring-work)).
-   The console's **New schedule** form would replace it without a goal.
-3. Review and approve its skills under **Settings**, **Skills**.
+**Fix.** Deal with the reason the tooltip names.
 
 ## Models and agent CLIs
 
-### The strategist's tasks fail on a model that is not Anthropic's
+### A role on an agent CLI halts at once, saying the CLI does not know a tier
 
-**Cause.** The roles in the built-in bundles, including the strategist that
-**Let it run itself** installs, name the model `claude-sonnet-5` directly
-rather than a tier, so they are sent to your provider under that name.
+**Cause.** The role names a tier (`standard`), and this CLI's entry does not
+say what model the tier means to it. Claude Code and Gemini CLI know; the
+others are told in their entry.
 
-**Fix.** Open the role on **Team**, and under
-**Change its charter or model** set **Primary model** to `standard`. Or map
-the name in `PALUGADA_MODEL_ALIASES`, for example
-`{"claude-sonnet-5": "<your model>"}` alongside the tiers.
-
-### A role on an agent CLI fails at once
-
-**Cause.** The CLI is started with the role's model as its model, and a
-template role's model is a tier such as `standard`, which the CLI does not
-know.
-
-**Fix.** Set the role's **Primary model** to a model name the CLI accepts
+**Fix.** Name the models in the CLI's entry in `PALUGADA_RUNTIME_SPECS`, as
+the message shows, or give the role a model name the CLI accepts
 ([how-to](how-to.md#put-a-role-on-an-agent-cli)).
 
 ### "Model … failed and the run was not moved"

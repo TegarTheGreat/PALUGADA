@@ -32,6 +32,8 @@ import * as inbox from '../../src/inbox/inbox.ts';
 import type { NotifiableItem, OwnerChannel } from '../../src/owner/notify.ts';
 import { createCompany, addRole, setRoleSchemas, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
+import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
+import { QA_REVIEW } from '../../src/bundles/builtin.ts';
 
 before(ensureSchema);
 beforeEach(resetData);
@@ -306,14 +308,16 @@ test('seeding publishes the built-in bundles and the standard template (F16.5)',
 
   assert.ok(await readTemplate(report.template), 'the standard template is saved');
 
-  // And they are installable, which is the point of publishing them.
+  // And they are installable, which is the point of publishing them -- as
+  // the platform's own, so with their grants, which name the catalogue.
+  await registerStandardCatalogue();
   const fixture = await createCompany('seeded');
   const installed = await installBundle({
     companyId: fixture.companyId,
     slug: 'qa-review',
-    version: '1.0.0',
+    version: QA_REVIEW.version,
   });
-  assert.equal(installed.quarantined, true, 'unsigned means quarantine (F12.10)');
+  assert.equal(installed.quarantined, false, 'the platform\'s own bundle, unchanged, is as trusted as its code');
   assert.deepEqual(installed.roles, ['qa-reviewer']);
 });
 

@@ -48,7 +48,10 @@ function role(input: {
     slug: input.slug,
     division: input.division,
     systemPrompt: input.prompt,
-    model: 'claude-sonnet-5',
+    // A tier, which the deployment turns into its own model (F13.6). A model
+    // named here was sent as written to whatever provider the deployment
+    // speaks, and every bundle role failed on anything but Anthropic's.
+    model: 'standard',
     tools: input.tools,
     inputSchema: WORK_INPUT,
     outputSchema: WORK_OUTPUT,
@@ -59,7 +62,7 @@ function role(input: {
 
 export const CONTENT_OPS: Bundle = {
   slug: 'content-ops',
-  version: '1.1.0',
+  version: '1.2.0',
   name: 'Content operations',
   description: 'Researches, drafts and publishes written material.',
   body: {
@@ -168,7 +171,7 @@ find the primary source, not a substitute for it.
 
 export const WEB_OPS: Bundle = {
   slug: 'web-ops',
-  version: '1.1.0',
+  version: '1.2.0',
   name: 'Web operations',
   description: 'Hosting, domains and deployment, with the tiers the catalogue calibrated.',
   body: {
@@ -258,7 +261,7 @@ the request, not applied it.
 
 export const QA_REVIEW: Bundle = {
   slug: 'qa-review',
-  version: '1.0.0',
+  version: '1.1.0',
   name: 'Adversarial review',
   description: 'The reviewer role F7 needs, holding nothing that writes.',
   body: {
@@ -346,7 +349,7 @@ Approving is a claim that you checked. "It looks fine" is not a review.
  */
 export const PALUGADA_DEV: Bundle = {
   slug: 'palugada-dev',
-  version: '1.1.0',
+  version: '1.2.0',
   name: 'Develop PALUGADA',
   description: 'A platform engineer and a reviewer that change PALUGADA itself, by pull request.',
   body: {
@@ -519,7 +522,7 @@ Approving is a claim that you checked. Say what you checked.
  */
 export const COMPANY_OS: Bundle = {
   slug: 'company-os',
-  version: '1.1.0',
+  version: '1.2.0',
   name: 'Company operating kit',
   description:
     'A strategist, a weekly business review, stage gates, and the operating skills a company decides ' +

@@ -3111,6 +3111,33 @@ vendor's own limits are met by its 429s and `Retry-After` (F9.2), and a
 count shared by every replica needs a slot table this has not got. F5.7 is
 graded partial until it has.
 
+### Three more the guide found
+
+Writing the owner's guide from the code, rather than from what the code was
+meant to do, found three things a company that runs itself needs and did
+not have:
+
+- **"Let it run itself" did nothing on a stock deployment.** The built-in
+  bundles are published unsigned, so every one installed quarantined: the
+  strategist got no grants and its weekly review was created switched off.
+  A bundle whose stored content still hashes to the one this code ships is
+  now first-party and installs as written; a changed copy, or anyone else's
+  bundle, is quarantined as before. The built-in versions are bumped, so an
+  upgraded deployment publishes the content that qualifies.
+- **The built-in bundles' roles named `claude-sonnet-5`.** Sent as written
+  to any other provider, and to agent CLIs, which know their own names.
+  They name the `standard` tier now, and a tier reaching an agent CLI
+  becomes that CLI's own model: Claude Code's aliases, Gemini CLI's flash
+  and pro, or the `models` in an entry. A tier a CLI has no model for halts
+  the task with the setting named, instead of failing every attempt with the
+  CLI's complaint about a model called "standard" -- and is refused before
+  the tool bridge starts, which the first version of this did not do, so a
+  halted run left a server listening.
+- **A schedule made in the console could never fire.** The form sent no
+  goal and no brief, and every task names the goal it serves (F2.7), so the
+  first occurrence was refused and the schedule sat at **Cannot fire**. The
+  form asks for both now.
+
 **Still open.** Claude Code's run is not given a home of its own, because its
 login lives in the operator's; its settings and memory are shut out by flag
 instead. The container image carries no agent CLI: one is added by extending

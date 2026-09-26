@@ -141,9 +141,10 @@ Run `npm run setup` again at any time. It keeps what `.env` holds, asks only
 what is missing, and offers to change the model. The only request it sends
 anywhere is the one to the model you named.
 
-If you would rather write `.env` by hand, [docs/configuration.md](../configuration.md)
-lists every variable, and `npm run totp:new` prints a new authenticator
-secret and the `otpauth://` link to add to your app.
+If you would rather write `.env` by hand,
+[docs/configuration.md](../configuration.md) lists every variable, and
+`npm run totp:new` prints a new authenticator secret and the `otpauth://`
+link to add to your app.
 
 ## Sign in for the first time
 
@@ -190,12 +191,9 @@ deployment ([how-to](how-to.md#export-and-import-a-company)).
 3. Press **Start it**, then type a code in
    **Confirm with your authenticator** and press **Confirm**.
 
-The built-in bundles are published unsigned unless the operator signs them,
-and an unsigned bundle installs quarantined. On a stock deployment that
-means `company-os` arrives with none of the strategist's grants, its weekly
-review switched off, and its skills waiting as candidates.
-[Troubleshooting](troubleshooting.md#the-strategist-does-nothing) says how to
-give it what it needs.
+`company-os` arrives with the strategist's grants and its weekly review
+switched on; its skills wait under **Settings**, **Skills** as candidates for
+a reviewer and you to approve.
 
 The company is built from the standard template in one transaction:
 

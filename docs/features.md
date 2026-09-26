@@ -244,8 +244,9 @@ freeze, raise a ceiling, rewrite what a model call cost, or delete history.
 - A whole company can be exported and restored on another instance, with every
   reference remapped: from the console's Home, or with
   `npm run company:import -- <archive> <slug>`.
-- Signed bundles and trusted publishers. An unsigned bundle installs with
-  read-only grants.
+- Signed bundles and trusted publishers. The built-in bundles install as
+  written when they are exactly what this version ships; any other unsigned
+  bundle installs quarantined, with read-only grants and its schedules off.
 - Console sessions are shared by every replica and stored hashed. They end
   everywhere when their device is revoked. The console answers only to its
   own host names, which blocks DNS rebinding.

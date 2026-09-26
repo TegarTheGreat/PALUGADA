@@ -823,6 +823,13 @@ function Schedules({
             })) },
             { name: 'projectId', label: t('Project'), type: 'select', required: true, initial: structure.projects[0]?.id ?? null,
               options: structure.projects.map((project) => ({ value: project.id, label: project.name })) },
+            // Every task names the goal it serves (F2.7), and the brief is what
+            // each run is asked. Without them a schedule saved here could
+            // never fire: its first task was refused for want of a goal.
+            { name: 'goalId', label: t('Serves'), type: 'select', required: true,
+              options: structure.goals.map((goal) => ({ value: goal.id, label: goal.statement })) },
+            { name: 'brief', label: t('What each run is asked to do'), type: 'textarea', required: true, wide: true,
+              placeholder: t('Reconcile last week\'s invoices against the bank statement and list anything that does not match.') },
             { name: 'slug', label: t('Short name'), required: true, placeholder: 'weekly-invoices' },
             { name: 'cronExpression', label: t('Cron'), required: true, placeholder: '0 3 * * *', description: t('minute hour day month weekday') },
             { name: 'timezone', label: t('Time zone'), type: 'select', initial: 'UTC', options: ZONES.map((zone) => ({ value: zone, label: zone })) },
@@ -832,9 +839,12 @@ function Schedules({
           ]}
           submit={(values) => {
             const role = structure.roles.find((one) => one.id === values.roleId);
+            const { brief, ...rest } = values;
             return api('POST', `/api/companies/${companyId}/schedules`, {
-              ...values,
+              ...rest,
               divisionId: role?.divisionId,
+              // The standard roles take their work as `goal`.
+              input: { goal: brief },
               ...(values.priority === undefined ? {} : { priority: Number(values.priority) }),
             });
           }}

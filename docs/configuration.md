@@ -33,7 +33,9 @@ npm run smoke
 
 The smoke check builds a company and runs a task through the whole pipeline.
 It fails if the tier 3 gate does not refuse without a second factor, if no
-owner channel is reached, or if a built-in capability is missing.
+owner channel is reached, or if a built-in capability is missing. It leaves
+that company behind, and companies are not deleted, so run it against a
+database you are setting up rather than one the business already uses.
 
 `db:setup` creates the database from nothing, and refuses when one already
 exists, because it would drop it: bring an existing database up to date with
@@ -138,8 +140,18 @@ separated), and choose the runtime on the role's page in the console. Each
 runs in a directory of its own that is removed afterwards, with `HOME` set
 there, none of its own shell, file or web tools, and the role's granted
 capabilities as its only tools, through a bridge that exists for that run.
-It sees nothing of this process's environment except `PATH` and the one
-variable its entry names for its provider key:
+Claude Code is the exception to `HOME`: its login lives in the operator's
+home, so it keeps that one and is shut out of the operator's settings,
+hooks and memory by flag instead. None sees anything of this process's
+environment except `PATH` and the one variable its entry names for its
+provider key.
+
+A role names a tier, and each CLI is told what the tier means to it:
+Claude Code by its own aliases (`haiku`, `sonnet`, `opus`), Gemini CLI by
+its flash and pro models, and the others by a `models` field in their entry,
+such as `[{"name":"codex","models":{"fast":"…","standard":"…","deep":"…"}}]`.
+A tier a CLI has no model for halts the task, and the message names this
+setting:
 
 | Name | Binary | Its key, from this process's environment | Checked |
 |---|---|---|---|
@@ -158,7 +170,7 @@ placeholders `{model}`, `{maxTurns}`, `{mcpConfigFile}`, `{mcpUrl}`,
 `{mcpToken}`, `{allowedTools}`, `{prompt}` and `{runDir}`, `promptVia`,
 `dialect` (`stream-json`, `text`, `hermes-stream-json`, `openclaw-json`,
 `opencode-json`, `codex-jsonl` or `gemini-stream-json`), `env`, `files`,
-`cwd`, `apiKeyEnvVar` and `maxTurns`. A spec that never hands its CLI the
+`cwd`, `models`, `apiKeyEnvVar` and `maxTurns`. A spec that never hands its CLI the
 bridge is refused at boot, because the CLI would run with no tools and
 answer as though it had them.
 

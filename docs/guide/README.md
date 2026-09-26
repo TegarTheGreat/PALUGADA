@@ -52,9 +52,7 @@ along the bottom and under **More**.
 3. **Start a company.** On **Home**, press **Start a company**. Give it a
    **Name**; the **Short name** fills itself in and is used in links and
    exports. Leave **Let it run itself** on if you want a strategist that
-   reviews the week every Monday and proposes what to do next (on a stock
-   deployment it needs its grants first; see
-   [troubleshooting](troubleshooting.md#the-strategist-does-nothing)). Press
+   reviews the week every Monday and proposes what to do next. Press
    **Start it** and confirm with a code, because creating a company writes
    divisions, roles, grants and budgets. You land on the company's
    **Overview**. Look at the stage card (no stage is set yet), the goal

@@ -236,10 +236,14 @@ platform's environment except `PATH` and the one variable named for its key.
    under **Move it to**, press **Move it** and confirm with a code. A runtime
    that is not answering is marked so in the list; a role on it gets no work
    until it answers.
-5. Under **Change its charter or model**, set **Primary model** to a model
-   name the CLI accepts. The CLI is started with the role's model as its
-   model, and the tiers `fast`, `standard` and `deep` are translated only by
-   the platform's own loop.
+5. A role names a tier -- `fast`, `standard`, `deep` -- and each CLI is
+   told what the tier means to it. Claude Code uses its own aliases
+   (`haiku`, `sonnet`, `opus`) and Gemini CLI its flash and pro models; for
+   the others, name the models in the CLI's entry, for example
+   `PALUGADA_RUNTIME_SPECS=[{"name":"codex","models":{"fast":"…","standard":"…","deep":"…"}}]`.
+   A tier the CLI has no model for halts the task with a message that says
+   so, rather than failing every attempt. A role whose **Primary model** is
+   a model name, under **Change its charter or model**, is passed as it is.
 
 Any other CLI, or a correction to a known one, goes in
 `PALUGADA_RUNTIME_SPECS` as JSON: its `command`, its `args` with
@@ -286,19 +290,13 @@ A remote sandbox is the same idea on a provider's machines:
 ## Schedule recurring work
 
 On **Team**, **Schedules**, press **New schedule**, choose the **Role** and
-**Project**, a **Short name**, the **Cron** expression (minute, hour, day,
-month, weekday), the **Time zone** and the **Priority**, and press
-**Schedule it**. Each occurrence creates one task, in the schedule's own
-time zone. A schedule whose last five runs said the same thing asks you
-whether it is still worth running.
-
-At the time of writing this form sends neither the goal the work serves nor
-a brief, and every task must name its goal, so a schedule made here shows
-**Cannot fire** with the reason. Until the form asks for them, create the
-schedule through the owner API, which takes `goalId` and `input` (for the
-standard roles, `{"goal": "…"}`) on `POST /api/companies/<id>/schedules`,
-with the session token that `POST /api/auth/sign-in` returns for a code.
-The weekly business review that `company-os` installs is not affected.
+**Project**, the goal it **Serves**, **What each run is asked to do**, a
+**Short name**, the **Cron** expression (minute, hour, day, month,
+weekday), the **Time zone** and the **Priority**, and press **Schedule it**.
+Each occurrence creates one task, in the schedule's own time zone. A
+schedule whose last five runs said the same thing asks you whether it is
+still worth running, and one that cannot fire shows **Cannot fire** with the
+reason.
 
 ## Let other services start work: triggers
 
@@ -336,13 +334,15 @@ the sender, so it needs the HTTPS set-up in [operations](operations.md).
    hash recorded at install. **Trust a publisher** adds a publisher's public
    key; bundles it signs install as written.
 
-An unsigned bundle, which the built-in ones are unless the operator signs
-them, installs quarantined: only the grants it names at tier 0 are created
-(the built-in bundles name none), its schedules start switched off, and its
-policies that allow something are left out. Grant what its roles need
-yourself with **Change a grant** in each of its divisions; each role's
-drawer lists its **Tools**. Its skills arrive as candidates under
-**Settings**, **Skills**, for a reviewer and you to approve.
+The built-in bundles install as written when they are exactly what this
+version of PALUGADA ships: they are part of the platform, as trusted as its
+code. Any other unsigned bundle -- including a built-in one somebody changed
+-- installs quarantined: only the grants it names at tier 0 are created, its
+schedules start switched off, and its policies that allow something are
+left out. Grant what its roles need yourself with **Change a grant** in each
+of its divisions; each role's drawer lists its **Tools**. A bundle's skills
+always arrive as candidates under **Settings**, **Skills**, for a reviewer
+and you to approve.
 
 ## Set the company's languages
 

@@ -2493,6 +2493,54 @@ requires a run to have called first. So every tier 2 grant in a company made
 from the template was unusable. `plan.record` and `metric.record` are now in
 the template and in the catalogue.
 
+## 2.20 Read against Buzz, Paperclip and auto-company
+
+Their source was read next to this one, feature by feature, and each gap was
+checked by grepping this repository before it was called one. The ones that
+mattered most to one owner running several companies are closed here; the
+rest are listed at the end.
+
+**Defects**
+
+- *Telegram's Ask button asked the agent "via chat".* The press decided the
+  item at once with that note, and the next run was told the owner had asked
+  it "via chat". The press now asks the owner for the question with a reply
+  box, and the reply is what is recorded.
+- *A runtime in another process could not be told to wait.* A tier 3 call, a
+  review or a closed window is a throw that ends an in-process run. An agent
+  CLI was told it as a refused tool call, carried on, and said `done`; the
+  engine tried to complete a task waiting for the owner and threw out of
+  `runTask` with the approval open. The engine now keeps the first "wait",
+  withdraws the run and parks the task on it.
+- *Company restore could not be reached.* `importCompany` was called only by
+  tests while the README promised a restore.
+
+**What the owner can now do**
+
+- See what a task produced: a one-line result on the work list, and the whole
+  output and every committed draft, redacted, on the task
+  (`GET /tasks/:taskId`); Home lists what was just delivered.
+- Cancel one task and what it started; do ended work again with a note;
+  tell a live task something its next run reads; pause one role
+  (`src/engine/owner-control.ts`).
+- Restore a company from the console's export, with a preview first and the
+  owner's device to apply, or with `npm run company:import`.
+- Be asked. `owner.ask` lets any runtime put a question to the owner and park
+  until it is answered, from the console or a Telegram reply.
+- Measure goals by numbers (section 2.19).
+
+**Still open, in the order they would be taken**
+
+- Inbound triggers: a signed webhook that starts work, with a replay window
+  and a rate limit. Only cron starts work today.
+- Structured choices on a decision (pick one of three, approve seven of ten).
+- Delegation for out-of-process runtimes: `awaitChild` is in-process only.
+- A company operating kit: skills with evals for pricing, unit economics,
+  premortems and a weekly business review, a strategy role, and business
+  cadences as schedules in the template.
+- Per-company connections to outside accounts from the console, a config
+  history with restore, coding workspaces, and live run transcripts.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

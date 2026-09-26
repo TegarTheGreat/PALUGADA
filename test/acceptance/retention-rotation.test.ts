@@ -184,6 +184,7 @@ test('a purge past the window succeeds and records itself', async () => {
 
   const log = await readRetentionLog(fixture.companyId);
   const actions = log.map((entry) => entry.action).sort();
+  // A pass that found nothing to remove is not a record of anything.
   assert.deepEqual(actions, ['events_purged', 'prompts_scrubbed', 'traces_purged']);
   assert.ok(log.every((entry) => entry.rowsAffected >= 1));
 
@@ -348,3 +349,111 @@ test('rotating a credential a division does not hold is refused', async () => {
     /no credential aliased nonexistent/,
   );
 });
+
+/**
+ * The prompt window holds for every copy of a reply.
+ *
+ * A model's reply is also the output of the step that asked for it, and the
+ * journal kept it for ever while the trace's copy was scrubbed at ninety days.
+ * Scrubbed now for finished tasks -- and only those, because a live task
+ * replays its journal, and a redaction marker handed back as the model's
+ * answer would be worse than the text.
+ */
+test("a finished task's model replies leave its journal at the prompt window (F11.5)", async () => {
+  const fixture = await createCompany('retention-journal');
+  const { createRootTask, transition } = await import('../../src/engine/tasks.ts');
+  const task = (goal: string) => createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    roleId: fixture.roleId, budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId,
+    input: { goal }, createdBy: 'owner', reserveTokens: 100,
+  });
+  const finished = await task('finished');
+  const live = await task('live');
+  await transition(fixture.companyId, finished.id, 'running');
+  await transition(fixture.companyId, finished.id, 'completed', { output: {} });
+  await transition(fixture.companyId, live.id, 'running');
+  await withControlPlane(async (tx) => {
+    for (const [taskId, index, kind] of [
+      [finished.id, 0, 'llm'], [finished.id, 1, 'tool'], [live.id, 0, 'llm'],
+    ] as const) {
+      await tx.query(
+        `INSERT INTO task_steps (company_id, task_id, step_index, name, kind, status,
+                                 idempotency_key, input_hash, output, committed_at)
+         VALUES ($1, $2, $3, $4, $5, 'committed', $6, 'h', '"what the model said"'::jsonb,
+                 now() - interval '200 days')`,
+        [fixture.companyId, taskId, index, kind, kind, `${taskId}:${index}`],
+      );
+    }
+    await tx.query(
+      "UPDATE tasks SET finished_at = now() - interval '200 days' WHERE id = $1", [finished.id],
+    );
+  });
+
+  const outcome = await runRetention(fixture.companyId);
+  assert.equal(outcome.journalScrubbed, 1);
+  const outputs = await withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ task_id: string; kind: string; output: unknown }>(
+      'SELECT task_id, kind, output FROM task_steps WHERE company_id = $1 ORDER BY task_id, step_index',
+      [fixture.companyId],
+    );
+    return rows.map((row) => [row.task_id === finished.id ? 'finished' : 'live', row.kind, row.output]);
+  });
+  assert.deepEqual(outputs.sort(), [
+    ['finished', 'llm', { redacted: 'retention' }],
+    ['finished', 'tool', 'what the model said'],
+    ['live', 'llm', 'what the model said'],
+  ].sort());
+});
+
+/**
+ * The platform's own bookkeeping -- notifications sent, wakes consumed,
+ * challenges issued, eval tallies -- grew by a row for everything it did and
+ * never shrank. Purged at the event window now; and a wake only together
+ * with the wakes folded into it, which would otherwise look due again.
+ */
+test('bookkeeping past the event window is purged, and folded wakes go with their wake (F11.5)', async () => {
+  const fixture = await createCompany('retention-bookkeeping');
+  await withControlPlane(async (tx) => {
+    const wake = async (daysAgo: number, consumed: boolean, into: string | null) => {
+      const { rows } = await tx.query<{ id: string }>(
+        `INSERT INTO wake_queue (company_id, role_id, reason, detail, wake_at, consumed_at,
+                                 coalesced_into, created_at)
+         VALUES ($1, $2, 'event', 'x', now() - make_interval(days => $3),
+                 CASE WHEN $4 THEN now() - make_interval(days => $3) END, $5,
+                 now() - make_interval(days => $3))
+         RETURNING id`,
+        [fixture.companyId, fixture.roleId, daysAgo, consumed, into],
+      );
+      return rows[0]!.id;
+    };
+    const oldTarget = await wake(500, true, null);
+    await wake(499, false, oldTarget);
+    const keptTarget = await wake(500, true, null);
+    await wake(3, false, keptTarget);
+    await wake(3, true, null);
+    await tx.query(
+      `INSERT INTO role_eval_runs (company_id, role_id, triggered_by, passed, failed, detail, ran_at)
+       VALUES ($1, $2, 'manual', 1, 0, '{}'::jsonb, now() - interval '500 days'),
+              ($1, $2, 'manual', 1, 0, '{}'::jsonb, now())`,
+      [fixture.companyId, fixture.roleId],
+    );
+  });
+
+  const outcome = await runRetention(fixture.companyId);
+  assert.equal(outcome.bookkeepingPurged, 3, 'two old wakes and an old eval run');
+  const left = await withControlPlane(async (tx) => {
+    const wakes = await tx.query<{ n: number; dangling: number }>(
+      `SELECT count(*)::int AS n,
+              count(*) FILTER (WHERE consumed_at IS NULL AND coalesced_into IS NULL)::int AS dangling
+         FROM wake_queue WHERE company_id = $1`,
+      [fixture.companyId],
+    );
+    const runs = await tx.query<{ n: number }>(
+      'SELECT count(*)::int AS n FROM role_eval_runs WHERE company_id = $1', [fixture.companyId],
+    );
+    return { wakes: wakes.rows[0]!, runs: runs.rows[0]!.n };
+  });
+  assert.deepEqual(left, { wakes: { n: 3, dangling: 0 }, runs: 1 },
+    'the old wake a recent one was folded into stays, so nothing looks due that is not');
+});
+

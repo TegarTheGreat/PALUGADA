@@ -222,3 +222,31 @@ test('a task spending past its reservation does not eat its siblings\' (F5.4)', 
   assert.equal(during, 1_000, 'the spender used up its own 200, and only its own');
   assert.equal(await reserved(), 1_000, 'and finishing gave back nothing it had not already used');
 });
+
+/**
+ * A narrower account that says nothing about money is not an account that
+ * may spend nothing. It got zero, and `budget_spend` refuses past the
+ * ceiling, so every task drawing on a division account opened with only a
+ * token ceiling halted at its first priced model call.
+ */
+test('a scoped account opened without a money ceiling inherits its parent\'s (F1.6)', async () => {
+  const fixture = await createCompany('budget-money-inherit', { tokensMax: TOKENS_MAX });
+  const money = await withTenant(fixture.companyId, async (tx) => {
+    const division = await budget.createAccount(tx, {
+      companyId: fixture.companyId,
+      label: 'ops',
+      tokensMax: 1_000,
+      scope: { scopeType: 'division', scopeId: fixture.divisionId, parentAccountId: fixture.budgetAccountId },
+    });
+    const { rows } = await tx.query<{ own: string; parent: string }>(
+      `SELECT child.money_max_cents::text AS own, parent.money_max_cents::text AS parent
+         FROM budget_accounts child JOIN budget_accounts parent ON parent.id = child.parent_account_id
+        WHERE child.id = $1`,
+      [division],
+    );
+    return rows[0]!;
+  });
+  assert.equal(money.own, money.parent);
+  assert.notEqual(money.own, '0', 'the fixture\'s company account can spend');
+});
+

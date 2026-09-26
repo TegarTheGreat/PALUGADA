@@ -44,8 +44,10 @@ export const DEFAULT_RETENTION: RetentionPolicy = {
 
 export interface RetentionOutcome {
   promptsScrubbed: number;
+  journalScrubbed: number;
   tracesPurged: number;
   eventsPurged: number;
+  bookkeepingPurged: number;
 }
 
 export async function retentionFor(companyId: string): Promise<RetentionPolicy> {
@@ -89,10 +91,15 @@ export async function setRetention(
   });
 }
 
+/** What a retention pass did, as `retention_action_known` names it (0046). */
+type RetentionAction =
+  | 'events_purged' | 'traces_purged' | 'prompts_scrubbed'
+  | 'journal_scrubbed' | 'bookkeeping_purged';
+
 async function recordRetention(
   tx: TenantClient,
   companyId: string,
-  action: 'events_purged' | 'traces_purged' | 'prompts_scrubbed',
+  action: RetentionAction,
   rowsAffected: number,
   throughAt: Date,
 ): Promise<void> {
@@ -137,6 +144,42 @@ export async function scrubExpiredPrompts(companyId: string, now = new Date()): 
   });
 }
 
+/**
+ * Removes model replies from finished tasks' journals past the prompt window.
+ *
+ * The same text as a trace's response: an `llm` step's output is what the
+ * model said. Scrubbing the trace and keeping the journal kept every reply
+ * for ever, and F11.5's ninety days held for one copy and not the other.
+ *
+ * Finished tasks only. A live task replays its journal on resume, and a
+ * redaction marker handed back as the model's answer would be worse than the
+ * text it replaced; a task that has been live for three months has a
+ * different problem, which the stranded sweep is for.
+ */
+export async function scrubExpiredJournal(companyId: string, now = new Date()): Promise<number> {
+  const policy = await retentionFor(companyId);
+  const cutoff = new Date(now.getTime() - policy.promptDays * 86_400_000);
+
+  return withControlPlane(async (tx) => {
+    const { rowCount } = await tx.query(
+      `UPDATE task_steps step
+          SET output = '{"redacted":"retention"}'::jsonb
+         FROM tasks task
+        WHERE task.id = step.task_id
+          AND task.company_id = $1
+          -- Set when a task ends and never before, so a live task never
+          -- matches.
+          AND task.finished_at < $2
+          AND step.kind = 'llm'
+          AND step.output IS NOT NULL
+          AND step.output <> '{"redacted":"retention"}'::jsonb`,
+      [companyId, cutoff],
+    );
+    await recordRetention(tx, companyId, 'journal_scrubbed', rowCount ?? 0, cutoff);
+    return rowCount ?? 0;
+  });
+}
+
 export async function purgeExpiredTraces(companyId: string, now = new Date()): Promise<number> {
   const policy = await retentionFor(companyId);
   const cutoff = new Date(now.getTime() - policy.traceDays * 86_400_000);
@@ -174,6 +217,47 @@ export async function purgeExpiredEvents(companyId: string, now = new Date()): P
 }
 
 /**
+ * Removes the platform's own bookkeeping past the event window.
+ *
+ * Each of these tables records how something got done rather than what was
+ * decided -- a notification delivered, a wake consumed, a device challenge
+ * issued, a request already answered, an eval run's tally -- and each grew by
+ * a row for every such thing, for ever. The event window is the right one:
+ * it is the company's own answer to how long its operational history is
+ * worth keeping, and these are that history's footnotes.
+ *
+ * A wake is removed only with every wake folded into it. A folded wake points
+ * at the one that absorbed it, and removing the target alone would clear
+ * that pointer and make the folded wake look due again.
+ */
+export async function purgeExpiredBookkeeping(companyId: string, now = new Date()): Promise<number> {
+  const policy = await retentionFor(companyId);
+  const cutoff = new Date(now.getTime() - policy.eventDays * 86_400_000);
+
+  return withControlPlane(async (tx) => {
+    let removed = 0;
+    const purge = async (sql: string) => {
+      const { rowCount } = await tx.query(sql, [companyId, cutoff]);
+      removed += rowCount ?? 0;
+    };
+    await purge('DELETE FROM owner_notifications WHERE company_id = $1 AND created_at < $2');
+    await purge(
+      `DELETE FROM wake_queue wake
+        WHERE wake.company_id = $1 AND wake.created_at < $2
+          AND (wake.consumed_at IS NOT NULL OR wake.coalesced_into IS NOT NULL)
+          AND NOT EXISTS (
+                SELECT 1 FROM wake_queue folded
+                 WHERE folded.coalesced_into = wake.id AND folded.created_at >= $2)`,
+    );
+    await purge('DELETE FROM gateway_challenges WHERE company_id = $1 AND expires_at < $2');
+    await purge('DELETE FROM gateway_dedupe WHERE company_id = $1 AND created_at < $2');
+    await purge('DELETE FROM role_eval_runs WHERE company_id = $1 AND ran_at < $2');
+    await recordRetention(tx, companyId, 'bookkeeping_purged', removed, cutoff);
+    return removed;
+  });
+}
+
+/**
  * Applies the whole policy, oldest-risk first.
  *
  * Prompts are scrubbed before traces are purged so that a trace passing both
@@ -184,9 +268,11 @@ export async function runRetention(
   now = new Date(),
 ): Promise<RetentionOutcome> {
   const promptsScrubbed = await scrubExpiredPrompts(companyId, now);
+  const journalScrubbed = await scrubExpiredJournal(companyId, now);
   const tracesPurged = await purgeExpiredTraces(companyId, now);
   const eventsPurged = await purgeExpiredEvents(companyId, now);
-  return { promptsScrubbed, tracesPurged, eventsPurged };
+  const bookkeepingPurged = await purgeExpiredBookkeeping(companyId, now);
+  return { promptsScrubbed, journalScrubbed, tracesPurged, eventsPurged, bookkeepingPurged };
 }
 
 export interface RetentionRecord {

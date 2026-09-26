@@ -50,6 +50,22 @@ export async function createAccount(
   },
 ): Promise<string> {
   const scope = input.scope ?? { scopeType: 'company' as const };
+  // A narrower account that says nothing about money inherits its parent's
+  // ceiling rather than getting zero. `budget_spend` refuses any spend past
+  // `money_max_cents`, so zero means "may never spend a cent": a division
+  // account opened with only a token ceiling halted every task that drew on
+  // it at its first priced model call. The chain check still binds at the
+  // smallest ancestor, so inheriting narrows nothing it should not. The
+  // company's own account has no parent to inherit from and keeps zero,
+  // which is a ceiling the owner has to state.
+  let moneyMaxCents = input.moneyMaxCents;
+  if (moneyMaxCents === undefined && scope.scopeType !== 'company') {
+    const { rows: parent } = await tx.query<{ money_max_cents: string }>(
+      'SELECT money_max_cents FROM budget_accounts WHERE id = $1',
+      [scope.parentAccountId],
+    );
+    moneyMaxCents = parent[0] ? Number(parent[0].money_max_cents) : 0;
+  }
   const { rows } = await tx.query<{ id: string }>(
     `INSERT INTO budget_accounts
        (company_id, label, tokens_max, money_max_cents, scope_type, scope_id,
@@ -59,7 +75,7 @@ export async function createAccount(
       input.companyId,
       input.label,
       input.tokensMax,
-      input.moneyMaxCents ?? 0,
+      moneyMaxCents ?? 0,
       scope.scopeType,
       scope.scopeType === 'company' ? null : scope.scopeId,
       scope.scopeType === 'company' ? null : scope.parentAccountId,

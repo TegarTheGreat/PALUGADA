@@ -25,7 +25,10 @@ import type { OwnerMfa, VerifiedFactor, WebAuthnAssertion } from '../owner/mfa.t
 /** F10.4. The owner is one person and may be asleep, travelling or ill. */
 export const DEFAULT_APPROVAL_TTL_HOURS = 72;
 
-export type InboxKind = 'approval' | 'escalation' | 'incident' | 'sop_candidate' | 'budget_alert';
+/** Every kind `inbox_kind_known` admits (0021), so a row read back is one of these. */
+export type InboxKind =
+  | 'approval' | 'escalation' | 'incident' | 'sop_candidate' | 'budget_alert'
+  | 'skill_candidate' | 'fact_candidate';
 export type Decision = 'approve' | 'deny' | 'ask';
 /**
  * `withdrawn` is an approval whose task ended some other way (migration 0036):

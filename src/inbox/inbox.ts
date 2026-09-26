@@ -305,6 +305,8 @@ export interface EscalationInput {
   scheduleId?: string | undefined;
   /** Anything else the item carries for whoever answers it, merged into its payload. */
   payload?: Record<string, unknown> | undefined;
+  /** What a no does, when it is not the default of the task staying blocked. */
+  consequenceIfDenied?: string | undefined;
 }
 
 export async function raiseEscalation(input: EscalationInput): Promise<string> {
@@ -350,7 +352,7 @@ export async function raiseEscalationWithin(tx: TenantClient, input: EscalationI
     `INSERT INTO inbox_items
        (company_id, task_id, kind, title, action_summary, rationale,
         consequence_if_denied, tier, notify_after, payload)
-     VALUES ($1,$2,'escalation',$3,$3,$4,'The task stays blocked until you decide.',$5,$6,$7)
+     VALUES ($1,$2,'escalation',$3,$3,$4,$8,$5,$6,$7)
      RETURNING id`,
     [
       input.companyId, input.taskId ?? null, input.title,
@@ -377,6 +379,7 @@ export async function raiseEscalationWithin(tx: TenantClient, input: EscalationI
         ...(input.scheduleId ? { scheduleId: input.scheduleId } : {}),
         ...(input.payload ?? {}),
       }),
+      input.consequenceIfDenied ?? 'The task stays blocked until you decide.',
     ],
   );
   const id = rows[0]!.id;
@@ -492,7 +495,11 @@ export async function askOwner(input: {
       companyId: input.companyId,
       taskId: input.taskId,
       title: `${task.rows[0]!.role} asks: ${question.length > 140 ? `${question.slice(0, 139)}…` : question}`,
-      detail: input.why?.trim() ? `${question}\n\nWhy it matters: ${input.why.trim()}` : question,
+      // The question is the title and the item's own field; the detail is
+      // only what the run said depends on it, so the card does not say the
+      // question twice.
+      detail: input.why?.trim() || 'The run did not say more than the question.',
+      consequenceIfDenied: 'The task is stopped, and nothing it was going to do happens.',
       payload: { askedBy: 'agent', question, role: task.rows[0]!.role, ...(options ? { options } : {}) },
     });
     await park();

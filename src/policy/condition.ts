@@ -93,7 +93,12 @@ export function assertValidCondition(
 
   const { field, op, value } = node;
   if (typeof field !== 'string' || !FACT_NAMES.has(field)) {
-    throw new PalugadaError('contract.violation', `policy condition at ${path} references unknown field ${String(field)}`, {});
+    throw new PalugadaError(
+      'contract.violation',
+      `policy condition at ${path} references unknown field ${String(field)}; a comparison is ` +
+        `{ "field", "op", "value" } with field one of ${[...FACT_NAMES].join(', ')}`,
+      {},
+    );
   }
 
   switch (op) {

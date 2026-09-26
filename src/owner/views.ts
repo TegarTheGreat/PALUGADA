@@ -418,6 +418,12 @@ export interface TaskDetail {
   deliverables: Deliverable[];
 }
 
+/** A document's first heading, which is what a person would call it. */
+function headingOf(text: string | null): string | null {
+  const heading = text?.split('\n').find((line) => /^#{1,3}\s+\S/.test(line));
+  return heading ? heading.replace(/^#{1,3}\s+/, '').trim().slice(0, 200) : null;
+}
+
 /**
  * One task, with what it produced.
  *
@@ -460,7 +466,8 @@ export async function taskDetailOf(companyId: string, taskId: string): Promise<T
       deliverables: steps.map((step) => ({
         step: step.step_index,
         capability: step.name.replace(/^capability:/, ''),
-        title: text(step.output.subject) ?? text(step.output.title) ?? text(step.output.path)!,
+        title: text(step.output.subject) ?? text(step.output.title) ?? headingOf(text(step.output.text))
+          ?? text(step.output.path)!,
         path: text(step.output.path)!,
         text: text(step.output.text) ?? text(step.output.body) ?? '',
         words: typeof step.output.words === 'number' ? step.output.words : null,

@@ -14,6 +14,7 @@ export const ID: Readonly<Record<string, string>> = {
   "A division": "Satu divisi",
   "A fact that turned out to be wrong is replaced, not deleted.": "Fakta yang ternyata salah diganti, tidak dihapus.",
   "A fact to know": "Fakta yang perlu diketahui",
+  "A field, a comparison and a value. Fields: tool, tier, division, money_cents, recipient_domain, url_host, hour_local, calls_in_window. Comparisons: eq, ne, gt, gte, lt, lte, in, not_in, matches. Combine with \"all\", \"any\" and \"not\".": "Sebuah field, perbandingan, dan nilai. Field: tool, tier, division, money_cents, recipient_domain, url_host, hour_local, calls_in_window. Perbandingan: eq, ne, gt, gte, lt, lte, in, not_in, matches. Gabungkan dengan \"all\", \"any\", dan \"not\".",
   "A grant may tighten a tier and never loosen it; the database is what says so.": "Izin boleh memperketat tier, tidak pernah melonggarkannya; database yang menegakkannya.",
   "A mission, the objectives under it, and the key results under those. Agents read it; only you change it.": "Satu misi, objektif di bawahnya, dan hasil kunci di bawah objektif. Agent membacanya; hanya Anda yang mengubahnya.",
   "A percentage": "Persentase",

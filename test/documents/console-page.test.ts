@@ -111,3 +111,15 @@ test('approving is never the prettiest button, and never a keystroke', async () 
   assert.ok(hotkeys.length > 0, 'the hotkeys were not found; the scan is broken');
   assert.doesNotMatch(hotkeys, /approve|decide/);
 });
+
+test("the policy form's example is a condition the engine accepts", async () => {
+  // It used to be `{ "capability": "email.send" }`, which is not a condition:
+  // an owner who pressed "Write it" on the example was told the policy
+  // "references unknown field undefined", in the form meant to teach them the
+  // shape.
+  const { assertValidCondition } = await import('../../src/policy/condition.ts');
+  const page = (await sources()).get('pages/Organization.tsx') ?? '';
+  const example = /const \[condition, setCondition\] = useState\('((?:[^'\\]|\\.)*)'\)/.exec(page)?.[1];
+  assert.ok(example, 'the example condition was not found; the scan is broken');
+  assert.doesNotThrow(() => assertValidCondition(JSON.parse(example.replace(/\\n/g, '\n'))));
+});

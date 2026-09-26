@@ -1930,7 +1930,11 @@ test('a runtime asks the owner, waits, and carries on with the answer (owner.ask
   assert.equal(first.status, 'waiting_approval', first.reason);
   const { rows: items } = await withTenant(fixture.companyId, (tx) => tx.query<{
     id: string; kind: string; status: string; title: string; payload: { askedBy: string; question: string };
-  }>('SELECT id, kind, status, title, payload FROM inbox_items WHERE task_id = $1', [task.id]));
+    rationale: string; consequence_if_denied: string;
+  }>('SELECT id, kind, status, title, payload, rationale, consequence_if_denied FROM inbox_items WHERE task_id = $1', [task.id]));
+  // The card says the question once, what depends on it, and what a no does.
+  assert.equal(items[0]!.rationale, 'Two match the brief.');
+  assert.match(items[0]!.consequence_if_denied, /task is stopped/);
   assert.equal(items.length, 1);
   assert.equal(items[0]!.kind, 'escalation');
   assert.match(items[0]!.title, /asks: Which supplier did you mean\?/);

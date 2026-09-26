@@ -378,10 +378,12 @@ function Detail({
           </div>
         )}
 
-        <SimpleGrid cols={{ base: 1, xs: 2 }} spacing="sm">
-          {item.capabilityName && <Fact label={t('Capability')} value={item.capabilityName} />}
-          <Fact label={t('Estimated cost')} value={item.estimatedCostCents > 0 ? money(item.estimatedCostCents) : t('None declared')} />
-        </SimpleGrid>
+        {!item.question && (
+          <SimpleGrid cols={{ base: 1, xs: 2 }} spacing="sm">
+            {item.capabilityName && <Fact label={t('Capability')} value={item.capabilityName} />}
+            <Fact label={t('Estimated cost')} value={item.estimatedCostCents > 0 ? money(item.estimatedCostCents) : t('None declared')} />
+          </SimpleGrid>
+        )}
 
         <Group gap="lg">
           <Anchor component="button" size="sm" onClick={() => void showTrace()}>

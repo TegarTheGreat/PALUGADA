@@ -240,8 +240,8 @@ export function TaskDrawer({ companyId, task, close, changed, openTask }: {
             <Fact label={t('Created')} value={dateTime(task.createdAt)} />
             <Fact label={t('Finished')} value={dateTime(task.finishedAt)} />
           </SimpleGrid>
-          <TaskControls companyId={companyId} task={task} changed={changed} openTask={openTask} />
           <TaskOutput companyId={companyId} task={task} />
+          <TaskControls companyId={companyId} task={task} changed={changed} openTask={openTask} />
           <Transcript companyId={companyId} task={task} />
           <div>
             <Text fw={700} mb="sm">{t('What it did')}</Text>

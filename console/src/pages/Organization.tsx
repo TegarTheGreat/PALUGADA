@@ -695,7 +695,7 @@ function Policies({ companyId }: { companyId: string }) {
   const requireFactor = useFactor();
   const [slug, setSlug] = useState('');
   const [effect, setEffect] = useState<string | null>('require_approval');
-  const [condition, setCondition] = useState('{\n  "capability": "email.send"\n}');
+  const [condition, setCondition] = useState('{\n  "field": "tool",\n  "op": "eq",\n  "value": "email.send"\n}');
   const [error, setError] = useState<string | null>(null);
 
   const write = async () => {
@@ -729,7 +729,11 @@ function Policies({ companyId }: { companyId: string }) {
             { value: 'require_approval', label: t('Require your approval') }, { value: 'deny', label: t('Deny') },
           ]} required />
         </SimpleGrid>
-        <Textarea label={t('Condition')} autosize minRows={4} ff="monospace" value={condition} onChange={(event) => setCondition(event.currentTarget.value)} />
+        <Textarea
+          label={t('Condition')}
+          description={t('A field, a comparison and a value. Fields: tool, tier, division, money_cents, recipient_domain, url_host, hour_local, calls_in_window. Comparisons: eq, ne, gt, gte, lt, lte, in, not_in, matches. Combine with "all", "any" and "not".')}
+          autosize minRows={4} ff="monospace" value={condition} onChange={(event) => setCondition(event.currentTarget.value)}
+        />
         {error && <Alert color="red" variant="light">{error}</Alert>}
         <Group><Button disabled={!slug || !effect} onClick={() => void write()}>{t('Write it')}</Button></Group>
       </Stack>

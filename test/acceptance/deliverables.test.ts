@@ -64,6 +64,9 @@ test('a finished task says what it produced, on the list and in full', async () 
   await journal(fixture, run.id, 2, 'capability:email.draft', 'committed', {
     path: 'drafts/email-cd34.eml', to: 'press@example.com', subject: 'We launched', body: 'Hello press.', model: 'm',
   });
+  await journal(fixture, run.id, 4, 'capability:doc.draft', 'committed', {
+    path: 'drafts/plain-ef56.md', text: 'No heading in this one.', words: 5, model: 'm',
+  });
   // A draft that did not commit is not a deliverable: nothing says it exists.
   await journal(fixture, run.id, 3, 'capability:doc.draft', 'failed', { path: 'drafts/x.md', text: 'lost', words: 1, model: 'm' });
   await transition(fixture.companyId, run.id, 'running');
@@ -82,10 +85,14 @@ test('a finished task says what it produced, on the list and in full', async () 
   assert.ok(detail);
   assert.equal((detail.output as { summary: string }).summary, 'Wrote the launch post and a note to the press.');
   assert.doesNotMatch(JSON.stringify(detail.output), /sk-live-deliverables-0001/, 'the output is redacted too');
+  // A document is called by its first heading, an email by its subject, and
+  // a document with no heading by its file.
   assert.deepEqual(detail.deliverables.map((one) => [one.capability, one.title]), [
-    ['doc.draft', 'drafts/launch-post-ab12.md'],
+    ['doc.draft', 'We launched'],
     ['email.draft', 'We launched'],
+    ['doc.draft', 'drafts/plain-ef56.md'],
   ]);
+  assert.equal(detail.deliverables[0]!.path, 'drafts/launch-post-ab12.md');
   assert.equal(detail.deliverables[0]!.words, 9);
   assert.equal(detail.deliverables[1]!.to, 'press@example.com');
   assert.equal(detail.deliverables[1]!.text, 'Hello press.');

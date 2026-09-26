@@ -249,8 +249,10 @@ documentation, cited in
   morning in the company's time zone, and operating skills -- validating an
   idea, premortems, pricing, unit economics, customer discovery, launch
   readiness, outbound rules -- that still go through review and the owner.
-- Other services can start work through a trigger URL the owner opens; what
-  they send is data, and work that began outside takes no tier 2 action
+- Other services can start work through a trigger URL the owner opens, with a
+  token or with the sender's own signature -- Stripe, GitHub, Slack and
+  Standard Webhooks are checked exactly as they sign; what they send (JSON, a
+  form or text) is data, and work that began outside takes no tier 2 action
   without the owner.
 - An agent that needs the owner asks, and its task waits for the answer.
 

@@ -104,10 +104,14 @@ export type ErrorCode =
   | 'task.waiting_child'
   /** An inbound trigger's URL names nothing open (0054). */
   | 'hook.unknown'
-  /** An inbound trigger was called without its token (0054). */
+  /** An inbound trigger was called without its token or its sender's signature (0054, 0056). */
   | 'hook.refused'
   /** An inbound trigger has had its events for the hour (0054). */
   | 'hook.rate_limited'
+  /** An inbound trigger was sent a body that is not JSON, a form or text (0056). */
+  | 'hook.unsupported'
+  /** A signed trigger's secret cannot be read, so no delivery can be checked (0056). */
+  | 'hook.unavailable'
   | 'approval.denied'
   | 'budget.exceeded'
   | 'budget.reservation_refused'

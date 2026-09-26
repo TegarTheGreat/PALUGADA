@@ -12,10 +12,16 @@
  *
  * After a decision the next item opens by itself, so a morning's queue is
  * read top to bottom without going back to the list each time.
+ *
+ * "Choose several" is for the drafts the owner has already read: approve or
+ * deny a selection in one press, each decided exactly as it would be alone.
+ * A tier 3 action, a run's question and an incident are never approved that
+ * way -- the confirmation says which of the chosen stay, and the server
+ * leaves them whatever the page sends.
  */
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Alert, Anchor, Badge, Box, Button, Collapse, Divider, Grid, Group, Kbd, Paper,
+  Alert, Anchor, Badge, Box, Button, Checkbox, Collapse, Divider, Grid, Group, Kbd, Modal, Paper,
   ScrollArea, SegmentedControl, SimpleGrid, Stack, Text, Textarea, Title, Tooltip,
 } from '@mantine/core';
 import { useHotkeys, useMediaQuery } from '@mantine/hooks';
@@ -42,6 +48,9 @@ const KIND_COLOR: Record<string, string> = {
   escalation: 'var(--mantine-color-violet-6)',
 };
 
+/** Whether a batch may approve it: the server holds the same rule and has the last word. */
+const batchApprovable = (item: InboxItem) => item.tier !== 3 && !item.question && item.kind !== 'incident';
+
 /** Tier 3 first, then incidents, then oldest: what costs most to leave waiting. */
 function urgency(item: InboxItem): number {
   return item.tier === 3 ? 0 : item.kind === 'incident' ? 1 : 2;
@@ -58,6 +67,15 @@ export function Decisions({ ctx, route }: PageProps) {
   }, [companyId], { every: 15_000 });
   const [filter, setFilter] = useState<Filter>('all');
   const [missingLink, setMissingLink] = useState(false);
+  const [choosing, setChoosing] = useState(false);
+  const [chosen, setChosen] = useState<ReadonlySet<string>>(new Set());
+  const [confirm, setConfirm] = useState<'approve' | 'deny' | null>(null);
+  const toggle = (id: string) => setChosen((current) => {
+    const next = new Set(current);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const stopChoosing = () => { setChoosing(false); setChosen(new Set()); };
   const narrow = useMediaQuery('(max-width: 62em)') ?? false;
   const selected = route.item;
   const select = (id: string | null) => go({ ...route, item: id }, { replace: true });
@@ -161,19 +179,41 @@ export function Decisions({ ctx, route }: PageProps) {
           {showList && (
             <Grid.Col span={{ base: 12, md: 5 }}>
               <Paper withBorder radius="lg" p="xs">
-                <SegmentedControl
-                  fullWidth
-                  size="xs"
-                  value={filter}
-                  onChange={(value) => setFilter(value as Filter)}
-                  data={[
-                    { value: 'all', label: t('All {count}', { count: queue.data.items.length }) },
-                    { value: 'approval', label: t('Approvals') },
-                    { value: 'incident', label: t('Incidents') },
-                    { value: 'escalation', label: t('Questions') },
-                  ]}
-                  mb="xs"
-                />
+                <Group gap={6} mb="xs" wrap="nowrap">
+                  <SegmentedControl
+                    style={{ flex: 1 }}
+                    size="xs"
+                    value={filter}
+                    onChange={(value) => setFilter(value as Filter)}
+                    data={[
+                      { value: 'all', label: t('All {count}', { count: queue.data.items.length }) },
+                      { value: 'approval', label: t('Approvals') },
+                      { value: 'incident', label: t('Incidents') },
+                      { value: 'escalation', label: t('Questions') },
+                    ]}
+                  />
+                  <Button size="compact-sm" variant={choosing ? 'light' : 'subtle'} onClick={() => (choosing ? stopChoosing() : setChoosing(true))}>
+                    {choosing ? t('Done') : t('Choose several')}
+                  </Button>
+                </Group>
+                {choosing && (
+                  <Group justify="space-between" gap={6} mb="xs" px={4} wrap="nowrap">
+                    <Anchor size="xs" onClick={() => setChosen(chosen.size === items.length ? new Set() : new Set(items.map((item) => item.id)))}>
+                      {chosen.size === items.length ? t('Choose none') : t('Choose all shown')}
+                    </Anchor>
+                    <Group gap={6} wrap="nowrap">
+                      <Text size="xs" c="dimmed">{tp('{count} chosen', '{count} chosen', chosen.size)}</Text>
+                      <Button size="compact-sm" variant="default" disabled={chosen.size === 0} onClick={() => setConfirm('deny')}>{t('Deny')}</Button>
+                      <Button
+                        size="compact-sm"
+                        variant="outline"
+                        color="teal"
+                        disabled={!items.some((item) => chosen.has(item.id) && batchApprovable(item))}
+                        onClick={() => setConfirm('approve')}
+                      >{t('Approve')}</Button>
+                    </Group>
+                  </Group>
+                )}
                 <ScrollArea.Autosize mah="calc(100vh - 330px)" type="auto">
                   <Stack gap={4}>
                     {items.length === 0 && <Text c="dimmed" size="sm" p="md" ta="center">{t('Nothing of this kind.')}</Text>}
@@ -182,16 +222,24 @@ export function Decisions({ ctx, route }: PageProps) {
                         key={item.id}
                         type="button"
                         className="queue-row"
-                        data-active={item.id === selected || undefined}
+                        data-active={(choosing ? chosen.has(item.id) : item.id === selected) || undefined}
+                        aria-pressed={choosing ? chosen.has(item.id) : undefined}
                         style={{ ['--kind-color' as string]: KIND_COLOR[item.kind] }}
-                        onClick={() => select(item.id)}
+                        onClick={() => (choosing ? toggle(item.id) : select(item.id))}
                       >
-                        <Text fw={600} size="sm" lineClamp={2}>{item.title}</Text>
-                        <Group gap={6} mt={6}>
-                          <TierBadge tier={item.tier} />
-                          <KindBadge kind={item.kind} />
-                          <Text size="xs" c="dimmed">{relative(item.createdAt)}</Text>
-                          {item.estimatedCostCents > 0 && <Text size="xs" c="dimmed">· {money(item.estimatedCostCents)}</Text>}
+                        <Group gap="sm" wrap="nowrap" align="flex-start">
+                          {choosing && (
+                            <Checkbox checked={chosen.has(item.id)} readOnly tabIndex={-1} mt={2} style={{ pointerEvents: 'none' }} />
+                          )}
+                          <Box style={{ flex: 1, minWidth: 0 }}>
+                            <Text fw={600} size="sm" lineClamp={2}>{item.title}</Text>
+                            <Group gap={6} mt={6}>
+                              <TierBadge tier={item.tier} />
+                              <KindBadge kind={item.kind} />
+                              <Text size="xs" c="dimmed">{relative(item.createdAt)}</Text>
+                              {item.estimatedCostCents > 0 && <Text size="xs" c="dimmed">· {money(item.estimatedCostCents)}</Text>}
+                            </Group>
+                          </Box>
                         </Group>
                       </button>
                     ))}
@@ -219,7 +267,106 @@ export function Decisions({ ctx, route }: PageProps) {
           )}
         </Grid>
       )}
+
+      <BatchConfirm
+        companyId={companyId}
+        decision={confirm}
+        items={items.filter((item) => chosen.has(item.id))}
+        close={() => setConfirm(null)}
+        done={() => { setConfirm(null); stopChoosing(); queue.reload(); }}
+      />
     </Stack>
+  );
+}
+
+/**
+ * What a batch is about to do, before it does it: which items, what they cost
+ * together, and which of the chosen will stay because they are decided alone.
+ */
+function BatchConfirm({ companyId, decision, items, close, done }: {
+  companyId: string;
+  decision: 'approve' | 'deny' | null;
+  items: InboxItem[];
+  close: () => void;
+  done: () => void;
+}) {
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const approving = decision === 'approve';
+  const targets = approving ? items.filter(batchApprovable) : items;
+  const staying = items.length - targets.length;
+  const cost = targets.reduce((sum, item) => sum + item.estimatedCostCents, 0);
+
+  const run = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const result: { decided: string[]; skipped: Array<{ itemId: string; reason: string }> } = await api(
+        'POST', `/api/companies/${companyId}/inbox/batch`, { itemIds: targets.map((item) => item.id), decision, note },
+      );
+      notifications.show({
+        color: approving ? 'teal' : 'gray',
+        message: [
+          approving ? tp('{count} approved.', '{count} approved.', result.decided.length)
+            : tp('{count} denied.', '{count} denied.', result.decided.length),
+          result.skipped.length
+            ? tp('{count} was left for you: {reason}', '{count} were left for you, the first because {reason}', result.skipped.length, { reason: result.skipped[0]!.reason })
+            : '',
+        ].filter(Boolean).join(' '),
+      });
+      setNote('');
+      done();
+    } catch (failure) {
+      setError(explain(failure));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      opened={decision !== null}
+      onClose={close}
+      centered
+      title={approving
+        ? tp('Approve {count} item?', 'Approve {count} items?', targets.length)
+        : tp('Deny {count} item?', 'Deny {count} items?', targets.length)}
+    >
+      <Stack>
+        {approving && staying > 0 && (
+          <Alert color="gray" variant="light">
+            {tp('{count} of those chosen is decided alone -- a tier 3 action, a question or an incident -- and stays in the inbox.',
+              '{count} of those chosen are decided alone -- tier 3 actions, questions or incidents -- and stay in the inbox.', staying)}
+          </Alert>
+        )}
+        <ScrollArea.Autosize mah={220} type="auto">
+          <Stack gap={6}>
+            {targets.map((item) => (
+              <Group key={item.id} justify="space-between" wrap="nowrap" gap="sm">
+                <Text size="sm" lineClamp={1}>{item.title}</Text>
+                <TierBadge tier={item.tier} />
+              </Group>
+            ))}
+          </Stack>
+        </ScrollArea.Autosize>
+        {approving && cost > 0 && <Text size="sm">{t('Estimated cost together: {amount}', { amount: money(cost) })}</Text>}
+        <Textarea label={t('Note, kept with each decision')} value={note} onChange={(event) => setNote(event.currentTarget.value)} autosize minRows={2} />
+        {error && <Alert color="red" variant="light">{error}</Alert>}
+        <Group justify="flex-end">
+          <Button variant="default" onClick={close}>{t('Cancel')}</Button>
+          <Button
+            variant={approving ? 'outline' : 'filled'}
+            color={approving ? 'teal' : 'red'}
+            loading={busy}
+            disabled={targets.length === 0}
+            onClick={run}
+          >
+            {approving ? tp('Approve {count}', 'Approve {count}', targets.length) : tp('Deny {count}', 'Deny {count}', targets.length)}
+          </Button>
+        </Group>
+      </Stack>
+    </Modal>
   );
 }
 

@@ -2562,6 +2562,29 @@ rest are listed at the end.
   as its hash, one task per delivery however often it is retried, an hourly
   limit, and the event handed to the run as untrusted data. A restored
   trigger arrives closed, at a new address, with no token.
+- Let the senders that sign start work (0056): a trigger's `scheme` is a
+  bearer token or the signature of GitHub (`X-Hub-Signature-256`), Stripe
+  (`Stripe-Signature`, several `v1` while a secret rolls), Slack (`v0`) or
+  Standard Webhooks (`webhook-*`, and Svix's `svix-*`), each an HMAC over
+  the bytes that arrived, with the secret read from the deployment's secret
+  store by reference -- the same rule as every other credential. The signed
+  time is held to five minutes either way. The delivery key is taken only
+  from what the proof covers: GitHub, Stripe and Slack do not sign a
+  delivery id, so a replayed body under a new id is still the same delivery.
+  Slack's URL check and GitHub's ping are answered and start nothing. A body
+  may be JSON, a form or text; anything else is refused with 415. A secret
+  the deployment cannot read answers 503 and tells the owner, rather than
+  letting a delivery in unchecked. Found on the way: a bearer delivery took
+  `X-Request-Id` as its delivery id, which a proxy stamps fresh on every
+  request, so a sender's retry started the same work twice; it is no longer
+  read.
+- Decide several items in one press (`decideMany` in `src/inbox/inbox.ts`,
+  "Choose several" in the inbox): approve or deny up to fifty, each through
+  the same `decide` an item gets alone, with a shared batch id on every
+  decision's record and one `owner.decided_batch` event. A tier 3 action, a
+  run's question and an incident are never approved in a batch -- they come
+  back unapproved with the reason and stay in the inbox -- and any of them may
+  be denied, because no is never the dangerous direction.
 - Measure goals by numbers (section 2.19).
 
 **F8.9, enforced where it does not depend on the model.** The untrusted
@@ -2572,9 +2595,6 @@ work delegated (`begunOutside` in `src/engine/tasks.ts`).
 
 **Still open, in the order they would be taken**
 
-- Triggers signed by the sender (HMAC, as Stripe and GitHub sign theirs)
-  rather than a bearer token, and bodies that are not JSON.
-- Batch verdicts on a decision (approve seven of ten drafts in one go).
 - A strategy role in the standard template itself, and stage gates (explore,
   validate, build, launch, grow) that policies can read.
 - Per-company connections to outside accounts from the console, and coding

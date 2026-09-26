@@ -73,6 +73,7 @@ import { ownerWindow, setBatchWindow, setOwnerWindow } from '../scheduler/window
 import { healthFor } from '../broker/preflight.ts';
 import { costTimeline, platformCost } from '../reporting/cost.ts';
 import { rotateCredential } from '../secrets/rotation.ts';
+import type { SecretManager } from '../secrets/manager.ts';
 import { appendEvent, readTaskEvents } from '../audit/event-log.ts';
 import { describeReplay, replayTask } from '../engine/replay.ts';
 import { assignTask } from '../scheduler/wake.ts';
@@ -88,7 +89,7 @@ import type { TaskHandler } from '../runtime/in-process.ts';
 import { collectExport } from '../audit/export.ts';
 import { archiveLines, importCompany, previewArchive } from '../audit/import.ts';
 import {
-  createTrigger, receiveHook, rotateTriggerToken, setTriggerEnabled, triggersOf,
+  createTrigger, receiveHook, rotateTriggerToken, setTriggerEnabled, triggersOf, type TriggerScheme,
 } from '../scheduler/triggers.ts';
 import { applyGoalChange, createGoal, readGoal } from '../domain/goals.ts';
 import {
@@ -205,6 +206,12 @@ export interface OwnerApiOptions {
     companyId: string,
     divisionId: string,
   ) => (alias: string, capabilityName: string) => Promise<string>;
+  /**
+   * Where a signed trigger's secret is read from (0056): the deployment's
+   * secret store. Absent means a signed trigger cannot be opened, and one that
+   * exists answers its sender 503 -- never lets a delivery in unchecked.
+   */
+  secrets?: SecretManager;
 }
 
 interface Handler {
@@ -212,6 +219,8 @@ interface Handler {
     request: IncomingMessage;
     session: OwnerSession | null;
     body: Record<string, unknown>;
+    /** The body's bytes as they arrived, for a route that reads them itself. */
+    raw: Buffer;
     params: Record<string, string>;
     query: URLSearchParams;
   }): Promise<unknown>;
@@ -225,6 +234,12 @@ interface Route {
   open?: boolean;
   /** The largest body this route reads. A megabyte unless the route says otherwise. */
   maxBodyBytes?: number;
+  /**
+   * The route reads the body's bytes itself, and they are not parsed as a JSON
+   * object first. Only the inbound hook, whose senders sign bytes and send
+   * forms and text as well as JSON.
+   */
+  raw?: boolean;
   handle: Handler;
 }
 
@@ -535,6 +550,22 @@ export class OwnerApi {
           void session;
           return { ok: true };
         },
+      },
+
+      {
+        // Several items at once: the drafts the owner has read and wants to
+        // send, or a morning's worth of "not now". Each is decided exactly as
+        // it would be alone; what must be decided alone -- tier 3, a run's
+        // question, an incident -- comes back unapproved with the reason. No
+        // proof is taken, because nothing a batch approves needs one.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/inbox/batch',
+        // `decideMany` checks the decision and the list; checking them here too
+        // would be a second rule to keep in step with the first.
+        handle: async ({ params, body }) => inbox.decideMany(
+          params.companyId!, body.itemIds as string[], body.decision as 'approve' | 'deny', String(body.note ?? ''),
+          { channel: 'app', assurance: 'session' },
+        ),
       },
 
       /* ----------------------------------------------------------- F11.2 --- */
@@ -989,26 +1020,20 @@ export class OwnerApi {
       },
 
       {
-        // An inbound trigger (0054): the one route a service outside the
-        // company calls. No session, because the caller is not the owner; the
-        // trigger's bearer token stands in for one, checked before anything
-        // else is read. The sender's delivery id, when it sends one under any
-        // of the common names, makes a retried delivery the same delivery.
+        // An inbound trigger (0054, 0056): the one route a service outside
+        // the company calls. No session, because the caller is not the owner;
+        // the trigger's token or its sender's signature stands in for one,
+        // checked before anything else is read. The body goes on as the bytes
+        // that arrived, because a signature is over those bytes -- a body
+        // parsed and written out again is a different body -- and because a
+        // sender may post a form or text rather than JSON.
         method: 'POST',
         pattern: '/api/hooks/:publicId',
         open: true,
+        raw: true,
         maxBodyBytes: 256 * 1024,
-        handle: async ({ params, request, body }) => {
-          const header = request.headers.authorization ?? '';
-          const delivery = ['x-delivery-id', 'idempotency-key', 'x-github-delivery', 'x-request-id']
-            .map((name) => request.headers[name])
-            .find((value): value is string => typeof value === 'string' && value.trim() !== '');
-          return receiveHook(params.publicId!, {
-            token: header.startsWith('Bearer ') ? header.slice(7).trim() : null,
-            body,
-            deliveryId: delivery ?? null,
-          });
-        },
+        handle: async ({ params, request, raw }) =>
+          receiveHook(params.publicId!, { raw, headers: request.headers }, this.#options.secrets),
       },
 
       {
@@ -1031,15 +1056,21 @@ export class OwnerApi {
             goalId: requireText(body.goalId, 'goalId'),
             instruction: requireText(body.instruction, 'instruction'),
             ...(body.maxPerHour === undefined ? {} : { maxPerHour: wholeNumber(body.maxPerHour, 'maxPerHour') }),
-          });
+            ...(body.scheme === undefined ? {} : { scheme: body.scheme as TriggerScheme }),
+            ...(typeof body.secretRef === 'string' ? { secretRef: body.secretRef } : {}),
+          }, this.#options.secrets);
         },
       },
 
       {
         // A new token, the old one dead at once: tightening, so the session.
+        // For a signed trigger, where its secret is now kept.
         method: 'POST',
         pattern: '/api/companies/:companyId/triggers/:triggerId/rotate',
-        handle: async ({ params }) => rotateTriggerToken(params.companyId!, params.triggerId!),
+        handle: async ({ params, body }) => rotateTriggerToken(params.companyId!, params.triggerId!, {
+          ...(typeof body.secretRef === 'string' ? { secretRef: body.secretRef } : {}),
+          ...(this.#options.secrets ? { secrets: this.#options.secrets } : {}),
+        }),
       },
 
       {
@@ -2132,9 +2163,11 @@ export class OwnerApi {
     }
 
     let body: Record<string, unknown> = {};
+    let raw: Buffer = Buffer.alloc(0);
     if (req.method === 'POST') {
       try {
-        body = await readJson(req, match.route.maxBodyBytes);
+        raw = await readBody(req, match.route.maxBodyBytes);
+        if (!match.route.raw) body = jsonObject(raw);
       } catch (error) {
         send(res, 400, { error: (error as Error).message });
         return;
@@ -2146,6 +2179,7 @@ export class OwnerApi {
         request: req,
         session,
         body,
+        raw,
         params: match.params,
         query: url.searchParams,
       });
@@ -2313,6 +2347,8 @@ function statusFor(code: string): number {
   if (code === 'capability.rate_limited' || code === 'hook.rate_limited') return 429;
   if (code === 'hook.unknown') return 404;
   if (code === 'hook.refused') return 401;
+  if (code === 'hook.unsupported') return 415;
+  if (code === 'hook.unavailable') return 503;
   return 400;
 }
 
@@ -2487,7 +2523,7 @@ function bearer(req: IncomingMessage): string | undefined {
   return header.startsWith('Bearer ') ? header.slice(7) : undefined;
 }
 
-async function readJson(req: IncomingMessage, limit = 1_048_576): Promise<Record<string, unknown>> {
+async function readBody(req: IncomingMessage, limit = 1_048_576): Promise<Buffer> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
@@ -2497,7 +2533,11 @@ async function readJson(req: IncomingMessage, limit = 1_048_576): Promise<Record
     if (size > limit) throw new Error('request body is too large');
     chunks.push(chunk as Buffer);
   }
-  const raw = Buffer.concat(chunks).toString('utf8').trim();
+  return Buffer.concat(chunks);
+}
+
+function jsonObject(bytes: Buffer): Record<string, unknown> {
+  const raw = bytes.toString('utf8').trim();
   if (!raw) return {};
   const parsed: unknown = JSON.parse(raw);
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {

@@ -498,6 +498,8 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // unhealthy, and halts the next task that needs one.
     registry,
     credentialFor: (companyId, divisionId) => broker.credentialFor(companyId, divisionId),
+    // The same store, for the signing secrets of triggers the sender signs.
+    secrets,
     // The same handlers the in-process runtime executes, so F11.4 replays the
     // work this deployment actually did rather than a fixture.
     ...(options.handlers ? { replayHandlers: options.handlers } : {}),

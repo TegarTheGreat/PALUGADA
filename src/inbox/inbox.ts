@@ -11,6 +11,7 @@
  *   - Silence is safe. An unanswered approval expires into a cancellation,
  *     never into an execution (F10.4).
  */
+import { randomUUID } from 'node:crypto';
 import { withTenant, withControlPlane, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
@@ -948,6 +949,8 @@ export interface DecideOptions {
    * of a verifier is a refusal, not a bypass.
    */
   mfa?: OwnerMfa;
+  /** The batch this decision was one of, written on its record (`decideMany`). */
+  batch?: string;
 }
 
 export async function decide(
@@ -1084,6 +1087,7 @@ export async function decide(
         ...(factor
           ? { authenticatorId: factor.authenticatorId, factor: factor.kind, device: factor.label }
           : {}),
+        ...(options.batch ? { batch: options.batch } : {}),
       },
     });
 
@@ -1146,6 +1150,99 @@ export async function decide(
     );
   });
 }
+
+/** The most items one batch decides: a screen's worth, not a queue's. */
+export const BATCH_MAX = 50;
+
+export interface BatchOutcome {
+  decided: string[];
+  /** What was left for the owner to decide alone, and why, in their words. */
+  skipped: Array<{ itemId: string; reason: string }>;
+}
+
+/**
+ * Approves or denies several items in one go.
+ *
+ * Each through `decide`, exactly as it would be decided alone -- its own
+ * transaction, its own event, its task released or cancelled -- so a batch is
+ * a convenience for the owner and never a second way of deciding. Three kinds
+ * are not approved in a batch, because approving them is what the owner
+ * should look at one by one: a tier 3 action, which needs their device for
+ * that action and no other (F10.10); a question a run asked, which is
+ * answered in words; and an incident. Denying any of them is fine: "no" is
+ * never the dangerous direction.
+ *
+ * What was not decided comes back with the reason, rather than failing the
+ * batch, so seven of ten approved is seven approved and three still waiting.
+ */
+export async function decideMany(
+  companyId: string,
+  itemIds: readonly string[],
+  decision: 'approve' | 'deny',
+  note = '',
+  options: DecideOptions = {},
+): Promise<BatchOutcome> {
+  if (decision !== 'approve' && decision !== 'deny') {
+    throw new PalugadaError(
+      'contract.violation',
+      'a batch can approve or deny; a question to the agent is asked of one item',
+      { decision },
+    );
+  }
+  if (!Array.isArray(itemIds) || itemIds.length < 1 || itemIds.length > BATCH_MAX) {
+    throw new PalugadaError('contract.violation', `a batch is 1 to ${BATCH_MAX} items`, {});
+  }
+  const bad = itemIds.find((id) => typeof id !== 'string' || !UUID.test(id));
+  if (bad !== undefined) {
+    throw new PalugadaError('contract.violation', `${String(bad)} is not an item id`, {});
+  }
+  const unique = [...new Set(itemIds)];
+  const { rows } = await withTenant(companyId, (tx) => tx.query<{
+    id: string; kind: InboxKind; tier: number | null; status: InboxStatus;
+    decision: string | null; closed_reason: string | null; asked_by: string | null;
+  }>(
+    `SELECT id, kind, tier, status, decision, closed_reason, payload->>'askedBy' AS asked_by
+       FROM inbox_items WHERE id = ANY($1::uuid[])`,
+    [unique],
+  ));
+  const found = new Map(rows.map((row) => [row.id, row]));
+  const batch = randomUUID();
+  const outcome: BatchOutcome = { decided: [], skipped: [] };
+  for (const itemId of unique) {
+    const row = found.get(itemId);
+    const reason = !row ? 'it does not exist in this company'
+      : row.status === 'decided' ? `it was already decided (${row.decision})`
+      : row.status === 'expired' ? 'it expired unanswered'
+      : row.status !== 'open' ? `it was withdrawn (${row.closed_reason})`
+      : decision === 'deny' ? null
+      : (row.tier ?? 0) >= 3 ? 'a tier 3 approval is given one at a time, with your device (F10.10)'
+      : row.asked_by === 'agent' ? 'a question is answered in words, not approved'
+      : row.kind === 'incident' ? 'an incident is looked at one at a time'
+      : null;
+    if (reason) {
+      outcome.skipped.push({ itemId, reason });
+      continue;
+    }
+    try {
+      await decide(companyId, itemId, decision, note, { ...options, batch });
+      outcome.decided.push(itemId);
+    } catch (error) {
+      // Decided on another surface in the meantime, most likely. The rest of
+      // the batch is still the owner's answer.
+      if (!(error instanceof PalugadaError)) throw error;
+      outcome.skipped.push({ itemId, reason: error.message });
+    }
+  }
+  await withTenant(companyId, (tx) => appendEvent(tx, {
+    companyId,
+    type: 'owner.decided_batch',
+    actor: 'owner',
+    payload: { batch, decision, decided: outcome.decided.length, skipped: outcome.skipped.length },
+  }));
+  return outcome;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Moves the task the decision was about, when the decision is what it waits for.

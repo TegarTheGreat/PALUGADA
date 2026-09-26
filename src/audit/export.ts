@@ -134,10 +134,12 @@ const SECTIONS: Section[] = [
   },
   {
     // 0054. The door without its key: the URL's id and the token's hash are
-    // this instance's, and a restored trigger is given new ones, closed.
+    // this instance's, and a restored trigger is given new ones, closed. A
+    // signed trigger's secret reference travels, like a credential's (0056):
+    // it names where the secret is, and the secret stays there.
     name: 'triggers',
     sql: `SELECT id, slug, project_id, division_id, role_id, goal_id, instruction, max_per_hour,
-                 enabled, created_at
+                 enabled, scheme, secret_ref, created_at
             FROM triggers ORDER BY created_at`,
   },
   {

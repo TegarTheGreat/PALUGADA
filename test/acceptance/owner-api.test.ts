@@ -13,6 +13,7 @@
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
 import { closePools } from '../../src/db/pool.ts';
 import { InMemorySecretManager } from '../../src/secrets/manager.ts';
 import { OwnerApi } from '../../src/owner/api.ts';
@@ -62,7 +63,10 @@ async function console_(): Promise<{
   const mfa = new OwnerMfa({ secrets, rpId: 'palugada.local', now: at });
   await mfa.enrolTotp({ label: 'owner phone', secretRef: 'vault://owner/totp' });
 
-  const api = new OwnerApi({ mfa });
+  // A signing secret for triggers the sender signs (0056), where the
+  // deployment's store would keep it.
+  secrets.set('vault://hooks/signing', 'hook-signing-secret-for-tests');
+  const api = new OwnerApi({ mfa, secrets });
   const { url } = await api.listen();
   return {
     api,
@@ -3538,6 +3542,39 @@ test('a company is restored from the archive the console downloads (F16.4)', asy
 });
 
 /**
+ * Batch verdicts over HTTP: the owner approves what they have read in one
+ * press, with their session, and a tier 3 item in the selection stays for
+ * their device.
+ */
+test('the owner approves several items in one press, and tier 3 waits for the device', async () => {
+  const owner = await console_();
+  try {
+    const fixture = await createCompany('batch-http');
+    const token = await signIn(owner.url, owner.code());
+    const draft = (summary: string) => inbox.requestApproval({
+      companyId: fixture.companyId, capabilityName: 'social.publish', tier: 2,
+      actionSummary: summary, rationale: 'The draft is ready.', consequenceIfDenied: 'Not posted.',
+    });
+    const drafts = [await draft('Post A'), await draft('Post B')];
+    const payment = await tier3(fixture);
+    const base = `/api/companies/${fixture.companyId}/inbox`;
+
+    const wrong = await call(owner.url, 'POST', `${base}/batch`, { token, body: { itemIds: drafts, decision: 'ask' } });
+    assert.equal(wrong.status, 400);
+    const pressed = await call(owner.url, 'POST', `${base}/batch`, {
+      token, body: { itemIds: [...drafts, payment], decision: 'approve', note: 'read them' },
+    });
+    assert.equal(pressed.status, 200, JSON.stringify(pressed.body));
+    assert.deepEqual((pressed.body.decided as string[]).sort(), [...drafts].sort());
+    assert.deepEqual((pressed.body.skipped as Array<{ itemId: string }>).map((skip) => skip.itemId), [payment]);
+    const open = await call(owner.url, 'GET', base, { token });
+    assert.deepEqual((open.body.items as Array<{ id: string }>).map((item) => item.id), [payment]);
+  } finally {
+    await owner.close();
+  }
+});
+
+/**
  * Inbound triggers over HTTP (0054): the owner opens one with their device,
  * another service posts to its URL with its token, and a wrong token, an
  * unknown URL or a closed door answer as HTTP says they should.
@@ -3587,6 +3624,67 @@ test('an outside service starts work through a trigger the owner opened (0054)',
     assert.equal((await post(`/api/hooks/${publicId}`, String(rotated.body.token), { order: 3 })).status, 404);
     const reopen = await call(owner.url, 'POST', `${base}/${id}`, { token, body: { enabled: true } });
     assert.notEqual(reopen.status, 200, 'opening it again takes the device too');
+  } finally {
+    await owner.close();
+  }
+});
+
+/**
+ * A signed trigger over HTTP (0056). The route hands the receiver the bytes
+ * that arrived, because a signature is over those bytes: a body parsed and
+ * written out again is a different body, and every signature would fail. And
+ * a sender may post a form or text, which the JSON-only reader refused.
+ */
+test('a signed delivery, a form and a handshake reach a trigger as they were sent (0056)', async () => {
+  const owner = await console_();
+  try {
+    const fixture = await createCompany('hook-signed-http');
+    const token = await signIn(owner.url, owner.code());
+    const base = `/api/companies/${fixture.companyId}/triggers`;
+    const open = (slug: string, scheme: string, secretRef?: string) => call(owner.url, 'POST', base, {
+      token,
+      body: {
+        slug, roleId: fixture.roleId, goalId: fixture.goalId, instruction: 'Act on it.', scheme,
+        ...(secretRef ? { secretRef } : {}), proof: { totp: owner.code() },
+      },
+    });
+    const refusedOpen = await open('slack', 'slack', 'vault://hooks/unset');
+    assert.equal(refusedOpen.status, 400);
+    assert.match(String(refusedOpen.body.error), /could not be read/);
+    const slack = await open('slack', 'slack', 'vault://hooks/signing');
+    assert.equal(slack.status, 200, JSON.stringify(slack.body));
+    assert.equal(slack.body.token, null);
+    const plain = await open('plain', 'bearer');
+
+    const post = (publicId: unknown, body: string, headers: Record<string, string>) =>
+      fetch(`${owner.url}/api/hooks/${String(publicId)}`, { method: 'POST', headers, body });
+    const slackHeaders = (body: string, type: string) => {
+      const at = String(Math.floor(Date.now() / 1000));
+      const mac = createHmac('sha256', 'hook-signing-secret-for-tests').update(`v0:${at}:${body}`).digest('hex');
+      return { 'content-type': type, 'x-slack-request-timestamp': at, 'x-slack-signature': `v0=${mac}` };
+    };
+
+    const challenge = '{ "type": "url_verification",  "challenge": "c-42" }';
+    const shook = await post(slack.body.publicId, challenge, slackHeaders(challenge, 'application/json'));
+    assert.equal(shook.status, 200);
+    assert.deepEqual(await shook.json(), { challenge: 'c-42' });
+    const command = 'command=%2Forder&text=A-1';
+    const ran = await post(slack.body.publicId, command, slackHeaders(command, 'application/x-www-form-urlencoded'));
+    assert.equal(ran.status, 200, await ran.clone().text());
+    assert.equal(((await ran.json()) as { duplicate: boolean }).duplicate, false);
+    const forged = await post(slack.body.publicId, command, {
+      ...slackHeaders(command, 'application/x-www-form-urlencoded'), 'x-slack-signature': 'v0=00',
+    });
+    assert.equal(forged.status, 401);
+
+    const text = await post(plain.body.publicId, 'Paid: A-7', {
+      authorization: `Bearer ${String(plain.body.token)}`, 'content-type': 'text/plain',
+    });
+    assert.equal(text.status, 200, await text.clone().text());
+    const image = await post(plain.body.publicId, 'GIF89a', {
+      authorization: `Bearer ${String(plain.body.token)}`, 'content-type': 'image/gif',
+    });
+    assert.equal(image.status, 415);
   } finally {
     await owner.close();
   }

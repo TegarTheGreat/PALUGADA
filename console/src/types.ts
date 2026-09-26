@@ -334,6 +334,9 @@ export interface TaskDetail {
 }
 
 /** An inbound trigger (0054): a URL another service posts events to. */
+/** How a trigger's caller proves itself (0056). */
+export type TriggerScheme = 'bearer' | 'github' | 'stripe' | 'slack' | 'standard';
+
 export interface Trigger {
   id: string;
   slug: string;
@@ -344,6 +347,9 @@ export interface Trigger {
   instruction: string;
   maxPerHour: number;
   enabled: boolean;
+  scheme: TriggerScheme;
+  /** Where a signed trigger's secret is kept; never the secret. */
+  secretRef: string | null;
   /** False for a restored trigger until a token is made for it. */
   hasToken: boolean;
   deliveriesLastHour: number;

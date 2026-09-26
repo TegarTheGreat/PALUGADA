@@ -2641,6 +2641,15 @@ rest are listed at the end.
   have acted with content's grants, against F7.3. It uses the successor
   role's division, and the database now refuses any task whose division is
   not its role's (`tasks_role_in_its_division`).
+- The owner's word on finished work (`giveFeedback` in
+  `src/engine/owner-control.ts`; the task drawer's "Your word on it"). Buzz
+  lets a person react to what an agent posted; here a reaction is worth
+  something only if the company learns from it. "Needs work" takes a reason
+  and "good" invites one; a reason is written as the owner's own way to
+  work for the division that did the task, at full confidence, so its next
+  run reads it beside its procedures. A second word on the same task
+  supersedes the first, and praise with no reason is recorded and teaches
+  nothing.
 - Measure goals by numbers (section 2.19).
 
 **F8.9, enforced where it does not depend on the model.** The untrusted

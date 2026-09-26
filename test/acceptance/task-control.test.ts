@@ -18,7 +18,8 @@ import { closePools } from '../../src/db/pool.ts';
 import { isPalugadaError } from '../../src/errors.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { createRootTask, createSubTask, getTask, transition } from '../../src/engine/tasks.ts';
-import { cancelTask, instructTask, rerunTask } from '../../src/engine/owner-control.ts';
+import { cancelTask, giveFeedback, instructTask, rerunTask } from '../../src/engine/owner-control.ts';
+import { taskDetailOf } from '../../src/owner/views.ts';
 import { pauseRole } from '../../src/governance/role-freeze.ts';
 import { buildContext } from '../../src/context/builder.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
@@ -170,4 +171,53 @@ test('pausing a role stops new work for it; the owner pauses with a session', as
   const paused = await withTenant(fixture.companyId, (tx) => tx.query<{ actor: string }>(
     "SELECT actor FROM events WHERE type = 'role.frozen'"));
   assert.deepEqual(paused.rows, [{ actor: 'owner' }]);
+});
+
+/**
+ * The owner's word on finished work (Buzz lets people react to a message).
+ * A verdict with a reason is what the division reads on its next run, as a
+ * way to work from the owner; a second word on the same task replaces the
+ * first rather than piling up beside it; and a task still running has
+ * nothing to judge yet.
+ */
+test("the owner's word on finished work is what its division remembers next", async () => {
+  const fixture = await createCompany('task-feedback');
+  const task = await createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    roleId: fixture.roleId, budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId,
+    input: { goal: 'Write the October newsletter' }, createdBy: 'owner', reserveTokens: 1_000,
+  });
+  await transition(fixture.companyId, task.id, 'running');
+  await assert.rejects(giveFeedback(fixture.companyId, task.id, { verdict: 'good' }), /still running/);
+  await transition(fixture.companyId, task.id, 'completed', { output: { summary: 'drafted it' } });
+
+  await assert.rejects(giveFeedback(fixture.companyId, task.id, { verdict: 'needs_work' }), /say what to do differently/);
+  await assert.rejects(giveFeedback(fixture.companyId, task.id, { verdict: 'meh' as never }), /good or needs_work/);
+  await giveFeedback(fixture.companyId, task.id, { verdict: 'needs_work', note: 'Too long; keep it under 150 words.' });
+  await giveFeedback(fixture.companyId, task.id, { verdict: 'needs_work', note: 'Under 150 words, and lead with the price.' });
+
+  const context = await withTenant(fixture.companyId, (tx) => buildContext(tx, {
+    companyId: fixture.companyId, divisionId: fixture.divisionId,
+  }));
+  const said = context.sections.map((section) => section.body).join('\n');
+  assert.match(said, /lead with the price/);
+  assert.doesNotMatch(said, /Too long; keep it under 150 words/, 'the first word was replaced, not kept beside it');
+  assert.match(said, /October newsletter/);
+
+  const detail = await taskDetailOf(fixture.companyId, task.id);
+  assert.deepEqual([detail!.feedback?.verdict, detail!.feedback?.note], ['needs_work', 'Under 150 words, and lead with the price.']);
+
+  // Praise with nothing to learn from is recorded, and teaches nothing.
+  const other = await createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    roleId: fixture.roleId, budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId,
+    input: { goal: 'Write the November newsletter' }, createdBy: 'owner', reserveTokens: 1_000,
+  });
+  await transition(fixture.companyId, other.id, 'running');
+  await transition(fixture.companyId, other.id, 'completed', { output: { summary: 'drafted it' } });
+  await giveFeedback(fixture.companyId, other.id, { verdict: 'good' });
+  const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ n: number }>(
+    "SELECT count(*)::int AS n FROM memories WHERE source = 'owner' AND superseded_by IS NULL"));
+  assert.equal(rows[0]!.n, 1);
+  assert.equal((await taskDetailOf(fixture.companyId, other.id))!.feedback?.verdict, 'good');
 });

@@ -16,7 +16,7 @@ import {
 import { notifications } from '@mantine/notifications';
 import {
   IconCopy, IconCornerDownRight, IconFileText, IconHeartbeat, IconMail, IconPlayerPlay, IconPlayerStop, IconPlus,
-  IconRefresh,
+  IconRefresh, IconThumbDown, IconThumbUp,
 } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
 import { useLoad, useNow } from '../hooks.ts';
@@ -241,6 +241,7 @@ export function TaskDrawer({ companyId, task, close, changed, openTask }: {
             <Fact label={t('Finished')} value={dateTime(task.finishedAt)} />
           </SimpleGrid>
           <TaskOutput companyId={companyId} task={task} />
+          {['completed', 'failed', 'halted'].includes(task.status) && <TaskFeedback companyId={companyId} task={task} />}
           <TaskControls companyId={companyId} task={task} changed={changed} openTask={openTask} />
           <Transcript companyId={companyId} task={task} />
           <div>
@@ -400,6 +401,79 @@ function resultText(output: unknown): string | null {
     if (typeof record[field] === 'string' && (record[field] as string).trim()) return record[field] as string;
   }
   return null;
+}
+
+/**
+ * The owner's word on finished work. A reason is what the division reads on
+ * its next run, as a way to work; a thumbs-up alone is recorded and teaches
+ * nothing, so "needs work" asks for the reason and "good" invites one.
+ */
+function TaskFeedback({ companyId, task }: { companyId: string; task: WorkItem }) {
+  const detail = useLoad(async () => {
+    const answer: { task: TaskDetail } = await api('GET', `/api/companies/${companyId}/tasks/${task.id}`);
+    return answer.task.feedback;
+  }, [companyId, task.id]);
+  const [verdict, setVerdict] = useState<'good' | 'needs_work' | null>(null);
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const given = detail.data ?? null;
+
+  const send = async (chosen: 'good' | 'needs_work') => {
+    setBusy(true);
+    try {
+      await api('POST', `/api/companies/${companyId}/tasks/${task.id}/feedback`, { verdict: chosen, note });
+      notifications.show({
+        color: 'teal',
+        message: note.trim() ? t('Noted. The division reads this on its next run.') : t('Noted.'),
+      });
+      setVerdict(null);
+      setNote('');
+      detail.reload();
+    } catch (failure) {
+      notifications.show({ color: 'red', message: explain(failure) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Paper withBorder radius="md" p="md">
+      <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb="xs">{t('Your word on it')}</Text>
+      {given && verdict === null && (
+        <Group gap="xs" mb="xs" wrap="nowrap" align="flex-start">
+          <Badge color={given.verdict === 'good' ? 'teal' : 'orange'} variant="light">
+            {given.verdict === 'good' ? t('Good') : t('Needs work')}
+          </Badge>
+          {given.note && <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{given.note}</Text>}
+        </Group>
+      )}
+      {verdict === null ? (
+        <Group gap="xs">
+          <Button size="xs" variant="light" color="teal" leftSection={<IconThumbUp size={14} />} onClick={() => setVerdict('good')}>{t('Good')}</Button>
+          <Button size="xs" variant="light" color="orange" leftSection={<IconThumbDown size={14} />} onClick={() => setVerdict('needs_work')}>{t('Needs work')}</Button>
+        </Group>
+      ) : (
+        <Stack gap="xs">
+          <Textarea
+            autosize
+            minRows={2}
+            maxLength={2000}
+            value={note}
+            onChange={(event) => setNote(event.currentTarget.value)}
+            placeholder={verdict === 'good'
+              ? t('What made it good? (optional; the division learns from it)')
+              : t('What should it do differently? The division reads this next time.')}
+          />
+          <Group gap="xs">
+            <Button size="xs" loading={busy} disabled={verdict === 'needs_work' && !note.trim()} onClick={() => void send(verdict)}>
+              {t('Save')}
+            </Button>
+            <Button size="xs" variant="subtle" onClick={() => { setVerdict(null); setNote(''); }}>{t('Cancel')}</Button>
+          </Group>
+        </Stack>
+      )}
+    </Paper>
+  );
 }
 
 /**

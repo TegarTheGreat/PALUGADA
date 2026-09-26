@@ -21,6 +21,7 @@ import { TERMINAL_STATUSES, isTerminal, type TaskStatus } from '../domain/task.t
 import { PalugadaError } from '../errors.ts';
 import { assignTask } from '../scheduler/wake.ts';
 import { getTask } from './tasks.ts';
+import { remember, supersede } from '../memory/store.ts';
 
 /** The longest instruction or note, the same bound as a question from the owner. */
 export const INSTRUCTION_MAX = 2_000;
@@ -267,4 +268,76 @@ export async function instructionsFor(
       ? payload.previous as { status: TaskStatus; haltReason: string | null }
       : null,
   }));
+}
+
+export type Verdict = 'good' | 'needs_work';
+
+/**
+ * The owner's word on finished work.
+ *
+ * Buzz lets a person react to what an agent posted; here a reaction is worth
+ * something only if the company learns from it. A verdict with a reason is
+ * written as the owner's own way to work, for the division that did the
+ * task, at full confidence -- the owner's word needs no review -- so the
+ * division's next run reads it beside its procedures. A second word on the
+ * same task supersedes the first rather than standing beside it: "under 150
+ * words, and lead with the price" replaces "too long", and a run told both
+ * would be told something the owner no longer thinks. Praise with no reason
+ * is recorded and teaches nothing, because there is nothing in it to do.
+ */
+export async function giveFeedback(
+  companyId: string,
+  taskId: string,
+  input: { verdict: Verdict; note?: string | null },
+): Promise<void> {
+  if (input.verdict !== 'good' && input.verdict !== 'needs_work') {
+    throw new PalugadaError('contract.violation', 'a verdict is good or needs_work', { field: 'verdict' });
+  }
+  const note = String(input.note ?? '').trim();
+  if (input.verdict === 'needs_work' && !note) {
+    throw new PalugadaError(
+      'contract.violation', 'say what to do differently; that is what the division will read', { field: 'note' },
+    );
+  }
+  if (note.length > INSTRUCTION_MAX) {
+    throw new PalugadaError('contract.violation', `a note is at most ${INSTRUCTION_MAX} characters`, { field: 'note' });
+  }
+  const task = await taskHere(companyId, taskId);
+  if (!isTerminal(task.status)) {
+    throw new PalugadaError(
+      'contract.violation', `task ${taskId} is still ${task.status}; tell it something instead`, { taskId },
+    );
+  }
+  await withTenant(companyId, async (tx) => {
+    const { rows: role } = await tx.query<{ slug: string }>('SELECT slug FROM roles WHERE id = $1', [task.roleId]);
+    const { rows: earlier } = await tx.query<{ memory_id: string | null }>(
+      `SELECT payload->>'memoryId' AS memory_id FROM events
+        WHERE task_id = $1 AND type = 'owner.feedback' ORDER BY occurred_at DESC LIMIT 1`,
+      [taskId],
+    );
+    let memoryId: string | null = null;
+    if (note) {
+      const goal = typeof task.input.goal === 'string' ? task.input.goal : 'a task';
+      const lesson = {
+        companyId,
+        memoryType: 'procedural' as const,
+        scopeType: 'division' as const,
+        scopeId: task.divisionId,
+        body: `The owner on ${role[0]?.slug ?? 'a role'}'s work "${goal.slice(0, 200)}": `
+          + `${input.verdict === 'good' ? 'this was good' : 'this needs work'}. ${note}`,
+        confidence: 1,
+        source: 'owner',
+      };
+      const previous = earlier[0]?.memory_id ?? null;
+      memoryId = previous ? await supersede(tx, previous, lesson) : await remember(tx, lesson);
+    }
+    await appendEvent(tx, {
+      companyId,
+      projectId: task.projectId,
+      taskId,
+      type: 'owner.feedback',
+      actor: 'owner',
+      payload: { verdict: input.verdict, note, memoryId },
+    });
+  });
 }

@@ -416,6 +416,8 @@ export interface TaskDetail {
   input: unknown;
   output: unknown;
   deliverables: Deliverable[];
+  /** The owner's last word on it (`giveFeedback`), or null. */
+  feedback: { verdict: 'good' | 'needs_work'; note: string | null; at: Date } | null;
 }
 
 /** A document's first heading, which is what a person would call it. */
@@ -455,12 +457,21 @@ export async function taskDetailOf(companyId: string, taskId: string): Promise<T
         ORDER BY step_index`,
       [taskId],
     );
+    // The owner's last word on it, if they gave one.
+    const { rows: said } = await tx.query<{ payload: { verdict: 'good' | 'needs_work'; note: string }; occurred_at: Date }>(
+      `SELECT payload, occurred_at FROM events WHERE task_id = $1 AND type = 'owner.feedback'
+        ORDER BY occurred_at DESC LIMIT 1`,
+      [taskId],
+    );
     // Field by field rather than `redactDeep` over the whole answer, which
     // would turn each `Date` into an empty object.
     const text = (value: unknown) => (typeof value === 'string' ? redactor.redact(value) : null);
     return {
       id: task.id,
       status: task.status,
+      feedback: said[0]
+        ? { verdict: said[0].payload.verdict, note: said[0].payload.note || null, at: said[0].occurred_at }
+        : null,
       input: redactor.redactDeep(task.input),
       output: redactor.redactDeep(task.output),
       deliverables: steps.map((step) => ({

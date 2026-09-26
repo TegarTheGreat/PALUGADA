@@ -3645,6 +3645,34 @@ test('the owner hires a role and opens a division with the device, and starts a 
   }
 });
 
+/** The owner's word on finished work, over HTTP, and read back on the task. */
+test('the owner says what finished work needed, and the task shows it', async () => {
+  const owner = await console_();
+  try {
+    const fixture = await createCompany('feedback-http');
+    const token = await signIn(owner.url, owner.code());
+    const { createRootTask, transition } = await import('../../src/engine/tasks.ts');
+    const task = await createRootTask({
+      companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+      roleId: fixture.roleId, budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId,
+      input: { goal: 'Draft the price page' }, createdBy: 'owner', reserveTokens: 1_000,
+    });
+    await transition(fixture.companyId, task.id, 'running');
+    await transition(fixture.companyId, task.id, 'completed', { output: { summary: 'drafted' } });
+    const path = `/api/companies/${fixture.companyId}/tasks/${task.id}`;
+    assert.equal((await call(owner.url, 'POST', `${path}/feedback`, { token, body: { verdict: 'needs_work' } })).status, 400);
+    const said = await call(owner.url, 'POST', `${path}/feedback`, {
+      token, body: { verdict: 'needs_work', note: 'Show the yearly price first.' },
+    });
+    assert.equal(said.status, 200, JSON.stringify(said.body));
+    const read = await call(owner.url, 'GET', path, { token });
+    const feedback = (read.body.task as { feedback: { verdict: string; note: string } }).feedback;
+    assert.deepEqual([feedback.verdict, feedback.note], ['needs_work', 'Show the yearly price first.']);
+  } finally {
+    await owner.close();
+  }
+});
+
 /** Handoffs over HTTP (0058): made and switched on with the device, off with the session. */
 test('the owner chains two roles with the device and switches the chain off with the session (0058)', async () => {
   const owner = await console_();

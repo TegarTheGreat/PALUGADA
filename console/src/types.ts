@@ -335,9 +335,10 @@ export interface TaskDetail {
   input: unknown;
   output: unknown;
   deliverables: Deliverable[];
+  /** The owner's last word on it, or null. */
+  feedback: { verdict: 'good' | 'needs_work'; note: string | null; at: string } | null;
 }
 
-/** An inbound trigger (0054): a URL another service posts events to. */
 /** When one role finishes, another takes over (0058). */
 export interface HandoffRule {
   id: string;
@@ -353,6 +354,7 @@ export interface HandoffRule {
 /** How a trigger's caller proves itself (0056). */
 export type TriggerScheme = 'bearer' | 'github' | 'stripe' | 'slack' | 'standard';
 
+/** An inbound trigger (0054): a URL another service posts events to. */
 export interface Trigger {
   id: string;
   slug: string;

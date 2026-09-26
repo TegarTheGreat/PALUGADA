@@ -58,7 +58,7 @@ import {
   unfreezeCompany,
 } from '../engine/control.ts';
 import { frozenRoles, pauseRole, unfreezeRole } from '../governance/role-freeze.ts';
-import { cancelTask, instructTask, rerunTask } from '../engine/owner-control.ts';
+import { cancelTask, giveFeedback, instructTask, rerunTask, type Verdict } from '../engine/owner-control.ts';
 import { transcriptOf } from '../engine/transcript.ts';
 import {
   clearSpendPause,
@@ -1029,6 +1029,20 @@ export class OwnerApi {
         handle: async ({ params, body }) => ({
           taskId: await rerunTask(params.companyId!, params.taskId!, typeof body.note === 'string' ? body.note : null),
         }),
+      },
+
+      {
+        // The owner's word on finished work, which its division reads next
+        // time as a way to work. Informs, loosens nothing: the session.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/tasks/:taskId/feedback',
+        handle: async ({ params, body }) => {
+          await giveFeedback(params.companyId!, params.taskId!, {
+            verdict: body.verdict as Verdict,
+            note: typeof body.note === 'string' ? body.note : null,
+          });
+          return { ok: true };
+        },
       },
 
       {

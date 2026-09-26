@@ -15,6 +15,7 @@
  */
 import { metricsIn, type MetricView } from '../domain/metrics.ts';
 import { withTenant } from '../db/tenant.ts';
+import { redactor } from '../secrets/manager.ts';
 import { fingerprint } from '../gateway/gateway.ts';
 import { TERMINAL_STATUSES, type TaskStatus } from '../domain/task.ts';
 import { LOW_CONFIDENCE } from '../context/builder.ts';
@@ -232,6 +233,11 @@ export interface WorkItem {
   haltReason: string | null;
   /** What the task is for, in words: the first of its input's describing fields. */
   summary: string;
+  /**
+   * What it produced, in words, once it has: the first of its output's
+   * describing fields. Null until there is an output.
+   */
+  result: string | null;
   roleSlug: string;
   divisionName: string;
   goal: string | null;
@@ -279,14 +285,14 @@ export async function workOf(
       role_slug: string; division_name: string; goal: string | null; schedule: string | null;
       priority: number; attempt: number; attempt_max: number; created_at: Date;
       started_at: Date | null; finished_at: Date | null; cost_cents: string;
-      parent_task_id: string | null; steps_done: number; current_step: string | null;
+      parent_task_id: string | null; output: unknown; steps_done: number; current_step: string | null;
       current_step_status: string | null; plan_steps: number | null; lease_holder: string | null;
       heartbeat_at: Date | null; deadline_at: Date | null;
     }>(
       `SELECT t.id, t.status, t.halt_reason, t.input, r.slug AS role_slug,
               d.name AS division_name, g.statement AS goal, s.slug AS schedule,
               t.priority, t.attempt, t.attempt_max, t.created_at, t.started_at,
-              t.finished_at, t.parent_task_id, t.lease_holder, t.deadline_at,
+              t.finished_at, t.parent_task_id, t.lease_holder, t.deadline_at, t.output,
               coalesce((SELECT sum(l.cost_cents) FROM llm_traces l WHERE l.task_id = t.id), 0)
                 AS cost_cents,
               (SELECT count(*)::int FROM task_steps j
@@ -327,6 +333,7 @@ export async function workOf(
         status: row.status,
         haltReason: row.halt_reason,
         summary: summarise(row.input),
+        result: row.output === null || row.output === undefined ? null : summarise(row.output, 200, RESULT_FIELDS),
         roleSlug: row.role_slug,
         divisionName: row.division_name,
         goal: row.goal,
@@ -357,6 +364,12 @@ export async function workOf(
 const DESCRIBING_FIELDS = ['goal', 'title', 'summary', 'task', 'request', 'subject', 'check'];
 
 /**
+ * The fields an output uses to say what came of it. An answer before a
+ * title: `{ confidence: 'high', answer: '...' }` is about the answer.
+ */
+const RESULT_FIELDS = ['summary', 'result', 'answer', 'outcome', 'conclusion', 'message', 'text', 'title'];
+
+/**
  * A task's input, as one line a person can read.
  *
  * The input is whatever the role's schema says, so there is no one field to
@@ -364,12 +377,12 @@ const DESCRIBING_FIELDS = ['goal', 'title', 'summary', 'task', 'request', 'subje
  * it; failing that, the JSON itself, cut short. Never empty, because a row
  * with no words in it is a row nobody can tell apart from the next.
  */
-export function summarise(input: unknown, max = 140): string {
+export function summarise(input: unknown, max = 140, fields: readonly string[] = DESCRIBING_FIELDS): string {
   const cut = (text: string) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
   if (typeof input === 'string' && input.trim()) return cut(input.trim());
   if (input && typeof input === 'object' && !Array.isArray(input)) {
     const record = input as Record<string, unknown>;
-    for (const field of DESCRIBING_FIELDS) {
+    for (const field of fields) {
       const value = record[field];
       if (typeof value === 'string' && value.trim()) return cut(value.trim());
     }
@@ -379,6 +392,83 @@ export function summarise(input: unknown, max = 140): string {
   }
   const json = JSON.stringify(input ?? null);
   return cut(json === '{}' || json === 'null' ? 'No description' : json);
+}
+
+/* ------------------------------------------------------------ one task --- */
+
+/** Something a task wrote down for a person to read: a document, an email. */
+export interface Deliverable {
+  step: number;
+  /** The capability that wrote it, without the journal's `capability:` prefix. */
+  capability: string;
+  /** The email's subject, or the document's path when it has no other name. */
+  title: string;
+  path: string;
+  text: string;
+  words: number | null;
+  to: string | null;
+  at: Date | null;
+}
+
+export interface TaskDetail {
+  id: string;
+  status: TaskStatus;
+  input: unknown;
+  output: unknown;
+  deliverables: Deliverable[];
+}
+
+/**
+ * One task, with what it produced.
+ *
+ * The output as the task returned it, and every draft it committed -- read
+ * from the journal, where the capability's result already holds the text, so
+ * nothing is read from the files directory and no path from a row is ever
+ * opened. A draft that did not commit is left out: the journal does not say
+ * it exists. Redacted on the way out, like every other surface (F12.4): a
+ * draft is whatever a model wrote, and a model can repeat a key it was shown.
+ *
+ * Null for a task that is not in this company, which is what row level
+ * security makes of another company's id.
+ */
+export async function taskDetailOf(companyId: string, taskId: string): Promise<TaskDetail | null> {
+  return withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<{ id: string; status: TaskStatus; input: unknown; output: unknown }>(
+      'SELECT id, status, input, output FROM tasks WHERE id = $1',
+      [taskId],
+    );
+    const task = rows[0];
+    if (!task) return null;
+    const { rows: steps } = await tx.query<{
+      step_index: number; name: string; committed_at: Date | null; output: Record<string, unknown>;
+    }>(
+      `SELECT step_index, name, committed_at, output FROM task_steps
+        WHERE task_id = $1 AND status = 'committed' AND name LIKE 'capability:%'
+          AND jsonb_typeof(output -> 'path') = 'string'
+          AND (jsonb_typeof(output -> 'text') = 'string' OR jsonb_typeof(output -> 'body') = 'string')
+        ORDER BY step_index`,
+      [taskId],
+    );
+    // Field by field rather than `redactDeep` over the whole answer, which
+    // would turn each `Date` into an empty object.
+    const text = (value: unknown) => (typeof value === 'string' ? redactor.redact(value) : null);
+    return {
+      id: task.id,
+      status: task.status,
+      input: redactor.redactDeep(task.input),
+      output: redactor.redactDeep(task.output),
+      deliverables: steps.map((step) => ({
+        step: step.step_index,
+        capability: step.name.replace(/^capability:/, ''),
+        title: text(step.output.subject) ?? text(step.output.title) ?? text(step.output.path)!,
+        path: text(step.output.path)!,
+        text: text(step.output.text) ?? text(step.output.body) ?? '',
+        words: typeof step.output.words === 'number' ? step.output.words : null,
+        to: text(step.output.to),
+        at: step.committed_at,
+      })),
+    };
+  });
 }
 
 /* --------------------------------------------------------------- activity --- */

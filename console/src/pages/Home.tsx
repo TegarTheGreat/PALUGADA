@@ -28,6 +28,7 @@ interface CompanyState {
   inbox: InboxItem[];
   digest: Digest;
   running: WorkItem[];
+  delivered: WorkItem[];
   counts: Record<WorkGroup, number>;
   spend: Spend;
 }
@@ -49,15 +50,16 @@ export function Home({
   setup: { notes: string[]; todo: string[] };
 }) {
   const view = useLoad(async () => Promise.all(companies.map(async (company): Promise<CompanyState> => {
-    const [{ items }, digest, work, spend]: [
-      { items: InboxItem[] }, Digest, { items: WorkItem[]; counts: Record<WorkGroup, number> }, Spend,
+    const [{ items }, digest, work, done, spend]: [
+      { items: InboxItem[] }, Digest, { items: WorkItem[]; counts: Record<WorkGroup, number> }, { items: WorkItem[] }, Spend,
     ] = await Promise.all([
       api('GET', `/api/companies/${company.id}/inbox`),
       api('GET', `/api/companies/${company.id}/digest`),
       api('GET', `/api/companies/${company.id}/work?group=active&limit=6`),
+      api('GET', `/api/companies/${company.id}/work?group=done&limit=4`),
       api('GET', `/api/companies/${company.id}/spend`),
     ]);
-    return { company, inbox: items, digest, running: work.items, counts: work.counts, spend };
+    return { company, inbox: items, digest, running: work.items, delivered: done.items, counts: work.counts, spend };
   })), [companies.map((company) => company.id).join(',')], { every: 20_000 });
 
   const today = new Date().toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long' });
@@ -80,6 +82,8 @@ export function Home({
     .sort((a, b) => (a.item.tier === 3 ? 0 : a.item.kind === 'incident' ? 1 : 2) - (b.item.tier === 3 ? 0 : b.item.kind === 'incident' ? 1 : 2)
       || a.item.createdAt.localeCompare(b.item.createdAt));
   const running = states.flatMap((state) => state.running.map((item) => ({ item, company: state.company })));
+  const delivered = states.flatMap((state) => state.delivered.map((item) => ({ item, company: state.company })))
+    .sort((a, b) => (b.item.finishedAt ?? '').localeCompare(a.item.finishedAt ?? ''));
   const stopped = states.reduce((total, state) => total + state.digest.tasksFailed + state.digest.tasksHalted, 0);
   const incidents = states.reduce((total, state) => total + state.digest.openIncidents, 0);
 
@@ -170,6 +174,21 @@ export function Home({
                   </Stack>
                 )}
               </Section>
+              {delivered.length > 0 && (
+                <div style={{ marginTop: 'var(--mantine-spacing-lg)' }}>
+                <Section title={t('Just delivered')} description={t('Finished work, and what came of it.')} padding={0}>
+                  <Stack gap={0}>
+                    {delivered.slice(0, 5).map(({ item, company }) => (
+                      <UnstyledButton key={item.id} className="list-row" onClick={() => openCompany(company.id, 'work', item.id)}>
+                        <Text size="sm" fw={600} lineClamp={1}>{item.summary}</Text>
+                        {item.result && <Text size="xs" c="teal.8" lineClamp={2} mt={2}>{item.result}</Text>}
+                        <Text size="xs" c="dimmed" mt={4}>{company.name} · {item.roleSlug} · {relative(item.finishedAt ?? item.createdAt)}</Text>
+                      </UnstyledButton>
+                    ))}
+                  </Stack>
+                </Section>
+                </div>
+              )}
             </Grid.Col>
           </Grid>
 

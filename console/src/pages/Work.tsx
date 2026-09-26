@@ -10,14 +10,16 @@
  */
 import { useState } from 'react';
 import {
-  Badge, Button, Code, Drawer, Group, Paper, Progress, SegmentedControl, SimpleGrid, Stack, Table,
-  Text, Timeline, Tooltip,
+  Badge, Button, Code, CopyButton, Drawer, Group, Modal, Paper, Progress, ScrollArea, SegmentedControl, SimpleGrid,
+  Spoiler, Stack, Table, Text, ThemeIcon, Timeline, Tooltip,
 } from '@mantine/core';
-import { IconHeartbeat, IconPlayerPlay, IconPlus } from '@tabler/icons-react';
+import {
+  IconCopy, IconCornerDownRight, IconFileText, IconHeartbeat, IconMail, IconPlayerPlay, IconPlus,
+} from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
 import { useLoad, useNow } from '../hooks.ts';
 import { go } from '../router.ts';
-import type { WorkGroup, WorkItem } from '../types.ts';
+import type { Deliverable, TaskDetail, WorkGroup, WorkItem } from '../types.ts';
 import { dateTime, eventSentence, haltReason, humanize, money, relative } from '../format.ts';
 import { t } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
@@ -90,6 +92,12 @@ export function Work({ ctx, route }: PageProps) {
                     <Table.Tr key={item.id} className="clickable-row" onClick={() => openTask(item.id)}>
                       <Table.Td maw={340}>
                         <Text size="sm" fw={600} lineClamp={1}>{item.summary}</Text>
+                        {item.result && (
+                          <Group gap={4} wrap="nowrap">
+                            <IconCornerDownRight size={12} color="var(--mantine-color-teal-7)" style={{ flexShrink: 0 }} />
+                            <Text size="xs" c="teal.8" lineClamp={1}>{item.result}</Text>
+                          </Group>
+                        )}
                         <Group gap={6}>
                           <Text size="xs" c="dimmed">{item.roleSlug} · {item.divisionName} · {relative(item.startedAt ?? item.createdAt)}</Text>
                           {item.schedule && <Badge size="xs" variant="outline" color="gray">{item.schedule}</Badge>}
@@ -222,6 +230,7 @@ export function TaskDrawer({ companyId, task, close }: { companyId: string; task
             <Fact label={t('Created')} value={dateTime(task.createdAt)} />
             <Fact label={t('Finished')} value={dateTime(task.finishedAt)} />
           </SimpleGrid>
+          <TaskOutput companyId={companyId} task={task} />
           <div>
             <Text fw={700} mb="sm">{t('What it did')}</Text>
             {events.error ? <Text c="red" size="sm">{events.error}</Text> : !events.data ? <Loading rows={2} /> : events.data.length === 0 ? (
@@ -248,6 +257,100 @@ export function TaskDrawer({ companyId, task, close }: { companyId: string; task
         </Stack>
       )}
     </Drawer>
+  );
+}
+
+/** The fields an output uses to say what came of it, as the server reads them. */
+const RESULT_FIELDS = ['summary', 'result', 'answer', 'outcome', 'conclusion', 'message', 'text', 'title'];
+
+function resultText(output: unknown): string | null {
+  if (typeof output === 'string') return output;
+  if (!output || typeof output !== 'object' || Array.isArray(output)) return null;
+  const record = output as Record<string, unknown>;
+  for (const field of RESULT_FIELDS) {
+    if (typeof record[field] === 'string' && (record[field] as string).trim()) return record[field] as string;
+  }
+  return null;
+}
+
+/**
+ * What the task produced: its answer, the whole of what it returned, and
+ * every draft it wrote, each readable in full. The thing the work was for,
+ * which used to be nowhere the owner could see it.
+ */
+function TaskOutput({ companyId, task }: { companyId: string; task: WorkItem }) {
+  const detail = useLoad(async () => {
+    const answer: { task: TaskDetail } = await api('GET', `/api/companies/${companyId}/tasks/${task.id}`);
+    return answer.task;
+  }, [companyId, task.id, task.status], { every: LIVE.includes(task.status) ? 15_000 : undefined });
+  const [reading, setReading] = useState<Deliverable | null>(null);
+
+  if (detail.error) return <Text c="red" size="sm">{detail.error}</Text>;
+  if (!detail.data) return <Loading rows={2} />;
+  const { output, deliverables } = detail.data;
+  const answer = resultText(output);
+  if (output === null && deliverables.length === 0) {
+    return (
+      <div>
+        <Text fw={700} mb={4}>{t('What it produced')}</Text>
+        <Text size="sm" c="dimmed">{t('Nothing yet. What the task produces appears here when it has something.')}</Text>
+      </div>
+    );
+  }
+  return (
+    <div>
+      <Text fw={700} mb="sm">{t('What it produced')}</Text>
+      <Stack gap="sm">
+        {answer && (
+          <Paper withBorder radius="md" p="md" bg="var(--mantine-color-teal-light)">
+            <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{answer}</Text>
+          </Paper>
+        )}
+        {deliverables.map((one) => (
+          <Paper key={one.step} withBorder radius="md" p="sm">
+            <Group justify="space-between" wrap="nowrap">
+              <Group gap="sm" wrap="nowrap" style={{ minWidth: 0 }}>
+                <ThemeIcon variant="light" radius="md">
+                  {one.to ? <IconMail size={16} /> : <IconFileText size={16} />}
+                </ThemeIcon>
+                <div style={{ minWidth: 0 }}>
+                  <Text size="sm" fw={600} truncate>{one.title}</Text>
+                  <Text size="xs" c="dimmed" truncate>
+                    {one.to ? t('Email to {to}', { to: one.to }) : one.path}
+                    {one.words !== null ? ` · ${t('{words} words', { words: one.words })}` : ''}
+                  </Text>
+                </div>
+              </Group>
+              <Button size="compact-sm" variant="light" onClick={() => setReading(one)}>{t('Read')}</Button>
+            </Group>
+          </Paper>
+        ))}
+        {output !== null && (
+          <Spoiler maxHeight={0} showLabel={t('Everything it returned')} hideLabel={t('Hide')}>
+            <Code block style={{ maxHeight: 280, overflow: 'auto' }}>{JSON.stringify(output, null, 2)}</Code>
+          </Spoiler>
+        )}
+      </Stack>
+      <Modal opened={reading !== null} onClose={() => setReading(null)} size="xl" title={<Text fw={700}>{reading?.title}</Text>}>
+        {reading && (
+          <Stack>
+            {reading.to && <Text size="sm" c="dimmed">{t('To: {to}', { to: reading.to })}</Text>}
+            <ScrollArea.Autosize mah="60vh">
+              <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{reading.text}</Text>
+            </ScrollArea.Autosize>
+            <Group justify="flex-end">
+              <CopyButton value={reading.text}>
+                {({ copied, copy }) => (
+                  <Button variant="light" color={copied ? 'teal' : undefined} leftSection={<IconCopy size={14} />} onClick={copy}>
+                    {copied ? t('Copied') : t('Copy the text')}
+                  </Button>
+                )}
+              </CopyButton>
+            </Group>
+          </Stack>
+        )}
+      </Modal>
+    </div>
   );
 }
 

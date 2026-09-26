@@ -151,6 +151,8 @@ export interface WorkItem {
   status: string;
   haltReason: string | null;
   summary: string;
+  /** What it produced, in one line, once it has; null before. */
+  result: string | null;
   roleSlug: string;
   divisionName: string;
   goal: string | null;
@@ -304,4 +306,25 @@ export interface MemoryItem {
   approval: string;
   supersededBy: string | null;
   createdAt: string;
+}
+
+/** Something a task wrote down for a person to read: a document, an email. */
+export interface Deliverable {
+  step: number;
+  capability: string;
+  title: string;
+  path: string;
+  text: string;
+  words: number | null;
+  to: string | null;
+  at: string | null;
+}
+
+/** One task with what it produced (`GET /tasks/:taskId`). */
+export interface TaskDetail {
+  id: string;
+  status: string;
+  input: unknown;
+  output: unknown;
+  deliverables: Deliverable[];
 }

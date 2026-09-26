@@ -134,6 +134,7 @@ import {
   memoriesOf,
   schedulesOf,
   structureOf,
+  taskDetailOf,
   workOf,
 } from './views.ts';
 
@@ -903,6 +904,22 @@ export class OwnerApi {
             (tx) => readTaskEvents(tx, params.taskId!),
           ),
         }),
+      },
+
+      {
+        // What the task produced: its output and every draft it committed.
+        // The events above say what it did; this is the thing it was for,
+        // which the owner could not see anywhere -- a blog post approved and
+        // never read.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/tasks/:taskId',
+        handle: async ({ params }) => {
+          const task = await taskDetailOf(params.companyId!, params.taskId!);
+          if (!task) {
+            throw new PalugadaError('contract.violation', 'no such task in this company', { taskId: params.taskId });
+          }
+          return { task };
+        },
       },
 
       /* --------------------------------------------------- F10.11, F9.9 --- */

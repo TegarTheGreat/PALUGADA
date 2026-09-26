@@ -36,6 +36,11 @@ const schemes = (): Array<{ value: TriggerScheme; label: string }> => [
   { value: 'standard', label: t('Standard Webhooks (Svix, Resend, Clerk)') },
 ];
 
+/** A trigger's scheme in a word, for the list. */
+const shortName = (scheme: TriggerScheme): string => ({
+  bearer: t('Token'), stripe: t('Stripe'), github: t('GitHub'), slack: t('Slack'), standard: t('Standard Webhooks'),
+})[scheme];
+
 /** Where, in the sender's own settings, the URL goes. */
 function whereItGoes(scheme: TriggerScheme): string {
   switch (scheme) {
@@ -80,7 +85,7 @@ export function Triggers({ companyId, structure }: { companyId: string; structur
                   <Table.Td maw={300}>
                     <Group gap={6}>
                       <Text size="sm" fw={600}>{trigger.slug}</Text>
-                      <Badge size="xs" variant="outline" color="gray">{schemes().find((one) => one.value === trigger.scheme)?.label}</Badge>
+                      <Badge size="xs" variant="outline" color="gray">{shortName(trigger.scheme)}</Badge>
                     </Group>
                     <Text size="xs" c="dimmed" lineClamp={2}>{trigger.instruction}</Text>
                     {trigger.secretRef && <Text size="xs" c="dimmed" ff="monospace">{trigger.secretRef}</Text>}

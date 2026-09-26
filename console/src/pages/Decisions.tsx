@@ -238,6 +238,7 @@ export function Decisions({ ctx, route }: PageProps) {
                               <KindBadge kind={item.kind} />
                               <Text size="xs" c="dimmed">{relative(item.createdAt)}</Text>
                               {item.estimatedCostCents > 0 && <Text size="xs" c="dimmed">· {money(item.estimatedCostCents)}</Text>}
+                              {choosing && !batchApprovable(item) && <Text size="xs" c="dimmed" fs="italic">{t('approved one at a time')}</Text>}
                             </Group>
                           </Box>
                         </Group>
@@ -336,8 +337,8 @@ function BatchConfirm({ companyId, decision, items, close, done }: {
       <Stack>
         {approving && staying > 0 && (
           <Alert color="gray" variant="light">
-            {tp('{count} of those chosen is decided alone -- a tier 3 action, a question or an incident -- and stays in the inbox.',
-              '{count} of those chosen are decided alone -- tier 3 actions, questions or incidents -- and stay in the inbox.', staying)}
+            {tp('{count} of those chosen is decided alone (a tier 3 action, a question or an incident) and stays in the inbox.',
+              '{count} of those chosen are decided alone (tier 3 actions, questions or incidents) and stay in the inbox.', staying)}
           </Alert>
         )}
         <ScrollArea.Autosize mah={220} type="auto">

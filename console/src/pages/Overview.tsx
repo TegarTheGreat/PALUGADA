@@ -85,7 +85,7 @@ export function Overview({ ctx }: PageProps) {
 
       <StageCard companyId={companyId} stage={ctx.company.stage} changed={() => { void ctx.refreshCompanies(); }} />
 
-      <Section title={t('Where the work is')} description={t('Tasks by stage, right now. A pile in one stage is where things are stuck.')}>
+      <Section title={t('Where the work is')} description={t('Tasks by where they are, right now. A pile in one place is where things are stuck.')}>
         <SimpleGrid cols={{ base: 2, sm: 3, md: 5 }} spacing="sm">
           {STAGES.map((stage) => {
             const n = work.items.filter((item) => stage.statuses.includes(item.status)).length;

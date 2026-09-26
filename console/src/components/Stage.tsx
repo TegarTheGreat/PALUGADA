@@ -11,6 +11,7 @@
 import { useState } from 'react';
 import { Alert, Button, Group, Menu, Stepper, Text, Textarea } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
+import { useMediaQuery } from '@mantine/hooks';
 import { IconChevronDown } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
@@ -30,6 +31,8 @@ const order = (stage: Stage | null) => (stage === null ? -1 : PATH.findIndex((st
 
 export function StageCard({ companyId, stage, changed }: { companyId: string; stage: Stage | null; changed: () => void }) {
   const requireFactor = useFactor();
+  // Five steps side by side do not fit a phone; down the page they do.
+  const narrow = useMediaQuery('(max-width: 48em)') ?? false;
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -85,7 +88,13 @@ export function StageCard({ companyId, stage, changed }: { companyId: string; st
           {t('Finishing what is owed to customers, and starting nothing new.')}
         </Alert>
       ) : (
-        <Stepper active={Math.max(at, 0)} size="sm" iconSize={28} allowNextStepsSelect={false}>
+        <Stepper
+          active={Math.max(at, 0)}
+          size="sm"
+          iconSize={28}
+          allowNextStepsSelect={false}
+          orientation={narrow ? 'vertical' : 'horizontal'}
+        >
           {PATH.map((step, index) => (
             <Stepper.Step
               key={step.stage}
@@ -98,9 +107,9 @@ export function StageCard({ companyId, stage, changed }: { companyId: string; st
       )}
       {stage === null && <Text size="sm" c="dimmed" mt="sm">{t('No stage set. Until one is, stage policies treat the company as having proved nothing yet.')}</Text>}
       {next && (
-        <Group mt="md" align="flex-end" wrap="nowrap">
+        <Group mt="md" align="flex-end" wrap={narrow ? 'wrap' : 'nowrap'}>
           <Textarea
-            style={{ flex: 1 }}
+            style={{ flex: 1, minWidth: 220 }}
             size="xs"
             autosize
             minRows={1}

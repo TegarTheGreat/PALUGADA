@@ -33,7 +33,7 @@ import { instructTask } from '../../src/engine/owner-control.ts';
 import { setCompanyLanguages } from '../../src/domain/language.ts';
 import { renderPrompt, toWireRequest } from '../../src/runtime/wire.ts';
 import { scrubExpiredPrompts } from '../../src/retention/retention.ts';
-import { createCompany, grantCapability, type Fixture } from '../helpers/fixtures.ts';
+import { createCompany, grantCapability, setRoleSchemas, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
 before(ensureSchema);
@@ -273,6 +273,7 @@ test('what the pack was built with reaches the runtime: the language, the owner\
   // it ignored had been heard by the builder and by no agent.
   const fixture = await createCompany('runtime-notes');
   await useRuntime(fixture, 'spy');
+  await setRoleSchemas(fixture, fixture.roleId, { output: { type: 'object', required: ['summary'], properties: { summary: { type: 'string' } } } });
   await setCompanyLanguages(fixture.companyId, { work: 'id', talk: 'id' });
   const task = await newTask(fixture);
   await instructTask(fixture.companyId, task.id, 'Lead with the price change, not the new hire.');
@@ -290,6 +291,14 @@ test('what the pack was built with reaches the runtime: the language, the owner\
   await engineWith(adapter).runTask(fixture.companyId, task.id, 'worker');
   const pack = seen.request!.contextPack;
 
+  // The role itself: who it is, what done means, and the shape its answer
+  // is held to. All three were stored, shown to the owner, and handed to no
+  // run -- every role was a name, and its output schema a check the run was
+  // never told it had to pass.
+  assert.match(pack.charter, /Your role: worker[\s\S]*You are a worker\.[\s\S]*Done means[\s\S]*the run returns an output matching its schema/);
+  assert.ok(pack.charter.indexOf('You are a worker.') > pack.charter.indexOf('Platform charter') || !pack.charter.includes('Platform charter'),
+    'after the charters that outrank it');
+  assert.ok(pack.notes.some((note) => note.title === 'What you return' && /"summary"/.test(note.body)), 'the output contract');
   assert.ok(pack.notes.some((note) => note.title === 'Language' && /Indonesian/.test(note.body)), 'the language rule');
   assert.ok(pack.notes.some((note) => /Lead with the price change, not the new hire\./.test(note.body)), 'the owner\'s word');
 

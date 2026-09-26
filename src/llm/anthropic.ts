@@ -24,11 +24,8 @@
  * fallback -- and says which model it actually called, so a trace records the
  * model that was billed rather than the tier that was asked for.
  */
-import { PalugadaError } from '../errors.ts';
-import { ProviderFailure } from '../runtime/wire.ts';
 import { DEFAULT_PRICE_TABLE, estimateCents, type PriceTable } from '../engine/pricing.ts';
-import { sleep } from '../timers.ts';
-import type { SecretManager } from '../secrets/manager.ts';
+import { defaultRetryDelay, postModel, type RetryDelay } from './transport.ts';
 import type {
   LlmBlock, LlmRequest, LlmResponse, LlmTurn, LlmTurnRequest, ToolUsingLlmClient,
 } from './client.ts';
@@ -43,11 +40,6 @@ export const DEFAULT_MODEL_ALIASES: Readonly<Record<string, string>> = {
 const API_VERSION = '2023-06-01';
 const DEFAULT_BASE_URL = 'https://api.anthropic.com';
 const DEFAULT_MAX_TOKENS = 8_192;
-/** A single call that has not answered in ten minutes is not going to. */
-const CALL_TIMEOUT_MS = 10 * 60_000;
-/** Overloaded and rate-limited answers are retried this many times, then the engine falls back (F13.6). */
-const RETRIES = 2;
-const MAX_RETRY_WAIT_MS = 30_000;
 
 export interface AnthropicClientOptions {
   apiKey: string;
@@ -56,86 +48,7 @@ export interface AnthropicClientOptions {
   prices?: PriceTable;
   fetch?: typeof fetch;
   /** Overridable so a test of the retry does not wait for real seconds. */
-  retryDelayMs?: (attempt: number, retryAfterSeconds: number | null) => number;
-}
-
-/**
- * Reads `PALUGADA_MODEL_ALIASES`: a JSON object from a role's word to a model.
- *
- * Refused whole when it is not one, at boot, like every other file an
- * operator hands in: an alias table that half-applied would put a role on a
- * model nobody chose for it.
- */
-export function modelAliasesFrom(raw: string | undefined): Record<string, string> {
-  if (raw === undefined || raw.trim() === '') return { ...DEFAULT_MODEL_ALIASES };
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (failure) {
-    throw new PalugadaError('config.invalid', `PALUGADA_MODEL_ALIASES is not JSON: ${(failure as Error).message}`, {
-      source: 'PALUGADA_MODEL_ALIASES',
-    });
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new PalugadaError('config.invalid', 'PALUGADA_MODEL_ALIASES must be a JSON object such as {"standard":"claude-sonnet-5"}', {
-      source: 'PALUGADA_MODEL_ALIASES',
-    });
-  }
-  const aliases: Record<string, string> = { ...DEFAULT_MODEL_ALIASES };
-  for (const [alias, model] of Object.entries(parsed)) {
-    if (typeof model !== 'string' || model.trim() === '') {
-      throw new PalugadaError('config.invalid', `PALUGADA_MODEL_ALIASES names no model for "${alias}"`, {
-        source: 'PALUGADA_MODEL_ALIASES',
-      });
-    }
-    aliases[alias] = model.trim();
-  }
-  return aliases;
-}
-
-/**
- * The deployment's model client, from its environment; null when none is set.
- *
- * `PALUGADA_MODEL_KEY_REF` is a secret reference (`env://PALUGADA_SECRET_...`
- * or `file://...`), like every other credential: the key itself is never an
- * environment variable a child process could inherit by accident. Resolved at
- * boot, so a reference that points at nothing stops the deployment with a
- * message rather than failing every task at 3am.
- */
-export async function modelClientFrom(
-  env: NodeJS.ProcessEnv,
-  secrets: SecretManager,
-  prices: PriceTable,
-): Promise<AnthropicClient | null> {
-  const reference = env.PALUGADA_MODEL_KEY_REF;
-  if (!reference) return null;
-  let apiKey: string;
-  try {
-    apiKey = await secrets.resolve(reference);
-  } catch (failure) {
-    throw new PalugadaError('config.invalid',
-      `PALUGADA_MODEL_KEY_REF ${reference} could not be read: ${(failure as Error).message}`,
-      { source: 'PALUGADA_MODEL_KEY_REF' });
-  }
-  const baseUrl = env.PALUGADA_MODEL_URL;
-  if (baseUrl !== undefined) {
-    let parsed: URL | null = null;
-    try {
-      parsed = new URL(baseUrl);
-    } catch {
-      // Refused below.
-    }
-    if (!parsed || (parsed.protocol !== 'https:' && parsed.protocol !== 'http:')) {
-      throw new PalugadaError('config.invalid',
-        `PALUGADA_MODEL_URL ${baseUrl} is not an http(s) URL`, { source: 'PALUGADA_MODEL_URL' });
-    }
-  }
-  return new AnthropicClient({
-    apiKey,
-    ...(baseUrl ? { baseUrl } : {}),
-    aliases: modelAliasesFrom(env.PALUGADA_MODEL_ALIASES),
-    prices,
-  });
+  retryDelayMs?: RetryDelay;
 }
 
 interface WireBlock {
@@ -164,7 +77,7 @@ export class AnthropicClient implements ToolUsingLlmClient {
   readonly #aliases: Readonly<Record<string, string>>;
   readonly #prices: PriceTable;
   readonly #fetch: typeof fetch;
-  readonly #retryDelayMs: (attempt: number, retryAfterSeconds: number | null) => number;
+  readonly #retryDelayMs: RetryDelay;
 
   constructor(options: AnthropicClientOptions) {
     this.#apiKey = options.apiKey;
@@ -172,8 +85,7 @@ export class AnthropicClient implements ToolUsingLlmClient {
     this.#aliases = options.aliases ?? DEFAULT_MODEL_ALIASES;
     this.#prices = options.prices ?? DEFAULT_PRICE_TABLE;
     this.#fetch = options.fetch ?? globalThis.fetch;
-    this.#retryDelayMs = options.retryDelayMs
-      ?? ((attempt, retryAfter) => Math.min(MAX_RETRY_WAIT_MS, retryAfter !== null ? retryAfter * 1_000 : 1_000 * 4 ** attempt));
+    this.#retryDelayMs = options.retryDelayMs ?? defaultRetryDelay;
   }
 
   /** The model a role's word stands for. */
@@ -216,50 +128,17 @@ export class AnthropicClient implements ToolUsingLlmClient {
         : {}),
     });
 
-    for (let attempt = 0; ; attempt += 1) {
-      const timeout = AbortSignal.timeout(CALL_TIMEOUT_MS);
-      let response: Response;
-      try {
-        response = await this.#fetch(`${this.#baseUrl}/v1/messages`, {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            'x-api-key': this.#apiKey,
-            'anthropic-version': API_VERSION,
-          },
-          body,
-          signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-        });
-      } catch (failure) {
-        if (signal?.aborted) throw failure;
-        // Nothing came back at all: the provider or the path to it is down,
-        // which is what a fallback model is for.
-        throw new ProviderFailure(model, `the model API could not be reached: ${(failure as Error).message}`);
-      }
-
-      if (response.ok) return this.#read(model, (await response.json()) as WireMessage);
-
-      const detail = (await response.text().catch(() => '')).slice(0, 500);
-      // 429 is the account's rate limit, 529 the provider's own load, 5xx its
-      // failure: all of them pass, and a fallback model may not share them.
-      const transient = response.status === 429 || response.status === 529 || response.status >= 500;
-      if (transient && attempt < RETRIES) {
-        const header = Number(response.headers.get('retry-after'));
-        await sleep(this.#retryDelayMs(attempt, Number.isFinite(header) && header > 0 ? header : null), signal);
-        if (signal?.aborted) throw signal.reason;
-        continue;
-      }
-      if (transient) {
-        throw new ProviderFailure(model, `the model API answered ${response.status} ${attempt + 1} times: ${detail}`);
-      }
-      if (response.status === 401 || response.status === 403) {
-        // Not the task's fault and not a model's: the key is wrong, and every
-        // task would fail the same way until an operator changes it.
-        throw new PalugadaError('model.unavailable',
-          `the model API refused the key (${response.status}); check PALUGADA_MODEL_KEY_REF: ${detail}`, { model });
-      }
-      throw new Error(`the model API refused the request (${response.status}): ${detail}`);
-    }
+    const answer = await postModel({
+      url: `${this.#baseUrl}/v1/messages`,
+      headers: { 'x-api-key': this.#apiKey, 'anthropic-version': API_VERSION },
+      body,
+      model,
+      keySetting: 'PALUGADA_MODEL_KEY_REF',
+      signal,
+      fetch: this.#fetch,
+      retryDelayMs: this.#retryDelayMs,
+    });
+    return this.#read(model, answer as WireMessage);
   }
 
   #read(model: string, message: WireMessage): LlmTurn {

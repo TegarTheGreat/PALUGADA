@@ -2937,6 +2937,69 @@ vendor files (`src/capabilities/mcp.ts`, `PALUGADA_MCP_SERVERS`).
   reaches memory through distillation, which now runs whenever a model is
   configured, and through the owner's word on delivered work.
 
+## 2.22 Any model, and a company that runs itself
+
+Read against the owner's question: can a company be started, left alone and
+found working, on whatever model and agent the owner already has? A scripted
+model was put behind the standard company's coordinator and asked to route
+one piece of work (`test/acceptance/any-model.test.ts`). It could not.
+
+### A role was a name: its charter reached no run
+
+A role's system prompt, its done criteria and its output schema were
+written for every template role, stored, versioned, shown to the owner --
+and handed to no run. The context pack carried the platform's charter and
+the company's, so every role was told the same thing: the coordinator never
+read "route it with task.delegate", the marketer never learned it was the
+marketer, and a run was told its output "is validated against the role's
+output schema" without being shown the schema, so it passed by luck.
+
+The role now travels in every run, after the two charters that outrank it
+(F3.2): who it is and what done means, in the charter a runtime receives,
+and the schema its answer is held to, as a note of its own. Neither is ever
+dropped to fit the context budget; a run without its role is not doing that
+role's work.
+
+### Every hand-off cost two minutes
+
+A parent that awaited its child was parked and looked at again every two
+minutes. A company routes everything through its coordinator, so each piece
+of work waited two minutes at each hand-off for nothing. A child that ends
+now wakes the parent waiting on it, in a transaction of its own after the
+child's, so the two rows are never locked in the opposite order to a
+cancellation's. The two-minute look remains for the paths that end a task
+without passing through `transition` (an owner's cancel, a crash loop), and
+as the floor under this one.
+
+### Any model
+
+The platform's own loop spoke one API. It now speaks two, which between
+them reach almost every model a company would choose (F13.6):
+
+- Anthropic's Messages API (`src/llm/anthropic.ts`), as before.
+- The OpenAI-compatible Chat Completions API (`src/llm/openai.ts`): OpenAI,
+  OpenRouter, Groq, Together, DeepSeek, Mistral, Gemini's compatible
+  endpoint, and the servers a company runs itself -- Ollama, vLLM, LM Studio,
+  llama.cpp. Tools go as functions and come back as `tool_calls`; a key is
+  optional, because a model on the company's own machine has none; arguments
+  that are not JSON reach the broker under a name no schema accepts, so the
+  model is told what was wrong rather than the tool being called with
+  nothing.
+
+Both share one transport (`src/llm/transport.ts`), so what counts as the
+provider being down is decided once. `PALUGADA_MODEL_PROVIDER` chooses,
+`PALUGADA_MODEL` puts every tier on one model, and an OpenAI-compatible
+endpoint whose tiers are not all named stops the boot and says which,
+rather than failing the first task that names it.
+
+**Proved by** the scripted model above: a standard company on a keyless
+OpenAI-compatible endpoint, where the coordinator delegates, awaits and
+reports what the marketer returned, with no handler anywhere.
+
+**Not proved.** Whether a given model calls tools well enough to do a
+role's work is the model's matter; small local models often cannot call
+tools at all, and the documentation says so.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

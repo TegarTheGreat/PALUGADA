@@ -64,9 +64,11 @@ find out at startup rather than at 3am.
 | Variable | What it turns on |
 |---|---|
 | `PALUGADA_OWNER_TOTP_REF` | The owner's first factor, enrolled at boot |
-| `PALUGADA_MODEL_KEY_REF` | The model the platform runs on, as a secret reference (`env://PALUGADA_SECRET_MODEL_KEY`). Without it, no role on the in-process runtime can work, and every role a template creates is on it |
-| `PALUGADA_MODEL_URL` | Where the model API is (default `https://api.anthropic.com`), for a gateway that speaks the same API |
-| `PALUGADA_MODEL_ALIASES` | Which model each tier a role names stands for, as JSON. Defaults: `fast` = `claude-haiku-4-5-20251001`, `standard` = `claude-sonnet-5`, `deep` = `claude-opus-5-5` |
+| `PALUGADA_MODEL_PROVIDER` | Which API the model speaks: `anthropic` (the default when a key is set) or `openai` for any OpenAI-compatible API: OpenAI, OpenRouter, Groq, Together, DeepSeek, Mistral, Gemini's compatible endpoint, and Ollama, vLLM, LM Studio or llama.cpp on your own machine. See **Models** below |
+| `PALUGADA_MODEL_KEY_REF` | The model's key, as a secret reference (`env://PALUGADA_SECRET_MODEL_KEY`). Needed for `anthropic`; optional for `openai`, since a model on your own machine has none. Without a model, no role on the in-process runtime can work, and every role a template creates is on it |
+| `PALUGADA_MODEL_URL` | Where the model API is. Defaults: `https://api.anthropic.com`, or `https://api.openai.com/v1` for `openai` |
+| `PALUGADA_MODEL` | One model for every tier, such as `llama3.3` on Ollama. The simplest way to run on one model |
+| `PALUGADA_MODEL_ALIASES` | Which model each tier a role names stands for, as JSON, laid over `PALUGADA_MODEL`. Anthropic defaults: `fast` = `claude-haiku-4-5-20251001`, `standard` = `claude-sonnet-5`, `deep` = `claude-opus-5-5`. An `openai` provider has no defaults: every tier must be named, or the boot stops and says which is missing |
 | `PALUGADA_SECRET_DIRS` | Where `file://` secrets may be read from (default `/run/secrets`) |
 | `PALUGADA_VENDORS` | Vendor capabilities from a JSON spec file (see [`config/vendors.example.json`](../config/vendors.example.json)) |
 | `PALUGADA_MCP_SERVERS` | Tools from MCP servers, only those the file names (see [`config/mcp.example.json`](../config/mcp.example.json) and below) |
@@ -92,6 +94,40 @@ tools through the broker, and finishes with the task's output. Each turn is
 a journalled step, so a restart resumes at the turn it reached. Any other
 runtime configured below can be chosen per role in the console (the role's
 *Who does its work*), and only one this deployment runs is accepted.
+
+**Models.** A role names a tier (`fast`, `standard`, `deep`), never a
+model, so a company moves to another model by changing the deployment, not
+its roles. Two wire formats cover almost every model there is:
+
+```sh
+# Anthropic
+PALUGADA_SECRET_MODEL_KEY=sk-ant-...  PALUGADA_MODEL_KEY_REF=env://PALUGADA_SECRET_MODEL_KEY
+
+# OpenAI
+PALUGADA_MODEL_PROVIDER=openai  PALUGADA_MODEL_KEY_REF=env://PALUGADA_SECRET_MODEL_KEY \
+  PALUGADA_MODEL_ALIASES='{"fast":"gpt-5-mini","standard":"gpt-5","deep":"gpt-5"}'
+
+# OpenRouter: hundreds of models from every lab behind one key
+PALUGADA_MODEL_PROVIDER=openai  PALUGADA_MODEL_URL=https://openrouter.ai/api/v1 \
+  PALUGADA_MODEL_KEY_REF=env://PALUGADA_SECRET_MODEL_KEY  PALUGADA_MODEL=deepseek/deepseek-chat
+
+# Gemini, through Google's OpenAI-compatible endpoint
+PALUGADA_MODEL_PROVIDER=openai  PALUGADA_MODEL_URL=https://generativelanguage.googleapis.com/v1beta/openai \
+  PALUGADA_MODEL_KEY_REF=env://PALUGADA_SECRET_MODEL_KEY  PALUGADA_MODEL=gemini-2.5-flash
+
+# A model on your own machine: Ollama (vLLM, LM Studio and llama.cpp are the same, at their own port)
+PALUGADA_MODEL_PROVIDER=openai  PALUGADA_MODEL_URL=http://localhost:11434/v1  PALUGADA_MODEL=qwen3:32b
+```
+
+The model must be able to call tools (function calling): the platform's own
+loop offers each role its granted capabilities as tools, and a role that
+cannot call them can only answer in words. Small local models often cannot.
+A provider that is overloaded or rate limited is retried twice, honouring
+`Retry-After`, and then the task falls back or waits; a refused key stops
+every task the same way, so it is said once, naming the setting to check.
+A model the price list does not name is charged at a conservative fallback
+rate, so a budget is never understated; `PALUGADA_MODEL_PRICES` gives it its
+real price, which for a model on your own machine is zero.
 
 **MCP servers.** `PALUGADA_MCP_SERVERS` names a file listing servers
 (streamable HTTP) and, under each, the tools this deployment may use: each

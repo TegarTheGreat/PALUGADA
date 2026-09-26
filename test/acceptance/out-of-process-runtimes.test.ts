@@ -2030,9 +2030,14 @@ test('a runtime hands work to another role and carries on with its result', asyn
   assert.equal(children.length, 1);
   assert.ok(children[0]!.deadline_at, 'a delegated task has a deadline (F6.4)');
 
-  // The child runs as any task does, and the parent resumes to read it.
+  // The child runs as any task does, and the parent resumes to read it --
+  // at once, not when its two-minute look comes round: a company whose
+  // every hand-off cost two minutes of nothing was slow for no reason.
   const child = await engine.runTask(fixture.companyId, children[0]!.id, 'worker');
   assert.equal(child.status, 'completed', child.reason);
+  const { rows: woken } = await withTenant(fixture.companyId, (tx) => tx.query<{ wait_until: Date | null }>(
+    'SELECT wait_until FROM tasks WHERE id = $1', [parent.id]));
+  assert.ok(woken[0]!.wait_until!.getTime() <= Date.now(), 'the parent is claimable the moment its child ends');
   const second = await engine.runTask(fixture.companyId, parent.id, 'worker');
   assert.equal(second.status, 'completed', second.reason);
   const output = second.output as { child: string; answer: { output: { status: string; output: unknown; summary: string } } };

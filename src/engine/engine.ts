@@ -158,7 +158,7 @@ export interface RunOutcome {
  * structured goal chain, each of which travels in a field of its own.
  */
 const NOTE_KINDS: ReadonlySet<ContextSection['kind']> = new Set([
-  'language', 'stage', 'goal_measure', 'owner_question', 'owner_note',
+  'language', 'stage', 'contract', 'goal_measure', 'owner_question', 'owner_note',
 ]);
 
 const PARKING_CODES: ReadonlySet<string> = new Set(['approval.required', 'owner.asked', 'review.required', 'window.closed', 'task.waiting_child']);
@@ -295,9 +295,12 @@ export class Engine {
         task,
         roleSlug: input.roleSlug,
         contextPack: {
+          // The charters, then the role: the order F3.2 ranks them in. The
+          // role's charter carries its title, which is the one place a
+          // runtime is told whose work this is.
           charter: context.sections
-            .filter((s) => s.kind === 'platform_charter' || s.kind === 'company_charter')
-            .map((s) => s.body)
+            .filter((s) => s.kind === 'platform_charter' || s.kind === 'company_charter' || s.kind === 'role_charter')
+            .map((s) => (s.kind === 'role_charter' ? `## ${s.title}\n\n${s.body}` : s.body))
             .join('\n\n'),
           skills: context.sections.filter((s) => s.kind === 'sop').map((s) => s.body),
           memories: context.sections

@@ -11,7 +11,7 @@
 import { withTenant, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
-import { assertTransition, type HaltReason, type TaskStatus } from '../domain/task.ts';
+import { TERMINAL_STATUSES, assertTransition, type HaltReason, type TaskStatus } from '../domain/task.ts';
 import { hashInput } from './hash.ts';
 import * as budget from './budget.ts';
 import { isRoleFrozen } from '../governance/role-freeze.ts';
@@ -607,6 +607,20 @@ export async function transition(
   options: TransitionOptions = {},
 ): Promise<void> {
   await withTenant(companyId, (tx) => transitionWithin(tx, companyId, taskId, to, options));
+  // A child that has ended is what a parent waiting on it is waiting for, so
+  // the parent is woken now rather than at its next look, two minutes on:
+  // every hand-off in a company cost two minutes of nothing. A transaction of
+  // its own, after the child's, so the two rows are never locked child-first
+  // against the id order every other writer takes them in.
+  if (TERMINAL_STATUSES.includes(to)) {
+    await withTenant(companyId, (tx) => tx.query(
+      `UPDATE tasks parent SET wait_until = now()
+         FROM tasks child
+        WHERE child.id = $1 AND parent.id = child.parent_task_id
+          AND parent.status = 'waiting_window' AND parent.wait_until > now()`,
+      [taskId],
+    ));
+  }
 }
 
 /**

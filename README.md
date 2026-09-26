@@ -57,7 +57,7 @@ database.
     <td width="33%" valign="top">
       <h3>2. Give it work</h3>
       Tell the coordinator what you want. It hands the work to the role whose
-      job it is. With a model key, the platform runs that role itself; or put
+      job it is. With a model, the platform runs that role itself; or put
       the role on Claude Code, another agent CLI you describe in one entry, an
       HTTP service or Docker with no network. Every action goes through a
       broker that knows its cost and how hard it is to undo.
@@ -98,8 +98,11 @@ npm start
 ```
 
 Open **http://127.0.0.1:8787**, sign in with the six-digit code from your
-authenticator, and press **Start a company**. The model key is what does the
-work: without it a company starts and none of its roles can act. `npm run smoke` checks an
+authenticator, and press **Start a company**. The model is what does the
+work: without one a company starts and none of its roles can act. Any model
+that calls tools will do -- Anthropic, OpenAI, OpenRouter, Gemini, DeepSeek,
+Groq, or Ollama and vLLM on your own machine
+([Models](docs/configuration.md#configuration)). `npm run smoke` checks an
 installation end to end. Production, vendor accounts, push, Telegram and
 every other setting are in [docs/configuration.md](docs/configuration.md).
 
@@ -113,7 +116,7 @@ every other setting are in [docs/configuration.md](docs/configuration.md).
   </tr>
   <tr>
     <td valign="top"><b>🏢 An organisation that moves</b><br>A coordinator routes work, a planner hands the build to the builder, and a stuck division asks the coordinator before it asks you.</td>
-    <td valign="top"><b>🤖 A model, or your agent</b><br>A role runs on the platform's own model loop or on Claude Code and other CLIs. None sees a credential or the database, and each gets only the tools it was granted.</td>
+    <td valign="top"><b>🤖 Any model, or your agent</b><br>A role runs on the platform's own loop with any model -- Anthropic or any OpenAI-compatible API, local ones included -- or on Claude Code and other agent CLIs. None sees a credential or the database, and each gets only the tools it was granted.</td>
     <td valign="top"><b>♻️ A crash loses little</b><br>Every step is journalled and a run resumes at the step it reached. Leases stop a task running twice, and a task that keeps killing its worker is halted.</td>
   </tr>
   <tr>

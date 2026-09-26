@@ -19,7 +19,8 @@ import { Engine } from '../../src/engine/engine.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { CapabilityRegistry } from '../../src/broker/registry.ts';
 import { createRootTask, getTask } from '../../src/engine/tasks.ts';
-import { AnthropicClient, modelAliasesFrom } from '../../src/llm/anthropic.ts';
+import { AnthropicClient } from '../../src/llm/anthropic.ts';
+import { modelAliasesFrom } from '../../src/llm/models.ts';
 import { ProviderFailure } from '../../src/runtime/wire.ts';
 import { outputFrom } from '../../src/runtime/agent-loop.ts';
 import { parsePriceTable } from '../../src/engine/pricing.ts';
@@ -402,7 +403,7 @@ test('a deployment given a model key runs a standard company\'s work, and one wi
   });
   try {
     assert.ok(deployment.engine.adapters.names().includes('in-process'));
-    assert.ok(deployment.notes.some((note) => /standard = claude-sonnet-5/.test(note)), deployment.notes.join('\n'));
+    assert.ok(deployment.notes.some((note) => /anthropic at .* standard = claude-sonnet-5/.test(note)), deployment.notes.join('\n'));
     const company = await createCompanyFromTemplate({
       templateSlug: STANDARD_TEMPLATE_SLUG, companySlug: 'on-a-model', name: 'On A Model', timezone: 'Asia/Jakarta',
     });

@@ -28,7 +28,7 @@ import { CapabilityBroker } from './broker/broker.ts';
 import { CapabilityRegistry } from './broker/registry.ts';
 import { Engine } from './engine/engine.ts';
 import { DEFAULT_PRICE_TABLE, loadPriceTable } from './engine/pricing.ts';
-import { modelAliasesFrom, modelClientFrom } from './llm/anthropic.ts';
+import { modelClientFrom, modelSettingsFrom } from './llm/models.ts';
 import { registerMcpServers } from './capabilities/mcp.ts';
 import { Worker, type WorkerOptions } from './worker.ts';
 import type { SecretManager } from './secrets/manager.ts';
@@ -326,11 +326,13 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   // and run none of its work -- which the note says in so many words.
   const llm = options.llm ?? await modelClientFrom(env, secrets, prices);
   if (!options.llm) {
+    const settings = modelSettingsFrom(env);
     notes.push(
-      llm
-        ? `model: ${env.PALUGADA_MODEL_URL ?? 'https://api.anthropic.com'}, roles name a tier and run on `
-          + Object.entries(modelAliasesFrom(env.PALUGADA_MODEL_ALIASES)).map(([tier, model]) => `${tier} = ${model}`).join(', ')
-        : 'no model: set PALUGADA_MODEL_KEY_REF to a model API key -- until then no role on the in-process '
+      llm && settings
+        ? `model: ${settings.provider} at ${settings.url}, roles name a tier and run on `
+          + Object.entries(settings.aliases).map(([tier, model]) => `${tier} = ${model}`).join(', ')
+        : 'no model: set PALUGADA_MODEL_KEY_REF (Anthropic), or PALUGADA_MODEL_PROVIDER=openai with '
+          + 'PALUGADA_MODEL_URL for any OpenAI-compatible API -- until then no role on the in-process '
           + 'runtime can work, and every role a template creates is on it (F13.1)',
     );
   }

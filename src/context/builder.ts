@@ -25,7 +25,9 @@ export interface ContextSection {
   kind:
     | 'platform_charter'
     | 'company_charter'
+    | 'role_charter'
     | 'language'
+    | 'contract'
     | 'stage'
     | 'sop'
     | 'confidence_warning'
@@ -237,6 +239,52 @@ async function readCharters(
 }
 
 /**
+ * The role the run is doing: who it is, what done means, and the shape its
+ * answer is held to.
+ *
+ * All three were written for every role, stored, shown to the owner -- and
+ * handed to no run. A coordinator whose charter says "route it with
+ * task.delegate" was never told so, so every role was a name and the
+ * organisation a list; and a run was told its output "is validated against
+ * the role's output schema" without being shown the schema, so it could only
+ * pass by luck. After the charters, which outrank it (F3.2), and never
+ * dropped to fit: a run without its role is not doing that role's work.
+ */
+async function roleSections(
+  tx: TenantClient,
+  taskId: string,
+): Promise<{ charter: ContextSection[]; contract: ContextSection[] }> {
+  const { rows } = await tx.query<{
+    slug: string; system_prompt: string; done_criteria: string[] | null; output_schema: Record<string, unknown> | null;
+  }>(
+    `SELECT r.slug, r.system_prompt, r.done_criteria, r.output_schema
+       FROM tasks t JOIN roles r ON r.id = t.role_id WHERE t.id = $1`,
+    [taskId],
+  );
+  const role = rows[0];
+  if (!role) return { charter: [], contract: [] };
+  const done = (role.done_criteria ?? []).filter((criterion) => criterion.trim() !== '');
+  const charter: ContextSection = {
+    kind: 'role_charter',
+    title: `Your role: ${role.slug}`,
+    body: [
+      role.system_prompt.trim() || `You are the company's ${role.slug}.`,
+      ...(done.length > 0 ? ['', 'Done means:', ...done.map((criterion) => `- ${criterion}`)] : []),
+    ].join('\n'),
+  };
+  const schema = role.output_schema ?? {};
+  const contract: ContextSection[] = Object.keys(schema).length === 0 ? [] : [{
+    kind: 'contract',
+    title: 'What you return',
+    body:
+      'When the work is finished, reply with one JSON object and nothing else. It is checked against ' +
+      'this schema before the task counts as done, and an answer that does not match is a failed attempt:\n\n' +
+      JSON.stringify(schema, null, 2),
+  }];
+  return { charter: [charter], contract };
+}
+
+/**
  * The company's languages, right after the charters (src/domain/language.ts).
  *
  * Second only to the charters because it is a rule of the same kind: it
@@ -305,8 +353,11 @@ export async function buildContext(
 ): Promise<AssembledContext> {
   const sections: ContextSection[] = await readCharters(tx, options.companyId);
   const steps: Array<{ section: ContextSection; item: WorkingMemoryItem }> = [];
+  const role = options.taskId ? await roleSections(tx, options.taskId) : { charter: [], contract: [] };
+  sections.push(...role.charter);
   sections.push(...await languageSections(tx, options.companyId, options.taskId));
   sections.push(...await stageSections(tx, options.companyId));
+  sections.push(...role.contract);
   const granted = await grantedHere(tx, options.divisionId, ['skill.read', 'memory.search']);
 
   // F15.7: skills travel as summaries. A company with forty of them would
@@ -571,7 +622,7 @@ function trimToBudget(
     // everything it qualifies.
     const afterCharter = kept.findIndex(
       (section) => section.kind !== 'platform_charter' && section.kind !== 'company_charter'
-        && section.kind !== 'language',
+        && section.kind !== 'role_charter' && section.kind !== 'language',
     );
     kept.splice(afterCharter === -1 ? kept.length : afterCharter, 0, {
       kind: 'confidence_warning',

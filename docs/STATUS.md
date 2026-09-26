@@ -1973,6 +1973,181 @@ factors verify, whether a sandbox is destroyed on every path out. What nobody
 here can check is whether the vendor on the other end agrees about a field
 name, and no amount of writing would change that.
 
+## 2.16 Other systems' failures, looked for here
+
+Every audit before this one asked a question about this code. This one asked
+four other systems what went wrong for them -- Slack, Buzz, auto-company and
+Paperclip, read at fixed revisions -- and then looked for each failure here.
+[`RESEARCH-2026-09.md`](RESEARCH-2026-09.md) has the full table with a file
+and line for every piece of evidence. Ten of the failures were here too, and
+looking for them turned up two more of this repository's own. None had been
+found by §2.2–2.15.
+
+### A decision and the task it releases were two transactions
+
+Buzz commits an approval and then resumes the workflow from a detached task,
+so a crash between the two leaves the run waiting for ever
+(`command_executor.rs:1100-1116`). `inbox.decide` did the same thing: the
+item's UPDATE committed, then `transition()` opened a second transaction. A
+crash between them recorded the owner's answer against a task that stayed in
+`waiting_approval` — with nothing open in the inbox to say so, because the item
+was already decided. `requestApproval` and `expireOverdue` had the same split
+the other way round.
+
+All three are one transaction now, through `transitionWithin`, and all three
+take the task row before the inbox row — the order the stop button's trigger
+takes them in — so a decision racing a stop waits for it instead of
+deadlocking. The property the test pins is the one that was missing: when the
+state machine refuses the move, the decision is rolled back with it, and the
+item is still the owner's to answer.
+
+### `transition()` could overwrite a stop
+
+It read the status, checked the edge, and wrote — two statements, no lock. A
+cancellation that committed between them was simply written over: the check
+had seen `running`, so `completed` went on top of `cancelled`. The row is
+locked before it is read now. The test holds a cancellation open, lets a
+transition start, and commits; before the fix the task ended `completed`.
+
+### Approvals outlived their tasks, and the stop button missed two statuses
+
+An approval exists to unblock one task. When that task ended another way, the
+approval stayed open — in the inbox, and in every chat it had been sent to —
+asking consent for something that could no longer happen. A trigger now
+withdraws it (`status = 'withdrawn'`, `closed_reason = 'task_cancelled'`) on
+every edge into a terminal status. A trigger rather than code in
+`transition()`, because the stop button is a bulk UPDATE that never calls it;
+only approvals, because an escalation or incident is usually *why* the task
+ended.
+
+The stop button itself cancelled `pending`, `running`, `waiting_approval` and
+`waiting_review`. The state machine has six live statuses: a claimed task and
+a task parked on a window survived, held only by the flag and back to work the
+moment it was cleared. And every task it did cancel kept its token reservation
+and its lease, because the bulk path skips `transition()` — after a stop, every
+reservation in the platform was budget no task could use again. It is the
+complement of the terminal set now, and it does in bulk what `transition()`
+does one task at a time.
+
+### A decided item kept its buttons
+
+Slack's best-known human-in-the-loop defect: a message with Approve on it that
+nobody updated after the decision. Migration 0032 stored `external_ref` "so a
+later edit or deletion can find it", and nothing edited. `retractClosed`
+rewrites every delivered chat message whose item has closed, with the same
+exactly-once record, attempt bound and backoff as the send. Telegram's
+`editMessageText` without a keyboard removes the buttons in the same call; a
+deleted message counts as done, not as a failure to retry. A press that still
+reaches a closed item is told what happened to it — "already decided (deny)"
+— instead of "could not be recorded". Push has no buttons and no `retract`:
+a second notification to say the first no longer matters is the notification
+overload the rest of F10 exists to prevent.
+
+### A runtime was a process, not a process tree
+
+auto-company runs its agent under a supervisor that takes the whole process
+tree, escalates SIGTERM to SIGKILL, confirms the tree is empty, and refuses the
+next cycle when it cannot (`process-supervisor-linux.py`). All three spawning
+adapters here sent SIGTERM to the direct child — and only if that child was
+still alive, so a CLI that finished and left a dev server behind was never
+cleaned up at all. `src/runtime/process-tree.ts` puts the child in its own
+process group, signals the group, waits, kills, and checks `/proc` so that a
+zombie reparented to a PID 1 that never reaps does not read as alive. A group
+that survives SIGKILL is remembered, and the adapter's health check reports it
+until it is gone — F13.8's existing refusal is the fail-closed half. What it
+does not catch is a grandchild that calls `setsid()` to leave the group;
+auto-company catches that with `PR_SET_CHILD_SUBREAPER`, which needs native
+code this runtime does not have.
+
+### Cancellation and deadlines never reached a quiet runtime
+
+The engine withdraws a run by aborting a signal, and the CLI adapters'
+response to that was nothing: "a cancellation reaches it as the killed process
+below", and the kill was in `close()`, which runs when the output stream ends.
+A runtime that had gone quiet was waited on for as long as it chose. The same
+was true of time: `limits.wallClockMs` was computed from the task's deadline
+and sent to every runtime, and enforced by none — the engine checks the
+deadline before each step, which does nothing against a runtime taking no
+steps. Abort now ends the tree at once (a script gets a grace period to act on
+`cancel` first), and `driveRun` holds a timer for the task deadline that tells
+the runtime and then ends it. The engine is told `deadline.exceeded` even when
+the runtime died mid-line and left garbage, so the task halts as
+`deadline_passed` rather than spending an attempt overrunning again.
+
+### "Not now" was read as "no"
+
+A vendor's 429 became `contract.violation`, the engine retried it on its next
+tick a few seconds later, and three ticks spent the task against a limit that
+had not lifted. Slack has allowed most apps one history call a minute since
+May 2025; a platform that cannot wait a minute cannot use it. `rateLimit()`
+reads `Retry-After` (seconds or an HTTP date), `RateLimit-Reset` and
+`X-RateLimit-Reset` (as an epoch when it is one — read as seconds, an epoch is
+fifty-six years), and a 503 only counts when it says when. The engine parks the
+task in F9.2's `waiting_window` until then, spending no attempt, bounded at six
+hours and five parks so a vendor cannot hold a task for ever. The division's
+own hourly allowance was the same case from the inside and now names the
+moment its oldest call ages out. A read-back waits a short limit out in place
+instead: parking after the write would leave it unjournalled and the resumed
+task would write again, and giving up reported a successful write as a failed
+one, which halts the task and raises an incident.
+
+### An estimate of nothing
+
+F13.7's estimate for a runtime that reports no price was `usage.costCents ??
+0`, marked as an estimate. Every agent CLI reports tokens and no price, so the
+money half of F1.7 never moved in the configuration that runs in production,
+and the test counted the mark rather than the amount. Paperclip has the same
+defect by design; auto-company refuses to count unknown cost as zero. The
+engine now prices unpriced usage from the operator's list
+(`PALUGADA_MODEL_PRICES`), and anything the list does not name at a fallback
+chosen to be the most expensive rate on the market, so the error is always in
+the direction of stopping early. The deployment test runs a task through the
+worker `npm start` builds and checks the company's money moved by exactly what
+the example file says, because a price list the engine never receives would
+be the sixth piece of machinery here that worked and was assembled by nobody.
+
+The estimates are what let a budget stop a run while it is still running, so
+they stay; the bill replaces them when it arrives. Claude Code's final
+`result` line carries the provider's own total (`total_cost_usd`), the adapter
+reports it as a usage marked `runTotal`, and the engine settles the difference
+between what the run was charged and what it cost, in either direction, and
+records `cost.settled`. The test runs a CLI that bills 42 cents after being
+estimated at one and expects 42 on the account, not 43.
+
+### A usage report was cast, and it is the one that moves money
+
+`parseRunEvent` read a runtime's `usage` with `as never`. Every runtime that
+is not this process arrives through it, and `budget_spend` adds what it is
+given: a report of minus forty dollars took forty dollars off the company's
+recorded spend and the run completed normally, and negative tokens did the
+same to the token ceiling. A third party's output is parsed everywhere else in
+that function; this one message was not, and it is the one with a price on
+it. It is checked at the wire now, and again in the engine, which is the
+accounting authority whichever runtime reported -- the in-process one never
+crosses the wire at all. Each layer has a test that fails with the other one
+still in place.
+
+### A settlement reached one account of the chain
+
+Found while wiring the estimate, and older than this round. 0024 made spending
+inheritable: `budget_spend` charges an account and every ancestor. The broker
+refunds a failed action's estimate, and settles an actual cost against it,
+through `budget_settle` -- written in 0009, before accounts had parents, and
+never updated. So a refund came back to the division and stayed charged to the
+company, and every failed action left phantom spend on every account above the
+one that paid; an overrun reached the division and not the company, which
+undercounted exactly the spend it most needed to see. Migration 0037 settles
+the chain, under the same lock order as the charge.
+
+And under that, a second: 0009 says an overrun "becomes a visible overspend
+rather than a quiet understatement", and 0003's CHECK forbade any spend above
+the ceiling, so the settlement meant to record it raised a constraint
+violation instead -- after the vendor call, as an error from an action that
+had happened, which the engine would then have retried. The CHECK is gone;
+admission is enforced where it can still change the outcome, in
+`budget_spend`, and the test shows both halves: the overrun is recorded above
+the ceiling, and the next charge is still refused.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

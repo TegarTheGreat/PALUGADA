@@ -767,6 +767,7 @@ conjure, and each says so at boot rather than at 3am:
 | Variable | What it turns on |
 |---|---|
 | `PALUGADA_VENDORS` | the capabilities that need somebody's account (see below) |
+| `PALUGADA_MODEL_PRICES` | what a model call costs when the runtime reports tokens and no price — every agent CLI does (F13.7). Without it the estimate is a deliberately high fallback; `config/prices.example.json` is the shape |
 | `PALUGADA_DRAFT_MODEL` | the model the platform's own work uses: drafting, and the hourly pass that distils memory and screens skill candidates (F4.5, F15.3) |
 | `PALUGADA_CLAUDE_CODE_COMMAND` | the `claude-code` runtime (F13.2) |
 | `PALUGADA_RUNTIME_HTTP_URL` | a runtime that answers over HTTP (F13.4) |
@@ -785,6 +786,19 @@ not refuse without a factor and accept with one, or if a capability the
 platform implements was not registered. Each of those is machinery that works,
 is tested alone, and would ship dormant — the defect this repository has found
 in itself more often than any other.
+
+A runtime is a process tree, not a process: each spawned runtime leads its own
+process group, and ending a run — done, cancelled, or past its task's deadline —
+signals the whole group, escalates to SIGKILL, and checks that it is empty. A
+runtime whose tree survives that reports itself unhealthy until it is gone, so
+the platform stops giving it work instead of starting another agent beside one
+nobody can stop.
+
+A vendor that answers "not now" — a 429, or a 503 that says when — parks the
+task until the time it named, spending none of its attempts; a read-back waits
+a short limit out in place. An approval stops asking the moment its task ends
+any other way, and a chat message the owner already answered elsewhere loses
+its buttons.
 
 ## What is not exercised
 

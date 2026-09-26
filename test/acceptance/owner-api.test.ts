@@ -932,6 +932,91 @@ test('a vendor file that cannot be built from stops the boot (§10)', async () =
   assert.match((refusal as Error).message, /cannot bind invoice\.issue/);
 });
 
+/**
+ * F13.7's estimate, through the deployment rather than a hand-built engine.
+ *
+ * The estimate was zero in the engine, and a price list the engine can use is
+ * one more thing `src/main.ts` could fail to hand it -- the sixth piece of
+ * machinery this repository would have had working, tested, and assembled by
+ * nobody. So the worker the deployment started runs a task on a runtime that
+ * reports tokens and no price, and the company's money has to move by what
+ * the operator's file says that model costs.
+ */
+test('the deployment charges unpriced usage from its price file (F13.7, F1.7)', async () => {
+  const { start } = await import('../../src/main.ts');
+  const { AdapterRegistry } = await import('../../src/runtime/protocol.ts');
+  const { createRootTask, getTask } = await import('../../src/engine/tasks.ts');
+  const { withTenant } = await import('../../src/db/tenant.ts');
+
+  const fixture = await createCompany('deployment-prices');
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    "UPDATE roles SET runtime = 'metered-cli', backend = 'local' WHERE id = $1",
+    [fixture.roleId],
+  ));
+  const adapters = new AdapterRegistry();
+  adapters.register({
+    name: 'metered-cli',
+    backends: ['local'],
+    async health() {
+      return { ok: true, detail: 'test runtime' };
+    },
+    async run(_request, services) {
+      // `example-small-*` in config/prices.example.json: $1 per million in.
+      await services.reportUsage({
+        model: 'example-small-1', inputTokens: 500_000, outputTokens: 0, costCents: null,
+      });
+      return { output: { done: true } };
+    },
+  });
+
+  const deployment = await start({
+    port: 0,
+    env: {},
+    adapters,
+    pricesFile: 'config/prices.example.json',
+    worker: { companyId: fixture.companyId, idleMs: 50 },
+  });
+  try {
+    assert.ok(
+      deployment.notes.some((note) => note.startsWith('model prices from config/prices.example.json: 3 ')),
+      deployment.notes.join(' | '),
+    );
+    const task = await createRootTask({
+      companyId: fixture.companyId,
+      projectId: fixture.projectId,
+      divisionId: fixture.divisionId,
+      roleId: fixture.roleId,
+      budgetAccountId: fixture.budgetAccountId,
+      goalId: fixture.goalId,
+      input: { goal: 'spend a little' },
+      createdBy: 'owner',
+      reserveTokens: 600_000,
+    });
+
+    const deadline = Date.now() + 10_000;
+    let status = task.status;
+    while (Date.now() < deadline) {
+      status = await withTenant(fixture.companyId, async (tx) => (await getTask(tx, task.id))!.status);
+      if (status === 'completed' || status === 'failed' || status === 'halted') break;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    assert.equal(status, 'completed', `the worker left the task ${status}`);
+
+    const spent = await withTenant(fixture.companyId, async (tx) => {
+      const { rows } = await tx.query<{ spent: string }>(
+        'SELECT money_spent_cents::text AS spent FROM budget_accounts WHERE id = $1',
+        [fixture.budgetAccountId],
+      );
+      return Number(rows[0]!.spent);
+    });
+    // 500k tokens at 100 cents per million: 50 cents, from the file. The
+    // fallback would have charged 750, and the old code nothing.
+    assert.equal(spent, 50);
+  } finally {
+    await deployment.stop();
+  }
+});
+
 /* --------------------------------------------- what the reachability scan found --- */
 
 /**

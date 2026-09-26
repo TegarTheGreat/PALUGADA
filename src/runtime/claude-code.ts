@@ -68,6 +68,7 @@ export interface StreamJsonLine {
   };
   usage?: { input_tokens?: number; output_tokens?: number };
   total_cost_usd?: number;
+  model?: string;
 }
 
 export class ClaudeCodeAdapter implements Adapter {
@@ -301,6 +302,23 @@ export function* translateStreamJsonLine(
   }
 
   if (line.type === 'result') {
+    // The provider's bill for the whole run, which the per-message stream
+    // never carried. Reported before `done` or `error`, so the engine settles
+    // its estimates against it whichever way the run ended -- a run that
+    // failed still cost what it cost.
+    if (typeof line.total_cost_usd === 'number' && Number.isFinite(line.total_cost_usd)
+      && line.total_cost_usd >= 0) {
+      yield {
+        type: 'usage',
+        usage: {
+          model: line.model ?? 'unknown',
+          inputTokens: 0,
+          outputTokens: 0,
+          costCents: line.total_cost_usd * 100,
+          runTotal: true,
+        },
+      };
+    }
     if (line.subtype !== 'success' || line.is_error) {
       const detail = stderr().trim();
       yield {

@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import { withTenant } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
 import { AdapterRegistry, type RunEvent } from '../../src/runtime/protocol.ts';
+import { parseRunEvent } from '../../src/runtime/wire.ts';
 import { ScriptAdapter } from '../../src/runtime/script.ts';
 import { HttpAdapter } from '../../src/runtime/http.ts';
 import { ClaudeCodeAdapter } from '../../src/runtime/claude-code.ts';
@@ -1501,4 +1502,98 @@ test('a runtime ended mid-line at its deadline halts on the deadline, not on the
 
   assert.equal(outcome.status, 'halted', outcome.reason);
   assert.equal(outcome.reason, 'deadline_passed');
+});
+
+/* ------------------------------------------------------------ the bill --- */
+
+async function spentBy(fixture: Fixture): Promise<number> {
+  return withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ spent: string }>(
+      'SELECT money_spent_cents::text AS spent FROM budget_accounts WHERE id = $1',
+      [fixture.budgetAccountId],
+    );
+    return Number(rows[0]!.spent);
+  });
+}
+
+/**
+ * A usage report was cast, not read, and it is the one message that moves
+ * money: `budget_spend` adds what it is given. A runtime that reported
+ * minus forty dollars -- a bug, or a prompt it read telling it to -- took
+ * forty dollars off its company's recorded spend, and the run completed.
+ */
+test('a runtime cannot report a negative cost to erase its company\'s spend (F13.7, F1.7)', async () => {
+  const fixture = await createCompany('usage-negative');
+  const broker = await brokerFor(fixture, []);
+  await configureRole(fixture, { runtime: 'script' });
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    'UPDATE budget_accounts SET money_spent_cents = 5000 WHERE id = $1', [fixture.budgetAccountId],
+  ));
+  const task = await newTask(fixture, { ask: 'anything' });
+
+  const lies = [
+    'process.stdin.resume();',
+    `console.log(JSON.stringify({ type: 'usage', usage: { model: 'm', inputTokens: 10, outputTokens: 1, costCents: -4000 } }));`,
+    `console.log(JSON.stringify({ type: 'done', output: {} }));`,
+  ].join('\n');
+  const outcome = await engineWith(
+    broker, new ScriptAdapter({ command: process.execPath, args: ['-e', lies] }),
+  ).runTask(fixture.companyId, task.id, 'worker');
+
+  assert.notEqual(outcome.status, 'completed', 'a run that lied about its bill did not complete');
+  assert.equal(await spentBy(fixture), 5000, 'the spend was not erased');
+});
+
+/**
+ * An agent CLI prices nothing per message and states the run's bill at the
+ * end. The estimates stay -- they are what let a budget stop a run while it
+ * is running -- and the bill replaces them when it arrives, through the same
+ * chain-wide settlement a capability's actual cost uses.
+ */
+test('a CLI\'s own total replaces the estimates it was charged (F13.7)', async () => {
+  const fixture = await createCompany('cli-total-cost');
+  const broker = await brokerFor(fixture, []);
+  await configureRole(fixture, { runtime: 'codex' });
+  const task = await newTask(fixture, { ask: 'anything' });
+
+  const [spec] = runtimeSpecsFrom([{
+    name: 'codex',
+    command: process.execPath,
+    args: [AGENT_CLI, '--model', '{model}', '--mcp-config', '{mcpConfig}', '--total-cost', '0.42'],
+  }]);
+  const outcome = await engineWith(broker, new CliAdapter(spec!)).runTask(
+    fixture.companyId, task.id, 'worker',
+  );
+  assert.equal(outcome.status, 'completed', outcome.reason);
+
+  // 120 in and 34 out at the fallback rounds up to one cent, then the bill
+  // of 42 replaces it: 42, not 43.
+  assert.equal(await spentBy(fixture), 42);
+  const settled = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ payload: Record<string, unknown> }>(
+      "SELECT payload FROM events WHERE type = 'cost.settled'",
+    );
+    return rows.map((row) => row.payload);
+  });
+  assert.deepEqual(settled, [{ model: 'test-model', chargedCents: 1, actualCents: 42, deltaCents: 41 }]);
+});
+
+/** The wire's own half of it, for every runtime that is not this process. */
+test('a usage report is read, not cast', () => {
+  const usage = (fields: Record<string, unknown>) => ({
+    type: 'usage',
+    usage: { model: 'm', inputTokens: 1, outputTokens: 1, costCents: null, ...fields },
+  });
+  for (const bad of [
+    { costCents: -1 }, { inputTokens: -5 }, { outputTokens: 1.5 }, { inputTokens: '10' },
+    { model: '' }, { costCents: Number.NaN }, { runTotal: 'yes' }, { runTotal: true },
+  ]) {
+    assert.throws(() => parseRunEvent(usage(bad)), Error, JSON.stringify(bad));
+  }
+  assert.throws(() => parseRunEvent({ type: 'usage' }));
+  const read = parseRunEvent(usage({ costCents: 12, runTotal: true, extra: 'dropped' }));
+  assert.deepEqual(read, {
+    type: 'usage',
+    usage: { model: 'm', inputTokens: 1, outputTokens: 1, costCents: 12, runTotal: true },
+  });
 });

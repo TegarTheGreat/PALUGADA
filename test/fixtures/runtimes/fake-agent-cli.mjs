@@ -26,6 +26,8 @@
  *                                write its pid -- a CLI that leaves a dev
  *                                server or a watcher running behind it
  *   --hang <pidfile>             write this pid, ignore SIGTERM, never answer
+ *   --total-cost <usd>           put the provider's total on the result line,
+ *                                as Claude Code's total_cost_usd
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
@@ -90,7 +92,11 @@ if (dialect === 'text') {
       content: [{ type: 'text', text: 'working' }],
     },
   });
-  say({ type: 'result', subtype: 'success', is_error: false, result: answer });
+  const total = flag('--total-cost');
+  say({
+    type: 'result', subtype: 'success', is_error: false, result: answer,
+    ...(total === null ? {} : { total_cost_usd: Number(total), model }),
+  });
 }
 
 function say(line) {

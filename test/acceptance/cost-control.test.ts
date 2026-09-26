@@ -80,6 +80,7 @@ async function invoke(
   fixture: Fixture,
   capability: Capability<SendInput, { sent: boolean }>,
   input: SendInput,
+  budgetAccountId = fixture.budgetAccountId,
 ) {
   const registry = new CapabilityRegistry();
   registry.register(capability);
@@ -91,7 +92,7 @@ async function invoke(
     projectId: fixture.projectId,
     divisionId: fixture.divisionId,
     roleId: fixture.roleId,
-    budgetAccountId: fixture.budgetAccountId,
+    budgetAccountId,
     goalId: fixture.goalId,
     input: { goal: 'send' },
     createdBy: 'owner',
@@ -301,4 +302,79 @@ test('a company from the standard template works, and its ceilings are the two t
   // what an answered open question is supposed to change.
   const ran = await engine.runTask(created.companyId, task.id, 'coordinator');
   assert.equal(ran.status, 'completed');
+});
+
+/* ------------------------------------------- settlement reaches the chain --- */
+
+/** A division account under the company's, which is F1.6's ordinary shape. */
+async function divisionAccount(fixture: Fixture, moneyMaxCents: number): Promise<string> {
+  return withTenant(fixture.companyId, (tx) => budget.createAccount(tx, {
+    companyId: fixture.companyId,
+    label: 'ops',
+    tokensMax: 500_000,
+    moneyMaxCents,
+    scope: { scopeType: 'division', scopeId: fixture.divisionId, parentAccountId: fixture.budgetAccountId },
+  }));
+}
+
+async function spentOn(fixture: Fixture, accountId: string): Promise<number> {
+  return withTenant(fixture.companyId, async (tx) => (await budget.snapshot(tx, accountId)).moneySpentCents);
+}
+
+/**
+ * The estimate is charged to the whole chain -- the division and every
+ * account above it -- because 0024 made spending inheritable. The refund and
+ * the settlement still called 0009's `budget_settle`, which adjusts one
+ * account. So an action that failed left its estimate charged to the company
+ * for ever, and a company whose actions sometimes fail drifted towards F1.7's
+ * pause on money it never spent.
+ */
+test('a refund reaches every account the charge reached (F1.6, F8.5)', async () => {
+  const fixture = await createCompany('cost-refund-chain', { moneyMaxCents: 10_000 });
+  const division = await divisionAccount(fixture, 5_000);
+  const { capability } = meteredCapability({ centsPerUnit: 10, fail: true });
+
+  await assert.rejects(
+    () => invoke(fixture, capability, { to: 'a@example.com', quantity: 5 }, division),
+    /the provider refused the message/,
+  );
+
+  assert.equal(await spentOn(fixture, division), 0);
+  assert.equal(await spentOn(fixture, fixture.budgetAccountId), 0, 'the company was charged for nothing');
+});
+
+/** The other direction: an actual above the estimate reached only the leaf. */
+test('a settlement reaches every account the charge reached (F1.6, F8.5)', async () => {
+  const fixture = await createCompany('cost-settle-chain', { moneyMaxCents: 10_000 });
+  const division = await divisionAccount(fixture, 5_000);
+  const { capability } = meteredCapability({ centsPerUnit: 100, actual: 300 });
+
+  await invoke(fixture, capability, { to: 'a@example.com', quantity: 1 }, division);
+
+  assert.equal(await spentOn(fixture, division), 300);
+  assert.equal(await spentOn(fixture, fixture.budgetAccountId), 300, 'the company undercounted the overrun');
+});
+
+/**
+ * 0009 says an overrun "becomes a visible overspend rather than a quiet
+ * understatement" -- and 0003's CHECK forbade any spend above the ceiling, so
+ * the settlement that was meant to record it failed instead. After the vendor
+ * had billed: the action happened, the call reported an error, and the ledger
+ * kept the estimate.
+ */
+test('an overrun past the ceiling is recorded as an overspend, not refused (F8.5, F1.7)', async () => {
+  const fixture = await createCompany('cost-overspend', { moneyMaxCents: 150 });
+  const { capability, calls } = meteredCapability({ centsPerUnit: 100, actual: 300 });
+
+  const result = await invoke(fixture, capability, { to: 'a@example.com', quantity: 1 });
+
+  assert.equal(calls.executions, 1);
+  assert.equal(result.cost.actualCents, 300);
+  assert.equal(await moneySpent(fixture), 300, 'what was billed, above the ceiling, where the owner can see it');
+
+  // And the ceiling still holds for what has not happened yet: admission is
+  // where it was enforced all along, and dropping the CHECK did not move it.
+  const admitted = await withTenant(fixture.companyId, (tx) =>
+    budget.spend(tx, fixture.budgetAccountId, { tokens: 0, moneyCents: 1 }));
+  assert.equal(admitted, false);
 });

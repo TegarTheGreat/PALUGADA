@@ -192,6 +192,17 @@ async function main(): Promise<number> {
   const fromFile = await registerVendorCapabilities(registry, 'config/vendors.example.json');
   log('vendor file', `config/vendors.example.json binds ${fromFile.join(', ')}`);
 
+  // The example price list too, for the same reason: it is what an operator
+  // copies, and a broken one would refuse the deployment that copied it.
+  const { loadPriceTable, estimateCents } = await import('../src/engine/pricing.ts');
+  const prices = await loadPriceTable('config/prices.example.json');
+  const unknown = estimateCents(prices, 'a-model-nobody-listed', 1_000_000, 0);
+  log(
+    'price list',
+    `config/prices.example.json prices ${prices.rates.length} pattern(s); `
+      + `an unlisted model is estimated at ${unknown.cents} cents per million input tokens`,
+  );
+
   const unbound = unboundStandardGrants(registry);
   log(
     'standard template',

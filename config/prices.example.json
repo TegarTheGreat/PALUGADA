@@ -1,0 +1,9 @@
+{
+  "$comment": "Cents per million tokens, for runtimes that report tokens and no price (every agent CLI). Replace these with your provider's current list: prices change and a stale table is wrong silently. A model matching no pattern is charged at the fallback, which is deliberately high so a budget stops early rather than late. Patterns are an exact name or a prefix ending in a single *.",
+  "fallback": { "input": 1500, "output": 7500 },
+  "models": {
+    "example-large-*": { "input": 1500, "output": 7500 },
+    "example-medium-*": { "input": 300, "output": 1500 },
+    "example-small-*": { "input": 100, "output": 500 }
+  }
+}

@@ -113,6 +113,16 @@ export interface ModelUsage {
   /** Null when the runtime does not know; the engine estimates (F13.7). */
   costCents: number | null;
   latencyMs?: number;
+  /**
+   * The provider's own total for the whole run so far, rather than one call.
+   *
+   * An agent CLI prices nothing per message and states the run's total at
+   * the end (`total_cost_usd` on Claude Code's result line). The engine
+   * charged an estimate per message, because a budget can only stop a run
+   * while it is still running; this replaces those estimates with the bill,
+   * settling the difference in either direction instead of adding to it.
+   */
+  runTotal?: boolean;
 }
 
 /**

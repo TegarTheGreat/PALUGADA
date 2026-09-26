@@ -27,6 +27,7 @@
 import { CapabilityBroker } from './broker/broker.ts';
 import { CapabilityRegistry } from './broker/registry.ts';
 import { Engine } from './engine/engine.ts';
+import { DEFAULT_PRICE_TABLE, loadPriceTable } from './engine/pricing.ts';
 import { Worker, type WorkerOptions } from './worker.ts';
 import { InMemorySecretManager, type SecretManager } from './secrets/manager.ts';
 import { OwnerMfa } from './owner/mfa.ts';
@@ -90,6 +91,8 @@ export interface DeploymentOptions {
    * refusal.
    */
   vendorsFile?: string;
+  /** F13.7: a model price file. Otherwise `PALUGADA_MODEL_PRICES`. */
+  pricesFile?: string;
   port?: number;
   host?: string;
   env?: NodeJS.ProcessEnv;
@@ -316,10 +319,26 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   });
   notes.push(...runtimes.notes);
 
+  // F13.7: the price list for runtimes that report tokens and no price, which
+  // is every agent CLI. Read at boot and refused whole when it is wrong, like
+  // the vendor file. Without one the fallback applies to every model, and it
+  // is set high on purpose -- so the note says so, because an owner reading
+  // an estimate should know whether it came from their own list.
+  const pricesFile = options.pricesFile ?? env.PALUGADA_MODEL_PRICES ?? null;
+  const prices = pricesFile ? await loadPriceTable(pricesFile) : DEFAULT_PRICE_TABLE;
+  notes.push(
+    pricesFile
+      ? `model prices from ${pricesFile}: ${prices.rates.length} model pattern(s), `
+        + `fallback ${prices.fallback.inputCentsPerMTok}/${prices.fallback.outputCentsPerMTok} cents per MTok`
+      : 'no model price list: unpriced usage is estimated at the conservative fallback -- '
+        + 'set PALUGADA_MODEL_PRICES (F13.7)',
+  );
+
   const engine = new Engine({
     broker,
     adapters: runtimes.adapters,
     workerId: env.PALUGADA_WORKER_ID ?? `worker-${process.pid}`,
+    prices,
   });
 
   const { channels, notes: channelNotes } = channelsFrom(env);

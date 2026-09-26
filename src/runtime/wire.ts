@@ -32,6 +32,7 @@ import { redactor } from '../secrets/manager.ts';
 import type {
   AdapterResult,
   EngineMessage,
+  ModelUsage,
   RunEvent,
   RunRequest,
   RunServices,
@@ -306,6 +307,59 @@ export async function* readNdjson(
 }
 
 /**
+ * Reads a usage report, or refuses it.
+ *
+ * It was cast. A usage report is the one message a runtime sends that moves
+ * money, and `budget_spend` adds what it is given: a report of `-100000`
+ * cents from a runtime -- buggy, or told by a prompt it read to do so --
+ * would have erased its company's spend down to zero, and negative tokens
+ * would have done the same to the token ceiling. A string would have reached
+ * the database as a type error in the middle of the accounting. So the shape
+ * is checked here, where every runtime that is not this process arrives, and
+ * again by the engine, which is the accounting authority whatever the source.
+ */
+export function checkUsage(raw: unknown): ModelUsage {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error('usage without a usage object');
+  }
+  const usage = raw as Record<string, unknown>;
+  const count = (name: string): number => {
+    const value = usage[name];
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+      throw new Error(`usage.${name} must be a non-negative whole number, got ${JSON.stringify(value)}`);
+    }
+    return value;
+  };
+  if (typeof usage.model !== 'string' || usage.model.length === 0 || usage.model.length > 200) {
+    throw new Error('usage.model must be a model name');
+  }
+  const cost = usage.costCents;
+  if (cost !== null && (typeof cost !== 'number' || !Number.isFinite(cost) || cost < 0)) {
+    throw new Error(`usage.costCents must be null or a non-negative number, got ${JSON.stringify(cost)}`);
+  }
+  const latency = usage.latencyMs;
+  if (latency !== undefined && (typeof latency !== 'number' || !Number.isFinite(latency) || latency < 0)) {
+    throw new Error('usage.latencyMs must be a non-negative number');
+  }
+  if (usage.runTotal !== undefined && typeof usage.runTotal !== 'boolean') {
+    throw new Error('usage.runTotal must be a boolean');
+  }
+  if (usage.runTotal === true && cost === null) {
+    throw new Error('usage.runTotal carries the run\'s cost, so costCents cannot be null');
+  }
+  return {
+    model: usage.model,
+    inputTokens: count('inputTokens'),
+    outputTokens: count('outputTokens'),
+    costCents: cost as number | null,
+    ...(latency === undefined ? {} : { latencyMs: latency as number }),
+    ...('prompt' in usage ? { prompt: usage.prompt } : {}),
+    ...('response' in usage ? { response: usage.response } : {}),
+    ...(usage.runTotal === true ? { runTotal: true } : {}),
+  };
+}
+
+/**
  * Reads an untrusted value as a `RunEvent`.
  *
  * A runtime is a third party. Its output is parsed rather than cast: an
@@ -330,7 +384,7 @@ export function parseRunEvent(value: unknown): RunEvent {
     case 'text':
       return { type: 'text', text: String((value as { text?: unknown }).text ?? '') };
     case 'usage':
-      return { type: 'usage', usage: (value as { usage: never }).usage };
+      return { type: 'usage', usage: checkUsage((value as { usage?: unknown }).usage) };
     case 'done': {
       const output = (value as { output?: unknown }).output;
       if (output === null || typeof output !== 'object' || Array.isArray(output)) {

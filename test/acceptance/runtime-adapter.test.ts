@@ -10,6 +10,7 @@ import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { withTenant } from '../../src/db/tenant.ts';
+import { isPalugadaError } from '../../src/errors.ts';
 import { closePools } from '../../src/db/pool.ts';
 import {
   AdapterRegistry,
@@ -20,6 +21,10 @@ import {
   type RunServices,
 } from '../../src/runtime/protocol.ts';
 import { Engine } from '../../src/engine/engine.ts';
+import { snapshot as budget_snapshot } from '../../src/engine/budget.ts';
+import {
+  CONSERVATIVE_FALLBACK, DEFAULT_PRICE_TABLE, estimateCents, parsePriceTable, type PriceTable,
+} from '../../src/engine/pricing.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { CapabilityRegistry, type Capability } from '../../src/broker/registry.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';
@@ -81,13 +86,14 @@ async function newTask(fixture: Fixture) {
   });
 }
 
-function engineWith(adapter: Adapter): Engine {
+function engineWith(adapter: Adapter, prices?: PriceTable): Engine {
   const adapters = new AdapterRegistry();
   adapters.register(adapter);
   return new Engine({
     broker: new CapabilityBroker(new CapabilityRegistry()),
     adapters,
     workerId: 'runtime-worker',
+    ...(prices ? { prices } : {}),
   });
 }
 
@@ -289,34 +295,107 @@ test('a model call the runtime makes is traced and charged (F11.1)', async () =>
   assert.deepEqual(trace.prompt, { system: 'be brief' });
 });
 
-test('a runtime that cannot say what a call cost gets an estimate, marked (F13.7)', async () => {
-  // Reporting a guess as a measurement is how a cost dashboard stops being
-  // worth reading.
+async function moneySpent(fixture: Fixture): Promise<number> {
+  return withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ spent: string }>(
+      'SELECT money_spent_cents::text AS spent FROM budget_accounts WHERE id = $1',
+      [fixture.budgetAccountId],
+    );
+    return Number(rows[0]!.spent);
+  });
+}
+
+async function estimates(fixture: Fixture) {
+  return withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ payload: { cents: number; basis: string } }>(
+      "SELECT payload FROM events WHERE type = 'cost.estimated' ORDER BY occurred_at",
+    );
+    return rows.map((row) => ({ cents: row.payload.cents, basis: row.payload.basis }));
+  });
+}
+
+function unpricedRuntime(usage: { model: string; inputTokens: number; outputTokens: number }) {
+  return spyAdapter({
+    run: async (_request, services) => {
+      await services.reportUsage({ ...usage, costCents: null });
+      return { done: true };
+    },
+  }).adapter;
+}
+
+/**
+ * The mark was there and the estimate was not: `costCents ?? 0`. Every agent
+ * CLI reports tokens and no price, so in production the company's money
+ * ceiling never moved -- F1.7's pause at 100% was enforced against a counter
+ * that stayed at zero. This test used to count the mark and nothing else,
+ * which is how an estimate of nothing passed it.
+ */
+test('a runtime that cannot say what a call cost is charged an estimate, not nothing (F13.7, F1.7)', async () => {
   const fixture = await createCompany('runtime-cost-estimated');
   await useRuntime(fixture, 'spy');
   const task = await newTask(fixture);
 
-  const { adapter } = spyAdapter({
-    run: async (_request, services) => {
-      await services.reportUsage({
-        model: 'unknown/model',
-        inputTokens: 50,
-        outputTokens: 10,
-        costCents: null,
-      });
-      return { done: true };
+  // 400k in and 100k out at the fallback's $15/$75: 600 + 750 cents.
+  await engineWith(
+    unpricedRuntime({ model: 'unknown/model', inputTokens: 400_000, outputTokens: 100_000 }),
+  ).runTask(fixture.companyId, task.id, 'worker');
+
+  assert.equal(await moneySpent(fixture), 1_350, 'the money ceiling moved');
+  assert.deepEqual(await estimates(fixture), [{ cents: 1_350, basis: 'fallback' }]);
+});
+
+/**
+ * The operator's own list wins over the fallback, the most specific pattern
+ * wins over a broader one, and a call too small to round to a cent is still
+ * a cent -- a thousand calls that each rounded to nothing is the bill that
+ * rounded to nothing.
+ */
+test('an estimate comes from the operator\'s price list when it names the model (F13.7)', async () => {
+  const fixture = await createCompany('runtime-cost-priced');
+  await useRuntime(fixture, 'spy');
+  const prices = parsePriceTable({
+    models: {
+      'some-provider/*': { input: 1_000, output: 1_000 },
+      'some-provider/large-*': { input: 300, output: 1_500 },
     },
   });
 
-  await engineWith(adapter).runTask(fixture.companyId, task.id, 'worker');
+  const big = await newTask(fixture);
+  await engineWith(
+    unpricedRuntime({ model: 'some-provider/large-2', inputTokens: 200_000, outputTokens: 100_000 }),
+    prices,
+  ).runTask(fixture.companyId, big.id, 'worker');
+  const small = await newTask(fixture);
+  await engineWith(
+    unpricedRuntime({ model: 'some-provider/tiny', inputTokens: 10, outputTokens: 1 }),
+    prices,
+  ).runTask(fixture.companyId, small.id, 'worker');
 
-  const marked = await withTenant(fixture.companyId, async (tx) => {
-    const { rows } = await tx.query<{ count: string }>(
-      "SELECT count(*)::text AS count FROM events WHERE type = 'cost.estimated'",
-    );
-    return Number(rows[0]!.count);
-  });
-  assert.equal(marked, 1);
+  assert.deepEqual(await estimates(fixture), [
+    { cents: 210, basis: 'some-provider/large-*' },
+    { cents: 1, basis: 'some-provider/*' },
+  ]);
+  assert.equal(await moneySpent(fixture), 211);
+});
+
+/**
+ * A price file is configuration an operator writes by hand, and the failure
+ * that matters is the quiet one: a fallback that failed to parse and was
+ * skipped, or one set to zero, puts every unknown model back on nothing.
+ */
+test('a price file that would price the unknown at nothing is refused whole', () => {
+  const refused = (raw: unknown) =>
+    assert.throws(() => parsePriceTable(raw), (error: unknown) => isPalugadaError(error, 'config.invalid'));
+  refused({ fallback: { input: 0, output: 0 } });
+  refused({ fallback: { input: -1, output: 10 } });
+  refused({ fallback: { input: '15', output: 75 } });
+  refused({ models: { 'a*b': { input: 1, output: 1 } } });
+  refused({ models: { 'x-*': { input: 1 } } });
+  refused({ modles: {} });
+  refused([]);
+  // And the fallback is the conservative one when the file does not name it.
+  assert.deepEqual(parsePriceTable({}).fallback, CONSERVATIVE_FALLBACK);
+  assert.equal(estimateCents(DEFAULT_PRICE_TABLE, 'x', 0, 0).cents, 0, 'no tokens, no charge');
 });
 
 test('a prompt the runtime never shared stays distinguishable from a scrubbed one', async () => {
@@ -425,4 +504,30 @@ test('the in-process runtime is an adapter like any other', async () => {
     return rows.map((row) => row.model);
   });
   assert.deepEqual(traces, ['test-model']);
+});
+
+/**
+ * And the engine's half: it is the accounting authority whatever reported
+ * the usage, including the in-process runtime that never crosses the wire.
+ */
+test('the engine refuses a negative usage report from any runtime (F13.7)', async () => {
+  const fixture = await createCompany('runtime-negative-usage');
+  await useRuntime(fixture, 'spy');
+  const task = await newTask(fixture);
+  // Spend already on the account, so a negative report has something to erase
+  // rather than tripping the non-negative constraint on an empty one.
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    'UPDATE budget_accounts SET tokens_spent = 5000 WHERE id = $1', [fixture.budgetAccountId],
+  ));
+  const { adapter } = spyAdapter({
+    run: async (_request, services) => {
+      await services.reportUsage({ model: 'm', inputTokens: -1_000, outputTokens: 0, costCents: 0 });
+      return { done: true };
+    },
+  });
+  const outcome = await engineWith(adapter).runTask(fixture.companyId, task.id, 'worker');
+  assert.notEqual(outcome.status, 'completed');
+  const spentTokens = await withTenant(fixture.companyId, async (tx) =>
+    (await budget_snapshot(tx, fixture.budgetAccountId)).tokensSpent);
+  assert.equal(spentTokens, 5000, 'the spend was not erased');
 });

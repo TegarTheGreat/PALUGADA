@@ -18,6 +18,8 @@ import { createSubTask, getTask, transition, type TaskRow } from './tasks.ts';
 import { validateContract } from './contracts.ts';
 import { containChildResult, type ChildResult } from './containment.ts';
 import { isTerminal } from '../domain/task.ts';
+import { DEFAULT_PRICE_TABLE, estimateCents, type PriceTable } from './pricing.ts';
+import { checkUsage } from '../runtime/wire.ts';
 import { runStep, type StepKind } from './journal.ts';
 import { isCompanyFrozen, isStopAllRequested } from './control.ts';
 import type { HookPipeline } from './hooks.ts';
@@ -82,6 +84,15 @@ export interface EngineOptions {
    * other's leases, which is the one thing a lease exists to prevent.
    */
   workerId?: string;
+  /**
+   * F13.7: what a model call costs when the runtime does not say.
+   *
+   * Defaulted to `DEFAULT_PRICE_TABLE`, whose fallback is deliberately the top
+   * of the market: every agent CLI reports tokens and no price, and an
+   * estimate of zero is what left F1.7's money ceiling unmoved while a
+   * provider billed.
+   */
+  prices?: PriceTable;
 }
 
 /**
@@ -660,12 +671,52 @@ export class Engine {
       );
     };
 
-    const reportUsage: RunServices['reportUsage'] = async (usage) => {
+    // What this run has put on the company's account so far, estimates and
+    // measurements alike, so a runtime's final total can replace it.
+    let chargedCents = 0;
+
+    const reportUsage: RunServices['reportUsage'] = async (reported) => {
+      // Checked again here whatever the source: this is the accounting
+      // authority, and a negative figure from anywhere is a way to erase
+      // spend rather than report it.
+      const usage = checkUsage(reported);
+
+      // The provider's own bill for the run. It replaces what the estimates
+      // charged rather than adding to it, and settles in either direction --
+      // through the same chain-wide settlement a capability's actual cost
+      // uses (0037), because an adjustment that reached only the leaf account
+      // is how a company's ledger stops agreeing with its divisions'.
+      if (usage.runTotal) {
+        const actual = Math.ceil(usage.costCents!);
+        const delta = actual - chargedCents;
+        await withTenant(companyId, async (tx) => {
+          if (delta !== 0) {
+            await tx.query('SELECT app.budget_settle($1, $2)', [task.budgetAccountId, delta]);
+          }
+          await appendEvent(tx, {
+            companyId,
+            projectId: task.projectId,
+            taskId,
+            type: 'cost.settled',
+            actor: 'engine',
+            payload: { model: usage.model, chargedCents, actualCents: actual, deltaCents: delta },
+          });
+        });
+        chargedCents = actual;
+        return;
+      }
+
       // F13.7: a runtime that cannot say what a call cost gets an estimate,
       // and the estimate is marked as one. Reporting a guess as a measurement
       // is how a cost dashboard stops being worth reading.
-      const estimated = usage.costCents === null;
-      const costCents = usage.costCents ?? 0;
+      const estimate = usage.costCents === null
+        ? estimateCents(
+            this.#options.prices ?? DEFAULT_PRICE_TABLE,
+            usage.model, usage.inputTokens, usage.outputTokens,
+          )
+        : null;
+      const estimated = estimate !== null;
+      const costCents = usage.costCents ?? estimate!.cents;
 
       const funded = await withTenant(companyId, (tx) =>
         budget.spend(tx, task.budgetAccountId, {
@@ -679,6 +730,7 @@ export class Engine {
           budgetAccountId: task.budgetAccountId,
         });
       }
+      chargedCents += costCents;
 
       // F11.1: every model call is traced through the adapter. The engine
       // never made the call, so this is the only record there will be of it.
@@ -709,7 +761,15 @@ export class Engine {
             taskId,
             type: 'cost.estimated',
             actor: 'engine',
-            payload: { model: usage.model, tokens: usage.inputTokens + usage.outputTokens },
+            payload: {
+              model: usage.model,
+              tokens: usage.inputTokens + usage.outputTokens,
+              cents: costCents,
+              // Which row of the price table priced it, or `fallback`: an owner
+              // reading an estimate needs to know whether it came from their
+              // own price list or from the deliberately high default.
+              basis: estimate!.basis,
+            },
           });
         }
       });

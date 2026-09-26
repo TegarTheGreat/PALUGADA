@@ -57,7 +57,8 @@ import {
   reviveCapability,
   unfreezeCompany,
 } from '../engine/control.ts';
-import { frozenRoles, unfreezeRole } from '../governance/role-freeze.ts';
+import { frozenRoles, pauseRole, unfreezeRole } from '../governance/role-freeze.ts';
+import { cancelTask, instructTask, rerunTask } from '../engine/owner-control.ts';
 import {
   clearSpendPause,
   limitFor,
@@ -653,6 +654,17 @@ export class OwnerApi {
       },
 
       {
+        // Pausing one role: the smallest stop there is short of one task.
+        // Resuming it is the route below and keeps its second factor.
+        method: 'POST',
+        pattern: '/api/control/company/:companyId/role/:roleId/pause',
+        handle: async ({ params, body }) => {
+          await pauseRole(params.companyId!, params.roleId!, typeof body.reason === 'string' ? body.reason : null);
+          return { ok: true };
+        },
+      },
+
+      {
         method: 'POST',
         pattern: '/api/control/company/:companyId/role/:roleId/resume',
         handle: async ({ params, body }) => {
@@ -919,6 +931,40 @@ export class OwnerApi {
             throw new PalugadaError('contract.violation', 'no such task in this company', { taskId: params.taskId });
           }
           return { task };
+        },
+      },
+
+      {
+        // One task stopped, with whatever it started, and nothing else. The
+        // brakes above are for everything at once; this is the one for "that
+        // task is going the wrong way". Tightening, so the session suffices.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/tasks/:taskId/cancel',
+        handle: async ({ params, body }) => ({
+          cancelled: await cancelTask(
+            params.companyId!, params.taskId!, typeof body.reason === 'string' ? body.reason : null,
+          ),
+        }),
+      },
+
+      {
+        // The same work again, as a new task, with the owner's note in front
+        // of the run. The only way on from a halted task, which is never
+        // resumed (section 6.3).
+        method: 'POST',
+        pattern: '/api/companies/:companyId/tasks/:taskId/rerun',
+        handle: async ({ params, body }) => ({
+          taskId: await rerunTask(params.companyId!, params.taskId!, typeof body.note === 'string' ? body.note : null),
+        }),
+      },
+
+      {
+        // Telling a task something it reads on its next run.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/tasks/:taskId/instruct',
+        handle: async ({ params, body }) => {
+          await instructTask(params.companyId!, params.taskId!, requireText(body.text, 'text'));
+          return { ok: true };
         },
       },
 

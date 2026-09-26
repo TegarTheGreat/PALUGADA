@@ -11,10 +11,12 @@
 import { useState } from 'react';
 import {
   Badge, Button, Code, CopyButton, Drawer, Group, Modal, Paper, Progress, ScrollArea, SegmentedControl, SimpleGrid,
-  Spoiler, Stack, Table, Text, ThemeIcon, Timeline, Tooltip,
+  Spoiler, Stack, Table, Text, Textarea, ThemeIcon, Timeline, Tooltip,
 } from '@mantine/core';
+import { notifications } from '@mantine/notifications';
 import {
-  IconCopy, IconCornerDownRight, IconFileText, IconHeartbeat, IconMail, IconPlayerPlay, IconPlus,
+  IconCopy, IconCornerDownRight, IconFileText, IconHeartbeat, IconMail, IconPlayerPlay, IconPlayerStop, IconPlus,
+  IconRefresh,
 } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
 import { useLoad, useNow } from '../hooks.ts';
@@ -120,7 +122,13 @@ export function Work({ ctx, route }: PageProps) {
         </Paper>
       )}
 
-      <TaskDrawer companyId={companyId} task={open} close={() => openTask(null)} />
+      <TaskDrawer
+        companyId={companyId}
+        task={open}
+        close={() => openTask(null)}
+        changed={work.reload}
+        openTask={(id) => { work.reload(); openTask(id); }}
+      />
     </Stack>
   );
 }
@@ -181,7 +189,9 @@ export function TaskProgress({ item, wide = false }: { item: WorkItem; wide?: bo
 }
 
 /** One task: where it is, and every event it left, with a dry replay (F11.2, F5.9). */
-export function TaskDrawer({ companyId, task, close }: { companyId: string; task: WorkItem | null; close: () => void }) {
+export function TaskDrawer({ companyId, task, close, changed, openTask }: {
+  companyId: string; task: WorkItem | null; close: () => void; changed: () => void; openTask: (id: string) => void;
+}) {
   const events = useLoad(async () => {
     if (!task) return [];
     const answer: { events: Array<{ type: string; actor: string; payload: Record<string, unknown>; occurredAt: string }> } =
@@ -230,6 +240,7 @@ export function TaskDrawer({ companyId, task, close }: { companyId: string; task
             <Fact label={t('Created')} value={dateTime(task.createdAt)} />
             <Fact label={t('Finished')} value={dateTime(task.finishedAt)} />
           </SimpleGrid>
+          <TaskControls companyId={companyId} task={task} changed={changed} openTask={openTask} />
           <TaskOutput companyId={companyId} task={task} />
           <div>
             <Text fw={700} mb="sm">{t('What it did')}</Text>
@@ -257,6 +268,92 @@ export function TaskDrawer({ companyId, task, close }: { companyId: string; task
         </Stack>
       )}
     </Drawer>
+  );
+}
+
+/**
+ * The owner's hand on one task: tell it something, stop it, or have it done
+ * again with a note. Nothing here loosens anything, so nothing asks for the
+ * second factor.
+ */
+function TaskControls({ companyId, task, changed, openTask }: {
+  companyId: string; task: WorkItem; changed: () => void; openTask: (id: string) => void;
+}) {
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState<string | null>(null);
+  const ended = ['completed', 'failed', 'halted', 'cancelled'].includes(task.status);
+
+  const act = async (what: string, run: () => Promise<void>) => {
+    setBusy(what);
+    try {
+      await run();
+    } catch (failure) {
+      notifications.show({ color: 'red', message: explain(failure) });
+    } finally {
+      setBusy(null);
+    }
+  };
+  const again = () => act('again', async () => {
+    const answer: { taskId: string } = await api('POST', `/api/companies/${companyId}/tasks/${task.id}/rerun`, { note });
+    notifications.show({ color: 'teal', message: t('Started again as a new task.') });
+    setNote('');
+    openTask(answer.taskId);
+  });
+  const tell = () => act('tell', async () => {
+    await api('POST', `/api/companies/${companyId}/tasks/${task.id}/instruct`, { text: note });
+    notifications.show({ color: 'teal', message: t('Told. Its next run reads it.') });
+    setNote('');
+    changed();
+  });
+  const stop = (thenAgain: boolean) => act(thenAgain ? 'redo' : 'stop', async () => {
+    await api('POST', `/api/companies/${companyId}/tasks/${task.id}/cancel`, { reason: note });
+    if (thenAgain) {
+      const answer: { taskId: string } = await api('POST', `/api/companies/${companyId}/tasks/${task.id}/rerun`, { note });
+      notifications.show({ color: 'teal', message: t('Stopped, and started again with your note.') });
+      setNote('');
+      openTask(answer.taskId);
+    } else {
+      notifications.show({ color: 'teal', message: t('Cancelled, with everything it started.') });
+      changed();
+    }
+  });
+
+  return (
+    <Paper withBorder radius="md" p="md">
+      <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb="xs">{ended ? t('Do it again') : t('Steer it')}</Text>
+      <Textarea
+        autosize
+        minRows={2}
+        maxLength={2000}
+        value={note}
+        onChange={(event) => setNote(event.currentTarget.value)}
+        placeholder={ended
+          ? t('What should be different this time? (optional)')
+          : t('e.g. Lead with the price change, not the new hire.')}
+      />
+      <Group mt="sm" gap="xs">
+        {ended ? (
+          <Button size="xs" leftSection={<IconRefresh size={14} />} loading={busy === 'again'} onClick={() => void again()}>
+            {t('Do it again')}
+          </Button>
+        ) : (
+          <>
+            <Button size="xs" disabled={!note.trim()} loading={busy === 'tell'} onClick={() => void tell()}>{t('Tell it')}</Button>
+            <Button size="xs" variant="light" disabled={!note.trim()} loading={busy === 'redo'} onClick={() => void stop(true)}>
+              {t('Stop and redo with this note')}
+            </Button>
+            <Button size="xs" variant="subtle" color="red" leftSection={<IconPlayerStop size={14} />} loading={busy === 'stop'} onClick={() => void stop(false)}>
+              {t('Cancel this task')}
+            </Button>
+          </>
+        )}
+      </Group>
+      {!ended && (
+        <Text size="xs" c="dimmed" mt={6}>
+          {t('What you tell it is read on its next run. It changes nothing it is allowed to do or spend.')}
+        </Text>
+      )}
+    </Paper>
   );
 }
 

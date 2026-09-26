@@ -15,6 +15,7 @@ import { withTenant, withControlPlane, type TenantClient } from '../db/tenant.ts
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
 import { getTask, transitionWithin } from '../engine/tasks.ts';
+import { releaseReservations } from '../engine/owner-control.ts';
 import { TERMINAL_STATUSES, isTerminal } from '../domain/task.ts';
 import { notifyAfterFor } from '../scheduler/windows.ts';
 import { escalationPolicyFor } from '../governance/structure.ts';
@@ -1240,29 +1241,7 @@ export async function stopEverything(): Promise<number> {
                  d.tokens_reserved AS released`,
       [TERMINAL_STATUSES],
     );
-    // One release per account rather than per task, and every account any of
-    // them touches locked first, in id order -- the order `budget_spend` and
-    // `budget_settle` lock in. Releasing chain by chain would hold the company
-    // account from the first while waiting for the second division's, which a
-    // worker recording usage against that division may already hold while it
-    // waits for the company's: a deadlock PostgreSQL would settle by aborting
-    // one side, and the side it aborts can be this one.
-    const released = new Map<string, bigint>();
-    for (const row of rows) {
-      if (!row.budget_account_id || BigInt(row.released) === 0n) continue;
-      released.set(row.budget_account_id,
-        (released.get(row.budget_account_id) ?? 0n) + BigInt(row.released));
-    }
-    if (released.size > 0) {
-      await tx.query(
-        `SELECT app.budget_lock_chain(ARRAY(
-           SELECT DISTINCT unnest(app.budget_chain(account)) FROM unnest($1::uuid[]) AS account))`,
-        [[...released.keys()]],
-      );
-      for (const [account, tokens] of released) {
-        await tx.query('SELECT app.budget_release($1, $2)', [account, tokens.toString()]);
-      }
-    }
+    await releaseReservations(tx, rows);
     for (const row of rows) {
       await tx.query(
         `INSERT INTO events (company_id, project_id, task_id, type, actor, payload)

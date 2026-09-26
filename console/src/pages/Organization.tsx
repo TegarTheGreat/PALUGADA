@@ -192,6 +192,20 @@ function RoleDrawer({
             <Badge variant="dot" color={roleState(role).color}>{roleState(role).label}</Badge>
             <Badge variant="outline" color="gray">{role.model}</Badge>
             {role.runtime && <Badge variant="outline" color="gray">{role.runtime}</Badge>}
+            {!role.frozenAt && (
+              <ActionButton
+                size="xs"
+                variant="subtle"
+                color="orange"
+                label={t('Pause this role')}
+                run={() => api('POST', `/api/control/company/${companyId}/role/${role.id}/pause`, {})}
+                done={() => {
+                  notifications.show({ color: 'orange', message: t('{role} paused. Nothing new starts for it until you resume it.', { role: role.slug }) });
+                  changed();
+                  close();
+                }}
+              />
+            )}
           </Group>
           {role.frozenAt && (
             <Alert color="red" variant="light" title={t('Frozen')}>

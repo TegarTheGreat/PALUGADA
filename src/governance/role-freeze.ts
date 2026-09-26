@@ -25,6 +25,7 @@ import { appendEvent } from '../audit/event-log.ts';
 import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
 import { thresholdsFor } from '../reporting/alerts.ts';
 import * as inbox from '../inbox/inbox.ts';
+import { PalugadaError } from '../errors.ts';
 
 export interface DenialContext {
   companyId: string;
@@ -87,6 +88,40 @@ export async function unfreezeRole(companyId: string, roleId: string): Promise<v
       type: 'role.unfrozen',
       actor: 'owner',
       payload: { roleId },
+    });
+  });
+}
+
+/**
+ * The owner pausing a role: no new work for it until they resume it.
+ *
+ * The same freeze F3.7 applies automatically, so everything that refuses a
+ * frozen role -- the broker, task creation, the wake queue -- refuses this one
+ * with no second path to keep in step. Pausing tightens, so it takes the
+ * owner's session; resuming loosens and keeps its second factor.
+ */
+export async function pauseRole(companyId: string, roleId: string, reason?: string | null): Promise<void> {
+  const why = reason?.trim() ? reason.trim().slice(0, 500) : null;
+  await withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ slug: string; frozen: boolean }>(
+      'SELECT slug, frozen_at IS NOT NULL AS frozen FROM roles WHERE id = $1 AND company_id = $2 FOR UPDATE',
+      [roleId, companyId],
+    );
+    if (!rows[0]) {
+      throw new PalugadaError('contract.violation', 'no such role in this company', { roleId });
+    }
+    // Already stopped, by the owner or by F3.7: the reason it has is the one
+    // that explains it, and a second event would say it was paused twice.
+    if (rows[0].frozen) return;
+    await tx.query(
+      'UPDATE roles SET frozen_at = now(), frozen_reason = $2 WHERE id = $1',
+      [roleId, `paused by the owner${why ? `: ${why}` : ''}`],
+    );
+    await appendEvent(tx, {
+      companyId,
+      type: 'role.frozen',
+      actor: 'owner',
+      payload: { roleId, role: rows[0].slug, ...(why ? { reason: why } : {}) },
     });
   });
 }

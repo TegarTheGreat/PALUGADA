@@ -67,6 +67,8 @@ const EVENT_SENTENCES: Record<string, string> = {
   'owner.decided': N('You decided'),
   'owner.asked': N('You asked a question'),
   'owner.answered': N('You answered'),
+  'owner.instructed': N('You told it something'),
+  'task.rerun': N('Done again as a new task'),
   'owner.notified': N('You were notified'),
   'incident.raised': N('Incident raised'),
   'escalation.raised': N('Escalation raised'),
@@ -147,6 +149,7 @@ const HALT_REASONS: Record<string, string> = {
   cycle_detected: N('Went in a circle'),
   approval_expired: N('Your approval was not given in time'),
   owner_stop: N('Stopped by you'),
+  owner_cancel: N('Cancelled by you'),
   company_frozen: N('The company is frozen'),
   journal_divergence: N('Its record did not match on replay'),
 };

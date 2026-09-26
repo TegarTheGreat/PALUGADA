@@ -18,6 +18,7 @@ import { ancestryForTask, renderAncestry } from '../domain/goals.ts';
 import { openQuestionsFor } from '../inbox/inbox.ts';
 import { languageName, languageRule, languagesFor } from '../domain/language.ts';
 import { metricsIn, renderMetrics } from '../domain/metrics.ts';
+import { instructionsFor } from '../engine/owner-control.ts';
 
 export interface ContextSection {
   kind:
@@ -29,6 +30,7 @@ export interface ContextSection {
     | 'semantic_memory'
     | 'goal_ancestry'
     | 'owner_question'
+    | 'owner_note'
     | 'working_memory';
   title: string;
   body: string;
@@ -73,6 +75,7 @@ const DROP_ORDER: ContextSection['kind'][] = [
 ];
 // `owner_question` is deliberately absent, like the charters: a run that lost
 // the owner's question to make room for a fact would answer the wrong thing.
+// `owner_note` too, for the same reason: it is the owner's latest word.
 // So is `language`: a run that lost it writes in whatever it read last.
 
 export interface BuildContextOptions {
@@ -370,6 +373,28 @@ export async function buildContext(
           `${question.question}\n\n` +
           'Answer it before proposing the action again. Record your answer ' +
           `against inbox item ${question.inboxItemId}.`,
+      });
+    }
+
+    // What the owner told this task, or why it exists at all when it is the
+    // owner asking for work again. Kept like the owner's question, and for
+    // the same reason: it is the most recent word from the one person the
+    // run answers to, and a run that dropped it to fit would carry on doing
+    // what the owner just asked it not to.
+    for (const instruction of await instructionsFor(tx, options.taskId)) {
+      const again = instruction.rerunOf && instruction.previous
+        ? `The owner asked for this work again. The previous attempt (task ${instruction.rerunOf}) ended ` +
+          `${instruction.previous.status}${instruction.previous.haltReason ? ` (${instruction.previous.haltReason})` : ''}.`
+        : null;
+      const said = instruction.text
+        ? `${again ? 'Their note' : 'While this task was under way the owner said'}: ${instruction.text}`
+        : null;
+      sections.push({
+        kind: 'owner_note',
+        title: 'What the owner told you about this task',
+        body: [again, said].filter(Boolean).join('\n') +
+          '\n\nFollow it. It does not change your tools, your tier or your budget: if it asks for ' +
+          'something those do not allow, say so rather than trying.',
       });
     }
 

@@ -150,14 +150,23 @@ export class HookPipeline {
     let hooks: Hook[];
     try {
       hooks = await this.#resolve(companyId);
-    } catch {
-      // A pipeline that cannot read a company's bundles falls back to its
-      // built-ins. That is the safe direction: the built-ins are the ones a
-      // company cannot remove, and a bundle hook can only tighten, so losing
-      // one loses a restriction rather than a permission -- which is worth
-      // saying out loud, because it means this failure is *not* silent-fail
-      // into a wider gate.
-      hooks = [];
+    } catch (error) {
+      // This used to fall back to the built-ins alone and call that the safe
+      // direction, and it was the other one. A bundle hook can only tighten
+      // -- so losing one loses a *restriction*, and a company that installed
+      // "never email outside our domain" had that rule silently absent for as
+      // long as its bundles could not be read. And the empty list was cached,
+      // so one failed query switched the rule off for a whole minute.
+      //
+      // The rule this file already applies to a hook that throws -- it has
+      // refused, because otherwise the easiest way past a gate is to break it
+      // -- applies to the hooks that could not be loaded. The gate refuses,
+      // and the failure is not cached: the next call tries again, so the
+      // refusal lasts exactly as long as the fault.
+      const reason =
+        `the company's bundle hooks could not be read (${(error as Error).message}); `
+        + 'refusing rather than running without them';
+      return [{ name: 'bundle.hooks_unavailable', on, run: async () => ({ allow: false, reason }) }];
     }
 
     this.#cache.set(companyId, { at: Date.now(), hooks });

@@ -393,3 +393,30 @@ test('a hook sees the tier the grant tightened to, not the registry default (F8.
   assert.deepEqual(seen, [2], 'the hook was told the registry default before this');
   assert.equal(calls.executions, 0, 'and the adapter was never reached');
 });
+
+/**
+ * A bundle hook can only tighten, so losing one loses a restriction -- and
+ * the pipeline used to drop a company's bundle hooks whenever they could not
+ * be read, calling that the safe direction, and cache the empty list for a
+ * minute. A company that installed "never email outside our domain" had the
+ * rule switched off by one failed query. The gate refuses instead, for
+ * exactly as long as the fault lasts.
+ */
+test('bundle hooks that cannot be read close the gate, and only while they cannot (F14.4)', async () => {
+  const fixture = await createCompany('hook-unreadable');
+  let failing = true;
+  const pipeline = new HookPipeline([], async () => {
+    if (failing) throw new Error('connection reset');
+    return [];
+  });
+
+  const refused = await pipeline.run('pre_tool', { companyId: fixture.companyId, capability: 'email.send' });
+  assert.equal(refused.allowed, false);
+  assert.equal(refused.refusedBy, 'bundle.hooks_unavailable');
+  assert.match(refused.reason ?? '', /connection reset/);
+
+  // Not cached: the next call reads again and, the fault gone, is allowed.
+  failing = false;
+  const allowed = await pipeline.run('pre_tool', { companyId: fixture.companyId, capability: 'email.send' });
+  assert.equal(allowed.allowed, true);
+});

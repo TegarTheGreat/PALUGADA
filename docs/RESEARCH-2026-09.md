@@ -47,6 +47,8 @@ PALUGADA when this round started.
 | Model-written state fed back verbatim every cycle | auto-company `auto-loop.sh:708,756-758` | Not here: external content is data (F8.9); memory is scoped and distilled with a curation gate | — |
 | Decisions lost once the conversation scrolls away | "Slack is amazing for speed, but terrible for long-term memory" (Medium, "Stop Losing Decisions in Slack Threads", 2025); Buzz pages threads by keyset (`docs/nips/NIP-CW.md`) | **Was here, half.** Decisions are rows, not messages, but the console showed open items only, so an answered one left the only screen the owner has | A History tab: closed items with outcome, surface and the owner's note, searched including the note, paged by keyset (migration 0039) |
 | A retried failure logged on every retry | auto-company's breaker loop (`auto-loop.sh:934-940`); Slack's notification overload, applied to an audit trail | **Was here.** A schedule that could not be funded wrote `schedule.fire_failed` every worker tick, ~17,000 times a day | The schedule remembers the failed occurrence and reason; the event is written when either changes (migration 0038) |
+| Run ownership keyed on a reusable id | Paperclip notes PID recycling and keys ownership on a boot id (`heartbeat.ts:8841`, `legacy-controller-lease.ts`) | **Was here.** The deployment named its worker `worker-${pid}`; container replicas are PID 1, so two replicas shared one lease identity | `worker-<host>-<pid>-<boot id>` |
+| Work that repeats itself, paid for indefinitely | auto-company's "same Next Action for 2 consecutive cycles → stuck" (`i18n/en/PROMPT.md:72-76`); Paperclip's no-progress throttle (`issue-rewake-throttle.ts:28-40`) | **Was here.** A schedule fired for ever whatever it produced | Five identical results ask the owner once; deny turns the schedule off |
 | Money only as a post-hoc sum | Paperclip `budgets.ts:143-166`, checked only at claim | Not here: reservation at admission and a spend per call | — |
 
 ## 2. What was adopted, and what was not
@@ -75,10 +77,12 @@ Considered and left:
   with both). The owner's surface here is an inbox of decisions, not a
   conversation, and F10.3's question-on-an-approval already covers the case
   that matters: the owner asking before saying yes.
-- **Paperclip's no-progress rewake throttle and plan-only continuation.**
-  They answer a heartbeat model where an agent wakes on a timer and may do
-  nothing; here a wake that finds nothing claimable costs nothing (F9.10) and
-  a run ends only with `done`, an output checked against the role's schema.
+- **Paperclip's plan-only continuation** (`run-liveness.ts:297-357`). It
+  answers a run that ends in prose about future work; here a run ends only
+  with `done`, and an output checked against the role's schema. Its sibling,
+  the no-progress throttle (`issue-rewake-throttle.ts`), *was* adopted in the
+  shape this platform needs: a schedule whose last five runs produced the
+  same result asks the owner whether it is still worth running.
 - **auto-company's persona roster.** F2 makes roles functional scopes with an
   output contract on purpose (PRD §2.3); a persona is a prompt, and a prompt
   is the role's own business.
@@ -126,7 +130,17 @@ And a usage report is read, not cast. It is the one message a runtime sends
 that moves money, and until this round a runtime reporting a negative cost
 would have erased its company's recorded spend.
 
-## 4. What this does not cover
+## 4. What it came to
+
+Twenty-three rows above are failures somewhere else. Fifteen of them were,
+in some form, failures here too; eight were not, and the table says why.
+Looking for them turned up five more that were this repository's own (a settlement reaching one account of a chain, an
+unvalidated usage report, two clock-precision windows, a schedule that could
+not advance). Every one is fixed with a test that fails against the old code,
+checked by re-introducing the defect. The per-defect account is in
+[`STATUS.md`](STATUS.md) §2.16.
+
+## 5. What this does not cover
 
 The comparison was against source at the revisions above and against public
 documentation. None of the four was run, and no claim here depends on having

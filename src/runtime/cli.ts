@@ -43,9 +43,9 @@
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { spawnTree, TreeKeeper } from './process-tree.ts';
-import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, isAbsolute, join, normalize, sep } from 'node:path';
 import type {
   Adapter,
   AdapterHealth,
@@ -58,19 +58,26 @@ import type {
 import { driveRun, toWireRequest, type Transport } from './wire.ts';
 import { startToolBridge, type ToolBridge } from './tool-bridge.ts';
 import { asOutput, translateStreamJsonLine, type StreamJsonLine } from './claude-code.ts';
+import {
+  hermesEvents, openCodeEvents, openClawEvents,
+} from './cli-dialects.ts';
 
 /**
  * How the CLI talks back.
  *
  * `stream-json` is the Anthropic-style newline-delimited envelope Claude Code
- * emits and several agent CLIs have copied. `text` is everything else: the
- * process prints its answer and exits, and the exit code is the verdict.
+ * emits. `text` is everything else: the process prints its answer and exits,
+ * and the exit code is the verdict. The other three are the CLIs whose own
+ * formats were read from their source (src/runtime/cli-dialects.ts): Hermes's
+ * stream-json looks like Claude Code's and is not, OpenClaw answers with one
+ * JSON envelope at exit, and OpenCode streams events with no final result
+ * line.
  *
  * Deliberately not offered: the platform's own `RunEvent` NDJSON. A runtime
  * that speaks that already has an adapter -- `script` -- and a second way to
  * reach it would only be a second thing to keep in step.
  */
-export type CliDialect = 'stream-json' | 'text';
+export type CliDialect = 'stream-json' | 'text' | 'hermes-stream-json' | 'openclaw-json' | 'opencode-json';
 
 /**
  * The placeholders a spec's `args` may contain.
@@ -107,6 +114,13 @@ export interface CliPlaceholders {
   allowedTools: string;
   /** The prompt, for a CLI that takes it as an argument rather than on stdin. */
   prompt: string;
+  /**
+   * A private directory for this run alone: 0700, removed when the run ends.
+   * Where a spec's `files` are written, and what a spec sets `HOME` to, so a
+   * CLI never falls back to the operator's own home -- its stored
+   * credentials, its plugins, its memory of other runs.
+   */
+  runDir: string;
 }
 
 /** The parts of a headless agent CLI that are not the same for all of them. */
@@ -121,8 +135,22 @@ export interface CliRuntimeSpec {
   promptVia?: 'stdin' | 'arg';
   /** Default `stream-json`. */
   dialect?: CliDialect;
-  /** What the child may see, beyond `PATH`. Never inherited. */
+  /**
+   * What the child may see, beyond `PATH`. Never inherited. Values take the
+   * same placeholders as `args`: this is where a bridge token belongs, since
+   * an environment is readable only by the process and its owner and an argv
+   * is readable by everyone on the host.
+   */
   env?: Record<string, string>;
+  /**
+   * Files written into `{runDir}` before the CLI starts, 0600, by path
+   * relative to it; contents take the placeholders. For a CLI that reads its
+   * MCP servers from its own configuration format rather than from a flag --
+   * which is most of them. A file should reference the token through the
+   * CLI's own environment substitution (`${PALUGADA_MCP_TOKEN}`) rather than
+   * holding it.
+   */
+  files?: Record<string, string>;
   /**
    * The runtime's own provider credential.
    *
@@ -184,13 +212,25 @@ export class CliAdapter implements Adapter {
   readonly #trees = new TreeKeeper();
 
   constructor(spec: CliRuntimeSpec) {
-    const argv = spec.args.join(' ');
-    if (!BRIDGE_PLACEHOLDERS.some((placeholder) => argv.includes(placeholder))) {
+    // Anywhere the CLI will read it: its arguments, its environment, or a
+    // configuration file written for it. Most agent CLIs take MCP servers
+    // only from a file in their own format, so arguments alone was a check
+    // those CLIs could only pass by being configured wrongly.
+    const placed = [
+      ...spec.args, ...Object.values(spec.env ?? {}), ...Object.values(spec.files ?? {}),
+    ].join('\n');
+    if (!BRIDGE_PLACEHOLDERS.some((placeholder) => placed.includes(placeholder))) {
       throw new Error(
-        `runtime ${spec.name} places no tool bridge in its arguments: one of ` +
-          `${BRIDGE_PLACEHOLDERS.join(', ')} must appear, or the CLI would run ` +
-          'with no tools at all and answer as though it had them',
+        `runtime ${spec.name} places no tool bridge: one of ` +
+          `${BRIDGE_PLACEHOLDERS.join(', ')} must appear in its arguments, environment or ` +
+          'files, or the CLI would run with no tools at all and answer as though it had them',
       );
+    }
+    for (const path of Object.keys(spec.files ?? {})) {
+      const clean = normalize(path);
+      if (isAbsolute(path) || clean === '..' || clean.startsWith(`..${sep}`)) {
+        throw new Error(`runtime ${spec.name} names a file outside its run directory: ${path}`);
+      }
     }
     this.name = spec.name;
     this.#spec = spec;
@@ -237,6 +277,19 @@ export class CliAdapter implements Adapter {
   }
 
   /**
+   * Everything a run hands the CLI -- arguments, environment, files -- with
+   * the placeholders filled in, and nothing spawned. What `argv` is for the
+   * arguments, for the rest.
+   */
+  layout(values: CliPlaceholders): { argv: string[]; env: Record<string, string>; files: Record<string, string> } {
+    return {
+      argv: this.argv(values),
+      env: Object.fromEntries(Object.entries(this.#spec.env ?? {}).map(([key, value]) => [key, substitute(value, values)])),
+      files: Object.fromEntries(Object.entries(this.#spec.files ?? {}).map(([path, body]) => [path, substitute(body, values)])),
+    };
+  }
+
+  /**
    * The prompt.
    *
    * The charter first, because F3.2 says the platform charter outranks the
@@ -277,32 +330,47 @@ export class CliAdapter implements Adapter {
     const bridge = await startToolBridge(request.allowedTools, services);
     const prompt = this.prompt(request);
 
-    // Written before the spawn and removed in `close`, whatever happens: the
-    // file carries the run's bearer token, so leaving one behind would leave a
-    // credential on disk for a runtime that has already exited.
-    const configFile = await this.#writeMcpConfig(bridge);
+    // Made before the spawn and removed in `close`, whatever happens: what is
+    // written here may carry the run's bearer token, so leaving it behind
+    // would leave a credential on disk for a runtime that has already exited.
+    // Created 0700 by mkdtemp and every file in it 0600 from the start,
+    // rather than written and then chmod-ed, because between those two calls
+    // the token is readable on a shared machine.
+    const runDir = await mkdtemp(join(tmpdir(), 'palugada-run-'));
+    await chmod(runDir, 0o700);
+    const values: CliPlaceholders = {
+      model: request.modelRouting.primary,
+      maxTurns: String(this.#spec.maxTurns ?? 40),
+      mcpConfig: mcpConfigJson(bridge),
+      mcpConfigFile: join(runDir, 'mcp.json'),
+      mcpUrl: bridge.url,
+      mcpToken: bridge.token,
+      allowedTools: request.allowedTools
+        .map((tool) => `mcp__palugada__${tool.name}`)
+        .join(','),
+      prompt,
+      runDir,
+    };
+    const layout = this.layout(values);
+    if (this.#uses('{mcpConfigFile}')) {
+      await writeFile(values.mcpConfigFile, values.mcpConfig, { encoding: 'utf8', mode: 0o600 });
+    }
+    for (const [path, body] of Object.entries(layout.files)) {
+      const target = join(runDir, path);
+      await mkdir(dirname(target), { recursive: true, mode: 0o700 });
+      await writeFile(target, body, { encoding: 'utf8', mode: 0o600 });
+    }
 
     const child = spawnTree(
       this.#spec.command,
-      this.argv({
-        model: request.modelRouting.primary,
-        maxTurns: String(this.#spec.maxTurns ?? 40),
-        mcpConfig: mcpConfigJson(bridge),
-        mcpConfigFile: configFile?.path ?? '',
-        mcpUrl: bridge.url,
-        mcpToken: bridge.token,
-        allowedTools: request.allowedTools
-          .map((tool) => `mcp__palugada__${tool.name}`)
-          .join(','),
-        prompt,
-      }),
+      layout.argv,
       {
         ...(this.#spec.cwd ? { cwd: this.#spec.cwd } : {}),
         // Not `process.env`. The parent's environment is where `DATABASE_URL`
         // and every provider key live, and a child that inherited it would
         // have been handed the platform's own credentials without anything
         // failing to say so.
-        env: this.#childEnv(),
+        env: this.#childEnv(layout.env),
         stdio: ['pipe', 'pipe', 'pipe'],
       },
     );
@@ -328,10 +396,7 @@ export class CliAdapter implements Adapter {
     services.signal.addEventListener('abort', withdraw, { once: true });
 
     const transport: Transport = {
-      events:
-        (this.#spec.dialect ?? 'stream-json') === 'text'
-          ? this.#textEvents(child, () => stderr)
-          : this.#streamJsonEvents(child, () => stderr),
+      events: this.#events(child, () => stderr, values.model),
       async send() {
         // Nothing to send. Tool answers reach this runtime over MCP, and a
         // cancellation reaches it as the killed process below.
@@ -342,7 +407,7 @@ export class CliAdapter implements Adapter {
       close: async () => {
         services.signal.removeEventListener('abort', withdraw);
         await bridge.close();
-        await configFile?.remove();
+        await rm(runDir, { recursive: true, force: true });
         // The whole group, whether or not the CLI itself is still running.
         await this.#trees.end(child);
       },
@@ -356,39 +421,31 @@ export class CliAdapter implements Adapter {
     return driveRun(request, services, transport);
   }
 
-  #childEnv(): Record<string, string> {
+  #uses(placeholder: string): boolean {
+    return [...this.#spec.args, ...Object.values(this.#spec.env ?? {}), ...Object.values(this.#spec.files ?? {})]
+      .some((text) => text.includes(placeholder));
+  }
+
+  #events(child: ChildProcess, stderr: () => string, model: string): AsyncGenerator<RunEvent> {
+    switch (this.#spec.dialect ?? 'stream-json') {
+      case 'text': return this.#textEvents(child, stderr);
+      case 'hermes-stream-json': return hermesEvents(lines(child), () => exitCode(child), stderr, this.name, model);
+      case 'openclaw-json': return openClawEvents(whole(child), () => exitCode(child), stderr, this.name, model);
+      case 'opencode-json': return openCodeEvents(lines(child), () => exitCode(child), stderr, this.name, model);
+      default: return this.#streamJsonEvents(child, stderr);
+    }
+  }
+
+  #childEnv(fromSpec: Record<string, string>): Record<string, string> {
     const env: Record<string, string> = {
       PATH: process.env.PATH ?? '',
-      ...(this.#spec.env ?? {}),
+      ...fromSpec,
     };
     if (this.#spec.apiKeyEnvVar) {
       const value = process.env[this.#spec.apiKeyEnvVar];
       if (value) env[this.#spec.apiKeyEnvVar] = value;
     }
     return env;
-  }
-
-  /**
-   * The MCP configuration as a file, for a CLI that takes a path.
-   *
-   * Only written when the spec asks for one. A file is created 0600 inside a
-   * private directory rather than written and then chmod-ed, because between
-   * those two calls the token is world-readable on a shared machine.
-   */
-  async #writeMcpConfig(
-    bridge: ToolBridge,
-  ): Promise<{ path: string; remove: () => Promise<void> } | null> {
-    if (!this.#spec.args.some((arg) => arg.includes('{mcpConfigFile}'))) return null;
-    const dir = await mkdtemp(join(tmpdir(), 'palugada-mcp-'));
-    await chmod(dir, 0o700);
-    const path = join(dir, 'mcp.json');
-    await writeFile(path, mcpConfigJson(bridge), { encoding: 'utf8', mode: 0o600 });
-    return {
-      path,
-      remove: async () => {
-        await rm(dir, { recursive: true, force: true });
-      },
-    };
   }
 
   async *#streamJsonEvents(child: ChildProcess, stderr: () => string): AsyncGenerator<RunEvent> {
@@ -455,7 +512,7 @@ export class CliAdapter implements Adapter {
 
 function substitute(arg: string, values: CliPlaceholders): string {
   return arg.replace(
-    /\{(model|maxTurns|mcpConfig|mcpConfigFile|mcpUrl|mcpToken|allowedTools|prompt)\}/g,
+    /\{(model|maxTurns|mcpConfig|mcpConfigFile|mcpUrl|mcpToken|allowedTools|prompt|runDir)\}/g,
     (_, key: keyof CliPlaceholders) => values[key],
   );
 }
@@ -480,4 +537,29 @@ function exitCode(child: ChildProcess): Promise<number> {
     // so that "did it succeed" stays a single comparison.
     child.once('close', (code) => resolve(code ?? 1));
   });
+}
+
+/** The child's stdout, a line at a time, blank lines dropped. */
+async function* lines(child: ChildProcess): AsyncGenerator<string> {
+  let buffer = '';
+  for await (const chunk of child.stdout!) {
+    buffer += (chunk as Buffer).toString('utf8');
+    let index = buffer.indexOf('\n');
+    while (index !== -1) {
+      const line = buffer.slice(0, index).trim();
+      buffer = buffer.slice(index + 1);
+      index = buffer.indexOf('\n');
+      if (line) yield line;
+    }
+  }
+  if (buffer.trim()) yield buffer.trim();
+}
+
+/** The child's whole stdout, bounded, once it has closed it. */
+async function whole(child: ChildProcess): Promise<string> {
+  let stdout = '';
+  for await (const chunk of child.stdout!) {
+    stdout = (stdout + (chunk as Buffer).toString('utf8')).slice(-1_048_576);
+  }
+  return stdout;
 }

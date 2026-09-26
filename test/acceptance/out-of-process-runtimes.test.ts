@@ -1024,6 +1024,7 @@ test('a placeholder becomes one argument whatever it contains (F13.3)', () => {
     mcpToken: 't',
     allowedTools: 'mcp__palugada__dns.read',
     prompt: 'p',
+    runDir: '/tmp/run',
   });
 
   assert.deepEqual(argv, [
@@ -1344,23 +1345,26 @@ test('each runtime F13.3 names is a spec that reaches the broker (F13.3, F13.4)'
     const adapter = new CliAdapter(spec);
     assert.equal(adapter.name, spec.name);
 
-    const argv = adapter.argv({
+    const layout = adapter.layout({
       model: 'a-model',
       maxTurns: '40',
       mcpConfig: '{"mcpServers":{}}',
-      mcpConfigFile: '/tmp/mcp.json',
+      mcpConfigFile: '/tmp/run/mcp.json',
       mcpUrl: 'http://127.0.0.1:1/mcp',
       mcpToken: 'tok',
       allowedTools: 'mcp__palugada__dns.read',
       prompt: 'do the thing',
+      runDir: '/tmp/run',
     });
 
-    // No placeholder is left unsubstituted: one that was would reach the CLI
-    // as the literal string `{model}`, and a CLI that accepted it would run
-    // against a model nobody chose.
-    assert.equal(argv.some((arg) => /\{[a-zA-Z]+\}/.test(arg)), false, spec.name);
+    // No placeholder is left unsubstituted anywhere the CLI reads: one that
+    // was would reach it as the literal string `{model}`, and a CLI that
+    // accepted it would run against a model nobody chose. (A CLI's own
+    // substitution syntax -- `${VAR}`, `{env:VAR}` -- is not one of ours.)
+    const everything = [...layout.argv, ...Object.values(layout.env), ...Object.values(layout.files)];
+    assert.equal(everything.some((text) => /\{[a-zA-Z]+\}/.test(text)), false, spec.name);
     assert.ok(
-      argv.some((arg) => arg.includes('/tmp/mcp.json') || arg.includes('mcpServers')),
+      everything.some((text) => text.includes('/tmp/run/mcp.json') || text.includes('http://127.0.0.1:1/mcp')),
       `${spec.name} must be pointed at the bridge`,
     );
   }
@@ -1388,8 +1392,66 @@ test('no shipped runtime spec puts the bridge token on a command line (F13.3, F1
     const argv = spec.args.join(' ');
     assert.equal(argv.includes('{mcpConfig}'), false, `${spec.name} inlines the MCP config`);
     assert.equal(argv.includes('{mcpToken}'), false, `${spec.name} inlines the bridge token`);
-    assert.ok(argv.includes('{mcpConfigFile}'), `${spec.name} must use the file form`);
+    // And not in a file either, where it would outlive a crash that skipped
+    // the clean-up: a file names the variable, the environment holds the
+    // value. (`{mcpConfigFile}` is the platform's own 0600 file, and the one
+    // exception.)
+    for (const [path, body] of Object.entries(spec.files ?? {})) {
+      assert.equal(body.includes('{mcpToken}') || body.includes('{mcpConfig}'), false, `${spec.name} writes the token into ${path}`);
+    }
   }
+});
+
+/**
+ * What each CLI does by default that PALUGADA must not let it do.
+ *
+ * Read from their source: Hermes writes memory and skills after every turn;
+ * OpenClaw's `agent exec` turns on a shell; OpenCode loads a project's own
+ * configuration and plugins from wherever it runs; all of them fall back to
+ * the operator's home, with its stored credentials, when `HOME` is unset.
+ */
+test('no shipped runtime gets a tool, a home or an approval of its own (F13.4)', () => {
+  const dangerous = ['--yolo', '-z', '--auto', '--dangerously-skip-permissions'];
+  for (const spec of knownClis()) {
+    for (const flag of dangerous) assert.equal(spec.args.includes(flag), false, `${spec.name} passes ${flag}`);
+  }
+
+  for (const name of ['hermes', 'openclaw', 'opencode'] as const) {
+    const spec = knownCli(name);
+    assert.equal(spec.env?.HOME, '{runDir}', `${name} would fall back to the operator's home`);
+    assert.equal(spec.env?.PALUGADA_MCP_TOKEN, '{mcpToken}', `${name} is not given the token in its environment`);
+  }
+
+  const hermes = knownCli('hermes');
+  assert.deepEqual(hermes.args.slice(hermes.args.indexOf('--toolsets'), hermes.args.indexOf('--toolsets') + 2), ['--toolsets', 'mcp-palugada']);
+  const hermesConfig = hermes.files!['hermes/config.yaml']!;
+  for (const off of ['memory_enabled: false', 'background_review:\n    enabled: false', 'curator:\n  enabled: false']) {
+    assert.ok(hermesConfig.includes(off), `hermes keeps learning on its own: ${off}`);
+  }
+
+  const openclaw = JSON.parse(knownCli('openclaw').files!['openclaw.json']!) as { tools: { profile: string; deny: string[] } };
+  assert.equal(openclaw.tools.profile, 'minimal');
+  for (const group of ['group:runtime', 'group:fs', 'group:web']) assert.ok(openclaw.tools.deny.includes(group));
+
+  const opencode = knownCli('opencode');
+  const config = JSON.parse(opencode.env!.OPENCODE_CONFIG_CONTENT!.replace('{maxTurns}', '40')) as {
+    permission: Record<string, string>; agent: { palugada: { steps: number } };
+  };
+  assert.deepEqual(config.permission, { '*': 'deny', 'palugada_*': 'allow' });
+  assert.equal(config.agent.palugada.steps, 40, 'a step limit, as a number');
+  assert.deepEqual(opencode.args.slice(opencode.args.indexOf('--dir'), opencode.args.indexOf('--dir') + 2), ['--dir', '{runDir}'],
+    'OpenCode would load the project configuration and plugins of wherever it ran');
+});
+
+test('a spec may not write outside its run directory (F13.3)', () => {
+  for (const path of ['../escape', '/etc/cron.d/x', 'a/../../b']) {
+    assert.throws(() => new CliAdapter({
+      name: 'bad', command: 'x', args: ['{mcpConfigFile}'], files: { [path]: 'x' },
+    }), /outside its run directory/, path);
+  }
+  // The bridge may be placed in the environment or a file, not only in argv.
+  assert.doesNotThrow(() => new CliAdapter({ name: 'env', command: 'x', args: [], env: { MCP: '{mcpUrl}' } }));
+  assert.throws(() => new CliAdapter({ name: 'none', command: 'x', args: [], env: { A: 'b' } }), /places no tool bridge/);
 });
 
 test('a known runtime spec can be corrected without editing the platform (F13.3)', () => {
@@ -1429,6 +1491,84 @@ test('a known spec drives a real run once the binary exists (F13.3)', async () =
 
   assert.equal(outcome.status, 'completed', outcome.reason);
   assert.equal((outcome.output as { tool: { isError: boolean } }).tool.isError, false);
+});
+
+/**
+ * The three specs read from their CLIs' source, driven for real: the binary
+ * swapped for the stand-in, and everything else -- the spec's own files and
+ * environment, the run directory, the bridge, the engine -- the real path.
+ * The stand-in finds the bridge the way the real CLI would, in the CLI's own
+ * configuration format, with the token taken from the environment variable
+ * the configuration names; and it answers in the CLI's own output format.
+ */
+for (const [name, from] of [
+  ['hermes', ['--mcp-config-from', '{runDir}/hermes/config.yaml']],
+  ['openclaw', ['--mcp-config-from', '{runDir}/openclaw.json']],
+  ['opencode', ['--mcp-config-env', 'OPENCODE_CONFIG_CONTENT']],
+] as const) {
+  test(`the ${name} spec drives a real run once the binary exists (F13.3)`, async () => {
+    const fixture = await createCompany(`known-${name}`);
+    const broker = await brokerFor(fixture, ['dns.read']);
+    await configureRole(fixture, { runtime: name, tools: ['dns.read'] });
+    const task = await newTask(fixture, { ask: 'read the zone' });
+
+    const real = knownCli(name);
+    const spec = knownCli(name, {
+      command: process.execPath,
+      args: [AGENT_CLI, '--dialect', real.dialect!, ...from, '--call', 'dns.read', '--dump-env'],
+    });
+
+    const outcome = await engineWith(broker, new CliAdapter(spec)).runTask(fixture.companyId, task.id, 'worker');
+    assert.equal(outcome.status, 'completed', outcome.reason);
+    const output = outcome.output as { tool: { isError: boolean }; home: string; env: string[] };
+    assert.equal(output.tool.isError, false, 'the tool call went through the bridge');
+    // Its home was the run's own directory, which is gone now.
+    assert.match(output.home, /palugada-run-/);
+    const { access } = await import('node:fs/promises');
+    await assert.rejects(access(output.home), 'the run directory, with the token in reach, was not removed');
+    assert.ok(!output.env.includes('DATABASE_URL') && !output.env.includes('PALUGADA_ADMIN_URL'));
+
+    // The usage reached the ledger in the CLI's own terms.
+    const traces = await withTenant(fixture.companyId, async (tx) => (await tx.query<{ input_tokens: number; output_tokens: number }>(
+      "SELECT input_tokens, output_tokens FROM llm_traces WHERE task_id = $1 AND kind = 'call'", [task.id],
+    )).rows);
+    assert.ok(traces.some((trace) => trace.input_tokens > 0 && trace.output_tokens > 0), `${name} usage was lost`);
+  });
+}
+
+/** What each dialect makes of the failures its CLI can print. */
+test('each CLI dialect reads a failure as a failure (F13.3)', async () => {
+  const { hermesEvents, openClawEvents, openCodeEvents } = await import('../../src/runtime/cli-dialects.ts');
+  async function* from(lines: string[]) { for (const line of lines) yield line; }
+  const drain = async (events: AsyncGenerator<RunEvent>) => { const out: RunEvent[] = []; for await (const e of events) out.push(e); return out; };
+  const exit = (code: number) => () => Promise.resolve(code);
+  const quiet = () => 'stderr says why';
+
+  // Hermes: a result with a non-zero exit is an error, after its usage; no
+  // result at all is an error; banners are ignored.
+  let events = await drain(hermesEvents(from(['Hermes v1.0', JSON.stringify({ type: 'result', exit_code: 1, text: '', tokens: { input: 5, output: 1 }, error: 'budget' })]), exit(1), quiet, 'hermes', 'm'));
+  assert.deepEqual(events.map((e) => e.type), ['usage', 'error']);
+  assert.match((events[1] as { message: string }).message, /exit code 1 \(budget\): stderr says why/);
+  events = await drain(hermesEvents(from([JSON.stringify({ type: 'text', text: 'half' })]), exit(0), quiet, 'hermes', 'm'));
+  assert.deepEqual(events.map((e) => e.type), ['text', 'error'], 'a run with no result did not finish, whatever its exit code');
+
+  // OpenClaw: a timeout says so; output that is not its envelope is an error.
+  events = await drain(openClawEvents(Promise.resolve(JSON.stringify({ status: 'timeout', usage: { input: 1, output: 1 } })), exit(2), quiet, 'openclaw', 'm'));
+  assert.deepEqual(events.map((e) => e.type), ['usage', 'error']);
+  assert.match((events[1] as { message: string }).message, /timed out/);
+  events = await drain(openClawEvents(Promise.resolve('Error: no such model'), exit(1), quiet, 'openclaw', 'm'));
+  assert.deepEqual(events.map((e) => e.type), ['error']);
+
+  // OpenCode: a model with no price reports cost zero, which is unknown, not
+  // free; an error event is the verdict whatever came before it.
+  events = await drain(openCodeEvents(from([
+    JSON.stringify({ type: 'text', part: { text: '{"a":1}' } }),
+    JSON.stringify({ type: 'step_finish', part: { cost: 0, tokens: { input: 10, output: 2, reasoning: 0, cache: { read: 0, write: 0 } } } }),
+    JSON.stringify({ type: 'error', error: { name: 'APIError', data: { message: 'overloaded' } } }),
+  ]), exit(1), quiet, 'opencode', 'm'));
+  assert.deepEqual(events.map((e) => e.type), ['text', 'usage', 'error']);
+  assert.equal((events[1] as { usage: { costCents: number | null } }).usage.costCents, null);
+  assert.equal((events[2] as { providerFailure: boolean }).providerFailure, true, 'a provider error may be retried on a fallback');
 });
 
 /* ------------------------------------------------------- the process tree --- */

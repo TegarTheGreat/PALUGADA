@@ -104,10 +104,12 @@ check, because there is a docker CLI here and no daemon.
 
 F13.3 names four third-party runtimes — `hermes`, `openclaw`, `codex` and
 `gemini-cli` — and then names the reason for the list: *so that community
-adapters can be used*. That reason is built and section 2.12 says how; the four
-specs themselves now ship in `src/runtime/known-clis.ts` as starting points an
-operator overrides, said three times over there because none has been run
-against the real binary.
+adapters can be used*. That reason is built and section 2.12 says how. The
+specs ship in `src/runtime/known-clis.ts`, with `opencode` as a fifth. The
+`hermes`, `openclaw` and `opencode` entries were read from each CLI's source at
+a fixed commit (section 2.18); `codex` and `gemini-cli` are still written from
+their descriptions. None has been run against the real binary, because none is
+installed here.
 
 ## 2.1 Deliberate deviations from the PRD
 
@@ -2422,6 +2424,38 @@ where a memory or a decision came from, no request supplies them, and a second
 unique key on the largest table is the wrong trade for that. Events written
 before pairing named the key carry the older, shorter fingerprint of the PEM
 text; they are history, and are left as written.
+
+
+## 2.18 The first two CLI entries were wrong in every flag
+
+The `hermes` and `openclaw` entries were written from what the two CLIs say
+they do, and section 2.12 said so. Reading their source (Hermes Agent at
+d0288be, OpenClaw 2026.9.6 at 6209f31) found that neither would have started:
+
+- Hermes has no `run` subcommand and none of `--headless`, `--max-steps`,
+  `--mcp-config`, `--tools` or `--output`; argparse exits 2 on the first. Its
+  one-shot is `chat --oneshot --query-file -`, and it takes MCP servers only
+  from `$HERMES_HOME/config.yaml`.
+- Worse, its `stream-json` is its own: the final line has no `subtype`, the
+  answer is in `text`, the tokens in `tokens`. Read as Claude Code's, every
+  Hermes run would have ended "as unknown" — a failure — however well it went.
+- OpenClaw's root command has no `--mcp-config`, `--no-builtin-tools` or
+  `--prompt`. Its headless form is `agent exec`, which by default turns on a
+  shell and file tools: F13.4 needs a pinned configuration that narrows it to
+  the MCP bundle.
+
+All three CLIs read MCP servers from their own configuration format, so the
+adapter could not have placed the bridge for any of them. `CliRuntimeSpec`
+therefore gained `files`, written 0600 into a private run directory, and
+placeholders in `env`; the bridge may be placed in arguments, environment or
+files. The token lives only in the child's environment and each configuration
+names it through the CLI's own substitution. `HOME` is the run directory,
+because a child with only `PATH` falls back to the operator's home and its
+stored credentials. Three output dialects were added
+(`src/runtime/cli-dialects.ts`), and each spec is driven end to end against a
+stand-in that reads its bridge from the spec's own files in the CLI's own
+format and answers in the CLI's own output. What remains is to run each once
+against the real binary.
 
 ## 3. Decisions, deviations, and what is unverified
 

@@ -95,8 +95,11 @@ calls through the broker, journaled steps, contained sub-tasks, and a way to
 report cost. A runtime never gets credentials or a database connection.
 
 Supported runtimes: in-process, a spawned script, HTTP, **Claude Code**,
-other agent CLIs added from configuration (`hermes`, `openclaw`, `codex`,
-`gemini-cli`), **Docker with no network**, and a remote sandbox. Each spawned
+other agent CLIs added from configuration (`hermes`, `openclaw` and `opencode`,
+whose entries were read from their source, plus `codex` and `gemini-cli`),
+**Docker with no network**, and a remote sandbox. Each CLI gets its own home
+and configuration per run, only the bridge's tools, and no way to skip an
+approval. Each spawned
 runtime is killed as a whole process tree. An external runtime is a device:
 it proves who it is by signing a challenge, it is paired by the fingerprint
 of its key, and it stays read-only until the owner vouches for it.

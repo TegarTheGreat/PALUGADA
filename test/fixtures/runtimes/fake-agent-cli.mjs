@@ -15,9 +15,14 @@
  *
  * Behaviour is driven by flags so one binary covers every case a test needs:
  *
- *   --dialect stream-json|text   how to answer (default stream-json)
+ *   --dialect <name>             how to answer: stream-json (default), text,
+ *                                hermes-stream-json, openclaw-json, opencode-json
  *   --mcp-config <json>          inline configuration
  *   --mcp-config-file <path>     the same, as a file
+ *   --mcp-config-from <path>     a CLI's own configuration file (YAML or JSON),
+ *                                naming the bridge's URL and the environment
+ *                                variable that holds its token
+ *   --mcp-config-env <var>       the same, from an environment variable
  *   --call <capability>          call this capability before answering
  *   --exit <code>                exit with this code instead of answering
  *   --dump-env                   answer with the environment it was given
@@ -75,6 +80,7 @@ const answer = { sawCharter: prompt.split('\n')[0] ?? '', promptLength: prompt.l
 
 if (argv.includes('--dump-env')) {
   answer.env = Object.keys(process.env).sort();
+  answer.home = process.env.HOME ?? null;
 }
 
 if (toCall !== null) {
@@ -83,6 +89,22 @@ if (toCall !== null) {
 
 if (dialect === 'text') {
   process.stdout.write(`${JSON.stringify(answer)}\n`);
+} else if (dialect === 'hermes-stream-json') {
+  // Hermes's own: no subtype on the result, the answer in `text`, tokens in
+  // `tokens`, no cost.
+  say({ type: 'system', subtype: 'init', model, session_id: 's1', timestamp: 1 });
+  say({ type: 'text', text: 'working', timestamp: 2 });
+  say({ type: 'result', session_id: 's1', exit_code: 0, text: JSON.stringify(answer),
+    tokens: { input: 120, output: 34, total: 154 }, duration_ms: 5, timestamp: 3 });
+} else if (dialect === 'openclaw-json') {
+  process.stderr.write('diagnostics go to stderr\n');
+  say({ ok: true, status: 'ok', final: JSON.stringify(answer), payloads: [],
+    usage: { input: 120, output: 34, total: 154 }, costUsd: 0.0123, model, provider: 'p', sessionId: 's1' });
+} else if (dialect === 'opencode-json') {
+  say({ type: 'step_start', timestamp: 1, sessionID: 's1', part: {} });
+  say({ type: 'text', timestamp: 2, sessionID: 's1', part: { text: JSON.stringify(answer) } });
+  say({ type: 'step_finish', timestamp: 3, sessionID: 's1', part: {
+    reason: 'stop', cost: 0.0042, tokens: { input: 100, output: 30, reasoning: 4, cache: { read: 20, write: 0 } } } });
 } else {
   say({
     type: 'assistant',
@@ -104,6 +126,21 @@ function say(line) {
 }
 
 function readMcpConfig() {
+  // A CLI's own format: find the URL in it, and the token where the file
+  // says the token is -- an environment variable, never the file itself.
+  const own = flag('--mcp-config-from');
+  const ownEnv = flag('--mcp-config-env');
+  if (own || ownEnv) {
+    const text = own ? readFileSync(own, 'utf8') : (process.env[ownEnv] ?? '');
+    // The server's `url` key, not the first address in the file: OpenCode's
+    // configuration opens with the URL of its own schema.
+    const url = text.match(/"?url"?\s*:\s*"(https?:\/\/[^"]+)"/)?.[1];
+    const variable = text.match(/\$\{(?:env:)?([A-Z_]+)\}|\{env:([A-Z_]+)\}/);
+    if (!url || !variable) throw new Error('the configuration names no bridge');
+    const token = process.env[variable[1] ?? variable[2]];
+    if (!token) throw new Error('the token the configuration names is not in the environment');
+    return { url, headers: { Authorization: `Bearer ${token}` } };
+  }
   const file = flag('--mcp-config-file');
   const inline = flag('--mcp-config');
   const raw = file ? readFileSync(file, 'utf8') : inline;

@@ -1,0 +1,201 @@
+/**
+ * What three agent CLIs actually print, read from their source (F13.3).
+ *
+ * `hermes`, `openclaw` and `opencode` were each read at a fixed commit (the
+ * research is summarised in `src/runtime/known-clis.ts`), and none of them
+ * speaks the Claude Code stream the adapter already understood:
+ *
+ * - **Hermes** prints JSON lines that look like Claude Code's and are not.
+ *   Its final `result` line has no `subtype`, carries the answer in `text`
+ *   and the tokens in `tokens`, and no cost at all. Read as Claude Code's,
+ *   every Hermes run ended as "unknown" -- a failure -- however well it went.
+ * - **OpenClaw** (`agent exec --json`) prints one envelope when it exits:
+ *   `status`, `final`, `usage`, and `costUsd` when its model has a price.
+ * - **OpenCode** (`run --format json`) streams events and has no final result
+ *   line: the answer is the last text part, and each `step_finish` carries
+ *   that step's tokens and cost.
+ *
+ * Each is a function from what the process printed, and how it exited, to the
+ * platform's `RunEvent`s -- separate from the process so that what is claimed
+ * about a vendor's format is tested against that format directly, with no
+ * binary installed.
+ */
+import type { ModelUsage, RunEvent } from './protocol.ts';
+import { asOutput } from './claude-code.ts';
+
+type Lines = AsyncIterable<string>;
+
+function parse(line: string): Record<string, unknown> | null {
+  try {
+    const value: unknown = JSON.parse(line);
+    return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+  } catch {
+    // A banner, a warning, a progress line: not an event. Skipped, as in the
+    // Claude Code dialect, because agent CLIs print such things to stdout.
+    return null;
+  }
+}
+
+function number(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+function failure(runtime: string, what: string, stderr: () => string): RunEvent {
+  const detail = stderr().trim();
+  // Not a provider failure: nothing here says the provider failed rather than
+  // the process, and F13.6 would answer a provider failure with a second,
+  // billed run on another model.
+  return { type: 'error', message: `${runtime} ${what}` + (detail ? `: ${detail}` : ''), providerFailure: false };
+}
+
+/**
+ * Hermes: `hermes chat --oneshot --format stream-json`.
+ *
+ * `text` lines are deltas of the answer, passed on as text. The terminal
+ * `result` line is the whole run: its tokens become one usage report with no
+ * price (Hermes reports none on this path; the engine estimates, F13.7), and
+ * its `exit_code` and `error` are the verdict. A process that ends without a
+ * result line did not finish, whatever its exit code says.
+ */
+export async function* hermesEvents(
+  lines: Lines, exit: () => Promise<number>, stderr: () => string, runtime: string, model: string,
+): AsyncGenerator<RunEvent> {
+  let reported = model;
+  for await (const raw of lines) {
+    const line = parse(raw);
+    if (!line) continue;
+    if (line.type === 'system' && line.subtype === 'init' && typeof line.model === 'string') {
+      reported = line.model;
+      continue;
+    }
+    if (line.type === 'text' && typeof line.text === 'string' && line.text) {
+      yield { type: 'text', text: line.text };
+      continue;
+    }
+    if (line.type === 'result') {
+      const tokens = (line.tokens ?? {}) as Record<string, unknown>;
+      const usage: ModelUsage = {
+        model: reported,
+        inputTokens: number(tokens.input),
+        outputTokens: number(tokens.output),
+        costCents: null,
+      };
+      yield { type: 'usage', usage };
+      if (line.exit_code === 0 && !line.error) {
+        yield { type: 'done', output: asOutput(line.text) };
+      } else {
+        yield failure(runtime, `ended with exit code ${String(line.exit_code)}` +
+          (typeof line.error === 'string' ? ` (${line.error})` : ''), stderr);
+      }
+      return;
+    }
+  }
+  yield failure(runtime, `exited ${await exit()} without a result`, stderr);
+}
+
+/**
+ * OpenClaw: `openclaw agent exec --json`, one envelope at exit.
+ *
+ * The usage is the run's, priced when OpenClaw knows the price, and reported
+ * before the verdict so a failed run is still charged what it cost. Exit code
+ * 2 is OpenClaw's timeout, and says so.
+ */
+export async function* openClawEvents(
+  stdout: Promise<string>, exit: () => Promise<number>, stderr: () => string, runtime: string, model: string,
+): AsyncGenerator<RunEvent> {
+  const text = (await stdout).trim();
+  const code = await exit();
+  // The envelope is the last JSON object printed; anything before it is not.
+  const envelope = parse(text) ?? parse(text.slice(text.lastIndexOf('\n{') + 1));
+  if (!envelope) {
+    yield failure(runtime, code === 2 ? 'timed out' : `exited ${code} without its JSON result`, stderr);
+    return;
+  }
+  const usage = (envelope.usage ?? null) as Record<string, unknown> | null;
+  if (usage) {
+    const cost = typeof envelope.costUsd === 'number' && Number.isFinite(envelope.costUsd) && envelope.costUsd >= 0
+      ? envelope.costUsd * 100 : null;
+    yield {
+      type: 'usage',
+      usage: {
+        model: typeof envelope.model === 'string' ? envelope.model : model,
+        inputTokens: number(usage.input),
+        outputTokens: number(usage.output),
+        costCents: cost,
+      },
+    };
+  }
+  if (envelope.status === 'ok' && code === 0) {
+    yield { type: 'done', output: asOutput(envelope.final) };
+    return;
+  }
+  const error = (envelope.error ?? {}) as Record<string, unknown>;
+  yield failure(
+    runtime,
+    envelope.status === 'timeout' || code === 2
+      ? 'timed out'
+      : `ended as ${String(envelope.status ?? 'unknown')}` + (typeof error.message === 'string' ? ` (${error.message})` : ''),
+    stderr,
+  );
+}
+
+/**
+ * OpenCode: `opencode run --format json`.
+ *
+ * Every `step_finish` is one model step, reported as it happens so the
+ * budget sees the run while it is running. A cost of zero with tokens spent
+ * means the model has no price in OpenCode's table, not that it was free,
+ * and is reported as unknown for the engine to estimate (F13.7). The answer
+ * is the last text part; an `error` event, or a non-zero exit, is the verdict
+ * instead.
+ */
+export async function* openCodeEvents(
+  lines: Lines, exit: () => Promise<number>, stderr: () => string, runtime: string, model: string,
+): AsyncGenerator<RunEvent> {
+  let last: string | null = null;
+  let failed: string | null = null;
+  let provider = false;
+  for await (const raw of lines) {
+    const line = parse(raw);
+    if (!line) continue;
+    const part = (line.part ?? {}) as Record<string, unknown>;
+    if (line.type === 'text' && typeof part.text === 'string') {
+      last = part.text;
+      yield { type: 'text', text: part.text };
+    } else if (line.type === 'step_finish') {
+      const tokens = (part.tokens ?? {}) as Record<string, unknown>;
+      const cache = (tokens.cache ?? {}) as Record<string, unknown>;
+      const inputTokens = number(tokens.input) + number(cache.read) + number(cache.write);
+      const outputTokens = number(tokens.output) + number(tokens.reasoning);
+      const cost = number(part.cost);
+      yield {
+        type: 'usage',
+        usage: {
+          model,
+          inputTokens,
+          outputTokens,
+          costCents: cost === 0 && inputTokens + outputTokens > 0 ? null : cost * 100,
+        },
+      };
+    } else if (line.type === 'error') {
+      const error = (line.error ?? {}) as Record<string, unknown>;
+      const data = (error.data ?? {}) as Record<string, unknown>;
+      failed = typeof data.message === 'string' ? data.message : String(error.name ?? 'an error');
+      provider = error.name === 'APIError';
+    }
+  }
+  const code = await exit();
+  if (failed !== null) {
+    yield { ...failure(runtime, `reported ${failed}`, stderr), providerFailure: provider } as RunEvent;
+    return;
+  }
+  if (code !== 0) {
+    yield failure(runtime, `exited ${code}`, stderr);
+    return;
+  }
+  if (last === null) {
+    yield failure(runtime, 'finished without an answer', stderr);
+    return;
+  }
+  yield { type: 'done', output: asOutput(last) };
+}

@@ -1,40 +1,53 @@
 /**
- * The four runtimes F13.3 names, as specs (PRD v2 F13.3).
+ * The runtimes F13.3 names, and OpenCode, as specs (PRD v2 F13.3).
  *
  * `CliAdapter` made an agent CLI a configuration entry rather than an adapter.
- * These are the entries for the four the requirement lists — `hermes`,
- * `openclaw`, `codex`, `gemini-cli` — so that a deployment which has one of the
- * binaries installed does not have to work out its command line from scratch.
+ * These are the entries for the four the requirement lists -- `hermes`,
+ * `openclaw`, `codex`, `gemini-cli` -- and for `opencode`, so that a deployment
+ * which has one of the binaries installed does not have to work out its
+ * command line from scratch.
  *
- * **What these are and are not.** None of the four is installed in this
- * repository and none has been run against these arguments. They are starting
- * points written from each CLI's published interface, not verified command
- * lines, and the difference matters enough to be said in three places: here,
- * in `docs/STATUS.md`, and in the adapter's own name — `knownCli('codex')`
- * returns a spec you are expected to check, and `runtimeSpecsFrom` overrides
- * any of it from configuration precisely so that a wrong guess here is a
- * settings edit rather than a bug report.
+ * **How far each is known.** `hermes`, `openclaw` and `opencode` were read from
+ * their own source (Hermes Agent at d0288be, OpenClaw 2026.9.6 at 6209f31,
+ * OpenCode 1.18.32 at 696f41b): the subcommand, every flag, where each takes
+ * its MCP servers from, and what each prints are the ones in that code. The
+ * first versions of the `hermes` and `openclaw` entries were written from
+ * their descriptions instead, and every flag in both was wrong -- Hermes has
+ * no `run` subcommand, OpenClaw no `--mcp-config` -- and Hermes's output would
+ * have failed every run even with the right flags. None of the three has been
+ * run here, because none is installed; `codex` and `gemini-cli` are still
+ * written from their descriptions. `runtimeSpecsFrom` overrides any of it
+ * from configuration, so a wrong detail is a settings edit.
  *
- * That is the honest version of shipping them. The alternative was to ship
- * nothing, which leaves every operator deriving the same six flags; or to ship
- * them with tests asserting the flags, which would make a green suite mean
- * "somebody typed this twice". What the tests below actually check is the part
- * that is true regardless of the vendor: that each spec places the tool bridge,
- * that none of them hands the CLI its own filesystem or shell, and that the
- * platform's own machinery drives them.
+ * **What every entry holds to, whatever the vendor:**
  *
- * **The one flag that is not a guess.** Every spec disables the CLI's native
- * tools where the CLI has a way to. That is F13.4 and it is not negotiable: a
- * runtime that can write a file or open a socket directly is acting outside
- * the broker, and every guarantee downstream of the broker becomes a guarantee
- * about some of the actions rather than all of them. Where a CLI offers no such
- * switch the spec says so in a comment and the deployment is expected to run it
- * under `remote_sandbox` or `docker`, which is what those backends are for.
+ * - **The bridge, and only the bridge.** F13.4: no native file, shell or web
+ *   tools where the CLI has a way to turn them off -- Hermes's toolsets,
+ *   OpenClaw's tool profile, OpenCode's permission rules. A runtime that can
+ *   write a file directly is acting outside the broker. Where a CLI offers no
+ *   such switch (`codex` keeps a shell) the entry says so and the deployment
+ *   runs it under `remote_sandbox` or `docker`.
+ * - **The token in the environment.** Each CLI reads its MCP servers from its
+ *   own configuration format, written into the run's private directory; the
+ *   file names the token through the CLI's own substitution
+ *   (`${PALUGADA_MCP_TOKEN}`, `{env:PALUGADA_MCP_TOKEN}`) and the token itself
+ *   is only in the child's environment. Never on a command line.
+ * - **A home of its own.** `HOME` (and `XDG_*`, `HERMES_HOME`) is the run's
+ *   directory. The child sees only `PATH` otherwise, and a CLI with no `HOME`
+ *   falls back to the operator's -- their stored credentials, their plugins,
+ *   their memory of other runs.
+ * - **Nothing that skips approvals.** Hermes's `-z` and `--yolo`, OpenCode's
+ *   `--auto`, and every `--dangerously-skip-permissions` are absent, and a
+ *   test says so.
+ * - **The runtime's own learning off.** Hermes writes memory and skills after
+ *   a turn by default; that is learning outside the platform's governed loop
+ *   (F4, F15), so its config turns memory, background review and the curator
+ *   off.
  */
 import type { CliRuntimeSpec } from './cli.ts';
 
-/** The names F13.3 lists, in the order it lists them. */
-export const KNOWN_CLI_NAMES = ['hermes', 'openclaw', 'codex', 'gemini-cli'] as const;
+/** The names F13.3 lists, in the order it lists them, and OpenCode. */
+export const KNOWN_CLI_NAMES = ['hermes', 'openclaw', 'codex', 'gemini-cli', 'opencode'] as const;
 export type KnownCliName = (typeof KNOWN_CLI_NAMES)[number];
 
 /**
@@ -46,51 +59,87 @@ export type KnownCliName = (typeof KNOWN_CLI_NAMES)[number];
  */
 const SPECS: Record<KnownCliName, CliRuntimeSpec> = {
   /**
-   * Hermes Agent. A headless agent runner; MCP servers are given as a config
-   * file, and the transcript comes back as a JSON stream.
+   * Hermes Agent (Nous Research). `chat --oneshot` answers one prompt and
+   * exits; `--query-file -` takes it on stdin; `--toolsets mcp-palugada`
+   * leaves it the bridge's tools and none of its own. MCP servers come only
+   * from `$HERMES_HOME/config.yaml`.
    */
   hermes: {
     name: 'hermes',
     command: 'hermes',
     args: [
-      'run',
-      '--headless',
-      '--model', '{model}',
-      '--max-steps', '{maxTurns}',
-      '--mcp-config', '{mcpConfigFile}',
-      '--tools', '{allowedTools}',
-      '--output', 'stream-json',
+      'chat', '--oneshot', '--query-file', '-',
+      '--format', 'stream-json',
+      '-m', '{model}',
+      '--toolsets', 'mcp-palugada',
+      '--max-turns', '{maxTurns}',
+      // Kept out of the operator's own session list.
+      '--source', 'tool',
     ],
     promptVia: 'stdin',
-    dialect: 'stream-json',
+    dialect: 'hermes-stream-json',
+    env: { HOME: '{runDir}', HERMES_HOME: '{runDir}/hermes', PALUGADA_MCP_TOKEN: '{mcpToken}' },
+    files: {
+      'hermes/config.yaml': [
+        'mcp_servers:',
+        '  palugada:',
+        '    url: "{mcpUrl}"',
+        '    headers:',
+        '      Authorization: "Bearer ${PALUGADA_MCP_TOKEN}"',
+        'memory:',
+        '  memory_enabled: false',
+        '  user_profile_enabled: false',
+        'auxiliary:',
+        '  background_review:',
+        '    enabled: false',
+        'curator:',
+        '  enabled: false',
+        'approvals:',
+        '  single_query_mode: deny',
+        '',
+      ].join('\n'),
+    },
     versionArgs: ['--version'],
   },
 
   /**
-   * OpenClaw. Takes the prompt as an argument and prints its answer, which is
-   * why this one is the `text` dialect: there is a final answer on stdout and
-   * an exit code, and nothing structured in between.
+   * OpenClaw. `agent exec` is its headless one-shot: embedded, no gateway,
+   * temporary state. By default it turns on the `coding` tool profile and a
+   * shell, so the pinned config narrows it to the MCP bundle and denies the
+   * rest. `--json` prints one envelope at exit, with usage and cost.
    */
   openclaw: {
     name: 'openclaw',
     command: 'openclaw',
     args: [
-      '--no-interactive',
+      'agent', 'exec', '--message-file', '-', '--json',
+      '--config', '{runDir}/openclaw.json',
+      '--cwd', '{runDir}',
       '--model', '{model}',
-      // The file, not `{mcpConfig}`. The inline form puts the bridge's bearer
-      // token on the command line, and a command line is world-readable on
-      // this machine -- `/proc/<pid>/cmdline`, `ps`, any container sidecar. The
-      // token is per-run and expires with it, so the window is short, but it
-      // is a credential in a place credentials do not belong and the file form
-      // is 0600 in a 0700 directory and removed when the run ends.
-      '--mcp-config', '{mcpConfigFile}',
-      // No native tools. See the module comment: this is F13.4 and it is the
-      // one flag in this file that is not a matter of taste.
-      '--no-builtin-tools',
-      '--prompt', '{prompt}',
+      '--code-mode', 'direct',
+      '--timeout', '600',
     ],
-    promptVia: 'arg',
-    dialect: 'text',
+    promptVia: 'stdin',
+    dialect: 'openclaw-json',
+    env: { HOME: '{runDir}', PALUGADA_MCP_TOKEN: '{mcpToken}' },
+    files: {
+      'openclaw.json': JSON.stringify({
+        mcp: {
+          servers: {
+            palugada: {
+              url: '{mcpUrl}',
+              transport: 'streamable-http',
+              headers: { Authorization: 'Bearer ${PALUGADA_MCP_TOKEN}' },
+            },
+          },
+        },
+        tools: {
+          profile: 'minimal',
+          alsoAllow: ['bundle-mcp'],
+          deny: ['session_status', 'gateway', 'group:runtime', 'group:fs', 'group:web'],
+        },
+      }, null, 2),
+    },
     versionArgs: ['--version'],
   },
 
@@ -135,6 +184,53 @@ const SPECS: Record<KnownCliName, CliRuntimeSpec> = {
     ],
     promptVia: 'arg',
     dialect: 'text',
+    versionArgs: ['--version'],
+  },
+
+  /**
+   * OpenCode. `run --format json` streams its events; piped stdin becomes
+   * the message. Its whole configuration arrives in `OPENCODE_CONFIG_CONTENT`:
+   * the bridge as a remote MCP server, and a permission rule that denies every
+   * tool but the bridge's -- a `*` deny removes a tool from the model's list
+   * altogether. `--dir` is the run's directory, so no project `opencode.json`
+   * or `.opencode/` plugin is loaded; a hostile one could reorder those rules
+   * or run code of its own.
+   */
+  opencode: {
+    name: 'opencode',
+    command: 'opencode',
+    args: ['run', '--format', 'json', '--agent', 'palugada', '--model', '{model}', '--dir', '{runDir}'],
+    promptVia: 'stdin',
+    dialect: 'opencode-json',
+    env: {
+      HOME: '{runDir}',
+      XDG_CONFIG_HOME: '{runDir}/.config',
+      XDG_DATA_HOME: '{runDir}/.data',
+      XDG_CACHE_HOME: '{runDir}/.cache',
+      XDG_STATE_HOME: '{runDir}/.state',
+      OPENCODE_DISABLE_AUTOUPDATE: '1',
+      OPENCODE_DISABLE_CLAUDE_CODE: '1',
+      OPENCODE_DISABLE_LSP_DOWNLOAD: '1',
+      PALUGADA_MCP_TOKEN: '{mcpToken}',
+      OPENCODE_CONFIG_CONTENT: JSON.stringify({
+        $schema: 'https://opencode.ai/config.json',
+        share: 'disabled',
+        autoupdate: false,
+        mcp: {
+          palugada: {
+            type: 'remote',
+            url: '{mcpUrl}',
+            enabled: true,
+            headers: { Authorization: 'Bearer {env:PALUGADA_MCP_TOKEN}' },
+          },
+        },
+        permission: { '*': 'deny', 'palugada_*': 'allow' },
+        agent: {
+          palugada: { mode: 'primary', steps: '{maxTurns}', description: 'A PALUGADA role' },
+        },
+      // A number in OpenCode's schema, so the placeholder loses its quotes.
+      }).replace('"{maxTurns}"', '{maxTurns}'),
+    },
     versionArgs: ['--version'],
   },
 };

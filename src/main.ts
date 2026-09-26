@@ -53,7 +53,7 @@ import { join } from 'node:path';
 import { hostname } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { consoleLinkFor } from './owner/notify.ts';
+import { consoleLinkFor, consoleTaskLinkFor } from './owner/notify.ts';
 
 export interface DeploymentOptions {
   /**
@@ -464,7 +464,10 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
       }
       : {}),
     ...(env.PALUGADA_APP_URL_PUBLIC
-      ? { ownerLinkFor: (item) => consoleLinkFor(env.PALUGADA_APP_URL_PUBLIC!, item) }
+      ? {
+        ownerLinkFor: (item) => consoleLinkFor(env.PALUGADA_APP_URL_PUBLIC!, item),
+        ownerTaskLinkFor: (task) => consoleTaskLinkFor(env.PALUGADA_APP_URL_PUBLIC!, task),
+      }
       : {}),
     ...options.worker,
   });

@@ -47,7 +47,7 @@ import { closureText } from './notify.ts';
 import { say } from './say.ts';
 import { deploymentLanguages } from '../domain/language.ts';
 import type {
-  ClosedItem, DeliveryResult, NotifiableItem, OwnerChannel, RetractOutcome,
+  ClosedItem, DeliveryResult, DoneNotice, NotifiableItem, OwnerChannel, RetractOutcome,
 } from './notify.ts';
 
 export interface TelegramOptions {
@@ -254,6 +254,22 @@ export class TelegramChannel implements OwnerChannel {
       parse_mode: 'MarkdownV2',
       text: escapeMarkdown(digest.text),
     });
+  }
+
+  /**
+   * Work the owner gave has finished (0059): news, so nothing to press --
+   * only a way to open the task, when there is an address to open it at.
+   */
+  async deliverNotice(notice: DoneNotice): Promise<DeliveryResult> {
+    const sent = await this.#call<{ message_id?: number }>('sendMessage', {
+      chat_id: this.#options.chatId,
+      parse_mode: 'MarkdownV2',
+      text: escapeMarkdown(notice.text),
+      ...(notice.url
+        ? { reply_markup: { inline_keyboard: [[{ text: say(notice.language, 'Open in PALUGADA'), url: notice.url }]] } }
+        : {}),
+    });
+    return sent.message_id ? { ref: String(sent.message_id) } : {};
   }
 
   /**

@@ -57,6 +57,7 @@ import {
   digestOwed,
   dispatch,
   dispatchDigest,
+  dispatchDoneNotices,
   retryDigests,
   retryFailed,
   retractClosed,
@@ -128,6 +129,8 @@ export interface WorkerOptions {
   };
   /** Turns an item into a deep link into the owner's app, when there is one. */
   ownerLinkFor?: (item: NotifiableItem) => string | null;
+  /** The same for a task, for the news that work the owner gave has finished (0059). */
+  ownerTaskLinkFor?: (task: { companyId: string; taskId: string }) => string | null;
   signal?: AbortSignal;
   /**
    * Called when a whole tick fails, not when a stage does.
@@ -684,6 +687,12 @@ export class Worker {
         // out lost that day for ever.
         report.digests += (await retryDigests(company, takers, { now })).delivered;
       }
+
+      // And the news the owner is waiting for: work they gave has finished.
+      report.notified += (await dispatchDoneNotices(company, channels, {
+        now,
+        ...(this.#options.ownerTaskLinkFor ? { linkFor: this.#options.ownerTaskLinkFor } : {}),
+      })).delivered;
     });
   }
 

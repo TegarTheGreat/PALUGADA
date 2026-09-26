@@ -868,6 +868,28 @@ test('the tick puts an incident in front of the owner (F10.5, F10.9)', async () 
   assert.equal(second.notified, 0);
 });
 
+/** And the tick tells the owner their work is done (0059), through a channel that takes news. */
+test('the tick tells the owner that work they gave has finished', async () => {
+  const fixture = await createCompany('worker-done-notice');
+  const heard: string[] = [];
+  const channel: OwnerChannel = {
+    name: 'test:news',
+    carries: () => false,
+    async deliver() { return {}; },
+    async deliverNotice(notice) { heard.push(notice.text); return {}; },
+  };
+  const { setOwnerWindow } = await import('../../src/scheduler/windows.ts');
+  const hour = new Date().getUTCHours();
+  await setOwnerWindow({ timezone: 'UTC', startHour: hour, endHour: (hour + 2) % 24 });
+  const worker = workerFor(fixture, async () => ({ summary: 'Priced at Rp 95.000' }), { ownerChannels: [channel] });
+  await newTask(fixture);
+  await worker.tick();
+  await worker.tick();
+  assert.equal(heard.length, 1);
+  assert.match(heard[0]!, /Done: /);
+  assert.match(heard[0]!, /Priced at Rp 95\.000/);
+});
+
 /**
  * A channel that is down does not take the tick with it.
  *

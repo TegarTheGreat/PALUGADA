@@ -2650,6 +2650,16 @@ rest are listed at the end.
   run reads it beside its procedures. A second word on the same task
   supersedes the first, and praise with no reason is recorded and teaches
   nothing.
+- Tell the owner when work they gave has finished (0059,
+  `dispatchDoneNotices` in `src/owner/notify.ts`). Nothing did: the owner
+  learned a task was done by opening the console. Buzz calls it the
+  callback mention. A root task the owner assigned that completes, fails or
+  halts becomes one message on each channel that takes news (Telegram does;
+  push does not, because F10.5 keeps the ringing phone for an incident and
+  a tier 3 approval), in the owner's window and language, with a link that
+  opens the task. A schedule's routine run and a step an agent delegated
+  are not news. A notice whose send failed is tried again a few minutes
+  later, a few times, by the same claim-first row every notification keeps.
 - Measure goals by numbers (section 2.19).
 
 **F8.9, enforced where it does not depend on the model.** The untrusted

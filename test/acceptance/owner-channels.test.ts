@@ -1423,3 +1423,94 @@ test('choices are two to six short, different answers', async () => {
     await assert.rejects(ask(bad), /choices/);
   }
 });
+
+/*
+ * Work done (0059). The owner gave a role something to do and learned it was
+ * finished by opening the console and looking. Buzz calls it the callback
+ * mention. A notice goes to a chat -- not a push, which F10.5 keeps for an
+ * incident and a tier 3 approval -- once per task, in the owner's window and
+ * language, and only for work the owner gave.
+ */
+test('the owner hears in the chat that work they gave has finished, once, in their window', async () => {
+  const fixture = await createCompany('done-notice');
+  const { createRootTask, transition } = await import('../../src/engine/tasks.ts');
+  const { dispatchDoneNotices } = await import('../../src/owner/notify.ts');
+  const { setOwnerWindow } = await import('../../src/scheduler/windows.ts');
+  const { withControlPlane } = await import('../../src/db/tenant.ts');
+  const vendor = await fakeVendor(() => ({ status: 200, body: { ok: true, result: { message_id: 7 } } }));
+  try {
+    const chat = telegram({ url: vendor.url });
+    const give = async (goal: string, createdBy: 'owner' | 'scheduler' | 'agent_run' = 'owner') => {
+      const task = await createRootTask({
+        companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+        roleId: fixture.roleId, budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId,
+        input: { goal }, createdBy, reserveTokens: 1_000,
+      });
+      await transition(fixture.companyId, task.id, 'running');
+      return task;
+    };
+    const letter = await give('Write the October newsletter');
+    await transition(fixture.companyId, letter.id, 'completed', { output: { summary: 'Drafted, 140 words.' } });
+    const broken = await give('Renew the domain');
+    await transition(fixture.companyId, broken.id, 'halted', { haltReason: 'budget_exhausted' });
+    const routine = await give('Check the uptime', 'scheduler');
+    await transition(fixture.companyId, routine.id, 'completed', { output: { summary: 'up' } });
+    const delegated = await give('A part an agent handed on', 'agent_run');
+    await transition(fixture.companyId, delegated.id, 'completed', { output: { summary: 'done' } });
+
+    // Outside the owner's window, news waits.
+    const hour = new Date().getUTCHours();
+    await setOwnerWindow({ timezone: 'UTC', startHour: (hour + 2) % 24, endHour: (hour + 4) % 24 });
+    assert.deepEqual(await dispatchDoneNotices(fixture.companyId, [chat]), { delivered: 0 });
+
+    await setOwnerWindow({ timezone: 'UTC', startHour: hour, endHour: (hour + 2) % 24 });
+    await withControlPlane((tx) => tx.query("UPDATE platform_control SET console_language = 'id'"));
+    assert.deepEqual(await dispatchDoneNotices(fixture.companyId, [chat],
+      { linkFor: (task) => `https://app.palugada.test/t/${task.taskId}` }), { delivered: 2 });
+    assert.deepEqual(await dispatchDoneNotices(fixture.companyId, [chat]), { delivered: 0 }, 'once');
+
+    const texts = vendor.calls.map((call) => String(call.body.text));
+    assert.equal(texts.length, 2, 'not for the routine check, nor for work an agent started');
+    assert.ok(texts.some((text) => /Selesai: Write the October newsletter/.test(text) && /Drafted, 140 words/.test(text)));
+    assert.ok(texts.some((text) => /Berhenti sebelum selesai: Renew the domain/.test(text) && /budget exhausted/.test(text)));
+    assert.ok(vendor.calls.every((call) => JSON.stringify(call.body).includes('https://app.palugada.test/t/')));
+    assert.ok(vendor.calls.every((call) => call.body.reply_markup === undefined
+      || !JSON.stringify(call.body.reply_markup).includes('callback_data')), 'nothing to press');
+  } finally {
+    await vendor.close();
+  }
+});
+
+test('a push channel does not carry work-done news, and a failed notice is tried again later', async () => {
+  const fixture = await createCompany('done-notice-push');
+  const { createRootTask, transition } = await import('../../src/engine/tasks.ts');
+  const { dispatchDoneNotices } = await import('../../src/owner/notify.ts');
+  const { setOwnerWindow } = await import('../../src/scheduler/windows.ts');
+  const hour = new Date().getUTCHours();
+  await setOwnerWindow({ timezone: 'UTC', startHour: hour, endHour: (hour + 2) % 24 });
+  const task = await createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    roleId: fixture.roleId, budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId,
+    input: { goal: 'Price the new blend' }, createdBy: 'owner', reserveTokens: 1_000,
+  });
+  await transition(fixture.companyId, task.id, 'running');
+  await transition(fixture.companyId, task.id, 'completed', { output: { summary: 'Rp 95.000' } });
+
+  const push = new WebhookPush({ url: 'http://127.0.0.1:9', token: 'Bearer push-token' });
+  assert.deepEqual(await dispatchDoneNotices(fixture.companyId, [push]), { delivered: 0 });
+
+  const vendor = await fakeVendor((_, index) => (index === 0
+    ? { status: 502, body: { ok: false, description: 'Bad Gateway' } }
+    : { status: 200, body: { ok: true, result: { message_id: 9 } } }));
+  try {
+    const chat = telegram({ url: vendor.url });
+    assert.deepEqual(await dispatchDoneNotices(fixture.companyId, [chat]), { delivered: 0 });
+    assert.deepEqual(await dispatchDoneNotices(fixture.companyId, [chat]), { delivered: 0 }, 'not at once');
+    await withTenant(fixture.companyId, (tx) => tx.query(
+      "UPDATE owner_notifications SET last_attempt_at = now() - interval '10 minutes' WHERE task_id = $1", [task.id]));
+    assert.deepEqual(await dispatchDoneNotices(fixture.companyId, [chat]), { delivered: 1 });
+    assert.equal(vendor.calls.length, 2);
+  } finally {
+    await vendor.close();
+  }
+});

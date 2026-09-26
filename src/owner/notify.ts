@@ -35,6 +35,7 @@ import { appendEvent } from '../audit/event-log.ts';
 import { redactor } from '../secrets/manager.ts';
 import { channelDelivery, type ChannelDelivery } from '../inbox/inbox.ts';
 import { buildDailyDigest, renderDailyDigest } from '../reporting/digest.ts';
+import { notifyAfterFor } from '../scheduler/windows.ts';
 
 /** One item, as a transport needs to see it. */
 /**
@@ -51,6 +52,14 @@ export function consoleLinkFor(
   const link = new URL(publicUrl);
   link.searchParams.set('company', item.companyId);
   link.searchParams.set('item', item.id);
+  return link.toString();
+}
+
+/** The same, for a task: the console opens it in the company's work (0059). */
+export function consoleTaskLinkFor(publicUrl: string, task: { companyId: string; taskId: string }): string {
+  const link = new URL(publicUrl);
+  link.searchParams.set('company', task.companyId);
+  link.searchParams.set('task', task.taskId);
   return link.toString();
 }
 
@@ -152,6 +161,24 @@ export interface OwnerChannel {
    * second notification to say the first one is over.
    */
   retract?(closed: ClosedItem, ref: string | null): Promise<RetractOutcome>;
+  /**
+   * News that needs nothing from the owner: work they gave has finished
+   * (0059). Optional, and a push transport leaves it out -- F10.5 keeps the
+   * ringing phone for an incident and a tier 3 approval, and "your newsletter
+   * is drafted" is neither. A chat is where news is read when it is read.
+   */
+  deliverNotice?(notice: DoneNotice): Promise<DeliveryResult>;
+}
+
+/** Work the owner gave, finished (0059), as a channel sends it. */
+export interface DoneNotice {
+  companyId: string;
+  taskId: string;
+  /** Already in the owner's language, and redacted. */
+  text: string;
+  /** Where the task opens in the console, when the deployment has a public address. */
+  url: string | null;
+  language: string;
 }
 
 /**
@@ -356,6 +383,106 @@ export async function dispatchDigest(
   }
 
   return { delivered, skipped, failed };
+}
+
+/** How long after it ended a task is still news. A worker down longer than this does not flood the chat. */
+const NOTICE_LOOKBACK_MS = 24 * 60 * 60_000;
+/** The most notices one channel sends in a tick; the rest go on the next. */
+const NOTICE_BATCH = 20;
+/** How long a notice that failed waits before it is tried again, and how many times. */
+const NOTICE_RETRY_MS = 5 * 60_000;
+const NOTICE_ATTEMPTS = 3;
+
+/**
+ * Tells the owner that work they gave has finished (0059).
+ *
+ * Only work the owner gave -- a root task they assigned -- because that is
+ * the work they are waiting for; a schedule's routine run and a step an agent
+ * delegated are not news, and a chat that reported every one would be muted
+ * by the end of the first day. Completed, failed or halted; not cancelled,
+ * since the owner cancelled it. In the owner's window, as everything that is
+ * not an emergency waits for it (F9.3). Once per channel, by the same
+ * claim-first row every other notification keeps, and a notice whose send
+ * failed is tried again a few minutes later, a few times.
+ */
+export async function dispatchDoneNotices(
+  companyId: string,
+  channels: readonly OwnerChannel[],
+  options: { now?: Date; linkFor?: (task: { companyId: string; taskId: string }) => string | null } = {},
+): Promise<{ delivered: number }> {
+  const now = options.now ?? new Date();
+  const takers = channels.filter((channel) => channel.deliverNotice);
+  if (takers.length === 0) return { delivered: 0 };
+  if ((await notifyAfterFor('notice', { now })) > now) return { delivered: 0 };
+
+  let delivered = 0;
+  for (const channel of takers) {
+    const due = await withTenant(companyId, async (tx) => (await tx.query<{
+      id: string; status: 'completed' | 'failed' | 'halted'; goal: string | null; summary: string | null;
+      halt_reason: string | null; role: string; language: string | null;
+    }>(
+      `SELECT t.id, t.status, t.input->>'goal' AS goal, t.output->>'summary' AS summary, t.halt_reason,
+              r.slug AS role, (SELECT console_language FROM platform_control) AS language
+         FROM tasks t JOIN roles r ON r.id = t.role_id
+        WHERE t.created_by = 'owner' AND t.parent_task_id IS NULL
+          AND t.status IN ('completed', 'failed', 'halted')
+          AND t.finished_at > $1 AND t.finished_at <= $2
+          AND NOT EXISTS (
+            SELECT 1 FROM owner_notifications n
+             WHERE n.task_id = t.id AND n.channel = $3
+               AND (n.delivered_at IS NOT NULL OR n.attempts >= $4
+                    OR n.last_attempt_at > $2::timestamptz - make_interval(secs => $5)))
+        ORDER BY t.finished_at
+        LIMIT $6`,
+      [new Date(now.getTime() - NOTICE_LOOKBACK_MS), now, channel.name, NOTICE_ATTEMPTS, NOTICE_RETRY_MS / 1000, NOTICE_BATCH],
+    )).rows);
+
+    for (const task of due) {
+      // Claimed before the send: a crash in between loses a notice rather
+      // than sending it twice. A retry re-claims only a row that is due.
+      const claimed = await withTenant(companyId, async (tx) => (await tx.query(
+        `INSERT INTO owner_notifications (company_id, task_id, channel, delivery, last_attempt_at)
+         VALUES ($1, $2, $3, 'link_only', $4)
+         ON CONFLICT (company_id, channel, task_id) WHERE task_id IS NOT NULL
+         DO UPDATE SET last_attempt_at = EXCLUDED.last_attempt_at
+          WHERE owner_notifications.delivered_at IS NULL AND owner_notifications.attempts < $5
+            AND owner_notifications.last_attempt_at <= $4::timestamptz - make_interval(secs => $6)
+         RETURNING id`,
+        [companyId, task.id, channel.name, now, NOTICE_ATTEMPTS, NOTICE_RETRY_MS / 1000],
+      )).rowCount === 1);
+      if (!claimed) continue;
+
+      const language = task.language ?? 'en';
+      const goal = (task.goal ?? say(language, 'a task')).slice(0, 200);
+      const headline = task.status === 'completed'
+        ? say(language, 'Done: {goal}', { goal })
+        : say(language, 'Stopped before finishing: {goal}', { goal });
+      const detail = task.status === 'completed'
+        ? (task.summary ?? '').slice(0, 500)
+        // A halt reason is a code; `budget_exhausted` read aloud is "budget exhausted".
+        : say(language, 'Why: {reason}', { reason: (task.halt_reason ?? task.status).replace(/_/g, ' ') });
+      const text = redactor.redact([headline, detail, `— ${task.role}`].filter(Boolean).join('\n'));
+      try {
+        const sent = await channel.deliverNotice!({
+          companyId, taskId: task.id, text, language,
+          url: options.linkFor?.({ companyId, taskId: task.id }) ?? null,
+        });
+        await withTenant(companyId, (tx) => tx.query(
+          `UPDATE owner_notifications SET delivered_at = now(), external_ref = $4, attempts = attempts + 1
+            WHERE company_id = $1 AND channel = $2 AND task_id = $3`,
+          [companyId, channel.name, task.id, sent.ref ?? null],
+        ));
+        delivered += 1;
+      } catch (error) {
+        await withTenant(companyId, (tx) => tx.query(
+          `UPDATE owner_notifications SET attempts = attempts + 1, last_error = $4
+            WHERE company_id = $1 AND channel = $2 AND task_id = $3`,
+          [companyId, channel.name, task.id, redactor.redact((error as Error).message).slice(0, 500)],
+        ));
+      }
+    }
+  }
+  return { delivered };
 }
 
 export interface DispatchReport {

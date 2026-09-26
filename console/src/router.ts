@@ -72,7 +72,9 @@ export function takeLinkedRoute(): void {
   const companyId = query.get('company');
   if (!companyId) return;
   const item = query.get('item');
-  window.history.replaceState(null, '', `${window.location.pathname}${href({
-    kind: 'company', companyId, page: 'inbox', section: 'company', item,
-  })}`);
+  // A notice that work finished links to the task, in the company's work (0059).
+  const task = query.get('task');
+  window.history.replaceState(null, '', `${window.location.pathname}${href(task
+    ? { kind: 'company', companyId, page: 'work', section: 'company', item: task }
+    : { kind: 'company', companyId, page: 'inbox', section: 'company', item })}`);
 }

@@ -1069,3 +1069,40 @@ test('a worker with no model neither distils nor screens, and does not fail (F4.
   assert.equal(report.distilled, 0);
   assert.equal(report.screened, 0);
 });
+
+/**
+ * The waits a worker and its runs make on a long-lived signal: one that has
+ * already fired does not wait at all, and one the timer wins leaves no
+ * listener behind -- the shutdown signal lives as long as the process, and
+ * a listener per idle tick is a leak Node eventually warns about.
+ */
+test('a wait on a signal leaves nothing behind and honours one already fired', async () => {
+  const { sleep } = await import('../../src/timers.ts');
+  const { EventEmitter } = await import('node:events');
+  const controller = new AbortController();
+  for (let n = 0; n < 20; n += 1) await sleep(1, controller.signal);
+  assert.equal(EventEmitter.getEventListeners(controller.signal, 'abort').length, 0);
+
+  controller.abort();
+  const started = Date.now();
+  await sleep(10_000, controller.signal);
+  assert.ok(Date.now() - started < 1_000, 'an aborted signal does not wait');
+});
+
+/**
+ * `setTimeout` cannot wait past about twenty-five days and fires after one
+ * millisecond instead. The long timer waits in steps against the clock.
+ */
+test('a long timer waits out a delay longer than setTimeout can', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 0 });
+  return import('../../src/timers.ts').then(({ setLongTimeout, MAX_TIMER_MS }) => {
+    let fired = 0;
+    setLongTimeout(() => { fired += 1; }, MAX_TIMER_MS + 1_000);
+    t.mock.timers.tick(1);
+    assert.equal(fired, 0, 'not at once');
+    t.mock.timers.tick(MAX_TIMER_MS);
+    assert.equal(fired, 0, 'not at the first step');
+    t.mock.timers.tick(1_000);
+    assert.equal(fired, 1, 'when it is due');
+  });
+});

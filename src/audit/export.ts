@@ -282,12 +282,12 @@ const SECTIONS: Section[] = [
 ];
 
 const TRACES_WITH_PROMPTS = `
-  SELECT id, task_id, agent_run_id, model, prompt, response, input_tokens,
+  SELECT id, task_id, agent_run_id, kind, model, prompt, response, input_tokens,
          output_tokens, cost_cents, latency_ms, occurred_at
     FROM llm_traces ORDER BY occurred_at`;
 
 const TRACES_WITHOUT_PROMPTS = `
-  SELECT id, task_id, agent_run_id, model, input_tokens, output_tokens,
+  SELECT id, task_id, agent_run_id, kind, model, input_tokens, output_tokens,
          cost_cents, latency_ms, occurred_at
     FROM llm_traces ORDER BY occurred_at`;
 

@@ -42,6 +42,7 @@ import { PalugadaError } from '../errors.ts';
 import type { Capability, CapabilityContext } from '../broker/registry.ts';
 import type { Tier } from '../domain/tier.ts';
 import { safeFetch, type ReachableOptions } from './reachable.ts';
+import { sleep } from '../timers.ts';
 
 /**
  * The placeholders a spec may use.
@@ -484,16 +485,6 @@ export function rateLimit(
   // happened -- is not a reason to hammer. A second is.
   if (notBefore) return { notBefore: new Date(now.getTime() + 1_000), stated: true };
   return { notBefore: new Date(now.getTime() + DEFAULT_RATE_LIMIT_WAIT_MS), stated: false };
-}
-
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    signal?.addEventListener('abort', () => {
-      clearTimeout(timer);
-      resolve();
-    }, { once: true });
-  });
 }
 
 /**

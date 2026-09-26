@@ -146,8 +146,10 @@ export async function exportTrajectory(
       cost_cents: number;
       occurred_at: Date;
     }>(
+      // Calls only: a settlement (0043) is the runtime's bill arriving, not
+      // something the run did.
       `SELECT model, input_tokens, output_tokens, cost_cents, occurred_at
-         FROM llm_traces WHERE agent_run_id = $1 ORDER BY occurred_at`,
+         FROM llm_traces WHERE agent_run_id = $1 AND kind = 'call' ORDER BY occurred_at`,
       [agentRunId],
     );
 

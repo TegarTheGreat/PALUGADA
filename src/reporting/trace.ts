@@ -31,6 +31,12 @@ import { trajectoriesForTask, type Trajectory } from '../eval/trajectory.ts';
 export interface TraceCall {
   id: string;
   agentRunId: string | null;
+  /**
+   * `settlement` is a runtime's own bill for its run arriving and correcting
+   * the estimates charged for its calls (0043): its cost is the difference,
+   * and it has no tokens, prompt or response.
+   */
+  kind: 'call' | 'settlement';
   model: string;
   inputTokens: number;
   outputTokens: number;
@@ -136,14 +142,15 @@ async function callsForTask(
 ): Promise<TraceCall[]> {
   return withTenant(companyId, async (tx) => {
     const columns = includePrompts
-      ? `id, agent_run_id, model, prompt, response, input_tokens, output_tokens,
+      ? `id, agent_run_id, kind, model, prompt, response, input_tokens, output_tokens,
          cost_cents, latency_ms, occurred_at`
-      : `id, agent_run_id, model, input_tokens, output_tokens,
+      : `id, agent_run_id, kind, model, input_tokens, output_tokens,
          cost_cents, latency_ms, occurred_at`;
 
     const { rows } = await tx.query<{
       id: string;
       agent_run_id: string | null;
+      kind: 'call' | 'settlement';
       model: string;
       prompt?: Record<string, unknown> | null;
       response?: Record<string, unknown> | null;
@@ -160,6 +167,7 @@ async function callsForTask(
     return rows.map((row) => ({
       id: row.id,
       agentRunId: row.agent_run_id,
+      kind: row.kind,
       model: row.model,
       inputTokens: row.input_tokens,
       outputTokens: row.output_tokens,

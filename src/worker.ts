@@ -69,6 +69,7 @@ import {
 } from './memory/distillation.ts';
 import { screenCandidate } from './skills/skills.ts';
 import type { LlmClient } from './llm/client.ts';
+import { sleep } from './timers.ts';
 
 export interface WorkerOptions {
   engine: Engine;
@@ -425,33 +426,14 @@ export class Worker {
         // A permanent failure keeps failing and stays visible in the logs
         // rather than leaving a process that exited for reasons nobody saw.
         this.#options.onTickError?.(error as Error);
-        await this.#sleep(idle, signal);
+        await sleep(idle, signal);
         continue;
       }
 
       if (madeProgress(report) && !report.stopped) continue;
 
-      await this.#sleep(idle, signal);
+      await sleep(idle, signal);
     }
-  }
-
-  /** Waits, and stops waiting the moment the signal aborts. */
-  async #sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
-    if (signal?.aborted) return;
-    // The listener is removed when the timer wins. The shutdown signal lives
-    // as long as the process, and a listener left behind by every idle sleep
-    // is one more per tick until Node warns about a leak -- which it would be.
-    await new Promise<void>((resolve) => {
-      const wake = () => {
-        clearTimeout(timer);
-        resolve();
-      };
-      const timer = setTimeout(() => {
-        signal?.removeEventListener('abort', wake);
-        resolve();
-      }, ms);
-      signal?.addEventListener('abort', wake, { once: true });
-    });
   }
 
   /**

@@ -22,6 +22,7 @@ import { DEFAULT_PRICE_TABLE, estimateCents, type PriceTable } from './pricing.t
 import { checkUsage } from '../runtime/wire.ts';
 import { runStep, type StepKind } from './journal.ts';
 import { LeaseKeeper } from './lease-keeper.ts';
+import { setLongTimeout, sleep, type LongTimer } from '../timers.ts';
 import { isCompanyFrozen, isStopAllRequested } from './control.ts';
 import type { HookPipeline } from './hooks.ts';
 import { batchWindow, isWithin, nextOpening } from '../scheduler/windows.ts';
@@ -104,25 +105,6 @@ export interface EngineOptions {
 
 /** How often a parent looks again at a child it cannot run itself. */
 const CHILD_POLL_MS = 1_000;
-
-/** Waits, or stops waiting as soon as the signal fires. */
-function pauseUnlessAborted(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    if (signal.aborted) {
-      resolve();
-      return;
-    }
-    const done = () => {
-      clearTimeout(timer);
-      resolve();
-    };
-    const timer = setTimeout(() => {
-      signal.removeEventListener('abort', done);
-      resolve();
-    }, ms);
-    signal.addEventListener('abort', done, { once: true });
-  });
-}
 
 /**
  * The longest a rate limit may park a task (F9.2).
@@ -687,14 +669,14 @@ export class Engine {
             const deadline = child.deadlineAt?.getTime() ?? Date.now() + childOptions.timeoutMs;
             lease.cover(deadline);
 
-            let timer: NodeJS.Timeout | undefined;
+            let timer: LongTimer | undefined;
             const timeout = new Promise<never>((_resolve, reject) => {
-              timer = setTimeout(
+              timer = setLongTimeout(
                 () => reject(new PalugadaError('deadline.exceeded', `child ${childRoleSlug} timed out`, {
                   childTaskId: child.id,
                   timeoutMs: childOptions.timeoutMs,
                 })),
-                Math.max(0, deadline - Date.now()),
+                deadline - Date.now(),
               );
             });
 
@@ -738,7 +720,7 @@ export class Engine {
               }
               throw error;
             } finally {
-              if (timer) clearTimeout(timer);
+              timer?.clear();
             }
           },
       );
@@ -762,12 +744,22 @@ export class Engine {
       // through the same chain-wide settlement a capability's actual cost
       // uses (0037), because an adjustment that reached only the leaf account
       // is how a company's ledger stops agreeing with its divisions'.
+      //
+      // And as a trace of its own (0043), so the figures that read traces --
+      // the monthly pause, the daily alert, the circuit breaker, the reports
+      // -- see the bill rather than the estimate it replaced.
       if (usage.runTotal) {
         const actual = Math.ceil(usage.costCents!);
         const delta = actual - chargedCents;
         await withTenant(companyId, async (tx) => {
           if (delta !== 0) {
             await tx.query('SELECT app.budget_settle($1, $2)', [task.budgetAccountId, delta]);
+            await tx.query(
+              `INSERT INTO llm_traces (id, company_id, task_id, agent_run_id, model, kind,
+                                       input_tokens, output_tokens, cost_cents)
+               VALUES ($1, $2, $3, $4, $5, 'settlement', 0, 0, $6)`,
+              [randomUUID(), companyId, taskId, agentRunId, usage.model, delta],
+            );
           }
           await appendEvent(tx, {
             companyId,
@@ -792,7 +784,13 @@ export class Engine {
           )
         : null;
       const estimated = estimate !== null;
-      const costCents = usage.costCents ?? estimate!.cents;
+      // Whole cents, rounded up. A runtime may price a call at a fraction of
+      // one, and the ledger, the budget functions and the trace all count in
+      // cents: a fraction reached `budget_spend` as "0.4" and the run failed
+      // on a bigint cast. Up rather than to nearest, because the error is a
+      // cent at most per call and a ceiling should be the side that is
+      // reached early, not late.
+      const costCents = usage.costCents === null ? estimate!.cents : Math.ceil(usage.costCents);
 
       // Drawn from this task's own reservation, by what is left of it, in the
       // same transaction as the charge. Every call used to hand in the whole
@@ -801,6 +799,12 @@ export class Engine {
       // down, and the terminal release took it off again -- so a task that
       // made three calls erased its siblings' reservations and admission
       // control let in work the budget could not fund.
+      //
+      // The trace is written in the same transaction as the charge, and
+      // whether or not the charge was allowed: the call has happened and the
+      // provider will bill for it, so a refusal stops the next call, not the
+      // record of this one. Two transactions left a crash between them with
+      // money charged and no trace saying what for.
       const tokens = usage.inputTokens + usage.outputTokens;
       const funded = await withTenant(companyId, async (tx) => {
         const { rows } = await tx.query<{ reserved: string }>(
@@ -819,18 +823,9 @@ export class Engine {
             drawn,
           ]);
         }
-        return ok;
-      });
-      if (!funded) {
-        throw new PalugadaError('budget.exceeded', 'shared budget exhausted', {
-          budgetAccountId: task.budgetAccountId,
-        });
-      }
-      chargedCents += costCents;
 
-      // F11.1: every model call is traced through the adapter. The engine
-      // never made the call, so this is the only record there will be of it.
-      await withTenant(companyId, async (tx) => {
+        // F11.1: every model call is traced through the adapter. The engine
+        // never made the call, so this is the only record there will be of it.
         await tx.query(
           `INSERT INTO llm_traces (id, company_id, task_id, agent_run_id, model,
                                    prompt, response, input_tokens, output_tokens,
@@ -859,7 +854,7 @@ export class Engine {
             actor: 'engine',
             payload: {
               model: usage.model,
-              tokens: usage.inputTokens + usage.outputTokens,
+              tokens,
               cents: costCents,
               // Which row of the price table priced it, or `fallback`: an owner
               // reading an estimate needs to know whether it came from their
@@ -868,7 +863,14 @@ export class Engine {
             },
           });
         }
+        return ok;
       });
+      if (!funded) {
+        throw new PalugadaError('budget.exceeded', 'shared budget exhausted', {
+          budgetAccountId: task.budgetAccountId,
+        });
+      }
+      chargedCents += costCents;
     };
 
 
@@ -886,7 +888,10 @@ export class Engine {
         adapter,
         {
           companyId, task, roleSlug, runtime, agentRunId,
-          restartSteps: () => { stepIndex = 0; },
+          startAttempt: () => {
+            stepIndex = 0;
+            chargedCents = 0;
+          },
         },
         services,
       );
@@ -976,7 +981,7 @@ export class Engine {
         };
       }
       if (child.status === 'waiting_approval' || child.status === 'waiting_review') {
-        await pauseUnlessAborted(CHILD_POLL_MS, signal);
+        await sleep(CHILD_POLL_MS, signal);
         continue;
       }
 
@@ -989,7 +994,7 @@ export class Engine {
       // Retried at once when it failed and may try again; otherwise it is
       // held elsewhere, parked, or its runtime is down, and is looked at again
       // shortly.
-      if (outcome.status !== 'failed') await pauseUnlessAborted(CHILD_POLL_MS, signal);
+      if (outcome.status !== 'failed') await sleep(CHILD_POLL_MS, signal);
     }
   }
 
@@ -1243,15 +1248,22 @@ export class Engine {
       };
       agentRunId: string;
       /**
-       * Puts the step count back to zero. The next model's run starts the
-       * handler from the top, so its steps are the same steps -- identical
-       * ones replay what the first model already did, and the rest run. It
-       * used to carry on counting from wherever the failed run stopped, so
-       * the fallback's first step was journalled at the index of the failed
-       * run's last, and the next retry handed each step the output recorded
-       * for a different one.
+       * Starts the next model's run from zero, in both of the things counted
+       * per run.
+       *
+       * Steps: the run starts the handler from the top, so its steps are the
+       * same steps -- identical ones replay what the first model already did,
+       * and the rest run. The count used to carry on from wherever the failed
+       * run stopped, so the fallback's first step was journalled at the index
+       * of the failed run's last, and the next retry handed each step the
+       * output recorded for a different one.
+       *
+       * Charges: a runtime's final total is the bill for its own run. Counted
+       * across attempts, the fallback's total replaced what the failed run's
+       * estimates had charged as well as its own, and the failed run's calls
+       * -- which the provider billed -- came off the ledger.
        */
-      restartSteps: () => void;
+      startAttempt: () => void;
     },
     services: RunServices,
   ): Promise<AdapterResult> {
@@ -1259,7 +1271,7 @@ export class Engine {
     const models = [runtime.modelPrimary, ...runtime.modelFallback];
 
     for (const [index, model] of models.entries()) {
-      if (index > 0) input.restartSteps();
+      if (index > 0) input.startAttempt();
       const request = await this.#buildRunRequest({
         ...input,
         runtime: { ...runtime, modelPrimary: model },

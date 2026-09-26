@@ -37,6 +37,7 @@ import type {
   RunRequest,
   RunServices,
 } from './protocol.ts';
+import { setLongTimeout } from '../timers.ts';
 
 /**
  * What actually goes over the wire.
@@ -168,14 +169,16 @@ export async function driveRun(
   // then ended -- a runtime past its deadline has had its chance to stop.
   const deadlineAt = request.task.deadlineAt;
   let overran = false;
+  // A long timer, because a deadline can be further off than `setTimeout`
+  // can wait, and past that it fires at once.
   const deadline = deadlineAt
-    ? setTimeout(() => {
+    ? setLongTimeout(() => {
         overran = true;
         void transport
           .send({ type: 'cancel', reason: 'the task deadline has passed' })
           .catch(() => {})
           .then(() => transport.terminate?.());
-      }, Math.max(0, deadlineAt.getTime() - Date.now()))
+      }, deadlineAt.getTime() - Date.now())
     : null;
   deadline?.unref();
   const overranError = () =>
@@ -231,7 +234,7 @@ export async function driveRun(
     if (overran && !(error instanceof PalugadaError)) throw overranError();
     throw error;
   } finally {
-    if (deadline) clearTimeout(deadline);
+    deadline?.clear();
     services.signal.removeEventListener('abort', abort);
     await transport.close();
   }
@@ -333,7 +336,10 @@ export function checkUsage(raw: unknown): ModelUsage {
   if (typeof usage.model !== 'string' || usage.model.length === 0 || usage.model.length > 200) {
     throw new Error('usage.model must be a model name');
   }
-  const cost = usage.costCents;
+  // Absent is unknown, the same as null: a runtime that does not know what a
+  // call cost says nothing, and the engine estimates it and marks it as an
+  // estimate. Refusing the report would lose the tokens along with the price.
+  const cost = usage.costCents === undefined ? null : usage.costCents;
   if (cost !== null && (typeof cost !== 'number' || !Number.isFinite(cost) || cost < 0)) {
     throw new Error(`usage.costCents must be null or a non-negative number, got ${JSON.stringify(cost)}`);
   }

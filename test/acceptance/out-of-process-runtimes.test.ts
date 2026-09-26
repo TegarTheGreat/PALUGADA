@@ -363,6 +363,49 @@ test('a provider failure falls back to the next model for a tier 0-1 role (F13.6
 });
 
 /**
+ * A runtime's final total is the bill for its own run.
+ *
+ * Counted across fallback attempts, the second model's total replaced what
+ * the first model's calls had been charged as well as its own -- and the
+ * first model's calls, which the provider billed before it failed, came off
+ * the ledger.
+ */
+test('a fallback run\'s own total settles its own run, not the one that failed (F13.6, F13.7)', async () => {
+  const fixture = await createCompany('fallback-total');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'script', tools: ['dns.read'], fallback: ['test-model-b'] });
+
+  let attempt = 0;
+  const { ProviderFailure } = await import('../../src/runtime/wire.ts');
+  const adapter = {
+    name: 'script',
+    backends: ['local'] as const,
+    async health() {
+      return { ok: true };
+    },
+    async run(
+      request: { modelRouting: { primary: string } },
+      services: { reportUsage: (usage: Record<string, unknown>) => Promise<void> },
+    ) {
+      attempt += 1;
+      const model = request.modelRouting.primary;
+      if (attempt === 1) {
+        await services.reportUsage({ model, inputTokens: 10, outputTokens: 10, costCents: 5 });
+        throw new ProviderFailure(model, 'provider returned 503');
+      }
+      await services.reportUsage({ model, inputTokens: 10, outputTokens: 10, costCents: 3 });
+      await services.reportUsage({ model, inputTokens: 0, outputTokens: 0, costCents: 10, runTotal: true });
+      return { output: {} };
+    },
+  };
+
+  const task = await newTask(fixture, {});
+  const outcome = await engineWith(broker, adapter as never).runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(outcome.status, 'completed', outcome.reason);
+  assert.equal(await spentBy(fixture), 15, 'the failed run\'s 5, and the fallback\'s bill of 10');
+});
+
+/**
  * A role that can act irreversibly does not get a silent substitution.
  *
  * Tier 2 is where an action changes something outside the company and cannot
@@ -1480,6 +1523,28 @@ test('a runtime that hangs past its deadline is ended, and the task halts (F5.6,
 });
 
 /**
+ * And a deadline far away is far away. `setTimeout` cannot wait past about
+ * twenty-five days and fires after one millisecond instead, so a task due in
+ * a month had its runtime cancelled as overdue the moment it started.
+ */
+test('a deadline a month away does not end the run at once (F5.6)', async () => {
+  const fixture = await createCompany('script-far-deadline');
+  const broker = await brokerFor(fixture, []);
+  await configureRole(fixture, { runtime: 'script' });
+  const task = await newTask(fixture, { ask: 'anything' }, {
+    deadlineAt: new Date(Date.now() + 40 * 24 * 60 * 60 * 1000),
+  });
+  // Answers after a short pause, which a timer that fired at once would beat.
+  const slowAnswer = [
+    'process.stdin.resume();',
+    "setTimeout(() => { process.stdout.write(JSON.stringify({ type: 'done', output: { ok: true } }) + '\\n'); process.exit(0); }, 300);",
+  ].join('\n');
+  const adapter = new ScriptAdapter({ command: process.execPath, args: ['-e', slowAnswer] });
+  const outcome = await engineWith(broker, adapter).runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(outcome.status, 'completed', outcome.reason);
+});
+
+/**
  * Ended mid-sentence, a runtime's last words are a broken line, and the
  * script adapter reads a broken line as "not speaking the protocol" -- an
  * ordinary failure, which spends an attempt and runs the same overrun again.
@@ -1576,6 +1641,49 @@ test('a CLI\'s own total replaces the estimates it was charged (F13.7)', async (
     return rows.map((row) => row.payload);
   });
   assert.deepEqual(settled, [{ model: 'test-model', chargedCents: 1, actualCents: 42, deltaCents: 41 }]);
+
+  // And every figure that reads the trace record sees the bill, not the
+  // estimate: the monthly pause, and the cost report the owner reads. They
+  // used to say 1 while the accounts said 42.
+  const { periodSpend } = await import('../../src/governance/spend-guard.ts');
+  const { costBreakdown } = await import('../../src/reporting/cost.ts');
+  assert.equal((await periodSpend(fixture.companyId)).cents, 42);
+  const byRole = await costBreakdown(fixture.companyId, 'role', {
+    from: new Date(Date.now() - 3_600_000), to: new Date(Date.now() + 3_600_000),
+  });
+  assert.deepEqual(byRole.map((row) => [row.costCents, row.calls]), [[42, 1]],
+    'one call, costing what the provider billed');
+});
+
+/**
+ * A runtime may price a call at a fraction of a cent, and everything that
+ * records money counts whole cents: the fraction reached `budget_spend` as
+ * "0.4" and the run died on a bigint cast.
+ */
+test('a call priced at a fraction of a cent is charged a whole one (F13.7)', async () => {
+  const fixture = await createCompany('fractional-cost');
+  const broker = await brokerFor(fixture, []);
+  await configureRole(fixture, { runtime: 'script' });
+  const adapter = {
+    name: 'script',
+    backends: ['local'] as const,
+    async health() {
+      return { ok: true };
+    },
+    async run(
+      request: { modelRouting: { primary: string } },
+      services: { reportUsage: (usage: Record<string, unknown>) => Promise<void> },
+    ) {
+      await services.reportUsage({
+        model: request.modelRouting.primary, inputTokens: 5, outputTokens: 5, costCents: 0.4,
+      });
+      return { output: {} };
+    },
+  };
+  const task = await newTask(fixture, {});
+  const outcome = await engineWith(broker, adapter as never).runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(outcome.status, 'completed', outcome.reason);
+  assert.equal(await spentBy(fixture), 1);
 });
 
 /** The wire's own half of it, for every runtime that is not this process. */
@@ -1591,6 +1699,13 @@ test('a usage report is read, not cast', () => {
     assert.throws(() => parseRunEvent(usage(bad)), Error, JSON.stringify(bad));
   }
   assert.throws(() => parseRunEvent({ type: 'usage' }));
+  // Saying nothing about the price is not knowing it, and is estimated like
+  // null rather than refused with the tokens it did report.
+  const unpriced = parseRunEvent({ type: 'usage', usage: { model: 'm', inputTokens: 3, outputTokens: 4 } });
+  assert.deepEqual(unpriced, {
+    type: 'usage',
+    usage: { model: 'm', inputTokens: 3, outputTokens: 4, costCents: null },
+  });
   const read = parseRunEvent(usage({ costCents: 12, runTotal: true, extra: 'dropped' }));
   assert.deepEqual(read, {
     type: 'usage',

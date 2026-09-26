@@ -42,7 +42,8 @@ const MEASURED_SQL: Record<Exclude<CostDimension, 'capability'>, string> = {
     SELECT t.project_id::text AS key, p.slug AS label,
            coalesce(sum(tr.cost_cents), 0)::text AS cost_cents,
            coalesce(sum(tr.input_tokens + tr.output_tokens), 0)::text AS tokens,
-           count(tr.id)::text AS calls
+           -- A settlement (0043) corrects the cost of calls; it is not one.
+           count(tr.id) FILTER (WHERE tr.kind = 'call')::text AS calls
       FROM llm_traces tr
       JOIN tasks t ON t.id = tr.task_id
       JOIN projects p ON p.id = t.project_id
@@ -52,7 +53,8 @@ const MEASURED_SQL: Record<Exclude<CostDimension, 'capability'>, string> = {
     SELECT t.division_id::text AS key, d.slug AS label,
            coalesce(sum(tr.cost_cents), 0)::text AS cost_cents,
            coalesce(sum(tr.input_tokens + tr.output_tokens), 0)::text AS tokens,
-           count(tr.id)::text AS calls
+           -- A settlement (0043) corrects the cost of calls; it is not one.
+           count(tr.id) FILTER (WHERE tr.kind = 'call')::text AS calls
       FROM llm_traces tr
       JOIN tasks t ON t.id = tr.task_id
       JOIN divisions d ON d.id = t.division_id
@@ -62,7 +64,8 @@ const MEASURED_SQL: Record<Exclude<CostDimension, 'capability'>, string> = {
     SELECT t.role_id::text AS key, r.slug AS label,
            coalesce(sum(tr.cost_cents), 0)::text AS cost_cents,
            coalesce(sum(tr.input_tokens + tr.output_tokens), 0)::text AS tokens,
-           count(tr.id)::text AS calls
+           -- A settlement (0043) corrects the cost of calls; it is not one.
+           count(tr.id) FILTER (WHERE tr.kind = 'call')::text AS calls
       FROM llm_traces tr
       JOIN tasks t ON t.id = tr.task_id
       JOIN roles r ON r.id = t.role_id

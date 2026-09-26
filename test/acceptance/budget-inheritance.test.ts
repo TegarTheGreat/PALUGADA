@@ -170,3 +170,55 @@ test('a terminal task releases the allowance it was holding', async () => {
   assert.equal(released.tokensReserved, 0,
     'a task that will never run again must not keep siblings out');
 });
+
+/**
+ * A task's reservation is drawn down once, however many calls it makes.
+ *
+ * Every model call handed the whole reservation, as it stood when the run
+ * began, to the charge: each took up to that much off the account's reserved
+ * total while the task's own figure never moved, and the terminal release
+ * took it off once more. Three calls by one task erased its sibling's
+ * reservation, and admission control let in work the budget could not fund.
+ */
+test('a task spending past its reservation does not eat its siblings\' (F5.4)', async () => {
+  const fixture = await createCompany('budget-draw-down', { tokensMax: TOKENS_MAX });
+  const { Engine } = await import('../../src/engine/engine.ts');
+  const { CapabilityBroker } = await import('../../src/broker/broker.ts');
+  const { CapabilityRegistry } = await import('../../src/broker/registry.ts');
+  const { RecordingLlmClient } = await import('../../src/llm/client.ts');
+
+  const reserved = async () => (await withTenant(fixture.companyId, (tx) =>
+    budget.snapshot(tx, fixture.budgetAccountId))).tokensReserved;
+  const create = (goal: string, reserveTokens: number) => createRootTask({
+    companyId: fixture.companyId,
+    projectId: fixture.projectId,
+    divisionId: fixture.divisionId,
+    roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId,
+    goalId: fixture.goalId,
+    input: { goal },
+    createdBy: 'owner',
+    reserveTokens,
+  });
+
+  // Every call is 150 tokens; the spender holds 200 and makes three.
+  const spender = await create('three calls', 200);
+  await create('the sibling', 1_000);
+  let during = -1;
+  const engine = new Engine({
+    broker: new CapabilityBroker(new CapabilityRegistry()),
+    llm: new RecordingLlmClient(),
+    handlers: new Map([['worker', async (ctx) => {
+      for (let call = 0; call < 3; call += 1) {
+        await ctx.llm({ system: 's', messages: [{ role: 'user', content: `call ${call}` }] });
+      }
+      during = await reserved();
+      return {};
+    }]]),
+  });
+
+  const outcome = await engine.runTask(fixture.companyId, spender.id, 'worker');
+  assert.equal(outcome.status, 'completed', outcome.reason);
+  assert.equal(during, 1_000, 'the spender used up its own 200, and only its own');
+  assert.equal(await reserved(), 1_000, 'and finishing gave back nothing it had not already used');
+});

@@ -393,6 +393,16 @@ export async function createSubTask(
     await assertRoleIsComplete(tx, input.roleId);
     if (input.batchable) await assertRoleIsReadOnly(tx, input.roleId);
 
+    // The same child asked for again -- the parent was retried, or resumed
+    // after a crash between the child finishing and the parent recording it --
+    // is the child it already has. The key is derived from the role, the input
+    // and the parent, so the second ask used to fail on it, and the parent
+    // spent its attempts on duplicate-key errors while the child it was
+    // waiting for sat completed.
+    const key = input.idempotencyKey ?? taskKey(input.roleId, hashInput(input.input), parentTaskId);
+    const existing = await findByIdempotencyKey(tx, key);
+    if (existing && existing.parentTaskId === parentTaskId) return existing;
+
     const hopDepth = parent.hopDepth + 1;
     const hopMax = input.hopMax ?? parent.hopMax;
     if (hopDepth > hopMax) {
@@ -478,6 +488,11 @@ async function assertNoCycle(
   }
 }
 
+/** The key a task gets when its creator does not give one. */
+function taskKey(roleId: string, inputHash: string, parentTaskId: string | null): string {
+  return `${roleId}:${inputHash}:${parentTaskId ?? 'root'}`;
+}
+
 /**
  * `budgetAccountId` is required here even though it is optional on the input:
  * by this point the account has been resolved and reserved against, and a row
@@ -491,7 +506,7 @@ async function insertTask(
   meta: { parentTaskId: string | null; hopDepth: number; reserveTokens: number },
 ): Promise<TaskRow> {
   const inputHash = hashInput(input.input);
-  const key = input.idempotencyKey ?? `${input.roleId}:${inputHash}:${meta.parentTaskId ?? 'root'}`;
+  const key = input.idempotencyKey ?? taskKey(input.roleId, inputHash, meta.parentTaskId);
   const { rows } = await tx.query<RawTask>(
     `INSERT INTO tasks (
        company_id, project_id, division_id, role_id, parent_task_id,

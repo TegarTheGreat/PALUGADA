@@ -111,6 +111,13 @@ export type ErrorCode =
    * and another worker took the task. Nothing more is done or committed.
    */
   | 'task.lease_lost'
+  /**
+   * F5.1: a replayed step is not the step the journal recorded at its
+   * position -- the handler is not deterministic, or the journal was written
+   * by a different sequence of calls. Handing back the recorded output would
+   * give one call another call's answer.
+   */
+  | 'journal.divergence'
   | 'tenant.context_missing';
 
 export class PalugadaError extends Error {

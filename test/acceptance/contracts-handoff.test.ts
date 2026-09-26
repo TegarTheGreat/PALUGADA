@@ -255,6 +255,77 @@ test('a child that overruns its timeout is halted, not left running', async () =
   assert.equal(child.halt_reason, 'deadline_passed');
 });
 
+/**
+ * A child's transient failure is the child's to retry.
+ *
+ * The parent treated the first outcome that was not `completed` as final and
+ * halted the child -- with the reason "deadline passed", which it had not --
+ * so one flaky call in a child cost the parent its whole delegation.
+ */
+test('a child that fails once and could try again is retried, not halted (F6.4)', async () => {
+  const fixture = await createCompany('await-retry');
+  await addRole(fixture, 'flaky');
+  let childRuns = 0;
+  const engine = engineWith({
+    worker: async (ctx) => (await ctx.awaitChild('flaky', { n: 1 }, { timeoutMs: 10_000 })).output,
+    flaky: async () => {
+      childRuns += 1;
+      if (childRuns === 1) throw new Error('the vendor blinked');
+      return { answer: 'second time lucky' };
+    },
+  });
+
+  const task = await rootTask(fixture, fixture.roleId, {});
+  const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(outcome.status, 'completed', outcome.reason);
+  assert.deepEqual(outcome.output, { answer: 'second time lucky' });
+  assert.equal(childRuns, 2);
+});
+
+/**
+ * A parent resumed after its child finished -- the crash landed between the
+ * child completing and the parent recording it -- asks for the same child
+ * again. The child's key is the role, the input and the parent, so the ask
+ * failed on the unique key, every time, and the parent spent its attempts on
+ * duplicate-key errors while the answer it wanted sat in a completed task.
+ */
+test('a parent resumed after its child finished takes the child\'s answer (F6.4, F5.1)', async () => {
+  const fixture = await createCompany('await-resume');
+  await addRole(fixture, 'helper');
+  let childRuns = 0;
+  const engine = engineWith({
+    worker: async (ctx) => (await ctx.awaitChild('helper', { n: 1 }, { timeoutMs: 10_000 })).output,
+    helper: async () => {
+      childRuns += 1;
+      return { answer: 'from the child' };
+    },
+  });
+  const task = await rootTask(fixture, fixture.roleId, {});
+  assert.equal((await engine.runTask(fixture.companyId, task.id, 'worker')).status, 'completed');
+
+  // The crash: the parent's step never committed, and the parent is back on
+  // the queue with its child already done.
+  await withTenant(fixture.companyId, async (tx) => {
+    await tx.query("UPDATE task_steps SET status = 'started' WHERE task_id = $1", [task.id]);
+    await tx.query(
+      "UPDATE tasks SET status = 'pending', output = NULL, finished_at = NULL WHERE id = $1",
+      [task.id],
+    );
+  });
+
+  const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(outcome.status, 'completed', outcome.reason);
+  assert.deepEqual(outcome.output, { answer: 'from the child' });
+  assert.equal(childRuns, 1, 'the child was not run again');
+  const children = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ n: number }>(
+      'SELECT count(*)::int AS n FROM tasks WHERE parent_task_id = $1', [task.id],
+    );
+    return rows[0]!.n;
+  });
+  assert.equal(children, 1);
+});
+
 test('an abandoned run stops committing once its task has ended', async () => {
   // The timeout in awaitChild marks the child halted, but the child's handler
   // is still executing: Promise.race abandons a promise, it does not cancel

@@ -101,4 +101,6 @@ export type HaltReason =
   | 'cycle_detected'
   | 'approval_expired'
   | 'owner_stop'
-  | 'company_frozen';
+  | 'company_frozen'
+  /** F5.1: the journal holds a different step where this one should be. */
+  | 'journal_divergence';

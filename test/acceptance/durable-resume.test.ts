@@ -174,3 +174,88 @@ test('the journal records the idempotency key required by F5.2', async () => {
     assert.match(key.idempotency_key, /^[0-9a-f]{32}$/);
   }
 });
+
+/**
+ * Replay is by position, and the position has to hold the same call.
+ *
+ * A committed step was handed back to whatever asked at its index, whatever
+ * it asked for. A handler that took a different branch on its retry got
+ * another call's answer -- a send step handed a model's reply, and the send
+ * never happened -- and nothing said so.
+ */
+test('a retry that asks for a different step at a recorded position halts rather than replays', async () => {
+  const fixture = await createCompany('journal-divergence');
+  let run = 0;
+  let sent = 0;
+  const { engine } = await newEngine(async (ctx) => {
+    run += 1;
+    if (run === 1) {
+      await ctx.step('lookup', 'internal', { q: 1 }, async () => ({ found: 'draft' }));
+      throw new Error('worker killed');
+    }
+    // The retry branches differently: the same position, another step.
+    await ctx.step('send', 'tool', { to: 'owner@example.test' }, async () => { sent += 1; return {}; });
+    return {};
+  });
+  const task = await newTask(fixture);
+
+  assert.equal((await engine.runTask(fixture.companyId, task.id, 'worker')).status, 'failed');
+  const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(outcome.status, 'halted');
+  assert.equal(outcome.reason, 'journal_divergence');
+  assert.equal(sent, 0, 'neither sent nor handed the lookup\'s answer');
+});
+
+/**
+ * F13.6's fallback starts the handler again on the next model. Its steps
+ * are the same steps: the ones the first model finished replay, the rest
+ * run. The step count used to carry on from where the failed run stopped, so
+ * the fallback's first step was journalled at the failed run's next index,
+ * and a later retry handed each step the output recorded for another.
+ */
+test('a model fallback replays what the first model finished and journals the rest in place', async () => {
+  const fixture = await createCompany('fallback-journal');
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    `UPDATE roles SET runtime = 'script', backend = 'local', tools = '{}', model_fallback = ARRAY['test-model-b'] WHERE id = $1`,
+    [fixture.roleId],
+  ));
+  let looked = 0;
+  const models: string[] = [];
+  const { ProviderFailure } = await import('../../src/runtime/wire.ts');
+  const adapter = {
+    name: 'script',
+    backends: ['local'] as const,
+    async health() { return { ok: true }; },
+    async run(
+      request: { modelRouting: { primary: string } },
+      services: { step: <T>(name: string, kind: 'internal', input: unknown, fn: () => Promise<T>) => Promise<T> },
+    ) {
+      models.push(request.modelRouting.primary);
+      await services.step('look', 'internal', { q: 1 }, async () => { looked += 1; return 'seen'; });
+      if (models.length === 1) throw new ProviderFailure(request.modelRouting.primary, 'provider returned 503');
+      await services.step('answer', 'internal', {}, async () => 'done');
+      return { output: { model: request.modelRouting.primary } };
+    },
+  };
+  const { AdapterRegistry } = await import('../../src/runtime/protocol.ts');
+  const adapters = new AdapterRegistry();
+  adapters.register(adapter as never);
+  const engine = new Engine({
+    broker: new CapabilityBroker(new CapabilityRegistry()),
+    adapters,
+  });
+  const task = await newTask(fixture);
+
+  const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(outcome.status, 'completed', outcome.reason);
+  assert.deepEqual(models, ['test-model', 'test-model-b']);
+  assert.equal(looked, 1, 'the step the first model finished was replayed, not repeated');
+  const journal = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ step_index: number; name: string }>(
+      "SELECT step_index, name FROM task_steps WHERE task_id = $1 AND status = 'committed' ORDER BY step_index",
+      [task.id],
+    );
+    return rows.map((row) => [row.step_index, row.name]);
+  });
+  assert.deepEqual(journal, [[0, 'look'], [1, 'answer']]);
+});

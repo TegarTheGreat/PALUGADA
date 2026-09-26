@@ -13,7 +13,7 @@
 import { randomUUID } from 'node:crypto';
 import { withTenant } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
-import { PalugadaError } from '../errors.ts';
+import { PalugadaError, isPalugadaError } from '../errors.ts';
 import { createSubTask, getTask, transition, type TaskRow } from './tasks.ts';
 import { validateContract } from './contracts.ts';
 import { containChildResult, type ChildResult } from './containment.ts';
@@ -100,6 +100,28 @@ export interface EngineOptions {
    * test that needs a lease to lapse sets it short.
    */
   leaseMs?: number;
+}
+
+/** How often a parent looks again at a child it cannot run itself. */
+const CHILD_POLL_MS = 1_000;
+
+/** Waits, or stops waiting as soon as the signal fires. */
+function pauseUnlessAborted(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
+    const done = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', done);
+      resolve();
+    }, ms);
+    signal.addEventListener('abort', done, { once: true });
+  });
 }
 
 /**
@@ -642,10 +664,9 @@ export class Engine {
             // The deadline is written onto the child as well as raced here, so
             // a child that outlives this process is still bounded by its own
             // record rather than by a timer that died with the caller.
-            // The parent does nothing while it waits, and is alive for all of
-            // it: the keeper covers the parent's lease until the child's own
-            // deadline.
-            lease.cover(Date.now() + childOptions.timeoutMs);
+            // `createSubTask` returns the child this parent already started
+            // for this role and input, so a parent retried or resumed picks
+            // its child back up rather than starting a second one.
             const child = await createSubTask(taskId, {
               companyId,
               projectId: task.projectId,
@@ -659,6 +680,13 @@ export class Engine {
                 : { reserveTokens: childOptions.reserveTokens }),
             });
 
+            // The child's own deadline, as written when it was first created: a
+            // parent resumed an hour later does not restart the child's clock.
+            // The parent does nothing while it waits and is alive for all of
+            // it, so its lease is covered until then.
+            const deadline = child.deadlineAt?.getTime() ?? Date.now() + childOptions.timeoutMs;
+            lease.cover(deadline);
+
             let timer: NodeJS.Timeout | undefined;
             const timeout = new Promise<never>((_resolve, reject) => {
               timer = setTimeout(
@@ -666,13 +694,13 @@ export class Engine {
                   childTaskId: child.id,
                   timeoutMs: childOptions.timeoutMs,
                 })),
-                childOptions.timeoutMs,
+                Math.max(0, deadline - Date.now()),
               );
             });
 
             try {
               const outcome = await Promise.race([
-                this.runTask(companyId, child.id, childRoleSlug),
+                this.#driveChild(companyId, child.id, childRoleSlug, controller.signal),
                 timeout,
               ]);
               if (outcome.status !== 'completed') {
@@ -698,9 +726,15 @@ export class Engine {
                 costCents: 0,
               });
             } catch (error) {
-              const current = await withTenant(companyId, (tx) => getTask(tx, child.id));
-              if (current && !isTerminal(current.status)) {
-                await transition(companyId, child.id, 'halted', { haltReason: 'deadline_passed' });
+              // Only the deadline this parent enforces halts the child, and
+              // says so. A child that ended on its own terms already has its
+              // outcome; one this parent stopped waiting for because the
+              // parent itself was stopped carries on under its own lease.
+              if (isPalugadaError(error, 'deadline.exceeded')) {
+                const current = await withTenant(companyId, (tx) => getTask(tx, child.id));
+                if (current && !isTerminal(current.status)) {
+                  await transition(companyId, child.id, 'halted', { haltReason: 'deadline_passed' });
+                }
               }
               throw error;
             } finally {
@@ -760,13 +794,33 @@ export class Engine {
       const estimated = estimate !== null;
       const costCents = usage.costCents ?? estimate!.cents;
 
-      const funded = await withTenant(companyId, (tx) =>
-        budget.spend(tx, task.budgetAccountId, {
-          tokens: usage.inputTokens + usage.outputTokens,
+      // Drawn from this task's own reservation, by what is left of it, in the
+      // same transaction as the charge. Every call used to hand in the whole
+      // reservation as it stood at the start of the run: each one took up to
+      // that much off the chain's reserved total, the task row never went
+      // down, and the terminal release took it off again -- so a task that
+      // made three calls erased its siblings' reservations and admission
+      // control let in work the budget could not fund.
+      const tokens = usage.inputTokens + usage.outputTokens;
+      const funded = await withTenant(companyId, async (tx) => {
+        const { rows } = await tx.query<{ reserved: string }>(
+          'SELECT tokens_reserved AS reserved FROM tasks WHERE id = $1 FOR NO KEY UPDATE',
+          [taskId],
+        );
+        const drawn = Math.min(Number(rows[0]?.reserved ?? 0), tokens);
+        const ok = await budget.spend(tx, task.budgetAccountId, {
+          tokens,
           moneyCents: costCents,
-          fromReservation: task.tokensReserved,
-        }),
-      );
+          fromReservation: drawn,
+        });
+        if (ok && drawn > 0) {
+          await tx.query('UPDATE tasks SET tokens_reserved = tokens_reserved - $2 WHERE id = $1', [
+            taskId,
+            drawn,
+          ]);
+        }
+        return ok;
+      });
       if (!funded) {
         throw new PalugadaError('budget.exceeded', 'shared budget exhausted', {
           budgetAccountId: task.budgetAccountId,
@@ -830,7 +884,10 @@ export class Engine {
     try {
       const { output } = await this.#runWithFallback(
         adapter,
-        { companyId, task, roleSlug, runtime, agentRunId },
+        {
+          companyId, task, roleSlug, runtime, agentRunId,
+          restartSteps: () => { stepIndex = 0; },
+        },
         services,
       );
       // F6.2, F6.3: validated before the task is marked complete, because a
@@ -880,6 +937,59 @@ export class Engine {
       return this.#classifyFailure(companyId, taskId, error, agentRunId);
     } finally {
       lease.stop();
+    }
+  }
+
+  /**
+   * Runs a child task to its end, or waits for whoever is running it.
+   *
+   * A child is an ordinary task. A retryable failure puts it back on the
+   * queue, an approval parks it, another replica's claim loop may pick it up
+   * first -- and none of those is the child's end. The parent used to treat
+   * the first outcome that was not `completed` as final and halt the child
+   * with the reason "deadline passed", so one transient failure in a child
+   * cost the parent its whole delegation. What bounds the wait is the
+   * parent's deadline, raced against this by the caller.
+   *
+   * A child parked for the owner is only watched: running it would resume it
+   * past the decision it is waiting for.
+   */
+  async #driveChild(
+    companyId: string,
+    childId: string,
+    roleSlug: string,
+    signal: AbortSignal,
+  ): Promise<RunOutcome> {
+    for (;;) {
+      if (signal.aborted) {
+        throw new PalugadaError('platform.stopped', 'the parent stopped waiting for its child', {
+          childTaskId: childId,
+        });
+      }
+      const child = await withTenant(companyId, (tx) => getTask(tx, childId));
+      if (!child) return { status: 'cancelled', reason: 'the child task no longer exists' };
+      if (isTerminal(child.status)) {
+        return {
+          status: child.status as RunOutcome['status'],
+          reason: child.haltReason ?? child.status,
+          ...(child.output ? { output: child.output } : {}),
+        };
+      }
+      if (child.status === 'waiting_approval' || child.status === 'waiting_review') {
+        await pauseUnlessAborted(CHILD_POLL_MS, signal);
+        continue;
+      }
+
+      const outcome = await this.runTask(companyId, childId, roleSlug);
+      if (outcome.status === 'completed' || outcome.status === 'halted'
+        || outcome.status === 'cancelled') {
+        return outcome;
+      }
+      if (outcome.status === 'failed' && outcome.reason !== 'retryable') return outcome;
+      // Retried at once when it failed and may try again; otherwise it is
+      // held elsewhere, parked, or its runtime is down, and is looked at again
+      // shortly.
+      if (outcome.status !== 'failed') await pauseUnlessAborted(CHILD_POLL_MS, signal);
     }
   }
 
@@ -1026,6 +1136,7 @@ export class Engine {
       string,
       'policy_denied' | 'budget_exhausted' | 'hop_limit' | 'deadline_passed'
         | 'verification_failed' | 'cycle_detected' | 'runtime_unavailable'
+        | 'journal_divergence'
     > = {
       // F13.6: every model the role names has failed, or the role may act
       // irreversibly and the engine refused to substitute one. Either way the
@@ -1046,6 +1157,9 @@ export class Engine {
       'deadline.exceeded': 'deadline_passed',
       'capability.verify_failed': 'verification_failed',
       'cycle.detected': 'cycle_detected',
+      // The journal holds a different step where this one should be. A retry
+      // replays the same journal and meets the same mismatch.
+      'journal.divergence': 'journal_divergence',
     };
 
     const haltReason = code ? haltCodes[code] : undefined;
@@ -1128,6 +1242,16 @@ export class Engine {
         maxTokensPerRun: number;
       };
       agentRunId: string;
+      /**
+       * Puts the step count back to zero. The next model's run starts the
+       * handler from the top, so its steps are the same steps -- identical
+       * ones replay what the first model already did, and the rest run. It
+       * used to carry on counting from wherever the failed run stopped, so
+       * the fallback's first step was journalled at the index of the failed
+       * run's last, and the next retry handed each step the output recorded
+       * for a different one.
+       */
+      restartSteps: () => void;
     },
     services: RunServices,
   ): Promise<AdapterResult> {
@@ -1135,6 +1259,7 @@ export class Engine {
     const models = [runtime.modelPrimary, ...runtime.modelFallback];
 
     for (const [index, model] of models.entries()) {
+      if (index > 0) input.restartSteps();
       const request = await this.#buildRunRequest({
         ...input,
         runtime: { ...runtime, modelPrimary: model },

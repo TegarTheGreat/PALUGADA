@@ -1450,6 +1450,7 @@ export class OwnerApi {
               : { reserveTokens: wholeNumber(body.reserveTokens, 'reserveTokens') }),
             ...(body.batchable === undefined ? {} : { batchable: body.batchable === true }),
             ...(body.enabled === undefined ? {} : { enabled: body.enabled !== false }),
+            ...(body.priority === undefined ? {} : { priority: wholeNumber(body.priority, 'priority') }),
           }),
         }),
       },

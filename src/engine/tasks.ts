@@ -162,6 +162,8 @@ export interface CreateTaskInput {
    * `repo:acme/site`, `domain:example.test`.
    */
   laneKey?: string | undefined;
+  /** The schedule that made this task, when one did (0049). */
+  scheduleId?: string | undefined;
 }
 
 /**
@@ -529,8 +531,8 @@ async function insertTask(
        company_id, project_id, division_id, role_id, parent_task_id,
        budget_account_id, input, hop_depth, hop_max, deadline_at,
        idempotency_key, input_hash, created_by, attempt_max, tokens_reserved,
-       batchable, goal_id, lane_key, priority)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+       batchable, goal_id, lane_key, priority, schedule_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
      RETURNING id, company_id, project_id, division_id, role_id, parent_task_id,
                budget_account_id, status, input, output, hop_depth, hop_max,
                deadline_at, idempotency_key, attempt, attempt_max,
@@ -545,6 +547,7 @@ async function insertTask(
       input.goalId ?? null,
       input.laneKey ?? null,
       input.priority ?? DEFAULT_PRIORITY,
+      input.scheduleId ?? null,
     ],
   );
   const task = toTask(rows[0]!);

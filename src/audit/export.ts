@@ -123,7 +123,7 @@ const SECTIONS: Section[] = [
                  status, halt_reason, input, output, hop_depth, hop_max, deadline_at,
                  idempotency_key, input_hash, created_by, attempt, attempt_max,
                  tokens_reserved, goal_id, lane_key, batchable, priority,
-                 wait_until, plan, created_at, started_at, finished_at
+                 wait_until, plan, schedule_id, created_at, started_at, finished_at
             FROM tasks ORDER BY created_at`,
   },
   {

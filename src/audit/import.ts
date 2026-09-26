@@ -126,10 +126,17 @@ const SECTIONS: ImportSection[] = [
     references: ['scope_id', 'parent_account_id'],
   },
   {
+    // Before the tasks, which name the schedule that made them (0049).
+    name: 'schedules',
+    table: 'schedules',
+    references: ['project_id', 'division_id', 'role_id', 'budget_account_id', 'goal_id'],
+  },
+  {
     name: 'tasks',
     table: 'tasks',
     references: [
       'project_id', 'division_id', 'role_id', 'parent_task_id', 'budget_account_id', 'goal_id',
+      'schedule_id',
     ],
     // The worker that held the lease is on the other instance and is not
     // coming back for it.
@@ -196,11 +203,6 @@ const SECTIONS: ImportSection[] = [
   // A distillation's scope is the division it read.
   { name: 'distillation_state', table: 'distillation_state', references: ['scope_id'] },
   { name: 'charters', table: 'charters', references: [] },
-  {
-    name: 'schedules',
-    table: 'schedules',
-    references: ['project_id', 'division_id', 'role_id', 'budget_account_id', 'goal_id'],
-  },
   {
     // After everything its payload can name: memories, skills, schedules.
     name: 'inbox_items',

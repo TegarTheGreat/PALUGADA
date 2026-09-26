@@ -30,8 +30,17 @@ import { assertTimeZone } from './windows.ts';
 
 const { parseExpression } = cronParser;
 
+/** A scheduled task's place in the queue when its schedule does not say (F5.10). */
+const DEFAULT_SCHEDULE_PRIORITY = 2;
+
 export interface ScheduleInput {
   companyId: string;
+  /**
+   * F5.10: where this schedule's tasks stand in the queue, 0 (first) to 3.
+   * The column existed from 0023 and nothing wrote or read it, so every
+   * scheduled task ran at the default whatever the schedule was for.
+   */
+  priority?: number | undefined;
   projectId: string;
   divisionId: string;
   roleId: string;
@@ -119,10 +128,11 @@ export async function upsertSchedule(input: ScheduleInput, now = new Date()): Pr
       `INSERT INTO schedules
          (company_id, project_id, division_id, role_id, budget_account_id, slug,
           cron_expression, timezone, input, reserve_tokens, enabled, next_run_at,
-          batchable, goal_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+          batchable, goal_id, priority)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
        ON CONFLICT (company_id, slug) DO UPDATE
          SET cron_expression = EXCLUDED.cron_expression,
+             priority        = EXCLUDED.priority,
              timezone        = EXCLUDED.timezone,
              input           = EXCLUDED.input,
              reserve_tokens  = EXCLUDED.reserve_tokens,
@@ -146,6 +156,7 @@ export async function upsertSchedule(input: ScheduleInput, now = new Date()): Pr
         next,
         input.batchable ?? false,
         input.goalId ?? null,
+        input.priority ?? DEFAULT_SCHEDULE_PRIORITY,
       ],
     );
     return rows[0]!.id;
@@ -166,6 +177,7 @@ interface DueSchedule {
   reserve_tokens: string;
   batchable: boolean;
   goal_id: string | null;
+  priority: number;
   next_run_at: Date;
 }
 
@@ -222,7 +234,7 @@ export async function runDueSchedules(now = new Date()): Promise<FiredOccurrence
     const { rows } = await tx.query<DueSchedule>(
       `SELECT s.id, s.company_id, s.project_id, s.division_id, s.role_id,
               s.budget_account_id, s.slug, s.cron_expression, s.timezone,
-              s.input, s.reserve_tokens, s.next_run_at, s.batchable, s.goal_id
+              s.input, s.reserve_tokens, s.next_run_at, s.batchable, s.goal_id, s.priority
          FROM schedules s
          JOIN companies c ON c.id = s.company_id
         WHERE s.enabled AND s.next_run_at <= $1 AND c.frozen_at IS NULL
@@ -250,6 +262,8 @@ export async function runDueSchedules(now = new Date()): Promise<FiredOccurrence
         createdBy: 'scheduler',
         reserveTokens: Number(schedule.reserve_tokens),
         idempotencyKey: key,
+        scheduleId: schedule.id,
+        priority: schedule.priority,
         batchable: schedule.batchable,
         ...(schedule.goal_id ? { goalId: schedule.goal_id } : {}),
       });
@@ -375,10 +389,10 @@ async function askAboutRepetition(schedule: DueSchedule, justFired: string): Pro
     // The runs before the one just created, which has not run yet.
     const { rows } = await tx.query<{ status: string; digest: string | null }>(
       `SELECT status, md5(output::text) AS digest FROM tasks
-        WHERE company_id = $1 AND idempotency_key LIKE $2 AND id <> $4
+        WHERE schedule_id = $1 AND id <> $3
         ORDER BY created_at DESC
-        LIMIT $3`,
-      [schedule.company_id, `schedule:${schedule.id}:%`, REPETITION_RUNS, justFired],
+        LIMIT $2`,
+      [schedule.id, REPETITION_RUNS, justFired],
     );
     if (rows.length < REPETITION_RUNS) return;
     if (rows.some((row) => row.status !== 'completed' || row.digest === null)) return;

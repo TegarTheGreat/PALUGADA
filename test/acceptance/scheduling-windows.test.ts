@@ -918,6 +918,7 @@ async function scheduleWithHistory(fixture: Fixture, outputs: Array<Record<strin
       createdBy: 'scheduler',
       reserveTokens: 100,
       idempotencyKey: `schedule:${scheduleId}:2026-09-0${index + 1}T08:00:00.000Z`,
+      scheduleId,
     });
     await transition(fixture.companyId, task.id, 'running');
     await transition(fixture.companyId, task.id, 'completed', { output });
@@ -975,4 +976,42 @@ test('a schedule whose results differ is left alone', async () => {
   ]);
   await runDueSchedules(new Date());
   assert.deepEqual(await scheduleEscalations(fixture), []);
+});
+
+/**
+ * A schedule's place in the queue reaches the work it makes.
+ *
+ * `schedules.priority` was added with task priorities (0023) and nothing ever
+ * wrote or read it: every scheduled task ran at the default, so a P0 check
+ * scheduled every five minutes queued behind a backlog of P2 reports. And a
+ * task knows its schedule by id (0049), rather than by the text of its key.
+ */
+test('a scheduled task carries its schedule and the schedule\'s priority (F5.10, F9.1)', async () => {
+  const fixture = await createCompany('schedule-priority');
+  const scheduleId = await upsertSchedule(
+    {
+      companyId: fixture.companyId,
+      projectId: fixture.projectId,
+      divisionId: fixture.divisionId,
+      roleId: fixture.roleId,
+      budgetAccountId: fixture.budgetAccountId,
+      goalId: fixture.goalId,
+      slug: 'uptime-check',
+      cronExpression: '*/5 * * * *',
+      timezone: 'UTC',
+      input: { check: 'uptime' },
+      reserveTokens: 100,
+      priority: 0,
+    },
+    new Date(Date.now() - 10 * 60_000),
+  );
+  const [fired] = await runDueSchedules(new Date());
+  assert.ok(fired, 'the occurrence fired');
+  const task = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ priority: number; schedule_id: string }>(
+      'SELECT priority, schedule_id FROM tasks WHERE id = $1', [fired.taskId],
+    );
+    return rows[0]!;
+  });
+  assert.deepEqual(task, { priority: 0, schedule_id: scheduleId });
 });

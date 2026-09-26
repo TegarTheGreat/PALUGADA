@@ -193,19 +193,29 @@ documentation, cited in
   the owner decides on it.
 
 **The owner's console**
-- A React and Mantine app with light and dark themes that works on a phone.
-  Its pages:
-  - **Decisions**: the queue on one side and the chosen item on the other,
-    with its goal chain, the requesting role, an expiry countdown and a
-    step-by-step trace.
-  - **Overview**: spending gauge, cost per day, work in progress, recent
-    activity and a setup checklist.
-  - **Work**: every task by state, with its event timeline and a dry replay.
-  - **Organization**: an org chart where each division and role opens its own
-    controls, the goal ladder, schedules and policies.
-  - **Money**: the ceiling, daily cost and the account tree.
-  - **History**, **Health**, **Skills**, **Bundles**, **Devices** and
-    **Settings**.
+- A React and Mantine app in **English and Indonesian**, with light and dark
+  themes, that works on a phone. The language is the owner's choice, kept by
+  the deployment rather than the browser, so it follows them to every device.
+- **Home** shows every company at once: what needs the owner across all of
+  them, what is running with how far it has got, and each company's budget.
+  Pages refresh themselves while open and say when they last did.
+- For each company:
+  - **Inbox**: the queue on one side and the chosen item on the other, with
+    its goal chain, the requesting role, an expiry countdown and a
+    step-by-step trace. The next item opens after each decision.
+  - **Overview**: where the work is by stage, what is running now, progress
+    on each objective, the budget, cost per day and recent activity.
+  - **Work**: every task with its progress from its own journal (steps done
+    against its plan, the step it is on, when its worker last checked in),
+    its event timeline and a dry replay.
+  - **Team**: an org chart where each role opens its charter (who it is and
+    how it works), its done criteria and its controls; the goal ladder with
+    progress, schedules and policies.
+  - **Memory**: what the company knows and will tell its agents, with the
+    unverified facts marked. The owner corrects a fact, confirms one, or tells
+    the company something new.
+  - **Money** and **History**, and one **Settings** page for the rest:
+    company, languages, safeguards, skills, bundles, devices and security.
 - Everything is picked from the company's own shape, never typed in as ids.
 - Push for incidents and tier 3 approvals. Telegram buttons for the decisions
   a chat is allowed to make, and those buttons are removed once the item is
@@ -215,6 +225,27 @@ documentation, cited in
   second factor; tightening one needs only the session.
 - Stop everything, freeze a company, or kill one capability. A daily digest,
   a weekly retro, and alerts that fire once per condition per day.
+
+**Languages**
+- Each company has a work language (what it produces for its customers) and
+  a talk language (what its agents write to the owner and to each other),
+  with a deployment-wide default for both.
+- Every run is told its languages right after its charter, where nothing is
+  dropped, and told that nothing it reads can change them: not an email, not a
+  web page, not a message asking it to switch. A task may still ask for a
+  deliverable in another language on purpose.
+- What agents write is checked. A plan in the wrong language is recorded and
+  the role's next run is reminded of its own slip; a draft in the wrong
+  language is asked for again before it is kept.
+
+**PALUGADA develops PALUGADA**
+- [`AGENTS.md`](AGENTS.md) is the guide for changing this repository, read by
+  coding agents by convention and by `CLAUDE.md` through an import. A test
+  keeps every command and path in it true.
+- The built-in `palugada-dev` bundle adds a platform engineer that follows
+  that guide and a read-only reviewer that checks each change before its
+  branch is pushed. Nothing merges without the owner.
+- `npm run check` is the whole definition of done, the same steps CI runs.
 
 **Security and audit**
 - An append-only event log with separate security events.
@@ -355,3 +386,5 @@ test/           acceptance tests, one file per area of the specification
   Slack, Buzz, auto-company and Paperclip.
 - [`docs/decisions/`](docs/decisions/): decision records, including why
   PALUGADA was built rather than forked.
+- [`AGENTS.md`](AGENTS.md) and [`CONTRIBUTING.md`](CONTRIBUTING.md): how to
+  change PALUGADA, for agents and for people.

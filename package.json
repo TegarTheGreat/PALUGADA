@@ -12,6 +12,7 @@
     "db:migrate": "node scripts/migrate.ts",
     "test": "node --test --test-concurrency=1 \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm run console:build && npm test",
     "smoke": "node scripts/smoke.ts",
     "totp:new": "node scripts/new-totp.ts",
     "start": "node src/main.ts",

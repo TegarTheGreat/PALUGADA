@@ -307,7 +307,7 @@ test('a company can be assembled from several bundles (F16.3, F16.5)', async () 
     const { rows } = await tx.query<{ slug: string }>('SELECT slug FROM divisions ORDER BY slug');
     return rows.map((row) => row.slug);
   });
-  assert.deepEqual(divisions, ['content', 'ops', 'review', 'web']);
+  assert.deepEqual(divisions, ['content', 'ops', 'platform', 'platform-review', 'review', 'web']);
 });
 
 /* ------------------------------------------------------------------ F14.4 --- */

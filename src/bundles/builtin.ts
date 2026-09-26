@@ -1,7 +1,8 @@
 /**
  * The bundles that ship with v1 (PRD v2 F16.5).
  *
- * `content-ops`, `web-ops` and `qa-review`. They are deliberately narrow: a
+ * `content-ops`, `web-ops`, `qa-review` and `palugada-dev`, the last being
+ * PALUGADA's own engineering team. They are deliberately narrow: a
  * bundle that tried to be a whole company would be a template, and the point
  * of a bundle is that a company can be assembled from several.
  *
@@ -318,4 +319,165 @@ Approving is a claim that you checked. "It looks fine" is not a review.
   },
 };
 
-export const BUILT_IN_BUNDLES: readonly Bundle[] = [CONTENT_OPS, WEB_OPS, QA_REVIEW];
+/**
+ * PALUGADA developing PALUGADA.
+ *
+ * A platform engineer that works on this repository through `repo.read` and
+ * `repo.branch`, and a reviewer that holds nothing that writes. The engineer's
+ * skill is the procedure in `AGENTS.md` -- the same one a person or any other
+ * coding agent follows -- so the platform's knowledge of itself lives in one
+ * place, read by everyone who changes it, and `test/documents/
+ * self-knowledge.test.ts` keeps that place true.
+ *
+ * Pushing a branch is reversible (the catalogue puts `repo.branch` at tier 1),
+ * but a change to a control plane is the change most worth a second reader,
+ * so every push waits for the reviewer first. Merging is not a capability here
+ * at all: it stays the owner's, on the pull request.
+ */
+export const PALUGADA_DEV: Bundle = {
+  slug: 'palugada-dev',
+  version: '1.0.0',
+  name: 'Develop PALUGADA',
+  description: 'A platform engineer and a reviewer that change PALUGADA itself, by pull request.',
+  body: {
+    divisions: [
+      { slug: 'platform', name: 'Platform engineering', maxConcurrency: 2 },
+      { slug: 'platform-review', name: 'Platform review', maxConcurrency: 2 },
+    ],
+    roles: [
+      role({
+        slug: 'platform-engineer',
+        division: 'platform',
+        prompt:
+          'You change PALUGADA, the platform you are running on. Read AGENTS.md at the root of ' +
+          'the repository before anything else and follow its loop: find what the change is for, ' +
+          'write the test that fails without it, make the change, run npm run check, and push a ' +
+          'branch with a pull request that says what changed and why. Never edit a migration that ' +
+          'has been pushed. You do not merge; the owner does.',
+        tools: ['repo.read', 'repo.branch', 'memory.search', 'skill.read'],
+        doneCriteria: [
+          'the pull request names the requirement or defect it is for',
+          'it adds a test that fails without the change',
+          'npm run check passed on the pushed branch',
+        ],
+      }),
+      role({
+        slug: 'platform-reviewer',
+        division: 'platform-review',
+        prompt:
+          'You review a change to PALUGADA before its branch is pushed. Read AGENTS.md, then the ' +
+          'change, and check it against the rules the suite enforces and the ones it cannot: is the ' +
+          'test real, does the change stay inside what the test needs, is a pushed migration ' +
+          'untouched. Refuse what you have not checked.',
+        tools: ['repo.read', 'memory.search', 'skill.read'],
+        doneCriteria: [
+          'the verdict names the rule each finding relates to',
+          'an approval says what was checked',
+        ],
+      }),
+    ],
+    grants: [
+      { division: 'platform', capability: 'repo.read' },
+      { division: 'platform', capability: 'repo.branch' },
+      { division: 'platform', capability: 'memory.search' },
+      { division: 'platform', capability: 'skill.read' },
+      { division: 'platform-review', capability: 'repo.read' },
+      { division: 'platform-review', capability: 'memory.search' },
+      { division: 'platform-review', capability: 'skill.read' },
+    ],
+    policies: [
+      {
+        slug: 'palugada-dev-push-is-reviewed',
+        scope: 'division',
+        division: 'platform',
+        condition: 'tool == "repo.branch"',
+        effect: 'require_review',
+        params: {
+          reviewer_role: 'platform-reviewer',
+          criteria:
+            'Does the change add a test that fails without it? Does it leave every pushed ' +
+            'migration untouched? Did npm run check pass? Is it only what the task asked for?',
+        },
+      },
+    ],
+    skills: [
+      {
+        slug: 'changing-palugada',
+        scope: 'division',
+        division: 'platform',
+        source: `---
+name: changing-palugada
+description: How to change PALUGADA itself so the change is safe to merge.
+---
+
+# Changing PALUGADA
+
+AGENTS.md at the root of the repository is the whole procedure. Read it first,
+every time: it is kept true by a test, and your memory of it is not.
+
+The loop is: find what the change is for, write the test that fails without
+it, make the change, run \`npm run check\`, read the Postgres log, and push a
+branch with a pull request.
+
+Never edit a migration that has been pushed; add the next number.
+
+Every sentence the console shows goes through t() and needs its Indonesian in
+console/src/locales/id.ts.
+
+You do not merge. The owner does.
+`,
+        evals: [
+          {
+            name: 'names the procedure and its non-negotiables',
+            input: { task: 'add a column to tasks' },
+            expectContains: ['AGENTS.md', 'npm run check', 'Never edit a migration', 'You do not merge'],
+          },
+        ],
+      },
+      {
+        slug: 'reviewing-palugada',
+        scope: 'division',
+        division: 'platform-review',
+        source: `---
+name: reviewing-palugada
+description: How to review a change to PALUGADA before it is pushed.
+---
+
+# Reviewing a change to PALUGADA
+
+Read AGENTS.md first, then the change. The rules the suite enforces are
+listed there; check the ones it cannot.
+
+Ask whether the test fails without the change. A test written after the code
+often passes with or without it.
+
+Refuse a change that edits a pushed migration, whatever it fixes.
+
+Approving is a claim that you checked. Say what you checked.
+`,
+        evals: [
+          {
+            name: 'names the review rules',
+            input: { change: 'a new route' },
+            expectContains: ['AGENTS.md', 'fails without the change', 'pushed migration'],
+          },
+        ],
+      },
+    ],
+    hooks: [
+      {
+        name: 'platform-review.read-only',
+        on: 'pre_tool',
+        division: 'platform-review',
+        refuseAtOrAboveTier: 1,
+        reason: 'The reviewer of a change must not be able to make one (F7.3).',
+      },
+    ],
+    schedules: [
+      { roleSlug: 'platform-engineer', heartbeatMinutes: 240 },
+      { roleSlug: 'platform-reviewer', heartbeatMinutes: 240 },
+    ],
+  },
+};
+
+export const BUILT_IN_BUNDLES: readonly Bundle[] = [CONTENT_OPS, WEB_OPS, QA_REVIEW, PALUGADA_DEV];

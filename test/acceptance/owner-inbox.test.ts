@@ -31,12 +31,16 @@ import { OwnerMfa, decodeBase32, newTotpSecret, stepFor, totpCode } from '../../
  * authenticators along with everything else, and a fixture that outlived that
  * would be a fixture pointing at a row that is gone.
  */
+let enrolments = 0;
 async function enrolledOwner(): Promise<{ mfa: OwnerMfa; code: () => string }> {
   const secrets = new InMemorySecretManager();
   const { secret } = newTotpSecret('owner phone');
-  secrets.set('vault://owner/totp', secret);
+  // One reference per secret: two live authenticators may not share one.
+  enrolments += 1;
+  const secretRef = `vault://owner/totp-${enrolments}`;
+  secrets.set(secretRef, secret);
   const mfa = new OwnerMfa({ secrets });
-  await mfa.enrolTotp({ label: 'owner phone', secretRef: 'vault://owner/totp' });
+  await mfa.enrolTotp({ label: 'owner phone', secretRef });
   // A fresh code per call: a TOTP code cannot be used twice, so a test that
   // approved two things would fail on the second for the wrong reason.
   let drift = 0;
@@ -613,37 +617,151 @@ test('a decision that lands after its task ended is recorded, not reported as a 
 });
 
 /**
- * The decision and the move are one transaction now, and this is the property
- * that says so: when the move is refused, the decision is not left behind.
- * As two transactions the item was already `decided` by the time the state
- * machine said no, so the owner saw an error, the inbox showed nothing to
- * answer, and the task sat where it was for ever.
+ * An answer about live work moves only what was waiting for it.
+ *
+ * The first version of the one-transaction decision attempted the move in
+ * every live case, and `running -> running` is not an edge: approving an
+ * escalation about a running task rolled the whole decision back, so the
+ * owner saw an error and the item could never be closed. Approve now leaves
+ * live work where it is -- a `pending` task moved to `running` would sit
+ * behind the claim with no lease to expire -- and deny still stops it.
  */
-test('a decision the task cannot follow is not recorded half-way', async () => {
-  const fixture = await createCompany('atomic-decision');
-  const task = await newTask(fixture);
-  // Still `running`: the state an approval was in for the moment between
-  // being raised and its task being parked, when those were two transactions.
-  // `running -> running` is not an edge, so the move is refused.
-  await transition(fixture.companyId, task.id, 'running');
-  const itemId = await openApprovalFor(fixture, task.id);
+test('an answer about live work is recorded, and moves only what was waiting', async () => {
+  const fixture = await createCompany('answer-live');
+  const running = await newTask(fixture, 'running');
+  await transition(fixture.companyId, running.id, 'running');
+  const pending = await newTask(fixture, 'pending');
+  const doomed = await newTask(fixture, 'doomed');
+  await transition(fixture.companyId, doomed.id, 'running');
 
-  await assert.rejects(
-    inbox.decide(fixture.companyId, itemId, 'approve'),
-    (error: unknown) => isPalugadaError(error, 'task.invalid_transition'),
-  );
-  const item = await withTenant(fixture.companyId, async (tx) => {
-    const { rows } = await tx.query<{ status: string; decision: string | null }>(
-      'SELECT status, decision FROM inbox_items WHERE id = $1', [itemId],
+  const about = async (taskId: string) => inbox.raiseEscalation({
+    companyId: fixture.companyId, taskId, title: 'A question about live work', detail: 'Carry on?',
+  });
+  const status = async (taskId: string) =>
+    (await withTenant(fixture.companyId, (tx) => getTask(tx, taskId)))!.status;
+
+  await inbox.decide(fixture.companyId, await about(running.id), 'approve');
+  await inbox.decide(fixture.companyId, await about(pending.id), 'approve');
+  await inbox.decide(fixture.companyId, await about(doomed.id), 'deny');
+
+  assert.equal(await status(running.id), 'running');
+  assert.equal(await status(pending.id), 'pending', 'not moved behind the claim');
+  assert.equal(await status(doomed.id), 'cancelled', 'no about live work stops it');
+  assert.equal((await inbox.listOpen(fixture.companyId)).length, 0, 'every item closed');
+});
+
+/* ----------------------------------------- an approval that can be used --- */
+
+async function approvalEngine(fixture: Fixture, values: string[], callsPerRun = 1) {
+  const { capability, calls } = tier3Capability();
+  const registry = new CapabilityRegistry();
+  registry.register(capability);
+  await registry.sync();
+  await grantCapability(fixture, capability.name);
+  let run = 0;
+  const engine = new Engine({
+    broker: new CapabilityBroker(registry),
+    llm: new RecordingLlmClient(),
+    handlers: new Map([['worker', async (ctx) => {
+      const zone = values[Math.min(run, values.length - 1)]!;
+      run += 1;
+      for (let call = 0; call < callsPerRun; call += 1) {
+        await ctx.callCapability(capability.name, { zone });
+      }
+      return {};
+    }]]),
+  });
+  return { engine, calls };
+}
+
+async function approveWithFactor(fixture: Fixture, itemId: string) {
+  const owner = await enrolledOwner();
+  await inbox.decide(fixture.companyId, itemId, 'approve', 'go ahead', {
+    channel: 'app', proof: { totp: owner.code() }, mfa: owner.mfa,
+  });
+}
+
+/**
+ * The broker never asked whether the owner had already said yes. An approved
+ * task went back to `running`, reached the same capability, found the item it
+ * had raised closed, raised another and parked again -- so an irreversible
+ * action the owner approved never ran, and every approval produced another
+ * request for approval. The old test checked that approving moved the task to
+ * `running` and stopped there.
+ */
+test('an approved action runs, exactly once, and asks nothing further (F10.10)', async () => {
+  const fixture = await createCompany('approval-used');
+  const { engine, calls } = await approvalEngine(fixture, ['example.com']);
+  const task = await newTask(fixture);
+
+  assert.equal((await engine.runTask(fixture.companyId, task.id, 'worker')).status, 'waiting_approval');
+  const [item] = await inbox.listOpen(fixture.companyId);
+  await approveWithFactor(fixture, item!.id);
+
+  const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(outcome.status, 'completed', outcome.reason);
+  assert.equal(calls.executions, 1, 'the approved action happened, once');
+  assert.deepEqual(await inbox.listOpen(fixture.companyId), [], 'and nobody was asked again');
+
+  const used = await withTenant(fixture.companyId, async (tx) => {
+    const { rows } = await tx.query<{ consumed: boolean }>(
+      'SELECT consumed_at IS NOT NULL AS consumed FROM inbox_items WHERE id = $1', [item!.id],
     );
-    return rows[0]!;
+    return rows[0]!.consumed;
   });
-  assert.deepEqual(item, { status: 'open', decision: null }, 'still the owner\'s to decide');
-  const decided = await withTenant(fixture.companyId, async (tx) => {
-    const { rows } = await tx.query("SELECT 1 FROM events WHERE type = 'owner.decided'");
-    return rows.length;
+  assert.equal(used, true, 'the approval is spent');
+
+  // Spent means spent: the same action proposed twice is two decisions, even
+  // in one run and with the same input.
+  const twice = await createCompany('approval-twice');
+  const repeat = await approvalEngine(twice, ['example.com'], 2);
+  const repeated = await newTask(twice);
+  await repeat.engine.runTask(twice.companyId, repeated.id, 'worker');
+  const [once] = await inbox.listOpen(twice.companyId);
+  await approveWithFactor(twice, once!.id);
+  const again = await repeat.engine.runTask(twice.companyId, repeated.id, 'worker');
+  assert.equal(again.status, 'waiting_approval', 'one yes carried one execution');
+  assert.equal(repeat.calls.executions, 1);
+});
+
+/**
+ * An approval is for the action it described. Approving one zone does not
+ * approve another proposed after it, and a changed proposal replaces the open
+ * item rather than hiding behind the one the owner is reading.
+ */
+test('an approval covers the action it described, and a changed proposal replaces it', async () => {
+  const fixture = await createCompany('approval-scope');
+  const { engine, calls } = await approvalEngine(fixture, ['example.com', 'attacker.example']);
+  const task = await newTask(fixture);
+
+  await engine.runTask(fixture.companyId, task.id, 'worker');
+  const [first] = await inbox.listOpen(fixture.companyId);
+  await approveWithFactor(fixture, first!.id);
+
+  // The run after the approval proposes a different zone.
+  const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(outcome.status, 'waiting_approval');
+  assert.equal(calls.executions, 0, 'yes to one action is not yes to another');
+  const open = await inbox.listOpen(fixture.companyId);
+  assert.equal(open.length, 1);
+  assert.notEqual(open[0]!.id, first!.id, 'the new proposal is asked about on its own');
+
+  // And a proposal that changes while its item is still open supersedes it.
+  const other = await createCompany('approval-supersede');
+  const second = await approvalEngine(other, ['a.example', 'b.example']);
+  const otherTask = await newTask(other);
+  await second.engine.runTask(other.companyId, otherTask.id, 'worker');
+  const [asked] = await inbox.listOpen(other.companyId);
+  await inbox.decide(other.companyId, asked!.id, 'ask', 'why this zone?');
+  await second.engine.runTask(other.companyId, otherTask.id, 'worker');
+  const items = await withTenant(other.companyId, async (tx) => {
+    const { rows } = await tx.query<{ id: string; status: string; closed_reason: string | null }>(
+      "SELECT id, status, closed_reason FROM inbox_items WHERE kind = 'approval' ORDER BY created_at",
+    );
+    return rows;
   });
-  assert.equal(decided, 0, 'no decision on the timeline that did not happen');
+  assert.deepEqual(items.map((row) => [row.status, row.closed_reason]),
+    [['withdrawn', 'superseded'], ['open', null]]);
 });
 
 /**

@@ -52,6 +52,14 @@ export interface ApprovalInput {
   estimatedCostCents?: number;
   payload?: Record<string, unknown>;
   ttlHours?: number;
+  /**
+   * Which action this approval is for: `fingerprintAction(capability, input)`.
+   *
+   * What makes an answer usable. The broker proceeds only on an approval for
+   * this task *and this exact action*, so approving one payment does not
+   * approve a different amount proposed after it.
+   */
+  actionFingerprint?: string;
 }
 
 export interface InboxItem {
@@ -82,21 +90,44 @@ export async function requestApproval(input: ApprovalInput): Promise<string> {
   return withTenant(input.companyId, async (tx) => {
     // The task first, as every writer here takes it: task, then its items.
     if (input.taskId) {
-      await tx.query('SELECT 1 FROM tasks WHERE id = $1 FOR UPDATE', [input.taskId]);
+      await tx.query('SELECT 1 FROM tasks WHERE id = $1 FOR NO KEY UPDATE', [input.taskId]);
 
       // An approval already open for this task and capability is *this*
       // approval. The broker re-reaches this point every time the task runs
       // again -- after an owner question under F10.3, after a restart -- and a
       // second item would ask the owner the same thing twice and let them
       // answer it differently.
-      const { rows } = await tx.query<{ id: string }>(
-        `SELECT id FROM inbox_items
+      //
+      // Unless the action changed. After a question the agent may come back
+      // with a different amount or a different recipient, and an item still
+      // describing the first proposal would have the owner approve something
+      // other than what would run. That item is withdrawn as superseded and
+      // the new proposal is asked about in its place.
+      const { rows } = await tx.query<{ id: string; action_fingerprint: string | null }>(
+        `SELECT id, action_fingerprint FROM inbox_items
           WHERE task_id = $1 AND kind = 'approval' AND status = 'open'
             AND capability_name IS NOT DISTINCT FROM $2
           ORDER BY created_at LIMIT 1`,
         [input.taskId, input.capabilityName],
       );
-      const existing = rows[0]?.id ?? null;
+      const open = rows[0] ?? null;
+      const superseded = open !== null && input.actionFingerprint !== undefined
+        && open.action_fingerprint !== null && open.action_fingerprint !== input.actionFingerprint;
+      if (open && superseded) {
+        await tx.query(
+          `UPDATE inbox_items SET status = 'withdrawn', closed_reason = 'superseded'
+            WHERE id = $1`,
+          [open.id],
+        );
+        await appendEvent(tx, {
+          companyId: input.companyId,
+          taskId: input.taskId,
+          type: 'approval.superseded',
+          actor: 'broker',
+          payload: { inboxItemId: open.id, capability: input.capabilityName },
+        });
+      }
+      const existing = open && !superseded ? open.id : null;
       if (existing) {
         // Only if the task is actually somewhere it can wait from. A task
         // already parked on this item needs no second transition, and one that
@@ -113,15 +144,16 @@ export async function requestApproval(input: ApprovalInput): Promise<string> {
       `INSERT INTO inbox_items (
          company_id, task_id, kind, title, action_summary, rationale, tier,
          estimated_cost_cents, consequence_if_denied, capability_name, payload,
-         expires_at, notify_after)
+         expires_at, notify_after, action_fingerprint)
        VALUES ($1,$2,'approval',$3,$4,$5,$6,$7,$8,$9,$10,
-               now() + make_interval(hours => $11), $12)
+               now() + make_interval(hours => $11), $12, $13)
        RETURNING id`,
       [
         input.companyId, input.taskId ?? null, input.actionSummary, input.actionSummary,
         input.rationale, input.tier, input.estimatedCostCents ?? 0,
         input.consequenceIfDenied, input.capabilityName,
         JSON.stringify(input.payload ?? {}), ttl, notifyAfter,
+        input.actionFingerprint ?? null,
       ],
     );
     const id = rows[0]!.id;
@@ -136,6 +168,59 @@ export async function requestApproval(input: ApprovalInput): Promise<string> {
       await transitionWithin(tx, input.companyId, input.taskId, 'waiting_approval');
     }
     return id;
+  });
+}
+
+/**
+ * The owner's yes to this exact action on this task, not yet used, if any.
+ *
+ * What the broker asks before raising an approval. Without it an approved
+ * action never ran: the resumed task reached the gate again, found no open
+ * item, and asked again (migration 0041).
+ */
+export async function findGrantedApproval(
+  tx: TenantClient,
+  taskId: string,
+  capabilityName: string,
+  actionFingerprint: string,
+): Promise<string | null> {
+  const { rows } = await tx.query<{ id: string }>(
+    `SELECT id FROM inbox_items
+      WHERE task_id = $1 AND capability_name = $2 AND action_fingerprint = $3
+        AND kind = 'approval' AND status = 'decided' AND decision = 'approve'
+        AND consumed_at IS NULL
+      ORDER BY decided_at
+      LIMIT 1`,
+    [taskId, capabilityName, actionFingerprint],
+  );
+  return rows[0]?.id ?? null;
+}
+
+/**
+ * Marks an approval as spent, once the action it approved has executed.
+ *
+ * After the execution rather than before it, so an action that failed can be
+ * retried on the same approval; and once, so the same approval cannot carry
+ * the same irreversible action a second time.
+ */
+export async function consumeApproval(
+  companyId: string,
+  itemId: string,
+  context: { taskId: string; capability: string },
+): Promise<void> {
+  await withTenant(companyId, async (tx) => {
+    const { rowCount } = await tx.query(
+      'UPDATE inbox_items SET consumed_at = now() WHERE id = $1 AND consumed_at IS NULL',
+      [itemId],
+    );
+    if (rowCount !== 1) return;
+    await appendEvent(tx, {
+      companyId,
+      taskId: context.taskId,
+      type: 'approval.used',
+      actor: 'broker',
+      payload: { inboxItemId: itemId, capability: context.capability },
+    });
   });
 }
 
@@ -767,7 +852,7 @@ export async function decide(
     );
     const lockedTaskId = target[0]?.task_id ?? null;
     if (lockedTaskId) {
-      await tx.query('SELECT 1 FROM tasks WHERE id = $1 FOR UPDATE', [lockedTaskId]);
+      await tx.query('SELECT 1 FROM tasks WHERE id = $1 FOR NO KEY UPDATE', [lockedTaskId]);
     }
 
     const { rows } = await tx.query<{
@@ -871,16 +956,27 @@ export async function decide(
 }
 
 /**
- * Moves the task the decision was about, unless it has already ended.
+ * Moves the task the decision was about, when the decision is what it waits for.
  *
- * The owner has more than one surface, and a task can end while an item about
- * it is still open -- a press in the chat and a click in the console, or an
- * approval raised a moment before the task finished some other way. The
- * decision is still the owner's and stays recorded; what must not happen is an
- * error telling them it failed, when what actually happened is that the task
- * was already gone. So a task found terminal is recorded as such, and every
- * other refusal the state machine gives still throws -- and rolls the decision
- * back with it, since it is the same transaction.
+ * Three cases, and only one of them is a move:
+ *
+ *   - **The task is waiting** (`waiting_approval`, `waiting_review`,
+ *     `waiting_window`): the answer releases it -- approve runs it, deny
+ *     cancels it.
+ *   - **The task is live but not waiting** (`pending`, `checked_out`,
+ *     `running`): an escalation or incident about work in progress, or an
+ *     approval answered after a question sent the task back to work. Approve
+ *     leaves it where it is -- the decision is recorded, and moving a `pending`
+ *     task to `running` would put it behind the claim, holding no lease that
+ *     anything could expire. Deny still stops it: "no" about live work means
+ *     stop the work.
+ *   - **The task has ended**: the decision is recorded as moot. The owner has
+ *     more than one surface, and a task can finish while an item about it is
+ *     open; what must not happen is an error saying their decision failed.
+ *
+ * It used to attempt the move in every live case, and `running -> running`
+ * is not an edge, so approving an item about a running task rolled the whole
+ * decision back: the owner saw an error and the item could never be closed.
  */
 async function settleTask(
   tx: TenantClient,
@@ -890,19 +986,25 @@ async function settleTask(
   to: 'running' | 'cancelled',
 ): Promise<void> {
   const task = await getTask(tx, taskId);
-  if (task && isTerminal(task.status)) {
+  if (!task || isTerminal(task.status)) {
     await appendEvent(tx, {
       companyId,
-      projectId: task.projectId,
+      ...(task ? { projectId: task.projectId } : {}),
       taskId,
       type: 'owner.decision_moot',
       actor: 'system',
-      payload: { inboxItemId: itemId, taskStatus: task.status, wanted: to },
+      payload: { inboxItemId: itemId, taskStatus: task?.status ?? null, wanted: to },
     });
     return;
   }
+  if (to === 'running' && !WAITING_STATUSES.has(task.status)) return;
   await transitionWithin(tx, companyId, taskId, to);
 }
+
+/** The statuses an owner's answer is what a task waits for. */
+const WAITING_STATUSES: ReadonlySet<string> = new Set([
+  'waiting_approval', 'waiting_review', 'waiting_window',
+]);
 
 /**
  * Why an item cannot be decided, in words the owner can act on.
@@ -1015,7 +1117,7 @@ export async function expireOverdue(companyId: string): Promise<number> {
                       WHERE status = 'open' AND expires_at IS NOT NULL
                         AND expires_at <= now() AND task_id IS NOT NULL)
         ORDER BY id
-        FOR UPDATE`,
+        FOR NO KEY UPDATE`,
     );
     const { rows } = await tx.query<{ id: string; task_id: string | null }>(
       `UPDATE inbox_items
@@ -1078,7 +1180,7 @@ export async function stopEverything(): Promise<number> {
          SELECT id, tokens_reserved FROM tasks
           WHERE status <> ALL($1::text[])
           ORDER BY id
-          FOR UPDATE
+          FOR NO KEY UPDATE
        )
        UPDATE tasks t
           SET status = 'cancelled', halt_reason = 'owner_stop', finished_at = now(),
@@ -1089,10 +1191,30 @@ export async function stopEverything(): Promise<number> {
                  d.tokens_reserved AS released`,
       [TERMINAL_STATUSES],
     );
+    // One release per account rather than per task, and every account any of
+    // them touches locked first, in id order -- the order `budget_spend` and
+    // `budget_settle` lock in. Releasing chain by chain would hold the company
+    // account from the first while waiting for the second division's, which a
+    // worker recording usage against that division may already hold while it
+    // waits for the company's: a deadlock PostgreSQL would settle by aborting
+    // one side, and the side it aborts can be this one.
+    const released = new Map<string, bigint>();
     for (const row of rows) {
-      if (row.budget_account_id && Number(row.released) > 0) {
-        await tx.query('SELECT app.budget_release($1, $2)', [row.budget_account_id, row.released]);
+      if (!row.budget_account_id || BigInt(row.released) === 0n) continue;
+      released.set(row.budget_account_id,
+        (released.get(row.budget_account_id) ?? 0n) + BigInt(row.released));
+    }
+    if (released.size > 0) {
+      await tx.query(
+        `SELECT app.budget_lock_chain(ARRAY(
+           SELECT DISTINCT unnest(app.budget_chain(account)) FROM unnest($1::uuid[]) AS account))`,
+        [[...released.keys()]],
+      );
+      for (const [account, tokens] of released) {
+        await tx.query('SELECT app.budget_release($1, $2)', [account, tokens.toString()]);
       }
+    }
+    for (const row of rows) {
       await tx.query(
         `INSERT INTO events (company_id, project_id, task_id, type, actor, payload)
          VALUES ($1, $2, $3, 'task.cancelled', 'owner', '{"haltReason":"owner_stop"}'::jsonb)`,

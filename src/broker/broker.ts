@@ -464,12 +464,25 @@ export class CapabilityBroker {
       }
     }
 
-    if (requiresOwnerApproval(tier) || policy.effect === 'require_approval') {
+    // The owner's answer, when there is one for this exact action. Asked
+    // before raising another request: without this the resumed task reached
+    // the gate again, found the item it had raised already closed, and asked
+    // again -- an approved action never ran (migration 0041).
+    let grantedApproval: string | null = null;
+    const needsOwner = requiresOwnerApproval(tier) || policy.effect === 'require_approval';
+    const fingerprint = needsOwner ? fingerprintAction(name, input) : null;
+    if (needsOwner) {
+      grantedApproval = await withTenant(ctx.companyId, (tx) =>
+        inbox.findGrantedApproval(tx, ctx.taskId, name, fingerprint!));
+    }
+
+    if (needsOwner && !grantedApproval) {
       // F10.2 asks the item to say why. The plan says what will happen; the
       // goal chain says what it is ultimately for. An owner reading this on a
       // phone gets both without following a link.
       const chain = await withTenant(ctx.companyId, (tx) => ancestryForTask(tx, ctx.taskId));
       await inbox.requestApproval({
+        actionFingerprint: fingerprint!,
         companyId: ctx.companyId,
         taskId: ctx.taskId,
         capabilityName: name,
@@ -519,6 +532,7 @@ export class CapabilityBroker {
           idempotencyKey: ctx.idempotencyKey,
           policies: policy.matched.map((m) => m.slug),
           observedPolicies: policy.observed.map((m) => m.slug),
+          ...(grantedApproval ? { approvedBy: grantedApproval } : {}),
         },
       });
     });
@@ -566,6 +580,15 @@ export class CapabilityBroker {
         });
       }
       throw error;
+    }
+
+    // The action has happened, so the approval that allowed it is spent. Not
+    // before the call -- a vendor that failed should not cost the owner a
+    // second decision to retry -- and not after the read-back, because a
+    // write that verifies badly still happened and must not run again on the
+    // same yes.
+    if (grantedApproval) {
+      await inbox.consumeApproval(ctx.companyId, grantedApproval, { taskId: ctx.taskId, capability: name });
     }
 
     // Settled before the read-back, because the provider billed for the call

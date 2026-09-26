@@ -139,3 +139,48 @@ test('the standard company hands work on: the coordinator routes, the planner ha
   const child = (await withTenant(company.companyId, (tx) => getTask(tx, delegated.childId)))!;
   assert.deepEqual([child.roleId, child.divisionId, child.parentTaskId], [company.roleIds.marketer, company.divisionIds.growth, root.id]);
 });
+
+test('escalations already handled do not crowd out a new one', async () => {
+  // The worker looks at a page of open escalations at a time. One that was
+  // handed and answered stays open -- it is the owner's to decide -- so if a
+  // pass kept reading those, fifty of them would hide every new one behind
+  // them, and the newest problem would never reach anybody.
+  const fixture = await createCompany('escalation-crowd');
+  const leadId = await addRole(fixture, 'ops-lead');
+  await setEscalationPolicy(fixture.companyId, fixture.divisionId, { roleSlug: 'ops-lead', afterMinutes: 30 });
+  for (let n = 0; n < 51; n += 1) {
+    await inbox.raiseEscalation({ companyId: fixture.companyId, divisionId: fixture.divisionId, title: `Old problem ${n}`, detail: 'x' });
+  }
+  while (await handEscalations(fixture.companyId) > 0) { /* a page at a time */ }
+  const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ id: string }>(
+    'SELECT id FROM tasks WHERE role_id = $1 ORDER BY created_at', [leadId]));
+  assert.equal(rows.length, 51);
+  const finish = async (id: string) => {
+    await transition(fixture.companyId, id, 'running');
+    await transition(fixture.companyId, id, 'completed', { output: { summary: 'looked' } });
+  };
+  const noted = async () => (await withTenant(fixture.companyId, (tx) => tx.query<{ n: number }>(
+    "SELECT count(*)::int AS n FROM inbox_items WHERE payload ? 'handledOutcome'"))).rows[0]!.n;
+
+  // The newest is answered while fifty older ones are still being worked on:
+  // its answer reaches the owner anyway.
+  await finish(rows[50]!.id);
+  await handEscalations(fixture.companyId);
+  assert.equal(await noted(), 1);
+
+  // All of them answered: every one is noted, a page at a time.
+  for (const task of rows.slice(0, 50)) await finish(task.id);
+  await handEscalations(fixture.companyId);
+  await handEscalations(fixture.companyId);
+  assert.equal(await noted(), 51);
+
+  await inbox.raiseEscalation({ companyId: fixture.companyId, divisionId: fixture.divisionId, title: 'A new problem', detail: 'y' });
+  assert.equal(await handEscalations(fixture.companyId), 1, 'the new one is handed');
+
+  // And answered, its answer is not hidden behind the fifty-one already noted.
+  const { rows: newest } = await withTenant(fixture.companyId, (tx) => tx.query<{ id: string }>(
+    'SELECT id FROM tasks WHERE role_id = $1 ORDER BY created_at DESC LIMIT 1', [leadId]));
+  await finish(newest[0]!.id);
+  await handEscalations(fixture.companyId);
+  assert.equal(await noted(), 52);
+});

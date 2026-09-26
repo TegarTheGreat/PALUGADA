@@ -431,22 +431,38 @@ const HANDLED_NOTE_LIMIT = 1_000;
  * period at all: the owner is told now, and told why.
  */
 export async function handEscalations(companyId: string): Promise<number> {
-  const { rows } = await withTenant(companyId, (tx) => tx.query<{
+  // Two questions, asked apart: which escalations nobody has been given yet,
+  // and which handed ones have an answer. Asked as one page, the escalations
+  // still being worked on filled it, and fifty of those hid every new one.
+  const { rows: waiting } = await withTenant(companyId, (tx) => tx.query<{
     id: string; task_id: string | null; title: string; rationale: string; notify_after: Date;
-    payload: { escalationRole: string; afterMinutes?: number; handedTaskId?: string };
+    payload: { escalationRole: string; afterMinutes?: number };
   }>(
     `SELECT id, task_id, title, rationale, notify_after, payload FROM inbox_items
       WHERE kind = 'escalation' AND status = 'open'
         AND payload ? 'escalationRole' AND payload->>'escalationRole' IS NOT NULL
-        AND NOT payload ? 'handledOutcome' AND NOT payload ? 'handoffFailed'
+        AND NOT payload ? 'handedTaskId' AND NOT payload ? 'handoffFailed'
       ORDER BY created_at
       LIMIT 50`,
   ));
   let handed = 0;
-  for (const item of rows) {
-    if (item.payload.handedTaskId) await noteHandling(companyId, item);
-    else if (await handOver(companyId, item)) handed += 1;
+  for (const item of waiting) {
+    if (await handOver(companyId, item)) handed += 1;
   }
+
+  const { rows: answered } = await withTenant(companyId, (tx) => tx.query<{
+    id: string; payload: { escalationRole: string; handedTaskId: string };
+  }>(
+    `SELECT i.id, i.payload FROM inbox_items i
+       JOIN tasks t ON t.id = (i.payload->>'handedTaskId')::uuid
+      WHERE i.kind = 'escalation' AND i.status = 'open'
+        AND NOT i.payload ? 'handledOutcome'
+        AND t.status = ANY($1)
+      ORDER BY i.created_at
+      LIMIT 50`,
+    [TERMINAL_STATUSES],
+  ));
+  for (const item of answered) await noteHandling(companyId, item);
   return handed;
 }
 
@@ -523,8 +539,9 @@ async function noteHandling(companyId: string, item: {
   id: string; payload: { escalationRole: string; handedTaskId?: string };
 }): Promise<void> {
   await withTenant(companyId, async (tx) => {
+    // Only finished tasks are asked about, and a finished task stays finished.
     const task = await getTask(tx, item.payload.handedTaskId!);
-    if (!task || !isTerminal(task.status)) return;
+    if (!task) return;
     const said = typeof task.output?.summary === 'string' && task.output.summary.trim()
       ? task.output.summary.trim().slice(0, HANDLED_NOTE_LIMIT)
       : `the task ended ${task.status}${task.haltReason ? ` (${task.haltReason})` : ''} without an account of itself.`;

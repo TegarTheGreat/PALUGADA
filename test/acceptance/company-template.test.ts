@@ -599,3 +599,21 @@ test('a child cannot out-declare the money ceiling its parent inherited (F1.6)',
     /above delivery's 10000/,
   );
 });
+
+test('a division escalates only to a role the template defines, for a whole number of minutes (F2.1)', () => {
+  // A role the company will not have is a grace period nobody is in, which is
+  // the defect handEscalations exists to close; refused before it is stored.
+  const base = {
+    divisions: [{ slug: 'ops', name: 'Ops', escalateTo: { role: 'lead', afterMinutes: 30 } }],
+    roles: [{ slug: 'lead', division: 'ops', systemPrompt: 'p', model: 'm', doneCriteria: ['the cause is fixed or handed on'], outputSchema: { type: 'object' } }],
+  };
+  assertTemplateIsCoherent(base);
+  assert.throws(
+    () => assertTemplateIsCoherent({ ...base, roles: [{ ...base.roles[0]!, slug: 'someone-else' }] }),
+    /escalates to lead, which the template does not define/,
+  );
+  assert.throws(
+    () => assertTemplateIsCoherent({ ...base, divisions: [{ slug: 'ops', name: 'Ops', escalateTo: { role: 'lead', afterMinutes: 0 } }] }),
+    /whole number of minutes, at least one/,
+  );
+});

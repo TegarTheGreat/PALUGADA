@@ -1249,6 +1249,35 @@ test('a fresh deployment starts the standard company, and can let it run itself'
   }
 });
 
+/**
+ * The boot seeds, and leaves alone what an operator already published.
+ *
+ * Publishing replaces a bundle's row, signature and all. An operator who
+ * published a built-in signed -- which is what lets its grants be used --
+ * would have it replaced by the unsigned copy on every start.
+ */
+test('the boot leaves a bundle that is already published as it is', async () => {
+  const { start } = await import('../../src/main.ts');
+  const { withControlPlane } = await import('../../src/db/tenant.ts');
+  const { publishBundle } = await import('../../src/bundles/bundle.ts');
+  const { COMPANY_OS } = await import('../../src/bundles/builtin.ts');
+  await publishBundle(COMPANY_OS);
+  await withControlPlane((tx) => tx.query(
+    "UPDATE bundles SET description = 'kept by the operator' WHERE slug = $1 AND version = $2",
+    [COMPANY_OS.slug, COMPANY_OS.version]));
+
+  const deployment = await start({ port: 0, env: {}, worker: { idleMs: 50 } });
+  try {
+    const { rows } = await withControlPlane((tx) => tx.query<{ description: string }>(
+      'SELECT description FROM bundles WHERE slug = $1 AND version = $2', [COMPANY_OS.slug, COMPANY_OS.version]));
+    assert.equal(rows[0]!.description, 'kept by the operator');
+    const all = await withControlPlane((tx) => tx.query('SELECT slug FROM bundles'));
+    assert.ok(all.rows.length >= 5, 'and the ones that were missing are published');
+  } finally {
+    await deployment.stop();
+  }
+});
+
 /* ------------------------------------------- what the second review found --- */
 
 /**

@@ -84,6 +84,23 @@ export interface EngineOptions {
   workerId?: string;
 }
 
+/**
+ * The longest a rate limit may park a task (F9.2).
+ *
+ * Six hours. A vendor's rate limit is counted in seconds, minutes, at most an
+ * hour; a wait longer than a working day is a quota that has run out, which
+ * is something the owner should hear about through the failure path rather
+ * than discover as a task that quietly never ran.
+ */
+export const MAX_RATE_LIMIT_WAIT_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * How many times one task may be parked by a rate limit before the next one
+ * counts as a failure. A limit that lifts and immediately closes again five
+ * times is not a limit being waited out, it is a loop.
+ */
+export const MAX_RATE_LIMIT_PARKS = 5;
+
 export interface RunOutcome {
   status:
     /**
@@ -757,6 +774,53 @@ export class Engine {
   }
 
   /**
+   * Parks a rate-limited task until its limit lifts, or says it will not.
+   *
+   * Null when the wait is unusable -- no time, a time beyond
+   * `MAX_RATE_LIMIT_WAIT_MS`, or a task that has already been parked
+   * `MAX_RATE_LIMIT_PARKS` times -- and the caller falls through to the
+   * ordinary failure path.
+   */
+  async #parkForRateLimit(
+    companyId: string,
+    taskId: string,
+    error: PalugadaError,
+  ): Promise<RunOutcome | null> {
+    const raw = error.details.notBefore;
+    const notBefore = typeof raw === 'string' ? new Date(raw) : null;
+    const now = Date.now();
+    if (!notBefore || !Number.isFinite(notBefore.getTime())) return null;
+    if (notBefore.getTime() - now > MAX_RATE_LIMIT_WAIT_MS) return null;
+
+    const parks = await withTenant(companyId, async (tx) => {
+      const { rows } = await tx.query<{ count: string }>(
+        "SELECT count(*)::text AS count FROM events WHERE task_id = $1 AND type = 'task.rate_limited'",
+        [taskId],
+      );
+      return Number(rows[0]!.count);
+    });
+    if (parks >= MAX_RATE_LIMIT_PARKS) return null;
+
+    const waitUntil = new Date(Math.max(notBefore.getTime(), now + 1_000));
+    await withTenant(companyId, async (tx) => {
+      await appendEvent(tx, {
+        companyId,
+        taskId,
+        type: 'task.rate_limited',
+        actor: 'engine',
+        payload: {
+          capability: error.details.capability ?? error.details.name ?? null,
+          source: error.details.source ?? 'grant',
+          waitUntil: waitUntil.toISOString(),
+          park: parks + 1,
+        },
+      });
+    });
+    await transition(companyId, taskId, 'waiting_window', { waitUntil });
+    return { status: 'waiting_window', reason: 'capability.rate_limited', waitUntil };
+  }
+
+  /**
    * Maps a thrown failure onto the state machine.
    *
    * The distinction that matters is `failed` versus `halted`: a failure may be
@@ -806,6 +870,22 @@ export class Engine {
     if (code === 'review.required') {
       await transition(companyId, taskId, 'waiting_review');
       return { status: 'waiting_review', reason: code };
+    }
+
+    // "Not now" from a vendor, or from the division's own hourly allowance, is
+    // F9.2's case exactly: the action is permitted, just not at this moment.
+    // Retried as a failure it spent the task's attempts on the next few ticks,
+    // against a limit that had not lifted, and the task failed for having
+    // been patient in the wrong way. Parked, it waits for the time the limit
+    // gave and resumes from its journal.
+    //
+    // Bounded, because the vendor is the one saying when: one that answers
+    // 429 for ever, or names a wait of a week, would otherwise hold the task
+    // indefinitely with nothing failing to say so. Past the bound it is an
+    // ordinary failure and goes through attempts to the owner like one.
+    if (code === 'capability.rate_limited') {
+      const parked = await this.#parkForRateLimit(companyId, taskId, error as PalugadaError);
+      if (parked) return parked;
     }
 
     if (code === 'platform.stopped' || code === 'company.frozen') {

@@ -17,7 +17,9 @@ import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import { closePools } from '../../src/db/pool.ts';
 import { isPalugadaError } from '../../src/errors.ts';
-import { httpCapability, fill } from '../../src/capabilities/http.ts';
+import {
+  httpCapability, fill, rateLimit, DEFAULT_RATE_LIMIT_WAIT_MS,
+} from '../../src/capabilities/http.ts';
 import { safeFetch } from '../../src/capabilities/reachable.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
@@ -37,7 +39,9 @@ interface Seen {
 
 /** A vendor. Records what it was sent and answers what the test tells it to. */
 async function vendor(
-  reply: (call: Seen, index: number) => { status: number; body?: unknown },
+  reply: (call: Seen, index: number) => {
+    status: number; body?: unknown; headers?: Record<string, string>;
+  },
 ): Promise<{ url: string; calls: Seen[]; close: () => Promise<void> }> {
   const calls: Seen[] = [];
   const server: Server = createServer((req, res) => {
@@ -52,7 +56,7 @@ async function vendor(
       };
       calls.push(call);
       const answer = reply(call, calls.length - 1);
-      res.writeHead(answer.status, { 'content-type': 'application/json' });
+      res.writeHead(answer.status, { 'content-type': 'application/json', ...(answer.headers ?? {}) });
       res.end(JSON.stringify(answer.body ?? {}));
     });
   });
@@ -651,3 +655,94 @@ async function vendorRedirectingTo(
       }),
   };
 }
+
+/* --------------------------------------------------------- rate limits --- */
+
+/**
+ * "Not now" read correctly, from every header a vendor uses to say it.
+ *
+ * The three are not interchangeable: `X-RateLimit-Reset` is an epoch at most
+ * vendors and a number of seconds at a few, and reading an epoch as seconds is
+ * a wait of fifty-six years. A 503 without `Retry-After` is an outage, not a
+ * limit, and is left for the ordinary failure path.
+ */
+test('a rate limit is read from whichever header the vendor used', () => {
+  const now = new Date('2026-09-26T12:00:00Z');
+  const at = (status: number, headers: Record<string, string>) =>
+    rateLimit(status, headers, now)?.notBefore.toISOString() ?? null;
+
+  assert.equal(at(429, { 'retry-after': '30' }), '2026-09-26T12:00:30.000Z');
+  assert.equal(at(429, { 'retry-after': 'Sat, 26 Sep 2026 12:05:00 GMT' }), '2026-09-26T12:05:00.000Z');
+  assert.equal(at(429, { 'ratelimit-reset': '45' }), '2026-09-26T12:00:45.000Z');
+  assert.equal(at(429, { 'x-ratelimit-reset': String(Date.parse('2026-09-26T12:10:00Z') / 1000) }),
+    '2026-09-26T12:10:00.000Z', 'an epoch, not fifty-six years of seconds');
+  assert.equal(at(429, { 'x-ratelimit-reset': '12' }), '2026-09-26T12:00:12.000Z');
+  assert.equal(at(503, { 'retry-after': '5' }), '2026-09-26T12:00:05.000Z');
+
+  assert.equal(at(503, {}), null, 'an outage is not a rate limit');
+  assert.equal(at(500, { 'retry-after': '5' }), null);
+  assert.equal(at(200, { 'retry-after': '5' }), null);
+
+  // No hint at all: a minute, and marked as a guess.
+  const guessed = rateLimit(429, {}, now)!;
+  assert.equal(guessed.notBefore.getTime() - now.getTime(), DEFAULT_RATE_LIMIT_WAIT_MS);
+  assert.equal(guessed.stated, false);
+  // A stated time already past is not permission to hammer.
+  assert.equal(at(429, { 'retry-after': 'Sat, 26 Sep 2026 11:00:00 GMT' }), '2026-09-26T12:00:01.000Z');
+  // Garbage is not a time.
+  assert.equal(rateLimit(429, { 'retry-after': 'soon' }, now)!.stated, false);
+});
+
+/**
+ * A 429 used to arrive as `contract.violation` -- a refusal -- and the engine
+ * retried it on its next tick, a few seconds later, until the task's attempts
+ * were gone. The wait now travels with the error, so the engine can park the
+ * task instead of spending it.
+ */
+test('a rate-limited write says when it may be tried again (F9.2)', async () => {
+  const mail = await vendor(() => ({
+    status: 429, body: { error: 'slow down' }, headers: { 'retry-after': '30' },
+  }));
+  try {
+    const capability = httpCapability(sendSpec(mail.url));
+    const before = Date.now();
+    await assert.rejects(
+      capability.execute({ to: 'a@example.com', subject: 's', body: 'b' }, ctx()),
+      (error: unknown) => {
+        if (!isPalugadaError(error, 'capability.rate_limited')) return false;
+        const notBefore = Date.parse(String(error.details.notBefore));
+        return error.details.source === 'vendor'
+          && error.details.status === 429
+          && notBefore >= before + 29_000 && notBefore <= Date.now() + 31_000;
+      },
+    );
+    assert.equal(mail.calls.length, 1, 'asked once, not hammered');
+  } finally {
+    await mail.close();
+  }
+});
+
+/**
+ * The read-back is the one place that waits in line. The write has already
+ * happened, so parking the task here would leave it unjournalled and the
+ * resumed task would send the email again -- and giving up reported a write
+ * that succeeded as one that failed, which halts the task and raises an
+ * incident because a vendor asked for a second.
+ */
+test('a read-back waits out a short rate limit instead of failing the write (F8.4)', async () => {
+  const mail = await vendor((call, index) => {
+    if (call.method === 'POST') return { status: 202, body: { id: 'msg_1' } };
+    return index === 1
+      ? { status: 429, body: {}, headers: { 'retry-after': '1' } }
+      : { status: 200, body: { id: 'msg_1', status: 'sent' } };
+  });
+  try {
+    const capability = httpCapability(sendSpec(mail.url));
+    const input = { to: 'a@example.com', subject: 's', body: 'b' };
+    const result = await capability.execute(input, ctx());
+    assert.equal(await capability.verify!(input, result, ctx()), true);
+    assert.equal(mail.calls.length, 3, 'one write, one limited read, one read that passed');
+  } finally {
+    await mail.close();
+  }
+});

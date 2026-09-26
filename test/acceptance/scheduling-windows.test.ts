@@ -28,7 +28,7 @@ import { claimTask, releaseTask } from '../../src/engine/checkout.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import * as budget from '../../src/engine/budget.ts';
 import { freezeCompany } from '../../src/engine/control.ts';
-import { isPalugadaError } from '../../src/errors.ts';
+import { isPalugadaError, PalugadaError } from '../../src/errors.ts';
 import { createCompany, grantCapability, type Fixture, planTask } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
@@ -662,4 +662,166 @@ test('a task parked with no wake-up time is not claimed in a loop (F9.6)', async
   });
   const claim = await claimTask(fixture.companyId, { holder: 'w1' });
   assert.equal(claim?.taskId, ordinary.id);
+});
+
+/* ------------------------------------------------------- rate limits (F9.2) --- */
+
+async function rateLimitedTask(fixture: Fixture) {
+  const task = await createRootTask({
+    companyId: fixture.companyId,
+    projectId: fixture.projectId,
+    divisionId: fixture.divisionId,
+    roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId,
+    goalId: fixture.goalId,
+    input: { n: Math.random() },
+    createdBy: 'owner',
+    reserveTokens: 10_000,
+  });
+  await planTask(fixture.companyId, task.id, [{ capability: 'crm.read' }]);
+  return task;
+}
+
+async function engineCalling(fixture: Fixture, capability: Capability<{ to: string }, { sent: boolean }>, options: { rateLimitPerHour?: number } = {}) {
+  const registry = new CapabilityRegistry();
+  registry.register(capability);
+  await registry.sync();
+  await grantCapability(fixture, capability.name, options);
+  return new Engine({
+    broker: new CapabilityBroker(registry),
+    llm: new RecordingLlmClient(),
+    handlers: new Map([['worker', async (ctx) => {
+      await ctx.callCapability(capability.name, { to: 'client@example.test' });
+      return {};
+    }]]),
+  });
+}
+
+function limitedVendor(waits: Array<number | null>) {
+  const calls = { executions: 0 };
+  const capability: Capability<{ to: string }, { sent: boolean }> = {
+    name: 'crm.read',
+    adapter: 'test:email',
+    defaultTier: 0,
+    async execute() {
+      const wait = waits[calls.executions++];
+      if (wait !== null && wait !== undefined) {
+        throw new PalugadaError('capability.rate_limited', 'slow down', {
+          capability: 'crm.read', status: 429, source: 'vendor',
+          notBefore: new Date(Date.now() + wait).toISOString(),
+        });
+      }
+      return { sent: true };
+    },
+    async verify() {
+      return true;
+    },
+  };
+  return { capability, calls };
+}
+
+async function attemptOf(fixture: Fixture, taskId: string): Promise<number> {
+  const stored = await withTenant(fixture.companyId, (tx) => getTask(tx, taskId));
+  return stored!.attempt;
+}
+
+/**
+ * `crm.read` stands in for any read a vendor meters -- Slack's history call
+ * is the famous one.
+ *
+ * A 429 was a failure, so the engine retried on its next tick -- seconds
+ * later, into a limit that had not lifted -- and three ticks spent the task.
+ * Slack allows most apps one history call a minute; a platform that cannot
+ * wait a minute cannot use it. Parked, the task spends nothing and resumes
+ * when the vendor said it could.
+ */
+test('a vendor rate limit parks the task until it lifts, spending no attempt (F9.2)', async () => {
+  const fixture = await createCompany('rate-limit-park');
+  const { capability, calls } = limitedVendor([30_000, null]);
+  const engine = await engineCalling(fixture, capability);
+  const task = await rateLimitedTask(fixture);
+
+  const before = Date.now();
+  const first = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(first.status, 'waiting_window', first.reason);
+  assert.equal(first.reason, 'capability.rate_limited');
+  const wait = first.waitUntil!.getTime() - before;
+  assert.ok(wait >= 29_000 && wait <= 31_000, `parked for ${wait}ms, not the 30s the vendor asked`);
+  assert.equal(await attemptOf(fixture, task.id), 0, 'waiting is not failing');
+
+  // Not before the vendor's time, and then it is claimed and finishes.
+  assert.equal(await claimTask(fixture.companyId, { holder: 'w1' }), null);
+  // Claimed as the engine's own worker, which is what a tick does.
+  const claim = await claimTask(fixture.companyId, {
+    holder: engine.workerId, now: new Date(Date.now() + 31_000),
+  });
+  assert.equal(claim?.taskId, task.id);
+  const second = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(second.status, 'completed', second.reason);
+  assert.equal(calls.executions, 2);
+});
+
+/**
+ * The vendor is the one naming the wait, so it is bounded twice: a wait
+ * beyond a working day is a quota that has run out, and a limit that closes
+ * again every time it lifts is a loop. Past either, the ordinary failure path
+ * takes over and the owner hears about it the ordinary way.
+ */
+test('a rate limit that never lifts becomes a failure rather than a task parked for ever', async () => {
+  const fixture = await createCompany('rate-limit-bound');
+  const week = 7 * 24 * 60 * 60 * 1000;
+  const { capability } = limitedVendor([week]);
+  const engine = await engineCalling(fixture, capability);
+  const task = await rateLimitedTask(fixture);
+
+  const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.notEqual(outcome.status, 'waiting_window', 'a week is not a rate limit');
+  assert.equal(await attemptOf(fixture, task.id), 1);
+
+  // And a limit that keeps closing: parked five times, then counted.
+  const looping = await createCompany('rate-limit-loop');
+  const again = limitedVendor(Array.from({ length: 10 }, () => 10));
+  const loopEngine = await engineCalling(looping, again.capability);
+  const loopTask = await rateLimitedTask(looping);
+  const statuses: string[] = [];
+  for (let run = 0; run < 6; run += 1) {
+    const result = await loopEngine.runTask(looping.companyId, loopTask.id, 'worker');
+    statuses.push(result.status);
+  }
+  assert.deepEqual(statuses.slice(0, 5), Array(5).fill('waiting_window'));
+  assert.notEqual(statuses[5], 'waiting_window');
+  assert.equal(await attemptOf(looping, loopTask.id), 1);
+});
+
+/**
+ * The division's own hourly allowance is the same case from the inside. It
+ * refused with no time attached, so it too was retried into a full window
+ * until the task failed; now it names the moment the oldest call in the hour
+ * ages out, and the task waits for exactly that.
+ */
+test('a division over its hourly allowance waits for the next slot (F9.2)', async () => {
+  const fixture = await createCompany('grant-rate-limit');
+  const { capability, calls } = limitedVendor([null, null]);
+  const engine = await engineCalling(fixture, capability, { rateLimitPerHour: 2 });
+
+  const first = await rateLimitedTask(fixture);
+  assert.equal((await engine.runTask(fixture.companyId, first.id, 'worker')).status, 'completed');
+  // And one made fifty minutes ago, so the window is full and its two calls
+  // age out at different times: the slot is the older one's, ten minutes off,
+  // not the newer one's hour.
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    `INSERT INTO events (company_id, project_id, task_id, type, actor, payload, occurred_at)
+     VALUES ($1, $2, $3, 'tool.called', 'broker', '{"capability":"crm.read"}'::jsonb,
+             now() - interval '50 minutes')`,
+    [fixture.companyId, fixture.projectId, first.id],
+  ));
+
+  const second = await rateLimitedTask(fixture);
+  const before = Date.now();
+  const outcome = await engine.runTask(fixture.companyId, second.id, 'worker');
+  assert.equal(outcome.status, 'waiting_window', outcome.reason);
+  const wait = outcome.waitUntil!.getTime() - before;
+  assert.ok(wait > 9 * 60_000 && wait <= 10 * 60_000, `waits for the oldest call to age out, got ${wait}ms`);
+  assert.equal(calls.executions, 1, 'the second call was never made');
+  assert.equal(await attemptOf(fixture, second.id), 0);
 });

@@ -213,6 +213,31 @@ export function httpCapability(spec: HttpCapabilitySpec): Capability<
         signal: ctx.signal,
       });
 
+      // "Not now" is not "no". A vendor that rate-limits says so with a 429
+      // (or a 503 carrying Retry-After) and usually says for how long, and
+      // treating that as a refusal spent the task's attempts against a limit
+      // that had not lifted: the engine retried on its next tick, a few
+      // seconds later, three times, and the task failed. Slack's history API
+      // allows one call a minute to most apps -- a platform that cannot wait a
+      // minute cannot use it. So the wait travels with the error, and the
+      // engine parks the task until then (PRD F9.2's "permitted, just not
+      // now", which is exactly this).
+      const limited = rateLimit(answer.status, answer.headers);
+      if (limited) {
+        throw new PalugadaError(
+          'capability.rate_limited',
+          `${spec.name} was rate limited by ${spec.adapter} (${answer.status}); `
+            + `retry after ${limited.notBefore.toISOString()}`,
+          {
+            capability: spec.name,
+            status: answer.status,
+            source: 'vendor',
+            notBefore: limited.notBefore.toISOString(),
+            stated: limited.stated,
+          },
+        );
+      }
+
       // A vendor's refusal is a fact about the action, not a fault in the
       // call, and an agent can act on it only if it survives as one. The
       // status and whatever the body said travel together, because "402" and
@@ -236,7 +261,7 @@ export function httpCapability(spec: HttpCapabilitySpec): Capability<
     const verifySpec = spec.verify;
     capability.verify = async (input, result, ctx) => {
       const placeholders = await resolve(spec, input, ctx);
-      const answer = await request(spec, {
+      const readBack = () => request(spec, {
         method: (verifySpec.method ?? 'GET').toUpperCase(),
         url: fill(verifySpec.url, { ...placeholders, result: result as Record<string, unknown> }),
         // The write's headers minus its idempotency key. Replaying that key on
@@ -246,6 +271,21 @@ export function httpCapability(spec: HttpCapabilitySpec): Capability<
         headers: readHeaders(verifySpec.headers ?? spec.headers ?? {}, placeholders),
         signal: ctx.signal,
       });
+      // The read-back waits out a short rate limit where it stands, rather
+      // than parking the task like `execute` does. The write has already
+      // happened; parking now would leave it unjournalled, and the resumed
+      // task would perform it again. And a read-back that simply gave up on
+      // a 429 reported a write that succeeded as one that did not -- a halt
+      // and an incident, raised because a vendor asked for thirty seconds.
+      let answer = await readBack();
+      for (let tries = 0; tries < READ_BACK_RATE_LIMIT_TRIES; tries += 1) {
+        const limited = rateLimit(answer.status, answer.headers);
+        if (!limited) break;
+        const waitMs = limited.notBefore.getTime() - Date.now();
+        if (waitMs > READ_BACK_MAX_WAIT_MS) break;
+        await sleep(Math.max(0, waitMs), ctx.signal);
+        answer = await readBack();
+      }
       // A read-back that could not be made is not a read-back that passed.
       if (answer.status >= 400) return false;
       return verifySpec.matches({ status: answer.status, body: answer.body }, result, input);
@@ -338,7 +378,7 @@ async function request(
     body?: string;
     signal?: AbortSignal;
   },
-): Promise<{ status: number; body: unknown; text: string }> {
+): Promise<{ status: number; body: unknown; text: string; headers: Record<string, string> }> {
   // Through `safeFetch`, like every other capability that makes a request. A
   // vendor URL is configuration, and configuration is a thing an operator can
   // get wrong -- pointing one at `169.254.169.254` should be refused rather
@@ -380,7 +420,80 @@ async function request(
     // the caller's `result` knows what to do with either.
     body = answer.body;
   }
-  return { status: answer.status, body, text: answer.body };
+  return { status: answer.status, body, text: answer.body, headers: answer.headers };
+}
+
+/** How many times a read-back waits out a rate limit before giving up. */
+const READ_BACK_RATE_LIMIT_TRIES = 2;
+/** The longest a read-back waits in place. Longer than this is not a blip. */
+const READ_BACK_MAX_WAIT_MS = 20_000;
+/**
+ * What a 429 with no hint is taken to mean.
+ *
+ * A minute, because it is the window almost every vendor counts in, and a
+ * guess shorter than the window is a guess that hits the same limit again.
+ */
+export const DEFAULT_RATE_LIMIT_WAIT_MS = 60_000;
+
+/**
+ * Reads when a rate-limited request may be made again, or null when the
+ * answer is not a rate limit.
+ *
+ * Three headers say it, in the order a vendor is likely to mean them:
+ * `Retry-After` (RFC 9110 §10.2.3: seconds, or an HTTP date),
+ * `RateLimit-Reset` (the IETF draft: seconds from now), and
+ * `X-RateLimit-Reset` (the de-facto one, which some send as seconds and most
+ * -- GitHub, Discord's older API -- as an epoch). A 503 is a rate limit only
+ * when it carries `Retry-After`; without it a 503 is an outage, and waiting a
+ * minute for an outage is a guess nobody asked for.
+ */
+export function rateLimit(
+  status: number,
+  headers: Record<string, string>,
+  now = new Date(),
+): { notBefore: Date; stated: boolean } | null {
+  const header = (name: string) => headers[name] ?? headers[name.toLowerCase()];
+  const retryAfter = header('retry-after');
+  if (status !== 429 && !(status === 503 && retryAfter !== undefined)) return null;
+
+  const fromSeconds = (value: string | undefined): Date | null => {
+    if (value === undefined || !/^\s*\d+(\.\d+)?\s*$/.test(value)) return null;
+    return new Date(now.getTime() + Math.ceil(Number(value) * 1000));
+  };
+
+  let notBefore = fromSeconds(retryAfter);
+  if (!notBefore && retryAfter !== undefined) {
+    const date = Date.parse(retryAfter);
+    if (Number.isFinite(date)) notBefore = new Date(date);
+  }
+  notBefore ??= fromSeconds(header('ratelimit-reset'));
+  if (!notBefore) {
+    const reset = header('x-ratelimit-reset');
+    if (reset !== undefined && /^\s*\d+(\.\d+)?\s*$/.test(reset)) {
+      const value = Number(reset);
+      // An epoch is a number of seconds since 1970, and anything that large
+      // is not a wait anybody would state in seconds.
+      notBefore = value > 1_000_000_000
+        ? new Date(value * 1000)
+        : new Date(now.getTime() + Math.ceil(value * 1000));
+    }
+  }
+
+  if (notBefore && notBefore.getTime() > now.getTime()) return { notBefore, stated: true };
+  // A stated time already past -- clock skew, or a reset that has just
+  // happened -- is not a reason to hammer. A second is.
+  if (notBefore) return { notBefore: new Date(now.getTime() + 1_000), stated: true };
+  return { notBefore: new Date(now.getTime() + DEFAULT_RATE_LIMIT_WAIT_MS), stated: false };
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener('abort', () => {
+      clearTimeout(timer);
+      resolve();
+    }, { once: true });
+  });
 }
 
 /**

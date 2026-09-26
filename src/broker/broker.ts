@@ -99,7 +99,11 @@ type Verdict =
       plan: TaskPlan | null;
       window: { closed: true; reopensAt: Date | null } | { closed: false };
     }
-  | { allowed: false; reason: DenialCode; message: string; policy?: PolicyDecision };
+  | {
+      allowed: false; reason: DenialCode; message: string; policy?: PolicyDecision;
+      /** For a rate limit: when a slot frees, so the engine can wait for it. */
+      notBefore?: Date;
+    };
 
 export class CapabilityBroker {
   readonly #registry: CapabilityRegistry;
@@ -302,10 +306,15 @@ export class CapabilityBroker {
       if (grant.rateLimitPerHour !== null) {
         const used = await countRecentInvocations(tx, ctx.divisionId, name);
         if (used >= grant.rateLimitPerHour) {
+          // When the window next has room: the call that has to age out for
+          // this one to fit, plus the hour. The engine parks the task until
+          // then rather than retrying into the same full window (F9.2).
+          const notBefore = await nextSlot(tx, ctx.divisionId, name, used - grant.rateLimitPerHour);
           return {
             allowed: false,
             reason: 'capability.rate_limited',
             message: `capability ${name} exceeded ${grant.rateLimitPerHour} calls/hour for this division`,
+            ...(notBefore ? { notBefore } : {}),
           };
         }
       }
@@ -366,6 +375,9 @@ export class CapabilityBroker {
         name,
         divisionId: ctx.divisionId,
         ...(verdict.policy ? { policies: verdict.policy.matched.map((m) => m.slug) } : {}),
+        ...(verdict.notBefore
+          ? { notBefore: verdict.notBefore.toISOString(), source: 'grant', capability: name }
+          : {}),
       });
     }
 
@@ -715,6 +727,34 @@ async function countRecentInvocations(
     [divisionId, name],
   );
   return Number(rows[0]!.count);
+}
+
+/**
+ * When the hourly window will have room for one more call.
+ *
+ * `excess` is how many calls over the limit the window already holds (zero
+ * when it is exactly full), so the call that has to age out is the
+ * `excess`-th oldest. Computed from the same events `countRecentInvocations`
+ * counts, so the two cannot disagree about what is in the window.
+ */
+async function nextSlot(
+  tx: TenantClient,
+  divisionId: string,
+  name: string,
+  excess: number,
+): Promise<Date | null> {
+  const { rows } = await tx.query<{ frees_at: Date }>(
+    `SELECT e.occurred_at + interval '1 hour' AS frees_at FROM events e
+       JOIN tasks t ON t.id = e.task_id
+      WHERE e.type = 'tool.called'
+        AND t.division_id = $1
+        AND e.payload->>'capability' = $2
+        AND e.occurred_at > now() - interval '1 hour'
+      ORDER BY e.occurred_at
+      OFFSET $3 LIMIT 1`,
+    [divisionId, name, Math.max(0, excess)],
+  );
+  return rows[0]?.frees_at ?? null;
 }
 
 /**

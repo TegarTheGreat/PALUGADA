@@ -21,7 +21,7 @@ import { notifications } from '@mantine/notifications';
 import { Spotlight, spotlight, type SpotlightActionData } from '@mantine/spotlight';
 import {
   IconActivity, IconAlertOctagon, IconBrain, IconBuildingStore, IconCheck, IconChecklist, IconChevronDown,
-  IconCoin, IconDots, IconHistory, IconHome, IconInbox, IconLanguage, IconLayoutDashboard, IconLogout,
+  IconCoin, IconDots, IconHistory, IconHome, IconInbox, IconLanguage, IconLayoutDashboard, IconLogout, IconMap,
   IconMoon, IconPlayerPlay, IconPlayerStop, IconPlus, IconSearch, IconSettings, IconSitemap, IconSun,
 } from '@tabler/icons-react';
 import { api, explain, setToken, whenSignedOut } from './api.ts';
@@ -42,6 +42,7 @@ import { Money } from './pages/Money.tsx';
 import { History } from './pages/History.tsx';
 import { SettingsHub } from './pages/SettingsHub.tsx';
 import { AssignWork } from './components/AssignWork.tsx';
+import { Tour, type TourSpot } from './components/Tour.tsx';
 
 /** The pages of one company, as the sidebar offers them. */
 const PAGES: Array<{ id: CompanyPage; label: string; icon: typeof IconInbox; group: 'decide' | 'company' | 'setup' }> = [
@@ -127,6 +128,9 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
   const [more, setMore] = useState(false);
   const [giving, setGiving] = useState(false);
   const [checklist, setChecklist] = useState(false);
+  const [touring, setTouring] = useState(false);
+  const [spot, setSpot] = useState<TourSpot | null>(null);
+  const spotted = (name: TourSpot) => (spot === name ? ' tour-spot' : '');
 
   const base = useLoad(async () => {
     const [{ companies }, control, setup, languages]: [
@@ -139,6 +143,20 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
     ]);
     return { companies, stopAll: control.stopAll, setup, languages };
   }, [], { every: 30_000 });
+
+  // The tour, once: asked for at sign-in rather than every thirty seconds,
+  // and opened by itself only while the deployment says it was never
+  // finished or skipped.
+  useEffect(() => {
+    void api('GET', '/api/control/tour').then(
+      (tour: { finishedAt: string | null }) => { if (tour.finishedAt === null) setTouring(true); },
+      () => undefined,
+    );
+  }, []);
+  const finishTour = useCallback(() => {
+    setTouring(false);
+    void api('POST', '/api/control/tour', { finished: true }).catch(() => undefined);
+  }, []);
 
   // The deployment's choice wins over the browser's once the owner is in.
   useEffect(() => {
@@ -282,7 +300,7 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
       rightSection={page.id === 'inbox' && inboxCount > 0 ? <Badge size="sm" color="red" circle>{inboxCount}</Badge> : null}
       active={active === page.id}
       onClick={() => open(page.id)}
-      className="nav-link"
+      className={`nav-link${spotted(page.id as TourSpot)}`}
     />
   );
 
@@ -359,7 +377,7 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
             pick={(id) => open(route.kind === 'company' ? route.page : 'inbox', { companyId: id })} start={() => setStarting(true)} />
           <Menu position="bottom-start" width="target" shadow="md">
             <Menu.Target>
-              <Button fullWidth mt="sm" leftSection={<IconPlus size={16} />} justify="flex-start">{t('New')}</Button>
+              <Button fullWidth mt="sm" leftSection={<IconPlus size={16} />} justify="flex-start" className={spotted('new')}>{t('New')}</Button>
             </Menu.Target>
             <Menu.Dropdown>
               <Menu.Item leftSection={<IconActivity size={16} />} onClick={() => setGiving(true)} disabled={!company}>{t('Give a role work')}</Menu.Item>
@@ -370,7 +388,7 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
         </AppShell.Section>
 
         <AppShell.Section grow component={ScrollArea} mt="sm">
-          <NavLink label={t('Home')} leftSection={<IconHome size={18} stroke={1.7} />} active={active === 'home'} onClick={() => go({ kind: 'home' })} className="nav-link" />
+          <NavLink label={t('Home')} leftSection={<IconHome size={18} stroke={1.7} />} active={active === 'home'} onClick={() => go({ kind: 'home' })} className={`nav-link${spotted('home')}`} />
           {PAGES.filter((page) => page.group === 'decide').map(navLink)}
           {company && <div className="nav-section-label">{company.name}</div>}
           {PAGES.filter((page) => page.group === 'company').map(navLink)}
@@ -378,7 +396,7 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
 
         <AppShell.Section>
           {setup.todo.length > 0 && (
-            <Paper withBorder radius="md" p="sm" mb="sm" className="clickable-row" onClick={() => setChecklist(true)}>
+            <Paper withBorder radius="md" p="sm" mb="sm" className={`clickable-row${spotted('setup')}`} onClick={() => setChecklist(true)}>
               <Group gap="xs" wrap="nowrap">
                 <IconChecklist size={18} color="var(--mantine-color-yellow-7)" />
                 <Text size="sm" fw={600}>{t('Finish setting up')}</Text>
@@ -395,6 +413,7 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
             variant={stopAll ? 'filled' : 'light'}
             leftSection={stopAll ? <IconPlayerPlay size={16} /> : <IconPlayerStop size={16} />}
             onClick={() => void toggleStop()}
+            className={spotted('stop')}
           >
             {stopAll ? t('Resume everything') : t('Stop everything')}
           </Button>
@@ -418,6 +437,7 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
               <Menu.Item leftSection={colorScheme === 'dark' ? <IconSun size={16} /> : <IconMoon size={16} />} onClick={toggleColorScheme}>
                 {colorScheme === 'dark' ? t('Light theme') : t('Dark theme')}
               </Menu.Item>
+              <Menu.Item leftSection={<IconMap size={16} />} onClick={() => setTouring(true)}>{t('Take the tour')}</Menu.Item>
               <Menu.Item color="red" leftSection={<IconAlertOctagon size={16} />} onClick={() => setCancelling(true)}>{t('Cancel every task…')}</Menu.Item>
               <Menu.Divider />
               <Menu.Item leftSection={<IconLogout size={16} />} onClick={() => void signOut()}>{t('Sign out')}</Menu.Item>
@@ -490,6 +510,15 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
       <RestoreCompany opened={restoring} close={() => setRestoring(false)} restored={(id) => { base.reload(); open('overview', { companyId: id }); }} />
 
       <GiveWork companyId={company?.id ?? null} opened={giving} close={() => setGiving(false)} />
+
+      <Tour
+        opened={touring}
+        hasCompany={company !== null}
+        finish={finishTour}
+        show={(place) => (place === 'home' ? go({ kind: 'home' }) : open(place))}
+        point={setSpot}
+        start={() => setStarting(true)}
+      />
 
       <Modal opened={checklist} onClose={() => setChecklist(false)} title={t('Finish setting up this deployment')} size="lg" centered>
         <Text size="sm" c="dimmed" mb="md">

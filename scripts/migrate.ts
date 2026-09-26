@@ -20,6 +20,11 @@ export async function migrate(): Promise<string[]> {
   const applied: string[] = [];
 
   try {
+    // Two processes starting together -- replicas of one image, each of which
+    // migrates before it serves -- would both find a migration pending and
+    // both apply it. One waits for the other here, then finds nothing to do.
+    // Released when the connection ends.
+    await client.query(`SELECT pg_advisory_lock(hashtext('palugada.migrate'))`);
     await client.query(`
       CREATE TABLE IF NOT EXISTS schema_migrations (
         version     text PRIMARY KEY,

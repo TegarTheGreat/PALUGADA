@@ -2925,12 +2925,12 @@ vendor files (`src/capabilities/mcp.ts`, `PALUGADA_MCP_SERVERS`).
 - Resuming an agent CLI's run is by position: a CLI that re-issues an
   earlier call after a restart is told the journal diverged. The platform's
   own loop replays exactly; a CLI does not.
-- The worker runs one company's work at a time, and a shutdown does not hand
-  in-flight work back before the process exits.
-- Sign-in has no per-address throttle: ten wrong codes lock the owner out
-  for fifteen minutes, from anywhere that can reach the console.
-- No connector catalogue, no OAuth flow, no tracing or metrics endpoint, no
-  container image.
+- The worker runs one company's work at a time; more work in parallel is
+  more replicas, which share the queue through leases.
+- No connector catalogue, no OAuth flow, no tracing or metrics endpoint.
+
+(A shutdown that handed nothing back, sign-in with no per-address throttle,
+and no container image were on this list; section 2.22 closes them.)
 - A way for a run to write down what it learned. A `memory.note` would be a
   thirteenth tool for every role in the standard company but one, and F2.4
   caps a role at twelve; until a role can spare one, what a run learned
@@ -2999,6 +2999,106 @@ reports what the marketer returned, with no handler anywhere.
 **Not proved.** Whether a given model calls tools well enough to do a
 role's work is the model's matter; small local models often cannot call
 tools at all, and the documentation says so.
+
+### Ready to use
+
+The quickstart was eight commands, two of them `export` lines holding the
+owner's second factor and a model key in a shell that forgot both, and the
+first sign of a wrong key or address was a halted task.
+
+- `npm run setup` (`scripts/setup.ts`) asks where PALUGADA runs, enrols the
+  owner's authenticator -- a QR code drawn in the terminal, and a code from
+  the phone checked before it leaves -- and which model does the work, and
+  sends that model one request offering one tool, so a wrong key, a wrong
+  address or a model that cannot call tools is found while the operator is
+  still there. It writes `.env`, readable by its owner alone, keeps what is
+  already in it, and gives each database role a password of its own instead
+  of the development ones, unless a database already answers with those.
+  `npm start` and the other scripts read `.env` through Node's own
+  `--env-file-if-exists`; `db:setup` takes each role's password from the URL
+  the platform will connect with, so the two cannot disagree.
+- The QR encoder is the standard's arithmetic, about three hundred lines,
+  rather than a dependency: byte mode and level M are all it needs. It was
+  checked module for module against an independent encoder and read back by
+  a decoder; the test holds the first.
+- A `Dockerfile` and `docker-compose.yml`: PostgreSQL with pgvector, created
+  on first start with the passwords setup made, and the platform, which
+  migrates under an advisory lock before it serves. Built and run here:
+  healthy, the console served, the owner signed in with the code setup
+  enrolled, the smoke check completed a task inside the container, and
+  `docker compose stop` ended it with 0 in a second.
+- Running it found two defects. The console's host allowlist, when named
+  outright, did not include loopback, so the image's own health check was
+  refused and a healthy deployment would have been restarted for ever;
+  loopback is now always allowed, which no page elsewhere can make a browser
+  send. And code ahead of its database -- an upgrade whose migrations were
+  not run -- failed at the first query naming a new column, in a task, hours
+  later. The boot now refuses with exit 78 and names `npm run db:migrate`.
+
+### Any agent: what the CLIs did when they were run
+
+Codex 0.157.1, Gemini CLI 0.61.0, OpenCode 1.18.32 and Claude Code 2.1.283
+were installed and run against a stand-in model and the tool bridge.
+
+- **Codex and Gemini CLI failed at once.** Neither has the `--mcp-config`
+  flag their entries passed. Both are rewritten from what they did: Codex
+  reads its servers from `$CODEX_HOME/config.toml`, needs a switch before
+  exec mode may call an MCP tool at all, and offers the model a shell until
+  five features are turned off; Gemini reads its servers from a settings
+  file, needs `--skip-trust`, and offers its own file, shell and web tools
+  until `tools.core` names only the bridge's. Each has a dialect of its own
+  now, since neither prints Claude Code's stream.
+- **Claude Code gave the model seventeen tools of its own** beside the
+  bridge -- sub-agents, scheduled tasks, worktrees -- because the entry named
+  the tools to disallow rather than allowing none. And it read the
+  operator's own settings: a hook in `~/.claude/settings.json` ran a shell
+  command on every run of every role, and `~/.claude/CLAUDE.md` was read into
+  every prompt. `--tools ""` and `--setting-sources ""` end all three; each
+  was checked against the binary.
+- **OpenCode's entry was right**, and Hermes (from v2026.9.24, installed from
+  its repository; the PyPI release lacks the flags) and OpenClaw 2026.9.6
+  match their source.
+- **None of the known entries could be turned on.** They lived in
+  `known-clis.ts` and nothing read them; a deployment had to copy one into
+  `PALUGADA_RUNTIME_SPECS` by hand. `PALUGADA_AGENT_CLIS=codex,gemini-cli`
+  now registers them by name, an entry in `PALUGADA_RUNTIME_SPECS` that names
+  one corrects only the fields it gives, and a misspelt dialect is refused
+  instead of being read as Claude Code's.
+
+### Stopping, and signing in
+
+- **A deployment being stopped cut its runs off.** On SIGTERM the worker
+  waited for the run in flight with no bound, the supervisor killed it a
+  minute later, the lease lapsed, and the reclaim counted towards
+  `crash_loop`: three upgrades during one long task halted it. `stop()` now
+  gives a run twenty seconds to finish and then has it hand its task back --
+  on the queue at once, no attempt charged, not counted against it, resumed
+  at the step it reached by whichever worker comes up next.
+- **Anyone who could reach the console could keep the owner out.** The
+  second factor's lockout is global -- ten wrong codes from anywhere and
+  nobody signs in for fifteen minutes -- so ten requests a quarter hour were
+  enough. One address is now refused after five wrong codes, before its
+  guesses reach the factor, so one caller cannot spend the owner's ten.
+  Behind a reverse proxy the address is the one the proxy vouches for
+  (`PALUGADA_BEHIND_PROXY`); without one, the forwarded header is ignored,
+  since the caller wrote it.
+
+### A console that explains itself
+
+A new owner met a sidebar of nouns. The console now walks them through
+itself on first sign-in: eight stops -- Home, the inbox, giving work, a
+company's pages, settings and what is left to set up, the brake, and the
+first company -- each moving the console to the page it describes and
+pointing at its place in the sidebar. Finished or skipped, the deployment
+remembers (0064), because the console stores nothing in the browser and a
+tour that came back on every new phone would be one the owner dismisses
+unread; it is in the owner's menu to take again. Checked in a browser, on a
+desktop and a phone, in English and Indonesian.
+
+**Still open.** Claude Code's run is not given a home of its own, because its
+login lives in the operator's; its settings and memory are shut out by flag
+instead. The container image carries no agent CLI: one is added by extending
+it.
 
 ## 3. Decisions, deviations, and what is unverified
 

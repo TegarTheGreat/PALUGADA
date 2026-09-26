@@ -25,6 +25,7 @@ import { AdapterRegistry } from './protocol.ts';
 import { InProcessAdapter, type TaskHandler } from './in-process.ts';
 import { ClaudeCodeAdapter } from './claude-code.ts';
 import { CliAdapter, runtimeSpecsFrom } from './cli.ts';
+import { KNOWN_CLI_NAMES, knownCli, type KnownCliName } from './known-clis.ts';
 import { HttpAdapter } from './http.ts';
 import { ContainerAdapter } from './container.ts';
 import { HttpSandboxProvider, RemoteSandboxAdapter } from './sandbox-adapter.ts';
@@ -71,13 +72,27 @@ export function assembleRuntimes(options: RuntimeAssemblyOptions): RuntimeAssemb
     adapters.register(new InProcessAdapter({ handlers: options.handlers ?? new Map(), llm: options.llm }));
   } else {
     notes.push(
-      'no in-process runtime: it needs a model -- set PALUGADA_MODEL_KEY_REF (F13.1)',
+      'no in-process runtime: it needs a model -- run `npm run setup`, or set PALUGADA_MODEL_KEY_REF or PALUGADA_MODEL_PROVIDER (F13.1)',
     );
   }
 
-  if (env.PALUGADA_CLAUDE_CODE_COMMAND) {
+  // The agent CLIs this repository knows, by name: `PALUGADA_AGENT_CLIS=
+  // claude-code,codex` and each is found on PATH under its usual name. Their
+  // entries lived in `known-clis.ts` and nothing read them, so turning on
+  // Codex meant copying one by hand into PALUGADA_RUNTIME_SPECS -- as JSON,
+  // with the placeholders, and the file its configuration goes in.
+  const agentClis = (env.PALUGADA_AGENT_CLIS ?? '').split(',').map((name) => name.trim()).filter(Boolean);
+  for (const name of agentClis) {
+    if (name !== 'claude-code' && !(KNOWN_CLI_NAMES as readonly string[]).includes(name)) {
+      throw new PalugadaError('config.invalid',
+        `PALUGADA_AGENT_CLIS names ${name}; the ones known here are claude-code, ${KNOWN_CLI_NAMES.join(', ')}. `
+          + 'Any other CLI is described in PALUGADA_RUNTIME_SPECS', { source: 'PALUGADA_AGENT_CLIS' });
+    }
+  }
+
+  if (env.PALUGADA_CLAUDE_CODE_COMMAND || agentClis.includes('claude-code')) {
     adapters.register(new ClaudeCodeAdapter({
-      command: env.PALUGADA_CLAUDE_CODE_COMMAND,
+      command: env.PALUGADA_CLAUDE_CODE_COMMAND ?? 'claude',
       ...(env.PALUGADA_CLAUDE_CODE_CWD ? { cwd: env.PALUGADA_CLAUDE_CODE_CWD } : {}),
       // Named rather than passed: the child is given exactly one variable from
       // this process's environment, and which one is written down here.
@@ -134,15 +149,29 @@ export function assembleRuntimes(options: RuntimeAssemblyOptions): RuntimeAssemb
   // has no tools, and produces a confident answer about work it could not do.
   // Refusing here rather than at the first run means the deployment stops with
   // a message about the settings file.
+  const clis = new Map<string, CliAdapter>(
+    agentClis.filter((name) => name !== 'claude-code').map((name) => [name, new CliAdapter(knownCli(name as KnownCliName))]),
+  );
   if (env.PALUGADA_RUNTIME_SPECS) {
     // Parsing and construction are both inside, because `CliAdapter` is where
     // the tool-bridge refusal lives and its message says nothing about where
     // the spec came from. An operator reading "runtime hermes places no tool
     // bridge" needs to be told which setting to open.
     try {
-      for (const spec of runtimeSpecsFrom(JSON.parse(env.PALUGADA_RUNTIME_SPECS))) {
-        adapters.register(new CliAdapter(spec));
-      }
+      const entries: unknown = JSON.parse(env.PALUGADA_RUNTIME_SPECS);
+      // An entry that names a known CLI and gives no command line corrects
+      // the known one -- `{"name":"codex","command":"/opt/codex/bin/codex"}`
+      // -- rather than having to repeat all of it.
+      const completed = Array.isArray(entries)
+        ? entries.map((entry: unknown) => {
+          const named = (entry as { name?: unknown; args?: unknown } | null);
+          return named && typeof named.name === 'string' && named.args === undefined
+            && (KNOWN_CLI_NAMES as readonly string[]).includes(named.name)
+            ? { ...knownCli(named.name as KnownCliName), ...(entry as object) }
+            : entry;
+        })
+        : entries;
+      for (const spec of runtimeSpecsFrom(completed)) clis.set(spec.name, new CliAdapter(spec));
     } catch (failure) {
       // `config.invalid`, so the process exits 78 and a supervisor stops
       // restarting it into the same refusal.
@@ -153,6 +182,7 @@ export function assembleRuntimes(options: RuntimeAssemblyOptions): RuntimeAssemb
       );
     }
   }
+  for (const adapter of clis.values()) adapters.register(adapter);
 
   const names = adapters.names();
   if (names.length === 0) {

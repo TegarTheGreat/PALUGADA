@@ -151,3 +151,15 @@ body { background: var(--mantine-color-body); }
 .figure:hover { background: var(--mantine-color-brand-light); }
 
 .nav-link { border-radius: var(--mantine-radius-md); font-weight: 500; }
+
+/* What a stop of the tour is about, pointed at in the sidebar. */
+.tour-spot {
+  outline: 2px solid var(--mantine-color-indigo-5);
+  outline-offset: 2px;
+  animation: tour-spot 1.6s ease-in-out infinite;
+}
+@keyframes tour-spot {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(92, 95, 230, 0.45); }
+  50% { box-shadow: 0 0 0 6px rgba(92, 95, 230, 0); }
+}
+@media (prefers-reduced-motion: reduce) { .tour-spot { animation: none; } }

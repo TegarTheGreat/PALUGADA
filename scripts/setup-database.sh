@@ -12,18 +12,55 @@
 #
 # Connects as a superuser. Set PALUGADA_SUPERUSER_URL to point at one (this is
 # what CI does); with no URL it falls back to a local peer-authenticated
-# `postgres` account. Development passwords only -- production provisioning
-# belongs to infrastructure tooling.
+# `postgres` account, or runs psql directly when it already is that account.
+#
+# Each role's password is the one in the URL the platform will connect with:
+# from the environment, or from .env as `npm run setup` wrote it, so the two
+# cannot disagree. Without either, the development passwords in .env.example.
 set -euo pipefail
 
 DB_NAME="${PALUGADA_DB_NAME:-palugada}"
 SUPERUSER_URL="${PALUGADA_SUPERUSER_URL:-}"
 
+url_of() {
+  local value="${!1:-}"
+  if [ -z "$value" ] && [ -f .env ]; then
+    value="$(sed -n "s/^\(export \)\{0,1\}$1=//p" .env | tail -n 1)"
+    value="${value#\'}"; value="${value%\'}"; value="${value#\"}"; value="${value%\"}"
+  fi
+  printf '%s' "$value"
+}
+
+password_of() {
+  local url
+  url="$(url_of "$1")"
+  if [ -n "$url" ]; then
+    printf '%s' "$url" | sed -E 's#^[a-z]+://[^:/@]*:([^@]*)@.*#\1#'
+  else
+    printf '%s' "$2"
+  fi
+}
+
+OWNER_PASSWORD="$(password_of PALUGADA_OWNER_URL dev_owner)"
+APP_PASSWORD="$(password_of PALUGADA_APP_URL dev_app)"
+ADMIN_PASSWORD="$(password_of PALUGADA_ADMIN_URL dev_admin)"
+for password in "$OWNER_PASSWORD" "$APP_PASSWORD" "$ADMIN_PASSWORD"; do
+  # Written into SQL below; anything but these would need quoting there.
+  if ! [[ "$password" =~ ^[A-Za-z0-9_.~-]+$ ]]; then
+    echo "db:setup: a database password may use letters, digits and _ . ~ - only" >&2
+    exit 1
+  fi
+done
+
+as_postgres() {
+  if [ "$(id -un)" = "postgres" ]; then "$@"; else su postgres -c "$(printf '%q ' "$@")"; fi
+}
+
 run_sql() {
   if [ -n "$SUPERUSER_URL" ]; then
     psql "$SUPERUSER_URL" -v ON_ERROR_STOP=1 -q -c "$1"
   else
-    su postgres -c "psql -v ON_ERROR_STOP=1 -q -c \"$1\""
+    as_postgres psql -v ON_ERROR_STOP=1 -q -c "$1"
   fi
 }
 
@@ -31,7 +68,7 @@ query() {
   if [ -n "$SUPERUSER_URL" ]; then
     psql "$SUPERUSER_URL" -tAc "$1"
   else
-    su postgres -c "psql -tAc \"$1\""
+    as_postgres psql -tAc "$1"
   fi
 }
 
@@ -54,9 +91,9 @@ run_sql "DROP ROLE IF EXISTS palugada_admin"
 run_sql "DROP ROLE IF EXISTS palugada_owner"
 
 echo "==> Creating roles"
-run_sql "CREATE ROLE palugada_owner LOGIN PASSWORD 'dev_owner' NOSUPERUSER NOCREATEDB NOBYPASSRLS"
-run_sql "CREATE ROLE palugada_app   LOGIN PASSWORD 'dev_app'   NOSUPERUSER NOCREATEDB NOBYPASSRLS"
-run_sql "CREATE ROLE palugada_admin LOGIN PASSWORD 'dev_admin' NOSUPERUSER NOCREATEDB BYPASSRLS"
+run_sql "CREATE ROLE palugada_owner LOGIN PASSWORD '${OWNER_PASSWORD}' NOSUPERUSER NOCREATEDB NOBYPASSRLS"
+run_sql "CREATE ROLE palugada_app   LOGIN PASSWORD '${APP_PASSWORD}'   NOSUPERUSER NOCREATEDB NOBYPASSRLS"
+run_sql "CREATE ROLE palugada_admin LOGIN PASSWORD '${ADMIN_PASSWORD}' NOSUPERUSER NOCREATEDB BYPASSRLS"
 
 echo "==> Creating database ${DB_NAME}"
 run_sql "CREATE DATABASE ${DB_NAME} OWNER palugada_owner"
@@ -69,7 +106,7 @@ run_db_sql() {
   if [ -n "$SUPERUSER_URL" ]; then
     psql "${SUPERUSER_URL%/*}/${DB_NAME}" -v ON_ERROR_STOP=1 -q -c "$1"
   else
-    su postgres -c "psql -d ${DB_NAME} -v ON_ERROR_STOP=1 -q -c \"$1\""
+    as_postgres psql -d "${DB_NAME}" -v ON_ERROR_STOP=1 -q -c "$1"
   fi
 }
 run_db_sql "CREATE EXTENSION IF NOT EXISTS pgcrypto"

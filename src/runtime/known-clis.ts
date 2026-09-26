@@ -7,32 +7,32 @@
  * which has one of the binaries installed does not have to work out its
  * command line from scratch.
  *
- * **How far each is known.** `hermes`, `openclaw` and `opencode` were read from
- * their own source (Hermes Agent at d0288be, OpenClaw 2026.9.6 at 6209f31,
- * OpenCode 1.18.32 at 696f41b): the subcommand, every flag, where each takes
- * its MCP servers from, and what each prints are the ones in that code. The
- * first versions of the `hermes` and `openclaw` entries were written from
- * their descriptions instead, and every flag in both was wrong -- Hermes has
- * no `run` subcommand, OpenClaw no `--mcp-config` -- and Hermes's output would
- * have failed every run even with the right flags. None of the three has been
- * run here, because none is installed; `codex` and `gemini-cli` are still
- * written from their descriptions. `runtimeSpecsFrom` overrides any of it
- * from configuration, so a wrong detail is a settings edit.
+ * **How far each is known.** `codex` (0.157.1), `gemini-cli` (0.61.0) and
+ * `opencode` (1.18.32) were installed and run with exactly these entries,
+ * against a stand-in model and the tool bridge: each found the bridge, sent
+ * the run's token, was offered the bridge's tools and none of its own, called
+ * one, and printed what its dialect reads. `hermes` (from v2026.9.24, installed
+ * from its repository: the PyPI release lacks these flags) and `openclaw`
+ * (2026.9.6, which needs Node 24) were read from their source instead. The
+ * first `codex` and `gemini-cli` entries were written from descriptions and
+ * failed at once when run -- neither CLI has an `--mcp-config` flag -- and
+ * the first `hermes` and `openclaw` ones had every flag wrong.
+ * `runtimeSpecsFrom` overrides any of it from configuration, so a detail a
+ * newer release changes is a settings edit.
  *
  * **What every entry holds to, whatever the vendor:**
  *
  * - **The bridge, and only the bridge.** F13.4: no native file, shell or web
- *   tools where the CLI has a way to turn them off -- Hermes's toolsets,
- *   OpenClaw's tool profile, OpenCode's permission rules. A runtime that can
- *   write a file directly is acting outside the broker. Where a CLI offers no
- *   such switch (`codex` keeps a shell) the entry says so and the deployment
- *   runs it under `remote_sandbox` or `docker`.
+ *   tools -- Hermes's toolsets, OpenClaw's tool profile, OpenCode's permission
+ *   rules, Codex's feature switches, Gemini's core tool list. Each was checked
+ *   by what the model was offered, not by what the flags promise. A runtime
+ *   that can write a file directly is acting outside the broker.
  * - **The token in the environment.** Each CLI reads its MCP servers from its
  *   own configuration format, written into the run's private directory; the
  *   file names the token through the CLI's own substitution
  *   (`${PALUGADA_MCP_TOKEN}`, `{env:PALUGADA_MCP_TOKEN}`) and the token itself
  *   is only in the child's environment. Never on a command line.
- * - **A home of its own.** `HOME` (and `XDG_*`, `HERMES_HOME`) is the run's
+ * - **A home of its own.** `HOME` (and `XDG_*`, `HERMES_HOME`, `CODEX_HOME`) is the run's
  *   directory. The child sees only `PATH` otherwise, and a CLI with no `HOME`
  *   falls back to the operator's -- their stored credentials, their plugins,
  *   their memory of other runs.
@@ -51,7 +51,7 @@ export const KNOWN_CLI_NAMES = ['hermes', 'openclaw', 'codex', 'gemini-cli', 'op
 export type KnownCliName = (typeof KNOWN_CLI_NAMES)[number];
 
 /**
- * Starting points, not verified command lines. See the module comment.
+ * The entries as they ship. See the module comment for how each was checked.
  *
  * Each is a `CliRuntimeSpec` with `command` set to the binary's usual name, so
  * a deployment that installed it on `PATH` needs to change nothing, and one
@@ -144,46 +144,90 @@ const SPECS: Record<KnownCliName, CliRuntimeSpec> = {
   },
 
   /**
-   * OpenAI Codex CLI. Reads an MCP server list from a config file and answers
-   * with a final message on stdout.
-   *
-   * `--sandbox read-only` is the nearest thing it has to "no tools of your
-   * own": it still has a shell, and a deployment that cares should be running
-   * this under `remote_sandbox`. Said here rather than assumed, because a spec
-   * that quietly gave a CLI a shell would be the same defect as a role granted
-   * a capability nobody meant it to have.
+   * OpenAI Codex CLI. `exec --json` answers one prompt and streams its events.
+   * It takes MCP servers only from `$CODEX_HOME/config.toml`, where the token
+   * is named by `bearer_token_env_var` rather than written; `required` makes
+   * a bridge it cannot reach end the run instead of being skipped, and
+   * `default_tools_approval_mode` lets it call the bridge's tools at all,
+   * since exec mode asks nobody. The features that give it a shell, images,
+   * sub-agents, goals and web search are off, which leaves the model the
+   * bridge and Codex's own MCP resource readers. `--sandbox read-only` stays
+   * as the floor under that. Outside a git repository it refuses to start
+   * without `--skip-git-repo-check`, and `--ephemeral` keeps the run out of
+   * its session history.
    */
   codex: {
     name: 'codex',
     command: 'codex',
     args: [
-      'exec',
+      'exec', '--json', '--skip-git-repo-check', '--ephemeral', '--strict-config',
+      '-C', '{runDir}',
       '--model', '{model}',
       '--sandbox', 'read-only',
-      '--mcp-config', '{mcpConfigFile}',
       '-',
     ],
     promptVia: 'stdin',
-    dialect: 'text',
+    dialect: 'codex-jsonl',
+    env: { HOME: '{runDir}', CODEX_HOME: '{runDir}/.codex', PALUGADA_MCP_TOKEN: '{mcpToken}' },
+    apiKeyEnvVar: 'OPENAI_API_KEY',
+    files: {
+      '.codex/config.toml': [
+        'web_search = "disabled"',
+        '',
+        '[features]',
+        'shell_tool = false',
+        'unified_exec = false',
+        'view_image = false',
+        'multi_agent = false',
+        'goals = false',
+        '',
+        '[mcp_servers.palugada]',
+        'url = "{mcpUrl}"',
+        'bearer_token_env_var = "PALUGADA_MCP_TOKEN"',
+        'default_tools_approval_mode = "approve"',
+        'required = true',
+        '',
+      ].join('\n'),
+    },
     versionArgs: ['--version'],
   },
 
   /**
-   * Google's Gemini CLI. Non-interactive mode takes the prompt as an argument
-   * and MCP servers from a settings file.
+   * Google's Gemini CLI. Headless when the prompt arrives on stdin. MCP
+   * servers come only from its settings file, which expands
+   * `${PALUGADA_MCP_TOKEN}` itself; `tools.core` limited to the bridge's
+   * tools removes its own file, shell and web tools from what the model is
+   * offered, and `--allowed-mcp-server-names` is what lets headless mode use
+   * an MCP tool at all. It runs in the run's directory, the only place its
+   * workspace settings could come from, and `--skip-trust` because that
+   * directory is new every time. `model.maxSessionTurns` is its turn limit.
    */
   'gemini-cli': {
     name: 'gemini-cli',
     command: 'gemini',
     args: [
       '--model', '{model}',
-      '--mcp-config', '{mcpConfigFile}',
+      '--skip-trust',
       '--allowed-mcp-server-names', 'palugada',
-      '--yolo=false',
-      '--prompt', '{prompt}',
+      '--approval-mode', 'default',
+      '--output-format', 'stream-json',
     ],
-    promptVia: 'arg',
-    dialect: 'text',
+    promptVia: 'stdin',
+    dialect: 'gemini-stream-json',
+    cwd: '{runDir}',
+    env: { HOME: '{runDir}', PALUGADA_MCP_TOKEN: '{mcpToken}' },
+    apiKeyEnvVar: 'GEMINI_API_KEY',
+    files: {
+      '.gemini/settings.json': JSON.stringify({
+        mcpServers: {
+          palugada: { type: 'http', url: '{mcpUrl}', headers: { Authorization: 'Bearer ${PALUGADA_MCP_TOKEN}' } },
+        },
+        tools: { core: ['mcp_palugada_*'] },
+        model: { maxSessionTurns: '{maxTurns}' },
+        security: { auth: { selectedType: 'gemini-api-key' } },
+      // A number in Gemini's schema, so the placeholder loses its quotes.
+      }, null, 2).replace('"{maxTurns}"', '{maxTurns}'),
+    },
     versionArgs: ['--version'],
   },
 
@@ -236,12 +280,12 @@ const SPECS: Record<KnownCliName, CliRuntimeSpec> = {
 };
 
 /**
- * One of the four, optionally with the parts a deployment knows better.
+ * One of the five, optionally with the parts a deployment knows better.
  *
- * The override is the point rather than a convenience: these command lines are
- * unverified, so the shape that ships has to be one where correcting them costs
- * nothing. A deployment that finds `codex` wants a different flag passes it
- * here or in configuration and never edits this file.
+ * The override is the point rather than a convenience: these CLIs change their
+ * flags between releases, so the shape that ships has to be one where
+ * correcting them costs nothing. A deployment that finds `codex` wants a
+ * different flag passes it here or in configuration and never edits this file.
  */
 export function knownCli(
   name: KnownCliName,
@@ -251,7 +295,7 @@ export function knownCli(
   return { ...base, ...overrides, name: base.name };
 }
 
-/** All four, for a deployment that wants to register whatever it has. */
+/** All five, for a deployment that wants to register whatever it has. */
 export function knownClis(): CliRuntimeSpec[] {
   return KNOWN_CLI_NAMES.map((name) => knownCli(name));
 }

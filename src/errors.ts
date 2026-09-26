@@ -95,6 +95,7 @@ export type ErrorCode =
   | 'mfa.factor_unavailable'
   /** F12.5: the owner's console was reached without a session. */
   | 'owner.unauthenticated'
+  | 'owner.throttled'
   | 'review.required'
   | 'window.closed'
   | 'approval.required'

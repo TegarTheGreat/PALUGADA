@@ -157,6 +157,13 @@ import {
 export interface OwnerApiOptions {
   mfa: OwnerMfa;
   sessions?: OwnerSessions;
+  /**
+   * The console is reached through a reverse proxy, so the caller's address
+   * is the last one the proxy added to `X-Forwarded-For` rather than the
+   * connection's, which is the proxy's own. Off by default: without a proxy
+   * in front, that header is whatever the caller chose to write.
+   */
+  behindProxy?: boolean;
   /** Serves the console's own files. Omitted means API only. */
   staticRoot?: string;
   /**
@@ -277,6 +284,7 @@ export class OwnerApi {
   readonly #options: OwnerApiOptions;
   readonly #sessions: OwnerSessions;
   readonly #routes: Route[];
+  readonly #signInThrottle = new SignInThrottle();
   #server: Server | null = null;
   #allowedHosts: ReadonlySet<string> | null = null;
 
@@ -360,8 +368,17 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/auth/sign-in',
         open: true,
-        handle: async ({ body }) => {
-          const session = await this.#sessions.signIn(proofFrom(body));
+        handle: async ({ body, request }) => {
+          const address = addressOf(request, this.#options.behindProxy === true);
+          this.#signInThrottle.check(address);
+          let session: Awaited<ReturnType<OwnerSessions['signIn']>>;
+          try {
+            session = await this.#sessions.signIn(proofFrom(body));
+          } catch (failure) {
+            this.#signInThrottle.failed(address, failure);
+            throw failure;
+          }
+          this.#signInThrottle.succeeded(address);
           return {
             token: session.token,
             expiresAt: session.expiresAt.toISOString(),
@@ -968,6 +985,38 @@ export class OwnerApi {
           ...(await deploymentLanguages()),
           supported: LANGUAGES.map((language) => ({ ...language })),
         }),
+      },
+
+      {
+        // Whether the console should walk the owner through itself. Kept here
+        // rather than in the browser, like every preference (0064).
+        method: 'GET',
+        pattern: '/api/control/tour',
+        handle: async () => withControlPlane(async (tx) => {
+          const { rows } = await tx.query<{ tour_finished_at: Date | null }>(
+            'SELECT tour_finished_at FROM platform_control',
+          );
+          return { finishedAt: rows[0]?.tour_finished_at?.toISOString() ?? null };
+        }),
+      },
+
+      {
+        // Finished or skipped; `false` to see it again.
+        method: 'POST',
+        pattern: '/api/control/tour',
+        handle: async ({ body }) => {
+          if (typeof body.finished !== 'boolean') {
+            throw new PalugadaError('contract.violation', 'finished is true or false', { field: 'finished' });
+          }
+          return withControlPlane(async (tx) => {
+            const { rows } = await tx.query<{ tour_finished_at: Date | null }>(
+              `UPDATE platform_control SET tour_finished_at = CASE WHEN $1::boolean THEN now() END
+               RETURNING tour_finished_at`,
+              [body.finished],
+            );
+            return { finishedAt: rows[0]?.tour_finished_at?.toISOString() ?? null };
+          });
+        },
       },
 
       {
@@ -2587,6 +2636,7 @@ const CONTENT_TYPES: Record<string, string> = {
  */
 function statusFor(code: string): number {
   if (code === 'owner.unauthenticated') return 401;
+  if (code === 'owner.throttled') return 429;
   if (code === 'mfa.locked_out') return 429;
   if (code.startsWith('mfa.')) return 401;
   if (code === 'approval.channel_forbidden' || code === 'policy.denied') return 403;
@@ -2596,6 +2646,71 @@ function statusFor(code: string): number {
   if (code === 'hook.unsupported') return 415;
   if (code === 'hook.unavailable') return 503;
   return 400;
+}
+
+/**
+ * Wrong codes from one address, counted before the second factor's own
+ * lockout counts them.
+ *
+ * The factor's lockout is global: ten wrong codes from anywhere and nobody
+ * signs in for fifteen minutes. That is the defence against guessing, and on
+ * its own it was also a way for anyone who could reach the console to keep
+ * the owner out -- ten requests every quarter of an hour. An address that has
+ * been wrong five times is refused before its next guess reaches the factor,
+ * so one caller cannot spend the owner's ten. Many callers still can, which
+ * is the lockout doing its job.
+ *
+ * In memory, per process: a replica counts its own, and a restart forgives,
+ * which costs an attacker a restart they do not control.
+ */
+class SignInThrottle {
+  static readonly LIMIT = 5;
+  static readonly WINDOW_MS = 15 * 60_000;
+  /** Bounded, so a caller rotating addresses cannot grow it without end. */
+  static readonly TRACKED = 10_000;
+  readonly #failures = new Map<string, { count: number; until: number }>();
+
+  check(address: string): void {
+    const entry = this.#failures.get(address);
+    if (!entry) return;
+    if (entry.until <= Date.now()) {
+      this.#failures.delete(address);
+      return;
+    }
+    if (entry.count >= SignInThrottle.LIMIT) {
+      throw new PalugadaError('owner.throttled',
+        `too many wrong codes from this address; try again after ${new Date(entry.until).toISOString()}`, {});
+    }
+  }
+
+  /** Counted only when the code was compared and was wrong: a locked factor or a malformed body is not a guess. */
+  failed(address: string, failure: unknown): void {
+    const guessed = failure instanceof PalugadaError && failure.code.startsWith('mfa.')
+      && failure.code !== 'mfa.locked_out' && failure.code !== 'mfa.not_enrolled';
+    if (!guessed) return;
+    const now = Date.now();
+    const entry = this.#failures.get(address);
+    const count = entry && entry.until > now ? entry.count + 1 : 1;
+    this.#failures.delete(address);
+    this.#failures.set(address, { count, until: now + SignInThrottle.WINDOW_MS });
+    if (this.#failures.size > SignInThrottle.TRACKED) {
+      this.#failures.delete(this.#failures.keys().next().value!);
+    }
+  }
+
+  succeeded(address: string): void {
+    this.#failures.delete(address);
+  }
+}
+
+/** Who is asking: the connection's address, or behind a proxy the one it vouches for. */
+function addressOf(request: IncomingMessage, behindProxy: boolean): string {
+  if (behindProxy) {
+    const forwarded = request.headers['x-forwarded-for'];
+    const last = (Array.isArray(forwarded) ? forwarded.join(',') : forwarded ?? '').split(',').at(-1)?.trim();
+    if (last) return last;
+  }
+  return request.socket.remoteAddress ?? 'unknown';
 }
 
 /** A configuration kind from a path, or a refusal that lists the ones there are. */

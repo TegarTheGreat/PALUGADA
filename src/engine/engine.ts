@@ -42,7 +42,7 @@ import { buildContext, type ContextSection } from '../context/builder.ts';
 import { ancestryForTask } from '../domain/goals.ts';
 import { preflightForRole } from '../broker/preflight.ts';
 import {
-  DEFAULT_LEASE_MS, adoptLease, claimTask, clearLease, giveBack, recordRunHeartbeat, renewLease,
+  DEFAULT_LEASE_MS, adoptLease, claimTask, clearLease, giveBack, handBack, recordRunHeartbeat, renewLease,
 } from './checkout.ts';
 import * as budget from './budget.ts';
 import * as inbox from '../inbox/inbox.ts';
@@ -102,6 +102,12 @@ export interface EngineOptions {
    * test that needs a lease to lapse sets it short.
    */
   leaseMs?: number;
+  /**
+   * Aborted when the process is being stopped and a run still going should
+   * give its task back rather than be cut off (`handBack`). The worker's own
+   * signal stops it taking new work; this one, later, ends what it has.
+   */
+  stopping?: AbortSignal;
 }
 
 /** How often a parent looks again at a child it cannot run itself. */
@@ -499,7 +505,7 @@ export class Engine {
           // The one an owner meets first: every template role names it, and
           // it is missing for one reason only.
           (runtime.runtime === 'in-process'
-            ? '; the in-process runtime needs a model -- set PALUGADA_MODEL_KEY_REF, or give the role another runtime'
+            ? '; the in-process runtime needs a model -- run `npm run setup`, or set PALUGADA_MODEL_KEY_REF or PALUGADA_MODEL_PROVIDER, or give the role another runtime'
             : ''),
       };
     }
@@ -593,6 +599,14 @@ export class Engine {
       leaseMs,
       coverUntil: task.deadlineAt?.getTime() ?? Date.now() + leaseMs,
     });
+    let stopped: Error | null = null;
+    const stop = () => {
+      stopped = new Error('the platform was stopped while the run was in flight; what it committed is kept');
+      controller.abort();
+      giveUp(stopped);
+    };
+    this.#options.stopping?.addEventListener('abort', stop, { once: true });
+    if (this.#options.stopping?.aborted) stop();
 
     const step = async <T,>(name: string, kind: StepKind, input: unknown, fn: (key: string) => Promise<T>) => {
         const guard = await this.#checkGuards(task);
@@ -1005,6 +1019,12 @@ export class Engine {
       if (lease.lost) {
         return { status: 'not_claimed', reason: 'the lease was lost while the run was in flight' };
       }
+      // Stopped with the process: back to the queue now, for whichever
+      // worker comes up next, and counted against nothing.
+      if (stopped) {
+        await handBack(companyId, taskId, this.#workerId, (stopped as Error).message);
+        return { status: 'not_claimed', reason: (stopped as Error).message };
+      }
       // Quiet for a whole lease: handed back while still ours, as the sweep
       // would have a moment later, and with nothing charged to the attempt.
       if (silent) {
@@ -1026,6 +1046,7 @@ export class Engine {
       return outcome;
     } finally {
       lease.stop();
+      this.#options.stopping?.removeEventListener('abort', stop);
     }
   }
 

@@ -16,10 +16,11 @@
  * Behaviour is driven by flags so one binary covers every case a test needs:
  *
  *   --dialect <name>             how to answer: stream-json (default), text,
- *                                hermes-stream-json, openclaw-json, opencode-json
+ *                                hermes-stream-json, openclaw-json, opencode-json,
+ *                                codex-jsonl, gemini-stream-json
  *   --mcp-config <json>          inline configuration
  *   --mcp-config-file <path>     the same, as a file
- *   --mcp-config-from <path>     a CLI's own configuration file (YAML or JSON),
+ *   --mcp-config-from <path>     a CLI's own configuration file (YAML, JSON or TOML),
  *                                naming the bridge's URL and the environment
  *                                variable that holds its token
  *   --mcp-config-env <var>       the same, from an environment variable
@@ -110,6 +111,25 @@ if (dialect === 'text') {
   say({ type: 'text', timestamp: 2, sessionID: 's1', part: { text: JSON.stringify(answer) } });
   say({ type: 'step_finish', timestamp: 3, sessionID: 's1', part: {
     reason: 'stop', cost: 0.0042, tokens: { input: 100, output: 30, reasoning: 4, cache: { read: 20, write: 0 } } } });
+} else if (dialect === 'codex-jsonl') {
+  // As Codex 0.157.1 printed it: a warning item first, which is not a failure.
+  say({ type: 'thread.started', thread_id: 't1' });
+  say({ type: 'item.completed', item: { id: 'item_0', type: 'error', message: `Model metadata for \`${model}\` not found.` } });
+  say({ type: 'turn.started' });
+  say({ type: 'item.completed', item: { id: 'item_1', type: 'agent_message', text: 'working' } });
+  say({ type: 'item.completed', item: { id: 'item_2', type: 'agent_message', text: JSON.stringify(answer) } });
+  say({ type: 'turn.completed', usage: { input_tokens: 120, cached_input_tokens: 20, output_tokens: 34, reasoning_output_tokens: 4 } });
+} else if (dialect === 'gemini-stream-json') {
+  // As Gemini CLI 0.61.0 printed it: what it said before a tool is not the answer.
+  say({ type: 'init', session_id: 's1', model });
+  say({ type: 'message', role: 'user', content: prompt.slice(0, 20) });
+  say({ type: 'message', role: 'assistant', content: 'let me look', delta: true });
+  say({ type: 'tool_use', tool_name: 'mcp_palugada_dns__read', tool_id: 't1', parameters: {} });
+  say({ type: 'tool_result', tool_id: 't1', status: 'success', output: 'ok' });
+  const text = JSON.stringify(answer);
+  say({ type: 'message', role: 'assistant', content: text.slice(0, 10), delta: true });
+  say({ type: 'message', role: 'assistant', content: text.slice(10), delta: true });
+  say({ type: 'result', status: 'success', stats: { total_tokens: 154, input_tokens: 120, output_tokens: 34, models: { [model]: {} } } });
 } else {
   say({
     type: 'assistant',
@@ -139,10 +159,11 @@ function readMcpConfig() {
     const text = own ? readFileSync(own, 'utf8') : (process.env[ownEnv] ?? '');
     // The server's `url` key, not the first address in the file: OpenCode's
     // configuration opens with the URL of its own schema.
-    const url = text.match(/"?url"?\s*:\s*"(https?:\/\/[^"]+)"/)?.[1];
-    const variable = text.match(/\$\{(?:env:)?([A-Z_]+)\}|\{env:([A-Z_]+)\}/);
+    const url = text.match(/"?url"?\s*[:=]\s*"(https?:\/\/[^"]+)"/)?.[1];
+    // Codex's TOML names the variable outright; the others substitute it.
+    const variable = text.match(/\$\{(?:env:)?([A-Z_]+)\}|\{env:([A-Z_]+)\}|bearer_token_env_var\s*=\s*"([A-Z_]+)"/);
     if (!url || !variable) throw new Error('the configuration names no bridge');
-    const token = process.env[variable[1] ?? variable[2]];
+    const token = process.env[variable[1] ?? variable[2] ?? variable[3]];
     if (!token) throw new Error('the token the configuration names is not in the environment');
     return { url, headers: { Authorization: `Bearer ${token}` } };
   }

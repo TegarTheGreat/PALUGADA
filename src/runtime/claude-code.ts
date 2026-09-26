@@ -73,6 +73,8 @@ export interface StreamJsonLine {
   usage?: { input_tokens?: number; output_tokens?: number };
   total_cost_usd?: number;
   model?: string;
+  /** The run's usage by model. Claude Code's result line names its model only here. */
+  modelUsage?: Record<string, unknown>;
 }
 
 export class ClaudeCodeAdapter implements Adapter {
@@ -135,7 +137,11 @@ export class ClaudeCodeAdapter implements Adapter {
       '--verbose',
       '--model', request.modelRouting.primary,
       '--max-turns', String(this.#options.maxTurns ?? 40),
-      // F13.4. Everything the CLI could otherwise do to the world directly.
+      // F13.4. None of its built-in tools. Naming the ones to disallow left
+      // seventeen others offered to the model -- sub-agents, scheduled tasks,
+      // worktrees -- in Claude Code 2.1.283; an empty list is all of them.
+      '--tools', '',
+      // Kept as well, for a release that reads the list differently.
       '--disallowedTools', 'Bash,Write,Edit,NotebookEdit,WebFetch,WebSearch,Read,Glob,Grep',
       // The broker, and nothing else: under the names the bridge shows, which
       // are the names the model's provider accepts.
@@ -147,6 +153,15 @@ export class ClaudeCodeAdapter implements Adapter {
       // servers the operator's own configuration names, and the role gains
       // tools the broker never sees.
       '--strict-mcp-config',
+      // None of the operator's settings or memory. Without this, a hook in
+      // their ~/.claude/settings.json ran a shell command on every run of
+      // every role -- work outside the broker that no policy saw -- and their
+      // ~/.claude/CLAUDE.md was read into every prompt, beside the charter.
+      // Both checked against the binary: with this, neither happens.
+      '--setting-sources', '',
+      // A run is a task's, and the task's journal is its record; the CLI's
+      // own session history would be a second copy nobody governs.
+      '--no-session-persistence',
     ];
   }
 
@@ -295,7 +310,7 @@ export function* translateStreamJsonLine(
       yield {
         type: 'usage',
         usage: {
-          model: line.model ?? 'unknown',
+          model: line.model ?? onlyKey(line.modelUsage) ?? 'unknown',
           inputTokens: 0,
           outputTokens: 0,
           costCents: line.total_cost_usd * 100,
@@ -318,6 +333,12 @@ export function* translateStreamJsonLine(
     }
     yield { type: 'done', output: asOutput(line.result) };
   }
+}
+
+/** The one model a run used, when it used one. */
+function onlyKey(record: Record<string, unknown> | undefined): string | null {
+  const keys = Object.keys(record ?? {});
+  return keys.length === 1 ? keys[0]! : null;
 }
 
 /**

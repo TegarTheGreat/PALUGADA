@@ -1,0 +1,61 @@
+# PALUGADA and its database, on one machine.
+#
+#   npm install && npm run setup     # choose "With Docker Compose"; writes .env
+#   docker compose up -d --build
+#
+# then open http://127.0.0.1:8787. The console is published on this machine's
+# loopback only; to reach it from elsewhere, put it behind HTTPS and set
+# PALUGADA_PUBLISH, PALUGADA_ALLOWED_HOSTS and PALUGADA_APP_URL_PUBLIC in .env
+# (docs/guide/operations.md).
+
+name: palugada
+
+x-database-urls: &database-urls
+  PALUGADA_APP_URL: postgres://palugada_app:${PALUGADA_DB_APP_PASSWORD:?run npm run setup and choose Docker Compose}@db:5432/palugada
+  PALUGADA_ADMIN_URL: postgres://palugada_admin:${PALUGADA_DB_ADMIN_PASSWORD:?run npm run setup and choose Docker Compose}@db:5432/palugada
+  PALUGADA_OWNER_URL: postgres://palugada_owner:${PALUGADA_DB_OWNER_PASSWORD:?run npm run setup and choose Docker Compose}@db:5432/palugada
+
+services:
+  db:
+    # PostgreSQL 16 with pgvector, which the stock image lacks.
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      <<: *database-urls
+      POSTGRES_PASSWORD: ${PALUGADA_DB_SUPERUSER_PASSWORD:?run npm run setup and choose Docker Compose}
+    volumes:
+      - database:/var/lib/postgresql/data
+      - ./scripts/setup-database.sh:/palugada/setup-database.sh:ro
+      - ./deploy/docker/initdb.sh:/docker-entrypoint-initdb.d/10-palugada.sh:ro
+    healthcheck:
+      # Over TCP and to the platform's database: the image's first start runs
+      # a socket-only server while it initialises, which is not ready yet.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d palugada"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  app:
+    build: .
+    image: palugada:local
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      <<: *database-urls
+      PALUGADA_ALLOWED_HOSTS: ${PALUGADA_ALLOWED_HOSTS:-localhost}
+    ports:
+      - "${PALUGADA_PUBLISH:-127.0.0.1:8787}:8787"
+    extra_hosts:
+      # A model served on this machine (Ollama, vLLM) is reached here.
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - home:/home/node
+    depends_on:
+      db:
+        condition: service_healthy
+    # SIGTERM lets the worker hand in-flight work back; give it the time.
+    stop_grace_period: 60s
+
+volumes:
+  database:
+  home:

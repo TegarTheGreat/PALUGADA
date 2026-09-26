@@ -337,3 +337,57 @@ test('a run that shows no progress for a whole lease is stopped while its worker
   for (let n = 1; n < MAX_RECLAIMS; n += 1) await engine.runTask(fixture.companyId, task.id, 'worker');
   assert.equal((await withTenant(fixture.companyId, (tx) => getTask(tx, task.id)))!.haltReason, 'crash_loop');
 });
+
+test('a deployment being stopped lets a run finish, then gives back the one that cannot, counted against nothing', async () => {
+  // A run still going when the process was told to stop was cut off by the
+  // supervisor's kill a minute later; its lease lapsed and the reclaim
+  // counted towards crash_loop, so three upgrades during one long task
+  // halted it.
+  const { start } = await import('../../src/main.ts');
+  const fixture = await createCompany('stopped-mid-run');
+  const task = await newTask(fixture);
+  let calls = 0;
+  const deployment = await start({
+    port: 0,
+    env: {},
+    llm: new RecordingLlmClient(),
+    // The first run commits a step and then waits on nothing but its signal;
+    // the second finds that step in its journal and finishes.
+    handlers: new Map([['worker', async (ctx) => {
+      calls += 1;
+      const first = await ctx.step('look', 'tool', { n: 1 }, async () => ({ looked: calls }));
+      if (calls === 1) await new Promise((_resolve, reject) => ctx.signal.addEventListener('abort', () => reject(ctx.signal.reason)));
+      return { done: true, first };
+    }]]),
+    worker: { idleMs: 20 },
+    stopGraceMs: 200,
+    log: () => undefined,
+  });
+  await until(async () => calls === 1, 'the run to start');
+  const stopping = Date.now();
+  await deployment.stop();
+  assert.ok(Date.now() - stopping < 5_000, 'stopped within its grace, not at the supervisor\'s kill');
+
+  const after = (await withTenant(fixture.companyId, (tx) => getTask(tx, task.id)))!;
+  assert.equal(after.status, 'pending', 'back on the queue at once');
+  assert.equal(after.leaseHolder, null);
+  assert.equal(after.attempt, 0, 'nothing failed');
+  const events = await withTenant(fixture.companyId, async (tx) => (await tx.query<{ type: string }>(
+    'SELECT type FROM events WHERE task_id = $1 ORDER BY occurred_at', [task.id])).rows.map((row) => row.type));
+  assert.ok(events.includes('task.handed_back'), events.join(', '));
+  assert.ok(!events.includes('task.lease_expired'), 'not a lost worker, so not a step towards crash_loop');
+
+  // The next worker resumes at the step it reached, rather than repeating it.
+  const engine = new Engine({
+    broker: new CapabilityBroker(new CapabilityRegistry()),
+    llm: new RecordingLlmClient(),
+    handlers: new Map([['worker', async (ctx) => {
+      calls += 1;
+      const first = await ctx.step('look', 'tool', { n: 1 }, async () => ({ looked: calls }));
+      return { done: true, first };
+    }]]),
+  });
+  const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(outcome.status, 'completed', outcome.reason);
+  assert.deepEqual(outcome.output, { done: true, first: { looked: 1 } }, 'the committed step was replayed, not run again');
+});

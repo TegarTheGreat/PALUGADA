@@ -15,7 +15,9 @@ import { spawn } from 'node:child_process';
 import { mkdtemp, writeFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import pg from 'pg';
 import { closePools } from '../../src/db/pool.ts';
+import { connectionString } from '../../src/config.ts';
 import { withControlPlane } from '../../src/db/tenant.ts';
 import { decodeBase32, newTotpSecret, stepFor, totpCode } from '../../src/owner/mfa.ts';
 import { LocalSecretManager } from '../../src/secrets/local.ts';
@@ -160,6 +162,30 @@ test('a configuration the deployment cannot use exits 78, and says which', async
     const code = await within(deployment.exited, 20_000, `exit for ${JSON.stringify(env)}`);
     assert.equal(code, 78, `${JSON.stringify(env)}: ${deployment.output()}`);
     assert.match(deployment.output(), says);
+  }
+});
+
+/**
+ * An upgrade whose migrations were not run: the code names columns the
+ * database has not got, and used to find out in a task, hours later, as a SQL
+ * error. The boot refuses, names the command, and a supervisor does not
+ * restart it into the same refusal.
+ *
+ * 0063 is the one taken back because applying it again is harmless (a
+ * grant): if this test dies before it restores the row, the next file's
+ * migrate simply runs it again.
+ */
+test('code ahead of its database refuses to start and names the migration', async () => {
+  const pool = new pg.Pool({ connectionString: connectionString('owner'), max: 1 });
+  try {
+    await pool.query(`DELETE FROM schema_migrations WHERE version = '0063_schema_version_readable.sql'`);
+    const deployment = run({});
+    const code = await within(deployment.exited, 20_000, 'exit with a migration pending');
+    assert.equal(code, 78, deployment.output());
+    assert.match(deployment.output(), /the database is 1 migration behind this code \(0063_schema_version_readable\.sql\): run `npm run db:migrate`/);
+  } finally {
+    await pool.query(`INSERT INTO schema_migrations (version) VALUES ('0063_schema_version_readable.sql') ON CONFLICT DO NOTHING`);
+    await pool.end();
   }
 });
 

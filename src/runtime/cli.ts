@@ -60,7 +60,7 @@ import { toolsForModel } from './tool-names.ts';
 import { startToolBridge, type ToolBridge } from './tool-bridge.ts';
 import { asOutput, translateStreamJsonLine, type StreamJsonLine } from './claude-code.ts';
 import {
-  hermesEvents, openCodeEvents, openClawEvents,
+  codexEvents, geminiEvents, hermesEvents, openCodeEvents, openClawEvents,
 } from './cli-dialects.ts';
 
 /**
@@ -68,17 +68,20 @@ import {
  *
  * `stream-json` is the Anthropic-style newline-delimited envelope Claude Code
  * emits. `text` is everything else: the process prints its answer and exits,
- * and the exit code is the verdict. The other three are the CLIs whose own
- * formats were read from their source (src/runtime/cli-dialects.ts): Hermes's
- * stream-json looks like Claude Code's and is not, OpenClaw answers with one
- * JSON envelope at exit, and OpenCode streams events with no final result
- * line.
+ * and the exit code is the verdict. The others are the CLIs whose own formats
+ * were read from their source or their output (src/runtime/cli-dialects.ts):
+ * Hermes's stream-json looks like Claude Code's and is not, OpenClaw answers
+ * with one JSON envelope at exit, OpenCode and Codex stream events with no
+ * final result line, and Gemini CLI's result carries no answer.
  *
  * Deliberately not offered: the platform's own `RunEvent` NDJSON. A runtime
  * that speaks that already has an adapter -- `script` -- and a second way to
  * reach it would only be a second thing to keep in step.
  */
-export type CliDialect = 'stream-json' | 'text' | 'hermes-stream-json' | 'openclaw-json' | 'opencode-json';
+export const CLI_DIALECTS = [
+  'stream-json', 'text', 'hermes-stream-json', 'openclaw-json', 'opencode-json', 'codex-jsonl', 'gemini-stream-json',
+] as const;
+export type CliDialect = (typeof CLI_DIALECTS)[number];
 
 /**
  * The placeholders a spec's `args` may contain.
@@ -195,6 +198,11 @@ export function runtimeSpecsFrom(value: unknown): CliRuntimeSpec[] {
     }
     if (!Array.isArray(spec.args) || spec.args.some((arg) => typeof arg !== 'string')) {
       throw new Error(`runtime spec ${spec.name} has no args, or an arg that is not a string`);
+    }
+    // A misspelt dialect read as Claude Code's would fail every run as
+    // "ended as unknown", which says nothing about the spelling.
+    if (spec.dialect !== undefined && !(CLI_DIALECTS as readonly unknown[]).includes(spec.dialect)) {
+      throw new Error(`runtime spec ${spec.name} names dialect ${String(spec.dialect)}; one of ${CLI_DIALECTS.join(', ')}`);
     }
     return spec as unknown as CliRuntimeSpec;
   });
@@ -336,7 +344,10 @@ export class CliAdapter implements Adapter {
       this.#spec.command,
       layout.argv,
       {
-        ...(this.#spec.cwd ? { cwd: this.#spec.cwd } : {}),
+        // Placeholders too: a CLI with no flag for its working directory
+        // reads its project settings from wherever it runs, and the run's own
+        // directory is the only place that holds nothing it was not given.
+        ...(this.#spec.cwd ? { cwd: substitute(this.#spec.cwd, values) } : {}),
         // Not `process.env`. The parent's environment is where `DATABASE_URL`
         // and every provider key live, and a child that inherited it would
         // have been handed the platform's own credentials without anything
@@ -403,6 +414,8 @@ export class CliAdapter implements Adapter {
       case 'hermes-stream-json': return hermesEvents(lines(child), () => exitCode(child), stderr, this.name, model);
       case 'openclaw-json': return openClawEvents(whole(child), () => exitCode(child), stderr, this.name, model);
       case 'opencode-json': return openCodeEvents(lines(child), () => exitCode(child), stderr, this.name, model);
+      case 'codex-jsonl': return codexEvents(lines(child), () => exitCode(child), stderr, this.name, model);
+      case 'gemini-stream-json': return geminiEvents(lines(child), () => exitCode(child), stderr, this.name, model);
       default: return this.#streamJsonEvents(child, stderr);
     }
   }

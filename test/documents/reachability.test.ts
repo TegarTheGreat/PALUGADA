@@ -100,8 +100,8 @@ const UNREACHABLE: Record<string, string> = {
   // F7: adversarial review.
 
   // F13, F12.9.
-  knownClis: 'helper: the four starting-point specs, read by an operator '
-    + 'writing PALUGADA_RUNTIME_SPECS rather than by this process',
+  knownClis: 'helper: all five entries at once, asserted directly; a deployment '
+    + 'names the ones it has in PALUGADA_AGENT_CLIS',
   runSandboxed: 'worker: F12.9 nothing here executes untrusted code; '
     + '`code.execute` needs somebody\'s account',
 

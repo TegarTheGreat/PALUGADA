@@ -50,7 +50,7 @@ import { registerPlatformCapabilities as registerPlatformTools, PLATFORM_CAPABIL
   from './broker/platform-capabilities.ts';
 import { CachedSecretManager } from './secrets/rotation.ts';
 import type { LlmClient } from './llm/client.ts';
-import { appPool, closePools } from './db/pool.ts';
+import { adminPool, appPool, closePools } from './db/pool.ts';
 
 /**
  * How long the worker's loop may go without finishing a tick before the
@@ -59,6 +59,7 @@ import { appPool, closePools } from './db/pool.ts';
  */
 const WORKER_STALL_MS = 30 * 60_000;
 import { existsSync, realpathSync } from 'node:fs';
+import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { hostname } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -120,6 +121,8 @@ export interface DeploymentOptions {
   host?: string;
   env?: NodeJS.ProcessEnv;
   worker?: Partial<WorkerOptions>;
+  /** How long `stop()` lets a run in flight finish before it hands its task back. */
+  stopGraceMs?: number;
   /**
    * Where the deployment says what happens while it runs. JSON lines on
    * standard error unless a caller -- a test, an embedding -- takes them.
@@ -209,12 +212,16 @@ export function channelsFrom(env: NodeJS.ProcessEnv): {
  * The Host names the console should answer to, or null to leave it to the
  * bind address. PALUGADA_ALLOWED_HOSTS names them outright; otherwise the
  * public URL, the console origin and the passkey origin, where given, are the
- * names the owner's browser uses -- plus loopback, for the operator on the
- * machine itself.
+ * names the owner's browser uses. Loopback is always among them: it is the
+ * operator on the machine itself and a container's own health check, and no
+ * page on another site can make a browser send it -- which is what the list
+ * is for. A list without it refused the image's health check, so a healthy
+ * deployment was restarted for ever.
  */
 function allowedHostsFrom(env: NodeJS.ProcessEnv): string[] | null {
+  const loopback = ['127.0.0.1', 'localhost', '[::1]'];
   if (env.PALUGADA_ALLOWED_HOSTS) {
-    return env.PALUGADA_ALLOWED_HOSTS.split(',').map((name) => name.trim()).filter(Boolean);
+    return [...env.PALUGADA_ALLOWED_HOSTS.split(',').map((name) => name.trim()).filter(Boolean), ...loopback];
   }
   const named: string[] = [];
   for (const source of ['PALUGADA_APP_URL_PUBLIC', 'PALUGADA_CONSOLE_ORIGIN', 'PALUGADA_ORIGIN'] as const) {
@@ -226,12 +233,45 @@ function allowedHostsFrom(env: NodeJS.ProcessEnv): string[] | null {
       throw new PalugadaError('config.invalid', `${source} ${value} is not a URL`, { source });
     }
   }
-  return named.length > 0 ? [...named, '127.0.0.1', 'localhost', '[::1]'] : null;
+  return named.length > 0 ? [...named, ...loopback] : null;
+}
+
+/**
+ * The migrations this code was written against that the database has not
+ * run. Code ahead of its schema fails at the first query naming a column the
+ * database lacks -- in a task, hours after an upgrade, as a SQL error -- so
+ * the boot refuses instead and names the command. A database that is ahead
+ * (code rolled back) is let through: the migrations only add.
+ */
+async function pendingMigrations(): Promise<string[]> {
+  const files = (await readdir(fileURLToPath(new URL('../db/migrations', import.meta.url))))
+    .filter((file) => file.endsWith('.sql'))
+    .sort();
+  let applied: Set<string>;
+  try {
+    const { rows } = await adminPool().query<{ version: string }>('SELECT version FROM schema_migrations');
+    applied = new Set(rows.map((row) => row.version));
+  } catch (failure) {
+    // Never migrated (no table), or migrated before the control plane could
+    // read the list (0063): either way, behind.
+    const code = (failure as { code?: string }).code;
+    if (code !== '42P01' && code !== '42501') throw failure;
+    applied = new Set();
+  }
+  return files.filter((file) => !applied.has(file));
 }
 
 export async function start(options: DeploymentOptions = {}): Promise<Deployment> {
   const env = options.env ?? process.env;
   const notes: string[] = [];
+
+  const pending = await pendingMigrations();
+  if (pending.length > 0) {
+    throw new PalugadaError('config.invalid',
+      `the database is ${pending.length} migration${pending.length === 1 ? '' : 's'} behind this code `
+        + `(${pending.length > 3 ? `${pending.slice(0, 3).join(', ')} and ${pending.length - 3} more` : pending.join(', ')}): `
+        + 'run `npm run db:migrate`, then start again', { source: 'schema_migrations' });
+  }
 
   // The names the console answers to (see `OwnerApiOptions.allowedHosts`).
   // Read first, so a malformed URL is refused before anything is built.
@@ -331,7 +371,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
       llm && settings
         ? `model: ${settings.provider} at ${settings.url}, roles name a tier and run on `
           + Object.entries(settings.aliases).map(([tier, model]) => `${tier} = ${model}`).join(', ')
-        : 'no model: set PALUGADA_MODEL_KEY_REF (Anthropic), or PALUGADA_MODEL_PROVIDER=openai with '
+        : 'no model: run `npm run setup`, or set PALUGADA_MODEL_KEY_REF (Anthropic), or PALUGADA_MODEL_PROVIDER=openai with '
           + 'PALUGADA_MODEL_URL for any OpenAI-compatible API -- until then no role on the in-process '
           + 'runtime can work, and every role a template creates is on it (F13.1)',
     );
@@ -479,6 +519,9 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   });
   notes.push(...runtimes.notes);
 
+  // Aborted when `stop()` has waited long enough for a run in flight: the run
+  // gives its task back rather than being killed by the supervisor with it.
+  const stopping = new AbortController();
   const engine = new Engine({
     broker,
     adapters: runtimes.adapters,
@@ -493,6 +536,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // uniqueness.
     workerId: env.PALUGADA_WORKER_ID ?? defaultWorkerId(),
     prices,
+    stopping: stopping.signal,
   });
 
   const { channels, notes: channelNotes } = channelsFrom(env);
@@ -563,6 +607,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     ...(env.PALUGADA_CONSOLE_ORIGIN ? { origin: env.PALUGADA_CONSOLE_ORIGIN } : {}),
     ...(telegram ? { telegram } : {}),
     ...(allowedHosts ? { allowedHosts } : {}),
+    ...(env.PALUGADA_BEHIND_PROXY === '1' || env.PALUGADA_BEHIND_PROXY === 'true' ? { behindProxy: true } : {}),
     // The same list the process prints, held by reference: notes added
     // after this point are still the deployment's, and still the owner's to see.
     deploymentNotes: notes,
@@ -603,10 +648,23 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
       // longer reach it is the one order that has a bad minute in it.
       await api.close();
       shutdown.abort();
-      await running;
+      // A run in flight gets a moment to finish, and then gives its task back
+      // -- well inside the minute a supervisor waits before it kills (the
+      // systemd unit's TimeoutStopSec, compose's stop_grace_period). Killed
+      // instead, its lease lapsed and the reclaim counted towards `crash_loop`,
+      // so three upgrades during one long task halted it.
+      const grace = setTimeout(() => stopping.abort(), options.stopGraceMs ?? STOP_GRACE_MS);
+      try {
+        await running;
+      } finally {
+        clearTimeout(grace);
+      }
     },
   };
 }
+
+/** Twenty seconds: most steps finish in that, and it leaves forty before a supervisor's kill. */
+const STOP_GRACE_MS = 20_000;
 
 /** `host-pid-bootid`: readable, and unique across replicas and restarts. */
 export function defaultWorkerId(): string {

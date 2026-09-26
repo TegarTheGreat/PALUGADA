@@ -74,8 +74,10 @@ find out at startup rather than at 3am.
 | `PALUGADA_MCP_SERVERS` | Tools from MCP servers, only those the file names (see [`config/mcp.example.json`](../config/mcp.example.json) and below) |
 | `PALUGADA_MODEL_PRICES` | Model prices for runtimes that report tokens but no price (see [`config/prices.example.json`](../config/prices.example.json)) |
 | `PALUGADA_DRAFT_MODEL` | The tier or model used for drafting, memory distillation and skill screening (default `standard`) |
-| `PALUGADA_CLAUDE_CODE_COMMAND` | The Claude Code runtime |
-| `PALUGADA_RUNTIME_SPECS` | Other agent CLIs, as JSON |
+| `PALUGADA_AGENT_CLIS` | Agent CLIs this platform knows, by name, found on `PATH`: `claude-code`, `codex`, `gemini-cli`, `opencode`, `hermes`, `openclaw`. See **Agent CLIs** below |
+| `PALUGADA_CLAUDE_CODE_COMMAND` | Where the Claude Code binary is, when it is not `claude` on `PATH` |
+| `PALUGADA_CLAUDE_CODE_KEY_VAR` | The one variable of this process's environment Claude Code is given, such as `ANTHROPIC_API_KEY` |
+| `PALUGADA_RUNTIME_SPECS` | Any other agent CLI, as JSON; or a correction to a known one, such as `[{"name":"codex","command":"/opt/codex/bin/codex"}]` |
 | `PALUGADA_RUNTIME_HTTP_URL` | A runtime that answers over HTTP |
 | `PALUGADA_RUNTIME_IMAGE` | The Docker runtime, with no network |
 | `PALUGADA_SANDBOX_URL`, `_IMAGE` | A remote sandbox runtime |
@@ -83,7 +85,8 @@ find out at startup rather than at 3am.
 | `PALUGADA_PUSH_URL` | Push notifications for incidents and tier 3 approvals |
 | `PALUGADA_TELEGRAM_TOKEN`, `_CHAT`, `_WEBHOOK_SECRET` | Telegram with decision buttons. Point the bot's webhook at `<PALUGADA_APP_URL_PUBLIC>/api/channels/telegram` |
 | `PALUGADA_APP_URL_PUBLIC` | Where the console is reached from the owner's phone. Notifications link there |
-| `PALUGADA_ALLOWED_HOSTS` | The host names the console answers to. Defaults to the hosts of the public URL and origins, plus loopback |
+| `PALUGADA_ALLOWED_HOSTS` | The host names the console answers to, comma-separated. Defaults to the hosts of the public URL and origins. Loopback is always allowed |
+| `PALUGADA_BEHIND_PROXY` | `1` when the console is reached through a reverse proxy: the caller's address, which the sign-in throttle counts by, is then the last one the proxy added to `X-Forwarded-For`. Leave it unset otherwise, since without a proxy that header is whatever the caller wrote |
 | `PALUGADA_RP_ID`, `PALUGADA_ORIGIN` | Where a passkey would be verified. The platform verifies a passkey assertion, but the console cannot present one yet, so the owner signs in and approves with an authenticator code |
 | `PALUGADA_ALLOW_PRIVATE_HOSTS` | An internal host that `web.fetch` may reach |
 
@@ -128,6 +131,36 @@ every task the same way, so it is said once, naming the setting to check.
 A model the price list does not name is charged at a conservative fallback
 rate, so a budget is never understated; `PALUGADA_MODEL_PRICES` gives it its
 real price, which for a model on your own machine is zero.
+
+**Agent CLIs.** A role can be done by an agent CLI instead of the
+platform's own loop: set `PALUGADA_AGENT_CLIS=codex` (or several, comma
+separated), and choose the runtime on the role's page in the console. Each
+runs in a directory of its own that is removed afterwards, with `HOME` set
+there, none of its own shell, file or web tools, and the role's granted
+capabilities as its only tools, through a bridge that exists for that run.
+It sees nothing of this process's environment except `PATH` and the one
+variable its entry names for its provider key:
+
+| Name | Binary | Its key, from this process's environment | Checked |
+|---|---|---|---|
+| `claude-code` | `claude` | `PALUGADA_CLAUDE_CODE_KEY_VAR` names it, such as `ANTHROPIC_API_KEY` | Run, 2.1.283 |
+| `codex` | `codex` | `OPENAI_API_KEY` | Run, 0.157.1 |
+| `gemini-cli` | `gemini` | `GEMINI_API_KEY` | Run, 0.61.0 |
+| `opencode` | `opencode` | none by default: name one with `apiKeyEnvVar` | Run, 1.18.32 |
+| `hermes` | `hermes` | none by default | From source, v2026.9.24 or later |
+| `openclaw` | `openclaw` | none by default | From source, 2026.9.6 |
+
+Any field of an entry can be corrected in `PALUGADA_RUNTIME_SPECS` by
+naming the CLI and the field, for example
+`[{"name":"opencode","apiKeyEnvVar":"ANTHROPIC_API_KEY"}]`, and a CLI this
+list does not name is described there in full: `command`, `args` with the
+placeholders `{model}`, `{maxTurns}`, `{mcpConfigFile}`, `{mcpUrl}`,
+`{mcpToken}`, `{allowedTools}`, `{prompt}` and `{runDir}`, `promptVia`,
+`dialect` (`stream-json`, `text`, `hermes-stream-json`, `openclaw-json`,
+`opencode-json`, `codex-jsonl` or `gemini-stream-json`), `env`, `files`,
+`cwd`, `apiKeyEnvVar` and `maxTurns`. A spec that never hands its CLI the
+bridge is refused at boot, because the CLI would run with no tools and
+answer as though it had them.
 
 **MCP servers.** `PALUGADA_MCP_SERVERS` names a file listing servers
 (streamable HTTP) and, under each, the tools this deployment may use: each

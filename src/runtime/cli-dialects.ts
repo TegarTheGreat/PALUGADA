@@ -1,9 +1,11 @@
 /**
- * What three agent CLIs actually print, read from their source (F13.3).
+ * What five agent CLIs actually print (F13.3).
  *
- * `hermes`, `openclaw` and `opencode` were each read at a fixed commit (the
- * research is summarised in `src/runtime/known-clis.ts`), and none of them
- * speaks the Claude Code stream the adapter already understood:
+ * `hermes`, `openclaw` and `opencode` were each read at a fixed commit, and
+ * `codex` and `gemini-cli` were run -- Codex 0.157.1 and Gemini CLI 0.61.0,
+ * against a stand-in model and the tool bridge -- and what they printed is
+ * what these read (the research is summarised in `src/runtime/known-clis.ts`).
+ * None of them speaks the Claude Code stream the adapter already understood:
  *
  * - **Hermes** prints JSON lines that look like Claude Code's and are not.
  *   Its final `result` line has no `subtype`, carries the answer in `text`
@@ -14,6 +16,12 @@
  * - **OpenCode** (`run --format json`) streams events and has no final result
  *   line: the answer is the last text part, and each `step_finish` carries
  *   that step's tokens and cost.
+ * - **Codex** (`exec --json`) streams `item.*` events; the answer is the last
+ *   `agent_message` item, the tokens are on `turn.completed`, and there is no
+ *   price. An `error` item is a warning, not a failure.
+ * - **Gemini CLI** (`--output-format stream-json`) streams the answer as
+ *   assistant deltas, and its `result` carries the verdict and the tokens but
+ *   neither the answer nor a price.
  *
  * Each is a function from what the process printed, and how it exited, to the
  * platform's `RunEvent`s -- separate from the process so that what is claimed
@@ -198,4 +206,111 @@ export async function* openCodeEvents(
     return;
   }
   yield { type: 'done', output: asOutput(last) };
+}
+
+/**
+ * Codex: `codex exec --json`.
+ *
+ * Its answer is the last `agent_message` item, and everything before one is
+ * working. `turn.completed` carries the turn's tokens and no price, so the
+ * engine estimates (F13.7). An `error` item or a top-level `error` is Codex
+ * saying something went wrong that it is working around -- "Reconnecting...
+ * 2/5", a model it has no metadata for -- and the run is judged only by
+ * `turn.failed` and the exit code, or it would fail runs that succeeded.
+ */
+export async function* codexEvents(
+  lines: Lines, exit: () => Promise<number>, stderr: () => string, runtime: string, model: string,
+): AsyncGenerator<RunEvent> {
+  let last: string | null = null;
+  let failed: string | null = null;
+  for await (const raw of lines) {
+    const line = parse(raw);
+    if (!line) continue;
+    const item = (line.item ?? {}) as Record<string, unknown>;
+    if (line.type === 'item.completed' && item.type === 'agent_message' && typeof item.text === 'string') {
+      last = item.text;
+      yield { type: 'text', text: item.text };
+    } else if (line.type === 'turn.completed') {
+      const usage = (line.usage ?? {}) as Record<string, unknown>;
+      // Input counts its cached part already, and output its reasoning: the
+      // breakdowns are not added again.
+      yield {
+        type: 'usage',
+        usage: { model, inputTokens: number(usage.input_tokens), outputTokens: number(usage.output_tokens), costCents: null },
+      };
+    } else if (line.type === 'turn.failed') {
+      const error = (line.error ?? {}) as Record<string, unknown>;
+      failed = typeof error.message === 'string' ? error.message : 'the turn failed';
+    }
+  }
+  const code = await exit();
+  if (failed !== null) {
+    yield failure(runtime, `reported ${failed}`, stderr);
+    return;
+  }
+  if (code !== 0) {
+    yield failure(runtime, `exited ${code}`, stderr);
+    return;
+  }
+  if (last === null) {
+    yield failure(runtime, 'finished without an answer', stderr);
+    return;
+  }
+  yield { type: 'done', output: asOutput(last) };
+}
+
+/**
+ * Gemini CLI: `gemini --output-format stream-json`.
+ *
+ * The answer arrives as assistant deltas, and only the ones after the last
+ * tool result are the answer: what it said before calling a tool was working.
+ * `result` is the verdict and the whole run's tokens, with no price and no
+ * answer of its own. Its exit codes are its own too: 53 is its turn limit and
+ * 55 a folder it does not trust, both said by `result` or stderr.
+ */
+export async function* geminiEvents(
+  lines: Lines, exit: () => Promise<number>, stderr: () => string, runtime: string, model: string,
+): AsyncGenerator<RunEvent> {
+  let answer = '';
+  let reported = model;
+  let result: Record<string, unknown> | null = null;
+  for await (const raw of lines) {
+    const line = parse(raw);
+    if (!line) continue;
+    if (line.type === 'init' && typeof line.model === 'string') {
+      reported = line.model;
+    } else if (line.type === 'message' && line.role === 'assistant' && typeof line.content === 'string') {
+      answer = line.delta === true ? answer + line.content : line.content;
+      yield { type: 'text', text: line.content };
+    } else if (line.type === 'tool_result') {
+      answer = '';
+    } else if (line.type === 'result') {
+      result = line;
+    }
+  }
+  const code = await exit();
+  if (!result) {
+    yield failure(runtime, `exited ${code} without a result`, stderr);
+    return;
+  }
+  const stats = (result.stats ?? {}) as Record<string, unknown>;
+  const models = Object.keys((stats.models ?? {}) as Record<string, unknown>);
+  yield {
+    type: 'usage',
+    usage: {
+      // The model that answered, when it says; the one asked for otherwise.
+      model: models.length === 1 ? models[0]! : reported,
+      inputTokens: number(stats.input_tokens),
+      outputTokens: number(stats.output_tokens),
+      costCents: null,
+    },
+  };
+  if (result.status === 'success' && code === 0) {
+    yield { type: 'done', output: asOutput(answer) };
+    return;
+  }
+  const error = (result.error ?? {}) as Record<string, unknown>;
+  yield failure(runtime,
+    `ended as ${String(result.status ?? 'unknown')}` + (typeof error.message === 'string' ? ` (${error.message})` : ''),
+    stderr);
 }

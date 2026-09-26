@@ -56,6 +56,11 @@ npm run db:setup
 npm run db:migrate
 ```
 
+`npm run setup` is for running PALUGADA, not for working on it. The suite
+connects with the development URLs and reads nothing from `.env`, while
+`db:setup` takes its passwords from `.env` when one exists: in a checkout
+you test in, leave `.env` out, or point it at the development database.
+
 ## The loop for one change
 
 1. **Find what it is for.** A requirement in `docs/PRD.md`, a gap in

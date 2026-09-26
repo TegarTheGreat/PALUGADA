@@ -887,6 +887,12 @@ test('paging the decision history loses nothing that closed in the same millisec
  */
 test('an item put off leaves the queue until then, and comes back', async () => {
   const fixture = await createCompany('snooze');
+  // The owner is awake now, whatever the hour the suite runs at: an item
+  // raised outside the window waits for its opening, and this test failed
+  // every night after ten, UTC, for a reason that was not the snooze.
+  const { setOwnerWindow } = await import('../../src/scheduler/windows.ts');
+  const awake = new Date().getUTCHours();
+  await setOwnerWindow({ timezone: 'UTC', startHour: awake, endHour: (awake + 2) % 24 });
   const later = await inbox.requestApproval({
     companyId: fixture.companyId, capabilityName: 'email.send', tier: 2,
     actionSummary: 'Send the Monday newsletter', rationale: 'r', consequenceIfDenied: 'c', ttlHours: 72,

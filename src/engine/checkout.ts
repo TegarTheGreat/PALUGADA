@@ -441,6 +441,42 @@ export async function giveBack(companyId: string, taskId: string, holder: string
   });
 }
 
+/**
+ * A worker that is being stopped handing back what it was running.
+ *
+ * A deployment is restarted to upgrade it. A run still going when the process
+ * was told to stop used to be cut off by the supervisor's kill a minute later,
+ * its lease lapsed, and the reclaim counted as a lost worker: three upgrades
+ * during one long task halted it as `crash_loop`. Handed back instead, it is
+ * back on the queue at once, resumes at the step it reached, is charged no
+ * attempt, and is not counted against it -- nothing crashed.
+ */
+export async function handBack(companyId: string, taskId: string, holder: string, why: string): Promise<boolean> {
+  return withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<{ status: string }>(
+      `WITH held AS (
+         SELECT id, status FROM tasks
+          WHERE id = $1 AND lease_holder = $2 AND status IN ('checked_out', 'running')
+          FOR UPDATE
+       ), released AS (
+         UPDATE tasks SET status = 'pending', lease_holder = NULL, lease_expires_at = NULL
+          WHERE id IN (SELECT id FROM held)
+       )
+       SELECT status FROM held`,
+      [taskId, holder],
+    );
+    if (rows.length === 0) return false;
+    await appendEvent(tx, {
+      companyId,
+      taskId,
+      type: 'task.handed_back',
+      actor: 'system',
+      payload: { holder, from: rows[0]!.status, why },
+    });
+    return true;
+  });
+}
+
 /** A worker saying it is still there (F5.12, F5.14). */
 export async function recordRunHeartbeat(
   tx: TenantClient,

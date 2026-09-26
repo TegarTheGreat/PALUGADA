@@ -367,7 +367,7 @@ test('a deployment given a model key runs a standard company\'s work, and one wi
   const bare = await start({ port: 0, env: {}, worker: { idleMs: 60_000 } });
   try {
     assert.ok(!bare.engine.adapters.names().includes('in-process'));
-    assert.ok(bare.notes.some((note) => /no model: set PALUGADA_MODEL_KEY_REF/.test(note)), bare.notes.join('\n'));
+    assert.ok(bare.notes.some((note) => /no model: run `npm run setup`, or set PALUGADA_MODEL_KEY_REF/.test(note)), bare.notes.join('\n'));
     const company = await createCompanyFromTemplate({
       templateSlug: STANDARD_TEMPLATE_SLUG, companySlug: 'no-model', name: 'No Model', timezone: 'Asia/Jakarta',
     });

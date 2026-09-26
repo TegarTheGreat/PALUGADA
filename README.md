@@ -83,28 +83,38 @@ No template, policy or agent can move a tier 3 action out of your hands.
 
 ## Quickstart
 
-You need **Node 22.18+** and **PostgreSQL 16** with
-[pgvector](https://github.com/pgvector/pgvector).
+**With Docker** (any machine with Docker Compose and Node 22.18+ for the setup):
+
+```sh
+git clone https://github.com/TegarTheGreat/PALUGADA.git && cd PALUGADA
+npm install
+npm run setup                  # choose "With Docker Compose"
+docker compose up -d --build
+```
+
+**On this machine** (Node 22.18+ and PostgreSQL 16 with
+[pgvector](https://github.com/pgvector/pgvector)):
 
 ```sh
 git clone https://github.com/TegarTheGreat/PALUGADA.git && cd PALUGADA
 npm install && npm run console:install
+npm run setup                  # choose "On this machine"
 npm run db:setup && npm run db:migrate   # once; pgvector needs a Postgres superuser
 npm run console:build
-npm run totp:new                         # two variables, and a link for your authenticator app
-export PALUGADA_SECRET_OWNER_TOTP=<secret> PALUGADA_OWNER_TOTP_REF=env://PALUGADA_SECRET_OWNER_TOTP
-export PALUGADA_SECRET_MODEL_KEY=<Anthropic API key> PALUGADA_MODEL_KEY_REF=env://PALUGADA_SECRET_MODEL_KEY
 npm start
 ```
 
-Open **http://127.0.0.1:8787**, sign in with the six-digit code from your
-authenticator, and press **Start a company**. The model is what does the
-work: without one a company starts and none of its roles can act. Any model
-that calls tools will do -- Anthropic, OpenAI, OpenRouter, Gemini, DeepSeek,
-Groq, or Ollama and vLLM on your own machine
-([Models](docs/configuration.md#configuration)). `npm run smoke` checks an
-installation end to end. Production, vendor accounts, push, Telegram and
-every other setting are in [docs/configuration.md](docs/configuration.md).
+`npm run setup` asks three things and writes them to `.env`: where PALUGADA
+runs, your authenticator (it shows a QR code and checks a code from your
+phone), and which model does the work. Any model that calls tools will do --
+Anthropic, OpenAI, OpenRouter, Gemini, DeepSeek, Groq, or Ollama and vLLM on
+your own machine -- and setup sends it one request to prove the key, the
+address and that it calls tools. Then open **http://127.0.0.1:8787**, sign in
+with the six-digit code, and press **Start a company**.
+
+New here? [The guide](docs/guide/README.md) walks through the first company,
+what each screen is for, and how to run it for a team or a larger business.
+Every setting is in [docs/configuration.md](docs/configuration.md).
 
 ## What you get
 
@@ -164,7 +174,7 @@ for what they do that it does not.
 | **Past decisions** | Lost as threads scroll | A file the model rewrites each cycle | Kept with the decider's note | Kept with the outcome and your note, and searchable |
 | **Integrations** | Slack: a large app directory | — | A governed MCP gateway | Built-ins, vendor files, allow-listed MCP servers; no connector catalogue or OAuth flow |
 | **Watching it run** | — | — | Tracing | JSON logs and a health check; no tracing or metrics yet |
-| **Installing** | Slack: nothing, it is hosted; Buzz: a container image | A script | A container image | Node and Postgres by hand; Linux only |
+| **Installing** | Slack: nothing, it is hosted; Buzz: a container image | A script | A container image | `npm run setup`, then Docker Compose or Node and Postgres; Linux only |
 | **People** | Many | One | Many | One owner, by design |
 
 The first five rows are cited to source code or public documentation in
@@ -202,17 +212,20 @@ broker, journalled steps, contained sub-tasks and a way to report cost.
 - **Vendor integrations are verified up to the wire.** Push, Telegram, the
   model API, MCP servers and the agent CLIs are exercised end to end against
   local servers, not against the vendors themselves.
-- **Only Claude Code's command line has been checked against its
-  documentation in detail.** The entries for Codex, Gemini CLI, OpenCode,
-  Hermes and OpenClaw are starting points written from theirs; none has been
-  run against the real binary here.
+- **Agent CLIs change their flags between releases.** Claude Code 2.1.283,
+  Codex 0.157.1, Gemini CLI 0.61.0 and OpenCode 1.18.32 were run with the
+  shipped entries against a stand-in model; Hermes (v2026.9.24 or later, from
+  its repository) and OpenClaw 2026.9.6 were read from their source. A newer
+  release that moves a flag is corrected in `PALUGADA_RUNTIME_SPECS`, without
+  a code change.
 - **The only network isolation is the Docker runtime** (`--network none`).
   Code-executing capabilities never get a credential either way.
 - **Integrations are what you bind.** The built-ins, vendor files and the MCP
   servers you allow-list. There is no connector catalogue and no OAuth flow
   for connecting an account.
-- **One owner, on Linux, installed by hand.** There are no other users, no
-  container image or compose file yet, and process handling reads `/proc`.
+- **One owner, on Linux.** There are no other users, no single sign-on and
+  no roles for staff, and process handling reads `/proc`. The container image
+  runs no agent CLI of its own; one is added by extending it.
 - **Companies are frozen, exported or retained, never deleted.** The event log
   is append-only by design.
 - **A capability that needs somebody's account waits for one.** Sending
@@ -221,6 +234,7 @@ broker, journalled steps, contained sub-tasks and a way to report cost.
 
 ## Documentation
 
+- [docs/guide/](docs/guide/README.md): the owner's guide -- a first hour, the concepts, how to do each thing, running it, scale, and what to do when something is wrong.
 - [docs/features.md](docs/features.md): the guarantees and everything that is built.
 - [docs/configuration.md](docs/configuration.md): installing, production and every setting.
 - [docs/STATUS.md](docs/STATUS.md): every requirement graded, with the defects found and fixed.

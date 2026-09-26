@@ -754,6 +754,14 @@ test('the claude-code runtime disallows the CLI\'s own tools and points it at th
   assert.equal(argv[argv.indexOf('--mcp-config') + 1], '/run/palugada-claude-x/mcp.json');
   assert.ok(argv.includes('--strict-mcp-config'), 'the operator\'s own MCP servers are not the role\'s tools');
   assert.ok(!argv.some((arg) => /Bearer/.test(arg)));
+
+  // Checked against Claude Code 2.1.283: the disallowed list alone left the
+  // model seventeen built-in tools, and without `--setting-sources` a hook in
+  // the operator's own settings ran a shell command on every run and their
+  // own CLAUDE.md was read into every prompt.
+  assert.equal(argv[argv.indexOf('--tools') + 1], '', 'no built-in tool at all');
+  assert.equal(argv[argv.indexOf('--setting-sources') + 1], '', 'none of the operator\'s settings, hooks or memory');
+  assert.ok(argv.includes('--no-session-persistence'));
 });
 
 /* ---------------------------------------------------------------- cli --- */
@@ -1442,11 +1450,26 @@ test('no shipped runtime gets a tool, a home or an approval of its own (F13.4)',
     for (const flag of dangerous) assert.equal(spec.args.includes(flag), false, `${spec.name} passes ${flag}`);
   }
 
-  for (const name of ['hermes', 'openclaw', 'opencode'] as const) {
+  for (const name of KNOWN_CLI_NAMES) {
     const spec = knownCli(name);
     assert.equal(spec.env?.HOME, '{runDir}', `${name} would fall back to the operator's home`);
     assert.equal(spec.env?.PALUGADA_MCP_TOKEN, '{mcpToken}', `${name} is not given the token in its environment`);
   }
+
+  // What was offered to the model when these ran for real: the bridge, and
+  // none of the CLI's own shell, file or web tools.
+  const codexConfig = knownCli('codex').files!['.codex/config.toml']!;
+  for (const off of ['shell_tool = false', 'unified_exec = false', 'web_search = "disabled"', 'required = true']) {
+    assert.ok(codexConfig.includes(off), `codex: ${off}`);
+  }
+  const gemini = knownCli('gemini-cli');
+  const geminiSettings = JSON.parse(gemini.files!['.gemini/settings.json']!.replace('{maxTurns}', '40')) as {
+    tools: { core: string[] }; model: { maxSessionTurns: number };
+  };
+  assert.deepEqual(geminiSettings.tools.core, ['mcp_palugada_*']);
+  assert.equal(geminiSettings.model.maxSessionTurns, 40, 'a turn limit, as a number');
+  assert.equal(gemini.cwd, '{runDir}', 'Gemini reads workspace settings from wherever it runs');
+  assert.ok(!gemini.args.includes('--yolo') && gemini.args.includes('--approval-mode'));
 
   const hermes = knownCli('hermes');
   assert.deepEqual(hermes.args.slice(hermes.args.indexOf('--toolsets'), hermes.args.indexOf('--toolsets') + 2), ['--toolsets', 'mcp-palugada']);
@@ -1507,6 +1530,7 @@ test('a known spec drives a real run once the binary exists (F13.3)', async () =
   const spec = knownCli('codex', {
     command: process.execPath,
     args: [AGENT_CLI, '--dialect', 'text', '--mcp-config-file', '{mcpConfigFile}', '--call', 'dns.read'],
+    dialect: 'text',
   });
 
   const outcome = await engineWith(broker, new CliAdapter(spec)).runTask(
@@ -1531,6 +1555,8 @@ for (const [name, from] of [
   ['hermes', ['--mcp-config-from', '{runDir}/hermes/config.yaml']],
   ['openclaw', ['--mcp-config-from', '{runDir}/openclaw.json']],
   ['opencode', ['--mcp-config-env', 'OPENCODE_CONFIG_CONTENT']],
+  ['codex', ['--mcp-config-from', '{runDir}/.codex/config.toml']],
+  ['gemini-cli', ['--mcp-config-from', '.gemini/settings.json']],
 ] as const) {
   test(`the ${name} spec drives a real run once the binary exists (F13.3)`, async () => {
     const fixture = await createCompany(`known-${name}`);
@@ -1564,7 +1590,7 @@ for (const [name, from] of [
 
 /** What each dialect makes of the failures its CLI can print. */
 test('each CLI dialect reads a failure as a failure (F13.3)', async () => {
-  const { hermesEvents, openClawEvents, openCodeEvents } = await import('../../src/runtime/cli-dialects.ts');
+  const { hermesEvents, openClawEvents, openCodeEvents, codexEvents, geminiEvents } = await import('../../src/runtime/cli-dialects.ts');
   async function* from(lines: string[]) { for (const line of lines) yield line; }
   const drain = async (events: AsyncGenerator<RunEvent>) => { const out: RunEvent[] = []; for await (const e of events) out.push(e); return out; };
   const exit = (code: number) => () => Promise.resolve(code);
@@ -1595,6 +1621,45 @@ test('each CLI dialect reads a failure as a failure (F13.3)', async () => {
   assert.deepEqual(events.map((e) => e.type), ['text', 'usage', 'error']);
   assert.equal((events[1] as { usage: { costCents: number | null } }).usage.costCents, null);
   assert.equal((events[2] as { providerFailure: boolean }).providerFailure, true, 'a provider error may be retried on a fallback');
+
+  // Codex: a warning is not a failure, `turn.failed` is, and so is a run that
+  // said nothing. Lines as Codex 0.157.1 printed them.
+  events = await drain(codexEvents(from([
+    JSON.stringify({ type: 'error', message: 'Reconnecting... 2/5' }),
+    JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: '{"a":1}' } }),
+    JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 22, cached_input_tokens: 6, output_tokens: 14, reasoning_output_tokens: 4 } }),
+  ]), exit(0), quiet, 'codex', 'm'));
+  assert.deepEqual(events.map((e) => e.type), ['text', 'usage', 'done']);
+  assert.deepEqual((events[1] as { usage: object }).usage, { model: 'm', inputTokens: 22, outputTokens: 14, costCents: null },
+    'cached and reasoning tokens are parts of these, not more of them');
+  events = await drain(codexEvents(from([JSON.stringify({ type: 'turn.failed', error: { message: 'quota' } })]), exit(1), quiet, 'codex', 'm'));
+  assert.match((events.at(-1) as { message: string }).message, /reported quota/);
+  events = await drain(codexEvents(from([]), exit(0), quiet, 'codex', 'm'));
+  assert.match((events.at(-1) as { message: string }).message, /without an answer/);
+
+  // Gemini: the answer is what came after the last tool; an error result is
+  // the verdict, with its usage first.
+  events = await drain(geminiEvents(from([
+    JSON.stringify({ type: 'message', role: 'assistant', content: 'checking', delta: true }),
+    JSON.stringify({ type: 'tool_result', tool_id: 't', status: 'success', output: 'x' }),
+    JSON.stringify({ type: 'message', role: 'assistant', content: '{"a":', delta: true }),
+    JSON.stringify({ type: 'message', role: 'assistant', content: '1}', delta: true }),
+    JSON.stringify({ type: 'result', status: 'success', stats: { input_tokens: 22, output_tokens: 14, models: { 'gemini-x': {} } } }),
+  ]), exit(0), quiet, 'gemini-cli', 'm'));
+  assert.deepEqual(events.at(-1), { type: 'done', output: { a: 1 } });
+  assert.equal((events.at(-2) as { usage: { model: string } }).usage.model, 'gemini-x');
+  events = await drain(geminiEvents(from([
+    JSON.stringify({ type: 'result', status: 'error', error: { type: 'FatalTurnLimitedError', message: 'turn limit' }, stats: { input_tokens: 5, output_tokens: 1 } }),
+  ]), exit(53), quiet, 'gemini-cli', 'm'));
+  assert.deepEqual(events.map((e) => e.type), ['usage', 'error']);
+  assert.match((events[1] as { message: string }).message, /ended as error \(turn limit\)/);
+  events = await drain(geminiEvents(from(['Gemini CLI is not running in a trusted directory']), exit(55), quiet, 'gemini-cli', 'm'));
+  assert.match((events.at(-1) as { message: string }).message, /exited 55 without a result: stderr says why/);
+});
+
+test('a runtime spec that names a dialect nobody speaks is refused (F13.3)', () => {
+  assert.throws(() => runtimeSpecsFrom([{ name: 'x', command: 'x', args: ['{mcpConfigFile}'], dialect: 'stream_json' }]),
+    /names dialect stream_json; one of stream-json, text/);
 });
 
 /* ------------------------------------------------------- the process tree --- */

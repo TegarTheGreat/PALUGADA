@@ -167,6 +167,46 @@ test('signing in means presenting a second factor (F12.5)', async () => {
 });
 
 /**
+ * The factor's own lockout is global, so on its own it let anyone who could
+ * reach the console keep the owner out with ten wrong codes a quarter hour.
+ * One address is stopped at five, before its guesses reach the factor.
+ */
+const signInFrom = (owner: Awaited<ReturnType<typeof console_>>, address: string, totp: string) =>
+  fetch(`${owner.url}/api/auth/sign-in`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-forwarded-for': `10.0.0.1, ${address}` },
+    body: JSON.stringify({ totp }),
+  }).then(async (response) => ({ status: response.status, body: await response.json() as Record<string, unknown> }));
+
+test('one address that keeps guessing is stopped before it can lock the owner out', async () => {
+  const from = signInFrom;
+  const proxied = await console_({ behindProxy: true });
+  try {
+    for (let guess = 0; guess < 5; guess += 1) {
+      assert.equal((await from(proxied, '203.0.113.9', '000000')).body.code, 'mfa.code_invalid');
+    }
+    const stopped = await from(proxied, '203.0.113.9', proxied.code());
+    assert.equal(stopped.status, 429);
+    assert.equal(stopped.body.code, 'owner.throttled', 'even the right code, from there');
+    const owner = await from(proxied, '198.51.100.7', proxied.code());
+    assert.equal(owner.status, 200, 'and the owner, elsewhere, is not locked out: the factor counted five, not ten');
+  } finally {
+    await proxied.close();
+  }
+});
+
+test('without a proxy in front, a forwarded address is the caller\'s own words and buys no fresh count', async () => {
+  const from = signInFrom;
+  const direct = await console_();
+  try {
+    for (let guess = 0; guess < 5; guess += 1) await from(direct, `192.0.2.${guess}`, '000000');
+    assert.equal((await from(direct, '192.0.2.99', direct.code())).body.code, 'owner.throttled');
+  } finally {
+    await direct.close();
+  }
+});
+
+/**
  * Every route that touches a company needs a session, and the test names them
  * one by one.
  *
@@ -973,6 +1013,19 @@ test('the deployment answers to its public name and refuses a malformed one', as
     await deployment.stop();
   }
 
+  // A list named outright still answers loopback: the container image's own
+  // health check asks 127.0.0.1, and was refused, so a healthy deployment was
+  // restarted for ever.
+  const listed = await start({ port: 0, env: { PALUGADA_ALLOWED_HOSTS: 'palugada.internal' }, worker: { idleMs: 60_000 } });
+  try {
+    const port = new URL(listed.url).port;
+    assert.equal((await getAs(listed.url, '/api/health', `127.0.0.1:${port}`)).status, 200);
+    assert.equal((await getAs(listed.url, '/api/auth/challenge', 'palugada.internal')).status, 200);
+    assert.equal((await getAs(listed.url, '/api/auth/challenge', 'rebound.attacker.example')).status, 421);
+  } finally {
+    await listed.stop();
+  }
+
   let started: Awaited<ReturnType<typeof start>> | null = null;
   let refusal: unknown = null;
   try {
@@ -1750,6 +1803,28 @@ test('the environment describes which runtimes exist (F13.1, F13.3, F12.9)', asy
     assert.ok(names.includes(expected), `${expected} was not registered: ${names.join(', ')}`);
   }
   assert.ok(notes.some((note) => note.startsWith('runtimes:')));
+});
+
+test('an agent CLI this platform knows is turned on by its name, and corrected in part (F13.3)', async () => {
+  const { assembleRuntimes } = await import('../../src/runtime/assemble.ts');
+  const { knownCli } = await import('../../src/runtime/known-clis.ts');
+  const { adapters } = assembleRuntimes({
+    env: {
+      PALUGADA_AGENT_CLIS: 'claude-code, codex,gemini-cli',
+      // Only the path of one of them, not its whole command line.
+      PALUGADA_RUNTIME_SPECS: JSON.stringify([{ name: 'codex', command: '/opt/codex/bin/codex' }]),
+    },
+  });
+  assert.deepEqual(adapters.names().filter((name) => name !== 'in-process').sort(), ['claude-code', 'codex', 'gemini-cli']);
+  const codex = adapters.get('codex') as unknown as { layout: (values: Record<string, string>) => { argv: string[] } };
+  const values = { model: 'gpt-x', maxTurns: '40', mcpConfig: '', mcpConfigFile: '', mcpUrl: 'http://127.0.0.1:1/mcp', mcpToken: 't', allowedTools: '', prompt: '', runDir: '/run/x' };
+  assert.deepEqual(codex.layout(values).argv, knownCli('codex').args.map((arg) => arg.replace('{runDir}', '/run/x').replace('{model}', 'gpt-x')),
+    'the rest of the known command line is kept');
+  const health = await adapters.get('codex')!.health!();
+  assert.match(health.detail ?? '', /\/opt\/codex\/bin\/codex is not runnable/, 'and the binary is the one named');
+
+  assert.throws(() => assembleRuntimes({ env: { PALUGADA_AGENT_CLIS: 'codex,aider' } }),
+    /PALUGADA_AGENT_CLIS names aider; the ones known here are claude-code, hermes, openclaw, codex, gemini-cli, opencode/);
 });
 
 test('a half-configured sandbox is a note, not a silent absence (F12.9)', async () => {
@@ -3343,6 +3418,33 @@ test('the owner can tell the company a fact or a way to work', async () => {
     assert.equal((await call(owner.url, 'POST', base, { token, body: { kind: 'semantic', body: '  ' } })).status, 400);
     // And a session is required, like everything else here.
     assert.equal((await call(owner.url, 'POST', base, { body: { kind: 'semantic', body: 'x' } })).status, 401);
+  } finally {
+    await owner.close();
+  }
+});
+
+/**
+ * The console's tour of itself opens until the owner finishes or skips it,
+ * and the deployment remembers which, since the console stores nothing in
+ * the browser: a tour that came back on every new phone would be one the
+ * owner learns to dismiss unread.
+ */
+test('the tour is shown until the owner finishes it, on every device, and can be asked for again', async () => {
+  const owner = await console_();
+  try {
+    assert.equal((await call(owner.url, 'GET', '/api/control/tour')).status, 401, 'the owner\'s, like everything else');
+    const token = await signIn(owner.url, owner.code());
+    assert.deepEqual((await call(owner.url, 'GET', '/api/control/tour', { token })).body, { finishedAt: null });
+
+    const finished = await call(owner.url, 'POST', '/api/control/tour', { token, body: { finished: true } });
+    assert.equal(finished.status, 200, JSON.stringify(finished.body));
+    assert.ok(Date.now() - Date.parse(String(finished.body.finishedAt)) < 60_000);
+    const elsewhere = await signIn(owner.url, owner.code());
+    assert.equal((await call(owner.url, 'GET', '/api/control/tour', { token: elsewhere })).body.finishedAt, finished.body.finishedAt,
+      'a second device does not see it again');
+
+    assert.deepEqual((await call(owner.url, 'POST', '/api/control/tour', { token, body: { finished: false } })).body, { finishedAt: null });
+    assert.equal((await call(owner.url, 'POST', '/api/control/tour', { token, body: { finished: 'yes' } })).status, 400);
   } finally {
     await owner.close();
   }

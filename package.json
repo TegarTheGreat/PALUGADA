@@ -8,15 +8,16 @@
     "node": ">=22.18.0"
   },
   "scripts": {
+    "setup": "node scripts/setup.ts",
     "db:setup": "bash scripts/setup-database.sh",
-    "db:migrate": "node scripts/migrate.ts",
+    "db:migrate": "node --env-file-if-exists=.env scripts/migrate.ts",
     "test": "node --test --test-concurrency=1 \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm run console:build && npm test",
-    "smoke": "node scripts/smoke.ts",
+    "smoke": "node --env-file-if-exists=.env scripts/smoke.ts",
     "totp:new": "node scripts/new-totp.ts",
-    "company:import": "node scripts/import-company.ts",
-    "start": "node src/main.ts",
+    "company:import": "node --env-file-if-exists=.env scripts/import-company.ts",
+    "start": "node --env-file-if-exists=.env src/main.ts",
     "console:install": "npm --prefix console ci",
     "console:build": "npm --prefix console run build"
   },

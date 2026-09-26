@@ -64,6 +64,7 @@ const EVENT_SENTENCES: Record<string, string> = {
   'task.rate_limited': N('Parked: a vendor said not now'),
   'task.stranded': N('Task stranded, put to you'),
   'task.lease_expired': N('Worker lost the task; reclaimed'),
+  'task.handed_back': N('Handed back when the platform stopped; it resumes where it was'),
   'tool.called': N('Capability used'),
   'tool.cost': N('Capability cost recorded'),
   'approval.requested': N('Approval requested'),

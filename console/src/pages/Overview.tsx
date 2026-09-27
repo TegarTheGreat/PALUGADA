@@ -8,6 +8,8 @@
  * stuck better than any list: a pile in "needs you" is the owner's to clear,
  * a pile in "queued" is capacity, a pile in "in review" is the reviewer.
  */
+// The charts' styles come with the page that draws them, not with every page.
+import '@mantine/charts/styles.css';
 import {
   Anchor, Avatar, Badge, Grid, Group, Paper, Progress, RingProgress, SimpleGrid, Stack, Table, Text,
   Timeline, UnstyledButton,

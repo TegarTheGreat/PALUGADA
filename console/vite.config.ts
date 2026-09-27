@@ -13,7 +13,7 @@ export default defineConfig({
     sourcemap: false,
     // Mantine and the charts are large by design and cached across releases.
     chunkSizeWarningLimit: 700,
-    // Mantine and the charts are one vendor chunk the browser caches across
+    // Mantine and React are one vendor chunk the browser caches across
     // releases of the page itself.
     rollupOptions: {
       output: {
@@ -24,7 +24,16 @@ export default defineConfig({
           // chunk every page would carry it; in a chunk named here, the
           // bundler puts shared helpers in it and the page loads it anyway.
           if (/pdfjs-dist/.test(id)) return undefined;
-          return /recharts|@mantine[\\/]charts|d3-|victory/.test(id) ? 'charts' : 'vendor';
+          // The same for the charts, which only Overview and Money draw and
+          // which arrive with them (App.tsx loads both lazily). Named, they
+          // were a chunk the vendor chunk imported from, and every page --
+          // the sign-in page too -- fetched 135 KB of charts to use none.
+          //
+          // So only what every page is built from is pinned into the vendor
+          // chunk; anything else -- the charts and all they bring, lodash
+          // among it -- goes where the pages that use it are.
+          return /[\\/]node_modules[\\/](react|react-dom|scheduler|@mantine[\\/](core|hooks|notifications|spotlight)|@tabler[\\/]icons-react|@floating-ui|@fontsource-variable)[\\/]/.test(id)
+            ? 'vendor' : undefined;
         },
       },
     },

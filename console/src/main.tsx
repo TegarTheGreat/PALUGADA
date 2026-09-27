@@ -6,7 +6,6 @@ import {
 import { Notifications } from '@mantine/notifications';
 import '@fontsource-variable/inter';
 import '@mantine/core/styles.css';
-import '@mantine/charts/styles.css';
 import '@mantine/notifications/styles.css';
 import '@mantine/spotlight/styles.css';
 import './app.css';

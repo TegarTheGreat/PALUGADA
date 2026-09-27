@@ -58,8 +58,10 @@ test('every page in the navigation has a component behind it, and the reverse', 
   // And the address knows every page, or a reload lands somewhere else.
   const known = router.match(/COMPANY_PAGES = \[([^\]]+)\]/)?.[1] ?? '';
   assert.deepEqual([...known.matchAll(/'([a-z]+)'/g)].map((match) => match[1]!).sort(), [...listed].sort());
+  // Imported, or loaded when first opened -- from its own page either way.
   for (const [, , component] of routed) {
-    assert.match(app, new RegExp(`import \\{ ${component} \\} from './pages/${component}\\.tsx';`),
+    assert.match(app, new RegExp(`import \\{ ${component} \\} from './pages/${component}\\.tsx';`
+      + `|const ${component} = lazy\\(\\(\\) => import\\('\\./pages/${component}\\.tsx'\\)\\.then\\(\\(module\\) => \\(\\{ default: module\\.${component} \\}\\)\\)\\);`),
       `${component} is routed to and never imported`);
   }
 });

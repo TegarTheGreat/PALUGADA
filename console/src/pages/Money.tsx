@@ -3,6 +3,8 @@
  * against it, cost per day, the account tree underneath, and every company
  * side by side.
  */
+// The charts' styles come with the page that draws them, not with every page.
+import '@mantine/charts/styles.css';
 import { useState } from 'react';
 import {
   Alert, Badge, Button, Grid, Group, Modal, NumberInput, Paper, Progress, RingProgress,

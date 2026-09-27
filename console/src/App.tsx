@@ -10,9 +10,9 @@
  * The shell is keyed by the language, so choosing another redraws everything
  * in it (console/src/i18n.ts). The session lives above the key and survives.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActionIcon, Alert, AppShell, Avatar, Badge, Box, Button, Divider, Drawer, FileInput, Group, Menu, Modal,
+  ActionIcon, Alert, AppShell, Avatar, Badge, Box, Button, Center, Divider, Drawer, FileInput, Group, Loader, Menu, Modal,
   NavLink, Paper, Progress, ScrollArea, SimpleGrid, Stack, Switch, Text, TextInput, Tooltip, UnstyledButton,
   useComputedColorScheme, useMantineColorScheme,
 } from '@mantine/core';
@@ -33,15 +33,19 @@ import type { Company, SearchHit, Structure } from './types.ts';
 import { companyEmblem, OWNER_PICTURE, rolePicture } from './images.ts';
 import { SignIn } from './pages/SignIn.tsx';
 import { Home } from './pages/Home.tsx';
-import { DeploymentSettings } from './pages/Deployment.tsx';
-import { Decisions } from './pages/Decisions.tsx';
-import { Overview } from './pages/Overview.tsx';
-import { Work } from './pages/Work.tsx';
-import { Organization } from './pages/Organization.tsx';
-import { Memory } from './pages/Memory.tsx';
-import { Money } from './pages/Money.tsx';
-import { History } from './pages/History.tsx';
-import { SettingsHub } from './pages/SettingsHub.tsx';
+// A company's pages and the deployment's settings, each fetched when it is
+// first opened. The sign-in page and Home are the only ones every visit
+// needs; the charts alone -- drawn on Overview and Money -- were 130 KB
+// gzipped that the sign-in page fetched and never used.
+const DeploymentSettings = lazy(() => import('./pages/Deployment.tsx').then((module) => ({ default: module.DeploymentSettings })));
+const Decisions = lazy(() => import('./pages/Decisions.tsx').then((module) => ({ default: module.Decisions })));
+const Overview = lazy(() => import('./pages/Overview.tsx').then((module) => ({ default: module.Overview })));
+const Work = lazy(() => import('./pages/Work.tsx').then((module) => ({ default: module.Work })));
+const Organization = lazy(() => import('./pages/Organization.tsx').then((module) => ({ default: module.Organization })));
+const Memory = lazy(() => import('./pages/Memory.tsx').then((module) => ({ default: module.Memory })));
+const Money = lazy(() => import('./pages/Money.tsx').then((module) => ({ default: module.Money })));
+const History = lazy(() => import('./pages/History.tsx').then((module) => ({ default: module.History })));
+const SettingsHub = lazy(() => import('./pages/SettingsHub.tsx').then((module) => ({ default: module.SettingsHub })));
 import { AssignWork } from './components/AssignWork.tsx';
 import { Assistant } from './components/Assistant.tsx';
 import { Tour, type TourSpot } from './components/Tour.tsx';
@@ -503,6 +507,7 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
           </Box>
         )}
         <Box className="app-content" px={{ base: 'md', sm: 'xl' }} py={{ base: 'md', sm: 'xl' }}>
+          <Suspense fallback={<Center py="xl"><Loader size="sm" /></Center>}>
           {!base.data ? null : route.kind === 'deployment' ? (
             <DeploymentSettings section={route.section} />
           ) : route.kind === 'home' || !context ? (
@@ -516,6 +521,7 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
           ) : (
             <CompanyPageView key={`${context.companyId}:${route.page}:${route.section}`} ctx={context} route={route as Extract<Route, { kind: 'company' }>} />
           )}
+          </Suspense>
         </Box>
       </AppShell.Main>
 

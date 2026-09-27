@@ -3289,8 +3289,21 @@ has.
   kept by the deployment (0066), so it survives the restart a saved setting
   causes.
 
-**Still open, next.** Speaking to the assistant and hearing it (speech to
-text is researched), and the assistant in Telegram. WhatsApp, Signal and email as
+- **The owner can speak to it, and hear it.** Listening is a fifth tool
+  chosen under Tools -- OpenAI, Groq, Deepgram, ElevenLabs, Gemini,
+  DeepInfra, or a speaches or whisper.cpp server of the owner's own, each
+  sent the recording the way its reference describes (a form, raw audio, or
+  base64 in JSON) and read where it puts the words. The console records the
+  owner, the words are written down in the console's language and sent to
+  the assistant as if typed, and past the same check for a key; an answer
+  can be read aloud by the speech provider. Neither needs the company's
+  files, so both work before any company exists. For roles the same provider
+  is `speech.transcribe`, a tier 0 read of a recording in the company's
+  files -- through its real path, so a link cannot lead out -- whose words
+  are outside content (F8.9). Mistral's Voxtral is not offered: Indonesian is
+  not among its languages.
+
+**Still open, next.** The assistant in Telegram, by text and voice note. WhatsApp, Signal and email as
 owner channels are not built; Slack and Discord cannot carry buttons, so
 Telegram remains the chat that decides. Subscription
 logins whose tokens rotate (ChatGPT, Hermes' Nous and Codex logins) are not

@@ -14,7 +14,8 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
-  IconBell, IconBrain, IconCheck, IconDownload, IconExternalLink, IconKey, IconListSearch, IconPlug, IconPlugConnected, IconPlus, IconTerminal2,
+  IconBell, IconBrain, IconCheck, IconDownload, IconExternalLink, IconKey, IconListSearch, IconMicrophone, IconPlayerStopFilled, IconPlug,
+  IconPlugConnected, IconPlus, IconTerminal2,
   IconWorldSearch,
 } from '@tabler/icons-react';
 import { useEffect, useMemo, useState } from 'react';
@@ -24,6 +25,7 @@ import { useLoad } from '../hooks.ts';
 import { N, t } from '../i18n.ts';
 import { go, type DeploymentSection } from '../router.ts';
 import { LoadFailed, Loading, PageHeader, Section, TierBadge } from '../components/ui.tsx';
+import { recordingSupported, useRecorder } from '../recorder.ts';
 
 const TIERS = ['fast', 'standard', 'deep'] as const;
 type Tier = (typeof TIERS)[number];
@@ -666,7 +668,7 @@ function AgentCard({ agent, reload }: { agent: AgentRow; reload: () => void }) {
   );
 }
 
-type ToolKind = 'search' | 'extract' | 'image' | 'speech';
+type ToolKind = 'search' | 'extract' | 'image' | 'speech' | 'listen';
 
 interface ToolProvider {
   id: string;
@@ -704,6 +706,7 @@ const TOOL_TEXT: Record<ToolKind, { title: string; hint: string }> = {
   extract: { title: N('Reading pages'), hint: N('Lets a role read one page as clean text, fetched by the provider rather than by this server.') },
   image: { title: N('Making pictures'), hint: N('Lets a role draw a picture from a description. It is kept in the company\'s files, and the role\'s draft names it.') },
   speech: { title: N('Speaking'), hint: N('Lets a role turn text into a voice recording, kept in the company\'s files.') },
+  listen: { title: N('Listening'), hint: N('Writes down what is said: what you say to the assistant, and recordings in the company\'s files for a role.') },
 };
 
 /** The same words the server sends about each provider, here so that they are translated. */
@@ -733,6 +736,14 @@ const TOOL_ABOUT: Record<string, string> = {
   'speech:gemini': N('Thirty voices; free on its free tier'),
   'speech:deepinfra': N('Kokoro and other open voices, cheaply'),
   'speech:piper': N('Your own speech server, free, in forty languages'),
+  'listen:openai': N('GPT transcription, most languages'),
+  'listen:groq': N('Whisper, very fast and cheap'),
+  'listen:deepgram': N('Nova-3, built for speech'),
+  'listen:elevenlabs': N('Scribe, ninety-nine languages'),
+  'listen:gemini': N('Understands the audio as well as hearing it'),
+  'listen:deepinfra': N('Whisper, a fraction of a cent'),
+  'listen:speaches': N('Whisper on your own machine, OpenAI-compatible'),
+  'listen:whisper-cpp': N('Its server, started with --convert so it takes any audio'),
 };
 
 /** What each tool is tried with. */
@@ -741,6 +752,7 @@ const TOOL_PROBE: Record<ToolKind, { label: string; value: string }> = {
   extract: { label: N('Try a page'), value: 'https://example.com/' },
   image: { label: N('Try a picture of'), value: N('A lighthouse at dawn, flat illustration') },
   speech: { label: N('Try saying'), value: N('Good morning. Here is what happened overnight.') },
+  listen: { label: N('Try it: say a few words'), value: '' },
 };
 
 function ToolSettings() {
@@ -749,7 +761,7 @@ function ToolSettings() {
   if (!view.data) return <Loading rows={5} />;
   return (
     <Stack gap="lg">
-      {(['search', 'extract', 'image', 'speech'] as const).map((kind) => (
+      {(['search', 'extract', 'image', 'speech', 'listen'] as const).map((kind) => (
         <ToolCard key={kind} kind={kind} state={view.data!.kinds[kind]} providers={view.data!.providers[kind]}
           filesRoot={view.data!.filesRoot} reload={view.reload} />
       ))}
@@ -774,8 +786,11 @@ function ToolCard({ kind, state, providers, filesRoot, reload }: {
     results?: Array<{ title: string; url: string; snippet: string }>;
     page?: { url: string; title: string | null; excerpt: string };
     media?: { mime: string; bytes: number; dataUrl: string };
+    text?: string;
   } | null>(null);
-  const makesFiles = kind === 'image' || kind === 'speech';
+  const recorder = useRecorder();
+  // Which of the tools has a model to choose; speaking also has a voice.
+  const makesFiles = kind === 'image' || kind === 'speech' || kind === 'listen';
   const keyKept = state.keySet && state.provider === providerId && key === '';
 
   const options = [
@@ -788,13 +803,28 @@ function ToolCard({ kind, state, providers, filesRoot, reload }: {
     provider: providerId, url: url.trim() || undefined, key: key.trim() || undefined,
     ...(makesFiles ? { model: model.trim() || undefined } : {}), ...(kind === 'speech' ? { voice: voice.trim() || undefined } : {}),
   });
-  const tried = { search: { query: probe }, extract: { url: probe }, image: { prompt: probe }, speech: { text: probe } }[kind];
+  const tried = { search: { query: probe }, extract: { url: probe }, image: { prompt: probe }, speech: { text: probe }, listen: {} }[kind];
 
-  const test = async () => {
+  /** Listening is tried with the owner's own voice: tap to record, tap again to send it. */
+  const listenTest = async () => {
+    if (!recorder.recording) {
+      setResult(null);
+      try {
+        await recorder.start();
+      } catch {
+        setResult({ problem: t('The microphone could not be used. Allow it for this page in the browser, and try again.') });
+      }
+      return;
+    }
+    const clip = await recorder.stop();
+    if (clip) await test({ audio: clip.audio, mime: clip.mime });
+  };
+
+  const test = async (extra: Record<string, unknown> = {}) => {
     setTesting(true);
     setResult(null);
     try {
-      setResult(await api('POST', `/api/control/tools/${kind}/test`, { ...body(), ...tried, ...(provider?.urlExample ? { url: url.trim() } : {}) }));
+      setResult(await api('POST', `/api/control/tools/${kind}/test`, { ...body(), ...tried, ...extra, ...(provider?.urlExample ? { url: url.trim() } : {}) }));
     } catch (failure) {
       setResult({ problem: explain(failure) });
     } finally {
@@ -830,7 +860,7 @@ function ToolCard({ kind, state, providers, filesRoot, reload }: {
       </Badge>}
     >
       <Stack gap="sm">
-        {makesFiles && !filesRoot && (
+        {(kind === 'image' || kind === 'speech') && !filesRoot && (
           <Alert color="orange" variant="light">{t('What it makes is kept in each company\'s files, and this deployment has none: set PALUGADA_FILES_ROOT and start it again.')}</Alert>
         )}
         <Select label={t('Provider')} placeholder={t('Choose a provider')} data={options} value={providerId} searchable
@@ -874,10 +904,20 @@ function ToolCard({ kind, state, providers, filesRoot, reload }: {
                 )}
               </Group>
             )}
-            <Group align="flex-end" gap="sm" wrap="nowrap">
-              <TextInput style={{ flex: 1 }} label={t(TOOL_PROBE[kind].label)} value={probe} onChange={(event) => setProbe(event.currentTarget.value)} />
-              <Button variant="default" leftSection={<IconPlugConnected size={16} />} loading={testing} disabled={!ready} onClick={() => void test()}>{t('Test it')}</Button>
-            </Group>
+            {kind === 'listen' ? (
+              <Group gap="sm">
+                <Button variant={recorder.recording ? 'filled' : 'default'} color={recorder.recording ? 'red' : undefined}
+                  leftSection={recorder.recording ? <IconPlayerStopFilled size={16} /> : <IconMicrophone size={16} />}
+                  loading={testing} disabled={!ready || !recordingSupported()} onClick={() => void listenTest()}>
+                  {recorder.recording ? t('Stop, and write it down') : t(TOOL_PROBE.listen.label)}
+                </Button>
+              </Group>
+            ) : (
+              <Group align="flex-end" gap="sm" wrap="nowrap">
+                <TextInput style={{ flex: 1 }} label={t(TOOL_PROBE[kind].label)} value={probe} onChange={(event) => setProbe(event.currentTarget.value)} />
+                <Button variant="default" leftSection={<IconPlugConnected size={16} />} loading={testing} disabled={!ready} onClick={() => void test()}>{t('Test it')}</Button>
+              </Group>
+            )}
             {result && (result.problem
               ? <Alert color="red" variant="light" title={t('It did not answer')}>{result.problem}</Alert>
               : (
@@ -894,6 +934,9 @@ function ToolCard({ kind, state, providers, filesRoot, reload }: {
                       <Text size="sm" fw={600}>{result.page.title ?? result.page.url}</Text>
                       <Text size="xs" c="dimmed" lineClamp={4}>{result.page.excerpt}</Text>
                     </>
+                  )}
+                  {result.text !== undefined && (
+                    <Text size="sm">{result.text ? `“${result.text}”` : t('It answered, and heard no words.')}</Text>
                   )}
                   {result.media && (
                     <Stack gap={6}>

@@ -8,12 +8,15 @@ import {
   ActionIcon, Alert, Badge, Button, Code, Drawer, Group, Loader, Paper, PasswordInput, ScrollArea, Stack, Text, Textarea, Tooltip,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconArrowUp, IconCheck, IconKey, IconRefresh, IconSparkles, IconX } from '@tabler/icons-react';
+import {
+  IconArrowUp, IconCheck, IconKey, IconMicrophone, IconPlayerStopFilled, IconRefresh, IconSparkles, IconVolume, IconVolumeOff, IconX,
+} from '@tabler/icons-react';
 import { useEffect, useRef, useState } from 'react';
 import { ApiError, api, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { N, t } from '../i18n.ts';
 import { go } from '../router.ts';
+import { play, recordingSupported, useRecorder } from '../recorder.ts';
 
 /** Whether applying a card takes the owner's device: always, only when its route says so, or never. */
 type Factor = 'always' | 'sometimes' | 'never';
@@ -40,6 +43,8 @@ interface Message {
 
 interface Conversation {
   available: boolean;
+  /** Whether a provider is chosen to hear the owner, and one to answer aloud. */
+  voice: { listen: boolean; speak: boolean };
   messages: Message[];
 }
 
@@ -62,7 +67,11 @@ export function Assistant({ opened, onClose }: { opened: boolean; onClose: () =>
   const [text, setText] = useState('');
   const [thinking, setThinking] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  const [aloud, setAloud] = useState(false);
+  const [hearing, setHearing] = useState(false);
+  const recorder = useRecorder();
   const bottom = useRef<HTMLDivElement>(null);
+  const voice = conversation?.voice ?? { listen: false, speak: false };
 
   const load = async () => {
     try {
@@ -92,14 +101,50 @@ export function Assistant({ opened, onClose }: { opened: boolean; onClose: () =>
       messages: [...now.messages, { id: 'pending', role: 'owner', channel: 'console', body: words, at: new Date().toISOString(), proposals: [] }],
     });
     try {
-      await api('POST', '/api/assistant/messages', { text: words });
+      const answer: { messages: Message[] } = await api('POST', '/api/assistant/messages', { text: words });
       await load();
+      const reply = answer.messages.at(-1);
+      if (aloud && voice.speak && reply?.role === 'assistant') void speakOut(reply.body);
     } catch (failure) {
       setProblem(explain(failure));
       setText(words);
       await load();
     } finally {
       setThinking(false);
+    }
+  };
+
+  /** An answer said aloud; failing to, it is still on the page. */
+  const speakOut = async (words: string) => {
+    try {
+      const spoken: { dataUrl: string } = await api('POST', '/api/assistant/speak', { text: words });
+      play(spoken.dataUrl);
+    } catch (failure) {
+      setProblem(explain(failure));
+    }
+  };
+
+  /** Tap to speak, tap again to send what was said. */
+  const talk = async () => {
+    if (!recorder.recording) {
+      try {
+        await recorder.start();
+      } catch {
+        setProblem(t('The microphone could not be used. Allow it for this page in the browser, and try again.'));
+      }
+      return;
+    }
+    const clip = await recorder.stop();
+    if (!clip) return;
+    setHearing(true);
+    try {
+      const heard: { text: string } = await api('POST', '/api/assistant/listen', { audio: clip.audio, mime: clip.mime });
+      if (heard.text.trim()) await send(heard.text);
+      else setProblem(t('Nothing was heard in that recording.'));
+    } catch (failure) {
+      setProblem(explain(failure));
+    } finally {
+      setHearing(false);
     }
   };
 
@@ -140,6 +185,7 @@ export function Assistant({ opened, onClose }: { opened: boolean; onClose: () =>
             </Paper>
           )}
           {conversation?.messages.map((message) => <Line key={message.id} message={message} reload={load} />)}
+          {hearing && <Group gap="xs"><Loader size="xs" type="dots" /><Text size="sm" c="dimmed">{t('Listening…')}</Text></Group>}
           {thinking && <Group gap="xs"><Loader size="xs" type="dots" /><Text size="sm" c="dimmed">{t('Looking…')}</Text></Group>}
           <div ref={bottom} />
         </Stack>
@@ -161,9 +207,34 @@ export function Assistant({ opened, onClose }: { opened: boolean; onClose: () =>
             }
           }}
         />
+        {recordingSupported() && (
+          <Tooltip label={voice.listen
+            ? (recorder.recording ? t('Stop, and send what you said') : t('Speak'))
+            : t('Choose what hears you under This deployment, Tools, Listening')}>
+            <ActionIcon
+              size="lg"
+              radius="xl"
+              variant={recorder.recording ? 'filled' : 'light'}
+              color={recorder.recording ? 'red' : undefined}
+              onClick={() => void talk()}
+              disabled={!voice.listen || thinking || hearing}
+              aria-label={recorder.recording ? t('Stop, and send what you said') : t('Speak')}
+            >
+              {recorder.recording ? <IconPlayerStopFilled size={16} /> : <IconMicrophone size={18} />}
+            </ActionIcon>
+          </Tooltip>
+        )}
         <ActionIcon size="lg" radius="xl" onClick={() => void send(text)} disabled={!text.trim() || thinking} aria-label={t('Send')}>
           <IconArrowUp size={18} />
         </ActionIcon>
+        {voice.speak && (
+          <Tooltip label={aloud ? t('Stop reading answers aloud') : t('Read answers aloud')}>
+            <ActionIcon size="lg" variant={aloud ? 'light' : 'subtle'} color={aloud ? undefined : 'gray'} onClick={() => setAloud((now) => !now)}
+              aria-label={aloud ? t('Stop reading answers aloud') : t('Read answers aloud')}>
+              {aloud ? <IconVolume size={18} /> : <IconVolumeOff size={18} />}
+            </ActionIcon>
+          </Tooltip>
+        )}
         <Tooltip label={t('Start again')}>
           <ActionIcon size="lg" variant="subtle" color="gray" onClick={() => void clear()} aria-label={t('Start again')}>
             <IconRefresh size={18} />

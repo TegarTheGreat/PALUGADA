@@ -28,6 +28,14 @@ key typed into the conversation is refused, not kept, and not sent to the
 model. **Dismiss** a card you do not want; **Start again** forgets the
 conversation.
 
+**Speak to it.** Choose what hears you under **This deployment**, **Tools**,
+**Listening** (OpenAI, Groq, Deepgram, ElevenLabs, Gemini, DeepInfra, or a
+Whisper server of your own), and the microphone next to the text box is on:
+tap it, speak, tap again, and what you said is written down and sent. With a
+provider under **Speaking**, the speaker button reads each answer aloud. The
+recording is heard once and kept nowhere; what it says passes the same check
+for a key as anything typed.
+
 A few things are done on their own pages, and the assistant says so:
 connecting a Telegram bot, signing an agent CLI in with a Claude plan,
 pairing a device, importing a company.
@@ -322,6 +330,11 @@ needs `PALUGADA_FILES_ROOT`, and the card says so when it has none.
    Piper is a speech server of your own, free: run
    `python3 -m piper.http_server -m en_US-lessac-medium` and give its
    address. **Try saying** plays what it made.
+
+**Listening** writes down speech: what you say to the assistant, and, for a
+role granted `speech.transcribe`, a recording in the company's files -- a
+call, an interview. **Try it: say a few words** records you and shows what
+it heard.
 
 The standard template grants both to Growth. Its marketer's twelve tools
 are full, so add `image.generate` or `speech.synthesize` to a role on

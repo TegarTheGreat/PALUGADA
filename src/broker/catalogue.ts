@@ -320,6 +320,17 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
       'deleting it, with its price reserved before it is made.',
   },
   {
+    name: 'speech.transcribe',
+    adapter: 'listen',
+    tier: TIER.READ_ONLY,
+    readsOutside: true,
+    summary: 'Writes down what a recording in the company\'s files says.',
+    calibration:
+      'A read: it changes nothing, and the recording stays where it was. What ' +
+      'it says came from whoever spoke, so it is content from outside the ' +
+      'company, like a page read from the web.',
+  },
+  {
     name: 'dns.update',
     adapter: 'dns',
     tier: TIER.REVERSIBLE_WRITE,

@@ -267,7 +267,7 @@ or the one these name:
 | `PALUGADA_EXTRACT_PROVIDER` | Where `web.extract` goes: `jina`, `firecrawl`, `tavily`, `exa`, `parallel` or `keenable` |
 | `PALUGADA_EXTRACT_KEY_REF` | Its key. `jina` (20 pages a minute), `firecrawl`, `tavily` and `keenable` answer without one |
 
-`image.generate` and `speech.synthesize` are chosen the same way. What they
+`image.generate`, `speech.synthesize` and `speech.transcribe` are chosen the same way; the last two also let the owner speak to the assistant and hear it, which needs no files. What they
 make is a file, written under the company's own directory in
 `PALUGADA_FILES_ROOT`, in `generated/`, so both need that set:
 
@@ -281,6 +281,10 @@ make is a file, written under the company's own directory in
 | `PALUGADA_SPEECH_KEY_REF` | Its key; `piper` takes none |
 | `PALUGADA_SPEECH_MODEL` | A model other than the one each suggests |
 | `PALUGADA_SPEECH_VOICE` | The voice a role gets when it names none, such as `marin` for `openai` or `Kore` for `gemini`; a role may ask for another |
+| `PALUGADA_LISTEN_PROVIDER` | What writes down speech -- the owner's voice to the assistant, and `speech.transcribe` for roles: `openai`, `groq`, `deepgram`, `elevenlabs`, `gemini`, `deepinfra`, or your own `speaches` or `whisper-cpp` |
+| `PALUGADA_LISTEN_URL` | Your own server's address, for `speaches` and `whisper-cpp` (start whisper.cpp's server with `--convert`, so it takes the browser's WebM) |
+| `PALUGADA_LISTEN_KEY_REF` | Its key; `speaches` takes one only if yours asks, `whisper-cpp` none |
+| `PALUGADA_LISTEN_MODEL` | A model other than the one each suggests |
 
 Each call reserves the provider's price for one call before it runs.
 DuckDuckGo is not offered: it has no web-results API, and what other agents

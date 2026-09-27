@@ -447,6 +447,8 @@ export const NOT_FOR_THE_ASSISTANT: Readonly<Record<string, string>> = {
   '/api/assistant/proposals/:proposalId/apply': 'only the owner applies a proposal',
   '/api/assistant/proposals/:proposalId/dismiss': 'only the owner dismisses a proposal',
   '/api/assistant/clear': 'only the owner starts the conversation again',
+  '/api/assistant/listen': 'the owner\'s own voice, written down',
+  '/api/assistant/speak': 'an answer said aloud to the owner',
 };
 
 /** GET routes the assistant does not read: they hand over a whole company, or issue a challenge. */

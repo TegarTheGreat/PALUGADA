@@ -501,6 +501,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     ...(toolBindings.extract ? { extract: toolBindings.extract } : {}),
     ...(toolBindings.image ? { image: toolBindings.image } : {}),
     ...(toolBindings.speech ? { speech: toolBindings.speech } : {}),
+    ...(toolBindings.listen ? { listen: toolBindings.listen } : {}),
   });
   notes.push(...toolBindings.notes);
   if (!filesRoot) {
@@ -727,7 +728,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     runtimes: runtimes.adapters,
     // The owner's assistant thinks with the deployment's own model; with none
     // chosen yet, it says so and points at where to choose one.
-    assistant: { llm: llm && usesTools(llm) ? llm : null },
+    assistant: { llm: llm && usesTools(llm) ? llm : null, voice: toolBindings.voice },
     deploymentSettings: {
       baseEnv,
       env,

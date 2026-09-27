@@ -10,6 +10,7 @@ import {
   extractProvider, searchProvider, type ExtractProvider, type SearchProvider, type ToolBinding,
 } from './search.ts';
 import { imageProvider, speechProvider, type ImageProvider, type MediaBinding, type SpeechProvider } from './media.ts';
+import { listenProvider, type ListenBinding } from './listen.ts';
 
 /** Each kind of tool, the capability it binds, and the variables it is configured by. */
 export const TOOL_KINDS = {
@@ -22,6 +23,10 @@ export const TOOL_KINDS = {
   speech: {
     capability: 'speech.synthesize', provider: 'PALUGADA_SPEECH_PROVIDER', url: 'PALUGADA_SPEECH_URL', key: 'PALUGADA_SPEECH_KEY_REF',
     model: 'PALUGADA_SPEECH_MODEL', voice: 'PALUGADA_SPEECH_VOICE',
+  },
+  listen: {
+    capability: 'speech.transcribe', provider: 'PALUGADA_LISTEN_PROVIDER', url: 'PALUGADA_LISTEN_URL', key: 'PALUGADA_LISTEN_KEY_REF',
+    model: 'PALUGADA_LISTEN_MODEL',
   },
 } as const;
 export type ToolKind = keyof typeof TOOL_KINDS;
@@ -37,6 +42,14 @@ export interface ToolBindings {
   extract?: ToolBinding<ExtractProvider>;
   image?: MediaBinding<ImageProvider>;
   speech?: MediaBinding<SpeechProvider>;
+  /** A role's `speech.transcribe`, which reads the company's files. */
+  listen?: ListenBinding & { root: string };
+  /**
+   * The owner's own voice with the assistant: what hears them and what
+   * answers aloud. Neither needs the company's files, so each is bound
+   * whenever its provider is chosen.
+   */
+  voice: { listen?: ListenBinding; speak?: MediaBinding<SpeechProvider> };
   notes: string[];
 }
 
@@ -95,7 +108,28 @@ export function toolBindingsFrom(
   const extract = bind('extract', extractProvider);
   const image = media('image', imageProvider);
   const speech = media('speech', speechProvider);
+  const heard = bind('listen', listenProvider);
+  const listening = heard ? { ...heard, model: env[TOOL_KINDS.listen.model]?.trim() || null } : undefined;
+  if (listening && !filesRoot) {
+    notes.push('speech.transcribe is unbound for roles: the recordings it reads are the company\'s files, and PALUGADA_FILES_ROOT is not set; the owner can still speak to the assistant');
+  }
+  // Speaking to the owner needs no files: a speech provider the roles cannot
+  // use for want of them still answers the owner aloud.
+  const speaking = speech ?? (() => {
+    const id = env[TOOL_KINDS.speech.provider]?.trim();
+    const provider = id ? speechProvider(id) : undefined;
+    const reference = env[TOOL_KINDS.speech.key]?.trim() || null;
+    const url = env[TOOL_KINDS.speech.url]?.trim() || null;
+    if (!provider || (provider.key === 'required' && !reference) || (provider.urlExample && !url)) return undefined;
+    return {
+      provider, url, root: '', key: async () => (reference ? resolve(reference) : null),
+      model: env[TOOL_KINDS.speech.model]?.trim() || null, voice: env[TOOL_KINDS.speech.voice]?.trim() || null,
+    };
+  })();
   return {
-    ...(search ? { search } : {}), ...(extract ? { extract } : {}), ...(image ? { image } : {}), ...(speech ? { speech } : {}), notes,
+    ...(search ? { search } : {}), ...(extract ? { extract } : {}), ...(image ? { image } : {}), ...(speech ? { speech } : {}),
+    ...(listening && filesRoot ? { listen: { ...listening, root: filesRoot } } : {}),
+    voice: { ...(listening ? { listen: listening } : {}), ...(speaking ? { speak: speaking } : {}) },
+    notes,
   };
 }

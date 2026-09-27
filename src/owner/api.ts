@@ -142,6 +142,7 @@ import {
 import { CapabilityRegistry } from '../broker/registry.ts';
 import { accessFor, bindMcpServers, currentPins, offeredTools, type TokenIn } from '../capabilities/mcp.ts';
 import { MCP_PRESETS } from '../capabilities/mcp-presets.ts';
+import { LISTEN_PROVIDERS, listenProvider, transcribe, type Heard, type ListenBinding, type ListenProvider } from '../capabilities/listen.ts';
 import {
   closeProposal, conversation, converse, forgetConversation, patternFor, proposalById, type AssistantReach,
 } from './assistant.ts';
@@ -259,7 +260,11 @@ export interface OwnerApiOptions {
    * the deployment's own. Absent or null, the conversation says a model has to
    * be chosen first.
    */
-  assistant?: { llm: ToolUsingLlmClient | null };
+  assistant?: {
+    llm: ToolUsingLlmClient | null;
+    /** What hears the owner speak, and what answers aloud: the providers chosen under Tools. */
+    voice?: { listen?: ListenBinding; speak?: MediaBinding<SpeechProvider> };
+  };
   deploymentSettings?: {
     baseEnv: NodeJS.ProcessEnv;
     env: NodeJS.ProcessEnv;
@@ -1376,7 +1381,9 @@ export class OwnerApi {
           }));
           return {
             kinds,
-            providers: { search: SEARCH_PROVIDERS, extract: EXTRACT_PROVIDERS, image: IMAGE_PROVIDERS, speech: SPEECH_PROVIDERS },
+            providers: {
+              search: SEARCH_PROVIDERS, extract: EXTRACT_PROVIDERS, image: IMAGE_PROVIDERS, speech: SPEECH_PROVIDERS, listen: LISTEN_PROVIDERS,
+            },
             filesRoot: Boolean(deployment.baseEnv.PALUGADA_FILES_ROOT),
             applies: deployment.restart ? 'now' : 'next_start',
           };
@@ -1388,10 +1395,18 @@ export class OwnerApi {
         // used for this call and saved nowhere.
         method: 'POST',
         pattern: '/api/control/tools/:kind/test',
+        // A recording to try Listening with is larger than a search.
+        maxBodyBytes: 16 * 1024 * 1024,
         handle: async ({ params, body }) => {
           const { kind, binding } = await this.#toolCandidate(params.kind!, body);
           try {
-            const signal = AbortSignal.timeout(kind === 'image' || kind === 'speech' ? 120_000 : 30_000);
+            const signal = AbortSignal.timeout(kind === 'image' || kind === 'speech' || kind === 'listen' ? 120_000 : 30_000);
+            if (kind === 'listen') {
+              // A clip the owner recorded on the page, heard once and kept nowhere.
+              const text = await transcribe({ ...binding as ToolBinding<ListenProvider>, model: typeof body.model === 'string' && body.model.trim() ? body.model.trim() : null },
+                audioFrom(body), typeof body.language === 'string' ? body.language : null, signal);
+              return { problem: null, text };
+            }
             if (kind === 'image' || kind === 'speech') {
               // Made and shown, not kept: the test is the owner's, not a company's.
               const media = { ...binding, root: '', model: typeof body.model === 'string' && body.model.trim() ? body.model.trim() : null,
@@ -1434,7 +1449,7 @@ export class OwnerApi {
           }
           const tools = { ...((await readSettings()).tools as Partial<Record<ToolKind, ToolSetting>> | undefined) };
           const text = (field: string) => (typeof body[field] === 'string' && (body[field] as string).trim() ? (body[field] as string).trim().slice(0, 120) : null);
-          const model = kind === 'image' || kind === 'speech' ? text('model') : null;
+          const model = kind === 'image' || kind === 'speech' || kind === 'listen' ? text('model') : null;
           const voice = kind === 'speech' ? text('voice') : null;
           tools[kind] = {
             provider: provider.id, ...(url ? { url } : {}), ...(typed || keep ? { keySecret: secret } : {}),
@@ -1599,6 +1614,7 @@ export class OwnerApi {
         pattern: '/api/assistant',
         handle: async () => ({
           available: Boolean(this.#options.assistant?.llm),
+          voice: { listen: Boolean(this.#options.assistant?.voice?.listen), speak: Boolean(this.#options.assistant?.voice?.speak) },
           messages: await conversation(),
         }),
       },
@@ -1650,6 +1666,40 @@ export class OwnerApi {
             }
             throw failure;
           }
+        },
+      },
+
+      {
+        // What the owner said aloud, written down by the provider chosen
+        // under Tools, Listening, in the console's language. The recording is
+        // heard once and kept nowhere; the words go into the conversation as
+        // if typed, and so past the same check for a key.
+        method: 'POST',
+        pattern: '/api/assistant/listen',
+        maxBodyBytes: 16 * 1024 * 1024,
+        handle: async ({ body }) => {
+          const listen = this.#options.assistant?.voice?.listen;
+          if (!listen) {
+            throw new PalugadaError('capability.unknown', 'nothing hears speech yet: choose a provider under This deployment, Tools, Listening', {});
+          }
+          const language = (await deploymentLanguages()).console ?? null;
+          return { text: await transcribe(listen, audioFrom(body), language, AbortSignal.timeout(60_000)) };
+        },
+      },
+
+      {
+        // An answer, said aloud by the speech provider chosen under Tools. Not
+        // kept: the owner hears it and it is gone.
+        method: 'POST',
+        pattern: '/api/assistant/speak',
+        handle: async ({ body }) => {
+          const speak = this.#options.assistant?.voice?.speak;
+          if (!speak) {
+            throw new PalugadaError('capability.unknown', 'nothing speaks yet: choose a provider under This deployment, Tools, Speaking', {});
+          }
+          // A long answer is read to its first two thousand characters; the rest is on the page.
+          const made = await makeSpeech(speak, { text: requireText(body.text, 'text').slice(0, 2_000) }, AbortSignal.timeout(60_000));
+          return { mime: made.mime, dataUrl: `data:${made.mime};base64,${made.bytes.toString('base64')}` };
         },
       },
 
@@ -3439,9 +3489,11 @@ export class OwnerApi {
     const deployment = this.#deploymentSettings();
     const kind = toolKindNamed(kindName);
     const id = typeof body.provider === 'string' ? body.provider : '';
-    const lists = { search: SEARCH_PROVIDERS, extract: EXTRACT_PROVIDERS, image: IMAGE_PROVIDERS, speech: SPEECH_PROVIDERS } as const;
+    const lists = {
+      search: SEARCH_PROVIDERS, extract: EXTRACT_PROVIDERS, image: IMAGE_PROVIDERS, speech: SPEECH_PROVIDERS, listen: LISTEN_PROVIDERS,
+    } as const;
     const provider = kind === 'search' ? searchProvider(id) : kind === 'extract' ? extractProvider(id)
-      : kind === 'image' ? imageProvider(id) : speechProvider(id);
+      : kind === 'image' ? imageProvider(id) : kind === 'speech' ? speechProvider(id) : listenProvider(id);
     if (!provider) {
       const known = lists[kind].map((one) => one.id);
       throw new PalugadaError('contract.violation', `provider is one of ${known.join(', ')}; got ${id || 'nothing'}`, { field: 'provider' });
@@ -3458,7 +3510,7 @@ export class OwnerApi {
     if (provider.key === 'required' && !typed && !keep) {
       throw new PalugadaError('contract.violation', `${provider.name} needs a key`, { field: 'key' });
     }
-    const binding: ToolBinding<SearchProvider | ExtractProvider | ImageProvider | SpeechProvider> = {
+    const binding: ToolBinding<SearchProvider | ExtractProvider | ImageProvider | SpeechProvider | ListenProvider> = {
       provider,
       url,
       key: async () => (typed ?? (keep ? deployment.secrets.resolve(`db://tool-${kind}`) : null)),
@@ -3832,6 +3884,17 @@ function chatKindNamed(name: string): WebhookChatKind {
     throw new PalugadaError('contract.violation', `a chat is slack or discord; got ${name}`, { kind: name });
   }
   return name;
+}
+
+/** A recording sent from the page: base64 in `audio`, its type in `mime`. */
+function audioFrom(body: Record<string, unknown>): Heard {
+  const mime = typeof body.mime === 'string' ? body.mime.split(';')[0]!.trim() : '';
+  if (!/^audio\/[a-z0-9.+-]+$/.test(mime)) {
+    throw new PalugadaError('contract.violation', 'say what kind of audio this is, such as audio/webm', { field: 'mime' });
+  }
+  const audio = typeof body.audio === 'string' ? body.audio.replace(/^data:[^;]+;base64,/, '') : '';
+  if (!audio) throw new PalugadaError('contract.violation', 'send the recording, as base64', { field: 'audio' });
+  return { bytes: Buffer.from(audio, 'base64'), mime };
 }
 
 /** What a route answered, in a sentence the conversation keeps: short, and never a secret, which no route returns. */

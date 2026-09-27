@@ -49,6 +49,7 @@ import { PalugadaError } from '../errors.ts';
 import { withControlPlane, withTenant } from '../db/tenant.ts';
 import * as inbox from '../inbox/inbox.ts';
 import { traceFromInboxItem, traceOfTask } from '../reporting/trace.ts';
+import { addDocument, archiveDocument, listDocuments, readDocument } from '../knowledge/documents.ts';
 import { buildDailyDigest, buildWeeklyRetro } from '../reporting/digest.ts';
 import {
   clearStopAll,
@@ -2984,6 +2985,50 @@ export class OwnerApi {
             slug: requireText(body.slug, 'slug'), name: requireText(body.name, 'name'),
           }),
         }),
+      },
+
+      /* ------------------------------------------------------- 0075 --- */
+
+      {
+        method: 'GET',
+        pattern: '/api/companies/:companyId/documents',
+        handle: async ({ params }) => ({ documents: await listDocuments(params.companyId!) }),
+      },
+
+      {
+        method: 'GET',
+        pattern: '/api/companies/:companyId/documents/:documentId',
+        handle: async ({ params }) => {
+          const found = await readDocument(params.companyId!, params.documentId!);
+          if (!found) throw new PalugadaError('contract.violation', 'no such document in this company', {});
+          return found;
+        },
+      },
+
+      {
+        // The owner gives the company a document, as text: the console reads
+        // a text or Markdown file in the browser and sends what it says. It
+        // grants and spends nothing, so the session is enough.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/documents',
+        handle: async ({ params, body }) => addDocument(params.companyId!, {
+          title: requireText(body.title, 'title'),
+          body: requireText(body.text, 'text'),
+          ...(body.divisionId ? { divisionId: requireText(body.divisionId, 'divisionId') } : {}),
+          ...(typeof body.fileName === 'string' ? { fileName: body.fileName } : {}),
+        }),
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/documents/:documentId/archive',
+        handle: async ({ params, body }) => {
+          if (typeof body.archived !== 'boolean') {
+            throw new PalugadaError('contract.violation', 'archived is true or false', { field: 'archived' });
+          }
+          await archiveDocument(params.companyId!, params.documentId!, body.archived);
+          return { ok: true };
+        },
       },
 
       {

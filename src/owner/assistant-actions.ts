@@ -336,6 +336,17 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   },
   { pattern: '/api/companies/:companyId/projects', what: 'Start a project.', fields: { name: 'its name', slug: 'short id' }, factor: 'never' },
   {
+    pattern: '/api/companies/:companyId/documents',
+    what: 'Give the company a document as text -- a price list, a policy, a contract -- which runs find with memory.search.',
+    fields: { title: 'its title', text: 'the whole text', divisionId: 'optional: one division\'s only' },
+    factor: 'never',
+  },
+  {
+    pattern: '/api/companies/:companyId/documents/:documentId/archive',
+    what: 'Take a document out of what runs find (archived: true), or put it back (false). Its text is kept.',
+    fields: { archived: 'true or false' }, factor: 'never',
+  },
+  {
     pattern: '/api/companies/:companyId/projects/:projectId',
     what: 'Rename a project, say what it is for (every run in it is told), or close it to new work (archived: true) or open it again.',
     fields: { name: 'optional new name', description: 'optional: what the project is for', archived: 'optional true or false' },

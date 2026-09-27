@@ -21,6 +21,7 @@ import { metricsIn, renderMetrics } from '../domain/metrics.ts';
 import { instructionsFor } from '../engine/owner-control.ts';
 import { STAGE_PURPOSE, stageOf } from '../domain/stage.ts';
 import { renderPersona, type RolePersona } from '../domain/personas.ts';
+import { documentTitlesFor } from '../knowledge/documents.ts';
 
 export interface ContextSection {
   kind:
@@ -32,6 +33,7 @@ export interface ContextSection {
     | 'stage'
     | 'project'
     | 'earlier_attempts'
+    | 'documents'
     | 'sop'
     | 'confidence_warning'
     | 'semantic_memory'
@@ -399,6 +401,18 @@ export async function buildContext(
   if (options.taskId) sections.push(...await projectSections(tx, options.taskId));
   sections.push(...role.contract);
   const granted = await grantedHere(tx, options.divisionId, ['skill.read', 'memory.search']);
+  // Which documents the company keeps (0075), so a run knows there is a
+  // contract to look in before it guesses the payment terms. Their text is
+  // found with memory.search; only the titles travel in every run.
+  const titles = granted.has('memory.search') ? await documentTitlesFor(tx, options.divisionId) : [];
+  if (titles.length > 0) {
+    sections.push({
+      kind: 'documents',
+      title: 'The company\'s documents',
+      body: `The company keeps these documents: ${titles.map((title) => `"${title}"`).join(', ')}. ` +
+        'memory.search finds the passages of them your query\'s words point at; look there before you guess.',
+    });
+  }
 
   // F15.7: skills travel as summaries. A company with forty of them would
   // otherwise spend a run's whole context on documents it may never open, so

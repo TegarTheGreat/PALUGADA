@@ -145,6 +145,22 @@ A fact that is wrong: **Correct** it when you know the right one, or
 **Take back** when there is nothing to put in its place. Either way it
 reaches no run again, and the history keeps what it said.
 
+## Give the company its documents
+
+**Memory**, **Documents** keeps what is longer than a fact: a price list,
+the wholesale terms, a supplier contract, the brand guide. **Add a document**
+takes a title, who may read it (the whole company, or one division), and the
+text -- **Read a text file** fills it from a `.txt`, `.md` or `.csv` file,
+or paste it. Headings (`# Payment`, or a line in capitals) keep each passage
+with what it is about.
+
+Every run is told which documents exist, and `memory.search` -- the search
+every role already has -- returns the passages its question points at, so a
+run quoting a cafe reads the payment terms rather than guessing them. What
+it reads there is shown to it as data, never as instructions. **Archive**
+takes a document out of every search and keeps its text; **Put it back**
+returns it.
+
 ## Write, review and switch on skills
 
 A skill is a written procedure the roles follow: how to answer a refund,

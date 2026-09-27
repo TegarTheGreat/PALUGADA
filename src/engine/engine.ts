@@ -165,7 +165,7 @@ export interface RunOutcome {
  * structured goal chain, each of which travels in a field of its own.
  */
 const NOTE_KINDS: ReadonlySet<ContextSection['kind']> = new Set([
-  'language', 'stage', 'project', 'contract', 'goal_measure', 'owner_question', 'owner_note', 'earlier_attempts',
+  'language', 'stage', 'project', 'documents', 'contract', 'goal_measure', 'owner_question', 'owner_note', 'earlier_attempts',
 ]);
 
 const PARKING_CODES: ReadonlySet<string> = new Set(['approval.required', 'owner.asked', 'review.required', 'window.closed', 'task.waiting_child']);

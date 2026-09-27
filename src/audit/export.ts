@@ -162,6 +162,18 @@ const SECTIONS: Section[] = [
             FROM metric_observations ORDER BY observed_at`,
   },
   {
+    // The company's documents (0075), whole and in passages.
+    name: 'documents',
+    sql: `SELECT id, division_id, title, body, file_name, source, created_at, archived_at
+            FROM documents ORDER BY created_at`,
+  },
+  {
+    // Without `words`, which the database generates from the heading and the
+    // text, and generates again on the way in.
+    name: 'document_passages',
+    sql: `SELECT document_id, seq, heading, body FROM document_passages ORDER BY document_id, seq`,
+  },
+  {
     // The backlog (0070): what was owed, who filed it, and what worked it.
     name: 'tickets',
     sql: `SELECT id, project_id, division_id, title, body, status, priority, opened_by, opened_by_task_id,

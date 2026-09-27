@@ -14,12 +14,12 @@
  */
 import { useState } from 'react';
 import {
-  Alert, Badge, Button, Group, Modal, Paper, SegmentedControl, Select, Stack, Switch, Text, Textarea,
+  Alert, Badge, Button, Group, Modal, Paper, SegmentedControl, Select, Stack, Switch, Tabs, Text, Textarea,
   TextInput, Tooltip,
 } from '@mantine/core';
 import { useDebouncedValue } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
-import { IconAlertTriangle, IconCheck, IconPencil, IconPlus, IconSearch, IconX } from '@tabler/icons-react';
+import { IconAlertTriangle, IconBrain, IconCheck, IconFileText, IconPencil, IconPlus, IconSearch, IconX } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
 import { useLoad } from '../hooks.ts';
 import type { MemoryItem, MemoryKind, Structure } from '../types.ts';
@@ -27,6 +27,7 @@ import { relative } from '../format.ts';
 import { N, t } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
 import { EmptyState, LoadFailed, Loading, PageHeader } from '../components/ui.tsx';
+import { Documents } from '../components/Documents.tsx';
 
 const KINDS: Array<{ kind: MemoryKind; label: string; hint: string }> = [
   { kind: 'semantic', label: N('Facts'), hint: N('What the company believes to be true. Agents are given the most relevant ones in every run.') },
@@ -64,6 +65,7 @@ export function Memory({ ctx }: PageProps) {
   const [editing, setEditing] = useState<MemoryItem | null>(null);
   const [adding, setAdding] = useState(false);
   const [division, setDivision] = useState<string | null>(null);
+  const [view, setView] = useState<'memory' | 'documents'>('memory');
   // Older pages, fetched on request and kept until the filters change.
   const [older, setOlder] = useState<MemoryItem[]>([]);
   // The page marker the server gave with the last page; null when that was all.
@@ -125,9 +127,17 @@ export function Memory({ ctx }: PageProps) {
         crumbs={[ctx.company.name]}
         title={t('Memory')}
         description={t('What this company knows and tells its agents. Correct anything wrong here; the old version is kept, marked as replaced.')}
-        actions={<Button leftSection={<IconPlus size={16} />} onClick={() => setAdding(true)}>{t('Tell the company something')}</Button>}
+        actions={view === 'memory' ? <Button leftSection={<IconPlus size={16} />} onClick={() => setAdding(true)}>{t('Tell the company something')}</Button> : undefined}
       />
 
+      <Tabs value={view} onChange={(value) => setView(value === 'documents' ? 'documents' : 'memory')}>
+        <Tabs.List>
+          <Tabs.Tab value="memory" leftSection={<IconBrain size={16} />}>{t('Facts and ways to work')}</Tabs.Tab>
+          <Tabs.Tab value="documents" leftSection={<IconFileText size={16} />}>{t('Documents')}</Tabs.Tab>
+        </Tabs.List>
+      </Tabs>
+
+      {view === 'documents' ? <Documents companyId={companyId} structure={structure.data ?? null} /> : (<>
       <SegmentedControl
         value={kind}
         onChange={(value) => setKind(value as MemoryKind)}
@@ -235,6 +245,7 @@ export function Memory({ ctx }: PageProps) {
           </Stack>
         )
       )}
+      </>)}
 
       <Correct key={editing?.id ?? 'none'} companyId={companyId} item={editing} close={() => setEditing(null)} done={memory.reload} />
       <Tell companyId={companyId} opened={adding} close={() => setAdding(false)} done={() => { setAdding(false); memory.reload(); }} />

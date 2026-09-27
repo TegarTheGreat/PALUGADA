@@ -345,6 +345,12 @@ shown to every run as the data it came from, never as a known fact, however
 often it is learned: that is how an instruction hidden in an email would
 otherwise become the company's belief.
 
+The company also keeps **documents**: anything longer than a fact, kept
+whole and split into passages under their headings. `memory.search` returns
+the passages a question's words point at, from the documents a division may
+read; runs are told which documents exist. They are matched by their words,
+with no embedding model needed.
+
 On the **Memory** page you can search what the company knows, one division at
 a time, see where each fact came from and open the work that taught it,
 confirm a fact (**It is true**), **Correct** one, **Take back** one that is

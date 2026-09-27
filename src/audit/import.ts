@@ -158,6 +158,8 @@ const SECTIONS: ImportSection[] = [
   { name: 'trigger_deliveries', table: 'trigger_deliveries', references: ['trigger_id', 'task_id'] },
   { name: 'handoff_rules', table: 'handoff_rules', references: ['from_role_id', 'to_role_id'] },
   { name: 'metric_observations', table: 'metric_observations', references: ['metric_id', 'task_id'] },
+  { name: 'documents', table: 'documents', references: ['division_id'] },
+  { name: 'document_passages', table: 'document_passages', references: ['document_id'] },
   {
     name: 'tickets',
     table: 'tickets',

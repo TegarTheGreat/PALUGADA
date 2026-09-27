@@ -3449,12 +3449,26 @@ has.
   Both are handed over now, and procedures travel with their titles, so
   "How the owner wants it done" arrives as the owner's word.
 
+- **The company has a knowledge base (0075).** Memory held facts of a
+  sentence or two, so a price list, a contract or the brand guide had
+  nowhere to go and no run could look anything up in one. The owner now
+  gives the company documents under **Memory**, **Documents** -- typed,
+  pasted, or read from a text or Markdown file in the browser -- for the
+  whole company or one division. Each is kept whole and in passages under
+  the headings they sit beneath; `memory.search`, which every role already
+  holds, returns the passages a query's words point at, wrapped as data, so
+  there is no thirteenth tool (F2.4); every run is told which documents
+  exist. A document is archived, not deleted, and travels in the export.
+  Matching is PostgreSQL's own text search: no embedding model is needed,
+  and pgvector remains unused.
+
 **Still open, next.** From the same audits, in order: done criteria are
 shown to runs and never checked -- an honest check needs a judge or a
 change to every role's output, and is the next piece of this; a run has no
 wall-clock ceiling of its own beyond its deadline and its lease; the context
-a run was given is kept only as its prompt, for in-process runs; there is no
-document knowledge base, and pgvector is installed and unused. The assistant in
+a run was given is kept only as its prompt, for in-process runs; documents
+are matched by their words, not their meaning -- pgvector is installed and
+unused -- and only text reaches them, not PDF or Word files. The assistant in
 Telegram, by text and voice note. WhatsApp, Signal and email as
 owner channels are not built; Slack and Discord cannot carry buttons, so
 Telegram remains the chat that decides. Subscription

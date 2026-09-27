@@ -29,6 +29,7 @@ import { askOwner, raiseEscalationWithin } from '../inbox/inbox.ts';
 import { STAGES, assertStage, loosens, stageOf, type Stage } from '../domain/stage.ts';
 import { createSubTask, getTask, transition } from '../engine/tasks.ts';
 import { listTickets, openTicket, readTicket, startTicket } from '../engine/tickets.ts';
+import { searchDocuments } from '../knowledge/documents.ts';
 import { containChildResult } from '../engine/containment.ts';
 import { taskCostCents } from '../reporting/cost.ts';
 import { enqueueWake } from '../scheduler/wake.ts';
@@ -46,6 +47,8 @@ export interface MemorySearchInput {
 
 export interface MemorySearchResult {
   facts: Array<{ body: string; confidence: number; source: string; unverified: boolean; outside?: boolean }>;
+  /** Passages of the company's documents the query's words point at (0075). */
+  documents: Array<{ title: string; heading: string | null; passage: string }>;
   /** True when the limit cut the answer short, so the caller can ask again. */
   truncated: boolean;
 }
@@ -69,7 +72,7 @@ export function memorySearchCapability(): Capability<MemorySearchInput, MemorySe
       type: 'object',
       required: ['query'],
       properties: {
-        query: { type: 'string', minLength: 1, description: 'What to look for, in a few words.' },
+        query: { type: 'string', minLength: 1, description: 'What to look for, in a few words. Searches the company\'s facts and its documents.' },
         limit: { type: 'integer', minimum: 1, maximum: MEMORY_SEARCH_MAX_RESULTS, description: 'How many facts to return (default 5).' },
         memoryType: { enum: ['semantic', 'procedural', 'episodic'], description: 'Facts (default), procedures, or past events.' },
       },
@@ -92,7 +95,20 @@ export function memorySearchCapability(): Capability<MemorySearchInput, MemorySe
         limit: limit + 1,
       }));
 
+      // And the company's documents: the passages the same words point at
+      // (0075), from what this division may read. Each is data -- a
+      // contract or a supplier's price list says what it says, and never
+      // instructs the run that reads it.
+      const passages = await withTenant(ctx.companyId, (tx) => searchDocuments(tx, {
+        divisionId: ctx.divisionId, query: input.query, limit: 3,
+      }));
+
       return {
+        documents: passages.map((found) => ({
+          title: found.title,
+          heading: found.heading,
+          passage: wrapUntrusted(`document:${found.title}`, found.body),
+        })),
         facts: facts.slice(0, limit).map((memory) => ({
           body: memory.body,
           confidence: memory.confidence,

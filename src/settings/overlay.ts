@@ -62,6 +62,18 @@ export interface ChannelSettings {
   discord?: { urlSecret: string };
 }
 
+/**
+ * An MCP server the owner added in the console: the file's shape
+ * (`src/capabilities/mcp.ts`), with the server's token as a sealed secret's
+ * name rather than a reference.
+ */
+export interface McpServerSetting {
+  name: string;
+  url: string;
+  tokenSecret?: string;
+  tools: Record<string, { tier: number; pin?: string; readOnly?: boolean; verify?: Record<string, unknown> }>;
+}
+
 /** The variables each channel was configured by, which a console choice for that channel replaces together. */
 const CHANNEL_KEYS: Readonly<Record<keyof ChannelSettings, readonly string[]>> = {
   telegram: ['PALUGADA_TELEGRAM_TOKEN', 'PALUGADA_TELEGRAM_TOKEN_REF', 'PALUGADA_TELEGRAM_CHAT',
@@ -126,6 +138,17 @@ export function withSettings(env: NodeJS.ProcessEnv, settings: Settings): NodeJS
       if (channels.push.tokenSecret) out.PALUGADA_PUSH_TOKEN_REF = `db://${channels.push.tokenSecret}`;
     } else if ((name === 'slack' || name === 'discord') && channels[name]) {
       out[`PALUGADA_${name.toUpperCase()}_WEBHOOK_REF`] = `db://${channels[name]!.urlSecret}`;
+    }
+  }
+  // The console's MCP servers are the owner's, next to the operator's file
+  // rather than in place of it: PALUGADA_MCP_SERVERS is untouched.
+  const mcp = settings.mcp as { servers?: McpServerSetting[] } | undefined;
+  if (mcp) {
+    delete out.PALUGADA_MCP_SETTINGS;
+    if (mcp.servers && mcp.servers.length > 0) {
+      out.PALUGADA_MCP_SETTINGS = JSON.stringify({
+        servers: mcp.servers.map(({ tokenSecret, ...server }) => ({ ...server, ...(tokenSecret ? { tokenRef: `db://${tokenSecret}` } : {}) })),
+      });
     }
   }
   const agents = settings.agents as Record<string, AgentSetting> | undefined;

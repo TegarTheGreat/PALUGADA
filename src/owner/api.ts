@@ -139,7 +139,8 @@ import {
   requestRoleChange,
   type RoleChange,
 } from '../eval/role-eval.ts';
-import type { CapabilityRegistry } from '../broker/registry.ts';
+import { CapabilityRegistry } from '../broker/registry.ts';
+import { bindMcpServers, currentPins, offeredTools } from '../capabilities/mcp.ts';
 import type { OwnerMfa, WebAuthnAssertion } from './mfa.ts';
 import { telegramApi, telegramBot, telegramChats, type TelegramChannel, type TelegramUpdate } from './telegram.ts';
 import { WebhookPush, ntfyBody } from './push.ts';
@@ -151,7 +152,7 @@ import {
   deleteSecret, putSecret, readSettings, secretNames, stateDirFrom, writeSetting, type MasterKey, type Settings,
 } from '../settings/store.ts';
 import {
-  modelSource, withSettings, type AgentSetting, type ChannelSettings, type ModelSetting, type ToolSetting,
+  modelSource, withSettings, type AgentSetting, type ChannelSettings, type McpServerSetting, type ModelSetting, type ToolSetting,
 } from '../settings/overlay.ts';
 import { WEBHOOK_HOSTS, WebhookChatChannel, type WebhookChatKind } from './webhook-chat.ts';
 import {
@@ -1443,6 +1444,133 @@ export class OwnerApi {
           delete tools[kind];
           await writeSetting('tools', Object.keys(tools).length > 0 ? tools : null);
           await deleteSecret(`tool-${kind}`);
+          return this.#applySettings();
+        },
+      },
+
+      /* -------------------------------------------------- MCP servers --- */
+
+      {
+        // The servers the owner added, and how far each tool is trusted. A
+        // token is said to be set, never shown; the operator's own file is
+        // named, since its servers are bound next to these.
+        method: 'GET',
+        pattern: '/api/control/mcp',
+        handle: async () => {
+          const deployment = this.#deploymentSettings();
+          const running = mcpNamesIn(deployment.env.PALUGADA_MCP_SETTINGS);
+          return {
+            servers: mcpServersIn(await readSettings()).map((server) => ({
+              name: server.name,
+              url: server.url,
+              tokenSet: Boolean(server.tokenSecret),
+              inUse: running.includes(server.name),
+              tools: server.tools,
+            })),
+            file: deployment.baseEnv.PALUGADA_MCP_SERVERS ?? null,
+            applies: deployment.restart ? 'now' : 'next_start',
+          };
+        },
+      },
+
+      {
+        // What a server offers, before the owner allows any of it: each tool,
+        // what it does, and what the server says of it. A token typed here is
+        // used for this look and kept nowhere.
+        method: 'POST',
+        pattern: '/api/control/mcp/inspect',
+        handle: async ({ body }) => {
+          this.#deploymentSettings();
+          const url = mcpUrl(body.url);
+          const { authorization } = await this.#mcpAuthorization(body, url);
+          try {
+            return { problem: null, tools: await offeredTools(url, authorization) };
+          } catch (failure) {
+            return { problem: (failure as Error).message };
+          }
+        },
+      },
+
+      {
+        // A server and the tools roles may use from it, each at a tier. The
+        // pins are taken from what the server offers now, and the whole of it
+        // is held to the rules the operator's file is held to, before the
+        // owner's device is asked for.
+        method: 'POST',
+        pattern: '/api/control/mcp/servers',
+        handle: async ({ body }) => {
+          const deployment = this.#deploymentSettings();
+          const name = mcpServerNamed(body.name);
+          const url = mcpUrl(body.url);
+          const chosen = body.tools && typeof body.tools === 'object' && !Array.isArray(body.tools)
+            ? body.tools as Record<string, Record<string, unknown>> : {};
+          if (Object.keys(chosen).length === 0) {
+            throw new PalugadaError('config.invalid', `${name} allows none of its tools: allow at least one, or remove the server`, { name });
+          }
+          const { authorization, typed, keep } = await this.#mcpAuthorization(body, url);
+          let pins: Map<string, string>;
+          try {
+            pins = await currentPins(url, authorization);
+          } catch (failure) {
+            throw new PalugadaError('capability.unreachable', `${name} could not be asked what it offers: ${(failure as Error).message}`, { name });
+          }
+          const tools: McpServerSetting['tools'] = {};
+          for (const [tool, raw] of Object.entries(chosen)) {
+            const tier = raw?.tier;
+            if (typeof tier !== 'number' || !Number.isInteger(tier) || tier < 0 || tier > 3) {
+              throw new PalugadaError('config.invalid', `${tool} needs a tier from 0 to 3`, { tool });
+            }
+            tools[tool] = {
+              tier,
+              ...(pins.has(tool) ? { pin: pins.get(tool)! } : {}),
+              ...(raw.verify && typeof raw.verify === 'object' ? { verify: raw.verify as Record<string, unknown> } : {}),
+            };
+          }
+          // The same check the next start makes, against a registry of its
+          // own, so what the console saves is what the start will bind.
+          const token = authorization ? authorization.slice('Bearer '.length) : null;
+          try {
+            await bindMcpServers(new CapabilityRegistry(),
+              { servers: [{ name, url, tools, ...(token ? { tokenRef: 'console://token' } : {}) }] }, name, { resolve: async () => token! });
+          } catch (failure) {
+            if (failure instanceof PalugadaError && failure.code === 'config.invalid') {
+              throw new PalugadaError('config.invalid', failure.message.replace(`${name}: `, ''), { name });
+            }
+            throw failure;
+          }
+          await this.#requireFactor(body.proof, `let roles use the tools of ${name}`);
+          const secret = `mcp-${name}`;
+          if (typed) {
+            const master = deployment.master(true);
+            if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
+            await putSecret(secret, typed, master);
+          } else if (!keep) {
+            await deleteSecret(secret);
+          }
+          const saved: McpServerSetting = { name, url, ...(typed || keep ? { tokenSecret: secret } : {}), tools };
+          const servers = mcpServersIn(await readSettings());
+          const at = servers.findIndex((one) => one.name === name);
+          if (at >= 0) servers[at] = saved;
+          else servers.push(saved);
+          await writeSetting('mcp', { servers });
+          return this.#applySettings();
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/control/mcp/servers/:name/remove',
+        handle: async ({ params, body }) => {
+          this.#deploymentSettings();
+          const name = params.name!;
+          const servers = mcpServersIn(await readSettings());
+          if (!servers.some((one) => one.name === name)) {
+            throw new PalugadaError('contract.violation', `no MCP server named ${name} was added in the console`, { name });
+          }
+          await this.#requireFactor(body.proof, `stop roles using the tools of ${name}`);
+          const rest = servers.filter((one) => one.name !== name);
+          await writeSetting('mcp', rest.length > 0 ? { servers: rest } : null);
+          await deleteSecret(`mcp-${name}`);
           return this.#applySettings();
         },
       },
@@ -3119,6 +3247,19 @@ export class OwnerApi {
     throw new PalugadaError('contract.violation', 'paste the bot token @BotFather gave you', { field: 'token' });
   }
 
+  /**
+   * The token a look at an MCP server, or a save, is made with: the one
+   * typed, or the one saved for that server -- but only while the address is
+   * on the host it was saved for, or it would be handed to another server.
+   */
+  async #mcpAuthorization(body: Record<string, unknown>, url: string): Promise<{ authorization: string | null; typed: string | null; keep: boolean }> {
+    const typed = typeof body.token === 'string' && body.token.trim() ? body.token.trim() : null;
+    if (typed) return { authorization: `Bearer ${typed}`, typed, keep: false };
+    const saved = typeof body.name === 'string' ? mcpServersIn(await readSettings()).find((one) => one.name === body.name) : undefined;
+    if (!saved?.tokenSecret || new URL(saved.url).origin !== new URL(url).origin) return { authorization: null, typed: null, keep: false };
+    return { authorization: `Bearer ${await this.#deploymentSettings().secrets.resolve(`db://${saved.tokenSecret}`)}`, typed: null, keep: true };
+  }
+
   /** The push channel the console is asking about: checked, with the token typed or the one saved. */
   async #pushCandidate(body: Record<string, unknown>) {
     const deployment = this.#deploymentSettings();
@@ -3560,6 +3701,43 @@ function chatKindNamed(name: string): WebhookChatKind {
     throw new PalugadaError('contract.violation', `a chat is slack or discord; got ${name}`, { kind: name });
   }
   return name;
+}
+
+/** The console's MCP servers, as saved. */
+function mcpServersIn(settings: Record<string, unknown>): McpServerSetting[] {
+  return [...((settings.mcp as { servers?: McpServerSetting[] } | undefined)?.servers ?? [])];
+}
+
+/** The names of the console's servers a start was given, to say which are in use. */
+function mcpNamesIn(text: string | undefined): string[] {
+  try {
+    return ((JSON.parse(text ?? '') as { servers?: Array<{ name?: string }> }).servers ?? []).map((one) => String(one.name));
+  } catch {
+    return [];
+  }
+}
+
+function mcpServerNamed(value: unknown): string {
+  const name = typeof value === 'string' ? value.trim() : '';
+  if (!/^[a-z0-9][a-z0-9_-]{0,30}$/.test(name)) {
+    throw new PalugadaError('config.invalid',
+      'a server\'s name is lowercase letters, digits, - and _, at most 31, such as payments: it becomes part of each tool\'s name', { field: 'name' });
+  }
+  return name;
+}
+
+function mcpUrl(value: unknown): string {
+  const url = typeof value === 'string' ? value.trim() : '';
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new PalugadaError('config.invalid', 'give the server\'s address, such as https://mcp.example.com/mcp', { field: 'url' });
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new PalugadaError('config.invalid', `an MCP server is reached over HTTP; ${parsed.protocol} is not`, { field: 'url' });
+  }
+  return url;
 }
 
 function toolKindNamed(name: string): ToolKind {

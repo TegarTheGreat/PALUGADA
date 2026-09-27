@@ -15,12 +15,9 @@ import type { AddressInfo } from 'node:net';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { closePools } from '../../src/db/pool.ts';
-import { InMemorySecretManager } from '../../src/secrets/manager.ts';
-import { OwnerApi } from '../../src/owner/api.ts';
-import { OwnerMfa, TOTP_STEP_SECONDS, decodeBase32, newTotpSecret, stepFor, totpCode } from '../../src/owner/mfa.ts';
-import { DeploymentSecretManager, masterKeyFrom, readSettings, type MasterKey } from '../../src/settings/store.ts';
+import { readSettings } from '../../src/settings/store.ts';
 import { withSettings } from '../../src/settings/overlay.ts';
 import {
   IMAGE_PROVIDERS, SPEECH_PROVIDERS, imageGenerate, speechSynthesize, type ImageProvider, type SpeechProvider,
@@ -29,6 +26,7 @@ import { toolBindingsFrom } from '../../src/capabilities/tools.ts';
 import { STANDARD_CATALOGUE } from '../../src/broker/catalogue.ts';
 import { STANDARD_COMPANY_TEMPLATE } from '../../src/templates/standard.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
+import { consoleWithSettings } from '../helpers/owner-console.ts';
 
 before(ensureSchema);
 beforeEach(resetData);
@@ -241,49 +239,4 @@ async function piperServer() {
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, asked };
-}
-
-/** The console, with the deployment's settings behind it and a clock the test moves. */
-async function consoleWithSettings() {
-  const secrets = new InMemorySecretManager();
-  const { secret } = newTotpSecret('owner phone');
-  secrets.set('vault://owner/totp', secret);
-  let steps = 0;
-  const at = () => new Date(Date.now() + steps * TOTP_STEP_SECONDS * 1000);
-  const mfa = new OwnerMfa({ secrets, rpId: 'palugada.local', now: at });
-  await mfa.enrolTotp({ label: 'owner phone', secretRef: 'vault://owner/totp' });
-  const key = randomBytes(32);
-  const master: MasterKey = { id: masterKeyFrom({ PALUGADA_MASTER_KEY: key.toString('hex') })!.id, key, source: 'test' };
-  const sealed = new DeploymentSecretManager(secrets, () => master);
-  const api = new OwnerApi({
-    mfa,
-    secrets: sealed,
-    deploymentSettings: { baseEnv: {}, env: {}, settings: {}, master: () => master, secrets: sealed, restart: () => undefined },
-  });
-  const { url } = await api.listen();
-  const code = () => {
-    steps += 1;
-    return totpCode(decodeBase32(secret), stepFor(at()));
-  };
-  const call = async (method: string, path: string, token: string, body?: unknown) => {
-    const response = await fetch(`${url}${path}`, {
-      method,
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return { status: response.status, body: await response.json() as any };
-  };
-  return {
-    secrets: sealed,
-    code,
-    call,
-    signIn: async () => {
-      const response = await fetch(`${url}/api/auth/sign-in`, {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ totp: code() }),
-      });
-      return String(((await response.json()) as { token: string }).token);
-    },
-    close: () => api.close(),
-  };
 }

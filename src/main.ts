@@ -29,7 +29,7 @@ import { CapabilityRegistry } from './broker/registry.ts';
 import { Engine } from './engine/engine.ts';
 import { DEFAULT_PRICE_TABLE, loadPriceTable } from './engine/pricing.ts';
 import { modelClientFrom, modelSettingsFrom } from './llm/models.ts';
-import { registerMcpServers } from './capabilities/mcp.ts';
+import { bindMcpServers, registerMcpServers } from './capabilities/mcp.ts';
 import { Worker, type WorkerOptions } from './worker.ts';
 import type { SecretManager } from './secrets/manager.ts';
 import { OwnerMfa, decodeBase32 } from './owner/mfa.ts';
@@ -185,6 +185,18 @@ export interface Deployment {
  * leaves its channel out and says why, rather than stopping the boot: the
  * console, which is where it is fixed, must come up.
  */
+/** The console's MCP servers, as the overlay wrote them; anything unreadable is a note and no servers. */
+function mcpSettingsFrom(text: string, notes: string[]): unknown[] {
+  try {
+    const parsed = JSON.parse(text) as { servers?: unknown };
+    if (Array.isArray(parsed.servers)) return parsed.servers;
+  } catch {
+    // Said below, the same as a document without servers.
+  }
+  notes.push('PALUGADA_MCP_SETTINGS is not a list of MCP servers; none from the console are bound');
+  return [];
+}
+
 export async function channelsFrom(
   env: NodeJS.ProcessEnv,
   resolve: (reference: string) => Promise<string> = async (reference) => {
@@ -530,10 +542,28 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   // when it is wrong; a server that does not answer is a note, and its tools
   // are checked again at every call.
   const mcpFile = env.PALUGADA_MCP_SERVERS ?? null;
+  const mcpOptions = { resolve: (reference: string) => secrets.resolve(reference) };
   if (mcpFile) {
-    const mcp = await registerMcpServers(registry, mcpFile);
+    const mcp = await registerMcpServers(registry, mcpFile, mcpOptions);
     notes.push(`bound from ${mcpFile}: ${mcp.bound.join(', ')}`, ...mcp.notes);
   }
+  // The servers the owner added in the console, one at a time: a server that
+  // no longer passes -- it rewrote a pinned tool, or its token will not open
+  // -- is left out with a note, and the rest start, because the console is
+  // the only place the owner can put it right.
+  const consoleMcp = env.PALUGADA_MCP_SETTINGS ? mcpSettingsFrom(env.PALUGADA_MCP_SETTINGS, notes) : [];
+  const fromConsole: string[] = [];
+  for (const server of consoleMcp) {
+    const name = String((server as { name?: unknown }).name ?? '?');
+    try {
+      const mcp = await bindMcpServers(registry, { servers: [server] }, `the MCP server ${name} set in the console`, mcpOptions);
+      fromConsole.push(...mcp.bound);
+      notes.push(...mcp.notes);
+    } catch (failure) {
+      notes.push(`the MCP server ${name} set in the console is left out: ${(failure as Error).message.replace(/^the MCP server \S+ set in the console: /, '')}`);
+    }
+  }
+  if (fromConsole.length > 0) notes.push(`bound from the console: ${fromConsole.join(', ')}`);
 
   // Once, after everything is registered.
   //

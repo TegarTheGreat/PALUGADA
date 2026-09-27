@@ -2901,6 +2901,16 @@ vendor files (`src/capabilities/mcp.ts`, `PALUGADA_MCP_SERVERS`).
   the approval and the journal are spent before the call.
 - Streamable HTTP only. A stdio server is a process the platform would run
   with its own environment, which F13.4 keeps runtimes from.
+- **Added from the console.** The owner gives a server's address and token,
+  sees every tool with what it does and what the server says of it, ticks
+  the ones roles may use, and chooses each tier and read-back; the tiers the
+  rules forbid are not offered. The pins are taken from the server when it
+  is saved rather than copied from a boot note, the whole server is held to
+  the same check the next start makes, and saving takes the owner's device.
+  The token is sealed, sent only while the address stays on the host it was
+  given for, and a server may carry its own token (`tokenRef`) instead of a
+  division's credential. A console server that no longer passes is left out
+  at the next start with a note; a file's refusal still stops it.
 
 ### Three more from the reliability and security audits
 

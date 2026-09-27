@@ -167,12 +167,49 @@ uses. [config/vendors.example.json](../../config/vendors.example.json) binds
 ## Add MCP servers
 
 Tools on an MCP server (streamable HTTP) can be used as capabilities, but
-only the ones a file you write names. See
+only the ones you allow, at the tier you choose.
+
+### From the console
+
+1. Open **This deployment**, **MCP servers**, and press **Add an MCP server**.
+2. Give it a **Name** -- lowercase, such as `payments`; each tool becomes
+   `mcp.payments.<tool>` -- its **Address**, and a **Token** if the server
+   asks for one. The token is sent as a bearer token and sealed here.
+3. Press **Look at its tools**. Each tool is shown with what it says it does,
+   what it takes, and whether the server says it only reads or is
+   destructive. Nothing is saved yet.
+4. Tick the tools roles may use and choose each one's **Tier**. Tier 0 is
+   offered only for a tool the server says only reads; a tool it calls
+   destructive can only be tier 3.
+5. A tool at tier 1 or above writes, so it is read back after each call:
+   choose another of the server's tools under **Read back with**, its
+   arguments (such as `{"id": "{result.id}"}`, filled from what the write
+   returned), and what its answer must show -- **In its answer** `amount`
+   **Equals** `input.amount` means the amount the role asked for.
+6. Press **Allow 2 and save** (the number is how many you ticked) and confirm
+   with a code. Each tool is pinned to what the server offers now: if the
+   server later rewrites a tool, the tool is refused until you look at it
+   again and save.
+7. Grant a tool to a division with **Change a grant**, and give it to a role
+   on **Team**.
+
+The token is kept while the address stays on the same host; a server moved
+to another host needs its token typed again, so it is never handed to a
+server it was not given for. A server that no longer passes at the next
+start -- it changed a pinned tool, or its token will not open -- is left out
+with a note, and everything else starts.
+
+### From a file
+
+An operator can list servers in a file instead. See
 [config/mcp.example.json](../../config/mcp.example.json) and the
 "MCP servers" paragraph of [docs/configuration.md](../configuration.md).
+The file's servers are bound next to the console's, and are changed only in
+the file.
 
 1. For each server, give its `name`, `url`, optionally the `credentialAlias`
-   whose credential is sent as a bearer token, and under `tools` each tool
+   whose credential is sent as a bearer token -- or a `tokenRef`, a secret
+   reference to the server's own token -- and under `tools` each tool
    you allow with its `tier`. The server can only raise a tier: a tool it
    marks destructive must be tier 3, and a tier 0 tool must be one it says
    only reads.

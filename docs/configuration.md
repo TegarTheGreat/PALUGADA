@@ -103,6 +103,7 @@ A secret the owner saved is named like any other, as a reference:
 | `PALUGADA_SECRET_DIRS` | Where `file://` secrets may be read from (default `/run/secrets`) |
 | `PALUGADA_VENDORS` | Vendor capabilities from a JSON spec file (see [`config/vendors.example.json`](../config/vendors.example.json)) |
 | `PALUGADA_MCP_SERVERS` | Tools from MCP servers, only those the file names (see [`config/mcp.example.json`](../config/mcp.example.json) and below) |
+| `PALUGADA_MCP_SETTINGS` | The MCP servers the owner added in the console, as JSON in the file's shape; the console writes it, next to the file rather than in place of it |
 | `PALUGADA_MODEL_PRICES` | Model prices for runtimes that report tokens but no price (see [`config/prices.example.json`](../config/prices.example.json)) |
 | `PALUGADA_DRAFT_MODEL` | The tier or model used for drafting, memory distillation and skill screening (default `standard`) |
 | `PALUGADA_AGENT_CLIS` | Agent CLIs this platform knows, by name, found on `PATH`: `claude-code`, `codex`, `gemini-cli`, `opencode`, `hermes`, `openclaw`. See **Agent CLIs** below |
@@ -237,9 +238,14 @@ only reads. A tool at tier 1 or above must be pinned -- the boot prints the
 pin of an unpinned tool -- and must name a read-back: another tool on the
 same server and what its answer must say. A tool whose description or
 arguments changed since it was pinned is refused. `credentialAlias` sends
-the calling division's credential as a bearer token. Everything a server
+the calling division's credential as a bearer token; `tokenRef`, a secret
+reference, sends the server's own token instead. Everything a server
 returns counts as content from outside the company, so work that used it
-asks the owner before its next tier 2 action.
+asks the owner before its next tier 2 action. Servers the owner adds in
+the console (**This deployment**, **MCP servers**) reach the platform as
+`PALUGADA_MCP_SETTINGS`, the same shape with each token sealed, and are
+bound next to the file's; one that no longer passes is left out with a
+note rather than stopping the start.
 
 **Capabilities.** PALUGADA implements the ones that need no vendor account:
 `web.fetch`, `uptime.check`, `files.list`, `doc.draft`, `email.draft`,

@@ -10,11 +10,12 @@
  */
 import {
   Accordion, Alert, Anchor, Autocomplete, Badge, Button, Code, Grid, Group, NavLink, Paper, PasswordInput, Radio,
-  SegmentedControl, Select, SimpleGrid, Stack, Switch, Table, Text, TextInput,
+  Checkbox, SegmentedControl, Select, SimpleGrid, Stack, Switch, Table, Text, TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
-  IconBell, IconBrain, IconCheck, IconDownload, IconExternalLink, IconKey, IconListSearch, IconPlugConnected, IconTerminal2, IconWorldSearch,
+  IconBell, IconBrain, IconCheck, IconDownload, IconExternalLink, IconKey, IconListSearch, IconPlug, IconPlugConnected, IconPlus, IconTerminal2,
+  IconWorldSearch,
 } from '@tabler/icons-react';
 import { useEffect, useMemo, useState } from 'react';
 import { api, explain } from '../api.ts';
@@ -22,7 +23,7 @@ import { useFactor } from '../factor.tsx';
 import { useLoad } from '../hooks.ts';
 import { N, t } from '../i18n.ts';
 import { go, type DeploymentSection } from '../router.ts';
-import { LoadFailed, Loading, PageHeader, Section } from '../components/ui.tsx';
+import { LoadFailed, Loading, PageHeader, Section, TierBadge } from '../components/ui.tsx';
 
 const TIERS = ['fast', 'standard', 'deep'] as const;
 type Tier = (typeof TIERS)[number];
@@ -67,6 +68,7 @@ const SECTIONS: Array<{ id: DeploymentSection; label: string; hint: string; icon
   { id: 'model', label: N('Model'), hint: N('What every role thinks with, unless a role is given its own.'), icon: IconBrain },
   { id: 'tools', label: N('Tools'), hint: N('Where roles search the web, read pages, make pictures and speak: the provider, and its key.'), icon: IconWorldSearch },
   { id: 'channels', label: N('Channels'), hint: N('Where PALUGADA reaches you: Telegram, your phone, Slack or Discord.'), icon: IconBell },
+  { id: 'mcp', label: N('MCP servers'), hint: N('Tools from other services\' MCP servers: which of them roles may use, and how far each is trusted.'), icon: IconPlug },
   { id: 'agents', label: N('Agent CLIs'), hint: N('Claude Code, Codex, Gemini CLI and others: install them here, sign them in, and let roles run on them.'), icon: IconTerminal2 },
 ];
 
@@ -110,6 +112,7 @@ export function DeploymentSettings({ section }: { section: DeploymentSection }) 
           {current.id === 'agents' && <AgentSettings />}
           {current.id === 'tools' && <ToolSettings />}
           {current.id === 'channels' && <ChannelSettings />}
+          {current.id === 'mcp' && <McpSettings />}
         </Grid.Col>
       </Grid>
     </Stack>
@@ -1168,6 +1171,290 @@ function ChatWebhookCard({ kind, source, reload }: { kind: 'slack' | 'discord'; 
             <Button disabled={!url.trim()} onClick={() => void save()}>{t('Save')}</Button>
           </Group>
         </Group>
+      </Stack>
+    </Section>
+  );
+}
+
+interface McpTool {
+  name: string;
+  description: string;
+  arguments: string[];
+  reads: boolean;
+  destructive: boolean;
+  suggestedTier: number;
+}
+
+interface McpVerify {
+  tool: string;
+  arguments?: Record<string, unknown>;
+  matches: { path?: string; equalsPath?: string; present?: string };
+}
+
+interface McpServerView {
+  name: string;
+  url: string;
+  tokenSet: boolean;
+  inUse: boolean;
+  tools: Record<string, { tier: number; verify?: McpVerify }>;
+}
+
+interface McpView {
+  servers: McpServerView[];
+  file: string | null;
+  applies: 'now' | 'next_start';
+}
+
+const MCP_TIERS = [
+  { value: '0', label: N('Tier 0 · read only') },
+  { value: '1', label: N('Tier 1 · cheap to undo') },
+  { value: '2', label: N('Tier 2 · costly') },
+  { value: '3', label: N('Tier 3 · irreversible') },
+];
+
+function McpSettings() {
+  const view = useLoad(async (): Promise<McpView> => api('GET', '/api/control/mcp'), []);
+  const [editing, setEditing] = useState<McpServerView | 'new' | null>(null);
+  if (view.error) return <LoadFailed message={view.error} retry={view.reload} />;
+  if (!view.data) return <Loading rows={4} />;
+  const done = () => {
+    setEditing(null);
+    setTimeout(view.reload, 3_000);
+  };
+  return (
+    <Stack gap="lg">
+      {view.data.file && (
+        <Alert variant="light" color="gray">{t('The servers in {file} are bound as well. They are changed in that file, not here.', { file: view.data.file })}</Alert>
+      )}
+      {view.data.servers.length === 0 && editing === null && (
+        <Paper withBorder radius="lg" p="lg">
+          <Text size="sm" c="dimmed">{t('No MCP server yet. Add one by its address: you see what each of its tools does before any of them is allowed, and roles use only the ones you allow, at the tier you choose.')}</Text>
+        </Paper>
+      )}
+      {view.data.servers.map((server) => editing !== 'new' && editing?.name === server.name
+        ? <McpServerForm key={server.name} saved={server} onDone={done} onCancel={() => setEditing(null)} />
+        : <McpServerCard key={server.name} server={server} onEdit={() => setEditing(server)} onRemoved={done} />)}
+      {editing === 'new'
+        ? <McpServerForm saved={null} onDone={done} onCancel={() => setEditing(null)} />
+        : <Group><Button leftSection={<IconPlus size={16} />} variant="light" onClick={() => setEditing('new')}>{t('Add an MCP server')}</Button></Group>}
+    </Stack>
+  );
+}
+
+function McpServerCard({ server, onEdit, onRemoved }: { server: McpServerView; onEdit: () => void; onRemoved: () => void }) {
+  const requireFactor = useFactor();
+  const remove = async () => {
+    const done = await requireFactor(t('Stop roles using the tools of {name}', { name: server.name }), (proof) =>
+      api('POST', `/api/control/mcp/servers/${server.name}/remove`, { proof }));
+    if (done) onRemoved();
+  };
+  return (
+    <Section
+      title={server.name}
+      description={server.url}
+      actions={<Badge variant="light" color={server.inUse ? 'teal' : 'yellow'}>{server.inUse ? t('roles can use it') : t('saved, starting')}</Badge>}
+    >
+      <Stack gap="xs">
+        {Object.entries(server.tools).map(([name, tool]) => (
+          <Group key={name} justify="space-between" wrap="nowrap">
+            <Code>{`mcp.${server.name}.${name}`}</Code>
+            <Group gap={6} wrap="nowrap">
+              {tool.verify && <Text size="xs" c="dimmed">{t('read back with {tool}', { tool: tool.verify.tool })}</Text>}
+              <TierBadge tier={tool.tier} />
+            </Group>
+          </Group>
+        ))}
+        {server.tokenSet && <Text size="xs" c="dimmed"><IconKey size={12} /> {t('Its token is sealed here.')}</Text>}
+        <Text size="xs" c="dimmed">{t('Grant a tool to a division and give it to a role on Team; until then no role can call it.')}</Text>
+        <Group justify="space-between">
+          <Button variant="subtle" color="red" size="compact-sm" onClick={() => void remove()}>{t('Remove')}</Button>
+          <Button variant="default" size="compact-sm" onClick={onEdit}>{t('Change')}</Button>
+        </Group>
+      </Stack>
+    </Section>
+  );
+}
+
+/** One tool's place in the form: whether it is allowed, its tier, and how a write is read back. */
+interface McpChoice {
+  allowed: boolean;
+  tier: string;
+  reader: string | null;
+  args: string;
+  path: string;
+  equals: string;
+}
+
+function choiceFor(tool: McpTool, saved: McpServerView | null): McpChoice {
+  const kept = saved?.tools[tool.name];
+  const match = kept?.verify?.matches;
+  return {
+    allowed: Boolean(kept),
+    tier: String(kept?.tier ?? tool.suggestedTier),
+    reader: kept?.verify?.tool ?? null,
+    args: kept?.verify?.arguments ? JSON.stringify(kept.verify.arguments) : '',
+    path: match?.path ?? match?.present ?? '',
+    equals: match?.equalsPath ?? '',
+  };
+}
+
+function McpServerForm({ saved, onDone, onCancel }: { saved: McpServerView | null; onDone: () => void; onCancel: () => void }) {
+  const requireFactor = useFactor();
+  const [name, setName] = useState(saved?.name ?? '');
+  const [url, setUrl] = useState(saved?.url ?? '');
+  const [token, setToken] = useState('');
+  const [looking, setLooking] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [tools, setTools] = useState<McpTool[] | null>(null);
+  const [choices, setChoices] = useState<Record<string, McpChoice>>({});
+
+  const look = async () => {
+    setLooking(true);
+    setProblem(null);
+    try {
+      const answer = await api('POST', '/api/control/mcp/inspect', { url: url.trim(), token: token.trim() || undefined, name: saved?.name });
+      if (answer.problem) {
+        setProblem(answer.problem);
+        setTools(null);
+      } else {
+        setTools(answer.tools);
+        setChoices(Object.fromEntries((answer.tools as McpTool[]).map((tool) => [tool.name, choices[tool.name] ?? choiceFor(tool, saved)])));
+      }
+    } catch (failure) {
+      setProblem(explain(failure));
+    } finally {
+      setLooking(false);
+    }
+  };
+
+  const change = (tool: string, patch: Partial<McpChoice>) => setChoices((all) => ({ ...all, [tool]: { ...all[tool]!, ...patch } }));
+
+  const save = async () => {
+    const chosen: Record<string, { tier: number; verify?: McpVerify }> = {};
+    for (const [tool, choice] of Object.entries(choices)) {
+      if (!choice.allowed) continue;
+      const tier = Number(choice.tier);
+      if (tier === 0 || !choice.reader) {
+        chosen[tool] = { tier };
+        continue;
+      }
+      let args: Record<string, unknown> = {};
+      try {
+        args = choice.args.trim() ? JSON.parse(choice.args) as Record<string, unknown> : {};
+      } catch {
+        notifications.show({ color: 'red', message: t('The read-back\'s arguments for {tool} are not JSON.', { tool }) });
+        return;
+      }
+      // Paths are rooted at the answer's body unless they say otherwise.
+      const rooted = (path: string) => (/^(body|status|result|input)(\.|$)/.test(path) ? path : `body.${path}`);
+      const path = rooted(choice.path.trim() || 'id');
+      chosen[tool] = {
+        tier,
+        verify: {
+          tool: choice.reader, arguments: args,
+          matches: choice.equals.trim() ? { path, equalsPath: choice.equals.trim() } : { present: path },
+        },
+      };
+    }
+    const done = await requireFactor(t('Let roles use the tools of {name}', { name: name.trim() }), (proof) =>
+      api('POST', '/api/control/mcp/servers', { name: name.trim(), url: url.trim(), token: token.trim() || undefined, tools: chosen, proof }));
+    if (done) {
+      notifications.show({ color: 'teal', message: t('Saved. PALUGADA is starting again to use it; work in flight carries on where it was.') });
+      onDone();
+    }
+  };
+
+  const allowed = Object.values(choices).filter((choice) => choice.allowed).length;
+  return (
+    <Section title={saved ? saved.name : t('Add an MCP server')} description={t('A server reached over HTTP. A program run on this machine is not offered: it would run with this deployment\'s own access.')}>
+      <Stack gap="sm">
+        <SimpleGrid cols={{ base: 1, sm: 2 }}>
+          <TextInput label={t('Name')} placeholder={t('payments')} value={name} disabled={saved !== null}
+            description={t('Lowercase letters, digits, - and _. Each tool is called mcp.name.tool.')} onChange={(event) => setName(event.currentTarget.value)} required />
+          <TextInput label={t('Address')} placeholder="https://mcp.example.com/mcp" value={url} onChange={(event) => { setUrl(event.currentTarget.value); setTools(null); }} required />
+        </SimpleGrid>
+        <PasswordInput
+          label={t('Token')}
+          leftSection={<IconKey size={16} />}
+          description={saved?.tokenSet ? t('A token is saved. Leave this empty to keep it while the address stays on the same host.')
+            : t('If the server asks for one: sent as a bearer token, and sealed here.')}
+          value={token}
+          onChange={(event) => setToken(event.currentTarget.value)}
+          autoComplete="off"
+        />
+        <Group>
+          <Button variant="default" leftSection={<IconListSearch size={16} />} loading={looking} disabled={url.trim() === ''} onClick={() => void look()}>
+            {t('Look at its tools')}
+          </Button>
+          <Button variant="subtle" color="gray" onClick={onCancel}>{t('Cancel')}</Button>
+        </Group>
+        {problem && <Alert color="red" variant="light" title={t('It did not answer')}>{problem}</Alert>}
+        {tools && tools.length === 0 && <Text size="sm" c="dimmed">{t('It answered, and offers no tools.')}</Text>}
+        {tools?.map((tool) => {
+          const choice = choices[tool.name]!;
+          const tier = Number(choice.tier);
+          return (
+            <Paper key={tool.name} withBorder radius="md" p="sm">
+              <Stack gap={6}>
+                <Group justify="space-between" wrap="nowrap" align="flex-start">
+                  <Checkbox
+                    checked={choice.allowed}
+                    onChange={(event) => change(tool.name, { allowed: event.currentTarget.checked })}
+                    label={<Code>{tool.name}</Code>}
+                  />
+                  <Group gap={6}>
+                    {tool.reads && <Badge variant="light" color="gray" size="sm">{t('says it only reads')}</Badge>}
+                    {tool.destructive && <Badge variant="light" color="red" size="sm">{t('says it is destructive')}</Badge>}
+                  </Group>
+                </Group>
+                {tool.description && <Text size="sm" c="dimmed" lineClamp={3}>{tool.description}</Text>}
+                {tool.arguments.length > 0 && <Text size="xs" c="dimmed">{t('Takes: {names}', { names: tool.arguments.join(', ') })}</Text>}
+                {choice.allowed && (
+                  <Stack gap={6}>
+                    <Select
+                      label={t('Tier')}
+                      data={MCP_TIERS.map((one) => ({
+                        value: one.value, label: t(one.label),
+                        // The rules: tier 0 only for what the server says only reads; tier 3 for what it calls destructive.
+                        disabled: (one.value === '0' && !tool.reads) || (tool.destructive && one.value !== '3'),
+                      }))}
+                      value={choice.tier}
+                      onChange={(value) => value && change(tool.name, { tier: value })}
+                      allowDeselect={false}
+                      w={260}
+                    />
+                    {tier >= 1 && (
+                      <Paper bg="var(--mantine-color-gray-0)" radius="md" p="xs">
+                        <Stack gap={6}>
+                          <Text size="xs">{t('A write is read back after it is done, with another of its tools, and must show what was asked for.')}</Text>
+                          <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                            <Select label={t('Read back with')} placeholder={t('Choose a tool')} value={choice.reader}
+                              data={tools.filter((one) => one.name !== tool.name).map((one) => one.name)}
+                              onChange={(value) => change(tool.name, { reader: value })} />
+                            <TextInput label={t('Its arguments')} placeholder='{"id": "{result.id}"}' value={choice.args}
+                              onChange={(event) => change(tool.name, { args: event.currentTarget.value })} />
+                            <TextInput label={t('In its answer')} placeholder="body.amount" value={choice.path}
+                              onChange={(event) => change(tool.name, { path: event.currentTarget.value })} />
+                            <TextInput label={t('Equals')} placeholder="input.amount" value={choice.equals}
+                              description={t('Empty: it need only be there.')}
+                              onChange={(event) => change(tool.name, { equals: event.currentTarget.value })} />
+                          </SimpleGrid>
+                        </Stack>
+                      </Paper>
+                    )}
+                  </Stack>
+                )}
+              </Stack>
+            </Paper>
+          );
+        })}
+        {tools && tools.length > 0 && (
+          <Group justify="flex-end">
+            <Button disabled={allowed === 0 || name.trim() === ''} onClick={() => void save()}>
+              {t('Allow {count} and save', { count: allowed })}
+            </Button>
+          </Group>
+        )}
       </Stack>
     </Section>
   );

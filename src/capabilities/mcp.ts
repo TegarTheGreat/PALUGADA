@@ -68,6 +68,12 @@ export interface McpServerBinding {
   url: string;
   /** The division credential sent as `Authorization: Bearer`, resolved per call (F12.1). */
   credentialAlias?: string;
+  /**
+   * Or the server's own token, when it belongs to the deployment rather than
+   * to a division: a secret reference, such as the `db://mcp-<name>` the
+   * console seals. Opened for each call and for the boot's look at the tools.
+   */
+  tokenRef?: string;
   tools: Record<string, McpToolBinding>;
 }
 
@@ -86,10 +92,13 @@ const FILE_SCHEMA = {
         type: 'object',
         required: ['name', 'url', 'tools'],
         additionalProperties: false,
+        // One answer to whose authority a call carries, not two.
+        not: { required: ['credentialAlias', 'tokenRef'] },
         properties: {
           name: { type: 'string', pattern: '^[a-z0-9][a-z0-9_-]{0,30}$' },
           url: { type: 'string', pattern: '^https?://' },
           credentialAlias: { type: 'string', minLength: 1 },
+          tokenRef: { type: 'string', pattern: '^[a-z][a-z0-9+.-]*://.+' },
           tools: {
             type: 'object',
             minProperties: 1,
@@ -333,6 +342,61 @@ function fillArguments(template: unknown, values: { input: unknown; result: unkn
 
 export interface McpOptions {
   fetch?: typeof fetch;
+  /** Opens a server's `tokenRef`; without it such a server is refused at the call rather than sent bare. */
+  resolve?: (reference: string) => Promise<string>;
+}
+
+/** The server's own token, as a header, or null when the server has none. */
+async function serverAuthorization(server: McpServerBinding, options: McpOptions): Promise<string | null> {
+  if (!server.tokenRef) return null;
+  if (!options.resolve) {
+    throw new PalugadaError('credential.unavailable', `${server.name} has a token, and nothing here can open ${server.tokenRef}`, {});
+  }
+  return `Bearer ${await options.resolve(server.tokenRef)}`;
+}
+
+/** What a tool's arguments are called, for the owner to read. */
+function argumentNames(tool: McpToolDescription): string[] {
+  const properties = (tool.inputSchema as { properties?: Record<string, unknown> } | undefined)?.properties;
+  return properties && typeof properties === 'object' ? Object.keys(properties) : [];
+}
+
+/** What the console shows of one tool before the owner allows it. */
+export interface McpToolOffered {
+  name: string;
+  description: string;
+  arguments: string[];
+  reads: boolean;
+  destructive: boolean;
+  /** Where the rules let it start: 0 for what only reads, 3 for what the server calls destructive, 2 otherwise. */
+  suggestedTier: Tier;
+}
+
+/**
+ * What a server offers, as the owner sees it before allowing any of it: each
+ * tool, what it does, and what the server says of it. The pins are not
+ * shown: the console takes them from the server when it saves.
+ */
+export async function offeredTools(url: string, authorization: string | null, options: McpOptions = {}): Promise<McpToolOffered[]> {
+  const tools = await listTools(new McpConnection(url, authorization, AbortSignal.timeout(30_000), options.fetch ?? globalThis.fetch));
+  return tools.map((tool) => {
+    const reads = tool.annotations?.readOnlyHint === true;
+    const destructive = tool.annotations?.destructiveHint === true;
+    return {
+      name: tool.name,
+      description: (tool.description ?? '').slice(0, 1_000),
+      arguments: argumentNames(tool),
+      reads,
+      destructive,
+      suggestedTier: (destructive ? 3 : reads ? 0 : 2) as Tier,
+    };
+  });
+}
+
+/** Each tool as the server describes it now, to pin a binding the owner chose in the console. */
+export async function currentPins(url: string, authorization: string | null, options: McpOptions = {}): Promise<Map<string, string>> {
+  const tools = await listTools(new McpConnection(url, authorization, AbortSignal.timeout(30_000), options.fetch ?? globalThis.fetch));
+  return new Map(tools.map((tool) => [tool.name, pinOf(tool)]));
 }
 
 /**
@@ -352,8 +416,11 @@ export function mcpCapability(
   const fetcher = options.fetch ?? globalThis.fetch;
   const name = mcpCapabilityName(server.name, toolName);
   const connect = async (ctx: { signal?: AbortSignal; credential?: (alias: string) => Promise<string> }) => {
-    const token = server.credentialAlias && ctx.credential ? await ctx.credential(server.credentialAlias) : null;
-    return new McpConnection(server.url, token ? `Bearer ${token}` : null, ctx.signal, fetcher);
+    if (server.credentialAlias) {
+      const token = ctx.credential ? await ctx.credential(server.credentialAlias) : null;
+      return new McpConnection(server.url, token ? `Bearer ${token}` : null, ctx.signal, fetcher);
+    }
+    return new McpConnection(server.url, await serverAuthorization(server, options), ctx.signal, fetcher);
   };
 
   /** The tool as the server describes it now, held to the pin. */
@@ -482,11 +549,15 @@ export async function bindMcpServers(
     // credential. Many will not, and that is not a reason to refuse the file.
     let listed: McpToolDescription[] | null = null;
     try {
-      listed = await listTools(new McpConnection(server.url, null, undefined, options.fetch ?? globalThis.fetch));
+      listed = await listTools(new McpConnection(server.url, await serverAuthorization(server, options), undefined, options.fetch ?? globalThis.fetch));
     } catch (failure) {
       notes.push(`${server.name}: could not list its tools at boot (${(failure as Error).message}); each is checked at its first call`);
     }
 
+    // Every tool is checked before any is registered, so a server refused
+    // for one tool leaves nothing of itself behind -- the console's servers
+    // are bound one at a time, and a refused one is left out whole.
+    const accepted: Array<{ capability: Capability<Record<string, unknown>, unknown>; unpinned: string | null }> = [];
     for (const [toolName, binding] of Object.entries(server.tools)) {
       const described = listed?.find((tool) => tool.name === toolName);
       if (listed && !described) refuse(`${server.name} does not offer a tool named ${toolName}`);
@@ -515,9 +586,12 @@ export async function bindMcpServers(
       }
       const capability = mcpCapability(server, toolName, binding, described, options);
       if (registry.get(capability.name)) refuse(`${capability.name} is already bound in this deployment`);
+      accepted.push({ capability, unpinned: !binding.pin && described ? pinOf(described) : null });
+    }
+    for (const { capability, unpinned } of accepted) {
       registry.register(capability);
       bound.push(capability.name);
-      if (!binding.pin && described) notes.push(`${capability.name} is not pinned; its pin now is ${pinOf(described)}`);
+      if (unpinned) notes.push(`${capability.name} is not pinned; its pin now is ${unpinned}`);
     }
   }
   return { bound, notes };

@@ -31,12 +31,18 @@ export interface RunNote {
 
 /** The function a run's narration is handed to, one line at a time. */
 export function narrator(companyId: string, taskId: string, agentRunId: string): (text: string) => Promise<void> {
-  let seq = 0;
+  // Counted on from what the run already said: an attempt resumed after an
+  // approval or a window is the same agent run, and starting again at one
+  // collided with its first line -- everything it said after the wait was
+  // refused by the database, and lost without a word.
+  let seq: number | null = null;
   let closed = false;
   return async (text) => {
     if (closed) return;
     const body = redactor.redact(String(text ?? '')).trim();
     if (!body) return;
+    seq ??= await withTenant(companyId, async (tx) => Number((await tx.query<{ seq: number }>(
+      'SELECT coalesce(max(seq), 0)::int AS seq FROM run_notes WHERE agent_run_id = $1', [agentRunId])).rows[0]!.seq));
     seq += 1;
     let kept = body.length > NOTE_MAX_CHARS ? `${body.slice(0, NOTE_MAX_CHARS - 1)}…` : body;
     if (seq > NOTES_PER_RUN) {

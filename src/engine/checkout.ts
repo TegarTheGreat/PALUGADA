@@ -33,7 +33,8 @@
  */
 import { appendEvent } from '../audit/event-log.ts';
 import { withTenant, type TenantClient } from '../db/tenant.ts';
-import { transitionWithin } from './tasks.ts';
+import { transition, transitionWithin } from './tasks.ts';
+import { isPalugadaError } from '../errors.ts';
 import { raiseIncidentWithin } from '../inbox/inbox.ts';
 
 /** F5.12. Long enough for a slow run, short enough that a crash is not a day. */
@@ -437,6 +438,41 @@ export async function reclaimExpiredLeases(
       previousStatus: row.previous_status,
     }));
   });
+}
+
+/**
+ * Halts work whose deadline has passed while nobody was running it (F5.6).
+ *
+ * The claim skips a task past its deadline, and the deadline was otherwise
+ * checked only when a run started or took a step -- so a task that missed it
+ * while queued, or parked for a window, was never claimed and never halted:
+ * live for ever, holding its reservation, and a parent awaiting it asked
+ * again every second. A running task with a live lease is left to its run,
+ * which checks the deadline before every step.
+ */
+export async function haltPastDeadlines(companyId: string, now = new Date()): Promise<string[]> {
+  const { rows } = await withTenant(companyId, (tx) => tx.query<{ id: string }>(
+    `SELECT id FROM tasks
+      WHERE deadline_at IS NOT NULL AND deadline_at <= $1
+        AND (status IN ('pending', 'waiting_window')
+             OR (status IN ('checked_out', 'running') AND lease_holder IS NULL))
+      ORDER BY deadline_at, id`,
+    [now]));
+  const halted: string[] = [];
+  for (const row of rows) {
+    try {
+      await transition(companyId, row.id, 'halted', {
+        haltReason: 'deadline_passed',
+        detail: 'its deadline passed before any worker could finish it',
+      });
+      halted.push(row.id);
+    } catch (error) {
+      // Moved on while this ran -- claimed, finished, stopped. Its new state
+      // is the answer; anything else is a real failure.
+      if (!isPalugadaError(error, 'task.invalid_transition')) throw error;
+    }
+  }
+  return halted;
 }
 
 /**

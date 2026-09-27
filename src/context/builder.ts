@@ -565,6 +565,30 @@ export async function buildContext(
       });
     }
 
+    // Why the attempts before this one failed. A retry used to start exactly
+    // as the attempt that failed had, and fail the same way until the
+    // attempts ran out. Kept as working memory, which is given up last, and
+    // shown as data: an error can carry a vendor's words.
+    const { rows: failures } = await tx.query<{ error: string | null; attempt: number }>(
+      `SELECT e.payload->>'error' AS error, t.attempt
+         FROM events e JOIN tasks t ON t.id = e.task_id
+        WHERE e.task_id = $1 AND e.type = 'task.attempt_failed'
+        ORDER BY e.occurred_at DESC, e.id DESC LIMIT 3`,
+      [options.taskId],
+    );
+    if (failures.length > 0) {
+      const said = failures.slice().reverse()
+        .map((failure) => `- ${(failure.error ?? 'no reason was recorded').slice(0, 600)}`).join('\n');
+      sections.push({
+        kind: 'working_memory',
+        title: 'Earlier attempts at this task failed',
+        body: `This is attempt ${failures[0]!.attempt + 1}. What went wrong before, most recent last:\n` +
+          wrapUntrusted('earlier attempts', said) +
+          '\n\nDo not repeat what failed. If the same thing would fail again, say why in your answer ' +
+          'instead of trying it.',
+      });
+    }
+
     const { rows } = await tx.query<{ name: string; output: unknown }>(
       `SELECT name, output FROM task_steps
         WHERE task_id = $1 AND status = 'committed'

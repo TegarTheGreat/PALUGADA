@@ -18,7 +18,7 @@
  * a measurement without saying which is which teaches the owner to distrust
  * both.
  */
-import { withTenant, withControlPlane } from '../db/tenant.ts';
+import { withTenant, withControlPlane, type TenantClient } from '../db/tenant.ts';
 
 export type CostDimension = 'project' | 'division' | 'role' | 'capability';
 
@@ -30,6 +30,25 @@ export interface CostRow {
   calls: number;
   /** True when the figure is an estimate rather than a measured cost. */
   estimated: boolean;
+}
+
+/**
+ * What one task has cost so far, in cents: its model calls and what the
+ * vendors it used charged, measured where they measured it and estimated
+ * where they did not -- the same two sources the month's spend adds up
+ * (governance/spend-guard.ts). The owner's "Cost so far" and a parent's
+ * report of its child counted the model alone, so a task that paid for an
+ * image, a search or a message looked free.
+ */
+export const TASK_COST_SQL = (task: string) => `(
+  coalesce((SELECT sum(tr.cost_cents) FROM llm_traces tr WHERE tr.task_id = ${task}), 0)
+  + coalesce((SELECT sum(coalesce(nullif(e.payload->>'actualCents', '')::bigint,
+                                  nullif(e.payload->>'estimatedCents', '')::bigint, 0))
+                FROM events e WHERE e.task_id = ${task} AND e.type = 'tool.cost'), 0))`;
+
+export async function taskCostCents(tx: TenantClient, taskId: string): Promise<number> {
+  const { rows } = await tx.query<{ cents: string }>(`SELECT ${TASK_COST_SQL('$1::uuid')}::text AS cents`, [taskId]);
+  return Number(rows[0]?.cents ?? 0);
 }
 
 export interface CostWindow {

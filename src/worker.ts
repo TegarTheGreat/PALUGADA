@@ -39,7 +39,7 @@
  */
 import { withControlPlane } from './db/tenant.ts';
 import { Engine, type RunOutcome } from './engine/engine.ts';
-import { claimTask, reclaimExpiredLeases, reclaimOrphans, releaseTask } from './engine/checkout.ts';
+import { claimTask, haltPastDeadlines, reclaimExpiredLeases, reclaimOrphans, releaseTask } from './engine/checkout.ts';
 import { getTask } from './engine/tasks.ts';
 import { withTenant } from './db/tenant.ts';
 import { isStopAllRequested } from './engine/control.ts';
@@ -172,6 +172,8 @@ export interface TickReport {
   distilled: number;
   /** Skill candidates screened against their own eval cases (F15.3). */
   screened: number;
+  /** Tasks halted because their deadline passed while nobody was running them (F5.6). */
+  pastDeadline: number;
   /** Live tasks found with nothing left to move them, and put to the owner. */
   stranded: number;
   /** Escalations handed to the role their division names (F2.1). */
@@ -268,6 +270,7 @@ export class Worker {
       retracted: 0,
       distilled: 0,
       screened: 0,
+      pastDeadline: 0,
       stranded: 0,
       escalated: 0,
       stopped: false, errors: [],
@@ -303,6 +306,9 @@ export class Worker {
       await this.#stage(report, 'reclaim', async () => {
         report.reclaimed += (await reclaimExpiredLeases(company, now)).length;
         report.reclaimed += (await reclaimOrphans(company, { now })).length;
+        // After the reclaim, which is what returns a dead worker's task to
+        // the queue for this to find.
+        report.pastDeadline += (await haltPastDeadlines(company, now)).length;
       });
 
       await this.#stage(report, 'heartbeats', async () => {

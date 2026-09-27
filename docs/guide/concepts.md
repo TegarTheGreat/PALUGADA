@@ -123,12 +123,24 @@ effect.
 A halted task is never retried silently. Its reason is one of: a contract
 violation, a policy denial, the budget, the hop limit, the deadline, a failed
 read-back, an unhealthy capability, no runtime to run it, a cycle between
-roles, a journal that no longer matches, or a crash loop (it lost its worker
-three times). To try again, use **Do it again**, which starts a new task.
+roles, splitting into more sub-tasks than it may have, one run writing more
+tokens than its role allows a run, a journal that no longer matches, or a
+crash loop (it lost its worker three times). To try again, use **Do it
+again**, which starts a new task.
+
+A task past its deadline is halted even if no worker ever picked it up. A
+write whose read-back fails ends the run there: the run cannot write again,
+you get an incident, and nothing is retried, because a second attempt could
+pay or send twice. A task that fails and is tried again is told why the
+attempts before it failed. A role's **tokens per run** is enforced on every
+run, counted in what the run writes: each turn of a conversation sends the
+whole of it again, so counting that too would stop ordinary runs, while a
+run that loops is one that keeps writing. The budget bounds the rest.
 
 A task can hand part of its work to another role as a sub-task. The sub-task
 draws on the parent's budget, has a timeout, and returns a bounded answer and
-summary rather than its whole transcript.
+summary, with what it cost, rather than its whole transcript. A task's cost
+is its model calls and what the vendors it used charged.
 
 ## The CEO
 

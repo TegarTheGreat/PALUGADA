@@ -20,6 +20,7 @@ import { redactor } from '../secrets/manager.ts';
 import { fingerprint } from '../gateway/gateway.ts';
 import { TERMINAL_STATUSES, type TaskStatus } from '../domain/task.ts';
 import { LOW_CONFIDENCE } from '../context/builder.ts';
+import { TASK_COST_SQL } from '../reporting/cost.ts';
 import { readCursor, writeCursor } from '../inbox/inbox.ts';
 
 /* -------------------------------------------------------------- structure --- */
@@ -305,8 +306,7 @@ export async function workOf(
               d.name AS division_name, g.statement AS goal, s.slug AS schedule,
               t.priority, t.attempt, t.attempt_max, t.created_at, t.started_at,
               t.finished_at, t.parent_task_id, t.lease_holder, t.deadline_at, t.output,
-              coalesce((SELECT sum(l.cost_cents) FROM llm_traces l WHERE l.task_id = t.id), 0)
-                AS cost_cents,
+              ${TASK_COST_SQL('t.id')} AS cost_cents,
               (SELECT count(*)::int FROM task_steps j
                 WHERE j.task_id = t.id AND j.status = 'committed') AS steps_done,
               last.name AS current_step, last.status AS current_step_status,

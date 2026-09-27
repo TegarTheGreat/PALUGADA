@@ -3401,9 +3401,32 @@ has.
   no longer mark one reviewed. `skill.read` follows the division rule the
   pack does, and returns an outside document wrapped as data.
 
-**Still open, next.** From the same audits, in order: a write whose
-read-back fails can be retried into a second write; done criteria are shown to runs and never
-checked; runs have no token or wall-clock ceiling of their own; tool inputs
+- **Work that goes wrong stops where it should, and says why.** A write
+  whose read-back failed was handed to the run as an ordinary refused call,
+  and a model's answer to "the write did not stick" is to write again: a
+  second payment or email, with no incident and the task completing. The
+  first failed read-back now ends the run -- the run takes no further step,
+  in any runtime -- and the task halts with the incident even if the run
+  returned output. The claim skips a task past its deadline, and nothing
+  else settled one that missed it while queued, so it stayed live for ever
+  and a parent awaiting it asked again every second; the worker now halts
+  such tasks, and `task.await` answers for a child past its deadline instead
+  of parking until a time already gone. A retry is told why the attempts
+  before it failed, as data. A role's tokens-per-run ceiling, handed to every
+  runtime and enforced by none, now ends the run that writes past it -- in
+  output tokens, because each turn resends the conversation as input and a
+  total would halt ordinary runs at the ceilings roles carry. A
+  delegation refused for fan-out is `fan_out_limit`, not a cycle. A task's
+  cost, in Work and in a parent's report of its child, counts what vendors
+  charged as well as the model, and a child is no longer reported free. What
+  a run says after it resumes is kept: the resumed run is the same agent run,
+  its narration numbering restarted at one, and every line after the wait
+  was refused by the database without a word.
+
+**Still open, next.** From the same audits, in order: done criteria are
+shown to runs and never checked -- an honest check needs a judge or a
+change to every role's output, and is the next piece of this; a run has no
+wall-clock ceiling of its own beyond its deadline and its lease; tool inputs
 and the context a run was given are not kept, and the task timeline does not
 name the capability used; projects are only a label; there is no document
 knowledge base, and pgvector is installed and unused. The assistant in

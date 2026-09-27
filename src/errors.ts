@@ -122,6 +122,10 @@ export type ErrorCode =
   | 'batch.not_eligible'
   | 'hop.exceeded'
   | 'cycle.detected'
+  /** F6.5: a task asked for more sub-tasks than it may have. Not a cycle: the owner is told which. */
+  | 'fanout.exceeded'
+  /** A run went past its role's own ceiling on tokens. */
+  | 'run.limit'
   | 'deadline.exceeded'
   | 'company.frozen'
   | 'role.frozen'

@@ -27,12 +27,13 @@ import { recordPlan, type PlanStep } from '../engine/plan.ts';
 import { recordObservation } from '../domain/metrics.ts';
 import { askOwner, raiseEscalationWithin } from '../inbox/inbox.ts';
 import { STAGES, assertStage, loosens, stageOf, type Stage } from '../domain/stage.ts';
-import { createSubTask, getTask } from '../engine/tasks.ts';
+import { createSubTask, getTask, transition } from '../engine/tasks.ts';
 import { listTickets, openTicket, readTicket, startTicket } from '../engine/tickets.ts';
 import { containChildResult } from '../engine/containment.ts';
+import { taskCostCents } from '../reporting/cost.ts';
 import { enqueueWake } from '../scheduler/wake.ts';
 import { isTerminal, type TaskStatus } from '../domain/task.ts';
-import { PalugadaError } from '../errors.ts';
+import { PalugadaError, isPalugadaError } from '../errors.ts';
 import type { Capability } from './registry.ts';
 
 export interface MemorySearchInput {
@@ -664,9 +665,10 @@ export function taskAwaitCapability(): Capability<{ childId: string }, TaskAwait
       const found = await withTenant(ctx.companyId, async (tx) => {
         const { rows } = await tx.query<{
           status: TaskStatus; output: Record<string, unknown> | null; halt_reason: string | null;
-          parent_task_id: string | null; deadline_at: Date | null; role: string; steps: number;
+          parent_task_id: string | null; deadline_at: Date | null; role: string; steps: number; held: boolean;
         }>(
           `SELECT t.status, t.output, t.halt_reason, t.parent_task_id, t.deadline_at, r.slug AS role,
+                  t.lease_holder IS NOT NULL AS held,
                   (SELECT count(*)::int FROM task_steps s WHERE s.task_id = t.id AND s.status = 'committed') AS steps
              FROM tasks t JOIN roles r ON r.id = t.role_id WHERE t.id = $1`,
           [String(input.childId ?? '')],
@@ -681,10 +683,25 @@ export function taskAwaitCapability(): Capability<{ childId: string }, TaskAwait
         );
       }
       if (found.status === 'completed') {
+        const costCents = await withTenant(ctx.companyId, (tx) => taskCostCents(tx, String(input.childId)));
         const contained = containChildResult(found.role, found.output ?? {}, {
-          status: found.status, steps: found.steps, costCents: 0,
+          status: found.status, steps: found.steps, costCents,
         });
         return { status: found.status, output: contained.output, summary: contained.summary };
+      }
+      // Past its deadline and nobody running it: halted here, as the worker's
+      // sweep would halt it, and answered. Parking again would reopen at a
+      // deadline already behind us, and the parent would ask every second.
+      if (!isTerminal(found.status) && !found.held && found.deadline_at && found.deadline_at.getTime() <= Date.now()) {
+        try {
+          await transition(ctx.companyId, String(input.childId), 'halted', {
+            haltReason: 'deadline_passed', detail: 'its deadline passed before any worker could finish it',
+          });
+          found.status = 'halted';
+          found.halt_reason = 'deadline_passed';
+        } catch (error) {
+          if (!isPalugadaError(error, 'task.invalid_transition')) throw error;
+        }
       }
       if (isTerminal(found.status)) {
         return {
@@ -694,7 +711,10 @@ export function taskAwaitCapability(): Capability<{ childId: string }, TaskAwait
         };
       }
       const next = Date.now() + AWAIT_POLL_MS;
-      const reopensAt = found.deadline_at ? Math.min(next, found.deadline_at.getTime() + 1_000) : next;
+      // The deadline only while it is ahead: one already passed belongs to a
+      // run still holding the child, which halts it at its next step.
+      const reopensAt = found.deadline_at && found.deadline_at.getTime() > Date.now()
+        ? Math.min(next, found.deadline_at.getTime() + 1_000) : next;
       throw new PalugadaError(
         'task.waiting_child',
         `${found.role} is still working on it; this task waits and looks again`,

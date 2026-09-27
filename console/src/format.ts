@@ -159,6 +159,8 @@ const HALT_REASONS: Record<string, string> = {
   capability_unhealthy: N('A capability it needs is down'),
   runtime_unavailable: N('No runtime could take it'),
   cycle_detected: N('Went in a circle'),
+  fan_out_limit: N('Split into too many sub-tasks'),
+  run_limit: N('Wrote more than its role allows one run'),
   approval_expired: N('Your approval was not given in time'),
   owner_stop: N('Stopped by you'),
   owner_cancel: N('Cancelled by you'),

@@ -131,7 +131,7 @@ test('fan-out is capped per task', async () => {
 
   await assert.rejects(
     () => createSubTask(root.id, { ...base(fixture, 'child-6'), fanOutMax: 5 }),
-    /fan-out limit/,
+    (error: unknown) => isPalugadaError(error, 'fanout.exceeded') && /fan-out limit/.test((error as Error).message),
   );
 });
 

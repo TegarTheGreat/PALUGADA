@@ -18,6 +18,7 @@ import { createSubTask, getTask, transition, type TaskRow } from './tasks.ts';
 import { validateContract } from './contracts.ts';
 import { narrator } from './transcript.ts';
 import { containChildResult, type ChildResult } from './containment.ts';
+import { taskCostCents } from '../reporting/cost.ts';
 import { isTerminal } from '../domain/task.ts';
 import { DEFAULT_PRICE_TABLE, estimateCents, type PriceTable } from './pricing.ts';
 import { checkUsage } from '../runtime/wire.ts';
@@ -168,6 +169,16 @@ const NOTE_KINDS: ReadonlySet<ContextSection['kind']> = new Set([
 ]);
 
 const PARKING_CODES: ReadonlySet<string> = new Set(['approval.required', 'owner.asked', 'review.required', 'window.closed', 'task.waiting_child']);
+
+/**
+ * Answers that end the run however the run takes them (F8.4). A write whose
+ * read-back failed has an effect nobody has confirmed, and a run shown the
+ * failure as a tool result -- which is how a model sees every refusal --
+ * answers it by writing again: a second payment, a second email. After one
+ * of these nothing more reaches the broker, and the task halts on it even if
+ * the run goes on to return an output.
+ */
+const HALTING_CODES: ReadonlySet<string> = new Set(['capability.verify_failed']);
 
 export class Engine {
   readonly #options: EngineOptions;
@@ -608,7 +619,15 @@ export class Engine {
     this.#options.stopping?.addEventListener('abort', stop, { once: true });
     if (this.#options.stopping?.aborted) stop();
 
+    // The first answer that parks the task (below), and the first that ends
+    // the run whatever the run makes of it (HALTING_CODES, the token ceiling).
+    let parked: PalugadaError | null = null;
+    let ended: PalugadaError | null = null;
+
     const step = async <T,>(name: string, kind: StepKind, input: unknown, fn: (key: string) => Promise<T>) => {
+        // A run withdrawn for what ends it takes no further step -- no model
+        // call, no tool -- however it handled being told.
+        if (ended) throw ended;
         const guard = await this.#checkGuards(task);
         if (guard) throw new PalugadaError('platform.stopped', guard.reason ?? 'halted', {});
         // Before the side effect, not only after it: a worker that has lost
@@ -673,7 +692,6 @@ export class Engine {
     // `runTask` with the approval still open. So the first such answer is
     // kept, the run is withdrawn, and the task parks as it would have had
     // the throw ended it.
-    let parked: PalugadaError | null = null;
     const callTool = async <I, O,>(name: string, input: I): Promise<O> => {
       try {
         return await step(`capability:${name}`, 'tool', { name, input }, async (key) => {
@@ -690,6 +708,10 @@ export class Engine {
       } catch (error) {
         if (!parked && error instanceof PalugadaError && PARKING_CODES.has(error.code)) {
           parked = error;
+          controller.abort();
+        }
+        if (!ended && error instanceof PalugadaError && HALTING_CODES.has(error.code)) {
+          ended = error;
           controller.abort();
         }
         throw error;
@@ -771,17 +793,17 @@ export class Engine {
               // F6.7: the parent receives an answer and a summary, and not the
               // child's transcript. The child's own record is where its
               // reasoning stays.
-              const steps = await withTenant(companyId, async (tx) => {
+              const { steps, costCents } = await withTenant(companyId, async (tx) => {
                 const { rows } = await tx.query<{ count: string }>(
                   'SELECT count(*)::text AS count FROM task_steps WHERE task_id = $1',
                   [child.id],
                 );
-                return Number(rows[0]!.count);
+                return { steps: Number(rows[0]!.count), costCents: await taskCostCents(tx, child.id) };
               });
               return containChildResult(childRoleSlug, outcome.output ?? {}, {
                 status: outcome.status,
                 steps,
-                costCents: 0,
+                costCents,
               });
             } catch (error) {
               // Only the deadline this parent enforces halts the child, and
@@ -805,6 +827,10 @@ export class Engine {
     // What this run has put on the company's account so far, estimates and
     // measurements alike, so a runtime's final total can replace it.
     let chargedCents = 0;
+    // What this run's model calls have written, against the role's own
+    // ceiling (F2.3's max_tokens_per_run). Not reset for a fallback model:
+    // the ceiling is on the run, whichever model spent it.
+    let runTokens = 0;
 
     const reportUsage: RunServices['reportUsage'] = async (reported) => {
       // Checked again here whatever the source: this is the accounting
@@ -947,6 +973,23 @@ export class Engine {
         });
       }
       chargedCents += costCents;
+      // The role's ceiling on one run, counted in what the run writes. It was
+      // handed to every runtime as a limit and enforced by none, so a model
+      // that looped spent until the budget ran out. Output rather than all
+      // tokens: every turn of a conversation sends the whole of it again as
+      // input, so a total would stop ordinary runs at the ceilings roles
+      // carry, while a loop is a run that keeps writing. Checked after the
+      // call is recorded, since the call has happened either way.
+      runTokens += usage.outputTokens;
+      if (runTokens > runtime.maxTokensPerRun) {
+        // Ended like a failed read-back: a runtime in another process is told
+        // the call failed and could carry on, so the run is withdrawn here.
+        ended ??= new PalugadaError('run.limit',
+          `this run wrote ${runTokens} tokens, over the ${runtime.maxTokensPerRun} its role allows one run`,
+          { tokens: runTokens, limit: runtime.maxTokensPerRun });
+        controller.abort();
+        throw ended;
+      }
     };
 
 
@@ -975,6 +1018,7 @@ export class Engine {
       // Whatever the runtime produced after being told to wait is not the
       // task's output: the action it was waiting for has not happened.
       if (parked) throw parked;
+      if (ended) throw ended;
       // F6.2, F6.3: validated before the task is marked complete, because a
       // downstream task triggered by `task.completed` has no other guarantee
       // about what it is about to read.
@@ -1034,7 +1078,7 @@ export class Engine {
       // The run may have ended on something else by the time it stopped --
       // the runtime reacting to the withdrawal, or failing on its own -- but
       // the reason it stopped is the wait.
-      const outcome = await this.#classifyFailure(companyId, taskId, parked ?? error, agentRunId);
+      const outcome = await this.#classifyFailure(companyId, taskId, parked ?? ended ?? error, agentRunId);
       // A parked task is not being worked, so it names no worker. The lease
       // used to stay behind, and a task approved a minute later could not be
       // resumed by any other worker until it expired -- half an hour of an
@@ -1258,7 +1302,7 @@ export class Engine {
     const haltCodes: Record<
       string,
       'policy_denied' | 'budget_exhausted' | 'hop_limit' | 'deadline_passed'
-        | 'verification_failed' | 'cycle_detected' | 'runtime_unavailable'
+        | 'verification_failed' | 'cycle_detected' | 'fan_out_limit' | 'run_limit' | 'runtime_unavailable'
         | 'journal_divergence'
     > = {
       // F13.6: every model the role names has failed, or the role may act
@@ -1280,6 +1324,9 @@ export class Engine {
       'deadline.exceeded': 'deadline_passed',
       'capability.verify_failed': 'verification_failed',
       'cycle.detected': 'cycle_detected',
+      'fanout.exceeded': 'fan_out_limit',
+      // A run that outgrew its role's ceiling would outgrow it again.
+      'run.limit': 'run_limit',
       // The journal holds a different step where this one should be. A retry
       // replays the same journal and meets the same mismatch.
       'journal.divergence': 'journal_divergence',

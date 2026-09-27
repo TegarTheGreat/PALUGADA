@@ -99,6 +99,10 @@ export type HaltReason =
   | 'capability_unhealthy'
   | 'runtime_unavailable'
   | 'cycle_detected'
+  /** F6.5: it tried to hand work to more sub-tasks than it may have. */
+  | 'fan_out_limit'
+  /** One run used more tokens than its role allows a run. */
+  | 'run_limit'
   | 'approval_expired'
   | 'owner_stop'
   /** The owner cancelled this task, or the task it was started for. */

@@ -47,6 +47,9 @@ const ENDS_THE_RUN: ReadonlySet<string> = new Set([
   'capability.rate_limited', 'budget.exceeded', 'budget.reservation_refused', 'spend.paused',
   'platform.stopped', 'company.frozen', 'role.frozen', 'deadline.exceeded', 'task.lease_lost',
   'task.invalid_transition', 'journal.divergence', 'tenant.context_missing', 'model.unavailable',
+  // F8.4: a write that did not read back is an incident, not something for
+  // the model to try again (engine.ts HALTING_CODES).
+  'capability.verify_failed', 'run.limit',
 ]);
 
 function bounded(text: string): string {

@@ -459,8 +459,10 @@ export async function createSubTask(
     );
     const childCount = Number(childRows[0]!.count);
     if (childCount >= fanOutMax) {
+      // Its own code: it was reported as a cycle, which sent an owner looking
+      // for a loop in work that had only split itself too many ways.
       throw new PalugadaError(
-        'cycle.detected',
+        'fanout.exceeded',
         `fan-out limit ${fanOutMax} reached for task ${parentTaskId}`,
         { parentTaskId, childCount, fanOutMax },
       );

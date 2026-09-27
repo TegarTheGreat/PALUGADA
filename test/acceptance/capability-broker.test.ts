@@ -199,6 +199,44 @@ test('a read-back mismatch halts the task and raises an incident', async () => {
   assert.match(incidents[0]!.title, /verification/i);
 });
 
+/**
+ * F8.4 from the run's side. A model is handed a failed tool call as a result
+ * it can read, and the natural answer to "the write did not stick" is to
+ * write again: a second payment, a second email. The failed read-back ends
+ * the run however the run takes it, and nothing after it reaches the vendor.
+ */
+test('a run that shrugs off a failed read-back and writes again is stopped before the second write', async () => {
+  const fixture = await createCompany('dns-retry');
+  const { capability, calls } = dnsCapability({ corruptWrite: true });
+  const registry = new CapabilityRegistry();
+  registry.register(capability);
+  await registry.sync();
+  await grantCapability(fixture, 'dns.update');
+
+  const task = await newTask(fixture);
+  let refusedAgain: unknown = null;
+  const engine = engineFor(registry, async (ctx) => {
+    try {
+      await ctx.callCapability('dns.update', { record: 'www', value: '1.2.3.4' });
+    } catch {
+      // What a model does with an error it is shown: tries again.
+      try {
+        await ctx.callCapability('dns.update', { record: 'www', value: '1.2.3.4' });
+      } catch (again) {
+        refusedAgain = again;
+      }
+    }
+    return { summary: 'updated, eventually' };
+  });
+
+  const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(calls.executions, 1, 'the second write never reached the vendor');
+  assert.ok(isPalugadaError(refusedAgain, 'capability.verify_failed'), 'and the run was told why');
+  assert.deepEqual([outcome.status, outcome.reason], ['halted', 'verification_failed'],
+    'a run that carried on and returned output is still halted, not completed');
+  assert.equal((await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'incident').length, 1);
+});
+
 test('a grant may tighten a tier but never loosen it', async () => {
   const fixture = await createCompany('tier-lock');
   const { capability } = dnsCapability();

@@ -12,6 +12,7 @@
  */
 import { MODEL_TIERS } from '../llm/models.ts';
 import type { Settings } from './store.ts';
+import { TOOL_KINDS, type ToolKind } from '../capabilities/search.ts';
 
 /** The model, as the console sets it. */
 export interface ModelSetting {
@@ -41,6 +42,15 @@ export interface AgentSetting {
   env?: Record<string, string>;
 }
 
+/** A tool's provider, as the console sets it: web search, or reading pages. */
+export interface ToolSetting {
+  provider: string;
+  /** The owner's own server, for a provider that is one. */
+  url?: string;
+  /** The sealed key's name (`db://<name>`), for a provider that takes one. */
+  keySecret?: string;
+}
+
 /** The variables the agent CLIs were configured by, which a console choice replaces together. */
 const AGENT_KEYS = [
   'PALUGADA_AGENT_CLIS', 'PALUGADA_AGENT_SETTINGS', 'PALUGADA_CLAUDE_CODE_COMMAND', 'PALUGADA_CLAUDE_CODE_KEY_VAR',
@@ -62,6 +72,21 @@ export function withSettings(env: NodeJS.ProcessEnv, settings: Settings): NodeJS
       .filter(([tier, name]) => (MODEL_TIERS as readonly string[]).includes(tier) && name.trim() !== ''));
     if (Object.keys(aliases).length > 0) out.PALUGADA_MODEL_ALIASES = JSON.stringify(aliases);
     if (model.keySecret) out.PALUGADA_MODEL_KEY_REF = `db://${model.keySecret}`;
+  }
+  const tools = settings.tools as Partial<Record<ToolKind, ToolSetting>> | undefined;
+  if (tools) {
+    for (const [kind, names] of Object.entries(TOOL_KINDS) as Array<[ToolKind, (typeof TOOL_KINDS)[ToolKind]]>) {
+      const tool = tools[kind];
+      // Each kind is its own area: choosing a search provider leaves the
+      // environment's page reader as it was.
+      if (!tool) continue;
+      delete out[names.provider];
+      delete out[names.url];
+      delete out[names.key];
+      out[names.provider] = tool.provider;
+      if (tool.url) out[names.url] = tool.url;
+      if (tool.keySecret) out[names.key] = `db://${tool.keySecret}`;
+    }
   }
   const agents = settings.agents as Record<string, AgentSetting> | undefined;
   if (agents) {

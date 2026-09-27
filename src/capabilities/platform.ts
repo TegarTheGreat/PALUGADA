@@ -22,6 +22,7 @@
 import type { Capability, CapabilityRegistry } from '../broker/registry.ts';
 import type { LlmClient } from '../llm/client.ts';
 import { uptimeCheck, webFetch, type WebOptions } from './web.ts';
+import { webExtract, webSearch, type ExtractProvider, type SearchProvider, type ToolBinding } from './search.ts';
 import { filesList, type FilesOptions } from './files.ts';
 import { docDraft, emailDraft, type DraftOptions } from './draft.ts';
 
@@ -40,6 +41,9 @@ export interface PlatformCapabilityOptions {
   /** Omitted means the drafting pair stays unbound. */
   llm?: LlmClient;
   draftModel?: string;
+  /** The search and reading providers the owner chose; omitted, `web.search` and `web.extract` stay unbound. */
+  search?: ToolBinding<SearchProvider>;
+  extract?: ToolBinding<ExtractProvider>;
 }
 
 /**
@@ -60,6 +64,8 @@ export function platformCapabilities(
   if (options.files) {
     built.push(filesList(options.files) as unknown as Capability<never, never>);
   }
+  if (options.search) built.push(webSearch(options.search) as unknown as Capability<never, never>);
+  if (options.extract) built.push(webExtract(options.extract) as unknown as Capability<never, never>);
 
   // The drafting pair needs both: a model to compose with and a place to put
   // the result. §8.8 calibrates them at tier 1 because a draft is a write, and

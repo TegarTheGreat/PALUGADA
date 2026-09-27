@@ -196,6 +196,27 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
       'the risk it carries is injection, not irreversibility.',
   },
   {
+    name: 'web.search',
+    adapter: 'search',
+    tier: TIER.READ_ONLY,
+    summary: 'Finds pages on the web: a title, an address and a snippet of each.',
+    readsOutside: true,
+    calibration:
+      'Like web.fetch, it changes nothing outside and returns external text. It ' +
+      'costs a fraction of a cent a call, which the budget reserves; the query ' +
+      'leaves the company, to the provider the owner chose.',
+  },
+  {
+    name: 'web.extract',
+    adapter: 'search',
+    tier: TIER.READ_ONLY,
+    summary: 'Reads one public page as clean text, fetched by the provider the owner chose.',
+    readsOutside: true,
+    calibration:
+      'The same as web.fetch, fetched from the provider\'s network rather than ' +
+      'this one, so it reaches only what is public anyway.',
+  },
+  {
     name: 'repo.read',
     adapter: 'vcs',
     tier: TIER.READ_ONLY,

@@ -3203,9 +3203,22 @@ has.
   so a task stopped for want of a key read "runtime unavailable". The
   message travels with the halt and the task shows it.
 
-**Still open, next.** Tool providers (PALUGADA has `web.fetch` and no
-`web.search`, which Hermes offers from fifteen providers); the owner's
-channels (Telegram, push) still come from the environment. Subscription
+- **Roles can search the web.** There was `web.fetch`, which reads a page
+  a role already knows, and nothing to find one. `web.search` and
+  `web.extract` go to the provider the owner chooses in the console: twelve
+  for search and six for reading, each held to the request its own
+  documentation describes -- where its key goes above all -- and tried from
+  the console before it is saved. Three answer without a key at a free tier.
+  Both are tier 0 and marked as reading outside the company (F8.9). The
+  standard template grants them to Delivery and Growth, and the planner
+  searches in place of `files.list`, which its division still holds.
+  DuckDuckGo is not offered: it has no web-results API, and the package
+  other agents use scrapes it. Edge TTS, which Hermes offers for speech, is
+  the same kind of thing.
+
+**Still open, next.** Image generation, speech and a browser, which Hermes
+offers and the research for which is done; the owner's channels (Telegram,
+push) still come from the environment. Subscription
 logins whose tokens rotate (ChatGPT, Hermes' Nous and Codex logins) are not
 offered: every run would hold a copy and the first to refresh would sign
 the rest out. Hermes' entry still gives each run its own `HERMES_HOME`,

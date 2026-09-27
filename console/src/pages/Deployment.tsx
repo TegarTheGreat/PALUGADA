@@ -14,7 +14,7 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
-  IconBrain, IconCheck, IconDownload, IconExternalLink, IconKey, IconListSearch, IconPlugConnected, IconTerminal2,
+  IconBrain, IconCheck, IconDownload, IconExternalLink, IconKey, IconListSearch, IconPlugConnected, IconTerminal2, IconWorldSearch,
 } from '@tabler/icons-react';
 import { useEffect, useMemo, useState } from 'react';
 import { api, explain } from '../api.ts';
@@ -65,6 +65,7 @@ interface SettingsView {
 
 const SECTIONS: Array<{ id: DeploymentSection; label: string; hint: string; icon: typeof IconBrain }> = [
   { id: 'model', label: N('Model'), hint: N('What every role thinks with, unless a role is given its own.'), icon: IconBrain },
+  { id: 'tools', label: N('Tools'), hint: N('Where roles search the web and read pages: the provider, and its key.'), icon: IconWorldSearch },
   { id: 'agents', label: N('Agent CLIs'), hint: N('Claude Code, Codex, Gemini CLI and others: install them here, sign them in, and let roles run on them.'), icon: IconTerminal2 },
 ];
 
@@ -106,6 +107,7 @@ export function DeploymentSettings({ section }: { section: DeploymentSection }) 
         <Grid.Col span={{ base: 12, md: 9 }}>
           {current.id === 'model' && <ModelSettings />}
           {current.id === 'agents' && <AgentSettings />}
+          {current.id === 'tools' && <ToolSettings />}
         </Grid.Col>
       </Grid>
     </Stack>
@@ -653,6 +655,199 @@ function AgentCard({ agent, reload }: { agent: AgentRow; reload: () => void }) {
         </Group>
         {enabled && !agent.credential && (
           <Text size="xs" c="orange">{t('It is not signed in here: a run uses whatever login the CLI already has on this machine, or fails.')}</Text>
+        )}
+      </Stack>
+    </Section>
+  );
+}
+
+type ToolKind = 'search' | 'extract';
+
+interface ToolProvider {
+  id: string;
+  name: string;
+  about?: string;
+  key: 'required' | 'optional' | 'none';
+  keyUrl?: string;
+  urlExample?: string;
+  reserveCents: number;
+  checked?: 'unverified';
+}
+
+interface ToolState {
+  capability: string;
+  source: 'console' | 'environment' | null;
+  provider: string | null;
+  url: string | null;
+  keySet: boolean;
+  inUse: boolean;
+}
+
+interface ToolsView {
+  kinds: Record<ToolKind, ToolState>;
+  providers: Record<ToolKind, ToolProvider[]>;
+  applies: 'now' | 'next_start';
+}
+
+const TOOL_TEXT: Record<ToolKind, { title: string; hint: string }> = {
+  search: { title: N('Web search'), hint: N('Lets a role find pages: a title, an address and a snippet of each. Its queries go to the provider you choose.') },
+  extract: { title: N('Reading pages'), hint: N('Lets a role read one page as clean text, fetched by the provider rather than by this server.') },
+};
+
+/** The same words the server sends about each provider, here so that they are translated. */
+const TOOL_ABOUT: Record<string, string> = {
+  'search:brave': N('An independent index'),
+  'search:tavily': N('Built for agents; a free tier without a key'),
+  'search:exa': N('Semantic search, with highlights from each page'),
+  'search:firecrawl': N('A free tier without a key'),
+  'search:perplexity': N('Ranked results with dated snippets'),
+  'search:parallel': N('Search with excerpts chosen for the question'),
+  'search:keenable': N('An independent index; a free tier without a key, shared by IP'),
+  'search:serpapi': N('Google\'s results'),
+  'search:serper': N('Google\'s results, cheaply'),
+  'search:searxng': N('Your own metasearch server'),
+  'search:firecrawl-self-hosted': N('A Firecrawl you run'),
+  'extract:jina': N('Any page as clean text; 20 a minute without a key'),
+  'extract:firecrawl': N('A free tier without a key'),
+  'extract:tavily': N('A free tier without a key'),
+  'extract:keenable': N('A free tier without a key, shared by IP'),
+};
+
+function ToolSettings() {
+  const view = useLoad(async (): Promise<ToolsView> => api('GET', '/api/control/tools'), []);
+  if (view.error) return <LoadFailed message={view.error} retry={view.reload} />;
+  if (!view.data) return <Loading rows={5} />;
+  return (
+    <Stack gap="lg">
+      {(['search', 'extract'] as const).map((kind) => (
+        <ToolCard key={kind} kind={kind} state={view.data!.kinds[kind]} providers={view.data!.providers[kind]} reload={view.reload} />
+      ))}
+    </Stack>
+  );
+}
+
+function ToolCard({ kind, state, providers, reload }: { kind: ToolKind; state: ToolState; providers: ToolProvider[]; reload: () => void }) {
+  const requireFactor = useFactor();
+  const [providerId, setProviderId] = useState<string | null>(state.provider);
+  const provider = providers.find((one) => one.id === providerId) ?? null;
+  const [url, setUrl] = useState(state.url ?? '');
+  const [key, setKey] = useState('');
+  const [probe, setProbe] = useState(kind === 'search' ? 'PALUGADA' : 'https://example.com/');
+  const [testing, setTesting] = useState(false);
+  const [result, setResult] = useState<{
+    problem: string | null;
+    results?: Array<{ title: string; url: string; snippet: string }>;
+    page?: { url: string; title: string | null; excerpt: string };
+  } | null>(null);
+  const keyKept = state.keySet && state.provider === providerId && key === '';
+
+  const options = [
+    { group: t('Free to start, no key needed'), items: providers.filter((one) => one.key !== 'required' && !one.urlExample) },
+    { group: t('Needs a key'), items: providers.filter((one) => one.key === 'required') },
+    { group: t('Your own server'), items: providers.filter((one) => one.urlExample) },
+  ].filter((group) => group.items.length > 0).map((group) => ({ group: group.group, items: group.items.map((one) => ({ value: one.id, label: one.name })) }));
+
+  const body = () => ({ provider: providerId, url: url.trim() || undefined, key: key.trim() || undefined });
+
+  const test = async () => {
+    setTesting(true);
+    setResult(null);
+    try {
+      setResult(await api('POST', `/api/control/tools/${kind}/test`, { ...body(), ...(kind === 'search' ? { query: probe } : { url: probe }), ...(provider?.urlExample ? { url: url.trim() } : {}) }));
+    } catch (failure) {
+      setResult({ problem: explain(failure) });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const save = async () => {
+    const done = await requireFactor(t('Choose where {capability} goes', { capability: state.capability }), (proof) =>
+      api('POST', `/api/control/tools/${kind}`, { ...body(), proof }));
+    if (done) {
+      setKey('');
+      notifications.show({ color: 'teal', message: t('Saved. PALUGADA is starting again to use it; work in flight carries on where it was.') });
+      setTimeout(reload, 3_000);
+    }
+  };
+
+  const clear = async () => {
+    const done = await requireFactor(t('Choose where {capability} goes', { capability: state.capability }), (proof) =>
+      api('POST', `/api/control/tools/${kind}/clear`, { proof }));
+    if (done) setTimeout(reload, 3_000);
+  };
+
+  const ready = provider !== null && (!provider.urlExample || url.trim() !== '') && (provider.key !== 'required' || key.trim() !== '' || keyKept);
+  const about = provider ? (TOOL_ABOUT[`${kind}:${provider.id}`] ? t(TOOL_ABOUT[`${kind}:${provider.id}`]!) : provider.about) : null;
+
+  return (
+    <Section
+      title={t(TOOL_TEXT[kind].title)}
+      description={t(TOOL_TEXT[kind].hint)}
+      actions={<Badge variant="light" color={state.inUse ? 'teal' : state.provider ? 'yellow' : 'gray'}>
+        {state.inUse ? t('roles can use it') : state.provider ? t('saved, starting') : t('not set')}
+      </Badge>}
+    >
+      <Stack gap="sm">
+        <Select label={t('Provider')} placeholder={t('Choose a provider')} data={options} value={providerId} searchable
+          onChange={(next) => { setProviderId(next); setResult(null); setKey(''); }} />
+        {provider && (
+          <>
+            {(about || provider.keyUrl) && (
+              <Text size="sm" c="dimmed">
+                {about}
+                {about && provider.keyUrl ? ' · ' : null}
+                {provider.keyUrl && <Anchor href={provider.keyUrl} target="_blank" rel="noreferrer" size="sm">{t('Get a key')} <IconExternalLink size={12} /></Anchor>}
+              </Text>
+            )}
+            {provider.checked === 'unverified' && (
+              <Text size="xs" c="orange">{t('Its request was taken from other people\'s write-ups, not from its own reference: try it before you rely on it.')}</Text>
+            )}
+            {provider.urlExample && (
+              <TextInput label={t('Address')} placeholder={provider.urlExample} value={url} onChange={(event) => setUrl(event.currentTarget.value)} required />
+            )}
+            {provider.key !== 'none' && (
+              <PasswordInput
+                label={t('API key')}
+                leftSection={<IconKey size={16} />}
+                description={keyKept ? t('A key is saved. Leave this empty to keep it.')
+                  : provider.key === 'optional' ? t('Optional: without one, its free tier is used, at its limits.') : undefined}
+                value={key}
+                onChange={(event) => setKey(event.currentTarget.value)}
+                required={provider.key === 'required' && !keyKept}
+                autoComplete="off"
+              />
+            )}
+            <Group align="flex-end" gap="sm" wrap="nowrap">
+              <TextInput style={{ flex: 1 }} label={kind === 'search' ? t('Try a search') : t('Try a page')} value={probe} onChange={(event) => setProbe(event.currentTarget.value)} />
+              <Button variant="default" leftSection={<IconPlugConnected size={16} />} loading={testing} disabled={!ready} onClick={() => void test()}>{t('Test it')}</Button>
+            </Group>
+            {result && (result.problem
+              ? <Alert color="red" variant="light" title={t('It did not answer')}>{result.problem}</Alert>
+              : (
+                <Paper withBorder radius="md" p="sm">
+                  {result.results?.map((row) => (
+                    <div key={row.url} style={{ marginBottom: 8 }}>
+                      <Anchor href={row.url} target="_blank" rel="noreferrer" size="sm" fw={600}>{row.title || row.url}</Anchor>
+                      <Text size="xs" c="dimmed" lineClamp={2}>{row.snippet}</Text>
+                    </div>
+                  ))}
+                  {result.results?.length === 0 && <Text size="sm" c="dimmed">{t('It answered, with no results for that search.')}</Text>}
+                  {result.page && (
+                    <>
+                      <Text size="sm" fw={600}>{result.page.title ?? result.page.url}</Text>
+                      <Text size="xs" c="dimmed" lineClamp={4}>{result.page.excerpt}</Text>
+                    </>
+                  )}
+                </Paper>
+              ))}
+            <Group justify="space-between">
+              {state.source === 'console'
+                ? <Button variant="subtle" color="gray" size="compact-sm" onClick={() => void clear()}>{t('Go back to the environment\'s choice')}</Button>
+                : <span />}
+              <Button disabled={!ready} onClick={() => void save()}>{t('Save')}</Button>
+            </Group>
+          </>
         )}
       </Stack>
     </Section>

@@ -148,7 +148,11 @@ import { MODEL_PROVIDERS, modelProvider } from '../llm/providers.ts';
 import {
   deleteSecret, putSecret, readSettings, secretNames, stateDirFrom, writeSetting, type MasterKey, type Settings,
 } from '../settings/store.ts';
-import { modelSource, withSettings, type AgentSetting, type ModelSetting } from '../settings/overlay.ts';
+import { modelSource, withSettings, type AgentSetting, type ModelSetting, type ToolSetting } from '../settings/overlay.ts';
+import {
+  EXTRACT_PROVIDERS, SEARCH_PROVIDERS, TOOL_KINDS, extractProvider, searchProvider, webExtract, webSearch,
+  type ExtractProvider, type SearchProvider, type ToolBinding, type ToolKind,
+} from '../capabilities/search.ts';
 import {
   AGENT_CATALOGUE, AgentJobs, agentEntry, cannotInstall, claudeSetupToken, findAgent, installAgent, type AgentEntry,
 } from '../settings/agents.ts';
@@ -1115,6 +1119,95 @@ export class OwnerApi {
           await this.#requireFactor(body.proof, 'change the model');
           await writeSetting('model', null);
           await deleteSecret('model-key');
+          return this.#applySettings();
+        },
+      },
+
+      /* ------------------------------------------ searching and reading --- */
+
+      {
+        // Which provider each tool goes to, where that choice came from, and
+        // the providers there are. A key is said to be set, never shown.
+        method: 'GET',
+        pattern: '/api/control/tools',
+        handle: async () => {
+          const deployment = this.#deploymentSettings();
+          const stored = (await readSettings()).tools as Partial<Record<ToolKind, ToolSetting>> | undefined;
+          const kinds = Object.fromEntries((Object.keys(TOOL_KINDS) as ToolKind[]).map((kind) => {
+            const names = TOOL_KINDS[kind];
+            const chosen = stored?.[kind];
+            const provider = chosen?.provider ?? deployment.baseEnv[names.provider] ?? null;
+            return [kind, {
+              capability: names.capability,
+              source: chosen ? 'console' : deployment.baseEnv[names.provider] ? 'environment' : null,
+              provider,
+              url: chosen ? chosen.url ?? null : deployment.baseEnv[names.url] ?? null,
+              keySet: chosen ? Boolean(chosen.keySecret) : Boolean(deployment.baseEnv[names.key]),
+              inUse: Boolean(deployment.env[names.provider]),
+            }];
+          }));
+          return { kinds, providers: { search: SEARCH_PROVIDERS, extract: EXTRACT_PROVIDERS }, applies: deployment.restart ? 'now' : 'next_start' };
+        },
+      },
+
+      {
+        // One search, or one page read, with what the owner typed: the key is
+        // used for this call and saved nowhere.
+        method: 'POST',
+        pattern: '/api/control/tools/:kind/test',
+        handle: async ({ params, body }) => {
+          const { kind, binding } = await this.#toolCandidate(params.kind!, body);
+          try {
+            const signal = AbortSignal.timeout(30_000);
+            if (kind === 'search') {
+              const answer = await webSearch(binding as ToolBinding<SearchProvider>)
+                .execute({ query: typeof body.query === 'string' && body.query.trim() ? body.query : 'PALUGADA', count: 3 }, { signal } as never);
+              return { problem: null, results: answer.results };
+            }
+            const page = await webExtract(binding as ToolBinding<ExtractProvider>)
+              .execute({ url: typeof body.url === 'string' && body.url ? body.url : 'https://example.com/' }, { signal } as never);
+            return { problem: null, page: { url: page.url, title: page.title, excerpt: page.text.slice(0, 400) } };
+          } catch (failure) {
+            return { problem: (failure as Error).message };
+          }
+        },
+      },
+
+      {
+        // Where every role's searches go, and what they cost, so it takes the
+        // owner's device, like the model.
+        method: 'POST',
+        pattern: '/api/control/tools/:kind',
+        handle: async ({ params, body }) => {
+          const deployment = this.#deploymentSettings();
+          const { kind, provider, url, typed, keep } = await this.#toolCandidate(params.kind!, body);
+          await this.#requireFactor(body.proof, `choose where ${TOOL_KINDS[kind].capability} goes`);
+          const secret = `tool-${kind}`;
+          if (typed) {
+            const master = deployment.master(true);
+            if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
+            await putSecret(secret, typed, master);
+          } else if (!keep) {
+            await deleteSecret(secret);
+          }
+          const tools = { ...((await readSettings()).tools as Partial<Record<ToolKind, ToolSetting>> | undefined) };
+          tools[kind] = { provider: provider.id, ...(url ? { url } : {}), ...(typed || keep ? { keySecret: secret } : {}) };
+          await writeSetting('tools', tools);
+          return this.#applySettings();
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/control/tools/:kind/clear',
+        handle: async ({ params, body }) => {
+          this.#deploymentSettings();
+          const kind = toolKindNamed(params.kind!);
+          await this.#requireFactor(body.proof, `choose where ${TOOL_KINDS[kind].capability} goes`);
+          const tools = { ...((await readSettings()).tools as Partial<Record<ToolKind, ToolSetting>> | undefined) };
+          delete tools[kind];
+          await writeSetting('tools', Object.keys(tools).length > 0 ? tools : null);
+          await deleteSecret(`tool-${kind}`);
           return this.#applySettings();
         },
       },
@@ -2772,6 +2865,39 @@ export class OwnerApi {
   }
 
   /**
+   * The provider the console is asking about for one kind of tool: checked,
+   * with the key the owner typed, or the one saved for that same provider.
+   */
+  async #toolCandidate(kindName: string, body: Record<string, unknown>) {
+    const deployment = this.#deploymentSettings();
+    const kind = toolKindNamed(kindName);
+    const id = typeof body.provider === 'string' ? body.provider : '';
+    const provider = kind === 'search' ? searchProvider(id) : extractProvider(id);
+    if (!provider) {
+      const known = (kind === 'search' ? SEARCH_PROVIDERS : EXTRACT_PROVIDERS).map((one) => one.id);
+      throw new PalugadaError('contract.violation', `provider is one of ${known.join(', ')}; got ${id || 'nothing'}`, { field: 'provider' });
+    }
+    const url = typeof body.url === 'string' && body.url.trim() !== '' && provider.urlExample ? body.url.trim().replace(/\/+$/, '') : null;
+    if (provider.urlExample) {
+      if (!url || !/^https?:\/\//.test(url)) {
+        throw new PalugadaError('contract.violation', `${provider.name} is your own server: give its address, such as ${provider.urlExample}`, { field: 'url' });
+      }
+    }
+    const typed = typeof body.key === 'string' && body.key.trim() !== '' && provider.key !== 'none' ? body.key.trim() : null;
+    const saved = ((await readSettings()).tools as Partial<Record<ToolKind, ToolSetting>> | undefined)?.[kind];
+    const keep = !typed && body.clearKey !== true && saved?.provider === provider.id && Boolean(saved.keySecret);
+    if (provider.key === 'required' && !typed && !keep) {
+      throw new PalugadaError('contract.violation', `${provider.name} needs a key`, { field: 'key' });
+    }
+    const binding: ToolBinding<SearchProvider | ExtractProvider> = {
+      provider,
+      url,
+      key: async () => (typed ?? (keep ? deployment.secrets.resolve(`db://tool-${kind}`) : null)),
+    };
+    return { kind, provider, url, typed, keep, binding };
+  }
+
+  /**
    * A saved setting counts from the deployment's next start. Where the
    * process can start itself again, it does, just after this answer is sent:
    * work in flight is handed back and resumed, and the console reconnects.
@@ -3115,6 +3241,13 @@ function configKind(value: unknown): ConfigKind {
   const kinds: readonly ConfigKind[] = ['charter', 'policy', 'role', 'grant', 'bundle', 'skill'];
   if (typeof value === 'string' && (kinds as readonly string[]).includes(value)) return value as ConfigKind;
   throw new PalugadaError('contract.violation', `a configuration kind is one of ${kinds.join(', ')}`, { kind: value });
+}
+
+function toolKindNamed(name: string): ToolKind {
+  if (!(name in TOOL_KINDS)) {
+    throw new PalugadaError('contract.violation', `a tool is ${Object.keys(TOOL_KINDS).join(' or ')}; got ${name}`, { kind: name });
+  }
+  return name as ToolKind;
 }
 
 /** An agent CLI the console can manage, by the name in the address. */

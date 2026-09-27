@@ -242,7 +242,22 @@ asks the owner before its next tier 2 action.
 
 **Capabilities.** PALUGADA implements the ones that need no vendor account:
 `web.fetch`, `uptime.check`, `files.list`, `doc.draft`, `email.draft`,
-`memory.search` and `skill.read`. Capabilities that need somebody's account,
+`memory.search` and `skill.read`. `web.search` and `web.extract` go to the
+provider the owner chooses in the console (**This deployment**, **Tools**),
+or the one these name:
+
+| Variable | What it is |
+|---|---|
+| `PALUGADA_SEARCH_PROVIDER` | Where `web.search` goes: `brave`, `tavily`, `exa`, `firecrawl`, `perplexity`, `parallel`, `keenable`, `jina`, `serpapi`, `serper`, or your own `searxng` or `firecrawl-self-hosted` |
+| `PALUGADA_SEARCH_URL` | Your own server's address, for `searxng` and `firecrawl-self-hosted` |
+| `PALUGADA_SEARCH_KEY_REF` | The provider's key, as a secret reference. `tavily`, `firecrawl` and `keenable` answer without one, at a rate-limited free tier |
+| `PALUGADA_EXTRACT_PROVIDER` | Where `web.extract` goes: `jina`, `firecrawl`, `tavily`, `exa`, `parallel` or `keenable` |
+| `PALUGADA_EXTRACT_KEY_REF` | Its key. `jina` (20 pages a minute), `firecrawl`, `tavily` and `keenable` answer without one |
+
+Each call reserves the provider's price for one call before it runs.
+DuckDuckGo is not offered: it has no web-results API, and what other agents
+use for it scrapes several engines. Until a provider is chosen, both are
+known by name and say where to choose one. Capabilities that need somebody's account,
 such as `email.send`, `invoice.issue` or `dns.update`, are bound by a vendor
 file. The file carries no code, and PALUGADA refuses one that writes without
 verifying, has a side effect without an idempotency key, or tries to loosen

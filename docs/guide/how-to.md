@@ -189,6 +189,30 @@ only the ones a file you write names. See
 What a server returns counts as content from outside the company, so work
 that used it asks you before its next tier 2 action.
 
+## Let roles search the web
+
+A role finds pages with `web.search` and reads one as clean text with
+`web.extract`. Both go to a provider you choose: its index, its price, and
+where the queries go.
+
+1. Open **This deployment**, **Tools**.
+2. Under **Web search**, choose a **Provider**. Those under **Free to start,
+   no key needed** (Tavily, Firecrawl, Keenable) answer without a key at a
+   rate-limited free tier; add a key later for more. The others need one:
+   **Get a key** opens the provider's page. SearXNG, or a Firecrawl of your
+   own, is **Your own server**: give its address.
+3. Type a search under **Try a search** and press **Test it**: the results
+   it would give a role are shown, and nothing is saved.
+4. Press **Save** and confirm with a code. PALUGADA starts itself again, and
+   `web.search` is bound.
+5. Do the same under **Reading pages** for `web.extract`. Jina Reader reads
+   twenty pages a minute without a key.
+
+The standard template grants both to Delivery and Growth, and the planner
+searches before it plans; give them to another role on **Team**. What a
+search or a page returns is written outside the company, so work that read
+it asks you before its next action at tier 2 or above.
+
 ## Choose or change the model
 
 In the console, open **This deployment** at the foot of the sidebar (on a

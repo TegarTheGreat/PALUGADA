@@ -221,6 +221,10 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     // build division's tier 2 grant reviewable rather than routine.
     { division: 'delivery', capability: 'repo.read' },
     { division: 'delivery', capability: 'web.fetch' },
+    // Finding what exists before planning around it: bound once the owner
+    // chooses a search provider, and a note until then.
+    { division: 'delivery', capability: 'web.search' },
+    { division: 'delivery', capability: 'web.extract' },
     { division: 'delivery', capability: 'files.list' },
     { division: 'delivery', capability: 'doc.draft' },
     { division: 'delivery', capability: 'ticket.create' },
@@ -240,6 +244,8 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     // Growth speaks in public. Every tier 2 grant here is rate limited: the
     // damage from these is volume, not any single call.
     { division: 'growth', capability: 'web.fetch' },
+    { division: 'growth', capability: 'web.search' },
+    { division: 'growth', capability: 'web.extract' },
     { division: 'growth', capability: 'crm.read' },
     { division: 'growth', capability: 'crm.note' },
     { division: 'growth', capability: 'doc.draft' },
@@ -327,7 +333,10 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
         'design: deciding what to ship and shipping it are separate jobs here. When the plan ' +
         'is ready, hand the build to the builder with task.delegate, the plan as its brief, ' +
         'and wait for the result with task.await.',
-      tools: [...PLATFORM_TOOLS, ...HAND_ON, 'repo.read', 'web.fetch', 'files.list', 'doc.draft', 'ticket.create'],
+      // `web.search` rather than `files.list`: F2.4's twelve is a budget, and a
+      // plan that has not looked at what already exists is a guess. The
+      // division still holds `files.list`, for a role hired to use it.
+      tools: [...PLATFORM_TOOLS, ...HAND_ON, 'repo.read', 'web.search', 'web.fetch', 'doc.draft', 'ticket.create'],
       inputSchema: WORK_INPUT,
       outputSchema: WORK_OUTPUT,
     },

@@ -47,6 +47,7 @@ import { AdapterRegistry } from './runtime/protocol.ts';
 import { assembleRuntimes } from './runtime/assemble.ts';
 import type { TaskHandler } from './runtime/in-process.ts';
 import { registerPlatformCapabilities } from './capabilities/platform.ts';
+import { toolBindingsFrom } from './capabilities/search.ts';
 import { registerVendorCapabilities } from './capabilities/vendors.ts';
 import { STANDARD_CATALOGUE } from './broker/catalogue.ts';
 import { seed } from './seed.ts';
@@ -430,6 +431,8 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   registerPlatformTools(registry);
 
   const filesRoot = options.filesRoot ?? env.PALUGADA_FILES_ROOT ?? null;
+  // Searching and reading pages, through the providers the owner chose.
+  const toolBindings = toolBindingsFrom(env, (reference) => secrets.resolve(reference));
 
   // The five capabilities the platform implements itself. The other twenty
   // the standard template grants need somebody's account, and a control plane
@@ -446,7 +449,10 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // leave `files.list` unbound while the note said otherwise.
     ...(filesRoot ? { files: { root: filesRoot } } : {}),
     ...(llm ? { llm, draftModel } : {}),
+    ...(toolBindings.search ? { search: toolBindings.search } : {}),
+    ...(toolBindings.extract ? { extract: toolBindings.extract } : {}),
   });
+  notes.push(...toolBindings.notes);
   if (!filesRoot) {
     notes.push('files.list is unbound: set PALUGADA_FILES_ROOT to the company\'s files (F8)');
   }

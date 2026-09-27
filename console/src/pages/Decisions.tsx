@@ -29,7 +29,7 @@ import { notifications } from '@mantine/notifications';
 import {
   IconArrowLeft, IconCheck, IconClock, IconClockPause, IconMessageQuestion, IconRoute, IconTarget, IconX,
 } from '@tabler/icons-react';
-import { api, ApiError, explain } from '../api.ts';
+import { api, ApiError, explain, type Proof } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { useLoad } from '../hooks.ts';
 import { go } from '../router.ts';
@@ -414,7 +414,7 @@ function Detail({
   const [traceOpen, setTraceOpen] = useState(false);
   const [answer, setAnswer] = useState('');
 
-  const send = (decision: string, proof?: { totp: string }) =>
+  const send = (decision: string, proof?: Proof) =>
     api('POST', `/api/companies/${companyId}/inbox/${item.id}/decide`, {
       decision, note, ...(proof ? { proof } : {}),
     });

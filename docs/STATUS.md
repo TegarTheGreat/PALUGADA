@@ -839,6 +839,18 @@ enrol itself as the owner's phone.
   "biometric" means. Tested against real P-256 signatures made in the test; the
   only difference from a phone is where the private key lives.
 
+**Registration** is the same checks read the other way round (`src/owner/passkey.ts`
+reads the `attestationObject` -- CBOR, with the key inside as a COSE key -- and
+`enrolPasskey` decides): the ceremony is `webauthn.create`, the challenge is one
+this process issued and has not seen used, the origin and the relying party
+are this console's, a person verified on the device, and the key is ES256,
+EdDSA or RS256 of at least 2048 bits. The attestation statement is not
+verified: the console asks for none, because which make of device the owner
+chose is not the platform's business, and what is trusted is what a TOTP
+enrolment trusts -- the owner, holding a factor already, said this device is
+theirs. The relying party defaults to the public URL's host, so a passkey can
+be made wherever the console is published.
+
 Every attempt lands in `owner_authentications`, failures included — a burst of
 failures against the owner's authenticator is the shape of somebody trying, and
 a log that kept only successes would hide precisely that.
@@ -1726,6 +1738,15 @@ passkey and the console cannot present one. They were not written blind either:
 the console is served, no browser runs in this environment, and code written
 here would be an unverified claim in the one place this repository has been
 most careful not to make them.
+
+**Both are pressed now** (audit of 2026-09-28, item 24). The registration
+ceremony that was missing -- nothing could make a passkey, so the only one a
+deployment ever held was one a test inserted -- is `OwnerMfa.enrolPasskey`,
+behind a factor the owner already holds; the console signs in with a passkey,
+offers one in every confirm dialog, and adds one under Settings, Security. It
+was watched working rather than written blind: Chromium with a virtual
+authenticator made a passkey, signed in with it, and revoked the authenticator
+code with it, in English and Indonesian.
 
 ### The boot check found two of its own, and one of the platform's
 

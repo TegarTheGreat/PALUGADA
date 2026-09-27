@@ -14,13 +14,18 @@
  * confirmation then submitted the owner's code against the action they had
  * cancelled. A dialog that does the thing the owner backed out of is the
  * worst failure this page could have.
+ *
+ * A passkey answers the same dialog, offered when the owner has one enrolled
+ * and this page is where it works: the device signs a fresh challenge and the
+ * signature is handed to `attempt` the way a code is.
  */
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react';
-import { explain } from './api.ts';
-import { Alert, Button, Group, Modal, PinInput, Stack, Text, ThemeIcon } from '@mantine/core';
-import { IconShieldLock } from '@tabler/icons-react';
+import { api, explain } from './api.ts';
+import { Alert, Button, Divider, Group, Modal, PinInput, Stack, Text, ThemeIcon } from '@mantine/core';
+import { IconFingerprint, IconShieldLock } from '@tabler/icons-react';
 import type { Proof } from './api.ts';
 import { t } from './i18n.ts';
+import { atPasskeyAddress, passkeysSupported, presentPasskey, type RelyingParty } from './passkey.ts';
 
 type Attempt = (proof: Proof) => Promise<unknown>;
 
@@ -43,6 +48,7 @@ export function FactorProvider({ children }: { children: ReactNode }) {
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [passkey, setPasskey] = useState(false);
   const settled = useRef(false);
 
   const requireFactor = useCallback((what: string, attempt: Attempt) => new Promise<boolean>((resolve) => {
@@ -50,6 +56,17 @@ export function FactorProvider({ children }: { children: ReactNode }) {
     setCode('');
     setError(null);
     setPending({ what, attempt, resolve });
+    // Asked each time rather than remembered: a passkey added or revoked in
+    // another tab is offered, or not, the next time the dialog opens.
+    setPasskey(false);
+    if (passkeysSupported()) {
+      api('GET', '/api/mfa/authenticators').then(
+        (answer: { authenticators: Array<{ kind: string }>; passkeys: RelyingParty }) => {
+          setPasskey(answer.authenticators.some((one) => one.kind === 'webauthn') && atPasskeyAddress(answer.passkeys));
+        },
+        () => setPasskey(false),
+      );
+    }
   }), []);
 
   const close = (done: boolean) => {
@@ -74,6 +91,20 @@ export function FactorProvider({ children }: { children: ReactNode }) {
       // has been used" and "locked out" are three different next actions.
       setError(explain(failure));
       setCode('');
+      setBusy(false);
+    }
+  };
+
+  const withPasskey = async () => {
+    if (!pending || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const challenge: RelyingParty & { challenge: string } = await api('GET', '/api/mfa/challenge');
+      await pending.attempt({ webauthn: await presentPasskey(challenge) });
+      close(true);
+    } catch (failure) {
+      setError(explain(failure));
       setBusy(false);
     }
   };
@@ -110,6 +141,14 @@ export function FactorProvider({ children }: { children: ReactNode }) {
             error={error !== null}
             aria-label={t('Six-digit code')}
           />
+          {passkey && (
+            <>
+              <Divider label={t('or')} w="100%" />
+              <Button fullWidth variant="default" leftSection={<IconFingerprint size={18} />} disabled={busy} onClick={() => void withPasskey()}>
+                {t('Use a passkey')}
+              </Button>
+            </>
+          )}
           {error && <Alert color="red" variant="light" w="100%">{error}</Alert>}
           <Group justify="flex-end" w="100%" mt="xs">
             <Button variant="default" onClick={() => close(false)}>{t('Cancel')}</Button>

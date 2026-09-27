@@ -516,6 +516,7 @@ export const NOT_FOR_THE_ASSISTANT: Readonly<Record<string, string>> = {
   '/api/auth/sign-out': 'signing out is the owner\'s',
   '/api/auth/sign-out-everywhere': 'signing out is the owner\'s',
   '/api/mfa/authenticators/:authenticatorId/revoke': 'the owner\'s own second factor is changed only by hand',
+  '/api/mfa/passkeys': 'the owner\'s own second factor is changed only by hand',
   '/api/channels/telegram': 'Telegram posts here, not a person',
   '/api/hooks/:publicId': 'other services post here, not a person',
   '/api/control/tour': 'the tour\'s own buttons',
@@ -546,6 +547,7 @@ export const UNREADABLE: readonly string[] = [
   '/api/companies/:companyId/export',
   '/api/auth/challenge',
   '/api/mfa/challenge',
+  '/api/mfa/passkeys/options',
   '/api/assistant',
   '/api/companies/:companyId/conversation',
 ];

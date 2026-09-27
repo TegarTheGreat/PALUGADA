@@ -402,7 +402,9 @@ export class OwnerApi {
         method: 'GET',
         pattern: '/api/auth/challenge',
         open: true,
-        handle: async () => ({ challenge: this.#sessions.challenge() }),
+        // With where a passkey is used, which the browser needs to be asked
+        // for one. Neither is a secret: both are this console's own address.
+        handle: async () => ({ challenge: this.#sessions.challenge(), ...this.#options.mfa.relyingParty }),
       },
 
       {
@@ -3704,13 +3706,39 @@ export class OwnerApi {
             kind: factor.kind,
             label: factor.label,
           })),
+          passkeys: this.#options.mfa.relyingParty,
         }),
       },
 
       {
         method: 'GET',
         pattern: '/api/mfa/challenge',
-        handle: async () => ({ challenge: this.#options.mfa.challenge() }),
+        handle: async () => ({ challenge: this.#options.mfa.challenge(), ...this.#options.mfa.relyingParty }),
+      },
+
+      {
+        method: 'GET',
+        pattern: '/api/mfa/passkeys/options',
+        handle: async () => this.#options.mfa.passkeyOptions(),
+      },
+
+      {
+        // A passkey made on this device, added to the owner's factors. The
+        // body is checked before the factor is, so a malformed request does
+        // not spend the owner's code on nothing.
+        method: 'POST',
+        pattern: '/api/mfa/passkeys',
+        handle: async ({ body }) => {
+          const credential = (body.credential ?? {}) as Record<string, unknown>;
+          const made = {
+            label: requireText(body.label, 'label'),
+            id: requireText(credential.id, 'credential.id'),
+            clientDataJSON: requireText(credential.clientDataJSON, 'credential.clientDataJSON'),
+            attestationObject: requireText(credential.attestationObject, 'credential.attestationObject'),
+          };
+          await this.#requireFactor(body.proof, 'add a passkey');
+          return this.#options.mfa.enrolPasskey(made);
+        },
       },
     ];
   }

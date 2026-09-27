@@ -187,9 +187,10 @@ freeze, raise a ceiling, rewrite what a model call cost, or delete history.
 - Push for incidents and tier 3 approvals. Telegram buttons for the decisions
   a chat is allowed to make, and those buttons are removed once the item is
   decided elsewhere.
-- Sign-in and approvals with a TOTP code. The API also verifies passkeys,
-  though the console page cannot present one yet. Loosening a control needs a
-  second factor; tightening one needs only the session.
+- Sign-in and approvals with a TOTP code or a passkey. A passkey is added in
+  Settings, Security, with a factor you already hold, and is then offered at
+  sign-in and in every confirm dialog. Loosening a control needs a second
+  factor; tightening one needs only the session.
 - Stop everything, freeze a company, or kill one capability. A daily digest,
   a weekly retro, and alerts that fire once per condition per day.
 

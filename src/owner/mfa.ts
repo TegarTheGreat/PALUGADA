@@ -43,8 +43,9 @@
  * tier 3 action requires *possession of an enrolled device*, and that every
  * attempt -- successful or not -- is on a record an auditor reads.
  */
-import { createHmac, createPublicKey, createVerify, randomBytes, createHash, timingSafeEqual } from 'node:crypto';
+import { createHmac, createPublicKey, createVerify, randomBytes, createHash, timingSafeEqual, verify } from 'node:crypto';
 import { PalugadaError, type ErrorCode } from '../errors.ts';
+import { PASSKEY_ALGORITHMS, parseAttestation } from './passkey.ts';
 import { withControlPlane, type TenantClient } from '../db/tenant.ts';
 import { redactor, type SecretManager } from '../secrets/manager.ts';
 
@@ -225,6 +226,11 @@ export class ChallengeStore {
     return challenge;
   }
 
+  /** How long a challenge is good for, which is how long a browser should wait for the owner. */
+  get ttlMs(): number {
+    return this.#ttlMs;
+  }
+
   /** How many challenges are outstanding. */
   get size(): number {
     return this.#issued.size;
@@ -305,8 +311,11 @@ export function verifySignature(
     authenticatorData,
     createHash('sha256').update(clientDataJSON).digest(),
   ]);
-  const algorithm = key.asymmetricKeyType === 'rsa' ? 'RSA-SHA256' : 'SHA256';
   try {
+    // Ed25519 signs the message itself rather than a digest of it, so it has
+    // no hash to name and `createVerify` cannot check it.
+    if (key.asymmetricKeyType === 'ed25519') return verify(null, signed, key, signature);
+    const algorithm = key.asymmetricKeyType === 'rsa' ? 'RSA-SHA256' : 'SHA256';
     return createVerify(algorithm).update(signed).verify(key, signature);
   } catch {
     // A malformed signature makes `verify` throw rather than return false, and
@@ -344,6 +353,18 @@ export interface MfaOptions {
   maxConsecutiveFailures?: number;
   lockoutMs?: number;
   now?: () => Date;
+}
+
+/** `PublicKeyCredentialCreationOptions`, with every buffer as base64url. */
+export interface PasskeyOptions {
+  challenge: string;
+  rp: { id: string; name: string };
+  user: { id: string; name: string; displayName: string };
+  /** COSE algorithm numbers, most preferred first. */
+  algorithms: number[];
+  /** Credential ids of the passkeys already enrolled. */
+  exclude: string[];
+  timeoutMs: number;
 }
 
 export interface VerifiedFactor {
@@ -697,6 +718,134 @@ export class OwnerMfa {
   /** A challenge for the phone to sign. Usable once and short-lived. */
   challenge(): string {
     return this.#challenges.issue(this.#now().getTime());
+  }
+
+  /**
+   * Where a passkey is made and used: the relying party the authenticator
+   * signs for, and the page's origin the browser reports. The console asks
+   * the browser for the first, and compares the second with where it was
+   * opened, so it can say why a passkey cannot work here instead of letting
+   * the browser fail with a sentence nobody can act on.
+   */
+  get relyingParty(): { rpId: string; origin: string } {
+    return { rpId: this.#rpId, origin: this.#origin };
+  }
+
+  /**
+   * What the console hands `navigator.credentials.create`, as text.
+   *
+   * The user handle is new for every passkey rather than one per owner. A
+   * browser that is asked to make a passkey for a relying party and a handle
+   * it already holds one for replaces the old one -- and every deployment on
+   * `localhost` is one relying party, so a fixed handle meant adding a passkey
+   * to one deployment silently deleted it from another. Nothing here reads the
+   * handle back: the credential id is what names a passkey.
+   *
+   * `exclude` is every live passkey, so the browser refuses to make a second
+   * one on a device that already holds one for this console.
+   */
+  async passkeyOptions(): Promise<PasskeyOptions> {
+    const exclude = await withControlPlane(async (tx) => {
+      const { rows } = await tx.query<{ credential_id: string }>(
+        `SELECT credential_id FROM owner_authenticators
+          WHERE kind = 'webauthn' AND revoked_at IS NULL
+          ORDER BY enrolled_at`,
+      );
+      return rows.map((row) => row.credential_id);
+    });
+    return {
+      challenge: this.challenge(),
+      rp: { id: this.#rpId, name: 'PALUGADA' },
+      user: { id: randomBytes(16).toString('base64url'), name: 'PALUGADA owner', displayName: 'PALUGADA owner' },
+      algorithms: [...PASSKEY_ALGORITHMS],
+      exclude,
+      timeoutMs: this.#challenges.ttlMs,
+    };
+  }
+
+  /**
+   * Enrols the passkey a browser just made -- the registration ceremony.
+   *
+   * The same checks as an assertion where the same attack applies, each for
+   * the reason written there: the ceremony type (a signature the owner gave to
+   * approve something is not a new key), the challenge (a registration seen
+   * once, in a proxy's log say, must not put a revoked key back), the origin
+   * and the relying party (a passkey made for another site), and a person
+   * verified on the device. What is not checked is who made the device; see
+   * `parseAttestation`.
+   *
+   * The caller has already required a factor the owner holds. A session alone
+   * is not enough to add one: a session taken from a browser would otherwise
+   * leave its thief a key that outlives the session.
+   */
+  async enrolPasskey(input: {
+    label: string;
+    clientDataJSON: string;
+    attestationObject: string;
+    /** The credential id the browser reported, which must be the one inside. */
+    id?: string;
+  }): Promise<{ id: string; label: string }> {
+    const label = input.label.trim();
+    if (!label || label.length > 80) {
+      throw new PalugadaError(
+        'contract.violation',
+        'a passkey needs a name of 1 to 80 characters, so the owner can tell their devices apart',
+        { length: label.length },
+      );
+    }
+
+    let clientData: { type?: string; challenge?: string; origin?: string };
+    try {
+      clientData = JSON.parse(Buffer.from(input.clientDataJSON, 'base64url').toString('utf8')) as typeof clientData;
+    } catch {
+      throw new PalugadaError('mfa.attestation_malformed', 'clientDataJSON is not JSON', {});
+    }
+    if (clientData.type !== 'webauthn.create') {
+      throw new PalugadaError('mfa.wrong_ceremony', `a new passkey comes from webauthn.create; this names ${String(clientData.type)}`, {});
+    }
+    if (!clientData.challenge || !this.#challenges.redeem(clientData.challenge, this.#now().getTime())) {
+      throw new PalugadaError('mfa.challenge_unknown', 'the new passkey answers no challenge this process issued, or one already used', {});
+    }
+    if (clientData.origin !== this.#origin) {
+      throw new PalugadaError(
+        'mfa.wrong_origin',
+        `the passkey was made at ${String(clientData.origin)}, and this console is ${this.#origin} `
+          + '(PALUGADA_ORIGIN, or the origin of PALUGADA_APP_URL_PUBLIC)',
+        { origin: clientData.origin ?? null },
+      );
+    }
+
+    const made = parseAttestation(Buffer.from(input.attestationObject, 'base64url'));
+    if (!made.rpIdHash.equals(createHash('sha256').update(this.#rpId).digest())) {
+      throw new PalugadaError('mfa.wrong_relying_party', `the passkey was made for another relying party than ${this.#rpId}`, {});
+    }
+    if (!made.userPresent || !made.userVerified) {
+      throw new PalugadaError('mfa.not_user_verified', 'the authenticator did not verify the person holding it', {});
+    }
+    if (input.id !== undefined && input.id !== made.credentialId) {
+      throw new PalugadaError(
+        'mfa.attestation_malformed',
+        'the credential id the browser reported is not the one the authenticator made',
+        {},
+      );
+    }
+
+    try {
+      const id = await this.enrolWebAuthn({
+        label,
+        credentialId: made.credentialId,
+        publicKeyPem: made.publicKeyPem,
+        signCount: made.signCount,
+      });
+      return { id, label };
+    } catch (error) {
+      // The unique index on credential ids, revoked ones included: a key the
+      // owner revoked is not made live again by registering it twice.
+      if ((error as { code?: string }).code === '23505') {
+        throw new PalugadaError('mfa.already_enrolled', 'that passkey is already enrolled, or was and has been revoked', {});
+      }
+      throw error;
+    }
   }
 
   /**

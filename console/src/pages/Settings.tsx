@@ -6,9 +6,9 @@
  * Each is a section of the settings page (SettingsHub), not a page of its
  * own: an owner changes these rarely and should find them all in one place.
  */
-import { Alert, Badge, Button, Grid, Group, Select, SimpleGrid, Stack, Table, Text } from '@mantine/core';
+import { Alert, Badge, Button, Grid, Group, Select, SimpleGrid, Stack, Table, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconDownload, IconLanguage, IconShieldCheck, IconSnowflake, IconSnowflakeOff } from '@tabler/icons-react';
+import { IconDownload, IconFingerprint, IconLanguage, IconShieldCheck, IconSnowflake, IconSnowflakeOff } from '@tabler/icons-react';
 import { useState } from 'react';
 import { api, explain } from '../api.ts';
 import { useLoad } from '../hooks.ts';
@@ -17,6 +17,7 @@ import { LANGUAGES, isLanguage, language, t } from '../i18n.ts';
 import { chooseLanguage, type ConsoleContext, type Languages } from '../App.tsx';
 import { LoadFailed, Loading, Section } from '../components/ui.tsx';
 import { ActionButton, ActionForm } from '../components/ActionForm.tsx';
+import { atPasskeyAddress, makePasskey, passkeysSupported, type PasskeyOptions, type RelyingParty } from '../passkey.ts';
 
 const ZONES = ['UTC', 'Asia/Jakarta', 'Asia/Makassar', 'Asia/Jayapura', 'Asia/Singapore', 'Europe/London', 'America/New_York', 'America/Los_Angeles'];
 const zoneOptions = ZONES.map((zone) => ({ value: zone, label: zone }));
@@ -145,21 +146,27 @@ export function CompanySettings({ ctx }: { ctx: ConsoleContext }) {
 
 export function SecuritySettings() {
   const view = useLoad(async () => {
-    const answer: { authenticators: Array<{ id: string; label: string; kind: string }> } = await api('GET', '/api/mfa/authenticators');
-    return answer.authenticators;
+    const answer: { authenticators: Array<{ id: string; label: string; kind: string }>; passkeys: RelyingParty } = await api('GET', '/api/mfa/authenticators');
+    return answer;
   }, []);
   if (view.error) return <LoadFailed message={view.error} retry={view.reload} />;
   if (!view.data) return <Loading rows={2} />;
+  const { authenticators, passkeys } = view.data;
   return (
     <Stack gap="lg">
       <Section title={t('Your authenticators')} description={t('What can approve a tier 3 action in your name. Revoking takes a code from a device that is staying, and ends every session the revoked one signed in.')}>
-        {view.data.length === 0 ? <Text size="sm" c="red">{t('None enrolled. No tier 3 action can be approved until one is.')}</Text> : (
+        {authenticators.length === 0 ? <Text size="sm" c="red">{t('None enrolled. No tier 3 action can be approved until one is.')}</Text> : (
           <Table verticalSpacing="sm">
             <Table.Tbody>
-              {view.data.map((one) => (
+              {authenticators.map((one) => (
                 <Table.Tr key={one.id}>
-                  <Table.Td><Group gap="xs"><IconShieldCheck size={16} /><Text size="sm" fw={600}>{one.label}</Text></Group></Table.Td>
-                  <Table.Td><Badge variant="light">{one.kind}</Badge></Table.Td>
+                  <Table.Td>
+                    <Group gap="xs">
+                      {one.kind === 'webauthn' ? <IconFingerprint size={16} /> : <IconShieldCheck size={16} />}
+                      <Text size="sm" fw={600}>{one.label}</Text>
+                    </Group>
+                  </Table.Td>
+                  <Table.Td><Badge variant="light">{one.kind === 'webauthn' ? t('Passkey') : t('Authenticator app')}</Badge></Table.Td>
                   <Table.Td ta="right">
                     <ActionButton size="xs" color="red" variant="subtle" label={t('Revoke')} factor={t('Revoke {label}', { label: one.label })}
                       run={(proof) => api('POST', `/api/mfa/authenticators/${one.id}/revoke`, { proof })} done={view.reload} />
@@ -170,10 +177,61 @@ export function SecuritySettings() {
           </Table>
         )}
       </Section>
+      <AddPasskey party={passkeys} added={view.reload} />
       <Section title={t('Sessions')} description={t('Every browser signed in to this console, on every device. Signing out everywhere ends all of them, this one included.')}>
         <ActionButton label={t('Sign out everywhere')} color="red" variant="light" run={() => api('POST', '/api/auth/sign-out-everywhere', {})} done={() => window.location.reload()} />
       </Section>
     </Stack>
+  );
+}
+
+/**
+ * A passkey on the device the owner is using now.
+ *
+ * Behind a factor the owner already holds, because the API asks for one: a
+ * signed-in browser alone must not be able to add a key that outlives its
+ * session. When this page cannot make one, it says why, since the fix -- open
+ * the console at its own address, over HTTPS -- is not something the button
+ * could do.
+ */
+function AddPasskey({ party, added }: { party: RelyingParty; added: () => void }) {
+  const [label, setLabel] = useState('');
+  const why = !passkeysSupported()
+    ? t('This browser cannot make a passkey here. Passkeys need the console over HTTPS, or on localhost, in a browser that supports them.')
+    : !atPasskeyAddress(party)
+      ? t('Passkeys for this console are made at {origin}. Open the console there to add one.', { origin: party.origin })
+      : null;
+  return (
+    <Section title={t('Passkeys')} description={t('Sign in and approve with your fingerprint, face or screen lock instead of typing a code. The passkey stays on your device; only its public half is kept here.')}>
+      {why ? <Text size="sm" c="dimmed">{why}</Text> : (
+        <Group align="flex-end" gap="sm">
+          <TextInput
+            label={t('Name this device')}
+            placeholder={t('For example: work laptop')}
+            value={label}
+            onChange={(event) => setLabel(event.currentTarget.value)}
+            maxLength={80}
+            w={280}
+          />
+          <ActionButton
+            label={t('Add a passkey')}
+            variant="light"
+            leftSection={<IconFingerprint size={16} />}
+            factor={t('Add a passkey named {label}', { label: label.trim() || t('Passkey') })}
+            run={async (proof) => {
+              const options: PasskeyOptions = await api('GET', '/api/mfa/passkeys/options');
+              const credential = await makePasskey(options, party);
+              await api('POST', '/api/mfa/passkeys', { label: label.trim() || t('Passkey'), credential, proof });
+            }}
+            done={() => {
+              notifications.show({ color: 'teal', message: t('Passkey added. You can sign in with it now.') });
+              setLabel('');
+              added();
+            }}
+          />
+        </Group>
+      )}
+    </Section>
   );
 }
 

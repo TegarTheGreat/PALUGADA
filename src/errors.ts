@@ -92,6 +92,10 @@ export type ErrorCode =
   | 'mfa.not_user_verified'
   | 'mfa.signature_invalid'
   | 'mfa.counter_did_not_advance'
+  /** F12.5: a new passkey's attestation is not one an authenticator wrote. */
+  | 'mfa.attestation_malformed'
+  /** F12.5: a new passkey signs with an algorithm the console did not offer. */
+  | 'mfa.algorithm_unsupported'
   | 'mfa.locked_out'
   /** F12.5: no enrolled factor's secret can be read, so nothing can be checked. */
   | 'mfa.factor_unavailable'

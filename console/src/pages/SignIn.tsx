@@ -3,36 +3,58 @@
  * has one human, so an identity system would be a table with one row and a
  * password to lose.
  *
+ * A code or a passkey. The passkey is offered wherever the browser can use
+ * one; which device holds it is the device's business, since there is no
+ * account to name -- the owner's device offers the passkey it made here.
+ *
  * The language can be switched here, before signing in, for this visit only:
  * nothing is saved until the owner is in and chooses in the console, where
  * the choice goes to the deployment rather than to the browser.
  */
 import { useState } from 'react';
 import {
-  Alert, Button, Center, Grid, Group, Image, List, Paper, PinInput, SegmentedControl, Stack, Text,
+  Alert, Button, Center, Divider, Grid, Group, Image, List, Paper, PinInput, SegmentedControl, Stack, Text,
   ThemeIcon, Title, useComputedColorScheme,
 } from '@mantine/core';
-import { IconCheck } from '@tabler/icons-react';
+import { IconCheck, IconFingerprint } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
 import { LANGUAGES, language, setLanguage, t, type Language } from '../i18n.ts';
+import { passkeysSupported, presentPasskey, type RelyingParty } from '../passkey.ts';
 
 export function SignIn({ onSignedIn }: { onSignedIn: (session: { token: string; device: string }) => void }) {
   const [code, setCode] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<{ message: string; from: 'code' | 'passkey' } | null>(null);
+  const [busy, setBusy] = useState<'code' | 'passkey' | null>(null);
   const scheme = useComputedColorScheme('light');
 
   const submit = async (value: string) => {
     if (value.length !== 6 || busy) return;
-    setBusy(true);
+    setBusy('code');
     setError(null);
     try {
       const session: { token: string; device: string } = await api('POST', '/api/auth/sign-in', { totp: value });
       onSignedIn(session);
     } catch (failure) {
-      setError(explain(failure));
+      setError({ message: explain(failure), from: 'code' });
       setCode('');
-      setBusy(false);
+      setBusy(null);
+    }
+  };
+
+  const withPasskey = async () => {
+    if (busy) return;
+    setBusy('passkey');
+    setError(null);
+    try {
+      const challenge: RelyingParty & { challenge: string } = await api('GET', '/api/auth/challenge');
+      const webauthn = await presentPasskey(challenge);
+      const session: { token: string; device: string } = await api('POST', '/api/auth/sign-in', { webauthn });
+      onSignedIn(session);
+    } catch (failure) {
+      // Said below the buttons, and not drawn on the code: the code was not
+      // what went wrong.
+      setError({ message: explain(failure), from: 'passkey' });
+      setBusy(null);
     }
   };
 
@@ -87,16 +109,32 @@ export function SignIn({ onSignedIn }: { onSignedIn: (session: { token: string; 
                 value={code}
                 onChange={setCode}
                 onComplete={(value) => void submit(value)}
-                error={error !== null}
-                disabled={busy}
+                error={error?.from === 'code'}
+                disabled={busy !== null}
                 aria-label={t('Six-digit code')}
               />
-              {error && <Alert color="red" variant="light" w="100%">{error}</Alert>}
-              <Button fullWidth size="md" loading={busy} disabled={code.length !== 6} onClick={() => void submit(code)}>
+              {error && <Alert color="red" variant="light" w="100%">{error.message}</Alert>}
+              <Button fullWidth size="md" loading={busy === 'code'} disabled={code.length !== 6 || busy === 'passkey'} onClick={() => void submit(code)}>
                 {t('Sign in')}
               </Button>
+              {passkeysSupported() && (
+                <>
+                  <Divider label={t('or')} w="100%" />
+                  <Button
+                    fullWidth
+                    size="md"
+                    variant="default"
+                    leftSection={<IconFingerprint size={18} />}
+                    loading={busy === 'passkey'}
+                    disabled={busy === 'code'}
+                    onClick={() => void withPasskey()}
+                  >
+                    {t('Sign in with a passkey')}
+                  </Button>
+                </>
+              )}
               <Text size="xs" c="dimmed" ta="center">
-                {t('The session lives in this tab only. Tier 3 approvals ask for a fresh code every time.')}
+                {t('The session lives in this tab only. Tier 3 approvals ask for your authenticator every time.')}
               </Text>
             </Stack>
           </Paper>

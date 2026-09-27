@@ -13,6 +13,7 @@
  */
 
 import { N, t } from './i18n.ts';
+import type { PasskeyAssertion } from './passkey.ts';
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number, readonly code: string | undefined) {
@@ -61,10 +62,8 @@ export async function api<T = any>(method: 'GET' | 'POST', path: string, body?: 
   return answer as T;
 }
 
-/** A second factor, as the API takes it. */
-export interface Proof {
-  totp: string;
-}
+/** A second factor, as the API takes it: a code, or a passkey's signature. */
+export type Proof = { totp: string } | { webauthn: PasskeyAssertion };
 
 /**
  * The refusals an owner meets in the console, in their language. Anything not
@@ -78,6 +77,11 @@ const EXPLAINED: Record<string, string> = {
   'mfa.locked_out': N('Too many wrong codes. Wait a few minutes before trying again.'),
   'mfa.not_enrolled': N('No authenticator is enrolled on this deployment yet.'),
   'mfa.factor_unavailable': N('The authenticator secret cannot be read on this deployment; ask the operator.'),
+  'mfa.unknown_credential': N('That passkey is not enrolled here, or was revoked. Remove it from your device, or use a code.'),
+  'mfa.not_user_verified': N('The device did not check it was you. Use your fingerprint, face or PIN when it asks.'),
+  'mfa.challenge_unknown': N('That took too long. Try again.'),
+  'mfa.wrong_origin': N('This page is not at the address this console\'s passkeys belong to. Open the console at its public address.'),
+  'mfa.already_enrolled': N('That passkey is already enrolled.'),
   'inbox.not_open': N('This has already been decided or has closed.'),
   'approval.channel_forbidden': N('This needs your authenticator.'),
   'company.frozen': N('This company is frozen. Unfreeze it in its settings first.'),

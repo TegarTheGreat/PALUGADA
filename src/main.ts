@@ -376,10 +376,17 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
       ? { directories: env.PALUGADA_SECRET_DIRS.split(':').filter(Boolean) }
       : {}),
   }), () => master());
+  // A passkey belongs to the site the owner opens the console at, and the
+  // public URL is that site: each of the two defaults to it, and the setting
+  // that names one outright wins. Without the public URL, `OwnerMfa`'s own
+  // defaults hold, which a real passkey does not match -- closed, not open.
+  const published = env.PALUGADA_APP_URL_PUBLIC ? new URL(env.PALUGADA_APP_URL_PUBLIC) : null;
+  const rpId = env.PALUGADA_RP_ID || published?.hostname;
+  const origin = env.PALUGADA_ORIGIN || published?.origin;
   const mfa = new OwnerMfa({
     secrets,
-    ...(env.PALUGADA_RP_ID ? { rpId: env.PALUGADA_RP_ID } : {}),
-    ...(env.PALUGADA_ORIGIN ? { origin: env.PALUGADA_ORIGIN } : {}),
+    ...(rpId ? { rpId } : {}),
+    ...(origin ? { origin } : {}),
   });
 
   // The owner's first factor, from configuration. Signing in to the console

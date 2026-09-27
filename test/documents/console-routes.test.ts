@@ -35,23 +35,6 @@ const ROOT = fileURLToPath(new URL('../..', import.meta.url));
  *   without a sentence saying what the button would be.
  */
 const API_ONLY: Record<string, string> = {
-  // Recategorised, because the first version of this list called them
-  // `machine` and that was flattering. A WebAuthn assertion *is* built by the
-  // browser's credential API -- but the browser in question is this page, so
-  // "a program is the caller" was describing the page as though it were
-  // somebody else. They are `todo`: the platform verifies a passkey and the
-  // console cannot present one.
-  //
-  // Not written blind, either. `navigator.credentials.get` needs a secure
-  // context and an `rpId` that matches where the console is served from, and
-  // no browser runs in this environment -- so code written here would be an
-  // unverified claim in the one place this repository has been most careful
-  // not to make them. It is a `todo` until somebody can watch it work.
-  'GET /api/auth/challenge':
-    'todo: signing in with a passkey rather than a code; the platform verifies '
-    + 'one and the page cannot present one',
-  'GET /api/mfa/challenge':
-    'todo: the same, for a second factor at the moment of a decision',
   // Not a page's at all: Telegram posts button presses here.
   'POST /api/channels/telegram':
     'machine: Telegram posts the owner\'s button presses here, authenticated by the webhook secret',

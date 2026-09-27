@@ -155,8 +155,6 @@ expects are not there. Be clear about both before you commit.
   from one address hold that address back for fifteen minutes, but ten wrong
   codes from any mix of addresses lock the second factor for fifteen
   minutes, for you as well. Limit who can reach the console.
-- Passkeys in the console. The API verifies a passkey assertion, but the
-  console signs in and approves with an authenticator code only.
 - Platforms other than Linux, and an image with agent CLIs in it.
 - Proof against the vendors themselves: push, Telegram, the model APIs and
   MCP servers are exercised against local servers. The

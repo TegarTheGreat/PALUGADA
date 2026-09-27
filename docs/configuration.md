@@ -121,7 +121,7 @@ A secret the owner saved is named like any other, as a reference:
 | `PALUGADA_APP_URL_PUBLIC` | Where the console is reached from the owner's phone. Notifications link there |
 | `PALUGADA_ALLOWED_HOSTS` | The host names the console answers to, comma-separated. Defaults to the hosts of the public URL and origins. Loopback is always allowed |
 | `PALUGADA_BEHIND_PROXY` | `1` when the console is reached through a reverse proxy: the caller's address, which the sign-in throttle counts by, is then the last one the proxy added to `X-Forwarded-For`. Leave it unset otherwise, since without a proxy that header is whatever the caller wrote |
-| `PALUGADA_RP_ID`, `PALUGADA_ORIGIN` | Where a passkey would be verified. The platform verifies a passkey assertion, but the console cannot present one yet, so the owner signs in and approves with an authenticator code |
+| `PALUGADA_RP_ID`, `PALUGADA_ORIGIN` | Where passkeys are made and used: the relying party a device signs for, and the address the console is opened at. Each defaults to `PALUGADA_APP_URL_PUBLIC` (its host name, and its origin); set one only when it differs, such as `PALUGADA_RP_ID=example.com` for a passkey that works across a domain. Without either and without a public URL, passkeys cannot be made, and the owner signs in and approves with an authenticator code. A browser offers passkeys only over HTTPS, or on `localhost` |
 | `PALUGADA_ALLOW_PRIVATE_HOSTS` | An internal host that `web.fetch` may reach |
 
 **Runtimes.** A role's work is done by the runtime it names. With a model

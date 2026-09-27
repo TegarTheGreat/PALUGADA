@@ -171,6 +171,12 @@ authenticator app. Type it and press **Sign in**. A few things to know:
   five from one address hold that address back for fifteen minutes.
 - A tier 3 approval, and anything that loosens a control, asks for a fresh
   code every time, however recently you signed in.
+- To use your fingerprint, face or screen lock instead of a code, add a
+  passkey under **Settings**, **Security**. It asks for a code once, to show
+  the device is yours; after that the sign-in page and every confirm dialog
+  offer **Use a passkey**. A browser makes passkeys only over HTTPS or on
+  `localhost`, and only at the address in `PALUGADA_APP_URL_PUBLIC`: the
+  console says where when it is opened anywhere else.
 - The first time you sign in, the console offers a tour of itself. You can
   skip it and take it later from the menu under **Owner**.
 - The language switch on the sign-in page (EN or ID) applies to this visit.

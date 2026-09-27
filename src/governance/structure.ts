@@ -521,6 +521,53 @@ export async function addProject(companyId: string, project: { slug: string; nam
   });
 }
 
+/**
+ * The owner renames a project, says what it is for, or closes it (0074). A
+ * closed project takes no new work and keeps its history; what is already
+ * under way in it finishes. A company always has one open, since work given
+ * without a project goes to one.
+ */
+export async function changeProject(companyId: string, projectId: string, change: {
+  name?: string;
+  description?: string | null;
+  archived?: boolean;
+}): Promise<void> {
+  const name = change.name === undefined ? undefined : String(change.name).trim();
+  if (name !== undefined && (!name || name.length > 120)) {
+    throw new PalugadaError('contract.violation', 'a project\'s name is 1 to 120 characters', { field: 'name' });
+  }
+  const description = change.description === undefined ? undefined : (String(change.description ?? '').trim() || null);
+  if (description && description.length > 2_000) {
+    throw new PalugadaError('contract.violation', 'a project\'s description is at most 2000 characters', { field: 'description' });
+  }
+  await withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<{ archived: boolean }>(
+      'SELECT archived_at IS NOT NULL AS archived FROM projects WHERE id = $1 FOR UPDATE', [projectId]);
+    if (!rows[0]) throw new PalugadaError('contract.violation', `no project ${projectId} in this company`, { field: 'projectId' });
+    if (change.archived === true && !rows[0].archived) {
+      const { rows: open } = await tx.query<{ n: number }>(
+        'SELECT count(*)::int AS n FROM projects WHERE archived_at IS NULL AND id <> $1', [projectId]);
+      if (open[0]!.n === 0) {
+        throw new PalugadaError('contract.violation',
+          'a company keeps at least one open project, where work given without one goes; start another before closing this one',
+          { field: 'archived' });
+      }
+    }
+    await tx.query(
+      `UPDATE projects
+          SET name = coalesce($2, name),
+              description = CASE WHEN $3 THEN $4 ELSE description END,
+              archived_at = CASE WHEN $5::boolean IS NULL THEN archived_at
+                                 WHEN $5 THEN coalesce(archived_at, now()) ELSE NULL END
+        WHERE id = $1`,
+      [projectId, name ?? null, description !== undefined, description ?? null, change.archived ?? null]);
+    await appendEvent(tx, {
+      companyId, type: 'project.changed', actor: 'owner',
+      payload: { projectId, ...(name ? { name } : {}), ...(change.archived === undefined ? {} : { archived: change.archived }) },
+    });
+  });
+}
+
 async function readGrant(
   tx: TenantClient,
   divisionId: string,

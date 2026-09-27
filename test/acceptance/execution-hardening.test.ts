@@ -12,12 +12,14 @@ import assert from 'node:assert/strict';
 import { closePools } from '../../src/db/pool.ts';
 import { withTenant } from '../../src/db/tenant.ts';
 import { Engine } from '../../src/engine/engine.ts';
+import { AdapterRegistry } from '../../src/runtime/protocol.ts';
 import { Worker } from '../../src/worker.ts';
 import { CapabilityRegistry } from '../../src/broker/registry.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { registerPlatformCapabilities } from '../../src/broker/platform-capabilities.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';
 import { buildContext } from '../../src/context/builder.ts';
+import { remember } from '../../src/memory/store.ts';
 import { appendEvent } from '../../src/audit/event-log.ts';
 import { workOf } from '../../src/owner/views.ts';
 import { narrator, transcriptOf } from '../../src/engine/transcript.ts';
@@ -219,4 +221,44 @@ test('what a run says after it resumes is kept, after what it said before it wai
     [1, 'Asked the owner whether to include the Garut beans.'],
     [2, 'The owner said yes; adding Garut to the price list.'],
   ]);
+});
+
+test('what a run is told about its project and its earlier failures reaches the runtime itself', async () => {
+  const fixture = await createCompany('notes-reach-runtime');
+  await withTenant(fixture.companyId, async (tx) => {
+    await tx.query("UPDATE projects SET name = 'Wholesale', description = 'Sell beans by the kilo to cafes.' WHERE id = $1", [fixture.projectId]);
+    await tx.query("UPDATE roles SET runtime = 'notes-seen', backend = 'local' WHERE id = $1", [fixture.roleId]);
+  });
+  await withTenant(fixture.companyId, (tx) => remember(tx, {
+    companyId: fixture.companyId, memoryType: 'procedural', scopeType: 'division', scopeId: fixture.divisionId,
+    body: 'Quote wholesale prices per kilo, never per bag.', source: 'owner',
+  }));
+  const seen: Array<Array<{ title: string; body: string }>> = [];
+  const procedures: string[][] = [];
+  const adapters = new AdapterRegistry();
+  adapters.register({
+    name: 'notes-seen',
+    backends: ['local'],
+    async health() { return { ok: true, detail: 'test' }; },
+    async run(request) {
+      seen.push(request.contextPack.notes);
+      procedures.push(request.contextPack.skills);
+      if (seen.length === 1) throw new Error('the price sheet had no column called harga');
+      return { output: { summary: 'priced' } };
+    },
+  });
+  const registry = platformRegistry();
+  await registry.sync();
+  const engine = new Engine({ broker: new CapabilityBroker(registry), adapters, workerId: 'notes-worker' });
+  const task = await rootTask(fixture);
+  await engine.runTask(fixture.companyId, task.id, 'worker');
+  await engine.runTask(fixture.companyId, task.id, 'worker');
+
+  assert.equal(seen.length, 2);
+  assert.ok(seen[0]!.some((note) => /project "Wholesale".*Sell beans by the kilo/.test(note.body)), 'the project, in the runtime\'s own notes');
+  const again = seen[1]!.find((note) => note.title.startsWith('Earlier attempts at this task failed'));
+  assert.ok(again, 'the retry, as the runtime receives it, is told why the first attempt failed');
+  assert.match(again!.body, /no column called harga/);
+  assert.ok(procedures[0]!.some((line) => /^How the owner wants it done\nQuote wholesale prices per kilo/.test(line)),
+    'and the owner\'s way of working arrives as the owner\'s');
 });

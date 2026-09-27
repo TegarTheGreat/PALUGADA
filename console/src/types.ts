@@ -173,7 +173,10 @@ export interface PersonaPreset {
 }
 
 export interface Structure {
-  projects: Array<{ id: string; slug: string; name: string }>;
+  projects: Array<{
+    id: string; slug: string; name: string; description: string | null; archivedAt: string | null;
+    openTasks: number; doneTasks: number; costCents: number;
+  }>;
   goals: Goal[];
   divisions: Division[];
   roles: Role[];
@@ -190,6 +193,8 @@ export interface WorkItem {
   result: string | null;
   roleSlug: string;
   divisionName: string;
+  projectId: string;
+  projectName: string;
   goal: string | null;
   schedule: string | null;
   priority: number;

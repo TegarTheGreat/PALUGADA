@@ -336,6 +336,12 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   },
   { pattern: '/api/companies/:companyId/projects', what: 'Start a project.', fields: { name: 'its name', slug: 'short id' }, factor: 'never' },
   {
+    pattern: '/api/companies/:companyId/projects/:projectId',
+    what: 'Rename a project, say what it is for (every run in it is told), or close it to new work (archived: true) or open it again.',
+    fields: { name: 'optional new name', description: 'optional: what the project is for', archived: 'optional true or false' },
+    factor: 'never',
+  },
+  {
     pattern: '/api/companies/:companyId/roles',
     what: 'Hire a role, with a name, a title and a persona the owner chose or you suggest from GET /api/personas. A company has one CEO: a hire is never titled CEO while it has one.',
     fields: {

@@ -30,6 +30,8 @@ export interface ContextSection {
     | 'language'
     | 'contract'
     | 'stage'
+    | 'project'
+    | 'earlier_attempts'
     | 'sop'
     | 'confidence_warning'
     | 'semantic_memory'
@@ -366,6 +368,24 @@ async function stageSections(tx: TenantClient, companyId: string): Promise<Conte
   }];
 }
 
+/**
+ * Which project the work belongs to, and what the project is for (0074).
+ * Kept whole like the stage: a run that does not know it is working for the
+ * wholesale side of the business writes for the wrong customer.
+ */
+async function projectSections(tx: TenantClient, taskId: string): Promise<ContextSection[]> {
+  const { rows } = await tx.query<{ name: string; description: string | null }>(
+    'SELECT p.name, p.description FROM tasks t JOIN projects p ON p.id = t.project_id WHERE t.id = $1', [taskId]);
+  const project = rows[0];
+  if (!project) return [];
+  return [{
+    kind: 'project',
+    title: 'Project',
+    body: `This work belongs to the project "${project.name}".` +
+      (project.description ? ` What the project is for: ${project.description}` : ''),
+  }];
+}
+
 export async function buildContext(
   tx: TenantClient,
   options: BuildContextOptions,
@@ -376,6 +396,7 @@ export async function buildContext(
   sections.push(...role.charter);
   sections.push(...await languageSections(tx, options.companyId, options.taskId));
   sections.push(...await stageSections(tx, options.companyId));
+  if (options.taskId) sections.push(...await projectSections(tx, options.taskId));
   sections.push(...role.contract);
   const granted = await grantedHere(tx, options.divisionId, ['skill.read', 'memory.search']);
 
@@ -567,8 +588,9 @@ export async function buildContext(
 
     // Why the attempts before this one failed. A retry used to start exactly
     // as the attempt that failed had, and fail the same way until the
-    // attempts ran out. Kept as working memory, which is given up last, and
-    // shown as data: an error can carry a vendor's words.
+    // attempts ran out. A kind of its own, handed to the runtime with the
+    // run's notes and never dropped for room -- it is three lines at most --
+    // and shown as data: an error can carry a vendor's words.
     const { rows: failures } = await tx.query<{ error: string | null; attempt: number }>(
       `SELECT e.payload->>'error' AS error, t.attempt
          FROM events e JOIN tasks t ON t.id = e.task_id
@@ -580,7 +602,7 @@ export async function buildContext(
       const said = failures.slice().reverse()
         .map((failure) => `- ${(failure.error ?? 'no reason was recorded').slice(0, 600)}`).join('\n');
       sections.push({
-        kind: 'working_memory',
+        kind: 'earlier_attempts',
         title: 'Earlier attempts at this task failed',
         body: `This is attempt ${failures[0]!.attempt + 1}. What went wrong before, most recent last:\n` +
           wrapUntrusted('earlier attempts', said) +

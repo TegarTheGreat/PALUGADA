@@ -26,7 +26,14 @@ import { readCursor, writeCursor } from '../inbox/inbox.ts';
 /* -------------------------------------------------------------- structure --- */
 
 export interface StructureView {
-  projects: Array<{ id: string; slug: string; name: string }>;
+  /**
+   * With what each is for, whether it is closed, and how much work it holds
+   * and has cost (0074).
+   */
+  projects: Array<{
+    id: string; slug: string; name: string; description: string | null; archivedAt: Date | null;
+    openTasks: number; doneTasks: number; costCents: number;
+  }>;
   goals: Array<{
     id: string;
     parentId: string | null;
@@ -82,8 +89,16 @@ export async function structureOf(companyId: string): Promise<StructureView> {
   return withTenant(companyId, async (tx) => {
     // One after another: a transaction is one connection, and one connection
     // runs one query at a time (pg queues a second and will refuse it).
-    const projects = await tx.query<{ id: string; slug: string; name: string }>(
-      'SELECT id, slug, name FROM projects ORDER BY created_at',
+    const projects = await tx.query<{
+      id: string; slug: string; name: string; description: string | null; archived_at: Date | null;
+      open_tasks: number; done_tasks: number; cost_cents: string;
+    }>(
+      `SELECT p.id, p.slug, p.name, p.description, p.archived_at,
+              (SELECT count(*)::int FROM tasks t WHERE t.project_id = p.id
+                 AND t.status NOT IN ('completed', 'failed', 'halted', 'cancelled')) AS open_tasks,
+              (SELECT count(*)::int FROM tasks t WHERE t.project_id = p.id AND t.status = 'completed') AS done_tasks,
+              (SELECT coalesce(sum(${TASK_COST_SQL('t.id')}), 0) FROM tasks t WHERE t.project_id = p.id)::text AS cost_cents
+         FROM projects p ORDER BY p.archived_at IS NOT NULL, p.created_at`,
     );
     const goals = await tx.query<{
       id: string; parent_goal_id: string | null; kind: string; slug: string;
@@ -173,7 +188,10 @@ export async function structureOf(companyId: string): Promise<StructureView> {
     }
 
     return {
-      projects: projects.rows,
+      projects: projects.rows.map((row) => ({
+        id: row.id, slug: row.slug, name: row.name, description: row.description, archivedAt: row.archived_at,
+        openTasks: row.open_tasks, doneTasks: row.done_tasks, costCents: Number(row.cost_cents),
+      })),
       goals: goals.rows.map((goal) => ({
         id: goal.id,
         parentId: goal.parent_goal_id,
@@ -253,6 +271,8 @@ export interface WorkItem {
   result: string | null;
   roleSlug: string;
   divisionName: string;
+  projectId: string;
+  projectName: string;
   goal: string | null;
   schedule: string | null;
   priority: number;
@@ -284,28 +304,43 @@ export interface WorkView {
   items: WorkItem[];
   /** How many tasks are in each group, whatever the filter, for the tabs. */
   counts: Record<WorkGroup, number>;
+  /** The page marker for what is older, as decision history pages; null when that was all. */
+  next: string | null;
 }
 
+/**
+ * The company's work, newest first, narrowed to a group, a project, a role
+ * or a goal (0074), a page at a time. It showed the newest hundred and
+ * nothing past them, so the hundred-and-first task could not be found from
+ * Work at all.
+ */
 export async function workOf(
   companyId: string,
-  options: { group?: WorkGroup; limit?: number } = {},
+  options: {
+    group?: WorkGroup; limit?: number; projectId?: string; roleId?: string; goalId?: string; before?: string;
+    taskId?: string;
+  } = {},
 ): Promise<WorkView> {
   const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
   const statuses = options.group ? [...WORK_GROUPS[options.group]] : null;
+  const cursor = options.before ? readCursor(options.before) : null;
   return withTenant(companyId, async (tx) => {
-    const { rows } = await tx.query<{
+    const { rows: fetched } = await tx.query<{
       id: string; status: TaskStatus; halt_reason: string | null; input: unknown;
       role_slug: string; division_name: string; goal: string | null; schedule: string | null;
       priority: number; attempt: number; attempt_max: number; created_at: Date;
       started_at: Date | null; finished_at: Date | null; cost_cents: string;
       parent_task_id: string | null; output: unknown; steps_done: number; current_step: string | null;
       current_step_status: string | null; plan_steps: number | null; lease_holder: string | null;
-      heartbeat_at: Date | null; deadline_at: Date | null;
+      heartbeat_at: Date | null; deadline_at: Date | null; project_id: string; project_name: string;
+      created_micros: string;
     }>(
       `SELECT t.id, t.status, t.halt_reason, t.input, r.slug AS role_slug,
               d.name AS division_name, g.statement AS goal, s.slug AS schedule,
               t.priority, t.attempt, t.attempt_max, t.created_at, t.started_at,
               t.finished_at, t.parent_task_id, t.lease_holder, t.deadline_at, t.output,
+              t.project_id, p.name AS project_name,
+              (extract(epoch FROM t.created_at) * 1000000)::bigint::text AS created_micros,
               ${TASK_COST_SQL('t.id')} AS cost_cents,
               (SELECT count(*)::int FROM task_steps j
                 WHERE j.task_id = t.id AND j.status = 'committed') AS steps_done,
@@ -316,17 +351,27 @@ export async function workOf(
          FROM tasks t
          JOIN roles r ON r.id = t.role_id
          JOIN divisions d ON d.id = t.division_id
+         JOIN projects p ON p.id = t.project_id
          LEFT JOIN goals g ON g.id = t.goal_id
          LEFT JOIN schedules s ON s.id = t.schedule_id
          LEFT JOIN LATERAL (
            SELECT j.name, j.status FROM task_steps j
             WHERE j.task_id = t.id ORDER BY j.step_index DESC LIMIT 1
          ) last ON true
-        WHERE $1::text[] IS NULL OR t.status = ANY ($1)
-        ORDER BY t.created_at DESC
-        LIMIT $2`,
-      [statuses, limit],
+        WHERE ($1::text[] IS NULL OR t.status = ANY ($1))
+          AND ($3::uuid IS NULL OR t.project_id = $3)
+          AND ($4::uuid IS NULL OR t.role_id = $4)
+          AND ($5::uuid IS NULL OR t.goal_id = $5)
+          AND ($6::bigint IS NULL
+               OR (t.created_at, t.id) < (timestamptz 'epoch' + $6::bigint * interval '1 microsecond', $7::uuid))
+          AND ($8::uuid IS NULL OR t.id = $8)
+        ORDER BY t.created_at DESC, t.id DESC
+        LIMIT $2 + 1`,
+      [statuses, limit, options.projectId ?? null, options.roleId ?? null, options.goalId ?? null,
+        cursor?.createdMicros ?? null, cursor?.id ?? null, options.taskId ?? null],
     );
+    const rows = fetched.slice(0, limit);
+    const last = rows[rows.length - 1];
     const { rows: grouped } = await tx.query<{ status: TaskStatus; n: number }>(
       'SELECT status, count(*)::int AS n FROM tasks GROUP BY status',
     );
@@ -340,6 +385,7 @@ export async function workOf(
 
     return {
       counts,
+      next: fetched.length > limit && last ? writeCursor(last.created_micros, last.id) : null,
       items: rows.map((row) => ({
         id: row.id,
         status: row.status,
@@ -348,6 +394,8 @@ export async function workOf(
         result: row.output === null || row.output === undefined ? null : summarise(row.output, 200, RESULT_FIELDS),
         roleSlug: row.role_slug,
         divisionName: row.division_name,
+        projectId: row.project_id,
+        projectName: row.project_name,
         goal: row.goal,
         schedule: row.schedule,
         priority: row.priority,

@@ -270,6 +270,15 @@ To grant a capability, open the division and use **Change a grant**: the
 may be the catalogue's or stricter; a looser one is refused. Leaving
 **Tier** blank revokes the grant.
 
+**Team**, **Projects** lists every project with what it is for, how much
+work is under way and done in it, and what it has cost. **Edit** renames it
+and says what it is for -- every run in the project is told, so a run for the
+wholesale side knows it is writing to cafes. **Archive** closes a project to
+new work; what is under way finishes, its history stays, and **Open again**
+reopens it. A company keeps at least one open project. In **Work**, narrow
+the list to one project, role or goal, and **Show older** pages back past
+the newest hundred.
+
 A hired role runs on the company's most common runtime and the `standard`
 model tier. The role's **Change its charter or model** section changes its
 charter and its **Primary model**; the console does not change a role's

@@ -12,7 +12,7 @@ import {
 import { notifications } from '@mantine/notifications';
 import {
   IconArrowsRight, IconCalendarTime, IconChartBar, IconCoin, IconCrown, IconFlag, IconFlask, IconHammer, IconHeadset, IconMessageCircle, IconPlus,
-  IconRoute, IconSettings, IconShieldCheck, IconSparkles, IconTarget, IconTrendingUp, IconUserCircle, IconUsersGroup, IconWebhook,
+  IconRoute, IconSettings, IconShieldCheck, IconSparkles, IconTarget, IconTrendingUp, IconUserCircle, IconUsersGroup, IconWebhook, IconFolders,
 } from '@tabler/icons-react';
 import { useMediaQuery } from '@mantine/hooks';
 import { api, explain } from '../api.ts';
@@ -28,6 +28,7 @@ import { AssignWork } from '../components/AssignWork.tsx';
 import { GoalMetrics } from '../components/Metrics.tsx';
 import { Triggers } from '../components/Triggers.tsx';
 import { Handoffs } from '../components/Handoffs.tsx';
+import { Projects } from '../components/Projects.tsx';
 import { ConfigHistory } from '../components/ConfigHistory.tsx';
 import { companyEmblem, OWNER_PICTURE, rolePicture } from '../images.ts';
 import { openGoals } from '../goals.ts';
@@ -67,6 +68,7 @@ export function Organization({ ctx }: PageProps) {
         <Tabs.List mb="lg">
           <Tabs.Tab value="chart" leftSection={<IconUsersGroup size={16} />}>{t('Divisions & roles')}</Tabs.Tab>
           <Tabs.Tab value="goals" leftSection={<IconTarget size={16} />}>{t('Goals')}</Tabs.Tab>
+          <Tabs.Tab value="projects" leftSection={<IconFolders size={16} />}>{t('Projects')}</Tabs.Tab>
           <Tabs.Tab value="schedules" leftSection={<IconCalendarTime size={16} />}>{t('Schedules')}</Tabs.Tab>
           <Tabs.Tab value="handoffs" leftSection={<IconArrowsRight size={16} />}>{t('Handoffs')}</Tabs.Tab>
           <Tabs.Tab value="triggers" leftSection={<IconWebhook size={16} />}>{t('Triggers')}</Tabs.Tab>
@@ -79,6 +81,9 @@ export function Organization({ ctx }: PageProps) {
         </Tabs.Panel>
         <Tabs.Panel value="goals">
           <GoalLadder companyId={companyId} goals={structure.goals} changed={view.reload} />
+        </Tabs.Panel>
+        <Tabs.Panel value="projects">
+          <Projects companyId={companyId} structure={structure} changed={view.reload} />
         </Tabs.Panel>
         <Tabs.Panel value="schedules">
           <Schedules companyId={companyId} structure={structure} schedules={schedules} changed={view.reload} />

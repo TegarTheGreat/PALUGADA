@@ -102,6 +102,7 @@ import { GOAL_STATUSES, applyGoalChange, createGoal, readGoal } from '../domain/
 import {
   addDivision,
   addProject,
+  changeProject,
   addRole,
   applyGrantChange,
   applyRoleChange,
@@ -581,12 +582,25 @@ export class OwnerApi {
               { field: 'group' },
             );
           }
+          const id = (name: string) => {
+            const value = query.get(name);
+            if (value === null || value === '') return {};
+            if (!/^[0-9a-f-]{36}$/.test(value)) {
+              throw new PalugadaError('contract.violation', `${name} is the id of one, as the structure lists it`, { field: name });
+            }
+            return { [`${name}Id`]: value };
+          };
           return workOf(params.companyId!, {
             ...(group ? { group } : {}),
             ...(query.get('limit') === null ? {} : { limit: wholeNumber(query.get('limit'), 'limit') }),
+            ...id('project'), ...id('role'), ...id('goal'),
+            // The `next` of the page before: read, not trusted (inbox.ts readCursor).
+            ...(query.get('before') ? { before: query.get('before')! } : {}),
           });
         },
       },
+
+
 
       {
         method: 'GET',
@@ -2178,6 +2192,10 @@ export class OwnerApi {
         // The events above say what it did; this is the thing it was for,
         // which the owner could not see anywhere -- a blog post approved and
         // never read.
+        //
+        // And the task as Work lists it (`item`), for a link to work that is
+        // not on the page the owner has open: a ticket's work, a decision's
+        // task, a search result (0074).
         method: 'GET',
         pattern: '/api/companies/:companyId/tasks/:taskId',
         handle: async ({ params }) => {
@@ -2185,7 +2203,8 @@ export class OwnerApi {
           if (!task) {
             throw new PalugadaError('contract.violation', 'no such task in this company', { taskId: params.taskId });
           }
-          return { task };
+          const item = (await workOf(params.companyId!, { taskId: params.taskId!, limit: 1 })).items[0] ?? null;
+          return { task, item };
         },
       },
 
@@ -2965,6 +2984,24 @@ export class OwnerApi {
             slug: requireText(body.slug, 'slug'), name: requireText(body.name, 'name'),
           }),
         }),
+      },
+
+      {
+        // Renaming, describing or closing a project (0074). It grants nothing
+        // and spends nothing, so the session is enough -- like starting one.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/projects/:projectId',
+        handle: async ({ params, body }) => {
+          if (body.archived !== undefined && typeof body.archived !== 'boolean') {
+            throw new PalugadaError('contract.violation', 'archived is true or false', { field: 'archived' });
+          }
+          await changeProject(params.companyId!, params.projectId!, {
+            ...(body.name === undefined ? {} : { name: String(body.name) }),
+            ...(body.description === undefined ? {} : { description: body.description === null ? null : String(body.description) }),
+            ...(body.archived === undefined ? {} : { archived: body.archived as boolean }),
+          });
+          return { ok: true };
+        },
       },
 
       {

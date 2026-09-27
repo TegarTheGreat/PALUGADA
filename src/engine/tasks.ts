@@ -237,6 +237,14 @@ export async function createRootTask(input: CreateTaskInput): Promise<TaskRow> {
     // one, starts nothing -- the schedule, the trigger, the handoff and the
     // owner all come through here.
     await assertGoalOpen(tx, input.goalId);
+    // Nor a closed project (0074): its work is finished, whoever asks.
+    const { rows: project } = await tx.query<{ name: string; archived: boolean }>(
+      'SELECT name, archived_at IS NOT NULL AS archived FROM projects WHERE id = $1', [input.projectId]);
+    if (project[0]?.archived) {
+      throw new PalugadaError('contract.violation',
+        `project "${project[0].name}" is archived and takes no new work; open it again, or give the work to another project`,
+        { field: 'projectId' });
+    }
 
     // F1.6: the narrowest account that covers this task, unless the caller
     // named one. A task charged to the company account while its division has

@@ -3434,13 +3434,27 @@ has.
   the capability on each event; and the steps read as sentences, with the
   data a click away.
 
+- **A project is more than a label, and Work finds any task (0074).** A
+  project could only be started: not renamed, described or closed, and
+  nothing a run was given said which project its work was for. Work showed
+  the newest hundred tasks with no filter and nothing past them, and a link
+  to a task that was not among them opened nothing. A project now has what
+  it is for, told to every run in it; it can be renamed and closed to new
+  work (a company keeps one open), and shows its open and finished work and
+  its cost. Work narrows to a project, role or goal, pages by the same
+  microsecond cursor as decision history, and opens any task by its id.
+  Checking that a runtime receives what the pack says found that notes of
+  a kind the engine did not list never reached it: the project, and the
+  "earlier attempts failed" note added the batch before, reached no run.
+  Both are handed over now, and procedures travel with their titles, so
+  "How the owner wants it done" arrives as the owner's word.
+
 **Still open, next.** From the same audits, in order: done criteria are
 shown to runs and never checked -- an honest check needs a judge or a
 change to every role's output, and is the next piece of this; a run has no
 wall-clock ceiling of its own beyond its deadline and its lease; the context
-a run was given is kept only as its prompt, for in-process runs; projects are
-only a label; there is no document
-knowledge base, and pgvector is installed and unused. The assistant in
+a run was given is kept only as its prompt, for in-process runs; there is no
+document knowledge base, and pgvector is installed and unused. The assistant in
 Telegram, by text and voice note. WhatsApp, Signal and email as
 owner channels are not built; Slack and Discord cannot carry buttons, so
 Telegram remains the chat that decides. Subscription

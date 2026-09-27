@@ -8,10 +8,10 @@
  * against the plan, the step it is on, and when its worker last said it was
  * alive -- and the page refreshes itself while it is open.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Alert, Avatar, Badge, Button, Code, CopyButton, Drawer, Group, Modal, Paper, Progress, ScrollArea, SegmentedControl, SimpleGrid,
-  Spoiler, Stack, Table, Tabs, Text, Textarea, ThemeIcon, Timeline, Tooltip,
+  Select, Spoiler, Stack, Table, Tabs, Text, Textarea, ThemeIcon, Timeline, Tooltip,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
@@ -21,7 +21,7 @@ import {
 import { api, explain } from '../api.ts';
 import { useLoad, useNow } from '../hooks.ts';
 import { go } from '../router.ts';
-import type { Deliverable, TaskDetail, Trace, WorkGroup, WorkItem } from '../types.ts';
+import type { Deliverable, Structure, TaskDetail, Trace, WorkGroup, WorkItem } from '../types.ts';
 import { dateTime, eventSentence, haltReason, humanize, money, relative, time } from '../format.ts';
 import { t } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
@@ -38,16 +38,54 @@ export function Work({ ctx, route }: PageProps) {
   const { companyId } = ctx;
   const [filter, setFilter] = useState<Filter>('all');
   const [view, setView] = useState<'tasks' | 'tickets'>('tasks');
+  // Narrowing to one project, role or goal (0074), and the older pages
+  // fetched on request, kept until the filters change.
+  const [project, setProject] = useState<string | null>(null);
+  const [role, setRole] = useState<string | null>(null);
+  const [goal, setGoal] = useState<string | null>(null);
+  const [older, setOlder] = useState<WorkItem[]>([]);
+  const [next, setNext] = useState<string | null>(null);
+  const query = (before?: string) => {
+    const params = new URLSearchParams({ limit: '100' });
+    if (filter !== 'all') params.set('group', filter);
+    if (project) params.set('project', project);
+    if (role) params.set('role', role);
+    if (goal) params.set('goal', goal);
+    if (before) params.set('before', before);
+    return params.toString();
+  };
   const work = useLoad(async () => {
-    const answer: { items: WorkItem[]; counts: Record<WorkGroup, number> } = filter === 'all'
-      ? await api('GET', `/api/companies/${companyId}/work?limit=100`)
-      : await api('GET', `/api/companies/${companyId}/work?group=${filter}&limit=100`);
+    const answer: { items: WorkItem[]; counts: Record<WorkGroup, number>; next: string | null } =
+      await api('GET', `/api/companies/${companyId}/work?${query()}`);
     return answer;
-  }, [companyId, filter], { every: 10_000 });
+  }, [companyId, filter, project, role, goal], { every: 10_000 });
+  const structure = useLoad(async (): Promise<Structure> => api('GET', `/api/companies/${companyId}/structure`), [companyId]);
+  // The first page reloads itself every ten seconds; what was paged in after
+  // it is dropped when the filters change, and its marker taken from the
+  // first page until the owner asks for more.
+  useEffect(() => { setOlder([]); }, [companyId, filter, project, role, goal]);
+  useEffect(() => { if (older.length === 0) setNext(work.data?.next ?? null); }, [work.data, older.length]);
+  const loadOlder = async () => {
+    if (!next) return;
+    try {
+      const answer: { items: WorkItem[]; next: string | null } = await api('GET', `/api/companies/${companyId}/work?${query(next)}`);
+      setOlder((now) => [...now, ...answer.items]);
+      setNext(answer.next);
+    } catch (failure) {
+      notifications.show({ color: 'red', message: explain(failure) });
+    }
+  };
+  const items = [...(work.data?.items ?? []), ...older];
 
   const counts = work.data?.counts;
   const label = (group: WorkGroup, text: string) => (counts ? `${text} · ${counts[group]}` : text);
-  const open = work.data?.items.find((item) => item.id === route.item) ?? null;
+  // A task named in the address that is not on the pages loaded -- a
+  // ticket's work, a decision's task -- is fetched by itself.
+  const listed = items.find((item) => item.id === route.item) ?? null;
+  const single = useLoad(async (): Promise<WorkItem | null> => (route.item && !listed
+    ? ((await api('GET', `/api/companies/${companyId}/tasks/${route.item}`)) as { item: WorkItem | null }).item
+    : null), [companyId, route.item, Boolean(listed)]);
+  const open = listed ?? single.data ?? null;
   const openTask = (id: string | null) => go({ ...route, item: id });
 
   return (
@@ -80,10 +118,22 @@ export function Work({ ctx, route }: PageProps) {
         ]}
         style={{ alignSelf: 'flex-start', maxWidth: '100%', overflowX: 'auto' }}
       />
+      {structure.data && (
+        <Group gap="sm" wrap="wrap">
+          <Select size="xs" w={200} placeholder={t('Every project')} clearable value={project} onChange={setProject}
+            data={structure.data.projects.map((one) => ({ value: one.id, label: one.name }))} />
+          <Select size="xs" w={200} placeholder={t('Every role')} clearable searchable value={role} onChange={setRole}
+            data={structure.data.roles.map((one) => ({
+              value: one.id, label: one.displayName ? `${one.displayName} (${one.slug})` : one.slug,
+            }))} />
+          <Select size="xs" w={240} placeholder={t('Every goal')} clearable searchable value={goal} onChange={setGoal}
+            data={structure.data.goals.map((one) => ({ value: one.id, label: one.statement }))} />
+        </Group>
+      )}
 
       {work.error && !work.data ? <LoadFailed message={work.error} retry={work.reload} /> : !work.data ? <Loading /> : (
         <Paper withBorder radius="lg" style={{ overflow: 'hidden' }}>
-          {work.data.items.length === 0 ? (
+          {items.length === 0 ? (
             <EmptyState
               title={t('Nothing here')}
               description={t('No task is in this state right now.')}
@@ -95,14 +145,14 @@ export function Work({ ctx, route }: PageProps) {
                 <Table.Thead>
                   <Table.Tr>
                     <Table.Th>{t('Task')}</Table.Th>
-                    <Table.Th>{t('Status')}</Table.Th>
+                    <Table.Th miw={130}>{t('Status')}</Table.Th>
                     <Table.Th w={220}>{t('Progress')}</Table.Th>
                     <Table.Th>{t('Serves')}</Table.Th>
                     <Table.Th ta="right">{t('Cost')}</Table.Th>
                   </Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>
-                  {work.data.items.map((item) => (
+                  {items.map((item) => (
                     <Table.Tr key={item.id} className="clickable-row" onClick={() => openTask(item.id)}>
                       <Table.Td maw={380}>
                         <Group gap="sm" wrap="nowrap" align="flex-start">
@@ -116,14 +166,14 @@ export function Work({ ctx, route }: PageProps) {
                           </Group>
                         )}
                         <Group gap={6}>
-                          <Text size="xs" c="dimmed">{item.roleSlug} · {item.divisionName} · {relative(item.startedAt ?? item.createdAt)}</Text>
+                          <Text size="xs" c="dimmed">{item.roleSlug} · {item.divisionName} · {item.projectName} · {relative(item.startedAt ?? item.createdAt)}</Text>
                           {item.schedule && <Badge size="xs" variant="outline" color="gray">{item.schedule}</Badge>}
                           {item.parentTaskId && <Badge size="xs" variant="outline" color="gray">{t('sub-task')}</Badge>}
                         </Group>
                         </div>
                         </Group>
                       </Table.Td>
-                      <Table.Td>
+                      <Table.Td miw={130}>
                         <StatusBadge status={item.status} />
                         {item.haltReason && <Text size="xs" c="red" mt={4}>{haltReason(item.haltReason)}</Text>}
                       </Table.Td>
@@ -135,6 +185,11 @@ export function Work({ ctx, route }: PageProps) {
                 </Table.Tbody>
               </Table>
             </Table.ScrollContainer>
+          )}
+          {next && (
+            <Group justify="center" p="sm">
+              <Button variant="subtle" onClick={() => void loadOlder()}>{t('Show older')}</Button>
+            </Group>
           )}
         </Paper>
       )}

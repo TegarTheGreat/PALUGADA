@@ -165,7 +165,7 @@ export interface RunOutcome {
  * structured goal chain, each of which travels in a field of its own.
  */
 const NOTE_KINDS: ReadonlySet<ContextSection['kind']> = new Set([
-  'language', 'stage', 'contract', 'goal_measure', 'owner_question', 'owner_note',
+  'language', 'stage', 'project', 'contract', 'goal_measure', 'owner_question', 'owner_note', 'earlier_attempts',
 ]);
 
 const PARKING_CODES: ReadonlySet<string> = new Set(['approval.required', 'owner.asked', 'review.required', 'window.closed', 'task.waiting_child']);
@@ -319,7 +319,10 @@ export class Engine {
             .filter((s) => s.kind === 'platform_charter' || s.kind === 'company_charter' || s.kind === 'role_charter')
             .map((s) => (s.kind === 'role_charter' ? `## ${s.title}\n\n${s.body}` : s.body))
             .join('\n\n'),
-          skills: context.sections.filter((s) => s.kind === 'sop').map((s) => s.body),
+          // With their titles, like the memories: "How the owner wants it
+          // done" is the owner's word and a skill's summary is not, and the
+          // runtime was handed the two as the same kind of line.
+          skills: context.sections.filter((s) => s.kind === 'sop').map((s) => `${s.title}\n${s.body}`),
           memories: context.sections
             .filter((s) => s.kind === 'semantic_memory' || s.kind === 'confidence_warning')
             .map((s) => `${s.title}\n${s.body}`),

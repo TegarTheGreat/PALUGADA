@@ -13,7 +13,7 @@
     "db:migrate": "node --env-file-if-exists=.env scripts/migrate.ts",
     "pretest": "node scripts/require-console.ts",
     "test": "node --test --test-concurrency=1 \"test/**/*.test.ts\"",
-    "pretest:coverage": "node scripts/require-console.ts",
+    "pretest:coverage": "node scripts/require-console.ts && node -e \"require('node:fs').mkdirSync('coverage', { recursive: true })\"",
     "test:coverage": "node --test --test-concurrency=1 --experimental-test-coverage --test-coverage-include=\"src/**\" --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info \"test/**/*.test.ts\" && node scripts/coverage-report.ts coverage/lcov.info",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm run console:build && npm test",

@@ -8,8 +8,11 @@ import { InMemorySecretManager } from '../../src/secrets/manager.ts';
 import { OwnerApi } from '../../src/owner/api.ts';
 import { OwnerMfa, TOTP_STEP_SECONDS, decodeBase32, newTotpSecret, stepFor, totpCode } from '../../src/owner/mfa.ts';
 import { DeploymentSecretManager, masterKeyFrom, type MasterKey } from '../../src/settings/store.ts';
+import type { ToolUsingLlmClient } from '../../src/llm/client.ts';
 
-export async function consoleWithSettings(options: { baseEnv?: NodeJS.ProcessEnv; env?: NodeJS.ProcessEnv } = {}) {
+export async function consoleWithSettings(options: {
+  baseEnv?: NodeJS.ProcessEnv; env?: NodeJS.ProcessEnv; assistant?: { llm: ToolUsingLlmClient | null };
+} = {}) {
   const secrets = new InMemorySecretManager();
   const { secret } = newTotpSecret('owner phone');
   secrets.set('vault://owner/totp', secret);
@@ -23,6 +26,7 @@ export async function consoleWithSettings(options: { baseEnv?: NodeJS.ProcessEnv
   const api = new OwnerApi({
     mfa,
     secrets: sealed,
+    ...(options.assistant ? { assistant: options.assistant } : {}),
     deploymentSettings: {
       baseEnv: options.baseEnv ?? {}, env: options.env ?? options.baseEnv ?? {}, settings: {},
       master: () => master, secrets: sealed, restart: () => undefined,

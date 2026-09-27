@@ -22,7 +22,7 @@ import { Spotlight, spotlight, type SpotlightActionData } from '@mantine/spotlig
 import {
   IconActivity, IconAlertOctagon, IconBrain, IconBuildingStore, IconCheck, IconChecklist, IconChevronDown,
   IconCoin, IconDots, IconHistory, IconHome, IconInbox, IconLanguage, IconLayoutDashboard, IconLogout, IconMap,
-  IconMoon, IconPlayerPlay, IconPlayerStop, IconPlus, IconSearch, IconServer2, IconSettings, IconSitemap, IconSun,
+  IconMoon, IconPlayerPlay, IconPlayerStop, IconPlus, IconSearch, IconSparkles, IconServer2, IconSettings, IconSitemap, IconSun,
 } from '@tabler/icons-react';
 import { api, explain, setToken, whenSignedOut } from './api.ts';
 import { useFactor } from './factor.tsx';
@@ -43,6 +43,7 @@ import { Money } from './pages/Money.tsx';
 import { History } from './pages/History.tsx';
 import { SettingsHub } from './pages/SettingsHub.tsx';
 import { AssignWork } from './components/AssignWork.tsx';
+import { Assistant } from './components/Assistant.tsx';
 import { Tour, type TourSpot } from './components/Tour.tsx';
 
 /** The pages of one company, as the sidebar offers them. */
@@ -128,6 +129,7 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
   const [cancelling, setCancelling] = useState(false);
   const [more, setMore] = useState(false);
   const [giving, setGiving] = useState(false);
+  const [asking, setAsking] = useState(false);
   const [checklist, setChecklist] = useState(false);
   const [touring, setTouring] = useState(false);
   const [spot, setSpot] = useState<TourSpot | null>(null);
@@ -234,6 +236,7 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
   };
 
   const spotlightActions: SpotlightActionData[] = [
+    { id: 'ask', label: t('Ask PALUGADA'), description: t('Say what you want; it sets things up with you'), leftSection: <IconSparkles size={18} />, onClick: () => setAsking(true) },
     { id: 'home', label: t('Home'), description: t('Every company at a glance'), leftSection: <IconHome size={18} />, onClick: () => go({ kind: 'home' }) },
     ...PAGES.map((page) => ({
       id: `page-${page.id}`,
@@ -352,6 +355,7 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
               pick={(id) => open(route.kind === 'company' ? route.page : 'inbox', { companyId: id })} start={() => setStarting(true)} />
           </Group>
           <Group gap={6} wrap="nowrap">
+            <ActionIcon variant="light" size="lg" onClick={() => setAsking(true)} aria-label={t('Ask PALUGADA')}><IconSparkles size={18} /></ActionIcon>
             <ActionIcon variant="subtle" size="lg" onClick={() => spotlight.open()} aria-label={t('Search')}><IconSearch size={18} /></ActionIcon>
             <ActionIcon variant={stopAll ? 'filled' : 'light'} color={stopAll ? 'teal' : 'red'} size="lg" onClick={() => void toggleStop()} aria-label={stopAll ? t('Resume everything') : t('Stop everything')}>
               {stopAll ? <IconPlayerPlay size={18} /> : <IconPlayerStop size={18} />}
@@ -387,6 +391,9 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
               <Menu.Item leftSection={<IconBuildingStore size={16} />} onClick={() => setStarting(true)}>{t('Start a company')}</Menu.Item>
             </Menu.Dropdown>
           </Menu>
+          <Button fullWidth mt={6} variant="light" leftSection={<IconSparkles size={16} />} justify="flex-start" onClick={() => setAsking(true)}>
+            {t('Ask PALUGADA')}
+          </Button>
         </AppShell.Section>
 
         <AppShell.Section grow component={ScrollArea} mt="sm">
@@ -523,6 +530,7 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
       <RestoreCompany opened={restoring} close={() => setRestoring(false)} restored={(id) => { base.reload(); open('overview', { companyId: id }); }} />
 
       <GiveWork companyId={company?.id ?? null} opened={giving} close={() => setGiving(false)} />
+      <Assistant opened={asking} onClose={() => setAsking(false)} />
 
       <Tour
         opened={touring}

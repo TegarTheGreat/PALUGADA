@@ -9,6 +9,29 @@ file of a systemd unit) and take effect when the platform restarts: run
 Compose recreates the app container with them. Every variable is listed in
 [docs/configuration.md](../configuration.md).
 
+## Ask PALUGADA
+
+Press **Ask PALUGADA** at the top of the sidebar (on a phone, the sparkle at
+the top) and say what you want in your own words: "what is left to set
+up?", "use Claude for every role and search the web with Brave", "start a
+company that sells coffee online and let it run itself", "what is waiting
+for me?".
+
+The assistant thinks with this deployment's own model, so choose one first
+(**This deployment**, **Model**). It reads what the console can read, and
+puts every change in front of you as a card: what it does, the route it
+calls, and the values it sends. Nothing changes until you press **Apply**;
+a change that takes your authenticator on its own page takes it on the card
+too (**Apply with a code**). A key goes in the sealed field on the card and
+from there straight to where it is kept: the assistant never sees it, and a
+key typed into the conversation is refused, not kept, and not sent to the
+model. **Dismiss** a card you do not want; **Start again** forgets the
+conversation.
+
+A few things are done on their own pages, and the assistant says so:
+connecting a Telegram bot, signing an agent CLI in with a Claude plan,
+pairing a device, importing a company.
+
 ## Give work
 
 1. Press **Give work** on **Work** or **Team**, or **New** then

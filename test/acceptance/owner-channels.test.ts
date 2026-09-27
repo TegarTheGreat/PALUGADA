@@ -1299,7 +1299,9 @@ test('every sentence the platform says to the owner has its translation (src/own
   for (const name of await readdir(directory)) {
     if (!name.endsWith('.ts') || name === 'say.ts') continue;
     const source = await readFile(new URL(name, directory), 'utf8');
-    for (const match of source.matchAll(/\bsay\([^,]+,\s*(?:[^?]+\?\s*)?'((?:[^'\\]|\\.)*)'(?:\s*:\s*'((?:[^'\\]|\\.)*)')?/g)) {
+    // One line at a time: a ternary's question mark is on the call's own line,
+    // and one further down the file belongs to something else.
+    for (const match of source.matchAll(/\bsay\([^,\n]+,\s*(?:[^?\n]+\?\s*)?'((?:[^'\\]|\\.)*)'(?:\s*:\s*'((?:[^'\\]|\\.)*)')?/g)) {
       said.add(match[1]!);
       if (match[2]) said.add(match[2]);
     }

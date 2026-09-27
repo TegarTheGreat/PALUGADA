@@ -139,6 +139,10 @@ test('every table holding tenant data is protected', async () => {
     // and one that could write them could choose the model it runs on.
     'deployment_settings',
     'deployment_secrets',
+    // The owner's conversation with the assistant (0066): the owner's words and
+    // the changes proposed to them, which no agent may read or add to.
+    'assistant_messages',
+    'assistant_proposals',
   ]);
 
   const rows = await withControlPlane(async (tx) => {

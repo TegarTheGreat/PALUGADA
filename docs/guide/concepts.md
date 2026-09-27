@@ -144,6 +144,10 @@ does: `email.send`, `dns.update`, `invoice.pay`. The catalogue in
 `src/broker/catalogue.ts` lists the capabilities every company has in common
 and fixes each one's tier, with the reason it is not the tier above or below.
 
+- The owner's assistant (**Ask PALUGADA**) is not a capability and belongs
+  to no company: it reads the owner API and proposes its routes as cards the
+  owner applies, so it can do nothing the owner could not do from the page,
+  and nothing at all without them.
 - The platform implements the ones that need nobody's account: `web.fetch`,
   `uptime.check`, `files.list`, `doc.draft`, `email.draft`, `memory.search`
   and `skill.read`; `web.search` and `web.extract` through the search

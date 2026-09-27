@@ -142,6 +142,11 @@ import {
 import { CapabilityRegistry } from '../broker/registry.ts';
 import { accessFor, bindMcpServers, currentPins, offeredTools, type TokenIn } from '../capabilities/mcp.ts';
 import { MCP_PRESETS } from '../capabilities/mcp-presets.ts';
+import {
+  closeProposal, conversation, converse, forgetConversation, patternFor, proposalById, type AssistantReach,
+} from './assistant.ts';
+import { ASSISTANT_ACTIONS } from './assistant-actions.ts';
+import type { ToolUsingLlmClient } from '../llm/client.ts';
 import type { OwnerMfa, WebAuthnAssertion } from './mfa.ts';
 import { telegramApi, telegramBot, telegramChats, type TelegramChannel, type TelegramUpdate } from './telegram.ts';
 import { WebhookPush, ntfyBody } from './push.ts';
@@ -249,6 +254,12 @@ export interface OwnerApiOptions {
    * with, and how to take a change up. Omitted, the console cannot change
    * them, as with a deployment built by hand.
    */
+  /**
+   * The owner's assistant (src/owner/assistant.ts): the model it thinks with,
+   * the deployment's own. Absent or null, the conversation says a model has to
+   * be chosen first.
+   */
+  assistant?: { llm: ToolUsingLlmClient | null };
   deploymentSettings?: {
     baseEnv: NodeJS.ProcessEnv;
     env: NodeJS.ProcessEnv;
@@ -1577,6 +1588,88 @@ export class OwnerApi {
           await writeSetting('mcp', rest.length > 0 ? { servers: rest } : null);
           await deleteSecret(`mcp-${name}`);
           return this.#applySettings();
+        },
+      },
+
+      /* ------------------------------------------------- the assistant --- */
+
+      {
+        // The conversation, oldest first, with the cards still open.
+        method: 'GET',
+        pattern: '/api/assistant',
+        handle: async () => ({
+          available: Boolean(this.#options.assistant?.llm),
+          messages: await conversation(),
+        }),
+      },
+
+      {
+        // The owner says something; the assistant reads, checks and proposes,
+        // in this process and with the owner's authority, and answers.
+        method: 'POST',
+        pattern: '/api/assistant/messages',
+        handle: async ({ request, session, body }) => ({
+          messages: await converse({
+            llm: this.#options.assistant?.llm ?? null,
+            reach: this.#reach(request, session),
+            language: async () => (await deploymentLanguages()).console ?? 'en',
+          }, requireText(body.text, 'text'), 'console'),
+        }),
+      },
+
+      {
+        // A card, applied by the owner: its route, called as the page would
+        // call it, with the key they typed on the card and their device where
+        // the route takes one. A refusal for want of the device leaves the card
+        // open for them to try again with it; any other refusal closes it.
+        method: 'POST',
+        pattern: '/api/assistant/proposals/:proposalId/apply',
+        handle: async ({ request, session, params, body }) => {
+          const proposal = await proposalById(params.proposalId!);
+          if (!proposal) throw new PalugadaError('contract.violation', 'no such proposal', { proposalId: params.proposalId });
+          if (proposal.status !== 'open') throw new PalugadaError('contract.violation', `that card was already ${proposal.status}`, {});
+          if (!patternFor(proposal.path, ASSISTANT_ACTIONS.map((action) => action.pattern))) {
+            throw new PalugadaError('contract.violation', `${proposal.path} is not something the assistant may propose`, {});
+          }
+          const typed: Record<string, string> = {};
+          const given = body.secrets && typeof body.secrets === 'object' ? body.secrets as Record<string, unknown> : {};
+          for (const [field, value] of Object.entries(given)) {
+            if (!(field in proposal.secrets)) throw new PalugadaError('contract.violation', `this card has no field ${field}`, { field });
+            if (typeof value === 'string' && value.trim()) typed[field] = value.trim();
+          }
+          try {
+            const result = await this.#dispatch('POST', proposal.path, {
+              ...proposal.body, ...typed, ...(body.proof === undefined ? {} : { proof: body.proof }),
+            }, request, session);
+            await closeProposal(proposal.id, 'applied', outcomeOf(result));
+            return { ok: true, result };
+          } catch (failure) {
+            const code = failure instanceof PalugadaError ? failure.code : '';
+            if (code !== 'approval.channel_forbidden' && !code.startsWith('mfa.')) {
+              await closeProposal(proposal.id, 'failed', (failure as Error).message);
+            }
+            throw failure;
+          }
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/assistant/proposals/:proposalId/dismiss',
+        handle: async ({ params }) => {
+          if (!await closeProposal(params.proposalId!, 'dismissed', '')) {
+            throw new PalugadaError('contract.violation', 'that card is not open', {});
+          }
+          return { ok: true };
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/assistant/clear',
+        handle: async () => {
+          await forgetConversation();
+          return { ok: true };
         },
       },
 
@@ -3253,6 +3346,39 @@ export class OwnerApi {
   }
 
   /**
+   * How the assistant reaches this API: the routes themselves, called in this
+   * process with the owner's own session, so it can do nothing the page could
+   * not and every rule a route keeps holds for it too.
+   */
+  #reach(request: IncomingMessage, session: OwnerSession | null): AssistantReach {
+    return {
+      routeOf: (method, path) => this.#match(method, new URL(path, 'http://localhost').pathname)?.route.pattern ?? null,
+      get: (path) => this.#dispatch('GET', path, {}, request, session),
+      post: (path, body) => this.#dispatch('POST', path, body, request, session),
+      readable: () => this.#routes.filter((route) => route.method === 'GET' && !route.open).map((route) => route.pattern),
+    };
+  }
+
+  /** One route, called in this process as a request would call it. */
+  async #dispatch(
+    method: 'GET' | 'POST', path: string, body: Record<string, unknown>, request: IncomingMessage, session: OwnerSession | null,
+  ): Promise<unknown> {
+    const url = new URL(path, 'http://localhost');
+    const match = this.#match(method, url.pathname);
+    if (!match || match.route.open || match.route.raw) {
+      throw new PalugadaError('contract.violation', `${method} ${url.pathname} is not a route of this console`, {});
+    }
+    const answer = await match.route.handle({ request, session, body, raw: Buffer.alloc(0), params: match.params, query: url.searchParams });
+    if (answer instanceof WithStatus) {
+      if (answer.status >= 400) {
+        throw new PalugadaError('contract.violation', String((answer.body as { error?: unknown } | null)?.error ?? `answered ${answer.status}`), {});
+      }
+      return answer.body;
+    }
+    return answer ?? { ok: true };
+  }
+
+  /**
    * The token a look at an MCP server, or a save, is made with: the one
    * typed, or the one saved for that server -- but only while the address is
    * on the host it was saved for, or it would be handed to another server.
@@ -3706,6 +3832,12 @@ function chatKindNamed(name: string): WebhookChatKind {
     throw new PalugadaError('contract.violation', `a chat is slack or discord; got ${name}`, { kind: name });
   }
   return name;
+}
+
+/** What a route answered, in a sentence the conversation keeps: short, and never a secret, which no route returns. */
+function outcomeOf(result: unknown): string {
+  const text = JSON.stringify(result) ?? '';
+  return text.length > 300 ? `${text.slice(0, 300)}...` : text;
 }
 
 /** The console's MCP servers, as saved. */

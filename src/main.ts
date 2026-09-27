@@ -55,7 +55,7 @@ import { seed } from './seed.ts';
 import { registerPlatformCapabilities as registerPlatformTools, PLATFORM_CAPABILITIES }
   from './broker/platform-capabilities.ts';
 import { CachedSecretManager } from './secrets/rotation.ts';
-import type { LlmClient } from './llm/client.ts';
+import { usesTools, type LlmClient } from './llm/client.ts';
 import { adminPool, appPool, closePools } from './db/pool.ts';
 
 /**
@@ -725,6 +725,9 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // after this point are still the deployment's, and still the owner's to see.
     deploymentNotes: notes,
     runtimes: runtimes.adapters,
+    // The owner's assistant thinks with the deployment's own model; with none
+    // chosen yet, it says so and points at where to choose one.
+    assistant: { llm: llm && usesTools(llm) ? llm : null },
     deploymentSettings: {
       baseEnv,
       env,

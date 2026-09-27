@@ -3272,8 +3272,25 @@ has.
   The digest bypassed the format mapping, so ntfy would have refused it for
   want of a topic; every push now goes through one path.
 
-**Still open, next.** Image generation, speech and a browser, which Hermes
-offers and the research for which is done. WhatsApp, Signal and email as
+- **The owner can say what they want.** The owner asked whether everything
+  could be set up by telling an AI, and it could not: every setting was a
+  form. **Ask PALUGADA** is a conversation with the deployment's own model,
+  which reads any GET route of the owner API (except a company's whole
+  export), may call the three checks that change nothing, and proposes any
+  of the POST routes it is allowed -- every one of which is either listed
+  with what it does and takes, or kept from it with a reason, and a test
+  fails on a route in neither list. A proposal is a card; nothing changes
+  until the owner applies it, through the same route and its checks, with
+  their device where that route takes one. A key goes from a sealed field
+  on the card to the route and never through the model, whose provider
+  would otherwise hold a copy; a key typed into the conversation is refused
+  and not kept. What the assistant reads is marked as data, so an agent's
+  words can at most put a card in front of the owner. The conversation is
+  kept by the deployment (0066), so it survives the restart a saved setting
+  causes.
+
+**Still open, next.** Speaking to the assistant and hearing it (speech to
+text is researched), and the assistant in Telegram. WhatsApp, Signal and email as
 owner channels are not built; Slack and Discord cannot carry buttons, so
 Telegram remains the chat that decides. Subscription
 logins whose tokens rotate (ChatGPT, Hermes' Nous and Codex logins) are not

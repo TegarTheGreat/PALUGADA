@@ -57,6 +57,14 @@ const ID: Readonly<Record<string, string>> = {
   'Answered. The task carries on with it.': 'Terjawab. Tugas dilanjutkan dengan jawaban itu.',
   'That is too long for one question; keep it under {max} characters.':
     'Terlalu panjang untuk satu pertanyaan; buat di bawah {max} karakter.',
+  '[a key, not kept]': '[sebuah kunci, tidak disimpan]',
+  'That looks like a key, so I did not keep it or send it anywhere. Keys go in the sealed field on a card, or on their page in This deployment: tell me what it is for and I will put the card in front of you.':
+    'Itu tampak seperti kunci, jadi tidak saya simpan dan tidak saya kirim ke mana pun. Kunci diisi di kolom tersegel pada kartu, atau di halamannya di This deployment: katakan untuk apa, lalu saya siapkan kartunya.',
+  'No model is set up yet, so I cannot think. Choose one under This deployment, Model; then I can help with everything else.':
+    'Belum ada model yang dipasang, jadi saya belum bisa berpikir. Pilih satu di This deployment, Model; setelah itu saya bisa membantu semua yang lain.',
+  'The model did not answer: {reason}': 'Model tidak menjawab: {reason}',
+  'Here is what I propose.': 'Ini usulan saya.',
+  'I have nothing to add.': 'Tidak ada yang perlu saya tambahkan.',
 };
 
 /** The sentences each language has, for a test to hold complete. */

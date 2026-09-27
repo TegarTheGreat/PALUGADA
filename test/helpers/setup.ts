@@ -71,6 +71,8 @@ export async function resetData(): Promise<void> {
   // test chose in the console would otherwise be the model every later
   // file's deployment starts on.
   await ownerPool().query('TRUNCATE deployment_settings, deployment_secrets');
+  // And the owner's conversation with the assistant (0066).
+  await ownerPool().query('TRUNCATE assistant_messages, assistant_proposals');
 
   // TRUNCATE ... CASCADE empties the whole referencing table, not only the
   // rows that pointed at a company -- so it also removes the platform-default

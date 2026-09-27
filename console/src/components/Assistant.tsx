@@ -1,0 +1,284 @@
+/**
+ * The owner's assistant: say what you want, and it reads what is there and
+ * puts cards in front of you. A card changes nothing until you apply it --
+ * with your authenticator where the change takes it -- and a key goes into
+ * the sealed field on the card, never into the conversation.
+ */
+import {
+  ActionIcon, Alert, Badge, Button, Code, Drawer, Group, Loader, Paper, PasswordInput, ScrollArea, Stack, Text, Textarea, Tooltip,
+} from '@mantine/core';
+import { notifications } from '@mantine/notifications';
+import { IconArrowUp, IconCheck, IconKey, IconRefresh, IconSparkles, IconX } from '@tabler/icons-react';
+import { useEffect, useRef, useState } from 'react';
+import { ApiError, api, explain } from '../api.ts';
+import { useFactor } from '../factor.tsx';
+import { N, t } from '../i18n.ts';
+import { go } from '../router.ts';
+
+/** Whether applying a card takes the owner's device: always, only when its route says so, or never. */
+type Factor = 'always' | 'sometimes' | 'never';
+
+interface Proposal {
+  id: string;
+  summary: string;
+  path: string;
+  body: Record<string, unknown>;
+  secrets: Record<string, string>;
+  factor: Factor;
+  status: 'open' | 'applied' | 'dismissed' | 'failed';
+  outcome: string | null;
+}
+
+interface Message {
+  id: string;
+  role: 'owner' | 'assistant' | 'event';
+  channel: 'console' | 'telegram';
+  body: string;
+  at: string;
+  proposals: Proposal[];
+}
+
+interface Conversation {
+  available: boolean;
+  messages: Message[];
+}
+
+const EXAMPLES = [
+  N('What is left to set up?'),
+  N('Use Claude for every role, and search the web with Brave.'),
+  N('Start a company that sells coffee online, and let it run itself.'),
+  N('What is waiting for me in the inbox?'),
+];
+
+/** The labels the server gives a card's sealed fields, here so that they are translated. */
+const SECRET_LABELS = [
+  N('API key'), N('API key (left empty, the saved one)'), N('Access token, if the server needs one'),
+  N('Incoming webhook address'), N('The server\'s token, if it needs one'),
+];
+void SECRET_LABELS;
+
+export function Assistant({ opened, onClose }: { opened: boolean; onClose: () => void }) {
+  const [conversation, setConversation] = useState<Conversation | null>(null);
+  const [text, setText] = useState('');
+  const [thinking, setThinking] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const bottom = useRef<HTMLDivElement>(null);
+
+  const load = async () => {
+    try {
+      setConversation(await api('GET', '/api/assistant'));
+      setProblem(null);
+    } catch (failure) {
+      setProblem(explain(failure));
+    }
+  };
+
+  useEffect(() => {
+    if (opened) void load();
+  }, [opened]);
+
+  useEffect(() => {
+    bottom.current?.scrollIntoView({ block: 'end' });
+  }, [conversation, thinking]);
+
+  const send = async (said: string) => {
+    const words = said.trim();
+    if (!words || thinking) return;
+    setThinking(true);
+    setText('');
+    // The owner's words at once, as a chat shows them; the server's copy replaces it.
+    setConversation((now) => now && {
+      ...now,
+      messages: [...now.messages, { id: 'pending', role: 'owner', channel: 'console', body: words, at: new Date().toISOString(), proposals: [] }],
+    });
+    try {
+      await api('POST', '/api/assistant/messages', { text: words });
+      await load();
+    } catch (failure) {
+      setProblem(explain(failure));
+      setText(words);
+      await load();
+    } finally {
+      setThinking(false);
+    }
+  };
+
+  const clear = async () => {
+    await api('POST', '/api/assistant/clear', {});
+    await load();
+  };
+
+  return (
+    <Drawer
+      opened={opened}
+      onClose={onClose}
+      position="right"
+      size="lg"
+      title={<Group gap={8}><IconSparkles size={20} /><Text fw={700}>{t('Ask PALUGADA')}</Text></Group>}
+      styles={{ body: { display: 'flex', flexDirection: 'column', height: 'calc(100% - 60px)' } }}
+    >
+      {conversation && !conversation.available && (
+        <Alert color="yellow" variant="light" mb="sm" title={t('Choose a model first')}>
+          <Text size="sm">{t('The assistant thinks with this deployment\'s own model, and none is set up yet.')}</Text>
+          <Button size="compact-sm" mt="xs" variant="light" onClick={() => { onClose(); go({ kind: 'deployment', section: 'model' }); }}>
+            {t('Choose a model')}
+          </Button>
+        </Alert>
+      )}
+      <ScrollArea style={{ flex: 1 }} offsetScrollbars>
+        <Stack gap="sm" pb="sm">
+          {conversation?.messages.length === 0 && (
+            <Paper withBorder radius="lg" p="md">
+              <Text size="sm">{t('Tell me what you want, in your own words. I look at what is there and put the changes in front of you as cards; nothing changes until you apply one, and keys go in the sealed field on the card, never here.')}</Text>
+              <Stack gap={6} mt="sm">
+                {EXAMPLES.map((example) => (
+                  <Button key={example} variant="light" size="compact-sm" justify="flex-start" onClick={() => void send(t(example))} disabled={thinking}>
+                    {t(example)}
+                  </Button>
+                ))}
+              </Stack>
+            </Paper>
+          )}
+          {conversation?.messages.map((message) => <Line key={message.id} message={message} reload={load} />)}
+          {thinking && <Group gap="xs"><Loader size="xs" type="dots" /><Text size="sm" c="dimmed">{t('Looking…')}</Text></Group>}
+          <div ref={bottom} />
+        </Stack>
+      </ScrollArea>
+      {problem && <Alert color="red" variant="light" mb="xs" withCloseButton onClose={() => setProblem(null)}>{problem}</Alert>}
+      <Group align="flex-end" gap="xs" wrap="nowrap">
+        <Textarea
+          style={{ flex: 1 }}
+          autosize
+          minRows={1}
+          maxRows={6}
+          placeholder={t('Say what you want…')}
+          value={text}
+          onChange={(event) => setText(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault();
+              void send(text);
+            }
+          }}
+        />
+        <ActionIcon size="lg" radius="xl" onClick={() => void send(text)} disabled={!text.trim() || thinking} aria-label={t('Send')}>
+          <IconArrowUp size={18} />
+        </ActionIcon>
+        <Tooltip label={t('Start again')}>
+          <ActionIcon size="lg" variant="subtle" color="gray" onClick={() => void clear()} aria-label={t('Start again')}>
+            <IconRefresh size={18} />
+          </ActionIcon>
+        </Tooltip>
+      </Group>
+    </Drawer>
+  );
+}
+
+function Line({ message, reload }: { message: Message; reload: () => Promise<void> }) {
+  if (message.role === 'event') {
+    return <Text size="xs" c="dimmed" ta="center">{message.body}</Text>;
+  }
+  const mine = message.role === 'owner';
+  return (
+    <Stack gap={6} align={mine ? 'flex-end' : 'flex-start'}>
+      <Paper
+        radius="lg"
+        px="md"
+        py="xs"
+        maw="88%"
+        bg={mine ? 'var(--mantine-primary-color-light)' : 'var(--mantine-color-default)'}
+        withBorder={!mine}
+      >
+        <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{message.body}</Text>
+        {message.channel === 'telegram' && <Text size="xs" c="dimmed" mt={2}>{t('via Telegram')}</Text>}
+      </Paper>
+      {message.proposals.map((proposal) => <Card key={proposal.id} proposal={proposal} reload={reload} />)}
+    </Stack>
+  );
+}
+
+function Card({ proposal, reload }: { proposal: Proposal; reload: () => Promise<void> }) {
+  const requireFactor = useFactor();
+  const [typed, setTyped] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const open = proposal.status === 'open';
+  const fields = Object.entries(proposal.body);
+
+  const apply = async () => {
+    setBusy(true);
+    const payload = { secrets: typed };
+    try {
+      // A change that takes the device asks for it first; one that may take it
+      // is tried, and asked for it when the route says so.
+      if (proposal.factor === 'always') {
+        const done = await requireFactor(proposal.summary, (proof) =>
+          api('POST', `/api/assistant/proposals/${proposal.id}/apply`, { ...payload, proof }));
+        if (!done) return;
+      } else {
+        try {
+          await api('POST', `/api/assistant/proposals/${proposal.id}/apply`, payload);
+        } catch (failure) {
+          if (!(failure instanceof ApiError && failure.code === 'approval.channel_forbidden')) throw failure;
+          const done = await requireFactor(proposal.summary, (proof) =>
+            api('POST', `/api/assistant/proposals/${proposal.id}/apply`, { ...payload, proof }));
+          if (!done) return;
+        }
+      }
+      notifications.show({ color: 'teal', message: t('Done: {what}', { what: proposal.summary }) });
+    } catch (failure) {
+      notifications.show({ color: 'red', message: explain(failure) });
+    } finally {
+      setBusy(false);
+      await reload();
+    }
+  };
+
+  const dismiss = async () => {
+    await api('POST', `/api/assistant/proposals/${proposal.id}/dismiss`, {});
+    await reload();
+  };
+
+  return (
+    <Paper withBorder radius="md" p="sm" w="88%" style={open ? undefined : { opacity: 0.7 }}>
+      <Stack gap={6}>
+        <Group justify="space-between" wrap="nowrap" align="flex-start">
+          <Text size="sm" fw={600}>{proposal.summary}</Text>
+          {!open && (
+            <Badge size="sm" variant="light" color={proposal.status === 'applied' ? 'teal' : proposal.status === 'failed' ? 'red' : 'gray'}>
+              {proposal.status === 'applied' ? t('applied') : proposal.status === 'failed' ? t('failed') : t('dismissed')}
+            </Badge>
+          )}
+        </Group>
+        <Code>{`POST ${proposal.path}`}</Code>
+        {fields.length > 0 && (
+          <Stack gap={0}>
+            {fields.map(([name, value]) => (
+              <Text key={name} size="xs" c="dimmed"><b>{name}</b>: {typeof value === 'string' ? value : JSON.stringify(value)}</Text>
+            ))}
+          </Stack>
+        )}
+        {open && Object.entries(proposal.secrets).map(([name, label]) => (
+          <PasswordInput
+            key={name}
+            size="xs"
+            label={t(label)}
+            description={t('Sealed where it is sent; the assistant never sees it.')}
+            leftSection={<IconKey size={14} />}
+            value={typed[name] ?? ''}
+            onChange={(event) => { const value = event.currentTarget.value; setTyped((all) => ({ ...all, [name]: value })); }}
+            autoComplete="off"
+          />
+        ))}
+        {!open && proposal.outcome && proposal.status === 'failed' && <Text size="xs" c="red">{proposal.outcome}</Text>}
+        {open && (
+          <Group justify="flex-end" gap="xs">
+            <Button size="compact-sm" variant="subtle" color="gray" leftSection={<IconX size={14} />} onClick={() => void dismiss()} disabled={busy}>{t('Dismiss')}</Button>
+            <Button size="compact-sm" leftSection={<IconCheck size={14} />} loading={busy} onClick={() => void apply()}>
+              {proposal.factor === 'always' ? t('Apply with a code') : t('Apply')}
+            </Button>
+          </Group>
+        )}
+      </Stack>
+    </Paper>
+  );
+}

@@ -47,6 +47,8 @@ export interface PushMessage {
    * shows one. Every push service has a collapse key by some name.
    */
   tag: string;
+  /** Something to read when they choose to, such as the digest: never a sound. */
+  quiet?: boolean;
 }
 
 export interface WebhookPushOptions {
@@ -115,7 +117,19 @@ export class WebhookPush implements OwnerChannel {
   }
 
   async deliver(item: NotifiableItem): Promise<DeliveryResult> {
-    const message = this.message(item);
+    return this.send(this.message(item));
+  }
+
+  /**
+   * One push, in the provider's own shape: what an alert, the digest and the
+   * console's test all go through, so a format is right for all three or for
+   * none. ntfy, for one, refuses anything without its topic.
+   */
+  async send(message: PushMessage): Promise<DeliveryResult> {
+    return this.#post(this.#options.body?.(message) ?? defaultBody(message));
+  }
+
+  async #post(payload: unknown): Promise<DeliveryResult> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.#options.timeoutMs ?? 10_000);
 
@@ -128,7 +142,7 @@ export class WebhookPush implements OwnerChannel {
             ? { [this.#options.tokenHeader ?? 'authorization']: this.#options.token }
             : {}),
         },
-        body: JSON.stringify(this.#options.body?.(message) ?? defaultBody(message)),
+        body: JSON.stringify(payload),
         signal: controller.signal,
       });
 
@@ -158,33 +172,18 @@ export class WebhookPush implements OwnerChannel {
    * a digest to send: the worker only asks channels that implement this.
    */
   async deliverDigest(digest: { companyId: string; day: string; text: string }): Promise<void> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.#options.timeoutMs ?? 10_000);
-    try {
-      const response = await this.#fetch(this.#options.url, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          ...(this.#options.token
-            ? { [this.#options.tokenHeader ?? 'authorization']: this.#options.token }
-            : {}),
-        },
-        body: JSON.stringify({
-          kind: 'digest',
-          companyId: digest.companyId,
-          day: digest.day,
-          title: `Digest for ${digest.day}`,
-          body: digest.text,
-        }),
-        signal: controller.signal,
-      });
-      if (!response.ok) {
-        const detail = (await response.text().catch(() => '')).slice(0, 200);
-        throw new Error(`push returned ${response.status}${detail ? `: ${detail}` : ''}`);
-      }
-    } finally {
-      clearTimeout(timer);
+    if (this.#options.body) {
+      // A provider with its own shape gets the digest in that shape, quietly.
+      await this.send({ title: `Digest for ${digest.day}`, body: digest.text, url: null, urgent: false, quiet: true, tag: `digest-${digest.day}` });
+      return;
     }
+    await this.#post({
+      kind: 'digest',
+      companyId: digest.companyId,
+      day: digest.day,
+      title: `Digest for ${digest.day}`,
+      body: digest.text,
+    });
   }
 }
 
@@ -194,6 +193,23 @@ export class WebhookPush implements OwnerChannel {
  * Named and exported so a deployment writing its own `body` can start from it
  * rather than guess what the platform thinks it is sending.
  */
+/**
+ * ntfy's JSON publishing: posted to the server itself, the topic in the body,
+ * and its five priorities, of which 5 breaks through the phone's quiet hours.
+ * ntfy.sh or an ntfy of the owner's own, which is the whole of the setup: an
+ * app on the phone, subscribed to a topic.
+ */
+export function ntfyBody(topic: string): (message: PushMessage) => Record<string, unknown> {
+  return (message) => ({
+    topic,
+    title: message.title,
+    message: message.body,
+    priority: message.urgent ? 5 : message.quiet ? 2 : 4,
+    tags: [message.urgent ? 'rotating_light' : 'bell'],
+    ...(message.url ? { click: message.url } : {}),
+  });
+}
+
 export function defaultBody(message: PushMessage): Record<string, unknown> {
   return {
     title: message.title,

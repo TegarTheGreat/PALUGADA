@@ -634,3 +634,76 @@ export function escapeMarkdown(text: string): string {
 async function ownerLanguage(): Promise<string> {
   return (await deploymentLanguages()).console ?? 'en';
 }
+
+/* ------------------------------------------------ connecting a bot --- */
+
+/** Where a bot is reached, and how: the public Bot API unless a local one is named. */
+export interface BotApi {
+  apiBase?: string;
+  fetch?: typeof globalThis.fetch;
+}
+
+/**
+ * One call to the Bot API with a token, for connecting a bot from the console.
+ * The token is registered with the redactor first: it is in the address, and
+ * an error quoting the address would quote it.
+ */
+export async function telegramApi<T>(token: string, method: string, body: unknown, api: BotApi = {}): Promise<T> {
+  redactor.register(token);
+  let response: Response;
+  try {
+    response = await (api.fetch ?? globalThis.fetch)(`${api.apiBase ?? 'https://api.telegram.org'}/bot${token}/${method}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (failure) {
+    throw new Error(`Telegram could not be reached: ${(failure as Error).message}`);
+  }
+  const answer = (await response.json().catch(() => null)) as { ok?: boolean; description?: string; error_code?: number; result?: T } | null;
+  if (!response.ok || !answer?.ok) {
+    const error = new Error(response.status === 401 || answer?.error_code === 401
+      ? 'Telegram does not know that token: copy it again from @BotFather'
+      : `Telegram refused ${method}: ${answer?.description ?? `HTTP ${response.status}`}`);
+    (error as Error & { status?: number }).status = answer?.error_code ?? response.status;
+    throw error;
+  }
+  return answer.result as T;
+}
+
+/** The bot a token belongs to: its name, and the link that opens a chat with it. */
+export async function telegramBot(token: string, api: BotApi = {}): Promise<{ username: string; name: string; link: string }> {
+  const me = await telegramApi<{ username?: string; first_name?: string }>(token, 'getMe', {}, api);
+  const username = me.username ?? '';
+  return { username, name: me.first_name ?? username, link: `https://t.me/${username}` };
+}
+
+/**
+ * The private chats that have written to the bot lately, newest first: the
+ * owner presses Start in their own chat with it, and their chat is found
+ * rather than typed. A bot with a webhook cannot be asked for its updates, so
+ * a webhook left by an earlier connection is taken off first; saving sets it
+ * again.
+ */
+export async function telegramChats(token: string, api: BotApi = {}): Promise<Array<{ id: string; name: string; username: string | null }>> {
+  type Update = { message?: { chat?: { id?: number; type?: string; first_name?: string; last_name?: string; username?: string } } };
+  let updates: Update[];
+  try {
+    updates = await telegramApi<Update[]>(token, 'getUpdates', { allowed_updates: ['message'], timeout: 0 }, api);
+  } catch (failure) {
+    if ((failure as Error & { status?: number }).status !== 409) throw failure;
+    await telegramApi(token, 'deleteWebhook', { drop_pending_updates: false }, api);
+    updates = await telegramApi<Update[]>(token, 'getUpdates', { allowed_updates: ['message'], timeout: 0 }, api);
+  }
+  const seen = new Map<string, { id: string; name: string; username: string | null }>();
+  for (const update of [...updates].reverse()) {
+    const chat = update.message?.chat;
+    if (chat?.type !== 'private' || chat.id === undefined) continue;
+    const id = String(chat.id);
+    if (!seen.has(id)) {
+      seen.set(id, { id, name: [chat.first_name, chat.last_name].filter(Boolean).join(' ') || id, username: chat.username ?? null });
+    }
+  }
+  return [...seen.values()];
+}

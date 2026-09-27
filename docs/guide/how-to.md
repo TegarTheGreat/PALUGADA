@@ -462,34 +462,60 @@ Under **Settings**, **Languages**:
 
 ## Push notifications and Telegram
 
-Both need the console reachable from your phone, so set
-`PALUGADA_APP_URL_PUBLIC` to its HTTPS address first; notifications link
-there.
-
-**Push.** Set `PALUGADA_PUSH_URL` to an HTTPS endpoint that accepts a JSON
-POST, such as a relay in front of a phone push service, and
-`PALUGADA_PUSH_TOKEN` to the value of its `Authorization` header if it needs
-one. The body carries `title`, `body`, `priority` (`high` for an incident),
-`tag` and `url`. Push carries only incidents and tier 3 approvals, which is
-what may interrupt you, and the daily digest.
+Open **This deployment**, **Channels**. For Telegram's buttons and the
+links in every notification to work, the console must be reachable from your
+phone: set `PALUGADA_APP_URL_PUBLIC` to its HTTPS address first.
 
 **Telegram.**
 
-1. Create a bot with Telegram's BotFather and note its token. Send the bot a
-   message from your own account, and note your user id; the chat with the
-   bot is the only one allowed to press anything.
-2. Set `PALUGADA_TELEGRAM_TOKEN`, `PALUGADA_TELEGRAM_CHAT` (your id) and
-   `PALUGADA_TELEGRAM_WEBHOOK_SECRET` (a random string you choose), and
-   restart.
-3. Point the bot's webhook at `<PALUGADA_APP_URL_PUBLIC>/api/channels/telegram`
-   with Telegram's `setWebhook`, giving the same string as its secret token.
-   Without the secret every button press is refused, and the boot says so.
+1. In Telegram, open @BotFather, send `/newbot`, and paste the token it
+   gives you. Press **Check**: the card shows the bot's name and a link to
+   it.
+2. Open your bot and press **Start**, then press **Find my chat**. Your chat
+   is found, not typed; only private chats are offered, and only the chat
+   you choose may press anything.
+3. Press **Send a test**, and **Save** with a code from your authenticator.
+   The token is sealed; the secret Telegram must send back is made for you,
+   sealed too, and the webhook is set to
+   `<PALUGADA_APP_URL_PUBLIC>/api/channels/telegram`. Without a public
+   address it is saved to send, and the card says its buttons cannot reach
+   the console yet.
 
 Telegram gets buttons for questions, proposed procedures and skills, and
 approvals up to tier 2; a tier 3 approval or an incident arrives as a link.
 It also gets the daily digest and a message when work you gave has
 finished. Buttons are removed once an item is decided elsewhere, and a press
 from anyone else is recorded as a security event.
+
+**Your phone (push).** Push carries only incidents and tier 3 approvals,
+which is what may interrupt you outside your hours, and the daily digest,
+quietly.
+
+- **ntfy** is the simplest: install the ntfy app, subscribe to the topic the
+  card suggests, and press **Send a test**. Anyone who knows a topic on
+  ntfy.sh can read it, so keep the long random one, or run an ntfy of your
+  own and give its token. An incident arrives at ntfy's highest priority,
+  which breaks through the phone's quiet mode.
+- **Your own webhook** is sent a JSON body with `title`, `body`, `priority`
+  (`high` for an incident), `tag` and `url`, and the token as its
+  `Authorization` header.
+
+**Slack and Discord.** Add an incoming webhook to a channel (Slack: an
+incoming webhook app; Discord: the channel's settings, Integrations,
+Webhooks), paste its address, press **Send a test**, and **Save**. They are
+told what needs you, with a link to decide it in the console: a webhook
+message cannot carry buttons. The address is sealed, since anyone holding
+it can post to that channel.
+
+**From the environment instead.** `PALUGADA_TELEGRAM_TOKEN`,
+`PALUGADA_TELEGRAM_CHAT` (your user id) and
+`PALUGADA_TELEGRAM_WEBHOOK_SECRET` (a random string you then give
+Telegram's `setWebhook` as its secret token); `PALUGADA_PUSH_URL`, with
+`PALUGADA_PUSH_FORMAT=ntfy` and `PALUGADA_PUSH_TOPIC` for ntfy and
+`PALUGADA_PUSH_TOKEN`; `PALUGADA_SLACK_WEBHOOK` and
+`PALUGADA_DISCORD_WEBHOOK`. Each credential can instead be a secret
+reference in the variable of the same name ending `_REF`. A channel set in
+the console replaces that channel's variables.
 
 ## Export and import a company
 

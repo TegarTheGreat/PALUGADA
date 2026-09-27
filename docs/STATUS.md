@@ -3216,9 +3216,26 @@ has.
   other agents use scrapes it. Edge TTS, which Hermes offers for speech, is
   the same kind of thing.
 
+- **The owner's channels are set up from the console.** Telegram took a
+  token, a chat id and a webhook secret typed into the environment, and the
+  chat id is a number nobody knows. Now the owner pastes the token
+  @BotFather gave them, presses Start in the bot, and their chat is found
+  from the bot's updates; the secret Telegram must send back is made here,
+  both are sealed, the webhook is set when the deployment has a public
+  address, and a test message proves the path. Push speaks ntfy's own
+  publishing format as well as a plain webhook -- with an incident at the
+  priority that breaks through a phone's quiet mode and the digest quiet --
+  and Slack and Discord are told what needs the owner, with a link, through
+  their incoming webhooks. A channel whose sealed credential will not open
+  is left out with a note, and the rest start.
+- **A push provider with its own shape got the digest in the default one.**
+  The digest bypassed the format mapping, so ntfy would have refused it for
+  want of a topic; every push now goes through one path.
+
 **Still open, next.** Image generation, speech and a browser, which Hermes
-offers and the research for which is done; the owner's channels (Telegram,
-push) still come from the environment. Subscription
+offers and the research for which is done. WhatsApp, Signal and email as
+owner channels are not built; Slack and Discord cannot carry buttons, so
+Telegram remains the chat that decides. Subscription
 logins whose tokens rotate (ChatGPT, Hermes' Nous and Codex logins) are not
 offered: every run would hold a copy and the first to refresh would sign
 the rest out. Hermes' entry still gives each run its own `HERMES_HOME`,

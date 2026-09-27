@@ -44,6 +44,7 @@
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
+import { randomBytes } from 'node:crypto';
 import { PalugadaError } from '../errors.ts';
 import { withControlPlane, withTenant } from '../db/tenant.ts';
 import * as inbox from '../inbox/inbox.ts';
@@ -140,7 +141,8 @@ import {
 } from '../eval/role-eval.ts';
 import type { CapabilityRegistry } from '../broker/registry.ts';
 import type { OwnerMfa, WebAuthnAssertion } from './mfa.ts';
-import type { TelegramChannel, TelegramUpdate } from './telegram.ts';
+import { telegramApi, telegramBot, telegramChats, type TelegramChannel, type TelegramUpdate } from './telegram.ts';
+import { WebhookPush, ntfyBody } from './push.ts';
 import { OwnerSessions, type OwnerSession } from './session.ts';
 import { MODEL_TIERS, modelSettingsFrom } from '../llm/models.ts';
 import { checkModel, listModels } from '../llm/check.ts';
@@ -148,7 +150,10 @@ import { MODEL_PROVIDERS, modelProvider } from '../llm/providers.ts';
 import {
   deleteSecret, putSecret, readSettings, secretNames, stateDirFrom, writeSetting, type MasterKey, type Settings,
 } from '../settings/store.ts';
-import { modelSource, withSettings, type AgentSetting, type ModelSetting, type ToolSetting } from '../settings/overlay.ts';
+import {
+  modelSource, withSettings, type AgentSetting, type ChannelSettings, type ModelSetting, type ToolSetting,
+} from '../settings/overlay.ts';
+import { WEBHOOK_HOSTS, WebhookChatChannel, type WebhookChatKind } from './webhook-chat.ts';
 import {
   EXTRACT_PROVIDERS, SEARCH_PROVIDERS, TOOL_KINDS, extractProvider, searchProvider, webExtract, webSearch,
   type ExtractProvider, type SearchProvider, type ToolBinding, type ToolKind,
@@ -1119,6 +1124,206 @@ export class OwnerApi {
           await this.#requireFactor(body.proof, 'change the model');
           await writeSetting('model', null);
           await deleteSecret('model-key');
+          return this.#applySettings();
+        },
+      },
+
+      /* ------------------------------------------ how the owner is reached --- */
+
+      {
+        // Each channel: whether it is set, from where, and whether it can hear
+        // back. No credential leaves; a chat's id is not one.
+        method: 'GET',
+        pattern: '/api/control/channels',
+        handle: async () => {
+          const deployment = this.#deploymentSettings();
+          const stored = (await readSettings()).channels as ChannelSettings | undefined;
+          const env = deployment.baseEnv;
+          const telegram = stored?.telegram;
+          const push = stored?.push;
+          return {
+            publicUrl: env.PALUGADA_APP_URL_PUBLIC ?? null,
+            applies: deployment.restart ? 'now' : 'next_start',
+            telegram: {
+              source: telegram ? 'console' : env.PALUGADA_TELEGRAM_CHAT ? 'environment' : null,
+              chatId: telegram?.chatId ?? env.PALUGADA_TELEGRAM_CHAT ?? null,
+              receives: telegram ? Boolean(telegram.webhookSecret) : Boolean(env.PALUGADA_TELEGRAM_WEBHOOK_SECRET || env.PALUGADA_TELEGRAM_WEBHOOK_SECRET_REF),
+            },
+            push: {
+              source: push ? 'console' : env.PALUGADA_PUSH_URL ? 'environment' : null,
+              format: push?.format ?? (env.PALUGADA_PUSH_FORMAT === 'ntfy' ? 'ntfy' : env.PALUGADA_PUSH_URL ? 'webhook' : null),
+              url: push?.url ?? env.PALUGADA_PUSH_URL ?? null,
+              topic: push?.topic ?? env.PALUGADA_PUSH_TOPIC ?? null,
+              tokenSet: push ? Boolean(push.tokenSecret) : Boolean(env.PALUGADA_PUSH_TOKEN || env.PALUGADA_PUSH_TOKEN_REF),
+            },
+            slack: { source: stored?.slack ? 'console' : env.PALUGADA_SLACK_WEBHOOK || env.PALUGADA_SLACK_WEBHOOK_REF ? 'environment' : null },
+            discord: { source: stored?.discord ? 'console' : env.PALUGADA_DISCORD_WEBHOOK || env.PALUGADA_DISCORD_WEBHOOK_REF ? 'environment' : null },
+          };
+        },
+      },
+
+      {
+        // The bot a token belongs to, so the owner sees they pasted the right
+        // one, and the link that opens their chat with it.
+        method: 'POST',
+        pattern: '/api/control/channels/telegram/bot',
+        handle: async ({ body }) => ({ bot: await outside(telegramBot(await this.#telegramToken(body), this.#botApi())) }),
+      },
+
+      {
+        // The chats that pressed Start: the owner's is found, not typed.
+        method: 'POST',
+        pattern: '/api/control/channels/telegram/chats',
+        handle: async ({ body }) => ({ chats: await outside(telegramChats(await this.#telegramToken(body), this.#botApi())) }),
+      },
+
+      {
+        // A message to the chat, with the words the console chose, before or
+        // after saving: the one check that the whole path works.
+        method: 'POST',
+        pattern: '/api/control/channels/telegram/test',
+        handle: async ({ body }) => {
+          const token = await this.#telegramToken(body);
+          const chatId = typeof body.chatId === 'string' && body.chatId ? body.chatId
+            : (((await readSettings()).channels as ChannelSettings | undefined)?.telegram?.chatId ?? null);
+          if (!chatId) throw new PalugadaError('contract.violation', 'find your chat first: press Start in the bot, then look for it', { field: 'chatId' });
+          const text = typeof body.text === 'string' && body.text.trim() ? body.text.trim().slice(0, 500) : 'PALUGADA';
+          await outside(telegramApi(token, 'sendMessage', { chat_id: chatId, text }, this.#botApi()));
+          return { ok: true };
+        },
+      },
+
+      {
+        // The bot and the owner's chat with it, for everything the owner may be
+        // shown and the buttons that decide. Its token and the secret Telegram
+        // must send back are sealed; the webhook is set when this deployment
+        // has a public address, and without one it sends and cannot hear.
+        method: 'POST',
+        pattern: '/api/control/channels/telegram',
+        handle: async ({ body }) => {
+          const deployment = this.#deploymentSettings();
+          const chatId = typeof body.chatId === 'string' ? body.chatId.trim() : '';
+          if (!/^-?\d{1,20}$/.test(chatId)) {
+            throw new PalugadaError('contract.violation', 'find your chat first: press Start in the bot, then look for it', { field: 'chatId' });
+          }
+          const token = await this.#telegramToken(body);
+          await outside(telegramBot(token, this.#botApi()));
+          await this.#requireFactor(body.proof, 'connect Telegram');
+          const master = deployment.master(true);
+          if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
+          const webhookSecret = randomBytes(24).toString('hex');
+          await putSecret('channel-telegram', token, master);
+          await putSecret('channel-telegram-webhook', webhookSecret, master);
+          const channels = { ...((await readSettings()).channels as ChannelSettings | undefined) };
+          channels.telegram = { chatId, tokenSecret: 'channel-telegram', webhookSecret: 'channel-telegram-webhook' };
+          await writeSetting('channels', channels);
+          let webhook: string = 'no_public_address';
+          const publicUrl = deployment.baseEnv.PALUGADA_APP_URL_PUBLIC;
+          if (publicUrl) {
+            try {
+              await telegramApi(token, 'setWebhook', {
+                url: `${publicUrl.replace(/\/+$/, '')}/api/channels/telegram`,
+                secret_token: webhookSecret,
+                allowed_updates: ['message', 'callback_query'],
+              }, this.#botApi());
+              webhook = 'set';
+            } catch (failure) {
+              webhook = (failure as Error).message;
+            }
+          }
+          return { ...this.#applySettings(), webhook };
+        },
+      },
+
+      {
+        // A push to the owner's phone, in the chosen format, before or after
+        // saving: an alert the owner can see arrive.
+        method: 'POST',
+        pattern: '/api/control/channels/push/test',
+        handle: async ({ body }) => {
+          const { channel } = await this.#pushCandidate(body);
+          await outside(channel.send({
+            title: typeof body.title === 'string' && body.title ? body.title.slice(0, 120) : 'PALUGADA',
+            body: typeof body.text === 'string' && body.text ? body.text.slice(0, 500) : 'PALUGADA',
+            url: this.#deploymentSettings().baseEnv.PALUGADA_APP_URL_PUBLIC ?? null,
+            urgent: false,
+            tag: 'palugada-test',
+          }));
+          return { ok: true };
+        },
+      },
+
+      {
+        // F10.5's channel: an incident and a tier 3 approval, outside the
+        // owner's hours too. It can wake them, so it takes their device.
+        method: 'POST',
+        pattern: '/api/control/channels/push',
+        handle: async ({ body }) => {
+          const deployment = this.#deploymentSettings();
+          const { format, url, topic, typed, keep } = await this.#pushCandidate(body);
+          await this.#requireFactor(body.proof, 'set up push notifications');
+          if (typed) {
+            const master = deployment.master(true);
+            if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
+            await putSecret('channel-push', typed, master);
+          } else if (!keep) {
+            await deleteSecret('channel-push');
+          }
+          const channels = { ...((await readSettings()).channels as ChannelSettings | undefined) };
+          channels.push = { format, url, ...(topic ? { topic } : {}), ...(typed || keep ? { tokenSecret: 'channel-push' } : {}) };
+          await writeSetting('channels', channels);
+          return this.#applySettings();
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/control/channels/chat/:kind/test',
+        handle: async ({ params, body }) => {
+          const kind = chatKindNamed(params.kind!);
+          const url = await this.#chatWebhook(kind, body);
+          const text = typeof body.text === 'string' && body.text.trim() ? body.text.trim().slice(0, 500) : 'PALUGADA';
+          await outside(new WebhookChatChannel({ kind, url }).send(text));
+          return { ok: true };
+        },
+      },
+
+      {
+        // Slack or Discord, told what the owner may be shown, with a link to
+        // decide it here: an incoming webhook cannot carry buttons.
+        method: 'POST',
+        pattern: '/api/control/channels/chat/:kind',
+        handle: async ({ params, body }) => {
+          const deployment = this.#deploymentSettings();
+          const kind = chatKindNamed(params.kind!);
+          const url = await this.#chatWebhook(kind, body);
+          await this.#requireFactor(body.proof, `connect ${kind === 'slack' ? 'Slack' : 'Discord'}`);
+          const master = deployment.master(true);
+          if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
+          await putSecret(`channel-${kind}`, url, master);
+          const channels = { ...((await readSettings()).channels as ChannelSettings | undefined) };
+          channels[kind] = { urlSecret: `channel-${kind}` };
+          await writeSetting('channels', channels);
+          return this.#applySettings();
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/control/channels/:name/clear',
+        handle: async ({ params, body }) => {
+          this.#deploymentSettings();
+          const name = params.name!;
+          if (!['telegram', 'push', 'slack', 'discord'].includes(name)) {
+            throw new PalugadaError('contract.violation', `a channel is telegram, push, slack or discord; got ${name}`, { name });
+          }
+          await this.#requireFactor(body.proof, `disconnect ${name}`);
+          const channels = { ...((await readSettings()).channels as ChannelSettings | undefined) };
+          delete channels[name as keyof ChannelSettings];
+          await writeSetting('channels', Object.keys(channels).length > 0 ? channels : null);
+          for (const secret of name === 'telegram' ? ['channel-telegram', 'channel-telegram-webhook'] : [`channel-${name}`]) {
+            await deleteSecret(secret);
+          }
           return this.#applySettings();
         },
       },
@@ -2864,6 +3069,66 @@ export class OwnerApi {
     };
   }
 
+  /** A local Bot API server, when the deployment names one; Telegram's own otherwise. */
+  #botApi(): { apiBase?: string } {
+    const base = this.#deploymentSettings().baseEnv.PALUGADA_TELEGRAM_API;
+    return base ? { apiBase: base } : {};
+  }
+
+  /** The token the owner pasted, or the one saved. */
+  async #telegramToken(body: Record<string, unknown>): Promise<string> {
+    const deployment = this.#deploymentSettings();
+    const typed = typeof body.token === 'string' ? body.token.trim() : '';
+    if (typed) {
+      if (!/^\d{3,20}:[A-Za-z0-9_-]{20,}$/.test(typed)) {
+        throw new PalugadaError('contract.violation', 'a bot token looks like 123456789:AA… -- copy the whole of it from @BotFather', { field: 'token' });
+      }
+      return typed;
+    }
+    if (((await readSettings()).channels as ChannelSettings | undefined)?.telegram) return deployment.secrets.resolve('db://channel-telegram');
+    throw new PalugadaError('contract.violation', 'paste the bot token @BotFather gave you', { field: 'token' });
+  }
+
+  /** The push channel the console is asking about: checked, with the token typed or the one saved. */
+  async #pushCandidate(body: Record<string, unknown>) {
+    const deployment = this.#deploymentSettings();
+    const format = body.format === 'ntfy' ? 'ntfy' : body.format === 'webhook' ? 'webhook' : null;
+    if (!format) throw new PalugadaError('contract.violation', 'format is ntfy or webhook', { field: 'format' });
+    const url = typeof body.url === 'string' ? body.url.trim().replace(/\/+$/, '') : '';
+    if (!/^https?:\/\//.test(url)) throw new PalugadaError('contract.violation', 'give the address pushes are sent to, http or https', { field: 'url' });
+    const topic = typeof body.topic === 'string' ? body.topic.trim() : '';
+    if (format === 'ntfy' && !/^[A-Za-z0-9_-]{1,64}$/.test(topic)) {
+      throw new PalugadaError('contract.violation', 'ntfy needs the topic your phone subscribes to: letters, digits, - and _', { field: 'topic' });
+    }
+    const typed = typeof body.token === 'string' && body.token.trim() ? body.token.trim() : null;
+    const saved = ((await readSettings()).channels as ChannelSettings | undefined)?.push;
+    const keep = !typed && body.clearToken !== true && Boolean(saved?.tokenSecret) && saved?.url === url;
+    const token = typed ?? (keep ? await deployment.secrets.resolve('db://channel-push') : null);
+    const channel = new WebhookPush({
+      url,
+      ...(token ? { token: format === 'ntfy' ? `Bearer ${token}` : token } : {}),
+      ...(format === 'ntfy' ? { body: ntfyBody(topic) } : {}),
+    });
+    return { format, url, topic: format === 'ntfy' ? topic : null, typed, keep, channel } as const;
+  }
+
+  /** A Slack or Discord incoming webhook: the one pasted, checked for where it points, or the one saved. */
+  async #chatWebhook(kind: WebhookChatKind, body: Record<string, unknown>): Promise<string> {
+    const typed = typeof body.url === 'string' ? body.url.trim() : '';
+    if (typed) {
+      if (!WEBHOOK_HOSTS[kind].test(typed)) {
+        throw new PalugadaError('contract.violation',
+          kind === 'slack' ? 'a Slack incoming webhook starts https://hooks.slack.com/services/' : 'a Discord webhook starts https://discord.com/api/webhooks/',
+          { field: 'url' });
+      }
+      return typed;
+    }
+    if (((await readSettings()).channels as ChannelSettings | undefined)?.[kind]) {
+      return this.#deploymentSettings().secrets.resolve(`db://channel-${kind}`);
+    }
+    throw new PalugadaError('contract.violation', 'paste the incoming webhook\'s address', { field: 'url' });
+  }
+
   /**
    * The provider the console is asking about for one kind of tool: checked,
    * with the key the owner typed, or the one saved for that same provider.
@@ -3241,6 +3506,26 @@ function configKind(value: unknown): ConfigKind {
   const kinds: readonly ConfigKind[] = ['charter', 'policy', 'role', 'grant', 'bundle', 'skill'];
   if (typeof value === 'string' && (kinds as readonly string[]).includes(value)) return value as ConfigKind;
   throw new PalugadaError('contract.violation', `a configuration kind is one of ${kinds.join(', ')}`, { kind: value });
+}
+
+/**
+ * A call to a service outside, whose refusal the owner should read -- "that
+ * token is not a bot's", "ntfy said 401" -- rather than an internal error.
+ */
+async function outside<T>(call: Promise<T>): Promise<T> {
+  try {
+    return await call;
+  } catch (failure) {
+    if (failure instanceof PalugadaError) throw failure;
+    throw new PalugadaError('capability.unreachable', (failure as Error).message, {});
+  }
+}
+
+function chatKindNamed(name: string): WebhookChatKind {
+  if (name !== 'slack' && name !== 'discord') {
+    throw new PalugadaError('contract.violation', `a chat is slack or discord; got ${name}`, { kind: name });
+  }
+  return name;
 }
 
 function toolKindNamed(name: string): ToolKind {

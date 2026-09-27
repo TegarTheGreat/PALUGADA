@@ -9,12 +9,12 @@
  * which is exactly when an owner needs it.
  */
 import {
-  Accordion, Alert, Anchor, Autocomplete, Badge, Button, Code, Grid, Group, NavLink, Paper, PasswordInput,
-  Select, SimpleGrid, Stack, Switch, Table, Text, TextInput,
+  Accordion, Alert, Anchor, Autocomplete, Badge, Button, Code, Grid, Group, NavLink, Paper, PasswordInput, Radio,
+  SegmentedControl, Select, SimpleGrid, Stack, Switch, Table, Text, TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
-  IconBrain, IconCheck, IconDownload, IconExternalLink, IconKey, IconListSearch, IconPlugConnected, IconTerminal2, IconWorldSearch,
+  IconBell, IconBrain, IconCheck, IconDownload, IconExternalLink, IconKey, IconListSearch, IconPlugConnected, IconTerminal2, IconWorldSearch,
 } from '@tabler/icons-react';
 import { useEffect, useMemo, useState } from 'react';
 import { api, explain } from '../api.ts';
@@ -66,6 +66,7 @@ interface SettingsView {
 const SECTIONS: Array<{ id: DeploymentSection; label: string; hint: string; icon: typeof IconBrain }> = [
   { id: 'model', label: N('Model'), hint: N('What every role thinks with, unless a role is given its own.'), icon: IconBrain },
   { id: 'tools', label: N('Tools'), hint: N('Where roles search the web and read pages: the provider, and its key.'), icon: IconWorldSearch },
+  { id: 'channels', label: N('Channels'), hint: N('Where PALUGADA reaches you: Telegram, your phone, Slack or Discord.'), icon: IconBell },
   { id: 'agents', label: N('Agent CLIs'), hint: N('Claude Code, Codex, Gemini CLI and others: install them here, sign them in, and let roles run on them.'), icon: IconTerminal2 },
 ];
 
@@ -108,6 +109,7 @@ export function DeploymentSettings({ section }: { section: DeploymentSection }) 
           {current.id === 'model' && <ModelSettings />}
           {current.id === 'agents' && <AgentSettings />}
           {current.id === 'tools' && <ToolSettings />}
+          {current.id === 'channels' && <ChannelSettings />}
         </Grid.Col>
       </Grid>
     </Stack>
@@ -849,6 +851,264 @@ function ToolCard({ kind, state, providers, reload }: { kind: ToolKind; state: T
             </Group>
           </>
         )}
+      </Stack>
+    </Section>
+  );
+}
+
+interface ChannelsView {
+  publicUrl: string | null;
+  applies: 'now' | 'next_start';
+  telegram: { source: 'console' | 'environment' | null; chatId: string | null; receives: boolean };
+  push: { source: 'console' | 'environment' | null; format: 'webhook' | 'ntfy' | null; url: string | null; topic: string | null; tokenSet: boolean };
+  slack: { source: 'console' | 'environment' | null };
+  discord: { source: 'console' | 'environment' | null };
+}
+
+function ChannelSettings() {
+  const view = useLoad(async (): Promise<ChannelsView> => api('GET', '/api/control/channels'), []);
+  if (view.error) return <LoadFailed message={view.error} retry={view.reload} />;
+  if (!view.data) return <Loading rows={5} />;
+  return (
+    <Stack gap="lg">
+      <TelegramCard view={view.data} reload={view.reload} />
+      <PushCard view={view.data} reload={view.reload} />
+      <ChatWebhookCard kind="slack" source={view.data.slack.source} reload={view.reload} />
+      <ChatWebhookCard kind="discord" source={view.data.discord.source} reload={view.reload} />
+    </Stack>
+  );
+}
+
+function SourceBadge({ source, extra }: { source: 'console' | 'environment' | null; extra?: string }) {
+  return (
+    <Badge variant="light" color={source ? 'teal' : 'gray'}>
+      {source === 'console' ? (extra ?? t('connected')) : source === 'environment' ? t('set by the environment') : t('not set')}
+    </Badge>
+  );
+}
+
+function TelegramCard({ view, reload }: { view: ChannelsView; reload: () => void }) {
+  const requireFactor = useFactor();
+  const [token, setToken] = useState('');
+  const [bot, setBot] = useState<{ username: string; name: string; link: string } | null>(null);
+  const [chats, setChats] = useState<Array<{ id: string; name: string; username: string | null }> | null>(null);
+  const [chatId, setChatId] = useState<string | null>(view.telegram.chatId);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const connected = view.telegram.source === 'console';
+
+  const run = async (what: string, work: () => Promise<void>) => {
+    setBusy(what);
+    setProblem(null);
+    try {
+      await work();
+    } catch (failure) {
+      setProblem(explain(failure));
+    } finally {
+      setBusy(null);
+    }
+  };
+  const body = () => (token.trim() ? { token: token.trim() } : {});
+
+  const check = () => run('bot', async () => {
+    const answer: { bot: { username: string; name: string; link: string } } = await api('POST', '/api/control/channels/telegram/bot', body());
+    setBot(answer.bot);
+  });
+  const find = () => run('chats', async () => {
+    const answer: { chats: Array<{ id: string; name: string; username: string | null }> } = await api('POST', '/api/control/channels/telegram/chats', body());
+    setChats(answer.chats);
+    if (answer.chats[0]) setChatId(answer.chats[0].id);
+  });
+  const test = () => run('test', async () => {
+    await api('POST', '/api/control/channels/telegram/test', { ...body(), chatId, text: t('PALUGADA is connected: this is where it will ask you.') });
+    notifications.show({ color: 'teal', message: t('Sent. Look in Telegram.') });
+  });
+  const save = async () => {
+    const done = await requireFactor(t('Connect Telegram'), async (proof) => {
+      const answer: { webhook: string } = await api('POST', '/api/control/channels/telegram', { ...body(), chatId, proof });
+      notifications.show({
+        color: answer.webhook === 'set' ? 'teal' : 'yellow',
+        message: answer.webhook === 'set' ? t('Telegram is connected, and its buttons answer here.')
+          : answer.webhook === 'no_public_address' ? t('Telegram is connected to send. Its buttons need this deployment\'s public address, PALUGADA_APP_URL_PUBLIC.')
+            : t('Telegram is connected to send, but its webhook was refused: {reason}', { reason: answer.webhook }),
+      });
+    });
+    if (done) setTimeout(reload, 3_000);
+  };
+  const disconnect = async () => {
+    const done = await requireFactor(t('Disconnect Telegram'), (proof) => api('POST', '/api/control/channels/telegram/clear', { proof }));
+    if (done) setTimeout(reload, 3_000);
+  };
+
+  return (
+    <Section
+      title={t('Telegram')}
+      description={t('Everything that needs you, with Approve, Deny and Ask buttons, and a message when work you gave is done.')}
+      actions={<SourceBadge source={view.telegram.source} extra={view.telegram.receives ? t('connected') : t('sends only')} />}
+    >
+      <Stack gap="sm">
+        <Text size="sm">
+          {t('1. In Telegram, open @BotFather, send /newbot, and paste the token it gives you.')}{' '}
+          <Anchor href="https://t.me/BotFather" target="_blank" rel="noreferrer" size="sm">@BotFather <IconExternalLink size={12} /></Anchor>
+        </Text>
+        <Group align="flex-end" gap="sm" wrap="nowrap">
+          <PasswordInput style={{ flex: 1 }} leftSection={<IconKey size={16} />} value={token} onChange={(event) => setToken(event.currentTarget.value)}
+            placeholder={connected ? t('Connected. Paste a new token to replace it.') : '123456789:AA…'} autoComplete="off" />
+          <Button variant="default" loading={busy === 'bot'} disabled={!token.trim() && !connected} onClick={() => void check()}>{t('Check')}</Button>
+        </Group>
+        {bot && (
+          <Text size="sm">
+            {t('2. Open your bot and press Start:')}{' '}
+            <Anchor href={bot.link} target="_blank" rel="noreferrer" size="sm" fw={600}>@{bot.username} <IconExternalLink size={12} /></Anchor>
+          </Text>
+        )}
+        {(bot || connected) && (
+          <Group gap="sm">
+            <Button variant="default" size="xs" loading={busy === 'chats'} onClick={() => void find()}>{t('Find my chat')}</Button>
+            {chats?.length === 0 && <Text size="xs" c="orange">{t('No one has pressed Start yet. Press it, then look again.')}</Text>}
+          </Group>
+        )}
+        {chats && chats.length > 0 && (
+          <Radio.Group value={chatId} onChange={setChatId} label={t('3. Your chat')}>
+            <Stack gap={4} mt={4}>
+              {chats.map((chat) => <Radio key={chat.id} value={chat.id} label={chat.username ? `${chat.name} (@${chat.username})` : chat.name} />)}
+            </Stack>
+          </Radio.Group>
+        )}
+        {problem && <Alert color="red" variant="light">{problem}</Alert>}
+        <Group justify="space-between">
+          {connected ? <Button variant="subtle" color="gray" size="compact-sm" onClick={() => void disconnect()}>{t('Disconnect')}</Button> : <span />}
+          <Group gap="xs">
+            <Button variant="default" loading={busy === 'test'} disabled={!chatId} onClick={() => void test()}>{t('Send a test')}</Button>
+            <Button disabled={!chatId || (!token.trim() && !connected)} onClick={() => void save()}>{t('Save')}</Button>
+          </Group>
+        </Group>
+        {!view.publicUrl && (
+          <Text size="xs" c="dimmed">{t('This deployment has no public address, so Telegram can send but its buttons cannot reach it. Set PALUGADA_APP_URL_PUBLIC to the HTTPS address the console is reached at.')}</Text>
+        )}
+      </Stack>
+    </Section>
+  );
+}
+
+function PushCard({ view, reload }: { view: ChannelsView; reload: () => void }) {
+  const requireFactor = useFactor();
+  const [format, setFormat] = useState<'ntfy' | 'webhook'>(view.push.format ?? 'ntfy');
+  const [url, setUrl] = useState(view.push.url ?? 'https://ntfy.sh');
+  // A topic on ntfy.sh is readable by whoever knows it, so the suggestion is
+  // long and random: twenty characters from the browser's own random source.
+  const [topic, setTopic] = useState(view.push.topic ?? `palugada-${Array.from(crypto.getRandomValues(new Uint8Array(15)), (byte) => 'abcdefghijklmnopqrstuvwxyz0123456789'[byte % 36]).join('')}`);
+  const [token, setToken] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const body = () => ({ format, url: url.trim(), ...(format === 'ntfy' ? { topic: topic.trim() } : {}), ...(token.trim() ? { token: token.trim() } : {}) });
+
+  const test = async () => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      await api('POST', '/api/control/channels/push/test', { ...body(), title: 'PALUGADA', text: t('PALUGADA is connected: incidents and irreversible approvals will arrive here.') });
+      notifications.show({ color: 'teal', message: t('Sent. Look at your phone.') });
+    } catch (failure) {
+      setProblem(explain(failure));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const save = async () => {
+    const done = await requireFactor(t('Set up push notifications'), (proof) => api('POST', '/api/control/channels/push', { ...body(), proof }));
+    if (done) setTimeout(reload, 3_000);
+  };
+  const disconnect = async () => {
+    const done = await requireFactor(t('Turn push notifications off'), (proof) => api('POST', '/api/control/channels/push/clear', { proof }));
+    if (done) setTimeout(reload, 3_000);
+  };
+
+  return (
+    <Section
+      title={t('Your phone')}
+      description={t('Only an incident or an approval that cannot be undone, and only these may reach you outside your hours.')}
+      actions={<SourceBadge source={view.push.source} />}
+    >
+      <Stack gap="sm">
+        <SegmentedControl value={format} onChange={(value) => setFormat(value as 'ntfy' | 'webhook')}
+          data={[{ value: 'ntfy', label: t('ntfy') }, { value: 'webhook', label: t('Your own webhook') }]} />
+        {format === 'ntfy' ? (
+          <>
+            <Text size="sm" c="dimmed">
+              {t('Install the ntfy app on your phone and subscribe to the topic below. Anyone who knows a topic on ntfy.sh can read it, so keep it long, or use a server of your own with a token.')}{' '}
+              <Anchor href="https://ntfy.sh" target="_blank" rel="noreferrer" size="sm">ntfy.sh <IconExternalLink size={12} /></Anchor>
+            </Text>
+            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+              <TextInput label={t('Server')} value={url} onChange={(event) => setUrl(event.currentTarget.value)} />
+              <TextInput label={t('Topic')} value={topic} onChange={(event) => setTopic(event.currentTarget.value)} />
+            </SimpleGrid>
+          </>
+        ) : (
+          <TextInput label={t('Address')} description={t('Sent a JSON body with title, body, priority, tag and url.')} value={url} onChange={(event) => setUrl(event.currentTarget.value)} />
+        )}
+        <PasswordInput label={t('Token (optional)')} leftSection={<IconKey size={16} />} value={token} onChange={(event) => setToken(event.currentTarget.value)}
+          description={view.push.tokenSet ? t('A token is saved. Leave this empty to keep it.') : undefined} autoComplete="off" />
+        {problem && <Alert color="red" variant="light">{problem}</Alert>}
+        <Group justify="space-between">
+          {view.push.source === 'console' ? <Button variant="subtle" color="gray" size="compact-sm" onClick={() => void disconnect()}>{t('Disconnect')}</Button> : <span />}
+          <Group gap="xs">
+            <Button variant="default" loading={busy} onClick={() => void test()}>{t('Send a test')}</Button>
+            <Button onClick={() => void save()}>{t('Save')}</Button>
+          </Group>
+        </Group>
+      </Stack>
+    </Section>
+  );
+}
+
+function ChatWebhookCard({ kind, source, reload }: { kind: 'slack' | 'discord'; source: 'console' | 'environment' | null; reload: () => void }) {
+  const requireFactor = useFactor();
+  const [url, setUrl] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const name = kind === 'slack' ? t('Slack') : t('Discord');
+  const test = async () => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      await api('POST', `/api/control/channels/chat/${kind}/test`, { ...(url.trim() ? { url: url.trim() } : {}), text: t('PALUGADA is connected: this is where it will tell you what needs you.') });
+      notifications.show({ color: 'teal', message: t('Sent. Look in {name}.', { name }) });
+    } catch (failure) {
+      setProblem(explain(failure));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const save = async () => {
+    const done = await requireFactor(t('Connect {name}', { name }), (proof) => api('POST', `/api/control/channels/chat/${kind}`, { url: url.trim(), proof }));
+    if (done) setTimeout(reload, 3_000);
+  };
+  const disconnect = async () => {
+    const done = await requireFactor(t('Disconnect {name}', { name }), (proof) => api('POST', `/api/control/channels/${kind}/clear`, { proof }));
+    if (done) setTimeout(reload, 3_000);
+  };
+  return (
+    <Section title={name} description={t('What needs you, with a link to decide it here: a webhook message cannot carry buttons.')} actions={<SourceBadge source={source} />}>
+      <Stack gap="sm">
+        <Text size="sm" c="dimmed">
+          {kind === 'slack'
+            ? t('In Slack, add an incoming webhook to the channel you want, and paste its address.')
+            : t('In Discord, open the channel\'s settings, Integrations, Webhooks, make one, and paste its address.')}{' '}
+          <Anchor href={kind === 'slack' ? 'https://api.slack.com/messaging/webhooks' : 'https://support.discord.com/hc/en-us/articles/228383668'} target="_blank" rel="noreferrer" size="sm">
+            {t('How')} <IconExternalLink size={12} />
+          </Anchor>
+        </Text>
+        <PasswordInput leftSection={<IconKey size={16} />} value={url} onChange={(event) => setUrl(event.currentTarget.value)}
+          placeholder={source === 'console' ? t('Connected. Paste a new address to replace it.') : kind === 'slack' ? 'https://hooks.slack.com/services/…' : 'https://discord.com/api/webhooks/…'} autoComplete="off" />
+        {problem && <Alert color="red" variant="light">{problem}</Alert>}
+        <Group justify="space-between">
+          {source === 'console' ? <Button variant="subtle" color="gray" size="compact-sm" onClick={() => void disconnect()}>{t('Disconnect')}</Button> : <span />}
+          <Group gap="xs">
+            <Button variant="default" loading={busy} disabled={!url.trim() && source !== 'console'} onClick={() => void test()}>{t('Send a test')}</Button>
+            <Button disabled={!url.trim()} onClick={() => void save()}>{t('Save')}</Button>
+          </Group>
+        </Group>
       </Stack>
     </Section>
   );

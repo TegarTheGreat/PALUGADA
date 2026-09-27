@@ -114,8 +114,9 @@ A secret the owner saved is named like any other, as a reference:
 | `PALUGADA_RUNTIME_IMAGE` | The Docker runtime, with no network |
 | `PALUGADA_SANDBOX_URL`, `_IMAGE` | A remote sandbox runtime |
 | `PALUGADA_FILES_ROOT` | The company's files, for `files.list` and drafting |
-| `PALUGADA_PUSH_URL` | Push notifications for incidents and tier 3 approvals |
-| `PALUGADA_TELEGRAM_TOKEN`, `_CHAT`, `_WEBHOOK_SECRET` | Telegram with decision buttons. Point the bot's webhook at `<PALUGADA_APP_URL_PUBLIC>/api/channels/telegram` |
+| `PALUGADA_PUSH_URL` | Push notifications for incidents and tier 3 approvals. `PALUGADA_PUSH_FORMAT=ntfy` with `PALUGADA_PUSH_TOPIC` posts in ntfy's shape; `PALUGADA_PUSH_TOKEN` (or `_TOKEN_REF`) is its token |
+| `PALUGADA_TELEGRAM_TOKEN`, `_CHAT`, `_WEBHOOK_SECRET` | Telegram with decision buttons. Point the bot's webhook at `<PALUGADA_APP_URL_PUBLIC>/api/channels/telegram`. The token and secret may be references instead, in `_TOKEN_REF` and `_WEBHOOK_SECRET_REF`; the console connects a bot for you. `PALUGADA_TELEGRAM_API` names a local Bot API server |
+| `PALUGADA_SLACK_WEBHOOK`, `PALUGADA_DISCORD_WEBHOOK` | A Slack or Discord incoming webhook the owner is told things on, or a reference to one in `_WEBHOOK_REF` |
 | `PALUGADA_APP_URL_PUBLIC` | Where the console is reached from the owner's phone. Notifications link there |
 | `PALUGADA_ALLOWED_HOSTS` | The host names the console answers to, comma-separated. Defaults to the hosts of the public URL and origins. Loopback is always allowed |
 | `PALUGADA_BEHIND_PROXY` | `1` when the console is reached through a reverse proxy: the caller's address, which the sign-in throttle counts by, is then the last one the proxy added to `X-Forwarded-For`. Leave it unset otherwise, since without a proxy that header is whatever the caller wrote |

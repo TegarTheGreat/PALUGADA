@@ -51,6 +51,23 @@ export interface ToolSetting {
   keySecret?: string;
 }
 
+/** How the owner is reached, as the console sets it. Every credential is a sealed secret's name. */
+export interface ChannelSettings {
+  telegram?: { chatId: string; tokenSecret: string; webhookSecret?: string };
+  push?: { format: 'webhook' | 'ntfy'; url: string; topic?: string; tokenSecret?: string };
+  slack?: { urlSecret: string };
+  discord?: { urlSecret: string };
+}
+
+/** The variables each channel was configured by, which a console choice for that channel replaces together. */
+const CHANNEL_KEYS: Readonly<Record<keyof ChannelSettings, readonly string[]>> = {
+  telegram: ['PALUGADA_TELEGRAM_TOKEN', 'PALUGADA_TELEGRAM_TOKEN_REF', 'PALUGADA_TELEGRAM_CHAT',
+    'PALUGADA_TELEGRAM_WEBHOOK_SECRET', 'PALUGADA_TELEGRAM_WEBHOOK_SECRET_REF'],
+  push: ['PALUGADA_PUSH_URL', 'PALUGADA_PUSH_TOKEN', 'PALUGADA_PUSH_TOKEN_REF', 'PALUGADA_PUSH_FORMAT', 'PALUGADA_PUSH_TOPIC'],
+  slack: ['PALUGADA_SLACK_WEBHOOK', 'PALUGADA_SLACK_WEBHOOK_REF'],
+  discord: ['PALUGADA_DISCORD_WEBHOOK', 'PALUGADA_DISCORD_WEBHOOK_REF'],
+};
+
 /** The variables the agent CLIs were configured by, which a console choice replaces together. */
 const AGENT_KEYS = [
   'PALUGADA_AGENT_CLIS', 'PALUGADA_AGENT_SETTINGS', 'PALUGADA_CLAUDE_CODE_COMMAND', 'PALUGADA_CLAUDE_CODE_KEY_VAR',
@@ -86,6 +103,24 @@ export function withSettings(env: NodeJS.ProcessEnv, settings: Settings): NodeJS
       out[names.provider] = tool.provider;
       if (tool.url) out[names.url] = tool.url;
       if (tool.keySecret) out[names.key] = `db://${tool.keySecret}`;
+    }
+  }
+  const channels = settings.channels as ChannelSettings | undefined;
+  for (const name of Object.keys(CHANNEL_KEYS) as Array<keyof ChannelSettings>) {
+    const channel = channels?.[name];
+    if (!channel) continue;
+    for (const key of CHANNEL_KEYS[name]) delete out[key];
+    if (name === 'telegram' && channels.telegram) {
+      out.PALUGADA_TELEGRAM_TOKEN_REF = `db://${channels.telegram.tokenSecret}`;
+      out.PALUGADA_TELEGRAM_CHAT = channels.telegram.chatId;
+      if (channels.telegram.webhookSecret) out.PALUGADA_TELEGRAM_WEBHOOK_SECRET_REF = `db://${channels.telegram.webhookSecret}`;
+    } else if (name === 'push' && channels.push) {
+      out.PALUGADA_PUSH_URL = channels.push.url;
+      out.PALUGADA_PUSH_FORMAT = channels.push.format;
+      if (channels.push.topic) out.PALUGADA_PUSH_TOPIC = channels.push.topic;
+      if (channels.push.tokenSecret) out.PALUGADA_PUSH_TOKEN_REF = `db://${channels.push.tokenSecret}`;
+    } else if ((name === 'slack' || name === 'discord') && channels[name]) {
+      out[`PALUGADA_${name.toUpperCase()}_WEBHOOK_REF`] = `db://${channels[name]!.urlSecret}`;
     }
   }
   const agents = settings.agents as Record<string, AgentSetting> | undefined;

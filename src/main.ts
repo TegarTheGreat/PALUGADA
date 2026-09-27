@@ -40,8 +40,9 @@ import { withSettings } from './settings/overlay.ts';
 import { LocalSecretManager } from './secrets/local.ts';
 import { PalugadaError } from './errors.ts';
 import { OwnerApi } from './owner/api.ts';
-import { WebhookPush } from './owner/push.ts';
+import { WebhookPush, ntfyBody } from './owner/push.ts';
 import { TelegramChannel } from './owner/telegram.ts';
+import { WebhookChatChannel } from './owner/webhook-chat.ts';
 import type { OwnerChannel } from './owner/notify.ts';
 import { AdapterRegistry } from './runtime/protocol.ts';
 import { assembleRuntimes } from './runtime/assemble.ts';
@@ -177,45 +178,80 @@ export interface Deployment {
  * Empty is a legitimate answer and is reported rather than hidden: a platform
  * that silently has no way to reach its owner looks identical to one whose
  * owner is not being told anything, and only one of those is fine.
+ *
+ * Each credential can be the value itself, as an operator writes it, or a
+ * reference to a secret -- `db://` for one the owner saved in the console --
+ * resolved here, once, before the channel exists. One that cannot be opened
+ * leaves its channel out and says why, rather than stopping the boot: the
+ * console, which is where it is fixed, must come up.
  */
-export function channelsFrom(env: NodeJS.ProcessEnv): {
-  channels: OwnerChannel[];
-  notes: string[];
-} {
+export async function channelsFrom(
+  env: NodeJS.ProcessEnv,
+  resolve: (reference: string) => Promise<string> = async (reference) => {
+    throw new Error(`${reference} cannot be resolved here`);
+  },
+): Promise<{ channels: OwnerChannel[]; notes: string[] }> {
   const channels: OwnerChannel[] = [];
   const notes: string[] = [];
+  const read = async (plain: string, reference: string): Promise<string | null | undefined> => {
+    if (env[plain]) return env[plain];
+    const ref = env[reference];
+    if (!ref) return null;
+    try {
+      return await resolve(ref);
+    } catch (failure) {
+      notes.push(`${reference} ${ref} could not be opened: ${(failure as Error).message}`);
+      return undefined;
+    }
+  };
 
-  if (env.PALUGADA_PUSH_URL) {
-    channels.push(new WebhookPush({
-      url: env.PALUGADA_PUSH_URL,
-      ...(env.PALUGADA_PUSH_TOKEN ? { token: env.PALUGADA_PUSH_TOKEN } : {}),
-    }));
-  } else {
+  const pushToken = await read('PALUGADA_PUSH_TOKEN', 'PALUGADA_PUSH_TOKEN_REF');
+  if (env.PALUGADA_PUSH_URL && pushToken !== undefined) {
+    const ntfy = env.PALUGADA_PUSH_FORMAT === 'ntfy';
+    if (ntfy && !env.PALUGADA_PUSH_TOPIC) {
+      notes.push('no push channel: ntfy needs PALUGADA_PUSH_TOPIC, the topic the phone subscribes to (F10.5)');
+    } else {
+      channels.push(new WebhookPush({
+        url: env.PALUGADA_PUSH_URL,
+        // ntfy takes an access token as a bearer; a webhook of the owner's
+        // own is sent the value as it was given.
+        ...(pushToken ? { token: ntfy ? `Bearer ${pushToken}` : pushToken } : {}),
+        ...(ntfy ? { body: ntfyBody(env.PALUGADA_PUSH_TOPIC!), name: 'push:ntfy' } : {}),
+      }));
+    }
+  } else if (!env.PALUGADA_PUSH_URL) {
     notes.push('no push channel: set PALUGADA_PUSH_URL (F10.5)');
   }
 
-  if (env.PALUGADA_TELEGRAM_TOKEN && env.PALUGADA_TELEGRAM_CHAT) {
+  const telegramToken = await read('PALUGADA_TELEGRAM_TOKEN', 'PALUGADA_TELEGRAM_TOKEN_REF');
+  const webhookSecret = await read('PALUGADA_TELEGRAM_WEBHOOK_SECRET', 'PALUGADA_TELEGRAM_WEBHOOK_SECRET_REF');
+  if (telegramToken && env.PALUGADA_TELEGRAM_CHAT) {
     channels.push(new TelegramChannel({
-      token: env.PALUGADA_TELEGRAM_TOKEN,
+      token: telegramToken,
       chatId: env.PALUGADA_TELEGRAM_CHAT,
+      ...(env.PALUGADA_TELEGRAM_API ? { apiBase: env.PALUGADA_TELEGRAM_API } : {}),
       // Without the webhook secret the channel can send but cannot safely be
       // sent to, and `onCallback` refuses every press. Said here so the
       // half-configured case is visible at boot rather than as buttons that
       // do nothing.
-      ...(env.PALUGADA_TELEGRAM_WEBHOOK_SECRET
-        ? { webhookSecret: env.PALUGADA_TELEGRAM_WEBHOOK_SECRET }
-        : {}),
+      ...(webhookSecret ? { webhookSecret } : {}),
     }));
-    if (!env.PALUGADA_TELEGRAM_WEBHOOK_SECRET) {
+    if (!webhookSecret) {
       notes.push(
         'telegram can send but not receive: set PALUGADA_TELEGRAM_WEBHOOK_SECRET, '
         + 'or every button press will be refused (F10.9)',
       );
     }
-  } else {
+  } else if (telegramToken !== undefined) {
     notes.push(
       'no message channel: set PALUGADA_TELEGRAM_TOKEN and PALUGADA_TELEGRAM_CHAT (F10.9)',
     );
+  }
+
+  for (const kind of ['slack', 'discord'] as const) {
+    const upper = kind.toUpperCase();
+    const url = await read(`PALUGADA_${upper}_WEBHOOK`, `PALUGADA_${upper}_WEBHOOK_REF`);
+    if (url) channels.push(new WebhookChatChannel({ kind, url }));
   }
 
   return { channels, notes };
@@ -584,7 +620,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     stopping: stopping.signal,
   });
 
-  const { channels, notes: channelNotes } = channelsFrom(env);
+  const { channels, notes: channelNotes } = await channelsFrom(env, (reference) => secrets.resolve(reference));
   notes.push(...channelNotes);
 
   // The worker stops by an abort signal rather than a method, which is what

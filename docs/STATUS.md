@@ -68,7 +68,7 @@ means less than that, the row says so.
 | F10 owner surface | F10.1–F10.4, F10.6–F10.8, F10.10, F10.11 | F10.5, F10.9 (both transports are written and driven end to end against a local server; no push service and no bot account exist here to point them at) | — |
 | F11 observability | F11.1–F11.7 | — | — |
 | F12 credentials, gateway | F12.1–F12.10 | — | — |
-| F13 runtime adapters | F13.1, F13.2, F13.4–F13.8 | F13.3 (the machinery, the four named specs and the override path are built and driven end to end; none of the four binaries is installed here, so the command lines in `known-clis.ts` are starting points rather than verified argv) | — |
+| F13 runtime adapters | F13.1, F13.2, F13.4–F13.8 | F13.3 (the machinery, the four named specs and the override path are built and driven end to end; `codex`, `gemini-cli` and `opencode` were run against their binaries, `hermes` and `openclaw` checked against their source; compatibility with Paperclip's adapter packages is not offered, by decision -- section 2.12) | — |
 | F14 lifecycle hooks | F14.1–F14.4 | — | — |
 | F15 skills | F15.1–F15.8 | — | — |
 | F16 bundles | F16.1–F16.5 | — | — |
@@ -105,17 +105,27 @@ check, because there is a docker CLI here and no daemon.
 F13.3 names four third-party runtimes — `hermes`, `openclaw`, `codex` and
 `gemini-cli` — and then names the reason for the list: *so that community
 adapters can be used*. That reason is built and section 2.12 says how. The
-specs ship in `src/runtime/known-clis.ts`, with `opencode` as a fifth. The
-`hermes`, `openclaw` and `opencode` entries were read from each CLI's source at
-a fixed commit (section 2.18); `codex` and `gemini-cli` are still written from
-their descriptions. None has been run against the real binary, because none is
-installed here.
+specs ship in `src/runtime/known-clis.ts`, with `opencode` as a fifth.
+`codex` 0.157.1, `gemini-cli` 0.61.0 and `opencode` 1.18.32 -- and Claude Code
+2.1.283 for the `claude-code` adapter -- were installed and run with the
+shipped entries against a stand-in model and the tool bridge (section 2.22,
+"Any agent"). `hermes` and `openclaw` were read from their source at fixed
+commits (section 2.18) and read again for the audit of 2026-09-28: every flag
+the entries pass exists, including Hermes's `chat --max-turns` and `--source`,
+which the audit could not find.
 
 ## 2.1 Deliberate deviations from the PRD
 
-Four places where the implementation does not read literally as the PRD does.
-All four are choices, and all four are cheap to reverse if the reasoning stops
+Five places where the implementation does not read literally as the PRD does.
+All five are choices, and all five are cheap to reverse if the reasoning stops
 holding.
+
+**F13.3's Paperclip compatibility is not offered.** The requirement asks that
+Paperclip's community adapters can be used. They can be hosted, but the ones
+that exist expect the model to have a shell and Paperclip's REST API, which
+F13.4 forbids a PALUGADA run; the two that take MCP servers duplicate entries
+this repository already runs. Section 2.12 has the evidence, read from
+Paperclip's source in September 2026.
 
 **F15.8's quarantine is scope, not tier.** The requirement says an external
 skill enters only through quarantine and points at F12.10, whose answer for a
@@ -764,14 +774,26 @@ Three refusals are in the adapter rather than in a review:
 Two things this does not claim. The four names are still not adapters in this
 repository, and the table says so: what an operator gets is the machinery and a
 place to put the command line, not a working `codex` entry written by someone
-who has never run `codex`. And **Paperclip compatibility is not claimed at the
-wire level.** F13.3 asks for compatibility with a competitor's adapter
-protocol; that protocol is not published in anything this repository can read,
-and a "compatible" implementation written from a guess would be a compatibility
-claim that fails on contact. What is offered instead is the property the clause
-was after — a runtime nobody here has heard of can be employed without changing
-this codebase — reached by PALUGADA's own documented protocol rather than by
-somebody else's.
+who has never run `codex`. And **Paperclip compatibility is not offered, and
+that is a decision rather than a gap.** This section used to say Paperclip's
+adapter protocol was not published; it is -- `@paperclipai/adapter-utils` on
+npm, MIT, with `packages/adapters/AUTHORING.md` -- and it was read for the
+audit of 2026-09-28 (Paperclip at `0f14d26`). A Paperclip adapter is an npm
+package exporting `createServerAdapter()`, whose `execute(ctx)` is handed a
+prompt, a config with resolved secrets, a Paperclip API token and optionally
+MCP servers, and returns usage, cost and a text summary. A host for such a
+package is feasible -- in a scrubbed process of its own, about a thousand
+lines -- but it would buy almost nothing. The community adapters F13.3 names
+as the reason expect the model to use its own shell against Paperclip's REST
+API (`PAPERCLIP_API_KEY`, `curl`), which is exactly what a PALUGADA run is
+never given (F13.4); only Paperclip's own `claude_local` and `codex_local`
+take MCP servers, and both default to skipping every permission and duplicate
+the `claude-code` and `codex` entries this repository already runs. So the
+clause is recorded as a deviation (section 2.1): what F13.3 was after -- a
+runtime nobody here has heard of can be employed without changing this
+codebase -- is reached by PALUGADA's own documented protocol and a spec in
+`PALUGADA_RUNTIME_SPECS`. The owner can reopen it; the evidence is in
+`docs/AUDIT-2026-09-28.md`.
 
 ## 2.13 "Cannot be tested" is not "cannot be built"
 
@@ -3586,8 +3608,13 @@ is a real Daytona or Modal machine answering; the `http` runtime also reports
 this backend, because "somewhere else, not ours" is what it means in F13.5's
 vocabulary, and it cannot verify the claim.
 
-**Twenty of the capabilities the standard template grants have no adapter, and
-that is the design rather than a gap.** `dns.read`, `email.send`,
+**Thirty-four of the forty-six catalogued capabilities are unbound on a bare
+boot, and that is the design rather than a gap.** The boot names every one.
+Eight need configuration, not an account: `files.list`, `doc.draft` and
+`email.draft` a files root and a model, and `web.search`, `web.extract`,
+`image.generate`, `speech.synthesize` and `speech.transcribe` a provider chosen
+under **Tools**. The other twenty-six need a deployment's own vendor entry,
+four of which `config/vendors.example.json` shows. `dns.read`, `email.send`,
 `invoice.pay` and the rest are *names* in the catalogue: a tier, a schema, the
 scopes a credential must declare, and a `verify()` contract. What executes them
 is a deployment's own adapter, because `email.send` against Resend and against
@@ -3606,12 +3633,14 @@ capability with nothing behind it is a company whose agents will be refused at
 the moment they try to work, and finding that out at boot is the difference
 between a configuration error and an incident.
 
-**The `claude-code` adapter has not been run against the real binary.** It is
-not installed here and the provider is not reachable from the test environment,
-so what the suite covers is the argv it builds, the translation of the CLI's
-stream-json into §7.5's vocabulary, and the MCP bridge its tool calls go
-through — driven directly, as a client would. The end-to-end path is unverified
-and is written down here rather than left for a green suite to imply.
+**The `claude-code` adapter was run against the real binary, not against
+Anthropic.** Claude Code 2.1.283 was installed and run with the shipped
+arguments against a stand-in model and the tool bridge (section 2.22, "Any
+agent"), which is what found the seventeen tools of its own and the operator's
+settings it read. Anthropic's API is not reachable from the test environment,
+so a run against the real provider -- its prompt caching, its rate limits, its
+own cost report -- is still unverified, and is written down here rather than
+left for a green suite to imply.
 
 **NG6 is resolved.** The engine no longer calls a model to do a task: it
 assembles a `RunRequest`, lends the runtime four services, and does the
@@ -3637,8 +3666,9 @@ capability broker and mandatory verification all fail to go in as a Paperclip
 plugin, and the criterion asked for two. See
 [`decisions/0001-fork-versus-build.md`](decisions/0001-fork-versus-build.md)
 for the evidence and for the deployment checks to run if the owner wants them
-before committing. The second half of the PRD's fallback binds: the adapter
-protocol must stay Paperclip-compatible (F13.1–F13.3).
+before committing. The second half of the PRD's fallback -- that the adapter
+protocol stay Paperclip-compatible -- is not met, by decision: section 2.12
+says why, after reading that protocol in September 2026.
 
 **The state machine gained its status.** v2 section 8.5's
 `pending → checked_out → running` is implemented, and the note below records

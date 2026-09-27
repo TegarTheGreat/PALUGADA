@@ -113,7 +113,8 @@ address and that it calls tools. Then open **http://127.0.0.1:8787**, sign in
 with the six-digit code, and press **Start a company**.
 
 New here? [The guide](docs/guide/README.md) walks through the first company,
-what each screen is for, and how to run it for a team or a larger business.
+what each screen is for, and how to run it for real at each size -- a few
+companies or many, always with one owner.
 Every setting is in [docs/configuration.md](docs/configuration.md).
 
 ## What you get
@@ -224,8 +225,9 @@ broker, journalled steps, contained sub-tasks and a way to report cost.
   servers you allow-list. There is no connector catalogue and no OAuth flow
   for connecting an account.
 - **One owner, on Linux.** There are no other users, no single sign-on and
-  no roles for staff, and process handling reads `/proc`. The container image
-  runs no agent CLI of its own; one is added by extending it.
+  no roles for staff. Run directly it is tested on Linux only; on macOS or
+  Windows, run the container with Docker Desktop. The container image runs
+  no agent CLI of its own; one is added by extending it.
 - **Companies are frozen, exported or retained, never deleted.** The event log
   is append-only by design.
 - **A capability that needs somebody's account waits for one.** Sending

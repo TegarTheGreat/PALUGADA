@@ -7,9 +7,14 @@ each step. The settings it mentions are listed in full in
 
 ## What you need
 
-PALUGADA runs on Linux: its process handling reads `/proc`. Either way you
-install it, you need Node 22.18 or later on the machine where you run the
-setup, because `npm run setup` is a Node script. Node 22.18 runs the
+PALUGADA runs on Linux. On macOS or Windows, run it with Docker Compose
+(Docker Desktop): the container is Linux, and nothing else is needed. Run
+directly, it is tested on Linux only: agent CLIs are stopped by process
+group, which Windows does not have, and on macOS it is untested -- the one
+Linux-only read, `/proc`, has a fallback there, but nobody has run a
+deployment on a Mac. Either way you install it, you need Node 22.18 or later
+on the machine where you run the setup, because `npm run setup` is a Node
+script. Node 22.18 runs the
 server's TypeScript directly, so there is no build step for the server.
 
 | | With Docker Compose | On this machine |

@@ -34,43 +34,65 @@ export const TOOLS: McpToolDescription[] = [
   },
 ];
 
-export async function mcpServer(options: { needsToken?: string; tools?: McpToolDescription[] } = {}) {
+export async function mcpServer(options: { needsToken?: string; tokenIn?: { header?: string; scheme?: string; query?: string }; tools?: McpToolDescription[] } = {}) {
   const state = {
     tools: options.tools ?? structuredClone(TOOLS),
-    calls: [] as Array<{ name: string; arguments: Record<string, unknown>; meta: unknown; authorization: string | undefined }>,
+    calls: [] as Array<{ name: string; arguments: Record<string, unknown>; meta: unknown; authorization: string | undefined; session: string }>,
     links: new Map<string, { id: string; amount: number; status: string }>(),
     /** The Authorization header of every request, so a test can see where a token went. */
     authorizations: [] as Array<string | undefined>,
+    /** Sessions started, the ones still open, and the ones a client ended. */
+    started: 0,
+    live: new Set<string>(),
+    ended: [] as string[],
   };
   const server: Server = createServer((req: IncomingMessage, res) => {
     let raw = '';
     req.on('data', (chunk) => { raw += chunk; });
     req.on('end', () => {
-      const message = JSON.parse(raw) as { id?: number; method: string; params?: Record<string, unknown> };
       state.authorizations.push(req.headers.authorization);
-      if (options.needsToken && req.headers.authorization !== `Bearer ${options.needsToken}`) {
+      const where = options.tokenIn ?? {};
+      const presented = where.query
+        ? new URL(req.url ?? '/', 'http://localhost').searchParams.get(where.query)
+        : req.headers[(where.header ?? 'authorization').toLowerCase()];
+      const expected = where.query ? options.needsToken
+        : `${where.scheme ?? (where.header ? '' : 'Bearer')} ${options.needsToken}`.trim();
+      if (options.needsToken && presented !== expected) {
         res.writeHead(401).end('{"error":"unauthorised"}');
+        return;
+      }
+      const session = String(req.headers['mcp-session-id'] ?? '');
+      if (req.method === 'DELETE') {
+        // The protocol's way to end a session; an unknown one is a 404.
+        if (state.live.delete(session)) state.ended.push(session);
+        res.writeHead(state.ended.includes(session) ? 200 : 404).end();
+        return;
+      }
+      const message = JSON.parse(raw) as { id?: number; method: string; params?: Record<string, unknown> };
+      if (message.method !== 'initialize' && !state.live.has(session)) {
+        // A session this server does not hold, or no longer does.
+        res.writeHead(404).end('{"error":"no such session"}');
         return;
       }
       if (message.method === 'notifications/initialized') {
         res.writeHead(202).end();
         return;
       }
-      if (message.method !== 'initialize' && req.headers['mcp-session-id'] !== 'session-1') {
-        res.writeHead(400).end('{"error":"no session"}');
-        return;
-      }
+      let opened: string | null = null;
       const answer = (result: unknown, stream = false) => {
         const body = JSON.stringify({ jsonrpc: '2.0', id: message.id, result });
         if (stream) {
           res.writeHead(200, { 'content-type': 'text/event-stream' });
           res.end(`event: message\ndata: {"jsonrpc":"2.0","method":"notifications/progress","params":{}}\n\nevent: message\ndata: ${body}\n\n`);
         } else {
-          res.writeHead(200, { 'content-type': 'application/json', ...(message.method === 'initialize' ? { 'mcp-session-id': 'session-1' } : {}) });
+          res.writeHead(200, { 'content-type': 'application/json', ...(opened ? { 'mcp-session-id': opened } : {}) });
           res.end(body);
         }
       };
       if (message.method === 'initialize') {
+        state.started += 1;
+        opened = `session-${state.started}`;
+        state.live.add(opened);
         answer({ protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'fake-payments', version: '1' } });
         return;
       }
@@ -80,7 +102,7 @@ export async function mcpServer(options: { needsToken?: string; tools?: McpToolD
       }
       if (message.method === 'tools/call') {
         const params = message.params as { name: string; arguments: Record<string, unknown>; _meta?: unknown };
-        state.calls.push({ name: params.name, arguments: params.arguments, meta: params._meta, authorization: req.headers.authorization });
+        state.calls.push({ name: params.name, arguments: params.arguments, meta: params._meta, authorization: req.headers.authorization, session });
         if (params.name === 'get_transaction') {
           answer({ content: [{ type: 'text', text: 'settled' }], structuredContent: { orderId: params.arguments.orderId, status: 'settlement' } });
         } else if (params.name === 'create_payment_link') {

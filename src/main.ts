@@ -29,7 +29,7 @@ import { CapabilityRegistry } from './broker/registry.ts';
 import { Engine } from './engine/engine.ts';
 import { DEFAULT_PRICE_TABLE, loadPriceTable } from './engine/pricing.ts';
 import { modelClientFrom, modelSettingsFrom } from './llm/models.ts';
-import { bindMcpServers, registerMcpServers } from './capabilities/mcp.ts';
+import { bindMcpServers, closeMcpSessions, registerMcpServers } from './capabilities/mcp.ts';
 import { Worker, type WorkerOptions } from './worker.ts';
 import type { SecretManager } from './secrets/manager.ts';
 import { OwnerMfa, decodeBase32 } from './owner/mfa.ts';
@@ -793,6 +793,9 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
       } finally {
         clearTimeout(grace);
       }
+      // Last, once no run can open another: a server holding a session for
+      // a task -- a browser, say -- is told it is over.
+      await closeMcpSessions();
     },
   };
 }

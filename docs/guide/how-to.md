@@ -172,9 +172,15 @@ only the ones you allow, at the tier you choose.
 ### From the console
 
 1. Open **This deployment**, **MCP servers**, and press **Add an MCP server**.
-2. Give it a **Name** -- lowercase, such as `payments`; each tool becomes
-   `mcp.payments.<tool>` -- its **Address**, and a **Token** if the server
-   asks for one. The token is sent as a bearer token and sealed here.
+2. Under **Start from**, pick a service -- GitHub, Linear, Stripe,
+   Atlassian, Sentry, Cloudflare, Neon, Zapier, Apify, Hugging Face,
+   Context7, Firecrawl, Tavily, Exa, Browserbase, or Playwright, which you
+   run yourself -- and its name, address and where its token goes are
+   filled in; **Get a key** opens the page where the service makes one.
+   For any other server, leave it empty and give a **Name** -- lowercase,
+   such as `payments`; each tool becomes `mcp.payments.<tool>` -- and its
+   **Address**. Paste the **Token** if the server asks for one: it is sealed
+   here, and sent where the server reads it.
 3. Press **Look at its tools**. Each tool is shown with what it says it does,
    what it takes, and whether the server says it only reads or is
    destructive. Nothing is saved yet.
@@ -225,6 +231,30 @@ the file.
 
 What a server returns counts as content from outside the company, so work
 that used it asks you before its next tier 2 action.
+
+## Give roles a browser
+
+A role that must use a website -- sign in to a supplier's portal, fill a
+form -- needs a browser, not a page reader. It comes from an MCP server:
+
+- **Playwright**, on a machine of yours. Run
+  `npx @playwright/mcp@0.0.82 --port 8931 --headless` where this deployment
+  can reach it (in a container, add `--host 0.0.0.0 --allowed-hosts '*'`),
+  then add the **Playwright** server under **MCP servers**. It takes no
+  token, so whoever reaches its port drives the browser: keep it on a
+  network only this deployment is on.
+- **Browserbase**, a browser in the cloud: add the **Browserbase** server
+  with its key.
+
+Each of a task's calls to the server share one session, so the page a role
+opened is still open for its next step, and for the read-back that checks
+it. The session ends when the task has been quiet for five minutes.
+
+Playwright says that navigating, clicking and typing are destructive, so
+each is tier 3 and asks you every time; reading the page
+(`browser_snapshot`) only reads, and can be tier 0. That is the price of a
+browser that can do anything a person can. To read pages without asking,
+use **Reading pages** under **Tools** instead.
 
 ## Let roles search the web
 

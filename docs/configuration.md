@@ -239,7 +239,13 @@ pin of an unpinned tool -- and must name a read-back: another tool on the
 same server and what its answer must say. A tool whose description or
 arguments changed since it was pinned is refused. `credentialAlias` sends
 the calling division's credential as a bearer token; `tokenRef`, a secret
-reference, sends the server's own token instead. Everything a server
+reference, sends the server's own token instead. `tokenIn` says where a
+server reads its token when that is not `Authorization: Bearer`: another
+`header` (Exa's `x-api-key`), another `scheme` (Sentry's `Sentry-Bearer`),
+or a `query` parameter (Browserbase's `browserbaseApiKey`). A task's calls
+to a server share one session, ended after five quiet minutes and at
+shutdown, so a server that keeps state between calls -- a browser -- keeps
+it for the task. Everything a server
 returns counts as content from outside the company, so work that used it
 asks the owner before its next tier 2 action. Servers the owner adds in
 the console (**This deployment**, **MCP servers**) reach the platform as

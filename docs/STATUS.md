@@ -2911,6 +2911,24 @@ vendor files (`src/capabilities/mcp.ts`, `PALUGADA_MCP_SERVERS`).
   given for, and a server may carry its own token (`tokenRef`) instead of a
   division's credential. A console server that no longer passes is left out
   at the next start with a note; a file's refusal still stops it.
+- **A task keeps its session.** Tried against Playwright's own MCP server,
+  the client opened a session for every call and never ended one, and the
+  second call was refused the browser the first still held -- so a server
+  that keeps state between calls could not be used at all. A task's calls
+  to a server now share one session, its write and the read-back that checks
+  it included, keyed by the task and the authority the calls carry; it is
+  ended with the protocol's DELETE after five quiet minutes, at shutdown, and
+  after the boot's and the console's looks at the tools; and a session the
+  server has forgotten (a 404) is started again and the request sent once
+  more, as the protocol says. Checked end to end: a navigation in Chromium,
+  read back in the same session.
+- **Servers offered by name.** GitHub, Linear, Stripe, Atlassian, Sentry,
+  Cloudflare, Neon, Zapier, Apify, Hugging Face, Context7, Firecrawl, Tavily,
+  Exa, Browserbase and Playwright fill in their address and where their
+  token goes, from each vendor's documentation (September 2026; none was
+  called with a live key). A token may go in another header, another scheme
+  or the address (`tokenIn`). Services that take only OAuth, such as Notion
+  and Vercel, are not offered: this client runs no sign-in flow.
 
 ### Three more from the reliability and security audits
 

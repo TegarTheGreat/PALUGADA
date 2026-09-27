@@ -1191,19 +1191,67 @@ interface McpVerify {
   matches: { path?: string; equalsPath?: string; present?: string };
 }
 
+interface McpTokenIn {
+  header?: string;
+  scheme?: string;
+  query?: string;
+}
+
 interface McpServerView {
   name: string;
   url: string;
   tokenSet: boolean;
+  tokenIn?: McpTokenIn;
   inUse: boolean;
   tools: Record<string, { tier: number; verify?: McpVerify }>;
 }
 
+interface McpPreset {
+  id: string;
+  name: string;
+  about: string;
+  url: string;
+  tokenIn?: McpTokenIn;
+  key: 'required' | 'none';
+  keyUrl?: string;
+  keyHint?: string;
+  run?: string;
+}
+
 interface McpView {
   servers: McpServerView[];
+  presets: McpPreset[];
   file: string | null;
   applies: 'now' | 'next_start';
 }
+
+/** The same words the server sends about each preset, here so that they are translated. */
+const MCP_PRESET_TEXT: Record<string, string> = {
+  github: N('Repositories, issues and pull requests'),
+  linear: N('Issues and projects'),
+  stripe: N('Payments, customers and invoices'),
+  atlassian: N('Jira and Confluence'),
+  sentry: N('Errors and performance'),
+  cloudflare: N('Your Cloudflare account'),
+  neon: N('Postgres databases'),
+  zapier: N('Other apps, through the actions you set up in Zapier'),
+  apify: N('Ready-made scrapers and automations'),
+  huggingface: N('Models, datasets and Spaces'),
+  context7: N('Current documentation for code libraries'),
+  firecrawl: N('Scrape, crawl and search the web'),
+  tavily: N('Search built for agents'),
+  exa: N('Search by meaning'),
+  browserbase: N('A browser in the cloud'),
+  playwright: N('A real browser, on a machine of yours'),
+};
+
+const MCP_KEY_HINT: Record<string, string> = {
+  github: N('A fine-grained personal access token, limited to the repositories and permissions roles need.'),
+  linear: N('A personal API key.'),
+  stripe: N('A restricted key tagged for agents: from 31 October 2026 Stripe refuses a secret key here.'),
+  atlassian: N('An API key for a service account, which an organisation admin makes; a personal token is refused.'),
+  sentry: N('A user auth token from Sentry\'s settings.'),
+};
 
 const MCP_TIERS = [
   { value: '0', label: N('Tier 0 · read only') },
@@ -1232,10 +1280,10 @@ function McpSettings() {
         </Paper>
       )}
       {view.data.servers.map((server) => editing !== 'new' && editing?.name === server.name
-        ? <McpServerForm key={server.name} saved={server} onDone={done} onCancel={() => setEditing(null)} />
+        ? <McpServerForm key={server.name} saved={server} presets={view.data!.presets} onDone={done} onCancel={() => setEditing(null)} />
         : <McpServerCard key={server.name} server={server} onEdit={() => setEditing(server)} onRemoved={done} />)}
       {editing === 'new'
-        ? <McpServerForm saved={null} onDone={done} onCancel={() => setEditing(null)} />
+        ? <McpServerForm saved={null} presets={view.data.presets} onDone={done} onCancel={() => setEditing(null)} />
         : <Group><Button leftSection={<IconPlus size={16} />} variant="light" onClick={() => setEditing('new')}>{t('Add an MCP server')}</Button></Group>}
     </Stack>
   );
@@ -1298,11 +1346,32 @@ function choiceFor(tool: McpTool, saved: McpServerView | null): McpChoice {
   };
 }
 
-function McpServerForm({ saved, onDone, onCancel }: { saved: McpServerView | null; onDone: () => void; onCancel: () => void }) {
+function McpServerForm({ saved, presets, onDone, onCancel }: {
+  saved: McpServerView | null; presets: McpPreset[]; onDone: () => void; onCancel: () => void;
+}) {
   const requireFactor = useFactor();
   const [name, setName] = useState(saved?.name ?? '');
   const [url, setUrl] = useState(saved?.url ?? '');
   const [token, setToken] = useState('');
+  const [tokenIn, setTokenIn] = useState<McpTokenIn | undefined>(saved?.tokenIn);
+  const [preset, setPreset] = useState<McpPreset | null>(presets.find((one) => one.id === saved?.name && one.url === saved?.url) ?? null);
+  const choose = (id: string | null) => {
+    const chosen = presets.find((one) => one.id === id) ?? null;
+    setPreset(chosen);
+    setTools(null);
+    setProblem(null);
+    if (chosen) {
+      setName(chosen.id);
+      setUrl(chosen.url);
+      setTokenIn(chosen.tokenIn);
+    } else {
+      setTokenIn(undefined);
+    }
+  };
+  const where = tokenIn?.query ? t('Sent in the address, as {name}.', { name: tokenIn.query })
+    : tokenIn?.header ? t('Sent in the {header} header.', { header: tokenIn.header })
+      : tokenIn?.scheme ? t('Sent as {scheme} in the Authorization header.', { scheme: tokenIn.scheme })
+        : t('If the server asks for one: sent as a bearer token, and sealed here.');
   const [looking, setLooking] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [tools, setTools] = useState<McpTool[] | null>(null);
@@ -1312,7 +1381,7 @@ function McpServerForm({ saved, onDone, onCancel }: { saved: McpServerView | nul
     setLooking(true);
     setProblem(null);
     try {
-      const answer = await api('POST', '/api/control/mcp/inspect', { url: url.trim(), token: token.trim() || undefined, name: saved?.name });
+      const answer = await api('POST', '/api/control/mcp/inspect', { url: url.trim(), token: token.trim() || undefined, tokenIn, name: saved?.name });
       if (answer.problem) {
         setProblem(answer.problem);
         setTools(null);
@@ -1357,7 +1426,7 @@ function McpServerForm({ saved, onDone, onCancel }: { saved: McpServerView | nul
       };
     }
     const done = await requireFactor(t('Let roles use the tools of {name}', { name: name.trim() }), (proof) =>
-      api('POST', '/api/control/mcp/servers', { name: name.trim(), url: url.trim(), token: token.trim() || undefined, tools: chosen, proof }));
+      api('POST', '/api/control/mcp/servers', { name: name.trim(), url: url.trim(), token: token.trim() || undefined, tokenIn, tools: chosen, proof }));
     if (done) {
       notifications.show({ color: 'teal', message: t('Saved. PALUGADA is starting again to use it; work in flight carries on where it was.') });
       onDone();
@@ -1368,6 +1437,37 @@ function McpServerForm({ saved, onDone, onCancel }: { saved: McpServerView | nul
   return (
     <Section title={saved ? saved.name : t('Add an MCP server')} description={t('A server reached over HTTP. A program run on this machine is not offered: it would run with this deployment\'s own access.')}>
       <Stack gap="sm">
+        {saved === null && (
+          <Select
+            label={t('Start from')}
+            placeholder={t('Another server, by its address')}
+            data={[
+              { group: t('Hosted by the service'), items: presets.filter((one) => !one.run).map((one) => ({ value: one.id, label: one.name })) },
+              { group: t('Run it yourself'), items: presets.filter((one) => one.run).map((one) => ({ value: one.id, label: one.name })) },
+            ]}
+            value={preset?.id ?? null}
+            onChange={choose}
+            searchable
+            clearable
+          />
+        )}
+        {preset && (
+          <Paper withBorder radius="md" p="sm">
+            <Stack gap={4}>
+              <Text size="sm">
+                {MCP_PRESET_TEXT[preset.id] ? t(MCP_PRESET_TEXT[preset.id]!) : preset.about}
+                {preset.keyUrl && <>{' · '}<Anchor href={preset.keyUrl} target="_blank" rel="noreferrer" size="sm">{t('Get a key')} <IconExternalLink size={12} /></Anchor></>}
+              </Text>
+              {preset.keyHint && <Text size="xs" c="dimmed">{MCP_KEY_HINT[preset.id] ? t(MCP_KEY_HINT[preset.id]!) : preset.keyHint}</Text>}
+              {preset.run && (
+                <>
+                  <Text size="xs" c="dimmed">{t('Start it on a machine this deployment can reach, then look at its tools:')}</Text>
+                  <Code block>{preset.run}</Code>
+                </>
+              )}
+            </Stack>
+          </Paper>
+        )}
         <SimpleGrid cols={{ base: 1, sm: 2 }}>
           <TextInput label={t('Name')} placeholder={t('payments')} value={name} disabled={saved !== null}
             description={t('Lowercase letters, digits, - and _. Each tool is called mcp.name.tool.')} onChange={(event) => setName(event.currentTarget.value)} required />
@@ -1376,8 +1476,7 @@ function McpServerForm({ saved, onDone, onCancel }: { saved: McpServerView | nul
         <PasswordInput
           label={t('Token')}
           leftSection={<IconKey size={16} />}
-          description={saved?.tokenSet ? t('A token is saved. Leave this empty to keep it while the address stays on the same host.')
-            : t('If the server asks for one: sent as a bearer token, and sealed here.')}
+          description={saved?.tokenSet ? t('A token is saved. Leave this empty to keep it while the address stays on the same host.') : where}
           value={token}
           onChange={(event) => setToken(event.currentTarget.value)}
           autoComplete="off"

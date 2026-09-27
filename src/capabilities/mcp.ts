@@ -74,7 +74,39 @@ export interface McpServerBinding {
    * console seals. Opened for each call and for the boot's look at the tools.
    */
   tokenRef?: string;
+  /** Where the server reads the token, when not `Authorization: Bearer`. */
+  tokenIn?: TokenIn;
   tools: Record<string, McpToolBinding>;
+}
+
+/**
+ * Where a server reads its token: another header (Exa's `x-api-key`),
+ * another scheme (Sentry's `Sentry-Bearer`), or a query parameter
+ * (Browserbase's `browserbaseApiKey`). Absent, it is `Authorization: Bearer`.
+ */
+export interface TokenIn {
+  header?: string;
+  scheme?: string;
+  query?: string;
+}
+
+/** What a request to a server carries: its address, with the token in it when that is where it goes, and its headers. */
+interface Access {
+  url: string;
+  headers: Record<string, string>;
+}
+
+/** The address and headers a server is reached with, the token placed where it reads it. */
+export function accessFor(server: { url: string; tokenIn?: TokenIn }, token: string | null): Access {
+  if (!token) return { url: server.url, headers: {} };
+  const where = server.tokenIn ?? {};
+  if (where.query) {
+    const url = new URL(server.url);
+    url.searchParams.set(where.query, token);
+    return { url: url.toString(), headers: {} };
+  }
+  const scheme = where.scheme ?? (where.header ? '' : 'Bearer');
+  return { url: server.url, headers: { [(where.header ?? 'authorization').toLowerCase()]: scheme ? `${scheme} ${token}` : token } };
 }
 
 export interface McpFile {
@@ -99,6 +131,17 @@ const FILE_SCHEMA = {
           url: { type: 'string', pattern: '^https?://' },
           credentialAlias: { type: 'string', minLength: 1 },
           tokenRef: { type: 'string', pattern: '^[a-z][a-z0-9+.-]*://.+' },
+          tokenIn: {
+            type: 'object',
+            additionalProperties: false,
+            // A header or the address, not both.
+            not: { required: ['header', 'query'] },
+            properties: {
+              header: { type: 'string', pattern: '^[A-Za-z][A-Za-z0-9-]{0,63}$' },
+              scheme: { type: 'string', pattern: '^[A-Za-z0-9-]{0,32}$' },
+              query: { type: 'string', pattern: '^[A-Za-z][A-Za-z0-9_]{0,63}$' },
+            },
+          },
           tools: {
             type: 'object',
             minProperties: 1,
@@ -175,32 +218,44 @@ interface Session {
 }
 
 /**
- * One conversation with a server: initialize, then requests.
+ * One conversation with a server: initialize, then requests, then a DELETE
+ * that ends it.
  *
- * A session per call rather than one kept open. A capability runs for one
- * division with that division's credential, and a session held across calls
- * would carry one division's authority into another's.
+ * A server may keep state in a session -- a browser keeps its open page, a
+ * database its transaction -- so a task's calls share one (see `pooled`),
+ * and a session no longer needed is ended rather than left for the server
+ * to time out: Playwright's MCP server, for one, will not open a second
+ * browser while the first session holds it.
  */
 class McpConnection {
   readonly #url: string;
-  readonly #authorization: string | null;
-  readonly #signal: AbortSignal | undefined;
+  readonly #headers: Record<string, string>;
   readonly #fetch: typeof fetch;
   #session: Session | null = null;
+  #starting: Promise<void> | null = null;
   #next = 1;
 
-  constructor(url: string, authorization: string | null, signal: AbortSignal | undefined, fetcher: typeof fetch) {
-    this.#url = url;
-    this.#authorization = authorization;
-    this.#signal = signal;
+  constructor(access: Access, fetcher: typeof fetch) {
+    this.#url = access.url;
+    this.#headers = access.headers;
     this.#fetch = fetcher;
   }
 
-  async request(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {
-    if (!this.#session && method !== 'initialize') await this.#initialize();
-    const id = this.#next++;
-    const response = await this.#post({ jsonrpc: '2.0', id, method, params });
-    const message = await this.#answerTo(response, id);
+  async request(method: string, params: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown>> {
+    await this.#started(signal);
+    let answered: { response: Response; id: number };
+    try {
+      answered = await this.#send(method, params, signal);
+    } catch (failure) {
+      if (!(failure instanceof SessionGone)) throw failure;
+      // The server ended the session -- it restarted, or it closes idle
+      // ones -- and says so with a 404, which means the request never ran.
+      // The protocol's answer is a new session, and the request once more.
+      this.#session = null;
+      await this.#started(signal);
+      answered = await this.#send(method, params, signal);
+    }
+    const message = await this.#answerTo(answered.response, answered.id);
     if (message.error) {
       const error = message.error as { code?: number; message?: string };
       throw new Error(`the MCP server refused ${method}: ${error.message ?? 'no message'} (${error.code ?? '?'})`);
@@ -208,41 +263,76 @@ class McpConnection {
     return (message.result ?? {}) as Record<string, unknown>;
   }
 
-  async #initialize(): Promise<void> {
+  /** Ends the session, if the server gave one. A server may refuse (405); it is ended on this side either way. */
+  async close(): Promise<void> {
+    const session = this.#session;
+    this.#session = null;
+    if (!session?.id) return;
+    await this.#fetch(this.#url, {
+      method: 'DELETE',
+      headers: {
+        'mcp-session-id': session.id,
+        'mcp-protocol-version': session.protocol,
+        ...this.#headers,
+      },
+      signal: AbortSignal.timeout(5_000),
+    }).then((response) => response.body?.cancel(), () => undefined);
+  }
+
+  async #send(method: string, params: Record<string, unknown>, signal: AbortSignal | undefined): Promise<{ response: Response; id: number }> {
+    const id = this.#next++;
+    return { response: await this.#post({ jsonrpc: '2.0', id, method, params }, signal), id };
+  }
+
+  /** One initialize at a time: two calls in one task may arrive together. */
+  async #started(signal: AbortSignal | undefined): Promise<void> {
+    if (this.#session) return;
+    this.#starting ??= this.#initialize(signal).finally(() => {
+      this.#starting = null;
+    });
+    await this.#starting;
+  }
+
+  async #initialize(signal: AbortSignal | undefined): Promise<void> {
+    const id = this.#next++;
     const response = await this.#post({
       jsonrpc: '2.0',
-      id: this.#next++,
+      id,
       method: 'initialize',
       params: {
         protocolVersion: PROTOCOL_VERSION,
         capabilities: {},
         clientInfo: { name: 'palugada', version: '1' },
       },
-    });
+    }, signal);
     const sessionId = response.headers.get('mcp-session-id');
-    const message = await this.#answerTo(response, this.#next - 1);
+    const message = await this.#answerTo(response, id);
     if (message.error) throw new Error(`the MCP server refused to start a session: ${JSON.stringify(message.error)}`);
     const result = (message.result ?? {}) as { protocolVersion?: string };
     this.#session = { id: sessionId, protocol: result.protocolVersion ?? PROTOCOL_VERSION };
     // Sampling, elicitation and roots are not offered: a server may not ask
     // this platform's model anything, ask the owner anything, or read files.
-    await this.#post({ jsonrpc: '2.0', method: 'notifications/initialized' });
+    await this.#post({ jsonrpc: '2.0', method: 'notifications/initialized' }, signal);
   }
 
-  async #post(message: Record<string, unknown>): Promise<Response> {
+  async #post(message: Record<string, unknown>, signal: AbortSignal | undefined): Promise<Response> {
     const timeout = AbortSignal.timeout(CALL_TIMEOUT_MS);
     const response = await this.#fetch(this.#url, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         accept: 'application/json, text/event-stream',
-        ...(this.#authorization ? { authorization: this.#authorization } : {}),
+        ...this.#headers,
         ...(this.#session?.id ? { 'mcp-session-id': this.#session.id } : {}),
         ...(this.#session ? { 'mcp-protocol-version': this.#session.protocol } : {}),
       },
       body: JSON.stringify(message),
-      signal: this.#signal ? AbortSignal.any([this.#signal, timeout]) : timeout,
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     });
+    if (response.status === 404 && this.#session?.id && message.method !== 'initialize') {
+      await response.body?.cancel();
+      throw new SessionGone();
+    }
     if (!response.ok && response.status !== 202) {
       const detail = (await response.text().catch(() => '')).slice(0, 300);
       throw new Error(`the MCP server answered ${response.status}: ${detail}`);
@@ -270,6 +360,60 @@ class McpConnection {
   }
 }
 
+/** A 404 for a session the server has ended. */
+class SessionGone extends Error {}
+
+/** A task's sessions, by server, task and the authority its calls carry. */
+const sessions = new Map<string, { connection: McpConnection; timer: NodeJS.Timeout }>();
+/** A task quiet for this long has its sessions ended; its next call starts another. */
+const SESSION_IDLE_MS = 5 * 60_000;
+/** Past this many, the longest idle is ended: a server's resources are not this platform's to hold. */
+const MAX_SESSIONS = 64;
+
+/**
+ * The session a task's calls to one server share: its write and the read-back
+ * that checks it, a browser's page from one step to the next. Keyed by the
+ * authority the calls carry as well as by the task, so a session is never
+ * carried into another task or another division's credential.
+ */
+function pooled(key: string, open: () => McpConnection, idleMs: number): McpConnection {
+  const held = sessions.get(key);
+  const connection = held?.connection ?? open();
+  if (held) clearTimeout(held.timer);
+  sessions.delete(key);
+  const timer = setTimeout(() => {
+    if (sessions.get(key)?.connection === connection) sessions.delete(key);
+    void connection.close();
+  }, idleMs);
+  timer.unref();
+  sessions.set(key, { connection, timer });
+  while (sessions.size > MAX_SESSIONS) {
+    const [oldest, entry] = sessions.entries().next().value!;
+    clearTimeout(entry.timer);
+    sessions.delete(oldest);
+    void entry.connection.close();
+  }
+  return connection;
+}
+
+/** Ends every session a task still holds: at shutdown, so no server is left holding a browser for nobody. */
+export async function closeMcpSessions(): Promise<void> {
+  const open = [...sessions.values()];
+  sessions.clear();
+  for (const entry of open) clearTimeout(entry.timer);
+  await Promise.all(open.map((entry) => entry.connection.close()));
+}
+
+/** Lists a server's tools in a session of its own, ended afterwards. */
+async function toolsOnce(access: Access, fetcher: typeof fetch, signal?: AbortSignal): Promise<McpToolDescription[]> {
+  const connection = new McpConnection(access, fetcher);
+  try {
+    return await listTools(connection, signal);
+  } finally {
+    await connection.close();
+  }
+}
+
 async function boundedText(response: Response): Promise<string> {
   const reader = response.body?.getReader();
   if (!reader) return '';
@@ -290,11 +434,11 @@ async function boundedText(response: Response): Promise<string> {
 
 /* ------------------------------------------------------------ the tools --- */
 
-async function listTools(connection: McpConnection): Promise<McpToolDescription[]> {
+async function listTools(connection: McpConnection, signal?: AbortSignal): Promise<McpToolDescription[]> {
   const tools: McpToolDescription[] = [];
   let cursor: string | undefined;
   for (let page = 0; page < 20; page += 1) {
-    const result = await connection.request('tools/list', cursor ? { cursor } : {});
+    const result = await connection.request('tools/list', cursor ? { cursor } : {}, signal);
     tools.push(...((result.tools ?? []) as McpToolDescription[]));
     cursor = typeof result.nextCursor === 'string' ? result.nextCursor : undefined;
     if (!cursor) break;
@@ -344,15 +488,17 @@ export interface McpOptions {
   fetch?: typeof fetch;
   /** Opens a server's `tokenRef`; without it such a server is refused at the call rather than sent bare. */
   resolve?: (reference: string) => Promise<string>;
+  /** How long a quiet task keeps its session; five minutes unless a test says otherwise. */
+  sessionIdleMs?: number;
 }
 
-/** The server's own token, as a header, or null when the server has none. */
-async function serverAuthorization(server: McpServerBinding, options: McpOptions): Promise<string | null> {
-  if (!server.tokenRef) return null;
+/** The server reached with its own token, when it has one. */
+async function serverAccess(server: McpServerBinding, options: McpOptions): Promise<Access> {
+  if (!server.tokenRef) return accessFor(server, null);
   if (!options.resolve) {
     throw new PalugadaError('credential.unavailable', `${server.name} has a token, and nothing here can open ${server.tokenRef}`, {});
   }
-  return `Bearer ${await options.resolve(server.tokenRef)}`;
+  return accessFor(server, await options.resolve(server.tokenRef));
 }
 
 /** What a tool's arguments are called, for the owner to read. */
@@ -377,8 +523,8 @@ export interface McpToolOffered {
  * tool, what it does, and what the server says of it. The pins are not
  * shown: the console takes them from the server when it saves.
  */
-export async function offeredTools(url: string, authorization: string | null, options: McpOptions = {}): Promise<McpToolOffered[]> {
-  const tools = await listTools(new McpConnection(url, authorization, AbortSignal.timeout(30_000), options.fetch ?? globalThis.fetch));
+export async function offeredTools(access: Access, options: McpOptions = {}): Promise<McpToolOffered[]> {
+  const tools = await toolsOnce(access, options.fetch ?? globalThis.fetch, AbortSignal.timeout(30_000));
   return tools.map((tool) => {
     const reads = tool.annotations?.readOnlyHint === true;
     const destructive = tool.annotations?.destructiveHint === true;
@@ -394,8 +540,8 @@ export async function offeredTools(url: string, authorization: string | null, op
 }
 
 /** Each tool as the server describes it now, to pin a binding the owner chose in the console. */
-export async function currentPins(url: string, authorization: string | null, options: McpOptions = {}): Promise<Map<string, string>> {
-  const tools = await listTools(new McpConnection(url, authorization, AbortSignal.timeout(30_000), options.fetch ?? globalThis.fetch));
+export async function currentPins(access: Access, options: McpOptions = {}): Promise<Map<string, string>> {
+  const tools = await toolsOnce(access, options.fetch ?? globalThis.fetch, AbortSignal.timeout(30_000));
   return new Map(tools.map((tool) => [tool.name, pinOf(tool)]));
 }
 
@@ -415,17 +561,30 @@ export function mcpCapability(
 ): Capability<Record<string, unknown>, unknown> {
   const fetcher = options.fetch ?? globalThis.fetch;
   const name = mcpCapabilityName(server.name, toolName);
-  const connect = async (ctx: { signal?: AbortSignal; credential?: (alias: string) => Promise<string> }) => {
+  /**
+   * The session for this call: the task's own when there is a task, and one
+   * ended straight after for the preflight, which has none.
+   */
+  const connect = async (ctx: { companyId?: string; taskId?: string; credential?: (alias: string) => Promise<string> }) => {
+    let access: Access;
     if (server.credentialAlias) {
-      const token = ctx.credential ? await ctx.credential(server.credentialAlias) : null;
-      return new McpConnection(server.url, token ? `Bearer ${token}` : null, ctx.signal, fetcher);
+      access = accessFor(server, ctx.credential ? await ctx.credential(server.credentialAlias) : null);
+    } else {
+      access = await serverAccess(server, options);
     }
-    return new McpConnection(server.url, await serverAuthorization(server, options), ctx.signal, fetcher);
+    const open = () => new McpConnection(access, fetcher);
+    if (!ctx.taskId) {
+      const connection = open();
+      return { connection, done: () => connection.close() };
+    }
+    const authority = createHash('sha256').update(JSON.stringify(access)).digest('hex').slice(0, 16);
+    const key = [server.name, server.url, ctx.companyId ?? '', ctx.taskId, authority].join('\n');
+    return { connection: pooled(key, open, options.sessionIdleMs ?? SESSION_IDLE_MS), done: async () => undefined };
   };
 
   /** The tool as the server describes it now, held to the pin. */
-  const current = async (connection: McpConnection): Promise<McpToolDescription> => {
-    const tool = (await listTools(connection)).find((one) => one.name === toolName);
+  const current = async (connection: McpConnection, signal?: AbortSignal): Promise<McpToolDescription> => {
+    const tool = (await listTools(connection, signal)).find((one) => one.name === toolName);
     if (!tool) {
       throw new PalugadaError('capability.disabled', `${server.name} no longer offers ${toolName}`, { name });
     }
@@ -442,7 +601,7 @@ export function mcpCapability(
     return tool;
   };
 
-  const call = async (connection: McpConnection, tool: string, args: unknown, key: string): Promise<unknown> => {
+  const call = async (connection: McpConnection, tool: string, args: unknown, key: string, signal?: AbortSignal): Promise<unknown> => {
     const result = await connection.request('tools/call', {
       name: tool,
       arguments: args ?? {},
@@ -451,7 +610,7 @@ export function mcpCapability(
       // honours it recognises a retry, and one that does not is why the
       // journal and the owner's approval are spent before the call.
       _meta: { 'palugada/idempotencyKey': key },
-    });
+    }, signal);
     if (result.isError === true) {
       const text = ((result.content ?? []) as Array<{ text?: string }>).map((part) => part.text ?? '').join(' ').slice(0, 500);
       throw new Error(`${server.name} ${tool} failed: ${text || 'no reason given'}`);
@@ -466,16 +625,24 @@ export function mcpCapability(
     readsOutside: true,
     ...(listed?.inputSchema ? { inputSchema: listed.inputSchema } : {}),
     async execute(input, ctx: CapabilityContext) {
-      const connection = await connect(ctx);
-      await current(connection);
-      return call(connection, toolName, input, ctx.idempotencyKey);
+      const { connection, done } = await connect(ctx);
+      try {
+        await current(connection, ctx.signal);
+        return await call(connection, toolName, input, ctx.idempotencyKey, ctx.signal);
+      } finally {
+        await done();
+      }
     },
     async preflight(ctx) {
       try {
-        const connection = await connect({
+        const { connection, done } = await connect({
           ...(ctx.credential ? { credential: (alias: string) => ctx.credential!(alias, name) } : {}),
         });
-        await current(connection);
+        try {
+          await current(connection);
+        } finally {
+          await done();
+        }
         return { ok: true };
       } catch (failure) {
         return { ok: false, detail: (failure as Error).message };
@@ -487,9 +654,15 @@ export function mcpCapability(
     const verify = binding.verify;
     const matches = matcher(verify.matches);
     capability.verify = async (input, result, ctx) => {
-      const connection = await connect(ctx);
-      const answer = await call(connection, verify.tool, fillArguments(verify.arguments ?? {}, { input, result }), `${ctx.idempotencyKey}:verify`);
-      return matches({ status: 200, body: answer }, result, input);
+      // The task's own session: what the write left in it -- a browser's
+      // page -- is what the read-back reads.
+      const { connection, done } = await connect(ctx);
+      try {
+        const answer = await call(connection, verify.tool, fillArguments(verify.arguments ?? {}, { input, result }), `${ctx.idempotencyKey}:verify`, ctx.signal);
+        return matches({ status: 200, body: answer }, result, input);
+      } finally {
+        await done();
+      }
     };
   }
   return capability;
@@ -549,7 +722,7 @@ export async function bindMcpServers(
     // credential. Many will not, and that is not a reason to refuse the file.
     let listed: McpToolDescription[] | null = null;
     try {
-      listed = await listTools(new McpConnection(server.url, await serverAuthorization(server, options), undefined, options.fetch ?? globalThis.fetch));
+      listed = await toolsOnce(await serverAccess(server, options), options.fetch ?? globalThis.fetch);
     } catch (failure) {
       notes.push(`${server.name}: could not list its tools at boot (${(failure as Error).message}); each is checked at its first call`);
     }

@@ -71,6 +71,8 @@ export interface McpServerSetting {
   name: string;
   url: string;
   tokenSecret?: string;
+  /** Where the server reads the token, when not `Authorization: Bearer`. */
+  tokenIn?: { header?: string; scheme?: string; query?: string };
   tools: Record<string, { tier: number; pin?: string; readOnly?: boolean; verify?: Record<string, unknown> }>;
 }
 

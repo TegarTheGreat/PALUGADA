@@ -18,7 +18,7 @@ import { closePools } from '../../src/db/pool.ts';
 import { isPalugadaError } from '../../src/errors.ts';
 import { CapabilityRegistry } from '../../src/broker/registry.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
-import { bindMcpServers, mcpCapability, pinOf } from '../../src/capabilities/mcp.ts';
+import { bindMcpServers, closeMcpSessions, mcpCapability, pinOf } from '../../src/capabilities/mcp.ts';
 import { createRootTask, transition } from '../../src/engine/tasks.ts';
 import { createCompany, grantCapability, planTask, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
@@ -116,6 +116,47 @@ test('a server\'s tool runs through the broker: read-back for a write, and its a
     // And the server's arguments are held before the server is troubled.
     await assert.rejects(broker.invoke(ctx(checking.id, 'read-2'), 'mcp.payments.get_transaction', { order: 'A-17' }),
       (error: unknown) => isPalugadaError(error, 'contract.violation'));
+  } finally {
+    await server.close();
+  }
+});
+
+test('a task\'s calls to a server share one session, its read-back included, and the session is ended when the task goes quiet', async () => {
+  // Found against Playwright's own MCP server: a session per call left each
+  // one open, and the second call was refused a browser the first still held.
+  const server = await mcpServer();
+  try {
+    const registry = new CapabilityRegistry();
+    await bindMcpServers(registry, bindings(server.url), 'mcp.json', { sessionIdleMs: 300 });
+    assert.deepEqual(server.state.ended, ['session-1'], 'the boot\'s look at the tools ended its session');
+    const ctx = (taskId: string, key: string) => ({
+      companyId: 'c', divisionId: 'd', taskId, idempotencyKey: key, signal: new AbortController().signal,
+      credential: async () => 'unused',
+    });
+    const link = registry.get('mcp.payments.create_payment_link')!;
+    const made = await link.execute({ amount: 7_000 } as never, ctx('task-a', 'k1'));
+    assert.equal(await link.verify!({ amount: 7_000 } as never, made as never, ctx('task-a', 'k1')), true);
+    await registry.get('mcp.payments.get_transaction')!.execute({ orderId: 'D-4' } as never, ctx('task-b', 'k2'));
+    const [write, readBack, other] = server.state.calls;
+    assert.equal(write!.session, readBack!.session, 'the read-back reads in the session the write was made in');
+    assert.notEqual(other!.session, write!.session, 'another task has a session of its own');
+    assert.equal(server.state.started, 3);
+
+    // The server forgets its sessions (a restart): the next call starts another and goes through.
+    server.state.live.clear();
+    await registry.get('mcp.payments.get_transaction')!.execute({ orderId: 'D-5' } as never, ctx('task-b', 'k3'));
+    assert.equal(server.state.calls.length, 4);
+    assert.equal(server.state.started, 4);
+
+    // Quiet for longer than a session is kept, and each is ended.
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    assert.deepEqual(server.state.live, new Set(), `still open: ${[...server.state.live].join(', ')}`);
+
+    // And at shutdown, whatever is left.
+    await registry.get('mcp.payments.get_transaction')!.execute({ orderId: 'D-6' } as never, ctx('task-c', 'k4'));
+    assert.equal(server.state.live.size, 1);
+    await closeMcpSessions();
+    assert.equal(server.state.live.size, 0);
   } finally {
     await server.close();
   }

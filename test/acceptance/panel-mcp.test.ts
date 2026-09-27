@@ -12,11 +12,13 @@
  * note, rather than stopping it.
  */
 import { test, before, beforeEach, after } from 'node:test';
+import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { closePools } from '../../src/db/pool.ts';
 import { isPalugadaError } from '../../src/errors.ts';
 import { CapabilityRegistry } from '../../src/broker/registry.ts';
-import { bindMcpServers, pinOf } from '../../src/capabilities/mcp.ts';
+import { accessFor, bindMcpServers, closeMcpSessions, pinOf } from '../../src/capabilities/mcp.ts';
+import { MCP_PRESETS } from '../../src/capabilities/mcp-presets.ts';
 import { readSettings } from '../../src/settings/store.ts';
 import { withSettings } from '../../src/settings/overlay.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
@@ -228,5 +230,95 @@ test('the next start binds the console\'s servers, and one that no longer passes
   } finally {
     await deployment.stop();
     await server.close();
+  }
+});
+
+test('a server that reads its token from another header, another scheme or its address is sent it there, and only there', async () => {
+  const cases = [
+    { name: 'exa', tokenIn: { header: 'x-api-key' } },
+    { name: 'sentry', tokenIn: { scheme: 'Sentry-Bearer' } },
+    { name: 'browserbase', tokenIn: { query: 'browserbaseApiKey' } },
+  ];
+  const api = await consoleWithSettings();
+  try {
+    const token = await api.signIn();
+    for (const { name, tokenIn } of cases) {
+      const server = await mcpServer({ needsToken: TOKEN, tokenIn });
+      try {
+        const bare = await api.call('POST', '/api/control/mcp/inspect', token, { url: server.url, token: TOKEN });
+        assert.match(String(bare.body.problem), /401/, `${name}: a bearer token is not where this server looks`);
+        const since = server.state.authorizations.length;
+        const looked = await api.call('POST', '/api/control/mcp/inspect', token, { url: server.url, token: TOKEN, tokenIn });
+        assert.equal(looked.body.problem, null, name);
+        const saved = await api.call('POST', '/api/control/mcp/servers', token,
+          { name, url: server.url, token: TOKEN, tokenIn, tools: { get_transaction: { tier: 0 } }, proof: { totp: api.code() } });
+        assert.equal(saved.status, 200, JSON.stringify(saved.body));
+        const settings = JSON.parse(withSettings({}, await readSettings()).PALUGADA_MCP_SETTINGS!) as { servers: Array<{ name: string }> };
+        const bound = new CapabilityRegistry();
+        const { notes } = await bindMcpServers(bound, { servers: settings.servers.filter((one) => one.name === name) }, 'the console',
+          { resolve: (reference) => api.secrets.resolve(reference) });
+        assert.deepEqual(notes, [], `${name}: the next start lists its tools with the token where it reads it`);
+        await bound.get(`mcp.${name}.get_transaction`)!.execute({ orderId: 'E-5' } as never, {
+          companyId: 'c', divisionId: 'd', taskId: `t-${name}`, idempotencyKey: 'k', signal: new AbortController().signal, credential: noDivisionCredential,
+        });
+        assert.equal(server.state.calls.length, 1, name);
+        if (tokenIn.query) assert.ok(server.state.authorizations.slice(since).every((one) => one === undefined), 'not also as a bearer token');
+      } finally {
+        await closeMcpSessions();
+        await server.close();
+      }
+    }
+  } finally {
+    await api.close();
+  }
+  const bad = await consoleWithSettingsRefusing({ header: 'x-api-key', query: 'key' });
+  assert.match(bad, /a header or in the address, not both/);
+  assert.deepEqual(accessFor({ url: 'https://mcp.example/mcp?x=1', tokenIn: { query: 'key' } }, 'k 1'),
+    { url: 'https://mcp.example/mcp?x=1&key=k+1', headers: {} });
+  assert.deepEqual(accessFor({ url: 'https://mcp.example/mcp' }, null), { url: 'https://mcp.example/mcp', headers: {} });
+});
+
+/** What the console says of a token placement it will not accept. */
+async function consoleWithSettingsRefusing(tokenIn: Record<string, string>): Promise<string> {
+  await resetData();
+  const api = await consoleWithSettings();
+  try {
+    const refused = await api.call('POST', '/api/control/mcp/inspect', await api.signIn(), { url: 'https://mcp.example/mcp', token: 'k', tokenIn });
+    assert.equal(refused.status, 400);
+    return String(refused.body.error);
+  } finally {
+    await api.close();
+  }
+}
+
+test('the servers offered by name are each a server the rules accept, and the console lists them', async () => {
+  const names = new Set<string>();
+  for (const preset of MCP_PRESETS) {
+    assert.ok(!names.has(preset.id), `${preset.id} once`);
+    names.add(preset.id);
+    const registry = new CapabilityRegistry();
+    // The shape a saved preset takes, bound against a server that does not answer: refused only if the shape is wrong.
+    const offline = (async () => { throw new Error('offline'); }) as unknown as typeof fetch;
+    const { notes } = await bindMcpServers(registry, {
+      servers: [{ name: preset.id, url: preset.url, ...(preset.tokenIn ? { tokenIn: preset.tokenIn } : {}),
+        ...(preset.key === 'required' ? { tokenRef: 'env://PALUGADA_SECRET_X' } : {}), tools: { anything: { tier: 0, readOnly: true } } }],
+    }, preset.id, { resolve: async () => 'k', fetch: offline });
+    assert.match(notes.join('\n'), /could not list its tools at boot/, preset.id);
+    if (preset.key === 'none') assert.ok(preset.run, `${preset.id} says how to run it`);
+    else assert.ok(preset.url.startsWith('https://'), `${preset.id} is reached over HTTPS`);
+  }
+  assert.ok(names.has('github') && names.has('playwright'));
+  // The console carries each one's words so that they are translated; they must be the same words.
+  const console = readFileSync(new URL('../../console/src/pages/Deployment.tsx', import.meta.url), 'utf8');
+  for (const preset of MCP_PRESETS) {
+    assert.ok(console.includes(`${preset.id}: N('${preset.about.replace(/'/g, "\\'")}')`), `the console says what ${preset.id} is, in the same words`);
+    if (preset.keyHint) assert.ok(console.includes(preset.keyHint.replace(/'/g, "\\'")), `the console gives ${preset.id}'s key hint in the same words`);
+  }
+  const api = await consoleWithSettings();
+  try {
+    const listed = (await api.call('GET', '/api/control/mcp', await api.signIn())).body;
+    assert.deepEqual(listed.presets.map((one: { id: string }) => one.id), MCP_PRESETS.map((one) => one.id));
+  } finally {
+    await api.close();
   }
 });

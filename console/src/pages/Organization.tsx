@@ -11,12 +11,14 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
-  IconArrowsRight, IconCalendarTime, IconFlag, IconPlus, IconShieldCheck, IconTarget, IconUserCircle, IconUsersGroup, IconWebhook,
+  IconArrowsRight, IconCalendarTime, IconChartBar, IconCoin, IconCrown, IconFlag, IconFlask, IconHammer, IconHeadset, IconMessageCircle, IconPlus,
+  IconRoute, IconSettings, IconShieldCheck, IconSparkles, IconTarget, IconTrendingUp, IconUserCircle, IconUsersGroup, IconWebhook,
 } from '@tabler/icons-react';
+import { useMediaQuery } from '@mantine/hooks';
 import { api, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { useLoad } from '../hooks.ts';
-import type { Division, Goal, PolicyRow, Role, Schedule, Structure } from '../types.ts';
+import type { Division, Goal, PersonaPreset, PolicyRow, Role, Schedule, Structure } from '../types.ts';
 import { count, dateTime, goalKind, money, relative } from '../format.ts';
 import type { PageProps } from '../App.tsx';
 import { N, t } from '../i18n.ts';
@@ -27,7 +29,7 @@ import { GoalMetrics } from '../components/Metrics.tsx';
 import { Triggers } from '../components/Triggers.tsx';
 import { Handoffs } from '../components/Handoffs.tsx';
 import { ConfigHistory } from '../components/ConfigHistory.tsx';
-import { companyEmblem, rolePicture } from '../images.ts';
+import { companyEmblem, OWNER_PICTURE, rolePicture } from '../images.ts';
 
 export function Organization({ ctx }: PageProps) {
   const { companyId } = ctx;
@@ -72,7 +74,7 @@ export function Organization({ ctx }: PageProps) {
 
         <Tabs.Panel value="chart">
           <Grow companyId={companyId} structure={structure} changed={view.reload} />
-          <OrgChart structure={structure} company={ctx.company} openRole={setRole} openDivision={setDivision} />
+          <OrgChart structure={structure} company={ctx.company} openRole={setRole} openDivision={setDivision} talk={ctx.talk} giveWork={ctx.giveWork} />
         </Tabs.Panel>
         <Tabs.Panel value="goals">
           <GoalLadder companyId={companyId} goals={structure.goals} changed={view.reload} />
@@ -91,7 +93,8 @@ export function Organization({ ctx }: PageProps) {
         </Tabs.Panel>
       </Tabs>
 
-      <RoleDrawer companyId={companyId} role={openRole} structure={structure} close={() => setRole(null)} changed={view.reload} />
+      <RoleDrawer companyId={companyId} role={openRole} structure={structure} close={() => setRole(null)}
+        changed={() => { view.reload(); void ctx.refreshCompanies(); }} />
       <DivisionDrawer companyId={companyId} division={openDivision} structure={structure} close={() => setDivision(null)} changed={view.reload} />
     </Stack>
   );
@@ -129,6 +132,8 @@ function Grow({ companyId, structure, changed }: { companyId: string; structure:
             { name: 'divisionId', label: t('Division'), type: 'select', required: true,
               options: structure.divisions.map((division) => ({ value: division.id, label: division.name })) },
             { name: 'slug', label: t('Short name'), required: true, placeholder: 'content-writer' },
+            { name: 'displayName', label: t('Name'), placeholder: t('e.g. Arka') },
+            { name: 'title', label: t('Title'), placeholder: t('e.g. CTO') },
             { name: 'systemPrompt', label: t('What the role is for'), type: 'textarea', required: true, wide: true,
               placeholder: t('e.g. You write the words customers read: product pages and newsletters. Draft first; nothing goes out without review.') },
             { name: 'tools', label: t('Tools'), wide: true, placeholder: 'doc.draft',
@@ -141,7 +146,8 @@ function Grow({ companyId, structure, changed }: { companyId: string; structure:
           submit={async (values, proof) => {
             const hired: { roleId: string; ungranted: string[] } = await api('POST', `/api/companies/${companyId}/roles`, {
               divisionId: values.divisionId, slug: values.slug, systemPrompt: values.systemPrompt,
-              tools: list(values.tools, /,/), doneCriteria: list(values.doneCriteria, /\n/), proof,
+              tools: list(values.tools, /,/), doneCriteria: list(values.doneCriteria, /\n/),
+              ...(values.displayName ? { displayName: values.displayName } : {}), ...(values.title ? { title: values.title } : {}), proof,
             });
             if (hired.ungranted.length > 0) {
               notifications.show({
@@ -192,43 +198,144 @@ function Grow({ companyId, structure, changed }: { companyId: string; structure:
 
 /* --------------------------------------------------------------- the chart --- */
 
+/**
+ * A division's icon and colour, from the words of its slug: what it does, as
+ * a role's picture is (images.ts), and never a letter of its name.
+ */
+const DIVISION_LOOKS: ReadonlyArray<readonly [readonly string[], typeof IconSettings, string]> = [
+  [['assur', 'qa', 'quality', 'review', 'audit'], IconShieldCheck, 'violet'],
+  [['lab', 'research', 'experiment', 'sandbox'], IconFlask, 'grape'],
+  [['build', 'engineer', 'dev', 'platform', 'tech'], IconHammer, 'orange'],
+  [['deliver', 'product', 'project'], IconRoute, 'blue'],
+  [['growth', 'market', 'sales', 'brand', 'content'], IconTrendingUp, 'pink'],
+  [['financ', 'money', 'account', 'book', 'billing'], IconCoin, 'green'],
+  [['support', 'care', 'service', 'success', 'help'], IconHeadset, 'teal'],
+  [['data', 'analy', 'insight', 'metric'], IconChartBar, 'cyan'],
+  [['ops', 'operat', 'admin', 'office'], IconSettings, 'indigo'],
+];
+
+function divisionLook(division: Division): { Icon: typeof IconSettings; color: string } {
+  const words = `${division.slug} ${division.name}`.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  const found = DIVISION_LOOKS.find(([starts]) => words.some((word) => starts.some((start) => word.startsWith(start))));
+  return found ? { Icon: found[1], color: found[2] } : { Icon: IconUsersGroup, color: 'gray' };
+}
+
+/**
+ * The company as a chart: the owner, the CEO they talk to, and under it every
+ * division with the roles in it.
+ *
+ * The divisions hang from one spine in two columns rather than from one wide
+ * row: a company of eight divisions is then readable at a glance on a laptop
+ * without panning, and a sub-division hangs from its parent's card. On a
+ * phone they stack.
+ */
 function OrgChart({
-  structure, company, openRole, openDivision,
+  structure, company, openRole, openDivision, talk, giveWork,
 }: {
   structure: Structure;
   company: { id: string; name: string };
   openRole: (role: Role) => void;
   openDivision: (division: Division) => void;
+  talk: () => void;
+  giveWork: () => void;
 }) {
+  const narrow = useMediaQuery('(max-width: 48em)');
+  const personas = useLoad(async (): Promise<{ personas: PersonaPreset[] }> => api('GET', '/api/personas'), []);
+  const ceo = structure.roles.find((role) => role.title === 'CEO') ?? null;
   const top = structure.divisions.filter((division) => division.parentId === null);
   const childrenOf = (id: string) => structure.divisions.filter((division) => division.parentId === id);
+  const rolesIn = (division: Division) => structure.roles.filter((role) => role.divisionId === division.id && role.id !== ceo?.id);
+  const working = structure.roles.filter((role) => role.openTasks > 0).length;
+  const branch = (division: Division) => (
+    <div className="org-cell">
+      <DivisionCard division={division} roles={rolesIn(division)} ceoHere={ceo?.divisionId === division.id} openRole={openRole} openDivision={openDivision} />
+      {childrenOf(division.id).map((child) => (
+        <div key={child.id} className="org-sub">
+          <DivisionCard division={child} roles={rolesIn(child)} ceoHere={ceo?.divisionId === child.id} openRole={openRole} openDivision={openDivision} />
+        </div>
+      ))}
+    </div>
+  );
+  const rows: Array<[Division, Division | null]> = [];
+  for (let index = 0; index < top.length; index += 2) rows.push([top[index]!, top[index + 1] ?? null]);
+
   return (
-    <Stack gap={0} align="stretch">
-      <Group justify="center">
-        <Paper withBorder radius="md" px="lg" py="sm" shadow="xs">
-          <Group gap="sm">
-            <Avatar radius="md" size={40} src={companyEmblem(company)} alt="" />
-            <div>
-              <Text fw={800}>{company.name}</Text>
-              <Text size="xs" c="dimmed">{t('{divisions} divisions · {roles} roles · you own it', { divisions: structure.divisions.length, roles: structure.roles.length })}</Text>
+    <div className="org-canvas">
+      <div className="org-head">
+        <Paper withBorder radius="lg" px="md" py="sm" shadow="xs" className="org-owner">
+          <Group gap="sm" wrap="nowrap">
+            <Avatar radius="xl" size={40} src={OWNER_PICTURE} alt="" />
+            <div style={{ minWidth: 0 }}>
+              <Text fw={700} size="sm">{t('You, the owner')}</Text>
+              <Text size="xs" c="dimmed" truncate>{t('You decide what cannot be undone')}</Text>
             </div>
+            <Avatar radius="md" size={32} src={companyEmblem(company)} alt="" ml="xs" />
           </Group>
         </Paper>
-      </Group>
-      <div className="org-connector" />
-      <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
-        {top.map((division) => (
-          <Stack key={division.id} gap="sm">
-            <DivisionCard division={division} roles={structure.roles.filter((role) => role.divisionId === division.id)} openRole={openRole} openDivision={openDivision} />
-            {childrenOf(division.id).map((child) => (
-              <Box key={child.id} pl="lg" style={{ borderLeft: '2px solid var(--mantine-color-default-border)' }}>
-                <DivisionCard division={child} roles={structure.roles.filter((role) => role.divisionId === child.id)} openRole={openRole} openDivision={openDivision} />
-              </Box>
-            ))}
-          </Stack>
-        ))}
-      </SimpleGrid>
-    </Stack>
+        <div className="org-stem org-stem--talk">
+          <Badge size="xs" variant="white" color="gray" className="org-stem-label" leftSection={<IconMessageCircle size={10} />}>{t('talks with you')}</Badge>
+        </div>
+        {ceo ? (
+          <Paper radius="lg" p="md" shadow="sm" className="org-ceo" onClick={() => openRole(ceo)}>
+            <Group gap="md" wrap="nowrap" align="flex-start">
+              <Avatar size={60} radius="xl" src={rolePicture(ceo.slug, ceo.title)} alt="" className="org-ceo-picture" />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <Group gap={6} wrap="nowrap">
+                  <Text fw={800} size="lg" truncate>{ceo.displayName ?? ceo.slug}</Text>
+                  <Badge size="sm" variant="filled" leftSection={<IconCrown size={11} />}>CEO</Badge>
+                </Group>
+                <Text size="xs" c="dimmed" truncate>{t('Runs {company} for you', { company: company.name })}</Text>
+                {(() => {
+                  const preset = personas.data?.personas.find((one) => one.id === ceo.persona?.preset);
+                  return preset
+                    ? <Badge mt={6} size="sm" variant="light" color="grape" leftSection={<IconSparkles size={11} />} style={{ textTransform: 'none' }}>{preset.label} · {preset.inspiredBy}</Badge>
+                    : <Text size="xs" c="dimmed" mt={6}>{t('No persona yet: it works as its charter says.')}</Text>;
+                })()}
+              </div>
+              <Badge size="sm" variant="dot" color={roleState(ceo).color}>{roleState(ceo).label}</Badge>
+            </Group>
+            <Group gap="xs" mt="sm" onClick={(event) => event.stopPropagation()}>
+              <Button size="xs" leftSection={<IconMessageCircle size={14} />} onClick={talk}>{t('Talk to {name}', { name: ceo.displayName ?? ceo.slug })}</Button>
+              <Button size="xs" variant="default" leftSection={<IconPlus size={14} />} onClick={giveWork}>{t('Give work')}</Button>
+            </Group>
+          </Paper>
+        ) : (
+          <Paper radius="lg" p="md" className="org-ceo org-ceo--missing">
+            <Group gap="sm" wrap="nowrap">
+              <ThemeIcon size={44} radius="xl" variant="light" color="yellow"><IconCrown size={22} /></ThemeIcon>
+              <div>
+                <Text fw={700}>{t('No CEO yet')}</Text>
+                <Text size="xs" c="dimmed">{t('The CEO is who you talk to about a company. Hire its first role on Team; it becomes the CEO.')}</Text>
+              </div>
+            </Group>
+          </Paper>
+        )}
+        <Text size="xs" c="dimmed" mt={8} className="org-summary">
+          {t('{divisions} divisions · {roles} roles · {working} working now', { divisions: structure.divisions.length, roles: structure.roles.length, working })}
+        </Text>
+        {top.length > 0 && <div className="org-stem" />}
+      </div>
+
+      {narrow ? (
+        <Stack gap="md">{top.map((division) => <div key={division.id}>{branch(division)}</div>)}</Stack>
+      ) : (
+        <div className="org-trunk">
+          {rows.map(([left, right], index) => {
+            const last = index === rows.length - 1;
+            return (
+              <div key={left.id} className="org-row">
+                <div className="org-side">{branch(left)}</div>
+                <div className={`org-spine${last ? ' is-last' : ''}`}>
+                  <span className="org-branch org-branch--left" />
+                  {right && <span className="org-branch org-branch--right" />}
+                </div>
+                <div className="org-side">{right && branch(right)}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -247,32 +354,40 @@ function roleState(role: Role): { label: string; color: string } {
 }
 
 function DivisionCard({
-  division, roles, openRole, openDivision,
-}: { division: Division; roles: Role[]; openRole: (role: Role) => void; openDivision: (division: Division) => void }) {
+  division, roles, ceoHere, openRole, openDivision,
+}: { division: Division; roles: Role[]; ceoHere: boolean; openRole: (role: Role) => void; openDivision: (division: Division) => void }) {
+  const look = divisionLook(division);
   return (
-    <Card withBorder radius="md" shadow="xs" padding="md" className="org-node">
-      <Group justify="space-between" onClick={() => openDivision(division)} style={{ cursor: 'pointer' }} wrap="nowrap">
-        <div style={{ minWidth: 0 }}>
+    <Card withBorder radius="lg" shadow="xs" padding="md" className="org-division">
+      <Group justify="space-between" onClick={() => openDivision(division)} style={{ cursor: 'pointer' }} wrap="nowrap" gap="sm">
+        <ThemeIcon size={36} radius="md" variant="light" color={look.color}><look.Icon size={20} /></ThemeIcon>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <Text fw={700} truncate>{division.name}</Text>
-          <Text size="xs" c="dimmed">{t('{count} capabilities · up to {max} at once', { count: division.grants.length, max: division.maxConcurrency })}</Text>
+          <Text size="xs" c="dimmed" truncate>{t('{count} capabilities · up to {max} at once', { count: division.grants.length, max: division.maxConcurrency })}</Text>
         </div>
-        {division.openTasks > 0 ? <Badge color="teal" variant="light">{t('{count} open', { count: division.openTasks })}</Badge> : <Badge color="gray" variant="light">{t('quiet')}</Badge>}
+        {/* The badge keeps its width: a long division name gives way first. */}
+        {division.openTasks > 0
+          ? <Badge color="teal" variant="light" style={{ flexShrink: 0 }}>{t('{count} open', { count: division.openTasks })}</Badge>
+          : <Badge color="gray" variant="light" style={{ flexShrink: 0 }}>{t('quiet')}</Badge>}
       </Group>
-      <Divider my="sm" />
-      <Stack gap={6}>
-        {roles.length === 0 && <Text size="xs" c="dimmed">{t('No roles.')}</Text>}
+      <Stack gap={6} mt="sm">
+        {ceoHere && <Text size="xs" c="dimmed"><IconCrown size={12} style={{ verticalAlign: -2 }} /> {t('The CEO works from here.')}</Text>}
+        {roles.length === 0 && !ceoHere && <Text size="xs" c="dimmed">{t('No roles.')}</Text>}
         {roles.map((role) => {
           const state = roleState(role);
           return (
             <Paper key={role.id} withBorder radius="md" px="sm" py={8} className="org-node" onClick={() => openRole(role)}>
               <Group gap="sm" wrap="nowrap">
-                <Avatar size={34} radius="xl" src={rolePicture(role.slug)} alt="" />
+                <Avatar size={34} radius="xl" src={rolePicture(role.slug, role.title)} alt="" />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <Text size="sm" fw={600} truncate>{role.slug}</Text>
-                  <Text size="xs" c="dimmed" truncate>{role.model}{role.runtime ? ` · ${role.runtime}` : ''}</Text>
+                  <Group gap={6} wrap="nowrap">
+                    <Text size="sm" fw={600} truncate>{role.displayName ?? role.slug}</Text>
+                    {role.persona?.preset && <Tooltip label={t('Has a persona')}><IconSparkles size={12} color="var(--mantine-color-grape-5)" style={{ flexShrink: 0 }} /></Tooltip>}
+                  </Group>
+                  <Text size="xs" c="dimmed" truncate>{[role.title, role.displayName ? role.slug : null].filter(Boolean).join(' · ') || role.model}</Text>
                 </div>
                 <Tooltip label={role.frozenReason ?? t('{open} open · {done} done this week', { open: role.openTasks, done: role.doneLastWeek })}>
-                  <Badge size="sm" variant="dot" color={state.color}>{state.label}</Badge>
+                  <Badge size="sm" variant="dot" color={state.color} style={{ flexShrink: 0 }}>{state.label}</Badge>
                 </Tooltip>
               </Group>
             </Paper>
@@ -341,12 +456,35 @@ function RoleDrawer({
   return (
     <Drawer opened={role !== null} onClose={close} position="right" size="xl" title={
       <Group gap="sm" wrap="nowrap">
-        {role && <Avatar size={40} radius="xl" src={rolePicture(role.slug)} alt="" />}
-        <Text fw={700}>{role?.slug}</Text>
+        {role && <Avatar size={40} radius="xl" src={rolePicture(role.slug, role.title)} alt="" />}
+        <div>
+          <Text fw={700}>{role?.displayName ?? role?.slug}</Text>
+          {role && (role.displayName || role.title) && <Text size="xs" c="dimmed">{[role.title, role.displayName ? role.slug : null].filter(Boolean).join(' · ')}</Text>}
+        </div>
       </Group>
     }>
       {role && division && (
         <Stack gap="lg">
+          {role.title === 'CEO' ? (
+            <Alert variant="light" color="brand" icon={<IconCrown size={18} />} title={t('The CEO: who you talk to')}>
+              <Text size="sm">{t('Work you give without saying whose comes here first, and so does trouble a division cannot fix. To make another role the CEO, open that role.')}</Text>
+            </Alert>
+          ) : (
+            <Group justify="space-between" wrap="nowrap">
+              <Text size="xs" c="dimmed">{t('A company has one CEO, the role you talk to.')}</Text>
+              <ActionButton
+                size="xs"
+                variant="light"
+                label={t('Make {name} the CEO', { name: role.displayName ?? role.slug })}
+                factor={t('Make {name} the CEO', { name: role.displayName ?? role.slug })}
+                run={(proof) => api('POST', `/api/companies/${companyId}/ceo`, { roleId: role.id, proof })}
+                done={() => {
+                  notifications.show({ color: 'teal', message: t('{name} is the CEO now. You talk to the company through {name}.', { name: role.displayName ?? role.slug }) });
+                  changed();
+                }}
+              />
+            </Group>
+          )}
           <Group gap="xs">
             <Badge variant="light">{division.name}</Badge>
             <Badge variant="dot" color={roleState(role).color}>{roleState(role).label}</Badge>
@@ -410,6 +548,10 @@ function RoleDrawer({
           </div>
 
           <Accordion variant="separated" radius="md" defaultValue="work">
+            <Accordion.Item value="persona">
+              <Accordion.Control>{t('Name and persona')}</Accordion.Control>
+              <Accordion.Panel><RolePersonaForm companyId={companyId} role={role} changed={changed} /></Accordion.Panel>
+            </Accordion.Item>
             <Accordion.Item value="work">
               <Accordion.Control>{t('Give it something to do')}</Accordion.Control>
               <Accordion.Panel>
@@ -453,6 +595,88 @@ function RoleDrawer({
         </Stack>
       )}
     </Drawer>
+  );
+}
+
+/**
+ * Who a role is: its name, its title, and a persona to work in, chosen from
+ * people whose way of leading is written down in public. A way of thinking,
+ * never an identity: the role is told so in every run, and signs as itself.
+ */
+function RolePersonaForm({ companyId, role, changed }: { companyId: string; role: Role; changed: () => void }) {
+  const requireFactor = useFactor();
+  const library = useLoad(async (): Promise<{ titles: string[]; personas: PersonaPreset[] }> => api('GET', '/api/personas'), []);
+  const [name, setName] = useState(role.displayName ?? '');
+  const [title, setTitle] = useState<string | null>(role.title);
+  const [preset, setPreset] = useState<string | null>(role.persona?.preset ?? null);
+  const [notes, setNotes] = useState(role.persona?.notes ?? '');
+  if (library.error) return <Text size="sm" c="red">{library.error}</Text>;
+  if (!library.data) return <Loading rows={2} />;
+  const chosen = library.data.personas.find((one) => one.id === preset) ?? null;
+  const groups = library.data.titles
+    .map((one) => ({ group: one, items: library.data!.personas.filter((persona) => persona.title === one) }))
+    .filter((group) => group.items.length > 0)
+    .map((group) => ({ group: group.group, items: group.items.map((persona) => ({ value: persona.id, label: `${persona.label} — ${persona.inspiredBy}` })) }));
+  const save = async () => {
+    const done = await requireFactor(t('Change {role}', { role: role.displayName ?? role.slug }), (proof) =>
+      api('POST', `/api/companies/${companyId}/roles/${role.id}`, {
+        displayName: name.trim(), ...(role.title === 'CEO' ? {} : { title }),
+        persona: preset || notes.trim() ? { preset: preset ?? undefined, notes: notes.trim() || undefined } : null,
+        summary: t('Who {role} is', { role: name.trim() || role.slug }), proof,
+      }));
+    if (done) {
+      notifications.show({ color: 'teal', message: t('Saved. Its next run works this way.') });
+      changed();
+    }
+  };
+  return (
+    <Stack gap="sm">
+      <SimpleGrid cols={{ base: 1, sm: 2 }}>
+        <TextInput label={t('Name')} placeholder={t('e.g. Arka')} value={name} onChange={(event) => setName(event.currentTarget.value)} maxLength={60} />
+        {role.title === 'CEO'
+          ? <TextInput label={t('Title')} value="CEO" disabled description={t('The CEO\'s title moves when you make another role CEO.')} />
+          : (
+            <Select
+              label={t('Title')}
+              // A company has one CEO, made by appointing it rather than by a title.
+              data={library.data.titles.filter((one) => one !== 'CEO')}
+              value={title}
+              onChange={setTitle}
+              clearable
+              searchable
+            />
+          )}
+      </SimpleGrid>
+      <Select
+        label={t('Persona')}
+        description={t('A way of thinking to work in, taken from someone whose way of leading is on the public record.')}
+        placeholder={t('None: it works as its charter says')}
+        data={groups}
+        value={preset}
+        onChange={(value) => {
+          setPreset(value);
+          const picked = library.data!.personas.find((one) => one.id === value);
+          if (picked && !title && picked.title !== 'CEO') setTitle(picked.title);
+        }}
+        clearable
+        searchable
+      />
+      {chosen && (
+        <Paper withBorder radius="md" p="sm">
+          <Text size="sm" fw={600}>{chosen.label}</Text>
+          <Text size="xs" c="dimmed" mb={6}>{t('Inspired by {person}', { person: chosen.inspiredBy })}</Text>
+          <List size="sm" spacing={2}>{chosen.principles.map((principle) => <List.Item key={principle}>{principle}</List.Item>)}</List>
+          <Text size="xs" mt={6}><b>{t('Manner')}:</b> {chosen.manner}</Text>
+          <Text size="xs"><b>{t('Decides')}:</b> {chosen.decides}</Text>
+        </Paper>
+      )}
+      <Textarea label={t('In your own words')} description={t('Anything else about how it should be: its tone, its habits, what it cares about.')}
+        autosize minRows={2} value={notes} onChange={(event) => setNotes(event.currentTarget.value)} maxLength={1000} />
+      <Alert variant="light" color="gray">
+        <Text size="xs">{t('It takes after the person\'s way of thinking and never claims to be them: whatever it sends out is signed with its own name.')}</Text>
+      </Alert>
+      <Group justify="flex-end"><Button onClick={() => void save()}>{t('Save')}</Button></Group>
+    </Stack>
   );
 }
 

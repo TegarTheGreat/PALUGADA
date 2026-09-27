@@ -22,6 +22,8 @@ export interface Company {
     verified: boolean | null;
     progress: number | null;
   } | null;
+  /** The role the owner talks to (0068); null only while the company has no roles. */
+  ceo: { roleId: string; slug: string; displayName: string | null } | null;
 }
 
 export interface InboxItem {
@@ -145,6 +147,27 @@ export interface Role {
   /** Who the role is and how it works: first in every run's context. */
   charter: string;
   doneCriteria: string[];
+  /** Who it is: the name the owner calls it, its title, and the way of working it takes after. */
+  displayName: string | null;
+  title: string | null;
+  persona: RolePersona | null;
+}
+
+/** The persona a role takes after, and the owner's own words about how it should be. */
+export interface RolePersona {
+  preset?: string;
+  notes?: string;
+}
+
+/** A way of working a role can take after (src/domain/personas.ts). */
+export interface PersonaPreset {
+  id: string;
+  title: string;
+  label: string;
+  inspiredBy: string;
+  principles: string[];
+  manner: string;
+  decides: string;
 }
 
 export interface Structure {

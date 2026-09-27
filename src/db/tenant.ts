@@ -27,14 +27,19 @@ export async function withTenant<T>(
   fn: (tx: TenantClient) => Promise<T>,
 ): Promise<T> {
   const client = await appPool().connect();
+  let committing = false;
   try {
     await client.query('BEGIN');
     await client.query('SELECT set_config($1, $2, true)', ['app.company_id', companyId]);
     const result = await fn({ query: (text, values) => client.query(text, values) });
+    committing = true;
     await commitOrFail(client);
     return result;
   } catch (error) {
-    await client.query('ROLLBACK').catch(() => undefined);
+    // A COMMIT that failed -- a deferred constraint refusing it, such as a
+    // company left without its CEO -- has already ended the transaction; a
+    // ROLLBACK after it only puts a warning in the database's log.
+    if (!committing) await client.query('ROLLBACK').catch(() => undefined);
     throw error;
   } finally {
     client.release();
@@ -70,13 +75,16 @@ async function commitOrFail(client: pg.PoolClient): Promise<void> {
  */
 export async function withControlPlane<T>(fn: (tx: TenantClient) => Promise<T>): Promise<T> {
   const client = await adminPool().connect();
+  let committing = false;
   try {
     await client.query('BEGIN');
     const result = await fn({ query: (text, values) => client.query(text, values) });
+    committing = true;
     await commitOrFail(client);
     return result;
   } catch (error) {
-    await client.query('ROLLBACK').catch(() => undefined);
+    // As in withTenant: a failed COMMIT has already ended the transaction.
+    if (!committing) await client.query('ROLLBACK').catch(() => undefined);
     throw error;
   } finally {
     client.release();

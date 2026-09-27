@@ -31,30 +31,39 @@ const PLAIN_AGENTS = ['agent', 'agent-teal', 'agent-amber', 'agent-pink'] as con
  * `writes` are one job, and `ui` does not match inside `builder`.
  */
 const JOBS: readonly (readonly [string, readonly string[]])[] = [
-  ['reviewer', ['review', 'qa', 'audit', 'verif', 'check', 'approv']],
+  ['reviewer', ['review', 'qa', 'audit', 'verif', 'check', 'approv', 'quality']],
   ['web', ['web', 'site', 'seo', 'dns', 'domain']],
   ['strategist', ['strateg']],
-  ['planner', ['plan', 'roadmap', 'schedul']],
-  ['marketer', ['market', 'growth', 'social', 'brand', 'ads', 'campaign', 'promot']],
+  ['planner', ['plan', 'roadmap', 'schedul', 'cpo', 'product']],
+  ['marketer', ['market', 'growth', 'social', 'brand', 'ads', 'campaign', 'promot', 'cmo']],
   ['sales', ['sales', 'sell', 'deal', 'bizdev', 'partner', 'outreach', 'prospect']],
-  ['bookkeeper', ['book', 'financ', 'account', 'ledger', 'tax', 'invoic', 'billing', 'payroll', 'treasur']],
+  ['bookkeeper', ['book', 'financ', 'account', 'ledger', 'tax', 'invoic', 'billing', 'payroll', 'treasur', 'cfo']],
   ['responder', ['support', 'respond', 'care', 'help', 'success', 'service', 'inbox']],
   ['analyst', ['analy', 'data', 'metric', 'insight', 'report', 'forecast']],
   ['researcher', ['research', 'scout', 'discover', 'investigat', 'survey']],
   ['writer', ['writ', 'content', 'copy', 'editor', 'blog', 'newsletter', 'docs']],
   ['designer', ['design', 'creative', 'art', 'visual', 'ux', 'ui', 'illustrat']],
-  ['engineer', ['engineer', 'develop', 'dev', 'code', 'coder', 'program', 'platform', 'infra', 'sre', 'backend', 'frontend']],
+  ['engineer', ['engineer', 'develop', 'dev', 'code', 'coder', 'program', 'platform', 'infra', 'sre', 'backend', 'frontend', 'cto']],
   ['coordinator', ['coordinat', 'manag', 'lead', 'chief', 'head', 'director', 'ceo', 'coo', 'orchestrat', 'dispatch']],
   ['builder', ['build', 'maker', 'make', 'ops', 'operat', 'fulfil', 'deliver', 'produc']],
 ];
 
-/** A picture for a role, from its slug; the same slug always gets the same one. */
-export function rolePicture(slug: string): string {
-  const words = slug.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+function jobIn(name: string): string | null {
+  const words = name.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
   for (const [picture, starts] of JOBS) {
-    if (words.some((word) => starts.some((start) => word.startsWith(start)))) return `/avatars/roles/${picture}.webp`;
+    if (words.some((word) => starts.some((start) => word.startsWith(start)))) return picture;
   }
-  return `/avatars/roles/${PLAIN_AGENTS[spread(slug) % PLAIN_AGENTS.length]}.webp`;
+  return null;
+}
+
+/**
+ * A picture for a role, from its slug, or from its title when the slug does
+ * not say what it does -- a `worker` who is the CEO is drawn coordinating;
+ * the same slug and title always get the same one.
+ */
+export function rolePicture(slug: string, title?: string | null): string {
+  const job = jobIn(slug) ?? (title ? jobIn(title) : null);
+  return `/avatars/roles/${job ?? PLAIN_AGENTS[spread(slug) % PLAIN_AGENTS.length]}.webp`;
 }
 
 /**

@@ -64,15 +64,16 @@ export async function createCompany(
       'INSERT INTO divisions (company_id, slug, name) VALUES ($1, $2, $3) RETURNING id',
       [companyId, 'ops', 'Operations'],
     );
+    // It is the company's CEO, as one role of every company is (0068).
     // F2.8: a role with no output schema and no completion criterion cannot be
     // given work, so the fixture supplies both. They are deliberately minimal
     // -- a test that cares about contracts sets its own.
     const { rows: r } = await tx.query<{ id: string }>(
       `INSERT INTO roles (company_id, division_id, slug, system_prompt, model,
-                          output_schema, done_criteria)
+                          output_schema, done_criteria, title)
        VALUES ($1, $2, 'worker', 'You are a worker.', 'test-model',
                '{"type":"object"}'::jsonb,
-               ARRAY['the run returns an output matching its schema'])
+               ARRAY['the run returns an output matching its schema'], 'CEO')
        RETURNING id`,
       [companyId, d[0]!.id],
     );

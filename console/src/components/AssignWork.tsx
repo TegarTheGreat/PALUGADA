@@ -14,11 +14,12 @@ import { t } from '../i18n.ts';
 export function AssignWork({
   companyId, structure, roleId: fixedRole, done,
 }: { companyId: string; structure: Structure; roleId?: string; done: () => void }) {
-  // The role that routes work -- the standard company's coordinator -- is
-  // where work goes when the owner does not know whose it is, so it is picked
-  // unless the owner picks someone else.
-  const router = structure.roles.find((role) => role.slug === 'coordinator')
+  // The CEO is where work goes when the owner does not know whose it is
+  // (0068): it hands it to whoever should do it, so it is picked unless the
+  // owner picks someone else.
+  const router = structure.roles.find((role) => role.title === 'CEO')
     ?? structure.roles.find((role) => role.tools?.includes('task.delegate'));
+  const called = (role: { slug: string; displayName: string | null }) => role.displayName ?? role.slug;
   const [roleId, setRoleId] = useState<string | null>(fixedRole ?? router?.id ?? null);
   const [projectId, setProjectId] = useState<string | null>(structure.projects[0]?.id ?? null);
   const leaf = structure.goals.filter((goal) => goal.status === 'active');
@@ -33,7 +34,7 @@ export function AssignWork({
   const roleOptions = useMemo(() => structure.divisions.map((division) => ({
     group: division.name,
     items: structure.roles.filter((role) => role.divisionId === division.id)
-      .map((role) => ({ value: role.id, label: role.slug })),
+      .map((role) => ({ value: role.id, label: [called(role), role.title].filter(Boolean).join(' · ') })),
   })).filter((group) => group.items.length > 0), [structure]);
 
   const submit = async () => {
@@ -46,7 +47,7 @@ export function AssignWork({
         projectId, divisionId: role.divisionId, roleId: role.id, goalId, goal,
         ...(reserve === '' ? {} : { reserveTokens: Number(reserve) }),
       });
-      notifications.show({ color: 'teal', title: t('Assigned'), message: t('{role} is awake and has it (task {task}).', { role: role.slug, task: assigned.taskId.slice(0, 8) }) });
+      notifications.show({ color: 'teal', title: t('Assigned'), message: t('{role} is awake and has it (task {task}).', { role: called(role), task: assigned.taskId.slice(0, 8) }) });
       setGoal('');
       done();
     } catch (failure) {
@@ -63,7 +64,7 @@ export function AssignWork({
           <Select
             label={t('Role')}
             placeholder={t('Who does it')}
-            description={router && roleId === router.id ? t('{role} hands it to whoever should do it', { role: router.slug }) : undefined}
+            description={router && roleId === router.id ? t('{role} hands it to whoever should do it', { role: called(router) }) : undefined}
             data={roleOptions}
             value={roleId}
             onChange={setRoleId}

@@ -76,6 +76,11 @@ defines it:
   model name, so moving the company to another model is a deployment
   setting, not a change to every role.
 - **Its runtime:** what does its work. See [Runtimes](#runtimes).
+- **Who it is:** a name, a title such as CTO or Head of Support, and
+  optionally a persona -- a way of working taken from someone whose way of
+  leading is on the public record, with the owner's own notes. Every run is
+  told these first, and that the persona is a way of thinking, never an
+  identity: it is not that person and signs everything as itself.
 
 A role sleeps until it is given work, woken by an event, or reached by its
 heartbeat; a wake with nothing to do costs nothing. The badge on **Team**
@@ -125,10 +130,19 @@ A task can hand part of its work to another role as a sub-task. The sub-task
 draws on the parent's budget, has a timeout, and returns a bounded answer and
 summary rather than its whole transcript.
 
+## The CEO
+
+Every company that has roles has exactly one CEO, and it is who the owner
+talks to about the company: the conversation on the company's pages is with
+it, in its name and persona, about its company and nothing else. The
+database keeps the rule -- a second CEO is refused, and so is a change that
+would leave none -- and the owner moves it by appointing another role,
+never by a title. In the standard company the CEO is the coordinator.
+
 ## The coordinator
 
-The coordinator is the Operations role in the standard template, and it is
-where work goes when you do not name a role. It decides whose job the work
+The coordinator is the Operations role in the standard template, and the
+company's CEO. It is where work goes when you do not name a role. It decides whose job the work
 is, delegates it with a brief that says what done looks like, waits for the
 result and reports what came back. It does operations work itself, and it
 does not contact anyone outside the company or ship anything.

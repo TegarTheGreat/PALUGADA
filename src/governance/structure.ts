@@ -22,6 +22,7 @@
  * same shape: which role hears about a problem, and how long the division may
  * sit on one before the owner does.
  */
+import type { RolePersona } from '../domain/personas.ts';
 import { assertApproved, type RoleChange } from '../eval/role-eval.ts';
 import { withTenant, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
@@ -29,6 +30,7 @@ import { PalugadaError } from '../errors.ts';
 import { TIER } from '../domain/tier.ts';
 import * as inbox from '../inbox/inbox.ts';
 import { recordVersion } from './config-versions.ts';
+import { CEO, titleFor } from './ceo.ts';
 import { PLATFORM_TOOLS, WORK_INPUT, WORK_OUTPUT } from '../templates/standard.ts';
 
 export type StructuralChange =
@@ -190,6 +192,10 @@ export interface RoleFields {
    * same charter and tools, done by another agent.
    */
   runtime?: string;
+  /** Who the role is: the name the owner calls it, its title, and the way of working it takes after. */
+  displayName?: string | null;
+  title?: string | null;
+  persona?: RolePersona | null;
 }
 
 /**
@@ -201,7 +207,10 @@ export interface RoleFields {
  * is told they are approving.
  */
 function changeKindOf(fields: RoleFields): RoleChange {
-  if (fields.systemPrompt !== undefined) return 'charter';
+  // Who a role is changes how it works, as its charter does.
+  if (fields.systemPrompt !== undefined || fields.persona !== undefined || fields.displayName !== undefined || fields.title !== undefined) {
+    return 'charter';
+  }
   if (fields.tools !== undefined) return 'skills';
   return 'model_routing';
 }
@@ -210,7 +219,16 @@ export async function applyRoleChange(
   companyId: string,
   roleId: string,
   fields: RoleFields,
-  options: { ownerApproved: boolean; summary?: string },
+  options: {
+    ownerApproved: boolean;
+    summary?: string;
+    /**
+     * A version being put back (governance/rollback.ts). Who the CEO is is an
+     * appointment rather than part of a role's version, so a restore leaves
+     * it: the version from before a role was appointed does not demote it.
+     */
+    restoring?: boolean;
+  },
 ): Promise<number> {
   // F17.3's own guard, called rather than restated.
   //
@@ -229,13 +247,19 @@ export async function applyRoleChange(
       model: string;
       model_fallback: string[];
       runtime: string;
+      display_name: string | null;
+      title: string | null;
+      persona: RolePersona | null;
     }>(
-      `SELECT slug, system_prompt, tools, model_primary, model, model_fallback, runtime
+      `SELECT slug, system_prompt, tools, model_primary, model, model_fallback, runtime, display_name, title, persona
          FROM roles WHERE id = $1`,
       [roleId],
     );
     const before = rows[0];
     if (!before) throw new PalugadaError('role.incomplete', `no role ${roleId}`, { roleId });
+    const title = fields.title !== undefined && options.restoring && (fields.title === CEO || before.title === CEO)
+      ? undefined
+      : await titleFor(tx, companyId, { id: roleId, current: before.title }, fields.title);
 
     const version = await recordVersion(tx, {
       companyId,
@@ -248,6 +272,9 @@ export async function applyRoleChange(
         modelPrimary: before.model_primary ?? before.model,
         modelFallback: before.model_fallback,
         runtime: before.runtime,
+        displayName: before.display_name,
+        title: before.title,
+        persona: before.persona,
       },
       summary: options.summary ?? `State of ${before.slug} before this change`,
     });
@@ -258,7 +285,11 @@ export async function applyRoleChange(
               tools          = coalesce($3::text[], tools),
               model_primary  = coalesce($4, model_primary),
               model_fallback = coalesce($5::text[], model_fallback),
-              runtime        = coalesce($6, runtime)
+              runtime        = coalesce($6, runtime),
+              -- Absent leaves each as it is; null clears it.
+              display_name   = CASE WHEN $7 THEN $8 ELSE display_name END,
+              title          = CASE WHEN $9 THEN $10 ELSE title END,
+              persona        = CASE WHEN $11 THEN $12::jsonb ELSE persona END
         WHERE id = $1`,
       [
         roleId,
@@ -267,6 +298,9 @@ export async function applyRoleChange(
         fields.modelPrimary ?? null,
         fields.modelFallback ?? null,
         fields.runtime ?? null,
+        fields.displayName !== undefined, fields.displayName ?? null,
+        title !== undefined, title ?? null,
+        fields.persona !== undefined, fields.persona ? JSON.stringify(fields.persona) : null,
       ],
     );
 
@@ -306,6 +340,9 @@ export interface NewRole {
   /** The model tier the role's runtime resolves; `standard` unless said. */
   model?: string;
   maxTokensPerRun?: number;
+  displayName?: string | null;
+  title?: string | null;
+  persona?: RolePersona | null;
 }
 
 /**
@@ -362,20 +399,22 @@ export async function addRole(
     const { rows: granted } = await tx.query<{ capability_name: string }>(
       'SELECT capability_name FROM capability_grants WHERE division_id = $1', [role.divisionId]);
     const ungranted = tools.filter((tool) => !granted.some((row) => row.capability_name === tool));
+    const title = await titleFor(tx, companyId, { id: null, current: null }, role.title ?? undefined);
 
     // Where the company's roles run; the column's default when it has none.
     const { rows: usual } = await tx.query<{ runtime: string; backend: string }>(
       `SELECT runtime, backend FROM roles GROUP BY runtime, backend ORDER BY count(*) DESC, runtime LIMIT 1`);
     const { rows } = await tx.query<{ id: string }>(
       `INSERT INTO roles (company_id, division_id, slug, system_prompt, model, tools, input_schema, output_schema,
-                          max_tokens_per_run, done_criteria, runtime, backend)
+                          max_tokens_per_run, done_criteria, runtime, backend, display_name, title, persona)
        VALUES ($1, $2, $3, $4, $5, $6::text[], $7, $8, $9, $10::text[],
-               coalesce($11, 'in-process'), coalesce($12, 'local'))
+               coalesce($11, 'in-process'), coalesce($12, 'local'), $13, $14, $15::jsonb)
        RETURNING id`,
       [
         companyId, role.divisionId, slug, systemPrompt, role.model ?? 'standard', tools,
         JSON.stringify(WORK_INPUT), JSON.stringify(WORK_OUTPUT), role.maxTokensPerRun ?? 60_000, doneCriteria,
         usual[0]?.runtime ?? null, usual[0]?.backend ?? null,
+        role.displayName ?? null, title ?? null, role.persona ? JSON.stringify(role.persona) : null,
       ],
     );
     const roleId = rows[0]!.id;

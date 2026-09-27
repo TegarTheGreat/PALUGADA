@@ -288,9 +288,14 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     { division: 'lab', capability: 'code.execute', rateLimitPerHour: 30 },
   ],
 
+  // Each role has a name and a title, so the company reads as a team of
+  // people rather than a list of functions; no persona is set, so each
+  // works as its charter says until the owner chooses one (domain/personas.ts).
   roles: [
     {
       slug: 'coordinator',
+      displayName: 'Arka',
+      title: 'CEO',
       doneCriteria: [
         'the state of every service checked is recorded',
         'anything that needs another division is handed off rather than attempted',
@@ -324,6 +329,8 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     },
     {
       slug: 'planner',
+      displayName: 'Sinta',
+      title: 'CPO',
       doneCriteria: [
         'the plan names what will change, how it will be checked, and what undoing it would take',
         'the tickets that follow from it exist',
@@ -347,6 +354,8 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     },
     {
       slug: 'builder',
+      displayName: 'Bima',
+      title: 'CTO',
       doneCriteria: [
         'staging shows the service answering after the change',
         'production carries the same build, or the reason it does not is written down',
@@ -375,6 +384,8 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     },
     {
       slug: 'marketer',
+      displayName: 'Laras',
+      title: 'CMO',
       doneCriteria: [
         'every message sent was drafted first',
         'the customer record says what was sent and to whom',
@@ -401,6 +412,8 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     },
     {
       slug: 'bookkeeper',
+      displayName: 'Dimas',
+      title: 'CFO',
       doneCriteria: [
         'every payment is matched to an invoice that was read',
         'the ledger balances against what was issued and paid',
@@ -419,6 +432,8 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     },
     {
       slug: 'responder',
+      displayName: 'Nadia',
+      title: 'Head of Support',
       doneCriteria: [
         'the customer has an answer, or a ticket exists saying who owes them one',
         'the customer record says what they were told',
@@ -445,6 +460,8 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     },
     {
       slug: 'reviewer',
+      displayName: 'Raka',
+      title: 'Head of Quality',
       doneCriteria: [
         'the verdict names the criterion that decided it',
         'a proposal that could not be judged was rejected for that reason rather than approved',
@@ -465,6 +482,8 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     },
     {
       slug: 'analyst',
+      displayName: 'Sari',
+      title: 'Head of Data',
       doneCriteria: [
         'the question has a numeric answer, or a statement of why the data cannot give one',
         'the snippet that produced it is recorded with the result',

@@ -1,11 +1,13 @@
 /**
- * The owner's assistant: say what you want, and it reads what is there and
- * puts cards in front of you. A card changes nothing until you apply it --
- * with your authenticator where the change takes it -- and a key goes into
- * the sealed field on the card, never into the conversation.
+ * The owner's conversations: with PALUGADA's assistant about the whole
+ * deployment, and with each company's CEO about that company (0068). Say
+ * what you want, and it reads what is there and puts cards in front of you.
+ * A card changes nothing until you apply it -- with your authenticator where
+ * the change takes it -- and a key goes into the sealed field on the card,
+ * never into the conversation.
  */
 import {
-  ActionIcon, Alert, Badge, Button, Code, Drawer, Group, Loader, Paper, PasswordInput, ScrollArea, Stack, Text, Textarea, Tooltip,
+  ActionIcon, Alert, Anchor, Avatar, Badge, Button, Code, Drawer, Group, Loader, Paper, PasswordInput, ScrollArea, Stack, Text, Textarea, Tooltip,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
@@ -17,6 +19,8 @@ import { useFactor } from '../factor.tsx';
 import { N, t } from '../i18n.ts';
 import { go } from '../router.ts';
 import { play, recordingSupported, useRecorder } from '../recorder.ts';
+import { rolePicture } from '../images.ts';
+import type { Company, RolePersona } from '../types.ts';
 
 /** Whether applying a card takes the owner's device: always, only when its route says so, or never. */
 type Factor = 'always' | 'sometimes' | 'never';
@@ -41,11 +45,22 @@ interface Message {
   proposals: Proposal[];
 }
 
+/** A company's CEO, who answers in that company's conversation. */
+interface Ceo {
+  roleId: string;
+  slug: string;
+  displayName: string | null;
+  title: string | null;
+  persona: RolePersona | null;
+}
+
 interface Conversation {
   available: boolean;
   /** Whether a provider is chosen to hear the owner, and one to answer aloud. */
   voice: { listen: boolean; speak: boolean };
   messages: Message[];
+  /** In a company's conversation, its CEO; null while it has none. */
+  ceo?: Ceo | null;
 }
 
 const EXAMPLES = [
@@ -55,6 +70,14 @@ const EXAMPLES = [
   N('What is waiting for me in the inbox?'),
 ];
 
+/** What an owner asks the one who runs their company. */
+const CEO_EXAMPLES = [
+  N('How is the company doing this week?'),
+  N('What is the team working on right now?'),
+  N('Plan this month\'s promotion and hand it to the team.'),
+  N('Who should we hire next, and why?'),
+];
+
 /** The labels the server gives a card's sealed fields, here so that they are translated. */
 const SECRET_LABELS = [
   N('API key'), N('API key (left empty, the saved one)'), N('Access token, if the server needs one'),
@@ -62,7 +85,7 @@ const SECRET_LABELS = [
 ];
 void SECRET_LABELS;
 
-export function Assistant({ opened, onClose }: { opened: boolean; onClose: () => void }) {
+export function Assistant({ opened, onClose, company = null }: { opened: boolean; onClose: () => void; company?: Company | null }) {
   const [conversation, setConversation] = useState<Conversation | null>(null);
   const [text, setText] = useState('');
   const [thinking, setThinking] = useState(false);
@@ -73,9 +96,15 @@ export function Assistant({ opened, onClose }: { opened: boolean; onClose: () =>
   const bottom = useRef<HTMLDivElement>(null);
   const voice = conversation?.voice ?? { listen: false, speak: false };
 
+  const companyId = company?.id ?? null;
+  const ceo = conversation?.ceo ?? null;
+  const ceoName = ceo ? ceo.displayName ?? ceo.slug : null;
+
   const load = async () => {
     try {
-      setConversation(await api('GET', '/api/assistant'));
+      setConversation(companyId
+        ? await api('GET', `/api/companies/${companyId}/conversation`)
+        : await api('GET', '/api/assistant'));
       setProblem(null);
     } catch (failure) {
       setProblem(explain(failure));
@@ -84,7 +113,8 @@ export function Assistant({ opened, onClose }: { opened: boolean; onClose: () =>
 
   useEffect(() => {
     if (opened) void load();
-  }, [opened]);
+    else setConversation(null);
+  }, [opened, companyId]);
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: 'end' });
@@ -101,7 +131,9 @@ export function Assistant({ opened, onClose }: { opened: boolean; onClose: () =>
       messages: [...now.messages, { id: 'pending', role: 'owner', channel: 'console', body: words, at: new Date().toISOString(), proposals: [] }],
     });
     try {
-      const answer: { messages: Message[] } = await api('POST', '/api/assistant/messages', { text: words });
+      const answer: { messages: Message[] } = companyId
+        ? await api('POST', `/api/companies/${companyId}/conversation/messages`, { text: words })
+        : await api('POST', '/api/assistant/messages', { text: words });
       await load();
       const reply = answer.messages.at(-1);
       if (aloud && voice.speak && reply?.role === 'assistant') void speakOut(reply.body);
@@ -149,9 +181,23 @@ export function Assistant({ opened, onClose }: { opened: boolean; onClose: () =>
   };
 
   const clear = async () => {
-    await api('POST', '/api/assistant/clear', {});
+    if (companyId) await api('POST', `/api/companies/${companyId}/conversation/clear`, {});
+    else await api('POST', '/api/assistant/clear', {});
     await load();
   };
+
+  const title = company
+    ? (
+      <Group gap={10} wrap="nowrap">
+        <Avatar size={36} radius="xl" src={ceo ? rolePicture(ceo.slug, ceo.title) : undefined} alt="" />
+        <div style={{ minWidth: 0 }}>
+          <Text fw={700} truncate>{ceoName ?? t('No CEO yet')}</Text>
+          <Text size="xs" c="dimmed" truncate>{t('CEO of {company}', { company: company.name })}</Text>
+        </div>
+      </Group>
+    )
+    : <Group gap={8}><IconSparkles size={20} /><Text fw={700}>{t('Ask PALUGADA')}</Text></Group>;
+  const examples = company ? CEO_EXAMPLES : EXAMPLES;
 
   return (
     <Drawer
@@ -159,12 +205,16 @@ export function Assistant({ opened, onClose }: { opened: boolean; onClose: () =>
       onClose={onClose}
       position="right"
       size="lg"
-      title={<Group gap={8}><IconSparkles size={20} /><Text fw={700}>{t('Ask PALUGADA')}</Text></Group>}
+      title={title}
       styles={{ body: { display: 'flex', flexDirection: 'column', height: 'calc(100% - 60px)' } }}
     >
       {conversation && !conversation.available && (
         <Alert color="yellow" variant="light" mb="sm" title={t('Choose a model first')}>
-          <Text size="sm">{t('The assistant thinks with this deployment\'s own model, and none is set up yet.')}</Text>
+          <Text size="sm">
+            {ceoName
+              ? t('{name} thinks with this deployment\'s own model, and none is set up yet.', { name: ceoName })
+              : t('The assistant thinks with this deployment\'s own model, and none is set up yet.')}
+          </Text>
           <Button size="compact-sm" mt="xs" variant="light" onClick={() => { onClose(); go({ kind: 'deployment', section: 'model' }); }}>
             {t('Choose a model')}
           </Button>
@@ -172,11 +222,20 @@ export function Assistant({ opened, onClose }: { opened: boolean; onClose: () =>
       )}
       <ScrollArea style={{ flex: 1 }} offsetScrollbars>
         <Stack gap="sm" pb="sm">
-          {conversation?.messages.length === 0 && (
+          {company && conversation && !ceo && (
+            <Alert color="yellow" variant="light" title={t('This company has no CEO yet')}>
+              <Text size="sm">{t('The CEO is who you talk to about a company. Hire its first role on Team; it becomes the CEO.')}</Text>
+            </Alert>
+          )}
+          {conversation?.messages.length === 0 && (!company || ceo) && (
             <Paper withBorder radius="lg" p="md">
-              <Text size="sm">{t('Tell me what you want, in your own words. I look at what is there and put the changes in front of you as cards; nothing changes until you apply one, and keys go in the sealed field on the card, never here.')}</Text>
+              <Text size="sm">
+                {company
+                  ? t('I am {name}, the CEO of {company}. Tell me what you want the company to do, or ask how it is going. I hand the work to the team, and put what needs your say in front of you as cards: nothing changes until you apply one.', { name: ceoName ?? '', company: company.name })
+                  : t('Tell me what you want, in your own words. I look at what is there and put the changes in front of you as cards; nothing changes until you apply one, and keys go in the sealed field on the card, never here.')}
+              </Text>
               <Stack gap={6} mt="sm">
-                {EXAMPLES.map((example) => (
+                {examples.map((example) => (
                   <Button key={example} variant="light" size="compact-sm" justify="flex-start" onClick={() => void send(t(example))} disabled={thinking}>
                     {t(example)}
                   </Button>
@@ -184,7 +243,9 @@ export function Assistant({ opened, onClose }: { opened: boolean; onClose: () =>
               </Stack>
             </Paper>
           )}
-          {conversation?.messages.map((message) => <Line key={message.id} message={message} reload={load} />)}
+          {conversation?.messages.map((message) => (
+            <Line key={message.id} message={message} reload={load} speaker={company && ceo ? { name: ceoName!, picture: rolePicture(ceo.slug, ceo.title) } : null} />
+          ))}
           {hearing && <Group gap="xs"><Loader size="xs" type="dots" /><Text size="sm" c="dimmed">{t('Listening…')}</Text></Group>}
           {thinking && <Group gap="xs"><Loader size="xs" type="dots" /><Text size="sm" c="dimmed">{t('Looking…')}</Text></Group>}
           <div ref={bottom} />
@@ -197,7 +258,8 @@ export function Assistant({ opened, onClose }: { opened: boolean; onClose: () =>
           autosize
           minRows={1}
           maxRows={6}
-          placeholder={t('Say what you want…')}
+          placeholder={ceoName ? t('Tell {name} what you want…', { name: ceoName }) : t('Say what you want…')}
+          disabled={Boolean(company) && conversation !== null && !ceo}
           value={text}
           onChange={(event) => setText(event.currentTarget.value)}
           onKeyDown={(event) => {
@@ -245,13 +307,24 @@ export function Assistant({ opened, onClose }: { opened: boolean; onClose: () =>
   );
 }
 
-function Line({ message, reload }: { message: Message; reload: () => Promise<void> }) {
+function Line({ message, reload, speaker }: {
+  message: Message;
+  reload: () => Promise<void>;
+  /** Who answers, in a company's conversation: its CEO, drawn beside what it says. */
+  speaker: { name: string; picture: string } | null;
+}) {
   if (message.role === 'event') {
     return <Text size="xs" c="dimmed" ta="center">{message.body}</Text>;
   }
   const mine = message.role === 'owner';
   return (
     <Stack gap={6} align={mine ? 'flex-end' : 'flex-start'}>
+      {!mine && speaker && (
+        <Group gap={6}>
+          <Avatar size={20} radius="xl" src={speaker.picture} alt="" />
+          <Text size="xs" fw={600} c="dimmed">{speaker.name}</Text>
+        </Group>
+      )}
       <Paper
         radius="lg"
         px="md"
@@ -274,6 +347,9 @@ function Card({ proposal, reload }: { proposal: Proposal; reload: () => Promise<
   const [busy, setBusy] = useState(false);
   const open = proposal.status === 'open';
   const fields = Object.entries(proposal.body);
+  // What the owner reads on the card: the fields in words, not the ids the route needs.
+  const said = fields.filter(([, value]) => !(typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value)));
+  const [detailed, setDetailed] = useState(false);
 
   const apply = async () => {
     setBusy(true);
@@ -320,11 +396,22 @@ function Card({ proposal, reload }: { proposal: Proposal; reload: () => Promise<
             </Badge>
           )}
         </Group>
-        <Code>{`POST ${proposal.path}`}</Code>
-        {fields.length > 0 && (
+        {said.length > 0 && (
           <Stack gap={0}>
-            {fields.map(([name, value]) => (
+            {said.map(([name, value]) => (
               <Text key={name} size="xs" c="dimmed"><b>{name}</b>: {typeof value === 'string' ? value : JSON.stringify(value)}</Text>
+            ))}
+          </Stack>
+        )}
+        {/* Exactly what pressing it sends, for anyone who wants to check: the route and every field, ids included. */}
+        <Anchor component="button" type="button" size="xs" c="dimmed" ta="left" onClick={() => setDetailed((now) => !now)}>
+          {detailed ? t('Hide what it sends') : t('Show what it sends')}
+        </Anchor>
+        {detailed && (
+          <Stack gap={2}>
+            <Code>{`POST ${proposal.path}`}</Code>
+            {fields.map(([name, value]) => (
+              <Text key={name} size="xs" c="dimmed" ff="monospace"><b>{name}</b>: {typeof value === 'string' ? value : JSON.stringify(value)}</Text>
             ))}
           </Stack>
         )}

@@ -102,6 +102,12 @@ test('a role is drawn doing its job when its name says what that is, and as an a
       'strategist', 'researcher', 'writer', 'web', 'reviewer', 'engineer', 'reviewer',
       'writer', 'sales', 'writer', 'responder', 'designer', 'marketer'],
   );
+  // A title says what a role does when its name does not; when both do, the name wins.
+  const titled = (slug: string, title: string) => rolePicture(slug, title).replace(/^\/avatars\/roles\/|\.webp$/g, '');
+  assert.deepEqual(
+    [titled('worker', 'CEO'), titled('kopi-a', 'CTO'), titled('lumen', 'CFO'), titled('x', 'Head of Quality'), titled('builder', 'CTO')],
+    ['coordinator', 'engineer', 'bookkeeper', 'reviewer', 'builder'],
+  );
   // A name that says nothing gets an agent, and always the same one.
   const plain = ['worker', 'kopi-a', 'lumen', 'x'].map(drawn);
   for (const picture of plain) assert.match(picture, /^agent(-\w+)?$/);

@@ -295,7 +295,7 @@ test('what the pack was built with reaches the runtime: the language, the owner\
   // is held to. All three were stored, shown to the owner, and handed to no
   // run -- every role was a name, and its output schema a check the run was
   // never told it had to pass.
-  assert.match(pack.charter, /Your role: worker[\s\S]*You are a worker\.[\s\S]*Done means[\s\S]*the run returns an output matching its schema/);
+  assert.match(pack.charter, /Your role: worker, CEO[\s\S]*You are a worker\.[\s\S]*Done means[\s\S]*the run returns an output matching its schema/);
   assert.ok(pack.charter.indexOf('You are a worker.') > pack.charter.indexOf('Platform charter') || !pack.charter.includes('Platform charter'),
     'after the charters that outrank it');
   assert.ok(pack.notes.some((note) => note.title === 'What you return' && /"summary"/.test(note.body)), 'the output contract');

@@ -142,7 +142,7 @@ webhooks, bundles, audit export -- is in [docs/features.md](docs/features.md).
 <table>
   <tr>
     <td width="50%"><img alt="The inbox: the queue, and the decision in front of you with its reasons" src="docs/images/inbox.webp"></td>
-    <td width="50%"><img alt="The team: divisions and roles as an org chart" src="docs/images/team.webp"></td>
+    <td width="50%"><img alt="The team: the owner, the CEO they talk to, and the divisions under it" src="docs/images/team.webp"></td>
   </tr>
   <tr>
     <td><img alt="Work: every task with how far it has got" src="docs/images/work.webp"></td>

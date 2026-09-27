@@ -40,6 +40,63 @@ A few things are done on their own pages, and the assistant says so:
 connecting a Telegram bot, signing an agent CLI in with a Claude plan,
 pairing a device, importing a company.
 
+## Talk to a company's CEO
+
+Every company has one CEO, and it is who you talk to about that company.
+Press **Talk to Arka, CEO** under **New** in the sidebar (on a phone, the
+CEO's picture at the top), or **Talk to Arka** on its card on **Team**. Ask
+how the company is doing, what the team is working on, or tell it what you
+want done: "sales need to go up next month, what is your plan?".
+
+The CEO answers in its own name and in the persona you chose for it, from
+what it reads about its own company and nothing else; for models, keys,
+channels or other companies it sends you to **Ask PALUGADA**. Work you want
+done comes back as a card that gives it to the CEO's own role, which hands
+it to the right people when it runs. As everywhere, nothing changes until
+you press **Apply**. **Show what it sends** on a card shows the route and
+every value it sends, ids included. Each company's conversation is its own,
+and **Start again** forgets only that one.
+
+The CEO thinks with the deployment's model, like **Ask PALUGADA**; it works
+on its tasks with its own role's model and runtime.
+
+## Name the team and choose personas
+
+The standard company arrives as a team of named people with titles: Arka the
+CEO, Sinta the CPO, Bima the CTO, Laras the CMO, Dimas the CFO, Nadia (Head
+of Support), Raka (Head of Quality) and Sari (Head of Data). Open a role on
+**Team** and use **Name and persona**:
+
+- **Name** and **Title**: what you call it, and its place in the company.
+- **Persona**: a way of working taken from someone whose way of leading is
+  on the public record -- for a CEO, Steve Jobs' focus, Jeff Bezos' customer
+  obsession, Satya Nadella's growth mindset, Ciputra's building from nothing,
+  and more; for a CTO, CFO, CMO and the other titles, their own list. The
+  card shows the principles it will work by before you save.
+- **In your own words**: anything else about its tone, habits or what it
+  cares about.
+
+Press **Save** and confirm with a code. From its next run the role is told
+who it is, in that order: its name and title, the persona's principles, your
+words, and then its charter. A persona is a way of thinking, never an
+identity: every run is told it is not that person, never to speak as them or
+use their name, and to sign everything as itself. **History** in the drawer
+puts an earlier version back.
+
+**Ask PALUGADA** or the CEO can propose a whole team at once, names, titles
+and personas included; each hire is still a card you apply.
+
+### Make another role the CEO
+
+A company always has exactly one CEO: the database refuses a second and
+refuses none. A title does not make or unmake one; open the role that should
+lead and press **Make … the CEO**, then confirm with a code. The role that
+was CEO keeps its name and persona and loses the title, which you can give
+it anew. Putting back an earlier version of a role never changes who the CEO
+is. A company made from a template that names no CEO, or restored from an
+archive made before there were titles, has its coordinator (or its oldest
+role) appointed.
+
 ## Give work
 
 1. Press **Give work** on **Work** or **Team**, or **New** then
@@ -125,11 +182,13 @@ starts; **Resume everything** takes a code. To stop one company, use
 
 All three are on **Team**, **Divisions & roles**.
 
-- **Hire a role**: choose the **Division**, a **Short name**, write
-  **What the role is for** (its charter), list its **Tools** (capabilities,
-  separated by commas, at most twelve) and **How to know it is done** (one
-  criterion per line). Press **Hire** and confirm with a code. If its
-  division is not granted a tool yet, you are told which; grant it next.
+- **Hire a role**: choose the **Division**, a **Short name**, optionally a
+  **Name** and **Title**, write **What the role is for** (its charter), list
+  its **Tools** (capabilities, separated by commas, at most twelve) and
+  **How to know it is done** (one criterion per line). Press **Hire** and
+  confirm with a code. If its division is not granted a tool yet, you are
+  told which; grant it next. A hire is never titled CEO while the company
+  has one; the first role of a company with none becomes its CEO.
 - **New division**: a **Name**, a **Short name**, optionally the division it
   sits **Inside** (two levels deep at most), and **Runs at once, at most**.
   Press **Open it** and confirm with a code. A new division can read its own

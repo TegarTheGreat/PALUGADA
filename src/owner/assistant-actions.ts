@@ -306,20 +306,29 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   { pattern: '/api/companies/:companyId/projects', what: 'Start a project.', fields: { name: 'its name', slug: 'short id' }, factor: 'never' },
   {
     pattern: '/api/companies/:companyId/roles',
-    what: 'Hire a role.',
+    what: 'Hire a role, with a name, a title and a persona the owner chose or you suggest from GET /api/personas. A company has one CEO: a hire is never titled CEO while it has one.',
     fields: {
       divisionId: 'its division', slug: 'short id', systemPrompt: 'what it does and how',
       tools: 'list of capability names, at most twelve', model: 'fast, standard or deep', doneCriteria: 'list of what done means',
+      displayName: 'the name the owner calls it, such as Arka; give every role one', title: 'its title, such as CEO, CTO or Head of Support (GET /api/personas lists them)',
+      persona: '{ preset: a persona id from GET /api/personas, notes: optional traits in the owner\'s words }',
     },
     factor: 'always',
   },
   {
     pattern: '/api/companies/:companyId/roles/:roleId',
-    what: 'Change a role.',
+    what: 'Change a role: its charter, tools or model, or who it is -- its name, title or persona.',
     fields: {
       summary: 'what changed, for the history', systemPrompt: 'optional', tools: 'optional list',
       modelPrimary: 'optional tier', modelFallback: 'optional tier', runtime: 'optional runtime name from GET /api/runtimes',
+      displayName: 'optional name', title: 'optional title, but not to or from CEO: that is the appoint action', persona: 'optional { preset, notes }; null takes it away',
     },
+    factor: 'always',
+  },
+  {
+    pattern: '/api/companies/:companyId/ceo',
+    what: 'Make a role the company\'s CEO, the one the owner talks to; the role that was CEO keeps its name and loses the title. A company always has exactly one.',
+    fields: { roleId: 'the role to appoint', summary: 'optional, for the history' },
     factor: 'always',
   },
   {
@@ -447,6 +456,8 @@ export const NOT_FOR_THE_ASSISTANT: Readonly<Record<string, string>> = {
   '/api/assistant/proposals/:proposalId/apply': 'only the owner applies a proposal',
   '/api/assistant/proposals/:proposalId/dismiss': 'only the owner dismisses a proposal',
   '/api/assistant/clear': 'only the owner starts the conversation again',
+  '/api/companies/:companyId/conversation/messages': 'the conversation with a company\'s CEO itself',
+  '/api/companies/:companyId/conversation/clear': 'only the owner starts a conversation again',
   '/api/assistant/listen': 'the owner\'s own voice, written down',
   '/api/assistant/speak': 'an answer said aloud to the owner',
 };
@@ -457,4 +468,5 @@ export const UNREADABLE: readonly string[] = [
   '/api/auth/challenge',
   '/api/mfa/challenge',
   '/api/assistant',
+  '/api/companies/:companyId/conversation',
 ];

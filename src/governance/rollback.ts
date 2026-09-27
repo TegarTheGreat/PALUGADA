@@ -20,6 +20,7 @@
  * capability's before and after, and putting one back is a structural change
  * the owner makes directly.
  */
+import type { RolePersona } from '../domain/personas.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { withControlPlane } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';
@@ -83,7 +84,11 @@ export async function rollBack(
       // Versions written before a role's runtime could change carry none, and
       // restoring one of them leaves the runtime as it is.
       ...(typeof snapshot.runtime === 'string' ? { runtime: snapshot.runtime } : {}),
-    }, { ownerApproved: true, summary });
+      // Likewise who the role was: a version from before personas leaves it.
+      ...('displayName' in snapshot ? { displayName: (snapshot.displayName as string | null) ?? null } : {}),
+      ...('title' in snapshot ? { title: (snapshot.title as string | null) ?? null } : {}),
+      ...('persona' in snapshot ? { persona: (snapshot.persona as RolePersona | null) ?? null } : {}),
+    }, { ownerApproved: true, summary, restoring: true });
   }
 
   await withControlPlane((tx) => appendEvent(tx, {

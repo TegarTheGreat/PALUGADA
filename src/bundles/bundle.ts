@@ -40,6 +40,7 @@ import { assertValidCron, upsertSchedule } from '../scheduler/scheduler.ts';
 import { assertValidCondition, type Condition } from '../policy/condition.ts';
 import { POLICY_EFFECTS, type PolicyEffect } from '../policy/engine.ts';
 import { putPolicy } from '../governance/store.ts';
+import { ensureCeo } from '../governance/ceo.ts';
 
 export interface BundleSkill {
   slug: string;
@@ -416,6 +417,9 @@ export async function installBundle(input: {
       );
       roleSlugs.push(role.slug);
     }
+    // A bundle installed into a company with no roles yet brings its CEO:
+    // a company that has roles always has one (governance/ceo.ts).
+    await ensureCeo(tx, input.companyId);
 
     for (const grant of body.grants) {
       const tier = grant.tierOverride ?? null;

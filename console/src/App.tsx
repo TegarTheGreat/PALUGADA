@@ -30,7 +30,7 @@ import { useLoad } from './hooks.ts';
 import { LANGUAGES, N, isLanguage, language, setLanguage, t, useLanguage, type Language } from './i18n.ts';
 import { go, takeLinkedRoute, useRoute, type CompanyPage, type Route, type SettingsSection } from './router.ts';
 import type { Company, SearchHit, Structure } from './types.ts';
-import { companyEmblem, OWNER_PICTURE } from './images.ts';
+import { companyEmblem, OWNER_PICTURE, rolePicture } from './images.ts';
 import { SignIn } from './pages/SignIn.tsx';
 import { Home } from './pages/Home.tsx';
 import { DeploymentSettings } from './pages/Deployment.tsx';
@@ -90,6 +90,8 @@ export interface ConsoleContext {
   /** The inbox tells the navigation how many decisions are waiting. */
   setOpenCount: (count: number) => void;
   giveWork: () => void;
+  /** Open the conversation with this company's CEO. */
+  talk: () => void;
 }
 
 export interface PageProps {
@@ -130,6 +132,8 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
   const [more, setMore] = useState(false);
   const [giving, setGiving] = useState(false);
   const [asking, setAsking] = useState(false);
+  // The company whose CEO the owner is talking to, if any.
+  const [talking, setTalking] = useState<Company | null>(null);
   const [checklist, setChecklist] = useState(false);
   const [touring, setTouring] = useState(false);
   const [spot, setSpot] = useState<TourSpot | null>(null);
@@ -195,6 +199,7 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
     refreshCompanies,
     setOpenCount: (count: number) => setOpenCount((current) => (current[company.id] === count ? current : { ...current, [company.id]: count })),
     giveWork: () => setGiving(true),
+    talk: () => setTalking(company),
   } : null), [company, companies, open, refreshCompanies]);
 
   // F10.7. Two controls, because they are two decisions: "stop" raises a flag
@@ -237,6 +242,11 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
 
   const spotlightActions: SpotlightActionData[] = [
     { id: 'ask', label: t('Ask PALUGADA'), description: t('Say what you want; it sets things up with you'), leftSection: <IconSparkles size={18} />, onClick: () => setAsking(true) },
+    ...(company?.ceo ? [{
+      id: 'talk', label: t('Talk to {name}, CEO', { name: company.ceo.displayName ?? company.ceo.slug }),
+      description: t('The one who runs {company} for you', { company: company.name }),
+      leftSection: <Avatar size={18} radius="xl" src={rolePicture(company.ceo.slug, 'CEO')} alt="" />, onClick: () => setTalking(company),
+    }] : []),
     { id: 'home', label: t('Home'), description: t('Every company at a glance'), leftSection: <IconHome size={18} />, onClick: () => go({ kind: 'home' }) },
     ...PAGES.map((page) => ({
       id: `page-${page.id}`,
@@ -355,6 +365,12 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
               pick={(id) => open(route.kind === 'company' ? route.page : 'inbox', { companyId: id })} start={() => setStarting(true)} />
           </Group>
           <Group gap={6} wrap="nowrap">
+            {company?.ceo && (
+              <ActionIcon variant="default" size="lg" radius="xl" onClick={() => setTalking(company)}
+                aria-label={t('Talk to {name}, CEO', { name: company.ceo.displayName ?? company.ceo.slug })}>
+                <Avatar size={26} radius="xl" src={rolePicture(company.ceo.slug, 'CEO')} alt="" />
+              </ActionIcon>
+            )}
             <ActionIcon variant="light" size="lg" onClick={() => setAsking(true)} aria-label={t('Ask PALUGADA')}><IconSparkles size={18} /></ActionIcon>
             <ActionIcon variant="subtle" size="lg" onClick={() => spotlight.open()} aria-label={t('Search')}><IconSearch size={18} /></ActionIcon>
             <ActionIcon variant={stopAll ? 'filled' : 'light'} color={stopAll ? 'teal' : 'red'} size="lg" onClick={() => void toggleStop()} aria-label={stopAll ? t('Resume everything') : t('Stop everything')}>
@@ -391,6 +407,12 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
               <Menu.Item leftSection={<IconBuildingStore size={16} />} onClick={() => setStarting(true)}>{t('Start a company')}</Menu.Item>
             </Menu.Dropdown>
           </Menu>
+          {company?.ceo && (
+            <Button fullWidth mt={6} variant="default" justify="flex-start" onClick={() => setTalking(company)}
+              leftSection={<Avatar size={20} radius="xl" src={rolePicture(company.ceo.slug, 'CEO')} alt="" />}>
+              <Text size="sm" fw={600} truncate>{t('Talk to {name}, CEO', { name: company.ceo.displayName ?? company.ceo.slug })}</Text>
+            </Button>
+          )}
           <Button fullWidth mt={6} variant="light" leftSection={<IconSparkles size={16} />} justify="flex-start" onClick={() => setAsking(true)}>
             {t('Ask PALUGADA')}
           </Button>
@@ -531,6 +553,7 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
 
       <GiveWork companyId={company?.id ?? null} opened={giving} close={() => setGiving(false)} />
       <Assistant opened={asking} onClose={() => setAsking(false)} />
+      <Assistant opened={talking !== null} company={talking} onClose={() => setTalking(null)} />
 
       <Tour
         opened={touring}

@@ -39,6 +39,7 @@ import { isStage } from '../domain/stage.ts';
 import { withControlPlane, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
+import { ensureCeo } from '../governance/ceo.ts';
 import type { ArchiveLine } from './export.ts';
 
 interface ImportSection {
@@ -450,6 +451,9 @@ export async function importCompany(
     }
 
     await requireLocalVouching(tx, companyId);
+    // An archive from before every company had a CEO has none; it gets the
+    // one it would have been given (governance/ceo.ts).
+    await ensureCeo(tx, companyId);
 
     await appendEvent(tx, {
       companyId,

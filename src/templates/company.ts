@@ -17,6 +17,8 @@
  */
 import { PalugadaError } from '../errors.ts';
 import { withControlPlane, type TenantClient } from '../db/tenant.ts';
+import { ensureCeo } from '../governance/ceo.ts';
+import { titleFrom } from '../domain/personas.ts';
 
 export interface TemplateDivision {
   slug: string;
@@ -41,6 +43,10 @@ export interface TemplateRole {
   maxTokensPerRun?: number;
   /** F2.8: at least one testable statement of what finished looks like. */
   doneCriteria?: string[];
+  /** Who the role is: a name, a title, and a persona from src/domain/personas.ts. */
+  displayName?: string;
+  title?: string;
+  persona?: { preset?: string; notes?: string };
 }
 
 export interface TemplateGrant {
@@ -176,6 +182,10 @@ export function assertTemplateIsCoherent(template: CompanyTemplate): void {
 
   if (divisions.size !== template.divisions.length) {
     throw new Error('template defines the same division slug twice');
+  }
+  // One CEO, or none and the company appoints one (governance/ceo.ts).
+  if (template.roles.filter((role) => role.title?.trim().toLowerCase() === 'ceo').length > 1) {
+    throw new Error('template names more than one CEO; a company has one');
   }
 
   for (const division of template.divisions) {
@@ -346,6 +356,8 @@ export async function createCompanyFromTemplate(
     const goalIds = await insertGoals(tx, companyId, template);
     const divisionIds = await insertDivisions(tx, companyId, template);
     const roleIds = await insertRoles(tx, companyId, template, divisionIds);
+    // A template that names no CEO still makes a company with one.
+    await ensureCeo(tx, companyId);
     await insertSops(tx, companyId, template, divisionIds);
     await insertGrants(tx, companyId, template, divisionIds);
     const budget = await insertBudget(tx, companyId, template, divisionIds);
@@ -510,8 +522,8 @@ async function insertRoles(
     const { rows } = await tx.query<{ id: string }>(
       `INSERT INTO roles (company_id, division_id, slug, system_prompt, model, tools,
                           input_schema, output_schema, max_tokens_per_run,
-                          done_criteria)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+                          done_criteria, display_name, title, persona)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
       [
         companyId,
         divisionIds[role.division],
@@ -523,6 +535,9 @@ async function insertRoles(
         JSON.stringify(role.outputSchema ?? {}),
         role.maxTokensPerRun ?? 100000,
         role.doneCriteria ?? [],
+        role.displayName ?? null,
+        role.title ? titleFrom(role.title) : null,
+        role.persona ? JSON.stringify(role.persona) : null,
       ],
     );
     ids[role.slug] = rows[0]!.id;

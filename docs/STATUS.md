@@ -3303,6 +3303,31 @@ has.
   are outside content (F8.9). Mistral's Voxtral is not offered: Indonesian is
   not among its languages.
 
+- **Each agent is someone, and the company has a CEO who talks to the
+  owner.** The owner asked whether every agent has a persona of its own,
+  whether the assistant could name a team, whether there are a CEO and a
+  CTO taking after people who lead well -- and then who it is that talks to
+  them, and whether the CEO should not be required. A role now has a name,
+  a title and a persona (0067): twenty-five ways of working across twelve
+  titles, each taken from a way of leading on the public record -- a CEO
+  can work like Jobs, Bezos, Nadella, Jensen Huang, Ciputra or William
+  Tanuwijaya -- with the owner's own notes. Every run is told who it is
+  before its charter, and told it is not that person, never to speak as
+  them or use their name, and to sign as itself. The standard company is a
+  named team, with no persona until the owner chooses one; the persona
+  texts are shown in English in the console, where the owner picks them.
+  Every company that has roles has exactly one CEO (0068): a unique index
+  refuses a second and a trigger checked at commit refuses none, so the
+  title moves only by an appointment the owner makes with their device;
+  a restored version never changes who the CEO is, and a template, bundle
+  or old archive without one has its coordinator or oldest role appointed.
+  The conversation on a company's pages is with its CEO -- the assistant's
+  reads and cards, held to that company and nothing outside it, in the
+  CEO's name and persona -- and work the owner wants done is a card that
+  gives it to the CEO's own role, as work given without a role now is.
+  Team is drawn as the owner, the CEO and the divisions hanging from one
+  spine, rather than a grid.
+
 **Still open, next.** The assistant in Telegram, by text and voice note. WhatsApp, Signal and email as
 owner channels are not built; Slack and Discord cannot carry buttons, so
 Telegram remains the chat that decides. Subscription

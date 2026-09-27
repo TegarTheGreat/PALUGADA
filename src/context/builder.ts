@@ -20,6 +20,7 @@ import { languageName, languageRule, languagesFor } from '../domain/language.ts'
 import { metricsIn, renderMetrics } from '../domain/metrics.ts';
 import { instructionsFor } from '../engine/owner-control.ts';
 import { STAGE_PURPOSE, stageOf } from '../domain/stage.ts';
+import { renderPersona, type RolePersona } from '../domain/personas.ts';
 
 export interface ContextSection {
   kind:
@@ -256,18 +257,24 @@ async function roleSections(
 ): Promise<{ charter: ContextSection[]; contract: ContextSection[] }> {
   const { rows } = await tx.query<{
     slug: string; system_prompt: string; done_criteria: string[] | null; output_schema: Record<string, unknown> | null;
+    display_name: string | null; title: string | null; persona: RolePersona | null; company: string;
   }>(
-    `SELECT r.slug, r.system_prompt, r.done_criteria, r.output_schema
-       FROM tasks t JOIN roles r ON r.id = t.role_id WHERE t.id = $1`,
+    `SELECT r.slug, r.system_prompt, r.done_criteria, r.output_schema, r.display_name, r.title, r.persona, c.name AS company
+       FROM tasks t JOIN roles r ON r.id = t.role_id JOIN companies c ON c.id = t.company_id WHERE t.id = $1`,
     [taskId],
   );
   const role = rows[0];
   if (!role) return { charter: [], contract: [] };
   const done = (role.done_criteria ?? []).filter((criterion) => criterion.trim() !== '');
+  // Who the role is, before what it does: the charter is then read as this
+  // person's job, and the rule that a persona is not an identity travels with it.
+  const who = renderPersona({ slug: role.slug, displayName: role.display_name, title: role.title, persona: role.persona }, role.company);
   const charter: ContextSection = {
     kind: 'role_charter',
-    title: `Your role: ${role.slug}`,
+    // Its name, or its slug when it has none, and its title: "Arka, CEO".
+    title: `Your role: ${[role.display_name ?? role.slug, role.title].filter(Boolean).join(', ')}`,
     body: [
+      ...(who ? [who, ''] : []),
       role.system_prompt.trim() || `You are the company's ${role.slug}.`,
       ...(done.length > 0 ? ['', 'Done means:', ...done.map((criterion) => `- ${criterion}`)] : []),
     ].join('\n'),

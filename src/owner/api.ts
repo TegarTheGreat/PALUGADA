@@ -144,9 +144,11 @@ import { accessFor, bindMcpServers, currentPins, offeredTools, type TokenIn } fr
 import { MCP_PRESETS } from '../capabilities/mcp-presets.ts';
 import { LISTEN_PROVIDERS, listenProvider, transcribe, type Heard, type ListenBinding, type ListenProvider } from '../capabilities/listen.ts';
 import {
-  closeProposal, conversation, converse, forgetConversation, patternFor, proposalById, type AssistantReach,
+  closeProposal, conversation, converse, forgetConversation, patternFor, proposalById, speakerOf, type AssistantReach,
 } from './assistant.ts';
 import { ASSISTANT_ACTIONS } from './assistant-actions.ts';
+import { PERSONAS, TITLES, personaFrom, titleFrom, type RolePersona } from '../domain/personas.ts';
+import { appointCeo } from '../governance/ceo.ts';
 import type { ToolUsingLlmClient } from '../llm/client.ts';
 import type { OwnerMfa, WebAuthnAssertion } from './mfa.ts';
 import { telegramApi, telegramBot, telegramChats, type TelegramChannel, type TelegramUpdate } from './telegram.ts';
@@ -1606,6 +1608,14 @@ export class OwnerApi {
         },
       },
 
+      {
+        // The ways of working a role can take after, by title: what the
+        // owner picks from, and what the assistant proposes from.
+        method: 'GET',
+        pattern: '/api/personas',
+        handle: async () => ({ titles: TITLES, personas: PERSONAS }),
+      },
+
       /* ------------------------------------------------- the assistant --- */
 
       {
@@ -1719,6 +1729,45 @@ export class OwnerApi {
         pattern: '/api/assistant/clear',
         handle: async () => {
           await forgetConversation();
+          return { ok: true };
+        },
+      },
+
+      /* ----------------------------------------- a company's CEO (0068) --- */
+
+      {
+        // The owner's conversation with a company is with its CEO: the same
+        // reads and cards as the assistant's, held to that company, in the
+        // CEO's name and persona (owner/assistant.ts).
+        method: 'GET',
+        pattern: '/api/companies/:companyId/conversation',
+        handle: async ({ params }) => ({
+          available: Boolean(this.#options.assistant?.llm),
+          voice: { listen: Boolean(this.#options.assistant?.voice?.listen), speak: Boolean(this.#options.assistant?.voice?.speak) },
+          ceo: await speakerOf(params.companyId!),
+          messages: await conversation(60, params.companyId!),
+        }),
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/conversation/messages',
+        handle: async ({ request, session, params, body }) => ({
+          messages: await converse({
+            llm: this.#options.assistant?.llm ?? null,
+            reach: this.#reach(request, session),
+            language: async () => (await deploymentLanguages()).console ?? 'en',
+            companyId: params.companyId!,
+          }, requireText(body.text, 'text'), 'console'),
+        }),
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/conversation/clear',
+        handle: async ({ params }) => {
+          await speakerOf(params.companyId!);
+          await forgetConversation(params.companyId!);
           return { ok: true };
         },
       },
@@ -2735,6 +2784,7 @@ export class OwnerApi {
             tools: body.tools === undefined ? [] : textList(body.tools, 'tools'),
             doneCriteria: body.doneCriteria === undefined ? [] : textList(body.doneCriteria, 'doneCriteria'),
             ...(body.model === undefined ? {} : { model: requireText(body.model, 'model') }),
+            ...whoFrom(body),
           }, { ownerApproved: true });
         },
       },
@@ -2803,6 +2853,7 @@ export class OwnerApi {
             }
             fields.runtime = runtime;
           }
+          Object.assign(fields, whoFrom(body));
           if (Object.keys(fields).length === 0) {
             throw new PalugadaError('contract.violation', 'no role field was given', {});
           }
@@ -2811,6 +2862,21 @@ export class OwnerApi {
             ...(body.summary === undefined ? {} : { summary: String(body.summary) }),
           });
           return { version };
+        },
+      },
+
+      {
+        // The CEO is who the owner talks to, so moving it is the owner's
+        // decision with their device, and it moves in one transaction: the
+        // database holds a company to exactly one (governance/ceo.ts).
+        method: 'POST',
+        pattern: '/api/companies/:companyId/ceo',
+        handle: async ({ params, body }) => {
+          await this.#requireFactor(body.proof, 'appoint a CEO', params.companyId!);
+          return appointCeo(params.companyId!, requireText(body.roleId, 'roleId'), {
+            ownerApproved: true,
+            ...(body.summary === undefined ? {} : { summary: String(body.summary) }),
+          });
         },
       },
 
@@ -3886,6 +3952,28 @@ function chatKindNamed(name: string): WebhookChatKind {
   return name;
 }
 
+/**
+ * Who a role is, from a request: its name, its title and its persona, each
+ * only when present, and each cleared by an explicit null or empty string.
+ */
+function whoFrom(body: Record<string, unknown>): { displayName?: string | null; title?: string | null; persona?: RolePersona | null } {
+  const who: { displayName?: string | null; title?: string | null; persona?: RolePersona | null } = {};
+  for (const [field, key] of [['displayName', 'displayName'], ['title', 'title']] as const) {
+    if (body[field] === undefined) continue;
+    const text = body[field] === null ? '' : String(body[field]).trim();
+    if (text.length > 60) throw new PalugadaError('contract.violation', `${field} is at most 60 characters`, { field });
+    who[key] = text === '' ? null : key === 'title' ? titleFrom(text) : text;
+  }
+  if (body.persona !== undefined) {
+    try {
+      who.persona = personaFrom(body.persona);
+    } catch (failure) {
+      throw new PalugadaError('contract.violation', (failure as Error).message, { field: 'persona' });
+    }
+  }
+  return who;
+}
+
 /** A recording sent from the page: base64 in `audio`, its type in `mime`. */
 function audioFrom(body: Record<string, unknown>): Heard {
   const mime = typeof body.mime === 'string' ? body.mime.split(';')[0]!.trim() : '';
@@ -4232,16 +4320,20 @@ function send(res: ServerResponse, status: number, body: unknown): void {
 /** Every company the owner has, newest last, which is how they were made. */
 async function companies(): Promise<Array<{
   id: string; slug: string; name: string; frozen: boolean; workLanguage: string | null; talkLanguage: string | null;
-  stage: Stage | null; headline: Headline | null;
+  stage: Stage | null; headline: Headline | null; ceo: { roleId: string; slug: string; displayName: string | null } | null;
 }>> {
   return withControlPlane(async (tx) => {
     const { rows } = await tx.query<{
       id: string; slug: string; name: string; frozen: boolean; workLanguage: string | null; talkLanguage: string | null;
-      stage: Stage | null;
+      stage: Stage | null; ceo: { roleId: string; slug: string; displayName: string | null } | null;
     }>(
-      `SELECT id, slug, name, frozen_at IS NOT NULL AS frozen,
-              work_language AS "workLanguage", talk_language AS "talkLanguage", stage
-         FROM companies ORDER BY created_at`,
+      // Who the owner talks to in each (0068), for the pages that offer the conversation.
+      `SELECT company.id, company.slug, company.name, company.frozen_at IS NOT NULL AS frozen,
+              company.work_language AS "workLanguage", company.talk_language AS "talkLanguage", company.stage,
+              CASE WHEN ceo.id IS NULL THEN NULL
+                   ELSE jsonb_build_object('roleId', ceo.id, 'slug', ceo.slug, 'displayName', ceo.display_name) END AS ceo
+         FROM companies company LEFT JOIN roles ceo ON ceo.company_id = company.id AND ceo.title = 'CEO'
+        ORDER BY company.created_at`,
     );
     const measured = await headlines(tx);
     return rows.map((row) => ({ ...row, headline: measured.get(row.id) ?? null }));

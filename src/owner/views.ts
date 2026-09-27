@@ -112,10 +112,12 @@ export async function structureOf(companyId: string): Promise<StructureView> {
       tools: string[]; heartbeat_minutes: number | null; dormant_until: Date | null;
       frozen_at: Date | null; frozen_reason: string | null;
       open_tasks: number; done_last_week: number; system_prompt: string; done_criteria: string[] | null;
+      display_name: string | null; title: string | null; persona: { preset?: string; notes?: string } | null;
     }>(
       `SELECT r.id, r.division_id, r.slug, coalesce(r.model_primary, r.model) AS model,
               r.runtime, r.tools, r.heartbeat_minutes, r.dormant_until,
               r.frozen_at, r.frozen_reason, r.system_prompt, r.done_criteria,
+              r.display_name, r.title, r.persona,
               (SELECT count(*)::int FROM tasks t
                 WHERE t.role_id = r.id AND NOT (t.status = ANY ($1))) AS open_tasks,
               (SELECT count(*)::int FROM tasks t
@@ -203,6 +205,9 @@ export async function structureOf(companyId: string): Promise<StructureView> {
         doneLastWeek: role.done_last_week,
         charter: role.system_prompt,
         doneCriteria: role.done_criteria ?? [],
+        displayName: role.display_name,
+        title: role.title,
+        persona: role.persona,
       })),
     };
   });

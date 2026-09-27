@@ -481,7 +481,7 @@ function Steps({ companyId, task }: { companyId: string; task: WorkItem }) {
               })}
             </Alert>
           )}
-          <TraceView trace={trace.data} />
+          <TraceView trace={trace.data} companyId={companyId} />
         </Stack>
       ))}
     </div>

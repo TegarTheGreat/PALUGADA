@@ -3504,12 +3504,18 @@ has.
   title. The Word reader is tested by the suite with a document built in the
   test; the PDF reader runs only where a bundler has loaded pdf.js, so it was
   checked in a browser against a PDF written for it, not by the suite.
+- **What every run was told is kept.** A run's context was kept only where
+  its model calls' prompts were, which is for runs this process drives; a
+  run handed to an agent CLI, a container or an HTTP runtime left nothing of
+  what it was told. 0076 keeps each run's briefing -- the request as its
+  runtime received it, in the redacted wire form a third-party runtime is
+  sent -- bounded, and scrubbed with the prompts past the prompt window.
+  Every run in a task's trace has **What it was told**, section by section.
 
 **Still open, next.** From the same audits, in order: the done report is
 the run's own account -- the engine holds it to answering every criterion
 with evidence, and nothing yet judges whether the evidence holds; a run has no
-wall-clock ceiling of its own beyond its deadline and its lease; the context
-a run was given is kept only as its prompt, for in-process runs; documents
+wall-clock ceiling of its own beyond its deadline and its lease; documents
 are matched by their words, not their meaning -- pgvector is installed and
 unused -- and a scanned PDF, or any file but Word, PDF and text, reaches them
 only as text the owner pastes. WhatsApp, Signal and email as

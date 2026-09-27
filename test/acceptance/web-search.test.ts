@@ -85,7 +85,9 @@ function providerFetch(answer: unknown) {
   return { fetch, seen };
 }
 
-const ctx = { signal: AbortSignal.timeout(5_000) } as never;
+// A fresh signal for every call: one made when the file loads runs out five
+// seconds later, and a slow suite reached the last test after that.
+const ctx = () => ({ signal: AbortSignal.timeout(5_000) }) as never;
 
 test('every search provider is sent the query and its key where its documentation says, and read the way it answers', async () => {
   assert.deepEqual(SEARCH_PROVIDERS.map((one) => one.id).sort(), Object.keys(SEARCH_ANSWERS).sort(), 'every provider has a documented answer here');
@@ -94,7 +96,7 @@ test('every search provider is sent the query and its key where its documentatio
     const { fetch, seen } = providerFetch(answer);
     const url = provider.urlExample ? 'http://search.internal:8888' : null;
     const typed = provider.key === 'none' ? null : 'the-key-0123';
-    const result = await webSearch({ provider, url, key: async () => typed, fetch }).execute({ query: 'palugada agents', count: 3 }, ctx);
+    const result = await webSearch({ provider, url, key: async () => typed, fetch }).execute({ query: 'palugada agents', count: 3 }, ctx());
     assert.deepEqual(result.results, [{ title: 'T', url: 'https://a.example/', snippet: 'S' }], provider.id);
     assert.equal(key(seen[0]!), typed, `${provider.id} carries its key where the provider reads it`);
     const sent = `${seen[0]!.url} ${JSON.stringify(seen[0]!.body ?? {})}`;
@@ -110,13 +112,13 @@ test('every search provider is sent the query and its key where its documentatio
 test('a provider with a free tier is asked without a key the way it documents, and a key when there is one', async () => {
   const tavily = SEARCH_PROVIDERS.find((one) => one.id === 'tavily')!;
   const keyless = providerFetch(SEARCH_ANSWERS.tavily!.answer);
-  await webSearch({ provider: tavily, url: null, key: async () => null, fetch: keyless.fetch }).execute({ query: 'q' }, ctx);
+  await webSearch({ provider: tavily, url: null, key: async () => null, fetch: keyless.fetch }).execute({ query: 'q' }, ctx());
   assert.equal(keyless.seen[0]!.headers['x-tavily-access-mode'], 'keyless');
   assert.equal(keyless.seen[0]!.headers.authorization, undefined);
 
   const keenable = SEARCH_PROVIDERS.find((one) => one.id === 'keenable')!;
   const publicTier = providerFetch(SEARCH_ANSWERS.keenable!.answer);
-  await webSearch({ provider: keenable, url: null, key: async () => null, fetch: publicTier.fetch }).execute({ query: 'q' }, ctx);
+  await webSearch({ provider: keenable, url: null, key: async () => null, fetch: publicTier.fetch }).execute({ query: 'q' }, ctx());
   assert.equal(publicTier.seen[0]!.url, 'https://api.keenable.ai/v1/search/public');
   assert.equal(publicTier.seen[0]!.headers['x-keenable-title'], 'PALUGADA', 'its free tier asks which application is calling');
 });
@@ -127,18 +129,18 @@ test('every page reader returns the page as text, capped, and says which page it
     const { answer, key } = EXTRACT_ANSWERS[provider.id]!;
     const { fetch, seen } = providerFetch(answer);
     const typed = provider.key === 'none' ? null : 'the-key-0123';
-    const page = await webExtract({ provider, url: null, key: async () => typed, fetch }).execute({ url: 'https://a.example/' }, ctx);
+    const page = await webExtract({ provider, url: null, key: async () => typed, fetch }).execute({ url: 'https://a.example/' }, ctx());
     assert.equal(page.text, 'Body', provider.id);
     assert.equal(page.url, 'https://a.example/');
     assert.equal(key(seen[0]!), typed, `${provider.id} carries its key where the provider reads it`);
   }
   const jina = EXTRACT_PROVIDERS.find((one) => one.id === 'jina')!;
   const long = providerFetch({ data: { title: 'T', url: 'https://a.example/', content: 'x'.repeat(70_000) } });
-  const capped = await webExtract({ provider: jina, url: null, key: async () => null, fetch: long.fetch }).execute({ url: 'https://a.example/' }, ctx);
+  const capped = await webExtract({ provider: jina, url: null, key: async () => null, fetch: long.fetch }).execute({ url: 'https://a.example/' }, ctx());
   assert.equal(capped.text.length, 60_000);
   assert.equal(capped.truncated, true);
   const empty = providerFetch({ data: { title: 'T', url: 'https://a.example/', content: '' } });
-  await assert.rejects(webExtract({ provider: jina, url: null, key: async () => null, fetch: empty.fetch }).execute({ url: 'https://a.example/' }, ctx),
+  await assert.rejects(webExtract({ provider: jina, url: null, key: async () => null, fetch: empty.fetch }).execute({ url: 'https://a.example/' }, ctx()),
     /returned nothing readable/);
 });
 
@@ -146,10 +148,10 @@ test('a role is held to ten results however many it asks for, and gets five when
   const brave = SEARCH_PROVIDERS.find((one) => one.id === 'brave')!;
   const many = Array.from({ length: 20 }, (_, index) => ({ title: `T${index}`, url: `https://a.example/${index}`, description: 'S' }));
   const asked = providerFetch({ web: { results: many } });
-  const greedy = await webSearch({ provider: brave, url: null, key: async () => 'k', fetch: asked.fetch }).execute({ query: 'q', count: 50 }, ctx);
+  const greedy = await webSearch({ provider: brave, url: null, key: async () => 'k', fetch: asked.fetch }).execute({ query: 'q', count: 50 }, ctx());
   assert.equal(new URL(asked.seen[0]!.url).searchParams.get('count'), '10');
   assert.equal(greedy.results.length, 10);
-  const plain = await webSearch({ provider: brave, url: null, key: async () => 'k', fetch: asked.fetch }).execute({ query: 'q' }, ctx);
+  const plain = await webSearch({ provider: brave, url: null, key: async () => 'k', fetch: asked.fetch }).execute({ query: 'q' }, ctx());
   assert.equal(new URL(asked.seen[1]!.url).searchParams.get('count'), '5');
   assert.equal(plain.results.length, 5);
 });
@@ -157,7 +159,7 @@ test('a role is held to ten results however many it asks for, and gets five when
 test('a refused key is said as a refused key, naming where to set it again', async () => {
   const brave = SEARCH_PROVIDERS.find((one) => one.id === 'brave')!;
   const fetch = (async () => new Response('{"error":"bad key"}', { status: 401 })) as unknown as typeof globalThis.fetch;
-  await assert.rejects(webSearch({ provider: brave, url: null, key: async () => 'wrong', fetch }).execute({ query: 'q' }, ctx),
+  await assert.rejects(webSearch({ provider: brave, url: null, key: async () => 'wrong', fetch }).execute({ query: 'q' }, ctx()),
     /Brave Search refused the key \(401\): set it again in the console, under This deployment, Tools/);
 });
 
@@ -219,7 +221,7 @@ test('the owner chooses a search provider and a page reader in the console, trie
     assert.equal(env.PALUGADA_EXTRACT_PROVIDER, 'jina', 'the console\'s reader in place of the environment\'s');
     const bound = toolBindingsFrom(env, (reference) => api.secrets.resolve(reference));
     assert.deepEqual(bound.notes.filter((note) => /^web\./.test(note)), []);
-    const found = await webSearch(bound.search!).execute({ query: 'what runs itself' }, ctx);
+    const found = await webSearch(bound.search!).execute({ query: 'what runs itself' }, ctx());
     assert.equal(found.results[0]!.url, 'https://palugada.example/');
     assert.equal(search.queries.at(-1), 'what runs itself');
 

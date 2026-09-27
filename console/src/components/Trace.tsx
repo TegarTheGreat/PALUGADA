@@ -3,14 +3,17 @@
  * step, with what each model call cost. A timeline a person reads, not the
  * JSON a program would.
  */
-import { Badge, Code, Group, Paper, Spoiler, Stack, Text, Timeline } from '@mantine/core';
+import { useState } from 'react';
+import { Accordion, Badge, Button, Code, Group, Modal, Paper, Spoiler, Stack, Text, Timeline } from '@mantine/core';
 import {
-  IconBolt, IconBrain, IconCircleCheck, IconCircleX, IconFlag, IconHandStop, IconTool,
+  IconBolt, IconBrain, IconCircleCheck, IconCircleX, IconFileDescription, IconFlag, IconHandStop, IconTool,
 } from '@tabler/icons-react';
-import type { Trace, TraceStep } from '../types.ts';
+import { api } from '../api.ts';
+import { useLoad } from '../hooks.ts';
+import type { RunBriefing, Trace, TraceRun, TraceStep } from '../types.ts';
 import { count, dateTime, haltReason, humanize, money } from '../format.ts';
 import { t } from '../i18n.ts';
-import { StatusBadge } from './ui.tsx';
+import { LoadFailed, Loading, StatusBadge } from './ui.tsx';
 
 const STEP_ICON: Record<string, typeof IconTool> = {
   tool_call: IconTool,
@@ -64,7 +67,8 @@ function describe(step: TraceStep): {
   return { title: humanize(step.name), badges, parts, error, failed: step.kind === 'denial', outside: false };
 }
 
-export function TraceView({ trace }: { trace: Trace }) {
+export function TraceView({ trace, companyId }: { trace: Trace; companyId: string }) {
+  const [told, setTold] = useState<TraceRun | null>(null);
   if (trace.reason) return <Text size="sm" c="dimmed">{trace.reason}</Text>;
   if (trace.runs.length === 0) return <Text size="sm" c="dimmed">{t('No run has been recorded for this yet.')}</Text>;
   return (
@@ -78,6 +82,9 @@ export function TraceView({ trace }: { trace: Trace }) {
               <StatusBadge status={run.status} />
             </Group>
             <Group gap="xs">
+              <Button size="compact-xs" variant="subtle" leftSection={<IconFileDescription size={14} />} onClick={() => setTold(run)}>
+                {t('What it was told')}
+              </Button>
               <Badge variant="light" color="gray">{t('{count} tokens', { count: count(run.tokens.input + run.tokens.output) })}</Badge>
               <Badge variant="light" color="blue">{money(run.costCents)}</Badge>
             </Group>
@@ -115,6 +122,10 @@ export function TraceView({ trace }: { trace: Trace }) {
           )}
         </Paper>
       ))}
+      <Modal opened={told !== null} onClose={() => setTold(null)} size="xl"
+        title={<Text fw={700}>{told ? t('What {role} was told, attempt {attempt}', { role: told.roleSlug, attempt: told.attempt + 1 }) : ''}</Text>}>
+        {told && <Briefing companyId={companyId} run={told} />}
+      </Modal>
       {trace.calls.length > 0 && (
         <div>
           <Text fw={700} size="sm" mb="xs">{t('Model calls')}</Text>
@@ -133,3 +144,89 @@ export function TraceView({ trace }: { trace: Trace }) {
     </Stack>
   );
 }
+
+/**
+ * What one run was told (0076), section by section: the request its runtime
+ * received, whatever the runtime -- so "why did it do that" starts from what
+ * it was given.
+ */
+function Briefing({ companyId, run }: { companyId: string; run: TraceRun }) {
+  const found = useLoad(async (): Promise<RunBriefing> =>
+    api('GET', `/api/companies/${companyId}/tasks/${run.taskId}/runs/${run.agentRunId}/briefing`), [companyId, run.taskId, run.agentRunId]);
+  if (found.error) return <LoadFailed message={found.error} retry={found.reload} />;
+  if (!found.data) return <Loading rows={3} />;
+  const { briefing, removed } = found.data;
+  if (removed === 'retention') return <Text size="sm" c="dimmed">{t('What this run was told has gone with its prompts: they are kept for as long as Settings, Retention says.')}</Text>;
+  if (!briefing || removed === 'never_kept') return <Text size="sm" c="dimmed">{t('This run started before PALUGADA kept what runs were told.')}</Text>;
+  if (briefing.cut) {
+    return (
+      <Stack gap="xs">
+        <Text size="sm" c="dimmed">{t('Too long to keep whole ({characters} characters); the start of it:', { characters: count(briefing.characters ?? 0) })}</Text>
+        <Code block fz={11} style={{ maxHeight: '60vh', overflow: 'auto', whiteSpace: 'pre-wrap' }}>{briefing.start}</Code>
+      </Stack>
+    );
+  }
+  const pack = briefing.contextPack;
+  const text = (body: string) => <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{body}</Text>;
+  return (
+    <Stack gap="sm">
+      <Group gap="xs">
+        {briefing.modelRouting && <Badge variant="light" color="gray" tt="none">{[briefing.modelRouting.primary, ...briefing.modelRouting.fallback].join(' → ')}</Badge>}
+        {briefing.limits && <Badge variant="light" color="gray" tt="none">{t('{count} tokens', { count: count(briefing.limits.tokens) })}</Badge>}
+      </Group>
+      <Accordion multiple defaultValue={['charter']} variant="separated">
+        {pack && (
+          <Accordion.Item value="charter">
+            <Accordion.Control>{t('Charter and role')}</Accordion.Control>
+            <Accordion.Panel>{text(pack.charter)}</Accordion.Panel>
+          </Accordion.Item>
+        )}
+        {briefing.task && (
+          <Accordion.Item value="task">
+            <Accordion.Control>{t('The task')}</Accordion.Control>
+            <Accordion.Panel><Code block fz={11}>{JSON.stringify(briefing.task.input, null, 2)}</Code></Accordion.Panel>
+          </Accordion.Item>
+        )}
+        {pack?.goalAncestry.length ? (
+          <Accordion.Item value="goals">
+            <Accordion.Control>{t('Goals: {count}', { count: pack.goalAncestry.length })}</Accordion.Control>
+            <Accordion.Panel><Stack gap={4}>{pack.goalAncestry.map((goal, index) => <Text key={index} size="sm"><b>{humanize(goal.kind)}</b> · {goal.statement}</Text>)}</Stack></Accordion.Panel>
+          </Accordion.Item>
+        ) : null}
+        {pack?.notes.map((note, index) => (
+          <Accordion.Item key={`note-${index}`} value={`note-${index}`}>
+            <Accordion.Control>{note.title}</Accordion.Control>
+            <Accordion.Panel>{text(note.body)}</Accordion.Panel>
+          </Accordion.Item>
+        ))}
+        {pack?.skills.length ? (
+          <Accordion.Item value="skills">
+            <Accordion.Control>{t('Skills: {count}', { count: pack.skills.length })}</Accordion.Control>
+            <Accordion.Panel><Stack gap="sm">{pack.skills.map((skill, index) => <div key={index}>{text(skill)}</div>)}</Stack></Accordion.Panel>
+          </Accordion.Item>
+        ) : null}
+        {pack?.memories.length ? (
+          <Accordion.Item value="memories">
+            <Accordion.Control>{t('What the company knows: {count}', { count: pack.memories.length })}</Accordion.Control>
+            <Accordion.Panel><Stack gap="sm">{pack.memories.map((memory, index) => <div key={index}>{text(memory)}</div>)}</Stack></Accordion.Panel>
+          </Accordion.Item>
+        ) : null}
+        {pack?.workingMemory.length ? (
+          <Accordion.Item value="steps">
+            <Accordion.Control>{t('Steps it had done: {count}', { count: pack.workingMemory.length })}</Accordion.Control>
+            <Accordion.Panel><Code block fz={11} style={{ maxHeight: 300, overflow: 'auto' }}>{JSON.stringify(pack.workingMemory, null, 2)}</Code></Accordion.Panel>
+          </Accordion.Item>
+        ) : null}
+        {briefing.allowedTools?.length ? (
+          <Accordion.Item value="tools">
+            <Accordion.Control>{t('Tools: {count}', { count: briefing.allowedTools.length })}</Accordion.Control>
+            <Accordion.Panel>
+              <Group gap={6}>{briefing.allowedTools.map((tool) => <Badge key={tool.name} variant="light" color="gray" tt="none">{t('{name}, tier {tier}', { name: tool.name, tier: tool.tier })}</Badge>)}</Group>
+            </Accordion.Panel>
+          </Accordion.Item>
+        ) : null}
+      </Accordion>
+    </Stack>
+  );
+}
+

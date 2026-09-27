@@ -20,6 +20,11 @@ import { STEP_INPUT_LIMIT } from '../../src/engine/journal.ts';
 import { createCompany, grantCapability } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
+import { criteriaIn, reportOn } from '../helpers/done.ts';
+import { AdapterRegistry, type Adapter, type RunRequest } from '../../src/runtime/protocol.ts';
+import { redactor } from '../../src/secrets/manager.ts';
+import { withTenant } from '../../src/db/tenant.ts';
+import { scrubExpiredPrompts } from '../../src/retention/retention.ts';
 
 before(ensureSchema);
 beforeEach(resetData);
@@ -97,3 +102,69 @@ test('a task\'s trace shows each step with what it was asked, what it returned, 
     await api.close();
   }
 });
+
+test('what a run was told is kept for every runtime, redacted, and goes with the prompts when their time is up', async () => {
+  const fixture = await createCompany('trace-briefing');
+  // A key that reached a role's charter: the kind of thing that must never be kept in the clear.
+  const key = ['briefing', 'key', String(Date.now())].join('-');
+  redactor.register(key);
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    "UPDATE roles SET runtime = 'script', system_prompt = $2 WHERE id = $1",
+    [fixture.roleId, `You answer wholesale enquiries. The supplier portal key is ${key}.`]));
+  // A runtime out of this process, which keeps nothing of what it was handed.
+  let handed: RunRequest | null = null;
+  const script: Adapter = {
+    name: 'script', backends: ['local'],
+    async health() { return { ok: true }; },
+    async run(request) {
+      handed = request;
+      const contract = request.contextPack.notes.find((note) => note.title === 'What you return')?.body ?? '';
+      return { output: { summary: 'Answered Seduh Pagi.', done: reportOn(criteriaIn(contract)) } };
+    },
+  };
+  const adapters = new AdapterRegistry();
+  adapters.register(script);
+  const engine = new Engine({ broker: new CapabilityBroker(new CapabilityRegistry()), workerId: 'briefing-worker', adapters });
+  const task = await createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId, input: { goal: 'answer the wholesale enquiry' },
+    createdBy: 'owner', reserveTokens: 1_000,
+  });
+  assert.equal((await engine.runTask(fixture.companyId, task.id, 'worker')).status, 'completed');
+  assert.ok(handed);
+
+  const api = await consoleWithSettings();
+  try {
+    const token = await api.signIn();
+    const base = `/api/companies/${fixture.companyId}/tasks/${task.id}`;
+    const [run] = (await api.call('GET', `${base}/trace`, token)).body.runs;
+    const told = await api.call('GET', `${base}/runs/${run.agentRunId}/briefing`, token);
+    assert.equal(told.status, 200, JSON.stringify(told.body));
+    const briefing = told.body.briefing;
+    assert.match(briefing.contextPack.charter, /You answer wholesale enquiries/, 'its charter, as the runtime got it');
+    assert.doesNotMatch(JSON.stringify(briefing), new RegExp(key), 'and never a key in the clear');
+    const stored = await withTenant(fixture.companyId, (tx) => tx.query<{ briefing: string }>(
+      'SELECT briefing::text AS briefing FROM agent_runs WHERE id = $1', [run.agentRunId]));
+    assert.doesNotMatch(stored.rows[0]!.briefing, new RegExp(key), 'not even where it is stored');
+    assert.ok(briefing.contextPack.notes.some((note: { title: string }) => note.title === 'What you return'), 'the notes it was handed');
+    assert.deepEqual(briefing.modelRouting, { primary: 'test-model', fallback: [] });
+    assert.deepEqual(briefing.task.input, { goal: 'answer the wholesale enquiry' });
+
+    const stranger = await api.call('GET', `${base}/runs/00000000-0000-4000-8000-000000000000/briefing`, token);
+    assert.equal(stranger.status, 400);
+    const other = await createRootTask({
+      companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+      budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId, input: { goal: 'something else' }, createdBy: 'owner', reserveTokens: 1_000,
+    });
+    const elsewhere = await api.call('GET', `/api/companies/${fixture.companyId}/tasks/${other.id}/runs/${run.agentRunId}/briefing`, token);
+    assert.equal(elsewhere.status, 400, 'a run is read under its own task only');
+
+    // Past the prompt window it goes with the prompts; that it existed is still said.
+    await scrubExpiredPrompts(fixture.companyId, new Date(Date.now() + 400 * 86_400_000));
+    const gone = await api.call('GET', `${base}/runs/${run.agentRunId}/briefing`, token);
+    assert.deepEqual([gone.body.briefing, gone.body.removed], [null, 'retention']);
+  } finally {
+    await api.close();
+  }
+});
+

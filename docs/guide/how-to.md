@@ -252,7 +252,13 @@ it was asked** and **What came back** for each; the model calls and what
 they cost; and, at the top, whether it read content from outside -- an
 email, a web page, the backlog -- and through what. **What it did** names
 the capability on each event, and **Why it stopped** says what stopped a
-halted task. **Cost so far** includes what vendors charged.
+halted task. **Cost so far** includes what vendors charged. **What it was
+told**, on each run, is everything the run was given before it started --
+the charters and its role, the task, its goals, the notes on language,
+project and what to return, the skills and what the company knows that
+were chosen for it, the steps it had already done, its tools and its model
+-- whichever runtime ran it, with any key taken out. It is kept as long as
+the prompts are, under **Settings**, **Retention**.
 
 To stop everything at once, press **Stop everything** at the foot of the
 sidebar. Work in every company stops at its next step and nothing new

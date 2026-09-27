@@ -170,6 +170,35 @@ export async function traceOfTask(
   };
 }
 
+export interface RunBriefing {
+  agentRunId: string;
+  attempt: number;
+  startedAt: string;
+  /** The request its runtime received (engine/briefing.ts); null when none was kept or it is gone. */
+  briefing: Record<string, unknown> | null;
+  /** Why there is none: retention took it with the prompts, or the run is older than briefings. */
+  removed: 'retention' | 'never_kept' | null;
+}
+
+/** What one run of a task was told (0076), or null when the run is not this task's. */
+export async function briefingOf(companyId: string, taskId: string, agentRunId: string): Promise<RunBriefing | null> {
+  if (!/^[0-9a-f-]{36}$/.test(taskId) || !/^[0-9a-f-]{36}$/.test(agentRunId)) return null;
+  return withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<{ attempt: number; started_at: Date; briefing: Record<string, unknown> | null }>(
+      'SELECT attempt, started_at, briefing FROM agent_runs WHERE id = $1 AND task_id = $2', [agentRunId, taskId]);
+    const row = rows[0];
+    if (!row) return null;
+    const scrubbed = row.briefing?.redacted === 'retention';
+    return {
+      agentRunId,
+      attempt: row.attempt,
+      startedAt: row.started_at.toISOString(),
+      briefing: scrubbed ? null : row.briefing,
+      removed: scrubbed ? 'retention' : row.briefing === null ? 'never_kept' : null,
+    };
+  });
+}
+
 /**
  * Every model call for a task, whether or not it belongs to a run.
  *

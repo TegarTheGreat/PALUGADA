@@ -1,0 +1,14 @@
+-- What each run was told: its briefing.
+--
+-- A run's context -- the charters, its role, the notes on language, stage,
+-- project and contract, the skills and memories chosen for it, its goals,
+-- what earlier steps returned, the tools it may call -- was kept only where
+-- a model call's prompt was kept, which is for runs this process drives
+-- itself. A run handed to an agent CLI, a container or an HTTP runtime left
+-- nothing behind of what it was told, and "why did it do that" had no
+-- answer. The request as the runtime received it is kept here, redacted and
+-- bounded, for every runtime.
+--
+-- It is prompt text, so it goes when the prompts go: retention replaces it
+-- with a marker past the company's prompt window (F11.5).
+ALTER TABLE agent_runs ADD COLUMN briefing jsonb;

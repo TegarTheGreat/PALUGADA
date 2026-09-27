@@ -24,6 +24,7 @@ import { isTerminal } from '../domain/task.ts';
 import { DEFAULT_PRICE_TABLE, estimateCents, type PriceTable } from './pricing.ts';
 import { checkUsage } from '../runtime/wire.ts';
 import { reopenFinalTurns, runStep, type StepKind } from './journal.ts';
+import { keepBriefing } from './briefing.ts';
 import { LeaseKeeper } from './lease-keeper.ts';
 import { setLongTimeout, sleep, type LongTimer } from '../timers.ts';
 import { isCompanyFrozen, isStopAllRequested } from './control.ts';
@@ -1454,6 +1455,7 @@ export class Engine {
         ...input,
         runtime: { ...runtime, modelPrimary: model },
       });
+      await keepBriefing(companyId, input.agentRunId, request);
 
       try {
         return await adapter.run(request, services);

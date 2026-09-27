@@ -48,7 +48,7 @@ import { randomBytes } from 'node:crypto';
 import { PalugadaError } from '../errors.ts';
 import { withControlPlane, withTenant } from '../db/tenant.ts';
 import * as inbox from '../inbox/inbox.ts';
-import { traceFromInboxItem, traceOfTask } from '../reporting/trace.ts';
+import { briefingOf, traceFromInboxItem, traceOfTask } from '../reporting/trace.ts';
 import { addDocument, archiveDocument, listDocuments, readDocument } from '../knowledge/documents.ts';
 import { buildDailyDigest, buildWeeklyRetro } from '../reporting/digest.ts';
 import {
@@ -816,6 +816,19 @@ export class OwnerApi {
           });
           if (!trace) throw new PalugadaError('contract.violation', 'no such task in this company', {});
           return redactor.redactDeep(trace);
+        },
+      },
+
+      {
+        // What one run was told (0076): the request its runtime received,
+        // whatever the runtime. Kept redacted; redacted again on the way out,
+        // for a secret registered since.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/tasks/:taskId/runs/:runId/briefing',
+        handle: async ({ params }) => {
+          const found = await briefingOf(params.companyId!, params.taskId!, params.runId!);
+          if (!found) throw new PalugadaError('contract.violation', 'no such run of this task', {});
+          return redactor.redactDeep(found);
         },
       },
 

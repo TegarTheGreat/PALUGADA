@@ -572,7 +572,7 @@ function Detail({
           {item.kind === 'skill_candidate' && <Anchor component="button" size="sm" onClick={openSkills}>{t('Read the skill')}</Anchor>}
         </Group>
         <Collapse expanded={traceOpen}>
-          <Box>{trace ? <TraceView trace={trace} /> : <Text size="sm" c="dimmed">{t('Loading…')}</Text>}</Box>
+          <Box>{trace ? <TraceView trace={trace} companyId={companyId} /> : <Text size="sm" c="dimmed">{t('Loading…')}</Text>}</Box>
         </Collapse>
 
         {item.question ? (

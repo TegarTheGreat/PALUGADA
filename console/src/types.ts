@@ -290,6 +290,7 @@ export interface TraceStep {
 
 export interface TraceRun {
   agentRunId: string;
+  taskId: string;
   roleSlug: string;
   status: string;
   attempt: number;
@@ -299,6 +300,31 @@ export interface TraceRun {
   steps: TraceStep[];
   tokens: { input: number; output: number };
   costCents: number;
+}
+
+/** What one run was told (0076): the request its runtime received. */
+export interface RunBriefing {
+  agentRunId: string;
+  attempt: number;
+  startedAt: string;
+  briefing: {
+    cut?: boolean;
+    characters?: number;
+    start?: string;
+    task?: { input: Record<string, unknown> };
+    contextPack?: {
+      charter: string;
+      skills: string[];
+      memories: string[];
+      goalAncestry: Array<{ kind: string; statement: string }>;
+      notes: Array<{ title: string; body: string }>;
+      workingMemory: Array<{ name: string; output: unknown }>;
+    };
+    allowedTools?: Array<{ name: string; tier: number }>;
+    modelRouting?: { primary: string; fallback: string[] };
+    limits?: { tokens: number; wallClockMs: number };
+  } | null;
+  removed: 'retention' | 'never_kept' | null;
 }
 
 export interface Trace {

@@ -139,8 +139,16 @@ export async function scrubExpiredPrompts(companyId: string, now = new Date()): 
             OR (response IS NOT NULL AND response <> '{"redacted":"retention"}'::jsonb))`,
       [companyId, cutoff],
     );
-    await recordRetention(tx, companyId, 'prompts_scrubbed', rowCount ?? 0, cutoff);
-    return rowCount ?? 0;
+    // What each run was told (0076) is prompt text too, and goes with it.
+    const briefings = await tx.query(
+      `UPDATE agent_runs SET briefing = '{"redacted":"retention"}'::jsonb
+        WHERE company_id = $1 AND started_at < $2
+          AND briefing IS NOT NULL AND briefing <> '{"redacted":"retention"}'::jsonb`,
+      [companyId, cutoff],
+    );
+    const scrubbed = (rowCount ?? 0) + (briefings.rowCount ?? 0);
+    await recordRetention(tx, companyId, 'prompts_scrubbed', scrubbed, cutoff);
+    return scrubbed;
   });
 }
 

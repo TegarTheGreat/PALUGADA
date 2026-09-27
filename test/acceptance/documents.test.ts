@@ -20,6 +20,8 @@ import { createRootTask, transition } from '../../src/engine/tasks.ts';
 import { addDocument, passagesOf } from '../../src/knowledge/documents.ts';
 import { exportCompany, type ArchiveLine } from '../../src/audit/export.ts';
 import { importCompany } from '../../src/audit/import.ts';
+import { crc32, deflateRawSync } from 'node:zlib';
+import { textOfDocx } from '../../console/src/docx.ts';
 import { createCompany, grantCapability, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
@@ -161,3 +163,69 @@ test('a division\'s document is its own; the company\'s are everyone\'s; a resto
     { title: 'Wholesale terms', passages: 4, matched: true },
   ], 'whole, in passages, and searchable again');
 });
+
+/** A zip as Word writes one: each entry deflated, a central directory, its end. */
+function zip(entries: Record<string, string>): Uint8Array {
+  const locals: Buffer[] = [];
+  const centrals: Buffer[] = [];
+  let offset = 0;
+  for (const [name, text] of Object.entries(entries)) {
+    const raw = Buffer.from(text, 'utf8');
+    const packed = deflateRawSync(raw);
+    const nameBytes = Buffer.from(name, 'utf8');
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(20, 4); local.writeUInt16LE(8, 8);
+    local.writeUInt32LE(crc32(raw), 14); local.writeUInt32LE(packed.length, 18); local.writeUInt32LE(raw.length, 22);
+    local.writeUInt16LE(nameBytes.length, 26);
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0); central.writeUInt16LE(20, 4); central.writeUInt16LE(20, 6); central.writeUInt16LE(8, 10);
+    central.writeUInt32LE(crc32(raw), 16); central.writeUInt32LE(packed.length, 20); central.writeUInt32LE(raw.length, 24);
+    central.writeUInt16LE(nameBytes.length, 28); central.writeUInt32LE(offset, 42);
+    locals.push(local, nameBytes, packed);
+    centrals.push(central, nameBytes);
+    offset += local.length + nameBytes.length + packed.length;
+  }
+  const directory = Buffer.concat(centrals);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(Object.keys(entries).length, 8); end.writeUInt16LE(Object.keys(entries).length, 10);
+  end.writeUInt32LE(directory.length, 12); end.writeUInt32LE(offset, 16);
+  return new Uint8Array(Buffer.concat([...locals, directory, end]));
+}
+
+const W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"';
+const paragraph = (text: string, style?: string, list = false) =>
+  `<w:p><w:pPr>${style ? `<w:pStyle w:val="${style}"/>` : ''}${list ? '<w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr>' : ''}</w:pPr><w:r><w:t xml:space="preserve">${text}</w:t></w:r></w:p>`;
+const cell = (text: string) => `<w:tc><w:tcPr/>${paragraph(text)}</w:tc>`;
+
+test('a Word document is read to its text in the browser, its headings kept so its passages stay under them', async () => {
+  const docx = zip({
+    '[Content_Types].xml': '<?xml version="1.0"?><Types/>',
+    // A style of the owner's own, a heading by its outline level whatever it is called; and
+    // Word's own, known by its name, which Word writes in English in any language.
+    'word/styles.xml': `<?xml version="1.0"?><w:styles ${W}>
+      <w:style w:type="paragraph" w:styleId="Judul1"><w:name w:val="Judul Bagian"/><w:pPr><w:outlineLvl w:val="0"/></w:pPr></w:style>
+      <w:style w:type="paragraph" w:styleId="Heading2"><w:name w:val="heading 2"/></w:style>
+      <w:style w:type="paragraph" w:styleId="Normal"><w:name w:val="Normal"/></w:style></w:styles>`,
+    'word/document.xml': `<?xml version="1.0"?><w:document ${W}><w:body>
+      ${paragraph('Syarat grosir', 'Judul1')}
+      <w:p><w:r><w:t>Berlaku untuk </w:t></w:r><w:r><w:t>setiap kafe</w:t><w:tab/><w:t>&amp; toko &lt;grosir&gt;.</w:t></w:r></w:p>
+      <w:p/>
+      ${paragraph('Pembayaran', 'Heading2')}
+      ${paragraph('Invoice dibayar dalam 14 hari.', 'Normal')}
+      <w:tbl><w:tr>${cell('Berat')}${cell('Ongkir')}</w:tr><w:tr>${cell('10 kg')}${cell('Gratis')}</w:tr></w:tbl>
+      ${paragraph('Kemasan utuh', undefined, true)}
+      <w:p><w:pPr><w:outlineLvl w:val="1"/></w:pPr><w:r><w:t>Pengiriman</w:t></w:r></w:p>
+    </w:body></w:document>`,
+  });
+  const text = await textOfDocx(docx);
+  assert.equal(text, [
+    '# Syarat grosir', 'Berlaku untuk setiap kafe\t& toko <grosir>.', '## Pembayaran', 'Invoice dibayar dalam 14 hari.',
+    'Berat | Ongkir', '10 kg | Gratis', '- Kemasan utuh', '## Pengiriman',
+  ].join('\n\n'));
+  assert.deepEqual(passagesOf(text).map((one) => one.heading), ['Syarat grosir', 'Pembayaran']);
+
+  const notOne = (failure: unknown) => (failure as { reason?: string }).reason === 'not_a_docx';
+  await assert.rejects(() => textOfDocx(new TextEncoder().encode('not a zip at all')), notOne);
+  await assert.rejects(() => textOfDocx(zip({ 'xl/workbook.xml': '<workbook/>' })), notOne, 'a spreadsheet is not one');
+});
+

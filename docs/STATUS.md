@@ -3490,6 +3490,20 @@ has.
   now, so the model is asked again, told why, and nothing it did in the
   world is done twice. The report is shown on the task, under **Done
   means**.
+- **Documents from Word and PDF files.** The knowledge base took only text,
+  and an owner's price list and contracts are PDFs and Word documents. The
+  console reads them in the owner's browser and sends the text, so the
+  server never parses a file: a Word document by `console/src/docx.ts`,
+  which unzips it with the browser's own inflater and keeps its headings as
+  headings (by the style's outline level or English name, so a Word in
+  Indonesian is read the same), and a PDF by pdf.js (`console/src/pdf.ts`),
+  Mozilla's reader, loaded only when a PDF is chosen and kept out of the
+  chunk every page loads. Checking it in a browser found the server had no
+  type for `.mjs`, so pdf.js's worker would have been refused under
+  `nosniff`; and that the form's "Title" shared a translation with a role's
+  title. The Word reader is tested by the suite with a document built in the
+  test; the PDF reader runs only where a bundler has loaded pdf.js, so it was
+  checked in a browser against a PDF written for it, not by the suite.
 
 **Still open, next.** From the same audits, in order: the done report is
 the run's own account -- the engine holds it to answering every criterion
@@ -3497,7 +3511,8 @@ with evidence, and nothing yet judges whether the evidence holds; a run has no
 wall-clock ceiling of its own beyond its deadline and its lease; the context
 a run was given is kept only as its prompt, for in-process runs; documents
 are matched by their words, not their meaning -- pgvector is installed and
-unused -- and only text reaches them, not PDF or Word files. WhatsApp, Signal and email as
+unused -- and a scanned PDF, or any file but Word, PDF and text, reaches them
+only as text the owner pastes. WhatsApp, Signal and email as
 owner channels are not built; Slack and Discord cannot carry buttons, so
 Telegram remains the chat that decides. Subscription
 logins whose tokens rotate (ChatGPT, Hermes' Nous and Codex logins) are not

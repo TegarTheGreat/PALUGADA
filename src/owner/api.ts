@@ -4174,6 +4174,9 @@ export class OwnerApi {
 const CONTENT_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
+  // pdf.js's worker is a module named .mjs (console/src/pdf.ts); served as
+  // anything else, nosniff stops it and no PDF can be read.
+  '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.webp': 'image/webp',

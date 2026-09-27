@@ -17,6 +17,7 @@
     "@mantine/notifications": "^9.6.3",
     "@mantine/spotlight": "^9.6.3",
     "@tabler/icons-react": "^3.48.0",
+    "pdfjs-dist": "^6.3.289",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "recharts": "^3.10.1"

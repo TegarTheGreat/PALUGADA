@@ -5,8 +5,9 @@
  * is told which documents exist.
  *
  * A file is read here, in the browser, and its text is sent; nothing is kept
- * in the browser. Text and Markdown files are read as they are; for anything
- * else, paste the text.
+ * in the browser, and the server never parses a file. Text and Markdown are
+ * read as they are, a Word document by docx.ts and a PDF by pdf.ts, each
+ * loaded only when one is chosen; for anything else, paste the text.
  */
 import { useState } from 'react';
 import {
@@ -83,6 +84,35 @@ export function Documents({ companyId, structure }: { companyId: string; structu
   );
 }
 
+/** What the file button offers: Word, PDF, text and Markdown. */
+const ACCEPTED = '.docx,.pdf,.txt,.md,.markdown,.csv,text/plain,text/markdown,text/csv,application/pdf,'
+  + 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+/** A larger file is not a document to read in a browser tab; the text limit is a million characters anyway. */
+const FILE_MAX_BYTES = 30 * 1024 * 1024;
+
+/** The text of a chosen file: as it is, or read out of a Word document or a PDF. */
+async function textOfFile(file: File): Promise<string> {
+  if (file.size > FILE_MAX_BYTES) throw new Error(t('That file is over 30 MB. Split it, or paste the part the company needs.'));
+  const name = file.name.toLowerCase();
+  if (name.endsWith('.docx')) {
+    const { DocxUnreadable, textOfDocx } = await import('../docx.ts');
+    try {
+      return await textOfDocx(new Uint8Array(await file.arrayBuffer()));
+    } catch (failure) {
+      if (!(failure instanceof DocxUnreadable)) throw failure;
+      throw new Error(failure.reason === 'packing'
+        ? t('This Word document is packed in a way the console cannot read. Save it again, or paste its text.')
+        : t('That file is not a Word document (.docx).'));
+    }
+  }
+  if (name.endsWith('.pdf') || file.type === 'application/pdf') {
+    return (await import('../pdf.ts')).textOfPdf(new Uint8Array(await file.arrayBuffer()));
+  }
+  if (name.endsWith('.doc')) throw new Error(t('An old Word file (.doc): save it as .docx in Word, or paste its text.'));
+  return file.text();
+}
+
 function AddDocument({ companyId, structure, opened, close, done }: {
   companyId: string; structure: Structure | null; opened: boolean; close: () => void; done: () => void;
 }) {
@@ -91,11 +121,19 @@ function AddDocument({ companyId, structure, opened, close, done }: {
   const [fileName, setFileName] = useState<string | null>(null);
   const [division, setDivision] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [reading, setReading] = useState(false);
   const read = async (file: File | null) => {
     if (!file) return;
-    setText(await file.text());
-    setFileName(file.name);
-    if (!title) setTitle(file.name.replace(/\.[^.]+$/, ''));
+    setReading(true);
+    try {
+      setText(await textOfFile(file));
+      setFileName(file.name);
+      if (!title) setTitle(file.name.replace(/\.[^.]+$/, ''));
+    } catch (failure) {
+      notifications.show({ color: 'red', message: (failure as Error).message });
+    } finally {
+      setReading(false);
+    }
   };
   const save = async () => {
     setBusy(true);
@@ -116,12 +154,12 @@ function AddDocument({ companyId, structure, opened, close, done }: {
     <Modal opened={opened} onClose={close} title={t('Add a document')} centered size="lg">
       <Stack gap="sm">
         <Group gap="sm">
-          <FileButton onChange={(file) => void read(file)} accept=".txt,.md,.markdown,.csv,text/plain,text/markdown,text/csv">
-            {(props) => <Button {...props} variant="default" leftSection={<IconUpload size={16} />}>{t('Read a text file')}</Button>}
+          <FileButton onChange={(file) => void read(file)} accept={ACCEPTED}>
+            {(props) => <Button {...props} variant="default" loading={reading} leftSection={<IconUpload size={16} />}>{t('Read a file')}</Button>}
           </FileButton>
-          {fileName && <Text size="sm" c="dimmed">{fileName}</Text>}
+          {fileName ? <Text size="sm" c="dimmed">{fileName}</Text> : <Text size="xs" c="dimmed">{t('Word (.docx), PDF, text or Markdown')}</Text>}
         </Group>
-        <TextInput label={t('Title')} required value={title} onChange={(event) => setTitle(event.currentTarget.value)} />
+        <TextInput label={t('Document title')} required value={title} onChange={(event) => setTitle(event.currentTarget.value)} />
         <Select label={t('Who may read it')} placeholder={t('The whole company')} clearable value={division} onChange={setDivision}
           data={(structure?.divisions ?? []).map((one) => ({ value: one.id, label: one.name }))} />
         <Textarea label={t('Text')} required autosize minRows={6} maxRows={16} value={text}

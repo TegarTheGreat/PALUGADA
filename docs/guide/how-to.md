@@ -150,9 +150,13 @@ reaches no run again, and the history keeps what it said.
 **Memory**, **Documents** keeps what is longer than a fact: a price list,
 the wholesale terms, a supplier contract, the brand guide. **Add a document**
 takes a title, who may read it (the whole company, or one division), and the
-text -- **Read a text file** fills it from a `.txt`, `.md` or `.csv` file,
-or paste it. Headings (`# Payment`, or a line in capitals) keep each passage
-with what it is about.
+text -- **Read a file** fills it from a Word document (`.docx`), a PDF, or a
+`.txt`, `.md` or `.csv` file, or paste it. Headings (`# Payment`, or a line
+in capitals) keep each passage with what it is about; a Word document's
+headings are kept as headings, and a PDF's paragraphs as paragraphs. Read
+what came out before you add it: the file is read in your browser, the
+text is what is kept, and a scanned PDF has no text to read. An old `.doc`
+file is saved as `.docx` in Word first.
 
 Every run is told which documents exist, and `memory.search` -- the search
 every role already has -- returns the passages its question points at, so a

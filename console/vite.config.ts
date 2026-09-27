@@ -19,6 +19,11 @@ export default defineConfig({
       output: {
         manualChunks(id: string) {
           if (!id.includes('node_modules')) return undefined;
+          // pdf.js is loaded only when the owner chooses a PDF (src/pdf.ts),
+          // so it stays with the import that asks for it. In the vendor
+          // chunk every page would carry it; in a chunk named here, the
+          // bundler puts shared helpers in it and the page loads it anyway.
+          if (/pdfjs-dist/.test(id)) return undefined;
           return /recharts|@mantine[\\/]charts|d3-|victory/.test(id) ? 'charts' : 'vendor';
         },
       },

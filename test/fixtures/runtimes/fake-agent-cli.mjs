@@ -82,6 +82,9 @@ if (exitWith !== null) {
 
 const config = readMcpConfig();
 const answer = { sawCharter: prompt.split('\n')[0] ?? '', promptLength: prompt.length, model };
+// Like an agent that read its contract: it says how it met each done criterion.
+const done = reportOn(prompt);
+if (done) answer.done = done;
 
 if (argv.includes('--dump-env')) {
   answer.env = Object.keys(process.env).sort();
@@ -153,6 +156,18 @@ if (dialect === 'text') {
     type: 'result', subtype: 'success', is_error: false, result: answer,
     ...(total === null ? {} : { total_cost_usd: Number(total), model }),
   });
+}
+
+/** One entry for each criterion the contract lists under "The criteria:", as met. */
+function reportOn(text) {
+  const at = text.indexOf('The criteria:\n');
+  if (at === -1) return null;
+  const criteria = [];
+  for (const line of text.slice(at + 'The criteria:\n'.length).split('\n')) {
+    if (!line.startsWith('- ')) break;
+    criteria.push(line.slice(2).trim());
+  }
+  return criteria.map((criterion) => ({ criterion, met: true, evidence: 'the fake agent did what it was asked' }));
 }
 
 function say(line) {

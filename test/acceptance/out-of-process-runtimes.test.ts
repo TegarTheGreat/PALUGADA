@@ -53,6 +53,16 @@ after(async () => {
 
 const RUNTIME = new URL('../fixtures/runtimes/echo-runtime.mjs', import.meta.url).pathname;
 
+/**
+ * How a finished run reports on the fixture role's one done criterion, as a
+ * run a model writes must (engine/done.ts). The echo runtime reads its
+ * contract and writes `ECHOED`; the runtimes written in this file say it
+ * outright.
+ */
+const CRITERION = 'the run returns an output matching its schema';
+const DONE = [{ criterion: CRITERION, met: true, evidence: 'the runtime returned its output' }];
+const ECHOED = [{ criterion: CRITERION, met: true, evidence: 'the echo runtime did what it was asked' }];
+
 function scriptAdapter() {
   return new ScriptAdapter({ command: process.execPath, args: [RUNTIME] });
 }
@@ -161,7 +171,7 @@ test('a spawned runtime runs a task and its output becomes the task output (F13.
   );
 
   assert.equal(outcome.status, 'completed', outcome.reason);
-  assert.deepEqual(outcome.output, { ok: true });
+  assert.deepEqual(outcome.output, { ok: true, done: ECHOED });
 });
 
 /**
@@ -223,6 +233,7 @@ test("a runtime's tool call is resolved by the broker and answered (F13.4)", asy
       id: 'call-1',
       output: { records: ['a.example.com'] },
     },
+    done: ECHOED,
   });
   assert.ok((await eventTypes(fixture.companyId, task.id)).includes('tool.called'));
 });
@@ -355,7 +366,7 @@ test('a provider failure falls back to the next model for a tier 0-1 role (F13.6
         const { ProviderFailure } = await import('../../src/runtime/wire.ts');
         throw new ProviderFailure(request.modelRouting.primary, 'provider returned 503');
       }
-      return { output: { model: request.modelRouting.primary } };
+      return { output: { model: request.modelRouting.primary, done: DONE } };
     },
   };
 
@@ -364,7 +375,7 @@ test('a provider failure falls back to the next model for a tier 0-1 role (F13.6
 
   assert.equal(outcome.status, 'completed', outcome.reason);
   assert.deepEqual(attempts, ['test-model', 'test-model-b']);
-  assert.deepEqual(outcome.output, { model: 'test-model-b' });
+  assert.deepEqual(outcome.output, { model: 'test-model-b', done: DONE });
   assert.ok((await eventTypes(fixture.companyId, task.id)).includes('model.fell_back'));
 });
 
@@ -401,7 +412,7 @@ test('a fallback run\'s own total settles its own run, not the one that failed (
       }
       await services.reportUsage({ model, inputTokens: 10, outputTokens: 10, costCents: 3 });
       await services.reportUsage({ model, inputTokens: 0, outputTokens: 0, costCents: 10, runTotal: true });
-      return { output: {} };
+      return { output: { done: DONE } };
     },
   };
 
@@ -482,7 +493,7 @@ test('the http runtime finishes a turn loop and answers tool calls (F13.2)', asy
       const events: RunEvent[] =
         body.turn === 0
           ? [{ type: 'tool_call', id: 'a', name: 'dns.read', args: { zone: 'example.com' } }]
-          : [{ type: 'done', output: { turns: turns.length } }];
+          : [{ type: 'done', output: { turns: turns.length, done: DONE } }];
       return new Response(JSON.stringify({ events }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -494,7 +505,7 @@ test('the http runtime finishes a turn loop and answers tool calls (F13.2)', asy
   const outcome = await engineWith(broker, adapter).runTask(fixture.companyId, task.id, 'worker');
 
   assert.equal(outcome.status, 'completed', outcome.reason);
-  assert.deepEqual(outcome.output, { turns: 2 });
+  assert.deepEqual(outcome.output, { turns: 2, done: DONE });
   // The second turn carries the answer the engine owed, and only that answer.
   assert.equal(turns.length, 2);
   assert.deepEqual(turns[0]!.answers, []);
@@ -787,7 +798,7 @@ test('claude-code is handed a token saved in the console, and a home of its own 
     "  sha: createHash('sha256').update(token).digest('hex'),",
     '}));',
     "process.stdin.resume(); process.stdin.on('end', () => {",
-    "  console.log(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: { done: true }, usage: { input_tokens: 1, output_tokens: 1 } }));",
+    `  console.log(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: { ok: true, done: ${JSON.stringify(DONE)} }, usage: { input_tokens: 1, output_tokens: 1 } }));`,
     '});',
   ].join('\n'), { mode: 0o755 });
 
@@ -1246,7 +1257,7 @@ test('a task runs inside a remote sandbox and its output comes back (F13.5, F12.
   ).runTask(fixture.companyId, task.id, 'worker');
 
   assert.equal(outcome.status, 'completed', outcome.reason);
-  assert.deepEqual(outcome.output, { ok: true });
+  assert.deepEqual(outcome.output, { ok: true, done: ECHOED });
   assert.deepEqual(fake.created, ['sbx-1']);
   assert.deepEqual(fake.destroyed, ['sbx-1']);
 });
@@ -1923,7 +1934,7 @@ test('a deadline a month away does not end the run at once (F5.6)', async () => 
   // Answers after a short pause, which a timer that fired at once would beat.
   const slowAnswer = [
     'process.stdin.resume();',
-    "setTimeout(() => { process.stdout.write(JSON.stringify({ type: 'done', output: { ok: true } }) + '\\n'); process.exit(0); }, 300);",
+    `setTimeout(() => { process.stdout.write(JSON.stringify({ type: 'done', output: { ok: true, done: ${JSON.stringify(DONE)} } }) + '\\n'); process.exit(0); }, 300);`,
   ].join('\n');
   const adapter = new ScriptAdapter({ command: process.execPath, args: ['-e', slowAnswer] });
   const outcome = await engineWith(broker, adapter).runTask(fixture.companyId, task.id, 'worker');
@@ -2063,7 +2074,7 @@ test('a call priced at a fraction of a cent is charged a whole one (F13.7)', asy
       await services.reportUsage({
         model: request.modelRouting.primary, inputTokens: 5, outputTokens: 5, costCents: 0.4,
       });
-      return { output: {} };
+      return { output: { done: DONE } };
     },
   };
   const task = await newTask(fixture, {});
@@ -2263,7 +2274,7 @@ test('a runtime hands work to another role and carries on with its result', asyn
   const output = second.output as { child: string; answer: { output: { status: string; output: unknown; summary: string } } };
   assert.equal(output.child, children[0]!.id, 'the replayed delegation is the same child');
   assert.equal(output.answer.output.status, 'completed');
-  assert.deepEqual(output.answer.output.output, { ok: true });
+  assert.deepEqual(output.answer.output.output, { ok: true, done: ECHOED });
   const { rows: count } = await withTenant(fixture.companyId, (tx) => tx.query(
     'SELECT 1 FROM tasks WHERE parent_task_id = $1', [parent.id]));
   assert.equal(count.length, 1, 'resuming did not delegate again');

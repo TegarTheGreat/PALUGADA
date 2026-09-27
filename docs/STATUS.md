@@ -3475,10 +3475,25 @@ has.
   the console. Only the owner, in their own chat with the bot, is heard;
   the answer comes after the webhook is answered, one message at a time,
   and an update Telegram sends twice is answered once.
+- **Done criteria are checked, and a rejected answer is asked for again.**
+  Every role has criteria (F2.8) and every run was shown them, and then any
+  JSON counted as done. A run a model writes now answers each criterion in
+  its output under `done` -- met, and what shows it -- and one that leaves
+  a criterion out, says one is not met, or claims one without evidence is
+  a failed attempt whose reason the retry is told (`engine/done.ts`, at the
+  `post_run` point). Handler code is exempt, and a schema that forbids the
+  field is neither asked nor checked. Checking this found that a retry of a
+  rejected answer never worked for a model's run: replay is by position and
+  a model turn's journal input is only its number, so the retry was handed
+  its own rejected answer back -- schema violations included -- until the
+  attempts ran out. The turns after the run's last tool step are reopened
+  now, so the model is asked again, told why, and nothing it did in the
+  world is done twice. The report is shown on the task, under **Done
+  means**.
 
-**Still open, next.** From the same audits, in order: done criteria are
-shown to runs and never checked -- an honest check needs a judge or a
-change to every role's output, and is the next piece of this; a run has no
+**Still open, next.** From the same audits, in order: the done report is
+the run's own account -- the engine holds it to answering every criterion
+with evidence, and nothing yet judges whether the evidence holds; a run has no
 wall-clock ceiling of its own beyond its deadline and its lease; the context
 a run was given is kept only as its prompt, for in-process runs; documents
 are matched by their words, not their meaning -- pgvector is installed and

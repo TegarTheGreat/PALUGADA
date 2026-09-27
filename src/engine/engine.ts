@@ -16,13 +16,14 @@ import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError, isPalugadaError } from '../errors.ts';
 import { createSubTask, getTask, transition, type TaskRow } from './tasks.ts';
 import { validateContract } from './contracts.ts';
+import { checkDone, roomForDone } from './done.ts';
 import { narrator } from './transcript.ts';
 import { containChildResult, type ChildResult } from './containment.ts';
 import { taskCostCents } from '../reporting/cost.ts';
 import { isTerminal } from '../domain/task.ts';
 import { DEFAULT_PRICE_TABLE, estimateCents, type PriceTable } from './pricing.ts';
 import { checkUsage } from '../runtime/wire.ts';
-import { runStep, type StepKind } from './journal.ts';
+import { reopenFinalTurns, runStep, type StepKind } from './journal.ts';
 import { LeaseKeeper } from './lease-keeper.ts';
 import { setLongTimeout, sleep, type LongTimer } from '../timers.ts';
 import { isCompanyFrozen, isStopAllRequested } from './control.ts';
@@ -1007,7 +1008,7 @@ export class Engine {
 
     lease.start();
     try {
-      const { output } = await Promise.race([abandoned, this.#runWithFallback(
+      const { output, writtenBy } = await Promise.race([abandoned, this.#runWithFallback(
         adapter,
         {
           companyId, task, roleSlug, runtime, agentRunId,
@@ -1022,10 +1023,19 @@ export class Engine {
       // task's output: the action it was waiting for has not happened.
       if (parked) throw parked;
       if (ended) throw ended;
-      // F6.2, F6.3: validated before the task is marked complete, because a
-      // downstream task triggered by `task.completed` has no other guarantee
-      // about what it is about to read.
-      validateContract('output', task.roleId, roleSlug, contract.output, output);
+      try {
+        // F6.2, F6.3: validated before the task is marked complete, because a
+        // downstream task triggered by `task.completed` has no other guarantee
+        // about what it is about to read.
+        validateContract('output', task.roleId, roleSlug, contract.output, output);
+        // F2.8: a model's run says how it met each of its role's criteria.
+        if (writtenBy !== 'code' && contract.done.length > 0 && roomForDone(contract.output)) checkDone(contract.done, output);
+      } catch (rejected) {
+        // Asked again next attempt, not replayed: the turns that wrote this
+        // answer would otherwise write it again from the journal.
+        await reopenFinalTurns(companyId, taskId, (rejected as Error).message);
+        throw rejected;
+      }
 
       // F14: the post_run point. After the schema, because a hook asked to
       // judge an output should be given one that is at least the right shape,
@@ -1600,14 +1610,19 @@ export class Engine {
   async #loadContract(
     companyId: string,
     roleId: string,
-  ): Promise<{ input: Record<string, unknown>; output: Record<string, unknown> }> {
+  ): Promise<{ input: Record<string, unknown>; output: Record<string, unknown>; done: string[] }> {
     return withTenant(companyId, async (tx) => {
       const { rows } = await tx.query<{
         input_schema: Record<string, unknown>;
         output_schema: Record<string, unknown>;
-      }>('SELECT input_schema, output_schema FROM roles WHERE id = $1', [roleId]);
+        done_criteria: string[] | null;
+      }>('SELECT input_schema, output_schema, done_criteria FROM roles WHERE id = $1', [roleId]);
       const row = rows[0];
-      return { input: row?.input_schema ?? {}, output: row?.output_schema ?? {} };
+      return {
+        input: row?.input_schema ?? {},
+        output: row?.output_schema ?? {},
+        done: (row?.done_criteria ?? []).map((one) => one.trim()).filter(Boolean),
+      };
     });
   }
 

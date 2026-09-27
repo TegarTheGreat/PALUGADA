@@ -214,6 +214,30 @@ async function markFailed(
   });
 }
 
+/**
+ * The model turns that wrote an answer the engine then rejected -- one that
+ * broke its role's schema, or did not meet its done criteria -- reopened, so
+ * the next attempt asks the model again instead of replaying the same answer.
+ *
+ * Replay is by position, and a model turn's journal input is only its
+ * number, so a retry used to be handed its own rejected answer back and fail
+ * the same way until the attempts ran out. Only the turns after the last
+ * thing the run did in the world are reopened: a tool step stays committed,
+ * so what was sent, written or paid for is never done twice, and the turns
+ * before it replay as they were.
+ */
+export async function reopenFinalTurns(companyId: string, taskId: string, reason: string): Promise<number> {
+  return withTenant(companyId, async (tx) => {
+    const { rowCount } = await tx.query(
+      `UPDATE task_steps SET status = 'failed', error = $2
+        WHERE task_id = $1 AND status = 'committed'
+          AND step_index > coalesce((SELECT max(step_index) FROM task_steps WHERE task_id = $1 AND kind <> 'llm'), -1)`,
+      [taskId, `the answer was rejected: ${reason}`.slice(0, 2_000)],
+    );
+    return rowCount ?? 0;
+  });
+}
+
 export async function countCommittedSteps(companyId: string, taskId: string): Promise<number> {
   return withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{ count: string }>(

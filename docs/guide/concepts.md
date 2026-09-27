@@ -64,7 +64,13 @@ defines it:
   platform's charter, the company's, and then the role's, before anything it
   reads, and none of them is ever dropped to fit the context.
 - **Its done criteria:** one testable statement per line of what finished
-  means. Work is checked against them before it counts as done.
+  means. A run answers each of them in its output -- met or not, and what
+  in its work shows it -- and work that leaves one out, says one is not
+  met, or shows nothing for one does not count as done: the task tries
+  again, told why. The answers are shown with the work, under **Done
+  means**. What they check is the run's own account; whether the evidence
+  holds is yours, or a reviewer's, to judge. Code a deployment registers as
+  a role's handler is checked by its own tests instead.
 - **Its output schema:** the shape its answer must have. Every role in the
   standard template returns a `summary`, and may return `artefacts`. An
   answer that does not fit is refused and the task tries again, up to its

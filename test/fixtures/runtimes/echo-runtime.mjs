@@ -10,7 +10,21 @@
 import readline from 'node:readline';
 
 const rl = readline.createInterface({ input: process.stdin });
-const say = (event) => process.stdout.write(`${JSON.stringify(event)}\n`);
+// Like an agent that read its contract: a finished run says how it met each
+// done criterion it was given, under "The criteria:" in its contract.
+const say = (event) => process.stdout.write(`${JSON.stringify(event.type === 'done' && request ? { ...event, output: { ...event.output, ...reportOn(request) } } : event)}\n`);
+
+function reportOn(req) {
+  const contract = (req.contextPack?.notes ?? []).find((note) => note.title === 'What you return')?.body ?? '';
+  const at = contract.indexOf('The criteria:\n');
+  if (at === -1) return {};
+  const criteria = [];
+  for (const line of contract.slice(at + 'The criteria:\n'.length).split('\n')) {
+    if (!line.startsWith('- ')) break;
+    criteria.push(line.slice(2).trim());
+  }
+  return { done: criteria.map((criterion) => ({ criterion, met: true, evidence: 'the echo runtime did what it was asked' })) };
+}
 
 let request = null;
 const pending = new Map();

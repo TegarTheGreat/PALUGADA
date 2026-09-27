@@ -22,6 +22,7 @@ import { createRootTask, getTask } from '../../src/engine/tasks.ts';
 import { createCompanyFromTemplate } from '../../src/templates/company.ts';
 import { STANDARD_TEMPLATE_SLUG } from '../../src/templates/standard.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
+import { answering } from '../helpers/done.ts';
 
 before(ensureSchema);
 beforeEach(resetData);
@@ -208,9 +209,9 @@ test('a standard company runs itself on any compatible model: the coordinator ha
       if (!awaited) {
         return completion({ content: null, tool_calls: [{ id: `a${told.length}`, type: 'function', function: { name: 'task__await', arguments: JSON.stringify({ childId }) } }] }, 'tool_calls');
       }
-      return completion({ content: '{"summary":"Growth drafted the restock note; it is ready for you to read."}' });
+      return completion({ content: answering(system, { summary: 'Growth drafted the restock note; it is ready for you to read.' }) });
     }
-    return completion({ content: '{"summary":"Drafted the restock note for the 1 kg bags.","artefacts":["restock-note"]}' });
+    return completion({ content: answering(system, { summary: 'Drafted the restock note for the 1 kg bags.', artefacts: ['restock-note'] }) });
   });
 
   const { start } = await import('../../src/main.ts');

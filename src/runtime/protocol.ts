@@ -209,6 +209,12 @@ export interface AdapterHealth {
 
 export interface AdapterResult {
   output: Record<string, unknown>;
+  /**
+   * `code` when a handler the deployment registered wrote the output rather
+   * than a model: it is checked by its own tests, and is not asked to report
+   * on its done criteria (engine/done.ts). Anything else is a model's.
+   */
+  writtenBy?: 'code';
 }
 
 /**

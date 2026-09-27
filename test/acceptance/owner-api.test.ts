@@ -31,6 +31,7 @@ import {
 import * as inbox from '../../src/inbox/inbox.ts';
 import { clearStopAll, isStopAllRequested } from '../../src/engine/control.ts';
 import { createCompany, grantCapability, type Fixture } from '../helpers/fixtures.ts';
+import { criteriaIn, reportOn } from '../helpers/done.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
 before(ensureSchema);
@@ -1609,12 +1610,14 @@ test('the deployment charges unpriced usage from its price file (F13.7, F1.7)', 
     async health() {
       return { ok: true, detail: 'test runtime' };
     },
-    async run(_request, services) {
+    async run(request, services) {
       // `example-small-*` in config/prices.example.json: $1 per million in.
       await services.reportUsage({
         model: 'example-small-1', inputTokens: 500_000, outputTokens: 0, costCents: null,
       });
-      return { output: { done: true } };
+      // Its answer, with the report its contract asks for.
+      const contract = request.contextPack.notes.find((note) => note.title === 'What you return')?.body ?? '';
+      return { output: { ok: true, done: reportOn(criteriaIn(contract)) } };
     },
   });
 

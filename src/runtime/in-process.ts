@@ -137,6 +137,6 @@ export class InProcessAdapter implements Adapter {
         }),
     };
 
-    return { output: await handler(ctx) };
+    return { output: await handler(ctx), writtenBy: 'code' };
   }
 }

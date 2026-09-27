@@ -20,6 +20,7 @@ import { RecordingLlmClient } from '../../src/llm/client.ts';
 import { createRootTask } from '../../src/engine/tasks.ts';
 import { countCommittedSteps } from '../../src/engine/journal.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
+import { reportOn } from '../helpers/done.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
 before(ensureSchema);
@@ -234,7 +235,7 @@ test('a model fallback replays what the first model finished and journals the re
       await services.step('look', 'internal', { q: 1 }, async () => { looked += 1; return 'seen'; });
       if (models.length === 1) throw new ProviderFailure(request.modelRouting.primary, 'provider returned 503');
       await services.step('answer', 'internal', {}, async () => 'done');
-      return { output: { model: request.modelRouting.primary } };
+      return { output: { model: request.modelRouting.primary, done: reportOn(['the run returns an output matching its schema']) } };
     },
   };
   const { AdapterRegistry } = await import('../../src/runtime/protocol.ts');

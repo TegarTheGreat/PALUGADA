@@ -135,6 +135,7 @@ export const ID: Readonly<Record<string, string>> = {
   "Archive": "Arsipkan",
   "Archived": "Diarsipkan",
   "Archived documents leave every search. Their text is kept.": "Dokumen yang diarsipkan keluar dari semua pencarian. Teksnya tetap disimpan.",
+  "As the run reported it. Every criterion has to be answered and shown before the task counts as done; whether the evidence holds is yours or a reviewer's to judge.": "Sesuai laporan run. Setiap kriteria harus dijawab dan ditunjukkan buktinya sebelum tugas dihitung selesai; benar tidaknya bukti itu Anda atau reviewer yang menilai.",
   "Ask PALUGADA": "Tanya PALUGADA",
   "Ask a question": "Ajukan pertanyaan",
   "Asked a question": "Mengajukan pertanyaan",

@@ -22,6 +22,7 @@ import { instructionsFor } from '../engine/owner-control.ts';
 import { STAGE_PURPOSE, stageOf } from '../domain/stage.ts';
 import { renderPersona, type RolePersona } from '../domain/personas.ts';
 import { documentTitlesFor } from '../knowledge/documents.ts';
+import { doneInstruction, roomForDone } from '../engine/done.ts';
 
 export interface ContextSection {
   kind:
@@ -291,6 +292,10 @@ async function roleSections(
   // what it says in `learned` is kept for its division (engine/tasks.ts).
   const roomToLearn = (schema as { additionalProperties?: unknown }).additionalProperties !== false
     || Boolean((schema as { properties?: Record<string, unknown> }).properties?.learned);
+  // The report on the done criteria (engine/done.ts), wherever the schema
+  // leaves room for it: the engine holds a model's run to it, so the run is
+  // told. A role with no schema is given no work at all (F2.8).
+  const reportDone = done.length > 0 && roomForDone(schema);
   const contract: ContextSection[] = Object.keys(schema).length === 0 ? [] : [{
     kind: 'contract',
     title: 'What you return',
@@ -298,6 +303,7 @@ async function roleSections(
       'When the work is finished, reply with one JSON object and nothing else. It is checked against ' +
       'this schema before the task counts as done, and an answer that does not match is a failed attempt:\n\n' +
       JSON.stringify(schema, null, 2) +
+      (reportDone ? `\n\n${doneInstruction(done)}` : '') +
       (roomToLearn
         ? '\n\nYou may add "learned": up to five short sentences this work taught that the company should ' +
           'remember next time -- about its customers, products, prices, suppliers, or what worked and what ' +

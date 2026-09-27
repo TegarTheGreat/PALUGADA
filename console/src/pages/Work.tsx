@@ -16,7 +16,7 @@ import {
 import { notifications } from '@mantine/notifications';
 import {
   IconCopy, IconCornerDownRight, IconFileText, IconHeartbeat, IconMail, IconPlayerPlay, IconPlayerStop, IconPlus,
-  IconListCheck, IconRefresh, IconThumbDown, IconThumbUp, IconTicket,
+  IconCircleCheck, IconCircleX, IconListCheck, IconRefresh, IconThumbDown, IconThumbUp, IconTicket,
 } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
 import { useLoad, useNow } from '../hooks.ts';
@@ -532,6 +532,17 @@ function resultText(output: unknown): string | null {
   return null;
 }
 
+/** How a run said it met each of its role's done criteria (engine/done.ts), when it did. */
+function doneReport(output: unknown): Array<{ criterion: string; met: boolean; evidence: string }> | null {
+  if (!output || typeof output !== 'object' || Array.isArray(output)) return null;
+  const report = (output as { done?: unknown }).done;
+  if (!Array.isArray(report)) return null;
+  const entries = report
+    .filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null && typeof entry.criterion === 'string')
+    .map((entry) => ({ criterion: entry.criterion as string, met: entry.met === true, evidence: typeof entry.evidence === 'string' ? entry.evidence : '' }));
+  return entries.length > 0 ? entries : null;
+}
+
 /**
  * The owner's word on finished work. A reason is what the division reads on
  * its next run, as a way to work; a thumbs-up alone is recorded and teaches
@@ -621,6 +632,7 @@ function TaskOutput({ companyId, task }: { companyId: string; task: WorkItem }) 
   if (!detail.data) return <Loading rows={2} />;
   const { output, deliverables } = detail.data;
   const answer = resultText(output);
+  const report = doneReport(output);
   if (output === null && deliverables.length === 0) {
     return (
       <div>
@@ -636,6 +648,27 @@ function TaskOutput({ companyId, task }: { companyId: string; task: WorkItem }) 
         {answer && (
           <Paper withBorder radius="md" p="md" bg="var(--mantine-color-teal-light)">
             <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{answer}</Text>
+          </Paper>
+        )}
+        {report && (
+          <Paper withBorder radius="md" p="md">
+            <Text size="sm" fw={600} mb={6}>{t('Done means')}</Text>
+            <Stack gap={8}>
+              {report.map((entry, index) => (
+                <Group key={index} gap="xs" wrap="nowrap" align="flex-start">
+                  {entry.met
+                    ? <IconCircleCheck size={18} color="var(--mantine-color-teal-6)" style={{ flexShrink: 0, marginTop: 1 }} />
+                    : <IconCircleX size={18} color="var(--mantine-color-red-6)" style={{ flexShrink: 0, marginTop: 1 }} />}
+                  <div style={{ minWidth: 0 }}>
+                    <Text size="sm">{entry.criterion}</Text>
+                    {entry.evidence && <Text size="xs" c="dimmed" style={{ whiteSpace: 'pre-wrap' }}>{entry.evidence}</Text>}
+                  </div>
+                </Group>
+              ))}
+            </Stack>
+            <Text size="xs" c="dimmed" mt="xs">
+              {t('As the run reported it. Every criterion has to be answered and shown before the task counts as done; whether the evidence holds is yours or a reviewer\'s to judge.')}
+            </Text>
           </Paper>
         )}
         {deliverables.map((one) => (

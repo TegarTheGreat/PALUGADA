@@ -25,9 +25,10 @@ import { ProviderFailure } from '../../src/runtime/wire.ts';
 import { outputFrom } from '../../src/runtime/agent-loop.ts';
 import { parsePriceTable } from '../../src/engine/pricing.ts';
 import { createCompanyFromTemplate } from '../../src/templates/company.ts';
-import { STANDARD_TEMPLATE_SLUG } from '../../src/templates/standard.ts';
+import { STANDARD_COMPANY_TEMPLATE, STANDARD_TEMPLATE_SLUG } from '../../src/templates/standard.ts';
 import type { LlmBlock, LlmTurn, LlmTurnRequest, ToolUsingLlmClient } from '../../src/llm/client.ts';
 import { createCompany, grantCapability, planTask, type Fixture } from '../helpers/fixtures.ts';
+import { answering, reportOn } from '../helpers/done.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
 before(ensureSchema);
@@ -104,14 +105,16 @@ test('a role with no handler of its own is run by the model, through the broker,
   await withTools(fixture, ['dns.read']);
   const model = new ScriptedModel([
     use('call-1', 'dns__read', { zone: 'example.test' }),
-    say('Found it.\n```json\n{"address":"192.0.2.7"}\n```'),
+    (request) => say(`Found it.\n\`\`\`json\n${answering(request.system, { address: '192.0.2.7' })}\n\`\`\``),
   ]);
   const engine = new Engine({ broker: new CapabilityBroker(registry), workerId: 'model-worker', llm: model, handlers: new Map() });
 
   const task = await newTask(fixture);
   const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
   assert.equal(outcome.status, 'completed', outcome.reason);
-  assert.deepEqual(outcome.output, { address: '192.0.2.7' });
+  const { done, ...work } = outcome.output as Record<string, unknown>;
+  assert.deepEqual(work, { address: '192.0.2.7' });
+  assert.deepEqual(done, reportOn(['the run returns an output matching its schema']), 'and says how it met its done criteria');
   assert.deepEqual(seen, ['example.test'], 'the tool ran once, through the broker');
 
   // What the model was given: the role's one tool, under a name a provider
@@ -151,7 +154,7 @@ test('a run stopped half-way resumes at the turn it reached, and asks neither th
     .runTask(fixture.companyId, task.id, 'worker');
   assert.notEqual(first.status, 'completed');
 
-  const resumed = new ScriptedModel([say('{"address":"192.0.2.7"}')]);
+  const resumed = new ScriptedModel([(request) => say(answering(request.system, { address: '192.0.2.7' }))]);
   const second = await new Engine({ broker: new CapabilityBroker(registry), workerId: 'w2', llm: resumed, handlers: new Map() })
     .runTask(fixture.companyId, task.id, 'worker');
   assert.equal(second.status, 'completed', second.reason);
@@ -179,7 +182,7 @@ test('a refused tool is an answer the model works around; a wait for the owner e
   const model = new ScriptedModel([
     use('call-1', 'dns__read', { zone: 'example.test' }),
     use('call-2', 'nothing__here', {}),
-    say('{"address":"unknown"}'),
+    (request) => say(answering(request.system, { address: 'unknown' })),
   ]);
   const engine = new Engine({ broker: new CapabilityBroker(registry), workerId: 'model-worker', llm: model, handlers: new Map() });
   const task = await newTask(fixture);
@@ -388,7 +391,11 @@ test('a deployment given a model key runs a standard company\'s work, and one wi
     status: 200,
     body: {
       model: 'claude-sonnet-5', stop_reason: 'end_turn',
-      content: [{ type: 'text', text: '{"summary":"The site answers; nothing needed handing on."}' }],
+      // What the coordinator's contract asks of it: its criteria, answered.
+      content: [{ type: 'text', text: JSON.stringify({
+        summary: 'The site answers; nothing needed handing on.',
+        done: reportOn(STANDARD_COMPANY_TEMPLATE.roles.find((role) => role.slug === 'coordinator')!.doneCriteria ?? []),
+      }) }],
       usage: { input_tokens: 2_000, output_tokens: 40 },
     },
   }]);

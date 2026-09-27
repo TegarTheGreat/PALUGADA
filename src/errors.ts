@@ -126,6 +126,10 @@ export type ErrorCode =
   | 'fanout.exceeded'
   /** A run went past its role's own ceiling on tokens. */
   | 'run.limit'
+  /** A run a model wrote did not say, criterion by criterion, how it met its role's done criteria (F2.8). */
+  | 'done.unreported'
+  /** A run said a done criterion is not met, or claimed one without showing how. */
+  | 'done.unmet'
   | 'deadline.exceeded'
   | 'company.frozen'
   | 'role.frozen'

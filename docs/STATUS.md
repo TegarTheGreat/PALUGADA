@@ -3379,9 +3379,30 @@ has.
   The `memory.note` above is `learned` in a run's output instead: no
   thirteenth tool.
 
-**Still open, next.** From the same audits, in order: approving a skill
-from the inbox does nothing, and the console lists only active skills; a
-write whose read-back fails can be retried into a second write; done criteria are shown to runs and never
+- **A skill reaches the runs through a reviewer and the owner, and the owner
+  can see and write skills (0072).** Approving a skill candidate in the inbox
+  recorded the decision and changed nothing; no role ever reviewed a
+  candidate, so the only way one went live was the owner marking it reviewed
+  on a form that asked them to paste its id -- the owner being the review F7
+  exists to avoid; the Skills page listed only active skills that were not
+  scoped to a division, and never showed a skill's text; `skill.read` opened
+  any skill in the company by name, another division's and a quarantined
+  one included; and the summary every run was given stayed the first
+  version's. Now each tick of the worker screens a new version against its
+  checks and gives one that passes to the company's reviewer, or its CEO,
+  as a task whose input carries the document as untrusted data. The
+  reviewer's approval asks the owner, with what it said; its rejection, or
+  a review that ends without a verdict, turns the version down with the
+  reason. The owner's yes in the inbox activates it, and the summary becomes
+  the live version's description. Owner questions raised the old way, before
+  any review, are withdrawn by the migration. The owner reads every skill at
+  every stage with its text, versions and checks, writes a skill or a new
+  version with its checks, adds checks, and turns a candidate down; they can
+  no longer mark one reviewed. `skill.read` follows the division rule the
+  pack does, and returns an outside document wrapped as data.
+
+**Still open, next.** From the same audits, in order: a write whose
+read-back fails can be retried into a second write; done criteria are shown to runs and never
 checked; runs have no token or wall-clock ceiling of their own; tool inputs
 and the context a run was given are not kept, and the task timeline does not
 name the capability used; projects are only a label; there is no document

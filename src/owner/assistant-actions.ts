@@ -441,13 +441,30 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     factor: 'always',
   },
   {
-    pattern: '/api/companies/:companyId/skills/versions/:versionId/review',
-    what: 'Review a skill\'s new version.', fields: { approved: 'true or false', reason: 'why', reviewRequestId: 'the request' }, factor: 'never',
+    pattern: '/api/companies/:companyId/skills',
+    what: 'Write a skill, or a new version of one, as a SKILL.md. It is a candidate: checked, read by a reviewer role, then '
+      + 'back to the owner to switch on. Give it at least one check, or it can never be switched on.',
+    fields: {
+      slug: 'short name, lowercase with dashes', scopeType: 'division, company or platform', divisionId: 'for a division skill',
+      source: 'the SKILL.md: front matter with name and description, then the procedure',
+      changelog: 'what changed and why', checks: 'optional list of { name, expectContains: phrases every version must contain }',
+    },
+    factor: 'never',
   },
-  { pattern: '/api/companies/:companyId/skills/versions/:versionId/approve', what: 'Activate a reviewed skill version.', factor: 'always' },
+  {
+    pattern: '/api/companies/:companyId/skills/:skillId/checks',
+    what: 'Add a check a skill must pass: phrases every version of it must contain.',
+    fields: { name: 'what the check is for', expectContains: 'list of phrases' }, factor: 'never',
+  },
+  {
+    pattern: '/api/companies/:companyId/skills/versions/:versionId/review',
+    what: 'Turn down a skill\'s candidate version. Approving is not this route: the reviewer role approves, then the owner.',
+    fields: { approved: 'false', reason: 'why' }, factor: 'never',
+  },
+  { pattern: '/api/companies/:companyId/skills/versions/:versionId/approve', what: 'Switch on a skill version the reviewer approved.', factor: 'always' },
   {
     pattern: '/api/companies/:companyId/skills/:skillId/scope',
-    what: 'Where a skill applies.', fields: { scopeType: 'company, division or role', scopeId: 'which' }, factor: 'always',
+    what: 'Where a skill applies.', fields: { scopeType: 'division, company or platform', scopeId: 'the division, for a division scope' }, factor: 'always',
   },
   { pattern: '/api/companies/:companyId/skills/:skillId/quarantine/lift', what: 'Let a quarantined skill be used.', factor: 'always' },
   { pattern: '/api/companies/:companyId/evals/:caseId/accept', what: 'Accept a proposed evaluation case.', factor: 'never' },

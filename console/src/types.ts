@@ -311,13 +311,42 @@ export interface Trace {
   }>;
 }
 
+/** Where a skill's newest version is on its way to the runs. */
+export type SkillStage = 'active' | 'screening' | 'with_reviewer' | 'waiting_for_you' | 'rejected' | 'superseded';
+
+export interface SkillVersion {
+  id: string;
+  version: number;
+  state: string;
+  stage: SkillStage;
+  author: string;
+  changelog: string;
+  createdAt: string;
+  reviewedAt: string | null;
+  reviewNote: string | null;
+  reviewTaskId: string | null;
+  rejectedReason: string | null;
+  activatedAt: string | null;
+}
+
 export interface Skill {
   id: string;
   slug: string;
+  summary: string;
   scopeType: string;
-  activeVersion: string | null;
+  divisionId: string | null;
+  divisionName: string | null;
   quarantined: boolean;
   origin: string | null;
+  activeVersion: number | null;
+  checks: number;
+  latest: SkillVersion | null;
+}
+
+export interface SkillDetail {
+  skill: Skill;
+  versions: Array<SkillVersion & { body: string }>;
+  checks: Array<{ id: string; name: string; expectContains: string[] }>;
 }
 
 export interface Publisher {

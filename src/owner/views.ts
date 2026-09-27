@@ -812,3 +812,127 @@ export async function memoriesOf(
     };
   });
 }
+
+/** Where a skill's newest version is on its way to the runs (F15.3-F15.5). */
+export type SkillStage = 'active' | 'screening' | 'with_reviewer' | 'waiting_for_you' | 'rejected' | 'superseded';
+
+export interface SkillVersionView {
+  id: string;
+  version: number;
+  state: string;
+  stage: SkillStage;
+  author: string;
+  changelog: string;
+  createdAt: Date;
+  reviewedAt: Date | null;
+  reviewNote: string | null;
+  reviewTaskId: string | null;
+  rejectedReason: string | null;
+  activatedAt: Date | null;
+}
+
+export interface SkillView {
+  id: string;
+  slug: string;
+  summary: string;
+  scopeType: string;
+  divisionId: string | null;
+  divisionName: string | null;
+  quarantined: boolean;
+  origin: string | null;
+  activeVersion: number | null;
+  checks: number;
+  /** The newest version, whatever became of it: what the owner is waiting on, or what was turned down. */
+  latest: SkillVersionView | null;
+}
+
+const stageOf = (row: { state: string; reviewed_at: Date | null; review_task_id: string | null }): SkillStage =>
+  row.state === 'candidate'
+    ? (row.reviewed_at ? 'waiting_for_you' : row.review_task_id ? 'with_reviewer' : 'screening')
+    : (row.state as SkillStage);
+
+interface RawSkillVersion {
+  id: string; version: number; state: string; author: string; changelog: string; created_at: Date;
+  reviewed_at: Date | null; review_note: string | null; review_task_id: string | null;
+  rejected_reason: string | null; activated_at: Date | null;
+}
+
+const versionView = (row: RawSkillVersion): SkillVersionView => ({
+  id: row.id,
+  version: row.version,
+  state: row.state,
+  stage: stageOf(row),
+  author: row.author,
+  changelog: row.changelog,
+  createdAt: row.created_at,
+  reviewedAt: row.reviewed_at,
+  reviewNote: row.review_note,
+  reviewTaskId: row.review_task_id,
+  rejectedReason: row.rejected_reason,
+  activatedAt: row.activated_at,
+});
+
+/**
+ * Every skill the company has, at whatever stage: the Skills page listed only
+ * active ones, so a candidate waiting on the owner, one being reviewed, one
+ * turned down and a division's own skills were nowhere the owner could see.
+ * `divisionId` narrows to what that division's runs can read.
+ */
+export async function skillsOf(companyId: string, options: { divisionId?: string } = {}): Promise<SkillView[]> {
+  return withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<RawSkillVersion & {
+      skill_id: string; slug: string; summary: string; scope_type: string; scope_id: string | null;
+      division_name: string | null; quarantined: boolean; origin: string | null; active_version: number | null;
+      checks: number; version_id: string | null;
+    }>(
+      `SELECT s.id AS skill_id, s.slug, s.summary, s.scope_type, s.scope_id, d.name AS division_name,
+              s.quarantined, s.origin, s.active_version,
+              (SELECT count(*)::int FROM skill_evals e WHERE e.skill_id = s.id) AS checks,
+              v.id, v.id AS version_id, v.version, v.state, v.author, v.changelog, v.created_at,
+              v.reviewed_at, v.review_note, v.review_task_id, v.rejected_reason, v.activated_at
+         FROM skills s
+         LEFT JOIN divisions d ON d.id = s.scope_id
+         LEFT JOIN LATERAL (SELECT * FROM skill_versions sv WHERE sv.skill_id = s.id
+                             ORDER BY sv.version DESC LIMIT 1) v ON true
+        WHERE ($1::uuid IS NULL OR s.scope_type <> 'division' OR s.scope_id = $1)
+        ORDER BY coalesce(v.state = 'candidate', false) DESC, s.slug`,
+      [options.divisionId ?? null]);
+    return rows.map((row) => ({
+      id: row.skill_id,
+      slug: row.slug,
+      summary: row.summary,
+      scopeType: row.scope_type,
+      divisionId: row.scope_id,
+      divisionName: row.division_name,
+      quarantined: row.quarantined,
+      origin: row.origin,
+      activeVersion: row.active_version,
+      checks: row.checks,
+      latest: row.version_id ? versionView(row) : null,
+    }));
+  });
+}
+
+/** One skill whole: every version's text and fate, and the checks it is held to. */
+export async function skillOf(companyId: string, skillId: string): Promise<{
+  skill: SkillView;
+  versions: Array<SkillVersionView & { body: string }>;
+  checks: Array<{ id: string; name: string; expectContains: string[] }>;
+} | null> {
+  if (!/^[0-9a-f-]{36}$/.test(skillId)) return null;
+  const skill = (await skillsOf(companyId)).find((one) => one.id === skillId);
+  if (!skill) return null;
+  return withTenant(companyId, async (tx) => {
+    const { rows: versions } = await tx.query<RawSkillVersion & { body: string }>(
+      `SELECT id, version, state, author, changelog, created_at, reviewed_at, review_note, review_task_id,
+              rejected_reason, activated_at, body
+         FROM skill_versions WHERE skill_id = $1 ORDER BY version DESC`, [skillId]);
+    const { rows: checks } = await tx.query<{ id: string; name: string; expect_contains: string[] }>(
+      'SELECT id, name, expect_contains FROM skill_evals WHERE skill_id = $1 ORDER BY name', [skillId]);
+    return {
+      skill,
+      versions: versions.map((row) => ({ ...versionView(row), body: row.body })),
+      checks: checks.map((row) => ({ id: row.id, name: row.name, expectContains: row.expect_contains })),
+    };
+  });
+}

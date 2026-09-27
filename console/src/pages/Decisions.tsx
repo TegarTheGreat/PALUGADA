@@ -282,6 +282,7 @@ export function Decisions({ ctx, route }: PageProps) {
                   back={narrow ? () => select(null) : undefined}
                   decided={() => decided(current.id)}
                   openTask={() => ctx.open('work', { item: current.taskId })}
+                  openSkills={() => ctx.open('settings', { section: 'skills' })}
                 />
               ) : (
                 <Paper withBorder radius="lg" p="xl"><Text c="dimmed" ta="center">{t('Choose an item.')}</Text></Paper>
@@ -394,7 +395,7 @@ function BatchConfirm({ companyId, decision, items, close, done }: {
 }
 
 function Detail({
-  item, companyId, position, back, decided, openTask,
+  item, companyId, position, back, decided, openTask, openSkills,
 }: {
   item: InboxItem;
   companyId: string;
@@ -402,6 +403,8 @@ function Detail({
   back: (() => void) | undefined;
   decided: () => void;
   openTask: () => void;
+  /** A skill candidate is read on the Skills page: its text, versions and checks. */
+  openSkills: () => void;
 }) {
   const requireFactor = useFactor();
   const [note, setNote] = useState('');
@@ -566,6 +569,7 @@ function Detail({
             <Group gap={6}><IconRoute size={16} />{traceOpen ? t('Hide what happened') : t('What happened')}</Group>
           </Anchor>
           {item.taskId && <Anchor component="button" size="sm" onClick={openTask}>{t('Open the task')}</Anchor>}
+          {item.kind === 'skill_candidate' && <Anchor component="button" size="sm" onClick={openSkills}>{t('Read the skill')}</Anchor>}
         </Group>
         <Collapse expanded={traceOpen}>
           <Box>{trace ? <TraceView trace={trace} /> : <Text size="sm" c="dimmed">{t('Loading…')}</Text>}</Box>

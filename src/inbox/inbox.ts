@@ -807,7 +807,8 @@ export async function proposeSop(input: {
 }
 
 /**
- * Proposes a skill version for the owner's decision (F10.1, F15.3).
+ * Asks the owner about a skill version a reviewer has approved (F10.1,
+ * F15.3), inside the transaction that records the review (skills.ts).
  *
  * Beside `proposeSop` rather than replacing it: an SOP candidate is a
  * paragraph a distiller noticed, a skill candidate is a versioned document
@@ -819,7 +820,7 @@ export async function proposeSop(input: {
  * changes until it is approved, which is the property that makes it safe to
  * let it wait.
  */
-export async function proposeSkill(input: {
+export async function proposeSkillWithin(tx: TenantClient, input: {
   companyId: string;
   skillVersionId: string;
   slug: string;
@@ -827,34 +828,33 @@ export async function proposeSkill(input: {
   author: string;
   changelog: string;
   summary: string;
+  reviewerSaid: string | null;
+  notifyAfter: Date;
 }): Promise<string> {
-  const notifyAfter = await notifyAfterFor('skill_candidate', {});
-
-  return withTenant(input.companyId, async (tx) => {
-    const { rows } = await tx.query<{ id: string }>(
-      `INSERT INTO inbox_items
-         (company_id, kind, title, action_summary, rationale, consequence_if_denied,
-          payload, notify_after)
-       VALUES ($1,'skill_candidate',$2,$3,$4,
-               'Nothing changes; the current version of the skill stays in force.',
-               $5,$6)
-       RETURNING id`,
-      [
-        input.companyId,
-        `Skill ${input.slug} v${input.version}`,
-        input.summary,
-        `Proposed by ${input.author}.\n\n${input.changelog}`,
-        JSON.stringify({
-          skillVersionId: input.skillVersionId,
-          slug: input.slug,
-          version: input.version,
-          author: input.author,
-        }),
-        notifyAfter,
-      ],
-    );
-    return rows[0]!.id;
-  });
+  const { rows } = await tx.query<{ id: string }>(
+    `INSERT INTO inbox_items
+       (company_id, kind, title, action_summary, rationale, consequence_if_denied,
+        payload, notify_after)
+     VALUES ($1,'skill_candidate',$2,$3,$4,
+             'Nothing changes; the current version of the skill stays in force.',
+             $5,$6)
+     RETURNING id`,
+    [
+      input.companyId,
+      `Skill ${input.slug} v${input.version}`,
+      input.summary,
+      `Proposed by ${input.author}.\n\n${input.changelog}` +
+        (input.reviewerSaid ? `\n\nThe reviewer approved it: ${input.reviewerSaid}` : '\n\nThe reviewer approved it.'),
+      JSON.stringify({
+        skillVersionId: input.skillVersionId,
+        slug: input.slug,
+        version: input.version,
+        author: input.author,
+      }),
+      input.notifyAfter,
+    ],
+  );
+  return rows[0]!.id;
 }
 
 /**
@@ -1368,6 +1368,21 @@ export async function decide(
           actor: 'owner',
           payload: { memoryId, applied: activated },
         });
+      }
+    }
+
+    // F15.3's second gate: the owner's yes activates the version the reviewer
+    // approved, and their no turns it down with their note as the reason. It
+    // used to do neither -- the decision was recorded and the skill stayed a
+    // candidate, with nothing left in the inbox to say so.
+    if (row.kind === 'skill_candidate' && decision !== 'ask') {
+      const versionId = String(row.payload.skillVersionId ?? '');
+      if (versionId) {
+        // Imported here: skills.ts raises this item, so a static import each
+        // way would be a cycle for no benefit.
+        const skills = await import('../skills/skills.ts');
+        if (decision === 'approve') await skills.activateSkillVersionWithin(tx, companyId, versionId);
+        else await skills.rejectSkillVersionWithin(tx, companyId, versionId, note);
       }
     }
 

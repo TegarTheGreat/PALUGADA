@@ -217,7 +217,7 @@ const SECTIONS: ImportSection[] = [
   // whole archive and left an orphaned destination company. Only a company
   // whose skills were all still `candidate` restored at all.
   { name: 'skill_evals', table: 'skill_evals', references: ['skill_id'] },
-  { name: 'skill_versions', table: 'skill_versions', references: ['skill_id', 'review_request_id'] },
+  { name: 'skill_versions', table: 'skill_versions', references: ['skill_id', 'review_request_id', 'review_task_id'] },
   { name: 'role_eval_cases', table: 'role_eval_cases', references: ['role_id', 'source_agent_run_id'] },
   { name: 'role_eval_runs', table: 'role_eval_runs', references: ['role_id'] },
   { name: 'task_handoffs', table: 'task_handoffs', references: ['from_task_id', 'to_task_id'] },

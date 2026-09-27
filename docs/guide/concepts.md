@@ -344,12 +344,15 @@ procedures out of a run.
 ## Skills
 
 A skill is a written procedure in the open SKILL.md format: front matter and
-a body. A run's context carries each active skill's summary, and the run
-reads the whole text with `skill.read` when it needs it. A new version is a
-candidate until a different role reviews it and you approve it, and a skill
-with no eval case cannot be activated. Skills imported from outside start
-quarantined to one division until you lift the quarantine. Skills are
-under **Settings**, **Skills**.
+a body. A run's context carries each active skill's summary -- the live
+version's own description -- and the run reads the whole text with
+`skill.read` when it needs it, for a skill its division may use. A new
+version is a candidate: checked against the phrases its checks name, given
+to the company's reviewer as a piece of work, and switched on only when you
+say yes after the reviewer has. A skill with no check cannot be activated.
+Skills imported from outside start quarantined to one division until you
+lift the quarantine, and a run that reads one is given it as data from
+outside. Skills are under **Settings**, **Skills**.
 
 ## Bundles
 

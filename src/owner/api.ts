@@ -118,12 +118,13 @@ import { setThresholds } from '../reporting/alerts.ts';
 import { pendingReviews } from '../review/review.ts';
 import { upsertSchedule } from '../scheduler/scheduler.ts';
 import {
+  addEvalCase,
   approveSkillVersion,
   importExternalSkill,
   liftSkillQuarantine,
-  recordSkillReview,
+  proposeSkillVersion,
+  rejectSkillVersion,
   setSkillScope,
-  skillSummariesFor,
   type SkillScopeTarget,
 } from '../skills/skills.ts';
 import { installBundle, latestBundleVersion, verifyInstall } from '../bundles/bundle.ts';
@@ -185,6 +186,8 @@ import {
   isWorkGroup,
   memoriesOf,
   schedulesOf,
+  skillOf,
+  skillsOf,
   structureOf,
   taskDetailOf,
   workOf,
@@ -3128,14 +3131,71 @@ export class OwnerApi {
       /* ------------------------------------------------------------ F15 --- */
 
       {
+        // Every skill at every stage, for the owner; a run's pack still
+        // carries only what is active and visible to its division.
         method: 'GET',
         pattern: '/api/companies/:companyId/skills',
-        handle: async ({ params, query }) => ({
-          skills: await withTenant(params.companyId!, (tx) => skillSummariesFor(tx, {
+        handle: async ({ params, query }) => {
+          const division = query.get('division');
+          return {
+            skills: await skillsOf(params.companyId!, division && /^[0-9a-f-]{36}$/.test(division) ? { divisionId: division } : {}),
+          };
+        },
+      },
+
+      {
+        method: 'GET',
+        pattern: '/api/companies/:companyId/skills/:skillId',
+        handle: async ({ params }) => {
+          const found = await skillOf(params.companyId!, params.skillId!);
+          if (!found) throw new PalugadaError('skill.unknown', `no skill ${params.skillId} in this company`, {});
+          return found;
+        },
+      },
+
+      {
+        // The owner writes a skill, or a new version of one: a candidate like
+        // any other, screened against its checks and read by a reviewer
+        // before it comes back to the owner to switch on (F15.3). The checks
+        // it is to be held to can come with it, since without one it can
+        // never be activated (F15.4).
+        method: 'POST',
+        pattern: '/api/companies/:companyId/skills',
+        handle: async ({ params, body }) => {
+          const slug = requireText(body.slug, 'slug').trim().toLowerCase();
+          if (!/^[a-z0-9][a-z0-9-]{1,62}$/.test(slug)) {
+            throw new PalugadaError('contract.violation',
+              'a skill\'s short name is 2 to 63 lowercase letters, digits and dashes, such as refund-policy', { field: 'slug' });
+          }
+          const scopeType = oneOf(body.scopeType ?? 'division', SKILL_SCOPES, 'scopeType');
+          const source = requireText(body.source, 'source');
+          if (source.length > 20_000) {
+            throw new PalugadaError('contract.violation', 'a skill is at most 20000 characters', { field: 'source' });
+          }
+          const checks = Array.isArray(body.checks) ? body.checks.map(checkFrom) : [];
+          const proposed = await proposeSkillVersion({
             companyId: params.companyId!,
-            divisionId: query.get('division'),
-          })),
-        }),
+            slug,
+            scopeType,
+            ...(scopeType === 'division' ? { scopeId: requireText(body.divisionId, 'divisionId') } : {}),
+            source,
+            author: 'owner',
+            changelog: typeof body.changelog === 'string' && body.changelog.trim() ? body.changelog.trim() : 'Written by the owner.',
+          });
+          for (const check of checks) await addEvalCase(params.companyId!, proposed.skillId, check);
+          return proposed;
+        },
+      },
+
+      {
+        // F15.4: what the skill must still say, checked against every version.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/skills/:skillId/checks',
+        handle: async ({ params, body }) => {
+          const found = await skillOf(params.companyId!, params.skillId!);
+          if (!found) throw new PalugadaError('skill.unknown', `no skill ${params.skillId} in this company`, {});
+          return { checkId: await addEvalCase(params.companyId!, params.skillId!, checkFrom(body)) };
+        },
       },
 
       {
@@ -3151,13 +3211,17 @@ export class OwnerApi {
               'contract.violation', 'approved must be true or false', { field: 'approved' },
             );
           }
-          await recordSkillReview(params.companyId!, params.versionId!, {
-            approved: body.approved,
-            ...(body.reason === undefined ? {} : { reason: String(body.reason) }),
-            ...(body.reviewRequestId === undefined
-              ? {}
-              : { reviewRequestId: String(body.reviewRequestId) }),
-          });
+          // The owner may turn a candidate down at any stage. Approving as the
+          // reviewer is not theirs: F15.3's first gate is another role's
+          // reading, and an owner who marks it read is the review F7 exists
+          // to avoid. Their yes is the second gate, which comes after.
+          if (body.approved) {
+            throw new PalugadaError('review.required',
+              'a skill is reviewed by one of the company\'s roles, not by the owner; approve it once the reviewer has, from the inbox or the Skills page',
+              { versionId: params.versionId });
+          }
+          await rejectSkillVersion(params.companyId!, params.versionId!,
+            typeof body.reason === 'string' ? body.reason : '');
           return { ok: true };
         },
       },
@@ -4390,6 +4454,20 @@ function roleChange(value: unknown): RoleChange {
 
 const GOAL_KINDS = ['mission', 'objective', 'key_result'] as const;
 const SKILL_SCOPES = ['company', 'platform', 'division'] as const;
+
+/** A skill's check (F15.4), as the owner writes one: a name and what the skill must say. */
+function checkFrom(raw: unknown): { name: string; input: Record<string, unknown>; expectContains: string[] } {
+  const check = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+  const name = requireText(check.name, 'name').trim().slice(0, 120);
+  const expectContains = Array.isArray(check.expectContains)
+    ? check.expectContains.filter((one): one is string => typeof one === 'string' && one.trim() !== '').map((one) => one.trim())
+    : [];
+  if (expectContains.length === 0 || expectContains.length > 20) {
+    throw new PalugadaError('contract.violation',
+      'a check names 1 to 20 phrases every version of the skill must contain', { field: 'expectContains' });
+  }
+  return { name, input: {}, expectContains };
+}
 const BUDGET_SCOPES = ['project', 'division', 'role'] as const;
 
 /** The names a console bound to loopback answers to when it is told none. */

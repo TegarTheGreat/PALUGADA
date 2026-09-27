@@ -123,11 +123,14 @@ test('a proposed skill is a candidate and reaches no context (F15.3)', async () 
   );
   assert.deepEqual(summaries, [], 'a candidate is not in anybody\'s context');
 
-  // F10.1: and the owner is told one exists, in the right queue.
-  const open = await inbox.listOpen(fixture.companyId);
-  const item = open.find((entry) => entry.id === proposed.inboxItemId);
+  // F10.1: the owner is asked once there is something to decide -- after the
+  // reviewer has read it -- with what the reviewer said.
+  assert.deepEqual((await inbox.listOpen(fixture.companyId)).filter((entry) => entry.kind === 'skill_candidate'), []);
+  await withEval(fixture, proposed.skillId);
+  await recordSkillReview(fixture.companyId, proposed.versionId, { approved: true, reason: 'Clear, and the ceiling is right.' });
+  const item = (await inbox.listOpen(fixture.companyId)).find((entry) => entry.kind === 'skill_candidate');
   assert.ok(item);
-  assert.equal(item.kind, 'skill_candidate');
+  assert.match(item.rationale, /The reviewer approved it: Clear, and the ceiling is right\./);
 });
 
 /**
@@ -289,7 +292,7 @@ test('activating a new version supersedes the old one (F15.2)', async () => {
     { version: 2, state: 'active', author: 'owner' },
   ]);
 
-  const live = await readSkill(fixture.companyId, 'refund-policy');
+  const live = await readSkill(fixture.companyId, 'refund-policy', fixture.divisionId);
   assert.equal(live!.version, 2);
   assert.match(live!.source, /45 days/);
 });
@@ -383,7 +386,7 @@ test('a run\'s context carries a skill summary, not the skill (F15.7)', async ()
   );
 
   // And `skill.read` is what fetches it.
-  const full = await readSkill(fixture.companyId, 'refund-policy');
+  const full = await readSkill(fixture.companyId, 'refund-policy', fixture.divisionId);
   assert.match(full!.source, /Refund within 30 days/);
 });
 

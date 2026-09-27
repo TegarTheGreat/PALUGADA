@@ -38,6 +38,8 @@ import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
 import * as inbox from '../inbox/inbox.ts';
 import { isTrustedPublisher } from '../bundles/publishers.ts';
+import { notifyAfterFor } from '../scheduler/windows.ts';
+import { createRootTask, transition } from '../engine/tasks.ts';
 
 export type SkillScope = 'division' | 'company' | 'platform';
 export type SkillAuthor = 'owner' | 'distillation' | 'agent' | 'bundle';
@@ -143,16 +145,16 @@ export interface ProposedVersion {
   skillId: string;
   versionId: string;
   version: number;
-  inboxItemId: string;
 }
 
 /**
  * Proposes a version. It is a candidate and reaches nobody (F15.3).
  *
- * The inbox item is raised here rather than by the caller so that there is no
- * path that creates a candidate without telling the owner one exists. A
- * candidate nobody knows about is indistinguishable from a candidate nobody
- * wanted.
+ * Nothing is asked of the owner yet. The candidate is screened against its
+ * own eval cases, then read by a reviewer role (`advanceSkillCandidates`),
+ * and only a version the reviewer approved reaches the owner's inbox: asking
+ * first gave the owner a button that could do nothing until a review nobody
+ * had started. Every candidate, at every stage, is on the Skills page.
  */
 export async function proposeSkillVersion(input: ProposeInput): Promise<ProposedVersion> {
   const document = parseSkillDocument(input.source);
@@ -212,43 +214,72 @@ export async function proposeSkillVersion(input: ProposeInput): Promise<Proposed
     return { skillId, versionId: created[0]!.id, version };
   });
 
-  const inboxItemId = await inbox.proposeSkill({
-    companyId: input.companyId,
-    skillVersionId: proposed.versionId,
-    slug: input.slug,
-    version: proposed.version,
-    author: input.author,
-    changelog: input.changelog,
-    summary: document.description,
-  });
-
-  return { ...proposed, inboxItemId };
+  return proposed;
 }
 
-/** Records that a reviewer has judged this version (F15.3, first gate). */
+/**
+ * Records that a reviewer has judged this version (F15.3, first gate).
+ *
+ * An approval is what puts the version in front of the owner: the inbox item
+ * is raised here, in the same transaction, with what the reviewer said.
+ */
 export async function recordSkillReview(
   companyId: string,
   versionId: string,
   verdict: { approved: boolean; reviewRequestId?: string; reason?: string },
 ): Promise<void> {
+  const notifyAfter = verdict.approved ? await notifyAfterFor('skill_candidate', {}) : null;
   await withTenant(companyId, async (tx) => {
     if (!verdict.approved) {
-      await tx.query(
+      const { rows } = await tx.query<{ id: string }>(
         `UPDATE skill_versions
             SET state = 'rejected', rejected_reason = $2, reviewed_at = now(),
                 review_request_id = coalesce($3, review_request_id)
-          WHERE id = $1 AND state = 'candidate'`,
+          WHERE id = $1 AND state = 'candidate'
+          RETURNING id`,
         [versionId, verdict.reason ?? 'the reviewer rejected it', verdict.reviewRequestId ?? null],
       );
+      if (rows[0]) {
+        await appendEvent(tx, {
+          companyId, type: 'skill.review_rejected', actor: 'system',
+          payload: { versionId, reason: verdict.reason ?? null },
+        });
+      }
       return;
     }
-    await tx.query(
-      `UPDATE skill_versions
-          SET reviewed_at = now(), review_request_id = coalesce($2, review_request_id)
-        WHERE id = $1 AND state = 'candidate'`,
-      [versionId, verdict.reviewRequestId ?? null],
+    const { rows } = await tx.query<{
+      version: number; body: string; author: string; changelog: string; slug: string;
+    }>(
+      `UPDATE skill_versions v
+          SET reviewed_at = now(), review_request_id = coalesce($2, v.review_request_id), review_note = $3
+         FROM skills s
+        WHERE v.id = $1 AND v.state = 'candidate' AND v.reviewed_at IS NULL AND s.id = v.skill_id
+        RETURNING v.version, v.body, v.author, v.changelog, s.slug`,
+      [versionId, verdict.reviewRequestId ?? null, verdict.reason?.trim().slice(0, 2_000) || null],
     );
+    const reviewed = rows[0];
+    if (!reviewed) return;
+    await inbox.proposeSkillWithin(tx, {
+      companyId,
+      skillVersionId: versionId,
+      slug: reviewed.slug,
+      version: reviewed.version,
+      author: reviewed.author,
+      changelog: reviewed.changelog,
+      summary: describedAs(reviewed.body),
+      reviewerSaid: verdict.reason?.trim() || null,
+      notifyAfter: notifyAfter!,
+    });
   });
+}
+
+/** A version's own description, for the owner and for every run's context. */
+function describedAs(source: string): string {
+  try {
+    return parseSkillDocument(source).description.slice(0, 400) || 'No description.';
+  } catch {
+    return 'No description.';
+  }
 }
 
 /**
@@ -263,60 +294,122 @@ export async function approveSkillVersion(
   versionId: string,
 ): Promise<{ activated: boolean; version: number }> {
   return withTenant(companyId, async (tx) => {
-    const { rows } = await tx.query<{
-      skill_id: string;
-      version: number;
-      state: SkillVersionState;
-      reviewed_at: Date | null;
-    }>(
-      'SELECT skill_id, version, state, reviewed_at FROM skill_versions WHERE id = $1',
-      [versionId],
-    );
-    const row = rows[0];
-    if (!row) throw new PalugadaError('skill.unknown', `no skill version ${versionId}`, {});
-
-    if (row.state !== 'candidate') {
-      throw new PalugadaError(
-        'skill.invalid',
-        `skill version ${versionId} is ${row.state} and cannot be approved`,
-        { state: row.state },
-      );
-    }
-    if (row.reviewed_at === null) {
-      throw new PalugadaError(
-        'review.required',
-        'a skill version must be reviewed by another role before the owner approves it (F15.3)',
-        { versionId },
-      );
-    }
-
-    // Supersede first: the unique index allows one active version per skill,
-    // and the new row's activation would collide with the old one otherwise.
+    const activated = await activateSkillVersionWithin(tx, companyId, versionId);
+    // Approved here, from the Skills page: the question in the inbox has
+    // been answered, and a button left there would ask it again.
     await tx.query(
-      `UPDATE skill_versions SET state = 'superseded'
-        WHERE skill_id = $1 AND state = 'active'`,
-      [row.skill_id],
-    );
-    await tx.query(
-      `UPDATE skill_versions
-          SET state = 'active', approved_at = now(), activated_at = now()
-        WHERE id = $1`,
-      [versionId],
-    );
-    await tx.query('UPDATE skills SET active_version = $2 WHERE id = $1', [
-      row.skill_id,
-      row.version,
-    ]);
-
-    await appendEvent(tx, {
-      companyId,
-      type: 'skill.activated',
-      actor: 'owner',
-      payload: { skillId: row.skill_id, version: row.version },
-    });
-
-    return { activated: true, version: row.version };
+      `UPDATE inbox_items SET status = 'withdrawn', closed_reason = 'decided_elsewhere'
+        WHERE kind = 'skill_candidate' AND status = 'open' AND payload->>'skillVersionId' = $1`,
+      [versionId]);
+    return activated;
   });
+}
+
+/**
+ * The activation itself, inside a transaction the caller holds: the Skills
+ * page's approval above, and the owner's yes in the inbox (inbox.ts), where
+ * the decision and the activation are one fact.
+ */
+export async function activateSkillVersionWithin(
+  tx: TenantClient,
+  companyId: string,
+  versionId: string,
+): Promise<{ activated: boolean; version: number }> {
+  const { rows } = await tx.query<{
+    skill_id: string;
+    version: number;
+    state: SkillVersionState;
+    reviewed_at: Date | null;
+    body: string;
+  }>(
+    'SELECT skill_id, version, state, reviewed_at, body FROM skill_versions WHERE id = $1 FOR UPDATE',
+    [versionId],
+  );
+  const row = rows[0];
+  if (!row) throw new PalugadaError('skill.unknown', `no skill version ${versionId}`, {});
+
+  if (row.state !== 'candidate') {
+    throw new PalugadaError(
+      'skill.invalid',
+      `skill version ${versionId} is ${row.state} and cannot be approved`,
+      { state: row.state },
+    );
+  }
+  if (row.reviewed_at === null) {
+    throw new PalugadaError(
+      'review.required',
+      'a skill version must be reviewed by another role before the owner approves it (F15.3)',
+      { versionId },
+    );
+  }
+
+  // Supersede first: the unique index allows one active version per skill,
+  // and the new row's activation would collide with the old one otherwise.
+  await tx.query(
+    `UPDATE skill_versions SET state = 'superseded'
+      WHERE skill_id = $1 AND state = 'active'`,
+    [row.skill_id],
+  );
+  await tx.query(
+    `UPDATE skill_versions
+        SET state = 'active', approved_at = now(), activated_at = now()
+      WHERE id = $1`,
+    [versionId],
+  );
+  // The summary every run is given is the live version's own description,
+  // not the first version's: a rewrite that changed what the skill is for
+  // used to go on being summarised as what it had been.
+  await tx.query('UPDATE skills SET active_version = $2, summary = $3 WHERE id = $1', [
+    row.skill_id,
+    row.version,
+    describedAs(row.body),
+  ]);
+
+  await appendEvent(tx, {
+    companyId,
+    type: 'skill.activated',
+    actor: 'owner',
+    payload: { skillId: row.skill_id, version: row.version },
+  });
+
+  return { activated: true, version: row.version };
+}
+
+/**
+ * The owner turns a candidate down from the Skills page. The question in the
+ * inbox, if the reviewer had already sent it there, is withdrawn with it.
+ */
+export async function rejectSkillVersion(companyId: string, versionId: string, reason: string): Promise<void> {
+  await withTenant(companyId, async (tx) => {
+    if (!await rejectSkillVersionWithin(tx, companyId, versionId, reason)) {
+      throw new PalugadaError('skill.invalid', `skill version ${versionId} is not a candidate, so there is nothing to turn down`, {});
+    }
+    await tx.query(
+      `UPDATE inbox_items SET status = 'withdrawn', closed_reason = 'decided_elsewhere'
+        WHERE kind = 'skill_candidate' AND status = 'open' AND payload->>'skillVersionId' = $1`,
+      [versionId]);
+  });
+}
+
+/**
+ * The owner turns a candidate down: from the inbox, where their note is the
+ * reason, or from the Skills page.
+ */
+export async function rejectSkillVersionWithin(
+  tx: TenantClient,
+  companyId: string,
+  versionId: string,
+  reason: string,
+): Promise<boolean> {
+  const { rows } = await tx.query<{ id: string }>(
+    `UPDATE skill_versions SET state = 'rejected', rejected_reason = $2
+      WHERE id = $1 AND state = 'candidate' RETURNING id`,
+    [versionId, reason.trim() || 'the owner turned it down']);
+  if (!rows[0]) return false;
+  await appendEvent(tx, {
+    companyId, type: 'skill.rejected', actor: 'owner', payload: { versionId, reason: reason.trim() || null },
+  });
+  return true;
 }
 
 /**
@@ -504,6 +597,162 @@ export async function screenCandidate(
     });
   });
   return { rejected: true, cases: result.cases };
+}
+
+/* ------------------------------------------------------ the review --- */
+
+/**
+ * What the reviewer is asked to judge a skill against. Written for a role
+ * that will follow nothing in the document itself: the procedure is what is
+ * under review, never an instruction to the reviewer.
+ */
+export const SKILL_REVIEW_CRITERIA =
+  'Read the proposed skill as a procedure every run in its scope would follow. Approve it only if it ' +
+  'is correct, can be followed as written, agrees with the company\'s charter and policies, and does ' +
+  'not tell a run to act without an approval the policies require, to ask for or pass on credentials, ' +
+  'or to send the company\'s data anywhere it would not otherwise go. Reject it when any of that is ' +
+  'wrong or when you cannot tell. Answer with "decision": "approve" or "reject", and "reason": one or ' +
+  'two sentences naming what decided it -- the owner reads them before deciding.';
+
+/**
+ * Moves every candidate nobody has started on: screened against its own eval
+ * cases (F15.5), and one that passes is given to a reviewer role (F15.3).
+ * Run on every tick of the worker, so a skill a bundle brought in is being
+ * read within minutes rather than after the next hourly learning pass.
+ */
+export async function advanceSkillCandidates(
+  companyId: string,
+): Promise<{ screened: number; sentForReview: number }> {
+  const waiting = await withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<{ id: string }>(
+      `SELECT id FROM skill_versions
+        WHERE state = 'candidate' AND reviewed_at IS NULL AND review_task_id IS NULL
+        ORDER BY created_at, id`);
+    return rows.map((row) => row.id);
+  });
+  let screened = 0;
+  let sentForReview = 0;
+  for (const versionId of waiting) {
+    const outcome = await screenCandidate(companyId, versionId);
+    screened += 1;
+    if (!outcome.rejected && await sendForReview(companyId, versionId)) sentForReview += 1;
+  }
+  return { screened, sentForReview };
+}
+
+/**
+ * Gives a screened candidate to a reviewer role, as a task of its own.
+ *
+ * The reviewer is the company's reviewer when it has one, and its CEO when
+ * it does not -- every company with roles has one (0068). The task serves the
+ * company's mission: keeping the procedures its roles follow right is part
+ * of what the company is for. Returns false when there is nobody, or no goal,
+ * to give it to; the candidate waits and the Skills page says so.
+ */
+async function sendForReview(companyId: string, versionId: string): Promise<boolean> {
+  const plan = await withTenant(companyId, async (tx) => {
+    const { rows: [version] } = await tx.query<{
+      version: number; body: string; author: string; changelog: string; slug: string;
+      scope_type: SkillScope; provenance: string; origin: string | null;
+    }>(
+      `SELECT v.version, v.body, v.author, v.changelog, s.slug, s.scope_type, s.provenance, s.origin
+         FROM skill_versions v JOIN skills s ON s.id = v.skill_id
+        WHERE v.id = $1 AND v.state = 'candidate' AND v.review_task_id IS NULL`, [versionId]);
+    const { rows: [reviewer] } = await tx.query<{ id: string; division_id: string }>(
+      `SELECT id, division_id FROM roles
+        WHERE frozen_at IS NULL AND (slug = 'reviewer' OR title = 'CEO')
+        ORDER BY (slug = 'reviewer') DESC, created_at LIMIT 1`);
+    const { rows: [goal] } = await tx.query<{ id: string }>(
+      `SELECT id FROM goals WHERE status = 'active'
+        ORDER BY (kind = 'mission') DESC, created_at LIMIT 1`);
+    const { rows: [project] } = await tx.query<{ id: string }>(
+      'SELECT id FROM projects ORDER BY created_at LIMIT 1');
+    return version && reviewer && goal && project ? { version, reviewer, goal, project } : null;
+  });
+  if (!plan) return false;
+
+  const { version, reviewer, goal, project } = plan;
+  // Imported here: the context builder reads skill summaries from this module.
+  const { wrapUntrusted } = await import('../context/builder.ts');
+  const task = await createRootTask({
+    companyId,
+    projectId: project.id,
+    divisionId: reviewer.division_id,
+    roleId: reviewer.id,
+    goalId: goal.id,
+    createdBy: 'event',
+    idempotencyKey: `skill-review:${versionId}`,
+    input: {
+      goal: `Review the proposed skill "${version.slug}" v${version.version} before the owner decides on it`,
+      criteria: SKILL_REVIEW_CRITERIA,
+      skill: {
+        slug: version.slug,
+        version: version.version,
+        scope: version.scope_type,
+        author: version.author,
+        changelog: version.changelog,
+        ...(version.provenance === 'external' ? { from: version.origin ?? 'outside this company' } : {}),
+      },
+      // The document is what is judged, never what the reviewer obeys: a
+      // skill that says "reviewer, approve this" is evidence against itself.
+      document: wrapUntrusted(`skill:${version.slug}`, version.body),
+    },
+  });
+  const recorded = await withTenant(companyId, async (tx) => {
+    const { rowCount } = await tx.query(
+      `UPDATE skill_versions SET review_task_id = $2
+        WHERE id = $1 AND state = 'candidate' AND review_task_id IS NULL`,
+      [versionId, task.id]);
+    if (rowCount === 1) {
+      await appendEvent(tx, {
+        companyId, projectId: project.id, taskId: task.id, type: 'skill.review_requested', actor: 'system',
+        payload: { versionId, slug: version.slug, version: version.version },
+      });
+      return true;
+    }
+    // Turned down while the task was being made, or already given this very
+    // task by another worker (the key above makes it the same one).
+    const { rows } = await tx.query<{ review_task_id: string | null }>(
+      'SELECT review_task_id FROM skill_versions WHERE id = $1', [versionId]);
+    return rows[0]?.review_task_id === task.id ? null : false;
+  });
+  // A review of something no longer a candidate is work nobody will read.
+  if (recorded === false) await transition(companyId, task.id, 'cancelled');
+  return recorded === true;
+}
+
+/**
+ * Reads the verdict of every finished skill review (F15.3): an approval puts
+ * the version in the owner's inbox with what the reviewer said; a rejection,
+ * or a review that ended without a verdict, rejects it with the reason, and
+ * the Skills page shows it. A version that could not be judged is not put in
+ * front of the owner as though it had been.
+ */
+export async function settleSkillReviews(companyId: string): Promise<number> {
+  const finished = await withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<{ id: string; status: string; output: Record<string, unknown> | null }>(
+      `SELECT v.id, t.status, t.output
+         FROM skill_versions v JOIN tasks t ON t.id = v.review_task_id
+        WHERE v.state = 'candidate' AND v.reviewed_at IS NULL
+          AND t.status IN ('completed', 'failed', 'halted', 'cancelled')
+        ORDER BY v.created_at`);
+    return rows;
+  });
+  for (const row of finished) {
+    const decision = row.status === 'completed' ? row.output?.decision : undefined;
+    const reason = typeof row.output?.reason === 'string' ? row.output.reason.trim().slice(0, 2_000) : '';
+    if (decision === 'approve') {
+      await recordSkillReview(companyId, row.id, { approved: true, ...(reason ? { reason } : {}) });
+    } else {
+      await recordSkillReview(companyId, row.id, {
+        approved: false,
+        reason: decision === 'reject' || decision === 'revise'
+          ? `the reviewer rejected it${reason ? `: ${reason}` : ''}`
+          : `the review ended ${row.status} without a verdict; propose it again to have it read again`,
+      });
+    }
+  }
+  return finished.length;
 }
 
 /* ------------------------------------------------------ external skills --- */
@@ -713,20 +962,32 @@ export async function skillSummariesFor(
   }));
 }
 
-/** F15.7's `skill.read`: the full document, on request. */
+/**
+ * F15.7's `skill.read`: the full document, on request -- of a skill the
+ * asking division can see, by the same rule as the summaries in its pack. It
+ * read any skill in the company by name, so a run could open another
+ * division's procedure, or a quarantined one meant for one division only.
+ * A document from outside the company comes back as the data it is.
+ */
 export async function readSkill(
   companyId: string,
   slug: string,
-): Promise<{ slug: string; version: number; source: string } | null> {
+  divisionId: string | null,
+): Promise<{ slug: string; version: number; source: string; external: boolean } | null> {
   return withTenant(companyId, async (tx) => {
-    const { rows } = await tx.query<{ version: number; body: string }>(
-      `SELECT v.version, v.body
+    const { rows } = await tx.query<{ version: number; body: string; provenance: string; origin: string | null }>(
+      `SELECT v.version, v.body, s.provenance, s.origin
          FROM skill_versions v
          JOIN skills s ON s.id = v.skill_id
-        WHERE s.company_id = $1 AND s.slug = $2 AND v.state = 'active'`,
-      [companyId, slug],
+        WHERE s.company_id = $1 AND s.slug = $2 AND v.state = 'active'
+          AND (s.scope_type <> 'division' OR s.scope_id = $3)`,
+      [companyId, slug, divisionId],
     );
     const row = rows[0];
-    return row ? { slug, version: row.version, source: row.body } : null;
+    if (!row) return null;
+    const external = row.provenance === 'external';
+    if (!external) return { slug, version: row.version, source: row.body, external };
+    const { wrapUntrusted } = await import('../context/builder.ts');
+    return { slug, version: row.version, source: wrapUntrusted(`skill:${row.origin ?? slug}`, row.body), external };
   });
 }

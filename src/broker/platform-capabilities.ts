@@ -132,7 +132,7 @@ export function skillReadCapability(): Capability<SkillReadInput, SkillReadResul
     defaultTier: TIER.READ_ONLY,
     describe: () => ({ moneyCents: 0 }),
     async execute(input, ctx) {
-      const skill = await readSkill(ctx.companyId, input.slug);
+      const skill = await readSkill(ctx.companyId, input.slug, ctx.divisionId);
       // A missing skill is an answer rather than an error: a run that asked for
       // one that has been retired should be told so and carry on, not fail.
       return skill

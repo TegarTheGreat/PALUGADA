@@ -145,6 +145,33 @@ A fact that is wrong: **Correct** it when you know the right one, or
 **Take back** when there is nothing to put in its place. Either way it
 reaches no run again, and the history keeps what it said.
 
+## Write, review and switch on skills
+
+A skill is a written procedure the roles follow: how to answer a refund,
+what goes in the weekly report. **Settings**, **Skills** lists every one the
+company has, whatever stage it is at -- **Being checked**, **With the
+reviewer**, **Waiting for you**, **Active**, or **Turned down** with the
+reason -- and opening one shows its text, every version with who wrote it
+and why, and its checks.
+
+**Write a skill** takes a short name, where it applies, the SKILL.md itself
+(front matter with a name and a description, then the procedure) and one
+check: phrases every version must contain, such as the ceiling above which
+the owner is asked. A skill with no check can never be switched on. **Change
+it** proposes a new version of an existing skill from its current text.
+
+Each new version -- yours, a bundle's, an import, or one the company
+proposes itself -- goes the same way. Within a minute it is checked against
+its phrases, and one that has dropped a phrase is turned down before anyone
+reads it. It then goes to the company's reviewer (its CEO, if it has no
+reviewer role) as a piece of work, with the document as something to judge,
+never as instructions. When the reviewer approves it, you are asked in
+**Inbox** with what the reviewer said: approve there, or **Switch it on**
+from the skill itself, and every run it applies to reads it from its next
+run. **Turn it down** at any stage, with the reason. You cannot approve a
+version the reviewer has not read; the review is another role's, so you are
+never asked to be it.
+
 ## Approve or refuse
 
 1. Open **Inbox**. Items are ordered tier 3 first, then incidents, then the
@@ -485,8 +512,8 @@ boot stops and says which is missing.
   (see [config/prices.example.json](../../config/prices.example.json)); a
   model on your own machine costs zero. Unpriced models are charged at a
   deliberately high rate so a budget is never understated.
-- `PALUGADA_DRAFT_MODEL` chooses the tier or model for drafting, distilling
-  memory and screening skills (default `standard`).
+- `PALUGADA_DRAFT_MODEL` chooses the tier or model for drafting and
+  distilling memory (default `standard`).
 
 ## Put a role on an agent CLI
 

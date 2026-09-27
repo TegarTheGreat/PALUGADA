@@ -69,7 +69,7 @@ import {
   distillEpisodicToSemantic,
   distillSemanticToProcedural,
 } from './memory/distillation.ts';
-import { screenCandidate } from './skills/skills.ts';
+import { advanceSkillCandidates, settleSkillReviews } from './skills/skills.ts';
 import type { LlmClient } from './llm/client.ts';
 import { sleep } from './timers.ts';
 
@@ -371,6 +371,13 @@ export class Worker {
 
       await this.#stage(report, 'settle', async () => {
         await settleCompletedReviews(company);
+        // F15.3: skill candidates screened and given to a reviewer, and the
+        // reviews that finished read -- every tick, so a skill is with the
+        // owner soon after its reviewer answers. No model is needed here:
+        // screening is the skill's own cases, and the review is a task that
+        // runs like any other.
+        await settleSkillReviews(company);
+        report.screened += (await advanceSkillCandidates(company)).screened;
         await inbox.expireOverdue(company);
         // After the two above, which are what normally move a waiting task:
         // anything still waiting with nothing left to move it is stranded,
@@ -605,24 +612,9 @@ export class Worker {
     if (last !== undefined && now.getTime() - last < interval) return;
 
     await this.#stage(report, 'learn', async () => {
-      // F15.3 first, and without a model. `runSkillEvals` is substring
-      // matching against the cases the skill itself declares -- it asks
-      // nothing of a provider. Gating it behind `learning` meant a deployment
-      // with no model client never screened a candidate, and the boot note
-      // blamed the missing model for something that never needed one.
-      const candidates = await withTenant(company, async (tx) => {
-        const { rows } = await tx.query<{ id: string }>(
-          "SELECT id FROM skill_versions WHERE state = 'candidate' ORDER BY created_at",
-        );
-        return rows.map((row) => row.id);
-      });
-      for (const versionId of candidates) {
-        await screenCandidate(company, versionId);
-        report.screened += 1;
-      }
-
-      // Distillation does need one, so a deployment without a model gets the
-      // screening and not the reading.
+      // Skill candidates are screened in the settle stage, every tick and
+      // without a model. Distillation needs one, so a deployment without a
+      // model reads nothing here.
       if (!learning) {
         this.#learnedAt.set(company, now.getTime());
         return;

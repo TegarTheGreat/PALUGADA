@@ -11,6 +11,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { SANDBOX_GUARANTEES, runSandboxed } from '../../src/sandbox/sandbox.ts';
+import { handed } from '../helpers/env.ts';
 
 test('sandboxed code runs and returns a value', async () => {
   const result = await runSandboxed('return { doubled: input.n * 2 };', { input: { n: 21 } });
@@ -80,7 +81,7 @@ test('the parent environment is not inherited', async () => {
     const keys = result.value as string[];
     assert.equal(keys.includes('PALUGADA_SANDBOX_CANARY'), false);
     assert.equal(keys.includes('PALUGADA_APP_URL'), false);
-    assert.deepEqual(keys, ['SANDBOX_INPUT_JSON'], 'only the declared input crosses the boundary');
+    assert.deepEqual(handed(keys), ['SANDBOX_INPUT_JSON'], 'only the declared input crosses the boundary');
   } finally {
     delete process.env.PALUGADA_SANDBOX_CANARY;
   }

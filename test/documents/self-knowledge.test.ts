@@ -56,8 +56,17 @@ test('"npm run check" is the whole definition of done', async () => {
     assert.ok(check.includes(step), `npm run check does not run ${step}`);
   }
   const ci = await readFile(join(ROOT, '.github', 'workflows', 'ci.yml'), 'utf8');
-  for (const step of ['npm run typecheck', 'npm run console:build', 'npm test']) {
+  for (const step of ['npm run typecheck', 'npm run console:build']) {
     assert.ok(ci.includes(`run: ${step}`), `CI does not run ${step}, so "check" and CI disagree`);
+  }
+  // CI runs the suite with coverage: the same files, one at a time, or the
+  // two would be passing different suites.
+  const all = await scripts();
+  assert.ok(ci.includes('run: npm test') || ci.includes('run: npm run test:coverage'), 'CI does not run the suite');
+  if (ci.includes('run: npm run test:coverage')) {
+    const suite = (command: string) => [/--test-concurrency=1/.test(command), /"test\/\*\*\/\*\.test\.ts"/.test(command)];
+    assert.deepEqual(suite(all['test:coverage'] ?? ''), suite(all.test ?? ''), 'test:coverage runs another suite than npm test');
+    assert.deepEqual(suite(all.test ?? ''), [true, true]);
   }
 });
 

@@ -58,6 +58,11 @@ npm run db:setup
 npm run db:migrate
 ```
 
+`npm test` runs the suite alone and needs the console built first
+(`npm run console:build`); it stops and says so when it is not. CI runs
+`npm run test:coverage`, the same suite with coverage, whose report names the
+functions no test calls.
+
 `npm run setup` is for running PALUGADA, not for working on it. The suite
 connects with the development URLs and reads nothing from `.env`, while
 `db:setup` takes its passwords from `.env` when one exists: in a checkout

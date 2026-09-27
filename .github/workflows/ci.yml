@@ -82,8 +82,12 @@ jobs:
       - name: Apply migrations
         run: npm run db:migrate
 
-      - name: Acceptance tests
-        run: npm test
+      # The whole suite, once, with V8 coverage. The report is the job's
+      # summary: functions and branches, the files with the most functions
+      # never called, and a failure if a file under src/ is not loaded by
+      # any test at all (scripts/coverage-report.ts).
+      - name: Acceptance tests, with coverage
+        run: npm run test:coverage
 
       # The soak, at the scale F5.11 states: a thousand claim races instead of
       # sixty. Only on the nightly run and on a manual dispatch, so a push
@@ -95,3 +99,53 @@ jobs:
         env:
           PALUGADA_SOAK: '1'
         run: node --test --test-concurrency=1 test/acceptance/checkout-lease-lane.test.ts
+
+  # The image as an operator runs it: built from the Dockerfile, started by
+  # docker-compose.yml beside a database on a fresh volume, healthy, able to
+  # do one piece of work (scripts/smoke.ts), with an init that reaps what an
+  # agent CLI leaves behind, and stopped by SIGTERM with exit 0. The suite
+  # above runs the code; only this runs the container, and a Dockerfile or
+  # compose change that breaks either used to reach nobody until a deploy.
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # What `npm run setup` writes when "With Docker Compose" is chosen:
+      # a password for each database role, and the owner's TOTP secret.
+      - name: Write the .env compose reads
+        run: |
+          for role in SUPERUSER OWNER APP ADMIN; do
+            echo "PALUGADA_DB_${role}_PASSWORD=$(openssl rand -hex 18)"
+          done > .env
+          echo "PALUGADA_SECRET_OWNER_TOTP=$(openssl rand 20 | base32 | tr -d '=')" >> .env
+          echo "PALUGADA_OWNER_TOTP_REF=env://PALUGADA_SECRET_OWNER_TOTP" >> .env
+
+      - name: Build and start, and wait for both to be healthy
+        run: docker compose up -d --build --wait --wait-timeout 300
+
+      - name: Health
+        run: curl -fsS http://127.0.0.1:8787/api/health
+
+      - name: One piece of work, inside the container
+        run: docker compose exec -T app node scripts/smoke.ts
+
+      # A process whose parent exits is handed to PID 1; tini reaps it.
+      - name: An orphan is reaped, not left a zombie
+        run: |
+          docker compose exec -T app sh -c 'tr "\0" " " < /proc/1/cmdline' | grep -q '^/usr/bin/tini '
+          docker compose exec -T app sh -c '(sleep 0.3 &) ; exit 0'
+          sleep 2
+          zombies=$(docker compose exec -T app sh -c 'grep -l "^[0-9]* ([^)]*) Z" /proc/[0-9]*/stat 2>/dev/null | wc -l')
+          echo "zombies: $zombies"
+          test "$zombies" -eq 0
+
+      - name: SIGTERM stops it cleanly
+        run: |
+          docker compose stop app
+          test "$(docker inspect "$(docker compose ps -aq app)" --format '{{.State.ExitCode}}')" = 0
+          docker compose logs app | grep -q 'SIGTERM, stopping'
+
+      - name: What the containers said
+        if: failure()
+        run: docker compose logs

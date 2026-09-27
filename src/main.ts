@@ -853,6 +853,18 @@ export const EXIT_CONFIG = 78;
 export async function runFromCommandLine(env: NodeJS.ProcessEnv = process.env): Promise<number> {
   let deployment: Deployment;
   let stopping = false;
+  // The signals are listened for before anything starts. They were listened
+  // for after "console at" was printed, and a supervisor -- or a test --
+  // that stops the process as soon as it says it is ready could land its
+  // SIGTERM between the two lines: nothing was listening, so the default
+  // killed the process with the worker running and nothing handed back. One
+  // that arrives while it starts is kept, and stops it once it has.
+  let signalled: NodeJS.Signals | null = null;
+  let onSignal = (signal: NodeJS.Signals) => { signalled ??= signal; };
+  const listener = (signal: NodeJS.Signals) => onSignal(signal);
+  process.once('SIGTERM', listener);
+  process.once('SIGINT', listener);
+  process.stdout.write('palugada: starting\n');
   // One restart at a time, and none once the process is stopping: a restart
   // is a stop and a start, and two interleaved would start two deployments.
   let restarting: Promise<void> | null = null;
@@ -883,6 +895,8 @@ export async function runFromCommandLine(env: NodeJS.ProcessEnv = process.env): 
   try {
     deployment = await boot();
   } catch (failure) {
+    process.off('SIGTERM', listener);
+    process.off('SIGINT', listener);
     const configuration = failure instanceof PalugadaError && failure.code === 'config.invalid';
     process.stderr.write(
       `palugada: ${configuration ? 'configuration refused' : 'failed to start'}: `
@@ -905,8 +919,8 @@ export async function runFromCommandLine(env: NodeJS.ProcessEnv = process.env): 
         },
       );
     };
-    process.once('SIGTERM', stop);
-    process.once('SIGINT', stop);
+    onSignal = stop;
+    if (signalled) stop(signalled);
   });
 }
 

@@ -940,11 +940,19 @@ test('the same secret cannot be enrolled twice (F12.5)', async () => {
     await gate;
   });
   await holding;
-  const racing = mfa.enrolTotp({ label: 'replica b', secretRef: 'vault://owner/raced' });
+  // The refusal is expected from the moment the enrolment starts. It arrives
+  // when the other replica commits, on another connection, and can land
+  // before `otherReplica` settles: awaited only after that, it was a
+  // rejection with no handler for a moment, which the runner fails the test
+  // for (one run in five).
+  const racing = assert.rejects(
+    mfa.enrolTotp({ label: 'replica b', secretRef: 'vault://owner/raced' }),
+    (error: unknown) => isPalugadaError(error, 'mfa.already_enrolled'),
+  );
   await new Promise((resolve) => setTimeout(resolve, 200));
   release();
   await otherReplica;
-  await assert.rejects(racing, (error: unknown) => isPalugadaError(error, 'mfa.already_enrolled'));
+  await racing;
 
   // A revoked row is not in the way. Re-enrolling after losing a phone is the
   // ordinary case, and refusing that would make the guard worse than the bug.

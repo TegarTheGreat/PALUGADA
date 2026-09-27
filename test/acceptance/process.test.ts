@@ -104,6 +104,31 @@ test('npm start serves the console, lets the owner in, and stops on SIGTERM', as
 });
 
 /**
+ * A stop asked for while the deployment starts is a stop, not a kill.
+ *
+ * The listeners were installed after "console at" was printed, so a SIGTERM
+ * sent the moment the process said it was ready -- which is what a test, and
+ * a supervisor restarting it, does -- could arrive with nothing listening,
+ * and the default action killed it: exit code null, no "stopping", and a
+ * worker already claiming tasks that handed nothing back. Sent before it has
+ * even finished starting, it still ends in a clean stop.
+ */
+test('a SIGTERM while the deployment is still starting stops it cleanly once it has', async () => {
+  const deployment = run({});
+  let started!: () => void;
+  const starting = new Promise<void>((resolve) => { started = resolve; });
+  const poll = setInterval(() => { if (/palugada: starting/.test(deployment.output())) started(); }, 5);
+  try {
+    await within(starting, 20_000, `start (${deployment.output()})`);
+  } finally {
+    clearInterval(poll);
+  }
+  deployment.signal('SIGTERM');
+  assert.equal(await within(deployment.exited, 30_000, 'a clean stop'), 0, deployment.output());
+  assert.match(deployment.output(), /console at http:\/\/[\s\S]*SIGTERM, stopping/, 'it finished starting, then stopped');
+});
+
+/**
  * A revoked factor stays revoked across a restart.
  *
  * The boot enrolled the configured secret whenever `enrolled()` did not list

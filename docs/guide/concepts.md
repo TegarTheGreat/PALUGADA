@@ -139,6 +139,15 @@ database keeps the rule -- a second CEO is refused, and so is a change that
 would leave none -- and the owner moves it by appointing another role,
 never by a title. In the standard company the CEO is the coordinator.
 
+## Tickets
+
+A ticket is work that is owed and not yet anyone's: filed by a role with
+`ticket.create` or by you, read by the CEO with `ticket.list`, and handed
+on with `task.delegate` or from **Work**, **Tickets**. A ticket being worked
+names the task working it and closes when that task completes; if the task
+ends any other way, the ticket opens again with the reason. Tickets are
+closed, never deleted, and travel in a company's export.
+
 ## The coordinator
 
 The coordinator is the Operations role in the standard template, and the

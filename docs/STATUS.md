@@ -3345,9 +3345,20 @@ has.
   longer counts cancelled or rerun tasks as owed; and the assistant was told
   a goal status, a unit and optional schedule fields the API refuses.
 
-**Still open, next.** From the same audits, in order: `ticket.create` names an
-adapter that does not exist, so roles are told to open tickets nobody can
-see; the company learns from event metadata rather than from the work
+- **Tickets are the company's own backlog (0070).** `ticket.create` named an
+  adapter nothing provided, so the planner told to leave tickets behind its
+  plan and the support responder told to open one for a customer were
+  refused every time, and nobody saw what they meant to file. A ticket is
+  now a row in the company, filed by a run or the owner (the same title
+  still open in the division is the same ticket), read by the CEO with
+  `ticket.list` (outside content, since a run wrote it), handed on with
+  `task.delegate` and its `ticketId` or given to a role from Work, Tickets;
+  it closes when the task working it completes and opens again, with the
+  reason, when that task ends any other way. It is closed, never deleted,
+  and travels in the export. A vendor file that binds an outside tracker
+  still replaces it.
+
+**Still open, next.** From the same audits, in order: the company learns from event metadata rather than from the work
 (finished tasks carry no content), and a distilled fact is trusted the
 moment it is written; approving a skill from the inbox does nothing, and the
 console lists only active skills; a write whose read-back fails can be

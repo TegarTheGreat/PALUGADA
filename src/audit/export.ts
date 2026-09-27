@@ -162,6 +162,13 @@ const SECTIONS: Section[] = [
             FROM metric_observations ORDER BY observed_at`,
   },
   {
+    // The backlog (0070): what was owed, who filed it, and what worked it.
+    name: 'tickets',
+    sql: `SELECT id, project_id, division_id, title, body, status, priority, opened_by, opened_by_task_id,
+                 working_task_id, closed_reason, created_at, updated_at, closed_at
+            FROM tickets ORDER BY created_at`,
+  },
+  {
     name: 'task_steps',
     sql: `SELECT task_id, step_index, name, kind, status, idempotency_key, input_hash,
                  output, error, attempt, started_at, committed_at

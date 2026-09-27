@@ -437,3 +437,21 @@ export interface PolicyRow {
   division: string | null;
   createdAt: string;
 }
+
+/** Something owed and not yet anyone's (0070). */
+export interface Ticket {
+  id: string;
+  projectId: string;
+  divisionId: string | null;
+  title: string;
+  body: string;
+  status: 'open' | 'in_progress' | 'done' | 'closed';
+  priority: number;
+  openedBy: 'owner' | 'agent';
+  openedByTaskId: string | null;
+  workingTaskId: string | null;
+  closedReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+  closedAt: string | null;
+}

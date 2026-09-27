@@ -11,12 +11,12 @@
 import { useState } from 'react';
 import {
   Alert, Avatar, Badge, Button, Code, CopyButton, Drawer, Group, Modal, Paper, Progress, ScrollArea, SegmentedControl, SimpleGrid,
-  Spoiler, Stack, Table, Text, Textarea, ThemeIcon, Timeline, Tooltip,
+  Spoiler, Stack, Table, Tabs, Text, Textarea, ThemeIcon, Timeline, Tooltip,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
   IconCopy, IconCornerDownRight, IconFileText, IconHeartbeat, IconMail, IconPlayerPlay, IconPlayerStop, IconPlus,
-  IconRefresh, IconThumbDown, IconThumbUp,
+  IconListCheck, IconRefresh, IconThumbDown, IconThumbUp, IconTicket,
 } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
 import { useLoad, useNow } from '../hooks.ts';
@@ -27,6 +27,7 @@ import { t } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
 import { EmptyState, LoadFailed, Loading, PageHeader, StatusBadge } from '../components/ui.tsx';
 import { rolePicture } from '../images.ts';
+import { Tickets } from '../components/Tickets.tsx';
 
 type Filter = WorkGroup | 'all';
 
@@ -35,6 +36,7 @@ const LIVE = ['pending', 'checked_out', 'running'];
 export function Work({ ctx, route }: PageProps) {
   const { companyId } = ctx;
   const [filter, setFilter] = useState<Filter>('all');
+  const [view, setView] = useState<'tasks' | 'tickets'>('tasks');
   const work = useLoad(async () => {
     const answer: { items: WorkItem[]; counts: Record<WorkGroup, number> } = filter === 'all'
       ? await api('GET', `/api/companies/${companyId}/work?limit=100`)
@@ -57,6 +59,14 @@ export function Work({ ctx, route }: PageProps) {
         actions={<Button leftSection={<IconPlus size={16} />} onClick={ctx.giveWork}>{t('Give work')}</Button>}
       />
 
+      <Tabs value={view} onChange={(value) => setView(value === 'tickets' ? 'tickets' : 'tasks')}>
+        <Tabs.List>
+          <Tabs.Tab value="tasks" leftSection={<IconListCheck size={16} />}>{t('Tasks')}</Tabs.Tab>
+          <Tabs.Tab value="tickets" leftSection={<IconTicket size={16} />}>{t('Tickets')}</Tabs.Tab>
+        </Tabs.List>
+      </Tabs>
+
+      {view === 'tickets' ? <Tickets companyId={companyId} openTask={(id) => { setView('tasks'); openTask(id); }} /> : (<>
       <SegmentedControl
         value={filter}
         onChange={(value) => setFilter(value as Filter)}
@@ -127,6 +137,8 @@ export function Work({ ctx, route }: PageProps) {
           )}
         </Paper>
       )}
+
+      </>)}
 
       <TaskDrawer
         companyId={companyId}

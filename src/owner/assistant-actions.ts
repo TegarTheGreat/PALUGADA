@@ -185,6 +185,22 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     factor: 'always',
   },
   {
+    pattern: '/api/companies/:companyId/tickets',
+    what: 'File a ticket: something that needs doing and is not given to anyone yet. The CEO hands tickets on.',
+    fields: { title: 'what needs doing, in a line', body: 'optional detail and what done looks like', priority: 'optional 0 (first) to 3 (last)', divisionId: 'optional division it belongs to' },
+    factor: 'never',
+  },
+  {
+    pattern: '/api/companies/:companyId/tickets/:ticketId',
+    what: 'Close a ticket nobody should do, or open one again.', fields: { status: 'open or closed', reason: 'optional, why', priority: 'optional 0-3' }, factor: 'never',
+  },
+  {
+    pattern: '/api/companies/:companyId/tickets/:ticketId/assign',
+    what: 'Give a ticket to a role: it becomes that role\'s task, and closes when the task finishes.',
+    fields: { roleId: 'the role that does it', goalId: 'the goal it serves' },
+    factor: 'never',
+  },
+  {
     pattern: '/api/companies/:companyId/assign',
     what: `Give a company work. ${COMPANY} The roles and goals are in GET /api/companies/:companyId/structure.`,
     fields: {

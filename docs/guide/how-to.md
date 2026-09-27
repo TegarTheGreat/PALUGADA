@@ -110,6 +110,25 @@ role) appointed.
 5. Optionally set **Tokens to reserve**; blank uses the role's default.
 6. Press **Assign it**. The role wakes now.
 
+## Tickets: what is owed and not yet anyone's
+
+**Work**, **Tickets** is the company's backlog. The roles file tickets as
+they work -- the planner leaves the build behind its plan, the support
+responder files the customer who needs somebody else's answer -- and you
+can file your own with **New ticket**: what needs doing, the detail and
+what done looks like, a priority (P0 first to P3 when there is time), and
+the division it belongs to.
+
+A ticket becomes work when somebody is given it. The CEO reads the backlog
+and hands a ticket on to the role whose job it is; or press **Give to a
+role** and choose the role and the goal it serves. The ticket then shows as
+**Being worked**, with **See the work** to open the task, and it closes by
+itself when that task finishes. If the task ends any other way -- stopped,
+failed, halted -- the ticket opens again and says why. **Close** one nobody
+should do, with the reason if you like; **Why it exists** opens the run
+that filed it. A deployment that binds `ticket.create` to an outside tracker
+in its vendor file sends tickets there instead.
+
 ## Approve or refuse
 
 1. Open **Inbox**. Items are ordered tier 3 first, then incidents, then the

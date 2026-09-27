@@ -363,12 +363,22 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
     needsCredential: true,
   },
   {
+    // The company's own backlog (0070) unless a vendor file binds an outside
+    // tracker, which then replaces it. It was catalogued against a `tracker`
+    // adapter nothing provided, so the roles told to open tickets were
+    // refused every time they did.
     name: 'ticket.create',
-    adapter: 'tracker',
+    adapter: 'platform',
     tier: TIER.REVERSIBLE_WRITE,
-    summary: 'Opens or updates a work item.',
-    calibration: 'A ticket can be closed. It reaches colleagues, not customers.',
-    needsCredential: true,
+    summary: 'Files a ticket: work that is owed and not yet given to anyone.',
+    calibration: 'A ticket can be closed. It reaches colleagues and the owner, not customers.',
+  },
+  {
+    name: 'ticket.list',
+    adapter: 'platform',
+    tier: TIER.READ_ONLY,
+    summary: "Reads the company's open tickets, for the role that hands work on.",
+    calibration: 'Reads the company\'s own backlog. Nothing changes; what a ticket says was written by a run, so it is outside content.',
   },
   {
     name: 'calendar.hold',

@@ -27,6 +27,7 @@ import { recordObservation } from '../domain/metrics.ts';
 import { askOwner, raiseEscalationWithin } from '../inbox/inbox.ts';
 import { STAGES, assertStage, loosens, stageOf, type Stage } from '../domain/stage.ts';
 import { createSubTask, getTask } from '../engine/tasks.ts';
+import { listTickets, openTicket, readTicket, startTicket } from '../engine/tickets.ts';
 import { containChildResult } from '../engine/containment.ts';
 import { enqueueWake } from '../scheduler/wake.ts';
 import { isTerminal, type TaskStatus } from '../domain/task.ts';
@@ -255,6 +256,92 @@ export function metricRecordCapability(): Capability<MetricRecordInput, { verifi
   };
 }
 
+export interface TicketCreateInput {
+  title: string;
+  body?: string;
+  /** 0 first to 3 last; 2 unless said. */
+  priority?: number;
+}
+
+/**
+ * `ticket.create`: file something that needs doing and is not this run's job
+ * now (0070). In the company's own backlog, where the owner sees it and the
+ * CEO can hand it on; the same title still open in the division is the same
+ * ticket. Tier 1 as the catalogue has it: a ticket reaches colleagues and can
+ * be closed, and the read-back is the row being there. A vendor file that
+ * binds an outside tracker replaces this binding.
+ */
+export function ticketCreateCapability(): Capability<TicketCreateInput, { ticketId: string; existing: boolean }> {
+  return {
+    name: 'ticket.create',
+    inputSchema: {
+      type: 'object',
+      required: ['title'],
+      properties: {
+        title: { type: 'string', minLength: 1, maxLength: 200, description: 'What needs doing, in a line.' },
+        body: { type: 'string', maxLength: 8000, description: 'What whoever picks it up needs to know, and what done looks like.' },
+        priority: { type: 'integer', minimum: 0, maximum: 3, description: '0 first to 3 last; 2 unless it is urgent.' },
+      },
+    },
+    adapter: 'platform',
+    defaultTier: TIER.REVERSIBLE_WRITE,
+    describe: () => ({ moneyCents: 0 }),
+    async execute(input, ctx) {
+      return withTenant(ctx.companyId, async (tx) => {
+        const task = await getTask(tx, ctx.taskId);
+        if (!task) throw new PalugadaError('contract.violation', 'no such task', { taskId: ctx.taskId });
+        const opened = await openTicket(tx, {
+          companyId: ctx.companyId,
+          projectId: task.projectId,
+          divisionId: ctx.divisionId,
+          title: String(input.title ?? ''),
+          body: typeof input.body === 'string' ? input.body : '',
+          ...(input.priority === undefined ? {} : { priority: Number(input.priority) }),
+          openedBy: 'agent',
+          openedByTaskId: ctx.taskId,
+        });
+        return { ticketId: opened.ticket.id, existing: opened.existing };
+      });
+    },
+    async verify(_input, result, ctx) {
+      return withTenant(ctx.companyId, async (tx) => (await readTicket(tx, result.ticketId)) !== null);
+    },
+  };
+}
+
+/**
+ * `ticket.list`: the company's open tickets, for the role that hands work on
+ * (0070). What a ticket says was written by a run, perhaps from a customer's
+ * words, so it is outside content (F8.9) like a page read from the web.
+ */
+export function ticketListCapability(): Capability<{ status?: string; limit?: number }, { tickets: Array<Record<string, unknown>> }> {
+  return {
+    name: 'ticket.list',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        status: { enum: ['active', 'open', 'in_progress', 'done', 'closed', 'all'], description: 'active (open and in progress) unless said.' },
+        limit: { type: 'integer', minimum: 1, maximum: 100 },
+      },
+    },
+    adapter: 'platform',
+    defaultTier: TIER.READ_ONLY,
+    readsOutside: true,
+    describe: () => ({ moneyCents: 0 }),
+    async execute(input, ctx) {
+      const status = (input.status ?? 'active') as 'active';
+      const tickets = await withTenant(ctx.companyId, (tx) => listTickets(tx, { status, limit: input.limit ?? 50 }));
+      return {
+        tickets: tickets.map((ticket) => ({
+          id: ticket.id, title: ticket.title, body: ticket.body.slice(0, 1_000), status: ticket.status,
+          priority: ticket.priority, divisionId: ticket.divisionId, openedBy: ticket.openedBy,
+          workingTaskId: ticket.workingTaskId, createdAt: ticket.createdAt.toISOString(),
+        })),
+      };
+    },
+  };
+}
+
 export function registerPlatformCapabilities(registry: {
   register(capability: Capability<never, never>): void;
 }): void {
@@ -266,6 +353,8 @@ export function registerPlatformCapabilities(registry: {
   registry.register(taskDelegateCapability() as unknown as Capability<never, never>);
   registry.register(taskAwaitCapability() as unknown as Capability<never, never>);
   registry.register(stageProposeCapability() as unknown as Capability<never, never>);
+  registry.register(ticketCreateCapability() as unknown as Capability<never, never>);
+  registry.register(ticketListCapability() as unknown as Capability<never, never>);
 }
 
 export interface StageProposeInput {
@@ -443,6 +532,8 @@ export interface TaskDelegateInput {
   context?: string;
   /** How long it has, in minutes. Required in effect: a default of an hour applies (F6.4). */
   timeoutMinutes?: number;
+  /** The ticket this hands on, which is then being worked by the child and closes when it finishes (0070). */
+  ticketId?: string;
 }
 
 /** How often a parent waiting on a child looks again. */
@@ -470,6 +561,7 @@ export function taskDelegateCapability(): Capability<TaskDelegateInput, { childI
         brief: { type: 'string', minLength: 1, description: 'What it should do, and what done looks like.' },
         context: { type: 'string', description: 'Anything it needs to know that the brief does not say.' },
         timeoutMinutes: { type: 'integer', minimum: 1, description: 'How long it has (default 60).' },
+        ticketId: { type: 'string', description: 'The ticket this hands on, from ticket.list; it closes when the work is done.' },
       },
     },
     adapter: 'platform',
@@ -489,8 +581,25 @@ export function taskDelegateCapability(): Capability<TaskDelegateInput, { childI
         const role = await tx.query<{ id: string; division_id: string }>(
           'SELECT id, division_id FROM roles WHERE slug = $1', [String(input.role ?? '')]);
         const parent = await getTask(tx, ctx.taskId);
-        return { role: role.rows[0], parent };
+        const ticket = typeof input.ticketId === 'string' ? await readTicket(tx, input.ticketId) : null;
+        // Worked already by a child of this very task: the delegation being replayed.
+        const ours = ticket?.workingTaskId
+          ? (await tx.query('SELECT 1 FROM tasks WHERE id = $1 AND parent_task_id = $2', [ticket.workingTaskId, ctx.taskId])).rowCount === 1
+          : false;
+        return { role: role.rows[0], parent, ticket, ours };
       });
+      if (typeof input.ticketId === 'string') {
+        // Checked before the child exists, so a ticket that cannot be handed
+        // on does not leave work started under it.
+        if (!found.ticket) throw new PalugadaError('contract.violation', `no ticket ${input.ticketId} in this company`, { field: 'ticketId' });
+        if (found.ticket.status !== 'open' && !found.ours) {
+          throw new PalugadaError('contract.violation',
+            found.ticket.status === 'in_progress'
+              ? `ticket "${found.ticket.title}" is already being worked, by task ${found.ticket.workingTaskId}`
+              : `ticket "${found.ticket.title}" is ${found.ticket.status}`,
+            { field: 'ticketId' });
+        }
+      }
       if (!found.role) {
         throw new PalugadaError('contract.violation', `no role ${input.role} in this company`, { field: 'role' });
       }
@@ -505,8 +614,11 @@ export function taskDelegateCapability(): Capability<TaskDelegateInput, { childI
         createdBy: 'agent_run',
         deadlineAt,
       });
-      await withTenant(ctx.companyId, (tx) =>
-        tx.query('UPDATE roles SET dormant_until = NULL WHERE id = $1', [found.role!.id]));
+      await withTenant(ctx.companyId, async (tx) => {
+        await tx.query('UPDATE roles SET dormant_until = NULL WHERE id = $1', [found.role!.id]);
+        // A replayed delegation finds its child already working the ticket.
+        if (found.ticket && found.ticket.workingTaskId !== child.id) await startTicket(tx, ctx.companyId, found.ticket.id, child.id);
+      });
       await enqueueWake({
         companyId: ctx.companyId,
         roleId: found.role.id,

@@ -215,6 +215,8 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     { division: 'ops', capability: 'calendar.hold' },
     { division: 'ops', capability: 'doc.draft' },
     { division: 'ops', capability: 'ticket.create' },
+    // The backlog the CEO hands on: tickets the planner and support file.
+    { division: 'ops', capability: 'ticket.list' },
     ...HAND_ON.map((capability) => ({ division: 'ops', capability })),
 
     // Delivery plans; it does not deploy. The separation is what makes the
@@ -307,7 +309,9 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
         'You run the company\'s own operations, and you are where work arrives when the owner ' +
         'did not say who should do it. Route it: decide which role\'s job it is, hand it over ' +
         'with task.delegate and a brief that says what done looks like, wait for the result ' +
-        'with task.await, and report what came back. Do the work yourself only when it is ' +
+        'with task.await, and report what came back. The other roles file what is owed and not yet ' +
+        'anyone\'s as tickets: read them with ticket.list, and hand one on with task.delegate and its ' +
+        'ticketId, so it closes when the work is done. Do the work yourself only when it is ' +
         'operations: checking that services are up, reading the metrics, reading the calendar ' +
         'and writing things down. When a division escalates something to you, fix the cause ' +
         'or hand it to the role that can; you cannot decide for the owner. You do not contact ' +
@@ -317,10 +321,11 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
         ...HAND_ON,
         'uptime.check',
         'metrics.read',
-        // Not `web.fetch`, `files.list` or `calendar.hold`: F2.4's twelve is a
-        // budget, and routing work is worth more places than those. The
+        // Not `web.fetch`, `files.list`, `calendar.read` or `calendar.hold`:
+        // F2.4's twelve is a budget, and routing work is worth more places
+        // than those -- the backlog the other roles file first of all. The
         // division still holds them, for a role hired to use them.
-        'calendar.read',
+        'ticket.list',
         'doc.draft',
         'ticket.create',
       ],

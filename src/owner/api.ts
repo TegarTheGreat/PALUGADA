@@ -82,6 +82,7 @@ import { searchEverywhere } from './search.ts';
 import { appendEvent, readTaskEvents } from '../audit/event-log.ts';
 import { describeReplay, replayTask } from '../engine/replay.ts';
 import { assignTask } from '../scheduler/wake.ts';
+import { TICKET_STATUSES, listTickets, openTicket, readTicket, setTicketStatus, startTicket } from '../engine/tickets.ts';
 import { createCompanyFromTemplate, readTemplate } from '../templates/company.ts';
 import { accountFor, chainFor, createAccount, snapshot } from '../engine/budget.ts';
 import { remember, supersede } from '../memory/store.ts';
@@ -2362,6 +2363,90 @@ export class OwnerApi {
               : { reserveTokens: wholeNumber(body.reserveTokens, 'reserveTokens') }),
           });
           return { taskId: assigned.task.id, wakeId: assigned.wakeId };
+        },
+      },
+
+      /* ---------------------------------------------------- tickets (0070) --- */
+
+      {
+        // The company's backlog: open and in-progress first, then the
+        // recently finished, with who filed each and what is working it.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/tickets',
+        handle: async ({ params, query }) => {
+          const wanted = query.get('status') ?? 'active';
+          const status = wanted === 'all' || wanted === 'active' || (TICKET_STATUSES as readonly string[]).includes(wanted)
+            ? wanted as 'active' : 'active';
+          return { tickets: await withTenant(params.companyId!, (tx) => listTickets(tx, { status, limit: 200 })) };
+        },
+      },
+
+      {
+        // The owner files something that needs doing. No device: a ticket
+        // starts nothing until somebody is given it.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/tickets',
+        handle: async ({ params, body }) => withTenant(params.companyId!, async (tx) => {
+          const project = typeof body.projectId === 'string' && body.projectId
+            ? body.projectId
+            : (await tx.query<{ id: string }>('SELECT id FROM projects ORDER BY created_at LIMIT 1')).rows[0]?.id;
+          if (!project) throw new PalugadaError('contract.violation', 'the company has no project to file it in', { field: 'projectId' });
+          const opened = await openTicket(tx, {
+            companyId: params.companyId!,
+            projectId: project,
+            divisionId: typeof body.divisionId === 'string' && body.divisionId ? body.divisionId : null,
+            title: requireText(body.title, 'title'),
+            body: typeof body.body === 'string' ? body.body : '',
+            ...(body.priority === undefined ? {} : { priority: Number(body.priority) }),
+            openedBy: 'owner',
+          });
+          return { ticketId: opened.ticket.id, existing: opened.existing };
+        }),
+      },
+
+      {
+        // Closing a ticket nobody should do, or opening one again.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/tickets/:ticketId',
+        handle: async ({ params, body }) => withTenant(params.companyId!, async (tx) => ({
+          ticket: await setTicketStatus(tx, params.companyId!, params.ticketId!, {
+            status: oneOf(body.status, ['open', 'closed'] as const, 'status'),
+            reason: typeof body.reason === 'string' ? body.reason : null,
+            ...(body.priority === undefined ? {} : { priority: Number(body.priority) }),
+          }),
+        })),
+      },
+
+      {
+        // Giving a ticket to a role: it becomes that role's task, and the
+        // ticket closes when the task finishes. Checked open before the task
+        // is made, so a ticket already taken starts nothing.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/tickets/:ticketId/assign',
+        handle: async ({ params, body }) => {
+          const companyId = params.companyId!;
+          const ticket = await withTenant(companyId, (tx) => readTicket(tx, params.ticketId!));
+          if (!ticket) throw new PalugadaError('contract.violation', 'no such ticket in this company', { field: 'ticketId' });
+          if (ticket.status !== 'open') {
+            throw new PalugadaError('contract.violation', `ticket "${ticket.title}" is ${ticket.status.replace('_', ' ')}`, { field: 'ticketId' });
+          }
+          const roleId = requireText(body.roleId, 'roleId');
+          const role = await withTenant(companyId, (tx) =>
+            tx.query<{ division_id: string }>('SELECT division_id FROM roles WHERE id = $1', [roleId]));
+          if (!role.rows[0]) throw new PalugadaError('contract.violation', 'no such role in this company', { field: 'roleId' });
+          const assigned = await assignTask({
+            companyId,
+            projectId: ticket.projectId,
+            divisionId: role.rows[0].division_id,
+            roleId,
+            goalId: requireText(body.goalId, 'goalId'),
+            input: { goal: ticket.title, ...(ticket.body ? { context: ticket.body } : {}), ticketId: ticket.id },
+            createdBy: 'owner',
+            idempotencyKey: `ticket:${ticket.id}:${ticket.updatedAt.toISOString()}`,
+            detail: `the owner gave it ticket ${ticket.id}`,
+          });
+          await withTenant(companyId, (tx) => startTicket(tx, companyId, ticket.id, assigned.task.id));
+          return { taskId: assigned.task.id };
         },
       },
 

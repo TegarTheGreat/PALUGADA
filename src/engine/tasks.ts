@@ -17,6 +17,7 @@ import * as budget from './budget.ts';
 import { isRoleFrozen } from '../governance/role-freeze.ts';
 import { isSpendPaused } from '../governance/spend-guard.ts';
 import { assertGoalOpen } from '../domain/goals.ts';
+import { settleTicketsOf } from './tickets.ts';
 
 /** F6.5: one task may spawn at most this many children unless overridden. */
 export const DEFAULT_FAN_OUT_MAX = 5;
@@ -706,6 +707,10 @@ export async function transitionWithin(
     if (['completed', 'failed', 'halted', 'cancelled'].includes(to) && task.tokensReserved > 0) {
       await budget.release(tx, task.budgetAccountId, task.tokensReserved);
       await tx.query('UPDATE tasks SET tokens_reserved = 0 WHERE id = $1', [taskId]);
+    }
+    // A ticket this task was working is done with it, or open again (0070).
+    if (['completed', 'failed', 'halted', 'cancelled'].includes(to)) {
+      await settleTicketsOf(tx, companyId, taskId, to);
     }
 
     await appendEvent(tx, {

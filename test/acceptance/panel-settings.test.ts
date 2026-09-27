@@ -361,7 +361,7 @@ test('the owner installs an agent CLI and signs it in from the console; roles ru
     const health = await adapters.get('codex')!.health!();
     assert.equal(health.detail, 'codex-cli 0.157.1', 'the binary the console installed, not one on PATH');
     const layout = (adapters.get('codex') as unknown as { layout: (values: Record<string, string>) => { env: Record<string, string> } })
-      .layout({ model: 'm', maxTurns: '1', mcpConfig: '', mcpConfigFile: '', mcpUrl: 'http://127.0.0.1:1/mcp', mcpToken: 't', allowedTools: '', prompt: '', runDir: '/run/x' });
+      .layout({ model: 'm', maxTurns: '1', wallClockSeconds: '900', mcpConfig: '', mcpConfigFile: '', mcpUrl: 'http://127.0.0.1:1/mcp', mcpToken: 't', allowedTools: '', prompt: '', runDir: '/run/x' });
     assert.deepEqual(layout.env, { HOME: '/run/x', CODEX_HOME: '/run/x/.codex', PALUGADA_MCP_TOKEN: 't' },
       'the console\'s settings are laid over the known entry, not in place of it');
     // A key from this process's environment stays until the owner gives Claude Code its own.

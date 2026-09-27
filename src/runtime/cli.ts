@@ -59,11 +59,12 @@ import { driveRun, renderPrompt, toWireRequest, type Transport } from './wire.ts
 import { toolsForModel } from './tool-names.ts';
 import { startToolBridge, type ToolBridge } from './tool-bridge.ts';
 import { cliModelFor } from './cli-models.ts';
+import { PalugadaError } from '../errors.ts';
 import { resolveSecretEnv } from './credentials.ts';
 import type { SecretManager } from '../secrets/manager.ts';
 import { asOutput, translateStreamJsonLine, type StreamJsonLine } from './claude-code.ts';
 import {
-  codexEvents, geminiEvents, hermesEvents, openCodeEvents, openClawEvents,
+  codexEvents, geminiEvents, hermesEvents, hermesSessionCents, openCodeEvents, openClawEvents,
 } from './cli-dialects.ts';
 
 /**
@@ -100,6 +101,14 @@ export interface CliPlaceholders {
   model: string;
   /** `spec.maxTurns`, as a string. */
   maxTurns: string;
+  /**
+   * The run's wall clock in whole seconds, never less than one: the task's
+   * deadline, or the lease when it has none. For a CLI with a timeout of its
+   * own, so that it stops by itself -- and says what it spent -- when the
+   * run's time is up, rather than at a number written into its entry. Never
+   * 0, which OpenClaw reads as no limit.
+   */
+  wallClockSeconds: string;
   /**
    * The bridge as an MCP client configuration, inline JSON.
    *
@@ -176,6 +185,20 @@ export interface CliRuntimeSpec {
    */
   secretEnv?: Record<string, string>;
   maxTurns?: number;
+  /**
+   * Model name prefixes the CLI would sign in to with the machine's own
+   * identity rather than a key PALUGADA hands it -- a cloud instance's role,
+   * a desktop keychain -- which a home of its own does not keep it from.
+   * A role whose model starts with one is refused before anything starts.
+   */
+  hostSignInModels?: string[];
+  /**
+   * A second, short call that reads what the run cost, for a CLI whose
+   * stream does not say: the same command and environment, these arguments,
+   * `{sessionId}` the id its result line gave. Hermes's is
+   * `sessions export - --session-id {sessionId}`.
+   */
+  costArgs?: string[];
   cwd?: string;
   /**
    * What each tier a role names means to this CLI, such as
@@ -220,6 +243,18 @@ export function runtimeSpecsFrom(value: unknown): CliRuntimeSpec[] {
     // "ended as unknown", which says nothing about the spelling.
     if (spec.dialect !== undefined && !(CLI_DIALECTS as readonly unknown[]).includes(spec.dialect)) {
       throw new Error(`runtime spec ${spec.name} names dialect ${String(spec.dialect)}; one of ${CLI_DIALECTS.join(', ')}`);
+    }
+    if (spec.costArgs !== undefined && (!Array.isArray(spec.costArgs) || spec.costArgs.some((arg) => typeof arg !== 'string'))) {
+      throw new Error(`runtime spec ${spec.name} has costArgs that is not a list of arguments`);
+    }
+    if (spec.hostSignInModels !== undefined && (!Array.isArray(spec.hostSignInModels)
+      || spec.hostSignInModels.some((prefix) => typeof prefix !== 'string' || prefix === ''))) {
+      throw new Error(`runtime spec ${spec.name} has hostSignInModels that is not a list of model name prefixes`);
+    }
+    // Hermes reads `--max-turns 0` as no limit at all, so a zero written here
+    // to mean "none" would mean "for ever".
+    if (spec.maxTurns !== undefined && !(Number.isInteger(spec.maxTurns) && (spec.maxTurns as number) >= 1)) {
+      throw new Error(`runtime spec ${spec.name} has maxTurns ${JSON.stringify(spec.maxTurns)}; a whole number of at least 1`);
     }
     if (spec.secretEnv !== undefined && (typeof spec.secretEnv !== 'object' || spec.secretEnv === null
       || Object.entries(spec.secretEnv).some(([name, reference]) => !/^[A-Z][A-Z0-9_]*$/.test(name) || typeof reference !== 'string'))) {
@@ -330,6 +365,12 @@ export class CliAdapter implements Adapter {
     // Before anything is started: a refusal here leaves no bridge listening
     // and no directory behind.
     const model = cliModelFor(this.name, request.modelRouting.primary, this.#spec.models);
+    const hostSignIn = this.#spec.hostSignInModels?.find((prefix) => model.startsWith(prefix));
+    if (hostSignIn) {
+      throw new PalugadaError('model.unavailable',
+        `runtime ${this.name} would sign in with this machine's own identity for ${model} (${hostSignIn}*), not with a key `
+          + 'the owner gave it: choose a model from a provider whose key is saved under This deployment, Agents', { model });
+    }
     const credentials = await resolveSecretEnv(this.name, this.#spec.secretEnv, this.#secrets);
     const bridge = await startToolBridge(request.allowedTools, services);
     const prompt = this.prompt(request);
@@ -345,6 +386,7 @@ export class CliAdapter implements Adapter {
     const values: CliPlaceholders = {
       model,
       maxTurns: String(this.#spec.maxTurns ?? 40),
+      wallClockSeconds: String(Math.max(1, Math.floor(request.limits.wallClockMs / 1000))),
       mcpConfig: mcpConfigJson(bridge),
       mcpConfigFile: join(runDir, 'mcp.json'),
       mcpUrl: bridge.url,
@@ -367,22 +409,18 @@ export class CliAdapter implements Adapter {
       await writeFile(target, body, { encoding: 'utf8', mode: 0o600 });
     }
 
-    const child = spawnTree(
-      this.#spec.command,
-      layout.argv,
-      {
-        // Placeholders too: a CLI with no flag for its working directory
-        // reads its project settings from wherever it runs, and the run's own
-        // directory is the only place that holds nothing it was not given.
-        ...(this.#spec.cwd ? { cwd: substitute(this.#spec.cwd, values) } : {}),
-        // Not `process.env`. The parent's environment is where `DATABASE_URL`
-        // and every provider key live, and a child that inherited it would
-        // have been handed the platform's own credentials without anything
-        // failing to say so.
-        env: { ...this.#childEnv(layout.env), ...credentials },
-        stdio: ['pipe', 'pipe', 'pipe'],
-      },
-    );
+    const place = {
+      // Placeholders too: a CLI with no flag for its working directory
+      // reads its project settings from wherever it runs, and the run's own
+      // directory is the only place that holds nothing it was not given.
+      ...(this.#spec.cwd ? { cwd: substitute(this.#spec.cwd, values) } : {}),
+      // Not `process.env`. The parent's environment is where `DATABASE_URL`
+      // and every provider key live, and a child that inherited it would
+      // have been handed the platform's own credentials without anything
+      // failing to say so.
+      env: { ...this.#childEnv(layout.env), ...credentials },
+    };
+    const child = spawnTree(this.#spec.command, layout.argv, { ...place, stdio: ['pipe', 'pipe', 'pipe'] });
 
     let stderr = '';
     child.stderr!.setEncoding('utf8');
@@ -405,7 +443,7 @@ export class CliAdapter implements Adapter {
     services.signal.addEventListener('abort', withdraw, { once: true });
 
     const transport: Transport = {
-      events: this.#events(child, () => stderr, values.model),
+      events: this.#events(child, () => stderr, values.model, (sessionId) => this.#sessionCost(sessionId, place)),
       async send() {
         // Nothing to send. Tool answers reach this runtime over MCP, and a
         // cancellation reaches it as the killed process below.
@@ -435,15 +473,54 @@ export class CliAdapter implements Adapter {
       .some((text) => text.includes(placeholder));
   }
 
-  #events(child: ChildProcess, stderr: () => string, model: string): AsyncGenerator<RunEvent> {
+  #events(
+    child: ChildProcess, stderr: () => string, model: string, costOf: (sessionId: string) => Promise<number | null>,
+  ): AsyncGenerator<RunEvent> {
     switch (this.#spec.dialect ?? 'stream-json') {
       case 'text': return this.#textEvents(child, stderr);
-      case 'hermes-stream-json': return hermesEvents(lines(child), () => exitCode(child), stderr, this.name, model);
+      case 'hermes-stream-json':
+        return hermesEvents(lines(child), () => exitCode(child), stderr, this.name, model, this.#spec.costArgs ? costOf : undefined);
       case 'openclaw-json': return openClawEvents(whole(child), () => exitCode(child), stderr, this.name, model);
       case 'opencode-json': return openCodeEvents(lines(child), () => exitCode(child), stderr, this.name, model);
       case 'codex-jsonl': return codexEvents(lines(child), () => exitCode(child), stderr, this.name, model);
       case 'gemini-stream-json': return geminiEvents(lines(child), () => exitCode(child), stderr, this.name, model);
       default: return this.#streamJsonEvents(child, stderr);
+    }
+  }
+
+  /**
+   * What the CLI's own ledger says a session cost (`costArgs`), in the run's
+   * directory and environment, before either is gone. Only the first line is
+   * read -- Hermes puts the whole conversation after it -- and a call that
+   * says nothing usable in fifteen seconds leaves the price to the engine.
+   */
+  async #sessionCost(sessionId: string, place: { cwd?: string; env: Record<string, string> }): Promise<number | null> {
+    // It came from the CLI's own output, and it is about to be an argument.
+    if (!/^[A-Za-z0-9][\w.:-]{0,127}$/.test(sessionId)) return null;
+    const probe = spawnTree(this.#spec.command, this.#spec.costArgs!.map((arg) => arg.replaceAll('{sessionId}', sessionId)),
+      { ...place, stdio: ['ignore', 'pipe', 'ignore'] });
+    probe.on('error', () => {});
+    try {
+      const first = await new Promise<string | null>((resolve) => {
+        let text = '';
+        const timer = setTimeout(() => resolve(null), 15_000);
+        probe.stdout!.setEncoding('utf8');
+        probe.stdout!.on('data', (chunk: string) => {
+          text += chunk;
+          const end = text.indexOf('\n');
+          if (end !== -1 || text.length > 4 * 1024 * 1024) {
+            clearTimeout(timer);
+            resolve(end === -1 ? null : text.slice(0, end));
+          }
+        });
+        probe.stdout!.on('end', () => { clearTimeout(timer); resolve(text.trim() || null); });
+      });
+      const row = first ? JSON.parse(first) as unknown : null;
+      return row && typeof row === 'object' && !Array.isArray(row) ? hermesSessionCents(row as Record<string, unknown>) : null;
+    } catch {
+      return null;
+    } finally {
+      await this.#trees.end(probe);
     }
   }
 
@@ -523,7 +600,7 @@ export class CliAdapter implements Adapter {
 
 function substitute(arg: string, values: CliPlaceholders): string {
   return arg.replace(
-    /\{(model|maxTurns|mcpConfig|mcpConfigFile|mcpUrl|mcpToken|allowedTools|prompt|runDir)\}/g,
+    /\{(model|maxTurns|wallClockSeconds|mcpConfig|mcpConfigFile|mcpUrl|mcpToken|allowedTools|prompt|runDir)\}/g,
     (_, key: keyof CliPlaceholders) => values[key],
   );
 }

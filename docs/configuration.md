@@ -220,13 +220,21 @@ Any field of an entry can be corrected in `PALUGADA_RUNTIME_SPECS` by
 naming the CLI and the field, for example
 `[{"name":"opencode","apiKeyEnvVar":"ANTHROPIC_API_KEY"}]`, and a CLI this
 list does not name is described there in full: `command`, `args` with the
-placeholders `{model}`, `{maxTurns}`, `{mcpConfigFile}`, `{mcpUrl}`,
-`{mcpToken}`, `{allowedTools}`, `{prompt}` and `{runDir}`, `promptVia`,
-`dialect` (`stream-json`, `text`, `hermes-stream-json`, `openclaw-json`,
+placeholders `{model}`, `{maxTurns}`, `{wallClockSeconds}` (the run's
+deadline in seconds, or the lease when the task has none: for a CLI with a
+timeout of its own), `{mcpConfigFile}`, `{mcpUrl}`, `{mcpToken}`,
+`{allowedTools}`, `{prompt}` and `{runDir}`, `promptVia`, `dialect`
+(`stream-json`, `text`, `hermes-stream-json`, `openclaw-json`,
 `opencode-json`, `codex-jsonl` or `gemini-stream-json`), `env`, `files`,
-`cwd`, `models`, `apiKeyEnvVar` and `maxTurns`. A spec that never hands its CLI the
-bridge is refused at boot, because the CLI would run with no tools and
-answer as though it had them.
+`cwd`, `models`, `apiKeyEnvVar`, `maxTurns` (a whole number of at least 1:
+Hermes reads 0 as no limit) and `hostSignInModels` (model name prefixes the
+CLI would sign in to with the machine's own identity, which are refused;
+OpenClaw's entry names `amazon-bedrock/` and `claude-cli/`), and `costArgs`
+(a second call, same command, that reads what the run cost when the CLI's
+stream does not say; `{sessionId}` is the id its result line gave -- Hermes's
+entry reads its own ledger with `sessions export`). A spec that
+never hands its CLI the bridge is refused at boot, because the CLI would run
+with no tools and answer as though it had them.
 
 **MCP servers.** `PALUGADA_MCP_SERVERS` names a file listing servers
 (streamable HTTP) and, under each, the tools this deployment may use: each

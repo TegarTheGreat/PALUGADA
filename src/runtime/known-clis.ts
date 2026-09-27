@@ -78,6 +78,10 @@ const SPECS: Record<KnownCliName, CliRuntimeSpec> = {
     ],
     promptVia: 'stdin',
     dialect: 'hermes-stream-json',
+    // Its stream has tokens and no price, and `--usage-file` is `-z`'s, which
+    // approves everything. Hermes keeps each session's cost in its ledger;
+    // this reads it back after the run (`hermes sessions export`).
+    costArgs: ['sessions', 'export', '-', '--session-id', '{sessionId}'],
     env: { HOME: '{runDir}', HERMES_HOME: '{runDir}/hermes', PALUGADA_MCP_TOKEN: '{mcpToken}' },
     files: {
       'hermes/config.yaml': [
@@ -117,11 +121,21 @@ const SPECS: Record<KnownCliName, CliRuntimeSpec> = {
       '--cwd', '{runDir}',
       '--model', '{model}',
       '--code-mode', 'direct',
-      '--timeout', '600',
+      // Seconds; the run's own wall clock rather than OpenClaw's default of
+      // ten minutes, which ended a task given two hours at ten. At the
+      // limit it exits 2 and still prints its envelope, usage included.
+      '--timeout', '{wallClockSeconds}',
     ],
     promptVia: 'stdin',
     dialect: 'openclaw-json',
     env: { HOME: '{runDir}', PALUGADA_MCP_TOKEN: '{mcpToken}' },
+    // Every credential OpenClaw reads is under $HOME, which is the run's --
+    // except these two (its source, read 2026-09-28): Bedrock takes AWS's
+    // default chain, the instance's own role on a cloud server, and
+    // `claude-cli/` asks the claude binary, which on a Mac reads the login
+    // keychain whatever $HOME is. `--auth-env-only` would close both, and
+    // OpenClaw refuses it beside `--config`, which carries the bridge.
+    hostSignInModels: ['amazon-bedrock/', 'claude-cli/'],
     files: {
       'openclaw.json': JSON.stringify({
         mcp: {

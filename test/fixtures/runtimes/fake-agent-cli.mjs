@@ -27,6 +27,9 @@
  *   --call <capability>          call this capability before answering
  *   --exit <code>                exit with this code instead of answering
  *   --dump-env                   answer with the environment it was given
+ *   --dump-argv                  answer with the arguments it was given
+ *   sessions export - --session-id <id> --session-row <json>
+ *                                Hermes's ledger: print session s1's row
  *   --env-sha <var>              answer with the SHA-256 of that variable's
  *                                value: proves which credential arrived
  *                                without writing it into the task's output
@@ -47,6 +50,16 @@ const flag = (name) => {
   const index = argv.indexOf(name);
   return index === -1 ? null : (argv[index + 1] ?? null);
 };
+
+// Hermes's own ledger, as `hermes sessions export - --session-id <id>` prints
+// it: one line per session, its cost among the columns. Only for the session
+// the run's result line named, so a test sees that id travel.
+if (argv[0] === 'sessions' && argv[1] === 'export') {
+  const id = flag('--session-id');
+  const row = JSON.parse(flag('--session-row') ?? '{}');
+  if (id === 's1') process.stdout.write(`${JSON.stringify({ id, source: 'tool', ...row, messages: [{ role: 'user', content: 'x' }] })}\n`);
+  process.exit(0);
+}
 
 const dialect = flag('--dialect') ?? 'stream-json';
 const exitWith = flag('--exit');
@@ -86,6 +99,7 @@ const answer = { sawCharter: prompt.split('\n')[0] ?? '', promptLength: prompt.l
 const done = reportOn(prompt);
 if (done) answer.done = done;
 
+if (argv.includes('--dump-argv')) answer.argv = argv;
 if (argv.includes('--dump-env')) {
   answer.env = Object.keys(process.env).sort();
   answer.home = process.env.HOME ?? null;

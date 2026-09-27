@@ -26,7 +26,7 @@ import {
 } from '../../src/runtime/sandbox-adapter.ts';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { readdir, readFile, mkdtemp } from 'node:fs/promises';
+import { readdir, readFile, mkdtemp, stat } from 'node:fs/promises';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
@@ -43,6 +43,7 @@ import { CapabilityRegistry, type Capability } from '../../src/broker/registry.t
 import { createRootTask, getTask, transition } from '../../src/engine/tasks.ts';
 import { createCompany, grantCapability, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
+import { handed } from '../helpers/env.ts';
 
 before(ensureSchema);
 beforeEach(resetData);
@@ -208,7 +209,7 @@ test('a spawned runtime does not inherit the orchestrator environment (F13.4, F8
     assert.equal(seen.sawSentinel, false);
     // Allow-list rather than deny-list: a new secret in the parent environment
     // should fail this test on the day it is added, not on the day it leaks.
-    assert.deepEqual(seen.keys, ['PATH']);
+    assert.deepEqual(handed(seen.keys), ['PATH']);
   } finally {
     delete process.env.PALUGADA_TEST_SENTINEL;
   }
@@ -814,7 +815,7 @@ test('claude-code is handed a token saved in the console, and a home of its own 
 
   assert.equal(outcome.status, 'completed', outcome.reason);
   const record = JSON.parse(readFileSync(seen, 'utf8')) as { env: string[]; home: string; sha: string };
-  assert.deepEqual(record.env, ['CLAUDE_CODE_OAUTH_TOKEN', 'HOME', 'PATH']);
+  assert.deepEqual(handed(record.env), ['CLAUDE_CODE_OAUTH_TOKEN', 'HOME', 'PATH']);
   assert.equal(record.sha, createHash('sha256').update('sk-ant-oat01-saved-in-the-console').digest('hex'));
   assert.notEqual(record.home, process.env.HOME);
   assert.match(record.home, /palugada-claude-/, 'the run\'s own directory, removed when it ends');
@@ -961,7 +962,7 @@ test('an agent CLI does not inherit the orchestrator environment (F13.3, F13.4)'
     assert.equal(outcome.status, 'completed', outcome.reason);
     // Allow-list rather than deny-list: a new secret in the parent environment
     // should fail this test on the day it is added, not on the day it leaks.
-    assert.deepEqual((outcome.output as { env: string[] }).env, ['HERMES_HOME', 'PATH']);
+    assert.deepEqual(handed((outcome.output as { env: string[] }).env), ['HERMES_HOME', 'PATH']);
   } finally {
     delete process.env.PALUGADA_TEST_SENTINEL;
   }
@@ -996,7 +997,7 @@ test('an agent CLI is handed its own key from a secret saved in the console, and
 
     assert.equal(outcome.status, 'completed', outcome.reason);
     const output = outcome.output as { env: string[]; envSha: string };
-    assert.deepEqual(output.env, ['OPENROUTER_API_KEY', 'PATH']);
+    assert.deepEqual(handed(output.env), ['OPENROUTER_API_KEY', 'PATH']);
     assert.equal(output.envSha, createHash('sha256').update('sk-or-saved-in-the-console').digest('hex'));
   } finally {
     delete process.env.OPENROUTER_API_KEY;
@@ -1150,6 +1151,85 @@ test('a malformed runtime spec says which entry and what is wrong (F13.3)', () =
     /not a string/,
   );
   assert.deepEqual(runtimeSpecsFrom(null), []);
+  // Hermes reads `--max-turns 0` as no limit at all (hermes_cli/config.py), so
+  // a zero here would not mean "none" but "for ever".
+  for (const maxTurns of [0, -1, 2.5, '40']) {
+    assert.throws(
+      () => runtimeSpecsFrom([{ name: 'hermes', command: 'h', args: ['{maxTurns}'], maxTurns }]),
+      /hermes has maxTurns .*; a whole number of at least 1/,
+    );
+  }
+});
+
+/**
+ * A model that would sign in as the machine is refused.
+ *
+ * Each CLI runs with a home of its own and only `PATH` beside it, so it finds
+ * none of the operator's stored credentials -- every one OpenClaw reads is
+ * under `$HOME` (read from its source for the audit of 2026-09-28). Two model
+ * families are the exception: `amazon-bedrock/*` signs in with AWS's default
+ * chain, which on a cloud server is the instance's own role, and
+ * `claude-cli/*` asks the `claude` binary, which on a Mac reads the login
+ * keychain whatever `$HOME` says. Either would run a company's work on the
+ * host's identity rather than on a key the owner gave it, so the entry names
+ * them and they are refused before anything starts.
+ */
+test('a model OpenClaw would sign in to with the machine\'s own identity is refused before anything runs (F13.4)', async () => {
+  const fixture = await createCompany('cli-host-identity');
+  const broker = await brokerFor(fixture, []);
+  await configureRole(fixture, { runtime: 'openclaw' });
+  const pidfile = join(await mkdtemp(join(tmpdir(), 'palugada-host-identity-')), 'started');
+  const adapter = new CliAdapter(knownCli('openclaw', {
+    command: process.execPath,
+    args: [AGENT_CLI, '--dialect', 'text', '--mcp-config-from', '{runDir}/openclaw.json', '--spawn-orphan', pidfile],
+    dialect: 'text',
+  }));
+  for (const model of ['amazon-bedrock/anthropic.claude-sonnet', 'claude-cli/sonnet']) {
+    await withTenant(fixture.companyId, (tx) => tx.query('UPDATE roles SET model = $2 WHERE id = $1', [fixture.roleId, model]));
+    const task = await newTask(fixture, { ask: 'x' });
+    const outcome = await engineWith(broker, adapter).runTask(fixture.companyId, task.id, 'worker');
+    assert.equal(outcome.status, 'halted', `${model}: ${outcome.reason}`);
+    const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ payload: unknown }>(
+      "SELECT payload FROM events WHERE task_id = $1 AND type = 'task.halted'", [task.id]));
+    assert.match(JSON.stringify(rows[0]?.payload), /sign in with this machine's own identity/);
+  }
+  await assert.rejects(stat(pidfile), 'nothing was started');
+  assert.deepEqual(knownCli('openclaw').hostSignInModels, ['amazon-bedrock/', 'claude-cli/']);
+  assert.throws(() => runtimeSpecsFrom([{ name: 'openclaw', command: 'o', args: ['{mcpConfig}'], hostSignInModels: 'claude-cli/' }]),
+    /hostSignInModels .* a list of model name prefixes/);
+});
+
+/**
+ * A CLI with a clock of its own is given the run's.
+ *
+ * OpenClaw's `--timeout` was written into its entry as 600 seconds, so a task
+ * given two hours was ended by OpenClaw at ten minutes -- exit 2, "timed
+ * out" -- whatever its deadline said. It is the run's wall clock now: the
+ * task's deadline, or the lease when it has none. Never 0, which OpenClaw
+ * reads as no limit.
+ */
+test('an agent CLI with a timeout of its own is given the run\'s deadline, not a number in its entry (F6.4, F13.3)', async () => {
+  const fixture = await createCompany('cli-deadline');
+  const broker = await brokerFor(fixture, []);
+  await configureRole(fixture, { runtime: 'openclaw' });
+  const adapter = new CliAdapter({
+    name: 'openclaw',
+    command: process.execPath,
+    args: [AGENT_CLI, '--mcp-config', '{mcpConfig}', '--dump-argv', '--timeout', '{wallClockSeconds}'],
+  });
+  const seconds = async (deadlineAt?: Date) => {
+    const task = await newTask(fixture, { ask: 'take your time' }, deadlineAt ? { deadlineAt } : {});
+    const outcome = await engineWith(broker, adapter).runTask(fixture.companyId, task.id, 'worker');
+    assert.equal(outcome.status, 'completed', outcome.reason);
+    const argv = (outcome.output as { argv: string[] }).argv;
+    return Number(argv[argv.indexOf('--timeout') + 1]);
+  };
+  const twoHours = await seconds(new Date(Date.now() + 2 * 3_600_000));
+  assert.ok(twoHours > 7_100 && twoHours <= 7_200, `two hours away is about 7200 seconds, not ${twoHours}`);
+  assert.equal(await seconds(), 15 * 60, 'without a deadline, the lease');
+
+  const known = knownCli('openclaw').args;
+  assert.equal(known[known.indexOf('--timeout') + 1], '{wallClockSeconds}', 'and the shipped entry passes it');
 });
 
 /**
@@ -1169,6 +1249,7 @@ test('a placeholder becomes one argument whatever it contains (F13.3)', () => {
   const argv = adapter.argv({
     model: 'a model; rm -rf /',
     maxTurns: '40',
+    wallClockSeconds: '900',
     mcpConfig: '{"a":"b"}',
     mcpConfigFile: '',
     mcpUrl: 'http://127.0.0.1:1/mcp',
@@ -1499,6 +1580,7 @@ test('each runtime F13.3 names is a spec that reaches the broker (F13.3, F13.4)'
     const layout = adapter.layout({
       model: 'a-model',
       maxTurns: '40',
+      wallClockSeconds: '900',
       mcpConfig: '{"mcpServers":{}}',
       mcpConfigFile: '/tmp/run/mcp.json',
       mcpUrl: 'http://127.0.0.1:1/mcp',
@@ -2050,6 +2132,46 @@ test('a CLI\'s own total replaces the estimates it was charged (F13.7)', async (
   });
   assert.deepEqual(byRole.map((row) => [row.costCents, row.calls]), [[42, 1]],
     'one call, costing what the provider billed');
+});
+
+/**
+ * What a Hermes run cost, from Hermes' own ledger.
+ *
+ * Hermes prints tokens on its result line and no price, and `--usage-file`,
+ * which would give one, belongs to `-z`, the mode that approves everything --
+ * so every Hermes run was charged PALUGADA's deliberately high fallback rate.
+ * Hermes does price the session, and keeps it: after the run,
+ * `hermes sessions export` reads it back by the session id the result line
+ * gave. A price Hermes marks unknown stays unknown here too -- counted as
+ * free, a hard stop could never trip -- and falls back to the price list.
+ */
+test('a Hermes run is charged what Hermes recorded for its session; a price it does not know is not free (F13.7)', async () => {
+  const cases: Array<[string, Record<string, unknown>, number]> = [
+    ['provider-reported', { cost_status: 'actual', actual_cost_usd: 0.42, estimated_cost_usd: 0.4 }, 42],
+    ['Hermes estimated', { cost_status: 'estimated', actual_cost_usd: null, estimated_cost_usd: 0.31 }, 31],
+    ['in a subscription', { cost_status: 'included', actual_cost_usd: null, estimated_cost_usd: 0 }, 0],
+    // 120 in and 34 out at the fallback rate rounds up to one cent.
+    ['not known', { cost_status: 'unknown', actual_cost_usd: null, estimated_cost_usd: null }, 1],
+  ];
+  for (const [what, row, cents] of cases) {
+    const fixture = await createCompany(`hermes-cost-${cents}`);
+    const broker = await brokerFor(fixture, []);
+    await configureRole(fixture, { runtime: 'hermes' });
+    const [spec] = runtimeSpecsFrom([{
+      name: 'hermes',
+      command: process.execPath,
+      args: [AGENT_CLI, '--dialect', 'hermes-stream-json', '--mcp-config', '{mcpConfig}', '--model', '{model}'],
+      dialect: 'hermes-stream-json',
+      costArgs: [AGENT_CLI, 'sessions', 'export', '-', '--session-id', '{sessionId}', '--session-row', JSON.stringify(row)],
+    }]);
+    const task = await newTask(fixture, { ask: 'anything' });
+    const outcome = await engineWith(broker, new CliAdapter(spec!)).runTask(fixture.companyId, task.id, 'worker');
+    assert.equal(outcome.status, 'completed', `${what}: ${outcome.reason}`);
+    assert.equal(await spentBy(fixture), cents, what);
+  }
+  assert.deepEqual(knownCli('hermes').costArgs, ['sessions', 'export', '-', '--session-id', '{sessionId}']);
+  assert.throws(() => runtimeSpecsFrom([{ name: 'hermes', command: 'h', args: ['{mcpConfig}'], costArgs: 'sessions' }]),
+    /costArgs that is not a list of arguments/);
 });
 
 /**

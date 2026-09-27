@@ -60,13 +60,18 @@ function failure(runtime: string, what: string, stderr: () => string): RunEvent 
  * Hermes: `hermes chat --oneshot --format stream-json`.
  *
  * `text` lines are deltas of the answer, passed on as text. The terminal
- * `result` line is the whole run: its tokens become one usage report with no
- * price (Hermes reports none on this path; the engine estimates, F13.7), and
+ * `result` line is the whole run: its tokens become one usage report, and
  * its `exit_code` and `error` are the verdict. A process that ends without a
  * result line did not finish, whatever its exit code says.
+ *
+ * The result line carries no price. Hermes does price the session and keeps
+ * it, so `costOf` -- given its session id, once the process has exited and
+ * written its ledger -- reads that back; without one, or when Hermes does not
+ * know the price either, the engine estimates (F13.7).
  */
 export async function* hermesEvents(
   lines: Lines, exit: () => Promise<number>, stderr: () => string, runtime: string, model: string,
+  costOf?: (sessionId: string) => Promise<number | null>,
 ): AsyncGenerator<RunEvent> {
   let reported = model;
   for await (const raw of lines) {
@@ -82,11 +87,17 @@ export async function* hermesEvents(
     }
     if (line.type === 'result') {
       const tokens = (line.tokens ?? {}) as Record<string, unknown>;
+      let costCents: number | null = null;
+      if (costOf && typeof line.session_id === 'string') {
+        // The ledger is written as the process ends; a few seconds at most.
+        await Promise.race([exit(), new Promise((resolve) => setTimeout(resolve, 10_000).unref())]);
+        costCents = await costOf(line.session_id).catch(() => null);
+      }
       const usage: ModelUsage = {
         model: reported,
         inputTokens: number(tokens.input),
         outputTokens: number(tokens.output),
-        costCents: null,
+        costCents,
       };
       yield { type: 'usage', usage };
       if (line.exit_code === 0 && !line.error) {
@@ -99,6 +110,23 @@ export async function* hermesEvents(
     }
   }
   yield failure(runtime, `exited ${await exit()} without a result`, stderr);
+}
+
+/**
+ * What Hermes recorded a session as costing, in cents, from its ledger's row
+ * (`hermes sessions export`): the provider's own figure where it has one,
+ * Hermes' estimate where that is all there is, nothing for a route a
+ * subscription covers, and null -- not nought -- for a price it does not
+ * know, so the engine prices it rather than calling it free.
+ */
+export function hermesSessionCents(row: Record<string, unknown>): number | null {
+  const usd = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null);
+  const actual = usd(row.actual_cost_usd);
+  const estimated = usd(row.estimated_cost_usd);
+  const figure = row.cost_status === 'included' ? 0
+    : row.cost_status === 'actual' || row.cost_status === 'estimated' ? actual ?? estimated
+      : actual;
+  return figure === null ? null : figure * 100;
 }
 
 /**

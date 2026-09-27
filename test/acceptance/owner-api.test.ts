@@ -1824,7 +1824,7 @@ test('an agent CLI this platform knows is turned on by its name, and corrected i
   });
   assert.deepEqual(adapters.names().filter((name) => name !== 'in-process').sort(), ['claude-code', 'codex', 'gemini-cli']);
   const codex = adapters.get('codex') as unknown as { layout: (values: Record<string, string>) => { argv: string[] } };
-  const values = { model: 'gpt-x', maxTurns: '40', mcpConfig: '', mcpConfigFile: '', mcpUrl: 'http://127.0.0.1:1/mcp', mcpToken: 't', allowedTools: '', prompt: '', runDir: '/run/x' };
+  const values = { model: 'gpt-x', maxTurns: '40', wallClockSeconds: '900', mcpConfig: '', mcpConfigFile: '', mcpUrl: 'http://127.0.0.1:1/mcp', mcpToken: 't', allowedTools: '', prompt: '', runDir: '/run/x' };
   assert.deepEqual(codex.layout(values).argv, knownCli('codex').args.map((arg) => arg.replace('{runDir}', '/run/x').replace('{model}', 'gpt-x')),
     'the rest of the known command line is kept');
   const health = await adapters.get('codex')!.health!();

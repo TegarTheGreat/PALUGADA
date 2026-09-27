@@ -67,6 +67,21 @@ export async function findStep(
   };
 }
 
+/** The most of a step's input the journal keeps, in characters of JSON. */
+export const STEP_INPUT_LIMIT = 8_000;
+
+/**
+ * What of a step's input the journal keeps for the owner to read (0073): a
+ * tool's or an internal step's, bounded; not a model call's, whose input is
+ * its prompt and is kept by llm_traces under its own retention.
+ */
+function keptInput(kind: StepKind, input: unknown): unknown {
+  if (kind === 'llm') return null;
+  const text = JSON.stringify(input ?? null) ?? 'null';
+  if (text.length <= STEP_INPUT_LIMIT) return input ?? null;
+  return { cut: true, characters: text.length, start: text.slice(0, STEP_INPUT_LIMIT) };
+}
+
 /**
  * Runs a step exactly once across restarts, or returns its recorded output.
  *
@@ -92,6 +107,7 @@ export async function runStep<T>(
   execute: (key: string) => Promise<T>,
 ): Promise<{ value: T; replayed: boolean }> {
   const inputHash = hashInput(options.input);
+  const kept = keptInput(options.kind, options.input);
   const key = idempotencyKey(ctx.taskId, options.stepIndex, inputHash);
 
   const claim = await withTenant(ctx.companyId, async (tx) => {
@@ -107,16 +123,17 @@ export async function runStep<T>(
     // the committed row is read back instead.
     const { rows } = await tx.query<{ attempt: number }>(
       `INSERT INTO task_steps
-         (task_id, step_index, company_id, name, kind, status, input_hash, idempotency_key)
-       VALUES ($1, $2, $3, $4, $5, 'started', $6, $7)
+         (task_id, step_index, company_id, name, kind, status, input_hash, idempotency_key, input)
+       VALUES ($1, $2, $3, $4, $5, 'started', $6, $7, $8::jsonb)
        ON CONFLICT (task_id, step_index) DO UPDATE
          SET status = 'started', attempt = task_steps.attempt + 1, started_at = now(),
              name = EXCLUDED.name, kind = EXCLUDED.kind,
              input_hash = EXCLUDED.input_hash, idempotency_key = EXCLUDED.idempotency_key,
-             error = NULL
+             input = EXCLUDED.input, error = NULL
          WHERE task_steps.status <> 'committed'
        RETURNING attempt`,
-      [ctx.taskId, options.stepIndex, ctx.companyId, options.name, options.kind, inputHash, key],
+      [ctx.taskId, options.stepIndex, ctx.companyId, options.name, options.kind, inputHash, key,
+        kept === null ? null : JSON.stringify(kept)],
     );
     if (rows[0]) return { attempt: rows[0].attempt };
     return { committed: (await findStep(tx, ctx.taskId, options.stepIndex))! };

@@ -226,6 +226,14 @@ Open the task from **Work** (or **Open the task** on an inbox item).
 - **Replay against the journal** runs the handler again with every side
   effect answered from the record. Nothing leaves.
 
+To see how it was done, open **Every step**: each capability it called, by
+name, with its tier, the policies that applied and who approved it; **What
+it was asked** and **What came back** for each; the model calls and what
+they cost; and, at the top, whether it read content from outside -- an
+email, a web page, the backlog -- and through what. **What it did** names
+the capability on each event, and **Why it stopped** says what stopped a
+halted task. **Cost so far** includes what vendors charged.
+
 To stop everything at once, press **Stop everything** at the foot of the
 sidebar. Work in every company stops at its next step and nothing new
 starts; **Resume everything** takes a code. To stop one company, use

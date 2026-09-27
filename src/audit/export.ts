@@ -171,7 +171,7 @@ const SECTIONS: Section[] = [
   {
     name: 'task_steps',
     sql: `SELECT task_id, step_index, name, kind, status, idempotency_key, input_hash,
-                 output, error, attempt, started_at, committed_at
+                 output, error, attempt, started_at, committed_at, input
             FROM task_steps ORDER BY task_id, step_index`,
   },
   {

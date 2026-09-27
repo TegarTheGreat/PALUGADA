@@ -48,7 +48,7 @@ import { randomBytes } from 'node:crypto';
 import { PalugadaError } from '../errors.ts';
 import { withControlPlane, withTenant } from '../db/tenant.ts';
 import * as inbox from '../inbox/inbox.ts';
-import { traceFromInboxItem } from '../reporting/trace.ts';
+import { traceFromInboxItem, traceOfTask } from '../reporting/trace.ts';
 import { buildDailyDigest, buildWeeklyRetro } from '../reporting/digest.ts';
 import {
   clearStopAll,
@@ -75,7 +75,7 @@ import { ownerWindow, setBatchWindow, setOwnerWindow } from '../scheduler/window
 import { healthFor } from '../broker/preflight.ts';
 import { costTimeline, platformCost } from '../reporting/cost.ts';
 import { rotateCredential } from '../secrets/rotation.ts';
-import type { SecretManager } from '../secrets/manager.ts';
+import { redactor, type SecretManager } from '../secrets/manager.ts';
 import { assertStage, loosens, setStage, stageOf, type Stage } from '../domain/stage.ts';
 import { createHandoffRule, handoffRulesOf, setHandoffRuleEnabled } from '../engine/handoff-rules.ts';
 import { searchEverywhere } from './search.ts';
@@ -784,6 +784,21 @@ export class OwnerApi {
             throw new PalugadaError('contract.violation', 'no such inbox item', {});
           }
           return trace;
+        },
+      },
+
+      {
+        // F11.2 from the Work page: every step of a task, what each was asked
+        // and what it returned, what the model calls cost, and where content
+        // from outside came in. Redacted like the task itself.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/tasks/:taskId/trace',
+        handle: async ({ params, query }) => {
+          const trace = await traceOfTask(params.companyId!, params.taskId!, {
+            includePrompts: query.get('prompts') === '1',
+          });
+          if (!trace) throw new PalugadaError('contract.violation', 'no such task in this company', {});
+          return redactor.redactDeep(trace);
         },
       },
 

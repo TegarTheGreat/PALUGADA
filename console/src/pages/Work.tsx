@@ -21,13 +21,14 @@ import {
 import { api, explain } from '../api.ts';
 import { useLoad, useNow } from '../hooks.ts';
 import { go } from '../router.ts';
-import type { Deliverable, TaskDetail, WorkGroup, WorkItem } from '../types.ts';
+import type { Deliverable, TaskDetail, Trace, WorkGroup, WorkItem } from '../types.ts';
 import { dateTime, eventSentence, haltReason, humanize, money, relative, time } from '../format.ts';
 import { t } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
 import { EmptyState, LoadFailed, Loading, PageHeader, StatusBadge } from '../components/ui.tsx';
 import { rolePicture } from '../images.ts';
 import { Tickets } from '../components/Tickets.tsx';
+import { TraceView } from '../components/Trace.tsx';
 
 type Filter = WorkGroup | 'all';
 
@@ -260,7 +261,7 @@ export function TaskDrawer({ companyId, task, close, changed, openTask }: {
           <SimpleGrid cols={2} spacing="sm">
             <Fact label={t('Serves')} value={task.goal ?? '—'} />
             <Fact label={t('Cost so far')} value={money(task.costCents)} />
-            <Fact label={t('Attempt')} value={t('{attempt} of {max}', { attempt: task.attempt, max: task.attemptMax })} />
+            <Fact label={t('Attempt')} value={t('{attempt} of {max}', { attempt: Math.min(task.attempt + 1, task.attemptMax), max: task.attemptMax })} />
             <Fact label={t('Priority')} value={`P${task.priority}`} />
             <Fact label={t('Created')} value={dateTime(task.createdAt)} />
             <Fact label={t('Finished')} value={dateTime(task.finishedAt)} />
@@ -269,6 +270,7 @@ export function TaskDrawer({ companyId, task, close, changed, openTask }: {
           {['completed', 'failed', 'halted'].includes(task.status) && <TaskFeedback companyId={companyId} task={task} />}
           <TaskControls companyId={companyId} task={task} changed={changed} openTask={openTask} />
           <Transcript companyId={companyId} task={task} />
+          <Steps companyId={companyId} task={task} />
           <div>
             <Text fw={700} mb="sm">{t('What it did')}</Text>
             {events.error ? <Text c="red" size="sm">{events.error}</Text> : !events.data ? <Loading rows={2} /> : events.data.length === 0 ? (
@@ -276,7 +278,12 @@ export function TaskDrawer({ companyId, task, close, changed, openTask }: {
             ) : (
               <Timeline bulletSize={14} lineWidth={2} active={events.data.length}>
                 {events.data.map((event, index) => (
-                  <Timeline.Item key={`${event.type}-${index}`} title={<Text size="sm" fw={600}>{eventSentence(event.type)}</Text>}
+                  <Timeline.Item key={`${event.type}-${index}`}
+                    title={<Group gap={6} wrap="wrap"><Text size="sm" fw={600}>{eventSentence(event.type)}</Text>
+                      {capabilityOf(event) && <Badge size="sm" variant="light" color="gray" tt="none">{capabilityOf(event)}</Badge>}
+                      {typeof event.payload.tier === 'number' && <Badge size="sm" variant="outline" color="gray">{t('tier {tier}', { tier: event.payload.tier })}</Badge>}
+                      {typeof event.payload.approvedBy === 'string' && <Badge size="sm" variant="light" color="teal" tt="none">{t('approved by {who}', { who: event.payload.approvedBy })}</Badge>}
+                    </Group>}
                     color={/refused|denied|failed|halt/.test(event.type) ? 'red' : 'blue'}>
                     <Text size="xs" c="dimmed">{event.actor} · {dateTime(event.occurredAt)}</Text>
                     {/* Why it halted or failed, as whatever refused put it: the next thing to change. */}
@@ -393,6 +400,44 @@ function TaskControls({ companyId, task, changed, openTask }: {
  * refreshed while the task is live: the closest the owner gets to watching
  * the agent think, and usually enough to see it going the wrong way.
  */
+/**
+ * Every step behind the task (F11.2): what each capability was asked and
+ * returned, the calls and what they cost, and where content from outside came
+ * in. Loaded when opened: most owners reading a task never need it, and it
+ * is the largest thing on the page.
+ */
+function Steps({ companyId, task }: { companyId: string; task: WorkItem }) {
+  const [open, setOpen] = useState(false);
+  const trace = useLoad(async (): Promise<(Trace & { outside: string[] }) | null> => (open
+    ? api('GET', `/api/companies/${companyId}/tasks/${task.id}/trace`)
+    : null), [companyId, task.id, open]);
+  return (
+    <div>
+      <Group justify="space-between" mb="sm">
+        <Text fw={700}>{t('Every step')}</Text>
+        <Button size="compact-sm" variant="subtle" onClick={() => setOpen((now) => !now)}>{open ? t('Hide') : t('Show')}</Button>
+      </Group>
+      {open && (trace.error ? <Text c="red" size="sm">{trace.error}</Text> : !trace.data ? <Loading rows={2} /> : (
+        <Stack gap="sm">
+          {trace.data.outside.length > 0 && (
+            <Alert color="grape" variant="light" title={t('It read content from outside')}>
+              {t('Through {capabilities}. What came from there is data the company did not write; check what it did with it.', {
+                capabilities: trace.data.outside.join(', '),
+              })}
+            </Alert>
+          )}
+          <TraceView trace={trace.data} />
+        </Stack>
+      ))}
+    </div>
+  );
+}
+
+/** Which capability an event is about, when it is about one. */
+function capabilityOf(event: { payload: Record<string, unknown> }): string | null {
+  return typeof event.payload.capability === 'string' ? event.payload.capability : null;
+}
+
 function Transcript({ companyId, task }: { companyId: string; task: WorkItem }) {
   const notes = useLoad(async () => {
     const answer: { notes: Array<{ seq: number; body: string; saidAt: string; attempt: number }> } =

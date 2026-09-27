@@ -3423,12 +3423,23 @@ has.
   its narration numbering restarted at one, and every line after the wait
   was refused by the database without a word.
 
+- **The owner can see how a piece of work was done (0073).** The Work page
+  reached a task's events and its narration, not the steps behind them, and
+  the journal kept a step's output and only a hash of what it was asked --
+  so a trace showed that a message went out, not to whom. Tool and internal
+  steps now keep their input, bounded; a task has its own trace, the one an
+  inbox item already had, with each call's capability, tier, policies and
+  approver, what it was asked and what came back, the model calls and their
+  cost, and where content from outside came in; the task's timeline names
+  the capability on each event; and the steps read as sentences, with the
+  data a click away.
+
 **Still open, next.** From the same audits, in order: done criteria are
 shown to runs and never checked -- an honest check needs a judge or a
 change to every role's output, and is the next piece of this; a run has no
-wall-clock ceiling of its own beyond its deadline and its lease; tool inputs
-and the context a run was given are not kept, and the task timeline does not
-name the capability used; projects are only a label; there is no document
+wall-clock ceiling of its own beyond its deadline and its lease; the context
+a run was given is kept only as its prompt, for in-process runs; projects are
+only a label; there is no document
 knowledge base, and pgvector is installed and unused. The assistant in
 Telegram, by text and voice note. WhatsApp, Signal and email as
 owner channels are not built; Slack and Discord cannot carry buttons, so

@@ -126,6 +126,50 @@ export async function traceFromInboxItem(
   };
 }
 
+/** A task's own trace: every run, every call, and where outside content came in. */
+export interface TaskTrace {
+  taskId: string;
+  reason?: string;
+  runs: Trajectory[];
+  calls: TraceCall[];
+  /** The capabilities through which content the company did not write entered this work (F8.9). */
+  outside: string[];
+}
+
+/**
+ * The same two hops as an inbox item's, from the task itself: the Work page
+ * reached a task's events and its narration, and not the steps behind them
+ * -- which capability was called with what, what came back, which model
+ * calls it cost. Null for a task that is not this company's.
+ */
+export async function traceOfTask(
+  companyId: string,
+  taskId: string,
+  options: { includePrompts?: boolean } = {},
+): Promise<TaskTrace | null> {
+  if (!/^[0-9a-f-]{36}$/.test(taskId)) return null;
+  const outside = await withTenant(companyId, async (tx) => {
+    const { rows: found } = await tx.query('SELECT 1 FROM tasks WHERE id = $1', [taskId]);
+    if (found.length === 0) return null;
+    const { rows } = await tx.query<{ capability: string }>(
+      `SELECT DISTINCT payload->>'capability' AS capability FROM events
+        WHERE task_id = $1 AND type = 'content.read_outside' AND payload->>'capability' IS NOT NULL
+        ORDER BY 1`,
+      [taskId]);
+    return rows.map((row) => row.capability);
+  });
+  if (outside === null) return null;
+  const runs = await trajectoriesForTask(companyId, taskId);
+  const calls = await callsForTask(companyId, taskId, options.includePrompts ?? false);
+  return {
+    taskId,
+    runs,
+    calls,
+    outside,
+    ...(runs.length === 0 ? { reason: 'no run of this task has started yet' } : {}),
+  };
+}
+
 /**
  * Every model call for a task, whether or not it belongs to a run.
  *

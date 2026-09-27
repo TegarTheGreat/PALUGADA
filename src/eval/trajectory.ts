@@ -58,6 +58,9 @@ const DECISION_EVENTS = new Set([
   'review.opened',
   'review.decided',
   'approval.requested',
+  // Where content from outside entered the work (F8.9): what the owner
+  // reading a trace most needs to see before trusting what came after it.
+  'content.read_outside',
 ]);
 
 function kindFor(type: string): TrajectoryStep['kind'] {
@@ -127,12 +130,13 @@ export async function exportTrajectory(
       name: string;
       kind: string;
       status: string;
+      input: unknown;
       output: unknown;
       error: string | null;
       committed_at: Date | null;
       started_at: Date;
     }>(
-      `SELECT name, kind, status, output, error, committed_at, started_at
+      `SELECT name, kind, status, input, output, error, committed_at, started_at
          FROM task_steps
         WHERE task_id = $1 AND started_at >= $2
         ORDER BY step_index`,
@@ -185,6 +189,8 @@ export async function exportTrajectory(
         name: step.name,
         detail: {
           status: step.status,
+          // What it was asked to do (0073), beside what came back.
+          ...(step.input === null || step.input === undefined ? {} : { input: step.input }),
           ...(step.error === null ? {} : { error: step.error }),
           ...(step.output === null || step.output === undefined ? {} : { output: step.output }),
         },

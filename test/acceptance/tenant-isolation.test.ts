@@ -143,6 +143,9 @@ test('every table holding tenant data is protected', async () => {
     // the changes proposed to them, which no agent may read or add to.
     'assistant_messages',
     'assistant_proposals',
+    // Which topic of the owner's Telegram chat each company's messages go to
+    // (0077): the owner's, like the conversation, and no agent's business.
+    'telegram_topics',
   ]);
 
   const rows = await withControlPlane(async (tx) => {

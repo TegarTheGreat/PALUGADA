@@ -115,6 +115,11 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     fields: { text: 'optional' },
     factor: 'never',
   },
+  {
+    pattern: '/api/control/channels/telegram/photo',
+    what: 'Give the Telegram bot saved PALUGADA\'s picture as its profile photo.',
+    factor: 'never',
+  },
   { pattern: '/api/control/channels/:name/clear', what: 'Disconnect a channel: telegram, push, slack or discord.', factor: 'always' },
   {
     pattern: '/api/control/mcp/servers',

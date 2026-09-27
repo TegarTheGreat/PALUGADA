@@ -781,7 +781,17 @@ daily digest and a message when work you gave has finished. Buttons are
 removed once an item is decided elsewhere, and a press from anyone else is
 recorded as a security event. Saving also sets the bot's menu (the `/`
 button in your chat) to `/ceo`, `/palugada` and `/help`, in the console's
-language.
+language. **Use this picture** gives the bot PALUGADA's logo as its profile
+photo; you can still choose your own in @BotFather.
+
+**One topic per company.** With several companies, open @BotFather, choose
+your bot, and turn on topics (threaded mode) for it. Each company then gets
+its own topic in your chat, named after it, the first time it has something
+for you: its approvals, questions, finished work and digest arrive there, and
+what you write in it goes to that company's CEO -- no `/ceo` needed.
+Choosing PALUGADA with `/palugada` opens a topic for PALUGADA's assistant.
+Delete a topic and the next message makes it again. Without topics,
+everything arrives in the one chat, as before.
 
 **Talking to your CEO in Telegram.** Write to the bot, or send it a voice
 note, and your CEO answers there -- the same conversation as **Talk to …,

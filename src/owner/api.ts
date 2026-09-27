@@ -44,6 +44,7 @@
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import { PalugadaError } from '../errors.ts';
 import { withControlPlane, withTenant } from '../db/tenant.ts';
@@ -156,7 +157,7 @@ import { PERSONAS, TITLES, personaFrom, titleFrom, type RolePersona } from '../d
 import { appointCeo } from '../governance/ceo.ts';
 import type { ToolUsingLlmClient } from '../llm/client.ts';
 import type { OwnerMfa, WebAuthnAssertion } from './mfa.ts';
-import { telegramApi, telegramBot, telegramChats, telegramCommands, type ChatConversation, type TelegramChannel, type TelegramUpdate } from './telegram.ts';
+import { telegramApi, telegramBot, telegramChats, telegramCommands, telegramProfilePhoto, type ChatConversation, type TelegramChannel, type TelegramUpdate } from './telegram.ts';
 import { WebhookPush, ntfyBody } from './push.ts';
 import { OwnerSessions, type OwnerSession } from './session.ts';
 import { MODEL_TIERS, modelSettingsFrom } from '../llm/models.ts';
@@ -1267,6 +1268,19 @@ export class OwnerApi {
           if (!chatId) throw new PalugadaError('contract.violation', 'find your chat first: press Start in the bot, then look for it', { field: 'chatId' });
           const text = typeof body.text === 'string' && body.text.trim() ? body.text.trim().slice(0, 500) : 'PALUGADA';
           await outside(telegramApi(token, 'sendMessage', { chat_id: chatId, text }, this.#botApi()));
+          return { ok: true };
+        },
+      },
+
+      {
+        // The bot's picture: PALUGADA's, the one the console shows beside the
+        // button, instead of the blank circle a new bot has. Only a picture,
+        // which the owner can change again in @BotFather, so no device.
+        method: 'POST',
+        pattern: '/api/control/channels/telegram/photo',
+        handle: async ({ body }) => {
+          const token = await this.#telegramToken(body);
+          await outside(telegramProfilePhoto(token, await this.#consolePicture('brand/palugada-profile.jpg'), this.#botApi()));
           return { ok: true };
         },
       },
@@ -3751,6 +3765,23 @@ export class OwnerApi {
   }
 
   /** The token the owner pasted, or the one saved. */
+  /**
+   * A picture the console ships: from the console as built, which is what a
+   * deployment has, else from its source, which is what a checkout has.
+   */
+  async #consolePicture(path: string): Promise<Buffer> {
+    const { readFile } = await import('node:fs/promises');
+    for (const root of [this.#options.staticRoot, fileURLToPath(new URL('../../console/public', import.meta.url))]) {
+      if (!root) continue;
+      try {
+        return await readFile(join(root, path));
+      } catch {
+        // The next place.
+      }
+    }
+    throw new PalugadaError('contract.violation', `the console's ${path} is not there: build the console with npm run console:build`, {});
+  }
+
   async #telegramToken(body: Record<string, unknown>): Promise<string> {
     const deployment = this.#deploymentSettings();
     const typed = typeof body.token === 'string' ? body.token.trim() : '';

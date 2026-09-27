@@ -9,7 +9,7 @@
  * which is exactly when an owner needs it.
  */
 import {
-  Accordion, Alert, Anchor, Autocomplete, Badge, Button, Code, Grid, Group, NavLink, Paper, PasswordInput, Radio,
+  Accordion, Alert, Anchor, Autocomplete, Avatar, Badge, Button, Code, Grid, Group, NavLink, Paper, PasswordInput, Radio,
   Checkbox, SegmentedControl, Select, SimpleGrid, Stack, Switch, Table, Text, TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
@@ -1044,6 +1044,10 @@ function TelegramCard({ view, reload }: { view: ChannelsView; reload: () => void
     const done = await requireFactor(t('Disconnect Telegram'), (proof) => api('POST', '/api/control/channels/telegram/clear', { proof }));
     if (done) setTimeout(reload, 3_000);
   };
+  const picture = () => run('photo', async () => {
+    await api('POST', '/api/control/channels/telegram/photo', body());
+    notifications.show({ color: 'teal', message: t('The bot has PALUGADA\'s picture now.') });
+  });
 
   return (
     <Section
@@ -1090,6 +1094,16 @@ function TelegramCard({ view, reload }: { view: ChannelsView; reload: () => void
         </Group>
         {!view.publicUrl && (
           <Text size="xs" c="dimmed">{t('This deployment has no public address, so Telegram can send but its buttons and your messages cannot reach it. Set PALUGADA_APP_URL_PUBLIC to the HTTPS address the console is reached at.')}</Text>
+        )}
+        {(bot || connected) && (
+          <Group gap="sm" wrap="nowrap">
+            <Avatar src="/brand/palugada-profile.jpg" alt="PALUGADA" radius="xl" size="md" />
+            <Text size="sm" style={{ flex: 1 }}>{t('A new bot has no picture. Give it PALUGADA\'s, or choose your own in @BotFather.')}</Text>
+            <Button variant="default" size="xs" loading={busy === 'photo'} onClick={() => void picture()}>{t('Use this picture')}</Button>
+          </Group>
+        )}
+        {connected && (
+          <Text size="xs" c="dimmed">{t('With several companies, turn on topics for the bot in @BotFather: each company then has its own topic in your chat, with what it raises and its CEO to talk to.')}</Text>
         )}
       </Stack>
     </Section>

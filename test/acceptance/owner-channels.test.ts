@@ -71,6 +71,14 @@ async function fakeVendor(
       raw += chunk.toString('utf8');
     });
     req.on('end', () => {
+      // Telegram's channel asks who it is once, to learn whether the owner's
+      // chat has topics; answered here and not counted, since these tests
+      // are about what reaches the owner. A bot without topic mode.
+      if ((req.url ?? '').endsWith('/getMe')) {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, result: { id: 1, is_bot: true, first_name: 'Bot' } }));
+        return;
+      }
       const call: Recorded = {
         path: req.url ?? '',
         body: JSON.parse(raw || '{}') as Record<string, unknown>,

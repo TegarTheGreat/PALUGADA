@@ -97,7 +97,9 @@ new sizes.
   `icon-512.png`, `icon-maskable-512.png` and `manifest.webmanifest`: what a
   browser or a phone's home screen shows.
 - `brand/`: the mark, the app icon and the lockups the console draws in its
-  sidebar and on the sign-in page.
+  sidebar and on the sign-in page, and `palugada-profile.jpg`, the square at
+  640 pixels as a JPEG: the Telegram bot's profile photo, which Telegram takes
+  only as a JPEG, sent from the console and shown beside its button.
 - `avatars/companies/`: twelve emblems. A company is drawn as what its name
   says it sells, in Indonesian or English -- Kopi Nusantara as coffee, Toko
   Sari as a shop -- and a company whose name says nothing gets one from its

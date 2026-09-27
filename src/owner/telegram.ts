@@ -38,7 +38,7 @@
  * two right.
  */
 import { timingSafeEqual } from 'node:crypto';
-import { withTenant } from '../db/tenant.ts';
+import { withControlPlane, withTenant } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { redactor } from '../secrets/manager.ts';
 import { PalugadaError } from '../errors.ts';
@@ -143,6 +143,14 @@ export interface TelegramUpdate {
     message_id?: number;
     text?: string;
     chat?: { id: number | string; type?: string };
+    /** The topic it was written in, when the owner's chat has topics. */
+    message_thread_id?: number;
+    is_topic_message?: boolean;
+    /** A topic made, renamed, closed or opened: news of the chat, not something said. */
+    forum_topic_created?: unknown;
+    forum_topic_edited?: unknown;
+    forum_topic_closed?: unknown;
+    forum_topic_reopened?: unknown;
     from?: { id: number | string; username?: string };
     reply_to_message?: { message_id?: number; text?: string; from?: { is_bot?: boolean } };
     voice?: TelegramAudio;
@@ -205,6 +213,15 @@ const RICH_MAX = 32_768;
 /** Telegram shows a draft for thirty seconds; shown again before it goes. */
 const DRAFT_EVERY_MS = 20_000;
 
+/** A bot found without topic mode is asked again after this long: the owner may turn it on. */
+const TOPICS_RECHECK_MS = 10 * 60_000;
+
+/** The colours Telegram allows a topic's icon; a company is given one by its id. */
+const TOPIC_COLOURS = [0x6fb9f0, 0xffd67e, 0xcb86db, 0x8eee98, 0xff93b2, 0xfb6f5f];
+
+/** What Telegram says of a topic the owner deleted or closed. */
+const TOPIC_GONE = /message thread not found|TOPIC_(?:DELETED|CLOSED)|topic (?:was )?(?:deleted|closed)/i;
+
 /** A voice note past this is not something said to a CEO, and more than a transcription provider takes at once. */
 const VOICE_MAX_BYTES = 20 * 1024 * 1024;
 
@@ -245,6 +262,10 @@ export class TelegramChannel implements OwnerChannel {
   /** The answer being made, which the stop button under its draft stops. */
   #generating: { draftId: number; stop: AbortController } | null = null;
   #drafts = 0;
+  /** Whether this bot has topics in private chats, and when that was asked. */
+  #topicMode: { on: boolean; at: number } | null = null;
+  /** A topic being made, so two messages at once for one company make one. */
+  readonly #making = new Map<string, Promise<number | undefined>>();
 
   constructor(options: TelegramOptions) {
     this.name = options.name ?? 'chat:telegram';
@@ -348,11 +369,12 @@ export class TelegramChannel implements OwnerChannel {
 
   async deliver(item: NotifiableItem): Promise<DeliveryResult> {
     const withLink = item.url ? item : { ...item, url: this.#options.appUrl?.(item) ?? null };
-    const sent = await this.#call<{ message_id?: number }>('sendMessage', {
+    const sent = await this.#inTopic(item.companyId, (thread) => this.#call<{ message_id?: number }>('sendMessage', {
       chat_id: this.#options.chatId,
+      ...threaded(thread),
       parse_mode: 'MarkdownV2',
       ...this.render(withLink),
-    });
+    }));
     return sent.message_id ? { ref: String(sent.message_id) } : {};
   }
 
@@ -363,12 +385,13 @@ export class TelegramChannel implements OwnerChannel {
    * surface for and a digest is not one of them -- it is a summary of a day
    * that has already happened, so there is nothing here to decide.
    */
-  async deliverDigest(digest: { day: string; text: string }): Promise<void> {
-    await this.#call('sendMessage', {
+  async deliverDigest(digest: { companyId: string; day: string; text: string }): Promise<void> {
+    await this.#inTopic(digest.companyId, (thread) => this.#call('sendMessage', {
       chat_id: this.#options.chatId,
+      ...threaded(thread),
       parse_mode: 'MarkdownV2',
       text: escapeMarkdown(digest.text),
-    });
+    }));
   }
 
   /**
@@ -376,14 +399,15 @@ export class TelegramChannel implements OwnerChannel {
    * only a way to open the task, when there is an address to open it at.
    */
   async deliverNotice(notice: DoneNotice): Promise<DeliveryResult> {
-    const sent = await this.#call<{ message_id?: number }>('sendMessage', {
+    const sent = await this.#inTopic(notice.companyId, (thread) => this.#call<{ message_id?: number }>('sendMessage', {
       chat_id: this.#options.chatId,
+      ...threaded(thread),
       parse_mode: 'MarkdownV2',
       text: escapeMarkdown(notice.text),
       ...(notice.url
         ? { reply_markup: { inline_keyboard: [[{ text: say(notice.language, 'Open in PALUGADA'), url: notice.url }]] } }
         : {}),
-    });
+    }));
     return sent.message_id ? { ref: String(sent.message_id) } : {};
   }
 
@@ -608,14 +632,14 @@ export class TelegramChannel implements OwnerChannel {
     const question = (message.text ?? '').trim();
     if (!question) return { handled: false, reason: 'empty' };
     if (question.length > QUESTION_MAX) {
-      await this.#tell(say(language, 'That is too long for one question; keep it under {max} characters.', { max: String(QUESTION_MAX) }));
+      await this.#tell(say(language, 'That is too long for one question; keep it under {max} characters.', { max: String(QUESTION_MAX) }), topicOf(message));
       return { handled: false, reason: 'too_long' };
     }
     try {
       await inbox.decide(companyId, itemId, decision, question, { channel: 'chat' });
       await this.#tell(answering
         ? say(language, 'Answered. The task carries on with it.')
-        : say(language, 'Asked. The answer will be on the item in the app.'));
+        : say(language, 'Asked. The answer will be on the item in the app.'), topicOf(message));
       return { handled: true };
     } catch (error) {
       await this.#tell(
@@ -624,6 +648,7 @@ export class TelegramChannel implements OwnerChannel {
             reason: String(error.message).replace(/^inbox item \S+ is closed: /, ''),
           })
           : say(language, 'That could not be recorded.'),
+        topicOf(message),
       );
       return { handled: false, reason: error instanceof PalugadaError ? error.code : 'failed' };
     }
@@ -652,15 +677,18 @@ export class TelegramChannel implements OwnerChannel {
     if (from !== String(this.#options.chatId)) return { handled: false, reason: 'wrong_chat' };
     if (String(message.chat?.id ?? '') !== from) return { handled: false, reason: 'not_private' };
     if (!conversation) return { handled: false, reason: 'no_conversation' };
+    // A topic made or renamed arrives as a message with nothing said in it.
+    if (Object.keys(message).some((key) => key.startsWith('forum_topic_'))) return { handled: false, reason: 'topic_news' };
+    const thread = topicOf(message);
     const text = (message.text ?? '').trim();
     const voice = message.voice ?? message.audio;
     if (!text && !voice) {
-      this.#enqueue(async () => this.#tell(say(await ownerLanguage(), 'I read text and voice notes.')));
+      this.#enqueue(async () => this.#tell(say(await ownerLanguage(), 'I read text and voice notes.'), thread), thread);
       return { handled: false, reason: 'empty' };
     }
     const command = /^\/([a-z]+)(?:@\w+)?$/i.exec(text)?.[1]?.toLowerCase();
     const draftId = message.message_id ?? (this.#drafts += 1);
-    this.#enqueue(() => (command ? this.#command(command, conversation) : this.#converse(conversation, text, voice, draftId)));
+    this.#enqueue(() => (command ? this.#command(command, conversation, thread) : this.#converse(conversation, text, voice, draftId, thread)), thread);
     return { handled: true };
   }
 
@@ -682,36 +710,65 @@ export class TelegramChannel implements OwnerChannel {
     return this.#pending;
   }
 
-  #enqueue(work: () => Promise<void>): void {
+  #enqueue(work: () => Promise<void>, thread?: number): void {
     this.#pending = this.#pending.then(work).catch(async (failure: unknown) => {
       const language = await ownerLanguage().catch(() => 'en');
       await this.#tell(say(language, 'That could not be answered: {reason}', {
         reason: redactor.redact((failure as Error).message ?? String(failure)).slice(0, 300),
-      }));
+      }), thread);
     });
   }
 
+  /**
+   * Whom the chat is talking to where the owner wrote: a company's topic is
+   * its CEO's, PALUGADA's topic is PALUGADA's, and anywhere else -- the chat
+   * without topics, its general thread, a topic the owner made -- is the
+   * conversation the chat was last moved to.
+   */
+  async #partnerIn(conversation: ChatConversation, thread: number | undefined): Promise<string | null> {
+    if (thread !== undefined) {
+      const { rows } = await withControlPlane((tx) => tx.query<{ company_id: string | null }>(
+        'SELECT company_id FROM telegram_topics WHERE chat_id = $1 AND thread_id = $2', [String(this.#options.chatId), thread]));
+      if (rows[0]) return rows[0].company_id;
+    }
+    return conversation.current();
+  }
+
+  /**
+   * Moves the conversation to a company's CEO, or to PALUGADA; with topics,
+   * opens its topic too and says so there, where the owner then writes.
+   */
+  async #moveTo(conversation: ChatConversation, companyId: string | null, name: string, language: string): Promise<boolean> {
+    await conversation.moveTo(companyId);
+    const thread = await this.#threadFor(companyId);
+    if (thread === undefined) return false;
+    await this.#tell(say(language, 'Write here to talk to {name}.', { name }), thread);
+    return true;
+  }
+
   /** /ceo, /palugada, and anything else that starts with a slash: help. */
-  async #command(command: string, conversation: ChatConversation): Promise<void> {
+  async #command(command: string, conversation: ChatConversation, thread: number | undefined): Promise<void> {
     const language = await ownerLanguage();
     if (command === 'palugada') {
-      await conversation.moveTo(null);
-      await this.#tell(say(language, 'Now talking to {name}.', { name: 'PALUGADA' }));
+      if (!(await this.#moveTo(conversation, null, 'PALUGADA', language))) {
+        await this.#tell(say(language, 'Now talking to {name}.', { name: 'PALUGADA' }), thread);
+      }
       return;
     }
     const partners = await conversation.partners();
     if (command === 'ceo' || command === 'talk') {
       await this.#call('sendMessage', {
         chat_id: this.#options.chatId,
+        ...threaded(thread),
         text: say(language, 'Choose whom to talk to.'),
         reply_markup: { inline_keyboard: partners.map((one) => [{ text: one.name, callback_data: `talk:${one.companyId ?? 'palugada'}` }]) },
       });
       return;
     }
-    const current = await conversation.current();
+    const current = await this.#partnerIn(conversation, thread);
     await this.#tell(say(language,
       'You are talking to {name}. Write, or send a voice note. /ceo chooses whom you talk to; /palugada talks to PALUGADA about the whole deployment.',
-      { name: (partners.find((one) => one.companyId === current) ?? partners[0])?.name ?? 'PALUGADA' }));
+      { name: (partners.find((one) => one.companyId === current) ?? partners[0])?.name ?? 'PALUGADA' }), thread);
   }
 
   /**
@@ -722,11 +779,13 @@ export class TelegramChannel implements OwnerChannel {
    * under it; stopped, no further turn is asked of the model and nothing it
    * proposed is shown.
    */
-  async #converse(conversation: ChatConversation, typed: string, voice: TelegramAudio | undefined, draftId: number): Promise<void> {
+  async #converse(
+    conversation: ChatConversation, typed: string, voice: TelegramAudio | undefined, draftId: number, thread: number | undefined,
+  ): Promise<void> {
     const language = await ownerLanguage();
     const stop = new AbortController();
     this.#generating = { draftId, stop };
-    const thinking = () => this.#thinking(draftId, voice ? 'record_voice' : 'typing');
+    const thinking = () => this.#thinking(draftId, voice ? 'record_voice' : 'typing', thread);
     await thinking();
     const refresh = setInterval(() => void thinking(), this.#options.draftEveryMs ?? DRAFT_EVERY_MS);
     let said: Awaited<ReturnType<ChatConversation['talk']>>;
@@ -734,18 +793,18 @@ export class TelegramChannel implements OwnerChannel {
     let companyId: string | null;
     try {
       if (voice) {
-        const heard = await this.#hear(conversation, voice, language);
+        const heard = await this.#hear(conversation, voice, language, thread);
         if (heard === null) return;
         words = heard;
       }
-      companyId = await conversation.current();
+      companyId = await this.#partnerIn(conversation, thread);
       said = stop.signal.aborted ? { answer: '', cards: [], stopped: true } : await conversation.talk(companyId, words, stop.signal);
     } finally {
       clearInterval(refresh);
       this.#generating = null;
     }
     if (said.stopped) {
-      await this.#tell(say(language, 'Stopped.'));
+      await this.#tell(say(language, 'Stopped.'), thread);
       return;
     }
     const { answer, cards } = said;
@@ -769,7 +828,7 @@ export class TelegramChannel implements OwnerChannel {
     if (cards.some((card) => !card.here) && this.#options.consoleUrl) {
       buttons.push([{ text: say(language, 'Open in PALUGADA'), url: this.#conversationLink(companyId) }]);
     }
-    await this.#sendAnswer(rich.join('\n'), plain.join('\n'), buttons);
+    await this.#sendAnswer(rich.join('\n'), plain.join('\n'), buttons, thread);
     // Said back when it was said: a voice note is what the owner could send,
     // so a voice note is what they can take in. The words are already there,
     // so a provider that fails to speak loses the owner nothing.
@@ -777,7 +836,7 @@ export class TelegramChannel implements OwnerChannel {
       try {
         const spoken = await conversation.speak(answer);
         const playable = ['audio/ogg', 'audio/mpeg', 'audio/mp4'].includes(spoken.mime);
-        await this.#call(playable ? 'sendVoice' : 'sendDocument', this.#form(playable ? 'voice' : 'document', spoken));
+        await this.#call(playable ? 'sendVoice' : 'sendDocument', this.#form(playable ? 'voice' : 'document', spoken, thread));
       } catch {
         // Nothing to do: see above.
       }
@@ -789,24 +848,25 @@ export class TelegramChannel implements OwnerChannel {
    * shows as its own placeholder. A Bot API without drafts gets the older
    * "typing".
    */
-  async #thinking(draftId: number, action: 'typing' | 'record_voice'): Promise<void> {
+  async #thinking(draftId: number, action: 'typing' | 'record_voice', thread: number | undefined): Promise<void> {
     if (!this.#unknown.has('sendMessageDraft')) {
       try {
-        await this.#call('sendMessageDraft', { chat_id: chatIdOf(this.#options.chatId), draft_id: draftId, text: '', can_stop: true });
+        await this.#call('sendMessageDraft', { chat_id: chatIdOf(this.#options.chatId), ...threaded(thread), draft_id: draftId, text: '', can_stop: true });
         return;
       } catch (failure) {
         this.#learn('sendMessageDraft', failure);
       }
     }
-    await this.#call('sendChatAction', { chat_id: this.#options.chatId, action }).catch(() => undefined);
+    await this.#call('sendChatAction', { chat_id: this.#options.chatId, ...threaded(thread), action }).catch(() => undefined);
   }
 
   /** An answer, as a rich message where the Bot API sends one, else as plain text. */
-  async #sendAnswer(rich: string, plain: string, buttons: InlineButton[][]): Promise<void> {
+  async #sendAnswer(rich: string, plain: string, buttons: InlineButton[][], thread: number | undefined): Promise<void> {
     if (rich.length <= RICH_MAX && !this.#unknown.has('sendRichMessage')) {
       try {
         await this.#call('sendRichMessage', {
           chat_id: this.#options.chatId,
+          ...threaded(thread),
           rich_message: { markdown: rich },
           ...(buttons.length > 0 ? { reply_markup: { inline_keyboard: buttons } } : {}),
         });
@@ -817,7 +877,7 @@ export class TelegramChannel implements OwnerChannel {
         this.#learn('sendRichMessage', failure);
       }
     }
-    await this.#send(plain, buttons);
+    await this.#send(plain, buttons, thread);
   }
 
   /** Remembers a method this Bot API does not have. */
@@ -826,13 +886,13 @@ export class TelegramChannel implements OwnerChannel {
   }
 
   /** The words in a voice note, or null when the owner has been told why there are none. */
-  async #hear(conversation: ChatConversation, voice: TelegramAudio, language: string): Promise<string | null> {
+  async #hear(conversation: ChatConversation, voice: TelegramAudio, language: string, thread: number | undefined): Promise<string | null> {
     if (!conversation.hears) {
-      await this.#tell(say(language, 'Nothing hears speech yet: choose a provider in the app, under This deployment, Tools, Listening.'));
+      await this.#tell(say(language, 'Nothing hears speech yet: choose a provider in the app, under This deployment, Tools, Listening.'), thread);
       return null;
     }
     if ((voice.file_size ?? 0) > VOICE_MAX_BYTES) {
-      await this.#tell(say(language, 'That recording is too long; keep a voice note under {max} MB.', { max: String(VOICE_MAX_BYTES / 1024 / 1024) }));
+      await this.#tell(say(language, 'That recording is too long; keep a voice note under {max} MB.', { max: String(VOICE_MAX_BYTES / 1024 / 1024) }), thread);
       return null;
     }
     const file = await this.#call<{ file_path?: string }>('getFile', { file_id: voice.file_id });
@@ -842,13 +902,13 @@ export class TelegramChannel implements OwnerChannel {
     if (!response.ok) throw new Error(`the voice note could not be fetched from Telegram (HTTP ${response.status})`);
     const bytes = Buffer.from(await response.arrayBuffer());
     if (bytes.length > VOICE_MAX_BYTES) {
-      await this.#tell(say(language, 'That recording is too long; keep a voice note under {max} MB.', { max: String(VOICE_MAX_BYTES / 1024 / 1024) }));
+      await this.#tell(say(language, 'That recording is too long; keep a voice note under {max} MB.', { max: String(VOICE_MAX_BYTES / 1024 / 1024) }), thread);
       return null;
     }
     // A voice note is Ogg Opus whatever it says; an audio file says what it is.
     const words = (await conversation.hear({ bytes, mime: voice.mime_type?.split(';')[0]?.trim() || 'audio/ogg' })).trim();
     if (!words) {
-      await this.#tell(say(language, 'I could not make out any words in that.'));
+      await this.#tell(say(language, 'I could not make out any words in that.'), thread);
       return null;
     }
     return words;
@@ -870,8 +930,8 @@ export class TelegramChannel implements OwnerChannel {
       try {
         if (talk) {
           const companyId = partner === 'palugada' ? null : partner!;
-          await conversation.moveTo(companyId);
           const name = (await conversation.partners()).find((one) => one.companyId === companyId)?.name ?? 'PALUGADA';
+          await this.#moveTo(conversation, companyId, name, language);
           await this.#answer(query.id, say(language, 'Now talking to {name}.', { name }));
           return;
         }
@@ -906,12 +966,13 @@ export class TelegramChannel implements OwnerChannel {
    * the address, and an address a model wrote can carry what it read to
    * whoever owns it.
    */
-  async #send(text: string, buttons: InlineButton[][]): Promise<void> {
+  async #send(text: string, buttons: InlineButton[][], thread: number | undefined): Promise<void> {
     const parts = splitMessage(text);
     for (const [index, part] of parts.entries()) {
       const last = index === parts.length - 1;
       await this.#call('sendMessage', {
         chat_id: this.#options.chatId,
+        ...threaded(thread),
         text: part,
         link_preview_options: { is_disabled: true },
         ...(last && buttons.length > 0 ? { reply_markup: { inline_keyboard: buttons } } : {}),
@@ -920,9 +981,10 @@ export class TelegramChannel implements OwnerChannel {
   }
 
   /** A recording to send, as the Bot API takes a file. */
-  #form(field: string, audio: Heard): FormData {
+  #form(field: string, audio: Heard, thread: number | undefined): FormData {
     const form = new FormData();
     form.append('chat_id', String(this.#options.chatId));
+    if (thread !== undefined) form.append('message_thread_id', String(thread));
     const extension = { 'audio/ogg': 'ogg', 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/wav': 'wav' }[audio.mime] ?? 'audio';
     form.append(field, new Blob([audio.bytes], { type: audio.mime }), `answer.${extension}`);
     return form;
@@ -983,8 +1045,10 @@ export class TelegramChannel implements OwnerChannel {
       }));
       return { handled: false, reason: 'inbox.not_open' };
     }
-    await this.#call('sendMessage', {
+    // In the item's company's topic, where the owner read it.
+    await this.#inTopic(companyId, (thread) => this.#call('sendMessage', {
       chat_id: this.#options.chatId,
+      ...threaded(thread),
       text: [
         mode === 'answer'
           ? say(language, 'Your answer to "{question}"? Reply to this message.', { question: item.question ?? item.title })
@@ -996,14 +1060,90 @@ export class TelegramChannel implements OwnerChannel {
         force_reply: true,
         input_field_placeholder: say(language, mode === 'answer' ? 'Your answer' : 'Your question'),
       },
-    });
+    }));
     await this.#answer(callbackQueryId, say(language, mode === 'answer' ? 'Type your answer as a reply.' : 'Type your question as a reply.'));
     return { handled: true };
   }
 
   /** A plain message to the owner, for an answer to something they typed. */
-  async #tell(text: string): Promise<void> {
-    await this.#call('sendMessage', { chat_id: this.#options.chatId, text }).catch(() => undefined);
+  async #tell(text: string, thread?: number): Promise<void> {
+    await this.#call('sendMessage', { chat_id: this.#options.chatId, ...threaded(thread), text }).catch(() => undefined);
+  }
+
+  /**
+   * Sends where a company's messages go: its topic when the chat has topics,
+   * made the first time, and the chat itself when it has none. A topic the
+   * owner deleted is forgotten and made again, and the message sent there,
+   * so deleting one to tidy the chat does not lose what comes next.
+   */
+  async #inTopic<T>(companyId: string | null, send: (thread: number | undefined) => Promise<T>): Promise<T> {
+    const thread = await this.#threadFor(companyId);
+    try {
+      return await send(thread);
+    } catch (failure) {
+      if (thread === undefined || !TOPIC_GONE.test((failure as Error).message ?? '')) throw failure;
+      await withControlPlane((tx) => tx.query(
+        'DELETE FROM telegram_topics WHERE chat_id = $1 AND thread_id = $2', [String(this.#options.chatId), thread]));
+      return send(await this.#threadFor(companyId));
+    }
+  }
+
+  /** The topic a company's messages go to, or undefined when the chat has no topics. */
+  async #threadFor(companyId: string | null): Promise<number | undefined> {
+    if (!(await this.#topicsOn())) return undefined;
+    const key = companyId ?? 'palugada';
+    const making = this.#making.get(key) ?? this.#topic(companyId).finally(() => this.#making.delete(key));
+    this.#making.set(key, making);
+    return making;
+  }
+
+  /**
+   * Whether the owner turned topic mode on for this bot in @BotFather. Asked
+   * of Telegram once while it is on; while it is off, again now and then.
+   * An answer that did not come is not remembered.
+   */
+  async #topicsOn(): Promise<boolean> {
+    const known = this.#topicMode;
+    if (known && (known.on || Date.now() - known.at < TOPICS_RECHECK_MS)) return known.on;
+    let me: { has_topics_enabled?: boolean };
+    try {
+      me = await this.#call<{ has_topics_enabled?: boolean }>('getMe', {});
+    } catch {
+      return false;
+    }
+    this.#topicMode = { on: me.has_topics_enabled === true, at: Date.now() };
+    return this.#topicMode.on;
+  }
+
+  /** The company's topic, found or made; undefined when Telegram would not make one. */
+  async #topic(companyId: string | null): Promise<number | undefined> {
+    const chat = String(this.#options.chatId);
+    const kept = async () => (await withControlPlane((tx) => tx.query<{ thread_id: string }>(
+      'SELECT thread_id FROM telegram_topics WHERE chat_id = $1 AND company_id IS NOT DISTINCT FROM $2', [chat, companyId]))).rows[0];
+    const known = await kept();
+    if (known) return Number(known.thread_id);
+    const name = companyId
+      ? (await withControlPlane((tx) => tx.query<{ name: string }>('SELECT name FROM companies WHERE id = $1', [companyId]))).rows[0]?.name
+      : 'PALUGADA';
+    if (!name) return undefined;
+    let made: number;
+    try {
+      made = (await this.#call<{ message_thread_id: number }>('createForumTopic', {
+        chat_id: chatIdOf(chat),
+        name: name.slice(0, 128),
+        icon_color: TOPIC_COLOURS[companyId ? parseInt(companyId.slice(0, 8), 16) % TOPIC_COLOURS.length : 0],
+      })).message_thread_id;
+    } catch {
+      // Sent to the chat itself, as without topics: a message is not held back for want of a topic.
+      return undefined;
+    }
+    await withControlPlane((tx) => tx.query(
+      'INSERT INTO telegram_topics (chat_id, company_id, thread_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [chat, companyId, made]));
+    // Another process may have made one at the same moment; the one kept is
+    // the one used, and the other is taken out of the owner's chat.
+    const winner = Number((await kept())!.thread_id);
+    if (winner !== made) await this.#call('deleteForumTopic', { chat_id: chatIdOf(chat), message_thread_id: made }).catch(() => undefined);
+    return winner;
   }
 
   /** Clears the spinner on the pressed button. Failure here is cosmetic. */
@@ -1049,6 +1189,16 @@ interface InlineButton {
   callback_data?: string;
   url?: string;
   style?: 'success' | 'danger' | 'primary';
+}
+
+/** The topic a message was written in, if the owner's chat has topics. */
+function topicOf(message: NonNullable<TelegramUpdate['message']>): number | undefined {
+  return message.is_topic_message && typeof message.message_thread_id === 'number' ? message.message_thread_id : undefined;
+}
+
+/** A message's place in the chat: in a topic, or in the chat itself. */
+function threaded(thread: number | undefined): { message_thread_id?: number } {
+  return thread === undefined ? {} : { message_thread_id: thread };
 }
 
 /** A chat's id as the Bot API's integer, where the method takes only that. */
@@ -1151,6 +1301,17 @@ export async function telegramCommands(token: string, chatId: string, language: 
   }, api);
 }
 
+/**
+ * The bot's profile photo, uploaded: a still one, which Telegram takes only
+ * as a JPEG, attached to the call by name.
+ */
+export async function telegramProfilePhoto(token: string, jpeg: Uint8Array, api: BotApi = {}): Promise<void> {
+  const form = new FormData();
+  form.append('photo', JSON.stringify({ type: 'static', photo: 'attach://picture' }));
+  form.append('picture', new Blob([jpeg], { type: 'image/jpeg' }), 'palugada.jpg');
+  await telegramApi(token, 'setMyProfilePhoto', form, api);
+}
+
 /** The owner's language, for the answer to a button: the panel's, or English. */
 async function ownerLanguage(): Promise<string> {
   return (await deploymentLanguages()).console ?? 'en';
@@ -1175,8 +1336,8 @@ export async function telegramApi<T>(token: string, method: string, body: unknow
   try {
     response = await (api.fetch ?? globalThis.fetch)(`${api.apiBase ?? 'https://api.telegram.org'}/bot${token}/${method}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
+      // A file goes as a form, and fetch writes its boundary into the type.
+      ...(body instanceof FormData ? { body } : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
       signal: AbortSignal.timeout(15_000),
     });
   } catch (failure) {

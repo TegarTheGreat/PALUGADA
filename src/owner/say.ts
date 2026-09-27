@@ -75,6 +75,7 @@ const ID: Readonly<Record<string, string>> = {
   'Talk to PALUGADA about the whole deployment': 'Bicara dengan PALUGADA tentang seluruh deployment',
   'Who you are talking to, and how': 'Dengan siapa Anda berbicara, dan caranya',
   'Stopped.': 'Dihentikan.',
+  'Write here to talk to {name}.': 'Tulis di sini untuk berbicara dengan {name}.',
   'You are talking to {name}. Write, or send a voice note. /ceo chooses whom you talk to; /palugada talks to PALUGADA about the whole deployment.':
     'Anda sedang berbicara dengan {name}. Tulis, atau kirim pesan suara. /ceo memilih lawan bicara; /palugada berbicara dengan PALUGADA tentang seluruh deployment.',
   'You said: "{words}"': 'Anda bilang: "{words}"',

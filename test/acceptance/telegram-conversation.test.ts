@@ -14,7 +14,9 @@ import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import { closePools } from '../../src/db/pool.ts';
-import { withTenant } from '../../src/db/tenant.ts';
+import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
+import * as inbox from '../../src/inbox/inbox.ts';
+import { dispatch } from '../../src/owner/notify.ts';
 import { TelegramChannel } from '../../src/owner/telegram.ts';
 import { listenProvider, type ListenBinding } from '../../src/capabilities/listen.ts';
 import { speechProvider, type MediaBinding, type SpeechProvider } from '../../src/capabilities/media.ts';
@@ -72,11 +74,15 @@ interface BotCall { method: string; url: string; body: Record<string, unknown> |
  * The Bot API, as the channel reaches it: every call kept, a voice note's
  * file served, and the methods named in `refuse` refused with what Telegram
  * says (an older local Bot API server answers "Not Found" for a method it
- * does not have).
+ * does not have). With `topics`, the bot has topic mode on in private chats:
+ * a topic it makes gets the next thread id from 900, and one in `deleted`
+ * was deleted by the owner, as Telegram then says.
  */
-function fakeBot(refuse: Record<string, string> = {}) {
+function fakeBot(refuse: Record<string, string> = {}, options: { topics?: boolean } = {}) {
   const calls: BotCall[] = [];
+  const deleted = new Set<number>();
   let next = 100;
+  let thread = 900;
   const fetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const url = String(input);
     if (url.includes('/file/bot')) {
@@ -87,6 +93,16 @@ function fakeBot(refuse: Record<string, string> = {}) {
     const body = init?.body instanceof FormData ? init.body : JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
     calls.push({ method, url, body });
     if (refuse[method]) return Response.json({ ok: false, error_code: /Not Found/.test(refuse[method]!) ? 404 : 400, description: refuse[method] });
+    const fields = body instanceof FormData ? {} : body;
+    if (deleted.has(Number(fields.message_thread_id))) {
+      return Response.json({ ok: false, error_code: 400, description: 'Bad Request: message thread not found' });
+    }
+    if (method === 'getMe') {
+      return Response.json({ ok: true, result: { id: 1, is_bot: true, first_name: 'Bot', username: 'our_bot', ...(options.topics ? { has_topics_enabled: true } : {}) } });
+    }
+    if (method === 'createForumTopic') {
+      return Response.json({ ok: true, result: { message_thread_id: thread++, name: fields.name, icon_color: fields.icon_color } });
+    }
     if (method === 'getFile') {
       return Response.json({ ok: true, result: { file_id: (body as Record<string, unknown>).file_id, file_path: 'voice/file_7.oga' } });
     }
@@ -94,6 +110,7 @@ function fakeBot(refuse: Record<string, string> = {}) {
   };
   return {
     calls,
+    deleted,
     fetch: fetch as typeof globalThis.fetch,
     sent: (method: string) => calls.filter((call) => call.method === method).map((call) => call.body as Record<string, any>), // eslint-disable-line @typescript-eslint/no-explicit-any
     /** The answers, as the Markdown of the rich messages they were sent in. */
@@ -121,6 +138,12 @@ let updates = 0;
 const typed = (text: string, from = OWNER, chat: { id: string; type: string } = { id: OWNER, type: 'private' }) => ({
   update_id: ++updates, message: { message_id: updates, from: { id: Number(from) }, chat: { id: Number(chat.id), type: chat.type }, text },
 });
+/** Written in a topic of the owner's chat. */
+const inTopic = (thread: number, text: string) => {
+  const update = typed(text);
+  Object.assign(update.message, { message_thread_id: thread, is_topic_message: true });
+  return update;
+};
 const pressed = (data: string) => ({
   update_id: ++updates, callback_query: { id: `press-${updates}`, data, from: { id: Number(OWNER) }, message: { chat: { id: Number(OWNER) } } },
 });
@@ -475,4 +498,120 @@ test('the owner stops an answer from the draft\'s stop button: no further turn, 
   } finally {
     await api.close();
   }
+});
+
+async function nameOf(fixture: Fixture): Promise<string> {
+  return (await withControlPlane((tx) => tx.query<{ name: string }>('SELECT name FROM companies WHERE id = $1', [fixture.companyId]))).rows[0]!.name;
+}
+
+test('with topics on, each company has its own topic in the owner\'s chat: what it raises arrives there, and what the owner says there goes to its CEO', async () => {
+  const first = await createCompany('topics-first');
+  const second = await createCompany('topics-second');
+  await named(first, 'Arka');
+  await named(second, 'Bima');
+  const model = new ScriptedModel([says('Halo dari Bima.'), says('Halo dari Arka.'), says('Halo dari PALUGADA.')]);
+  const bot = fakeBot({}, { topics: true });
+  const channel = channelFor(bot);
+  const api = await consoleWithSettings({ assistant: { llm: model }, telegram: channel });
+  try {
+    const later = new Date(Date.now() + 86_400_000);
+    await inbox.raiseEscalation({ companyId: first.companyId, title: 'Which supplier?', detail: 'Two match.' });
+    await inbox.raiseEscalation({ companyId: second.companyId, title: 'Which courier?', detail: 'Two match.' });
+    await dispatch(first.companyId, channel, { now: later });
+    await dispatch(second.companyId, channel, { now: later });
+
+    // A topic each, named for the company, made the first time it has something to say.
+    assert.deepEqual(bot.sent('createForumTopic').map((one) => [String(one.chat_id), one.name]), [
+      [OWNER, await nameOf(first)], [OWNER, await nameOf(second)],
+    ]);
+    assert.ok(bot.sent('createForumTopic').every((one) => [0x6fb9f0, 0xffd67e, 0xcb86db, 0x8eee98, 0xff93b2, 0xfb6f5f].includes(one.icon_color)),
+      'in one of the colours Telegram allows');
+    assert.deepEqual(bot.sent('sendMessage').map((one) => [one.message_thread_id, /Which (supplier|courier)/.exec(one.text)?.[0]]), [
+      [900, 'Which supplier'], [901, 'Which courier'],
+    ]);
+    // The next thing from the same company goes to the same topic, and whether topics are on was asked once.
+    const itemId = await inbox.raiseEscalation({ companyId: first.companyId, title: 'Which warehouse?', detail: 'Two match.' });
+    await dispatch(first.companyId, channel, { now: later });
+    assert.equal(bot.sent('createForumTopic').length, 2);
+    assert.equal(bot.sent('sendMessage').at(-1)!.message_thread_id, 900);
+    assert.equal(bot.sent('getMe').length, 1);
+
+    // "Ask" on it: the prompt for the question is in the company's topic too.
+    await post(api.url, pressed(`palugada:${itemId}:ask`));
+    assert.equal(bot.sent('sendMessage').at(-1)!.message_thread_id, 900);
+    assert.match(bot.sent('sendMessage').at(-1)!.text, /What do you want to ask about "Which warehouse\?"/);
+    // A finished task's news and a company's digest go to its topic as well.
+    await channel.deliverNotice({ companyId: second.companyId, taskId: '00000000-0000-0000-0000-000000000001', text: 'Done: the courier is booked.', url: null, language: 'en' });
+    assert.equal(bot.sent('sendMessage').at(-1)!.message_thread_id, 901);
+    await channel.deliverDigest({ companyId: second.companyId, day: '2026-09-27', text: 'A quiet day.' });
+    assert.equal(bot.sent('sendMessage').at(-1)!.message_thread_id, 901);
+
+    // Written in a company's topic, it is said to that company's CEO, whatever the chat was last on, and answered there.
+    await post(api.url, inTopic(901, 'Kurir mana yang dipakai?'));
+    await channel.settled();
+    assert.match(model.requests[0]!.system, /^You are Bima, the CEO of /);
+    const [draft] = bot.sent('sendMessageDraft');
+    assert.equal(draft!.message_thread_id, 901, 'the draft is in the topic');
+    assert.equal(bot.sent('sendRichMessage').at(-1)!.message_thread_id, 901);
+    assert.match(bot.answers().at(-1)!, /^\*\*Bima, CEO of [^*]+\*\*\n\nHalo dari Bima\.$/);
+    await post(api.url, inTopic(900, 'Gudang mana?'));
+    await channel.settled();
+    assert.match(model.requests[1]!.system, /^You are Arka, the CEO of /);
+    assert.equal(bot.sent('sendRichMessage').at(-1)!.message_thread_id, 900);
+    const talk = (await withControlPlane((tx) => tx.query<{ company_id: string | null; body: string }>(
+      "SELECT company_id, body FROM assistant_messages WHERE role = 'owner' ORDER BY at"))).rows;
+    assert.deepEqual(talk.map((one) => [one.company_id, one.body]), [[second.companyId, 'Kurir mana yang dipakai?'], [first.companyId, 'Gudang mana?']],
+      'each company\'s own conversation, the same one as in the console');
+
+    // Choosing PALUGADA opens its topic, where the owner then writes to it.
+    await post(api.url, pressed('talk:palugada'));
+    await channel.settled();
+    assert.equal(bot.sent('createForumTopic').at(-1)!.name, 'PALUGADA');
+    assert.deepEqual([bot.sent('sendMessage').at(-1)!.message_thread_id, bot.sent('sendMessage').at(-1)!.text], [902, 'Write here to talk to PALUGADA.']);
+    await post(api.url, inTopic(902, 'Bagaimana semuanya?'));
+    await channel.settled();
+    assert.doesNotMatch(model.requests[2]!.system, /the CEO of/);
+    assert.equal(bot.sent('sendRichMessage').at(-1)!.message_thread_id, 902);
+
+    // A topic the owner made themselves is not a company's: what is said there goes where the chat is, and is answered there.
+    const before = model.requests.length;
+    await post(api.url, { update_id: ++updates, message: { message_id: updates, from: { id: Number(OWNER) }, chat: { id: Number(OWNER), type: 'private' }, message_thread_id: 950, is_topic_message: true, forum_topic_created: { name: 'Mine', icon_color: 0x6fb9f0 } } });
+    await channel.settled();
+    assert.equal(model.requests.length, before);
+    assert.ok(!bot.calls.some((call) => (call.body as Record<string, unknown>).message_thread_id === 950), 'a topic being made is not something said: nothing answers it');
+  } finally {
+    await api.close();
+  }
+});
+
+test('a company\'s topic the owner deleted is made again, and what was on its way still arrives', async () => {
+  const fixture = await createCompany('topics-deleted');
+  const bot = fakeBot({}, { topics: true });
+  const channel = channelFor(bot);
+  const later = new Date(Date.now() + 86_400_000);
+  await inbox.raiseEscalation({ companyId: fixture.companyId, title: 'First', detail: 'x' });
+  await dispatch(fixture.companyId, channel, { now: later });
+  assert.equal(bot.sent('sendMessage').at(-1)!.message_thread_id, 900);
+
+  bot.deleted.add(900);
+  await inbox.raiseEscalation({ companyId: fixture.companyId, title: 'Second', detail: 'x' });
+  const report = await dispatch(fixture.companyId, channel, { now: later });
+  assert.equal(report.delivered, 1, 'delivered, not failed and retried later');
+  assert.deepEqual(bot.sent('createForumTopic').length, 2);
+  assert.equal(bot.sent('sendMessage').at(-1)!.message_thread_id, 901);
+  assert.match(bot.sent('sendMessage').at(-1)!.text, /Second/);
+  const kept = (await withControlPlane((tx) => tx.query<{ thread_id: string }>(
+    'SELECT thread_id FROM telegram_topics WHERE company_id = $1', [fixture.companyId]))).rows;
+  assert.deepEqual(kept.map((one) => Number(one.thread_id)), [901], 'the deleted one is forgotten');
+});
+
+test('without topic mode everything goes to the one chat, and no topic is made', async () => {
+  const fixture = await createCompany('topics-off');
+  const bot = fakeBot();
+  const channel = channelFor(bot);
+  await inbox.raiseEscalation({ companyId: fixture.companyId, title: 'One chat', detail: 'x' });
+  await dispatch(fixture.companyId, channel, { now: new Date(Date.now() + 86_400_000) });
+  assert.equal(bot.sent('createForumTopic').length, 0);
+  assert.equal(bot.sent('sendMessage').at(-1)!.message_thread_id, undefined);
+  assert.match(bot.sent('sendMessage').at(-1)!.text, /One chat/);
 });

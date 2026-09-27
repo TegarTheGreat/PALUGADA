@@ -3525,6 +3525,16 @@ has.
   and words), and saving the bot sets its command menu in the owner's
   chat. A Bot API that answers "Not Found" for a method is remembered as
   not having it, and gets the older way.
+- **A Telegram topic for each company.** With topic mode on for the bot
+  (Bot API 9.3), each company has its own topic in the owner's chat, made
+  the first time it has something to say and kept in 0077, since Telegram
+  gives a bot no way to list the topics it made: what the company raises,
+  its finished work, its digest and the prompt for a question arrive there,
+  and what the owner writes there goes to its CEO whatever the chat was last
+  on. A topic the owner deleted is forgotten and made again, and the message
+  on its way still arrives; two processes that make one at once keep one and
+  delete the other. The bot can be given PALUGADA's picture from the console
+  (`setMyProfilePhoto`, a JPEG the console ships).
 
 **Still open, next.** From the same audits, in order: the done report is
 the run's own account -- the engine holds it to answering every criterion

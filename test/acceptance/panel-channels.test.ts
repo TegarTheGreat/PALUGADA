@@ -13,6 +13,7 @@ import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { readFile } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import { closePools } from '../../src/db/pool.ts';
 import { InMemorySecretManager } from '../../src/secrets/manager.ts';
@@ -43,11 +44,14 @@ async function botApi(options: { refuse?: string[] } = {}) {
   const calls: Array<{ method: string; body: Record<string, unknown> }> = [];
   let webhook = true;
   const server = createServer((req, res) => {
-    let raw = '';
-    req.on('data', (chunk: Buffer) => { raw += chunk.toString(); });
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk: Buffer) => { chunks.push(chunk); });
     req.on('end', () => {
       const [, bot, method] = /^\/bot([^/]+)\/(\w+)$/.exec(req.url ?? '') ?? [];
-      const body = raw ? JSON.parse(raw) as Record<string, unknown> : {};
+      const raw = Buffer.concat(chunks);
+      // A file is sent as a form: kept whole, byte for byte, to be read by the test.
+      const body = /^multipart\/form-data/.test(req.headers['content-type'] ?? '') ? { form: raw.toString('latin1') }
+        : raw.length > 0 ? JSON.parse(raw.toString()) as Record<string, unknown> : {};
       calls.push({ method: method ?? '', body });
       const reply = (status: number, answer: unknown) => {
         res.writeHead(status, { 'content-type': 'application/json' });
@@ -70,6 +74,7 @@ async function botApi(options: { refuse?: string[] } = {}) {
         case 'setWebhook': webhook = true; return reply(200, { ok: true, result: true });
         case 'sendMessage': return reply(200, { ok: true, result: { message_id: 7 } });
         case 'setMyCommands': return reply(200, { ok: true, result: true });
+        case 'setMyProfilePhoto': return reply(200, { ok: true, result: true });
         default: return reply(404, { ok: false, description: 'Not Found' });
       }
     });
@@ -181,6 +186,29 @@ test('without a public address, Telegram is saved to send and says it cannot hea
     assert.equal(saved.body.webhook, 'no_public_address');
     assert.ok(!telegram.calls.some((call) => call.method === 'setWebhook'));
     assert.ok(!telegram.calls.some((call) => call.method === 'setMyCommands'), 'a bot that cannot hear offers no commands');
+  } finally {
+    await api.close();
+  }
+});
+
+test('the bot is given PALUGADA\'s picture from the console, as the JPEG Telegram takes for a profile photo', async () => {
+  const telegram = await botApi();
+  const api = await consoleWithSettings({ PALUGADA_TELEGRAM_API: telegram.url });
+  try {
+    const token = await api.signIn();
+    const nothing = await api.call('POST', '/api/control/channels/telegram/photo', token, {});
+    assert.equal(nothing.status, 400);
+    assert.match(String(nothing.body.error), /paste the bot token/);
+
+    const set = await api.call('POST', '/api/control/channels/telegram/photo', token, { token: TOKEN });
+    assert.equal(set.status, 200, JSON.stringify(set.body));
+    const form = String(telegram.calls.find((call) => call.method === 'setMyProfilePhoto')!.body.form);
+    assert.match(form, /name="photo"\r\n\r\n\{"type":"static","photo":"attach:\/\/picture"\}\r\n/, 'a still photo, attached');
+    const picture = /name="picture"; filename="palugada\.jpg"\r\nContent-Type: image\/jpeg\r\n\r\n([\s\S]*?)\r\n--/.exec(form);
+    assert.ok(picture, 'the picture, as a JPEG file');
+    const shipped = await readFile(new URL('../../console/public/brand/palugada-profile.jpg', import.meta.url));
+    assert.equal(Buffer.from(picture[1]!, 'latin1').compare(shipped), 0, 'the one the console shows, whole');
+    assert.equal(shipped.subarray(0, 3).toString('hex'), 'ffd8ff', 'Telegram takes a JPEG and nothing else for a still profile photo');
   } finally {
     await api.close();
   }

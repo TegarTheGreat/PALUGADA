@@ -242,6 +242,7 @@ broker, journalled steps, contained sub-tasks and a way to report cost.
 - [docs/STATUS.md](docs/STATUS.md): every requirement graded, with the defects found and fixed.
 - [docs/PRD.md](docs/PRD.md): the specification (v2, in Indonesian); `F5.4` in the code refers to it.
 - [docs/RESEARCH-2026-09.md](docs/RESEARCH-2026-09.md): the comparison with Slack, Buzz, auto-company and Paperclip.
+- [docs/AUDIT-2026-09-28.md](docs/AUDIT-2026-09-28.md): an outside audit's thirty-one items, each verified, and what was fixed or proposed.
 - [brand/](brand/README.md): the logo, the banners and the console's pictures.
 
 ## Contributing

@@ -69,6 +69,12 @@ export interface MatchRule {
 export interface DescribeRules {
   /** An input path holding an amount in cents. */
   moneyCents?: string;
+  /**
+   * An input path holding an amount in whole units -- rupiah, not sen -- as
+   * Midtrans and Xendit take one. Described as cents, a hundred to the unit,
+   * because that is what every policy threshold is written in.
+   */
+  moneyUnits?: string;
   /** An input path holding an address or a domain. F3.4 matches on the domain. */
   recipientDomain?: string;
   /** An input path holding a URL. */
@@ -225,6 +231,7 @@ const SCHEMA = {
             additionalProperties: false,
             properties: {
               moneyCents: { type: 'string', minLength: 1 },
+              moneyUnits: { type: 'string', minLength: 1 },
               recipientDomain: { type: 'string', minLength: 1 },
               urlHost: { type: 'string', minLength: 1 },
               batchSize: { type: 'string', minLength: 1 },
@@ -392,6 +399,11 @@ function describer(rules: DescribeRules) {
       if (typeof value === 'number' && Number.isFinite(value)) out.moneyCents = value;
     }
 
+    if (rules.moneyUnits) {
+      const value = at(input, rules.moneyUnits);
+      if (typeof value === 'number' && Number.isFinite(value)) out.moneyCents = Math.round(value * 100);
+    }
+
     if (rules.recipientDomain) {
       out.recipientDomain = recipientDomainOf(at(input, rules.recipientDomain));
     }
@@ -480,6 +492,11 @@ export function specFrom(entry: VendorSpec): HttpCapabilitySpec {
   // A form is fields and their values. A single placeholder or a list has no
   // field names to send, and a form declared with no body is a file saying
   // one thing and doing another.
+  // One amount, stated one way. With both, which one a policy reads depends
+  // on the order the describer happens to check them in.
+  if (entry.describe?.moneyCents && entry.describe.moneyUnits) {
+    throw new Error('describe names both moneyCents and moneyUnits; an amount is in cents or in whole units, not both');
+  }
   const body = entry.body;
   if (entry.bodyEncoding === 'form' && (body === null || typeof body !== 'object' || Array.isArray(body))) {
     throw new Error('bodyEncoding "form" needs a body that is an object of fields');

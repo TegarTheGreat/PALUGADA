@@ -3635,7 +3635,7 @@ Eight need configuration, not an account: `files.list`, `doc.draft` and
 `email.draft` a files root and a model, and `web.search`, `web.extract`,
 `image.generate`, `speech.synthesize` and `speech.transcribe` a provider chosen
 under **Tools**. The other twenty-six need a deployment's own vendor entry,
-four of which `config/vendors.example.json` shows. `dns.read`, `email.send`,
+six of which `config/vendors.example.json` shows. `dns.read`, `email.send`,
 `invoice.pay` and the rest are *names* in the catalogue: a tier, a schema, the
 scopes a credential must declare, and a `verify()` contract. What executes them
 is a deployment's own adapter, because `email.send` against Resend and against

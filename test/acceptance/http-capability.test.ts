@@ -245,6 +245,32 @@ test('a side-effecting spec must carry an idempotency key (F12.8)', () => {
     name: 'ok.read', adapter: 'x', tier: 0, method: 'GET',
     url: 'https://api.example/v1/things',
   }));
+
+  // Or in the body, as the vendor's own unique id for what is made: Midtrans
+  // refuses an order_id it has seen, Google Calendar an event id. Judged by
+  // what the body builds, so a body that does not place it is still refused.
+  const { headers: _keyed, ...unkeyed } = sendSpec('https://api.example');
+  assert.doesNotThrow(() => httpCapability({
+    ...unkeyed,
+    headers: { authorization: 'Bearer {credential}' },
+    body: (_input, values) => ({ transaction_details: { order_id: values.idempotencyKey, gross_amount: 1 } }),
+  }));
+  assert.throws(
+    () => httpCapability({ ...unkeyed, headers: { authorization: 'Bearer {credential}' } }),
+    (error: unknown) => isPalugadaError(error, 'contract.violation'),
+    'a body that carries only the input',
+  );
+  assert.throws(
+    () => httpCapability({
+      ...unkeyed,
+      body: (input) => {
+        if (!input.to) throw new Error('needs a recipient');
+        return { to: input.to };
+      },
+    }),
+    (error: unknown) => isPalugadaError(error, 'contract.violation'),
+    'a body that cannot be built without real input places nothing',
+  );
 });
 
 test('the idempotency key on the wire is the one the engine minted (F12.8)', async () => {

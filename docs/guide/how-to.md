@@ -317,8 +317,28 @@ Capabilities that need somebody's account, such as `email.send`,
 holds no code: each entry is a method, a URL, headers and a body template,
 where the result is found, how to read it back, and which credential it
 uses. [config/vendors.example.json](../../config/vendors.example.json) binds
-`email.send` to Resend, `dns.read` and `dns.update` to Cloudflare, and
-`invoice.issue` to Stripe.
+`email.send` to Resend, `dns.read` and `dns.update` to Cloudflare,
+`invoice.issue` to a QRIS payment through Midtrans, `social.publish` to a
+Mastodon account and `metrics.read` to Plausible. Each was written from the
+vendor's own documentation; none has been run against the vendor from here.
+The Midtrans entry points at Midtrans' sandbox, so a copied example charges
+nobody: change `api.sandbox.midtrans.com` to `api.midtrans.com`, and use the
+production server key, when it is right. The Mastodon entry names
+`mastodon.social`; change it to your instance.
+
+Some vendors cannot be written as one entry, and the example leaves them
+out rather than shipping an entry that looks right and is not:
+
+- **Stripe invoices** take two or three calls (an invoice item, the invoice,
+  then finalising it), and an entry is one request.
+- **Xendit invoices** carry no idempotency key and do not refuse a repeated
+  `external_id`, so a retry after a lost answer would bill twice. Xendit
+  also calls that API legacy. Midtrans refuses an `order_id` it has seen,
+  which is why the example uses it.
+- **GitHub branches, Hetzner, Cloudflare record deletion, HubSpot notes and
+  Vercel deployments** document no idempotency key either.
+- **Google Calendar and Gmail** take OAuth access tokens that expire within
+  the hour, and PALUGADA has no OAuth flow yet.
 
 1. Copy the example and change it for your vendor. The platform refuses a
    file that writes without a read-back, has a side effect without an
@@ -330,7 +350,13 @@ uses. [config/vendors.example.json](../../config/vendors.example.json) binds
    takes the key as an HTTP Basic user name, such as Xendit or Midtrans,
    gets the header `"authorization": "Basic {credentialBasic}"`: the
    platform encodes the key, or a `user:password` pair as it is, and keeps
-   the encoded form out of its logs like the key itself.
+   the encoded form out of its logs like the key itself. An amount in whole
+   units, as Midtrans and Xendit take rupiah, is described with
+   `"describe": { "moneyUnits": "amount" }` rather than `moneyCents`, so a
+   policy threshold written in cents compares the same money. The
+   idempotency key may also travel in the body, as the vendor's own unique
+   id for what the call makes -- Midtrans' `order_id` -- when the vendor
+   refuses one it has seen.
 2. Set `PALUGADA_VENDORS` to the file's path. With Docker Compose, put the
    file in `config/` and rebuild with `docker compose up -d --build`: the
    image copies that directory, and a relative path is read from the app's

@@ -84,29 +84,96 @@
     },
     {
       "name": "invoice.issue",
-      "adapter": "stripe",
+      "adapter": "midtrans",
       "tier": 2,
       "method": "POST",
-      "url": "https://api.stripe.com/v1/invoices",
+      "url": "https://api.sandbox.midtrans.com/v2/charge",
+      "headers": { "authorization": "Basic {credentialBasic}" },
+      "body": {
+        "payment_type": "qris",
+        "transaction_details": { "order_id": "{idempotencyKey}", "gross_amount": "{input.amount}" },
+        "qris": { "acquirer": "gopay" }
+      },
+      "input": {
+        "type": "object",
+        "required": ["amount"],
+        "properties": {
+          "amount": { "type": "integer", "minimum": 1, "description": "The amount in whole rupiah, as Midtrans takes it." }
+        }
+      },
+      "result": "body",
+      "credentialAlias": "payments",
+      "requiredScopes": ["payments:charge"],
+      "verify": {
+        "url": "https://api.sandbox.midtrans.com/v2/{idempotencyKey}/status",
+        "headers": { "authorization": "Basic {credentialBasic}" },
+        "matches": { "status": 200, "path": "body.transaction_status", "oneOf": ["pending", "settlement"] }
+      },
+      "describe": { "moneyUnits": "amount" }
+    },
+    {
+      "name": "social.publish",
+      "adapter": "mastodon",
+      "tier": 2,
+      "method": "POST",
+      "url": "https://mastodon.social/api/v1/statuses",
       "headers": {
         "authorization": "Bearer {credential}",
         "idempotency-key": "{idempotencyKey}"
       },
-      "body": {
-        "customer": "{input.customerId}",
-        "amount_due": "{input.amountCents}",
-        "currency": "{input.currency}"
+      "body": { "status": "{input.text}", "visibility": "{input.visibility}", "language": "{input.language}" },
+      "input": {
+        "type": "object",
+        "required": ["text"],
+        "properties": {
+          "text": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "visibility": { "enum": ["public", "unlisted", "private", "direct"] },
+          "language": { "type": "string", "description": "ISO 639-1, such as id or en." }
+        }
       },
       "result": "body.id",
-      "credentialAlias": "billing",
-      "requiredScopes": ["invoice:write"],
+      "credentialAlias": "social",
+      "requiredScopes": ["write:statuses"],
       "verify": {
-        "url": "https://api.stripe.com/v1/invoices/{result}",
+        "url": "https://mastodon.social/api/v1/statuses/{result}",
         "headers": { "authorization": "Bearer {credential}" },
-        "matches": { "status": 200, "path": "body.status", "oneOf": ["draft", "open", "paid"] }
+        "matches": { "status": 200, "path": "body.id", "equalsPath": "result" }
       },
-      "describe": { "moneyCents": "amountCents" },
-      "preflightUrl": "https://api.stripe.com/v1/balance"
+      "preflightUrl": "https://mastodon.social/api/v1/accounts/verify_credentials"
+    },
+    {
+      "name": "metrics.read",
+      "adapter": "plausible",
+      "tier": 0,
+      "method": "POST",
+      "readOnly": true,
+      "url": "https://plausible.io/api/v2/query",
+      "headers": {
+        "authorization": "Bearer {credential}",
+        "idempotency-key": "{idempotencyKey}"
+      },
+      "body": { "site_id": "{input.siteId}", "metrics": "{input.metrics}", "date_range": "{input.dateRange}" },
+      "input": {
+        "type": "object",
+        "required": ["siteId", "metrics", "dateRange"],
+        "properties": {
+          "siteId": { "type": "string", "description": "The site's domain, as Plausible knows it." },
+          "metrics": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "enum": ["visitors", "visits", "pageviews", "views_per_visit", "bounce_rate", "visit_duration", "events"] }
+          },
+          "dateRange": {
+            "anyOf": [
+              { "enum": ["day", "7d", "30d", "month", "6mo", "12mo", "year", "all"] },
+              { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 2, "description": "A first and a last day, as YYYY-MM-DD." }
+            ]
+          }
+        }
+      },
+      "result": "body.results",
+      "credentialAlias": "analytics",
+      "requiredScopes": ["stats:read"]
     }
   ]
 }

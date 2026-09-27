@@ -38,6 +38,7 @@
  *     redactor would catch the value in this platform's own trace and can do
  *     nothing about the vendor's.
  */
+import { randomUUID } from 'node:crypto';
 import { PalugadaError } from '../errors.ts';
 import { redactor } from '../secrets/manager.ts';
 import type { Capability, CapabilityContext } from '../broker/registry.ts';
@@ -154,6 +155,30 @@ export interface HttpCapabilitySpec {
 /** Methods with an effect, which F12.8 requires an idempotency key on. */
 const SIDE_EFFECTING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
+/**
+ * Whether the body places the key: the vendor's own unique id for what the
+ * call makes, which it refuses to accept twice -- Midtrans an `order_id`,
+ * Google Calendar an event `id`. That deduplicates a retry as surely as a
+ * header does.
+ *
+ * Judged by building the body with a key nobody could type and looking for
+ * it, rather than by trusting a flag, because a body is a function here and
+ * a flag would be a claim. A body that cannot be built without real input
+ * places nothing that can be seen, and is judged by the URL and headers.
+ */
+function bodyCarriesKey(spec: HttpCapabilitySpec): boolean {
+  if (!spec.body) return false;
+  const probe = `palugada-probe-${randomUUID()}`;
+  try {
+    const built = spec.body({}, {
+      input: {}, idempotencyKey: probe, credential: '', companyId: '', divisionId: '', taskId: '',
+    });
+    return JSON.stringify(built ?? null).includes(probe);
+  } catch {
+    return false;
+  }
+}
+
 export function httpCapability(spec: HttpCapabilitySpec): Capability<
   Record<string, unknown>,
   unknown
@@ -176,7 +201,7 @@ export function httpCapability(spec: HttpCapabilitySpec): Capability<
   // same email twice, and the vendor is the only party who can deduplicate it.
   if (SIDE_EFFECTING.has(method)) {
     const carriesKey = [spec.url, ...Object.values(spec.headers ?? {})]
-      .some((part) => part.includes('{idempotencyKey}'));
+      .some((part) => part.includes('{idempotencyKey}')) || bodyCarriesKey(spec);
     if (!carriesKey) {
       throw new PalugadaError(
         'contract.violation',

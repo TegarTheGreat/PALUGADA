@@ -443,7 +443,7 @@ test('the example file in this repository builds, and its read-backs resolve (§
   const specs = parseVendors(document, 'config/vendors.example.json');
   assert.deepEqual(
     specs.map((spec) => spec.name),
-    ['email.send', 'dns.read', 'dns.update', 'invoice.issue'],
+    ['email.send', 'dns.read', 'dns.update', 'invoice.issue', 'social.publish', 'metrics.read'],
   );
 
   // Building is not enough, and this is the mistake the example itself made:
@@ -485,8 +485,13 @@ test('the example file in this repository builds, and its read-backs resolve (§
     'email.send': { to: ['ana@supplier.example'], subject: 'Hi', body: 'Text.' },
     'dns.read': { zoneId: 'z1' },
     'dns.update': { zoneId: 'z1', recordId: 'r1', type: 'A', name: 'a', content: '203.0.113.9', ttl: 60 },
-    'invoice.issue': { customerId: 'cus_1', amountCents: 125_00, currency: 'usd' },
+    'invoice.issue': { amount: 150_000 },
   };
+  // Rp 150.000 is fifteen million cents to a policy, not a hundred and fifty
+  // thousand: Midtrans takes whole rupiah and every threshold is in cents.
+  assert.deepEqual(specs.find((spec) => spec.name === 'invoice.issue')!.describe!(samples['invoice.issue']!), {
+    moneyCents: 15_000_000,
+  });
   for (const spec of specs) {
     if (!spec.describe) continue;
     const described = spec.describe(samples[spec.name] ?? {});
@@ -698,6 +703,33 @@ test('a key sent as HTTP Basic is encoded by the platform, and redacted like the
   } finally {
     await server.close();
   }
+});
+
+/**
+ * Midtrans and Xendit take an amount in whole rupiah; a policy reads money in
+ * cents. An entry that described a Rp 10.000.000 charge by its rupiah figure
+ * would show every threshold the owner set a hundredth of the money -- a
+ * charge that should wait for the owner would not.
+ */
+test('an amount in whole units is described in cents, and a file cannot say both (F3.4)', () => {
+  const entry = (describe: Record<string, string>) => ({
+    name: 'invoice.issue', adapter: 'midtrans', tier: 2, method: 'POST',
+    url: 'https://api.sandbox.midtrans.com/v2/charge',
+    headers: { authorization: 'Basic {credentialBasic}' },
+    body: { transaction_details: { order_id: '{idempotencyKey}', gross_amount: '{input.amount}' } },
+    verify: { url: 'https://api.sandbox.midtrans.com/v2/{idempotencyKey}/status', matches: { path: 'body.transaction_status', oneOf: ['pending', 'settlement'] } },
+    describe,
+  });
+  const capability = httpCapability(parseVendors({ capabilities: [entry({ moneyUnits: 'amount' })] })[0]!);
+  assert.deepEqual(capability.describe!({ amount: 10_000_000 }), { moneyCents: 1_000_000_000 });
+  assert.deepEqual(capability.describe!({ amount: 19.99 }), { moneyCents: 1_999 }, 'rounded to a whole cent, not 1998.9999999999998');
+  assert.deepEqual(capability.describe!({ amount: 'ten' }), {}, 'a figure that is not a number describes no money');
+
+  assert.throws(
+    () => parseVendors({ capabilities: [entry({ moneyCents: 'amount', moneyUnits: 'amount' })] }),
+    (error: unknown) => isPalugadaError(error, 'config.invalid') && /moneyCents|moneyUnits/.test((error as Error).message),
+    'one amount, stated one way',
+  );
 });
 
 test('a form body must be an object of fields (F8)', () => {

@@ -24,7 +24,8 @@ import * as inbox from '../inbox/inbox.ts';
 import { PalugadaError } from '../errors.ts';
 
 export type GoalKind = 'mission' | 'objective' | 'key_result';
-export type GoalStatus = 'active' | 'met' | 'abandoned';
+export const GOAL_STATUSES = ['active', 'met', 'abandoned'] as const;
+export type GoalStatus = (typeof GOAL_STATUSES)[number];
 
 export interface Goal {
   id: string;
@@ -127,7 +128,30 @@ export async function ancestryForTask(tx: TenantClient, taskId: string): Promise
  */
 export function renderAncestry(chain: Goal[]): string {
   if (chain.length === 0) return 'No goal is attached to this task.';
-  return chain.map((goal) => `${goal.kind.replace('_', ' ')}: ${goal.statement}`).join(' → ');
+  // A closed goal says so: a run still under one winds down rather than
+  // pressing on towards something the owner has stopped wanting.
+  return chain.map((goal) => `${goal.kind.replace('_', ' ')}${goal.status === 'active' ? '' : ` (${goal.status})`}: ${goal.statement}`)
+    .join(' → ');
+}
+
+/**
+ * Refuses to start work under a goal that is closed, or under one whose
+ * ancestor is: an abandoned objective's key results are abandoned with it,
+ * whatever their own row says, and work under a met goal is work nobody asked
+ * for. What is already running is left to finish; this is the door, not the
+ * room.
+ */
+export async function assertGoalOpen(tx: TenantClient, goalId: string): Promise<void> {
+  const chain = await ancestryFor(tx, goalId);
+  const goal = chain.at(-1);
+  if (!goal) throw new PalugadaError('contract.violation', `no goal ${goalId} in this company`, { goalId });
+  const closed = chain.find((one) => one.status !== 'active');
+  if (!closed) return;
+  const called = (one: Goal) => `the ${one.kind.replace('_', ' ')} "${one.slug}"`;
+  throw new PalugadaError('goal.closed', closed.id === goal.id
+    ? `${called(goal)} is ${goal.status}: work is not started under a closed goal; choose an active one, or reopen it`
+    : `${goal.slug} is under ${called(closed)}, which is ${closed.status}: work is not started under a closed goal; choose an active one, or reopen it`,
+  { goalId, closedGoalId: closed.id, status: closed.status });
 }
 
 /**
@@ -173,14 +197,22 @@ export async function proposeGoalChange(input: {
   });
 }
 
-/** Applies a change the owner approved. Control plane, and recorded. */
+/**
+ * Applies a change the owner approved. Control plane, and recorded.
+ *
+ * Closing a goal pauses what would start work under it -- the schedules and
+ * the triggers of the goal and of every goal beneath it -- in the same
+ * transaction, and says how many, so an abandoned objective stops spending
+ * the moment it is abandoned. Reopening one resumes nothing by itself: which
+ * of them should run again is the owner's call, made where each one is.
+ */
 export async function applyGoalChange(input: {
   companyId: string;
   goalId: string;
   statement?: string;
   status?: GoalStatus;
-}): Promise<void> {
-  await withControlPlane(async (tx) => {
+}): Promise<{ paused: { schedules: number; triggers: number } }> {
+  return withControlPlane(async (tx) => {
     const { rows } = await tx.query<RawGoal>(
       `UPDATE goals
           SET statement = coalesce($3, statement),
@@ -194,11 +226,42 @@ export async function applyGoalChange(input: {
         goalId: input.goalId,
       });
     }
+    const paused = { schedules: 0, triggers: 0 };
+    if (rows[0]!.status !== 'active') {
+      const under = `WITH RECURSIVE under AS (
+                       SELECT id FROM goals WHERE id = $1 AND company_id = $2
+                       UNION ALL
+                       SELECT g.id FROM goals g JOIN under u ON g.parent_goal_id = u.id)`;
+      const schedules = await tx.query<{ id: string; slug: string }>(
+        `${under} UPDATE schedules SET enabled = false
+                   WHERE company_id = $2 AND enabled AND goal_id IN (SELECT id FROM under) RETURNING id, slug`,
+        [input.goalId, input.companyId]);
+      const triggers = await tx.query<{ id: string; slug: string }>(
+        `${under} UPDATE triggers SET enabled = false
+                   WHERE company_id = $2 AND enabled AND goal_id IN (SELECT id FROM under) RETURNING id, slug`,
+        [input.goalId, input.companyId]);
+      paused.schedules = schedules.rows.length;
+      paused.triggers = triggers.rows.length;
+      if (paused.schedules + paused.triggers > 0) {
+        await appendEvent(tx, {
+          companyId: input.companyId,
+          type: 'goal.work_paused',
+          actor: 'owner',
+          payload: {
+            goalId: input.goalId,
+            status: rows[0]!.status,
+            schedules: schedules.rows.map((row) => row.slug),
+            triggers: triggers.rows.map((row) => row.slug),
+          },
+        });
+      }
+    }
     await appendEvent(tx, {
       companyId: input.companyId,
       type: 'goal.changed',
       actor: 'owner',
       payload: { goalId: input.goalId, statement: rows[0]!.statement, status: rows[0]!.status },
     });
+    return { paused };
   });
 }

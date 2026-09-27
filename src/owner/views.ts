@@ -127,9 +127,14 @@ export async function structureOf(companyId: string): Promise<StructureView> {
         ORDER BY r.created_at`,
       [TERMINAL_STATUSES],
     );
+    // What was meant to be done: a cancelled task is not owed, and one the
+    // owner asked for again is owed once, by its rerun.
     const goalWork = await tx.query<{ goal_id: string; done: number; total: number }>(
-      `SELECT goal_id, count(*) FILTER (WHERE status = 'completed')::int AS done, count(*)::int AS total
-         FROM tasks WHERE goal_id IS NOT NULL GROUP BY goal_id`,
+      `SELECT goal_id, count(*) FILTER (WHERE status = 'completed')::int AS done,
+              count(*) FILTER (WHERE status <> 'cancelled'
+                                 AND NOT EXISTS (SELECT 1 FROM tasks again
+                                                  WHERE again.idempotency_key = 'rerun:' || t.id::text))::int AS total
+         FROM tasks t WHERE goal_id IS NOT NULL GROUP BY goal_id`,
     );
 
     const metrics = await metricsIn(tx);

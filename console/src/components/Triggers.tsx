@@ -24,6 +24,7 @@ import { t } from '../i18n.ts';
 import type { Structure, Trigger, TriggerScheme } from '../types.ts';
 import { LoadFailed, Loading, Section } from './ui.tsx';
 import { ActionButton, ActionForm } from './ActionForm.tsx';
+import { openGoals } from '../goals.ts';
 
 const urlOf = (publicId: string) => `${window.location.origin}/api/hooks/${publicId}`;
 
@@ -157,7 +158,7 @@ export function Triggers({ companyId, structure }: { companyId: string; structur
             { name: 'roleId', label: t('Role'), type: 'select', required: true, options: structure.roles.map((role) => ({
               value: role.id, label: `${role.slug} · ${structure.divisions.find((d) => d.id === role.divisionId)?.name ?? ''}`,
             })) },
-            { name: 'goalId', label: t('Serves'), type: 'select', required: true, options: structure.goals.map((goal) => ({ value: goal.id, label: goal.statement })) },
+            { name: 'goalId', label: t('Serves'), type: 'select', required: true, options: openGoals(structure.goals).map((goal) => ({ value: goal.id, label: goal.statement })) },
             { name: 'slug', label: t('Short name'), required: true, placeholder: 'new-orders' },
             { name: 'maxPerHour', label: t('At most, per hour'), type: 'number', initial: 30 },
             { name: 'scheme', label: t('Who calls it'), type: 'select', required: true, initial: 'bearer', options: schemes() },

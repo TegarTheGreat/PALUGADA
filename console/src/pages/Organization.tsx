@@ -30,6 +30,7 @@ import { Triggers } from '../components/Triggers.tsx';
 import { Handoffs } from '../components/Handoffs.tsx';
 import { ConfigHistory } from '../components/ConfigHistory.tsx';
 import { companyEmblem, OWNER_PICTURE, rolePicture } from '../images.ts';
+import { openGoals } from '../goals.ts';
 
 export function Organization({ ctx }: PageProps) {
   const { companyId } = ctx;
@@ -992,8 +993,18 @@ function GoalEditor({ companyId, goal, close, changed }: { companyId: string; go
             submit={(values, proof) => api('POST', `/api/companies/${companyId}/goals/${goal.id}`, { ...values, proof })}
             factor={t('Change a goal')}
             action={t('Change it')}
-            success={t('Goal changed.')}
-            done={() => { close(); changed(); }}
+            done={(result) => {
+              // Closing a goal pauses what would start work under it; the owner is told how much.
+              const paused = (result as { paused?: { schedules: number; triggers: number } }).paused;
+              notifications.show({
+                color: 'teal',
+                message: paused && paused.schedules + paused.triggers > 0
+                  ? t('Goal changed. Paused under it: {schedules} schedules and {triggers} triggers; turn any back on from its tab.', paused)
+                  : t('Goal changed.'),
+              });
+              close();
+              changed();
+            }}
           />
         </Stack>
       )}
@@ -1051,7 +1062,7 @@ function Schedules({
             // each run is asked. Without them a schedule saved here could
             // never fire: its first task was refused for want of a goal.
             { name: 'goalId', label: t('Serves'), type: 'select', required: true,
-              options: structure.goals.map((goal) => ({ value: goal.id, label: goal.statement })) },
+              options: openGoals(structure.goals).map((goal) => ({ value: goal.id, label: goal.statement })) },
             { name: 'brief', label: t('What each run is asked to do'), type: 'textarea', required: true, wide: true,
               placeholder: t('Reconcile last week\'s invoices against the bank statement and list anything that does not match.') },
             { name: 'slug', label: t('Short name'), required: true, placeholder: 'weekly-invoices' },

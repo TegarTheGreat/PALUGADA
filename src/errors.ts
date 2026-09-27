@@ -22,6 +22,8 @@ export type ErrorCode =
   | 'credential.scope_insufficient'
   | 'contract.violation'
   | 'goal.required'
+  /** Work is not started under a goal the owner has closed, or under one beneath it. */
+  | 'goal.closed'
   | 'role.incomplete'
   | 'plan.required'
   | 'plan.batch_mismatch'

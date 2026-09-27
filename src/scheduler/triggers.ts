@@ -36,6 +36,7 @@ import { appendEvent } from '../audit/event-log.ts';
 import { withControlPlane, withTenant } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';
 import { wrapUntrusted } from '../context/builder.ts';
+import { assertGoalOpen } from '../domain/goals.ts';
 import { createRootTask } from '../engine/tasks.ts';
 import type { SecretManager } from '../secrets/manager.ts';
 import { enqueueWake } from './wake.ts';
@@ -232,6 +233,8 @@ export async function createTrigger(
     if (goal.rowCount !== 1) {
       throw new PalugadaError('contract.violation', 'no such goal in this company', { field: 'goalId' });
     }
+    // A door opened onto a closed goal would only let work be refused.
+    await assertGoalOpen(tx, input.goalId);
     const project = input.projectId ?? (await tx.query<{ id: string }>(
       'SELECT id FROM projects WHERE company_id = $1 ORDER BY created_at LIMIT 1', [companyId])).rows[0]?.id;
     if (!project) {

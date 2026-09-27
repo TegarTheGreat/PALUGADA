@@ -16,6 +16,7 @@ import { hashInput } from './hash.ts';
 import * as budget from './budget.ts';
 import { isRoleFrozen } from '../governance/role-freeze.ts';
 import { isSpendPaused } from '../governance/spend-guard.ts';
+import { assertGoalOpen } from '../domain/goals.ts';
 
 /** F6.5: one task may spawn at most this many children unless overridden. */
 export const DEFAULT_FAN_OUT_MAX = 5;
@@ -230,6 +231,10 @@ export async function createRootTask(input: CreateTaskInput): Promise<TaskRow> {
         { roleId: input.roleId },
       );
     }
+    // And the goal must still be wanted: a closed one, or one under a closed
+    // one, starts nothing -- the schedule, the trigger, the handoff and the
+    // owner all come through here.
+    await assertGoalOpen(tx, input.goalId);
 
     // F1.6: the narrowest account that covers this task, unless the caller
     // named one. A task charged to the company account while its division has

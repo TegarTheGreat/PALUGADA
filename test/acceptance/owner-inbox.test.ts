@@ -16,6 +16,7 @@ import { claimTask } from '../../src/engine/checkout.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { freezeCompany, isStopAllRequested, clearStopAll } from '../../src/engine/control.ts';
 import { Engine } from '../../src/engine/engine.ts';
+import { Worker } from '../../src/worker.ts';
 import { CapabilityRegistry, type Capability } from '../../src/broker/registry.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';
@@ -722,6 +723,54 @@ test('an approved action runs, exactly once, and asks nothing further (F10.10)',
   const again = await repeat.engine.runTask(twice.companyId, repeated.id, 'worker');
   assert.equal(again.status, 'waiting_approval', 'one yes carried one execution');
   assert.equal(repeat.calls.executions, 1);
+});
+
+/**
+ * The same, through the worker rather than a direct call, which is how it
+ * runs in production.
+ *
+ * A parked task gives up its lease (engine.ts), and the owner's yes moves it
+ * to `running` -- held by nobody. The claim took only `pending` and a window
+ * that had opened, the lease sweep only a lease that had run out, the orphan
+ * sweep only a run still marked running, so nothing picked the approved task
+ * up again: it stayed `running` for good, counted against its division's
+ * concurrency and its budget's headroom, and the action the owner approved
+ * never happened. Every test drove the engine by hand after approving, so the
+ * suite could not see it.
+ */
+test('an approved task, and one whose question is answered, is picked up again by the worker', async () => {
+  const fixture = await createCompany('approval-worker');
+  const { engine, calls } = await approvalEngine(fixture, ['example.com']);
+  const worker = new Worker({ engine, companyId: fixture.companyId, maxRunsPerTick: 2 });
+  const task = await newTask(fixture);
+
+  await worker.tick();
+  assert.equal((await withTenant(fixture.companyId, (tx) => getTask(tx, task.id)))!.status, 'waiting_approval');
+  const [item] = await inbox.listOpen(fixture.companyId);
+  await approveWithFactor(fixture, item!.id);
+  const report = await worker.tick();
+  assert.deepEqual(report.errors, []);
+  assert.equal(report.ran.find((one) => one.taskId === task.id)?.status, 'completed', JSON.stringify(report.ran));
+  assert.equal(calls.executions, 1, 'the approved action happened');
+  // Taken by the claim as it stood -- running, its journal intact -- rather
+  // than sent back through a checkout the state machine does not draw: it
+  // became running once for its first run and once for the owner's yes.
+  const moves = await withTenant(fixture.companyId, (tx) => tx.query<{ type: string; resumed: boolean }>(
+    `SELECT type, coalesce((payload->>'resumed')::boolean, false) AS resumed FROM events
+      WHERE task_id = $1 AND type IN ('task.running', 'task.checked_out') ORDER BY occurred_at, id`, [task.id]));
+  assert.equal(moves.rows.filter((row) => row.type === 'task.running').length, 2);
+  assert.ok(moves.rows.some((row) => row.type === 'task.checked_out' && row.resumed), 'and the claim says it resumed');
+
+  // A question rather than a yes: the task goes back to work to answer it.
+  const asking = await createCompany('approval-worker-ask');
+  const second = await approvalEngine(asking, ['example.com']);
+  const secondWorker = new Worker({ engine: second.engine, companyId: asking.companyId, maxRunsPerTick: 2 });
+  const questioned = await newTask(asking);
+  await secondWorker.tick();
+  const [asked] = await inbox.listOpen(asking.companyId);
+  await inbox.decide(asking.companyId, asked!.id, 'ask', 'why this zone?');
+  const again = await secondWorker.tick();
+  assert.ok(again.ran.some((one) => one.taskId === questioned.id), 'the run that answers the question happens');
 });
 
 /**

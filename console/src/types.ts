@@ -116,6 +116,8 @@ export interface Metric {
   latest: { value: number; observedAt: string; verified: boolean; recordedBy: string } | null;
   progress: number | null;
   history: Array<{ value: number; observedAt: string; verified: boolean }>;
+  /** When the owner retired it; its history is kept and it takes no more values. */
+  retiredAt: string | null;
 }
 
 export interface Division {

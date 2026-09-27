@@ -76,7 +76,7 @@ export interface ClaimOptions {
  */
 const CLAIM_SQL = `
   WITH candidate AS (
-    SELECT t.id
+    SELECT t.id, t.status AS was
       FROM tasks t
      -- F9.6. A task parked for cheap hours is claimable the moment they
      -- arrive, and the wait_until test below is what says whether they have.
@@ -101,8 +101,16 @@ const CLAIM_SQL = `
      -- for a full agent run each time round, with madeProgress suppressing
      -- the sleep because runs kept happening. A pending task with no
      -- wait_until is the ordinary case and stays claimable.
+     --
+     -- And a running task nobody holds: one the owner has just approved,
+     -- answered or had reviewed. A parked task gives up its lease (engine.ts),
+     -- and the owner's decision moves it to running without a worker, so a
+     -- claim that did not look here left every approved task running for
+     -- good -- the action never happened, and the task went on counting
+     -- against its division and its budget.
      WHERE (t.status = 'pending'
-            OR (t.status = 'waiting_window' AND t.wait_until IS NOT NULL))
+            OR (t.status = 'waiting_window' AND t.wait_until IS NOT NULL)
+            OR (t.status = 'running' AND t.lease_holder IS NULL))
        AND ($2::uuid IS NULL OR t.id = $2)
        AND ($5::uuid IS NULL OR t.role_id = $5)
        AND (t.wait_until IS NULL OR t.wait_until <= $3)
@@ -145,10 +153,14 @@ const CLAIM_SQL = `
      FOR UPDATE SKIP LOCKED
      LIMIT 1
   )
+  -- A resumed task stays running: its journal is intact and the run picks
+  -- up after the step that parked it.
   UPDATE tasks
-     SET status = 'checked_out', lease_holder = $1, lease_expires_at = $4
-   WHERE id IN (SELECT id FROM candidate)
-  RETURNING id, lease_expires_at`;
+     SET status = CASE WHEN tasks.status = 'running' THEN 'running' ELSE 'checked_out' END,
+         lease_holder = $1, lease_expires_at = $4
+    FROM candidate
+   WHERE tasks.id = candidate.id
+  RETURNING tasks.id, tasks.lease_expires_at, candidate.was`;
 
 export async function claimTask(
   companyId: string,
@@ -175,7 +187,7 @@ export async function claimTask(
     // being true.
     await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [companyId]);
 
-    const { rows } = await tx.query<{ id: string; lease_expires_at: Date }>(CLAIM_SQL, [
+    const { rows } = await tx.query<{ id: string; lease_expires_at: Date; was: string }>(CLAIM_SQL, [
       options.holder,
       options.taskId ?? null,
       now,
@@ -190,7 +202,11 @@ export async function claimTask(
       taskId: row.id,
       type: 'task.checked_out',
       actor: 'system',
-      payload: { holder: options.holder, leaseExpiresAt: row.lease_expires_at.toISOString() },
+      payload: {
+        holder: options.holder,
+        leaseExpiresAt: row.lease_expires_at.toISOString(),
+        ...(row.was === 'running' ? { resumed: true } : {}),
+      },
     });
     return { taskId: row.id, leaseExpiresAt: row.lease_expires_at };
   });

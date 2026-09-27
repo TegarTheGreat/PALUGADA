@@ -268,6 +268,23 @@ export async function runDueSchedules(now = new Date()): Promise<FiredOccurrence
         ...(schedule.goal_id ? { goalId: schedule.goal_id } : {}),
       });
     } catch (error) {
+      // A schedule whose goal the owner has closed is paused, not retried:
+      // closing the goal paused it once (goals.ts), and one turned back on by
+      // hand while the goal is still closed would otherwise be refused on
+      // every pass for as long as nobody looked.
+      if (error instanceof PalugadaError && error.code === 'goal.closed') {
+        await withTenant(schedule.company_id, async (tx) => {
+          await tx.query('UPDATE schedules SET enabled = false WHERE id = $1', [schedule.id]);
+          await appendEvent(tx, {
+            companyId: schedule.company_id,
+            projectId: schedule.project_id,
+            type: 'schedule.paused',
+            actor: 'scheduler',
+            payload: { scheduleId: schedule.id, slug: schedule.slug, reason: error.message },
+          });
+        });
+        continue;
+      }
       // A schedule that cannot be funded must not stall every schedule behind
       // it, and must not silently vanish either. Record it and move on; the
       // occurrence is retried on the next pass because the schedule was never

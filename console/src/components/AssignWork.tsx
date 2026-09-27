@@ -10,6 +10,7 @@ import { api, explain } from '../api.ts';
 import type { Structure } from '../types.ts';
 import { goalKind } from '../format.ts';
 import { t } from '../i18n.ts';
+import { openGoals } from '../goals.ts';
 
 export function AssignWork({
   companyId, structure, roleId: fixedRole, done,
@@ -22,7 +23,7 @@ export function AssignWork({
   const called = (role: { slug: string; displayName: string | null }) => role.displayName ?? role.slug;
   const [roleId, setRoleId] = useState<string | null>(fixedRole ?? router?.id ?? null);
   const [projectId, setProjectId] = useState<string | null>(structure.projects[0]?.id ?? null);
-  const leaf = structure.goals.filter((goal) => goal.status === 'active');
+  const leaf = openGoals(structure.goals);
   const [goalId, setGoalId] = useState<string | null>(
     leaf.find((goal) => goal.kind !== 'mission')?.id ?? leaf[0]?.id ?? null,
   );

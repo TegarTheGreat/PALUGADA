@@ -13,6 +13,7 @@ import {
 import { notifications } from '@mantine/notifications';
 import { IconAlertTriangle, IconCircleCheck, IconPlus } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
+import { useFactor } from '../factor.tsx';
 import { locale, t } from '../i18n.ts';
 import { relative } from '../format.ts';
 import type { Goal, Metric } from '../types.ts';
@@ -26,11 +27,15 @@ export function metricValue(metric: Pick<Metric, 'unit'>, value: number): string
 
 export function MetricLine({ metric, companyId, changed }: { metric: Metric; companyId: string; changed?: () => void }) {
   const [recording, setRecording] = useState(false);
+  const [editing, setEditing] = useState(false);
   const percent = metric.progress === null ? 0 : metric.progress * 100;
   return (
-    <div>
+    <div style={metric.retiredAt ? { opacity: 0.6 } : undefined}>
       <Group justify="space-between" wrap="nowrap" gap="xs">
-        <Text size="sm" fw={600} truncate>{metric.name}</Text>
+        <Group gap={6} wrap="nowrap" style={{ minWidth: 0 }}>
+          <Text size="sm" fw={600} truncate>{metric.name}</Text>
+          {metric.retiredAt && <Badge size="xs" variant="light" color="gray">{t('retired')}</Badge>}
+        </Group>
         <Group gap={6} wrap="nowrap">
           {metric.latest ? (
             metric.latest.verified ? (
@@ -55,14 +60,73 @@ export function MetricLine({ metric, companyId, changed }: { metric: Metric; com
           {metric.latest ? t('Updated {when}', { when: relative(metric.latest.observedAt) }) : t('No value yet')}
           {metric.dueOn ? ` · ${t('due {day}', { day: metric.dueOn })}` : ''}
         </Text>
-        {changed && (
-          <Button size="compact-xs" variant="subtle" onClick={() => setRecording(true)}>{t('Record a value')}</Button>
+        {changed && !metric.retiredAt && (
+          <Group gap={4}>
+            <Button size="compact-xs" variant="subtle" onClick={() => setRecording(true)}>{t('Record a value')}</Button>
+            <Button size="compact-xs" variant="subtle" color="gray" onClick={() => setEditing(true)}>{t('Change')}</Button>
+          </Group>
         )}
       </Group>
       {changed && (
-        <RecordValue companyId={companyId} metric={metric} opened={recording} close={() => setRecording(false)} done={changed} />
+        <>
+          <RecordValue companyId={companyId} metric={metric} opened={recording} close={() => setRecording(false)} done={changed} />
+          <ChangeMetric companyId={companyId} metric={metric} opened={editing} close={() => setEditing(false)} done={changed} />
+        </>
       )}
     </div>
+  );
+}
+
+/**
+ * Putting a measure right, or retiring it (0069). A target is what every run
+ * on the goal aims at, so a change takes the owner's code.
+ */
+function ChangeMetric({ companyId, metric, opened, close, done }: {
+  companyId: string; metric: Metric; opened: boolean; close: () => void; done: () => void;
+}) {
+  const requireFactor = useFactor();
+  const [name, setName] = useState(metric.name);
+  const [target, setTarget] = useState<number | string>(metric.target);
+  const [baseline, setBaseline] = useState<number | string>(metric.baseline);
+  const [dueOn, setDueOn] = useState(metric.dueOn ?? '');
+  const [error, setError] = useState<string | null>(null);
+  const send = async (body: Record<string, unknown>, message: string) => {
+    setError(null);
+    try {
+      const sent = await requireFactor(t('Change a measure'), (proof) =>
+        api('POST', `/api/companies/${companyId}/metrics/${metric.id}`, { ...body, proof }));
+      if (!sent) return;
+      notifications.show({ color: 'teal', message });
+      close();
+      done();
+    } catch (failure) {
+      setError(explain(failure));
+    }
+  };
+  return (
+    <Modal opened={opened} onClose={close} title={t('Change a measure')} centered>
+      <Stack>
+        <TextInput label={t('What is measured')} value={name} onChange={(e) => setName(e.currentTarget.value)} />
+        <SimpleGrid cols={2}>
+          <NumberInput label={t('Where it starts')} value={baseline} onChange={setBaseline} allowDecimal thousandSeparator />
+          <NumberInput label={t('Target')} value={target} onChange={setTarget} allowDecimal thousandSeparator />
+        </SimpleGrid>
+        <TextInput label={t('By')} type="date" value={dueOn} onChange={(e) => setDueOn(e.currentTarget.value)} />
+        {error && <Alert color="red" variant="light">{error}</Alert>}
+        <Group justify="space-between">
+          <Button variant="subtle" color="red" onClick={() => void send({ retired: true }, t('Retired. Its history is kept; agents no longer aim at it.'))}>
+            {t('Retire it')}
+          </Button>
+          <Group gap="xs">
+            <Button variant="default" onClick={close}>{t('Cancel')}</Button>
+            <Button disabled={!name.trim() || target === ''} onClick={() => void send(
+              { name, target: Number(target), baseline: Number(baseline), dueOn: dueOn || null },
+              t('Changed. Agents working on this goal are told the new figure.'),
+            )}>{t('Save')}</Button>
+          </Group>
+        </Group>
+      </Stack>
+    </Modal>
   );
 }
 

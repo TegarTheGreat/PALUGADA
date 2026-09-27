@@ -100,7 +100,7 @@ const SECTIONS: Section[] = [
   {
     name: 'goal_metrics',
     sql: `SELECT id, goal_id, slug, name, unit, direction, baseline, target, due_on,
-                 source_capability, created_at
+                 source_capability, created_at, retired_at
             FROM goal_metrics ORDER BY created_at`,
   },
   {

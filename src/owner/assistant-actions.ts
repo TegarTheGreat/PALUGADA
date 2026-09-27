@@ -272,13 +272,24 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   },
   {
     pattern: '/api/companies/:companyId/goals/:goalId',
-    what: 'Reword a goal, or close it.', fields: { statement: 'optional', status: 'optional: active, achieved or abandoned' }, factor: 'always',
+    what: 'Reword a goal, or close it. Closing one pauses the schedules and triggers under it.',
+    fields: { statement: 'optional', status: 'optional: active, met or abandoned' }, factor: 'always',
+  },
+  {
+    pattern: '/api/companies/:companyId/metrics/:metricId',
+    what: 'Put a measure right, or retire it; a retired measure keeps its history and takes no more values.',
+    fields: {
+      name: 'optional', unit: 'optional, only before any value is recorded: currency, count, ratio or percent', direction: 'optional: up or down',
+      baseline: 'optional number', target: 'optional number', dueOn: 'optional date, or null', sourceCapability: 'optional, or null',
+      retired: 'true to retire it',
+    },
+    factor: 'always',
   },
   {
     pattern: '/api/companies/:companyId/goals/:goalId/metrics',
     what: 'Measure a goal by a number.',
     fields: {
-      name: 'what is counted', slug: 'short id', unit: 'such as IDR or signups', direction: 'up or down',
+      name: 'what is counted, such as revenue in IDR or signups', slug: 'short id', unit: 'currency, count, ratio or percent', direction: 'up or down',
       baseline: 'number now', target: 'number wanted', dueOn: 'optional date', sourceCapability: 'optional capability that reads it',
     },
     factor: 'never',
@@ -357,7 +368,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     what: 'Recurring work.',
     fields: {
       slug: 'short id', cronExpression: 'five-field cron', timezone: 'an IANA zone', roleId: 'who does it', goalId: 'the goal it serves',
-      input: '{ goal: "what to do each time" }', enabled: 'true or false', divisionId: 'optional', projectId: 'optional',
+      input: '{ goal: "what to do each time" }', enabled: 'true or false', divisionId: 'the role\'s division', projectId: 'the project the work goes in',
     },
     factor: 'never',
   },

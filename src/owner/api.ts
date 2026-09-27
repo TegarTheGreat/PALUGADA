@@ -85,7 +85,7 @@ import { assignTask } from '../scheduler/wake.ts';
 import { createCompanyFromTemplate, readTemplate } from '../templates/company.ts';
 import { accountFor, chainFor, createAccount, snapshot } from '../engine/budget.ts';
 import { remember, supersede } from '../memory/store.ts';
-import { defineMetric, headlines, recordObservation, type Headline, type MetricUnit } from '../domain/metrics.ts';
+import { changeMetric, defineMetric, headlines, recordObservation, type Headline, type MetricChange, type MetricUnit } from '../domain/metrics.ts';
 import {
   LANGUAGES, deploymentLanguages, languageCode, languagesFor, setCompanyLanguages, setDeploymentLanguages,
 } from '../domain/language.ts';
@@ -97,7 +97,7 @@ import { archiveLines, importCompany, previewArchive } from '../audit/import.ts'
 import {
   createTrigger, receiveHook, rotateTriggerToken, setTriggerEnabled, triggersOf, type TriggerScheme,
 } from '../scheduler/triggers.ts';
-import { applyGoalChange, createGoal, readGoal } from '../domain/goals.ts';
+import { GOAL_STATUSES, applyGoalChange, createGoal, readGoal } from '../domain/goals.ts';
 import {
   addDivision,
   addProject,
@@ -2460,6 +2460,31 @@ export class OwnerApi {
       },
 
       {
+        // Putting a measure right, or retiring it (0069). A target is what
+        // every run on the goal aims at, so moving it -- either way -- takes
+        // the owner's device, like changing the goal it measures.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/metrics/:metricId',
+        handle: async ({ params, body }) => {
+          const change: MetricChange = {};
+          if (body.name !== undefined) change.name = requireText(body.name, 'name');
+          if (body.unit !== undefined) change.unit = requireText(body.unit, 'unit') as MetricUnit;
+          if (body.direction !== undefined) change.direction = oneOf(body.direction, ['up', 'down'] as const, 'direction');
+          if (body.baseline !== undefined) change.baseline = Number(body.baseline);
+          if (body.target !== undefined) change.target = Number(body.target);
+          if (body.dueOn !== undefined) change.dueOn = typeof body.dueOn === 'string' && body.dueOn ? body.dueOn : null;
+          if (body.sourceCapability !== undefined) {
+            change.sourceCapability = typeof body.sourceCapability === 'string' && body.sourceCapability ? body.sourceCapability : null;
+          }
+          if (body.retired !== undefined) change.retired = body.retired === true;
+          if (Object.keys(change).length === 0) throw new PalugadaError('contract.violation', 'no measure field was given', {});
+          await this.#requireFactor(body.proof, 'change a measure', params.companyId!);
+          await changeMetric(params.companyId!, params.metricId!, change);
+          return { ok: true };
+        },
+      },
+
+      {
         // The owner's own reading of a number -- from a bank statement, a
         // dashboard the platform cannot reach. Verified by being the owner's.
         method: 'POST',
@@ -2722,7 +2747,7 @@ export class OwnerApi {
             throw new PalugadaError('contract.violation', 'no goal field was given', {});
           }
           await this.#requireFactor(body.proof, 'change a goal', params.companyId!);
-          await applyGoalChange({
+          const changed = await applyGoalChange({
             companyId: params.companyId!,
             goalId: params.goalId!,
             ...(body.statement === undefined ? {} : { statement: String(body.statement) }),
@@ -2730,7 +2755,7 @@ export class OwnerApi {
               ? {}
               : { status: oneOf(body.status, GOAL_STATUSES, 'status') }),
           });
-          return { ok: true };
+          return { ok: true, paused: changed.paused };
         },
       },
 
@@ -4258,7 +4283,6 @@ function roleChange(value: unknown): RoleChange {
 }
 
 const GOAL_KINDS = ['mission', 'objective', 'key_result'] as const;
-const GOAL_STATUSES = ['active', 'met', 'abandoned'] as const;
 const SKILL_SCOPES = ['company', 'platform', 'division'] as const;
 const BUDGET_SCOPES = ['project', 'division', 'role'] as const;
 

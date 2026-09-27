@@ -3328,7 +3328,35 @@ has.
   Team is drawn as the owner, the CEO and the divisions hanging from one
   spine, rather than a grid.
 
-**Still open, next.** The assistant in Telegram, by text and voice note. WhatsApp, Signal and email as
+- **Read again against what an owner would expect of a company's memory,
+  goals, tickets, execution and transparency.** Three audits of the source,
+  each finding checked in the code before it was acted on. The worst was
+  execution: a task the owner approved, answered or had reviewed was never
+  run again under the worker. A parked task gives up its lease, the owner's
+  decision moved it to running with no worker, and the claim, the lease
+  sweep and the orphan sweep each looked elsewhere -- so the approved action
+  never happened, and the task went on holding its division's concurrency.
+  The tests drove the engine by hand after approving; the claim now takes a
+  running task nobody holds, and a test approves and answers through a real
+  worker tick. Closing a goal now stops the work under it (its schedules
+  and triggers paused, no new work under it or beneath it, runs told it is
+  closed); a measure can be put right or retired (0069), and the database
+  refuses a value for a retired one after its retirement; progress no
+  longer counts cancelled or rerun tasks as owed; and the assistant was told
+  a goal status, a unit and optional schedule fields the API refuses.
+
+**Still open, next.** From the same audits, in order: `ticket.create` names an
+adapter that does not exist, so roles are told to open tickets nobody can
+see; the company learns from event metadata rather than from the work
+(finished tasks carry no content), and a distilled fact is trusted the
+moment it is written; approving a skill from the inbox does nothing, and the
+console lists only active skills; a write whose read-back fails can be
+retried into a second write; done criteria are shown to runs and never
+checked; runs have no token or wall-clock ceiling of their own; tool inputs
+and the context a run was given are not kept, and the task timeline does not
+name the capability used; projects are only a label; there is no document
+knowledge base, and pgvector is installed and unused. The assistant in
+Telegram, by text and voice note. WhatsApp, Signal and email as
 owner channels are not built; Slack and Discord cannot carry buttons, so
 Telegram remains the chat that decides. Subscription
 logins whose tokens rotate (ChatGPT, Hermes' Nous and Codex logins) are not

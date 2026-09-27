@@ -276,7 +276,20 @@ ratio), which way is better, a baseline, a target, a date, and optionally the
 capability whose answer is the number. A value an agent records counts as
 verified only when the same task read it from that source; otherwise it is
 shown as the agent's claim. Until a goal has a measure, progress is counted
-in tasks.
+in tasks: the ones finished against the ones meant to be done, so a
+cancelled task, or one you asked for again, is not left owing.
+
+Closing a goal -- **Met** or **Abandoned** -- stops the work under it. Its
+schedules and triggers, and those of every goal beneath it, are paused in
+the same step and you are told how many; no new work can be started under it
+or under a goal beneath it; and a run already under it is told the goal is
+closed, so it can wind down. Reopening a goal lets work start again and
+leaves what was paused for you to turn back on.
+
+A measure can be put right -- its name, baseline, target and date -- or
+retired, from **Change** beside it; both take a code, because every run on
+the goal aims at the target. A retired measure keeps its history, leaves
+the runs and the portfolio, and takes no more values.
 
 ## Stages
 

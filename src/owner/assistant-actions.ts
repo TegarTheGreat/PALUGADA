@@ -321,6 +321,10 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     factor: 'never',
   },
   {
+    pattern: '/api/companies/:companyId/memories/:memoryId/retract',
+    what: 'Take back something the company should not believe at all; it leaves every run and stays in the record.', factor: 'never',
+  },
+  {
     pattern: '/api/companies/:companyId/memories/:memoryId/supersede',
     what: 'Replace a remembered fact that turned out wrong.', fields: { body: 'the right one', confidence: 'optional 0-1' }, factor: 'never',
   },

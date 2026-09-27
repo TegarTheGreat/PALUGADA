@@ -54,6 +54,9 @@ export interface ContextSection {
  */
 export const LOW_CONFIDENCE = 0.6;
 
+/** How many of the owner's own facts, and of their ways to work, a run is given before the rest. */
+const OWNER_SLOTS = 5;
+
 /**
  * F4.8: how much of a run's context the pack may occupy.
  *
@@ -280,13 +283,22 @@ async function roleSections(
     ].join('\n'),
   };
   const schema = role.output_schema ?? {};
+  // Where the schema leaves room, the run is told how to teach the company:
+  // what it says in `learned` is kept for its division (engine/tasks.ts).
+  const roomToLearn = (schema as { additionalProperties?: unknown }).additionalProperties !== false
+    || Boolean((schema as { properties?: Record<string, unknown> }).properties?.learned);
   const contract: ContextSection[] = Object.keys(schema).length === 0 ? [] : [{
     kind: 'contract',
     title: 'What you return',
     body:
       'When the work is finished, reply with one JSON object and nothing else. It is checked against ' +
       'this schema before the task counts as done, and an answer that does not match is a failed attempt:\n\n' +
-      JSON.stringify(schema, null, 2),
+      JSON.stringify(schema, null, 2) +
+      (roomToLearn
+        ? '\n\nYou may add "learned": up to five short sentences this work taught that the company should ' +
+          'remember next time -- about its customers, products, prices, suppliers, or what worked and what ' +
+          'did not. They are kept for your division as unverified until they are learned again or confirmed.'
+        : ''),
   }];
   return { charter: [charter], contract };
 }
@@ -412,27 +424,39 @@ export async function buildContext(
   // newer ones about something else.
   const about = options.taskId ? await taskWords(tx, options.taskId) : '';
 
-  const sops = await recall(tx, options.companyId, {
-    memoryType: 'procedural',
-    divisionId: options.divisionId,
-    relevantTo: about,
-    limit: options.sopLimit ?? 10,
+  // The owner's word and everything else in separate slots: the owner's
+  // first and bounded, the rest after it. One list with the owner first let
+  // ten notes from the owner's feedback push every approved procedure and
+  // every fact the company learned out of every run (0071).
+  const ownerWays = await recall(tx, options.companyId, {
+    memoryType: 'procedural', divisionId: options.divisionId, relevantTo: about, source: 'owner', limit: OWNER_SLOTS,
   });
+  const sops = await recall(tx, options.companyId, {
+    memoryType: 'procedural', divisionId: options.divisionId, relevantTo: about, source: 'others', limit: options.sopLimit ?? 10,
+  });
+  for (const way of ownerWays) {
+    sections.push({ kind: 'sop', title: 'How the owner wants it done', body: way.body });
+  }
   for (const sop of sops) {
     sections.push({ kind: 'sop', title: 'Standard operating procedure', body: sop.body });
   }
 
-  const semanticMemories = await recall(tx, options.companyId, {
+  const recallFacts = (source: 'owner' | 'others', limit: number) => recall(tx, options.companyId, {
     memoryType: 'semantic',
     divisionId: options.divisionId,
     embedding: options.queryEmbedding,
     embeddingModel: options.embeddingModel,
     // Similarity decides when there is an embedding; the task's words when not.
     ...(options.queryEmbedding ? {} : { relevantTo: about }),
-    limit: options.semanticLimit ?? 10,
+    source,
+    limit,
   });
+  const semanticMemories = [
+    ...await recallFacts('owner', OWNER_SLOTS),
+    ...await recallFacts('others', options.semanticLimit ?? 10),
+  ];
   const lowConfidenceMemories = semanticMemories.filter(
-    (memory) => memory.confidence < LOW_CONFIDENCE,
+    (memory) => memory.confidence < LOW_CONFIDENCE || memory.outside,
   );
 
   // F4.5: the run is *told*, in words, before it reads the facts themselves.
@@ -454,16 +478,21 @@ export async function buildContext(
   }
 
   for (const memory of semanticMemories) {
-    const unverified = memory.confidence < LOW_CONFIDENCE;
+    // Something learned from content the company did not write is never a
+    // known fact, however often it was seen: it is shown as the data it came
+    // from, so words planted in an email cannot come back as the company's
+    // own instructions (F8.9).
+    const unverified = memory.confidence < LOW_CONFIDENCE || memory.outside;
     sections.push({
       kind: 'semantic_memory',
       // Confidence travels with the fact rather than being flattened away, and
       // the low ones say so in a word as well as a number: a run scanning
       // headings should not have to compare decimals to notice.
       title:
-        `${unverified ? 'UNVERIFIED fact' : 'Known fact'} ` +
-        `(confidence ${memory.confidence.toFixed(2)}, source ${memory.source})`,
-      body: memory.body,
+        `${memory.source === 'owner' ? 'Known fact, from the owner' : unverified ? 'UNVERIFIED fact' : 'Known fact'}`
+        + `${memory.outside ? ', learned from outside content' : ''} `
+        + `(confidence ${memory.confidence.toFixed(2)}, source ${memory.source})`,
+      body: memory.outside ? wrapUntrusted(`memory:${memory.source}`, memory.body) : memory.body,
     });
   }
 

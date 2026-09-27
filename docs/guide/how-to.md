@@ -129,6 +129,22 @@ should do, with the reason if you like; **Why it exists** opens the run
 that filed it. A deployment that binds `ticket.create` to an outside tracker
 in its vendor file sends tickets there instead.
 
+## Check what the company has learned
+
+**Memory** shows what the company knows, one division at a time if you
+choose one, newest first, with **Show older** for the rest. Each fact says
+where it came from -- you, a template, a run's own lesson, or the hourly
+distillation -- and a fact a run learned says **Unverified** until you
+confirm it with **It is true**. **From outside content** marks a fact that
+came from work which read an email, a web page or a customer's message:
+every run is shown it as the data it came from, not as something known,
+until you confirm it. **learned 3 more times** means the same lesson came
+back from later work. **The work that taught it** opens that task.
+
+A fact that is wrong: **Correct** it when you know the right one, or
+**Take back** when there is nothing to put in its place. Either way it
+reaches no run again, and the history keeps what it said.
+
 ## Approve or refuse
 
 1. Open **Inbox**. Items are ordered tier 3 first, then incidents, then the

@@ -31,12 +31,24 @@
 import { withTenant, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { wrapUntrusted } from '../context/builder.ts';
-import { remember } from './store.ts';
+import { LEARNED_CONFIDENCE, learn, remember } from './store.ts';
+import { outsideContentIn } from '../engine/tasks.ts';
 import * as inbox from '../inbox/inbox.ts';
 import type { LlmClient } from '../llm/client.ts';
 
 /** How many times a pattern must recur before it is worth proposing as an SOP. */
 export const DEFAULT_MIN_OCCURRENCES = 3;
+
+/**
+ * The platform's own tools, which every run uses and no procedure is about:
+ * searching memory, recording a plan or a number, asking the owner, handing
+ * work on. Counted, they made "how to use memory.search" the first SOP every
+ * division was offered.
+ */
+const HOUSEKEEPING_CAPABILITIES = [
+  'memory.search', 'skill.read', 'plan.record', 'metric.record', 'owner.ask', 'task.delegate', 'task.await',
+  'stage.propose', 'ticket.list',
+];
 
 /**
  * Events this module writes itself, excluded from its own corpus.
@@ -162,6 +174,7 @@ export async function distillEpisodicToSemantic(
       actor: string;
       payload: Record<string, unknown>;
       occurred_at: Date;
+      task_id: string | null;
     }>(
       // The watermark is compared in SQL against the stored value rather than
       // one shipped in from the caller, so no rounding can reopen a window
@@ -178,7 +191,7 @@ export async function distillEpisodicToSemantic(
       //
       // An event with no task belongs to no division and is skipped: it is
       // the company's, and there is no division-scoped fact to draw from it.
-      `SELECT e.id, e.type, e.actor, e.payload, e.occurred_at
+      `SELECT e.id, e.type, e.actor, e.payload, e.occurred_at, e.task_id
          FROM events e
          JOIN tasks t ON t.id = e.task_id
         WHERE e.project_id = $1
@@ -212,13 +225,25 @@ export async function distillEpisodicToSemantic(
     .map((event) => `${event.occurred_at.toISOString()} ${event.type} by ${event.actor}: ${JSON.stringify(event.payload)}`)
     .join('\n');
 
+  // Whether any of this came, however indirectly, from content the company
+  // did not write: a fact distilled from it is marked so, and never reaches
+  // a run as a known fact (0071).
+  const taskIds = [...new Set(events.flatMap((event) => (event.task_id ? [event.task_id] : [])))];
+  const outside = await withTenant(input.companyId, async (tx) => {
+    for (const taskId of taskIds) if (await outsideContentIn(tx, taskId)) return true;
+    return false;
+  });
+
   const response = await input.llm.complete({
     model: input.model,
     system:
-      'You distil durable facts from a company event log. Return JSON of the form ' +
-      '{"facts":[{"body":"...","confidence":0.0-1.0}]}. State only what the log ' +
-      'supports. Prefer few well-supported facts over many speculative ones, and ' +
-      'return an empty list when the log establishes nothing durable.',
+      'You distil durable facts from a company\'s record of its own work: what tasks were for, what ' +
+      'they produced, why some stopped, and what the owner said. Return JSON of the form ' +
+      '{"facts":[{"body":"...","confidence":0.0-1.0}]}. Keep facts about the business -- its ' +
+      'customers, products, prices, suppliers, and what worked or failed and why -- that would help ' +
+      'the next piece of work; not facts about this record or the software keeping it. State only ' +
+      'what the record supports, in one sentence each. Prefer few well-supported facts over many ' +
+      'speculative ones, and return an empty list when the record establishes nothing durable.',
     messages: [
       {
         role: 'user',
@@ -249,16 +274,21 @@ export async function distillEpisodicToSemantic(
 
   const factsCreated = await withTenant(input.companyId, async (tx) => {
     for (const fact of parsed.facts) {
-      await remember(tx, {
+      // A model's confidence in its own reading is not evidence: a distilled
+      // fact starts below the line of what the company knows, and rises only
+      // by being learned again (memory/store.ts). Its text is bounded like any
+      // memory's; a model that wrote an essay did not write a fact.
+      await learn(tx, {
         companyId: input.companyId,
         memoryType: 'semantic',
         scopeType: 'division',
         scopeId: input.divisionId,
-        body: fact.body,
-        confidence: fact.confidence,
+        body: fact.body.slice(0, 1_000),
+        confidence: Math.min(fact.confidence, LEARNED_CONFIDENCE.first),
         source: 'distillation',
         factKind: 'observation',
         sourceEventId: lastEvent.id,
+        outside,
       });
     }
     // The division, matching what the read above compares against. Keyed on
@@ -316,6 +346,9 @@ export async function distillSemanticToProcedural(
   const minOccurrences = input.minOccurrences ?? DEFAULT_MIN_OCCURRENCES;
 
   const patterns = await withTenant(input.companyId, async (tx) => {
+    // Counted since the owner last turned a proposal for the same pattern
+    // down, when they have: a rejection is answered by new evidence, not by
+    // the same count asking again every night.
     const { rows } = await tx.query<{ capability: string; occurrences: string }>(
       `SELECT e.payload->>'capability' AS capability, count(*)::text AS occurrences
          FROM events e
@@ -324,10 +357,16 @@ export async function distillSemanticToProcedural(
           AND t.division_id = $1
           AND t.status = 'completed'
           AND e.payload->>'capability' IS NOT NULL
+          AND NOT (e.payload->>'capability' = ANY($3::text[]))
+          AND e.occurred_at > coalesce(
+                (SELECT max(m.created_at) FROM memories m
+                  WHERE m.memory_type = 'procedural' AND m.scope_id = $1 AND m.approval_state = 'rejected'
+                    AND m.source = 'pattern:' || (e.payload->>'capability')),
+                '-infinity'::timestamptz)
         GROUP BY 1
        HAVING count(*) >= $2
         ORDER BY count(*) DESC`,
-      [input.divisionId, minOccurrences],
+      [input.divisionId, minOccurrences, HOUSEKEEPING_CAPABILITIES],
     );
     return rows.map((row) => ({ capability: row.capability, occurrences: Number(row.occurrences) }));
   });
@@ -351,6 +390,20 @@ export async function distillSemanticToProcedural(
     });
     if (existing) continue;
 
+    // What the work that used it was for and what it produced, so the
+    // procedure is written from the work rather than from a tool's name.
+    const examples = await withTenant(input.companyId, async (tx) => {
+      const { rows } = await tx.query<{ goal: string | null; summary: string | null }>(
+        `SELECT done.payload->>'goal' AS goal, done.payload->>'summary' AS summary
+           FROM events done JOIN tasks t ON t.id = done.task_id
+          WHERE done.type = 'task.completed' AND t.division_id = $1
+            AND EXISTS (SELECT 1 FROM events used WHERE used.task_id = t.id AND used.type = 'tool.called'
+                         AND used.payload->>'capability' = $2)
+          ORDER BY done.occurred_at DESC LIMIT 5`,
+        [input.divisionId, pattern.capability]);
+      return rows.filter((row) => row.goal || row.summary)
+        .map((row) => `- For: ${row.goal ?? '(not said)'}\n  Produced: ${row.summary ?? '(not said)'}`).join('\n');
+    });
     const response = await input.llm.complete({
       model: input.model,
       system:
@@ -361,7 +414,9 @@ export async function distillSemanticToProcedural(
           role: 'user',
           content:
             `The capability "${pattern.capability}" was used in ${pattern.occurrences} completed ` +
-            'tasks by this division. Write the SOP that captures how it should be done.',
+            'tasks by this division. Write the SOP that captures how it should be done.' +
+            // The work's own words are data: a run wrote them, perhaps from a customer's.
+            (examples ? `\n\nWhat some of that work was for, and what it produced:\n${wrapUntrusted('completed-work', examples)}` : ''),
         },
       ],
     });

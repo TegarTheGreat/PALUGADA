@@ -1036,16 +1036,21 @@ export async function history(
   });
 }
 
-function writeCursor(createdMicros: string, id: string): string {
+/**
+ * A page marker: a row's own timestamp in whole microseconds and its id. Also
+ * the memory page's (owner/views.ts), which paged by a millisecond Date and
+ * lost what was written in the same millisecond as a page's last row.
+ */
+export function writeCursor(createdMicros: string, id: string): string {
   return Buffer.from(`${createdMicros}|${id}`, 'utf8').toString('base64url');
 }
 
 /** A cursor is the owner's own input on the way back, so it is read, not trusted. */
-function readCursor(raw: string): { createdMicros: string; id: string } {
+export function readCursor(raw: string): { createdMicros: string; id: string } {
   const [createdMicros, id] = Buffer.from(raw, 'base64url').toString('utf8').split('|');
   if (!createdMicros || !id || !/^\d{1,18}$/.test(createdMicros)
     || !/^[0-9a-f-]{36}$/.test(id)) {
-    throw new PalugadaError('contract.violation', 'that page marker is not one this history issued', {});
+    throw new PalugadaError('contract.violation', 'that page marker is not one this list issued', {});
   }
   return { createdMicros, id };
 }

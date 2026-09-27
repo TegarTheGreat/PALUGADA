@@ -3358,11 +3358,30 @@ has.
   and travels in the export. A vendor file that binds an outside tracker
   still replaces it.
 
-**Still open, next.** From the same audits, in order: the company learns from event metadata rather than from the work
-(finished tasks carry no content), and a distilled fact is trusted the
-moment it is written; approving a skill from the inbox does nothing, and the
-console lists only active skills; a write whose read-back fails can be
-retried into a second write; done criteria are shown to runs and never
+- **The company learns from its work, and trusts what it learns as far as
+  it has earned (0071).** The events of finished work carried nothing but
+  their type, so the distiller guessed facts from metadata, stored them
+  active at whatever confidence the model named, and every run read them as
+  known facts -- even when the work had read a customer's email. A finished
+  task's event now carries its goal and summary; a run may end with up to
+  five lessons of its own; and the distiller reads the work itself, trusting
+  its reading no more than a lesson (half confidence), with housekeeping
+  capabilities left out of the patterns it proposes and a rejected pattern
+  proposed again only on evidence newer than the refusal. The same lesson,
+  whatever its case and punctuation, is one row made surer (to 0.8 at most
+  without the owner), not a second row. A lesson from work that read outside
+  content is marked `outside` and reaches runs, and `memory.search`, as the
+  untrusted data it came from, however often it is learned (F8.9). The
+  owner's notes have five places of their own in a run, so ten of them no
+  longer push every approved procedure out. **Memory** shows where a fact
+  came from and the work that taught it, reads one division at a time and
+  pages, and can take a fact back; a memory is at most 4,000 characters.
+  The `memory.note` above is `learned` in a run's output instead: no
+  thirteenth tool.
+
+**Still open, next.** From the same audits, in order: approving a skill
+from the inbox does nothing, and the console lists only active skills; a
+write whose read-back fails can be retried into a second write; done criteria are shown to runs and never
 checked; runs have no token or wall-clock ceiling of their own; tool inputs
 and the context a run was given are not kept, and the task timeline does not
 name the capability used; projects are only a label; there is no document

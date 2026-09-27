@@ -318,14 +318,28 @@ division, and a run only sees what its scope allows.
 
 A fact is never overwritten: a correction supersedes it, and the old version
 is kept, marked as replaced. Facts the platform is unsure of are flagged to
-the agents in plain words. When a model is configured, the worker distils the
-event log once an hour into facts, and a pattern seen three times into a
-proposed procedure, which reaches no agent until you approve it.
+the agents in plain words.
 
-On the **Memory** page you can search what the company knows, confirm a fact
-(**It is true**), **Correct** one, or **Tell the company something**, either
-**A fact to know** or **A way to work**. Your own word is placed first in
-every run it applies to.
+The company learns from its work in two ways. A run may end with up to five
+short lessons ("Cafes in Bandung reply fastest on WhatsApp"), and when a
+model is configured the worker reads the goals and summaries of finished work
+once an hour for facts, and turns a pattern seen three times into a proposed
+procedure, which reaches no agent until you approve it. Either way a lesson
+starts unverified, at half confidence, and the same lesson learned again,
+whatever its case and punctuation, is the same fact made a little surer --
+never surer than 0.8 without you. A lesson from work that read outside
+content (an email, a web page, a customer's message) is marked as such and is
+shown to every run as the data it came from, never as a known fact, however
+often it is learned: that is how an instruction hidden in an email would
+otherwise become the company's belief.
+
+On the **Memory** page you can search what the company knows, one division at
+a time, see where each fact came from and open the work that taught it,
+confirm a fact (**It is true**), **Correct** one, **Take back** one that is
+wrong, or **Tell the company something**, either **A fact to know** or **A
+way to work**. Your own word is placed first in every run it applies to, in
+five places of its own, so your notes never push the company's approved
+procedures out of a run.
 
 ## Skills
 

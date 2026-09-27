@@ -18,6 +18,7 @@ import { isRoleFrozen } from '../governance/role-freeze.ts';
 import { isSpendPaused } from '../governance/spend-guard.ts';
 import { assertGoalOpen } from '../domain/goals.ts';
 import { settleTicketsOf } from './tickets.ts';
+import { learn } from '../memory/store.ts';
 
 /** F6.5: one task may spawn at most this many children unless overridden. */
 export const DEFAULT_FAN_OUT_MAX = 5;
@@ -635,6 +636,47 @@ export async function transition(
   }
 }
 
+/** The goal and the summary of finished work, bounded, for its event. */
+function whatWasDone(input: Record<string, unknown>, output: unknown): Record<string, string> {
+  const done: Record<string, string> = {};
+  if (typeof input.goal === 'string' && input.goal.trim()) done.goal = input.goal.trim().slice(0, 300);
+  const summary = output && typeof output === 'object' ? (output as { summary?: unknown }).summary : undefined;
+  if (typeof summary === 'string' && summary.trim()) done.summary = summary.trim().slice(0, 1_000);
+  return done;
+}
+
+/** How many lessons one run may leave, and how long each may be. */
+const LESSONS_PER_RUN = 5;
+const LESSON_MAX = 500;
+
+/**
+ * What a run said the company should remember (its output's `learned`),
+ * kept as lessons for its division: unverified until learned again or
+ * confirmed by the owner, marked as outside content when the work read any,
+ * and one row however many times the same lesson is learned (memory/store.ts).
+ */
+async function keepLessons(tx: TenantClient, companyId: string, task: TaskRow, output: unknown): Promise<void> {
+  const said = output && typeof output === 'object' ? (output as { learned?: unknown }).learned : undefined;
+  if (!Array.isArray(said)) return;
+  const lessons = said.filter((one): one is string => typeof one === 'string' && one.trim() !== '')
+    .map((one) => one.trim().slice(0, LESSON_MAX)).slice(0, LESSONS_PER_RUN);
+  if (lessons.length === 0) return;
+  const outside = (await outsideContentIn(tx, task.id)) !== null;
+  for (const lesson of lessons) {
+    await learn(tx, {
+      companyId,
+      memoryType: 'semantic',
+      scopeType: 'division',
+      scopeId: task.divisionId,
+      body: lesson,
+      source: 'agent',
+      factKind: 'observation',
+      outside,
+      sourceTaskId: task.id,
+    });
+  }
+}
+
 /**
  * The same move, inside a transaction the caller already holds.
  *
@@ -713,6 +755,10 @@ export async function transitionWithin(
       await settleTicketsOf(tx, companyId, taskId, to);
     }
 
+    // What finished work was about and what it produced, in its own event:
+    // the timeline says so, and it is what the company learns from
+    // (memory/distillation.ts). An event of only its type taught nothing.
+    const completed = to === 'completed' ? whatWasDone(task.input, options.output) : null;
     await appendEvent(tx, {
       companyId,
       projectId: task.projectId,
@@ -721,7 +767,8 @@ export async function transitionWithin(
       actor: 'system',
       payload: options.haltReason
         ? { haltReason: options.haltReason, ...(options.detail ? { detail: options.detail.slice(0, 2_000) } : {}) }
-        : {},
+        : completed ?? {},
     });
+    if (to === 'completed') await keepLessons(tx, companyId, task, options.output);
   }
 }

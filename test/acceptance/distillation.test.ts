@@ -107,7 +107,9 @@ test('episodic events become semantic facts (F4.4)', async () => {
   assert.equal(facts.length, 2);
   assert.equal(facts.every((fact) => fact.source === 'distillation'), true);
   assert.equal(facts.every((fact) => fact.factKind === 'observation'), true);
-  assert.ok(facts.some((fact) => fact.confidence === 0.9));
+  // A model's confidence in its own reading is not evidence: every distilled
+  // fact starts below the line of what the company knows (0071).
+  assert.ok(facts.every((fact) => fact.confidence <= 0.5), JSON.stringify(facts.map((fact) => fact.confidence)));
 });
 
 test('the event log reaches the model as data, not instructions', async () => {
@@ -283,9 +285,9 @@ test('an unstated confidence is treated as middling, not certain', async () => {
 });
 
 /** Seeds enough completed tool calls for a pattern to become proposable. */
-async function seedRepeatedPattern(fixture: Fixture, capability: string, times: number) {
+async function seedRepeatedPattern(fixture: Fixture, capability: string, times: number, from = 0) {
   await withTenant(fixture.companyId, async (tx) => {
-    for (let i = 0; i < times; i += 1) {
+    for (let i = from; i < from + times; i += 1) {
       const { rows } = await tx.query<{ id: string }>(
         `INSERT INTO tasks (company_id, project_id, division_id, role_id, budget_account_id,
                             input, idempotency_key, input_hash, created_by, status, finished_at)
@@ -385,7 +387,7 @@ test('the owner approving a candidate is what makes it procedure', async () => {
   assert.equal(context.sections.filter((section) => section.kind === 'sop').length, 1);
 });
 
-test('a rejected candidate stays rejected and is not re-proposed', async () => {
+test('a rejected candidate stays rejected, and is proposed again only on new evidence', async () => {
   const fixture = await createCompany('distil-reject');
   await seedRepeatedPattern(fixture, 'deploy.staging', 3);
   const llm = new RecordingLlmClient(() => 'Some SOP text');
@@ -409,9 +411,15 @@ test('a rejected candidate stays rejected and is not re-proposed', async () => {
   });
   assert.equal(rejected.approval_state, 'rejected');
 
-  // Re-running distillation proposes it again, because a rejection was about
-  // that text rather than about the pattern -- but the owner is not shown a
-  // duplicate of something still sitting in their inbox.
+  // The same count does not ask again the next night: a rejection is
+  // answered by new evidence. Once the pattern recurs as often again since
+  // the owner said no, it is proposed afresh -- the rejection was about that
+  // text, not forever about the pattern -- but never while one still waits.
+  const unchanged = await distillSemanticToProcedural({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, llm, model: MODEL,
+  });
+  assert.equal(unchanged.length, 0, 'the owner is not asked the same thing again on the same evidence');
+  await seedRepeatedPattern(fixture, 'deploy.staging', 3, 100);
   const second = await distillSemanticToProcedural({
     companyId: fixture.companyId,
     projectId: fixture.projectId,
@@ -585,4 +593,15 @@ test('an event in the same millisecond as the pass is in the window (F4.4)', asy
   // The crafted event, and the task's own `task.created`, which is later
   // still: a bound from the pinned clock would have excluded both.
   assert.equal(result.eventsRead, 2);
+});
+
+test('the platform\'s own tools are no procedure: searching memory ten times proposes nothing', async () => {
+  const fixture = await createCompany('distil-housekeeping');
+  await seedRepeatedPattern(fixture, 'memory.search', 10);
+  await seedRepeatedPattern(fixture, 'plan.record', 10, 50);
+  const candidates = await distillSemanticToProcedural({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    llm: new RecordingLlmClient(() => 'x'), model: MODEL,
+  });
+  assert.deepEqual(candidates, []);
 });

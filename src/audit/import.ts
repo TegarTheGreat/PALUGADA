@@ -169,7 +169,7 @@ const SECTIONS: ImportSection[] = [
   {
     name: 'memories',
     table: 'memories',
-    references: ['scope_id', 'source_event_id', 'superseded_by'],
+    references: ['scope_id', 'source_event_id', 'superseded_by', 'source_task_id'],
   },
   {
     name: 'skills',

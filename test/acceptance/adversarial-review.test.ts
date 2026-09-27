@@ -347,6 +347,9 @@ test('every verdict becomes a decision record and a remembered decision (F7.4, F
   assert.equal(decisions.length, 1);
   assert.match(decisions[0]!.body, /reject/);
   assert.equal(decisions[0]!.source, 'adversarial_review');
+  // The verdict is certain; the reasons are a run's words about a proposal it
+  // read, so they reach later runs as unverified rather than known (0071).
+  assert.equal(decisions[0]!.confidence, 0.5);
 });
 
 test('an unreadable verdict escalates rather than being read as approval', async () => {

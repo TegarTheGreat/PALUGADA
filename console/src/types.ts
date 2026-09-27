@@ -341,6 +341,13 @@ export interface MemoryItem {
   approval: string;
   supersededBy: string | null;
   createdAt: string;
+  /** Learned from content the company did not write; shown to runs as data. */
+  outside: boolean;
+  /** The finished work that taught it. */
+  sourceTaskId: string | null;
+  /** How many more times the same lesson has been learned. */
+  reinforcedCount: number;
+  divisionId: string | null;
 }
 
 /** Something a task wrote down for a person to read: a document, an email. */

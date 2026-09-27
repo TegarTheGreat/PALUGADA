@@ -20,6 +20,7 @@ import { redactor } from '../secrets/manager.ts';
 import { fingerprint } from '../gateway/gateway.ts';
 import { TERMINAL_STATUSES, type TaskStatus } from '../domain/task.ts';
 import { LOW_CONFIDENCE } from '../context/builder.ts';
+import { readCursor, writeCursor } from '../inbox/inbox.ts';
 
 /* -------------------------------------------------------------- structure --- */
 
@@ -725,6 +726,11 @@ export interface MemoryView {
   approval: string;
   supersededBy: string | null;
   createdAt: Date;
+  /** Where it came from (0071): learned from outside content, the work that taught it, how often since. */
+  outside: boolean;
+  sourceTaskId: string | null;
+  reinforcedCount: number;
+  divisionId: string | null;
 }
 
 /**
@@ -734,30 +740,42 @@ export interface MemoryView {
  */
 export async function memoriesOf(
   companyId: string,
-  options: { kind?: MemoryKind; query?: string; superseded?: boolean; limit?: number } = {},
-): Promise<{ items: MemoryView[]; counts: Record<MemoryKind, number>; candidates: number }> {
+  options: { kind?: MemoryKind; query?: string; superseded?: boolean; limit?: number; divisionId?: string; before?: string } = {},
+): Promise<{ items: MemoryView[]; counts: Record<MemoryKind, number>; candidates: number; next: string | null }> {
   const limit = Math.min(Math.max(options.limit ?? 50, 1), 200);
+  const cursor = options.before ? readCursor(options.before) : null;
   return withTenant(companyId, async (tx) => {
-    const { rows } = await tx.query<{
+    const { rows: fetched } = await tx.query<{
       id: string; memory_type: MemoryKind; body: string; scope_type: string; scope_name: string | null;
       confidence: number; source: string; fact_kind: string | null; approval_state: string;
-      superseded_by: string | null; created_at: Date;
+      superseded_by: string | null; created_at: Date; outside: boolean; source_task_id: string | null;
+      reinforced_count: number; division_id: string | null; created_micros: string;
     }>(
       `SELECT m.id, m.memory_type, m.body, m.scope_type, m.confidence, m.source, m.fact_kind,
-              m.approval_state, m.superseded_by, m.created_at,
-              coalesce(d.name, p.name) AS scope_name
+              m.approval_state, m.superseded_by, m.created_at, m.outside, m.source_task_id, m.reinforced_count,
+              d.id AS division_id, coalesce(d.name, p.name) AS scope_name,
+              (extract(epoch FROM m.created_at) * 1000000)::bigint::text AS created_micros
          FROM memories m
          LEFT JOIN divisions d ON m.scope_type = 'division' AND d.id = m.scope_id
          LEFT JOIN projects p ON m.scope_type = 'project' AND p.id = m.scope_id
         WHERE ($1::text IS NULL OR m.memory_type = $1)
           AND ($2::text IS NULL OR m.body ILIKE $2 ESCAPE '\\')
           AND ($3 OR m.superseded_by IS NULL)
-        ORDER BY m.created_at DESC
-        LIMIT $4`,
+          -- One division's memory: what its runs can read (memory/store.ts
+          -- recall) -- its own, what other divisions share, and the company's.
+          AND ($5::uuid IS NULL OR (m.scope_type = 'division' AND (m.scope_id = $5 OR m.shared))
+               OR m.scope_type IN ('company', 'platform'))
+          -- The next page: after the last one shown, in the order shown.
+          AND ($6::bigint IS NULL
+               OR (m.created_at, m.id) < (timestamptz 'epoch' + $6::bigint * interval '1 microsecond', $7::uuid))
+        ORDER BY m.created_at DESC, m.id DESC
+        LIMIT $4 + 1`,
       // Taken literally: "40%" is forty per cent, not everything with a 40 in it.
       [options.kind ?? null, options.query?.trim() ? likePattern(options.query.trim()) : null,
-        options.superseded ?? false, limit],
+        options.superseded ?? false, limit, options.divisionId ?? null, cursor?.createdMicros ?? null, cursor?.id ?? null],
     );
+    const rows = fetched.slice(0, limit);
+    const last = rows[rows.length - 1];
     const { rows: grouped } = await tx.query<{ memory_type: MemoryKind; n: number; candidates: number }>(
       `SELECT memory_type, count(*)::int AS n,
               count(*) FILTER (WHERE approval_state = 'candidate')::int AS candidates
@@ -772,6 +790,7 @@ export async function memoriesOf(
     return {
       counts,
       candidates,
+      next: fetched.length > limit && last ? writeCursor(last.created_micros, last.id) : null,
       items: rows.map((row) => ({
         id: row.id,
         kind: row.memory_type,
@@ -779,12 +798,16 @@ export async function memoriesOf(
         scopeType: row.scope_type,
         scopeName: row.scope_name,
         confidence: row.confidence,
-        unverified: row.confidence < LOW_CONFIDENCE,
+        unverified: row.confidence < LOW_CONFIDENCE || row.outside,
         source: row.source,
         factKind: row.fact_kind,
         approval: row.approval_state,
         supersededBy: row.superseded_by,
         createdAt: row.created_at,
+        outside: row.outside,
+        sourceTaskId: row.source_task_id,
+        reinforcedCount: row.reinforced_count,
+        divisionId: row.division_id,
       })),
     };
   });

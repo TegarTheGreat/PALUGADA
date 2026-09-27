@@ -49,6 +49,12 @@ export interface MemoryItem {
   supersededBy: string | null;
   approvalState: ApprovalState;
   factKind: FactKind | null;
+  /** It came, however indirectly, from content the company did not write (F8.9, 0071). */
+  outside: boolean;
+  /** The finished work that taught it, when one did. */
+  sourceTaskId: string | null;
+  /** How many more times the same lesson has been learned since. */
+  reinforcedCount: number;
   distance?: number;
 }
 
@@ -67,7 +73,12 @@ export interface RememberInput {
   validFrom?: Date | undefined;
   factKind?: FactKind | undefined;
   approvalState?: ApprovalState | undefined;
+  outside?: boolean | undefined;
+  sourceTaskId?: string | undefined;
 }
+
+/** The longest memory: a fact or a way to work, not a document (0071). */
+export const MEMORY_BODY_MAX = 4_000;
 
 /** pgvector accepts a bracketed list; sending an array literal would not parse. */
 function toVectorLiteral(embedding: number[]): string {
@@ -82,12 +93,16 @@ export async function remember(tx: TenantClient, input: RememberInput): Promise<
     throw new Error('an embedding must be stored with the model that produced it');
   }
 
+  if (input.body.length > MEMORY_BODY_MAX) {
+    throw new PalugadaError('contract.violation',
+      `a memory is at most ${MEMORY_BODY_MAX} characters: a fact or a way to work, not a document`, { field: 'body' });
+  }
   const { rows } = await tx.query<{ id: string }>(
     `INSERT INTO memories
        (company_id, memory_type, scope_type, scope_id, body, confidence, source,
         shared, source_event_id, embedding, embedding_model, valid_from,
-        fact_kind, approval_state)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, COALESCE($12, now()), $13, $14)
+        fact_kind, approval_state, outside, source_task_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, COALESCE($12, now()), $13, $14, $15, $16)
      RETURNING id`,
     [
       input.companyId,
@@ -104,9 +119,58 @@ export async function remember(tx: TenantClient, input: RememberInput): Promise<
       input.validFrom ?? null,
       input.factKind ?? null,
       input.approvalState ?? 'active',
+      input.outside ?? false,
+      input.sourceTaskId ?? null,
     ],
   );
   return rows[0]!.id;
+}
+
+/**
+ * The most a lesson the company taught itself is believed: below the line
+ * the pack draws between known and unverified (context/builder.ts), until it
+ * is learned again from other work, and never as surely as the owner's word.
+ */
+export const LEARNED_CONFIDENCE = { first: 0.5, step: 0.1, most: 0.8 } as const;
+
+/**
+ * Learns something from the company's own work: a lesson a run declared, or
+ * a fact distilled from what happened.
+ *
+ * The same lesson already held in the same place strengthens that row --
+ * a little more believed, counted once more -- instead of becoming a second
+ * fact, so a company that keeps seeing the same thing grows surer of it
+ * rather than repeating it. Compared on letters and digits only, so case and
+ * punctuation do not make a lesson new. Something learned from outside
+ * content stays marked so, whichever path taught it.
+ */
+export async function learn(tx: TenantClient, input: RememberInput): Promise<{ id: string; reinforced: boolean }> {
+  const { rows } = await tx.query<{ id: string }>(
+    `SELECT id FROM memories
+      WHERE memory_type = $1 AND scope_type = $2 AND scope_id IS NOT DISTINCT FROM $3
+        AND approval_state = 'active' AND superseded_by IS NULL
+        AND btrim(regexp_replace(lower(body), '[^[:alnum:]]+', ' ', 'g'))
+          = btrim(regexp_replace(lower($4), '[^[:alnum:]]+', ' ', 'g'))
+      ORDER BY valid_from LIMIT 1`,
+    [input.memoryType, input.scopeType, input.scopeId ?? null, input.body]);
+  const found = rows[0];
+  if (found) {
+    await tx.query(
+      `UPDATE memories
+          SET reinforced_count = reinforced_count + 1,
+              last_reinforced_at = now(),
+              -- The owner's word is not raised or lowered by a run agreeing with it.
+              confidence = CASE WHEN source = 'owner' THEN confidence
+                                ELSE LEAST($2::float8, GREATEST(confidence, $3::float8) + $4::float8) END,
+              outside = outside OR $5
+        WHERE id = $1`,
+      [found.id, LEARNED_CONFIDENCE.most, input.confidence ?? LEARNED_CONFIDENCE.first, LEARNED_CONFIDENCE.step, input.outside ?? false]);
+    return { id: found.id, reinforced: true };
+  }
+  return {
+    id: await remember(tx, { ...input, confidence: Math.min(input.confidence ?? LEARNED_CONFIDENCE.first, LEARNED_CONFIDENCE.most) }),
+    reinforced: false,
+  };
 }
 
 /**
@@ -175,6 +239,8 @@ export interface RecallOptions {
    * newest facts, as before.
    */
   relevantTo?: string | undefined;
+  /** Only the owner's own word, or only everything else (the pack keeps the two in separate slots). */
+  source?: 'owner' | 'others' | undefined;
 }
 
 /** Words that say nothing about what a fact is about, in the two languages the platform ships. */
@@ -208,6 +274,9 @@ interface RawMemory {
   superseded_by: string | null;
   approval_state: ApprovalState;
   fact_kind: FactKind | null;
+  outside: boolean;
+  source_task_id: string | null;
+  reinforced_count: number;
   distance: number | null;
 }
 
@@ -235,6 +304,8 @@ export async function recall(
     params.push(options.factKind);
     where.push(`m.fact_kind = $${params.length}`);
   }
+  if (options.source === 'owner') where.push("m.source = 'owner'");
+  if (options.source === 'others') where.push("m.source <> 'owner'");
 
   if (options.asOf) {
     params.push(options.asOf);
@@ -301,7 +372,7 @@ export async function recall(
   const { rows } = await tx.query<RawMemory>(
     `SELECT m.id, m.body, m.memory_type, m.scope_type, m.scope_id, m.confidence,
             m.source, m.shared, m.valid_from, m.superseded_by,
-            m.approval_state, m.fact_kind, ${distance}
+            m.approval_state, m.fact_kind, m.outside, m.source_task_id, m.reinforced_count, ${distance}
        FROM memories m
       WHERE ${where.join(' AND ')}
       ORDER BY ${orderBy}
@@ -322,6 +393,9 @@ export async function recall(
     supersededBy: row.superseded_by,
     approvalState: row.approval_state,
     factKind: row.fact_kind,
+    outside: row.outside,
+    sourceTaskId: row.source_task_id,
+    reinforcedCount: row.reinforced_count,
     ...(row.distance === null ? {} : { distance: row.distance }),
   }));
 }
@@ -337,6 +411,20 @@ export async function approveCandidate(tx: TenantClient, memoryId: string): Prom
   const { rowCount } = await tx.query(
     `UPDATE memories SET approval_state = 'active', approved_at = now()
       WHERE id = $1 AND approval_state = 'candidate'`,
+    [memoryId],
+  );
+  return rowCount === 1;
+}
+
+/**
+ * The owner takes back something the company believed (0071): it leaves every
+ * run's context and stays in the record, marked rejected, like a candidate
+ * the owner turned down. A correction is `supersede`; this is for what should
+ * not be believed at all.
+ */
+export async function retract(tx: TenantClient, memoryId: string): Promise<boolean> {
+  const { rowCount } = await tx.query(
+    `UPDATE memories SET approval_state = 'rejected' WHERE id = $1 AND approval_state = 'active' AND superseded_by IS NULL`,
     [memoryId],
   );
   return rowCount === 1;

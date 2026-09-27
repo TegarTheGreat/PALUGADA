@@ -19,7 +19,7 @@ import { withTenant, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { hashInput } from '../engine/hash.ts';
 import { createSubTask, getTask, transition } from '../engine/tasks.ts';
-import { remember } from '../memory/store.ts';
+import { LEARNED_CONFIDENCE, remember } from '../memory/store.ts';
 import * as inbox from '../inbox/inbox.ts';
 import { PalugadaError } from '../errors.ts';
 
@@ -393,6 +393,9 @@ export async function recordVerdict(
         `Criteria: ${review.criteria}. Reviewer: ${verdict.reason}`,
       source: 'adversarial_review',
       sourceEventId: eventId,
+      // The decision is certain; the reviewer's reasons are a run's words,
+      // which read the proposal it judged. Below the line of a known fact.
+      confidence: LEARNED_CONFIDENCE.first,
     });
 
     return { decisionRecordId, proposerTaskId: review.proposer_task_id, status: nextStatus };

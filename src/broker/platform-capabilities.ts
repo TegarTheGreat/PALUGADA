@@ -19,6 +19,7 @@
  * itself.
  */
 import { withTenant } from '../db/tenant.ts';
+import { wrapUntrusted } from '../context/builder.ts';
 import { recall } from '../memory/store.ts';
 import { readSkill } from '../skills/skills.ts';
 import { TIER } from '../domain/tier.ts';
@@ -43,7 +44,7 @@ export interface MemorySearchInput {
 }
 
 export interface MemorySearchResult {
-  facts: Array<{ body: string; confidence: number; source: string; unverified: boolean }>;
+  facts: Array<{ body: string; confidence: number; source: string; unverified: boolean; outside?: boolean }>;
   /** True when the limit cut the answer short, so the caller can ask again. */
   truncated: boolean;
 }
@@ -97,8 +98,10 @@ export function memorySearchCapability(): Capability<MemorySearchInput, MemorySe
           source: memory.source,
           // The same warning the context pack carries. A fact fetched through a
           // tool must not arrive more certain than the same fact would have
-          // been in the pack.
-          unverified: memory.confidence < 0.6,
+          // been in the pack -- nor one learned from outside content arrive
+          // as anything but data (0071).
+          unverified: memory.confidence < 0.6 || memory.outside,
+          ...(memory.outside ? { outside: true, body: wrapUntrusted(`memory:${memory.source}`, memory.body) } : {}),
         })),
         truncated: facts.length > limit,
       };

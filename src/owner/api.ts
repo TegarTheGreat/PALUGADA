@@ -85,7 +85,7 @@ import { assignTask } from '../scheduler/wake.ts';
 import { TICKET_STATUSES, listTickets, openTicket, readTicket, setTicketStatus, startTicket } from '../engine/tickets.ts';
 import { createCompanyFromTemplate, readTemplate } from '../templates/company.ts';
 import { accountFor, chainFor, createAccount, snapshot } from '../engine/budget.ts';
-import { remember, supersede } from '../memory/store.ts';
+import { remember, retract, supersede } from '../memory/store.ts';
 import { changeMetric, defineMetric, headlines, recordObservation, type Headline, type MetricChange, type MetricUnit } from '../domain/metrics.ts';
 import {
   LANGUAGES, deploymentLanguages, languageCode, languagesFor, setCompanyLanguages, setDeploymentLanguages,
@@ -629,9 +629,13 @@ export class OwnerApi {
               { field: 'kind' },
             );
           }
+          const division = query.get('division');
           return memoriesOf(params.companyId!, {
             ...(kind ? { kind } : {}),
             ...(query.get('q') ? { query: query.get('q')! } : {}),
+            ...(division && /^[0-9a-f-]{36}$/.test(division) ? { divisionId: division } : {}),
+            // The `next` of the page before: read, not trusted (inbox.ts readCursor).
+            ...(query.get('before') ? { before: query.get('before')! } : {}),
             superseded: query.get('superseded') === 'include',
             ...(query.get('limit') === null ? {} : { limit: wholeNumber(query.get('limit'), 'limit') }),
           });
@@ -2636,6 +2640,23 @@ export class OwnerApi {
         // superseded, and the old row keeps pointing at what replaced it. An
         // agent that read the old fact yesterday and a person asking why it
         // did are both better served by a chain than by a hole.
+        // Taking back something the company should not believe at all
+        // (0071): it leaves every run's context and stays in the record,
+        // rejected. A fact that is wrong in its detail is corrected instead.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/memories/:memoryId/retract',
+        handle: async ({ params }) => withTenant(params.companyId!, async (tx) => {
+          if (!await retract(tx, params.memoryId!)) {
+            throw new PalugadaError('contract.violation', 'no such memory in use: it was already taken back, replaced, or never active', {});
+          }
+          await appendEvent(tx, {
+            companyId: params.companyId!, type: 'memory.retracted', actor: 'owner', payload: { memoryId: params.memoryId },
+          });
+          return { ok: true };
+        }),
+      },
+
+      {
         method: 'POST',
         pattern: '/api/companies/:companyId/memories/:memoryId/supersede',
         handle: async ({ params, body }) => withTenant(params.companyId!, async (tx) => {

@@ -39,7 +39,7 @@ after(async () => {
 const TOKEN = '123456789:AAbbccddeeffgghhiijjkkllmmnnooppqq';
 
 /** A Bot API that knows one bot, has a webhook left over from before, and one chat that pressed Start. */
-async function botApi() {
+async function botApi(options: { refuse?: string[] } = {}) {
   const calls: Array<{ method: string; body: Record<string, unknown> }> = [];
   let webhook = true;
   const server = createServer((req, res) => {
@@ -54,6 +54,7 @@ async function botApi() {
         res.end(JSON.stringify(answer));
       };
       if (bot !== TOKEN) return reply(401, { ok: false, error_code: 401, description: 'Unauthorized' });
+      if (options.refuse?.includes(method!)) return reply(400, { ok: false, error_code: 400, description: 'Bad Request: refused by the test' });
       switch (method) {
         case 'getMe': return reply(200, { ok: true, result: { id: 1, is_bot: true, first_name: 'Our company', username: 'our_company_bot' } });
         case 'getUpdates':
@@ -68,6 +69,7 @@ async function botApi() {
         case 'deleteWebhook': webhook = false; return reply(200, { ok: true, result: true });
         case 'setWebhook': webhook = true; return reply(200, { ok: true, result: true });
         case 'sendMessage': return reply(200, { ok: true, result: { message_id: 7 } });
+        case 'setMyCommands': return reply(200, { ok: true, result: true });
         default: return reply(404, { ok: false, description: 'Not Found' });
       }
     });
@@ -134,6 +136,13 @@ test('the owner connects Telegram from the console: the bot checked, their chat 
     assert.equal(setWebhook.body.url, 'https://palugada.example/api/channels/telegram');
     const webhookSecret = await api.secrets.resolve('db://channel-telegram-webhook');
     assert.equal(setWebhook.body.secret_token, webhookSecret, 'Telegram is told the secret it must send back');
+    assert.deepEqual(setWebhook.body.allowed_updates, ['message', 'callback_query', 'stopped_message_generation'],
+      'the owner\'s stop button under a draft reaches the bot too');
+    // The menu of commands, in the owner's own chat only, in the owner's language.
+    const menu = telegram.calls.find((call) => call.method === 'setMyCommands')!;
+    assert.deepEqual(menu.body.scope, { type: 'chat', chat_id: 42 });
+    assert.deepEqual((menu.body.commands as Array<{ command: string }>).map((one) => one.command), ['ceo', 'palugada', 'help']);
+    assert.ok((menu.body.commands as Array<{ description: string }>).every((one) => one.description.length >= 3 && one.description.length <= 256));
     assert.match(webhookSecret, /^[0-9a-f]{48}$/);
     assert.equal(await api.secrets.resolve('db://channel-telegram'), TOKEN);
 
@@ -171,6 +180,22 @@ test('without a public address, Telegram is saved to send and says it cannot hea
     const saved = await api.call('POST', '/api/control/channels/telegram', token, { token: TOKEN, chatId: '42', proof: { totp: api.code() } });
     assert.equal(saved.body.webhook, 'no_public_address');
     assert.ok(!telegram.calls.some((call) => call.method === 'setWebhook'));
+    assert.ok(!telegram.calls.some((call) => call.method === 'setMyCommands'), 'a bot that cannot hear offers no commands');
+  } finally {
+    await api.close();
+  }
+});
+
+test('a bot that refuses the menu of commands is still saved: the menu is a convenience, the webhook is not', async () => {
+  const telegram = await botApi({ refuse: ['setMyCommands'] });
+  const api = await consoleWithSettings({ PALUGADA_TELEGRAM_API: telegram.url, PALUGADA_APP_URL_PUBLIC: 'https://palugada.example' });
+  try {
+    const token = await api.signIn();
+    const saved = await api.call('POST', '/api/control/channels/telegram', token, { token: TOKEN, chatId: '42', proof: { totp: api.code() } });
+    assert.equal(saved.status, 200, JSON.stringify(saved.body));
+    assert.equal(saved.body.webhook, 'set');
+    assert.ok(telegram.calls.some((call) => call.method === 'setMyCommands'), 'it was asked');
+    assert.equal(await api.secrets.resolve('db://channel-telegram'), TOKEN);
   } finally {
     await api.close();
   }

@@ -81,6 +81,8 @@ export interface NotifiableItem {
   question?: string | null;
   /** The answers it offered to choose from, if any. */
   options?: string[] | null;
+  /** When silence refuses it, for an item that waits only so long. */
+  expiresAt?: Date | null;
 }
 
 export interface DeliveryResult {
@@ -219,8 +221,9 @@ export async function undelivered(
       language: string | null;
       question: string | null;
       options: string[] | null;
+      expires_at: Date | null;
     }>(
-      `SELECT i.id, i.kind, i.tier, i.title, i.action_summary, i.consequence_if_denied,
+      `SELECT i.id, i.kind, i.tier, i.title, i.action_summary, i.consequence_if_denied, i.expires_at,
               (SELECT console_language FROM platform_control) AS language,
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->>'question' END AS question,
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'options' END AS options
@@ -256,6 +259,7 @@ export async function undelivered(
         language: row.language ?? 'en',
         question: row.question,
         options: row.options,
+        expiresAt: row.expires_at,
       }];
     });
   });
@@ -729,9 +733,9 @@ export async function retryFailed(
     const { rows } = await tx.query<{
       id: string; kind: string; tier: number | null; title: string;
       action_summary: string; consequence_if_denied: string | null; delivery: string;
-      language: string | null; question: string | null; options: string[] | null;
+      language: string | null; question: string | null; options: string[] | null; expires_at: Date | null;
     }>(
-      `SELECT i.id, i.kind, i.tier, i.title, i.action_summary, i.consequence_if_denied,
+      `SELECT i.id, i.kind, i.tier, i.title, i.action_summary, i.consequence_if_denied, i.expires_at,
               n.delivery, (SELECT console_language FROM platform_control) AS language,
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->>'question' END AS question,
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'options' END AS options
@@ -777,6 +781,7 @@ export async function retryFailed(
       language: row.language ?? 'en',
       question: row.question,
       options: row.options,
+      expiresAt: row.expires_at,
     };
     item.url = options.linkFor?.(item) ?? null;
 

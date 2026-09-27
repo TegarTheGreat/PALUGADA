@@ -69,6 +69,11 @@ export interface TelegramOptions {
    * button opens the conversation there, where the owner's device is.
    */
   consoleUrl?: string;
+  /**
+   * How often the "Thinking..." draft is shown again while an answer is
+   * made: Telegram shows one for thirty seconds, and a CEO can take longer.
+   */
+  draftEveryMs?: number;
   apiBase?: string;
   timeoutMs?: number;
   name?: string;
@@ -143,6 +148,12 @@ export interface TelegramUpdate {
     voice?: TelegramAudio;
     audio?: TelegramAudio;
   };
+  /** The owner pressed stop under the "Thinking..." draft of an answer. */
+  stopped_message_generation?: {
+    chat?: { id: number | string };
+    message_thread_id?: number;
+    draft_id?: number;
+  };
 }
 
 /**
@@ -159,8 +170,11 @@ export interface ChatConversation {
   /** The company whose CEO the chat is talking to, or null for PALUGADA's assistant. */
   current(): Promise<string | null>;
   moveTo(companyId: string | null): Promise<void>;
-  /** The owner said something; the answer, and the cards it put in front of them. */
-  talk(companyId: string | null, text: string): Promise<{ answer: string; cards: ChatCard[] }>;
+  /**
+   * The owner said something; the answer, and the cards it put in front of
+   * them -- or, when the signal stopped it first, that it was stopped.
+   */
+  talk(companyId: string | null, text: string, signal?: AbortSignal): Promise<{ answer: string; cards: ChatCard[]; stopped?: boolean }>;
   hear(audio: Heard): Promise<string>;
   speak(text: string): Promise<Heard>;
   /** A card pressed in the chat: applied, or why not. */
@@ -184,6 +198,12 @@ const CONVERSATION_PRESS = /^(talk):(palugada|[0-9a-f-]{36})$|^(card):([0-9a-f-]
 
 /** Telegram takes a message of at most this many characters. */
 const MESSAGE_MAX = 4_096;
+
+/** And a rich message of at most this many. */
+const RICH_MAX = 32_768;
+
+/** Telegram shows a draft for thirty seconds; shown again before it goes. */
+const DRAFT_EVERY_MS = 20_000;
 
 /** A voice note past this is not something said to a CEO, and more than a transcription provider takes at once. */
 const VOICE_MAX_BYTES = 20 * 1024 * 1024;
@@ -216,6 +236,15 @@ export class TelegramChannel implements OwnerChannel {
    * and a card pressed twice in quick succession is applied once.
    */
   #pending: Promise<void> = Promise.resolve();
+  /**
+   * Methods this Bot API answered it does not know. A local Bot API server
+   * can be older than Telegram's own, and a rich message or a draft it does
+   * not know is sent the old way rather than tried on every answer.
+   */
+  readonly #unknown = new Set<string>();
+  /** The answer being made, which the stop button under its draft stops. */
+  #generating: { draftId: number; stop: AbortController } | null = null;
+  #drafts = 0;
 
   constructor(options: TelegramOptions) {
     this.name = options.name ?? 'chat:telegram';
@@ -256,6 +285,11 @@ export class TelegramChannel implements OwnerChannel {
     if (item.consequenceIfDenied) {
       lines.push('', `_${escapeMarkdown(say(item.language, 'If denied:'))}_ ${escapeMarkdown(item.consequenceIfDenied)}`);
     }
+    // Telegram writes the time in the owner's own zone and words ("in 3
+    // hours"), which is what "how long do I have" wants.
+    if (item.expiresAt) {
+      lines.push('', `_${escapeMarkdown(say(item.language, 'Expires:'))}_ ${timeEntity(item.expiresAt, item.language)}`);
+    }
 
     if (item.delivery === 'link_only') {
       // F10.10. The chat says what happened and where to go; it does not offer
@@ -288,7 +322,11 @@ export class TelegramChannel implements OwnerChannel {
                 text: say(item.language, choices.length > 0 ? 'Answer in words' : 'Answer'),
                 callback_data: encodeAction({ itemId: item.id, decision: 'approve' }),
               },
-              { text: say(item.language, 'Stop the task'), callback_data: encodeAction({ itemId: item.id, decision: 'deny' }) },
+              {
+                text: say(item.language, 'Stop the task'),
+                callback_data: encodeAction({ itemId: item.id, decision: 'deny' }),
+                style: 'danger',
+              },
             ],
           ],
         },
@@ -299,8 +337,9 @@ export class TelegramChannel implements OwnerChannel {
       text: lines.join('\n'),
       reply_markup: {
         inline_keyboard: [[
-          { text: say(item.language, 'Approve'), callback_data: encodeAction({ itemId: item.id, decision: 'approve' }) },
-          { text: say(item.language, 'Deny'), callback_data: encodeAction({ itemId: item.id, decision: 'deny' }) },
+          // Colour says which is which before the words are read.
+          { text: say(item.language, 'Approve'), callback_data: encodeAction({ itemId: item.id, decision: 'approve' }), style: 'success' },
+          { text: say(item.language, 'Deny'), callback_data: encodeAction({ itemId: item.id, decision: 'deny' }), style: 'danger' },
           { text: say(item.language, 'Ask'), callback_data: encodeAction({ itemId: item.id, decision: 'ask' }) },
         ]],
       },
@@ -515,6 +554,7 @@ export class TelegramChannel implements OwnerChannel {
       this.#seen.add(update.update_id);
       if (this.#seen.size > SEEN_MAX) this.#seen.delete(this.#seen.values().next().value as number);
     }
+    if (update.stopped_message_generation) return this.#onStop(update.stopped_message_generation);
     if (update.message) {
       const replied = await this.onReply(update.message);
       return replied.reason === 'not_a_reply' ? this.onMessage(update.message, options.conversation) : replied;
@@ -619,7 +659,21 @@ export class TelegramChannel implements OwnerChannel {
       return { handled: false, reason: 'empty' };
     }
     const command = /^\/([a-z]+)(?:@\w+)?$/i.exec(text)?.[1]?.toLowerCase();
-    this.#enqueue(() => (command ? this.#command(command, conversation) : this.#converse(conversation, text, voice)));
+    const draftId = message.message_id ?? (this.#drafts += 1);
+    this.#enqueue(() => (command ? this.#command(command, conversation) : this.#converse(conversation, text, voice, draftId)));
+    return { handled: true };
+  }
+
+  /**
+   * The stop button under an answer's draft. Only in the owner's own chat,
+   * where only the owner can press it, and only the answer being made: a
+   * stop for an answer already sent has nothing left to stop.
+   */
+  #onStop(stopped: NonNullable<TelegramUpdate['stopped_message_generation']>): { handled: boolean; reason?: string } {
+    if (String(stopped.chat?.id ?? '') !== String(this.#options.chatId)) return { handled: false, reason: 'wrong_chat' };
+    const generating = this.#generating;
+    if (!generating || generating.draftId !== stopped.draft_id) return { handled: false, reason: 'not_generating' };
+    generating.stop.abort();
     return { handled: true };
   }
 
@@ -660,31 +714,62 @@ export class TelegramChannel implements OwnerChannel {
       { name: (partners.find((one) => one.companyId === current) ?? partners[0])?.name ?? 'PALUGADA' }));
   }
 
-  /** What the owner said, heard if it was spoken, said to the conversation, and the answer sent back. */
-  async #converse(conversation: ChatConversation, typed: string, voice: TelegramAudio | undefined): Promise<void> {
+  /**
+   * What the owner said, heard if it was spoken, said to the conversation,
+   * and the answer sent back.
+   *
+   * While it is made the chat shows a "Thinking..." draft with a stop button
+   * under it; stopped, no further turn is asked of the model and nothing it
+   * proposed is shown.
+   */
+  async #converse(conversation: ChatConversation, typed: string, voice: TelegramAudio | undefined, draftId: number): Promise<void> {
     const language = await ownerLanguage();
-    await this.#call('sendChatAction', { chat_id: this.#options.chatId, action: voice ? 'record_voice' : 'typing' }).catch(() => undefined);
+    const stop = new AbortController();
+    this.#generating = { draftId, stop };
+    const thinking = () => this.#thinking(draftId, voice ? 'record_voice' : 'typing');
+    await thinking();
+    const refresh = setInterval(() => void thinking(), this.#options.draftEveryMs ?? DRAFT_EVERY_MS);
+    let said: Awaited<ReturnType<ChatConversation['talk']>>;
     let words = typed;
-    if (voice) {
-      const heard = await this.#hear(conversation, voice, language);
-      if (heard === null) return;
-      words = heard;
+    let companyId: string | null;
+    try {
+      if (voice) {
+        const heard = await this.#hear(conversation, voice, language);
+        if (heard === null) return;
+        words = heard;
+      }
+      companyId = await conversation.current();
+      said = stop.signal.aborted ? { answer: '', cards: [], stopped: true } : await conversation.talk(companyId, words, stop.signal);
+    } finally {
+      clearInterval(refresh);
+      this.#generating = null;
     }
-    const companyId = await conversation.current();
-    const partner = (await conversation.partners()).find((one) => one.companyId === companyId);
-    const { answer, cards } = await conversation.talk(companyId, words);
-    const lines = [partner?.name ?? 'PALUGADA', '', ...(voice ? [say(language, 'You said: "{words}"', { words }), ''] : []), answer];
+    if (said.stopped) {
+      await this.#tell(say(language, 'Stopped.'));
+      return;
+    }
+    const { answer, cards } = said;
+    const name = (await conversation.partners()).find((one) => one.companyId === companyId)?.name ?? 'PALUGADA';
+    const heard = say(language, 'You said: "{words}"', { words });
+    const inApp = say(language, 'in the app');
+    // The same answer twice: as Markdown for a rich message, and as plain
+    // text for a Bot API that cannot send one. What the platform writes is
+    // escaped; what the model wrote is Markdown already, less any HTML.
+    const plain = [name, '', ...(voice ? [heard, ''] : []), answer];
+    const rich = [`**${escapeRich(name)}**`, '', ...(voice ? [heard.split('\n').map((line) => `>${escapeRich(line)}`).join('\n'), ''] : []), cleanRich(answer)];
     if (cards.length > 0) {
-      lines.push('', ...cards.map((card) => `• ${card.summary}${card.here ? '' : ` (${say(language, 'in the app')})`}`));
+      plain.push('', ...cards.map((card) => `• ${card.summary}${card.here ? '' : ` (${inApp})`}`));
+      rich.push('', ...cards.map((card) => `- ${escapeRich(card.summary.replace(/\s+/g, ' '))}${card.here ? '' : ` _(${escapeRich(inApp)})_`}`));
     }
-    const buttons: Array<Array<{ text: string; callback_data?: string; url?: string }>> = cards.filter((card) => card.here).map((card) => [{
+    const buttons: InlineButton[][] = cards.filter((card) => card.here).map((card) => [{
       text: say(language, 'Apply: {summary}', { summary: card.summary.length > 48 ? `${card.summary.slice(0, 47)}…` : card.summary }),
       callback_data: `card:${card.id}`,
+      style: 'success',
     }]);
     if (cards.some((card) => !card.here) && this.#options.consoleUrl) {
       buttons.push([{ text: say(language, 'Open in PALUGADA'), url: this.#conversationLink(companyId) }]);
     }
-    await this.#send(lines.join('\n'), buttons);
+    await this.#sendAnswer(rich.join('\n'), plain.join('\n'), buttons);
     // Said back when it was said: a voice note is what the owner could send,
     // so a voice note is what they can take in. The words are already there,
     // so a provider that fails to speak loses the owner nothing.
@@ -697,6 +782,47 @@ export class TelegramChannel implements OwnerChannel {
         // Nothing to do: see above.
       }
     }
+  }
+
+  /**
+   * "Thinking..." with a stop button: a draft with no text, which Telegram
+   * shows as its own placeholder. A Bot API without drafts gets the older
+   * "typing".
+   */
+  async #thinking(draftId: number, action: 'typing' | 'record_voice'): Promise<void> {
+    if (!this.#unknown.has('sendMessageDraft')) {
+      try {
+        await this.#call('sendMessageDraft', { chat_id: chatIdOf(this.#options.chatId), draft_id: draftId, text: '', can_stop: true });
+        return;
+      } catch (failure) {
+        this.#learn('sendMessageDraft', failure);
+      }
+    }
+    await this.#call('sendChatAction', { chat_id: this.#options.chatId, action }).catch(() => undefined);
+  }
+
+  /** An answer, as a rich message where the Bot API sends one, else as plain text. */
+  async #sendAnswer(rich: string, plain: string, buttons: InlineButton[][]): Promise<void> {
+    if (rich.length <= RICH_MAX && !this.#unknown.has('sendRichMessage')) {
+      try {
+        await this.#call('sendRichMessage', {
+          chat_id: this.#options.chatId,
+          rich_message: { markdown: rich },
+          ...(buttons.length > 0 ? { reply_markup: { inline_keyboard: buttons } } : {}),
+        });
+        return;
+      } catch (failure) {
+        // Unknown, it is remembered; refused (Markdown Telegram would not
+        // take), this answer goes plain and the next is tried again.
+        this.#learn('sendRichMessage', failure);
+      }
+    }
+    await this.#send(plain, buttons);
+  }
+
+  /** Remembers a method this Bot API does not have. */
+  #learn(method: string, failure: unknown): void {
+    if (/\bNot Found\b|method not found|unknown method/i.test((failure as Error).message ?? '')) this.#unknown.add(method);
   }
 
   /** The words in a voice note, or null when the owner has been told why there are none. */
@@ -774,14 +900,20 @@ export class TelegramChannel implements OwnerChannel {
     return link.toString();
   }
 
-  /** A message of any length, in as many parts as Telegram needs, the buttons under the last. */
-  async #send(text: string, buttons: Array<Array<{ text: string; callback_data?: string; url?: string }>>): Promise<void> {
+  /**
+   * A message of any length, in as many parts as Telegram needs, the buttons
+   * under the last. No preview of a link in it: to make one Telegram fetches
+   * the address, and an address a model wrote can carry what it read to
+   * whoever owns it.
+   */
+  async #send(text: string, buttons: InlineButton[][]): Promise<void> {
     const parts = splitMessage(text);
     for (const [index, part] of parts.entries()) {
       const last = index === parts.length - 1;
       await this.#call('sendMessage', {
         chat_id: this.#options.chatId,
         text: part,
+        link_preview_options: { is_disabled: true },
         ...(last && buttons.length > 0 ? { reply_markup: { inline_keyboard: buttons } } : {}),
       });
     }
@@ -911,6 +1043,68 @@ export class TelegramChannel implements OwnerChannel {
   }
 }
 
+/** A button under a message, and the colour that says what it does. */
+interface InlineButton {
+  text: string;
+  callback_data?: string;
+  url?: string;
+  style?: 'success' | 'danger' | 'primary';
+}
+
+/** A chat's id as the Bot API's integer, where the method takes only that. */
+function chatIdOf(chatId: string): number | string {
+  return /^-?\d{1,15}$/.test(chatId) ? Number(chatId) : chatId;
+}
+
+/**
+ * A time as Telegram's date entity: shown in the reader's own zone and
+ * words, relative to now. The written time is for a client that cannot show
+ * one, on UTC so it says whose clock it is.
+ */
+function timeEntity(at: Date, language = 'en'): string {
+  let written: string;
+  try {
+    written = new Intl.DateTimeFormat(language, { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' }).format(at);
+  } catch {
+    written = at.toISOString().slice(0, 16).replace('T', ' ');
+  }
+  return `![${escapeMarkdown(`${written} UTC`)}](tg://time?unix=${Math.floor(at.getTime() / 1000)}&format=r)`;
+}
+
+/**
+ * Text the platform writes, in a rich message's Markdown: every character
+ * that could start formatting, a tag or a link is escaped, and so is a line
+ * that would start a heading or a list.
+ */
+function escapeRich(text: string): string {
+  return text
+    .replace(/[\\`*_~=|[\]<>#$!]/g, (char) => `\\${char}`)
+    .replace(/^(\s*)([-+])/gm, '$1\\$2')
+    .replace(/^(\s*\d+)(?=[.)])/gm, '$1\\');
+}
+
+/**
+ * What a model wrote, as a rich message's Markdown, less what a model must
+ * not put in the owner's chat.
+ *
+ * Rich Markdown takes HTML, and Telegram's HTML has buttons: a tag written
+ * by a model that read something planted would put a button in the owner's
+ * chat that approves an item, under words that say something else. Every
+ * tag goes, again until none is left, since taking one out can join the
+ * halves of another, and a "<" left that could open one is escaped. And a
+ * picture's address is fetched by Telegram to show
+ * it, which would carry whatever the model put in the address to whoever
+ * owns it, so a picture becomes a link the owner can see before opening.
+ */
+function cleanRich(text: string): string {
+  let clean = text.replace(/<(https?:\/\/[^\s<>]+)>/gi, '$1');
+  for (let previous = ''; previous !== clean;) {
+    previous = clean;
+    clean = clean.replace(/<!--[\s\S]*?-->/g, '').replace(/<\/?[a-z][^<>]*>/gi, '');
+  }
+  return clean.replace(/<(?=[a-z/!?])/gi, '\\<').replace(/!\[/g, '! [');
+}
+
 /**
  * A message cut into parts Telegram takes, at a line or a space where there
  * is one, and nothing lost: the parts put back together are the message.
@@ -940,6 +1134,21 @@ function splitMessage(text: string): string[] {
  */
 export function escapeMarkdown(text: string): string {
   return text.replace(/[_*[\]()~`>#+\-=|{}.!\\]/g, (char) => `\\${char}`);
+}
+
+/**
+ * The menu the chat's "/" button shows, in the owner's own chat and
+ * language: the commands `onMessage` knows.
+ */
+export async function telegramCommands(token: string, chatId: string, language: string, api: BotApi = {}): Promise<void> {
+  await telegramApi(token, 'setMyCommands', {
+    commands: [
+      { command: 'ceo', description: say(language, 'Choose whom to talk to') },
+      { command: 'palugada', description: say(language, 'Talk to PALUGADA about the whole deployment') },
+      { command: 'help', description: say(language, 'Who you are talking to, and how') },
+    ],
+    scope: { type: 'chat', chat_id: chatIdOf(chatId) },
+  }, api);
 }
 
 /** The owner's language, for the answer to a button: the panel's, or English. */

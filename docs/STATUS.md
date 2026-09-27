@@ -3511,6 +3511,20 @@ has.
   runtime received it, in the redacted wire form a third-party runtime is
   sent -- bounded, and scrubbed with the prompts past the prompt window.
   Every run in a task's trace has **What it was told**, section by section.
+- **Telegram's newer Bot API.** Read against Bot API 10.x: an answer is a
+  rich message, Markdown the model wrote, less every HTML tag -- rich
+  Markdown takes HTML, and Telegram's HTML has buttons, so a model that
+  read something planted could have put a button that approves an item
+  under words that say something else -- and less every picture, whose
+  address Telegram would fetch. A plain answer, for a Bot API without rich
+  messages, is sent with no link preview for the same reason. While an
+  answer is made the chat shows a "Thinking…" draft with a stop button;
+  the stop reaches `converse` as an abort, no further turn is asked, and
+  nothing proposed is shown. Approve and Deny carry Telegram's green and
+  red, an item's expiry is Telegram's date entity (the owner's own zone
+  and words), and saving the bot sets its command menu in the owner's
+  chat. A Bot API that answers "Not Found" for a method is remembered as
+  not having it, and gets the older way.
 
 **Still open, next.** From the same audits, in order: the done report is
 the run's own account -- the engine holds it to answering every criterion

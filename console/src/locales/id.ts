@@ -1363,6 +1363,7 @@ export const ID: Readonly<Record<string, string>> = {
   "You asked a question": "Anda bertanya",
   "You decide what cannot be undone": "Anda yang memutuskan hal yang tak bisa dibatalkan",
   "You decided": "Anda memutuskan",
+  "You stopped the answer before it was finished.": "Anda menghentikan jawaban sebelum selesai.",
   "You told it something": "Anda menyampaikan sesuatu",
   "You told the company something": "Anda memberi tahu perusahaan sesuatu",
   "You were notified": "Anda diberi tahu",

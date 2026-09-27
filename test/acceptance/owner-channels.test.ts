@@ -432,6 +432,46 @@ test('an escalation reaches the chat with buttons on it (F10.9)', async () => {
 });
 
 /**
+ * What a phone shows at a glance: which button says yes and which says no,
+ * and how long the item waits before silence refuses it.
+ *
+ * The time is Telegram's date entity rather than a time written out, so the
+ * owner reads it in their own zone and words ("in 3 hours"); the written one
+ * is only for a client that cannot show it, and is escaped like everything
+ * else in the message, or Telegram would refuse the whole message.
+ */
+test('an approval says by colour which button is yes and which is no, and when it expires in the owner\'s own time (F10.9)', async () => {
+  const fixture = await createCompany('chat-colours');
+  await approval(fixture, 2, 'Pay the supplier');
+  const [item] = await undelivered(fixture.companyId, 'chat:telegram', new Date(Date.now() + 86_400_000));
+  assert.ok(item?.expiresAt instanceof Date, 'an approval expires, and the item says when');
+
+  const channel = telegram();
+  const approve = channel.render(item);
+  const buttons = (approve.reply_markup as { inline_keyboard: Array<Array<{ text: string; style?: string }>> }).inline_keyboard[0]!;
+  assert.deepEqual(buttons.map((button) => [button.text, button.style]), [['Approve', 'success'], ['Deny', 'danger'], ['Ask', undefined]]);
+
+  const unix = Math.floor(item.expiresAt.getTime() / 1000);
+  const when = new RegExp(`_Expires:_ !\\[([^\\]]+)\\]\\(tg://time\\?unix=${unix}&format=r\\)`).exec(approve.text);
+  assert.ok(when, approve.text);
+  assert.doesNotMatch(when[1]!.replace(/\\[_*[\]()~`>#+\-=|{}.!\\]/g, ''), /[_*[\]()~`>#+\-=|{}.!\\]/, 'the written time is escaped');
+  assert.match(when[1]!, /UTC$/, 'and says whose clock it is on');
+  // In Indonesian the written time is "20.13": the dot is one MarkdownV2 reserves.
+  const indonesian = channel.render({ ...item, language: 'id' }).text;
+  assert.match(indonesian, /_Kedaluwarsa:_ !\[[^\]]*\d\\\.\d\d UTC\]\(tg:\/\/time\?unix=/);
+
+  // A run's question: stopping the task is the red one, and the choices are only choices.
+  const question = channel.render({ ...item, question: 'Which supplier?', options: ['Kopi Gayo', 'Kopi Toraja'] });
+  const rows = (question.reply_markup as { inline_keyboard: Array<Array<{ text: string; style?: string }>> }).inline_keyboard;
+  assert.deepEqual(rows.flat().map((button) => [button.text, button.style]), [
+    ['Kopi Gayo', undefined], ['Kopi Toraja', undefined], ['Answer in words', undefined], ['Stop the task', 'danger'],
+  ]);
+
+  // Without an expiry there is no line for one.
+  assert.doesNotMatch(channel.render({ ...item, expiresAt: null }).text, /Expires/);
+});
+
+/**
  * F10.10, on the surface it is about.
  *
  * A tier 3 approval reaches the chat because the owner should know it is

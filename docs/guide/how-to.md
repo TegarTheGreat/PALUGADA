@@ -775,9 +775,13 @@ phone: set `PALUGADA_APP_URL_PUBLIC` to its HTTPS address first.
 
 Telegram gets buttons for questions, proposed procedures and skills, and
 approvals up to tier 2; a tier 3 approval or an incident arrives as a link.
-It also gets the daily digest and a message when work you gave has
-finished. Buttons are removed once an item is decided elsewhere, and a press
-from anyone else is recorded as a security event.
+Approve is green and Deny red, and an item that waits only so long says
+when it expires, in your own time zone ("in 3 hours"). It also gets the
+daily digest and a message when work you gave has finished. Buttons are
+removed once an item is decided elsewhere, and a press from anyone else is
+recorded as a security event. Saving also sets the bot's menu (the `/`
+button in your chat) to `/ceo`, `/palugada` and `/help`, in the console's
+language.
 
 **Talking to your CEO in Telegram.** Write to the bot, or send it a voice
 note, and your CEO answers there -- the same conversation as **Talk to …,
@@ -791,6 +795,14 @@ measured value is one press in the chat; anything that takes your device,
 such as a spending limit, has a button that opens the conversation in the
 console. Only you, in your own chat with the bot, are heard; what you say
 in a group is not sent to anyone.
+
+While the CEO thinks, the chat shows "Thinking…" with a stop button;
+pressing it stops the answer, and nothing it had proposed is put in front
+of you. The answer arrives formatted -- bold, lists, links -- as a rich
+message. The CEO cannot put a button or a picture in it: every HTML tag is
+taken out before it is sent, and a picture becomes a link you see before
+opening. A local Bot API server too old for rich messages or drafts gets
+plain text and "typing…" instead.
 
 **Your phone (push).** Push carries only incidents and tier 3 approvals,
 which is what may interrupt you outside your hours, and the daily digest,
@@ -815,7 +827,9 @@ it can post to that channel.
 **From the environment instead.** `PALUGADA_TELEGRAM_TOKEN`,
 `PALUGADA_TELEGRAM_CHAT` (your user id) and
 `PALUGADA_TELEGRAM_WEBHOOK_SECRET` (a random string you then give
-Telegram's `setWebhook` as its secret token); `PALUGADA_PUSH_URL`, with
+Telegram's `setWebhook` as its secret token, with `allowed_updates` of
+`message`, `callback_query` and `stopped_message_generation`, the last for
+the stop button); `PALUGADA_PUSH_URL`, with
 `PALUGADA_PUSH_FORMAT=ntfy` and `PALUGADA_PUSH_TOPIC` for ntfy and
 `PALUGADA_PUSH_TOKEN`; `PALUGADA_SLACK_WEBHOOK` and
 `PALUGADA_DISCORD_WEBHOOK`. Each credential can instead be a secret

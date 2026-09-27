@@ -22,6 +22,7 @@ const ID: Readonly<Record<string, string>> = {
   'Approval needed: {title}': 'Perlu persetujuan: {title}',
   '{summary} — if denied: {consequence}': '{summary} — jika ditolak: {consequence}',
   'If denied:': 'Jika ditolak:',
+  'Expires:': 'Kedaluwarsa:',
   'This one is decided in the app.': 'Yang ini diputuskan di aplikasi.',
   'Open in PALUGADA': 'Buka di PALUGADA',
   'Approve': 'Setujui',
@@ -70,6 +71,10 @@ const ID: Readonly<Record<string, string>> = {
   'I read text and voice notes.': 'Saya membaca teks dan pesan suara.',
   'Now talking to {name}.': 'Sekarang berbicara dengan {name}.',
   'Choose whom to talk to.': 'Pilih lawan bicara Anda.',
+  'Choose whom to talk to': 'Pilih lawan bicara Anda',
+  'Talk to PALUGADA about the whole deployment': 'Bicara dengan PALUGADA tentang seluruh deployment',
+  'Who you are talking to, and how': 'Dengan siapa Anda berbicara, dan caranya',
+  'Stopped.': 'Dihentikan.',
   'You are talking to {name}. Write, or send a voice note. /ceo chooses whom you talk to; /palugada talks to PALUGADA about the whole deployment.':
     'Anda sedang berbicara dengan {name}. Tulis, atau kirim pesan suara. /ceo memilih lawan bicara; /palugada berbicara dengan PALUGADA tentang seluruh deployment.',
   'You said: "{words}"': 'Anda bilang: "{words}"',

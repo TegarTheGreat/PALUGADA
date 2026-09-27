@@ -156,7 +156,7 @@ import { PERSONAS, TITLES, personaFrom, titleFrom, type RolePersona } from '../d
 import { appointCeo } from '../governance/ceo.ts';
 import type { ToolUsingLlmClient } from '../llm/client.ts';
 import type { OwnerMfa, WebAuthnAssertion } from './mfa.ts';
-import { telegramApi, telegramBot, telegramChats, type ChatConversation, type TelegramChannel, type TelegramUpdate } from './telegram.ts';
+import { telegramApi, telegramBot, telegramChats, telegramCommands, type ChatConversation, type TelegramChannel, type TelegramUpdate } from './telegram.ts';
 import { WebhookPush, ntfyBody } from './push.ts';
 import { OwnerSessions, type OwnerSession } from './session.ts';
 import { MODEL_TIERS, modelSettingsFrom } from '../llm/models.ts';
@@ -1302,12 +1302,20 @@ export class OwnerApi {
               await telegramApi(token, 'setWebhook', {
                 url: `${publicUrl.replace(/\/+$/, '')}/api/channels/telegram`,
                 secret_token: webhookSecret,
-                allowed_updates: ['message', 'callback_query'],
+                // The stop button under a draft (TelegramChannel's "Thinking...")
+                // arrives as its own kind of update, and only if asked for.
+                allowed_updates: ['message', 'callback_query', 'stopped_message_generation'],
               }, this.#botApi());
               webhook = 'set';
             } catch (failure) {
               webhook = (failure as Error).message;
             }
+          }
+          // The menu under the chat's "/" button, only once the bot can hear
+          // what is chosen from it. A convenience: Telegram refusing it leaves
+          // a bot that works, so the save stands.
+          if (webhook === 'set') {
+            await telegramCommands(token, chatId, (await deploymentLanguages()).console ?? 'en', this.#botApi()).catch(() => undefined);
           }
           return { ...this.#applySettings(), webhook };
         },
@@ -3807,13 +3815,16 @@ export class OwnerApi {
       partners: async () => chatPartners(await language()),
       current: () => chatScope('telegram'),
       moveTo: (companyId) => moveChat(companyId),
-      talk: async (companyId, text) => {
+      talk: async (companyId, text, signal) => {
         const said = (await converse({
           llm: this.#options.assistant?.llm ?? null,
           reach: this.#reach(request, null),
           language,
           ...(companyId ? { companyId } : {}),
+          ...(signal ? { signal } : {}),
         }, text, 'telegram')).at(-1)!;
+        // Stopped, the conversation ends on what happened rather than on an answer.
+        if (said.role === 'event') return { answer: '', cards: [], stopped: true };
         return {
           answer: said.body,
           cards: said.proposals.filter((one) => one.status === 'open').map((one) => ({ id: one.id, summary: one.summary, here: chatMayApply(one) })),

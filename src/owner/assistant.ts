@@ -318,6 +318,11 @@ export interface AssistantOptions {
    * talking to PALUGADA's assistant about the whole deployment.
    */
   companyId?: string;
+  /**
+   * The owner stopped the answer (Telegram's stop button under a draft): no
+   * further turn is asked, and nothing it proposed is put in front of them.
+   */
+  signal?: AbortSignal;
 }
 
 /** Who answers in a company's conversation: its CEO, and the company it runs. */
@@ -445,16 +450,19 @@ export async function converse(options: AssistantOptions, text: string, channel:
     speaker
       ? ceoPrompt(language, speaker, readable.filter((path) => path.startsWith('/api/companies/:companyId') || CEO_ALSO_READS.includes(path)))
       : systemPrompt(language, readable),
-    // Telegram is sent plain text, so Markdown would arrive as asterisks and
-    // hashes; and it is read on a phone.
+    // Telegram shows an answer as Markdown (a rich message), and nothing of
+    // HTML: the channel takes every tag out, so a tag written is words lost.
+    // And it is read on a phone.
     ...(channel === 'telegram'
-      ? ['', 'The owner is reading this in Telegram, on their phone: write plain sentences, with no Markdown, and keep it short. The cards you propose are shown under your answer.']
+      ? ['', 'The owner is reading this in Telegram, on their phone: keep it short. Bold, lists and links show as Markdown does; HTML does not, so write none. The cards you propose are shown under your answer.']
       : []),
   ].join('\n');
   let answer = '';
+  const stopped = () => options.signal?.aborted === true;
   try {
-    for (let turn = 0; turn < MAX_TURNS; turn += 1) {
-      const reply = await options.llm.turn({ model: options.model ?? 'standard', system, messages, tools: TOOLS, maxTokens: 1_500 });
+    for (let turn = 0; turn < MAX_TURNS && !stopped(); turn += 1) {
+      const reply = await options.llm.turn({ model: options.model ?? 'standard', system, messages, tools: TOOLS, maxTokens: 1_500 }, options.signal);
+      if (stopped()) break;
       const texts = reply.content.filter((block): block is Extract<LlmBlock, { type: 'text' }> => block.type === 'text').map((block) => block.text);
       if (texts.length > 0) answer = texts.join('\n').trim();
       const uses = reply.content.filter((block): block is Extract<LlmBlock, { type: 'tool_use' }> => block.type === 'tool_use');
@@ -471,7 +479,13 @@ export async function converse(options: AssistantOptions, text: string, channel:
       messages.push({ role: 'user', content: results });
     }
   } catch (failure) {
-    answer = say(language, 'The model did not answer: {reason}', { reason: (failure as Error).message.slice(0, 300) });
+    if (!stopped()) answer = say(language, 'The model did not answer: {reason}', { reason: (failure as Error).message.slice(0, 300) });
+  }
+  // Stopped: what it had half thought is not an answer, and a card from it
+  // is not something the owner asked to see.
+  if (stopped()) {
+    await record('event', 'The owner stopped the answer.', channel, scope);
+    return conversation(2, scope);
   }
   if (!answer) answer = proposals.length > 0 ? say(language, 'Here is what I propose.') : say(language, 'I have nothing to add.');
   const id = await record('assistant', answer, channel, scope);

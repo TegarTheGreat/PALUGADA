@@ -449,6 +449,7 @@ function Card({ proposal, reload }: { proposal: Proposal; reload: () => Promise<
 function happened(body: string): string {
   // Matched as the server writes them, which is in English on purpose: the model reads these too.
   if (/^The owner is talking from Telegram now\.$/.test(body)) return t('The owner is talking from Telegram now.');
+  if (/^The owner stopped the answer\.$/.test(body)) return t('You stopped the answer before it was finished.');
   const applied = /^The owner applied: ([\s\S]*)$/.exec(body);
   if (applied) return t('Applied: {what}', { what: applied[1]! });
   const dismissed = /^The owner dismissed: ([\s\S]*)$/.exec(body);

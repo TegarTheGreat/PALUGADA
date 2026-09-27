@@ -35,7 +35,10 @@ The smoke check builds a company and runs a task through the whole pipeline.
 It fails if the tier 3 gate does not refuse without a second factor, if no
 owner channel is reached, or if a built-in capability is missing. It leaves
 that company behind, and companies are not deleted, so run it against a
-database you are setting up rather than one the business already uses.
+database you are setting up rather than one the business already uses. Run it
+with PALUGADA stopped: it starts a worker of its own, and a running
+deployment's worker may claim its task first -- and halt it, when that
+deployment has no model for the runtime the check uses.
 
 `db:setup` creates the database from nothing, and refuses when one already
 exists, because it would drop it: bring an existing database up to date with

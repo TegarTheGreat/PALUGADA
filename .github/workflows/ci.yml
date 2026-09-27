@@ -127,8 +127,18 @@ jobs:
       - name: Health
         run: curl -fsS http://127.0.0.1:8787/api/health
 
-      - name: One piece of work, inside the container
-        run: docker compose exec -T app node scripts/smoke.ts
+      # The smoke run queues a task and runs a worker of its own, so nothing
+      # else may serve the database meanwhile: the app's worker has no runtime
+      # here (no model is configured), and when it claimed the smoke's task
+      # first it halted it as runtime_unavailable -- run 176 failed that way,
+      # and the runs either side passed only because the smoke's worker won.
+      # So the app is stopped, the check runs in a container of the same
+      # image, and the app is started again for the steps below.
+      - name: One piece of work, in a container of the image, with the app stopped
+        run: |
+          docker compose stop app
+          docker compose run --rm --no-deps app node scripts/smoke.ts
+          docker compose up -d --wait --wait-timeout 120 app
 
       # A process whose parent exits is handed to PID 1; tini reaps it.
       - name: An orphan is reaped, not left a zombie

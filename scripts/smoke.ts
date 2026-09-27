@@ -15,6 +15,11 @@
  * Destructive: it creates a company with a timestamped slug and leaves it
  * behind, so run it against a development database. It exits non-zero if the
  * task does not reach `completed`, which makes it usable as a deploy check.
+ *
+ * Alone: with the deployment's own worker stopped. That worker claims any
+ * pending task, the smoke's included, and one without the in-process runtime
+ * halts it as `runtime_unavailable` -- so the check passes or fails on which
+ * worker's tick came first. CI's docker job stops the app around it.
  */
 import { randomUUID } from 'node:crypto';
 import { CapabilityBroker } from '../src/broker/broker.ts';

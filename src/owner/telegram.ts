@@ -46,6 +46,8 @@ import * as inbox from '../inbox/inbox.ts';
 import { closureText } from './notify.ts';
 import { say } from './say.ts';
 import { deploymentLanguages } from '../domain/language.ts';
+import type { Heard } from '../capabilities/listen.ts';
+import type { ChatPartner } from './assistant.ts';
 import type {
   ClosedItem, DeliveryResult, DoneNotice, NotifiableItem, OwnerChannel, RetractOutcome,
 } from './notify.ts';
@@ -62,6 +64,11 @@ export interface TelegramOptions {
   webhookSecret?: string;
   /** Deep link into the owner's app, for the items a chat may not act on. */
   appUrl?: (item: NotifiableItem) => string | null;
+  /**
+   * The console's public address, for a card the chat may not apply: its
+   * button opens the conversation there, where the owner's device is.
+   */
+  consoleUrl?: string;
   apiBase?: string;
   timeoutMs?: number;
   name?: string;
@@ -105,23 +112,84 @@ export function decodeAction(data: string): ButtonAction | null {
   return { itemId: itemId!, decision };
 }
 
+/** A voice note, or an audio file, as Telegram describes it. */
+export interface TelegramAudio {
+  file_id: string;
+  duration?: number;
+  mime_type?: string;
+  file_size?: number;
+}
+
 /** The slice of a Telegram update this cares about. */
 export interface TelegramUpdate {
+  /** Telegram sends an update again when it did not hear the answer; the id says it is the same one. */
+  update_id?: number;
   callback_query?: {
     id: string;
     data?: string;
     message?: { chat?: { id: number | string }; message_id?: number };
     from?: { id: number | string; username?: string };
   };
-  /** A message the owner typed: only a reply to an "Ask" prompt means anything. */
+  /**
+   * A message the owner typed or said: a reply to an "Ask" prompt answers
+   * its item, and anything else is said to the conversation the chat is in.
+   */
   message?: {
     message_id?: number;
     text?: string;
-    chat?: { id: number | string };
+    chat?: { id: number | string; type?: string };
     from?: { id: number | string; username?: string };
     reply_to_message?: { message_id?: number; text?: string; from?: { is_bot?: boolean } };
+    voice?: TelegramAudio;
+    audio?: TelegramAudio;
   };
 }
+
+/**
+ * Whom the owner's own words go to: a company's CEO, or PALUGADA's
+ * assistant (owner/assistant.ts). The owner API gives it, because it holds
+ * the model, the routes a conversation reads and proposes, and the voice
+ * providers; the channel holds Telegram and who may speak.
+ */
+export interface ChatConversation {
+  /** Whether something hears speech, and whether something speaks: the providers chosen under Tools. */
+  readonly hears: boolean;
+  readonly speaks: boolean;
+  partners(): Promise<ChatPartner[]>;
+  /** The company whose CEO the chat is talking to, or null for PALUGADA's assistant. */
+  current(): Promise<string | null>;
+  moveTo(companyId: string | null): Promise<void>;
+  /** The owner said something; the answer, and the cards it put in front of them. */
+  talk(companyId: string | null, text: string): Promise<{ answer: string; cards: ChatCard[] }>;
+  hear(audio: Heard): Promise<string>;
+  speak(text: string): Promise<Heard>;
+  /** A card pressed in the chat: applied, or why not. */
+  apply(cardId: string): Promise<
+    | { outcome: 'applied'; summary: string }
+    | { outcome: 'closed'; status: 'applied' | 'dismissed' | 'failed' }
+    | { outcome: 'app' }
+    | { outcome: 'unknown' }
+  >;
+}
+
+export interface ChatCard {
+  id: string;
+  summary: string;
+  /** Whether the chat may apply it; otherwise it waits in the app. */
+  here: boolean;
+}
+
+/** What a conversation's buttons carry: whom to talk to, or which card to apply. */
+const CONVERSATION_PRESS = /^(talk):(palugada|[0-9a-f-]{36})$|^(card):([0-9a-f-]{36})$/;
+
+/** Telegram takes a message of at most this many characters. */
+const MESSAGE_MAX = 4_096;
+
+/** A voice note past this is not something said to a CEO, and more than a transcription provider takes at once. */
+const VOICE_MAX_BYTES = 20 * 1024 * 1024;
+
+/** How many update ids are remembered, to know one sent again. */
+const SEEN_MAX = 1_000;
 
 /**
  * How an "Ask" prompt names its item, as the last line of the prompt.
@@ -140,6 +208,14 @@ export class TelegramChannel implements OwnerChannel {
   readonly name: string;
   readonly #options: TelegramOptions;
   readonly #fetch: typeof globalThis.fetch;
+  /** Update ids already taken in. */
+  readonly #seen = new Set<number>();
+  /**
+   * The owner's messages and presses, answered one at a time in the order
+   * they came -- a conversation read out of order is another conversation,
+   * and a card pressed twice in quick succession is applied once.
+   */
+  #pending: Promise<void> = Promise.resolve();
 
   constructor(options: TelegramOptions) {
     this.name = options.name ?? 'chat:telegram';
@@ -428,13 +504,23 @@ export class TelegramChannel implements OwnerChannel {
    */
   async onUpdate(
     update: TelegramUpdate,
-    options: { secretHeader?: string } = {},
+    options: { secretHeader?: string; conversation?: ChatConversation } = {},
   ): Promise<{ handled: boolean; reason?: string }> {
     if (!this.authenticWebhook(options.secretHeader)) {
       return { handled: false, reason: 'webhook_secret' };
     }
-    if (update.message) return this.onReply(update.message);
+    // After the secret, so that nobody but Telegram can fill the list.
+    if (typeof update.update_id === 'number') {
+      if (this.#seen.has(update.update_id)) return { handled: false, reason: 'duplicate' };
+      this.#seen.add(update.update_id);
+      if (this.#seen.size > SEEN_MAX) this.#seen.delete(this.#seen.values().next().value as number);
+    }
+    if (update.message) {
+      const replied = await this.onReply(update.message);
+      return replied.reason === 'not_a_reply' ? this.onMessage(update.message, options.conversation) : replied;
+    }
     const query = update.callback_query;
+    if (query?.data && CONVERSATION_PRESS.test(query.data)) return this.#onConversationPress(query, options.conversation);
     const action = query?.data ? decodeAction(query.data) : null;
     if (!query || !action) return { handled: false, reason: 'not_a_button' };
     const companyId = await inbox.companyOfItem(action.itemId);
@@ -501,6 +587,213 @@ export class TelegramChannel implements OwnerChannel {
       );
       return { handled: false, reason: error instanceof PalugadaError ? error.code : 'failed' };
     }
+  }
+
+  /**
+   * Anything else the owner writes or says: to the conversation the chat is
+   * in, answered there.
+   *
+   * The same two checks as a press, and one more. Only the owner is heard --
+   * a stranger's message is dropped without a word back, since an answer
+   * would tell whoever found the bot that it is alive. And only in the
+   * owner's own chat with the bot: what the owner says in a group is said to
+   * the group, not to their CEO. There is no company to record a stranger
+   * against here, unlike a press on an item.
+   *
+   * The answer comes after the webhook has been answered. A conversation can
+   * take the model a minute, and Telegram sends an update again when it is
+   * not answered in time; the update id catches one sent again anyway.
+   */
+  async onMessage(
+    message: NonNullable<TelegramUpdate['message']>,
+    conversation: ChatConversation | undefined,
+  ): Promise<{ handled: boolean; reason?: string }> {
+    const from = String(message.from?.id ?? '');
+    if (from !== String(this.#options.chatId)) return { handled: false, reason: 'wrong_chat' };
+    if (String(message.chat?.id ?? '') !== from) return { handled: false, reason: 'not_private' };
+    if (!conversation) return { handled: false, reason: 'no_conversation' };
+    const text = (message.text ?? '').trim();
+    const voice = message.voice ?? message.audio;
+    if (!text && !voice) {
+      this.#enqueue(async () => this.#tell(say(await ownerLanguage(), 'I read text and voice notes.')));
+      return { handled: false, reason: 'empty' };
+    }
+    const command = /^\/([a-z]+)(?:@\w+)?$/i.exec(text)?.[1]?.toLowerCase();
+    this.#enqueue(() => (command ? this.#command(command, conversation) : this.#converse(conversation, text, voice)));
+    return { handled: true };
+  }
+
+  /** Resolves when every message and press taken in has been answered: for a test, and for a clean stop. */
+  settled(): Promise<void> {
+    return this.#pending;
+  }
+
+  #enqueue(work: () => Promise<void>): void {
+    this.#pending = this.#pending.then(work).catch(async (failure: unknown) => {
+      const language = await ownerLanguage().catch(() => 'en');
+      await this.#tell(say(language, 'That could not be answered: {reason}', {
+        reason: redactor.redact((failure as Error).message ?? String(failure)).slice(0, 300),
+      }));
+    });
+  }
+
+  /** /ceo, /palugada, and anything else that starts with a slash: help. */
+  async #command(command: string, conversation: ChatConversation): Promise<void> {
+    const language = await ownerLanguage();
+    if (command === 'palugada') {
+      await conversation.moveTo(null);
+      await this.#tell(say(language, 'Now talking to {name}.', { name: 'PALUGADA' }));
+      return;
+    }
+    const partners = await conversation.partners();
+    if (command === 'ceo' || command === 'talk') {
+      await this.#call('sendMessage', {
+        chat_id: this.#options.chatId,
+        text: say(language, 'Choose whom to talk to.'),
+        reply_markup: { inline_keyboard: partners.map((one) => [{ text: one.name, callback_data: `talk:${one.companyId ?? 'palugada'}` }]) },
+      });
+      return;
+    }
+    const current = await conversation.current();
+    await this.#tell(say(language,
+      'You are talking to {name}. Write, or send a voice note. /ceo chooses whom you talk to; /palugada talks to PALUGADA about the whole deployment.',
+      { name: (partners.find((one) => one.companyId === current) ?? partners[0])?.name ?? 'PALUGADA' }));
+  }
+
+  /** What the owner said, heard if it was spoken, said to the conversation, and the answer sent back. */
+  async #converse(conversation: ChatConversation, typed: string, voice: TelegramAudio | undefined): Promise<void> {
+    const language = await ownerLanguage();
+    await this.#call('sendChatAction', { chat_id: this.#options.chatId, action: voice ? 'record_voice' : 'typing' }).catch(() => undefined);
+    let words = typed;
+    if (voice) {
+      const heard = await this.#hear(conversation, voice, language);
+      if (heard === null) return;
+      words = heard;
+    }
+    const companyId = await conversation.current();
+    const partner = (await conversation.partners()).find((one) => one.companyId === companyId);
+    const { answer, cards } = await conversation.talk(companyId, words);
+    const lines = [partner?.name ?? 'PALUGADA', '', ...(voice ? [say(language, 'You said: "{words}"', { words }), ''] : []), answer];
+    if (cards.length > 0) {
+      lines.push('', ...cards.map((card) => `• ${card.summary}${card.here ? '' : ` (${say(language, 'in the app')})`}`));
+    }
+    const buttons: Array<Array<{ text: string; callback_data?: string; url?: string }>> = cards.filter((card) => card.here).map((card) => [{
+      text: say(language, 'Apply: {summary}', { summary: card.summary.length > 48 ? `${card.summary.slice(0, 47)}…` : card.summary }),
+      callback_data: `card:${card.id}`,
+    }]);
+    if (cards.some((card) => !card.here) && this.#options.consoleUrl) {
+      buttons.push([{ text: say(language, 'Open in PALUGADA'), url: this.#conversationLink(companyId) }]);
+    }
+    await this.#send(lines.join('\n'), buttons);
+    // Said back when it was said: a voice note is what the owner could send,
+    // so a voice note is what they can take in. The words are already there,
+    // so a provider that fails to speak loses the owner nothing.
+    if (voice && conversation.speaks) {
+      try {
+        const spoken = await conversation.speak(answer);
+        const playable = ['audio/ogg', 'audio/mpeg', 'audio/mp4'].includes(spoken.mime);
+        await this.#call(playable ? 'sendVoice' : 'sendDocument', this.#form(playable ? 'voice' : 'document', spoken));
+      } catch {
+        // Nothing to do: see above.
+      }
+    }
+  }
+
+  /** The words in a voice note, or null when the owner has been told why there are none. */
+  async #hear(conversation: ChatConversation, voice: TelegramAudio, language: string): Promise<string | null> {
+    if (!conversation.hears) {
+      await this.#tell(say(language, 'Nothing hears speech yet: choose a provider in the app, under This deployment, Tools, Listening.'));
+      return null;
+    }
+    if ((voice.file_size ?? 0) > VOICE_MAX_BYTES) {
+      await this.#tell(say(language, 'That recording is too long; keep a voice note under {max} MB.', { max: String(VOICE_MAX_BYTES / 1024 / 1024) }));
+      return null;
+    }
+    const file = await this.#call<{ file_path?: string }>('getFile', { file_id: voice.file_id });
+    if (!file.file_path) throw new Error('Telegram gave no file for that voice note');
+    const base = this.#options.apiBase ?? 'https://api.telegram.org';
+    const response = await this.#fetch(`${base}/file/bot${this.#options.token}/${file.file_path}`, { signal: AbortSignal.timeout(30_000) });
+    if (!response.ok) throw new Error(`the voice note could not be fetched from Telegram (HTTP ${response.status})`);
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.length > VOICE_MAX_BYTES) {
+      await this.#tell(say(language, 'That recording is too long; keep a voice note under {max} MB.', { max: String(VOICE_MAX_BYTES / 1024 / 1024) }));
+      return null;
+    }
+    // A voice note is Ogg Opus whatever it says; an audio file says what it is.
+    const words = (await conversation.hear({ bytes, mime: voice.mime_type?.split(';')[0]?.trim() || 'audio/ogg' })).trim();
+    if (!words) {
+      await this.#tell(say(language, 'I could not make out any words in that.'));
+      return null;
+    }
+    return words;
+  }
+
+  /** A button under an answer: whom to talk to, or a card to apply. Only the owner's press counts. */
+  async #onConversationPress(
+    query: NonNullable<TelegramUpdate['callback_query']>,
+    conversation: ChatConversation | undefined,
+  ): Promise<{ handled: boolean; reason?: string }> {
+    if (String(query.from?.id ?? '') !== String(this.#options.chatId)) {
+      await this.#answer(query.id, say(await ownerLanguage(), 'This bot only answers to its owner.'));
+      return { handled: false, reason: 'wrong_chat' };
+    }
+    if (!conversation) return { handled: false, reason: 'no_conversation' };
+    const [, talk, partner, , card] = CONVERSATION_PRESS.exec(query.data!)!;
+    this.#enqueue(async () => {
+      const language = await ownerLanguage();
+      try {
+        if (talk) {
+          const companyId = partner === 'palugada' ? null : partner!;
+          await conversation.moveTo(companyId);
+          const name = (await conversation.partners()).find((one) => one.companyId === companyId)?.name ?? 'PALUGADA';
+          await this.#answer(query.id, say(language, 'Now talking to {name}.', { name }));
+          return;
+        }
+        const applied = await conversation.apply(card!);
+        await this.#answer(query.id,
+          applied.outcome === 'applied' ? say(language, 'Done: {summary}', { summary: applied.summary })
+            : applied.outcome === 'app' ? say(language, 'That one is applied in the app.')
+              : applied.outcome === 'unknown' ? say(language, 'That card no longer exists.')
+                : applied.status === 'applied' ? say(language, 'That card was already applied.')
+                  : applied.status === 'dismissed' ? say(language, 'That card was dismissed.')
+                    : say(language, 'That card failed when it was applied.'));
+      } catch (failure) {
+        await this.#answer(query.id, say(language, 'That could not be done: {reason}', {
+          reason: redactor.redact((failure as Error).message ?? String(failure)),
+        }));
+      }
+    });
+    return { handled: true };
+  }
+
+  /** The conversation in the console, for a card the chat may not apply. */
+  #conversationLink(companyId: string | null): string {
+    const link = new URL(this.#options.consoleUrl!);
+    if (companyId) link.searchParams.set('company', companyId);
+    link.searchParams.set('talk', '1');
+    return link.toString();
+  }
+
+  /** A message of any length, in as many parts as Telegram needs, the buttons under the last. */
+  async #send(text: string, buttons: Array<Array<{ text: string; callback_data?: string; url?: string }>>): Promise<void> {
+    const parts = splitMessage(text);
+    for (const [index, part] of parts.entries()) {
+      const last = index === parts.length - 1;
+      await this.#call('sendMessage', {
+        chat_id: this.#options.chatId,
+        text: part,
+        ...(last && buttons.length > 0 ? { reply_markup: { inline_keyboard: buttons } } : {}),
+      });
+    }
+  }
+
+  /** A recording to send, as the Bot API takes a file. */
+  #form(field: string, audio: Heard): FormData {
+    const form = new FormData();
+    form.append('chat_id', String(this.#options.chatId));
+    const extension = { 'audio/ogg': 'ogg', 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/wav': 'wav' }[audio.mime] ?? 'audio';
+    form.append(field, new Blob([audio.bytes], { type: audio.mime }), `answer.${extension}`);
+    return form;
   }
 
   /** One of a question's choices, pressed. */
@@ -585,7 +878,8 @@ export class TelegramChannel implements OwnerChannel {
   async #answer(callbackQueryId: string, text: string): Promise<void> {
     await this.#call('answerCallbackQuery', {
       callback_query_id: callbackQueryId,
-      text,
+      // Telegram refuses a longer one, and the press would keep spinning.
+      text: text.length > 200 ? `${text.slice(0, 199)}…` : text,
     }).catch(() => undefined);
   }
 
@@ -594,10 +888,10 @@ export class TelegramChannel implements OwnerChannel {
     const timer = setTimeout(() => controller.abort(), this.#options.timeoutMs ?? 10_000);
     const base = this.#options.apiBase ?? 'https://api.telegram.org';
     try {
+      const form = body instanceof FormData;
       const response = await this.#fetch(`${base}/bot${this.#options.token}/${method}`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body),
+        ...(form ? { body } : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
         signal: controller.signal,
       });
       const answer = (await response.json().catch(() => null)) as
@@ -615,6 +909,24 @@ export class TelegramChannel implements OwnerChannel {
       clearTimeout(timer);
     }
   }
+}
+
+/**
+ * A message cut into parts Telegram takes, at a line or a space where there
+ * is one, and nothing lost: the parts put back together are the message.
+ */
+function splitMessage(text: string): string[] {
+  const parts: string[] = [];
+  let rest = text;
+  while (rest.length > MESSAGE_MAX) {
+    const window = rest.slice(0, MESSAGE_MAX);
+    const at = Math.max(window.lastIndexOf('\n'), window.lastIndexOf(' '));
+    const cut = at > MESSAGE_MAX / 2 ? at + 1 : MESSAGE_MAX;
+    parts.push(rest.slice(0, cut));
+    rest = rest.slice(cut);
+  }
+  if (rest) parts.push(rest);
+  return parts;
 }
 
 /**

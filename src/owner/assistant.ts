@@ -154,7 +154,9 @@ export async function proposalById(id: string): Promise<AssistantProposal | null
  * than run twice. What happened is added to the conversation, so the model
  * knows at its next turn what the owner did with what it proposed.
  */
-export async function closeProposal(id: string, status: 'applied' | 'dismissed' | 'failed', outcome: string): Promise<boolean> {
+export async function closeProposal(
+  id: string, status: 'applied' | 'dismissed' | 'failed', outcome: string, channel: AssistantChannel = 'console',
+): Promise<boolean> {
   const closed = await withControlPlane(async (tx) => {
     const { rows } = await tx.query<{ summary: string; company_id: string | null }>(
       `UPDATE assistant_proposals proposal SET status = $2, outcome = $3, decided_at = now()
@@ -167,12 +169,64 @@ export async function closeProposal(id: string, status: 'applied' | 'dismissed' 
   if (closed === null) return false;
   // In the conversation the card came from, so its model knows what the owner did with it.
   await record('event', `${status === 'applied' ? 'The owner applied' : status === 'dismissed' ? 'The owner dismissed' : 'It failed when the owner applied'}: ${closed.summary}. ${outcome}`.trim(),
-    'console', closed.company_id);
+    channel, closed.company_id);
   return true;
 }
 
 export async function forgetConversation(companyId: Scope = null): Promise<void> {
   await withControlPlane((tx) => tx.query('DELETE FROM assistant_messages WHERE company_id IS NOT DISTINCT FROM $1', [companyId]));
+}
+
+/* ------------------------------------------------------ from a chat --- */
+
+/** Someone the owner can talk to from a chat: a company's CEO, or PALUGADA's assistant when `companyId` is null. */
+export interface ChatPartner {
+  companyId: string | null;
+  name: string;
+}
+
+/** Everyone the owner can talk to from a chat: PALUGADA's assistant, then each company's CEO. */
+export async function chatPartners(language: string): Promise<ChatPartner[]> {
+  const { rows } = await withControlPlane((tx) => tx.query<{ company_id: string; company: string; name: string }>(
+    `SELECT company.id AS company_id, company.name AS company, coalesce(role.display_name, role.slug) AS name
+       FROM companies company JOIN roles role ON role.company_id = company.id AND role.title = 'CEO'
+      ORDER BY company.name, company.id`));
+  return [
+    { companyId: null, name: 'PALUGADA' },
+    ...rows.map((row) => ({ companyId: row.company_id, name: say(language, '{name}, CEO of {company}', { name: row.name, company: row.company }) })),
+  ];
+}
+
+/**
+ * Which conversation a chat is in: the one it last spoke in, so nothing has
+ * to remember the choice but the conversation itself. Before it has spoken,
+ * the only company's CEO -- the CEO is who the owner talks to -- or, with
+ * several companies and none chosen, PALUGADA's assistant, which answers for
+ * all of them.
+ */
+export async function chatScope(channel: AssistantChannel): Promise<Scope> {
+  const { rows } = await withControlPlane((tx) => tx.query<{ company_id: string | null }>(
+    'SELECT company_id FROM assistant_messages WHERE channel = $1 ORDER BY at DESC LIMIT 1', [channel]));
+  if (rows[0]) return rows[0].company_id;
+  const companies = (await chatPartners('en')).filter((one) => one.companyId !== null);
+  return companies.length === 1 ? companies[0]!.companyId : null;
+}
+
+/** Moves Telegram to another conversation, said in that conversation: which is where the choice is kept. */
+export async function moveChat(companyId: Scope): Promise<void> {
+  if (companyId !== null) await speakerFor(companyId);
+  await record('event', 'The owner is talking from Telegram now.', 'telegram', companyId);
+}
+
+/**
+ * Whether a card may be applied with one press in a chat: its action says
+ * so, takes no device, and has no key for the owner to type (`chat` in
+ * assistant-actions.ts). Anything else waits for the app.
+ */
+export function chatMayApply(proposal: Pick<AssistantProposal, 'path' | 'secrets'>): boolean {
+  const pattern = patternFor(proposal.path, ASSISTANT_ACTIONS.map((action) => action.pattern));
+  const action = ASSISTANT_ACTIONS.find((one) => one.pattern === pattern);
+  return action?.chat === true && action.factor === 'never' && Object.keys(proposal.secrets ?? {}).length === 0;
 }
 
 /* ----------------------------------------------------------- the model --- */
@@ -387,9 +441,16 @@ export async function converse(options: AssistantOptions, text: string, channel:
   while (messages[0]?.role === 'assistant') messages.shift();
 
   const readable = options.reach.readable().filter((path) => !UNREADABLE.includes(path));
-  const system = speaker
-    ? ceoPrompt(language, speaker, readable.filter((path) => path.startsWith('/api/companies/:companyId') || CEO_ALSO_READS.includes(path)))
-    : systemPrompt(language, readable);
+  const system = [
+    speaker
+      ? ceoPrompt(language, speaker, readable.filter((path) => path.startsWith('/api/companies/:companyId') || CEO_ALSO_READS.includes(path)))
+      : systemPrompt(language, readable),
+    // Telegram is sent plain text, so Markdown would arrive as asterisks and
+    // hashes; and it is read on a phone.
+    ...(channel === 'telegram'
+      ? ['', 'The owner is reading this in Telegram, on their phone: write plain sentences, with no Markdown, and keep it short. The cards you propose are shown under your answer.']
+      : []),
+  ].join('\n');
   let answer = '';
   try {
     for (let turn = 0; turn < MAX_TURNS; turn += 1) {

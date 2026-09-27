@@ -73,6 +73,20 @@ export function useRoute(): Route {
   return route;
 }
 
+/** Whether the link the console was opened from asked for the conversation. */
+let talkLinked = false;
+
+/**
+ * Whether the conversation should open: a card in Telegram that the chat
+ * may not apply links to `?company=<id>&talk=1`, or `?talk=1` for
+ * PALUGADA's own. Answered once, so the drawer does not reopen.
+ */
+export function takeLinkedTalk(): boolean {
+  const linked = talkLinked;
+  talkLinked = false;
+  return linked;
+}
+
 /**
  * A notification's link: `/?company=<id>&item=<id>`. Turned into a route
  * once, on the first draw, and the query dropped, so a reload does not keep
@@ -81,6 +95,10 @@ export function useRoute(): Route {
 export function takeLinkedRoute(): void {
   const query = new URLSearchParams(window.location.search);
   const companyId = query.get('company');
+  if (query.get('talk') === '1') {
+    talkLinked = true;
+    if (!companyId) window.history.replaceState(null, '', `${window.location.pathname}${window.location.hash}`);
+  }
   if (!companyId) return;
   const item = query.get('item');
   // A notice that work finished links to the task, in the company's work (0059).

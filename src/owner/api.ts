@@ -148,14 +148,15 @@ import { accessFor, bindMcpServers, currentPins, offeredTools, type TokenIn } fr
 import { MCP_PRESETS } from '../capabilities/mcp-presets.ts';
 import { LISTEN_PROVIDERS, listenProvider, transcribe, type Heard, type ListenBinding, type ListenProvider } from '../capabilities/listen.ts';
 import {
-  closeProposal, conversation, converse, forgetConversation, patternFor, proposalById, speakerOf, type AssistantReach,
+  chatMayApply, chatPartners, chatScope, closeProposal, conversation, converse, forgetConversation, moveChat, patternFor, proposalById,
+  speakerOf, type AssistantChannel, type AssistantProposal, type AssistantReach,
 } from './assistant.ts';
 import { ASSISTANT_ACTIONS } from './assistant-actions.ts';
 import { PERSONAS, TITLES, personaFrom, titleFrom, type RolePersona } from '../domain/personas.ts';
 import { appointCeo } from '../governance/ceo.ts';
 import type { ToolUsingLlmClient } from '../llm/client.ts';
 import type { OwnerMfa, WebAuthnAssertion } from './mfa.ts';
-import { telegramApi, telegramBot, telegramChats, type TelegramChannel, type TelegramUpdate } from './telegram.ts';
+import { telegramApi, telegramBot, telegramChats, type ChatConversation, type TelegramChannel, type TelegramUpdate } from './telegram.ts';
 import { WebhookPush, ntfyBody } from './push.ts';
 import { OwnerSessions, type OwnerSession } from './session.ts';
 import { MODEL_TIERS, modelSettingsFrom } from '../llm/models.ts';
@@ -420,6 +421,7 @@ export class OwnerApi {
           const secret = request.headers['x-telegram-bot-api-secret-token'];
           const outcome = await channel.onUpdate(body as TelegramUpdate, {
             ...(typeof secret === 'string' ? { secretHeader: secret } : {}),
+            conversation: this.#chatConversation(request),
           });
           if (outcome.reason === 'webhook_secret') {
             throw new PalugadaError('owner.unauthenticated', 'that request is not from Telegram', {});
@@ -1701,19 +1703,7 @@ export class OwnerApi {
             if (!(field in proposal.secrets)) throw new PalugadaError('contract.violation', `this card has no field ${field}`, { field });
             if (typeof value === 'string' && value.trim()) typed[field] = value.trim();
           }
-          try {
-            const result = await this.#dispatch('POST', proposal.path, {
-              ...proposal.body, ...typed, ...(body.proof === undefined ? {} : { proof: body.proof }),
-            }, request, session);
-            await closeProposal(proposal.id, 'applied', outcomeOf(result));
-            return { ok: true, result };
-          } catch (failure) {
-            const code = failure instanceof PalugadaError ? failure.code : '';
-            if (code !== 'approval.channel_forbidden' && !code.startsWith('mfa.')) {
-              await closeProposal(proposal.id, 'failed', (failure as Error).message);
-            }
-            throw failure;
-          }
+          return { ok: true, result: await this.#applyProposal(proposal, { ...typed, ...(body.proof === undefined ? {} : { proof: body.proof }) }, request, session, 'console') };
         },
       },
 
@@ -3764,6 +3754,69 @@ export class OwnerApi {
       get: (path) => this.#dispatch('GET', path, {}, request, session),
       post: (path, body) => this.#dispatch('POST', path, body, request, session),
       readable: () => this.#routes.filter((route) => route.method === 'GET' && !route.open).map((route) => route.pattern),
+    };
+  }
+
+  /**
+   * A card applied: its route, called as the page would call it, with what
+   * the owner added -- a key typed on the card, their device's proof. A
+   * refusal for want of the device leaves the card open for them to try
+   * again with it; any other refusal closes it.
+   */
+  async #applyProposal(
+    proposal: AssistantProposal, added: Record<string, unknown>, request: IncomingMessage, session: OwnerSession | null, channel: AssistantChannel,
+  ): Promise<unknown> {
+    try {
+      const result = await this.#dispatch('POST', proposal.path, { ...proposal.body, ...added }, request, session);
+      await closeProposal(proposal.id, 'applied', outcomeOf(result), channel);
+      return result;
+    } catch (failure) {
+      const code = failure instanceof PalugadaError ? failure.code : '';
+      if (code !== 'approval.channel_forbidden' && !code.startsWith('mfa.')) {
+        await closeProposal(proposal.id, 'failed', (failure as Error).message, channel);
+      }
+      throw failure;
+    }
+  }
+
+  /**
+   * The owner's conversation as Telegram reaches it: the same conversations
+   * as the console's, with the same model and reads, the owner's authority
+   * and no session -- a chat has none, and no route a card from a chat may
+   * reach needs one (`chatMayApply`).
+   */
+  #chatConversation(request: IncomingMessage): ChatConversation {
+    const voice = this.#options.assistant?.voice;
+    const language = async () => (await deploymentLanguages()).console ?? 'en';
+    return {
+      hears: Boolean(voice?.listen),
+      speaks: Boolean(voice?.speak),
+      partners: async () => chatPartners(await language()),
+      current: () => chatScope('telegram'),
+      moveTo: (companyId) => moveChat(companyId),
+      talk: async (companyId, text) => {
+        const said = (await converse({
+          llm: this.#options.assistant?.llm ?? null,
+          reach: this.#reach(request, null),
+          language,
+          ...(companyId ? { companyId } : {}),
+        }, text, 'telegram')).at(-1)!;
+        return {
+          answer: said.body,
+          cards: said.proposals.filter((one) => one.status === 'open').map((one) => ({ id: one.id, summary: one.summary, here: chatMayApply(one) })),
+        };
+      },
+      // What the console's microphone gets: heard once, kept nowhere, in the console's language.
+      hear: async (audio) => transcribe(voice!.listen!, audio, (await deploymentLanguages()).console ?? null, AbortSignal.timeout(60_000)),
+      speak: async (text) => makeSpeech(voice!.speak!, { text: text.slice(0, 2_000) }, AbortSignal.timeout(60_000)),
+      apply: async (cardId) => {
+        const proposal = await proposalById(cardId);
+        if (!proposal) return { outcome: 'unknown' };
+        if (proposal.status !== 'open') return { outcome: 'closed', status: proposal.status };
+        if (!chatMayApply(proposal)) return { outcome: 'app' };
+        await this.#applyProposal(proposal, {}, request, null, 'telegram');
+        return { outcome: 'applied', summary: proposal.summary };
+      },
     };
   }
 

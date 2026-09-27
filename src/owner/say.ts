@@ -65,6 +65,27 @@ const ID: Readonly<Record<string, string>> = {
   'The model did not answer: {reason}': 'Model tidak menjawab: {reason}',
   'Here is what I propose.': 'Ini usulan saya.',
   'I have nothing to add.': 'Tidak ada yang perlu saya tambahkan.',
+  '{name}, CEO of {company}': '{name}, CEO {company}',
+  'That could not be answered: {reason}': 'Itu tidak bisa dijawab: {reason}',
+  'I read text and voice notes.': 'Saya membaca teks dan pesan suara.',
+  'Now talking to {name}.': 'Sekarang berbicara dengan {name}.',
+  'Choose whom to talk to.': 'Pilih lawan bicara Anda.',
+  'You are talking to {name}. Write, or send a voice note. /ceo chooses whom you talk to; /palugada talks to PALUGADA about the whole deployment.':
+    'Anda sedang berbicara dengan {name}. Tulis, atau kirim pesan suara. /ceo memilih lawan bicara; /palugada berbicara dengan PALUGADA tentang seluruh deployment.',
+  'You said: "{words}"': 'Anda bilang: "{words}"',
+  'in the app': 'di aplikasi',
+  'Apply: {summary}': 'Terapkan: {summary}',
+  'Nothing hears speech yet: choose a provider in the app, under This deployment, Tools, Listening.':
+    'Belum ada yang bisa mendengar suara: pilih penyedianya di aplikasi, di Deployment ini, Tools, Mendengarkan.',
+  'That recording is too long; keep a voice note under {max} MB.': 'Rekaman itu terlalu panjang; buat pesan suara di bawah {max} MB.',
+  'I could not make out any words in that.': 'Saya tidak menangkap satu kata pun di situ.',
+  'Done: {summary}': 'Selesai: {summary}',
+  'That one is applied in the app.': 'Yang itu diterapkan di aplikasi.',
+  'That card no longer exists.': 'Kartu itu sudah tidak ada.',
+  'That card was already applied.': 'Kartu itu sudah diterapkan.',
+  'That card was dismissed.': 'Kartu itu sudah diabaikan.',
+  'That card failed when it was applied.': 'Kartu itu gagal saat diterapkan.',
+  'That could not be done: {reason}': 'Itu tidak bisa dilakukan: {reason}',
 };
 
 /** The sentences each language has, for a test to hold complete. */

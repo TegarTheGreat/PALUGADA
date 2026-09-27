@@ -28,7 +28,7 @@ import { api, explain, setToken, whenSignedOut } from './api.ts';
 import { useFactor } from './factor.tsx';
 import { useLoad } from './hooks.ts';
 import { LANGUAGES, N, isLanguage, language, setLanguage, t, useLanguage, type Language } from './i18n.ts';
-import { go, takeLinkedRoute, useRoute, type CompanyPage, type Route, type SettingsSection } from './router.ts';
+import { go, takeLinkedRoute, takeLinkedTalk, useRoute, type CompanyPage, type Route, type SettingsSection } from './router.ts';
 import type { Company, SearchHit, Structure } from './types.ts';
 import { companyEmblem, OWNER_PICTURE, rolePicture } from './images.ts';
 import { SignIn } from './pages/SignIn.tsx';
@@ -183,6 +183,14 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
   useEffect(() => {
     if (base.data && route.kind === 'company' && !routed) go({ kind: 'home' }, { replace: true });
   }, [base.data, route, routed]);
+
+  // Opened from a card in Telegram that the chat could not apply: the
+  // conversation it came from, with the card waiting in it.
+  useEffect(() => {
+    if (!base.data || !takeLinkedTalk()) return;
+    if (routed?.ceo) setTalking(routed);
+    else setAsking(true);
+  }, [base.data]);
 
   const open = useCallback((page: CompanyPage, options: { section?: SettingsSection; item?: string | null; companyId?: string } = {}) => {
     const target = options.companyId ?? company?.id;

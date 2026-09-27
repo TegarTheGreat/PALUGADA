@@ -11,6 +11,7 @@ import { DeploymentSecretManager, masterKeyFrom, type MasterKey } from '../../sr
 
 export async function consoleWithSettings(options: {
   baseEnv?: NodeJS.ProcessEnv; env?: NodeJS.ProcessEnv; assistant?: ConstructorParameters<typeof OwnerApi>[0]['assistant'];
+  telegram?: ConstructorParameters<typeof OwnerApi>[0]['telegram'];
 } = {}) {
   const secrets = new InMemorySecretManager();
   const { secret } = newTotpSecret('owner phone');
@@ -26,6 +27,7 @@ export async function consoleWithSettings(options: {
     mfa,
     secrets: sealed,
     ...(options.assistant ? { assistant: options.assistant } : {}),
+    ...(options.telegram ? { telegram: options.telegram } : {}),
     deploymentSettings: {
       baseEnv: options.baseEnv ?? {}, env: options.env ?? options.baseEnv ?? {}, settings: {},
       master: () => master, secrets: sealed, restart: () => undefined,
@@ -46,6 +48,7 @@ export async function consoleWithSettings(options: {
     return { status: response.status, body: await response.json() as any };
   };
   return {
+    url,
     secrets: sealed,
     code,
     call,

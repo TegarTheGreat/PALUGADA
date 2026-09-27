@@ -3461,6 +3461,20 @@ has.
   exist. A document is archived, not deleted, and travels in the export.
   Matching is PostgreSQL's own text search: no embedding model is needed,
   and pgvector remains unused.
+- **The owner talks to the CEO from Telegram.** The bot took button presses
+  and answers to its own questions, and anything else the owner wrote went
+  nowhere. A message the owner types, or a voice note they send, now goes
+  to the conversation the chat is in -- the only company's CEO, a company
+  chosen with `/ceo`, or PALUGADA's assistant with `/palugada` -- and the
+  answer comes back in the chat, with the words heard shown so a mishearing
+  is caught, and said aloud when a speech provider is chosen. It is the
+  console's conversation, marked as Telegram's. A card the chat may apply
+  (giving work, a ticket, telling or cancelling a task, a fact, a measured
+  value, a snooze: `chat` in `assistant-actions.ts`) is one press; anything
+  that takes the device or decides an inbox item opens the conversation in
+  the console. Only the owner, in their own chat with the bot, is heard;
+  the answer comes after the webhook is answered, one message at a time,
+  and an update Telegram sends twice is answered once.
 
 **Still open, next.** From the same audits, in order: done criteria are
 shown to runs and never checked -- an honest check needs a judge or a
@@ -3468,8 +3482,7 @@ change to every role's output, and is the next piece of this; a run has no
 wall-clock ceiling of its own beyond its deadline and its lease; the context
 a run was given is kept only as its prompt, for in-process runs; documents
 are matched by their words, not their meaning -- pgvector is installed and
-unused -- and only text reaches them, not PDF or Word files. The assistant in
-Telegram, by text and voice note. WhatsApp, Signal and email as
+unused -- and only text reaches them, not PDF or Word files. WhatsApp, Signal and email as
 owner channels are not built; Slack and Discord cannot carry buttons, so
 Telegram remains the chat that decides. Subscription
 logins whose tokens rotate (ChatGPT, Hermes' Nous and Codex logins) are not

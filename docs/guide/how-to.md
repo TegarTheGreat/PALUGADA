@@ -769,6 +769,19 @@ It also gets the daily digest and a message when work you gave has
 finished. Buttons are removed once an item is decided elsewhere, and a press
 from anyone else is recorded as a security event.
 
+**Talking to your CEO in Telegram.** Write to the bot, or send it a voice
+note, and your CEO answers there -- the same conversation as **Talk to …,
+CEO** in the console. With several companies, send `/ceo` and choose whom
+you talk to; `/palugada` talks to PALUGADA's assistant about the whole
+deployment. A voice note needs a provider under **Tools**, **Listening**;
+the answer shows what was heard, and is also said aloud when one is chosen
+under **Speaking**. What the CEO proposes arrives as cards: giving work,
+filing a ticket, telling or cancelling a task, a fact to remember or a
+measured value is one press in the chat; anything that takes your device,
+such as a spending limit, has a button that opens the conversation in the
+console. Only you, in your own chat with the bot, are heard; what you say
+in a group is not sent to anyone.
+
 **Your phone (push).** Push carries only incidents and tier 3 approvals,
 which is what may interrupt you outside your hours, and the daily digest,
 quietly.

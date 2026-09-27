@@ -1048,7 +1048,7 @@ function TelegramCard({ view, reload }: { view: ChannelsView; reload: () => void
   return (
     <Section
       title={t('Telegram')}
-      description={t('Everything that needs you, with Approve, Deny and Ask buttons, and a message when work you gave is done.')}
+      description={t('Everything that needs you, with Approve, Deny and Ask buttons, and a message when work you gave is done. Write to the bot or send it a voice note, and your CEO answers there; /ceo chooses whom you talk to.')}
       actions={<SourceBadge source={view.telegram.source} extra={view.telegram.receives ? t('connected') : t('sends only')} />}
     >
       <Stack gap="sm">
@@ -1089,7 +1089,7 @@ function TelegramCard({ view, reload }: { view: ChannelsView; reload: () => void
           </Group>
         </Group>
         {!view.publicUrl && (
-          <Text size="xs" c="dimmed">{t('This deployment has no public address, so Telegram can send but its buttons cannot reach it. Set PALUGADA_APP_URL_PUBLIC to the HTTPS address the console is reached at.')}</Text>
+          <Text size="xs" c="dimmed">{t('This deployment has no public address, so Telegram can send but its buttons and your messages cannot reach it. Set PALUGADA_APP_URL_PUBLIC to the HTTPS address the console is reached at.')}</Text>
         )}
       </Stack>
     </Section>

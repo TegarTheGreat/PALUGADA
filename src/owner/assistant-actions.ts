@@ -33,6 +33,15 @@ export interface AssistantAction {
    * requests (a tier 3 decision), when the card asks for it after a refusal.
    */
   factor: 'always' | 'sometimes' | 'never';
+  /**
+   * Whether a card for it may be applied with one press in a chat (F10.9):
+   * the everyday things an owner says to their CEO from a phone -- give this
+   * work, file this, tell that task, cancel it, remember this, this is the
+   * number. Only an action that takes no device and no key; anything that
+   * decides an inbox item, loosens money or changes the deployment is
+   * applied in the app, where the owner's device is.
+   */
+  chat?: true;
 }
 
 const COMPANY = 'companyId comes from GET /api/companies.';
@@ -188,17 +197,17 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     pattern: '/api/companies/:companyId/tickets',
     what: 'File a ticket: something that needs doing and is not given to anyone yet. The CEO hands tickets on.',
     fields: { title: 'what needs doing, in a line', body: 'optional detail and what done looks like', priority: 'optional 0 (first) to 3 (last)', divisionId: 'optional division it belongs to' },
-    factor: 'never',
+    factor: 'never', chat: true,
   },
   {
     pattern: '/api/companies/:companyId/tickets/:ticketId',
-    what: 'Close a ticket nobody should do, or open one again.', fields: { status: 'open or closed', reason: 'optional, why', priority: 'optional 0-3' }, factor: 'never',
+    what: 'Close a ticket nobody should do, or open one again.', fields: { status: 'open or closed', reason: 'optional, why', priority: 'optional 0-3' }, factor: 'never', chat: true,
   },
   {
     pattern: '/api/companies/:companyId/tickets/:ticketId/assign',
     what: 'Give a ticket to a role: it becomes that role\'s task, and closes when the task finishes.',
     fields: { roleId: 'the role that does it', goalId: 'the goal it serves' },
-    factor: 'never',
+    factor: 'never', chat: true,
   },
   {
     pattern: '/api/companies/:companyId/assign',
@@ -207,7 +216,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
       roleId: 'the role that does it', divisionId: 'the role\'s division', projectId: 'the project it belongs to',
       goalId: 'the goal it serves', goal: 'what is wanted, in the owner\'s words', detail: 'optional detail',
     },
-    factor: 'never',
+    factor: 'never', chat: true,
   },
   {
     pattern: '/api/companies/:companyId/inbox/:itemId/decide',
@@ -223,7 +232,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   },
   {
     pattern: '/api/companies/:companyId/inbox/:itemId/snooze',
-    what: 'Put an inbox item away until later.', fields: { until: 'an ISO time' }, factor: 'never',
+    what: 'Put an inbox item away until later.', fields: { until: 'an ISO time' }, factor: 'never', chat: true,
   },
   {
     pattern: '/api/companies/:companyId/inbox/batch',
@@ -231,14 +240,14 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     fields: { itemIds: 'list of item ids', decision: 'approve or deny', note: 'why' },
     factor: 'sometimes',
   },
-  { pattern: '/api/companies/:companyId/tasks/:taskId/instruct', what: 'Tell a running task something.', fields: { text: 'the instruction' }, factor: 'never' },
-  { pattern: '/api/companies/:companyId/tasks/:taskId/cancel', what: 'Cancel a task.', fields: { reason: 'why' }, factor: 'never' },
-  { pattern: '/api/companies/:companyId/tasks/:taskId/rerun', what: 'Run a finished or failed task again.', fields: { note: 'what to do differently' }, factor: 'never' },
+  { pattern: '/api/companies/:companyId/tasks/:taskId/instruct', what: 'Tell a running task something.', fields: { text: 'the instruction' }, factor: 'never', chat: true },
+  { pattern: '/api/companies/:companyId/tasks/:taskId/cancel', what: 'Cancel a task.', fields: { reason: 'why' }, factor: 'never', chat: true },
+  { pattern: '/api/companies/:companyId/tasks/:taskId/rerun', what: 'Run a finished or failed task again.', fields: { note: 'what to do differently' }, factor: 'never', chat: true },
   {
     pattern: '/api/companies/:companyId/tasks/:taskId/feedback',
     what: 'Tell a company what the owner thought of delivered work; it becomes what the division remembers.',
     fields: { verdict: 'good or needs_work', note: 'what was right or wrong' },
-    factor: 'never',
+    factor: 'never', chat: true,
   },
   { pattern: '/api/companies/:companyId/tasks/:taskId/replay', what: 'Replay a task\'s handler against its journal, to see a failure again.', factor: 'never' },
   {
@@ -312,13 +321,13 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   },
   {
     pattern: '/api/companies/:companyId/metrics/:metricId/observations',
-    what: 'Record a measured value.', fields: { value: 'number', note: 'optional' }, factor: 'never',
+    what: 'Record a measured value.', fields: { value: 'number', note: 'optional' }, factor: 'never', chat: true,
   },
   {
     pattern: '/api/companies/:companyId/memories',
     what: 'Tell a company something to remember.',
     fields: { body: 'the fact, or the way to work', kind: 'semantic (a fact) or procedural (a way to work)', divisionId: 'optional; company-wide when left out' },
-    factor: 'never',
+    factor: 'never', chat: true,
   },
   {
     pattern: '/api/companies/:companyId/memories/:memoryId/retract',

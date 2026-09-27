@@ -241,6 +241,8 @@ export async function channelsFrom(
     channels.push(new TelegramChannel({
       token: telegramToken,
       chatId: env.PALUGADA_TELEGRAM_CHAT,
+      // A card the chat may not apply opens the conversation in the console.
+      ...(env.PALUGADA_APP_URL_PUBLIC ? { consoleUrl: env.PALUGADA_APP_URL_PUBLIC } : {}),
       ...(env.PALUGADA_TELEGRAM_API ? { apiBase: env.PALUGADA_TELEGRAM_API } : {}),
       // Without the webhook secret the channel can send but cannot safely be
       // sent to, and `onCallback` refuses every press. Said here so the
@@ -791,11 +793,20 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
       // systemd unit's TimeoutStopSec, compose's stop_grace_period). Killed
       // instead, its lease lapsed and the reclaim counted towards `crash_loop`,
       // so three upgrades during one long task halted it.
-      const grace = setTimeout(() => stopping.abort(), options.stopGraceMs ?? STOP_GRACE_MS);
+      const graceMs = options.stopGraceMs ?? STOP_GRACE_MS;
+      const grace = setTimeout(() => stopping.abort(), graceMs);
+      // An answer the owner is waiting for in Telegram gets the same moment:
+      // their message is already in the conversation, and stopped halfway
+      // they would have asked and heard nothing.
+      let answered: NodeJS.Timeout | undefined;
       try {
-        await running;
+        await Promise.all([
+          running,
+          telegram ? Promise.race([telegram.settled(), new Promise<void>((resolve) => { answered = setTimeout(resolve, graceMs); })]) : undefined,
+        ]);
       } finally {
         clearTimeout(grace);
+        clearTimeout(answered);
       }
       // Last, once no run can open another: a server holding a session for
       // a task -- a browser, say -- is told it is over.

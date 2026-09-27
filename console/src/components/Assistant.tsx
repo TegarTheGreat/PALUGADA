@@ -314,7 +314,7 @@ function Line({ message, reload, speaker }: {
   speaker: { name: string; picture: string } | null;
 }) {
   if (message.role === 'event') {
-    return <Text size="xs" c="dimmed" ta="center">{message.body}</Text>;
+    return <Text size="xs" c="dimmed" ta="center">{happened(message.body)}</Text>;
   }
   const mine = message.role === 'owner';
   return (
@@ -439,4 +439,21 @@ function Card({ proposal, reload }: { proposal: Proposal; reload: () => Promise<
       </Stack>
     </Paper>
   );
+}
+
+/**
+ * What happened in the conversation, as the server wrote it for the model:
+ * in English, with the card's own words after the colon. The fixed part is
+ * said in the console's language; the card's words stay as they were written.
+ */
+function happened(body: string): string {
+  // Matched as the server writes them, which is in English on purpose: the model reads these too.
+  if (/^The owner is talking from Telegram now\.$/.test(body)) return t('The owner is talking from Telegram now.');
+  const applied = /^The owner applied: ([\s\S]*)$/.exec(body);
+  if (applied) return t('Applied: {what}', { what: applied[1]! });
+  const dismissed = /^The owner dismissed: ([\s\S]*)$/.exec(body);
+  if (dismissed) return t('Dismissed: {what}', { what: dismissed[1]! });
+  const failed = /^It failed when the owner applied: ([\s\S]*)$/.exec(body);
+  if (failed) return t('Failed when applied: {what}', { what: failed[1]! });
+  return body;
 }

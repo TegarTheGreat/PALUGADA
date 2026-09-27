@@ -155,9 +155,14 @@ import {
 } from '../settings/overlay.ts';
 import { WEBHOOK_HOSTS, WebhookChatChannel, type WebhookChatKind } from './webhook-chat.ts';
 import {
-  EXTRACT_PROVIDERS, SEARCH_PROVIDERS, TOOL_KINDS, extractProvider, searchProvider, webExtract, webSearch,
-  type ExtractProvider, type SearchProvider, type ToolBinding, type ToolKind,
+  EXTRACT_PROVIDERS, SEARCH_PROVIDERS, extractProvider, searchProvider, webExtract, webSearch,
+  type ExtractProvider, type SearchProvider, type ToolBinding,
 } from '../capabilities/search.ts';
+import {
+  IMAGE_PROVIDERS, SPEECH_PROVIDERS, imageProvider, makeImage, makeSpeech, speechProvider,
+  type ImageProvider, type MediaBinding, type SpeechProvider,
+} from '../capabilities/media.ts';
+import { TOOL_KINDS, type ToolKind } from '../capabilities/tools.ts';
 import {
   AGENT_CATALOGUE, AgentJobs, agentEntry, cannotInstall, claudeSetupToken, findAgent, installAgent, type AgentEntry,
 } from '../settings/agents.ts';
@@ -1342,16 +1347,26 @@ export class OwnerApi {
             const names = TOOL_KINDS[kind];
             const chosen = stored?.[kind];
             const provider = chosen?.provider ?? deployment.baseEnv[names.provider] ?? null;
+            const model = 'model' in names ? names.model : null;
+            const voice = 'voice' in names ? names.voice : null;
             return [kind, {
               capability: names.capability,
               source: chosen ? 'console' : deployment.baseEnv[names.provider] ? 'environment' : null,
               provider,
               url: chosen ? chosen.url ?? null : deployment.baseEnv[names.url] ?? null,
+              // Only the tools that have a model or a voice say which.
+              ...(model ? { model: chosen ? chosen.model ?? null : deployment.baseEnv[model] ?? null } : {}),
+              ...(voice ? { voice: chosen ? chosen.voice ?? null : deployment.baseEnv[voice] ?? null } : {}),
               keySet: chosen ? Boolean(chosen.keySecret) : Boolean(deployment.baseEnv[names.key]),
               inUse: Boolean(deployment.env[names.provider]),
             }];
           }));
-          return { kinds, providers: { search: SEARCH_PROVIDERS, extract: EXTRACT_PROVIDERS }, applies: deployment.restart ? 'now' : 'next_start' };
+          return {
+            kinds,
+            providers: { search: SEARCH_PROVIDERS, extract: EXTRACT_PROVIDERS, image: IMAGE_PROVIDERS, speech: SPEECH_PROVIDERS },
+            filesRoot: Boolean(deployment.baseEnv.PALUGADA_FILES_ROOT),
+            applies: deployment.restart ? 'now' : 'next_start',
+          };
         },
       },
 
@@ -1363,7 +1378,16 @@ export class OwnerApi {
         handle: async ({ params, body }) => {
           const { kind, binding } = await this.#toolCandidate(params.kind!, body);
           try {
-            const signal = AbortSignal.timeout(30_000);
+            const signal = AbortSignal.timeout(kind === 'image' || kind === 'speech' ? 120_000 : 30_000);
+            if (kind === 'image' || kind === 'speech') {
+              // Made and shown, not kept: the test is the owner's, not a company's.
+              const media = { ...binding, root: '', model: typeof body.model === 'string' && body.model.trim() ? body.model.trim() : null,
+                voice: typeof body.voice === 'string' && body.voice.trim() ? body.voice.trim() : null };
+              const made = kind === 'image'
+                ? await makeImage(media as MediaBinding<ImageProvider>, { prompt: typeof body.prompt === 'string' && body.prompt.trim() ? body.prompt : 'A lighthouse at dawn, flat illustration' }, signal)
+                : await makeSpeech(media as MediaBinding<SpeechProvider>, { text: typeof body.text === 'string' && body.text.trim() ? body.text : 'PALUGADA' }, signal);
+              return { problem: null, media: { mime: made.mime, bytes: made.bytes.length, dataUrl: `data:${made.mime};base64,${made.bytes.toString('base64')}` } };
+            }
             if (kind === 'search') {
               const answer = await webSearch(binding as ToolBinding<SearchProvider>)
                 .execute({ query: typeof body.query === 'string' && body.query.trim() ? body.query : 'PALUGADA', count: 3 }, { signal } as never);
@@ -1396,7 +1420,13 @@ export class OwnerApi {
             await deleteSecret(secret);
           }
           const tools = { ...((await readSettings()).tools as Partial<Record<ToolKind, ToolSetting>> | undefined) };
-          tools[kind] = { provider: provider.id, ...(url ? { url } : {}), ...(typed || keep ? { keySecret: secret } : {}) };
+          const text = (field: string) => (typeof body[field] === 'string' && (body[field] as string).trim() ? (body[field] as string).trim().slice(0, 120) : null);
+          const model = kind === 'image' || kind === 'speech' ? text('model') : null;
+          const voice = kind === 'speech' ? text('voice') : null;
+          tools[kind] = {
+            provider: provider.id, ...(url ? { url } : {}), ...(typed || keep ? { keySecret: secret } : {}),
+            ...(model ? { model } : {}), ...(voice ? { voice } : {}),
+          };
           await writeSetting('tools', tools);
           return this.#applySettings();
         },
@@ -3137,9 +3167,11 @@ export class OwnerApi {
     const deployment = this.#deploymentSettings();
     const kind = toolKindNamed(kindName);
     const id = typeof body.provider === 'string' ? body.provider : '';
-    const provider = kind === 'search' ? searchProvider(id) : extractProvider(id);
+    const lists = { search: SEARCH_PROVIDERS, extract: EXTRACT_PROVIDERS, image: IMAGE_PROVIDERS, speech: SPEECH_PROVIDERS } as const;
+    const provider = kind === 'search' ? searchProvider(id) : kind === 'extract' ? extractProvider(id)
+      : kind === 'image' ? imageProvider(id) : speechProvider(id);
     if (!provider) {
-      const known = (kind === 'search' ? SEARCH_PROVIDERS : EXTRACT_PROVIDERS).map((one) => one.id);
+      const known = lists[kind].map((one) => one.id);
       throw new PalugadaError('contract.violation', `provider is one of ${known.join(', ')}; got ${id || 'nothing'}`, { field: 'provider' });
     }
     const url = typeof body.url === 'string' && body.url.trim() !== '' && provider.urlExample ? body.url.trim().replace(/\/+$/, '') : null;
@@ -3154,7 +3186,7 @@ export class OwnerApi {
     if (provider.key === 'required' && !typed && !keep) {
       throw new PalugadaError('contract.violation', `${provider.name} needs a key`, { field: 'key' });
     }
-    const binding: ToolBinding<SearchProvider | ExtractProvider> = {
+    const binding: ToolBinding<SearchProvider | ExtractProvider | ImageProvider | SpeechProvider> = {
       provider,
       url,
       key: async () => (typed ?? (keep ? deployment.secrets.resolve(`db://tool-${kind}`) : null)),
@@ -3382,9 +3414,11 @@ export class OwnerApi {
         // The console is one page and its own script; nothing else may run in
         // it, and nothing may frame it. Written here rather than in the HTML
         // because a header cannot be edited away by whatever the page later
-        // renders.
+        // renders. A picture or a voice the owner tries in Tools is shown from
+        // the answer, as a data address; an image or a sound cannot run.
         'content-security-policy':
           "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+          + "img-src 'self' data:; media-src 'self' data:; "
           + "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'",
         'x-content-type-options': 'nosniff',
         'referrer-policy': 'no-referrer',

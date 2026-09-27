@@ -23,6 +23,7 @@ import type { Capability, CapabilityRegistry } from '../broker/registry.ts';
 import type { LlmClient } from '../llm/client.ts';
 import { uptimeCheck, webFetch, type WebOptions } from './web.ts';
 import { webExtract, webSearch, type ExtractProvider, type SearchProvider, type ToolBinding } from './search.ts';
+import { imageGenerate, speechSynthesize, type ImageProvider, type MediaBinding, type SpeechProvider } from './media.ts';
 import { filesList, type FilesOptions } from './files.ts';
 import { docDraft, emailDraft, type DraftOptions } from './draft.ts';
 
@@ -44,6 +45,9 @@ export interface PlatformCapabilityOptions {
   /** The search and reading providers the owner chose; omitted, `web.search` and `web.extract` stay unbound. */
   search?: ToolBinding<SearchProvider>;
   extract?: ToolBinding<ExtractProvider>;
+  /** Pictures and speech, kept in the company's files. */
+  image?: MediaBinding<ImageProvider>;
+  speech?: MediaBinding<SpeechProvider>;
 }
 
 /**
@@ -66,6 +70,8 @@ export function platformCapabilities(
   }
   if (options.search) built.push(webSearch(options.search) as unknown as Capability<never, never>);
   if (options.extract) built.push(webExtract(options.extract) as unknown as Capability<never, never>);
+  if (options.image) built.push(imageGenerate(options.image) as unknown as Capability<never, never>);
+  if (options.speech) built.push(speechSynthesize(options.speech) as unknown as Capability<never, never>);
 
   // The drafting pair needs both: a model to compose with and a place to put
   // the result. §8.8 calibrates them at tier 1 because a draft is a write, and

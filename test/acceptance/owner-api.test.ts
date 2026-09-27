@@ -1180,7 +1180,11 @@ test('the deployment boots, serves the console, and takes a decision', async () 
     // the page, its script and its stylesheet, from this origin only.
     const page = await fetch(`${deployment.url}/`);
     assert.equal(page.status, 200);
-    assert.match(page.headers.get('content-security-policy') ?? '', /script-src 'self'/);
+    const policy = page.headers.get('content-security-policy') ?? '';
+    assert.match(policy, /script-src 'self';/);
+    // A tried picture or voice is shown from the answer itself; nothing else may come from data.
+    assert.match(policy, /img-src 'self' data:; media-src 'self' data:/);
+    assert.doesNotMatch(policy, /script-src[^;]*data:/);
     const html = await page.text();
     assert.match(html, /<title>PALUGADA<\/title>/);
     const assets = [...html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map((match) => match[1]!);

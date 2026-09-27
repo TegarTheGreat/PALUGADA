@@ -3216,6 +3216,18 @@ has.
   other agents use scrapes it. Edge TTS, which Hermes offers for speech, is
   the same kind of thing.
 
+- **Roles can make pictures and speak.** `image.generate` goes to OpenAI,
+  fal, OpenRouter, DeepInfra, xAI or Gemini, and `speech.synthesize` to
+  OpenAI, ElevenLabs, xAI, Gemini, DeepInfra or a Piper of the owner's own,
+  each asked the way its own reference describes and read in whatever shape
+  it answers -- raw audio, base64 in JSON, or a picture's address fetched at
+  once because it expires. What comes back is a file under the company's
+  `generated/`, so both are tier 1 like a draft, read back by its hash after
+  it is written (F8.4), with the provider's price reserved. The owner
+  chooses the provider, the model and the default voice in the console, and
+  sees the picture or hears the clip before saving; the console's policy
+  lets an image or a sound come from the answer itself and nothing else.
+
 - **The owner's channels are set up from the console.** Telegram took a
   token, a chat id and a webhook secret typed into the environment, and the
   chat id is a number nobody knows. Now the owner pastes the token

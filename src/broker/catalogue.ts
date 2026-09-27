@@ -301,6 +301,25 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
     needsCredential: true,
   },
   {
+    name: 'image.generate',
+    adapter: 'media',
+    tier: TIER.REVERSIBLE_WRITE,
+    summary: 'Makes a picture from a prompt and keeps it in the company\'s files.',
+    calibration:
+      'Like a draft: a file nobody has been shown yet, undone by deleting it, ' +
+      'and read back after it is written. It costs a few cents, which the ' +
+      'budget reserves; publishing the picture is another capability.',
+  },
+  {
+    name: 'speech.synthesize',
+    adapter: 'media',
+    tier: TIER.REVERSIBLE_WRITE,
+    summary: 'Says a text aloud and keeps the audio in the company\'s files.',
+    calibration:
+      'The same as image.generate: a file kept for someone to use, undone by ' +
+      'deleting it, with its price reserved before it is made.',
+  },
+  {
     name: 'dns.update',
     adapter: 'dns',
     tier: TIER.REVERSIBLE_WRITE,

@@ -21,8 +21,9 @@ import { OwnerMfa, TOTP_STEP_SECONDS, decodeBase32, newTotpSecret, stepFor, totp
 import { DeploymentSecretManager, masterKeyFrom, readSettings, type MasterKey } from '../../src/settings/store.ts';
 import { withSettings } from '../../src/settings/overlay.ts';
 import {
-  EXTRACT_PROVIDERS, SEARCH_PROVIDERS, toolBindingsFrom, webExtract, webSearch,
+  EXTRACT_PROVIDERS, SEARCH_PROVIDERS, webExtract, webSearch,
 } from '../../src/capabilities/search.ts';
+import { toolBindingsFrom } from '../../src/capabilities/tools.ts';
 import { STANDARD_CATALOGUE } from '../../src/broker/catalogue.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
@@ -178,7 +179,7 @@ test('a tool with no provider, or one it cannot use, is a note at boot, not a si
   assert.match(toolBindingsFrom({ PALUGADA_SEARCH_PROVIDER: 'searxng' }, resolve).notes.join('\n'), /SearXNG is your own server, and PALUGADA_SEARCH_URL gives no address/);
   assert.match(toolBindingsFrom({ PALUGADA_SEARCH_PROVIDER: 'brave' }, resolve).notes.join('\n'), /Brave Search needs a key/);
   const bound = toolBindingsFrom({ PALUGADA_SEARCH_PROVIDER: 'tavily', PALUGADA_EXTRACT_PROVIDER: 'jina' }, resolve);
-  assert.deepEqual(bound.notes, []);
+  assert.deepEqual(bound.notes.filter((note) => /^web\./.test(note)), [], 'pictures and speech are unbound here, and say so on their own');
   assert.equal(bound.search?.provider.id, 'tavily');
   assert.equal(bound.extract?.provider.id, 'jina');
 });
@@ -220,7 +221,7 @@ test('the owner chooses a search provider and a page reader in the console, trie
     assert.equal(env.PALUGADA_SEARCH_URL, search.url);
     assert.equal(env.PALUGADA_EXTRACT_PROVIDER, 'jina', 'the console\'s reader in place of the environment\'s');
     const bound = toolBindingsFrom(env, (reference) => api.secrets.resolve(reference));
-    assert.deepEqual(bound.notes, []);
+    assert.deepEqual(bound.notes.filter((note) => /^web\./.test(note)), []);
     const found = await webSearch(bound.search!).execute({ query: 'what runs itself' }, ctx);
     assert.equal(found.results[0]!.url, 'https://palugada.example/');
     assert.equal(search.queries.at(-1), 'what runs itself');

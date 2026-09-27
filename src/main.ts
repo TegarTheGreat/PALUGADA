@@ -48,7 +48,7 @@ import { AdapterRegistry } from './runtime/protocol.ts';
 import { assembleRuntimes } from './runtime/assemble.ts';
 import type { TaskHandler } from './runtime/in-process.ts';
 import { registerPlatformCapabilities } from './capabilities/platform.ts';
-import { toolBindingsFrom } from './capabilities/search.ts';
+import { toolBindingsFrom } from './capabilities/tools.ts';
 import { registerVendorCapabilities } from './capabilities/vendors.ts';
 import { STANDARD_CATALOGUE } from './broker/catalogue.ts';
 import { seed } from './seed.ts';
@@ -468,7 +468,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
 
   const filesRoot = options.filesRoot ?? env.PALUGADA_FILES_ROOT ?? null;
   // Searching and reading pages, through the providers the owner chose.
-  const toolBindings = toolBindingsFrom(env, (reference) => secrets.resolve(reference));
+  const toolBindings = toolBindingsFrom(env, (reference) => secrets.resolve(reference), filesRoot);
 
   // The five capabilities the platform implements itself. The other twenty
   // the standard template grants need somebody's account, and a control plane
@@ -487,6 +487,8 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     ...(llm ? { llm, draftModel } : {}),
     ...(toolBindings.search ? { search: toolBindings.search } : {}),
     ...(toolBindings.extract ? { extract: toolBindings.extract } : {}),
+    ...(toolBindings.image ? { image: toolBindings.image } : {}),
+    ...(toolBindings.speech ? { speech: toolBindings.speech } : {}),
   });
   notes.push(...toolBindings.notes);
   if (!filesRoot) {

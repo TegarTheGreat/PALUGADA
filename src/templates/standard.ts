@@ -246,6 +246,11 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     { division: 'growth', capability: 'web.fetch' },
     { division: 'growth', capability: 'web.search' },
     { division: 'growth', capability: 'web.extract' },
+    // Pictures and voice-overs for what it publishes: drafts in the company's
+    // files, bound once the owner chooses a provider, and a note until then.
+    // The marketer's twelve tools are full; the owner trades one on Team.
+    { division: 'growth', capability: 'image.generate' },
+    { division: 'growth', capability: 'speech.synthesize' },
     { division: 'growth', capability: 'crm.read' },
     { division: 'growth', capability: 'crm.note' },
     { division: 'growth', capability: 'doc.draft' },

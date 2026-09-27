@@ -65,7 +65,7 @@ interface SettingsView {
 
 const SECTIONS: Array<{ id: DeploymentSection; label: string; hint: string; icon: typeof IconBrain }> = [
   { id: 'model', label: N('Model'), hint: N('What every role thinks with, unless a role is given its own.'), icon: IconBrain },
-  { id: 'tools', label: N('Tools'), hint: N('Where roles search the web and read pages: the provider, and its key.'), icon: IconWorldSearch },
+  { id: 'tools', label: N('Tools'), hint: N('Where roles search the web, read pages, make pictures and speak: the provider, and its key.'), icon: IconWorldSearch },
   { id: 'channels', label: N('Channels'), hint: N('Where PALUGADA reaches you: Telegram, your phone, Slack or Discord.'), icon: IconBell },
   { id: 'agents', label: N('Agent CLIs'), hint: N('Claude Code, Codex, Gemini CLI and others: install them here, sign them in, and let roles run on them.'), icon: IconTerminal2 },
 ];
@@ -663,7 +663,7 @@ function AgentCard({ agent, reload }: { agent: AgentRow; reload: () => void }) {
   );
 }
 
-type ToolKind = 'search' | 'extract';
+type ToolKind = 'search' | 'extract' | 'image' | 'speech';
 
 interface ToolProvider {
   id: string;
@@ -672,6 +672,8 @@ interface ToolProvider {
   key: 'required' | 'optional' | 'none';
   keyUrl?: string;
   urlExample?: string;
+  defaultModel?: string;
+  defaultVoice?: string;
   reserveCents: number;
   checked?: 'unverified';
 }
@@ -681,6 +683,8 @@ interface ToolState {
   source: 'console' | 'environment' | null;
   provider: string | null;
   url: string | null;
+  model?: string | null;
+  voice?: string | null;
   keySet: boolean;
   inUse: boolean;
 }
@@ -688,12 +692,15 @@ interface ToolState {
 interface ToolsView {
   kinds: Record<ToolKind, ToolState>;
   providers: Record<ToolKind, ToolProvider[]>;
+  filesRoot: boolean;
   applies: 'now' | 'next_start';
 }
 
 const TOOL_TEXT: Record<ToolKind, { title: string; hint: string }> = {
   search: { title: N('Web search'), hint: N('Lets a role find pages: a title, an address and a snippet of each. Its queries go to the provider you choose.') },
   extract: { title: N('Reading pages'), hint: N('Lets a role read one page as clean text, fetched by the provider rather than by this server.') },
+  image: { title: N('Making pictures'), hint: N('Lets a role draw a picture from a description. It is kept in the company\'s files, and the role\'s draft names it.') },
+  speech: { title: N('Speaking'), hint: N('Lets a role turn text into a voice recording, kept in the company\'s files.') },
 };
 
 /** The same words the server sends about each provider, here so that they are translated. */
@@ -713,6 +720,24 @@ const TOOL_ABOUT: Record<string, string> = {
   'extract:firecrawl': N('A free tier without a key'),
   'extract:tavily': N('A free tier without a key'),
   'extract:keenable': N('A free tier without a key, shared by IP'),
+  'image:openai': N('GPT Image'),
+  'image:fal': N('FLUX and other open models, fast and cheap'),
+  'image:openrouter': N('Image models from several labs, one key'),
+  'image:deepinfra': N('FLUX schnell, a fraction of a cent'),
+  'speech:openai': N('Thirteen voices, in most languages'),
+  'speech:elevenlabs': N('The most natural voices'),
+  'speech:xai': N('Grok\'s voices'),
+  'speech:gemini': N('Thirty voices; free on its free tier'),
+  'speech:deepinfra': N('Kokoro and other open voices, cheaply'),
+  'speech:piper': N('Your own speech server, free, in forty languages'),
+};
+
+/** What each tool is tried with. */
+const TOOL_PROBE: Record<ToolKind, { label: string; value: string }> = {
+  search: { label: N('Try a search'), value: 'PALUGADA' },
+  extract: { label: N('Try a page'), value: 'https://example.com/' },
+  image: { label: N('Try a picture of'), value: N('A lighthouse at dawn, flat illustration') },
+  speech: { label: N('Try saying'), value: N('Good morning. Here is what happened overnight.') },
 };
 
 function ToolSettings() {
@@ -721,26 +746,33 @@ function ToolSettings() {
   if (!view.data) return <Loading rows={5} />;
   return (
     <Stack gap="lg">
-      {(['search', 'extract'] as const).map((kind) => (
-        <ToolCard key={kind} kind={kind} state={view.data!.kinds[kind]} providers={view.data!.providers[kind]} reload={view.reload} />
+      {(['search', 'extract', 'image', 'speech'] as const).map((kind) => (
+        <ToolCard key={kind} kind={kind} state={view.data!.kinds[kind]} providers={view.data!.providers[kind]}
+          filesRoot={view.data!.filesRoot} reload={view.reload} />
       ))}
     </Stack>
   );
 }
 
-function ToolCard({ kind, state, providers, reload }: { kind: ToolKind; state: ToolState; providers: ToolProvider[]; reload: () => void }) {
+function ToolCard({ kind, state, providers, filesRoot, reload }: {
+  kind: ToolKind; state: ToolState; providers: ToolProvider[]; filesRoot: boolean; reload: () => void;
+}) {
   const requireFactor = useFactor();
   const [providerId, setProviderId] = useState<string | null>(state.provider);
   const provider = providers.find((one) => one.id === providerId) ?? null;
   const [url, setUrl] = useState(state.url ?? '');
   const [key, setKey] = useState('');
-  const [probe, setProbe] = useState(kind === 'search' ? 'PALUGADA' : 'https://example.com/');
+  const [model, setModel] = useState(state.model ?? '');
+  const [voice, setVoice] = useState(state.voice ?? '');
+  const [probe, setProbe] = useState(kind === 'search' || kind === 'extract' ? TOOL_PROBE[kind].value : t(TOOL_PROBE[kind].value));
   const [testing, setTesting] = useState(false);
   const [result, setResult] = useState<{
     problem: string | null;
     results?: Array<{ title: string; url: string; snippet: string }>;
     page?: { url: string; title: string | null; excerpt: string };
+    media?: { mime: string; bytes: number; dataUrl: string };
   } | null>(null);
+  const makesFiles = kind === 'image' || kind === 'speech';
   const keyKept = state.keySet && state.provider === providerId && key === '';
 
   const options = [
@@ -749,13 +781,17 @@ function ToolCard({ kind, state, providers, reload }: { kind: ToolKind; state: T
     { group: t('Your own server'), items: providers.filter((one) => one.urlExample) },
   ].filter((group) => group.items.length > 0).map((group) => ({ group: group.group, items: group.items.map((one) => ({ value: one.id, label: one.name })) }));
 
-  const body = () => ({ provider: providerId, url: url.trim() || undefined, key: key.trim() || undefined });
+  const body = () => ({
+    provider: providerId, url: url.trim() || undefined, key: key.trim() || undefined,
+    ...(makesFiles ? { model: model.trim() || undefined } : {}), ...(kind === 'speech' ? { voice: voice.trim() || undefined } : {}),
+  });
+  const tried = { search: { query: probe }, extract: { url: probe }, image: { prompt: probe }, speech: { text: probe } }[kind];
 
   const test = async () => {
     setTesting(true);
     setResult(null);
     try {
-      setResult(await api('POST', `/api/control/tools/${kind}/test`, { ...body(), ...(kind === 'search' ? { query: probe } : { url: probe }), ...(provider?.urlExample ? { url: url.trim() } : {}) }));
+      setResult(await api('POST', `/api/control/tools/${kind}/test`, { ...body(), ...tried, ...(provider?.urlExample ? { url: url.trim() } : {}) }));
     } catch (failure) {
       setResult({ problem: explain(failure) });
     } finally {
@@ -791,8 +827,11 @@ function ToolCard({ kind, state, providers, reload }: { kind: ToolKind; state: T
       </Badge>}
     >
       <Stack gap="sm">
+        {makesFiles && !filesRoot && (
+          <Alert color="orange" variant="light">{t('What it makes is kept in each company\'s files, and this deployment has none: set PALUGADA_FILES_ROOT and start it again.')}</Alert>
+        )}
         <Select label={t('Provider')} placeholder={t('Choose a provider')} data={options} value={providerId} searchable
-          onChange={(next) => { setProviderId(next); setResult(null); setKey(''); }} />
+          onChange={(next) => { setProviderId(next); setResult(null); setKey(''); setModel(''); setVoice(''); }} />
         {provider && (
           <>
             {(about || provider.keyUrl) && (
@@ -820,8 +859,20 @@ function ToolCard({ kind, state, providers, reload }: { kind: ToolKind; state: T
                 autoComplete="off"
               />
             )}
+            {makesFiles && (
+              <Group grow align="flex-start">
+                {provider.defaultModel && (
+                  <TextInput label={t('Model')} placeholder={provider.defaultModel} value={model}
+                    description={t('Empty for the one it suggests.')} onChange={(event) => setModel(event.currentTarget.value)} />
+                )}
+                {kind === 'speech' && (
+                  <TextInput label={t('Voice')} placeholder={provider.defaultVoice} value={voice}
+                    description={t('A role may ask for another.')} onChange={(event) => setVoice(event.currentTarget.value)} />
+                )}
+              </Group>
+            )}
             <Group align="flex-end" gap="sm" wrap="nowrap">
-              <TextInput style={{ flex: 1 }} label={kind === 'search' ? t('Try a search') : t('Try a page')} value={probe} onChange={(event) => setProbe(event.currentTarget.value)} />
+              <TextInput style={{ flex: 1 }} label={t(TOOL_PROBE[kind].label)} value={probe} onChange={(event) => setProbe(event.currentTarget.value)} />
               <Button variant="default" leftSection={<IconPlugConnected size={16} />} loading={testing} disabled={!ready} onClick={() => void test()}>{t('Test it')}</Button>
             </Group>
             {result && (result.problem
@@ -840,6 +891,14 @@ function ToolCard({ kind, state, providers, reload }: { kind: ToolKind; state: T
                       <Text size="sm" fw={600}>{result.page.title ?? result.page.url}</Text>
                       <Text size="xs" c="dimmed" lineClamp={4}>{result.page.excerpt}</Text>
                     </>
+                  )}
+                  {result.media && (
+                    <Stack gap={6}>
+                      {result.media.mime.startsWith('image/')
+                        ? <img src={result.media.dataUrl} alt={probe} style={{ maxWidth: '100%', maxHeight: 320, borderRadius: 8, objectFit: 'contain' }} />
+                        : <audio controls src={result.media.dataUrl} style={{ width: '100%' }} />}
+                      <Text size="xs" c="dimmed">{t('{mime}, {size} KB. Tried here, kept nowhere.', { mime: result.media.mime, size: Math.max(1, Math.round(result.media.bytes / 1024)) })}</Text>
+                    </Stack>
                   )}
                 </Paper>
               ))}

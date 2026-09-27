@@ -213,6 +213,31 @@ searches before it plans; give them to another role on **Team**. What a
 search or a page returns is written outside the company, so work that read
 it asks you before its next action at tier 2 or above.
 
+## Let roles make pictures and speak
+
+A role draws a picture from a description with `image.generate`, and turns
+text into a voice recording with `speech.synthesize`. Each is a file kept
+in the company's files, under `generated/`, like a draft: the deployment
+needs `PALUGADA_FILES_ROOT`, and the card says so when it has none.
+
+1. Open **This deployment**, **Tools**.
+2. Under **Making pictures**, choose a **Provider** -- OpenAI, fal, OpenRouter,
+   DeepInfra, xAI or Google Gemini -- and paste its **API key**. **Model** is
+   empty for the one it suggests.
+3. Describe a picture under **Try a picture of** and press **Test it**. The
+   picture is shown on the page and kept nowhere.
+4. Press **Save** and confirm with a code.
+5. Under **Speaking**, choose a provider the same way, and a **Voice** if you
+   want another than the one it suggests; a role may still ask for another.
+   Piper is a speech server of your own, free: run
+   `python3 -m piper.http_server -m en_US-lessac-medium` and give its
+   address. **Try saying** plays what it made.
+
+The standard template grants both to Growth. Its marketer's twelve tools
+are full, so add `image.generate` or `speech.synthesize` to a role on
+**Team** in place of one it uses less. Each call reserves the provider's
+price for one picture or one clip before it runs.
+
 ## Choose or change the model
 
 In the console, open **This deployment** at the foot of the sidebar (on a

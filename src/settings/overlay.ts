@@ -12,7 +12,7 @@
  */
 import { MODEL_TIERS } from '../llm/models.ts';
 import type { Settings } from './store.ts';
-import { TOOL_KINDS, type ToolKind } from '../capabilities/search.ts';
+import { TOOL_KINDS, type ToolKind } from '../capabilities/tools.ts';
 
 /** The model, as the console sets it. */
 export interface ModelSetting {
@@ -49,6 +49,9 @@ export interface ToolSetting {
   url?: string;
   /** The sealed key's name (`db://<name>`), for a provider that takes one. */
   keySecret?: string;
+  /** For pictures and speech: the model, and the voice, when not the provider's default. */
+  model?: string;
+  voice?: string;
 }
 
 /** How the owner is reached, as the console sets it. Every credential is a sealed secret's name. */
@@ -97,12 +100,14 @@ export function withSettings(env: NodeJS.ProcessEnv, settings: Settings): NodeJS
       // Each kind is its own area: choosing a search provider leaves the
       // environment's page reader as it was.
       if (!tool) continue;
-      delete out[names.provider];
-      delete out[names.url];
-      delete out[names.key];
+      const model = 'model' in names ? names.model : null;
+      const voice = 'voice' in names ? names.voice : null;
+      for (const key of [names.provider, names.url, names.key, model, voice]) if (key) delete out[key];
       out[names.provider] = tool.provider;
       if (tool.url) out[names.url] = tool.url;
       if (tool.keySecret) out[names.key] = `db://${tool.keySecret}`;
+      if (model && tool.model) out[model] = tool.model;
+      if (voice && tool.voice) out[voice] = tool.voice;
     }
   }
   const channels = settings.channels as ChannelSettings | undefined;

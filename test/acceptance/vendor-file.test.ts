@@ -25,6 +25,7 @@ import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { closePools } from '../../src/db/pool.ts';
 import { isPalugadaError } from '../../src/errors.ts';
+import { redactor } from '../../src/secrets/manager.ts';
 import { httpCapability, fill } from '../../src/capabilities/http.ts';
 import { parseVendors, registerVendorCapabilities } from '../../src/capabilities/vendors.ts';
 import { CapabilityRegistry } from '../../src/broker/registry.ts';
@@ -577,6 +578,153 @@ test('a body template reads a nested field (F8)', async () => {
   } finally {
     await server.close();
   }
+});
+
+/**
+ * Stripe, Twilio, Mailgun and a long tail of older APIs take a form, not JSON:
+ * a JSON body is refused, or worse, read as empty. The shipped example bound
+ * `invoice.issue` to Stripe with a JSON body, which Stripe would have refused
+ * on the first call -- found by the audit of 2026-09-28, item 25.
+ */
+test('a body can be sent as a form, nested the way Stripe and Twilio read one (F8)', async () => {
+  const server = await vendor(() => ({ status: 200, body: { id: 'in_1', status: 'paid' } }));
+  try {
+    const capability = httpCapability(parseVendors({
+      capabilities: [{
+        name: 'invoice.pay', adapter: 'stripe', tier: 2, method: 'POST',
+        url: `${server.url}/v1/invoices/{input.invoiceId}/pay`,
+        headers: { authorization: 'Bearer {credential}', 'idempotency-key': '{idempotencyKey}' },
+        bodyEncoding: 'form',
+        body: {
+          paid_out_of_band: '{input.outOfBand}',
+          metadata: { task: '{taskId}', note: '{input.note}' },
+          expand: ['{input.expand}', 'charge'],
+          amount: '{input.amount}',
+          skipped: '{input.absent}',
+          description: null,
+        },
+        result: 'body.id',
+        credentialAlias: 'mail',
+        verify: {
+          url: `${server.url}/v1/invoices/{result}`,
+          matches: { path: 'body.status', equals: 'paid' },
+        },
+        allowPrivateHosts: ['127.0.0.1'],
+      }],
+    })[0]!);
+
+    await capability.execute(
+      { invoiceId: 'in_1', outOfBand: false, note: 'a&b=c d', expand: 'customer', amount: 1250 },
+      ctx(),
+    );
+
+    const sent = server.calls[0]!;
+    assert.equal(sent.headers['content-type'], 'application/x-www-form-urlencoded');
+    // Read back the way the vendor reads it: each key once, nested by
+    // brackets, a value with `&` and `=` in it one value rather than three.
+    assert.deepEqual([...new URLSearchParams(sent.body)], [
+      ['paid_out_of_band', 'false'],
+      ['metadata[task]', '33333333-3333-3333-3333-333333333333'],
+      ['metadata[note]', 'a&b=c d'],
+      ['expand[0]', 'customer'],
+      ['expand[1]', 'charge'],
+      ['amount', '1250'],
+      // Null is sent empty: how these APIs are told to clear a field.
+      ['description', ''],
+      // A field whose whole value is a placeholder nothing fills is left out,
+      // as `JSON.stringify` leaves it out of a JSON body. (The input schema
+      // built from the templates refuses such a call before it gets here.)
+    ]);
+  } finally {
+    await server.close();
+  }
+});
+
+/**
+ * Xendit and Midtrans take the secret key as an HTTP Basic user name with no
+ * password, and Twilio a SID and a token as the pair. Without this an
+ * operator had to store the key already base64-encoded, which is a secret
+ * nobody can recognise when it leaks -- and which the redactor, knowing only
+ * the stored value, would still catch, while a platform-encoded one it would
+ * not.
+ */
+test('a key sent as HTTP Basic is encoded by the platform, and redacted like the key (F12.1)', async () => {
+  const server = await vendor(() => ({ status: 200, body: { id: 'inv_1', status: 'PENDING' } }));
+  try {
+    const entry = (url: string) => ({
+      name: 'invoice.issue', adapter: 'xendit', tier: 2, method: 'POST',
+      url: `${url}/v2/invoices`,
+      headers: { authorization: 'Basic {credentialBasic}', 'idempotency-key': '{idempotencyKey}' },
+      body: { external_id: '{taskId}', amount: '{input.amount}' },
+      result: 'body.id',
+      credentialAlias: 'billing',
+      verify: { url: `${url}/v2/invoices/{result}`, matches: { path: 'body.status', oneOf: ['PENDING', 'PAID'] } },
+      preflightUrl: `${url}/balance`,
+      allowPrivateHosts: ['127.0.0.1'],
+    });
+    const capability = httpCapability(parseVendors({ capabilities: [entry(server.url)] })[0]!);
+    const withKey = (key: string) => ({ ...ctx(), credential: async () => key });
+
+    await capability.execute({ amount: 150000 }, withKey('xnd_development_9aB8cD7eF6gH'));
+    const basic = Buffer.from('xnd_development_9aB8cD7eF6gH:').toString('base64');
+    assert.equal(server.calls[0]!.headers.authorization, `Basic ${basic}`, 'a key alone is the user name, with no password');
+    assert.equal(redactor.redact(`the vendor echoed ${basic}`), 'the vendor echoed [redacted]');
+
+    await capability.execute({ amount: 150000 }, withKey('AC0123456789:token-abcdef'));
+    assert.equal(
+      server.calls[1]!.headers.authorization,
+      `Basic ${Buffer.from('AC0123456789:token-abcdef').toString('base64')}`,
+      'a pair is sent as the pair',
+    );
+
+    // The read-back carries it too: it is a header like the key's own.
+    assert.equal(await capability.verify!({ amount: 150000 }, 'inv_1', withKey('xnd_development_9aB8cD7eF6gH')), true);
+    assert.equal(server.calls[2]!.headers.authorization, `Basic ${basic}`);
+    // And the preflight, which is where an expired key is meant to show.
+    const checked = await capability.preflight!({
+      companyId: '11111111-1111-1111-1111-111111111111',
+      divisionId: '22222222-2222-2222-2222-222222222222',
+      credential: async () => 'xnd_development_9aB8cD7eF6gH',
+    });
+    assert.equal(checked.ok, true, JSON.stringify(checked));
+    assert.equal(server.calls[3]!.path, '/balance');
+    assert.equal(server.calls[3]!.headers.authorization, `Basic ${basic}`);
+
+    // Never in a URL, for the reason the key is not.
+    assert.throws(
+      () => httpCapability(parseVendors({ capabilities: [{ ...entry(server.url), url: `${server.url}/v2/invoices?auth={credentialBasic}` }] })[0]!),
+      (error: unknown) => isPalugadaError(error, 'contract.violation') || isPalugadaError(error, 'config.invalid'),
+    );
+  } finally {
+    await server.close();
+  }
+});
+
+test('a form body must be an object of fields (F8)', () => {
+  for (const [body, why] of [['{input.all}', 'a single placeholder'], [['a', 'b'], 'a list'], [undefined, 'no body at all']] as const) {
+    assert.throws(
+      () => parseVendors({
+        capabilities: [{
+          name: 'invoice.pay', adapter: 'stripe', tier: 2, method: 'POST', url: 'https://api.stripe.com/v1/invoices/{input.id}/pay',
+          headers: { 'idempotency-key': '{idempotencyKey}' },
+          bodyEncoding: 'form',
+          ...(body === undefined ? {} : { body }),
+          verify: { url: 'https://api.stripe.com/v1/invoices/{input.id}', matches: { path: 'body.status', equals: 'paid' } },
+        }],
+      }),
+      (error: unknown) => isPalugadaError(error, 'config.invalid') && /form/.test((error as Error).message),
+      why,
+    );
+  }
+  assert.throws(
+    () => parseVendors({
+      capabilities: [{
+        name: 'dns.read', adapter: 'x', tier: 0, method: 'GET', url: 'https://example.com/zones', bodyEncoding: 'xml',
+      }],
+    }),
+    (error: unknown) => isPalugadaError(error, 'config.invalid'),
+    'an encoding this platform does not write',
+  );
 });
 
 test('a file cannot take a name this deployment already binds (F4.8, F15.7)', async () => {

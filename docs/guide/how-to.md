@@ -323,7 +323,14 @@ uses. [config/vendors.example.json](../../config/vendors.example.json) binds
 1. Copy the example and change it for your vendor. The platform refuses a
    file that writes without a read-back, has a side effect without an
    idempotency key, or sets a tier looser than the catalogue's, and it stops
-   at boot with the reason rather than starting half-configured.
+   at boot with the reason rather than starting half-configured. Two things
+   vary between vendors. A vendor that takes a form rather than JSON, such
+   as Stripe or Twilio, needs `"bodyEncoding": "form"`; nested fields are
+   sent as `metadata[order]`, the way those vendors read them. A vendor that
+   takes the key as an HTTP Basic user name, such as Xendit or Midtrans,
+   gets the header `"authorization": "Basic {credentialBasic}"`: the
+   platform encodes the key, or a `user:password` pair as it is, and keeps
+   the encoded form out of its logs like the key itself.
 2. Set `PALUGADA_VENDORS` to the file's path. With Docker Compose, put the
    file in `config/` and rebuild with `docker compose up -d --build`: the
    image copies that directory, and a relative path is read from the app's

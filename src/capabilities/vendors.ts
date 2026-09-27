@@ -86,6 +86,8 @@ export interface VendorSpec {
   headers?: Record<string, string>;
   /** A JSON template. Strings may hold `{input.x}` and `{idempotencyKey}`. */
   body?: Json;
+  /** `form` sends the filled template as a form, for vendors that take one. */
+  bodyEncoding?: 'json' | 'form';
   /**
    * What a call carries, as a JSON Schema. Optional: without one, every field
    * a template reads (`{input.to}`) is a field the call must have.
@@ -201,6 +203,7 @@ const SCHEMA = {
           url: { type: 'string', minLength: 1 },
           headers: { type: 'object', additionalProperties: { type: 'string' } },
           body: {},
+          bodyEncoding: { enum: ['json', 'form'] },
           input: { type: 'object' },
           readOnly: { type: 'boolean' },
           result: { type: 'string', minLength: 1 },
@@ -474,6 +477,13 @@ function inputSchemaFrom(entry: VendorSpec): Record<string, unknown> {
 const inputs = new Ajv({ strict: false });
 
 export function specFrom(entry: VendorSpec): HttpCapabilitySpec {
+  // A form is fields and their values. A single placeholder or a list has no
+  // field names to send, and a form declared with no body is a file saying
+  // one thing and doing another.
+  const body = entry.body;
+  if (entry.bodyEncoding === 'form' && (body === null || typeof body !== 'object' || Array.isArray(body))) {
+    throw new Error('bodyEncoding "form" needs a body that is an object of fields');
+  }
   if (entry.input) {
     try {
       inputs.compile(entry.input);
@@ -493,6 +503,7 @@ export function specFrom(entry: VendorSpec): HttpCapabilitySpec {
     ...(entry.body === undefined
       ? {}
       : { body: (_input, values) => fillTemplate(entry.body, values) }),
+    ...(entry.bodyEncoding === 'form' ? { bodyEncoding: 'form' as const } : {}),
     ...(entry.result
       ? { result: (answer) => at({ status: answer.status, body: answer.body }, entry.result!) }
       : {}),

@@ -39,6 +39,7 @@
  *     nothing about the vendor's.
  */
 import { PalugadaError } from '../errors.ts';
+import { redactor } from '../secrets/manager.ts';
 import type { Capability, CapabilityContext } from '../broker/registry.ts';
 import type { Tier } from '../domain/tier.ts';
 import { safeFetch, type ReachableOptions } from './reachable.ts';
@@ -57,6 +58,12 @@ export interface HttpPlaceholders {
   idempotencyKey: string;
   /** The resolved credential, if the spec named an alias. */
   credential: string;
+  /**
+   * The same credential as an HTTP Basic value, for vendors that take a key
+   * as the user name (Xendit, Midtrans) or a pair as `user:password` (Twilio).
+   * Header-only, like the credential.
+   */
+  credentialBasic?: string;
   companyId: string;
   divisionId: string;
   taskId: string;
@@ -107,6 +114,11 @@ export interface HttpCapabilitySpec {
    * quote in it.
    */
   body?: (input: Record<string, unknown>, placeholders: HttpPlaceholders) => unknown;
+  /**
+   * How the body is written. JSON unless the vendor takes a form, as Stripe,
+   * Twilio and Mailgun do: a JSON body there is refused, or read as empty.
+   */
+  bodyEncoding?: 'json' | 'form';
   /** What the capability answers with, from the vendor's reply. */
   result?: (answer: { status: number; body: unknown }) => unknown;
   /** The division's credential alias. Resolved per call, never held. */
@@ -204,7 +216,7 @@ export function httpCapability(spec: HttpCapabilitySpec): Capability<
     ['verify.url', spec.verify?.url],
     ['preflightUrl', spec.preflightUrl],
   ] as const) {
-    if (url?.includes('{credential}')) {
+    if (url && /\{credential(Basic)?\}/.test(url)) {
       throw new PalugadaError(
         'contract.violation',
         `${spec.name} puts its credential in ${where}, where it is logged by everybody `
@@ -230,7 +242,7 @@ export function httpCapability(spec: HttpCapabilitySpec): Capability<
         method,
         url: fill(spec.url, placeholders),
         headers: fillAll(spec.headers ?? {}, placeholders),
-        ...(spec.body ? { body: JSON.stringify(spec.body(input, placeholders)) } : {}),
+        ...(spec.body ? encoded(spec.bodyEncoding, spec.body(input, placeholders)) : {}),
         signal: ctx.signal,
       });
 
@@ -334,12 +346,14 @@ export function httpCapability(spec: HttpCapabilitySpec): Capability<
       }
 
       try {
+        const credential = spec.credentialAlias
+          ? await ctx.credential!(spec.credentialAlias, spec.name)
+          : '';
         const placeholders: HttpPlaceholders = {
           input: {},
           idempotencyKey: '',
-          credential: spec.credentialAlias
-            ? await ctx.credential!(spec.credentialAlias, spec.name)
-            : '',
+          credential,
+          credentialBasic: basicOf(credential),
           companyId: ctx.companyId,
           divisionId: ctx.divisionId,
           taskId: '',
@@ -384,6 +398,7 @@ async function resolve(
     input,
     idempotencyKey: ctx.idempotencyKey,
     credential,
+    credentialBasic: basicOf(credential),
     companyId: ctx.companyId,
     divisionId: ctx.divisionId,
     taskId: ctx.taskId,
@@ -397,6 +412,7 @@ async function request(
     url: string;
     headers: Record<string, string>;
     body?: string;
+    contentType?: string;
     signal?: AbortSignal;
   },
 ): Promise<{ status: number; body: unknown; text: string; headers: Record<string, string> }> {
@@ -407,7 +423,7 @@ async function request(
   const answer = await safeFetch(call.url, {
     ...(spec.reach ?? {}),
     method: call.method,
-    headers: { accept: 'application/json', 'content-type': 'application/json', ...call.headers },
+    headers: { accept: 'application/json', 'content-type': call.contentType ?? 'application/json', ...call.headers },
     ...(call.body === undefined ? {} : { body: call.body }),
     ...(call.signal ? { signal: call.signal } : {}),
     timeoutMs: spec.timeoutMs ?? 15_000,
@@ -505,6 +521,58 @@ export function rateLimit(
   // happened -- is not a reason to hammer. A second is.
   if (notBefore) return { notBefore: new Date(now.getTime() + 1_000), stated: true };
   return { notBefore: new Date(now.getTime() + DEFAULT_RATE_LIMIT_WAIT_MS), stated: false };
+}
+
+/**
+ * A credential as HTTP Basic sends it: `user:password` as it is, and anything
+ * else as a user name with an empty password, which is how Xendit, Midtrans
+ * and Stripe take a secret key.
+ *
+ * Registered with the redactor here, because what the secret manager
+ * registered is the key, and this is the key in another alphabet: a vendor
+ * error that echoes the header would otherwise carry it out whole.
+ */
+function basicOf(credential: string): string {
+  if (!credential) return '';
+  const basic = Buffer.from(credential.includes(':') ? credential : `${credential}:`, 'utf8').toString('base64');
+  redactor.register(basic);
+  return basic;
+}
+
+/** A filled body, written the way the vendor reads one. */
+function encoded(encoding: 'json' | 'form' | undefined, value: unknown): { body: string; contentType: string } {
+  if (encoding === 'form') return { body: formEncode(value), contentType: 'application/x-www-form-urlencoded' };
+  return { body: JSON.stringify(value), contentType: 'application/json' };
+}
+
+/**
+ * A body as a form, nested the way Stripe, Twilio and Rails read one:
+ * `metadata[task]=...`, `lines[0][amount]=...`.
+ *
+ * Each value is encoded on its own by `URLSearchParams`, so a note holding
+ * `&` or `=` arrives as one value rather than splitting into several fields --
+ * the form equivalent of the JSON template refusing to build by string.
+ * `null` is sent empty, which is how these APIs are told to clear a field;
+ * `undefined` is left out.
+ */
+function formEncode(value: unknown): string {
+  const fields = new URLSearchParams();
+  const walk = (name: string, item: unknown): void => {
+    if (item === undefined) return;
+    if (item === null) {
+      fields.append(name, '');
+    } else if (Array.isArray(item)) {
+      item.forEach((entry, index) => walk(`${name}[${index}]`, entry));
+    } else if (typeof item === 'object') {
+      for (const [key, entry] of Object.entries(item as Record<string, unknown>)) {
+        walk(name ? `${name}[${key}]` : key, entry);
+      }
+    } else {
+      fields.append(name, String(item));
+    }
+  };
+  walk('', value);
+  return fields.toString();
 }
 
 /**

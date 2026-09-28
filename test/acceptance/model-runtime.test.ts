@@ -239,6 +239,79 @@ test('a model that ends without an output is asked once, and then the attempt fa
   assert.match(String(model.requests[1]!.messages[2]!.content), /single JSON object/);
 });
 
+/**
+ * A reasoning model counts its thinking against a turn's output allowance.
+ * In the live run of 2026-09-28 (defect L4) DeepSeek spent all 8,192 tokens
+ * of a turn thinking and said nothing; the empty turn went into the
+ * conversation, the provider refused the next request ("content or
+ * tool_calls must be set"), and every retry replayed the empty turn from the
+ * journal -- three attempts gone in a second, the model never asked again.
+ */
+const thoughtOnly: Pick<LlmTurn, 'content' | 'stopReason'> = { content: [], stopReason: 'max_tokens' };
+
+test('a turn a reasoning model spent thinking is asked again with more room, and never kept (F13.1)', async () => {
+  const fixture = await createCompany('model-thinks');
+  const model = new ScriptedModel([
+    thoughtOnly,
+    (request) => say(`Here.\n\`\`\`json\n${answering(request.system, { address: '192.0.2.7' })}\n\`\`\``),
+  ]);
+  const engine = new Engine({ broker: new CapabilityBroker(new CapabilityRegistry()), workerId: 'model-worker', llm: model, handlers: new Map() });
+  const task = await newTask(fixture);
+  const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(outcome.status, 'completed', outcome.reason);
+
+  const [first, second] = model.requests;
+  assert.equal(second!.maxTokens, first!.maxTokens! * 2, 'more room the second time');
+  assert.equal(second!.messages.length, 1, 'nothing said, nothing kept: the task alone');
+  assert.ok(
+    !second!.messages.some((message) => message.role === 'assistant'),
+    'no empty assistant turn for the provider to refuse',
+  );
+});
+
+test('a model that ends a turn saying nothing is asked once for its answer, with no empty turn kept', async () => {
+  const fixture = await createCompany('model-silent');
+  const model = new ScriptedModel([
+    { content: [{ type: 'text', text: '  ' }], stopReason: 'end_turn' },
+    (request) => say(`Here.\n\`\`\`json\n${answering(request.system, { address: '192.0.2.7' })}\n\`\`\``),
+  ]);
+  const engine = new Engine({ broker: new CapabilityBroker(new CapabilityRegistry()), workerId: 'model-worker', llm: model, handlers: new Map() });
+  const task = await newTask(fixture);
+  const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(outcome.status, 'completed', outcome.reason);
+  const second = model.requests[1]!;
+  assert.equal(second.maxTokens, model.requests[0]!.maxTokens, 'not cut off, so no more room');
+  assert.deepEqual(second.messages.map((message) => message.role), ['user', 'user']);
+  assert.match(String(second.messages[1]!.content), /replied with nothing/);
+
+  // Asked once: silent again, the attempt fails rather than going round.
+  const mute = new ScriptedModel(Array.from({ length: 6 }, () => ({ content: [], stopReason: 'end_turn' as const })));
+  const again = new Engine({ broker: new CapabilityBroker(new CapabilityRegistry()), workerId: 'model-worker', llm: mute, handlers: new Map() });
+  const quiet = await again.runTask(fixture.companyId, (await newTask(fixture)).id, 'worker');
+  assert.notEqual(quiet.status, 'completed');
+  assert.equal(mute.requests.length, 2, 'asked once more, then given up on');
+});
+
+test('a model that says nothing even at the largest allowance fails saying why, and a retry asks it again', async () => {
+  const fixture = await createCompany('model-thinks-forever');
+  const model = new ScriptedModel(Array.from({ length: 12 }, () => thoughtOnly));
+  const engine = new Engine({ broker: new CapabilityBroker(new CapabilityRegistry()), workerId: 'model-worker', llm: model, handlers: new Map() });
+  const task = await newTask(fixture);
+  const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.notEqual(outcome.status, 'completed');
+  const allowances = model.requests.map((request) => request.maxTokens);
+  assert.ok(allowances.length >= 2 && allowances.every((one, index) => index === 0 || one! >= allowances[index - 1]!), String(allowances));
+  const failures = await withTenant(fixture.companyId, (tx) => tx.query<{ payload: { error?: string } }>(
+    "SELECT payload FROM events WHERE task_id = $1 AND type = 'task.attempt_failed' ORDER BY occurred_at", [task.id]));
+  assert.match(JSON.stringify(failures.rows[0]?.payload ?? outcome.reason), /said nothing|output allowance/, 'the reason names the allowance, not a provider 400');
+
+  // The next attempt asks the model again rather than replaying the empty
+  // turns from the journal -- which is what spent three attempts in a second.
+  const asked = model.requests.length;
+  await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.ok(model.requests.length > asked, 'the retry reached the model');
+});
+
 /* ------------------------------------------------------- the provider API --- */
 
 interface Received { headers: IncomingMessage['headers']; body: Record<string, unknown> }

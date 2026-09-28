@@ -62,6 +62,8 @@ export interface AssistantReach {
 /** The longest answer a read hands the model: enough for a page of settings, not a company's history. */
 const READ_LIMIT = 12_000;
 const MAX_TURNS = 10;
+/** The most room one answer's turn is given, however much thinking eats. */
+const ANSWER_ALLOWANCE_CEILING = 12_000;
 /** How much of the conversation the model is shown each time. */
 const HISTORY = 30;
 
@@ -458,11 +460,21 @@ export async function converse(options: AssistantOptions, text: string, channel:
       : []),
   ].join('\n');
   let answer = '';
+  // A reasoning model counts its thinking here, and can spend the whole of
+  // it saying nothing (defect L4 of the live run of 2026-09-28): that turn is
+  // asked again with twice the room, and never kept, rather than ending as
+  // "I have nothing to add" to a question that had an answer.
+  let allowance = 1_500;
   const stopped = () => options.signal?.aborted === true;
   try {
     for (let turn = 0; turn < MAX_TURNS && !stopped(); turn += 1) {
-      const reply = await options.llm.turn({ model: options.model ?? 'standard', system, messages, tools: TOOLS, maxTokens: 1_500 }, options.signal);
+      const reply = await options.llm.turn({ model: options.model ?? 'standard', system, messages, tools: TOOLS, maxTokens: allowance }, options.signal);
       if (stopped()) break;
+      const silent = !reply.content.some((block) => block.type === 'tool_use' || (block.type === 'text' && block.text.trim() !== ''));
+      if (silent && reply.stopReason === 'max_tokens' && allowance < ANSWER_ALLOWANCE_CEILING) {
+        allowance = Math.min(ANSWER_ALLOWANCE_CEILING, allowance * 2);
+        continue;
+      }
       const texts = reply.content.filter((block): block is Extract<LlmBlock, { type: 'text' }> => block.type === 'text').map((block) => block.text);
       if (texts.length > 0) answer = texts.join('\n').trim();
       const uses = reply.content.filter((block): block is Extract<LlmBlock, { type: 'tool_use' }> => block.type === 'tool_use');

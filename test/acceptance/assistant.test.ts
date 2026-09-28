@@ -263,6 +263,30 @@ test('the assistant gives a company work through a card, which needs no device, 
   }
 });
 
+/**
+ * A reasoning model can spend a whole answer's allowance thinking and say
+ * nothing -- the live run of 2026-09-28's defect L4, met here at the
+ * assistant's own smaller allowance. That was "I have nothing to add" for a
+ * question that had an answer; it is asked again with more room.
+ */
+test('an answer a reasoning model spent thinking is asked again with more room', async () => {
+  const model = new ScriptedModel([
+    { content: [], stopReason: 'max_tokens' },
+    says('Kopi Senja has two tasks waiting for you.'),
+  ]);
+  const api = await consoleWithSettings({ assistant: { llm: model } });
+  try {
+    const token = await api.signIn();
+    const said = await api.call('POST', '/api/assistant/messages', token, { text: 'Ada apa hari ini?' });
+    assert.equal(said.status, 200, JSON.stringify(said.body));
+    assert.equal(said.body.messages[1].body, 'Kopi Senja has two tasks waiting for you.');
+    assert.ok(model.requests[1]!.maxTokens! > model.requests[0]!.maxTokens!, 'more room the second time');
+    assert.ok(!model.requests[1]!.messages.some((message) => message.role === 'assistant'), 'the empty answer is not kept');
+  } finally {
+    await api.close();
+  }
+});
+
 test('without a model, the assistant says where to choose one', async () => {
   const api = await consoleWithSettings({ assistant: { llm: null } });
   try {

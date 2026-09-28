@@ -270,7 +270,8 @@ export async function createRootTask(input: CreateTaskInput): Promise<TaskRow> {
     if (!granted) {
       throw new PalugadaError(
         'budget.reservation_refused',
-        'budget account cannot fund this task',
+        'the budget account cannot fund this task: its tokens are spent or held up to its ceiling. '
+          + 'Raise its ceiling under Money, or let running work finish and release what it holds',
         { budgetAccountId, reserveTokens },
       );
     }

@@ -224,7 +224,8 @@ Look for the cause in this order:
   example that the CLI `is not runnable`.
 - **The budget account has no room.** A task is claimed only when its
   account can cover its reservation on top of what is already running.
-  Check **Accounts** on **Money**.
+  Check **Accounts** on **Money**, and raise the account's **Ceilings** if
+  it has spent them: tokens spent stay spent.
 - **No worker is running.** `GET /api/health` answers 503 with `no tick has
   finished since …`, or not at all. Check the process and its logs.
 

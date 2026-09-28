@@ -12,7 +12,7 @@ import {
 } from '@mantine/core';
 import { BarChart } from '@mantine/charts';
 import { notifications } from '@mantine/notifications';
-import { IconPlus } from '@tabler/icons-react';
+import { IconAdjustments, IconPlus } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { useLoad } from '../hooks.ts';
@@ -39,6 +39,7 @@ export function Money({ ctx }: PageProps) {
     return { spend, cost, platform, accounts: accounts.accounts, structure };
   }, [companyId], { every: 30_000 });
   const [opening, setOpening] = useState(false);
+  const [adjusting, setAdjusting] = useState<Account | null>(null);
 
   const header = (
     <PageHeader
@@ -106,7 +107,7 @@ export function Money({ ctx }: PageProps) {
       >
         <Table.ScrollContainer minWidth={640}>
           <Table verticalSpacing="sm">
-            <Table.Thead><Table.Tr><Table.Th>{t('Account')}</Table.Th><Table.Th>{t('Tokens')}</Table.Th><Table.Th>{t('Money')}</Table.Th></Table.Tr></Table.Thead>
+            <Table.Thead><Table.Tr><Table.Th>{t('Account')}</Table.Th><Table.Th>{t('Tokens')}</Table.Th><Table.Th>{t('Money')}</Table.Th><Table.Th /></Table.Tr></Table.Thead>
             <Table.Tbody>
               {accounts.map((account) => {
                 const tokenShare = account.tokensMax > 0 ? ((account.tokensSpent + account.tokensReserved) / account.tokensMax) * 100 : 0;
@@ -129,6 +130,12 @@ export function Money({ ctx }: PageProps) {
                         </>
                       ) : <Badge variant="light" color="gray">{t('No money ceiling')}</Badge>}
                     </Table.Td>
+                    <Table.Td ta="right">
+                      <Button size="xs" variant={tokenShare > 90 ? 'light' : 'subtle'} color={tokenShare > 90 ? 'red' : undefined}
+                        leftSection={<IconAdjustments size={14} />} onClick={() => setAdjusting(account)}>
+                        {t('Ceilings')}
+                      </Button>
+                    </Table.Td>
                   </Table.Tr>
                 );
               })}
@@ -147,6 +154,12 @@ export function Money({ ctx }: PageProps) {
           ))}
         </Stack>
       </Section>
+
+      <Modal opened={adjusting !== null} onClose={() => setAdjusting(null)} title={t('Ceilings of {account}', { account: adjusting?.label ?? '' })} centered>
+        {adjusting && (
+          <AccountCeilings companyId={companyId} account={adjusting} changed={() => { setAdjusting(null); view.reload(); }} />
+        )}
+      </Modal>
 
       <Modal opened={opening} onClose={() => setOpening(false)} title={t('Open an account')} centered size="lg">
         <ActionForm
@@ -221,6 +234,54 @@ function CeilingForm({ companyId, spend, changed }: { companyId: string; spend: 
       </Group>
       <Text size="xs" c="dimmed">{t('Raising it asks for your authenticator; lowering it does not.')}</Text>
       {error && <Alert color="red" variant="light">{error}</Alert>}
+    </Stack>
+  );
+}
+
+/**
+ * An account's two ceilings. Tokens spent stay spent -- the ceiling is for
+ * the account's life -- so this is how an account that ran out gets more.
+ * Raising either asks for the authenticator; lowering does not.
+ */
+function AccountCeilings({ companyId, account, changed }: { companyId: string; account: Account; changed: () => void }) {
+  const requireFactor = useFactor();
+  const [tokens, setTokens] = useState<number | string>(account.tokensMax);
+  const [ceiling, setCeiling] = useState<number | string>(account.moneyMaxCents / 100);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    const tokensMax = Math.round(Number(tokens));
+    const moneyMaxCents = Math.round(Number(ceiling) * 100);
+    setError(null);
+    setBusy(true);
+    try {
+      if (tokensMax > account.tokensMax || moneyMaxCents > account.moneyMaxCents) {
+        const done = await requireFactor(t('Raise the ceilings of {account}', { account: account.label }), (proof) =>
+          api('POST', `/api/companies/${companyId}/budget-accounts/${account.id}/limit`, { tokensMax, moneyMaxCents, proof }));
+        if (!done) return;
+      } else {
+        await api('POST', `/api/companies/${companyId}/budget-accounts/${account.id}/limit`, { tokensMax, moneyMaxCents });
+      }
+      notifications.show({ color: 'teal', message: t('Ceilings set.') });
+      changed();
+    } catch (failure) {
+      setError(explain(failure));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Stack gap="sm">
+      <Text size="sm" c="dimmed">
+        {t('{spent} tokens spent and {held} held so far. Spent tokens stay spent: raise the ceiling to give the account more.', { spent: count(account.tokensSpent), held: count(account.tokensReserved) })}
+      </Text>
+      <NumberInput label={t('Token ceiling')} value={tokens} onChange={setTokens} min={0} thousandSeparator />
+      <NumberInput label={t('Money ceiling')} value={ceiling} onChange={setCeiling} min={0} decimalScale={2} thousandSeparator />
+      <Text size="xs" c="dimmed">{t('Raising either asks for your authenticator; lowering does not.')}</Text>
+      {error && <Alert color="red" variant="light">{error}</Alert>}
+      <Group justify="flex-end">
+        <Button loading={busy} onClick={() => void save()}>{t('Set')}</Button>
+      </Group>
     </Stack>
   );
 }

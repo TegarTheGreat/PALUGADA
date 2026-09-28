@@ -438,6 +438,12 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   },
   { pattern: '/api/companies/:companyId/triggers/:triggerId', what: 'Switch a trigger on or off.', fields: { enabled: 'true or false' }, factor: 'always' },
   {
+    pattern: '/api/companies/:companyId/budget-accounts/:accountId/limit',
+    what: 'Change a budget account\'s ceilings; raising one takes the owner\'s device.',
+    fields: { tokensMax: 'whole tokens', moneyMaxCents: 'optional, in cents' },
+    factor: 'sometimes',
+  },
+  {
     pattern: '/api/companies/:companyId/budget-accounts',
     what: 'Open a budget account under another.',
     fields: {

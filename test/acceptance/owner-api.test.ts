@@ -3293,6 +3293,67 @@ test('the owner can see what funds a role, and open an account (F1.2, F1.6)', as
   }
 });
 
+/**
+ * A company that has spent its token ceiling is revived from the console.
+ * In the live run of 2026-09-28 (defect L11) the ceilings were for the
+ * company's whole life: nothing but SQL raised one, and opening a new account
+ * did not help, because a task draws on the chain it belongs to. A company
+ * that spent its two million tokens stopped for good.
+ */
+test('an exhausted account is raised from the console with a factor, and work is funded again (F1.5, F1.6)', async () => {
+  const { createRootTask } = await import('../../src/engine/tasks.ts');
+  const { withControlPlane } = await import('../../src/db/tenant.ts');
+  const fixture = await createCompany('console-exhausted', { tokensMax: 10_000 });
+  const other = await createCompany('console-exhausted-other');
+  const owner = await console_();
+  const fund = () => createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    roleId: fixture.roleId, budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId,
+    input: { goal: 'Plan the October promotion' }, createdBy: 'owner', reserveTokens: 1_000,
+  });
+  try {
+    const token = await signIn(owner.url, owner.code());
+    await withControlPlane((tx) => tx.query(
+      'UPDATE budget_accounts SET tokens_spent = tokens_max WHERE id = $1', [fixture.budgetAccountId]));
+    await assert.rejects(fund(), (error: unknown) =>
+      (error as { code?: string }).code === 'budget.reservation_refused'
+      && /Raise its ceiling under Money/.test((error as Error).message),
+    'the refusal says where the way out is');
+
+    const limit = `/api/companies/${fixture.companyId}/budget-accounts/${fixture.budgetAccountId}/limit`;
+    const raised = { tokensMax: 20_000 };
+    const withoutFactor = await call(owner.url, 'POST', limit, { token, body: raised });
+    assert.equal(withoutFactor.status, 403, 'raising a ceiling loosens a control');
+
+    const withFactor = await call(owner.url, 'POST', limit, { token, body: { ...raised, proof: { totp: owner.code() } } });
+    assert.equal(withFactor.status, 200, JSON.stringify(withFactor.body));
+    await fund();
+
+    const listed = await call(owner.url, 'GET', `/api/companies/${fixture.companyId}/budget-accounts`, { token });
+    const account = (listed.body.accounts as Array<{ id: string; tokensMax: number }>)
+      .find((one) => one.id === fixture.budgetAccountId)!;
+    assert.equal(account.tokensMax, 20_000);
+
+    // Lowering takes only the session, as the spend ceiling does.
+    const lowered = await call(owner.url, 'POST', limit, { token, body: { tokensMax: 15_000 } });
+    assert.equal(lowered.status, 200, JSON.stringify(lowered.body));
+    const moreMoney = await call(owner.url, 'POST', limit, { token, body: { tokensMax: 15_000, moneyMaxCents: 999_999_99 } });
+    assert.equal(moreMoney.status, 403, 'more money is a raise too');
+
+    // An account is the company's own: another's cannot be raised through it.
+    const theirs = await call(
+      owner.url, 'POST', `/api/companies/${fixture.companyId}/budget-accounts/${other.budgetAccountId}/limit`,
+      { token, body: { tokensMax: 1, proof: { totp: owner.code() } } },
+    );
+    assert.equal(theirs.status, 400, JSON.stringify(theirs.body));
+    const untouched = await withControlPlane((tx) => tx.query<{ tokens_max: string }>(
+      'SELECT tokens_max FROM budget_accounts WHERE id = $1', [other.budgetAccountId]));
+    assert.notEqual(Number(untouched.rows[0]!.tokens_max), 1);
+  } finally {
+    await owner.close();
+  }
+});
+
 test('a fact is superseded rather than deleted (F4.6)', async () => {
   const { remember } = await import('../../src/memory/store.ts');
   const fixture = await createCompany('console-supersede');

@@ -18,7 +18,8 @@
  * therefore cannot interleave a read and a write to overspend, and two
  * overlapping chains cannot deadlock against each other.
  */
-import type { TenantClient } from '../db/tenant.ts';
+import { PalugadaError } from '../errors.ts';
+import { withControlPlane, type TenantClient } from '../db/tenant.ts';
 
 export interface BudgetSnapshot {
   tokensMax: number;
@@ -111,6 +112,44 @@ export async function accountFor(
     [scope.companyId, scope.roleId ?? null, scope.divisionId ?? null, scope.projectId ?? null],
   );
   return rows[0]?.id ?? null;
+}
+
+/**
+ * Changes an account's ceilings: the owner's way back for a company that has
+ * spent them.
+ *
+ * On the control plane, because the ceilings are the owner's and the
+ * application role may move only the running totals (0047). The account must
+ * be the company's own -- an id from another company is refused, not
+ * changed. Answers what the ceilings were, so the caller can tell a raise,
+ * which loosens a control and takes a factor, from a cut, which does not.
+ * The ceiling is lifetime: spent tokens stay spent, and raising is how an
+ * account is given more (defect L11 of the live run of 2026-09-28, where
+ * nothing but SQL could).
+ */
+export async function setCeilings(
+  companyId: string,
+  accountId: string,
+  ceilings: { tokensMax: number; moneyMaxCents?: number },
+  allowed: (before: { tokensMax: number; moneyMaxCents: number }) => Promise<void>,
+): Promise<void> {
+  const before = await withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ tokens_max: string; money_max_cents: string }>(
+      'SELECT tokens_max, money_max_cents FROM budget_accounts WHERE id = $1 AND company_id = $2',
+      [accountId, companyId],
+    );
+    return rows[0];
+  });
+  if (!before) {
+    throw new PalugadaError('contract.violation', 'this company has no budget account with that id', { accountId });
+  }
+  const current = { tokensMax: Number(before.tokens_max), moneyMaxCents: Number(before.money_max_cents) };
+  await allowed(current);
+  await withControlPlane((tx) => tx.query(
+    `UPDATE budget_accounts SET tokens_max = $3, money_max_cents = $4
+      WHERE id = $1 AND company_id = $2`,
+    [accountId, companyId, ceilings.tokensMax, ceilings.moneyMaxCents ?? current.moneyMaxCents],
+  ));
 }
 
 /** The account and every ancestor it also spends against, nearest first. */

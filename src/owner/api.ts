@@ -86,7 +86,7 @@ import { describeReplay, replayTask } from '../engine/replay.ts';
 import { assignTask } from '../scheduler/wake.ts';
 import { TICKET_STATUSES, listTickets, openTicket, readTicket, setTicketStatus, startTicket } from '../engine/tickets.ts';
 import { createCompanyFromTemplate, readTemplate } from '../templates/company.ts';
-import { accountFor, chainFor, createAccount, snapshot } from '../engine/budget.ts';
+import { accountFor, chainFor, createAccount, setCeilings, snapshot } from '../engine/budget.ts';
 import { remember, retract, supersede } from '../memory/store.ts';
 import { changeMetric, defineMetric, headlines, recordObservation, type Headline, type MetricChange, type MetricUnit } from '../domain/metrics.ts';
 import {
@@ -2584,6 +2584,29 @@ export class OwnerApi {
               }),
           }),
           }));
+        },
+      },
+
+      {
+        // An account's ceilings, changed. Raising either loosens a control
+        // and takes the owner's factor, as the spend ceiling does; lowering is
+        // the session's. The factor is asked for only once the account is
+        // known to be this company's, so a wrong id does not spend a code.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/budget-accounts/:accountId/limit',
+        handle: async ({ params, body }) => {
+          const tokensMax = wholeNumber(body.tokensMax, 'tokensMax');
+          const moneyMaxCents = body.moneyMaxCents === undefined ? undefined : wholeNumber(body.moneyMaxCents, 'moneyMaxCents');
+          await setCeilings(
+            params.companyId!, params.accountId!,
+            { tokensMax, ...(moneyMaxCents === undefined ? {} : { moneyMaxCents }) },
+            async (before) => {
+              if (tokensMax > before.tokensMax || (moneyMaxCents ?? 0) > before.moneyMaxCents) {
+                await this.#requireFactor(body.proof, 'raise a budget account\'s ceiling', params.companyId!);
+              }
+            },
+          );
+          return { ok: true };
         },
       },
 

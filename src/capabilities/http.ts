@@ -92,6 +92,13 @@ export interface VerifySpec {
     result: unknown,
     input: Record<string, unknown>,
   ): boolean;
+  /**
+   * Statuses of 400 or more that are the answer rather than a failure to
+   * read one: 404 or 410 when what was done is a delete, and the record being
+   * gone is the proof. Any other status of 400 or more fails the read-back
+   * before `matches` is asked, as it always has.
+   */
+  answers?: readonly number[];
 }
 
 export interface HttpCapabilitySpec {
@@ -344,8 +351,9 @@ export function httpCapability(spec: HttpCapabilitySpec): Capability<
         await sleep(Math.max(0, waitMs), ctx.signal);
         answer = await readBack();
       }
-      // A read-back that could not be made is not a read-back that passed.
-      if (answer.status >= 400) return false;
+      // A read-back that could not be made is not a read-back that passed --
+      // unless the spec names that status as the answer, as a delete's does.
+      if (answer.status >= 400 && !verifySpec.answers?.includes(answer.status)) return false;
       return verifySpec.matches({ status: answer.status, body: answer.body }, result, input);
     };
   }

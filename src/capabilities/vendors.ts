@@ -533,6 +533,10 @@ export function specFrom(entry: VendorSpec): HttpCapabilitySpec {
           url: entry.verify.url,
           ...(entry.verify.headers ? { headers: entry.verify.headers } : {}),
           matches: matcher(entry.verify.matches),
+          // A status the rule names outright is one it means to read: `404`
+          // for a delete. The matcher still requires exactly the statuses
+          // named, so naming 404 does not make any other refusal pass.
+          answers: [entry.verify.matches.status ?? []].flat().filter((status) => status >= 400),
         },
       }
       : {}),

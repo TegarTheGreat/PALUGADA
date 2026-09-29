@@ -11,12 +11,12 @@
  * to end, is not a control -- it is a suggestion.
  */
 import { randomUUID } from 'node:crypto';
-import { withTenant } from '../db/tenant.ts';
+import { withTenant, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError, isPalugadaError } from '../errors.ts';
 import { createSubTask, getTask, transition, type TaskRow } from './tasks.ts';
 import { validateContract } from './contracts.ts';
-import { checkDone, roomForDone } from './done.ts';
+import { checkDone, checkFailedWrites, roomForDone } from './done.ts';
 import { narrator } from './transcript.ts';
 import { containChildResult, type ChildResult } from './containment.ts';
 import { taskCostCents } from '../reporting/cost.ts';
@@ -181,6 +181,34 @@ const PARKING_CODES: ReadonlySet<string> = new Set(['approval.required', 'owner.
  * the run goes on to return an output.
  */
 const HALTING_CODES: ReadonlySet<string> = new Set(['capability.verify_failed']);
+
+/**
+ * The writes this run tried that failed and that no later call of the same
+ * capability put right. A write is a capability above tier 0: a read that
+ * failed changed nothing, and a run is free to carry on without it. Read
+ * from the journal, whose failed steps are the calls as the broker saw them.
+ */
+async function unrecoveredWrites(
+  tx: TenantClient,
+  taskId: string,
+  agentRunId: string,
+): Promise<Array<{ capability: string; error: string }>> {
+  const { rows } = await tx.query<{ capability: string; error: string | null }>(
+    `SELECT DISTINCT ON (c.name) c.name AS capability, s.error
+       FROM task_steps s
+       JOIN capabilities c ON c.name = substr(s.name, length('capability:') + 1)
+      WHERE s.task_id = $1 AND s.kind = 'tool' AND s.status = 'failed' AND s.name LIKE 'capability:%'
+        AND c.default_tier >= 1
+        AND s.started_at >= (SELECT started_at FROM agent_runs WHERE id = $2)
+        AND NOT EXISTS (
+          SELECT 1 FROM task_steps later
+           WHERE later.task_id = s.task_id AND later.name = s.name
+             AND later.status = 'committed' AND later.step_index > s.step_index)
+      ORDER BY c.name, s.step_index DESC`,
+    [taskId, agentRunId],
+  );
+  return rows.map((row) => ({ capability: row.capability, error: row.error ?? 'no reason was recorded' }));
+}
 
 /** What a run is told of its role's tools that nothing here is bound to. */
 function notConnected(names: readonly string[]): string {
@@ -1048,6 +1076,10 @@ export class Engine {
         validateContract('output', task.roleId, roleSlug, contract.output, output);
         // F2.8: a model's run says how it met each of its role's criteria.
         if (writtenBy !== 'code' && contract.done.length > 0 && roomForDone(contract.output)) checkDone(contract.done, output);
+        // And to the writes that failed in this run and were never put right.
+        if (writtenBy !== 'code' && roomForDone(contract.output)) {
+          checkFailedWrites(await withTenant(companyId, (tx) => unrecoveredWrites(tx, taskId, agentRunId)), output);
+        }
       } catch (rejected) {
         // Asked again next attempt, not replayed: the turns that wrote this
         // answer would otherwise write it again from the journal.

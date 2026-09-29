@@ -121,12 +121,16 @@ async function act(req) {
       steps: [{ capability: 'dns.write', intent: 'point the apex at the new host', expectedEffect: 'the zone has the new record' }],
     });
     const answer = await callTool('dns.write', { zone: 'example.com' });
-    say({ type: 'done', output: { answer } });
+    // A write that was refused is named, as the contract asks of every run
+    // that reports done over a write that failed.
+    say({ type: 'done', output: { answer, failed: [{ capability: 'dns.write', why: 'It was refused, and the work did not need it.' }] } });
     return;
   }
   if (script === 'call_forbidden') {
     const answer = await callTool('dns.write', { zone: 'example.com' });
-    say({ type: 'done', output: { answer } });
+    // A write that was refused is named, as the contract asks of every run
+    // that reports done over a write that failed.
+    say({ type: 'done', output: { answer, failed: [{ capability: 'dns.write', why: 'It was refused, and the work did not need it.' }] } });
     return;
   }
   if (script === 'leak_env') {

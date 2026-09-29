@@ -22,7 +22,7 @@ import { instructionsFor } from '../engine/owner-control.ts';
 import { STAGE_PURPOSE, stageOf } from '../domain/stage.ts';
 import { renderPersona, type RolePersona } from '../domain/personas.ts';
 import { documentTitlesFor } from '../knowledge/documents.ts';
-import { doneInstruction, roomForDone } from '../engine/done.ts';
+import { FAILED_INSTRUCTION, doneInstruction, roomForDone } from '../engine/done.ts';
 
 export interface ContextSection {
   kind:
@@ -304,6 +304,7 @@ async function roleSections(
       'this schema before the task counts as done, and an answer that does not match is a failed attempt:\n\n' +
       JSON.stringify(schema, null, 2) +
       (reportDone ? `\n\n${doneInstruction(done)}` : '') +
+      (roomForDone(schema) ? `\n\n${FAILED_INSTRUCTION}` : '') +
       (roomToLearn
         ? '\n\nYou may add "learned": up to five short sentences this work taught that the company should ' +
           'remember next time -- about its customers, products, prices, suppliers, or what worked and what ' +

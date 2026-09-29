@@ -421,14 +421,25 @@ test('the loop stops when its signal aborts', async () => {
     signal: controller.signal,
   });
 
+  const beats = () => withControlPlane(async (tx) => (await tx.query<{ worker_id: string }>(
+    'SELECT worker_id FROM worker_heartbeats ORDER BY worker_id')).rows.map((row) => row.worker_id));
   const started = Date.now();
   const running = worker.start();
-  setTimeout(() => controller.abort(), 50);
-  await running;
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Alive while it runs (0079), so a worker that dies has its tasks returned
+    // in a minute rather than at the end of their leases.
+    assert.deepEqual(await beats(), ['abort-worker']);
+  } finally {
+    // Stopped whatever the assertion said: a loop left running holds the file open.
+    controller.abort();
+    await running;
+  }
 
   // It did not wait out the ten-second idle interval, which is what makes a
   // shutdown a shutdown rather than a timeout.
   assert.ok(Date.now() - started < 5_000);
+  assert.deepEqual(await beats(), [], 'and a clean stop takes its word back, so it is not taken for dead');
 });
 
 /**

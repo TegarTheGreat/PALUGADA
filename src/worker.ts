@@ -39,7 +39,10 @@
  */
 import { withControlPlane } from './db/tenant.ts';
 import { Engine, type RunOutcome } from './engine/engine.ts';
-import { claimTask, haltPastDeadlines, reclaimExpiredLeases, reclaimOrphans, releaseTask } from './engine/checkout.ts';
+import {
+  HEARTBEAT_EVERY_MS, beat, claimTask, haltPastDeadlines, reclaimExpiredLeases, reclaimOrphans, releaseTask,
+  silentHolders, stopBeating,
+} from './engine/checkout.ts';
 import { getTask } from './engine/tasks.ts';
 import { withTenant } from './db/tenant.ts';
 import { isStopAllRequested } from './engine/control.ts';
@@ -302,9 +305,15 @@ export class Worker {
       return report;
     }
 
+    // Who has stopped saying it is alive, asked once a tick: their tasks come
+    // back now, not when their leases run out (0079). A failure here costs
+    // only the shortcut; the leases still expire.
+    let silent: string[] = [];
+    await this.#stage(report, 'heartbeat', async () => { silent = await silentHolders(this.id); });
+
     for (const company of companies) {
       await this.#stage(report, 'reclaim', async () => {
-        report.reclaimed += (await reclaimExpiredLeases(company, now)).length;
+        report.reclaimed += (await reclaimExpiredLeases(company, now, { silent })).length;
         report.reclaimed += (await reclaimOrphans(company, { now })).length;
         // After the reclaim, which is what returns a dead worker's task to
         // the queue for this to find.
@@ -460,6 +469,29 @@ export class Worker {
     const signal = this.#options.signal;
     const idle = this.#options.idleMs ?? DEFAULT_IDLE_MS;
 
+    // Said on a timer of its own, not once a tick: a tick can spend minutes on
+    // one run, and a worker busy with a long task is not a worker that died.
+    const alive = async () => {
+      try {
+        await beat(this.id);
+      } catch (error) {
+        this.#options.log?.({ level: 'warn', event: 'heartbeat.failed', message: (error as Error).message });
+      }
+    };
+    await alive();
+    const beating = setInterval(() => void alive(), HEARTBEAT_EVERY_MS);
+    beating.unref();
+    try {
+      await this.#loop(signal, idle);
+    } finally {
+      clearInterval(beating);
+      // Stopped cleanly, its tasks were handed back already; its word is taken
+      // back so it is not mistaken for a worker that died.
+      await stopBeating(this.id).catch(() => undefined);
+    }
+  }
+
+  async #loop(signal: AbortSignal | undefined, idle: number): Promise<void> {
     while (!signal?.aborted) {
       let report: TickReport;
       try {

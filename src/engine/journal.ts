@@ -20,7 +20,7 @@
  */
 import { withTenant, type TenantClient } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';
-import { hashInput, idempotencyKey } from './hash.ts';
+import { callKey, hashInput, idempotencyKey } from './hash.ts';
 
 export type StepKind = 'llm' | 'tool' | 'internal';
 
@@ -108,7 +108,9 @@ export async function runStep<T>(
 ): Promise<{ value: T; replayed: boolean }> {
   const inputHash = hashInput(options.input);
   const kept = keptInput(options.kind, options.input);
-  const key = idempotencyKey(ctx.taskId, options.stepIndex, inputHash);
+  // A tool call is keyed by what it does, so a write tried again is the
+  // same write to the vendor; every other step by its place in the run.
+  const key = options.kind === 'tool' ? callKey(ctx.taskId, inputHash) : idempotencyKey(ctx.taskId, options.stepIndex, inputHash);
 
   const claim = await withTenant(ctx.companyId, async (tx) => {
     const step = await findStep(tx, ctx.taskId, options.stepIndex);

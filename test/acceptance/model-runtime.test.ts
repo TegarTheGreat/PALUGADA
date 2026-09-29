@@ -223,6 +223,117 @@ test('a refused tool is an answer the model works around; a wait for the owner e
   assert.equal(slow.requests.length, 1);
 });
 
+/**
+ * A write that failed, reported as done (a chaos run on 2026-09-29, with a
+ * CRM that refused the note): the model answered every criterion "met", and
+ * the task completed with a summary saying the note was written. The engine
+ * knew the call had failed. A run whose write failed, and never succeeded
+ * after, now names it under "failed" with why the work is done anyway -- or
+ * the work is not done, and the retry is told which call.
+ */
+test('a write that failed and never succeeded after is named in the report, or the work is not done', async () => {
+  const fixture = await createCompany('model-failed-write');
+  const registry = new CapabilityRegistry();
+  registry.register<{ customerId: string; note: string }, { id: string }>({
+    name: 'crm.note', adapter: 'test:crm', defaultTier: 1,
+    async execute(input) {
+      if (input.note.includes('fail')) throw new Error('the CRM answered 503');
+      return { id: 'note-1' };
+    },
+    async verify() { return true; },
+  });
+  registry.register({
+    name: 'dns.read', adapter: 'test:dns', defaultTier: 0,
+    async execute() { throw new Error('the resolver timed out'); },
+  });
+  await registry.sync();
+  await grantCapability(fixture, 'crm.note');
+  await grantCapability(fixture, 'dns.read');
+  await withTools(fixture, ['crm.note', 'dns.read']);
+  const engine = (model: ScriptedModel) =>
+    new Engine({ broker: new CapabilityBroker(registry), workerId: 'model-worker', llm: model, handlers: new Map() });
+
+  // Claimed done over it: refused, with the call named.
+  const claims = new ScriptedModel([
+    use('call-1', 'crm__note', { customerId: 'c-1', note: 'fail: followed up' }),
+    (request) => say(answering(request.system, { summary: 'Wrote the note.' })),
+  ]);
+  const first = await newTask(fixture);
+  const refused = await engine(claims).runTask(fixture.companyId, first.id, 'worker');
+  assert.notEqual(refused.status, 'completed');
+  const why = await withTenant(fixture.companyId, (tx) => tx.query<{ error: string }>(
+    "SELECT payload->>'error' AS error FROM events WHERE task_id = $1 AND type = 'task.attempt_failed'", [first.id]));
+  assert.match(why.rows[0]?.error ?? '', /crm\.note failed and no later call of it succeeded \(the CRM answered 503\)/);
+  assert.match(claims.requests[0]!.system, /"failed": \[\{"capability": its name, "why"/, 'the contract says how');
+
+  // Named, with why: done, and the owner reads it with the work.
+  const says = new ScriptedModel([
+    use('call-2', 'crm__note', { customerId: 'c-2', note: 'fail: followed up' }),
+    (request) => say(answering(request.system, {
+      summary: 'The follow-up is in this summary; the CRM was down.',
+      failed: [{ capability: 'crm.note', why: 'The CRM answered 503, so the note is here instead.' }],
+    })),
+  ]);
+  const second = await newTask(fixture);
+  const named = await engine(says).runTask(fixture.companyId, second.id, 'worker');
+  assert.equal(named.status, 'completed', named.reason);
+  assert.deepEqual((named.output as { failed: unknown }).failed,
+    [{ capability: 'crm.note', why: 'The CRM answered 503, so the note is here instead.' }]);
+
+  // A failure a later call put right needs no word, nor does a failed read.
+  const recovers = new ScriptedModel([
+    use('call-3', 'dns__read', { zone: 'example.test' }),
+    use('call-4', 'crm__note', { customerId: 'c-3', note: 'fail: first try' }),
+    use('call-5', 'crm__note', { customerId: 'c-3', note: 'followed up' }),
+    (request) => say(answering(request.system, { summary: 'Wrote the note on the second try.' })),
+  ]);
+  const third = await newTask(fixture);
+  const recovered = await engine(recovers).runTask(fixture.companyId, third.id, 'worker');
+  assert.equal(recovered.status, 'completed', recovered.reason);
+});
+
+/**
+ * A write whose answer never came, tried again by the model: the second try
+ * was a step of its own, so it carried a key of its own, and a vendor that
+ * had acted on the first could not tell the two were one write -- a
+ * duplicate note, a second email. A tool call's key is now what it does --
+ * the task, the capability and its input -- so the same write asked for
+ * twice in a task reaches the vendor under one key, and a different write
+ * under another.
+ */
+test('a write the model tries again reaches the vendor under the key it was first sent with (F5.2)', async () => {
+  const fixture = await createCompany('model-same-write');
+  const sent: Array<{ note: string; key: string }> = [];
+  const registry = new CapabilityRegistry();
+  registry.register<{ customerId: string; note: string }, { id: string }>({
+    name: 'crm.note', adapter: 'test:crm', defaultTier: 1,
+    async execute(input, ctx) {
+      sent.push({ note: input.note, key: ctx.idempotencyKey });
+      // The vendor acted on the first; its answer was lost on the way back.
+      if (sent.length === 1) throw new Error('the CRM did not answer in time');
+      return { id: `note-${sent.length}` };
+    },
+    async verify() { return true; },
+  });
+  await registry.sync();
+  await grantCapability(fixture, 'crm.note');
+  await withTools(fixture, ['crm.note']);
+  const model = new ScriptedModel([
+    use('call-1', 'crm__note', { customerId: 'c-1', note: 'Followed up.' }),
+    use('call-2', 'crm__note', { customerId: 'c-1', note: 'Followed up.' }),
+    use('call-3', 'crm__note', { customerId: 'c-1', note: 'Sent the price list.' }),
+    (request) => say(answering(request.system, { summary: 'Two notes.' })),
+  ]);
+  const task = await newTask(fixture);
+  const outcome = await new Engine({ broker: new CapabilityBroker(registry), workerId: 'model-worker', llm: model, handlers: new Map() })
+    .runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(outcome.status, 'completed', outcome.reason);
+  assert.equal(sent.length, 3);
+  assert.equal(sent[1]!.key, sent[0]!.key, 'the same write, tried again, under the same key');
+  assert.notEqual(sent[2]!.key, sent[0]!.key, 'a different write under its own');
+  assert.match(sent[0]!.key, /^[0-9a-f]{32}$/);
+});
+
 test('a model that ends without an output is asked once, and then the attempt fails', async () => {
   assert.deepEqual(outputFrom('Done.\n```json\n{"a":1}\n```'), { a: 1 });
   assert.deepEqual(outputFrom('Here it is: {"a":{"b":2}} -- all done'), { a: { b: 2 } });

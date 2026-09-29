@@ -77,3 +77,43 @@ export function checkDone(criteria: readonly string[], output: Record<string, un
     }
   }
 }
+
+/**
+ * What a run is told about writes that failed (a chaos run on 2026-09-29).
+ *
+ * A CRM refused the note, the model answered every criterion "met", and the
+ * task completed with a summary saying the note was written. The engine
+ * knew the call had failed; nothing held the report to it.
+ */
+export const FAILED_INSTRUCTION =
+  'If a tool call that changes something failed and no later call of it succeeded, add ' +
+  '"failed": [{"capability": its name, "why": why the work is done anyway}]. Work that leaves one ' +
+  'out does not count as done.';
+
+/**
+ * Holds an output to the writes that failed in its run: each one never put
+ * right by a later call is named under `failed`, with why, or the work is
+ * not done. Named, it is done -- the run may have had a way round the
+ * failure -- and the owner reads which call failed with the work.
+ */
+export function checkFailedWrites(
+  unrecovered: ReadonlyArray<{ capability: string; error: string }>,
+  output: Record<string, unknown>,
+): void {
+  if (unrecovered.length === 0) return;
+  const named = new Set((Array.isArray(output.failed) ? output.failed : [])
+    .filter((entry): entry is { capability: string; why: string } =>
+      typeof entry === 'object' && entry !== null
+      && typeof (entry as Record<string, unknown>).capability === 'string'
+      && typeof (entry as Record<string, unknown>).why === 'string'
+      && ((entry as Record<string, unknown>).why as string).trim() !== '')
+    .map((entry) => entry.capability));
+  const missing = unrecovered.find((write) => !named.has(write.capability));
+  if (missing) {
+    throw new PalugadaError('done.unmet',
+      `the output says the work is done, but ${missing.capability} failed and no later call of it succeeded ` +
+      `(${missing.error.slice(0, 300)}): do it again, or name it under "failed" with why the work is done anyway`,
+      { capability: missing.capability });
+  }
+}
+

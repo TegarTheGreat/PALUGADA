@@ -146,6 +146,9 @@ test('every table holding tenant data is protected', async () => {
     // Which topic of the owner's Telegram chat each company's messages go to
     // (0077): the owner's, like the conversation, and no agent's business.
     'telegram_topics',
+    // Which worker processes are alive (0079): the platform's, read by the
+    // lease sweep on the control plane and by no agent.
+    'worker_heartbeats',
   ]);
 
   const rows = await withControlPlane(async (tx) => {

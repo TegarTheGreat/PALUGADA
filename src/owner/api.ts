@@ -47,7 +47,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import { PalugadaError } from '../errors.ts';
-import { withControlPlane, withTenant } from '../db/tenant.ts';
+import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
 import * as inbox from '../inbox/inbox.ts';
 import { briefingOf, traceFromInboxItem, traceOfTask } from '../reporting/trace.ts';
 import { addDocument, archiveDocument, listDocuments, readDocument } from '../knowledge/documents.ts';
@@ -74,10 +74,11 @@ import {
 import { readGovernanceLog } from '../governance/store.ts';
 import { readRetentionLog, retentionFor, setRetention } from '../retention/retention.ts';
 import { ownerWindow, setBatchWindow, setOwnerWindow } from '../scheduler/windows.ts';
-import { healthFor } from '../broker/preflight.ts';
+import { healthFor, preflightGrants } from '../broker/preflight.ts';
 import { costTimeline, platformCost } from '../reporting/cost.ts';
 import { rotateCredential } from '../secrets/rotation.ts';
-import { redactor, type SecretManager } from '../secrets/manager.ts';
+import { CREDENTIAL_SECRETS, redactor, type SecretManager } from '../secrets/manager.ts';
+import { checkVendorEntry, vendorPresets, type VendorSpec } from '../capabilities/vendors.ts';
 import { assertStage, loosens, setStage, stageOf, type Stage } from '../domain/stage.ts';
 import { createHandoffRule, handoffRulesOf, setHandoffRuleEnabled } from '../engine/handoff-rules.ts';
 import { searchEverywhere } from './search.ts';
@@ -1700,6 +1701,60 @@ export class OwnerApi {
         },
       },
 
+      /* ---------------------------------------------------- services --- */
+
+      {
+        // The services capabilities call: the presets this repository ships,
+        // the ones the owner connected here, and which preset names the
+        // deployment binds some other way. A division's key is the
+        // division's, below, never here.
+        method: 'GET',
+        pattern: '/api/control/vendors',
+        handle: async () => {
+          this.#deploymentSettings();
+          const saved = vendorsIn(await readSettings());
+          const presets = await vendorPresets();
+          const taken: Record<string, string> = {};
+          for (const preset of presets) {
+            const bound = this.#options.registry?.get(preset.name);
+            if (bound && !saved.some((one) => one.name === preset.name)) taken[preset.name] = bound.adapter;
+          }
+          return { presets, saved, taken };
+        },
+      },
+
+      {
+        // A service connected from the console: the file's entry, checked as
+        // the file is, before the device is asked for.
+        method: 'POST',
+        pattern: '/api/control/vendors',
+        handle: async ({ body }) => {
+          this.#deploymentSettings();
+          const saved = vendorsIn(await readSettings());
+          const entry = checkVendorEntry(body.entry, this.#options.registry, saved.map((one) => one.name));
+          await this.#requireFactor(body.proof, `connect ${entry.name}`);
+          await writeSetting('vendors', { capabilities: [...saved.filter((one) => one.name !== entry.name), entry] });
+          return { ...this.#applySettings(), name: entry.name };
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/control/vendors/:name/remove',
+        handle: async ({ params, body }) => {
+          this.#deploymentSettings();
+          const name = params.name!;
+          const saved = vendorsIn(await readSettings());
+          if (!saved.some((one) => one.name === name)) {
+            throw new PalugadaError('contract.violation', `${name} is not a service connected in the console`, { name });
+          }
+          await this.#requireFactor(body.proof, `disconnect ${name}`);
+          const rest = saved.filter((one) => one.name !== name);
+          await writeSetting('vendors', rest.length > 0 ? { capabilities: rest } : null);
+          return this.#applySettings();
+        },
+      },
+
       {
         // The ways of working a role can take after, by title: what the
         // owner picks from, and what the assistant proposes from.
@@ -2860,6 +2915,157 @@ export class OwnerApi {
       },
 
       /* ----------------------------------------------------------- F12.3 --- */
+
+      {
+        // A division's keys for services: which it holds, where each lives,
+        // and which its granted capabilities ask for that it does not hold.
+        // Never a value -- a key pasted here is not shown again.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/divisions/:divisionId/credentials',
+        handle: async ({ params }) => {
+          const companyId = params.companyId!;
+          const divisionId = params.divisionId!;
+          const { held, granted } = await withControlPlane(async (tx) => {
+            await assertDivisionOf(tx, companyId, divisionId);
+            const held = await tx.query<{ alias: string; version: number; secret_ref: string; scopes: string[]; rotated_at: Date | null; created_at: Date }>(
+              `SELECT alias, version, secret_ref, scopes, rotated_at, created_at FROM credentials
+                WHERE company_id = $1 AND division_id = $2 ORDER BY alias`,
+              [companyId, divisionId],
+            );
+            const granted = await tx.query<{ capability_name: string }>(
+              `SELECT capability_name FROM capability_grants
+                WHERE company_id = $1 AND division_id = $2 ORDER BY capability_name`,
+              [companyId, divisionId],
+            );
+            return { held: held.rows, granted: granted.rows };
+          });
+          const have = new Set(held.map((row) => row.alias));
+          const asked = keysAskedFor(this.#options.registry, granted.map((row) => row.capability_name));
+          return {
+            credentials: held.map((row) => ({
+              alias: row.alias,
+              version: row.version,
+              stored: storedAt(row.secret_ref),
+              scopes: row.scopes,
+              createdAt: row.created_at.toISOString(),
+              rotatedAt: row.rotated_at?.toISOString() ?? null,
+            })),
+            needs: [...asked].filter(([alias]) => !have.has(alias)).map(([alias, need]) => ({ alias, ...need })),
+          };
+        },
+      },
+
+      {
+        // A key pasted for a division, sealed in the deployment's store under
+        // a name only a division's credential may use (`DivisionSecrets`).
+        // Pasted again for the same alias it is a rotation (F12.3): the next
+        // call signs in with it, and the key it replaced is deleted.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/divisions/:divisionId/credentials',
+        handle: async ({ params, body }) => {
+          const deployment = this.#deploymentSettings();
+          const companyId = params.companyId!;
+          const divisionId = params.divisionId!;
+          const alias = typeof body.alias === 'string' ? body.alias.trim() : '';
+          if (!/^[a-z][a-z0-9_-]{0,39}$/.test(alias)) {
+            throw new PalugadaError('contract.violation',
+              'an alias is lower-case letters, digits, - and _, starting with a letter: the name the service asks for, such as email or crm',
+              { field: 'alias' });
+          }
+          const value = typeof body.value === 'string' ? body.value.trim() : '';
+          if (value.length < 8 || value.length > 8_192) {
+            throw new PalugadaError('contract.violation', 'paste the whole key the service gave you', { field: 'value' });
+          }
+          const { previous, scopes } = await withControlPlane(async (tx) => {
+            await assertDivisionOf(tx, companyId, divisionId);
+            const { rows } = await tx.query<{ secret_ref: string }>(
+              'SELECT secret_ref FROM credentials WHERE company_id = $1 AND division_id = $2 AND alias = $3',
+              [companyId, divisionId, alias],
+            );
+            const granted = await tx.query<{ capability_name: string }>(
+              'SELECT capability_name FROM capability_grants WHERE company_id = $1 AND division_id = $2',
+              [companyId, divisionId],
+            );
+            // F12.6: the key is declared as carrying what the division's
+            // capabilities ask of it and nothing more -- the broker refuses a
+            // key that does not declare a scope its capability needs, and the
+            // database one that declares a scope nothing here needs.
+            const asked = keysAskedFor(this.#options.registry, granted.rows.map((row) => row.capability_name)).get(alias);
+            return { previous: rows[0]?.secret_ref ?? null, scopes: asked?.scopes ?? [] };
+          });
+          await this.#requireFactor(body.proof, `save the ${alias} key`, companyId);
+          const master = deployment.master(true);
+          if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
+          const secret = `${CREDENTIAL_SECRETS}${randomBytes(8).toString('hex')}`;
+          await putSecret(secret, value, master);
+          const reference = `db://${secret}`;
+          const sweep = {
+            ...(this.#options.registry ? { registry: this.#options.registry } : {}),
+            ...(this.#options.credentialFor ? { credential: this.#options.credentialFor } : {}),
+          };
+          let version = 1;
+          try {
+            if (previous) {
+              // Declared before the rotation's sweep, which checks the key
+              // against what its capabilities need.
+              await withControlPlane((tx) => tx.query(
+                'UPDATE credentials SET scopes = $4 WHERE company_id = $1 AND division_id = $2 AND alias = $3',
+                [companyId, divisionId, alias, scopes],
+              ));
+              version = (await rotateCredential({ companyId, divisionId, alias, newSecretRef: reference, ...sweep })).version;
+            } else {
+              await withControlPlane((tx) => tx.query(
+                'INSERT INTO credentials (company_id, division_id, alias, secret_ref, scopes) VALUES ($1, $2, $3, $4, $5)',
+                [companyId, divisionId, alias, reference, scopes],
+              ));
+              await withTenant(companyId, (tx) => appendEvent(tx, {
+                companyId, type: 'credential.added', actor: 'owner', payload: { alias, divisionId, secretRef: reference },
+              }));
+              // The same sweep a rotation takes, so a capability that was
+              // unhealthy for want of this key is checked again now.
+              if (sweep.registry) {
+                await preflightGrants(sweep.registry, { companyId, divisionId, ...(sweep.credential ? { credential: sweep.credential } : {}) });
+              }
+            }
+          } catch (failure) {
+            await deleteSecret(secret).catch(() => undefined);
+            throw failure;
+          }
+          if (previous?.startsWith(`db://${CREDENTIAL_SECRETS}`)) await deleteSecret(previous.slice('db://'.length));
+          return { alias, version };
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/divisions/:divisionId/credentials/:alias/remove',
+        handle: async ({ params, body }) => {
+          const companyId = params.companyId!;
+          const divisionId = params.divisionId!;
+          const alias = params.alias!;
+          const reference = await withControlPlane(async (tx) => {
+            await assertDivisionOf(tx, companyId, divisionId);
+            const { rows } = await tx.query<{ secret_ref: string }>(
+              'SELECT secret_ref FROM credentials WHERE company_id = $1 AND division_id = $2 AND alias = $3',
+              [companyId, divisionId, alias],
+            );
+            return rows[0]?.secret_ref ?? null;
+          });
+          if (!reference) {
+            throw new PalugadaError('contract.violation', `this division holds no key named ${alias}`, { alias });
+          }
+          await this.#requireFactor(body.proof, `remove the ${alias} key`, companyId);
+          await withControlPlane((tx) => tx.query(
+            'DELETE FROM credentials WHERE company_id = $1 AND division_id = $2 AND alias = $3',
+            [companyId, divisionId, alias],
+          ));
+          if (reference.startsWith(`db://${CREDENTIAL_SECRETS}`)) await deleteSecret(reference.slice('db://'.length));
+          await withTenant(companyId, (tx) => appendEvent(tx, {
+            companyId, type: 'credential.removed', actor: 'owner', payload: { alias, divisionId, secretRef: reference },
+          }));
+          return { ok: true };
+        },
+      },
 
       {
         // Rotating is the answer to "that token leaked", so it is a tier 3
@@ -4553,6 +4759,50 @@ function outcomeOf(result: unknown): string {
 }
 
 /** The console's MCP servers, as saved. */
+/** The services the owner connected in the console. */
+function vendorsIn(settings: Record<string, unknown>): VendorSpec[] {
+  return ((settings.vendors as { capabilities?: VendorSpec[] } | undefined)?.capabilities) ?? [];
+}
+
+/**
+ * The keys a division's granted capabilities ask for, by alias: which
+ * capabilities use each, and the scopes they need of it (F12.6).
+ */
+function keysAskedFor(
+  registry: CapabilityRegistry | undefined,
+  granted: readonly string[],
+): Map<string, { capabilities: string[]; scopes: string[] }> {
+  const asked = new Map<string, { capabilities: string[]; scopes: string[] }>();
+  for (const name of [...granted].sort()) {
+    const capability = registry?.get(name);
+    if (!capability?.credentialAlias) continue;
+    const entry = asked.get(capability.credentialAlias) ?? { capabilities: [], scopes: [] };
+    entry.capabilities.push(name);
+    for (const scope of capability.requiredScopes ?? []) if (!entry.scopes.includes(scope)) entry.scopes.push(scope);
+    asked.set(capability.credentialAlias, entry);
+  }
+  return asked;
+}
+
+/** Where a credential's value lives, said without saying the value. */
+function storedAt(reference: string): 'console' | 'environment' | 'file' | 'elsewhere' {
+  if (reference.startsWith(`db://${CREDENTIAL_SECRETS}`)) return 'console';
+  if (reference.startsWith('env://')) return 'environment';
+  if (reference.startsWith('file://')) return 'file';
+  return 'elsewhere';
+}
+
+/** Refused unless the division is the company's: a path can name any pair of ids. */
+async function assertDivisionOf(tx: TenantClient, companyId: string, divisionId: string): Promise<void> {
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const { rows } = uuid.test(companyId) && uuid.test(divisionId)
+    ? await tx.query('SELECT 1 FROM divisions WHERE id = $1 AND company_id = $2', [divisionId, companyId])
+    : { rows: [] };
+  if (rows.length === 0) {
+    throw new PalugadaError('contract.violation', `there is no division ${divisionId} in that company`, { divisionId });
+  }
+}
+
 function mcpServersIn(settings: Record<string, unknown>): McpServerSetting[] {
   return [...((settings.mcp as { servers?: McpServerSetting[] } | undefined)?.servers ?? [])];
 }

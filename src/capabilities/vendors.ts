@@ -38,7 +38,7 @@
 import { readFile } from 'node:fs/promises';
 import { Ajv } from 'ajv';
 import { PalugadaError } from '../errors.ts';
-import type { CapabilityRegistry } from '../broker/registry.ts';
+import { CapabilityRegistry } from '../broker/registry.ts';
 import type { Tier } from '../domain/tier.ts';
 import { httpCapability, type HttpCapabilitySpec, type HttpPlaceholders } from './http.ts';
 
@@ -672,4 +672,82 @@ export async function registerVendorCapabilities(
     }
   }
   return specs.map((spec) => spec.name);
+}
+
+/* ------------------------------------------------------- from the console --- */
+
+/**
+ * The services the console offers to connect: the examples this repository
+ * ships in `config/vendors.example.json`, one per core capability, each
+ * already held by `vendor-file.test.ts` to every rule a file is held to.
+ * Read at the time of asking, so an operator who edits the file sees it.
+ */
+export async function vendorPresets(): Promise<VendorSpec[]> {
+  const raw = await readFile(new URL('../../config/vendors.example.json', import.meta.url), 'utf8');
+  return (JSON.parse(raw) as VendorFile).capabilities;
+}
+
+/**
+ * One entry the owner is about to save, held to every rule the file is held
+ * to -- the schema, `httpCapability`'s refusals, and the catalogue's tier --
+ * and to one more: a name this deployment binds already is not a name the
+ * console may take, as it is not one a file may.
+ */
+export function checkVendorEntry(entry: unknown, bound: CapabilityRegistry | undefined, saved: readonly string[]): VendorSpec {
+  const name = typeof (entry as { name?: unknown } | null)?.name === 'string' ? (entry as { name: string }).name : 'this service';
+  let spec: HttpCapabilitySpec;
+  try {
+    [spec] = parseVendors({ capabilities: [entry] }, 'this service') as [HttpCapabilitySpec];
+    // A registry of its own, so the check changes nothing the deployment runs:
+    // `register` is where a tier below the catalogue's is refused.
+    new CapabilityRegistry().register(httpCapability(spec));
+  } catch (failure) {
+    throw new PalugadaError('config.invalid',
+      (failure as Error).message.replace(/^this service is not a valid vendor file: \/capabilities\/0/, `${name}:`)
+        .replace(/^this service cannot bind [^:]+: /, ''),
+      { field: 'entry', name });
+  }
+  const existing = bound?.get(spec.name);
+  if (existing && !saved.includes(spec.name)) {
+    throw new PalugadaError('config.invalid',
+      `${spec.name} is bound already, by ${existing.adapter}; a capability has one binding`,
+      { field: 'entry', name: spec.name, adapter: existing.adapter });
+  }
+  return entry as VendorSpec;
+}
+
+/**
+ * The services the owner connected in the console, bound at start the way the
+ * file is, one at a time: an entry that no longer passes -- the catalogue
+ * raised its tier, the file took its name -- is left out with a note and the
+ * rest are bound, because the console, where it is put right, must come up.
+ */
+export function bindVendorSettings(registry: CapabilityRegistry, text: string | undefined, notes: string[]): string[] {
+  if (!text) return [];
+  let entries: unknown[];
+  try {
+    const parsed = JSON.parse(text) as { capabilities?: unknown };
+    if (!Array.isArray(parsed.capabilities)) throw new Error('no list');
+    entries = parsed.capabilities;
+  } catch {
+    notes.push('PALUGADA_VENDOR_SETTINGS is not a list of services; none from the console are bound');
+    return [];
+  }
+  const bound: string[] = [];
+  for (const entry of entries) {
+    const name = String((entry as { name?: unknown } | null)?.name ?? '?');
+    try {
+      const [spec] = parseVendors({ capabilities: [entry] }, `the service ${name} set in the console`) as [HttpCapabilitySpec];
+      const existing = registry.get(spec.name);
+      if (existing) {
+        throw new PalugadaError('config.invalid', `${spec.name} is bound already, by ${existing.adapter}`, { name: spec.name });
+      }
+      registry.register(httpCapability(spec));
+      bound.push(spec.name);
+    } catch (failure) {
+      notes.push(`the service ${name} set in the console is left out: `
+        + (failure as Error).message.replace(/^the service \S+ set in the console (is not a valid vendor file|cannot bind [^:]+): /, ''));
+    }
+  }
+  return bound;
 }

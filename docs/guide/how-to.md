@@ -317,18 +317,44 @@ them could.
 ## Connect a vendor
 
 Capabilities that need somebody's account, such as `email.send`,
-`invoice.issue` or `dns.update`, are bound by a JSON file you write. The file
-holds no code: each entry is a method, a URL, headers and a body template,
-where the result is found, how to read it back, and which credential it
-uses. [config/vendors.example.json](../../config/vendors.example.json) binds
-`email.send` to Resend, `dns.read` and `dns.update` to Cloudflare,
-`invoice.issue` to a QRIS payment through Midtrans, `social.publish` to a
-Mastodon account and `metrics.read` to Plausible. Each was written from the
-vendor's own documentation; none has been run against the vendor from here.
-The Midtrans entry points at Midtrans' sandbox, so a copied example charges
-nobody: change `api.sandbox.midtrans.com` to `api.midtrans.com`, and use the
-production server key, when it is right. The Mastodon entry names
+`invoice.issue` or `dns.update`, are bound to a vendor by an entry: a
+method, a URL, headers and a body template, where the result is found, how
+to read it back, and which credential it uses. No code. The entries in
+[config/vendors.example.json](../../config/vendors.example.json) are offered
+as presets: `email.send` on Resend, `dns.read` and `dns.update` on
+Cloudflare, `invoice.issue` as a QRIS payment through Midtrans,
+`social.publish` on a Mastodon account and `metrics.read` on Plausible. Each
+was written from the vendor's own documentation; none has been run against
+the vendor from here. The Midtrans entry points at Midtrans' sandbox, so it
+charges nobody: change `api.sandbox.midtrans.com` to `api.midtrans.com`, and
+use the production server key, when it is right. The Mastodon entry names
 `mastodon.social`; change it to your instance.
+
+### From the console
+
+1. Open **This deployment**, **Services**, and press **Connect** on the
+   service. Change its address if yours lives elsewhere; **Change the whole
+   entry** edits all of it, in the file's shape, for a service that is not a
+   preset. The entry is checked against every rule the file is held to
+   before your authenticator is asked for, and the deployment starts again
+   to bind it.
+2. Make sure the division is granted the capability (**Change a grant**) and
+   the role lists it among its tools. The standard template already grants
+   `email.send` to Growth and Support, for example.
+3. Open the division on **Team**. Under **Keys for services** it says which
+   of its capabilities need a key, by the name the entry gives it (for
+   Resend, `email`), and what the key must be issued with. Paste the key the
+   service gave you and confirm with your authenticator. It is sealed in the
+   deployment's store, declared with those scopes, and never shown again.
+   Paste another under the same name to replace it: the next call uses the
+   new one, and the old one is deleted. **Remove** takes it away.
+
+A division's key can only name its own sealed secrets, an environment
+variable or a mounted file: never one of the deployment's own keys -- the
+model's, a channel's, an MCP server's -- which would otherwise be sent, in
+a header, to whatever the capability calls.
+
+### From a file
 
 Some vendors cannot be written as one entry, and the example leaves them
 out rather than shipping an entry that looks right and is not:
@@ -342,7 +368,10 @@ out rather than shipping an entry that looks right and is not:
 - **GitHub branches, Hetzner, Cloudflare record deletion, HubSpot notes and
   Vercel deployments** document no idempotency key either.
 - **Google Calendar and Gmail** take OAuth access tokens that expire within
-  the hour, and PALUGADA has no OAuth flow yet.
+  the hour, and PALUGADA has no OAuth flow for them yet.
+
+An operator can bind vendors in a file instead, which the console cannot
+change and whose names it cannot take:
 
 1. Copy the example and change it for your vendor. The platform refuses a
    file that writes without a read-back, has a side effect without an
@@ -365,36 +394,15 @@ out rather than shipping an entry that looks right and is not:
    file in `config/` and rebuild with `docker compose up -d --build`: the
    image copies that directory, and a relative path is read from the app's
    directory, so the setting is `config/` followed by the file's name.
-3. Put each vendor's API key where a secret reference can reach it: an
-   environment variable whose name starts with `PALUGADA_SECRET_`
-   (referenced as `env://` followed by the variable's name), or a file under
-   one of the `PALUGADA_SECRET_DIRS` directories, `/run/secrets` by default
-   (referenced as `file://` followed by its absolute path). Only those two
-   are read; see [operations](operations.md#secrets).
-4. Restart. The boot lists `bound by <file>: …` and what is still unbound.
-5. Make sure the division is granted the capability (**Change a grant**) and
-   the role lists it among its tools. The standard template already grants
-   `email.send` to Growth and Support, for example.
-6. Give the division a credential with the entry's `credentialAlias` (for
-   Resend, `email`) pointing at the secret, and declaring the scopes the
-   entry's `requiredScopes` names. There is no console form for adding one
-   yet, so the operator adds the row as the control-plane role, after step 4
-   so the platform already knows what the capability needs:
-
-   ```sh
-   psql "<PALUGADA_ADMIN_URL from .env>" -c "
-     INSERT INTO credentials (company_id, division_id, alias, secret_ref, scopes)
-     SELECT d.company_id, d.id, 'email', 'env://PALUGADA_SECRET_<NAME>', '{email:send}'
-       FROM divisions d JOIN companies c ON c.id = d.company_id
-      WHERE c.slug = 'kopi-nusantara' AND d.slug = 'growth'"
-   ```
-
-   With Docker Compose, run the same statement with
-   `docker compose exec db psql -U postgres -d palugada -c "…"`. The database
-   refuses a scope no capability of the division needs, and a secret written
-   into the reference column instead of a reference. This row does not pass
-   through the governance log. Once it exists, **Rotate a credential** in
-   the division repoints or rotates it from the console with a code.
+3. Restart. The boot lists `bound by <file>: …` and what is still unbound.
+4. Give each division its key as above, under **Keys for services**. A key
+   the operator keeps outside the console instead goes where a secret
+   reference can reach it: an environment variable whose name starts with
+   `PALUGADA_SECRET_` (referenced as `env://` followed by the variable's
+   name), or a file under one of the `PALUGADA_SECRET_DIRS` directories,
+   `/run/secrets` by default (referenced as `file://` followed by its
+   absolute path); see [operations](operations.md#secrets). **Rotate a
+   credential** in the division points an existing key at such a reference.
 
 ## Add MCP servers
 

@@ -319,7 +319,7 @@ export class CapabilityBroker {
       if (declarationFor(name)) {
         throw new PalugadaError(
           'capability.unknown',
-          `${name} needs a vendor: bind it in the file PALUGADA_VENDORS names`,
+          `${name} needs a vendor: connect one on This deployment, Services, or bind it in the file PALUGADA_VENDORS names`,
           { name, unbound: true },
         );
       }

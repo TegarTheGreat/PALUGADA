@@ -58,6 +58,12 @@ export interface Capability<I = unknown, O = unknown> {
    */
   inputSchema?: Record<string, unknown>;
   /**
+   * Which of the division's credentials it signs in with, when it takes one:
+   * how the console tells a division which keys its capabilities are
+   * missing, rather than the first call finding out.
+   */
+  credentialAlias?: string;
+  /**
    * Whether what it returns was written outside the company (F8.9), for a
    * capability the catalogue does not know -- a tool from an MCP server.
    * The catalogue's own say so for everything it names.

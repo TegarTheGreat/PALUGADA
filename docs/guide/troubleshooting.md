@@ -278,7 +278,7 @@ unreachable. No task that needs it starts until it passes.
 **Fix.** Open the division on **Team**, read **Capability health**, and fix
 the credential; **Rotate a credential** repoints it.
 
-### An agent says `… needs a vendor: bind it in the file PALUGADA_VENDORS names`
+### An agent says `… needs a vendor: connect one on This deployment, Services, or bind it in the file PALUGADA_VENDORS names`
 
 **Cause.** The capability is catalogued but nothing is bound to it.
 

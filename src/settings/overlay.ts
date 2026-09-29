@@ -153,6 +153,15 @@ export function withSettings(env: NodeJS.ProcessEnv, settings: Settings): NodeJS
       });
     }
   }
+  // And its services, likewise beside PALUGADA_VENDORS rather than in place of
+  // it. An entry holds no secret: a division's key is a credential of its own.
+  const vendors = settings.vendors as { capabilities?: unknown[] } | undefined;
+  if (vendors) {
+    delete out.PALUGADA_VENDOR_SETTINGS;
+    if (vendors.capabilities && vendors.capabilities.length > 0) {
+      out.PALUGADA_VENDOR_SETTINGS = JSON.stringify({ capabilities: vendors.capabilities });
+    }
+  }
   const agents = settings.agents as Record<string, AgentSetting> | undefined;
   if (agents) {
     for (const key of AGENT_KEYS) {

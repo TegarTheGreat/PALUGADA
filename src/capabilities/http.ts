@@ -263,6 +263,7 @@ export function httpCapability(spec: HttpCapabilitySpec): Capability<
     adapter: spec.adapter,
     defaultTier: spec.tier,
     ...(spec.inputSchema ? { inputSchema: spec.inputSchema } : {}),
+    ...(spec.credentialAlias ? { credentialAlias: spec.credentialAlias } : {}),
     ...(spec.estimatedCostCents === undefined
       ? {}
       : { estimatedCostCents: spec.estimatedCostCents }),

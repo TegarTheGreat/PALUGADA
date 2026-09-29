@@ -12,6 +12,8 @@ import { DeploymentSecretManager, masterKeyFrom, type MasterKey } from '../../sr
 export async function consoleWithSettings(options: {
   baseEnv?: NodeJS.ProcessEnv; env?: NodeJS.ProcessEnv; assistant?: ConstructorParameters<typeof OwnerApi>[0]['assistant'];
   telegram?: ConstructorParameters<typeof OwnerApi>[0]['telegram'];
+  registry?: ConstructorParameters<typeof OwnerApi>[0]['registry'];
+  credentialFor?: ConstructorParameters<typeof OwnerApi>[0]['credentialFor'];
 } = {}) {
   const secrets = new InMemorySecretManager();
   const { secret } = newTotpSecret('owner phone');
@@ -28,6 +30,8 @@ export async function consoleWithSettings(options: {
     secrets: sealed,
     ...(options.assistant ? { assistant: options.assistant } : {}),
     ...(options.telegram ? { telegram: options.telegram } : {}),
+    ...(options.registry ? { registry: options.registry } : {}),
+    ...(options.credentialFor ? { credentialFor: options.credentialFor } : {}),
     deploymentSettings: {
       baseEnv: options.baseEnv ?? {}, env: options.env ?? options.baseEnv ?? {}, settings: {},
       master: () => master, secrets: sealed, restart: () => undefined,

@@ -130,6 +130,14 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   },
   { pattern: '/api/control/channels/:name/clear', what: 'Disconnect a channel: telegram, push, slack or discord.', factor: 'always' },
   {
+    pattern: '/api/control/vendors',
+    what: 'Connect a service a capability calls, from a preset (GET /api/control/vendors) or an entry of the vendor file\'s shape. '
+      + 'The division then needs the key the entry\'s credentialAlias names.',
+    fields: { entry: 'a preset from GET /api/control/vendors, whole, with its url changed only if the owner\'s service lives elsewhere' },
+    factor: 'always',
+  },
+  { pattern: '/api/control/vendors/:name/remove', what: 'Disconnect a service connected in the console.', factor: 'always' },
+  {
     pattern: '/api/control/mcp/servers',
     what: 'Add or change an MCP server and the tools roles may use from it. Look first with the mcp/inspect check.',
     fields: {
@@ -460,6 +468,17 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
       moneyMaxCents: 'in cents', tokensMax: 'optional',
     },
     factor: 'always',
+  },
+  {
+    pattern: '/api/companies/:companyId/divisions/:divisionId/credentials',
+    what: 'Give a division the key a service asks for (GET .../credentials names what it needs); pasted again, it replaces the old one.',
+    fields: { alias: 'the name the service asks for, such as email or crm' },
+    secrets: { value: 'The key the service gave you' },
+    factor: 'always',
+  },
+  {
+    pattern: '/api/companies/:companyId/divisions/:divisionId/credentials/:alias/remove',
+    what: 'Take a key away from a division; its calls to that service stop.', factor: 'always',
   },
   {
     pattern: '/api/companies/:companyId/divisions/:divisionId/credentials/:alias/rotate',

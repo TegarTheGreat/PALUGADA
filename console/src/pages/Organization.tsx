@@ -8,12 +8,13 @@
  */
 import { useState } from 'react';
 import {
-  Accordion, Alert, Avatar, Badge, Box, Button, Card, Divider, Drawer, Group, List, Modal, Paper, Progress, Select, SimpleGrid, Spoiler, Stack, Table, Tabs, Text, TextInput, Textarea, ThemeIcon, Tooltip,
+  Accordion, Alert, Avatar, Badge, Box, Button, Card, Divider, Drawer, Group, List, Modal, Paper, PasswordInput, Progress, Select, SimpleGrid, Spoiler, Stack, Table, Tabs, Text, TextInput, Textarea, ThemeIcon, Tooltip,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
   IconArrowsRight, IconCalendarTime, IconChartBar, IconCoin, IconCrown, IconFlag, IconFlask, IconHammer, IconHeadset, IconMessageCircle, IconPlus,
   IconRoute, IconLicense, IconSettings, IconShieldCheck, IconSparkles, IconTarget, IconTrendingUp, IconUserCircle, IconUsersGroup, IconWebhook, IconFolders,
+  IconKey,
 } from '@tabler/icons-react';
 import { useMediaQuery } from '@mantine/hooks';
 import { api, explain } from '../api.ts';
@@ -790,6 +791,98 @@ function RoleEvals({ companyId, role }: { companyId: string; role: Role }) {
 
 /* -------------------------------------------------------- division drawer --- */
 
+interface DivisionKeysView {
+  credentials: Array<{ alias: string; version: number; stored: 'console' | 'environment' | 'file' | 'elsewhere'; scopes: string[]; createdAt: string; rotatedAt: string | null }>;
+  needs: Array<{ alias: string; capabilities: string[]; scopes: string[] }>;
+}
+
+const STORED: Record<DivisionKeysView['credentials'][number]['stored'], string> = {
+  console: N('sealed here'),
+  environment: N('from the environment'),
+  file: N('from a file'),
+  elsewhere: N('from a secret manager'),
+};
+
+/**
+ * The keys a division's services sign in with: what it holds, what its
+ * capabilities ask for that it does not, and a place to paste one. A key is
+ * sealed as it is saved and never shown again; pasting another for the same
+ * name replaces it at the next call.
+ */
+function DivisionKeys({ companyId, divisionId }: { companyId: string; divisionId: string }) {
+  const requireFactor = useFactor();
+  const view = useLoad(async (): Promise<DivisionKeysView> =>
+    api('GET', `/api/companies/${companyId}/divisions/${divisionId}/credentials`), [companyId, divisionId]);
+  const [alias, setAlias] = useState('');
+  const [value, setValue] = useState('');
+  const save = async (name: string, key: string) => {
+    const done = await requireFactor(t('Save the {alias} key', { alias: name }), (proof) =>
+      api('POST', `/api/companies/${companyId}/divisions/${divisionId}/credentials`, { alias: name, value: key, proof }));
+    if (done) {
+      notifications.show({ color: 'teal', message: t('The {alias} key is sealed. Calls use it from the next one.', { alias: name }) });
+      setAlias('');
+      setValue('');
+      view.reload();
+    }
+  };
+  const remove = async (name: string) => {
+    const done = await requireFactor(t('Remove the {alias} key', { alias: name }), (proof) =>
+      api('POST', `/api/companies/${companyId}/divisions/${divisionId}/credentials/${name}/remove`, { proof }));
+    if (done) view.reload();
+  };
+  return (
+    <Section title={t('Keys for services')} description={t('What its services sign in with. A key is sealed as it is saved and never shown again; paste another to replace it.')}>
+      {view.error && <LoadFailed message={view.error} retry={view.reload} />}
+      {!view.data && !view.error && <Loading rows={2} />}
+      {view.data && (
+        <Stack gap="sm">
+          {view.data.needs.map((need) => (
+            <Alert key={need.alias} variant="light" color="yellow" icon={<IconKey size={18} />}
+              title={t('{capabilities} needs the {alias} key', { capabilities: need.capabilities.join(', '), alias: need.alias })}>
+              {need.scopes.length > 0 && (
+                <Text size="xs" mb={6}>{t('Issue it with {scopes}, and nothing wider.', { scopes: need.scopes.join(', ') })}</Text>
+              )}
+              <Group gap="xs" align="flex-end" wrap="nowrap">
+                <PasswordInput style={{ flex: 1 }} aria-label={t('The {alias} key', { alias: need.alias })} placeholder={t('Paste the key the service gave you')}
+                  value={alias === need.alias ? value : ''} onChange={(event) => { setAlias(need.alias); setValue(event.currentTarget.value); }} />
+                <Button disabled={alias !== need.alias || value.trim() === ''} onClick={() => void save(need.alias, value)}>{t('Save')}</Button>
+              </Group>
+            </Alert>
+          ))}
+          {view.data.credentials.length > 0 && (
+            <Table>
+              <Table.Tbody>
+                {view.data.credentials.map((row) => (
+                  <Table.Tr key={row.alias}>
+                    <Table.Td><Group gap={6}><IconKey size={14} /><Text size="sm" fw={600}>{row.alias}</Text></Group></Table.Td>
+                    <Table.Td>
+                      <Text size="xs" c="dimmed">{t(STORED[row.stored])} · {t('version {version}', { version: row.version })}</Text>
+                      {row.scopes.length > 0 && <Text size="xs" c="dimmed">{t('declared with {scopes}', { scopes: row.scopes.join(', ') })}</Text>}
+                    </Table.Td>
+                    <Table.Td><Text size="xs" c="dimmed">{relative(row.rotatedAt ?? row.createdAt)}</Text></Table.Td>
+                    <Table.Td ta="right"><Button variant="subtle" color="red" size="compact-xs" onClick={() => void remove(row.alias)}>{t('Remove')}</Button></Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          )}
+          {view.data.needs.length === 0 && view.data.credentials.length === 0 && (
+            <Text size="sm" c="dimmed">{t('None of its capabilities asks for a key.')}</Text>
+          )}
+          <Group gap="xs" align="flex-end" wrap="nowrap">
+            <TextInput style={{ width: 140 }} label={t('Name')} placeholder={t('such as crm')} value={view.data.needs.some((need) => need.alias === alias) ? '' : alias}
+              onChange={(event) => { setAlias(event.currentTarget.value.trim().toLowerCase()); setValue(''); }} />
+            <PasswordInput style={{ flex: 1 }} label={t('Key')} placeholder={t('Paste the key the service gave you')}
+              value={view.data.needs.some((need) => need.alias === alias) ? '' : value} onChange={(event) => setValue(event.currentTarget.value)} />
+            <Button variant="light" disabled={alias === '' || value.trim() === '' || view.data.needs.some((need) => need.alias === alias)}
+              onClick={() => void save(alias, value)}>{t('Save')}</Button>
+          </Group>
+        </Stack>
+      )}
+    </Section>
+  );
+}
+
 function DivisionDrawer({
   companyId, division, structure, close, changed,
 }: { companyId: string; division: Division | null; structure: Structure; close: () => void; changed: () => void }) {
@@ -821,6 +914,8 @@ function DivisionDrawer({
               ))}
             </Group>
           </Section>
+
+          <DivisionKeys key={division.id} companyId={companyId} divisionId={division.id} />
 
           <Accordion variant="separated" radius="md">
             <Accordion.Item value="grant">

@@ -10,11 +10,11 @@
  */
 import {
   Accordion, Alert, Anchor, Autocomplete, Avatar, Badge, Button, Code, Grid, Group, NavLink, Paper, PasswordInput, Radio,
-  Checkbox, SegmentedControl, Select, SimpleGrid, Stack, Switch, Table, Text, TextInput,
+  Checkbox, SegmentedControl, Select, SimpleGrid, Stack, Switch, Table, Text, Textarea, TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
-  IconBell, IconBrain, IconCheck, IconDownload, IconExternalLink, IconKey, IconListSearch, IconMicrophone, IconPlayerStopFilled, IconPlug,
+  IconApi, IconBell, IconBrain, IconCheck, IconDownload, IconExternalLink, IconKey, IconListSearch, IconMicrophone, IconPlayerStopFilled, IconPlug,
   IconPlugConnected, IconPlus, IconTerminal2,
   IconWorldSearch,
 } from '@tabler/icons-react';
@@ -70,6 +70,7 @@ const SECTIONS: Array<{ id: DeploymentSection; label: string; hint: string; icon
   { id: 'model', label: N('Model'), hint: N('What every role thinks with, unless a role is given its own.'), icon: IconBrain },
   { id: 'tools', label: N('Tools'), hint: N('Where roles search the web, read pages, make pictures and speak: the provider, and its key.'), icon: IconWorldSearch },
   { id: 'channels', label: N('Channels'), hint: N('Where PALUGADA reaches you: Telegram, your phone, Slack or Discord.'), icon: IconBell },
+  { id: 'services', label: N('Services'), hint: N('The services capabilities call: email, DNS, payments, posts, analytics. Connect one here, then give each division that uses it its key on Team.'), icon: IconApi },
   { id: 'mcp', label: N('MCP servers'), hint: N('Tools from other services\' MCP servers: which of them roles may use, and how far each is trusted.'), icon: IconPlug },
   { id: 'agents', label: N('Agent CLIs'), hint: N('Claude Code, Codex, Gemini CLI and others: install them here, sign them in, and let roles run on them.'), icon: IconTerminal2 },
 ];
@@ -114,6 +115,7 @@ export function DeploymentSettings({ section }: { section: DeploymentSection }) 
           {current.id === 'agents' && <AgentSettings />}
           {current.id === 'tools' && <ToolSettings />}
           {current.id === 'channels' && <ChannelSettings />}
+          {current.id === 'services' && <ServiceSettings />}
           {current.id === 'mcp' && <McpSettings />}
         </Grid.Col>
       </Grid>
@@ -1316,6 +1318,153 @@ const MCP_TIERS = [
   { value: '2', label: N('Tier 2 · costly') },
   { value: '3', label: N('Tier 3 · irreversible') },
 ];
+
+/* ---------------------------------------------------------------- services --- */
+
+/** A vendor entry, as the file and the console both hold it. */
+interface ServiceEntry {
+  name: string;
+  adapter: string;
+  tier: number;
+  method: string;
+  url: string;
+  credentialAlias?: string;
+  [field: string]: unknown;
+}
+
+interface ServicesView {
+  presets: ServiceEntry[];
+  saved: ServiceEntry[];
+  /** A preset's name the deployment binds some other way, and by what. */
+  taken: Record<string, string>;
+}
+
+/** What each preset does, in the owner's words, keyed by the capability it binds. */
+const SERVICE_TEXT: Record<string, string> = {
+  'email.send': N('Send email from an address on your own domain.'),
+  'dns.read': N('Read a domain\'s DNS records.'),
+  'dns.update': N('Change a DNS record.'),
+  'invoice.issue': N('Issue an invoice a customer pays.'),
+  'social.publish': N('Publish a post.'),
+  'metrics.read': N('Read your site\'s visits and goals.'),
+};
+
+function ServiceSettings() {
+  const view = useLoad(async (): Promise<ServicesView> => api('GET', '/api/control/vendors'), []);
+  const [editing, setEditing] = useState<ServiceEntry | null>(null);
+  if (view.error) return <LoadFailed message={view.error} retry={view.reload} />;
+  if (!view.data) return <Loading rows={4} />;
+  const { presets, saved, taken } = view.data;
+  const done = () => {
+    setEditing(null);
+    setTimeout(view.reload, 3_000);
+  };
+  return (
+    <Stack gap="lg">
+      {saved.map((entry) => <ServiceCard key={entry.name} entry={entry} onRemoved={done} />)}
+      {editing
+        ? <ServiceForm entry={editing} onDone={done} onCancel={() => setEditing(null)} />
+        : (
+          <Section title={t('Connect a service')} description={t('Each is checked against the rules a vendor file is held to before it is saved, and roles reach it only through its capability, at its tier.')}>
+            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+              {presets.map((preset) => {
+                const connected = saved.some((one) => one.name === preset.name);
+                return (
+                  <Paper key={`${preset.name}-${preset.adapter}`} withBorder radius="md" p="sm">
+                    <Group justify="space-between" wrap="nowrap" mb={4}>
+                      <Text fw={600} tt="capitalize">{preset.adapter}</Text>
+                      <TierBadge tier={preset.tier} />
+                    </Group>
+                    <Code>{preset.name}</Code>
+                    <Text size="sm" c="dimmed" mt={4} mb="xs">{SERVICE_TEXT[preset.name] ? t(SERVICE_TEXT[preset.name]!) : preset.name}</Text>
+                    {taken[preset.name]
+                      ? <Badge variant="light" color="gray">{t('bound by {adapter}', { adapter: taken[preset.name]! })}</Badge>
+                      : connected
+                        ? <Badge variant="light" color="teal">{t('connected')}</Badge>
+                        : <Button size="compact-sm" variant="light" leftSection={<IconPlugConnected size={14} />} onClick={() => setEditing(preset)}>{t('Connect')}</Button>}
+                  </Paper>
+                );
+              })}
+            </SimpleGrid>
+          </Section>
+        )}
+    </Stack>
+  );
+}
+
+function ServiceCard({ entry, onRemoved }: { entry: ServiceEntry; onRemoved: () => void }) {
+  const requireFactor = useFactor();
+  const remove = async () => {
+    const done = await requireFactor(t('Disconnect {name}', { name: entry.name }), (proof) =>
+      api('POST', `/api/control/vendors/${entry.name}/remove`, { proof }));
+    if (done) onRemoved();
+  };
+  return (
+    <Section title={entry.name} description={entry.url} actions={<Group gap={6}><Badge variant="light" color="teal">{entry.adapter}</Badge><TierBadge tier={entry.tier} /></Group>}>
+      <Stack gap="xs">
+        {entry.credentialAlias
+          ? <Text size="sm"><IconKey size={14} /> {t('Each division that uses it needs its key, named {alias}: give it on Team, in the division.', { alias: entry.credentialAlias })}</Text>
+          : <Text size="sm" c="dimmed">{t('It needs no key.')}</Text>}
+        <Text size="xs" c="dimmed">{t('Grant {name} to a division and give it to a role on Team; until then no role can call it.', { name: entry.name })}</Text>
+        <Group justify="flex-end">
+          <Button variant="subtle" color="red" size="compact-sm" onClick={() => void remove()}>{t('Disconnect')}</Button>
+        </Group>
+      </Stack>
+    </Section>
+  );
+}
+
+/**
+ * A preset's address, which is where most owners' services differ (their own
+ * Mastodon, Midtrans' production API), and the whole entry for anything else.
+ */
+function ServiceForm({ entry, onDone, onCancel }: { entry: ServiceEntry; onDone: () => void; onCancel: () => void }) {
+  const requireFactor = useFactor();
+  const [url, setUrl] = useState(entry.url);
+  const [whole, setWhole] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const save = async () => {
+    setProblem(null);
+    let chosen: unknown = { ...entry, url: url.trim() };
+    if (whole !== null) {
+      try {
+        chosen = JSON.parse(whole);
+      } catch {
+        setProblem(t('The entry is not JSON.'));
+        return;
+      }
+    }
+    const done = await requireFactor(t('Connect {name}', { name: entry.name }), (proof) =>
+      api('POST', '/api/control/vendors', { entry: chosen, proof }));
+    if (done) {
+      notifications.show({ color: 'teal', message: t('{name} is connected. It is bound as the deployment starts again, in a moment.', { name: entry.name }) });
+      onDone();
+    }
+  };
+  return (
+    <Section title={t('Connect {name}', { name: `${entry.adapter} · ${entry.name}` })} description={SERVICE_TEXT[entry.name] ? t(SERVICE_TEXT[entry.name]!) : undefined}>
+      <Stack gap="sm">
+        {whole === null
+          ? <TextInput label={t('Its address')} description={t('Change it only if your service lives elsewhere.')} value={url} onChange={(event) => setUrl(event.currentTarget.value)} />
+          : <Textarea label={t('The whole entry')} description={t('The vendor file\'s shape: what it calls, with what, and how a write is read back.')} autosize minRows={10} maxRows={24}
+              styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)', fontSize: 12 } }} value={whole} onChange={(event) => setWhole(event.currentTarget.value)} />}
+        {entry.credentialAlias && (
+          <Text size="sm" c="dimmed">{t('After this, each division that uses it needs its key, named {alias}, given on Team, in the division.', { alias: entry.credentialAlias })}</Text>
+        )}
+        {problem && <Alert color="red" variant="light">{problem}</Alert>}
+        <Group justify="space-between">
+          {whole === null
+            ? <Anchor component="button" size="sm" onClick={() => setWhole(JSON.stringify({ ...entry, url: url.trim() }, null, 2))}>{t('Change the whole entry')}</Anchor>
+            : <span />}
+          <Group gap="xs">
+            <Button variant="default" onClick={onCancel}>{t('Cancel')}</Button>
+            <Button onClick={() => void save()}>{t('Connect')}</Button>
+          </Group>
+        </Group>
+      </Stack>
+    </Section>
+  );
+}
 
 function McpSettings() {
   const view = useLoad(async (): Promise<McpView> => api('GET', '/api/control/mcp'), []);

@@ -49,7 +49,7 @@ import { assembleRuntimes } from './runtime/assemble.ts';
 import type { TaskHandler } from './runtime/in-process.ts';
 import { registerPlatformCapabilities } from './capabilities/platform.ts';
 import { toolBindingsFrom } from './capabilities/tools.ts';
-import { registerVendorCapabilities } from './capabilities/vendors.ts';
+import { bindVendorSettings, registerVendorCapabilities } from './capabilities/vendors.ts';
 import { STANDARD_CATALOGUE } from './broker/catalogue.ts';
 import { seed } from './seed.ts';
 import { registerPlatformCapabilities as registerPlatformTools, PLATFORM_CAPABILITIES }
@@ -546,6 +546,10 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   if (vendorNames.length > 0) {
     notes.push(`bound by ${vendorsFile}: ${vendorNames.join(', ')}`);
   }
+  // The services the owner connected in the console, after the file, so the
+  // file keeps a name both bind; one that no longer passes is a note.
+  const consoleVendors = bindVendorSettings(registry, env.PALUGADA_VENDOR_SETTINGS, notes);
+  if (consoleVendors.length > 0) notes.push(`services connected in the console: ${consoleVendors.join(', ')}`);
 
   // Tools from MCP servers, only those the file names, each at the tier it
   // states (`src/capabilities/mcp.ts`). Refused at boot like the vendor file
@@ -596,7 +600,8 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     notes.push(
       `${unbound.length} catalogued ${unbound.length === 1 ? 'capability needs' : 'capabilities need'} `
       + `a vendor: ${unbound.join(', ')}`
-      + (vendorsFile ? '' : ' -- set PALUGADA_VENDORS to a file that binds them'),
+      + ' -- connect them on This deployment, Services'
+      + (vendorsFile ? '' : ', or set PALUGADA_VENDORS to a file that binds them'),
     );
   }
 

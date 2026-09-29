@@ -1305,7 +1305,7 @@ test('a fresh deployment starts the standard company, and can let it run itself'
     const broker = new CapabilityBroker(new CapabilityRegistry());
     await assert.rejects(
       broker.invoke({ companyId, projectId: companyId, divisionId: companyId, roleId: companyId, taskId: companyId, idempotencyKey: 'x' }, 'email.send', {}),
-      /email\.send needs a vendor: bind it in the file PALUGADA_VENDORS names/,
+      /email\.send needs a vendor: connect one on This deployment, Services, or bind it in the file PALUGADA_VENDORS names/,
     );
   } finally {
     await deployment.stop();

@@ -34,7 +34,7 @@ import { InMemorySecretManager } from '../../src/secrets/manager.ts';
 import { DeploymentSecretManager, putSecret } from '../../src/settings/store.ts';
 import { tmpdir } from 'node:os';
 import { startToolBridge } from '../../src/runtime/tool-bridge.ts';
-import { Engine } from '../../src/engine/engine.ts';
+import { Engine, MODEL_OUTAGE_WAITS_MS } from '../../src/engine/engine.ts';
 import { registerPlatformCapabilities } from '../../src/broker/platform-capabilities.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
@@ -424,13 +424,67 @@ test('a fallback run\'s own total settles its own run, not the one that failed (
 });
 
 /**
+ * A model that did not answer halted every task in flight -- a provider's
+ * blip, a local model restarting -- with an incident apiece for the owner to
+ * resume by hand, though a minute later the same call was answered (a chaos
+ * run on 2026-09-29, with the model's port closed for a moment). The task
+ * now waits and tries the same model again, longer each time, spending no
+ * attempt; only a model that stays down halts it.
+ */
+test('a model that is down for a moment parks the task, and the same model finishes it (F13.6)', async () => {
+  const fixture = await createCompany('model-outage-wait');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'script', tools: ['dns.read'] });
+  const { ProviderFailure } = await import('../../src/runtime/wire.ts');
+  const attempts: string[] = [];
+  const adapter = {
+    name: 'script',
+    backends: ['local'] as const,
+    async health() {
+      return { ok: true };
+    },
+    async run(request: { modelRouting: { primary: string } }) {
+      attempts.push(request.modelRouting.primary);
+      if (attempts.length <= 2) {
+        throw new ProviderFailure(request.modelRouting.primary, 'the model API could not be reached 3 times: fetch failed (ECONNREFUSED)');
+      }
+      return { output: { done: DONE } };
+    },
+  };
+  const engine = engineWith(broker, adapter);
+  const task = await newTask(fixture, {});
+
+  const before = Date.now();
+  const first = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(first.status, 'waiting_window', first.reason);
+  assert.equal(first.reason, 'model.unavailable');
+  const wait = first.waitUntil!.getTime() - before;
+  assert.ok(Math.abs(wait - MODEL_OUTAGE_WAITS_MS[0]!) < 2_000, `waited ${wait}ms`);
+  const second = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(second.status, 'waiting_window', second.reason);
+  assert.ok(second.waitUntil!.getTime() - Date.now() > MODEL_OUTAGE_WAITS_MS[0]!, 'longer the second time');
+
+  const third = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(third.status, 'completed', third.reason);
+  assert.deepEqual(attempts, ['test-model', 'test-model', 'test-model']);
+  const stored = await withTenant(fixture.companyId, (tx) => getTask(tx, task.id));
+  assert.equal(stored!.attempt, 0, 'waiting for the model is not failing');
+  const incidents = await withTenant(fixture.companyId, (tx) => tx.query(
+    "SELECT 1 FROM inbox_items WHERE task_id = $1 AND kind = 'incident'", [task.id]));
+  assert.equal(incidents.rows.length, 0, 'nothing for the owner to do about a moment');
+  assert.equal((await eventTypes(fixture.companyId, task.id)).filter((type) => type === 'task.model_waited').length, 2);
+});
+
+/**
  * A role that can act irreversibly does not get a silent substitution.
  *
  * Tier 2 is where an action changes something outside the company and cannot
  * be undone. Running one on a model the owner did not choose, and did not
  * calibrate the role for, is exactly what the PRD's word *silently* forbids.
+ * It waits for its own model, as every role does; one that stays down halts
+ * it, and the owner is told once.
  */
-test('a role holding a tier 2 tool halts instead of falling back (F13.6)', async () => {
+test('a role holding a tier 2 tool waits for its own model and never falls back; one that stays down halts it (F13.6)', async () => {
   const fixture = await createCompany('fallback-refused');
   const broker = await brokerFor(fixture, ['dns.write']);
   await configureRole(fixture, {
@@ -454,10 +508,14 @@ test('a role holding a tier 2 tool halts instead of falling back (F13.6)', async
   };
 
   const task = await newTask(fixture, {});
-  const outcome = await engineWith(broker, adapter).runTask(fixture.companyId, task.id, 'worker');
+  const engine = engineWith(broker, adapter);
+  const outcomes: string[] = [];
+  for (let run = 0; run <= MODEL_OUTAGE_WAITS_MS.length; run += 1) {
+    outcomes.push((await engine.runTask(fixture.companyId, task.id, 'worker')).status);
+  }
 
-  assert.equal(outcome.status, 'halted');
-  assert.deepEqual(attempts, ['test-model'], 'the fallback model was never tried');
+  assert.deepEqual(outcomes, [...MODEL_OUTAGE_WAITS_MS.map(() => 'waiting_window'), 'halted']);
+  assert.deepEqual(attempts, Array(MODEL_OUTAGE_WAITS_MS.length + 1).fill('test-model'), 'the fallback model was never tried');
 
   const types = await eventTypes(fixture.companyId, task.id);
   assert.ok(types.includes('model.fallback_refused'));
@@ -471,8 +529,11 @@ test('a role holding a tier 2 tool halts instead of falling back (F13.6)', async
     );
     return rows;
   });
-  assert.equal(incidents.length, 1);
+  assert.equal(incidents.length, 1, 'told once, when the waiting was over');
   assert.match(incidents[0]!.title, /was not moved/);
+  const detail = await withTenant(fixture.companyId, (tx) => tx.query<{ rationale: string }>(
+    "SELECT rationale FROM inbox_items WHERE task_id = $1 AND kind = 'incident'", [task.id]));
+  assert.match(detail.rows[0]!.rationale, /tried 6 times over about 16 minutes\. This role can take actions that cannot be undone/);
 });
 
 /* ------------------------------------------------------------------ http --- */

@@ -798,6 +798,7 @@ export const ID: Readonly<Record<string, string>> = {
   "Pair it only if the machine shows the same fingerprint:": "Pasangkan hanya jika mesin menampilkan fingerprint yang sama:",
   "Panel language": "Bahasa panel",
   "Parked: a vendor said not now": "Ditunda: vendor meminta nanti",
+  "Parked: the model did not answer; it is tried again shortly": "Ditunda: model tidak menjawab; akan dicoba lagi sebentar lagi",
   "Passages: {count}": "Bagian: {count}",
   "Passages: {passages} · characters: {characters} · added {when}": "Bagian: {passages} · karakter: {characters} · ditambahkan {when}",
   "Passkey": "Passkey",

@@ -111,6 +111,32 @@ test('the client speaks Chat Completions: tools as functions, their answers as t
   }
 });
 
+/**
+ * A connection refused or reset is the provider's moment as much as a 503 is,
+ * and was handed to the engine at once, untried: a model restarting on the
+ * company's own machine failed every call made while it came back.
+ */
+test('a model API that drops the connection is tried again, as a busy one is (F13.6)', async () => {
+  const dropped = () => Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNRESET' } });
+  let calls = 0;
+  const flaky: typeof fetch = async () => {
+    calls += 1;
+    if (calls <= 2) throw dropped();
+    return new Response(JSON.stringify(completion({ content: 'back' }).body), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  const client = new OpenAiCompatibleClient({ apiKey: null, baseUrl: 'http://127.0.0.1:1/v1', aliases: {}, fetch: flaky, retryDelayMs: () => 0 });
+  const answer = await client.complete({ model: 'm', system: 's', messages: [{ role: 'user', content: 'u' }] });
+  assert.equal(answer.content, 'back');
+  assert.equal(calls, 3);
+
+  let down = 0;
+  const gone: typeof fetch = async () => { down += 1; throw dropped(); };
+  const never = new OpenAiCompatibleClient({ apiKey: null, baseUrl: 'http://127.0.0.1:1/v1', aliases: {}, fetch: gone, retryDelayMs: () => 0 });
+  await assert.rejects(never.complete({ model: 'm', system: 's', messages: [{ role: 'user', content: 'u' }] }),
+    (error: unknown) => error instanceof ProviderFailure && /could not be reached 3 times: fetch failed \(ECONNRESET\)/.test(error.message));
+  assert.equal(down, 3, 'tried three times, then left to the fallback model, and then to waiting');
+});
+
 test('a model on the company\'s own machine needs no key, and a refused key is said plainly', async () => {
   const local = await chatServer(() => completion({ content: 'hello' }));
   try {

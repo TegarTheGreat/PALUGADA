@@ -133,6 +133,16 @@ export const MAX_RATE_LIMIT_WAIT_MS = 6 * 60 * 60 * 1000;
  */
 export const MAX_RATE_LIMIT_PARKS = 5;
 
+/**
+ * How long a task waits for a model that did not answer before it halts
+ * (F13.6): half a minute, then twice as long each time, five times -- about
+ * a quarter of an hour in all, counted over the last hour. A provider's blip,
+ * a local model restarting, a deploy: each halted every task in flight, one
+ * incident apiece, for the owner to resume by hand, when a minute later the
+ * same call would have been answered.
+ */
+export const MODEL_OUTAGE_WAITS_MS: readonly number[] = [30_000, 60_000, 120_000, 240_000, 480_000];
+
 export interface RunOutcome {
   status:
     /**
@@ -1274,6 +1284,52 @@ export class Engine {
   }
 
   /**
+   * F13.6, when the model is down: the task parks and tries the same model
+   * again, waiting longer each time. When the waits in the last hour are
+   * spent, it halts, and the owner is told once, with what was tried.
+   */
+  async #waitForModel(
+    companyId: string,
+    taskId: string,
+    error: PalugadaError,
+  ): Promise<RunOutcome | null> {
+    const waits = await withTenant(companyId, async (tx) => {
+      const { rows } = await tx.query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM events
+          WHERE task_id = $1 AND type = 'task.model_waited' AND occurred_at > now() - interval '1 hour'`,
+        [taskId],
+      );
+      return Number(rows[0]!.count);
+    });
+    const model = String(error.details.model ?? 'the model');
+    if (waits < MODEL_OUTAGE_WAITS_MS.length) {
+      const waitUntil = new Date(Date.now() + MODEL_OUTAGE_WAITS_MS[waits]!);
+      await withTenant(companyId, async (tx) => {
+        await appendEvent(tx, {
+          companyId,
+          taskId,
+          type: 'task.model_waited',
+          actor: 'engine',
+          payload: { model, error: error.message, waitUntil: waitUntil.toISOString(), wait: waits + 1 },
+        });
+      });
+      await transition(companyId, taskId, 'waiting_window', { waitUntil });
+      return { status: 'waiting_window', reason: 'model.unavailable', waitUntil };
+    }
+    const minutes = Math.round(MODEL_OUTAGE_WAITS_MS.reduce((sum, wait) => sum + wait, 0) / 60_000);
+    await inbox.raiseIncident({
+      companyId,
+      taskId,
+      title: `Model ${model} failed and the run was not moved`,
+      detail: `${error.message} It was tried ${waits + 1} times over about ${minutes} minutes. ` + (
+        error.details.reason === 'tier_2_or_above'
+          ? 'This role can take actions that cannot be undone, so the run was not silently moved to a different model.'
+          : 'No fallback model is left for this role.'),
+    });
+    return null;
+  }
+
+  /**
    * Maps a thrown failure onto the state machine.
    *
    * The distinction that matters is `failed` versus `halted`: a failure may be
@@ -1394,6 +1450,12 @@ export class Engine {
       // replays the same journal and meets the same mismatch.
       'journal.divergence': 'journal_divergence',
     };
+
+    // A model that did not answer: waited for, a few times, before it halts.
+    if (code === 'model.unavailable' && (error as PalugadaError).details.providerDown === true) {
+      const waited = await this.#waitForModel(companyId, taskId, error as PalugadaError);
+      if (waited) return waited;
+    }
 
     const haltReason = code ? haltCodes[code] : undefined;
     if (haltReason) {
@@ -1529,19 +1591,15 @@ export class Engine {
               },
             });
           });
-          await inbox.raiseIncident({
-            companyId,
-            taskId: task.id,
-            title: `Model ${model} failed and the run was not moved`,
-            detail: irreversible
-              ? `${error.message} This role can take actions that cannot be undone, so the ` +
-                'run was not silently retried on a different model.'
-              : `${error.message} No fallback model is left for this role.`,
-          });
+          // Not halted here: the task waits for this model and tries it
+          // again (`MODEL_OUTAGE_WAITS_MS`), and only a model that stays down
+          // halts it and tells the owner. Waiting is not a substitution --
+          // the same model does the work when it answers.
           throw new PalugadaError('model.unavailable', error.message, {
             model,
             fellBack: false,
             reason: irreversible ? 'tier_2_or_above' : 'no_fallback_left',
+            providerDown: true,
           });
         }
 

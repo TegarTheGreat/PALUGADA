@@ -511,7 +511,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
 
 /** POST routes that change nothing, which the assistant may call itself. Secrets are never sent through them. */
 export const ASSISTANT_CHECKS: Readonly<Record<string, string>> = {
-  '/api/control/settings/model/models': 'Which models a provider serves: { provider, url? } with the key saved.',
+  '/api/control/settings/model/models': 'Which models the saved provider serves: {}.',
   '/api/control/settings/model/test': 'Whether the model saved answers and can call a tool: {}.',
   '/api/control/mcp/inspect': 'What an MCP server offers: { url, tokenIn?, name? } -- name uses the token saved for that server.',
 };

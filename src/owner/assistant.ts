@@ -536,6 +536,13 @@ async function tool(
     if (Object.keys(body).some((field) => /key|token|secret|password/i.test(field) && field !== 'tokenIn')) {
       throw new Error('a check is sent no key: it uses the one saved');
     }
+    // The model's checks look at what is saved, and only that. An address of
+    // the assistant's choosing would have the server fetch whatever a page it
+    // read named -- a cloud's metadata service, or a server hoping for the
+    // saved key.
+    if (pattern.startsWith('/api/control/settings/model/') && Object.keys(body).length > 0) {
+      throw new Error('a check of the model checks the one saved: send {}; the owner tries another on the page');
+    }
     return dataFrom(await reach.post(path, body));
   }
   if (name === 'propose') {

@@ -185,6 +185,44 @@ test('the owner chooses a model in the console: checked before it is saved, save
   }
 });
 
+/**
+ * The saved key goes only where it was saved for. The audit of 2026-09-28
+ * (security finding #1) found it reused whenever the provider matched, with
+ * no look at the address: a check or a save naming another URL sent the
+ * owner's key there -- and the assistant may run the checks itself, so a
+ * page it read could ask it to.
+ */
+test('the saved model key is sent only to the address it was saved for (security)', async () => {
+  const api = await consoleWithSettings();
+  const saved = await modelServer();
+  const elsewhere = await modelServer();
+  try {
+    const token = await api.signIn();
+    const stored = await api.call('POST', '/api/control/settings/model', token,
+      { provider: 'openai', url: saved.url, model: 'local-model', key: 'sk-saved-0123456789', proof: { totp: api.code() } });
+    assert.equal(stored.status, 200, JSON.stringify(stored.body));
+
+    // Where it was saved for, the saved key is used -- and a check that
+    // names nothing checks what is saved, which is how the assistant asks.
+    await api.call('POST', '/api/control/settings/model/models', token, { provider: 'openai', url: saved.url });
+    assert.equal(saved.keys.at(-1), 'Bearer sk-saved-0123456789');
+    const asIs = await api.call('POST', '/api/control/settings/model/models', token, {});
+    assert.deepEqual(asIs.body, { models: ['bigger', 'local-model'], problem: null });
+    assert.equal(saved.keys.at(-1), 'Bearer sk-saved-0123456789');
+
+    // Anywhere else, nothing is sent: a check, a test, or a save.
+    await api.call('POST', '/api/control/settings/model/models', token, { provider: 'openai', url: elsewhere.url });
+    await api.call('POST', '/api/control/settings/model/test', token, { provider: 'openai', url: elsewhere.url, model: 'local-model' });
+    const moved = await api.call('POST', '/api/control/settings/model', token,
+      { provider: 'openai', url: elsewhere.url, model: 'local-model', proof: { totp: api.code() } });
+    assert.equal(moved.status, 200, JSON.stringify(moved.body));
+    assert.equal(((await readSettings()).model as { keySecret?: string } | undefined)?.keySecret, undefined, 'moved to another address, the key stays behind');
+    assert.ok(elsewhere.keys.every((header) => !header.includes('sk-saved')), `sent ${JSON.stringify(elsewhere.keys)}`);
+  } finally {
+    await api.close();
+  }
+});
+
 test('a model set in the console that would stop the boot is set aside, so the console still comes up', async () => {
   await writeSetting('model', { provider: 'openai' });
   const { start } = await import('../../src/main.ts');

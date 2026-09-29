@@ -3798,7 +3798,9 @@ export class OwnerApi {
   async #modelCandidate(body: Record<string, unknown>): Promise<{ env: NodeJS.ProcessEnv; secrets: SecretManager }> {
     const deployment = this.#deploymentSettings();
     const stored = await readSettings();
-    const candidate = modelSettingFrom(body, stored.model as ModelSetting | undefined);
+    // Naming nothing checks what is saved, as it is: how the assistant asks.
+    const saved = stored.model as ModelSetting | undefined;
+    const candidate = body.provider === undefined && saved ? saved : modelSettingFrom(body, saved);
     const env = withSettings(deployment.baseEnv, { ...stored, model: candidate });
     const typed = typeof body.key === 'string' && body.key.trim() !== '' ? body.key.trim() : null;
     if (!typed) return { env, secrets: deployment.secrets };
@@ -4535,6 +4537,16 @@ function agentsFrom(stored: Settings, env: NodeJS.ProcessEnv): Record<string, Ag
  * The model the console sent, checked for shape; what it leaves out is kept
  * from the model already chosen, so saving a new tier does not forget the key.
  */
+/** Whether two model addresses are one server; no address is the provider's own. */
+function sameOrigin(saved: string | undefined, asked: string | undefined): boolean {
+  if (saved === undefined || asked === undefined) return saved === asked;
+  try {
+    return new URL(saved).origin === new URL(asked).origin;
+  } catch {
+    return false;
+  }
+}
+
 function modelSettingFrom(body: Record<string, unknown>, previous: ModelSetting | undefined): ModelSetting {
   const provider = body.provider;
   if (provider !== 'anthropic' && provider !== 'openai') {
@@ -4565,7 +4577,11 @@ function modelSettingFrom(body: Record<string, unknown>, previous: ModelSetting 
     throw new PalugadaError('contract.violation',
       `preset is one of ${MODEL_PROVIDERS.map((entry) => entry.id).join(', ')}; got ${preset}`, { field: 'preset' });
   }
-  const keep = previous && previous.provider === provider ? previous.keySecret : undefined;
+  // The saved key goes only where it was saved for: the same provider at the
+  // same origin. A check, a test or a save naming another address gets no
+  // key, or it would be handed to whoever answers there -- and the assistant
+  // runs the checks itself, so a page it read could name that address.
+  const keep = previous && previous.provider === provider && sameOrigin(previous.url, url) ? previous.keySecret : undefined;
   return {
     ...(preset ? { preset } : {}),
     provider,

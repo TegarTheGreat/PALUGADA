@@ -153,8 +153,9 @@ expects are not there. Be clear about both before you commit.
   yours; the platform reconnects after a database restart.
 - Protection against guessing from many addresses at once. Five wrong codes
   from one address hold that address back for fifteen minutes, but ten wrong
-  codes from any mix of addresses lock the second factor for fifteen
-  minutes, for you as well. Limit who can reach the console.
+  codes from any mix of addresses lock codes for fifteen minutes, for you as
+  well. A passkey is not locked by wrong codes, so add one, and limit who can
+  reach the console.
 - Platforms other than Linux, and an image with agent CLIs in it.
 - Proof against the vendors themselves: push, Telegram, the model APIs and
   MCP servers are exercised against local servers. The

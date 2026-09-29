@@ -140,11 +140,13 @@ enrolled.
 
 ### "Too many wrong codes. Wait a few minutes before trying again."
 
-**Cause.** Ten wrong codes in a row lock the second factor for fifteen
-minutes (`too many failed attempts; the second factor is locked for 15
-minutes`). The lock covers signing in and every approval.
+**Cause.** Ten wrong codes in a row lock codes for fifteen minutes (`too
+many failed attempts; the second factor is locked for 15 minutes`). The lock
+covers signing in and every approval made with a code. A passkey is not
+locked by wrong codes.
 
-**Fix.** Wait. A correct code afterwards clears the count.
+**Fix.** Use a passkey if you have one; otherwise wait. A correct code
+afterwards clears the count.
 
 ### `too many wrong codes from this address; try again after …`
 

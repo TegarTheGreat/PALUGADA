@@ -998,7 +998,11 @@ export class OwnerMfa {
   ): Promise<VerifiedFactor> {
     const attempt = await withControlPlane(async (tx) => {
       await tx.query("SELECT pg_advisory_xact_lock(hashtext('palugada:owner-mfa'))");
-      const failures = await this.#consecutiveFailures(tx);
+      // Only a code can be guessed, so only codes are locked, and only wrong
+      // codes count. A passkey signs a challenge made a moment ago; counting
+      // it with the codes let anybody who could reach the sign-in page lock
+      // the owner out of the one factor nobody can guess.
+      const failures = kind === 'totp' ? await this.#consecutiveFailures(tx, kind) : 0;
       const decided = failures >= this.#maxConsecutiveFailures
         ? refused(
           'mfa.locked_out',
@@ -1032,19 +1036,20 @@ export class OwnerMfa {
    * would let anyone keep the owner locked out for as long as they kept
    * knocking.
    */
-  async #consecutiveFailures(tx: TenantClient): Promise<number> {
+  async #consecutiveFailures(tx: TenantClient, kind: FactorKind): Promise<number> {
     const since = new Date(this.#now().getTime() - this.#lockoutMs);
     const { rows } = await tx.query<{ failures: number }>(
       `SELECT count(*)::int AS failures
          FROM owner_authentications
         WHERE occurred_at >= $1
           AND NOT succeeded
+          AND kind = $3
           AND coalesce(reason, '') <> ALL ($2::text[])
           AND occurred_at > coalesce(
                 (SELECT max(occurred_at) FROM owner_authentications
                   WHERE succeeded AND occurred_at >= $1),
                 '-infinity')`,
-      [since, NOT_A_GUESS],
+      [since, NOT_A_GUESS, kind],
     );
     return rows[0]?.failures ?? 0;
   }

@@ -167,8 +167,10 @@ authenticator app. Type it and press **Sign in**. A few things to know:
   authenticator is what makes you the owner.
 - The session lives in this browser tab only and lasts up to eight hours.
   Closing the tab signs you out. Nothing is stored in the browser.
-- Ten wrong codes in a row lock the second factor for fifteen minutes, and
-  five from one address hold that address back for fifteen minutes.
+- Ten wrong codes in a row lock codes for fifteen minutes, and five from one
+  address hold that address back for fifteen minutes. A passkey is not
+  locked by them: it cannot be guessed, so somebody else's wrong codes never
+  keep you out if you have one.
 - A tier 3 approval, and anything that loosens a control, asks for a fresh
   code every time, however recently you signed in.
 - To use your fingerprint, face or screen lock instead of a code, add a

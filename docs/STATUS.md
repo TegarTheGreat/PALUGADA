@@ -3756,9 +3756,11 @@ so Google Calendar and Gmail, whose tokens expire within the hour, still
 cannot be bound. Client ID Metadata Documents and re-authorizing for more
 scope on a 403 are not built. The runtimes' HTTP and sandbox tokens are not
 in the redactor. The master key
-cannot be rotated from the console, the authenticator has no recovery
-codes, and the second-factor lockout is global, so anyone who can reach the
-sign-in page can lock the owner out for its window.
+cannot be rotated from the console, and the authenticator has no recovery
+codes. The second-factor lockout is global, so anyone who can reach the
+sign-in page can still lock the owner's *codes* for its window; it no longer
+locks a passkey, which cannot be guessed, so an owner with one is never
+kept out by somebody else's wrong codes.
 
 ## 3. Decisions, deviations, and what is unverified
 

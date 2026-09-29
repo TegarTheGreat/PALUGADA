@@ -71,6 +71,7 @@ async function consoleWithCode() {
   const { url } = await api.listen();
   return {
     url,
+    mfa,
     code: () => {
       steps += 1;
       return totpCode(decodeBase32(secret), stepFor(at()));
@@ -143,6 +144,44 @@ test('an owner adds a passkey with the factor they hold, then signs in and appro
       body: { proof: { webauthn: phone.assert({ challenge: fresh.body.challenge }) } },
     });
     assert.equal(revoked.status, 200, JSON.stringify(revoked.body));
+  } finally {
+    await owner.close();
+  }
+});
+
+/**
+ * The lockout counted every failed factor alike. Anybody who could reach the
+ * sign-in page -- from a few addresses, past the throttle each one has --
+ * could send ten wrong codes and lock the owner out of everything for a
+ * quarter of an hour, and again after it. A passkey cannot be guessed: it
+ * signs a challenge this console made a moment ago. So wrong codes lock the
+ * code, and the owner who has a passkey still gets in with it.
+ */
+test('wrong codes lock the code and not the owner\'s passkey (F12.5, security)', async () => {
+  const owner = await consoleWithCode();
+  try {
+    const signedIn = await call(owner.url, 'POST', '/api/auth/sign-in', { body: { totp: owner.code() } });
+    const token = String(signedIn.body.token);
+    const phone = authenticator({ rpId: RP_ID, origin: ORIGIN, signCount: 1 });
+    const options = await call(owner.url, 'GET', '/api/mfa/passkeys/options', { token });
+    const added = await call(owner.url, 'POST', '/api/mfa/passkeys', {
+      token, body: { label: 'Phone', credential: phone.register({ challenge: options.body.challenge }), proof: { totp: owner.code() } },
+    });
+    assert.equal(added.status, 200, JSON.stringify(added.body));
+
+    // Somebody else, guessing codes.
+    for (let guess = 0; guess < 10; guess += 1) {
+      await assert.rejects(owner.mfa.verifyTotp(String(100000 + guess)), (error: unknown) => isPalugadaError(error, 'mfa.code_invalid'));
+    }
+    await assert.rejects(owner.mfa.verifyTotp(owner.code()), (error: unknown) => isPalugadaError(error, 'mfa.locked_out'),
+      'the code is locked, as it should be');
+
+    const challenge = await call(owner.url, 'GET', '/api/auth/challenge');
+    const withKey = await call(owner.url, 'POST', '/api/auth/sign-in', {
+      body: { webauthn: phone.assert({ challenge: challenge.body.challenge }) },
+    });
+    assert.equal(withKey.status, 200, JSON.stringify(withKey.body));
+    assert.equal(withKey.body.factor, 'webauthn', 'and the owner still gets in');
   } finally {
     await owner.close();
   }

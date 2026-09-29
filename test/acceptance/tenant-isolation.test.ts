@@ -149,6 +149,9 @@ test('every table holding tenant data is protected', async () => {
     // Which worker processes are alive (0079): the platform's, read by the
     // lease sweep on the control plane and by no agent.
     'worker_heartbeats',
+    // A sign-in to an MCP server between the console and the callback (0080):
+    // the platform's, like the deployment's settings it ends in.
+    'mcp_authorizations',
   ]);
 
   const rows = await withControlPlane(async (tx) => {

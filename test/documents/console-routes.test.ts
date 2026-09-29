@@ -40,6 +40,8 @@ const API_ONLY: Record<string, string> = {
     'machine: Telegram posts the owner\'s button presses here, authenticated by the webhook secret',
   'POST /api/hooks/:publicId':
     'machine: another service posts its events here, authenticated by the trigger\'s token',
+  'GET /api/oauth/callback':
+    'machine: an authorization server sends the owner\'s browser back here with a code, checked against the state the console began',
   'GET /api/health':
     'machine: a supervisor or a load balancer asks whether this process can work',
 };

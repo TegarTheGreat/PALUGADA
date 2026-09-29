@@ -146,7 +146,8 @@ import {
   type RoleChange,
 } from '../eval/role-eval.ts';
 import { CapabilityRegistry } from '../broker/registry.ts';
-import { accessFor, assertPlainHttpIsLocal, bindMcpServers, currentPins, offeredTools, type TokenIn } from '../capabilities/mcp.ts';
+import { McpUnauthorized, accessFor, assertPlainHttpIsLocal, bindMcpServers, currentPins, offeredTools, type TokenIn } from '../capabilities/mcp.ts';
+import { beginSignIn, discoverSignIn, finishSignIn, forgetSignIn, mcpSecretName, oauthGrantsIn } from '../capabilities/mcp-oauth.ts';
 import { MCP_PRESETS } from '../capabilities/mcp-presets.ts';
 import { LISTEN_PROVIDERS, listenProvider, transcribe, type Heard, type ListenBinding, type ListenProvider } from '../capabilities/listen.ts';
 import {
@@ -328,6 +329,19 @@ class WithStatus {
   constructor(status: number, body: unknown) {
     this.status = status;
     this.body = body;
+  }
+}
+
+/** A page rather than JSON: only for a browser sent here by somebody else, which has no console open in it. */
+class HtmlPage {
+  readonly status: number;
+  readonly title: string;
+  readonly text: string;
+
+  constructor(status: number, title: string, text: string) {
+    this.status = status;
+    this.title = title;
+    this.text = text;
   }
 }
 
@@ -1584,6 +1598,9 @@ export class OwnerApi {
               tools: server.tools,
             })),
             presets: MCP_PRESETS,
+            // The servers signed in to with OAuth, by name: never a token.
+            signedIn: Object.fromEntries(Object.entries(oauthGrantsIn(await readSettings()))
+              .map(([name, grant]) => [name, { issuer: grant.issuer, url: grant.url }])),
             file: deployment.baseEnv.PALUGADA_MCP_SERVERS ?? null,
             applies: deployment.restart ? 'now' : 'next_start',
           };
@@ -1611,7 +1628,62 @@ export class OwnerApi {
           try {
             return { problem: null, tools: await offeredTools(accessFor({ url, ...(tokenIn ? { tokenIn } : {}) }, token)) };
           } catch (failure) {
+            // A server that wants a sign-in says where, and the owner is
+            // offered it rather than a 401 to make sense of.
+            if (failure instanceof McpUnauthorized && !token) {
+              const point = await discoverSignIn(url).catch(() => null);
+              if (point) {
+                return { problem: `${new URL(url).host} asks you to sign in, with ${point.issuer}`, signIn: point.issuer };
+              }
+            }
             return { problem: (failure as Error).message };
+          }
+        },
+      },
+
+      {
+        // Begins a sign-in to a server that asks for OAuth, and answers with
+        // the page the owner's browser opens to sign in. Nothing is bound by
+        // it: the tokens the sign-in leaves are the server's once it is saved,
+        // with the owner's device, as a pasted token is.
+        method: 'POST',
+        pattern: '/api/control/mcp/oauth/start',
+        handle: async ({ body, request }) => {
+          const deployment = this.#deploymentSettings();
+          const name = mcpServerNamed(body.name);
+          const url = mcpUrl(body.url);
+          const master = deployment.master(true);
+          if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
+          const clientId = typeof body.clientId === 'string' ? body.clientId.trim() : '';
+          const clientSecret = typeof body.clientSecret === 'string' ? body.clientSecret.trim() : '';
+          const { authorizeUrl, issuer } = await beginSignIn({
+            name, url, master,
+            redirectUri: this.#callbackAddress(request),
+            client: clientId ? { clientId, ...(clientSecret ? { clientSecret } : {}) } : null,
+          });
+          return { authorizeUrl, issuer };
+        },
+      },
+
+      {
+        // Where the authorization server sends the owner's browser back. Open,
+        // because that browser has no session: the state stands in for one,
+        // made by the owner's own console, spent here, and good for minutes.
+        method: 'GET',
+        pattern: '/api/oauth/callback',
+        open: true,
+        handle: async ({ query }) => {
+          const deployment = this.#deploymentSettings();
+          const master = deployment.master(false);
+          const indonesian = (await deploymentLanguages()).console === 'id';
+          try {
+            if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
+            const { name } = await finishSignIn(query, { secrets: deployment.secrets, master });
+            return indonesian
+              ? new HtmlPage(200, `Sudah masuk ke ${name}`, 'Kembali ke PALUGADA untuk memilih alat yang boleh dipakai peran. Tab ini boleh ditutup.')
+              : new HtmlPage(200, `Signed in to ${name}`, 'Go back to PALUGADA to choose which of its tools roles may use. This tab can be closed.');
+          } catch (failure) {
+            return new HtmlPage(400, indonesian ? 'Tidak masuk' : 'Not signed in', (failure as Error).message);
           }
         },
       },
@@ -1665,7 +1737,7 @@ export class OwnerApi {
             throw failure;
           }
           await this.#requireFactor(body.proof, `let roles use the tools of ${name}`);
-          const secret = `mcp-${name}`;
+          const secret = mcpSecretName(name);
           if (typed) {
             const master = deployment.master(true);
             if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
@@ -1696,7 +1768,8 @@ export class OwnerApi {
           await this.#requireFactor(body.proof, `stop roles using the tools of ${name}`);
           const rest = servers.filter((one) => one.name !== name);
           await writeSetting('mcp', rest.length > 0 ? { servers: rest } : null);
-          await deleteSecret(`mcp-${name}`);
+          await deleteSecret(mcpSecretName(name));
+          await forgetSignIn(name);
           return this.#applySettings();
         },
       },
@@ -4230,9 +4303,43 @@ export class OwnerApi {
   async #mcpToken(body: Record<string, unknown>, url: string): Promise<{ token: string | null; typed: string | null; keep: boolean }> {
     const typed = typeof body.token === 'string' && body.token.trim() ? body.token.trim() : null;
     if (typed) return { token: typed, typed, keep: false };
-    const saved = typeof body.name === 'string' ? mcpServersIn(await readSettings()).find((one) => one.name === body.name) : undefined;
-    if (!saved?.tokenSecret || new URL(saved.url).origin !== new URL(url).origin) return { token: null, typed: null, keep: false };
-    return { token: await this.#deploymentSettings().secrets.resolve(`db://${saved.tokenSecret}`), typed: null, keep: true };
+    const settings = await readSettings();
+    const saved = typeof body.name === 'string' ? mcpServersIn(settings).find((one) => one.name === body.name) : undefined;
+    if (saved?.tokenSecret && new URL(saved.url).origin === new URL(url).origin) {
+      return { token: await this.#deploymentSettings().secrets.resolve(`db://${saved.tokenSecret}`), typed: null, keep: true };
+    }
+    // Signed in to with OAuth, and not saved yet: the token the sign-in left,
+    // for the address it was issued for and no other.
+    const grant = typeof body.name === 'string' ? oauthGrantsIn(settings)[body.name] : undefined;
+    if (grant && grant.url === url) {
+      return { token: await this.#deploymentSettings().secrets.resolve(`db://${mcpSecretName(body.name as string)}`), typed: null, keep: true };
+    }
+    return { token: null, typed: null, keep: false };
+  }
+
+  /**
+   * Where an authorization server sends the owner back: this deployment's
+   * public address, or the address the owner reached this console at, which
+   * must be https or this machine's own -- the only kinds OAuth sends a code to.
+   */
+  #callbackAddress(request: IncomingMessage): string {
+    const configured = this.#deploymentSettings().baseEnv.PALUGADA_APP_URL_PUBLIC;
+    const base = configured
+      ? configured.replace(/\/+$/, '')
+      : `${this.#options.behindProxy && request.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http'}://${request.headers.host ?? ''}`;
+    let url: URL;
+    try {
+      url = new URL(`${base}/api/oauth/callback`);
+    } catch {
+      throw new PalugadaError('config.invalid', 'this console cannot tell its own address; set PALUGADA_APP_URL_PUBLIC', {});
+    }
+    const loopback = ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname);
+    if (url.protocol !== 'https:' && !loopback) {
+      throw new PalugadaError('config.invalid',
+        `a sign-in comes back only to an https address or to this machine, and this console is at ${url.origin}: `
+          + 'set PALUGADA_APP_URL_PUBLIC to its https address, or open the console on this machine at localhost', { origin: url.origin });
+    }
+    return url.toString();
   }
 
   /** The push channel the console is asking about: checked, with the token typed or the one saved. */
@@ -4450,6 +4557,7 @@ export class OwnerApi {
         query: url.searchParams,
       });
       if (answer instanceof WithStatus) send(res, answer.status, answer.body);
+      else if (answer instanceof HtmlPage) sendPage(res, answer);
       else send(res, 200, answer ?? { ok: true });
     } catch (error) {
       // A refusal is an answer. `decide` refusing a tier 3 approval without a
@@ -5167,6 +5275,24 @@ function jsonObject(bytes: Buffer): Record<string, unknown> {
     throw new Error('body must be a JSON object');
   }
   return parsed as Record<string, unknown>;
+}
+
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>"']/g, (character) => `&#${character.charCodeAt(0)};`);
+}
+
+/** A page with no script and nothing loaded from anywhere: what it says, and nothing it could be made to do. */
+function sendPage(res: ServerResponse, page: HtmlPage): void {
+  res.writeHead(page.status, {
+    'content-type': 'text/html; charset=utf-8',
+    'cache-control': 'no-store',
+    'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'",
+    'referrer-policy': 'no-referrer',
+  });
+  res.end(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">`
+    + `<title>${escapeHtml(page.title)}</title></head>`
+    + `<body style="font-family: system-ui, sans-serif; max-width: 34rem; margin: 4rem auto; padding: 0 1rem; line-height: 1.5">`
+    + `<h1 style="font-size: 1.4rem">${escapeHtml(page.title)}</h1><p>${escapeHtml(page.text)}</p></body></html>`);
 }
 
 function send(res: ServerResponse, status: number, body: unknown): void {

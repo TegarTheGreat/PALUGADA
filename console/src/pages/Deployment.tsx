@@ -1280,8 +1280,19 @@ interface McpPreset {
 interface McpView {
   servers: McpServerView[];
   presets: McpPreset[];
+  /** Servers signed in to with OAuth, by name. */
+  signedIn: Record<string, { issuer: string; url: string }>;
   file: string | null;
   applies: 'now' | 'next_start';
+}
+
+/** An address's host, for saying where the owner signs in. */
+function hostOf(address: string): string {
+  try {
+    return new URL(address).host;
+  } catch {
+    return address;
+  }
 }
 
 /** The same words the server sends about each preset, here so that they are translated. */
@@ -1582,14 +1593,23 @@ function McpServerForm({ saved, presets, onDone, onCancel }: {
   const [problem, setProblem] = useState<string | null>(null);
   const [tools, setTools] = useState<McpTool[] | null>(null);
   const [choices, setChoices] = useState<Record<string, McpChoice>>({});
+  // A server that asks for OAuth: who it signs in with, the page the owner
+  // opens there, and the client the owner registered, when it takes no
+  // registration of its own.
+  const [signIn, setSignIn] = useState<string | null>(null);
+  const [authorizeUrl, setAuthorizeUrl] = useState<string | null>(null);
+  const [clientNeeded, setClientNeeded] = useState(false);
+  const [clientId, setClientId] = useState('');
+  const [clientSecret, setClientSecret] = useState('');
 
   const look = async () => {
     setLooking(true);
     setProblem(null);
     try {
-      const answer = await api('POST', '/api/control/mcp/inspect', { url: url.trim(), token: token.trim() || undefined, tokenIn, name: saved?.name });
+      const answer = await api('POST', '/api/control/mcp/inspect', { url: url.trim(), token: token.trim() || undefined, tokenIn, name: saved?.name ?? (name.trim() || undefined) });
+      setSignIn(answer.signIn ?? null);
       if (answer.problem) {
-        setProblem(answer.problem);
+        setProblem(answer.signIn ? null : answer.problem);
         setTools(null);
       } else {
         setTools(answer.tools);
@@ -1601,6 +1621,42 @@ function McpServerForm({ saved, presets, onDone, onCancel }: {
       setLooking(false);
     }
   };
+
+  const begin = async () => {
+    setProblem(null);
+    if (!name.trim()) {
+      setProblem(t('Give it a name first: the sign-in is kept under it.'));
+      return;
+    }
+    try {
+      const started: { authorizeUrl: string } = await api('POST', '/api/control/mcp/oauth/start', {
+        name: name.trim(), url: url.trim(),
+        ...(clientId.trim() ? { clientId: clientId.trim(), clientSecret: clientSecret.trim() || undefined } : {}),
+      });
+      setAuthorizeUrl(started.authorizeUrl);
+    } catch (failure) {
+      const said = explain(failure);
+      if (/registers no client itself/.test(said)) setClientNeeded(true);
+      setProblem(said);
+    }
+  };
+
+  // While the owner signs in in the other tab: asked every few seconds
+  // whether the sign-in has arrived, then its tools are looked at with it.
+  useEffect(() => {
+    if (!authorizeUrl) return undefined;
+    const timer = setInterval(() => {
+      void api('GET', '/api/control/mcp').then((view: McpView) => {
+        if (view.signedIn[name.trim()]?.url !== url.trim()) return;
+        clearInterval(timer);
+        setAuthorizeUrl(null);
+        setSignIn(null);
+        notifications.show({ color: 'teal', message: t('Signed in to {name}. Choose which of its tools roles may use.', { name: name.trim() }) });
+        void look();
+      }, () => undefined);
+    }, 3_000);
+    return () => clearInterval(timer);
+  }, [authorizeUrl]);
 
   const change = (tool: string, patch: Partial<McpChoice>) => setChoices((all) => ({ ...all, [tool]: { ...all[tool]!, ...patch } }));
 
@@ -1693,6 +1749,29 @@ function McpServerForm({ saved, presets, onDone, onCancel }: {
           </Button>
           <Button variant="subtle" color="gray" onClick={onCancel}>{t('Cancel')}</Button>
         </Group>
+        {signIn && (
+          <Alert color="blue" variant="light" icon={<IconKey size={18} />} title={t('It asks you to sign in')}>
+            <Stack gap="xs">
+              <Text size="sm">{t('You sign in with {issuer}, in a new tab. What it gives PALUGADA is sealed here and never shown; roles use it only through the tools you allow.', { issuer: hostOf(signIn) })}</Text>
+              {clientNeeded && (
+                <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                  <TextInput label={t('Client ID')} value={clientId} onChange={(event) => setClientId(event.currentTarget.value)} />
+                  <PasswordInput label={t('Client secret')} description={t('If it gave you one')} value={clientSecret} onChange={(event) => setClientSecret(event.currentTarget.value)} autoComplete="off" />
+                </SimpleGrid>
+              )}
+              {authorizeUrl
+                ? (
+                  <Group gap="sm">
+                    <Button component="a" href={authorizeUrl} target="_blank" rel="noopener noreferrer" leftSection={<IconExternalLink size={16} />}>
+                      {t('Open the sign-in page')}
+                    </Button>
+                    <Text size="xs" c="dimmed">{t('Waiting for you to sign in there…')}</Text>
+                  </Group>
+                )
+                : <Group><Button onClick={() => void begin()}>{t('Sign in')}</Button></Group>}
+            </Stack>
+          </Alert>
+        )}
         {problem && <Alert color="red" variant="light" title={t('It did not answer')}>{problem}</Alert>}
         {tools && tools.length === 0 && <Text size="sm" c="dimmed">{t('It answered, and offers no tools.')}</Text>}
         {tools?.map((tool) => {

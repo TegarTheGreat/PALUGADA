@@ -3727,10 +3727,30 @@ And what made connecting a service hard:
   (L9), and the owner's answer to an escalation reaches the task and puts
   it back to work (L18).
 
-**Still open, next.** There is no OAuth anywhere: a remote MCP server that
-signs in with OAuth 2.1 (most hosted ones) cannot be connected, and neither
-can Google Calendar or Gmail, whose tokens expire within the hour. The
-runtimes' HTTP and sandbox tokens are not in the redactor. The master key
+- **There was no OAuth anywhere, so no hosted MCP server that signs in with
+  it could be connected.** Linear's, Notion's, Sentry's, Atlassian's and
+  Stripe's all answer 401 and name an authorization server. PALUGADA is now
+  a client of the MCP authorization spec (revision 2026-07-28):
+  - it discovers the resource's and the authorization server's metadata
+    (RFC 9728, RFC 8414 and OpenID, in the spec's order), and checks that
+    each is who it says it is and that PKCE with S256 is offered;
+  - it registers a client (RFC 7591), or uses one the owner registered, kept
+    per authorization server;
+  - the owner signs in in their own browser, with PKCE, a single-use state
+    kept by its hash (0080), and the server as the token's `resource`
+    (RFC 8707);
+  - the callback checks the issuer (RFC 9207) before the code is redeemed;
+  - the tokens are sealed, and refreshed once across every worker when the
+    server says they have run out.
+
+  A server's name with `_` in it could not keep a token at all, since a
+  sealed secret's name cannot hold one; it now can.
+
+**Still open, next.** A vendor bound by an entry cannot sign in with OAuth,
+so Google Calendar and Gmail, whose tokens expire within the hour, still
+cannot be bound. Client ID Metadata Documents and re-authorizing for more
+scope on a 403 are not built. The runtimes' HTTP and sandbox tokens are not
+in the redactor. The master key
 cannot be rotated from the console, the authenticator has no recovery
 codes, and the second-factor lockout is global, so anyone who can reach the
 sign-in page can lock the owner out for its window.

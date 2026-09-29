@@ -30,6 +30,7 @@ import { Engine } from './engine/engine.ts';
 import { DEFAULT_PRICE_TABLE, loadPriceTable } from './engine/pricing.ts';
 import { modelClientFrom, modelSettingsFrom } from './llm/models.ts';
 import { bindMcpServers, closeMcpSessions, registerMcpServers } from './capabilities/mcp.ts';
+import { refreshMcpAccess } from './capabilities/mcp-oauth.ts';
 import { Worker, type WorkerOptions } from './worker.ts';
 import { DivisionSecrets, type SecretManager } from './secrets/manager.ts';
 import { OwnerMfa, decodeBase32 } from './owner/mfa.ts';
@@ -556,7 +557,12 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   // when it is wrong; a server that does not answer is a note, and its tools
   // are checked again at every call.
   const mcpFile = env.PALUGADA_MCP_SERVERS ?? null;
-  const mcpOptions = { resolve: (reference: string) => secrets.resolve(reference) };
+  const mcpOptions = {
+    resolve: (reference: string) => secrets.resolve(reference),
+    // A server signed in to with OAuth whose token has run out: refreshed,
+    // and the call made again (`mcp-oauth.ts`).
+    refresh: (name: string, since: number) => refreshMcpAccess(name, since, { secrets, master: () => master(false) }),
+  };
   if (mcpFile) {
     const mcp = await registerMcpServers(registry, mcpFile, mcpOptions);
     notes.push(`bound from ${mcpFile}: ${mcp.bound.join(', ')}`, ...mcp.notes);

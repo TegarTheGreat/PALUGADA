@@ -368,7 +368,8 @@ out rather than shipping an entry that looks right and is not:
 - **GitHub branches, Hetzner, Cloudflare record deletion, HubSpot notes and
   Vercel deployments** document no idempotency key either.
 - **Google Calendar and Gmail** take OAuth access tokens that expire within
-  the hour, and PALUGADA has no OAuth flow for them yet.
+  the hour. PALUGADA signs in with OAuth to MCP servers, not yet to a vendor
+  bound by an entry.
 
 An operator can bind vendors in a file instead, which the console cannot
 change and whose names it cannot take:
@@ -424,6 +425,22 @@ only the ones you allow, at the tier you choose.
 3. Press **Look at its tools**. Each tool is shown with what it says it does,
    what it takes, and whether the server says it only reads or is
    destructive. Nothing is saved yet.
+
+   A server that signs in with OAuth -- Linear, Notion, Sentry, Atlassian and
+   Stripe's hosted servers do -- says **It asks you to sign in** instead.
+   Give it a **Name**, press **Sign in**, then **Open the sign-in page**, and
+   sign in there in the new tab; the tab says when it is done, and the
+   console lists the server's tools with what the sign-in gave. PALUGADA
+   registers itself with the server's authorization server when it allows
+   that. One that does not, such as GitHub's, asks for the **Client ID** (and
+   **Client secret**) of an app you register with it, coming back to the
+   address the message names. The sign-in comes back only to an https
+   address or to the machine the console runs on, so on a server reached by
+   another address, set `PALUGADA_APP_URL_PUBLIC` to its https address
+   first. What the sign-in gives is sealed and never shown, sent only to the
+   server it was issued for, and refreshed when the server says it has run
+   out; one that can no longer be refreshed makes its tools say to sign in
+   again.
 4. Tick the tools roles may use and choose each one's **Tier**. Tier 0 is
    offered only for a tool the server says only reads; a tool it calls
    destructive can only be tier 3.

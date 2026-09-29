@@ -365,6 +365,12 @@ class McpConnection {
       throw new Error(`the MCP server sent this request elsewhere${location ? ` (${location.slice(0, 200)})` : ''}; ` +
         'a redirect is not followed with its token -- save the address it points to instead');
     }
+    // The token has run out, or was never good: said as its own kind of
+    // failure, so a server signed in to with OAuth can be refreshed and the
+    // call made again. A 401 means the server did not act on the request.
+    if (response.status === 401) {
+      throw new McpUnauthorized((await response.text().catch(() => '')).slice(0, 300));
+    }
     if (response.status === 404 && this.#session?.id && message.method !== 'initialize') {
       await response.body?.cancel();
       throw new SessionGone();
@@ -398,6 +404,13 @@ class McpConnection {
 
 /** A 404 for a session the server has ended. */
 class SessionGone extends Error {}
+
+/** A 401: the server refused the token it was sent, or wanted one, and did nothing. */
+export class McpUnauthorized extends Error {
+  constructor(detail: string) {
+    super(`the MCP server answered 401: ${detail || 'no reason given'}`);
+  }
+}
 
 /** A task's sessions, by server, task and the authority its calls carry. */
 const sessions = new Map<string, { connection: McpConnection; timer: NodeJS.Timeout }>();
@@ -526,6 +539,13 @@ export interface McpOptions {
   resolve?: (reference: string) => Promise<string>;
   /** How long a quiet task keeps its session; five minutes unless a test says otherwise. */
   sessionIdleMs?: number;
+  /**
+   * A server signed in to with OAuth, whose token the server refused: gets a
+   * fresh one into the store (`mcp-oauth.ts`), and says whether it did.
+   * `since` is when the refused call began, so a token another call has
+   * refreshed in the meantime is used rather than refreshed twice.
+   */
+  refresh?: (server: string, since: number) => Promise<boolean>;
 }
 
 /** The server reached with its own token, when it has one. */
@@ -654,6 +674,22 @@ export function mcpCapability(
     return outputOf(result);
   };
 
+  /**
+   * A call whose token the server refused, made once more after the token is
+   * refreshed -- only for a server with a token of its own, never a
+   * division's credential, which is rotated by the owner.
+   */
+  const signedIn = async <T>(run: () => Promise<T>): Promise<T> => {
+    const since = Date.now();
+    try {
+      return await run();
+    } catch (failure) {
+      if (!(failure instanceof McpUnauthorized) || server.credentialAlias || !server.tokenRef || !options.refresh) throw failure;
+      if (!(await options.refresh(server.name, since))) throw failure;
+      return run();
+    }
+  };
+
   const capability: Capability<Record<string, unknown>, unknown> = {
     name,
     adapter: `mcp:${server.name}`,
@@ -661,24 +697,28 @@ export function mcpCapability(
     readsOutside: true,
     ...(listed?.inputSchema ? { inputSchema: listed.inputSchema } : {}),
     async execute(input, ctx: CapabilityContext) {
-      const { connection, done } = await connect(ctx);
-      try {
-        await current(connection, ctx.signal);
-        return await call(connection, toolName, input, ctx.idempotencyKey, ctx.signal);
-      } finally {
-        await done();
-      }
-    },
-    async preflight(ctx) {
-      try {
-        const { connection, done } = await connect({
-          ...(ctx.credential ? { credential: (alias: string) => ctx.credential!(alias, name) } : {}),
-        });
+      return signedIn(async () => {
+        const { connection, done } = await connect(ctx);
         try {
-          await current(connection);
+          await current(connection, ctx.signal);
+          return await call(connection, toolName, input, ctx.idempotencyKey, ctx.signal);
         } finally {
           await done();
         }
+      });
+    },
+    async preflight(ctx) {
+      try {
+        await signedIn(async () => {
+          const { connection, done } = await connect({
+            ...(ctx.credential ? { credential: (alias: string) => ctx.credential!(alias, name) } : {}),
+          });
+          try {
+            await current(connection);
+          } finally {
+            await done();
+          }
+        });
         return { ok: true };
       } catch (failure) {
         return { ok: false, detail: (failure as Error).message };
@@ -692,13 +732,15 @@ export function mcpCapability(
     capability.verify = async (input, result, ctx) => {
       // The task's own session: what the write left in it -- a browser's
       // page -- is what the read-back reads.
-      const { connection, done } = await connect(ctx);
-      try {
-        const answer = await call(connection, verify.tool, fillArguments(verify.arguments ?? {}, { input, result }), `${ctx.idempotencyKey}:verify`, ctx.signal);
-        return matches({ status: 200, body: answer }, result, input);
-      } finally {
-        await done();
-      }
+      return signedIn(async () => {
+        const { connection, done } = await connect(ctx);
+        try {
+          const answer = await call(connection, verify.tool, fillArguments(verify.arguments ?? {}, { input, result }), `${ctx.idempotencyKey}:verify`, ctx.signal);
+          return matches({ status: 200, body: answer }, result, input);
+        } finally {
+          await done();
+        }
+      });
     };
   }
   return capability;

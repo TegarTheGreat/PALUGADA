@@ -54,6 +54,7 @@ export async function consoleWithSettings(options: {
   return {
     url,
     secrets: sealed,
+    master,
     code,
     call,
     signIn: async () => {

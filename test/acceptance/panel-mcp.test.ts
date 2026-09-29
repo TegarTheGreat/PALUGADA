@@ -111,6 +111,28 @@ test('the owner looks at a server\'s tools before allowing any: what each does, 
   }
 });
 
+/**
+ * A server's name may hold `_`, and a sealed secret's may not: a server named
+ * `pay_links` with a token could not be saved -- the token's secret was
+ * refused as a name -- though the console offered the name.
+ */
+test('a server whose name holds _ keeps its token', async () => {
+  const server = await mcpServer({ needsToken: TOKEN });
+  const api = await consoleWithSettings();
+  try {
+    const token = await api.signIn();
+    const saved = await api.call('POST', '/api/control/mcp/servers', token, {
+      name: 'pay_links', url: server.url, token: TOKEN, tools: { get_transaction: { tier: 0 } }, proof: { totp: api.code() },
+    });
+    assert.equal(saved.status, 200, JSON.stringify(saved.body));
+    const looked = await api.call('POST', '/api/control/mcp/inspect', token, { name: 'pay_links' });
+    assert.equal(looked.body.problem, null, JSON.stringify(looked.body));
+  } finally {
+    await server.close();
+    await api.close();
+  }
+});
+
 test('a server is saved only as far as the rules allow, with the owner\'s device, its tools pinned to what they are now', async () => {
   const server = await mcpServer({ needsToken: TOKEN });
   const api = await consoleWithSettings();

@@ -639,3 +639,31 @@ test('a model key that points at nothing stops the boot', async () => {
     /PALUGADA_MODEL_URL api\.example is not an http\(s\) URL/,
   );
 });
+
+/**
+ * A run's own row said it used no tokens, whatever it used. The orphan sweep
+ * and the audit export read `agent_runs.tokens_used`, and nothing wrote it, so
+ * an orphaned run's event and every run in an export said 0.
+ */
+test('a run\'s own record says how many tokens it used, as its traces do', async () => {
+  const fixture = await createCompany('model-run-tokens');
+  const model = new ScriptedModel([
+    use('call-1', 'memory__search', { query: 'kopi' }),
+    (request) => say(answering(request.system, { summary: 'Looked it up.' })),
+  ]);
+  const registry = new CapabilityRegistry();
+  registry.register({ name: 'memory.search', adapter: 'test:memory', defaultTier: 0, async execute() { return []; } });
+  await registry.sync();
+  await grantCapability(fixture, 'memory.search');
+  await withTools(fixture, ['memory.search']);
+  const task = await newTask(fixture);
+  const outcome = await new Engine({ broker: new CapabilityBroker(registry), workerId: 'model-worker', llm: model, handlers: new Map() })
+    .runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(outcome.status, 'completed', outcome.reason);
+  const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ used: string; traced: string }>(
+    `SELECT r.tokens_used AS used,
+            (SELECT sum(t.input_tokens + t.output_tokens) FROM llm_traces t WHERE t.agent_run_id = r.id) AS traced
+       FROM agent_runs r WHERE r.task_id = $1`, [task.id]));
+  assert.equal(Number(rows[0]!.traced), 2 * 1_100, 'two turns');
+  assert.equal(Number(rows[0]!.used), Number(rows[0]!.traced));
+});

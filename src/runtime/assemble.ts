@@ -31,7 +31,7 @@ import { ContainerAdapter } from './container.ts';
 import { HttpSandboxProvider, RemoteSandboxAdapter } from './sandbox-adapter.ts';
 import type { LlmClient } from '../llm/client.ts';
 import { PalugadaError } from '../errors.ts';
-import type { SecretManager } from '../secrets/manager.ts';
+import { redactor, type SecretManager } from '../secrets/manager.ts';
 
 export interface RuntimeAssemblyOptions {
   env: NodeJS.ProcessEnv;
@@ -171,6 +171,13 @@ export function assembleRuntimes(options: RuntimeAssemblyOptions): RuntimeAssemb
       ...(claudeCode?.models ? { models: claudeCode.models } : {}),
       ...(claudeCode?.secretEnv ? { secretEnv: claudeCode.secretEnv, ...secretOptions } : {}),
     }));
+  }
+
+  // Tokens taken from the environment into a header: the redactor is told
+  // them, as it is every secret a reference resolves, so a request echoed in
+  // an error or a transcript does not carry them in the clear.
+  for (const token of [env.PALUGADA_RUNTIME_HTTP_TOKEN, env.PALUGADA_SANDBOX_TOKEN]) {
+    if (token) redactor.register(token);
   }
 
   if (env.PALUGADA_RUNTIME_HTTP_URL) {

@@ -1814,6 +1814,30 @@ test('the environment describes which runtimes exist (F13.1, F13.3, F12.9)', asy
   assert.ok(notes.some((note) => note.startsWith('runtimes:')));
 });
 
+/**
+ * The HTTP runtime's and the remote sandbox's tokens came from the
+ * environment straight into a header, and the redactor was never told them:
+ * an error that echoed a request, or a runtime that printed its own headers
+ * into a transcript, kept them in the clear.
+ */
+test('the runtimes\' own tokens are redacted wherever they would be written (F12.1)', async () => {
+  const { assembleRuntimes } = await import('../../src/runtime/assemble.ts');
+  const { redactor } = await import('../../src/secrets/manager.ts');
+  const runtimeToken = 'rt-http-token-6f1c2a9d8e7b';
+  const sandboxToken = 'sbx-token-0d9e8f7a6b5c';
+  assembleRuntimes({
+    env: {
+      PALUGADA_RUNTIME_HTTP_URL: 'https://runtime.example',
+      PALUGADA_RUNTIME_HTTP_TOKEN: runtimeToken,
+      PALUGADA_SANDBOX_URL: 'https://sandbox.example',
+      PALUGADA_SANDBOX_IMAGE: 'ghcr.io/example/sandbox:1',
+      PALUGADA_SANDBOX_TOKEN: sandboxToken,
+    },
+  });
+  const said = redactor.redact(`authorization: Bearer ${runtimeToken}; sandbox ${sandboxToken}`);
+  assert.ok(!said.includes(runtimeToken) && !said.includes(sandboxToken), said);
+});
+
 test('an agent CLI this platform knows is turned on by its name, and corrected in part (F13.3)', async () => {
   const { assembleRuntimes } = await import('../../src/runtime/assemble.ts');
   const { knownCli } = await import('../../src/runtime/known-clis.ts');

@@ -992,6 +992,9 @@ export class Engine {
             drawn,
           ]);
         }
+        // The run's own count, which the orphan sweep and the export read:
+        // nothing wrote it, so every run said it had used none.
+        await tx.query('UPDATE agent_runs SET tokens_used = tokens_used + $2 WHERE id = $1', [agentRunId, tokens]);
 
         // F11.1: every model call is traced through the adapter. The engine
         // never made the call, so this is the only record there will be of it.

@@ -3684,13 +3684,13 @@ events.
 | SIGKILL as the CRM's answer arrives | -- | the step was repeated under its first key; both completed in 62 s, one note each |
 | PostgreSQL restarted while a call is in flight | -- | the process logged the lost connections and carried on; both completed in 12 s, one note each, nothing leaked |
 
-What a separate review reported and this repository has not yet reproduced
-or fixed (a SIGTERM mid-run, which it also reported, was reproduced above
-and is handled): a CLI that
-writes without end grows memory without a bound; `agent_runs.tokens_used`
-is never written; a preflight that fails once for a network blip halts the
-task rather than waiting; containers left by a killed Docker runtime are not
-swept.
+A separate review reported more. Two of its findings are handled: a
+SIGTERM mid-run, reproduced above, and `agent_runs.tokens_used`, which
+nothing wrote, so every run and every export said a run had used no tokens;
+a run now counts what its traces count. Three are not yet reproduced or
+fixed: a CLI that writes without end grows memory without a bound; a
+preflight that fails once for a network blip halts the task rather than
+waiting; containers left by a killed Docker runtime are not swept.
 
 ### Connectors, keys and OAuth
 
@@ -3754,8 +3754,9 @@ And what made connecting a service hard:
 **Still open, next.** A vendor bound by an entry cannot sign in with OAuth,
 so Google Calendar and Gmail, whose tokens expire within the hour, still
 cannot be bound. Client ID Metadata Documents and re-authorizing for more
-scope on a 403 are not built. The runtimes' HTTP and sandbox tokens are not
-in the redactor. The master key
+scope on a 403 are not built. (The runtimes' HTTP and sandbox tokens, which
+came from the environment into a header without the redactor being told
+them, are now registered with it.) The master key
 cannot be rotated from the console, and the authenticator has no recovery
 codes. The second-factor lockout is global, so anyone who can reach the
 sign-in page can still lock the owner's *codes* for its window; it no longer

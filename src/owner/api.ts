@@ -1421,6 +1421,14 @@ export class OwnerApi {
           }
           await this.#requireFactor(body.proof, `disconnect ${name}`);
           const channels = { ...((await readSettings()).channels as ChannelSettings | undefined) };
+          // Telegram is told too. A webhook left behind kept sending the chat's
+          // messages to an address that now refuses them, and Telegram retries
+          // a refused update for a day, holding every later one behind it. Best
+          // effort: a bot already revoked has no webhook to take off.
+          if (name === 'telegram' && channels.telegram) {
+            const token = await this.#deploymentSettings().secrets.resolve('db://channel-telegram').catch(() => null);
+            if (token) await telegramApi(token, 'deleteWebhook', { drop_pending_updates: true }, this.#botApi()).catch(() => undefined);
+          }
           delete channels[name as keyof ChannelSettings];
           await writeSetting('channels', Object.keys(channels).length > 0 ? channels : null);
           for (const secret of name === 'telegram' ? ['channel-telegram', 'channel-telegram-webhook'] : [`channel-${name}`]) {

@@ -17,6 +17,7 @@ import { setDeploymentLanguages } from '../../src/domain/language.ts';
 import { withTenant } from '../../src/db/tenant.ts';
 import { looksLikeSecret } from '../../src/owner/assistant.ts';
 import { ASSISTANT_ACTIONS, ASSISTANT_CHECKS, NOT_FOR_THE_ASSISTANT } from '../../src/owner/assistant-actions.ts';
+import { AGENT_CATALOGUE } from '../../src/settings/agents.ts';
 import type { LlmBlock, LlmTurn, LlmTurnRequest, ToolUsingLlmClient } from '../../src/llm/client.ts';
 import { createCompany } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
@@ -84,6 +85,20 @@ test('every POST route is one the assistant may propose, may check, or is kept f
       assert.ok(!(secret in (action.fields ?? {})), `${action.pattern}: ${secret} is typed by the owner, not the model`);
     }
   }
+});
+
+/**
+ * The assistant was told an agent CLI signs in with `kind: 'api_key'`, a kind
+ * no CLI takes: every card it wrote to sign one in was refused by the route
+ * when the owner applied it. What it is told is the catalogue's own list.
+ */
+test('the assistant is told the kinds of key an agent CLI takes, as the route takes them', () => {
+  const action = ASSISTANT_ACTIONS.find((one) => one.pattern === '/api/control/agents/:name/credential')!;
+  const told = action.fields?.kind ?? '';
+  for (const entry of AGENT_CATALOGUE) {
+    for (const kind of entry.credentials) assert.match(told, new RegExp(`\\b${kind.id}\\b`), `${entry.name} takes ${kind.id}`);
+  }
+  assert.doesNotMatch(told, /api_key/);
 });
 
 test('the owner asks; the assistant reads and proposes; nothing changes until the owner applies the card with their device', async () => {

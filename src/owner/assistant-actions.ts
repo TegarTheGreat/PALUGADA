@@ -19,6 +19,14 @@
  * fails on one that is in neither, so a route added to the API is a decision
  * about the assistant as well.
  */
+import { AGENT_CATALOGUE } from '../settings/agents.ts';
+
+/**
+ * The kinds of key an agent CLI signs in with, from the catalogue itself: a
+ * card the assistant wrote with `api_key`, a kind no CLI takes, was refused
+ * by the route every time the owner applied it.
+ */
+const AGENT_KEY_KINDS = [...new Set(AGENT_CATALOGUE.flatMap((entry) => entry.credentials.map((kind) => kind.id)))].join(', ');
 
 export interface AssistantAction {
   pattern: string;
@@ -145,7 +153,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   {
     pattern: '/api/control/agents/:name/credential',
     what: 'Sign an agent CLI in with an API key.',
-    fields: { kind: 'api_key' },
+    fields: { kind: `whose key it is -- ${AGENT_KEY_KINDS} -- one the CLI takes` },
     secrets: { value: 'API key' },
     factor: 'always',
   },

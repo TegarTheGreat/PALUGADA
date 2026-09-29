@@ -170,6 +170,9 @@ test('the owner connects Telegram from the console: the bot checked, their chat 
 
     const cleared = await api.call('POST', '/api/control/channels/telegram/clear', token, { proof: { totp: api.code() } });
     assert.equal(cleared.status, 200);
+    // And Telegram is told: a webhook left behind kept sending the chat to an
+    // address that now refuses it, retried for a day.
+    assert.deepEqual(telegram.calls.at(-1), { method: 'deleteWebhook', body: { drop_pending_updates: true } });
     await assert.rejects(api.secrets.resolve('db://channel-telegram'), /nothing is stored/);
     await assert.rejects(api.secrets.resolve('db://channel-telegram-webhook'), /nothing is stored/);
   } finally {

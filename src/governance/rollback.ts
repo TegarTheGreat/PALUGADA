@@ -88,6 +88,8 @@ export async function rollBack(
       ...('displayName' in snapshot ? { displayName: (snapshot.displayName as string | null) ?? null } : {}),
       ...('title' in snapshot ? { title: (snapshot.title as string | null) ?? null } : {}),
       ...('persona' in snapshot ? { persona: (snapshot.persona as RolePersona | null) ?? null } : {}),
+      // And what done meant: a version from before it could change leaves it.
+      ...(Array.isArray(snapshot.doneCriteria) ? { doneCriteria: snapshot.doneCriteria as string[] } : {}),
     }, { ownerApproved: true, summary, restoring: true });
   }
 

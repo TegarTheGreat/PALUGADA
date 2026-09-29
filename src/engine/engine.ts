@@ -182,6 +182,13 @@ const PARKING_CODES: ReadonlySet<string> = new Set(['approval.required', 'owner.
  */
 const HALTING_CODES: ReadonlySet<string> = new Set(['capability.verify_failed']);
 
+/** What a run is told of its role's tools that nothing here is bound to. */
+function notConnected(names: readonly string[]): string {
+  return `Not connected in this deployment: ${names.join(', ')}. Nothing is bound to them yet, so they are not ` +
+    'among your tools in this run. Do the part of the work you can without them, and say in your output what is ' +
+    'left for when they are connected.';
+}
+
 export class Engine {
   readonly #options: EngineOptions;
   readonly #workerId: string;
@@ -290,6 +297,13 @@ export class Engine {
     agentRunId: string;
   }): Promise<RunRequest> {
     const { companyId, task, runtime } = input;
+    // The role's tools nothing in this process is bound to: a catalogued
+    // capability with no vendor, or one whose provider the owner has not
+    // chosen. Offered, they are learned to be unusable only by calling them,
+    // and a done criterion that needs one can then be neither met nor judged
+    // (the competitive analysis of 2026-09-28, L5). Not offered, and named,
+    // so the run does the part it can and says what waits for them.
+    const unconnected = runtime.tools.filter((name) => !this.#options.broker.registry.get(name));
 
     const request = await withTenant(companyId, async (tx) => {
       const context = await buildContext(tx, {
@@ -317,10 +331,13 @@ export class Engine {
           // The charters, then the role: the order F3.2 ranks them in. The
           // role's charter carries its title, which is the one place a
           // runtime is told whose work this is.
-          charter: context.sections
-            .filter((s) => s.kind === 'platform_charter' || s.kind === 'company_charter' || s.kind === 'role_charter')
-            .map((s) => (s.kind === 'role_charter' ? `## ${s.title}\n\n${s.body}` : s.body))
-            .join('\n\n'),
+          charter: [
+            ...context.sections
+              .filter((s) => s.kind === 'platform_charter' || s.kind === 'company_charter' || s.kind === 'role_charter')
+              .map((s) => (s.kind === 'role_charter' ? `## ${s.title}\n\n${s.body}` : s.body)),
+            // With the role, whose tools they are.
+            ...(unconnected.length > 0 ? [notConnected(unconnected)] : []),
+          ].join('\n\n'),
           // With their titles, like the memories: "How the owner wants it
           // done" is the owner's word and a skill's summary is not, and the
           // runtime was handed the two as the same kind of line.
@@ -334,7 +351,7 @@ export class Engine {
             .map((s) => ({ title: s.title, body: s.body })),
           workingMemory: context.workingMemory,
         },
-        allowedTools: toolRows.map((row) => ({
+        allowedTools: toolRows.filter((row) => !unconnected.includes(row.name)).map((row) => ({
           name: row.name,
           inputSchema: row.input_schema,
           tier: row.default_tier,

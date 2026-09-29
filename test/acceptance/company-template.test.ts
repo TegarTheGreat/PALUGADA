@@ -34,6 +34,9 @@ import {
   STANDARD_TEMPLATE_SLUG,
   STANDARD_COMPANY_TEMPLATE,
 } from '../../src/templates/standard.ts';
+import { baseRegistry } from '../../src/seed.ts';
+import { platformCapabilities } from '../../src/capabilities/platform.ts';
+import { declarationFor } from '../../src/broker/catalogue.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
 before(ensureSchema);
@@ -505,6 +508,68 @@ test('every role in the standard company can read its own memory and skills (F4.
     ['assurance', 'lab'],
     'a division whose roles hold a tool it was never granted, or an exception that was granted one',
   );
+});
+
+/**
+ * Every role the standard company starts with can finish its work on a fresh
+ * deployment (the competitive analysis of 2026-09-28, L5).
+ *
+ * The marketer's second criterion was "the customer record says what was
+ * sent and to whom", which only `crm.note` can make true, and a deployment
+ * with no vendor file binds no CRM. On DeepSeek the marketer wrote its four
+ * drafts, said honestly that the criterion was not met, and failed three
+ * times the same way: no task given to it could ever finish.
+ *
+ * Whether a sentence needs a vendor is not something code can read, so the
+ * reading is written down here, one line per criterion, the way the export
+ * test lists its columns: a criterion added to the template fails this test
+ * until someone says what it needs. What it needs is either bound on every
+ * deployment, or named in the criterion together with what counts when it
+ * is not connected.
+ */
+const NEEDS: Record<string, string[]> = {
+  'the state of every service checked is recorded': ['uptime.check'],
+  'anything that needs another division is handed off rather than attempted': ['task.delegate'],
+  'the plan names what will change, how it will be checked, and what undoing it would take': [],
+  'the tickets that follow from it exist': ['ticket.create'],
+  'staging shows the service answering after the change; where deploy.staging is not connected, the output says so and how the change is to be checked': ['deploy.staging', 'uptime.check'],
+  'production carries the same build, or the reason it does not is written down': [],
+  'every message sent was drafted first': ['email.draft'],
+  'what was sent, and to whom, is on the customer record; where crm.note is not connected, it is in the output': ['crm.note'],
+  'every payment is matched to an invoice that was read': [],
+  'the ledger balances against what was issued and paid; where ledger.read is not connected, the output lists what was issued and paid for the owner to check': ['ledger.read'],
+  'the customer has an answer, or a ticket exists saying who owes them one': ['ticket.create'],
+  'what the customer was told is on the customer record; where crm.note is not connected, it is in the output': ['crm.note'],
+  'the verdict names the criterion that decided it': [],
+  'a proposal that could not be judged was rejected for that reason rather than approved': [],
+  'the question has a numeric answer, or a statement of why the data cannot give one': [],
+  'the snippet that produced it is recorded with the result': [],
+};
+
+test('every role in the standard company can meet its done criteria on a fresh deployment (L5)', () => {
+  // What a deployment binds with no vendor file and no provider chosen: the
+  // platform's own, and the web and drafting ones that need only the files
+  // root and the model the setup asks for.
+  const fresh = new Set<string>([
+    ...baseRegistry().names(),
+    ...platformCapabilities({ files: { root: '/tmp' }, llm: new RecordingLlmClient(() => '') }).map((capability) => capability.name),
+  ]);
+  const seen = new Set<string>();
+  for (const role of STANDARD_COMPANY_TEMPLATE.roles) {
+    for (const criterion of role.doneCriteria ?? []) {
+      seen.add(criterion);
+      const needs = NEEDS[criterion];
+      assert.ok(needs, `${role.slug}: say what "${criterion}" needs, in NEEDS`);
+      for (const need of needs) {
+        assert.ok(declarationFor(need) || fresh.has(need), `${need} is not a capability`);
+        assert.ok(
+          fresh.has(need) || criterion.includes(`where ${need} is not connected`),
+          `${role.slug}: "${criterion}" needs ${need}, which a fresh deployment does not bind, and says nothing of what counts without it`,
+        );
+      }
+    }
+  }
+  assert.deepEqual(Object.keys(NEEDS).filter((criterion) => !seen.has(criterion)), [], 'a line here for a criterion the template no longer has');
 });
 
 /**

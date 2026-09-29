@@ -365,7 +365,8 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
       displayName: 'Bima',
       title: 'CTO',
       doneCriteria: [
-        'staging shows the service answering after the change',
+        'staging shows the service answering after the change; where deploy.staging is not connected, ' +
+          'the output says so and how the change is to be checked',
         'production carries the same build, or the reason it does not is written down',
       ],
       division: 'build',
@@ -396,7 +397,8 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
       title: 'CMO',
       doneCriteria: [
         'every message sent was drafted first',
-        'the customer record says what was sent and to whom',
+        'what was sent, and to whom, is on the customer record; where crm.note is not connected, it is ' +
+          'in the output',
       ],
       division: 'growth',
       model: 'standard',
@@ -424,7 +426,8 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
       title: 'CFO',
       doneCriteria: [
         'every payment is matched to an invoice that was read',
-        'the ledger balances against what was issued and paid',
+        'the ledger balances against what was issued and paid; where ledger.read is not connected, the ' +
+          'output lists what was issued and paid for the owner to check',
       ],
       division: 'finance',
       model: 'standard',
@@ -444,7 +447,8 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
       title: 'Head of Support',
       doneCriteria: [
         'the customer has an answer, or a ticket exists saying who owes them one',
-        'the customer record says what they were told',
+        'what the customer was told is on the customer record; where crm.note is not connected, it is in ' +
+          'the output',
       ],
       division: 'support',
       model: 'fast',

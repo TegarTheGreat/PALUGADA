@@ -379,9 +379,10 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   },
   {
     pattern: '/api/companies/:companyId/roles/:roleId',
-    what: 'Change a role: its charter, tools or model, or who it is -- its name, title or persona.',
+    what: 'Change a role: its charter, what done means, tools or model, or who it is -- its name, title or persona.',
     fields: {
       summary: 'what changed, for the history', systemPrompt: 'optional', tools: 'optional list',
+      doneCriteria: 'optional list, one testable sentence each, at most 12; replaces the role\'s',
       modelPrimary: 'optional tier', modelFallback: 'optional tier', runtime: 'optional runtime name from GET /api/runtimes',
       displayName: 'optional name', title: 'optional title, but not to or from CEO: that is the appoint action', persona: 'optional { preset, notes }; null takes it away',
     },

@@ -3638,10 +3638,23 @@ done:
   the company's back from its history. The skill reviewer's task carries
   the policies in force, since no run is otherwise told them.
 
-**Still open, next.** L5: the standard CMO's done criteria ask for a CRM
-note, and a fresh deployment binds no CRM, so the role cannot finish a
-task. F3.11's files are read only when the boot is given a directory, and
-it is not given one.
+- **The marketer could not finish anything (L5).** Its second criterion
+  was "the customer record says what was sent and to whom", which only
+  `crm.note` can make true, and a deployment with no vendor file binds no
+  CRM: the run wrote its drafts, said honestly the criterion was not met,
+  and failed three times alike. The responder, the bookkeeper and the
+  builder had one each of the same kind. Each now says what counts where
+  its vendor is not connected, and `company-template.test.ts` holds every
+  criterion of the template to a written list of what it needs, so the
+  next one added has to say. A role's tools that nothing is bound to are
+  no longer offered to its runs, and every runtime is told their names --
+  a run found them unusable only by calling them. The owner changes what
+  done means for a role from its drawer; it is recorded with the role's
+  version and put back with it, which is how a company made before this
+  gets the new criteria.
+
+**Still open, next.** F3.11's files are read only when the boot is given a
+directory, and it is not given one.
 
 ## 3. Decisions, deviations, and what is unverified
 

@@ -2966,6 +2966,43 @@ test('a role field cannot be set to the word "null" (F3.9)', async () => {
   }
 });
 
+/**
+ * What done means is the owner's to change from the console (L5): a role
+ * held to a criterion its deployment cannot meet otherwise fails every task,
+ * and hiring it again was the only way out.
+ */
+test('the owner changes what done means for a role, with the device (F2.8)', async () => {
+  const fixture = await createCompany('console-role-done');
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+    const path = `/api/companies/${fixture.companyId}/roles/${fixture.roleId}`;
+    const criteria = ['the output names every draft it made', 'nothing was sent that was not drafted first'];
+
+    const unproven = await call(owner.url, 'POST', path, { token, body: { doneCriteria: criteria } });
+    assert.equal(unproven.status, 403, JSON.stringify(unproven.body));
+    const one = await call(owner.url, 'POST', path, {
+      token, body: { doneCriteria: 'the output names every draft it made', proof: { totp: owner.code() } },
+    });
+    assert.equal(one.status, 400, 'a list, one criterion each');
+    assert.match(String(one.body.error), /doneCriteria must be an array/);
+    const nulled = await call(owner.url, 'POST', path, {
+      token, body: { doneCriteria: ['the output names every draft it made', null], proof: { totp: owner.code() } },
+    });
+    assert.equal(nulled.status, 400, JSON.stringify(nulled.body));
+    assert.match(String(nulled.body.error), /doneCriteria\[1\] must be text/);
+
+    const changed = await call(owner.url, 'POST', path, { token, body: { doneCriteria: criteria, proof: { totp: owner.code() } } });
+    assert.equal(changed.status, 200, JSON.stringify(changed.body));
+    const role = (await call(owner.url, 'GET', `/api/companies/${fixture.companyId}/structure`, { token })).body as {
+      roles: Array<{ id: string; doneCriteria: string[] }>;
+    };
+    assert.deepEqual(role.roles.find((one) => one.id === fixture.roleId)!.doneCriteria, criteria);
+  } finally {
+    await owner.close();
+  }
+});
+
 test('installing a bundle takes a factor, like every other structural change (F16, F2.9)', async () => {
   // An install writes divisions, roles and capability grants, including tier 3
   // ones. A session is a browser tab.

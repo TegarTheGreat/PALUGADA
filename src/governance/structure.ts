@@ -196,6 +196,50 @@ export interface RoleFields {
   displayName?: string | null;
   title?: string | null;
   persona?: RolePersona | null;
+  /**
+   * What done means (F2.8): every run is shown them and held to them. Fixed
+   * at hiring until 2026-09-29, so a role whose criteria needed a tool the
+   * deployment never bound could not finish anything, and the owner could not
+   * say otherwise (the competitive analysis of that week, L5).
+   */
+  doneCriteria?: string[];
+}
+
+/** The most criteria a role is held to: each is answered, with evidence, in every run. */
+const DONE_CRITERIA_LIMIT = 12;
+/** A criterion is one testable sentence, not a procedure. */
+const DONE_CRITERION_LENGTH = 500;
+
+/**
+ * A role's done criteria from what was given: trimmed, blank lines dropped,
+ * at least one (F2.8), and few and short enough that every run can answer
+ * each of them.
+ */
+function doneCriteriaFrom(lines: readonly unknown[]): string[] {
+  const criteria = lines.map((line) => String(line).trim()).filter(Boolean);
+  if (criteria.length === 0) {
+    throw new PalugadaError(
+      'contract.violation',
+      'a role needs at least one done criterion: how anyone will know its work is finished (F2.8)',
+      { field: 'doneCriteria' },
+    );
+  }
+  if (criteria.length > DONE_CRITERIA_LIMIT) {
+    throw new PalugadaError(
+      'contract.violation',
+      `a role has at most ${DONE_CRITERIA_LIMIT} done criteria, and ${criteria.length} were given: every run answers each one`,
+      { field: 'doneCriteria' },
+    );
+  }
+  const long = criteria.find((criterion) => criterion.length > DONE_CRITERION_LENGTH);
+  if (long) {
+    throw new PalugadaError(
+      'contract.violation',
+      `a done criterion is at most ${DONE_CRITERION_LENGTH} characters, one testable sentence; this one is ${long.length}`,
+      { field: 'doneCriteria' },
+    );
+  }
+  return criteria;
 }
 
 /**
@@ -208,7 +252,9 @@ export interface RoleFields {
  */
 function changeKindOf(fields: RoleFields): RoleChange {
   // Who a role is changes how it works, as its charter does.
-  if (fields.systemPrompt !== undefined || fields.persona !== undefined || fields.displayName !== undefined || fields.title !== undefined) {
+  // So does what done means: it is what every run is held to.
+  if (fields.systemPrompt !== undefined || fields.persona !== undefined || fields.displayName !== undefined
+    || fields.title !== undefined || fields.doneCriteria !== undefined) {
     return 'charter';
   }
   if (fields.tools !== undefined) return 'skills';
@@ -237,6 +283,7 @@ export async function applyRoleChange(
   // for exactly this -- had no caller. Two statements of one rule is how they
   // drift, and the one that matters is always the one nobody re-read.
   assertApproved(options.ownerApproved, changeKindOf(fields));
+  const doneCriteria = fields.doneCriteria === undefined ? undefined : doneCriteriaFrom(fields.doneCriteria);
 
   return withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
@@ -250,8 +297,10 @@ export async function applyRoleChange(
       display_name: string | null;
       title: string | null;
       persona: RolePersona | null;
+      done_criteria: string[];
     }>(
-      `SELECT slug, system_prompt, tools, model_primary, model, model_fallback, runtime, display_name, title, persona
+      `SELECT slug, system_prompt, tools, model_primary, model, model_fallback, runtime, display_name, title, persona,
+              done_criteria
          FROM roles WHERE id = $1`,
       [roleId],
     );
@@ -275,6 +324,7 @@ export async function applyRoleChange(
         displayName: before.display_name,
         title: before.title,
         persona: before.persona,
+        doneCriteria: before.done_criteria,
       },
       summary: options.summary ?? `State of ${before.slug} before this change`,
     });
@@ -289,7 +339,8 @@ export async function applyRoleChange(
               -- Absent leaves each as it is; null clears it.
               display_name   = CASE WHEN $7 THEN $8 ELSE display_name END,
               title          = CASE WHEN $9 THEN $10 ELSE title END,
-              persona        = CASE WHEN $11 THEN $12::jsonb ELSE persona END
+              persona        = CASE WHEN $11 THEN $12::jsonb ELSE persona END,
+              done_criteria  = coalesce($13::text[], done_criteria)
         WHERE id = $1`,
       [
         roleId,
@@ -301,6 +352,7 @@ export async function applyRoleChange(
         fields.displayName !== undefined, fields.displayName ?? null,
         title !== undefined, title ?? null,
         fields.persona !== undefined, fields.persona ? JSON.stringify(fields.persona) : null,
+        doneCriteria ?? null,
       ],
     );
 
@@ -368,14 +420,7 @@ export async function addRole(
   if (!systemPrompt) {
     throw new PalugadaError('contract.violation', 'say what the role is for: its system prompt is empty', { field: 'systemPrompt' });
   }
-  const doneCriteria = (role.doneCriteria ?? []).map((line) => String(line).trim()).filter(Boolean);
-  if (doneCriteria.length === 0) {
-    throw new PalugadaError(
-      'contract.violation',
-      'a role needs at least one done criterion: how anyone will know its work is finished (F2.8)',
-      { field: 'doneCriteria' },
-    );
-  }
+  const doneCriteria = doneCriteriaFrom(role.doneCriteria ?? []);
   const tools = (role.tools ?? []).map(String);
   if (tools.length > 12) {
     throw new PalugadaError('contract.violation', 'a role has at most 12 tools (F2.6)', { field: 'tools' });

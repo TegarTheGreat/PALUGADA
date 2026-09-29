@@ -3121,6 +3121,21 @@ export class OwnerApi {
           if (body.modelFallback !== undefined) {
             fields.modelFallback = textList(body.modelFallback, 'modelFallback');
           }
+          if (body.doneCriteria !== undefined) {
+            // A list, one criterion each; blank lines are dropped and the
+            // rest bounded where the change is made (governance/structure.ts).
+            if (!Array.isArray(body.doneCriteria)) {
+              throw new PalugadaError('contract.violation', 'doneCriteria must be an array: one criterion each', { field: 'doneCriteria' });
+            }
+            // Checked for text rather than cast: `String(null)` is a criterion
+            // reading "null" that no run could ever meet.
+            fields.doneCriteria = body.doneCriteria.map((line, index) => {
+              if (typeof line !== 'string') {
+                throw new PalugadaError('contract.violation', `doneCriteria[${index}] must be text`, { field: 'doneCriteria' });
+              }
+              return line;
+            });
+          }
           if (body.runtime !== undefined) {
             // Only one this deployment runs. A role moved onto a runtime
             // nothing here employs halts on its next task, and the owner

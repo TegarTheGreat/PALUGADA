@@ -33,6 +33,7 @@ import { instructTask } from '../../src/engine/owner-control.ts';
 import { setCompanyLanguages } from '../../src/domain/language.ts';
 import { renderPrompt, toWireRequest } from '../../src/runtime/wire.ts';
 import { scrubExpiredPrompts } from '../../src/retention/retention.ts';
+import { declarationFor } from '../../src/broker/catalogue.ts';
 import { createCompany, grantCapability, setRoleSchemas, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
@@ -213,6 +214,50 @@ test('a runtime is given tools as names and schemas, never credentials (F13.4)',
   const serialised = JSON.stringify(seen.request);
   assert.equal(serialised.includes('vault://'), false, 'no secret reference reaches the runtime');
   assert.equal(serialised.includes('secret_ref'), false);
+});
+
+/**
+ * A tool the role holds and nothing is bound to is not handed to the run,
+ * and the run is told so in words (the competitive analysis of 2026-09-28,
+ * L5). The marketer was offered `crm.note` on a deployment with no CRM, and
+ * learned it was unusable only by calling it; its criteria could then be
+ * neither met nor judged. Told, a run can do the part it can and say what
+ * is left for when the tool is connected -- which the template's criteria
+ * now ask of it.
+ */
+test('a tool nothing is bound to is not offered, and the run is told it is not connected (L5)', async () => {
+  const fixture = await createCompany('runtime-unbound');
+  const registry = new CapabilityRegistry();
+  registry.register({
+    name: 'dns.read', adapter: 'test:dns', defaultTier: 0, execute: async () => ({ ok: true }),
+  } as Capability<{ zone: string }, { ok: boolean }>);
+  await registry.sync();
+  await registry.recordUnbound([declarationFor('crm.note')!, declarationFor('email.send')!]);
+  for (const name of ['dns.read', 'crm.note', 'email.send']) await grantCapability(fixture, name);
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    "UPDATE roles SET runtime = 'spy', tools = ARRAY['dns.read','crm.note','email.send'] WHERE id = $1", [fixture.roleId]));
+
+  const { adapter, seen } = spyAdapter();
+  const adapters = new AdapterRegistry();
+  adapters.register(adapter);
+  const engine = new Engine({ broker: new CapabilityBroker(registry), adapters, workerId: 'runtime-worker' });
+  const task = await newTask(fixture);
+  await engine.runTask(fixture.companyId, task.id, 'worker');
+
+  assert.deepEqual(seen.request!.allowedTools.map((tool) => tool.name), ['dns.read'], 'only what can be called is offered');
+  assert.match(seen.request!.contextPack.charter,
+    /Not connected in this deployment: crm\.note, email\.send\. Nothing is bound to them yet/);
+  // Kept with the run, like everything else it was told.
+  const { rows: [run] } = await withTenant(fixture.companyId, (tx) => tx.query<{ briefing: { contextPack: { charter: string } } }>(
+    'SELECT briefing FROM agent_runs WHERE task_id = $1', [task.id]));
+  assert.match(JSON.stringify(run!.briefing), /Not connected in this deployment: crm\.note, email\.send/);
+
+  // A role whose tools are all bound is told nothing of the kind.
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    "UPDATE roles SET tools = ARRAY['dns.read'] WHERE id = $1", [fixture.roleId]));
+  const second = await newTask(fixture);
+  await engine.runTask(fixture.companyId, second.id, 'worker');
+  assert.ok(!seen.request!.contextPack.charter.includes('Not connected'));
 });
 
 test('a runtime is lent what it needs and no more', async () => {

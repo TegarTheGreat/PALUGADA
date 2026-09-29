@@ -579,15 +579,28 @@ function RoleDrawer({
               <Accordion.Panel><RoleRuntime companyId={companyId} role={role} changed={changed} /></Accordion.Panel>
             </Accordion.Item>
             <Accordion.Item value="change">
-              <Accordion.Control>{t('Change its charter or model')}</Accordion.Control>
+              <Accordion.Control>{t('Change its charter, done criteria or model')}</Accordion.Control>
               <Accordion.Panel>
                 <ActionForm
                   columns={1}
                   fields={[
                     { name: 'systemPrompt', label: t('Charter'), type: 'textarea', description: t('Blank keeps the current one') },
+                    {
+                      name: 'doneCriteria', label: t('Done means'), type: 'textarea', initial: role.doneCriteria.join('\n'),
+                      description: t('One testable sentence per line. Every run answers each one with evidence; name what counts when a tool it needs is not connected.'),
+                    },
                     { name: 'modelPrimary', label: t('Primary model'), initial: role.model },
                   ]}
-                  submit={(values, proof) => api('POST', `/api/companies/${companyId}/roles/${role.id}`, { ...values, proof })}
+                  submit={(values, proof) => {
+                    // Sent only when changed, so a new model is not also
+                    // recorded as new criteria in the role's history.
+                    const { doneCriteria, ...rest } = values;
+                    const lines = String(doneCriteria ?? '').split('\n').map((line) => line.trim()).filter(Boolean);
+                    const changedCriteria = lines.join('\n') !== role.doneCriteria.join('\n');
+                    return api('POST', `/api/companies/${companyId}/roles/${role.id}`, {
+                      ...rest, ...(changedCriteria ? { doneCriteria: lines } : {}), proof,
+                    });
+                  }}
                   factor={t('Change {role}', { role: role.slug })}
                   action={t('Change it')}
                   success={t('Role changed.')}

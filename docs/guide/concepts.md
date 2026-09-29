@@ -70,7 +70,12 @@ defines it:
   again, told why. The answers are shown with the work, under **Done
   means**. What they check is the run's own account; whether the evidence
   holds is yours, or a reviewer's, to judge. Code a deployment registers as
-  a role's handler is checked by its own tests instead.
+  a role's handler is checked by its own tests instead. You change them
+  from the role; a criterion that needs a vendor says what counts when it
+  is not connected, and a run is told which of its tools are not.
+- **Its tools:** what it may call, within its division's grants. A tool
+  nothing in the deployment is bound to yet -- a CRM, a mail provider -- is
+  not offered to a run, and the run is told so.
 - **Its output schema:** the shape its answer must have. Every role in the
   standard template returns a `summary`, and may return `artefacts`. An
   answer that does not fit is refused and the task tries again, up to its

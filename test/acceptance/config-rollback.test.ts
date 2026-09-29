@@ -50,6 +50,44 @@ test("a role goes back to how it was before a change, and the rollback is on the
   assert.deepEqual(rows.map((row) => row.payload.restoredFrom), [1]);
 });
 
+/**
+ * What done means was fixed when a role was hired, and a company whose
+ * marketer could never meet its criteria on a deployment without a CRM (the
+ * competitive analysis of 2026-09-28, L5) had no way to say otherwise short
+ * of hiring the role again. It changes like the rest of a role: with the
+ * owner's approval, recorded, and put back with the version.
+ */
+test('what done means for a role changes with the owner\'s approval and comes back with its version (L5, F2.8)', async () => {
+  const fixture = await createCompany('rollback-done');
+  const criteria = async () => (await withTenant(fixture.companyId, (tx) => tx.query<{ done_criteria: string[] }>(
+    'SELECT done_criteria FROM roles WHERE id = $1', [fixture.roleId]))).rows[0]!.done_criteria;
+  const original = await criteria();
+
+  await applyRoleChange(fixture.companyId, fixture.roleId,
+    { doneCriteria: ['  the output names every draft it made ', '', 'nothing was sent without a draft'] }, { ownerApproved: true });
+  assert.deepEqual(await criteria(), ['the output names every draft it made', 'nothing was sent without a draft'],
+    'trimmed, and blank lines are not criteria');
+
+  await rollBack(fixture.companyId, 'role', fixture.roleId, 1);
+  assert.deepEqual(await criteria(), original);
+
+  await assert.rejects(
+    applyRoleChange(fixture.companyId, fixture.roleId, { doneCriteria: ['anything counts'] }, { ownerApproved: false }),
+    (error: unknown) => isPalugadaError(error) && error.code === 'approval.required'
+      // What done means is judged like the charter it belongs to (F17.2).
+      && /role's charter/.test(error.message));
+  await assert.rejects(
+    applyRoleChange(fixture.companyId, fixture.roleId, { doneCriteria: [' ', ''] }, { ownerApproved: true }),
+    /at least one done criterion/);
+  await assert.rejects(
+    applyRoleChange(fixture.companyId, fixture.roleId, { doneCriteria: Array.from({ length: 13 }, (_, i) => `criterion ${i}`) }, { ownerApproved: true }),
+    /at most 12 done criteria/);
+  await assert.rejects(
+    applyRoleChange(fixture.companyId, fixture.roleId, { doneCriteria: ['x'.repeat(501)] }, { ownerApproved: true }),
+    /at most 500 characters/);
+  assert.deepEqual(await criteria(), original, 'a refused change changes nothing');
+});
+
 test('a charter and a policy come back as the version the owner picked', async () => {
   const fixture = await createCompany('rollback-charter');
   await publishCharter({ companyId: fixture.companyId, body: 'We answer within a day.' });

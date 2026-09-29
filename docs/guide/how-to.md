@@ -306,9 +306,13 @@ the list to one project, role or goal, and **Show older** pages back past
 the newest hundred.
 
 A hired role runs on the company's most common runtime and the `standard`
-model tier. The role's **Change its charter or model** section changes its
-charter and its **Primary model**; the console does not change a role's
-tools after it is hired.
+model tier. The role's **Change its charter, done criteria or model**
+section changes its charter, what done means for it (**Done means**, one
+criterion per line) and its **Primary model**; the console does not change a
+role's tools after it is hired. A criterion that needs a vendor should say
+what counts when that vendor is not connected: a run is told which of its
+role's tools are not connected, and cannot meet a criterion that only one of
+them could.
 
 ## Connect a vendor
 
@@ -657,7 +661,8 @@ Then, however it was set up:
    `PALUGADA_RUNTIME_SPECS=[{"name":"codex","models":{"fast":"…","standard":"…","deep":"…"}}]`.
    A tier the CLI has no model for halts the task with a message that says
    so, rather than failing every attempt. A role whose **Primary model** is
-   a model name, under **Change its charter or model**, is passed as it is.
+   a model name, under **Change its charter, done criteria or model**, is passed
+   as it is.
 
 Any other CLI, or a correction to a known one, goes in
 `PALUGADA_RUNTIME_SPECS` as JSON: its `command`, its `args` with

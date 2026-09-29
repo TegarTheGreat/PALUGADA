@@ -3766,6 +3766,28 @@ And what made connecting a service hard:
 
   A server's name with `_` in it could not keep a token at all, since a
   sealed secret's name cannot hold one; it now can.
+- **The servers offered by name still said sign-in did not exist.** Their
+  list left out Notion "because this client runs no sign-in flow", and
+  offered Linear, Atlassian and Stripe only with a pasted key. The list was
+  checked again against each vendor's documentation and public OAuth
+  metadata; none was signed in to. It now has twenty-eight servers, each
+  marked with how it lets PALUGADA in:
+  - Notion, Webflow and Square are signed in to with nothing to copy.
+    Choosing one asks the server, and the sign-in is offered at once.
+  - Twelve take a key or a sign-in.
+  - GitHub, Asana, Slack, HubSpot and Box let PALUGADA in only through an
+    app the owner registers. The console links to where one is made, and
+    shows the return address to give it, which it did not show before.
+
+  Choosing Notion and HubSpot in the console reached their real servers,
+  and both answered with their authorization servers. Vercel, Figma and
+  Canva are left out: they register only clients they have approved.
+  Google Workspace's servers are left out too, because they are a
+  developer preview.
+
+  A sign-in's token was also sent the way the preset sends a pasted key:
+  Sentry's `Sentry-Bearer` scheme, for a token that OAuth issues as a bearer
+  token. It is now always sent, and saved, as a bearer token.
 
 **Still open, next.** A vendor bound by an entry cannot sign in with OAuth,
 so Google Calendar and Gmail, whose tokens expire within the hour, still

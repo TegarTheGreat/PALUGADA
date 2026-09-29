@@ -1585,9 +1585,18 @@ export class OwnerApi {
         // named, since its servers are bound next to these.
         method: 'GET',
         pattern: '/api/control/mcp',
-        handle: async () => {
+        handle: async ({ request }) => {
           const deployment = this.#deploymentSettings();
           const running = mcpNamesIn(deployment.env.PALUGADA_MCP_SETTINGS);
+          // Where a sign-in comes back, for the vendors that make the owner
+          // register a client with it first; null where this console's
+          // address is one no sign-in may come back to, and the start says why.
+          let callback: string | null = null;
+          try {
+            callback = this.#callbackAddress(request);
+          } catch {
+            callback = null;
+          }
           return {
             servers: mcpServersIn(await readSettings()).map((server) => ({
               name: server.name,
@@ -1601,6 +1610,7 @@ export class OwnerApi {
             // The servers signed in to with OAuth, by name: never a token.
             signedIn: Object.fromEntries(Object.entries(oauthGrantsIn(await readSettings()))
               .map(([name, grant]) => [name, { issuer: grant.issuer, url: grant.url }])),
+            callback,
             file: deployment.baseEnv.PALUGADA_MCP_SERVERS ?? null,
             applies: deployment.restart ? 'now' : 'next_start',
           };
@@ -1623,8 +1633,8 @@ export class OwnerApi {
             throw new PalugadaError('config.invalid', 'give the server\'s address, or the name of one already saved', { field: 'url' });
           }
           const url = saved ? saved.url : mcpUrl(body.url);
-          const tokenIn = saved ? saved.tokenIn : mcpTokenIn(body.tokenIn);
-          const { token } = await this.#mcpToken(body, url);
+          const { token, signedIn } = await this.#mcpToken(body, url);
+          const tokenIn = signedIn ? undefined : saved ? saved.tokenIn : mcpTokenIn(body.tokenIn);
           try {
             return { problem: null, tools: await offeredTools(accessFor({ url, ...(tokenIn ? { tokenIn } : {}) }, token)) };
           } catch (failure) {
@@ -1704,8 +1714,10 @@ export class OwnerApi {
           if (Object.keys(chosen).length === 0) {
             throw new PalugadaError('config.invalid', `${name} allows none of its tools: allow at least one, or remove the server`, { name });
           }
-          const tokenIn = mcpTokenIn(body.tokenIn);
-          const { token, typed, keep } = await this.#mcpToken(body, url);
+          const { token, typed, keep, signedIn } = await this.#mcpToken(body, url);
+          // A sign-in's token is a bearer token (RFC 6750), however a preset
+          // says a pasted key is sent.
+          const tokenIn = signedIn ? undefined : mcpTokenIn(body.tokenIn);
           let pins: Map<string, string>;
           try {
             pins = await currentPins(accessFor({ url, ...(tokenIn ? { tokenIn } : {}) }, token));
@@ -4300,21 +4312,25 @@ export class OwnerApi {
    * typed, or the one saved for that server -- but only while the address is
    * on the host it was saved for, or it would be handed to another server.
    */
-  async #mcpToken(body: Record<string, unknown>, url: string): Promise<{ token: string | null; typed: string | null; keep: boolean }> {
+  async #mcpToken(body: Record<string, unknown>, url: string): Promise<{
+    token: string | null; typed: string | null; keep: boolean; signedIn: boolean;
+  }> {
     const typed = typeof body.token === 'string' && body.token.trim() ? body.token.trim() : null;
-    if (typed) return { token: typed, typed, keep: false };
+    if (typed) return { token: typed, typed, keep: false, signedIn: false };
     const settings = await readSettings();
+    // Signed in to with OAuth: the token the sign-in left, for the address it
+    // was issued for and no other. Saved or not, it is kept under the same
+    // name as a pasted one, and this says which it is.
+    const grant = typeof body.name === 'string' ? oauthGrantsIn(settings)[body.name] : undefined;
+    const signedIn = Boolean(grant && grant.url === url);
     const saved = typeof body.name === 'string' ? mcpServersIn(settings).find((one) => one.name === body.name) : undefined;
     if (saved?.tokenSecret && new URL(saved.url).origin === new URL(url).origin) {
-      return { token: await this.#deploymentSettings().secrets.resolve(`db://${saved.tokenSecret}`), typed: null, keep: true };
+      return { token: await this.#deploymentSettings().secrets.resolve(`db://${saved.tokenSecret}`), typed: null, keep: true, signedIn };
     }
-    // Signed in to with OAuth, and not saved yet: the token the sign-in left,
-    // for the address it was issued for and no other.
-    const grant = typeof body.name === 'string' ? oauthGrantsIn(settings)[body.name] : undefined;
-    if (grant && grant.url === url) {
-      return { token: await this.#deploymentSettings().secrets.resolve(`db://${mcpSecretName(body.name as string)}`), typed: null, keep: true };
+    if (signedIn) {
+      return { token: await this.#deploymentSettings().secrets.resolve(`db://${mcpSecretName(body.name as string)}`), typed: null, keep: true, signedIn };
     }
-    return { token: null, typed: null, keep: false };
+    return { token: null, typed: null, keep: false, signedIn: false };
   }
 
   /**

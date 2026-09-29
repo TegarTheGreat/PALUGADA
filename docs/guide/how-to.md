@@ -413,28 +413,41 @@ only the ones you allow, at the tier you choose.
 ### From the console
 
 1. Open **This deployment**, **MCP servers**, and press **Add an MCP server**.
-2. Under **Start from**, pick a service -- GitHub, Linear, Stripe,
-   Atlassian, Sentry, Cloudflare, Neon, Zapier, Apify, Hugging Face,
-   Context7, Firecrawl, Tavily, Exa, Browserbase, or Playwright, which you
-   run yourself -- and its name, address and where its token goes are
-   filled in; **Get a key** opens the page where the service makes one.
-   For any other server, leave it empty and give a **Name** -- lowercase,
-   such as `payments`; each tool becomes `mcp.payments.<tool>` -- and its
+2. Under **Start from**, pick a service, and its name, address and how it
+   lets PALUGADA in are filled in. There are three kinds:
+   - **Signed in to, with nothing to copy:** Notion, Webflow and Square.
+     Choosing one asks the server at once, and **It asks you to sign in**
+     appears (step 3).
+   - **A key, or a sign-in:** Linear, Atlassian, Airtable, monday.com,
+     Intercom, Stripe, Resend, Sentry, Cloudflare, Supabase, Neon and
+     Zapier. Paste a key (**Get a key** opens the page where the service
+     makes one), or leave the **Token** empty and sign in.
+   - **Through an app you register first:** GitHub, Asana, Slack, HubSpot
+     and Box let an outside tool in only as an app registered with them.
+     **Register an app** opens the page where you make one; give it the
+     return address the console shows, and paste its **Client ID** and
+     **Client secret** when you sign in. GitHub also takes a key.
+
+   Apify, Hugging Face, Context7, Firecrawl, Tavily, Exa and Browserbase take
+   a key; Playwright is run on a machine of yours. For any other server,
+   leave **Start from** empty and give a **Name** -- lowercase, such as
+   `payments`; each tool becomes `mcp.payments.<tool>` -- and its
    **Address**. Paste the **Token** if the server asks for one: it is sealed
    here, and sent where the server reads it.
 3. Press **Look at its tools**. Each tool is shown with what it says it does,
    what it takes, and whether the server says it only reads or is
    destructive. Nothing is saved yet.
 
-   A server that signs in with OAuth -- Linear, Notion, Sentry, Atlassian and
-   Stripe's hosted servers do -- says **It asks you to sign in** instead.
+   A server that signs in with OAuth says **It asks you to sign in**
+   instead.
    Give it a **Name**, press **Sign in**, then **Open the sign-in page**, and
    sign in there in the new tab; the tab says when it is done, and the
    console lists the server's tools with what the sign-in gave. PALUGADA
    registers itself with the server's authorization server when it allows
    that. One that does not, such as GitHub's, asks for the **Client ID** (and
    **Client secret**) of an app you register with it, coming back to the
-   address the message names. The sign-in comes back only to an https
+   return address shown above them. A sign-in's token is always sent as a
+   bearer token, whatever the service's pasted key would have been sent as. The sign-in comes back only to an https
    address or to the machine the console runs on, so on a server reached by
    another address, set `PALUGADA_APP_URL_PUBLIC` to its https address
    first. What the sign-in gives is sealed and never shown, sent only to the

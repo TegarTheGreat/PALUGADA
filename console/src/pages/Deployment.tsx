@@ -1271,9 +1271,12 @@ interface McpPreset {
   about: string;
   url: string;
   tokenIn?: McpTokenIn;
-  key: 'required' | 'none';
+  key: 'required' | 'optional' | 'none';
   keyUrl?: string;
   keyHint?: string;
+  /** Signed in to: the server registers PALUGADA itself, or the owner registers a client first. */
+  signIn?: 'registers' | 'client';
+  clientUrl?: string;
   run?: string;
 }
 
@@ -1282,6 +1285,8 @@ interface McpView {
   presets: McpPreset[];
   /** Servers signed in to with OAuth, by name. */
   signedIn: Record<string, { issuer: string; url: string }>;
+  /** Where a sign-in comes back to, for a client the owner registers. */
+  callback: string | null;
   file: string | null;
   applies: 'now' | 'next_start';
 }
@@ -1298,11 +1303,23 @@ function hostOf(address: string): string {
 /** The same words the server sends about each preset, here so that they are translated. */
 const MCP_PRESET_TEXT: Record<string, string> = {
   github: N('Repositories, issues and pull requests'),
+  notion: N('Pages, databases and comments'),
   linear: N('Issues and projects'),
-  stripe: N('Payments, customers and invoices'),
   atlassian: N('Jira and Confluence'),
+  airtable: N('Bases, tables and records'),
+  monday: N('Boards, items and updates'),
+  asana: N('Projects and tasks'),
+  slack: N('Channels, messages and search'),
+  hubspot: N('Contacts, companies and deals'),
+  intercom: N('Conversations and contacts'),
+  box: N('Files and folders'),
+  webflow: N('Sites, pages and CMS collections'),
+  stripe: N('Payments, customers and invoices'),
+  square: N('Payments, orders and catalogue'),
+  resend: N('Email sending and domains'),
   sentry: N('Errors and performance'),
   cloudflare: N('Your Cloudflare account'),
+  supabase: N('Projects, databases and functions'),
   neon: N('Postgres databases'),
   zapier: N('Other apps, through the actions you set up in Zapier'),
   apify: N('Ready-made scrapers and automations'),
@@ -1321,6 +1338,8 @@ const MCP_KEY_HINT: Record<string, string> = {
   stripe: N('A restricted key tagged for agents: from 31 October 2026 Stripe refuses a secret key here.'),
   atlassian: N('An API key for a service account, which an organisation admin makes; a personal token is refused.'),
   sentry: N('A user auth token from Sentry\'s settings.'),
+  monday: N('A personal API token, from the Developers section of your profile.'),
+  intercom: N('An access token from an app in your Developer Hub.'),
 };
 
 const MCP_TIERS = [
@@ -1497,10 +1516,10 @@ function McpSettings() {
         </Paper>
       )}
       {view.data.servers.map((server) => editing !== 'new' && editing?.name === server.name
-        ? <McpServerForm key={server.name} saved={server} presets={view.data!.presets} onDone={done} onCancel={() => setEditing(null)} />
+        ? <McpServerForm key={server.name} saved={server} presets={view.data!.presets} callback={view.data!.callback} onDone={done} onCancel={() => setEditing(null)} />
         : <McpServerCard key={server.name} server={server} onEdit={() => setEditing(server)} onRemoved={done} />)}
       {editing === 'new'
-        ? <McpServerForm saved={null} presets={view.data.presets} onDone={done} onCancel={() => setEditing(null)} />
+        ? <McpServerForm saved={null} presets={view.data.presets} callback={view.data.callback} onDone={done} onCancel={() => setEditing(null)} />
         : <Group><Button leftSection={<IconPlus size={16} />} variant="light" onClick={() => setEditing('new')}>{t('Add an MCP server')}</Button></Group>}
     </Stack>
   );
@@ -1563,8 +1582,8 @@ function choiceFor(tool: McpTool, saved: McpServerView | null): McpChoice {
   };
 }
 
-function McpServerForm({ saved, presets, onDone, onCancel }: {
-  saved: McpServerView | null; presets: McpPreset[]; onDone: () => void; onCancel: () => void;
+function McpServerForm({ saved, presets, callback, onDone, onCancel }: {
+  saved: McpServerView | null; presets: McpPreset[]; callback: string | null; onDone: () => void; onCancel: () => void;
 }) {
   const requireFactor = useFactor();
   const [name, setName] = useState(saved?.name ?? '');
@@ -1577,6 +1596,10 @@ function McpServerForm({ saved, presets, onDone, onCancel }: {
     setPreset(chosen);
     setTools(null);
     setProblem(null);
+    setSignIn(null);
+    setAuthorizeUrl(null);
+    // A vendor that registers no client asks for one before the sign-in.
+    setClientNeeded(chosen?.signIn === 'client');
     if (chosen) {
       setName(chosen.id);
       setUrl(chosen.url);
@@ -1658,6 +1681,10 @@ function McpServerForm({ saved, presets, onDone, onCancel }: {
     return () => clearInterval(timer);
   }, [authorizeUrl]);
 
+  useEffect(() => {
+    if (saved === null && preset?.signIn && preset.key === 'none') void look();
+  }, [preset?.id]);
+
   const change = (tool: string, patch: Partial<McpChoice>) => setChoices((all) => ({ ...all, [tool]: { ...all[tool]!, ...patch } }));
 
   const save = async () => {
@@ -1721,6 +1748,19 @@ function McpServerForm({ saved, presets, onDone, onCancel }: {
                 {preset.keyUrl && <>{' · '}<Anchor href={preset.keyUrl} target="_blank" rel="noreferrer" size="sm">{t('Get a key')} <IconExternalLink size={12} /></Anchor></>}
               </Text>
               {preset.keyHint && <Text size="xs" c="dimmed">{MCP_KEY_HINT[preset.id] ? t(MCP_KEY_HINT[preset.id]!) : preset.keyHint}</Text>}
+              {preset.signIn === 'registers' && (
+                <Text size="xs" c="dimmed">
+                  {preset.key === 'none'
+                    ? t('You sign in with {name}; there is no key to copy.', { name: preset.name })
+                    : t('Paste a key, or leave it empty and sign in with {name} instead.', { name: preset.name })}
+                </Text>
+              )}
+              {preset.signIn === 'client' && (
+                <Text size="xs" c="dimmed">
+                  {t('{name} lets PALUGADA in through an app you register with it. Make one, give it the return address below, and paste its client ID and secret when you sign in.', { name: preset.name })}
+                  {preset.clientUrl && <>{' '}<Anchor href={preset.clientUrl} target="_blank" rel="noreferrer" size="xs">{t('Register an app')} <IconExternalLink size={10} /></Anchor></>}
+                </Text>
+              )}
               {preset.run && (
                 <>
                   <Text size="xs" c="dimmed">{t('Start it on a machine this deployment can reach, then look at its tools:')}</Text>
@@ -1735,14 +1775,16 @@ function McpServerForm({ saved, presets, onDone, onCancel }: {
             description={t('Lowercase letters, digits, - and _. Each tool is called mcp.name.tool.')} onChange={(event) => setName(event.currentTarget.value)} required />
           <TextInput label={t('Address')} placeholder="https://mcp.example.com/mcp" value={url} onChange={(event) => { setUrl(event.currentTarget.value); setTools(null); }} required />
         </SimpleGrid>
-        <PasswordInput
-          label={t('Token')}
-          leftSection={<IconKey size={16} />}
-          description={saved?.tokenSet ? t('A token is saved. Leave this empty to keep it while the address stays on the same host.') : where}
-          value={token}
-          onChange={(event) => setToken(event.currentTarget.value)}
-          autoComplete="off"
-        />
+        {!(preset?.key === 'none' && preset.signIn) && (
+          <PasswordInput
+            label={t('Token')}
+            leftSection={<IconKey size={16} />}
+            description={saved?.tokenSet ? t('A token is saved. Leave this empty to keep it while the address stays on the same host.') : where}
+            value={token}
+            onChange={(event) => setToken(event.currentTarget.value)}
+            autoComplete="off"
+          />
+        )}
         <Group>
           <Button variant="default" leftSection={<IconListSearch size={16} />} loading={looking} disabled={url.trim() === ''} onClick={() => void look()}>
             {t('Look at its tools')}
@@ -1754,10 +1796,18 @@ function McpServerForm({ saved, presets, onDone, onCancel }: {
             <Stack gap="xs">
               <Text size="sm">{t('You sign in with {issuer}, in a new tab. What it gives PALUGADA is sealed here and never shown; roles use it only through the tools you allow.', { issuer: hostOf(signIn) })}</Text>
               {clientNeeded && (
-                <SimpleGrid cols={{ base: 1, sm: 2 }}>
-                  <TextInput label={t('Client ID')} value={clientId} onChange={(event) => setClientId(event.currentTarget.value)} />
-                  <PasswordInput label={t('Client secret')} description={t('If it gave you one')} value={clientSecret} onChange={(event) => setClientSecret(event.currentTarget.value)} autoComplete="off" />
-                </SimpleGrid>
+                <>
+                  {callback && (
+                    <Stack gap={2}>
+                      <Text size="xs" c="dimmed">{t('The return address to give the app you register:')}</Text>
+                      <Code>{callback}</Code>
+                    </Stack>
+                  )}
+                  <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                    <TextInput label={t('Client ID')} description={t('From the app you registered')} value={clientId} onChange={(event) => setClientId(event.currentTarget.value)} />
+                    <PasswordInput label={t('Client secret')} description={t('If it gave you one')} value={clientSecret} onChange={(event) => setClientSecret(event.currentTarget.value)} autoComplete="off" />
+                  </SimpleGrid>
+                </>
               )}
               {authorizeUrl
                 ? (

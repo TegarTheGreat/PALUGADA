@@ -371,10 +371,15 @@ test('the servers offered by name are each a server the rules accept, and the co
         ...(preset.key === 'required' ? { tokenRef: 'env://PALUGADA_SECRET_X' } : {}), tools: { anything: { tier: 0, readOnly: true } } }],
     }, preset.id, { resolve: async () => 'k', fetch: offline });
     assert.match(notes.join('\n'), /could not list its tools at boot/, preset.id);
-    if (preset.key === 'none') assert.ok(preset.run, `${preset.id} says how to run it`);
+    if (preset.key === 'none' && !preset.signIn) assert.ok(preset.run, `${preset.id} says how to run it`);
     else assert.ok(preset.url.startsWith('https://'), `${preset.id} is reached over HTTPS`);
+    if (preset.signIn === 'client') assert.ok(preset.clientUrl?.startsWith('https://'), `${preset.id} says where to register a client`);
+    else assert.equal(preset.clientUrl, undefined, `${preset.id} registers PALUGADA itself, or takes no sign-in`);
   }
   assert.ok(names.has('github') && names.has('playwright'));
+  // Servers that are signed in to rather than given a key are offered too.
+  assert.equal(MCP_PRESETS.find((one) => one.id === 'notion')?.signIn, 'registers');
+  assert.equal(MCP_PRESETS.find((one) => one.id === 'hubspot')?.signIn, 'client');
   // The console carries each one's words so that they are translated; they must be the same words.
   const console = readFileSync(new URL('../../console/src/pages/Deployment.tsx', import.meta.url), 'utf8');
   for (const preset of MCP_PRESETS) {

@@ -95,17 +95,27 @@ test('an MCP server that asks for OAuth is signed in to from the console: discov
     const listed = await api.call('GET', '/api/control/mcp', token);
     assert.deepEqual(listed.body.signedIn, { tracker: { issuer: provider.issuer, url: provider.mcpUrl } });
     assert.ok(!JSON.stringify(listed.body).includes('access-1'));
+    assert.equal(listed.body.callback, `${api.url}/api/oauth/callback`,
+      'the return address, for a vendor that makes the owner register a client first');
     const looked = await api.call('POST', '/api/control/mcp/inspect', token, { name: 'tracker', url: provider.mcpUrl });
     assert.equal(looked.body.problem, null, JSON.stringify(looked.body));
     assert.deepEqual((looked.body.tools as Array<{ name: string }>).map((tool) => tool.name), ['lookup']);
     assert.equal(provider.bearers.at(-1), 'Bearer access-1');
+    // A preset's own way of sending a pasted key (Sentry's scheme) is not how
+    // a sign-in's token goes: an OAuth access token is a bearer token.
+    const lookedAs = await api.call('POST', '/api/control/mcp/inspect', token, {
+      name: 'tracker', url: provider.mcpUrl, tokenIn: { scheme: 'Sentry-Bearer' },
+    });
+    assert.equal(lookedAs.body.problem, null, JSON.stringify(lookedAs.body));
+    assert.equal(provider.bearers.at(-1), 'Bearer access-1');
 
     // Saved with the device, it starts with the token, as a pasted one does.
     const saved = await api.call('POST', '/api/control/mcp/servers', token, {
-      name: 'tracker', url: provider.mcpUrl, tools: { lookup: { tier: 0 } }, proof: { totp: api.code() },
+      name: 'tracker', url: provider.mcpUrl, tokenIn: { scheme: 'Sentry-Bearer' }, tools: { lookup: { tier: 0 } }, proof: { totp: api.code() },
     });
     assert.equal(saved.status, 200, JSON.stringify(saved.body));
     const env = withSettings({}, await readSettings());
+    assert.equal(JSON.parse(env.PALUGADA_MCP_SETTINGS!).servers[0].tokenIn, undefined, 'saved to send its token as a bearer token');
     const next = new CapabilityRegistry();
     const bound = await bindMcpServers(next, JSON.parse(env.PALUGADA_MCP_SETTINGS!), 'the console', { resolve: (reference) => api.secrets.resolve(reference) });
     assert.deepEqual(bound.bound, ['mcp.tracker.lookup']);

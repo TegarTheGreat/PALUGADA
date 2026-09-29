@@ -359,20 +359,61 @@ async function handleToolCall(
 export async function* readNdjson(
   stream: AsyncIterable<Uint8Array | string>,
 ): AsyncGenerator<unknown> {
+  for await (const line of readLines(stream, 'it')) yield JSON.parse(line);
+}
+
+/**
+ * The longest unfinished line a runtime may leave in the reader, in
+ * characters.
+ *
+ * A line is held until it ends, and one that never ended was held whole: a
+ * CLI stuck redrawing a progress bar, a model pouring a file into a single
+ * string, a process gone wrong. The worker's memory grew with it until the
+ * run's deadline, or until the string passed what V8 allows and the append
+ * threw somewhere nobody was listening. Sixteen mebibytes is several times the
+ * largest event a runtime has a reason to write -- a whole answer in one
+ * `result` line -- and a worker running several runs at once survives every
+ * one of them reaching it.
+ */
+export const LINE_LIMIT = 16 * 1024 * 1024;
+
+/**
+ * A stream a line at a time: trimmed, blank lines dropped, each one bounded
+ * by `LINE_LIMIT`.
+ *
+ * Past the bound it throws, which ends the run and, through the transport's
+ * `close`, the process that wrote it. `who` begins the message the owner
+ * reads. The search for a line break starts where the last chunk ended rather
+ * than at the start of the line, so a long line costs its length once, not
+ * its length for every chunk it arrived in.
+ */
+export async function* readLines(
+  stream: AsyncIterable<Uint8Array | string>,
+  who: string,
+): AsyncGenerator<string> {
   const decoder = new TextDecoder('utf8');
   let buffer = '';
   for await (const chunk of stream) {
+    const searched = buffer.length;
     buffer += typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true });
-    let index = buffer.indexOf('\n');
+    let start = 0;
+    let index = buffer.indexOf('\n', searched);
     while (index !== -1) {
-      const line = buffer.slice(0, index).trim();
-      buffer = buffer.slice(index + 1);
-      if (line) yield JSON.parse(line);
-      index = buffer.indexOf('\n');
+      const line = buffer.slice(start, index).trim();
+      start = index + 1;
+      if (line) yield line;
+      index = buffer.indexOf('\n', start);
+    }
+    buffer = buffer.slice(start);
+    if (buffer.length > LINE_LIMIT) {
+      throw new Error(
+        `${who} wrote more than ${LINE_LIMIT / 1024 / 1024} MiB without a line break, `
+          + 'and was stopped rather than held in memory',
+      );
     }
   }
-  const rest = buffer.trim();
-  if (rest) yield JSON.parse(rest);
+  const rest = (buffer + decoder.decode()).trim();
+  if (rest) yield rest;
 }
 
 /**

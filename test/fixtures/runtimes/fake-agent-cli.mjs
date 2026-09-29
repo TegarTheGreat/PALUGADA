@@ -38,6 +38,8 @@
  *                                write its pid -- a CLI that leaves a dev
  *                                server or a watcher running behind it
  *   --hang <pidfile>             write this pid, ignore SIGTERM, never answer
+ *   --flood <pidfile>            write this pid, then write for ever without
+ *                                a line break
  *   --total-cost <usd>           put the provider's total on the result line,
  *                                as Claude Code's total_cost_usd
  */
@@ -77,6 +79,15 @@ if (hang !== null) {
   process.on('SIGTERM', () => {});
   setInterval(() => {}, 1_000);
   await new Promise(() => {});
+}
+
+const flood = flag('--flood');
+if (flood !== null) {
+  writeFileSync(flood, String(process.pid));
+  const block = 'x'.repeat(65_536);
+  for (;;) {
+    if (!process.stdout.write(block)) await new Promise((resolve) => process.stdout.once('drain', resolve));
+  }
 }
 
 const orphan = flag('--spawn-orphan');

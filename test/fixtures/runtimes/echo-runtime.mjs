@@ -8,6 +8,7 @@
  * tool, reporting usage, failing, or dying without saying anything.
  */
 import readline from 'node:readline';
+import { writeFileSync } from 'node:fs';
 
 const rl = readline.createInterface({ input: process.stdin });
 // Like an agent that read its contract: a finished run says how it met each
@@ -62,6 +63,14 @@ async function act(req) {
   if (script === 'unreadable') {
     process.stdout.write('this is not json\n');
     return;
+  }
+  if (script === 'flood') {
+    // Writes for ever without a line break, as a runtime gone wrong does.
+    writeFileSync(req.task.input.pidFile, String(process.pid));
+    const block = 'x'.repeat(65_536);
+    for (;;) {
+      if (!process.stdout.write(block)) await new Promise((resolve) => process.stdout.once('drain', resolve));
+    }
   }
   if (script === 'silent') {
     process.exit(0);

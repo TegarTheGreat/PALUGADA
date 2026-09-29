@@ -3684,13 +3684,29 @@ events.
 | SIGKILL as the CRM's answer arrives | -- | the step was repeated under its first key; both completed in 62 s, one note each |
 | PostgreSQL restarted while a call is in flight | -- | the process logged the lost connections and carried on; both completed in 12 s, one note each, nothing leaked |
 
-A separate review reported more. Two of its findings are handled: a
-SIGTERM mid-run, reproduced above, and `agent_runs.tokens_used`, which
-nothing wrote, so every run and every export said a run had used no tokens;
-a run now counts what its traces count. Three are not yet reproduced or
-fixed: a CLI that writes without end grows memory without a bound; a
-preflight that fails once for a network blip halts the task rather than
-waiting; containers left by a killed Docker runtime are not swept.
+A separate review reported more, and four of its findings are handled:
+
+- A SIGTERM mid-run, reproduced above.
+- `agent_runs.tokens_used` was written by nothing, so every run and every
+  export said a run had used no tokens. A run now counts what its traces
+  count.
+- A runtime that wrote without ending a line was held whole in the worker's
+  memory. That covers every reader: Claude Code's stream-json, the other
+  CLIs' lines, and a script's or sandbox's protocol. Reproduced with a
+  runtime that writes for ever, it ran to its deadline. Every reader now
+  stops the run at 16 MiB of one line, says so in the failure, and ends the
+  process.
+- A container whose runtime ignored SIGTERM outlived the docker client that
+  the tree keeper killed. Each run's container now has a name
+  (`palugada-run-<run id>`), runs under `--init` so the runtime is not
+  PID 1, and is removed by that name when the run ends, however it ended.
+
+Two are not changed:
+
+- A preflight that fails once for a network blip halts the task with an
+  incident, which is what F8.12 asks.
+- A container whose worker was itself killed with SIGKILL is not swept at
+  the next boot: the removal above runs in the worker that started it.
 
 ### Connectors, keys and OAuth
 

@@ -33,7 +33,7 @@ import type {
   RunRequest,
   RunServices,
 } from './protocol.ts';
-import { driveRun, renderPrompt, toWireRequest, type Transport } from './wire.ts';
+import { driveRun, readLines, renderPrompt, toWireRequest, type Transport } from './wire.ts';
 import { startToolBridge } from './tool-bridge.ts';
 import { cliModelFor } from './cli-models.ts';
 import { resolveSecretEnv } from './credentials.ts';
@@ -262,29 +262,19 @@ export class ClaudeCodeAdapter implements Adapter {
     stdout: AsyncIterable<Buffer>,
     stderr: () => string,
   ): AsyncGenerator<RunEvent> {
-    let buffer = '';
-    for await (const chunk of stdout) {
-      buffer += chunk.toString('utf8');
-      let index = buffer.indexOf('\n');
-      while (index !== -1) {
-        const line = buffer.slice(0, index).trim();
-        buffer = buffer.slice(index + 1);
-        index = buffer.indexOf('\n');
-        if (!line) continue;
-
-        let parsed: StreamJsonLine;
-        try {
-          parsed = JSON.parse(line) as StreamJsonLine;
-        } catch {
-          // The CLI prints things that are not events. Ignoring an unreadable
-          // line is right here and wrong in the script adapter: there, every
-          // line is supposed to be an event, so an unreadable one means the
-          // runtime is not speaking the protocol.
-          continue;
-        }
-
-        yield* translateStreamJsonLine(parsed, stderr, this.name);
+    for await (const line of readLines(stdout, this.name)) {
+      let parsed: StreamJsonLine;
+      try {
+        parsed = JSON.parse(line) as StreamJsonLine;
+      } catch {
+        // The CLI prints things that are not events. Ignoring an unreadable
+        // line is right here and wrong in the script adapter: there, every
+        // line is supposed to be an event, so an unreadable one means the
+        // runtime is not speaking the protocol.
+        continue;
       }
+
+      yield* translateStreamJsonLine(parsed, stderr, this.name);
     }
   }
 }

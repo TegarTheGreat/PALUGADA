@@ -55,7 +55,7 @@ import type {
   RunRequest,
   RunServices,
 } from './protocol.ts';
-import { driveRun, renderPrompt, toWireRequest, type Transport } from './wire.ts';
+import { driveRun, readLines, renderPrompt, toWireRequest, type Transport } from './wire.ts';
 import { toolsForModel } from './tool-names.ts';
 import { startToolBridge, type ToolBridge } from './tool-bridge.ts';
 import { cliModelFor } from './cli-models.ts';
@@ -479,11 +479,11 @@ export class CliAdapter implements Adapter {
     switch (this.#spec.dialect ?? 'stream-json') {
       case 'text': return this.#textEvents(child, stderr);
       case 'hermes-stream-json':
-        return hermesEvents(lines(child), () => exitCode(child), stderr, this.name, model, this.#spec.costArgs ? costOf : undefined);
+        return hermesEvents(readLines(child.stdout!, this.name), () => exitCode(child), stderr, this.name, model, this.#spec.costArgs ? costOf : undefined);
       case 'openclaw-json': return openClawEvents(whole(child), () => exitCode(child), stderr, this.name, model);
-      case 'opencode-json': return openCodeEvents(lines(child), () => exitCode(child), stderr, this.name, model);
-      case 'codex-jsonl': return codexEvents(lines(child), () => exitCode(child), stderr, this.name, model);
-      case 'gemini-stream-json': return geminiEvents(lines(child), () => exitCode(child), stderr, this.name, model);
+      case 'opencode-json': return openCodeEvents(readLines(child.stdout!, this.name), () => exitCode(child), stderr, this.name, model);
+      case 'codex-jsonl': return codexEvents(readLines(child.stdout!, this.name), () => exitCode(child), stderr, this.name, model);
+      case 'gemini-stream-json': return geminiEvents(readLines(child.stdout!, this.name), () => exitCode(child), stderr, this.name, model);
       default: return this.#streamJsonEvents(child, stderr);
     }
   }
@@ -537,28 +537,19 @@ export class CliAdapter implements Adapter {
   }
 
   async *#streamJsonEvents(child: ChildProcess, stderr: () => string): AsyncGenerator<RunEvent> {
-    let buffer = '';
-    for await (const chunk of child.stdout!) {
-      buffer += (chunk as Buffer).toString('utf8');
-      let index = buffer.indexOf('\n');
-      while (index !== -1) {
-        const line = buffer.slice(0, index).trim();
-        buffer = buffer.slice(index + 1);
-        index = buffer.indexOf('\n');
-        if (!line) continue;
-        let parsed: StreamJsonLine;
-        try {
-          parsed = JSON.parse(line) as StreamJsonLine;
-        } catch {
-          // Agent CLIs print things that are not events -- banners, progress,
-          // a warning about a config file. Ignoring an unreadable line is
-          // right here and wrong in the `script` adapter, where every line is
-          // supposed to be an event and an unreadable one means the runtime is
-          // not speaking the protocol at all.
-          continue;
-        }
-        yield* translateStreamJsonLine(parsed, stderr, this.name);
+    for await (const line of readLines(child.stdout!, this.name)) {
+      let parsed: StreamJsonLine;
+      try {
+        parsed = JSON.parse(line) as StreamJsonLine;
+      } catch {
+        // Agent CLIs print things that are not events -- banners, progress,
+        // a warning about a config file. Ignoring an unreadable line is
+        // right here and wrong in the `script` adapter, where every line is
+        // supposed to be an event and an unreadable one means the runtime is
+        // not speaking the protocol at all.
+        continue;
       }
+      yield* translateStreamJsonLine(parsed, stderr, this.name);
     }
   }
 
@@ -625,22 +616,6 @@ function exitCode(child: ChildProcess): Promise<number> {
     // so that "did it succeed" stays a single comparison.
     child.once('close', (code) => resolve(code ?? 1));
   });
-}
-
-/** The child's stdout, a line at a time, blank lines dropped. */
-async function* lines(child: ChildProcess): AsyncGenerator<string> {
-  let buffer = '';
-  for await (const chunk of child.stdout!) {
-    buffer += (chunk as Buffer).toString('utf8');
-    let index = buffer.indexOf('\n');
-    while (index !== -1) {
-      const line = buffer.slice(0, index).trim();
-      buffer = buffer.slice(index + 1);
-      index = buffer.indexOf('\n');
-      if (line) yield line;
-    }
-  }
-  if (buffer.trim()) yield buffer.trim();
 }
 
 /** The child's whole stdout, bounded, once it has closed it. */

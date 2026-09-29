@@ -784,6 +784,49 @@ test('the docker backend asks the daemon, not the CLI (F13.8)', async () => {
   assert.match(healthy.detail ?? '', /27\.0\.1/);
 });
 
+/**
+ * Ending the docker client does not end its container. A runtime that ignores
+ * SIGTERM -- and a process that is PID 1 in a container ignores it unless it
+ * says otherwise -- outlives the client the tree keeper kills, holding its
+ * memory and CPU until it chooses to stop, with `--rm` waiting on that too.
+ * So each run's container has a name, the runtime is not PID 1, and the name
+ * is removed whenever the run ends, however it ended.
+ */
+test('a run\'s container is named, not PID 1, and removed when the run ends (F13.5)', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'palugada-docker-'));
+  const log = join(dir, 'docker.log');
+  const docker = join(dir, 'docker');
+  // A docker client that keeps a log of what it was asked and plays the
+  // container with the echo runtime.
+  writeFileSync(docker, [
+    '#!/bin/sh',
+    `echo "$*" >> '${log}'`,
+    'if [ "$1" = version ]; then echo 27.0.1; exit 0; fi',
+    `if [ "$1" = run ]; then exec '${process.execPath}' '${RUNTIME}'; fi`,
+    'exit 0',
+  ].join('\n'), { mode: 0o755 });
+
+  const fixture = await createCompany('docker-remove');
+  const broker = await brokerFor(fixture, []);
+  await configureRole(fixture, { runtime: 'docker' });
+  await withTenant(fixture.companyId, (tx) => tx.query("UPDATE roles SET backend = 'docker' WHERE id = $1", [fixture.roleId]));
+  const adapter = new ContainerAdapter({ image: 'palugada/runtime:1', docker });
+
+  for (const script of ['done', 'unreadable']) {
+    writeFileSync(log, '');
+    const task = await newTask(fixture, { script }, { attemptMax: 1 });
+    const outcome = await engineWith(broker, adapter).runTask(fixture.companyId, task.id, 'worker');
+    assert.equal(outcome.status, script === 'done' ? 'completed' : 'failed', outcome.reason);
+
+    const calls = (await readFile(log, 'utf8')).trim().split('\n').filter((line) => !line.startsWith('version'));
+    const run = calls.find((line) => line.startsWith('run '));
+    const name = /--name (\S+)/.exec(run ?? '')?.[1];
+    assert.ok(name?.startsWith('palugada-run-'), `the container has a name: ${run}`);
+    assert.ok(run!.split(' ').includes('--init'), 'the runtime is not PID 1');
+    assert.equal(calls.at(-1), `rm --force ${name}`, `${script}: removed by its name after the run`);
+  }
+});
+
 test('a missing docker binary is unhealthy rather than an exception (F13.8)', async () => {
   const adapter = new ContainerAdapter({
     image: 'palugada/runtime:1',
@@ -2107,6 +2150,49 @@ test('a runtime ended mid-line at its deadline halts on the deadline, not on the
 
   assert.equal(outcome.status, 'halted', outcome.reason);
   assert.equal(outcome.reason, 'deadline_passed');
+});
+
+/**
+ * A runtime's output is read a line at a time, and a line is held until it
+ * ends. One that never ended -- a CLI stuck redrawing a progress bar, a model
+ * pouring a file into one string, a process gone wrong -- was held whole, and
+ * the worker's memory grew with it until the deadline or the machine gave
+ * out first. Every reader now stops the run at a bound and says why: Claude
+ * Code's stream-json, the other CLIs' lines, and a script's protocol.
+ */
+test('a runtime that writes without ever ending a line is stopped and says why (F13.2)', async () => {
+  const fixture = await createCompany('runaway-line');
+  const broker = await brokerFor(fixture, []);
+  const dir = await mkdtemp(join(tmpdir(), 'palugada-flood-'));
+  const floods = [
+    { runtime: 'codex', dialect: undefined, file: join(dir, 'stream-json.pid') },
+    { runtime: 'codex', dialect: 'codex-jsonl', file: join(dir, 'codex.pid') },
+    { runtime: 'script', dialect: undefined, file: join(dir, 'script.pid') },
+  ];
+
+  for (const flood of floods) {
+    await configureRole(fixture, { runtime: flood.runtime });
+    // A deadline, so a reader without a bound ends here rather than hanging
+    // the suite; the run must stop well before it.
+    const task = await newTask(fixture, { script: 'flood', pidFile: flood.file }, {
+      attemptMax: 1, deadlineAt: new Date(Date.now() + 20_000),
+    });
+    const adapter = flood.runtime === 'script'
+      ? scriptAdapter()
+      : new CliAdapter(runtimeSpecsFrom([{
+        name: 'codex',
+        command: process.execPath,
+        args: [AGENT_CLI, '--mcp-config', '{mcpConfig}', '--flood', flood.file],
+        ...(flood.dialect ? { dialect: flood.dialect } : {}),
+      }])[0]!);
+
+    const outcome = await engineWith(broker, adapter).runTask(fixture.companyId, task.id, 'worker');
+    const pid = await pidFrom(flood.file);
+
+    assert.equal(outcome.status, 'failed', `${flood.dialect ?? flood.runtime}: ${outcome.reason}`);
+    assert.match(outcome.reason ?? '', /without a line break/, flood.dialect ?? flood.runtime);
+    assert.equal(running(pid), false, `the flooding ${flood.dialect ?? flood.runtime} process was ended`);
+  }
 });
 
 /* ------------------------------------------------------------ the bill --- */

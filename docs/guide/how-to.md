@@ -714,7 +714,9 @@ in another language:
 
 The Docker runtime runs a role's runtime inside a container with no network
 at all (`--network none`), read-only, with memory and CPU limits, as a
-non-root user. It is the only runtime with network isolation.
+non-root user. It is the only runtime with network isolation. Each run's
+container is named `palugada-run-<run id>` and is removed when the run ends,
+even when the runtime inside ignored its stop.
 
 1. Build an image whose entry point speaks the platform's stdio protocol:
    one JSON request in, one event per line out, and tool calls as events on

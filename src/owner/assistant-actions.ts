@@ -526,7 +526,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
 export const ASSISTANT_CHECKS: Readonly<Record<string, string>> = {
   '/api/control/settings/model/models': 'Which models the saved provider serves: {}.',
   '/api/control/settings/model/test': 'Whether the model saved answers and can call a tool: {}.',
-  '/api/control/mcp/inspect': 'What an MCP server offers: { url, tokenIn?, name? } -- name uses the token saved for that server.',
+  '/api/control/mcp/inspect': 'What a saved MCP server offers now: { name }.',
 };
 
 /** POST routes the assistant neither proposes nor calls, and why. */

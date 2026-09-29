@@ -14,6 +14,7 @@ import { glob } from 'node:fs/promises';
 import { withTenant, withControlPlane } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
 import {
+  DivisionSecrets,
   InMemorySecretManager,
   Redactor,
   redactor,
@@ -157,6 +158,39 @@ test('the database stores a reference, never a secret (F12.1)', async () => {
 
   await broker.invoke(invokeContext(fixture, taskId), 'dns.read', { zone: 'example.com' });
   assert.deepEqual(seen, [SECRET]);
+});
+
+/**
+ * The console seals the deployment's own keys -- the model's, the agent
+ * CLIs', the channels' and the tools' -- as `db://` secrets, and the broker
+ * resolved a division's credential through the same store. A credential
+ * pointed at `db://model-key` sent the model key, in a header, to whatever
+ * vendor the capability called. A division's credential names `env://`,
+ * `file://` or its own namespace of sealed secrets, `db://credential-…`.
+ */
+test('a division\'s credential cannot name one of the deployment\'s own secrets (F12.2, security)', async () => {
+  const store = new InMemorySecretManager();
+  store.set('db://model-key', 'sk-model-key-of-the-deployment');
+  store.set('db://channel-telegram', '123456:telegram-bot-token');
+  store.set('db://credential-crm', 'crm-token-for-this-division');
+  store.set('env://PALUGADA_SECRET_CRM', 'crm-token-from-the-environment');
+  const division = new DivisionSecrets(store);
+  for (const reference of ['db://model-key', 'db://channel-telegram', 'db://agent-claude-code']) {
+    await assert.rejects(division.resolve(reference),
+      (error: unknown) => isPalugadaError(error, 'credential.unavailable') && /one of the deployment's own secrets/.test((error as Error).message),
+      reference);
+  }
+  assert.equal(await division.resolve('db://credential-crm'), 'crm-token-for-this-division');
+  assert.equal(await division.resolve('env://PALUGADA_SECRET_CRM'), 'crm-token-from-the-environment');
+
+  // And a rotation cannot point a credential there in the first place.
+  const fixture = await createCompany('credential-namespace');
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    "INSERT INTO credentials (company_id, division_id, alias, secret_ref) VALUES ($1, $2, 'crm', 'env://PALUGADA_SECRET_CRM')",
+    [fixture.companyId, fixture.divisionId]));
+  await assert.rejects(
+    rotateCredential({ companyId: fixture.companyId, divisionId: fixture.divisionId, alias: 'crm', newSecretRef: 'db://model-key' }),
+    /one of the deployment's own secrets/);
 });
 
 test('a division cannot resolve another division\'s credential (F12.2)', async () => {

@@ -31,7 +31,7 @@ import { DEFAULT_PRICE_TABLE, loadPriceTable } from './engine/pricing.ts';
 import { modelClientFrom, modelSettingsFrom } from './llm/models.ts';
 import { bindMcpServers, closeMcpSessions, registerMcpServers } from './capabilities/mcp.ts';
 import { Worker, type WorkerOptions } from './worker.ts';
-import type { SecretManager } from './secrets/manager.ts';
+import { DivisionSecrets, type SecretManager } from './secrets/manager.ts';
 import { OwnerMfa, decodeBase32 } from './owner/mfa.ts';
 import {
   DeploymentSecretManager, masterKeyFrom, readSettings, settingsVersion, type MasterKey,
@@ -630,7 +630,8 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // actually runs. Cached because F12.3 reads the version on every call, and
     // the cache is what stops that becoming a round trip per tool call while
     // still picking up a rotation within its short life.
-    new CachedSecretManager(secrets),
+    // Less the deployment's own sealed keys, which no division's credential may name.
+    new CachedSecretManager(new DivisionSecrets(secrets)),
   );
 
   // The runtimes, which is the whole of what a worker does.

@@ -237,10 +237,42 @@ test('the owner chooses what hears them, tries it with a clip, and speaks to the
 });
 
 /** A speaches server for listening, and a Piper for speaking, on one port. */
+/**
+ * A saved key goes only to the address it was saved for. The tool settings
+ * kept a saved key whenever the provider was the same, so a provider you run
+ * yourself, tried at another address -- and a try needs no second factor --
+ * was sent the key saved for the first. The model, MCP and push settings
+ * already compared the address.
+ */
+test('a saved tool key is sent only to the address it was saved for (security)', async () => {
+  const mine = await speechServer();
+  const theirs = await speechServer();
+  const api = await consoleWithSettings();
+  try {
+    const token = await api.signIn();
+    const saved = await api.call('POST', '/api/control/tools/listen', token,
+      { provider: 'speaches', url: mine.url, key: 'sk-speaches-saved-key', proof: { totp: api.code() } });
+    assert.equal(saved.status, 200, JSON.stringify(saved.body));
+    const here = await api.call('POST', '/api/control/tools/listen/test', token,
+      { provider: 'speaches', url: mine.url, audio: CLIP.toString('base64'), mime: 'audio/webm' });
+    assert.deepEqual(here.body, { problem: null, text: SAID });
+    assert.equal(mine.keys.at(-1), 'Bearer sk-speaches-saved-key', 'the saved key, at the address it was saved for');
+
+    const there = await api.call('POST', '/api/control/tools/listen/test', token,
+      { provider: 'speaches', url: theirs.url, audio: CLIP.toString('base64'), mime: 'audio/webm' });
+    assert.equal(there.status, 200, JSON.stringify(there.body));
+    assert.deepEqual(theirs.keys, [null], 'another address is sent no key it was not given');
+  } finally {
+    await api.close();
+  }
+});
+
 async function speechServer() {
   const heard: Array<{ path: string; model: string; language: string; bytes: number }> = [];
   const said: string[] = [];
+  const keys: Array<string | null> = [];
   const server = createServer((req, res) => {
+    keys.push(req.headers.authorization ?? null);
     const chunks: Buffer[] = [];
     req.on('data', (chunk: Buffer) => chunks.push(chunk));
     req.on('end', async () => {
@@ -258,7 +290,7 @@ async function speechServer() {
   });
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, heard, said };
+  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, heard, said, keys };
 }
 
 /** The console with a voice behind the assistant, as main.ts gives it one: a fresh one, so its authenticator enrols again. */

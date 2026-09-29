@@ -19,6 +19,40 @@ export interface SecretManager {
   resolve(reference: string): Promise<string>;
 }
 
+/** The sealed secrets a division's credential may name: `db://credential-<name>`. */
+export const CREDENTIAL_SECRETS = 'credential-';
+
+/**
+ * Whether a reference is one a division's credential may name. The console
+ * seals the deployment's own keys -- the model's, the agent CLIs', the
+ * channels', the tools', the MCP servers' -- as `db://` secrets too, and a
+ * division's credential that named one would send it, in a header, to
+ * whatever vendor its capability calls.
+ */
+export function assertDivisionReference(reference: string): void {
+  if (reference.startsWith('db://') && !reference.slice('db://'.length).startsWith(CREDENTIAL_SECRETS)) {
+    throw new PalugadaError(
+      'credential.unavailable',
+      `${reference} is one of the deployment's own secrets; a division's credential names env://, file:// or db://${CREDENTIAL_SECRETS}…`,
+      { reference },
+    );
+  }
+}
+
+/** What the broker resolves a division's credentials through: the store, less the deployment's own secrets. */
+export class DivisionSecrets implements SecretManager {
+  readonly #inner: SecretManager;
+
+  constructor(inner: SecretManager) {
+    this.#inner = inner;
+  }
+
+  async resolve(reference: string): Promise<string> {
+    assertDivisionReference(reference);
+    return this.#inner.resolve(reference);
+  }
+}
+
 /**
  * Redacts known secret values from any text leaving the system.
  *

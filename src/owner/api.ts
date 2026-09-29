@@ -145,7 +145,7 @@ import {
   type RoleChange,
 } from '../eval/role-eval.ts';
 import { CapabilityRegistry } from '../broker/registry.ts';
-import { accessFor, bindMcpServers, currentPins, offeredTools, type TokenIn } from '../capabilities/mcp.ts';
+import { accessFor, assertPlainHttpIsLocal, bindMcpServers, currentPins, offeredTools, type TokenIn } from '../capabilities/mcp.ts';
 import { MCP_PRESETS } from '../capabilities/mcp-presets.ts';
 import { LISTEN_PROVIDERS, listenProvider, transcribe, type Heard, type ListenBinding, type ListenProvider } from '../capabilities/listen.ts';
 import {
@@ -1589,8 +1589,15 @@ export class OwnerApi {
         pattern: '/api/control/mcp/inspect',
         handle: async ({ body }) => {
           this.#deploymentSettings();
-          const url = mcpUrl(body.url);
-          const tokenIn = mcpTokenIn(body.tokenIn);
+          // A saved server by its name alone looks at it where it was saved,
+          // with its token: what the assistant may ask, and never another address.
+          const saved = body.url === undefined && typeof body.name === 'string'
+            ? mcpServersIn(await readSettings()).find((one) => one.name === body.name) : undefined;
+          if (body.url === undefined && !saved) {
+            throw new PalugadaError('config.invalid', 'give the server\'s address, or the name of one already saved', { field: 'url' });
+          }
+          const url = saved ? saved.url : mcpUrl(body.url);
+          const tokenIn = saved ? saved.tokenIn : mcpTokenIn(body.tokenIn);
           const { token } = await this.#mcpToken(body, url);
           try {
             return { problem: null, tools: await offeredTools(accessFor({ url, ...(tokenIn ? { tokenIn } : {}) }, token)) };
@@ -4083,7 +4090,11 @@ export class OwnerApi {
     }
     const typed = typeof body.key === 'string' && body.key.trim() !== '' && provider.key !== 'none' ? body.key.trim() : null;
     const saved = ((await readSettings()).tools as Partial<Record<ToolKind, ToolSetting>> | undefined)?.[kind];
-    const keep = !typed && body.clearKey !== true && saved?.provider === provider.id && Boolean(saved.keySecret);
+    // The saved key stays with the address it was saved for, as the model's
+    // does: a provider you run yourself, tried at another address -- a try
+    // needs no second factor -- would otherwise be sent the saved key there.
+    const keep = !typed && body.clearKey !== true && saved?.provider === provider.id && Boolean(saved.keySecret)
+      && sameOrigin(saved.url ?? undefined, url ?? undefined);
     if (provider.key === 'required' && !typed && !keep) {
       throw new PalugadaError('contract.violation', `${provider.name} needs a key`, { field: 'key' });
     }
@@ -4588,6 +4599,7 @@ function mcpUrl(value: unknown): string {
   if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
     throw new PalugadaError('config.invalid', `an MCP server is reached over HTTP; ${parsed.protocol} is not`, { field: 'url' });
   }
+  assertPlainHttpIsLocal(url);
   return url;
 }
 

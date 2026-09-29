@@ -543,6 +543,12 @@ async function tool(
     if (pattern.startsWith('/api/control/settings/model/') && Object.keys(body).length > 0) {
       throw new Error('a check of the model checks the one saved: send {}; the owner tries another on the page');
     }
+    // So does the MCP check: the server fetched is one the owner saved, found
+    // by its name, never an address the assistant brings.
+    if (pattern === '/api/control/mcp/inspect'
+      && (typeof body.name !== 'string' || Object.keys(body).some((field) => field !== 'name'))) {
+      throw new Error('a check of an MCP server looks at a server already saved: send { name }; the owner tries a new one on the page');
+    }
     return dataFrom(await reach.post(path, body));
   }
   if (name === 'propose') {

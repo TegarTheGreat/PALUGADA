@@ -17,7 +17,9 @@ import assert from 'node:assert/strict';
 import { closePools } from '../../src/db/pool.ts';
 import { isPalugadaError } from '../../src/errors.ts';
 import { CapabilityRegistry } from '../../src/broker/registry.ts';
-import { accessFor, bindMcpServers, closeMcpSessions, pinOf } from '../../src/capabilities/mcp.ts';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { accessFor, assertPlainHttpIsLocal, bindMcpServers, closeMcpSessions, pinOf } from '../../src/capabilities/mcp.ts';
 import { MCP_PRESETS } from '../../src/capabilities/mcp-presets.ts';
 import { readSettings } from '../../src/settings/store.ts';
 import { withSettings } from '../../src/settings/overlay.ts';
@@ -44,6 +46,42 @@ const LINK = {
   tier: 2,
   verify: { tool: 'get_payment_link', arguments: { id: '{result.id}' }, matches: { path: 'body.amount', equalsPath: 'input.amount' } },
 };
+
+/**
+ * A server's connection carries its token to that server and nowhere else.
+ * A redirect was followed with it -- and a header of the server's own naming,
+ * such as x-api-key, is not one fetch drops on the way to another host --
+ * and plain http took it across the internet in the clear.
+ */
+test('a server that sends its caller elsewhere is not followed there, and one outside this network is reached over https (security)', async () => {
+  const target = await mcpServer({ needsToken: TOKEN, tokenIn: { header: 'x-api-key' } });
+  const seen: string[] = [];
+  const bouncer = createServer((req, res) => {
+    seen.push(String(req.headers['x-api-key'] ?? ''));
+    res.writeHead(307, { location: target.url }).end();
+  });
+  await new Promise<void>((resolve) => bouncer.listen(0, '127.0.0.1', resolve));
+  const api = await consoleWithSettings();
+  try {
+    const token = await api.signIn();
+    const bounced = await api.call('POST', '/api/control/mcp/inspect', token,
+      { url: `http://127.0.0.1:${(bouncer.address() as AddressInfo).port}/mcp`, token: TOKEN, tokenIn: { header: 'x-api-key' } });
+    assert.match(String(bounced.body.problem), /sent this request elsewhere .*save the address it points to instead/);
+    assert.deepEqual(seen, [TOKEN], 'the token went to the address the owner gave');
+    assert.deepEqual(target.state.authorizations, [], 'and not on to the one it was sent to');
+
+    const plain = await api.call('POST', '/api/control/mcp/inspect', token, { url: 'http://mcp.example.com/mcp', token: TOKEN });
+    assert.equal(plain.status, 400, JSON.stringify(plain.body));
+    assert.match(String(plain.body.error), /mcp\.example\.com is reached over https/);
+    for (const local of ['http://localhost:8931/mcp', 'http://playwright:8931/mcp', 'http://10.0.0.5/mcp', 'http://tools.internal/mcp']) {
+      assert.doesNotThrow(() => assertPlainHttpIsLocal(local), local);
+    }
+  } finally {
+    await new Promise<void>((resolve) => bouncer.close(() => resolve()));
+    await target.close();
+    await api.close();
+  }
+});
 
 test('the owner looks at a server\'s tools before allowing any: what each does, what the server says of it, and a tier to start from', async () => {
   const server = await mcpServer({ needsToken: TOKEN });
@@ -129,6 +167,13 @@ test('a server is saved only as far as the rules allow, with the owner\'s device
     // And the kept token is what the owner can look again with.
     const lookedAgain = await api.call('POST', '/api/control/mcp/inspect', token, { url: server.url, name: 'payments' });
     assert.equal(lookedAgain.body.problem, null, JSON.stringify(lookedAgain.body));
+    // By its name alone, where it was saved: the one check the assistant may make.
+    const byName = await api.call('POST', '/api/control/mcp/inspect', token, { name: 'payments' });
+    assert.equal(byName.body.problem, null, JSON.stringify(byName.body));
+    assert.ok((byName.body.tools as unknown[]).length > 0);
+    const nameless = await api.call('POST', '/api/control/mcp/inspect', token, { name: 'nothing-saved' });
+    assert.equal(nameless.status, 400, JSON.stringify(nameless.body));
+    assert.match(String(nameless.body.error), /the name of one already saved/);
 
     // A new address does not inherit the token: that would hand it to another server.
     const other = await mcpServer();

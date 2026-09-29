@@ -181,6 +181,10 @@ test('what the assistant may not do, it cannot: a route outside its lists, a key
       // An address a page it read could have named: the metadata service, or
       // a server that would take the saved key.
       ['check', { path: '/api/control/settings/model/models', body: { provider: 'openai', url: 'http://169.254.169.254/v1' } }],
+      // The same through the MCP check: it looks at a server the owner saved,
+      // by its name, and never at an address the assistant brings.
+      ['check', { path: '/api/control/mcp/inspect', body: { url: 'http://169.254.169.254/latest/meta-data/' } }],
+      ['check', { path: '/api/control/mcp/inspect', body: { name: 'payments', url: 'http://10.0.0.5/mcp' } }],
     ),
     says('I cannot do those.'),
   ]);
@@ -190,7 +194,7 @@ test('what the assistant may not do, it cannot: a route outside its lists, a key
     const said = await api.call('POST', '/api/assistant/messages', token, { text: 'do everything' });
     assert.equal(said.status, 200);
     const answers = results(model);
-    assert.equal(answers.length, 11);
+    assert.equal(answers.length, 13);
     assert.ok(answers.every((one) => one.isError === true), JSON.stringify(answers));
     assert.match(answers[0]!.content, /not one of the actions/);
     assert.match(answers[1]!.content, /key is typed by the owner on the card/);
@@ -203,6 +207,8 @@ test('what the assistant may not do, it cannot: a route outside its lists, a key
     assert.match(answers[8]!.content, /sent no key/);
     assert.match(answers[9]!.content, /not one of the actions/, 'Telegram is connected on its own page');
     assert.match(answers[10]!.content, /checks the one saved/, 'no address of its own choosing');
+    assert.match(answers[11]!.content, /looks at a server already saved: send \{ name \}/);
+    assert.match(answers[12]!.content, /looks at a server already saved: send \{ name \}/);
     assert.deepEqual(said.body.messages[1].proposals, [], 'no card was made');
   } finally {
     await api.close();

@@ -3656,6 +3656,85 @@ done:
 **Still open, next.** F3.11's files are read only when the boot is given a
 directory, and it is not given one.
 
+## 2.25 Chaos, and every connector
+
+The owner asked two things of the platform: whether it is safe when things
+break, and whether everything that connects it to other services -- OAuth,
+connectors, keys -- is there and easy. Both were answered by running things
+rather than by reading them.
+
+### Faults injected into a running deployment
+
+A harness ran PALUGADA as its own OS process (`node src/main.ts`), with a
+fake OpenAI-compatible model and a fake CRM in another process that outlive
+it. The CRM deduplicates on `idempotency-key`, can hold a request open, and
+can answer 5xx. Each scenario created tasks for a role that writes a
+`crm.note`, injected one fault, and then read the books: task outcomes,
+CRM posts per key, tokens still reserved, leases held, runs, incidents and
+events.
+
+| Fault | Before | After |
+|---|---|---|
+| SIGKILL while a `crm.note` call is in flight, restart at once | exactly one note per task (the retried step went out under its first key, and the CRM deduplicated it); no reservation or lease leaked; **recovery 908 s**, the killed worker's task leased to a dead process until its lease ran out | the same books; **recovery 62 s**: workers write `worker_heartbeats` (0079) every 15 s, and the sweep returns the tasks of a holder quiet for 60 s |
+| The model's connections dropped for 20 s | both tasks **halted**, `runtime_unavailable`, **2 incidents** for the owner to resume by hand; a dropped connection was not even retried | both **completed** in 46 s, **0 incidents**: a dropped connection is retried like a 503, then the task waits for the same model -- 30 s, doubling, five times -- and only a model that stays down halts it |
+| The CRM refused the note, and the model said it was done | the task **completed** with a summary saying the note was written | refused: a write above tier 0 that failed and was not put right later must be named under `failed`, with why the work is done anyway |
+| The model tried a write again after its answer never came | the second try carried a **new key**, so the vendor could not tell it was the same write | tool calls are keyed by the task, the capability and the input, so the same write asked twice is sent under one key |
+
+What a separate review reported and this repository has not yet reproduced
+or fixed: a worker's tick is not interrupted by SIGTERM mid-run; a CLI that
+writes without end grows memory without a bound; `agent_runs.tokens_used`
+is never written; a preflight that fails once for a network blip halts the
+task rather than waiting; containers left by a killed Docker runtime are not
+swept.
+
+### Connectors, keys and OAuth
+
+Every path by which a key reaches something outside was read, and the ones
+that sent a key somewhere the owner never chose were closed:
+
+- **A division's credential could name one of the deployment's own sealed
+  secrets** -- `db://model-key` -- and the broker would send the model
+  provider's key to whatever vendor the capability called. Division
+  credentials now resolve only `env://`, `file://` and
+  `db://credential-*` (`DivisionSecrets`), and a rotation refuses anything
+  else before it moves.
+- **The owner's assistant could check an MCP server at an address of its
+  own with a saved server's token.** Its check is `{ name }` only, looked
+  up at the saved address.
+- **An MCP server could be reached over plain http anywhere, and redirects
+  were followed with its token.** Plain http is accepted only on this
+  network, and a redirect is refused with where it pointed.
+- **A tool's saved key was sent to a different address when a tool was
+  tried there**, and a try needs no second factor. It now stays with its
+  address, as the model's does.
+- **Disconnecting Telegram left the webhook set at Telegram**, which kept
+  retrying the chat's messages against an address that refused them; it is
+  now deleted. **The assistant proposed agent-CLI keys with a kind no CLI
+  takes**; it is told the catalogue's own kinds.
+
+And what made connecting a service hard:
+
+- **A vendor was a JSON file an operator wrote, and a division's key was a
+  row inserted with SQL** beside an environment variable and a restart.
+  **This deployment, Services** now connects the shipped presets, or any
+  entry of the file's shape, checked against every rule the file is held
+  to; and a division's **Keys for services** says which of its capabilities
+  need a key, takes the key pasted, seals it as `db://credential-…`,
+  declares it with the scopes those capabilities need (F12.6), replaces it
+  as a rotation and deletes the old one. Each change asks for the owner's
+  authenticator; a key is never shown again.
+- Approval cards now say what the action would do, with every argument
+  (L9), and the owner's answer to an escalation reaches the task and puts
+  it back to work (L18).
+
+**Still open, next.** There is no OAuth anywhere: a remote MCP server that
+signs in with OAuth 2.1 (most hosted ones) cannot be connected, and neither
+can Google Calendar or Gmail, whose tokens expire within the hour. The
+runtimes' HTTP and sandbox tokens are not in the redactor. The master key
+cannot be rotated from the console, the authenticator has no recovery
+codes, and the second-factor lockout is global, so anyone who can reach the
+sign-in page can lock the owner out for its window.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the
@@ -3670,6 +3749,16 @@ real money and give a different answer each time, and F17.3 needs the number
 whether the change keeps what the references depended on and keeps the negative
 cases' failure modes closed. That is weaker than replaying the work, and it is
 the check that can run in the second before a decision.
+
+**A model that does not answer is waited for before it halts a task.**
+F13.6 says a tier 2 role does not fall back silently: "halted + insiden".
+It still never falls back. What changed is when it halts: every role's task
+now waits for the same model -- half a minute, doubling, five times, about
+a quarter of an hour -- and halts with one incident only when the model is
+still down. Waiting is not a substitution, since the model the owner chose
+does the work when it answers, and halting on the first dropped connection
+turned every provider blip into an inbox full of tasks to resume by hand
+(section 2.25).
 
 **Two things a green suite does not prove**, and both are named in the code as
 well as here.

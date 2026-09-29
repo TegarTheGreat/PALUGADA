@@ -203,10 +203,22 @@ unit and the compose file wait before they kill. The task's timeline says it
 was handed back; no attempt is charged, it does not count as a lost worker,
 and the next worker to come up resumes it at the step it reached.
 
-A process killed outright loses no work either, but it is slower: its
-tasks' leases run out within fifteen minutes, another worker resumes them
-from the last committed step, and each counts as a lost worker towards the
-crash-loop limit of three.
+A process killed outright loses no work either, but it is slower. Every
+worker writes to `worker_heartbeats` every fifteen seconds; when a worker
+has been quiet for a minute, the next sweep by any other worker -- or by the
+same process restarted -- returns its tasks to the queue, and they resume
+from the last committed step. Each counts as a lost worker towards the
+crash-loop limit of three. The lease of fifteen minutes stays the backstop
+for a holder that never wrote there. A write that was in flight when the
+process died is sent again under the key it first had, so a vendor that
+honours the key makes it once.
+
+When the model does not answer -- a provider's outage, a local model
+restarting -- a call is tried three times, and then the role's fallback
+models if it has any and may use them. A task whose models are all down
+waits for them: half a minute, then twice as long each time, five times.
+Only a model still down after about a quarter of an hour halts the task,
+with one incident.
 
 ## Monitoring
 
@@ -265,9 +277,11 @@ database:
 - A claim is a lease of fifteen minutes. The worker renews it every five
   minutes while the run shows progress. A run that shows none for a whole
   lease is stopped and its task handed back.
-- If a worker dies, its leases run out and the tasks return to the queue
-  with their journals; the next worker resumes from the last committed step
-  and repeats no action. A task that loses its worker three times is halted
+- If a worker dies, its tasks return to the queue once it has been quiet
+  for a minute (`worker_heartbeats`), or when their leases run out if it
+  never wrote there; the next worker resumes from the last committed step
+  and repeats no action. The heartbeat is compared on the database's clock,
+  so machines whose clocks disagree cannot make a live worker look dead. A task that loses its worker three times is halted
   as a crash loop and raised to you as an incident, rather than taking a
   third worker down.
 - A schedule's occurrence creates one task however many workers see it, and

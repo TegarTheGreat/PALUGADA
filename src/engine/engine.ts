@@ -141,6 +141,13 @@ export const MAX_RATE_LIMIT_PARKS = 5;
  * incident apiece, for the owner to resume by hand, when a minute later the
  * same call would have been answered.
  */
+/**
+ * How long a failed attempt waits before the next is claimed: ten seconds,
+ * then four times as long each time. A failure went straight back on the
+ * queue and the next tick took it, so a vendor answering 503 for six seconds
+ * spent every attempt a task had (a chaos run on 2026-09-29).
+ */
+export const RETRY_WAITS_MS: readonly number[] = [10_000, 40_000, 160_000];
 export const MODEL_OUTAGE_WAITS_MS: readonly number[] = [30_000, 60_000, 120_000, 240_000, 480_000];
 
 export interface RunOutcome {
@@ -1496,7 +1503,12 @@ export class Engine {
     // half an hour later. `attempt_max` of three would mean three attempts
     // spread over an hour and a half, which is not what anybody reading
     // `attempt_max` expects. The first real boot of this platform found it.
-    await transition(companyId, taskId, 'pending');
+    //
+    // Not claimed again at once: a vendor's moment, or a model's, would spend
+    // every attempt before it passed (`RETRY_WAITS_MS`). Parked as every
+    // other wait is, with the time it wakes at, which the queue keeps to.
+    const wait = RETRY_WAITS_MS[Math.min(task?.attempt ?? 0, RETRY_WAITS_MS.length - 1)]!;
+    await transition(companyId, taskId, 'waiting_window', { waitUntil: new Date(Date.now() + wait) });
     await clearLease(companyId, taskId, this.#workerId);
     return { status: 'failed', reason: 'retryable' };
   }

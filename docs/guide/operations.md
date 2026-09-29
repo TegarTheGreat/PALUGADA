@@ -213,6 +213,10 @@ for a holder that never wrote there. A write that was in flight when the
 process died is sent again under the key it first had, so a vendor that
 honours the key makes it once.
 
+A failed attempt is not tried again at once: it waits ten seconds, then
+forty, then two minutes and forty seconds before the next is claimed, so a
+service that is down for a moment does not spend every attempt a task has.
+
 When the model does not answer -- a provider's outage, a local model
 restarting -- a call is tried three times, and then the role's fallback
 models if it has any and may use them. A task whose models are all down

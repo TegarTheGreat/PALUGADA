@@ -11,7 +11,8 @@ import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { closePools } from '../../src/db/pool.ts';
 import { withTenant } from '../../src/db/tenant.ts';
-import { Engine } from '../../src/engine/engine.ts';
+import { Engine, RETRY_WAITS_MS } from '../../src/engine/engine.ts';
+import { claimTask } from '../../src/engine/checkout.ts';
 import { AdapterRegistry } from '../../src/runtime/protocol.ts';
 import { Worker } from '../../src/worker.ts';
 import { CapabilityRegistry } from '../../src/broker/registry.ts';
@@ -26,6 +27,7 @@ import { narrator, transcriptOf } from '../../src/engine/transcript.ts';
 import { createRootTask, createSubTask, getTask, transition } from '../../src/engine/tasks.ts';
 import { addRole, createCompany, grantCapability, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
+import { reportOn } from '../helpers/done.ts';
 
 before(ensureSchema);
 beforeEach(resetData);
@@ -261,4 +263,55 @@ test('what a run is told about its project and its earlier failures reaches the 
   assert.match(again!.body, /no column called harga/);
   assert.ok(procedures[0]!.some((line) => /^How the owner wants it done\nQuote wholesale prices per kilo/.test(line)),
     'and the owner\'s way of working arrives as the owner\'s');
+});
+
+/**
+ * A failed attempt went straight back on the queue, and the next tick took it
+ * again. In a chaos run on 2026-09-29 a CRM answering 503 to every call spent
+ * all three attempts of two tasks in six seconds, so a vendor's moment failed
+ * the work for good. The next attempt now waits -- ten seconds, then four
+ * times as long -- so a moment passes before the attempts do. A direct run
+ * is not held back by it; the queue is.
+ */
+test('a failed attempt waits before the next is claimed, longer each time', async () => {
+  const fixture = await createCompany('retry-waits');
+  await withTenant(fixture.companyId, (tx) => tx.query("UPDATE roles SET runtime = 'flaky', backend = 'local' WHERE id = $1", [fixture.roleId]));
+  let runs = 0;
+  const adapters = new AdapterRegistry();
+  adapters.register({
+    name: 'flaky',
+    backends: ['local'],
+    async health() { return { ok: true, detail: 'test' }; },
+    async run() {
+      runs += 1;
+      if (runs <= 2) throw new Error('the CRM answered 503');
+      return { output: { summary: 'noted', done: reportOn(['the run returns an output matching its schema']) } };
+    },
+  });
+  const registry = platformRegistry();
+  await registry.sync();
+  const engine = new Engine({ broker: new CapabilityBroker(registry), adapters, workerId: 'retry-worker' });
+  const task = await rootTask(fixture);
+  const waitOf = async () => (await withTenant(fixture.companyId, (tx) => tx.query<{ status: string; wait_until: Date | null }>(
+    'SELECT status, wait_until FROM tasks WHERE id = $1', [task.id]))).rows[0]!;
+
+  const started = Date.now();
+  assert.equal((await engine.runTask(fixture.companyId, task.id, 'worker')).reason, 'retryable');
+  const first = await waitOf();
+  assert.equal(first.status, 'waiting_window', 'parked, with the time it wakes at');
+  const firstWait = first.wait_until!.getTime() - started;
+  assert.ok(firstWait >= RETRY_WAITS_MS[0]! - 1_000 && firstWait <= RETRY_WAITS_MS[0]! + 2_000, `waited ${firstWait}ms`);
+  assert.equal(await claimTask(fixture.companyId, { holder: 'retry-worker' }), null, 'not claimed before its time');
+  const claim = await claimTask(fixture.companyId, { holder: 'retry-worker', now: new Date(started + RETRY_WAITS_MS[0]! + 2_000) });
+  assert.equal(claim?.taskId, task.id);
+
+  const again = Date.now();
+  assert.equal((await engine.runTask(fixture.companyId, task.id, 'worker')).reason, 'retryable');
+  const second = (await waitOf()).wait_until!.getTime() - again;
+  assert.ok(second >= RETRY_WAITS_MS[1]! - 1_000, `waited ${second}ms the second time`);
+  assert.ok(RETRY_WAITS_MS[1]! > RETRY_WAITS_MS[0]!, 'longer each time');
+  assert.equal(await claimTask(fixture.companyId, { holder: 'retry-worker' }), null);
+
+  assert.equal((await engine.runTask(fixture.companyId, task.id, 'worker')).status, 'completed');
+  assert.equal(runs, 3);
 });

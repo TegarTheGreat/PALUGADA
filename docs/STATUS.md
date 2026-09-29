@@ -3679,9 +3679,14 @@ events.
 | The model's connections dropped for 20 s | both tasks **halted**, `runtime_unavailable`, **2 incidents** for the owner to resume by hand; a dropped connection was not even retried | both **completed** in 46 s, **0 incidents**: a dropped connection is retried like a 503, then the task waits for the same model -- 30 s, doubling, five times -- and only a model that stays down halts it |
 | The CRM refused the note, and the model said it was done | the task **completed** with a summary saying the note was written | refused: a write above tier 0 that failed and was not put right later must be named under `failed`, with why the work is done anyway |
 | The model tried a write again after its answer never came | the second try carried a **new key**, so the vendor could not tell it was the same write | tool calls are keyed by the task, the capability and the input, so the same write asked twice is sent under one key |
+| The CRM answered 503 to everything for 20 s | both tasks **failed**: a failed attempt went straight back on the queue, and three were spent in seconds | both **completed** in 56 s: a failed attempt waits 10 s, then 40 s, then 160 s before the next is claimed; the same key on every try, one note each |
+| SIGTERM while a call is in flight | -- | the run finished its step and handed the task back; both completed in 19 s, one note each, nothing leaked |
+| SIGKILL as the CRM's answer arrives | -- | the step was repeated under its first key; both completed in 62 s, one note each |
+| PostgreSQL restarted while a call is in flight | -- | the process logged the lost connections and carried on; both completed in 12 s, one note each, nothing leaked |
 
 What a separate review reported and this repository has not yet reproduced
-or fixed: a worker's tick is not interrupted by SIGTERM mid-run; a CLI that
+or fixed (a SIGTERM mid-run, which it also reported, was reproduced above
+and is handled): a CLI that
 writes without end grows memory without a bound; `agent_runs.tokens_used`
 is never written; a preflight that fails once for a network blip halts the
 task rather than waiting; containers left by a killed Docker runtime are not

@@ -239,7 +239,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   },
   {
     pattern: '/api/companies/:companyId/inbox/:itemId/answer',
-    what: 'Answer a question an agent asked the owner.',
+    what: 'Tell the task behind an escalation something, without deciding the item; a task waiting on the owner goes back to work.',
     fields: { answer: 'the answer' },
     factor: 'never',
   },

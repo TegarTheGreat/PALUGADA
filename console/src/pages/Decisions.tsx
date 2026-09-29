@@ -480,8 +480,9 @@ function Detail({
     }
   };
 
-  // F10.3's other direction: an agent asked something, and this is the answer
-  // going back. It puts the task back on the queue rather than deciding it.
+  // F10.3: the owner's word to the task behind an escalation, without deciding
+  // it. The task's next run reads it, and a task waiting on the owner goes
+  // back on the queue.
   const sendAnswer = async () => {
     setBusy('answer');
     setError(null);
@@ -537,6 +538,21 @@ function Detail({
       <Stack p="lg" gap="md">
         {item.actionSummary && item.actionSummary !== item.title && (
           <Block label={t('What will happen')}>{item.actionSummary}</Block>
+        )}
+        {/* Every argument, whole: the line above is cut to fit, and what is
+            approved is what the action is given, not its name. */}
+        {argumentsOf(item.input).length > 0 && (
+          <div>
+            <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb={4}>{t('What it is given, in full')}</Text>
+            <Stack gap={6}>
+              {argumentsOf(item.input).map(([name, value]) => (
+                <div key={name}>
+                  <Text size="xs" c="dimmed">{name}</Text>
+                  <Text size="sm" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{value}</Text>
+                </div>
+              ))}
+            </Stack>
+          </div>
         )}
         {item.rationale && <Block label={t('Why')}>{item.rationale}</Block>}
         {item.consequenceIfDenied && <Block label={t('If you refuse')}>{item.consequenceIfDenied}</Block>}
@@ -705,6 +721,24 @@ function Later({ companyId, item, done }: { companyId: string; item: InboxItem; 
       </Menu.Dropdown>
     </Menu>
   );
+}
+
+/**
+ * An action's arguments as the owner reads them: text as written, a list of
+ * words joined, anything else as JSON. Short ones first and long texts last:
+ * the database keeps an object's keys in an order of its own, which put a
+ * message's body above whom it was to.
+ */
+function argumentsOf(input: unknown): Array<[string, string]> {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return [];
+  const shown = Object.entries(input as Record<string, unknown>).map(([name, value]): [string, string] => [
+    name,
+    typeof value === 'string' ? value
+      : Array.isArray(value) && value.every((one) => one === null || typeof one !== 'object') ? value.join(', ')
+      : JSON.stringify(value, null, 2),
+  ]);
+  const long = ([, value]: [string, string]) => (value.includes('\n') || value.length > 120 ? 1 : 0);
+  return shown.sort((a, b) => long(a) - long(b));
 }
 
 function Block({ label, children }: { label: string; children: React.ReactNode }) {

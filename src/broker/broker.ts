@@ -127,6 +127,55 @@ function assertAccepted(capability: Capability<never, never>, name: string, inpu
   );
 }
 
+/** The longest a card's title runs, and its one-line summary. */
+const TITLE_LIMIT = 80;
+const SUMMARY_LIMIT = 240;
+
+/**
+ * What an action would do, in a line: the capability, then each argument.
+ *
+ * The card said "Run record.delete" and nothing else (the competitive
+ * analysis of 2026-09-28, L9), so an owner approving a tier 3 action on a
+ * phone approved a name: which record, to whom, how much, was in the
+ * payload and on no surface. Every argument is shown as far as the line
+ * allows -- a long text cut, a list joined -- and the whole input travels
+ * with the item for the console to list.
+ */
+function describeAction(name: string, input: unknown, limit: number): string {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return name;
+  let line = `${name}:`;
+  let first = true;
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    const next = `${line}${first ? ' ' : '; '}${key} ${shownValue(value)}`;
+    if (next.length > limit) {
+      return first ? `${next.slice(0, limit - 1).trimEnd()}\u2026` : `${line}; \u2026`;
+    }
+    line = next;
+    first = false;
+  }
+  return first ? name : line;
+}
+
+function shownValue(value: unknown): string {
+  if (typeof value === 'string') {
+    const flat = value.replace(/\s+/g, ' ').trim();
+    // Cut at a word where one is near, so a line ends on a word the owner can read.
+    const space = flat.lastIndexOf(' ', 60);
+    const cut = flat.length > 60 ? `${flat.slice(0, space > 40 ? space : 60).trimEnd()}\u2026` : flat;
+    return cut === '' || /\s/.test(cut) ? `"${cut}"` : cut;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (value === null || value === undefined) return 'none';
+  if (Array.isArray(value)) {
+    if (value.every((one) => one === null || typeof one !== 'object')) {
+      const joined = value.map((one) => String(one)).join(', ');
+      return joined.length > 80 ? `${joined.slice(0, 80).trimEnd()}\u2026 (${value.length})` : joined;
+    }
+    return `${value.length} items`;
+  }
+  return '{\u2026}';
+}
+
 export class CapabilityBroker {
   readonly #registry: CapabilityRegistry;
   readonly #hooks: HookPipeline;
@@ -532,13 +581,18 @@ export class CapabilityBroker {
         // is asked again, and told the first attempt may have acted.
         interrupted: await inbox.spentByInterruptedStep(tx, ctx.taskId, name, fingerprint!, ctx.idempotencyKey),
       }));
+      // Described from the redacted input, the same one the payload keeps:
+      // the card is read on a phone and in a chat, and neither is a place for
+      // a secret the adapter was handed.
+      const shown = redactor.redactDeep(input) as unknown;
       await inbox.requestApproval({
         actionFingerprint: fingerprint!,
         companyId: ctx.companyId,
         taskId: ctx.taskId,
         capabilityName: name,
         tier,
-        actionSummary: `Run ${name}`,
+        title: describeAction(name, shown, TITLE_LIMIT),
+        actionSummary: describeAction(name, shown, SUMMARY_LIMIT),
         rationale:
           (interrupted
             ? 'You approved this once already, and the worker carrying it out stopped before it could say ' +
@@ -558,7 +612,7 @@ export class CapabilityBroker {
         // F10.2 asks an approval item to say why. The plan is most of the
         // answer, so it travels with the item rather than being a click away.
         payload: {
-          input: redactor.redactDeep(input) as unknown,
+          input: shown,
           plan,
           goalAncestry: chain.map((goal) => ({ kind: goal.kind, statement: goal.statement })),
         },

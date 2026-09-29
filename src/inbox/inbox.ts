@@ -60,6 +60,8 @@ export interface ApprovalInput {
   taskId?: string | undefined;
   capabilityName: string;
   tier: Tier;
+  /** The card's heading; the summary's first words when absent. */
+  title?: string;
   actionSummary: string;
   rationale: string;
   consequenceIfDenied: string;
@@ -98,6 +100,12 @@ export interface InboxItem {
   question: string | null;
   /** The answers the run offered to choose from, when it offered some. */
   options: string[] | null;
+  /**
+   * What an approval's action was called with, redacted as the payload keeps
+   * it: the card lists it, so the owner approves the arguments and not only
+   * the capability's name. Null for anything that is not an action.
+   */
+  input: unknown;
   /**
    * F2.7, F10.2: why this work exists, mission first. An owner deciding on a
    * phone at seven in the morning reads it on the item rather than following
@@ -181,7 +189,7 @@ export async function requestApproval(input: ApprovalInput): Promise<string> {
                now() + make_interval(hours => $11), $12, $13)
        RETURNING id`,
       [
-        input.companyId, input.taskId ?? null, input.actionSummary, input.actionSummary,
+        input.companyId, input.taskId ?? null, input.title ?? input.actionSummary, input.actionSummary,
         input.rationale, input.tier, input.estimatedCostCents ?? 0,
         input.consequenceIfDenied, input.capabilityName,
         JSON.stringify(input.payload ?? {}), ttl, notifyAfter,
@@ -899,13 +907,14 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
       estimated_cost_cents: number; consequence_if_denied: string;
       task_id: string | null; expires_at: Date | null; created_at: Date;
       capability_name: string | null; role_slug: string | null; division_name: string | null;
-      question: string | null; options: string[] | null; snoozed_until: Date | null;
+      question: string | null; options: string[] | null; snoozed_until: Date | null; input: unknown;
     }>(
       `SELECT i.id, i.kind, i.status, i.title, i.action_summary, i.rationale, i.tier, i.snoozed_until,
               i.estimated_cost_cents, i.consequence_if_denied, i.task_id, i.expires_at,
               i.created_at, i.capability_name, r.slug AS role_slug, d.name AS division_name,
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->>'question' END AS question,
-              CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'options' END AS options
+              CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'options' END AS options,
+              CASE WHEN i.kind = 'approval' THEN i.payload->'input' END AS input
          FROM inbox_items i
          LEFT JOIN tasks t ON t.id = i.task_id
          LEFT JOIN roles r ON r.id = t.role_id
@@ -928,6 +937,7 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
         capabilityName: r.capability_name, roleSlug: r.role_slug, divisionName: r.division_name,
         question: r.question,
         options: r.options,
+        input: r.input ?? null,
         goalChain: chain.map((goal) => ({ kind: goal.kind, statement: goal.statement })),
         snoozedUntil: r.snoozed_until,
       });
@@ -1666,34 +1676,32 @@ async function notOpen(tx: TenantClient, itemId: string): Promise<PalugadaError>
 }
 
 /**
- * The agent's answer to an owner question (F10.3).
+ * The owner's answer to an escalation, given without deciding it (F10.3).
  *
- * Recorded against the item the owner is looking at, so the answer appears
- * under the question rather than in an event log they would have to go and
- * find. The item stays open: an answered question is a decision that can now
- * be made, not one that has been.
+ * The console offered "Answer the agent instead: sends your answer and puts
+ * the task back on the queue", and this wrote the words into the item under
+ * the owner's own earlier note, recorded them as an agent's, and left the
+ * task where it was (the competitive analysis of 2026-09-28, L18). The
+ * answer is now the owner's word to the task, read by its next run the way
+ * any instruction is; a task waiting on the owner goes back to work; and
+ * the item stays open, because the owner has said something, not decided.
  */
-export async function answerOwnerQuestion(
+export async function answerEscalation(
   companyId: string,
   itemId: string,
   answer: string,
 ): Promise<void> {
+  const text = String(answer ?? '').trim();
+  if (!text) throw new PalugadaError('contract.violation', 'an answer cannot be empty', { field: 'answer' });
   await withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{ task_id: string | null }>(
       `UPDATE inbox_items
           SET payload = payload || jsonb_build_object(
                 'answers', coalesce(payload->'answers', '[]'::jsonb) ||
-                           jsonb_build_array(jsonb_build_object(
-                             'question', coalesce(owner_note, ''),
-                             'answer', $2::text,
-                             'at', now()))),
-              -- The question has been answered, so the item is undecided again
-              -- and shows as waiting on the owner rather than on the agent.
-              decision = NULL,
-              decided_at = NULL
+                           jsonb_build_array(jsonb_build_object('from', 'owner', 'answer', $2::text, 'at', now())))
         WHERE id = $1 AND status = 'open'
         RETURNING task_id`,
-      [itemId, answer],
+      [itemId, text],
     );
     const row = rows[0];
     if (!row) throw await notOpen(tx, itemId);
@@ -1702,9 +1710,23 @@ export async function answerOwnerQuestion(
       companyId,
       taskId: row.task_id ?? undefined,
       type: 'owner.answered',
-      actor: 'agent_run',
-      payload: { inboxItemId: itemId, answer },
+      actor: 'owner',
+      payload: { inboxItemId: itemId, answer: text },
     });
+    if (!row.task_id) return;
+    // The same record an instruction makes, so the run reads it where it
+    // reads the owner's word ("What the owner told you about this task").
+    await appendEvent(tx, {
+      companyId,
+      taskId: row.task_id,
+      type: 'owner.instructed',
+      actor: 'owner',
+      payload: { text, inboxItemId: itemId },
+    });
+    const task = await getTask(tx, row.task_id);
+    if (task && WAITING_STATUSES.has(task.status)) {
+      await transitionWithin(tx, companyId, row.task_id, 'running');
+    }
   });
 }
 

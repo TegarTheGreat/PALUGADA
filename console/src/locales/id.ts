@@ -1314,6 +1314,7 @@ export const ID: Readonly<Record<string, string>> = {
   "What it held": "Isinya",
   "What it is for": "Untuk apa",
   "What it is for, or what changed": "Untuk apa, atau apa yang berubah",
+  "What it is given, in full": "Apa yang diberikan kepadanya, selengkapnya",
   "What it makes is kept in each company's files, and this deployment has none: set PALUGADA_FILES_ROOT and start it again.": "Hasilnya disimpan di berkas tiap perusahaan, dan deployment ini tidak punya: atur PALUGADA_FILES_ROOT lalu jalankan ulang.",
   "What it produced": "Hasilnya",
   "What it produces: documents, emails, content for customers, code comments.": "Bahasa hasil kerjanya: dokumen, email, konten untuk pelanggan, komentar kode.",

@@ -444,3 +444,35 @@ test('a run can record its plan and then act on it (F8.11)', async () => {
     ),
   );
 });
+
+/**
+ * The card said "Run record.delete" and nothing else (the competitive
+ * analysis of 2026-09-28, L9). Which record, and why, was in the item's
+ * payload and in no answer the console or the chat read, so the owner
+ * approved a name. What the action would do is now the card's first line,
+ * and every argument is listed under it -- as redacted as the payload.
+ */
+test('an approval says what the action would do, with its arguments, not only its name (F10.2)', async () => {
+  const fixture = await createCompany('plan-arguments');
+  const { capability } = outreachCapability();
+  const broker = await brokerWith(fixture, capability as Capability<never, never>);
+  await grantCapability(fixture, 'email.send', { tierOverride: 3 });
+  const task = await newTask(fixture);
+  await transition(fixture.companyId, task.id, 'running');
+  await recordPlan(fixture.companyId, task.id, [
+    { capability: 'email.send', intent: 'introduce the service', expectedEffect: 'three leads have one message each', batchSize: 3 },
+  ]);
+  const input = {
+    recipients: ['a@example.test', 'b@example.test', 'c@example.test'],
+    subject: 'Kopi for your office, from Monday',
+    body: `Hello,\n\n${'We roast every morning. '.repeat(20)}`,
+  };
+  await assert.rejects(() => invoke(broker, fixture, task.id, 'email.send', input),
+    (error: unknown) => isPalugadaError(error, 'approval.required'));
+
+  const [item] = await inbox.listOpen(fixture.companyId);
+  assert.equal(item!.actionSummary.split('\n')[0],
+    'email.send: recipients a@example.test, b@example.test, c@example.test; subject "Kopi for your office, from Monday"; body "Hello, We roast every morning. We roast every morning. We…"');
+  assert.ok(item!.actionSummary.length <= 240, 'a line, not the whole message');
+  assert.deepEqual(item!.input, input, 'and every argument, whole, for the card to list');
+});

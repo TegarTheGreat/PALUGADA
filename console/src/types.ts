@@ -49,6 +49,8 @@ export interface InboxItem {
   goalChain: Array<{ kind: string; statement: string }>;
   /** When an item the owner put off comes back (0060). */
   snoozedUntil: string | null;
+  /** What an approval's action is called with, redacted; absent on anything else. */
+  input?: unknown;
 }
 
 export interface Digest {

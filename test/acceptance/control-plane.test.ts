@@ -512,7 +512,7 @@ test('the owner can ask a question inside the same task (F10.3)', async () => {
   );
   assert.match(context.text, /Which host, and what is the TTL\?/);
 
-  await inbox.answerOwnerQuestion(fixture.companyId, itemId, 'host-b, TTL 300.');
+  await inbox.answerEscalation(fixture.companyId, itemId, 'host-b, TTL 300.');
   const answered = await withTenant(fixture.companyId, async (tx) => {
     const { rows } = await tx.query<{ payload: { answers?: unknown[] } }>(
       'SELECT payload FROM inbox_items WHERE id = $1',
@@ -521,6 +521,54 @@ test('the owner can ask a question inside the same task (F10.3)', async () => {
     return rows[0]!.payload;
   });
   assert.equal(answered.answers?.length, 1);
+});
+
+/**
+ * The owner's answer to an escalation reached nobody (the competitive
+ * analysis of 2026-09-28, L18). The console says "Sends your answer and puts
+ * the task back on the queue, without deciding the item"; the route wrote
+ * the words into the item under the owner's own earlier note, recorded them
+ * as an agent's, and left the task where it was. The answer is now the
+ * owner's word to the task -- read by its next run like any instruction --
+ * and a task waiting on the owner goes back to work.
+ */
+test('the owner answers an escalation without deciding it, and the task carries on with the answer (F10.3)', async () => {
+  const fixture = await createCompany('owner-answers');
+  const task = await newTask(fixture);
+  await transition(fixture.companyId, task.id, 'running');
+  await transition(fixture.companyId, task.id, 'waiting_review');
+  const itemId = await inbox.raiseEscalation({
+    companyId: fixture.companyId,
+    taskId: task.id,
+    title: 'Review deadlocked after 2 revisions: email.send',
+    detail: 'Proposer and reviewer did not converge.',
+  });
+
+  await inbox.answerEscalation(fixture.companyId, itemId, 'Keep the price, drop the discount.');
+
+  const open = await inbox.listOpen(fixture.companyId);
+  assert.ok(open.some((entry) => entry.id === itemId), 'answering is not deciding: the item stays open');
+  const stored = await withTenant(fixture.companyId, (tx) => getTask(tx, task.id));
+  assert.equal(stored!.status, 'running', 'the task is back at work');
+
+  const context = await withTenant(fixture.companyId, (tx) => buildContext(tx, {
+    companyId: fixture.companyId, divisionId: fixture.divisionId, taskId: task.id,
+  }));
+  const said = context.sections.find((section) => section.kind === 'owner_note');
+  assert.ok(said, 'the next run is told');
+  assert.match(said.body, /Keep the price, drop the discount\./);
+
+  const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ actor: string; payload: { inboxItemId: string } }>(
+    "SELECT actor, payload FROM events WHERE type = 'owner.answered'"));
+  assert.deepEqual(rows.map((row) => [row.actor, row.payload.inboxItemId]), [['owner', itemId]], 'the owner\'s words, as the owner\'s');
+
+  // A task that is not waiting is told and left running; one that has ended
+  // cannot be answered, and an item already closed says why.
+  await inbox.answerEscalation(fixture.companyId, itemId, 'And lead with Monday.');
+  assert.equal((await withTenant(fixture.companyId, (tx) => getTask(tx, task.id)))!.status, 'running');
+  await inbox.decide(fixture.companyId, itemId, 'deny');
+  await assert.rejects(inbox.answerEscalation(fixture.companyId, itemId, 'Too late.'), /is closed: it was already decided/);
+  await assert.rejects(inbox.answerEscalation(fixture.companyId, itemId, '   '), /an answer cannot be empty/);
 });
 
 /* ------------------------------------------------------------- F2.1, F2.9 --- */

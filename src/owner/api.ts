@@ -2899,16 +2899,12 @@ export class OwnerApi {
       /* ----------------------------------------------------------- F10.3 --- */
 
       {
-        // An agent asked the owner something. This is the answer going back,
-        // which puts the task back on the queue rather than deciding it.
+        // The owner's answer to an escalation, without deciding it: told to
+        // the task, which goes back to work if it was waiting on the owner.
         method: 'POST',
         pattern: '/api/companies/:companyId/inbox/:itemId/answer',
         handle: async ({ params, body }) => {
-          const answer = String(body.answer ?? '').trim();
-          if (!answer) {
-            throw new PalugadaError('contract.violation', 'an answer cannot be empty', {});
-          }
-          await inbox.answerOwnerQuestion(params.companyId!, params.itemId!, answer);
+          await inbox.answerEscalation(params.companyId!, params.itemId!, String(body.answer ?? ''));
           return { ok: true };
         },
       },

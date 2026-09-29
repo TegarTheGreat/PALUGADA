@@ -1,6 +1,7 @@
 /**
  * The company's shape (F2, F2.7, F3): the goal ladder it works towards, its
- * divisions and the roles in them, its schedules and its policies. Every
+ * divisions and the roles in them, its schedules, its charter and its
+ * policies. Every
  * change is made from the thing it changes -- a role's charter from the role,
  * a division's grants from the division -- instead of from a form that asks
  * which one by id.
@@ -12,7 +13,7 @@ import {
 import { notifications } from '@mantine/notifications';
 import {
   IconArrowsRight, IconCalendarTime, IconChartBar, IconCoin, IconCrown, IconFlag, IconFlask, IconHammer, IconHeadset, IconMessageCircle, IconPlus,
-  IconRoute, IconSettings, IconShieldCheck, IconSparkles, IconTarget, IconTrendingUp, IconUserCircle, IconUsersGroup, IconWebhook, IconFolders,
+  IconRoute, IconLicense, IconSettings, IconShieldCheck, IconSparkles, IconTarget, IconTrendingUp, IconUserCircle, IconUsersGroup, IconWebhook, IconFolders,
 } from '@tabler/icons-react';
 import { useMediaQuery } from '@mantine/hooks';
 import { api, explain } from '../api.ts';
@@ -30,6 +31,7 @@ import { Triggers } from '../components/Triggers.tsx';
 import { Handoffs } from '../components/Handoffs.tsx';
 import { Projects } from '../components/Projects.tsx';
 import { ConfigHistory } from '../components/ConfigHistory.tsx';
+import { Charters } from '../components/Charters.tsx';
 import { companyEmblem, OWNER_PICTURE, rolePicture } from '../images.ts';
 import { openGoals } from '../goals.ts';
 
@@ -49,7 +51,7 @@ export function Organization({ ctx }: PageProps) {
     <PageHeader
       crumbs={[ctx.company.name]}
       title={t('Team')}
-      description={t('Who does the work: divisions and the roles in them, the goals they work towards, their schedules and the policies they work under.')}
+      description={t('Who does the work: divisions and the roles in them, the goals they work towards, their schedules, and the charter and policies they work under.')}
       live={view.updatedAt}
       actions={<Button leftSection={<IconPlus size={16} />} onClick={ctx.giveWork}>{t('Give work')}</Button>}
     />
@@ -72,6 +74,7 @@ export function Organization({ ctx }: PageProps) {
           <Tabs.Tab value="schedules" leftSection={<IconCalendarTime size={16} />}>{t('Schedules')}</Tabs.Tab>
           <Tabs.Tab value="handoffs" leftSection={<IconArrowsRight size={16} />}>{t('Handoffs')}</Tabs.Tab>
           <Tabs.Tab value="triggers" leftSection={<IconWebhook size={16} />}>{t('Triggers')}</Tabs.Tab>
+          <Tabs.Tab value="charter" leftSection={<IconLicense size={16} />}>{t('Charter')}</Tabs.Tab>
           <Tabs.Tab value="policies" leftSection={<IconShieldCheck size={16} />}>{t('Policies')}</Tabs.Tab>
         </Tabs.List>
 
@@ -93,6 +96,9 @@ export function Organization({ ctx }: PageProps) {
         </Tabs.Panel>
         <Tabs.Panel value="triggers">
           <Triggers companyId={companyId} structure={structure} />
+        </Tabs.Panel>
+        <Tabs.Panel value="charter">
+          <Charters companyId={companyId} />
         </Tabs.Panel>
         <Tabs.Panel value="policies">
           <Policies companyId={companyId} />

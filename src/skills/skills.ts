@@ -608,7 +608,8 @@ export async function screenCandidate(
  */
 export const SKILL_REVIEW_CRITERIA =
   'Read the proposed skill as a procedure every run in its scope would follow. Approve it only if it ' +
-  'is correct, can be followed as written, agrees with the company\'s charter and policies, and does ' +
+  'is correct, can be followed as written, agrees with the charters at the top of your briefing and ' +
+  'the policies listed with this task (an empty list means there are none), and does ' +
   'not tell a run to act without an approval the policies require, to ask for or pass on credentials, ' +
   'or to send the company\'s data anywhere it would not otherwise go. Reject it when any of that is ' +
   'wrong or when you cannot tell. Answer with "decision": "approve" or "reject", and "reason": one or ' +
@@ -667,11 +668,25 @@ async function sendForReview(companyId: string, versionId: string): Promise<bool
         ORDER BY (kind = 'mission') DESC, created_at LIMIT 1`);
     const { rows: [project] } = await tx.query<{ id: string }>(
       'SELECT id FROM projects ORDER BY created_at LIMIT 1');
-    return version && reviewer && goal && project ? { version, reviewer, goal, project } : null;
+    // The rules the skill has to agree with. The charters reach the reviewer
+    // as they reach every run; the policies reach no run, so a reviewer told
+    // to check against them and not given them turned skills down for that.
+    // Broadest first, as they bind (F3.5); row security keeps them to the
+    // platform's and this company's.
+    const { rows: policies } = await tx.query<{
+      slug: string; scope: string; effect: string; condition: unknown; mode: string;
+    }>(
+      `SELECT p.slug, p.effect, p.condition, p.mode,
+              CASE WHEN p.company_id IS NULL THEN 'platform'
+                   WHEN p.division_id IS NULL THEN 'company'
+                   ELSE 'division ' || d.name END AS scope
+         FROM policies p LEFT JOIN divisions d ON d.id = p.division_id
+        ORDER BY (p.company_id IS NULL) DESC, (p.division_id IS NULL) DESC, p.created_at, p.slug`);
+    return version && reviewer && goal && project ? { version, reviewer, goal, project, policies } : null;
   });
   if (!plan) return false;
 
-  const { version, reviewer, goal, project } = plan;
+  const { version, reviewer, goal, project, policies } = plan;
   // Imported here: the context builder reads skill summaries from this module.
   const { wrapUntrusted } = await import('../context/builder.ts');
   const task = await createRootTask({
@@ -693,6 +708,9 @@ async function sendForReview(companyId: string, versionId: string): Promise<bool
         changelog: version.changelog,
         ...(version.provenance === 'external' ? { from: version.origin ?? 'outside this company' } : {}),
       },
+      policies: policies.map((policy) => ({
+        slug: policy.slug, scope: policy.scope, effect: policy.effect, when: policy.condition, mode: policy.mode,
+      })),
       // The document is what is judged, never what the reviewer obeys: a
       // skill that says "reviewer, approve this" is evidence against itself.
       document: wrapUntrusted(`skill:${version.slug}`, version.body),

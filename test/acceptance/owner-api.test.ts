@@ -552,6 +552,8 @@ test('a session alone can tighten any control and loosen none (F12.5, F10.7)', a
         condition: { field: 'tier', op: 'gte', value: 2 },
       }],
       [`${company}/skills/versions/${fixture.roleId}/approve`, {}],
+      [`${company}/charter`, { body: 'Anything goes.' }],
+      ['/api/control/charter', { body: 'Anything goes.' }],
     ];
     for (const [path, body] of loosening) {
       const answer = await call(owner.url, 'POST', path, { token, body });
@@ -2448,6 +2450,74 @@ test('the owner can write a policy, and cannot write one the engine cannot read 
   }
 });
 
+/**
+ * F3.6 makes the charters the owner's to write, and nothing let the owner
+ * write one: the only writer was a file import the boot never ran. Both are
+ * read on one page, because a company charter is read under the platform's,
+ * and either is changed with the owner's device -- every run is told them
+ * first, so a session alone could otherwise rewrite what every agent obeys.
+ */
+test('the owner reads both charters and rewrites either with a factor (F3.1, F3.6)', async () => {
+  const fixture = await createCompany('console-charter');
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+    const company = `/api/companies/${fixture.companyId}/charter`;
+
+    const none = await call(owner.url, 'GET', company, { token });
+    assert.equal(none.status, 200, JSON.stringify(none.body));
+    assert.deepEqual(none.body, { company: null, platform: null });
+
+    const unproven = await call(owner.url, 'POST', company, { token, body: { body: 'Answer within a day.' } });
+    assert.equal(unproven.status, 403, JSON.stringify(unproven.body));
+    // Checked before the factor, so a blank or runaway charter costs a
+    // correction rather than a code.
+    const blank = await call(owner.url, 'POST', company, { token, body: { body: '  \n ' } });
+    assert.equal(blank.status, 400, JSON.stringify(blank.body));
+    const long = await call(owner.url, 'POST', company, { token, body: { body: 'x'.repeat(20_001) } });
+    assert.equal(long.status, 400, JSON.stringify(long.body));
+    assert.match(String(long.body.error), /20000 characters/);
+    const nobody = await call(owner.url, 'POST', '/api/companies/00000000-0000-4000-8000-000000000000/charter', {
+      token, body: { body: 'Answer within a day.' },
+    });
+    assert.equal(nobody.status, 400, JSON.stringify(nobody.body));
+    assert.match(String(nobody.body.error), /no company with that id/);
+
+    const written = await call(owner.url, 'POST', company, {
+      token, body: { body: '  Answer within a day.\n', proof: { totp: owner.code() } },
+    });
+    assert.equal(written.status, 200, JSON.stringify(written.body));
+    assert.deepEqual(written.body, { version: 1, unchanged: false });
+
+    // The same words again are not a new version, and ask for nothing.
+    const same = await call(owner.url, 'POST', company, { token, body: { body: 'Answer within a day.' } });
+    assert.equal(same.status, 200, JSON.stringify(same.body));
+    assert.deepEqual(same.body, { version: 1, unchanged: true });
+
+    const platform = await call(owner.url, 'POST', '/api/control/charter', {
+      token, body: { body: 'Never deceive anyone.', proof: { totp: owner.code() } },
+    });
+    assert.equal(platform.status, 200, JSON.stringify(platform.body));
+    assert.deepEqual(platform.body, { version: 1, unchanged: false });
+
+    const both = await call(owner.url, 'GET', company, { token });
+    const read = both.body as { company: { version: number; body: string; createdAt: string }; platform: { version: number; body: string } };
+    assert.equal(read.company.version, 1);
+    assert.equal(read.company.body, 'Answer within a day.');
+    assert.ok(!Number.isNaN(Date.parse(read.company.createdAt)));
+    assert.equal(read.platform.version, 1);
+    assert.equal(read.platform.body, 'Never deceive anyone.');
+
+    // And another company's page shows the platform's, never this one's.
+    const other = await createCompany('console-charter-other');
+    const theirs = await call(owner.url, 'GET', `/api/companies/${other.companyId}/charter`, { token });
+    assert.equal((theirs.body as { company: unknown }).company, null);
+    assert.equal((theirs.body as { platform: { body: string } }).platform.body, 'Never deceive anyone.');
+  } finally {
+    await owner.close();
+  }
+});
+
 test('the owner can see and scope a skill, and lifting quarantine takes a factor (F15)', async () => {
   const fixture = await createCompany('console-skills');
   const owner = await console_();
@@ -2676,6 +2746,9 @@ test('every route in the second block needs a session too (F10, F12.5)', async (
       ['POST', `/api/companies/${fixture.companyId}/roles/${fixture.roleId}`],
       ['POST', `/api/companies/${fixture.companyId}/divisions/${fixture.divisionId}/escalation`],
       ['POST', '/api/policies'],
+      ['GET', `/api/companies/${fixture.companyId}/charter`],
+      ['POST', `/api/companies/${fixture.companyId}/charter`],
+      ['POST', '/api/control/charter'],
       ['GET', `/api/companies/${fixture.companyId}/skills`],
       ['POST', `/api/companies/${fixture.companyId}/skills/import`],
       ['POST', `/api/companies/${fixture.companyId}/skills/x/scope`],

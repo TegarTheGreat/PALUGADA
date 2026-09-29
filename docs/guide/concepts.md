@@ -228,6 +228,19 @@ hands. An approval covers exactly one action: a different amount or recipient
 is a new question. An approval nobody answers expires, after 72 hours by
 default, and its task is cancelled: silence never executes anything.
 
+## Charters
+
+A charter is what every run is told before anything else. There are three,
+read in this order and never dropped to fit the context: the platform's,
+which every company on the deployment works under and none can set aside;
+the company's, which says what it is for and how it works; and the role's.
+
+A new deployment starts with a short platform charter, and a company made
+from a template with one that names it and its mission. Both are yours to
+rewrite on **Team**, **Charter**: each change asks for your authenticator,
+and every version of the company's is kept and can be put back. A reviewer
+reading a proposed skill judges it against the charters and the policies.
+
 ## Policies
 
 Policies are rules written as data, at three scopes: the platform, the

@@ -19,6 +19,8 @@ import { PalugadaError } from '../errors.ts';
 import { withControlPlane, type TenantClient } from '../db/tenant.ts';
 import { ensureCeo } from '../governance/ceo.ts';
 import { titleFrom } from '../domain/personas.ts';
+import { publishCharterIn } from '../governance/store.ts';
+import { defaultCompanyCharter } from '../governance/default-charters.ts';
 
 export interface TemplateDivision {
   slug: string;
@@ -354,6 +356,10 @@ export async function createCompanyFromTemplate(
     const companyId = await insertCompany(tx, input);
     const projectIds = await insertProjects(tx, companyId, template);
     const goalIds = await insertGoals(tx, companyId, template);
+    // Made with its charter, so its first run is told the rules F3.2 puts
+    // first; the owner rewrites it from the console.
+    const mission = template.goals?.find((goal) => goal.kind === 'mission')?.statement ?? null;
+    await publishCharterIn(tx, { companyId, body: defaultCompanyCharter(input.name, mission) }, 'template');
     const divisionIds = await insertDivisions(tx, companyId, template);
     const roleIds = await insertRoles(tx, companyId, template, divisionIds);
     // A template that names no CEO still makes a company with one.

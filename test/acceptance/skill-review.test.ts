@@ -33,6 +33,8 @@ import {
   settleSkillReviews,
   skillSummariesFor,
 } from '../../src/skills/skills.ts';
+import { publishCharter, putPolicy } from '../../src/governance/store.ts';
+import { buildContext } from '../../src/context/builder.ts';
 import { addRole, createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
@@ -110,6 +112,48 @@ test('a candidate that passes its checks goes to the reviewer as work, then to t
   assert.deepEqual(await skillItems(fixture), [], 'approved from the Skills page, the inbox question is withdrawn');
   assert.deepEqual((await live()).map((one) => [one.activeVersion, one.summary]),
     [[2, 'How to answer a refund request, including partial refunds.']]);
+});
+
+/**
+ * The reviewer was asked whether a skill agrees with "the company's charter
+ * and policies" and given neither, and in a live run turned five of nine
+ * built-in skills down for that alone (the competitive analysis of
+ * 2026-09-28, L8). The charters reach it the way they reach every run; the
+ * policies, which no run is otherwise told, travel with the task.
+ */
+test('the reviewer is given what it judges against: the charters in its briefing, the policies with the task', async () => {
+  const fixture = await createCompany('skill-rules');
+  await addRole(fixture, 'reviewer');
+  await publishCharter({ companyId: fixture.companyId, body: 'Refunds above Rp 3.000.000 are the owner\'s call.' });
+  const first = await propose(fixture, 'refunds', skill('How to answer a refund request.'));
+  await advanceSkillCandidates(fixture.companyId);
+  const unruled = await withTenant(fixture.companyId, async (tx) =>
+    getTask(tx, (await version(fixture, first.versionId)).review_task_id!));
+  assert.deepEqual(unruled!.input.policies, [], 'none is said, rather than left to be guessed at');
+
+  const other = await createCompany('skill-rules-other');
+  await putPolicy({ companyId: other.companyId, slug: 'theirs', effect: 'deny', condition: { field: 'tier', op: 'gte', value: 3 } });
+  await putPolicy({
+    companyId: fixture.companyId, slug: 'refunds-wait-for-the-owner', effect: 'require_approval',
+    condition: { field: 'tool', op: 'eq', value: 'payment.refund' },
+  });
+  await putPolicy({
+    companyId: fixture.companyId, divisionId: fixture.divisionId, slug: 'quiet-hours', effect: 'deny', mode: 'log_only',
+    condition: { field: 'hour_local', op: 'lt', value: 7 },
+  });
+  const second = await propose(fixture, 'refunds', skill('How to answer a refund request, partial ones too.'));
+  await advanceSkillCandidates(fixture.companyId);
+  const review = await withTenant(fixture.companyId, async (tx) =>
+    getTask(tx, (await version(fixture, second.versionId)).review_task_id!));
+  assert.deepEqual(review!.input.policies, [
+    { slug: 'refunds-wait-for-the-owner', scope: 'company', effect: 'require_approval', when: { field: 'tool', op: 'eq', value: 'payment.refund' }, mode: 'enforce' },
+    { slug: 'quiet-hours', scope: 'division Operations', effect: 'deny', when: { field: 'hour_local', op: 'lt', value: 7 }, mode: 'log_only' },
+  ], 'this company\'s rules, broadest first, and no other company\'s');
+  assert.match(SKILL_REVIEW_CRITERIA, /the policies listed with this task/);
+
+  const briefing = await withTenant(fixture.companyId, (tx) =>
+    buildContext(tx, { companyId: fixture.companyId, divisionId: review!.divisionId, taskId: review!.id }));
+  assert.ok(briefing.sections.some((section) => section.kind === 'company_charter' && section.body.includes('Rp 3.000.000')));
 });
 
 test('the reviewer\'s no, a review that ends without a verdict, and the owner\'s no each turn a candidate down with why', async () => {

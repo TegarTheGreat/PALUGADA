@@ -463,6 +463,18 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     factor: 'always',
   },
   {
+    pattern: '/api/companies/:companyId/charter',
+    what: 'Rewrite the company\'s charter, which every run of the company is told first (read it with GET .../charter).',
+    fields: { body: 'the whole new charter, in Markdown; the same words again change nothing' },
+    factor: 'always',
+  },
+  {
+    pattern: '/api/control/charter',
+    what: 'Rewrite the platform charter, which every run of every company is told above its company\'s.',
+    fields: { body: 'the whole new charter, in Markdown; the same words again change nothing' },
+    factor: 'always',
+  },
+  {
     pattern: '/api/policies',
     what: 'Add or change a policy.',
     fields: {

@@ -611,6 +611,15 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     `seeded the standard company template and ${seeded.bundles.length} built-in bundles`
     + (seeded.bundles.length === 0 ? ' (all were already published)' : ''),
   );
+  // Said once, on the boot that did it: the operator should know the
+  // deployment wrote a charter, and the owner where to change it.
+  const charters = seeded.charters.filter((one) => one.version !== null);
+  if (charters.length > 0) {
+    notes.push(
+      `published charters where there were none: ${charters.map((one) => `${one.scope} v${one.version}`).join(', ')}`
+      + ' (the owner changes them on Team, Charter)',
+    );
+  }
 
   const broker = new CapabilityBroker(
     registry,

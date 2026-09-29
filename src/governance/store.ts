@@ -68,6 +68,8 @@ async function record(
     action: 'created' | 'updated' | 'deleted';
     before: Record<string, unknown> | null;
     after: Record<string, unknown>;
+    /** Who made the change: the owner, unless the deployment wrote it for them. */
+    actor?: CharterAuthor;
   },
 ): Promise<void> {
   const changes = diff(entry.before, entry.after);
@@ -75,7 +77,7 @@ async function record(
   await tx.query(
     `INSERT INTO governance_log
        (subject, subject_id, company_id, division_id, action, before, after, actor)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, 'owner')`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
     [
       entry.subject,
       entry.subjectId,
@@ -84,6 +86,7 @@ async function record(
       entry.action,
       JSON.stringify(changes.before),
       JSON.stringify(changes.after),
+      entry.actor ?? 'owner',
     ],
   );
 
@@ -92,14 +95,32 @@ async function record(
   if (entry.companyId) {
     await tx.query(
       `INSERT INTO events (company_id, type, actor, payload)
-       VALUES ($1, $2, 'owner', $3)`,
+       VALUES ($1, $2, $3, $4)`,
       [
         entry.companyId,
         `${entry.subject}.${entry.action}`,
+        entry.actor ?? 'owner',
         JSON.stringify({ subjectId: entry.subjectId, diff: changes }),
       ],
     );
   }
+}
+
+/**
+ * Who wrote a charter version. The owner, except for the one a deployment
+ * starts with (`platform`) and the one a company is made with (`template`):
+ * a history that said the owner wrote words they never saw would make "did I
+ * agree to this" unanswerable.
+ */
+export type CharterAuthor = 'owner' | 'platform' | 'template';
+
+/**
+ * Holds one scope's charter until the transaction ends: the platform's when
+ * `companyId` is null. Taken again by the same transaction, it is already
+ * held, so a caller that checks before publishing can take it first.
+ */
+export async function lockCharterScope(tx: TenantClient, companyId: string | null): Promise<void> {
+  await tx.query("SELECT pg_advisory_xact_lock(hashtext('charter:' || coalesce($1::text, 'platform')))", [companyId]);
 }
 
 /**
@@ -110,43 +131,61 @@ async function record(
  * fact.
  */
 export async function publishCharter(input: CharterInput): Promise<{ id: string; version: number }> {
-  return withControlPlane(async (tx) => {
-    const { rows: previousRows } = await tx.query<{ version: number; body: string }>(
-      `SELECT version, body FROM charters
-        WHERE company_id IS NOT DISTINCT FROM $1
-        ORDER BY version DESC LIMIT 1`,
-      [input.companyId ?? null],
-    );
-    const previous = previousRows[0];
-    const version = (previous?.version ?? 0) + 1;
+  return withControlPlane((tx) => publishCharterIn(tx, input));
+}
 
-    const { rows } = await tx.query<{ id: string }>(
-      `INSERT INTO charters (company_id, version, body) VALUES ($1, $2, $3) RETURNING id`,
-      [input.companyId ?? null, version, input.body],
-    );
-    const id = rows[0]!.id;
+/**
+ * The same, in a transaction the caller holds: a company made from a
+ * template is made with its charter or not at all.
+ *
+ * Writers of one scope take turns. The next version is read and then
+ * written, and two writers reading the same last version would each write
+ * the one after it; for a company the table's unique key refuses the second,
+ * and for the platform, whose key is null, only 0078's index does.
+ */
+export async function publishCharterIn(
+  tx: TenantClient,
+  input: CharterInput,
+  author: CharterAuthor = 'owner',
+): Promise<{ id: string; version: number }> {
+  await lockCharterScope(tx, input.companyId ?? null);
+  const { rows: previousRows } = await tx.query<{ version: number; body: string }>(
+    `SELECT version, body FROM charters
+      WHERE company_id IS NOT DISTINCT FROM $1
+      ORDER BY version DESC LIMIT 1`,
+    [input.companyId ?? null],
+  );
+  const previous = previousRows[0];
+  const version = (previous?.version ?? 0) + 1;
 
-    await record(tx, {
-      subject: 'charter',
-      subjectId: id,
-      companyId: input.companyId,
-      action: previous ? 'updated' : 'created',
-      before: previous ? { version: previous.version, body: previous.body } : null,
-      after: { version, body: input.body },
-    });
+  const { rows } = await tx.query<{ id: string }>(
+    `INSERT INTO charters (company_id, version, body) VALUES ($1, $2, $3) RETURNING id`,
+    [input.companyId ?? null, version, input.body],
+  );
+  const id = rows[0]!.id;
 
-    // F3.9: the governance log says what changed and who changed it; the
-    // config version is what a rollback reads. Written in the same transaction
-    // so a history containing a change that was rolled back is impossible.
-    await recordVersion(tx, {
-      companyId: input.companyId ?? null,
-      kind: 'charter',
-      snapshot: { body: input.body },
-      summary: previous ? `Charter v${version}` : 'Initial charter',
-    });
-
-    return { id, version };
+  await record(tx, {
+    subject: 'charter',
+    subjectId: id,
+    companyId: input.companyId,
+    action: previous ? 'updated' : 'created',
+    before: previous ? { version: previous.version, body: previous.body } : null,
+    after: { version, body: input.body },
+    actor: author,
   });
+
+  // F3.9: the governance log says what changed and who changed it; the
+  // config version is what a rollback reads. Written in the same transaction
+  // so a history containing a change that was rolled back is impossible.
+  await recordVersion(tx, {
+    companyId: input.companyId ?? null,
+    kind: 'charter',
+    snapshot: { body: input.body },
+    summary: previous ? `Charter v${version}` : 'Initial charter',
+    changedBy: author,
+  });
+
+  return { id, version };
 }
 
 /**

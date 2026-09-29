@@ -770,6 +770,15 @@ Under **Settings**, **Languages**:
   each other. Empty means the default. Press **Save**; agents follow it from
   their next run.
 
+## Rewrite a charter
+
+On **Team**, **Charter**, the company's charter sits above the platform's.
+Edit either and press **Save the charter**; your authenticator is asked
+for, and the next run of every role is told the new text. **History** lists
+the company charter's versions, each with **Put this back**. A charter
+travels whole in every run, so it is limited to 20,000 characters and is
+best kept to what holds for every piece of work.
+
 ## Set budgets and alert thresholds
 
 - On **Money**, set the **Monthly ceiling** and press **Set**. Raising it

@@ -7,9 +7,13 @@
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { withTenant } from '../../src/db/tenant.ts';
+import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
-import { publishCharter, readGovernanceLog } from '../../src/governance/store.ts';
+import { publishCharter, publishCharterIn, readGovernanceLog } from '../../src/governance/store.ts';
+import { DEFAULT_PLATFORM_CHARTER, ensureDefaultCharters } from '../../src/governance/default-charters.ts';
+import { history as configHistory } from '../../src/governance/config-versions.ts';
+import { createCompanyFromTemplate, saveTemplate } from '../../src/templates/company.ts';
+import { seed } from '../../src/seed.ts';
 import { LOW_CONFIDENCE, buildContext, wrapUntrusted } from '../../src/context/builder.ts';
 import { remember } from '../../src/memory/store.ts';
 import { createCompany } from '../helpers/fixtures.ts';
@@ -123,6 +127,110 @@ test('charter versions accumulate and are audited (F3.6)', async () => {
     return rows.map((r) => r.version);
   });
   assert.deepEqual(versions, [1, 2]);
+});
+
+/* ---------------------------------------- the charters a deployment starts with --- */
+
+/**
+ * A deployment had no charter at all (the competitive analysis of
+ * 2026-09-28, L8). Charters were read from disk only when a root was given,
+ * the boot never gave one, and nothing else wrote them: every run went out
+ * without the rules F3.2 puts first, and a reviewer asked to check a skill
+ * against "the company's charter" turned five of the nine built-in skills
+ * down for want of one.
+ */
+test('a deployment starts with a platform charter and every company with its own, and a later seed replaces neither (F3.1, F3.2)', async () => {
+  const fixture = await createCompany('charter-seeded');
+
+  const first = await seed({ keepPublished: true });
+  assert.deepEqual(first.charters, [
+    { scope: 'platform', version: 1 },
+    { scope: fixture.slug, version: 1 },
+  ]);
+
+  const briefing = () => withTenant(fixture.companyId, (tx) =>
+    buildContext(tx, { companyId: fixture.companyId, divisionId: fixture.divisionId }));
+  const [platform, company] = (await briefing()).sections;
+  assert.equal(platform!.kind, 'platform_charter');
+  assert.equal(platform!.body, DEFAULT_PLATFORM_CHARTER);
+  assert.equal(company!.kind, 'company_charter');
+  assert.ok(company!.body.includes(fixture.slug), 'the company is named');
+  assert.ok(company!.body.includes(`Run ${fixture.slug} well.`), 'and what it is for, from its mission');
+  // Written by the deployment, and recorded as such: the owner did not write it.
+  const [entry] = await readGovernanceLog(fixture.companyId);
+  assert.equal(entry!.actor, 'platform');
+
+  // Once the owner has said something, that is the charter; a later boot
+  // does not put the default back over it.
+  await publishCharter({ body: 'Our platform: be kind, be exact.' });
+  await publishCharter({ companyId: fixture.companyId, body: 'Our company: answer within a day.' });
+  const second = await seed({ keepPublished: true });
+  assert.deepEqual(second.charters, [], 'nothing is published over the owner\'s word');
+  const [ownPlatform, ownCompany] = (await briefing()).sections;
+  assert.equal(ownPlatform!.body, 'Our platform: be kind, be exact.');
+  assert.equal(ownCompany!.body, 'Our company: answer within a day.');
+});
+
+test('replicas starting at once publish one platform charter, and the database refuses a second version 1', async () => {
+  // One replica is part way through publishing when the next one starts. The
+  // second waits for the first, then finds a charter there and adds none;
+  // without the wait it would find none, write its own version 1, and fail
+  // the boot on the first one's.
+  let second: Promise<Array<{ scope: string; version: number }>> | undefined;
+  await withControlPlane(async (tx) => {
+    await publishCharterIn(tx, { body: 'The first replica\'s.' }, 'platform');
+    second = ensureDefaultCharters();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  });
+  assert.deepEqual(await second, []);
+  await Promise.all([ensureDefaultCharters(), ensureDefaultCharters(), ensureDefaultCharters()]);
+  const versions = await withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ version: number; body: string }>(
+      'SELECT version, body FROM charters WHERE company_id IS NULL ORDER BY version');
+    return rows.map((row) => [row.version, row.body]);
+  });
+  assert.deepEqual(versions, [[1, 'The first replica\'s.']]);
+
+  // UNIQUE (company_id, version) never held for the platform's: NULL is not
+  // equal to NULL, so two version 1s were one race away.
+  await assert.rejects(
+    withControlPlane((tx) => tx.query(
+      "INSERT INTO charters (company_id, version, body) VALUES (NULL, 1, 'a rival version 1')")),
+    /duplicate key/,
+  );
+});
+
+test('a company made from a template starts with a charter that names it and what it is for (F3.1)', async () => {
+  await saveTemplate({
+    slug: 'roastery',
+    name: 'Roastery',
+    body: {
+      projects: [{ slug: 'main', name: 'Main' }],
+      goals: [{ slug: 'mission', kind: 'mission', statement: 'Roast coffee people come back for.' }],
+      divisions: [{ slug: 'ops', name: 'Operations' }],
+      roles: [{
+        slug: 'operator', division: 'ops', systemPrompt: 'You operate.', model: 'test-model',
+        outputSchema: { type: 'object' }, doneCriteria: ['the run says what it did'],
+      }],
+      budget: { tokensMax: 100_000 },
+    },
+  });
+  const created = await createCompanyFromTemplate({ templateSlug: 'roastery', companySlug: 'kopi', name: 'Kopi Nusantara' });
+
+  const context = await withTenant(created.companyId, (tx) =>
+    buildContext(tx, { companyId: created.companyId, divisionId: created.divisionIds.ops! }));
+  const charter = context.sections.find((section) => section.kind === 'company_charter');
+  assert.ok(charter, 'every run of the new company is told its charter');
+  assert.match(charter.title, /v1/);
+  assert.ok(charter.body.includes('Kopi Nusantara'));
+  assert.ok(charter.body.includes('Roast coffee people come back for.'));
+
+  // The first entry of its history, from the template, so the owner can see
+  // where it came from and put it back after changing it.
+  const versions = await configHistory(created.companyId, 'charter', null);
+  assert.deepEqual(versions.map((one) => [one.version, one.changedBy]), [[1, 'template']]);
+  const [entry] = await readGovernanceLog(created.companyId);
+  assert.equal(entry!.actor, 'template');
 });
 
 test('working memory carries committed steps, and only committed ones', async () => {

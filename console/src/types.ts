@@ -494,6 +494,19 @@ export interface ConfigVersion {
 }
 
 /** A policy as the company's policy list shows it. */
+/** One charter's current version (F3.1). */
+export interface Charter {
+  version: number;
+  body: string;
+  createdAt: string;
+}
+
+/** The company's charter and the platform's above it; null where there is none. */
+export interface Charters {
+  company: Charter | null;
+  platform: Charter | null;
+}
+
 export interface PolicyRow {
   id: string;
   slug: string;

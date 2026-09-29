@@ -58,7 +58,7 @@ means less than that, the row says so.
 |---|---|---|---|
 | F1 tenancy, budget | F1.1–F1.9 | — | — |
 | F2 organisation | F2.1–F2.9 | — | — |
-| F3 charter, policy | F3.1–F3.12 | — | — |
+| F3 charter, policy | F3.1–F3.10, F3.12 | F3.11 (the files are read and written by tested code, and the boot reads no directory: in a stock deployment the charter is the database's, edited from the console -- section 2.24) | — |
 | F4 memory | F4.1–F4.8 | — | — |
 | F5 engine | F5.1–F5.6, F5.8–F5.14 | F5.7 (per division, enforced at the claim; per capability, not built -- see 2.22) | — |
 | F6 agent communication | F6.1–F6.7 | — | — |
@@ -3596,6 +3596,52 @@ a source install; a key reaches it now, and the directory is the next fix.
 Claude Code reads a host-wide credential outside `HOME` when one exists
 (a managed settings directory, a remote session's token), which only a
 mount namespace could hide.
+
+## 2.24 Read against a live run on a real model
+
+`docs/COMPETITIVE-ANALYSIS-2026-09-28.md` gave a fresh deployment one task
+on DeepSeek through the standard template, and graded what happened. The
+suite was green; the task did not finish. What it found, and what has been
+done:
+
+- **A reasoning model's empty turn was kept (L4).** DeepSeek spent the
+  per-call allowance thinking and answered nothing with
+  `finish_reason: length`; the loop pushed the empty turn and the next call
+  was refused. A turn that says nothing is never kept now: one cut off by
+  the allowance is asked again with twice the room, up to a ceiling, and an
+  empty `end_turn` is nudged once and then fails with why. The owner's
+  assistant does the same with its answer.
+- **A company that spent its lifetime tokens could not be given more (L11).**
+  The engine refused every task with a message that pointed nowhere. The
+  ceilings are raised on **Money**, **Ceilings** (raising asks for the
+  authenticator, lowering does not), and the refusal says where.
+- **A delete could not be verified (L10).** Every read-back answering 400
+  or more counted as failed, so a rule that proves a delete by a 404 could
+  never pass. A status the vendor file names in `matches.status` is now an
+  answer, not a failure.
+- **A saved model key followed the address (security #1).** Checking a
+  model with a new address and no key sent the saved key to the new
+  address, and the assistant could ask for such a check. The key is reused
+  only for the same provider at the same origin, and the assistant may
+  check only the saved model.
+- **No charter ever reached a run (L8).** Charters were written only by the
+  file import, which the boot never ran, so F3.1, F3.2 and F3.6 described
+  tested code no deployment used, and a reviewer told to check a skill
+  "against the company's charter and policies" turned five of the nine
+  built-in skills down for want of either. A deployment now starts with a
+  short platform charter and a company from a template with one naming it
+  and its mission; each is published only where there is none, so the
+  owner's word is never overwritten, and replicas booting together publish
+  one (0078 gives the platform's versions the uniqueness `UNIQUE
+  (company_id, version)` never gave a null company). The owner reads and
+  rewrites both on **Team**, **Charter**, with the authenticator, and puts
+  the company's back from its history. The skill reviewer's task carries
+  the policies in force, since no run is otherwise told them.
+
+**Still open, next.** L5: the standard CMO's done criteria ask for a CRM
+note, and a fresh deployment binds no CRM, so the role cannot finish a
+task. F3.11's files are read only when the boot is given a directory, and
+it is not given one.
 
 ## 3. Decisions, deviations, and what is unverified
 

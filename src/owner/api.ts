@@ -112,7 +112,7 @@ import {
   type RoleFields,
   type StructuralChange,
 } from '../governance/structure.ts';
-import { putPolicy } from '../governance/store.ts';
+import { publishCharter, putPolicy } from '../governance/store.ts';
 import { history as configHistory, type ConfigKind } from '../governance/config-versions.ts';
 import { rollBack } from '../governance/rollback.ts';
 import { assertValidCondition, type Condition } from '../policy/condition.ts';
@@ -3248,6 +3248,49 @@ export class OwnerApi {
         }),
       },
 
+      /* ----------------------------------------------------------- F3.1 --- */
+
+      {
+        // The charters every run of the company is told first: its own, and
+        // the platform's above it (F3.1, F3.2). Read together, because the
+        // company's is read under the platform's and the owner changing one
+        // should see the other.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/charter',
+        handle: async ({ params }) => withTenant(params.companyId!, async (tx) => {
+          const { rows } = await tx.query<{ company_id: string | null; version: number; body: string; created_at: Date }>(
+            `SELECT DISTINCT ON (company_id) company_id, version, body, created_at
+               FROM charters
+              WHERE company_id IS NULL OR company_id = $1
+              ORDER BY company_id NULLS FIRST, version DESC`,
+            [params.companyId],
+          );
+          const shaped = (row: (typeof rows)[number] | undefined) =>
+            row ? { version: row.version, body: row.body, createdAt: row.created_at.toISOString() } : null;
+          return {
+            company: shaped(rows.find((row) => row.company_id !== null)),
+            platform: shaped(rows.find((row) => row.company_id === null)),
+          };
+        }),
+      },
+
+      {
+        // F3.6: the owner's to write. Behind the factor, because it is the
+        // first thing every run of the company obeys, and a session alone
+        // could otherwise rewrite what every agent is told to do.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/charter',
+        handle: async ({ params, body }) => this.#writeCharter(params.companyId!, body),
+      },
+
+      {
+        // The platform's, which every company's runs are told above their
+        // own (F3.1). The same write, for the whole deployment.
+        method: 'POST',
+        pattern: '/api/control/charter',
+        handle: async ({ body }) => this.#writeCharter(null, body),
+      },
+
       {
         // F3.9: every recorded version of one piece of configuration, newest
         // first, with what it held.
@@ -4049,6 +4092,38 @@ export class OwnerApi {
     return { applies: 'now' };
   }
 
+  /**
+   * A new version of a charter: the platform's when `companyId` is null.
+   *
+   * Everything that can be checked without the factor is checked first, so
+   * a blank or runaway charter costs a correction rather than a code. The
+   * same words again are not a change: no version, and no factor asked for
+   * nothing -- saving an unchanged page would otherwise put a version in the
+   * history that nobody can tell from the one before it.
+   */
+  async #writeCharter(companyId: string | null, body: Record<string, unknown>): Promise<{ version: number; unchanged: boolean }> {
+    const text = charterText(body.body);
+    const current = await withControlPlane(async (tx) => {
+      if (companyId !== null) {
+        const { rows } = await tx.query('SELECT 1 FROM companies WHERE id = $1', [companyId]);
+        if (rows.length === 0) {
+          throw new PalugadaError('contract.violation', 'there is no company with that id', { companyId });
+        }
+      }
+      const { rows } = await tx.query<{ version: number; body: string }>(
+        `SELECT version, body FROM charters WHERE company_id IS NOT DISTINCT FROM $1
+          ORDER BY version DESC LIMIT 1`,
+        [companyId],
+      );
+      return rows[0];
+    });
+    if (current?.body === text) return { version: current.version, unchanged: true };
+    await this.#requireFactor(
+      body.proof, companyId === null ? 'change the platform charter' : 'change the company charter', companyId);
+    const published = await publishCharter(companyId === null ? { body: text } : { companyId, body: text });
+    return { version: published.version, unchanged: false };
+  }
+
   async #requireFactor(
     proof: unknown,
     purpose: string,
@@ -4706,6 +4781,27 @@ function requireText(value: unknown, field: string): string {
   const text = typeof value === 'string' ? value.trim() : '';
   if (!text) {
     throw new PalugadaError('contract.violation', `${field} is required`, { field });
+  }
+  return text;
+}
+
+/**
+ * A charter's text, trimmed at its ends. Bounded because every run of the
+ * company carries it whole and it is never dropped to make room (F3.2): a
+ * charter of a book's length would be paid for on every call a model makes,
+ * and would crowd out the task it is meant to govern.
+ */
+const CHARTER_LIMIT = 20_000;
+
+function charterText(value: unknown): string {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!text) throw new PalugadaError('contract.violation', 'write the charter: it is empty', { field: 'body' });
+  if (text.length > CHARTER_LIMIT) {
+    throw new PalugadaError(
+      'contract.violation',
+      `a charter is at most ${CHARTER_LIMIT} characters, and this one is ${text.length}; every run carries it whole`,
+      { field: 'body' },
+    );
   }
   return text;
 }

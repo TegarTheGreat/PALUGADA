@@ -10,7 +10,7 @@
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { withTenant } from '../../src/db/tenant.ts';
+import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import { appPool, closePools } from '../../src/db/pool.ts';
 import { isPalugadaError } from '../../src/errors.ts';
 import { createRootTask, getTask, transition } from '../../src/engine/tasks.ts';
@@ -305,6 +305,118 @@ test('a process that cannot work says so to whatever asks, with a 503', async ()
     assert.deepEqual(await answer.json(), { ok: false, database: 'connection refused' });
   } finally {
     await api.close();
+  }
+});
+
+/* --------------------------------------------------------------- metrics --- */
+
+const SCRAPE_TOKEN = 'metrics-token-for-the-operability-suite-0123456789';
+
+test('a metrics scrape counts each company\'s live work, what waits for the owner and what it spent, and what the worker ran', async () => {
+  // An operator had /api/health, which says whether the process can work,
+  // and the console, which is the owner's. Nothing showed a queue growing
+  // behind one role, or a company's spend climbing toward its ceiling, to
+  // the graphs and alerts an operator already has.
+  const { metricsText } = await import('../../src/reporting/metrics.ts');
+  const fixture = await createCompany('metrics');
+  const engine = new Engine({
+    broker: new CapabilityBroker(new CapabilityRegistry()),
+    llm: new RecordingLlmClient(),
+    handlers: new Map([['worker', async () => ({ done: true })]]),
+    workerId: 'metrics-worker',
+  });
+  const worker = new Worker({ engine, companyId: fixture.companyId, concurrency: 3 });
+  const task = (n: number) => createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    roleId: fixture.roleId, budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId,
+    input: { n }, createdBy: 'owner', reserveTokens: 1_000,
+  });
+  await task(0);
+  const ran = await worker.tick();
+  assert.deepEqual(ran.ran.map((run) => run.status), ['completed']);
+  await task(1);
+  await task(2);
+  await inbox.raiseIncident({ companyId: fixture.companyId, title: 'the CRM is down', detail: 'it answers 503' });
+  await withControlPlane((tx) => tx.query(
+    'UPDATE budget_accounts SET money_spent_cents = 1234 WHERE id = $1', [fixture.budgetAccountId],
+  ));
+
+  const text = await metricsText({ worker });
+  const company = `company="${fixture.slug}"`;
+  const has = (line: string) => assert.ok(text.split('\n').includes(line), `${line}\n---\n${text}`);
+  has(`palugada_tasks{${company},status="pending"} 2`);
+  assert.doesNotMatch(text, /palugada_tasks\{[^}]*status="completed"/, 'finished work is history, not load');
+  has(`palugada_inbox_open{${company},kind="incident"} 1`);
+  has(`palugada_budget_spent_cents{${company}} 1234`);
+  has(`palugada_budget_limit_cents{${company}} 100000`);
+  has('palugada_worker_runs_total{status="completed"} 1');
+  has('palugada_worker_places 3');
+  has('palugada_worker_places_busy 0');
+  has('palugada_platform_stopped 0');
+  assert.match(text, new RegExp(`^palugada_tasks_pending_oldest_age_seconds\\{${company}\\} \\d`, 'm'));
+  assert.match(text, /^process_resident_memory_bytes \d+$/m);
+  assert.match(text, /^palugada_database_connections\{pool="app",state="idle"\} \d+$/m);
+
+  // The format a scraper reads: every sample under a family it was told the
+  // type of, and nothing it cannot parse.
+  const typed = new Set<string>();
+  for (const line of text.trimEnd().split('\n')) {
+    const declared = /^# TYPE (\S+) (gauge|counter)$/.exec(line);
+    if (declared) {
+      typed.add(declared[1]!);
+      continue;
+    }
+    if (line.startsWith('# HELP ')) continue;
+    const sample = /^([a-zA-Z_:][a-zA-Z0-9_:]*)(\{[a-z_]+="(?:[^"\\]|\\.)*"(?:,[a-z_]+="(?:[^"\\]|\\.)*")*\})? (-?[0-9.e+-]+|NaN)$/.exec(line);
+    assert.ok(sample, `a line a scraper cannot read: ${line}`);
+    assert.ok(typed.has(sample[1]!), `${sample[1]} has no TYPE line before its samples`);
+  }
+});
+
+test('the metrics are served to the holder of their token and to nobody else, and are off until one is set', async () => {
+  const { OwnerApi } = await import('../../src/owner/api.ts');
+  const mfa = new OwnerMfa({ secrets: new InMemorySecretManager() });
+  const off = new OwnerApi({ mfa });
+  const on = new OwnerApi({ mfa, metrics: { token: SCRAPE_TOKEN, text: async () => 'palugada_up 1\n' } });
+  const { url: offUrl } = await off.listen();
+  const { url } = await on.listen();
+  try {
+    const refused = await fetch(`${offUrl}/api/metrics`, { headers: { authorization: `Bearer ${SCRAPE_TOKEN}` } });
+    assert.equal(refused.status, 404);
+    assert.match(((await refused.json()) as { error: string }).error, /metrics are off: set PALUGADA_METRICS_TOKEN/);
+
+    assert.equal((await fetch(`${url}/api/metrics`)).status, 401);
+    const wrong = await fetch(`${url}/api/metrics`, { headers: { authorization: `Bearer ${SCRAPE_TOKEN}x` } });
+    assert.equal(wrong.status, 401);
+    assert.doesNotMatch(await wrong.text(), /palugada_up/);
+
+    const answer = await fetch(`${url}/api/metrics`, { headers: { authorization: `Bearer ${SCRAPE_TOKEN}` } });
+    assert.equal(answer.status, 200);
+    assert.equal(answer.headers.get('content-type'), 'text/plain; version=0.0.4; charset=utf-8');
+    assert.equal(await answer.text(), 'palugada_up 1\n');
+  } finally {
+    await off.close();
+    await on.close();
+  }
+});
+
+test('a deployment given a metrics token serves its worker and its database to a scraper, and refuses a token short enough to guess', async () => {
+  const { start } = await import('../../src/main.ts');
+  await assert.rejects(
+    start({ port: 0, env: { PALUGADA_METRICS_TOKEN: 'hunter2' }, worker: { idleMs: 60_000 } }),
+    /PALUGADA_METRICS_TOKEN is 7 characters; it is a secret of at least 32/,
+  );
+  const deployment = await start({ port: 0, env: { PALUGADA_METRICS_TOKEN: SCRAPE_TOKEN }, worker: { idleMs: 20 } });
+  try {
+    await until(() => deployment.worker.lastTickAt !== null, 'the first tick');
+    const answer = await fetch(`${deployment.url}/api/metrics`, { headers: { authorization: `Bearer ${SCRAPE_TOKEN}` } });
+    assert.equal(answer.status, 200);
+    const text = await answer.text();
+    assert.match(text, /^palugada_workers_alive [1-9]\d*$/m, 'the worker said it is alive');
+    assert.match(text, /^palugada_worker_places 4$/m, 'four places unless the operator says otherwise');
+    assert.match(text, /^palugada_worker_last_tick_timestamp_seconds [1-9][0-9.]+$/m);
+  } finally {
+    await deployment.stop();
   }
 });
 

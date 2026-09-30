@@ -45,7 +45,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { PalugadaError } from '../errors.ts';
 import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
 import * as inbox from '../inbox/inbox.ts';
@@ -300,6 +300,13 @@ export interface OwnerApiOptions {
    */
   health?: () => Promise<{ ok: boolean } & Record<string, unknown>>;
   /**
+   * What `GET /api/metrics` answers a scraper that holds `token`, in the
+   * Prometheus text format. Absent means the route refuses: the numbers are
+   * about every company, so nothing serves them until the operator has chosen
+   * who may read them.
+   */
+  metrics?: { token: string; text: () => Promise<string> };
+  /**
    * The message channel whose button presses arrive at
    * `/api/channels/telegram` (F10.9). Absent means the route refuses.
    */
@@ -337,6 +344,17 @@ class WithStatus {
   constructor(status: number, body: unknown) {
     this.status = status;
     this.body = body;
+  }
+}
+
+/** Plain text rather than JSON: only for the metrics scraper, which reads its own format. */
+class PlainText {
+  readonly contentType: string;
+  readonly text: string;
+
+  constructor(contentType: string, text: string) {
+    this.contentType = contentType;
+    this.text = text;
   }
 }
 
@@ -698,6 +716,32 @@ export class OwnerApi {
         handle: async () => {
           const health = this.#options.health ? await this.#options.health() : { ok: true };
           return new WithStatus(health.ok ? 200 : 503, health);
+        },
+      },
+
+      {
+        // Section 12: what this deployment is doing, for a metrics scraper.
+        // Not the owner's session, which a scraper does not hold, but a token
+        // of its own: what it answers is about every company -- how much work
+        // each has waiting and what each has spent -- so it is served to
+        // nobody until the operator has chosen who may read it.
+        method: 'GET',
+        pattern: '/api/metrics',
+        open: true,
+        handle: async ({ request }) => {
+          const metrics = this.#options.metrics;
+          if (!metrics) {
+            throw new PalugadaError(
+              'metrics.off',
+              'metrics are off: set PALUGADA_METRICS_TOKEN to a secret of at least 32 characters, '
+                + 'and give the scraper the same token as its bearer token',
+              {},
+            );
+          }
+          if (!sameSecret(bearer(request) ?? '', metrics.token)) {
+            throw new PalugadaError('metrics.refused', 'send the metrics token as a bearer token', {});
+          }
+          return new PlainText('text/plain; version=0.0.4; charset=utf-8', await metrics.text());
         },
       },
 
@@ -4771,6 +4815,10 @@ export class OwnerApi {
       });
       if (answer instanceof WithStatus) send(res, answer.status, answer.body);
       else if (answer instanceof HtmlPage) sendPage(res, answer);
+      else if (answer instanceof PlainText) {
+        res.writeHead(200, { 'content-type': answer.contentType, 'cache-control': 'no-store' });
+        res.end(answer.text);
+      }
       else send(res, 200, answer ?? { ok: true });
     } catch (error) {
       // A refusal is an answer. `decide` refusing a tier 3 approval without a
@@ -4945,6 +4993,8 @@ function statusFor(code: string): number {
   if (code === 'hook.refused') return 401;
   if (code === 'hook.unsupported') return 415;
   if (code === 'hook.unavailable') return 503;
+  if (code === 'metrics.off') return 404;
+  if (code === 'metrics.refused') return 401;
   return 400;
 }
 
@@ -5467,6 +5517,15 @@ function hostOf(header: string | undefined): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Whether two secrets are the same, in time that does not depend on where they
+ * first differ. Compared as digests, so their lengths do not show either.
+ */
+function sameSecret(given: string, expected: string): boolean {
+  const digest = (value: string) => createHash('sha256').update(value).digest();
+  return timingSafeEqual(digest(given), digest(expected));
 }
 
 function bearer(req: IncomingMessage): string | undefined {

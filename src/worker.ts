@@ -257,6 +257,25 @@ function emptyReport(): TickReport {
   };
 }
 
+/**
+ * What one worker has done since it started, for the metrics endpoint.
+ *
+ * Counted in the process rather than read from the tables, so a scrape costs
+ * nothing, and they start again at zero with the process -- which is what a
+ * scraper expects of a counter, and why a rate over them survives a restart.
+ */
+export interface WorkerCounts {
+  /** The places runs are made in, and how many are running one now. */
+  places: number;
+  busy: number;
+  /** Runs finished, by how they ended. */
+  runs: ReadonlyMap<string, number>;
+  /** Stages of a tick that failed, by stage. */
+  stageFailures: ReadonlyMap<string, number>;
+  /** Passes of the housekeeping loop, and of a place, that failed outright. */
+  loopFailures: { tick: number; place: number };
+}
+
 export function madeProgress(report: TickReport): boolean {
   const ran = report.ran.some((run) => run.status !== 'runtime_unavailable');
   return ran || report.reclaimed > 0 || report.scheduled > 0;
@@ -273,6 +292,10 @@ export class Worker {
   /** Which company this worker starts its tick on. See `#rotate`. */
   #turn = 0;
   #lastTickAt: Date | null = null;
+  readonly #runs = new Map<string, number>();
+  readonly #stageFailures = new Map<string, number>();
+  readonly #loopFailures = { tick: 0, place: 0 };
+  #busy = 0;
 
   /**
    * When this worker last finished a tick, or null before its first.
@@ -282,6 +305,20 @@ export class Worker {
    */
   get lastTickAt(): Date | null {
     return this.#lastTickAt;
+  }
+
+  get counts(): WorkerCounts {
+    return {
+      places: this.#places(),
+      busy: this.#busy,
+      runs: new Map(this.#runs),
+      stageFailures: new Map(this.#stageFailures),
+      loopFailures: { ...this.#loopFailures },
+    };
+  }
+
+  #places(): number {
+    return Math.max(1, Math.floor(this.#options.concurrency ?? 1));
   }
 
   constructor(options: WorkerOptions) {
@@ -504,7 +541,7 @@ export class Worker {
     await alive();
     const beating = setInterval(() => void alive(), HEARTBEAT_EVERY_MS);
     beating.unref();
-    const places = Math.max(1, Math.floor(this.#options.concurrency ?? 1));
+    const places = this.#places();
     try {
       if (places === 1) {
         await this.#loop(signal, idle, true);
@@ -537,6 +574,7 @@ export class Worker {
         // daemon: a transient blip should cost one interval, not the worker.
         // A permanent failure keeps failing and stays visible in the logs
         // rather than leaving a process that exited for reasons nobody saw.
+        this.#loopFailures.tick += 1;
         this.#options.onTickError?.(error as Error);
         this.#options.log?.({ level: 'error', event: 'tick.failed', message: (error as Error).message });
         await sleep(idle, signal);
@@ -575,6 +613,7 @@ export class Worker {
           }
         }
       } catch (error) {
+        this.#loopFailures.place += 1;
         this.#options.log?.({ level: 'error', event: 'place.failed', message: (error as Error).message });
       }
       if (!ran) await sleep(idle, signal);
@@ -640,7 +679,14 @@ export class Worker {
     });
     if (!roleSlug) return null;
 
-    const outcome = await this.#options.engine.runTask(companyId, taskId, roleSlug);
+    this.#busy += 1;
+    let outcome: RunOutcome;
+    try {
+      outcome = await this.#options.engine.runTask(companyId, taskId, roleSlug);
+    } finally {
+      this.#busy -= 1;
+    }
+    this.#runs.set(outcome.status, (this.#runs.get(outcome.status) ?? 0) + 1);
     report.ran.push({ taskId, status: outcome.status });
     return outcome.status;
   }
@@ -862,6 +908,7 @@ export class Worker {
     } catch (error) {
       const message = (error as Error).message ?? String(error);
       report.errors.push({ stage, message });
+      this.#stageFailures.set(stage, (this.#stageFailures.get(stage) ?? 0) + 1);
       // Reported on the tick rather than written to the event log: the log is
       // tenant-scoped and a stage failure is the platform's, not a company's.
       // A caller that wants it durable has the report; inventing a company to

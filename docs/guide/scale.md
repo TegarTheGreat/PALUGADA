@@ -73,8 +73,9 @@ worker processes.
   schedules for recurring work (for now created through the owner API; see
   [how-to](how-to.md#schedule-recurring-work)).
 - Retention windows that match what you are obliged to keep.
-- Monitoring on `GET /api/health`, and the JSON log lines collected
-  somewhere you will read them.
+- Monitoring on `GET /api/health`, metrics scraped from `GET /api/metrics`
+  with alerts on them ([operations](operations.md#metrics)), and the JSON
+  log lines collected somewhere you will read them.
 
 **Watch.** The health check; `stage.failed` and `tick.failed` in the logs;
 halted tasks on **Work** and incidents in the inbox; spend per company, side

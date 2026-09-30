@@ -151,7 +151,11 @@ export type ErrorCode =
    * give one call another call's answer.
    */
   | 'journal.divergence'
-  | 'tenant.context_missing';
+  | 'tenant.context_missing'
+  /** Section 12: the metrics endpoint was asked for and none is configured. */
+  | 'metrics.off'
+  /** Section 12: the metrics endpoint was asked without its token, or with another. */
+  | 'metrics.refused';
 
 export class PalugadaError extends Error {
   readonly code: ErrorCode;

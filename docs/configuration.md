@@ -50,7 +50,9 @@ each task it runs and for anything that failed: a whole tick
 (`tick.failed`), one stage of it (`stage.failed`), or a database connection
 dropped under it (`db.connection_lost`). `GET /api/health` needs no session
 and answers 200 when the database answers and the worker's loop has gone
-round in the last half hour, and 503 with the reason when not. A task that
+round in the last half hour, and 503 with the reason when not.
+`GET /api/metrics` serves the same and much more to a Prometheus scraper
+once `PALUGADA_METRICS_TOKEN` is set ([operations](guide/operations.md#metrics)). A task that
 loses its worker three times is halted and raised to the owner as an
 incident rather than put back again.
 
@@ -95,6 +97,7 @@ A secret the owner saved is named like any other, as a reference:
 | `PALUGADA_MASTER_KEY` | The key that seals secrets set in the console: 32 bytes, as 64 hex characters or base64 (`openssl rand -hex 32`). Without it, the key file below is used |
 | `PALUGADA_STATE_DIR` | Where the platform keeps its own state: the master key file, and the agent CLIs the console installs (`tools/`). Default `~/.palugada`; under Docker Compose, the `home` volume |
 | `PALUGADA_WORKER_CONCURRENCY` | How many tasks this process runs at once, from 1 to 16 (default 4). One place is kept for P0 work, so an urgent task starts even while the others are busy |
+| `PALUGADA_METRICS_TOKEN` | Turns on `GET /api/metrics` for a scraper that sends it as a bearer token: a secret of at least 32 characters (`openssl rand -hex 32`). Unset, the route answers 404; the numbers are about every company, so nothing serves them without it |
 
 | Variable | What it turns on |
 |---|---|

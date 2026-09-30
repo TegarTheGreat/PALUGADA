@@ -2996,17 +2996,16 @@ vendor files (`src/capabilities/mcp.ts`, `PALUGADA_MCP_SERVERS`).
 - Resuming an agent CLI's run is by position: a CLI that re-issues an
   earlier call after a restart is told the journal diverged. The platform's
   own loop replays exactly; a CLI does not.
-- The worker runs one company's work at a time; more work in parallel is
-  more replicas, which share the queue through leases.
-- No connector catalogue, no OAuth flow, no tracing or metrics endpoint.
+- No tracing endpoint: a run's model calls, tool calls and briefing are
+  kept on the task and shown in the console, not exported as spans.
 
 (A shutdown that handed nothing back, sign-in with no per-address throttle,
-and no container image were on this list; section 2.22 closes them.)
-- A way for a run to write down what it learned. A `memory.note` would be a
-  thirteenth tool for every role in the standard company but one, and F2.4
-  caps a role at twelve; until a role can spare one, what a run learned
-  reaches memory through distillation, which now runs whenever a model is
-  configured, and through the owner's word on delivered work.
+and no container image were on this list; section 2.22 closes them. So
+were a worker that ran one task at a time, closed in 2.26; no connector
+catalogue and no OAuth flow, closed in 2.23 and 2.25; no metrics endpoint,
+closed in 2.27; and no way for a run to write down what it learned, which
+a run now does as `learned` in its output, without a thirteenth tool
+(2.23).)
 
 ## 2.22 Any model, and a company that runs itself
 
@@ -3880,6 +3879,38 @@ this file had not yet answered. Each was reproduced by a test first.
   console's fill was run against the real catalogue: DeepSeek V4 Flash
   came back at $0.15 and $0.60 per million tokens, where the fallback had
   charged $15 and $75.
+
+## 2.27 Operating it: metrics and point-in-time recovery
+
+Read against what an operator has at three in the morning, and against the
+competitors checked again on 2026-09-30: Multica serves Prometheus metrics,
+Paperclip exports traces, and PALUGADA had a health check and log lines.
+
+- **Nothing showed the load over time.** `/api/health` says whether the
+  process can work; the console is the owner's. A queue growing behind one
+  role, every place of a worker taken, or a company's spend climbing toward
+  its ceiling was visible to no graph and no alert. `GET /api/metrics` now
+  serves them in the Prometheus text format:
+  - live tasks by company and status, and the age of the oldest pending one;
+  - running runs and how long the quietest has shown no progress;
+  - what waits for the owner, by kind;
+  - each company's spend against its ceiling;
+  - workers alive across replicas, this worker's places and how many are
+    busy, and its runs and failures as counters;
+  - the database pools and the process itself.
+
+  A scrape reads live work over the partial indexes the worker already
+  keeps, so it stays cheap however much history there is. The numbers are
+  about every company, so they are served only with
+  `PALUGADA_METRICS_TOKEN`, a token of at least 32 characters, and the
+  route answers 404 until one is set. The operations guide has the scrape
+  configuration and rules to alert on.
+- **A backup lost the day.** The guide had `pg_dump` only. It now has
+  point-in-time recovery from an archived write-ahead log, drilled on
+  PostgreSQL 16: rows written after the base backup and before the target
+  came back, and a delete after it did not. It says what a recovery cannot
+  undo -- effects in the world after the target -- and how the idempotency
+  keys bound it.
 
 ## 3. Decisions, deviations, and what is unverified
 

@@ -84,6 +84,19 @@ function workerConcurrency(raw: string | undefined): number {
   }
   return value;
 }
+/**
+ * The token a metrics scraper sends, or null to serve no metrics. Refused at
+ * boot when it is short enough to guess: it opens a view of every company.
+ */
+function metricsToken(raw: string | undefined): string | null {
+  if (raw === undefined || raw.trim() === '') return null;
+  if (raw.trim().length < 32) {
+    throw new PalugadaError('config.invalid',
+      `PALUGADA_METRICS_TOKEN is ${raw.trim().length} characters; it is a secret of at least 32, `
+        + 'such as the output of `openssl rand -hex 32`', { variable: 'PALUGADA_METRICS_TOKEN' });
+  }
+  return raw.trim();
+}
 import { existsSync, realpathSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -91,6 +104,7 @@ import { hostname } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { consoleLinkFor, consoleTaskLinkFor } from './owner/notify.ts';
+import { metricsText } from './reporting/metrics.ts';
 
 export interface DeploymentOptions {
   /**
@@ -715,6 +729,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   // The worker stops by an abort signal rather than a method, which is what
   // lets one `stop()` here reach both halves.
   const shutdown = new AbortController();
+  const scrapeToken = metricsToken(env.PALUGADA_METRICS_TOKEN);
   const worker = new Worker({
     engine,
     signal: shutdown.signal,
@@ -812,6 +827,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
         },
       };
     },
+    ...(scrapeToken ? { metrics: { token: scrapeToken, text: () => metricsText({ worker }) } } : {}),
   });
   const { url } = await api.listen(options.port ?? Number(env.PALUGADA_PORT ?? 8787), bindHost);
 

@@ -159,6 +159,72 @@ passwords from `.env`, so use the same one), restore the dump into it as a
 superuser, keeping the dump's object ownership, and start the platform.
 Practise this on a spare machine before you need it.
 
+### Point-in-time recovery
+
+A nightly dump loses the day, and a mistake -- a company deleted, a bad
+import, a migration run against the wrong database -- is usually noticed
+after more work has been written on top of it. With the write-ahead log
+archived as well, the database can be brought back to the second before the
+mistake instead. The steps below were run as a drill on PostgreSQL 16: rows
+written after the base backup and before the target came back, and a delete
+after it did not.
+
+Archive the log and take base backups. In `postgresql.conf`:
+
+```ini
+wal_level = replica
+archive_mode = on
+# Never overwrite a segment already archived; keep the archive on another disk or machine.
+archive_command = 'test ! -f /backup/wal/%f && cp %p /backup/wal/%f'
+# A quiet deployment still archives at least this often, so at most this much is lost.
+archive_timeout = 300
+```
+
+Restart PostgreSQL, then take a base backup, and another every week or so
+(recovery replays every segment since the last one):
+
+```sh
+pg_basebackup -D /backup/base/$(date +%F) -Ft -z -Xs -c fast
+```
+
+Under Docker Compose the same settings go on the `db` service as
+`command: postgres -c wal_level=replica -c archive_mode=on -c archive_command=...`,
+with the archive directory on a volume of its own.
+
+To recover to a moment, stop the platform and PostgreSQL, move the data
+directory aside (do not delete it until the recovery is checked), and:
+
+```sh
+mkdir -m 700 "$PGDATA"
+tar -xzf /backup/base/2026-09-28/base.tar.gz -C "$PGDATA"
+tar -xzf /backup/base/2026-09-28/pg_wal.tar.gz -C "$PGDATA/pg_wal"
+cat >> "$PGDATA/postgresql.conf" <<'CONF'
+restore_command = 'cp /backup/wal/%f %p'
+recovery_target_time = '2026-09-30 05:23:45+00'
+recovery_target_action = 'promote'
+CONF
+touch "$PGDATA/recovery.signal"
+```
+
+Start PostgreSQL. The log says `starting point-in-time recovery to ...`,
+then `recovery stopping before commit of transaction ...` and
+`archive recovery complete`; `SELECT pg_is_in_recovery()` answers `f` once
+it is open for writes. Take the recovery settings back out of
+`postgresql.conf` and start the platform.
+
+What the recovered database does not know about is anything the companies
+did in the world after the target: an email sent, an invoice issued. Their
+journals end at the target, so a step that had committed after it runs
+again; the idempotency key a vendor call carries is the same on the second
+attempt, so a vendor that honours it does not do it twice, but not every
+vendor does. Read the vendor's side for the minutes between the target and
+the recovery before starting the worker again.
+
+For more than one machine or a managed service, use a tool made for this --
+pgBackRest or WAL-G, which add retention, checks and cloud storage -- or a
+managed PostgreSQL 16 with pgvector whose point-in-time recovery is built
+in. Practise the recovery itself, not only the backup.
+
 A company's export (**Download as JSON** under **Settings**, **Company**) is
 a useful second copy of one company that can be restored on any deployment,
 but it is not a backup of the deployment: it leaves out prompt bodies,
@@ -262,7 +328,86 @@ Compose restarts the container whatever the code, so under Compose a
 configuration error repeats until you fix it; `docker compose logs app`
 shows the message.
 
-There is no metrics endpoint and no tracing yet.
+### Metrics
+
+Set `PALUGADA_METRICS_TOKEN` to a secret of at least 32 characters
+(`openssl rand -hex 32`) and `GET /api/metrics` answers a scraper that sends
+it as a bearer token, in the Prometheus text format that Prometheus,
+VictoriaMetrics, Grafana Alloy and the OpenTelemetry collector all read.
+Without the variable the route answers 404, and with another token 401. It
+takes a token of its own rather than the owner's session because a scraper
+holds no session, and because what it answers is about every company: how
+much work each has waiting and what each has spent. A shorter token is
+refused at boot.
+
+```yaml
+# prometheus.yml
+scrape_configs:
+  - job_name: palugada
+    metrics_path: /api/metrics
+    authorization:
+      credentials_file: /etc/prometheus/palugada-metrics-token
+    static_configs:
+      - targets: ['palugada.internal:8787']
+```
+
+The console answers only the host names it knows, so add the name the
+scraper uses to `PALUGADA_ALLOWED_HOSTS` unless it scrapes through the
+loopback address. Each replica serves its own worker's numbers and the same
+database-wide ones, so scrape every replica and aggregate the `palugada_worker_*`
+series with `sum`.
+
+| Metric | Type | What it counts |
+|---|---|---|
+| `palugada_tasks{company,status}` | gauge | Live tasks by company slug and status (`pending`, `checked_out`, `running`, `waiting_approval`, `waiting_review`, `waiting_window`); finished ones are history, not load |
+| `palugada_tasks_pending_oldest_age_seconds{company}` | gauge | How long the oldest pending task of each company has existed |
+| `palugada_runs_running{company}`, `palugada_runs_quiet_seconds{company}` | gauge | Runs going on now, and how long the quietest of them has shown no progress |
+| `palugada_inbox_open{company,kind}` | gauge | Items waiting for the owner: approvals, escalations, incidents, budget alerts, candidates |
+| `palugada_budget_spent_cents{company}`, `palugada_budget_limit_cents{company}` | gauge | Money spent against each company-wide budget, and its ceiling; `_tokens` for tokens |
+| `palugada_companies{state}` | gauge | Companies, `active` or `frozen` |
+| `palugada_platform_stopped` | gauge | 1 while the owner's stop of all work is in effect |
+| `palugada_workers_alive` | gauge | Workers that have said they are alive in the last minute, across every replica |
+| `palugada_worker_places`, `palugada_worker_places_busy` | gauge | This process's places for runs, and how many are running one |
+| `palugada_worker_last_tick_timestamp_seconds` | gauge | When this worker last finished a pass of its housekeeping |
+| `palugada_worker_runs_total{status}` | counter | Runs this process finished, by how they ended (`completed`, `failed`, `halted`, `waiting_approval`, `runtime_unavailable` and the others) |
+| `palugada_worker_stage_failures_total{stage}` | counter | Stages of a pass that failed, by stage; the `stage.failed` log lines say why |
+| `palugada_worker_loop_failures_total{loop}` | counter | Passes of the housekeeping loop (`tick`) and of a place (`place`) that failed outright |
+| `palugada_database_connections{pool,state}` | gauge | Connections the process holds, `idle` or `busy`, and callers `waiting` for one |
+| `process_resident_memory_bytes`, `nodejs_heap_used_bytes`, `nodejs_eventloop_delay_p99_seconds` and the like | gauge | The process itself |
+
+The counters start again at zero when the process does, which `rate()` and
+`increase()` expect. A scrape reads live work over the indexes the worker
+already keeps, so it stays cheap however much history the companies have.
+
+Rules worth starting from:
+
+```yaml
+groups:
+  - name: palugada
+    rules:
+      - alert: PalugadaWorkerStalled
+        expr: time() - palugada_worker_last_tick_timestamp_seconds > 600
+        for: 5m
+      - alert: PalugadaNoWorkerAlive
+        expr: palugada_workers_alive == 0
+        for: 2m
+      - alert: PalugadaWorkWaiting
+        expr: palugada_tasks_pending_oldest_age_seconds > 3600
+        for: 15m
+      - alert: PalugadaEveryPlaceBusy
+        expr: palugada_worker_places_busy >= palugada_worker_places
+        for: 30m
+      - alert: PalugadaStageFailing
+        expr: increase(palugada_worker_stage_failures_total[15m]) > 3
+      - alert: PalugadaDatabaseWaits
+        expr: palugada_database_connections{state="waiting"} > 0
+        for: 5m
+      - alert: PalugadaBudgetNearCeiling
+        expr: palugada_budget_spent_cents / (palugada_budget_limit_cents > 0) > 0.9
+```
+
+There is no tracing endpoint yet: each run's model calls, tool calls and
+briefing are kept on the task and shown in the console instead.
 
 ## Running more than one worker
 

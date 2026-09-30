@@ -8,6 +8,9 @@
  * intended production behaviour (section 7.4 admits no deletion, only freeze
  * and export) and must not be relaxed to make tests convenient.
  */
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import pg from 'pg';
 import { connectionString } from '../../src/config.ts';
 import { withControlPlane } from '../../src/db/tenant.ts';
@@ -36,6 +39,13 @@ function ownerPool(): pg.Pool {
   owner ??= new pg.Pool({ connectionString: connectionString('owner'), max: 4, options: '-c app.allow_truncate=on' });
   return owner;
 }
+
+// A deployment a test boots with no state directory keeps its state -- the
+// charters repository, a master key -- in its home, which is this process's
+// unless the test names one. Each test file gets a home of its own: tests
+// wrote into the home of whoever ran them, and a real deployment on the same
+// machine shared what they left.
+process.env.HOME = mkdtempSync(join(tmpdir(), 'palugada-test-home-'));
 
 export async function ensureSchema(): Promise<void> {
   if (migrated) return;

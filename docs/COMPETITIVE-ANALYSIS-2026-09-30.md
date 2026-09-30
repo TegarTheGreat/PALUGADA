@@ -323,8 +323,6 @@ sendiri, dan menemukan lapisan berikutnya:
 
 Yang **belum** ditutup, dan dicatat sebagai sisa risiko:
 
-- Tes yang menyalakan deployment penuh masih menulis ke `~/.palugada` mesin
-  pengembang, termasuk direktori piagam, bila `PALUGADA_STATE_DIR` tidak diset.
 - Dua replika yang berbagi satu direktori piagam tidak saling mengunci di luar
   proses.
 - Selama berkas piagam ditolak atau sinkronisasi ditahan, piagam yang disimpan

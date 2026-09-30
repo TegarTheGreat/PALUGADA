@@ -26,7 +26,9 @@ import { InMemorySecretManager } from '../../src/secrets/manager.ts';
 import { OwnerMfa, decodeBase32, newTotpSecret, stepFor, totpCode } from '../../src/owner/mfa.ts';
 import { OtlpExporter, otlpFrom } from '../../src/reporting/otlp.ts';
 import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createCompany, grantCapability, planTask, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
@@ -278,6 +280,23 @@ test('a worker says what failed, in lines a log collector can read', async () =>
     && line.stage === 'notify' && /502/.test(String(line.message))), JSON.stringify(lines));
   assert.ok(worker.lastTickAt !== null && Date.now() - worker.lastTickAt.getTime() < 5_000,
     'and when it last finished a tick, for a readiness check');
+});
+
+/**
+ * A deployment a test boots with no state directory keeps its state -- the
+ * charters repository, a master key -- in its home. The suite gives it a
+ * home of its own: tests wrote into the home of whoever ran them, and a
+ * real deployment on the same machine shared what they left.
+ */
+test('a deployment a test boots keeps its state out of the home of whoever runs the suite', async () => {
+  assert.ok(homedir().startsWith(tmpdir()), `the suite's home is ${homedir()}`);
+  const { start } = await import('../../src/main.ts');
+  const deployment = await start({ port: 0, env: {}, worker: { idleMs: 60_000 } });
+  try {
+    assert.ok((await stat(join(homedir(), '.palugada', 'charters'))).isDirectory());
+  } finally {
+    await deployment.stop();
+  }
 });
 
 test('a deployment answers whether it can work, without a session', async () => {

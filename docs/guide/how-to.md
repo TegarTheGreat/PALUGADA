@@ -933,6 +933,14 @@ older one updates its role, rules, cadence and skills in place; it adds
 grants and takes none away, so a grant the new version no longer names
 (1.3.0 no longer names `metrics.read`) stays until you revoke it.
 
+To bring an installed bundle up to date, install the version this deployment
+ships over it. For `company-os`, 1.4.0 adds a critic in its own Strategy
+review division: it reads every stage proposal before you do, holds nothing
+that acts, and what it said reaches you whether it supports the move or
+stops it. What the bundle brings is updated or added in place. Roles,
+schedules, work in flight, and any grant an earlier version made stay; its
+skills arrive again as candidates.
+
 The built-in bundles install as written when they are exactly what this
 version of PALUGADA ships: they are part of the platform, as trusted as its
 code. Any other unsigned bundle -- including a built-in one somebody changed

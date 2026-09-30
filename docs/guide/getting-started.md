@@ -223,11 +223,13 @@ deployment ([how-to](how-to.md#export-and-import-a-company)).
 2. Decide on **Let it run itself** (on by default). It installs the
    `company-os` bundle: a Strategy division with a strategist who reviews the
    week every Monday morning in the company's time zone, proposes at most
-   three bets, and never applies them; the operating skills (validating an
-   idea, premortems, pricing, unit economics, customer discovery, launch
-   readiness, outbound rules, stage gates, the weekly review); and two
-   company policies: no paid advertising before the launch stage, and nothing
-   new started while winding down.
+   three bets, and never applies them; a Strategy review division with a
+   critic who reads every stage proposal before you do and holds nothing
+   that acts; the operating skills (validating an idea, premortems, pricing,
+   unit economics, customer discovery, launch readiness, outbound rules,
+   stage gates, the weekly review); and three company policies: every stage
+   proposal goes to the critic first, no paid advertising before the launch
+   stage, and nothing new started while winding down.
 3. Press **Start it**, then type a code in
    **Confirm with your authenticator** and press **Confirm**.
 

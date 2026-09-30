@@ -557,7 +557,6 @@ export class CapabilityBroker {
         const review = await openReview({
           companyId: ctx.companyId,
           projectId: ctx.projectId,
-          divisionId: ctx.divisionId,
           proposerTaskId: ctx.taskId,
           proposerRoleId: ctx.roleId,
           reviewerRoleSlug,
@@ -576,14 +575,16 @@ export class CapabilityBroker {
 
         if (review.outcome === 'rejected') {
           // A rejection is an answer, not a delay. Retrying it would be asking
-          // the same reviewer the same question.
+          // the same reviewer the same question. The answer carries the
+          // reviewer's reasons: a proposer that goes on working after a no
+          // (a stage move's, review.ts) is otherwise told only that it was one.
           await withTenant(ctx.companyId, (tx) =>
             recordDenial(tx, ctx, name, 'policy.denied', policy),
           );
           await countTowardsRoleFreeze(ctx);
           throw new PalugadaError(
             'policy.denied',
-            `review rejected ${name}`,
+            `review rejected ${name}${review.reason ? `: ${review.reason}` : ''}`,
             { name, reviewRequestId: review.reviewRequestId },
           );
         }

@@ -5304,6 +5304,97 @@ Read against the source of Block's Buzz, on 2026-09-30.
   can change. The migration's refusal where the server lacks `pg_trgm` was
   read, not run: every server here has it.
 
+## 2.59 A schedule's overlap policy and catch-up window (F9.1)
+
+- **An occurrence fired beside a run that was still going.**
+  `runDueSchedules` created an occurrence's task whether or not the task
+  the previous occurrence made had ended, so an hourly job whose work took
+  seventy minutes, or a daily one whose task waited two days for the
+  owner's approval, got a second task beside the first: twice the spend,
+  and two runs doing the same work. Migration 0099 gives every schedule an
+  `overlap` policy, checked by the database: `skip`, the default for new
+  schedules and for every existing one, lets the occurrence pass, moves the
+  schedule to its next future occurrence and writes `schedule.skipped`
+  once, naming the live task and its status; `queue` leaves the schedule
+  where it is until that task ends, then fires once, the backlog behind it
+  collapsing as any backlog does; `allow` is how every schedule behaved
+  before. "Live" is any status not in `TERMINAL_STATUSES`, so a task
+  waiting for approval, review or a window holds its schedule.
+  `liveTaskOf` (`src/scheduler/scheduler.ts`) finds the task, from a
+  partial index of live scheduled tasks (`tasks_schedule_live_idx`), whose
+  predicate the statement spells so the planner uses it (checked with
+  `EXPLAIN`). It leaves out the task the occurrence's own key names: a
+  crash between creating an occurrence's task and advancing the schedule
+  leaves that task live and the occurrence still due, and the next pass
+  must finish firing it rather than skip it on its own account.
+  Once is kept the way 0038 keeps it. A skip moves the schedule on under
+  the guard a fire uses, so of two workers only one writes it, and the next
+  pass finds nothing due. A hold does not move the schedule, so the row
+  remembers the run it waits for (`held_by_task_id`) and `schedule.held` is
+  written only when that changes; any advance clears it.
+- **After downtime, one catch-up ran however late.** A 07:00 briefing came
+  back at 19:00. `catch_up_minutes`, unset by default and so today's
+  behaviour, is how late an occurrence may be and still run. Past it the
+  occurrence and the backlog behind it are dropped, the schedule moves on,
+  and `schedule.missed` is written once with `droppedOccurrences`. Late is
+  measured from the most recent occurrence that has fallen due, not the
+  oldest: an hourly job with a thirty-minute window, back from three hours
+  down at ten past, runs the occurrence from ten minutes ago. The window
+  is asked before the overlap, so a queued occurrence that has waited past
+  it is dropped rather than run hours after it was meant for. The floor is
+  fifteen minutes (`MIN_CATCH_UP_MINUTES`, whose comment gives the reason:
+  a pass shares its tick with the rest of the housekeeping, a worker with
+  one place runs up to eight tasks between two passes, and a restart adds
+  its minute, so several minutes late is a working deployment and not
+  downtime); a year is the ceiling. Both are CHECK constraints too.
+- **What the owner sees, and where the settings travel.** The schedule
+  remembers its last occurrence that did not run -- when, why (`overlap` or
+  `late`), how many that pass dropped, the run it gave way to -- and keeps
+  it after later runs, so a skipped night still says so the next day.
+  `schedulesOf` returns `overlap`, `catchUpMinutes`, `waitingFor` and
+  `lastSkipped`; the console's schedule form asks "If the last run is still
+  going" and "If missed while PALUGADA was down" in plain choices, and its
+  table shows the policy, the window, **Waiting**, and under **Next** which
+  run was skipped or missed and why; the activity feed names the three new
+  events. `POST /api/companies/:id/schedules` takes `overlap` and
+  `catchUpMinutes` (`null` for always once) and refuses anything else by
+  naming what it accepts; a bundle's cadence may carry both, checked at
+  publish by the same `assertScheduleTiming` the route and `upsertSchedule`
+  use. The export carries the two settings and the import restores them;
+  the remembered skip and hold stay behind with their reasons, like
+  `fire_failed_for`, and could not come across in any case, since the
+  schedules are imported before the tasks they name. 0047's grants are per
+  table, so the application role needed nothing new (checked).
+  `schedule-overlap.test.ts`, on explicit clocks: skip creates no second
+  task while the first waits for approval, writes one event over five
+  passes naming it, and fires again once it has ended; queue holds through
+  five passes with one event and fires once after, with the 09:00
+  occurrence counted into it; allow runs two side by side; a half-fired
+  occurrence is finished, not skipped for its own task; a briefing twelve
+  hours late is dropped with one event over three passes, three days of
+  them are counted as three, and one twenty minutes late runs; the window
+  measured from the latest occurrence runs a short outage's catch-up; with
+  no window one catch-up runs twelve hours late; a queued run past its
+  window is dropped; bad values are refused by the code and by the
+  database, and saving again without them restores the defaults; the API
+  refuses and stores them and its list shows the missed occurrence and the
+  run a held one waits for; a cadence brings them and a bad one is refused
+  at publish; an archive round-trip keeps them. The weekly review's test in
+  `bundles.test.ts` fired its schedule twice with the first review still
+  pending; it is about what the second is handed, so it sets `allow` for
+  that fire rather than the default being weakened.
+- **Not done.** Existing schedules become `skip` when 0099 runs: a
+  deployment that relied on overlapping runs must set `allow`. The console
+  has no form to edit a schedule; changing either choice is saving it again
+  under the same short name, which replaces every field, as it did before.
+  A skip or a miss is in the activity feed and on the table, and nobody is
+  told of one on a channel. A skipped occurrence is written once per
+  occurrence, so a schedule every minute behind a run stuck for a day
+  writes one a minute -- as many as its `schedule.fired` would have been,
+  not one a pass. The built-in weekly review keeps the defaults. How late an
+  occurrence is comes from `nextOccurrence`, so across a daylight-saving
+  change it is exactly as right as that function is.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

@@ -23,7 +23,7 @@ import { useLoad } from '../hooks.ts';
 import type { Division, Goal, PersonaPreset, PolicyRow, Role, Schedule, Structure } from '../types.ts';
 import { count, dateTime, goalKind, money, relative } from '../format.ts';
 import type { PageProps } from '../App.tsx';
-import { N, t } from '../i18n.ts';
+import { N, t, tp } from '../i18n.ts';
 import { LoadFailed, Loading, PageHeader, Section } from '../components/ui.tsx';
 import { ActionButton, ActionForm } from '../components/ActionForm.tsx';
 import { AssignWork } from '../components/AssignWork.tsx';
@@ -1256,6 +1256,34 @@ function GoalEditor({ companyId, goal, close, changed }: { companyId: string; go
 
 const ZONES = ['UTC', 'Asia/Jakarta', 'Asia/Makassar', 'Asia/Jayapura', 'Asia/Singapore', 'Europe/London', 'America/New_York', 'America/Los_Angeles'];
 
+/** What a schedule does while its last run is still going (F9.1), as the table says it. */
+const OVERLAP_SAID: Record<Schedule['overlap'], string> = {
+  skip: N('Skips a run while the last one is going'),
+  queue: N('Waits for the last run to finish'),
+  allow: N('Runs beside the last run'),
+};
+
+/** A catch-up window in the largest whole unit it fills: 90 minutes, 3 hours, 2 days. */
+function windowLength(minutes: number): string {
+  if (minutes % 1440 === 0) return tp('{count} day', '{count} days', minutes / 1440);
+  if (minutes % 60 === 0) return tp('{count} hour', '{count} hours', minutes / 60);
+  return tp('{count} minute', '{count} minutes', minutes);
+}
+
+function catchUpSaid(minutes: number | null): string {
+  return minutes === null
+    ? t('Always catches up once')
+    : t('Skips a run more than {late} late', { late: windowLength(minutes) });
+}
+
+/** Why the last run that did not happen did not, so a quiet night is explained rather than guessed at. */
+function skippedSaid(skipped: NonNullable<Schedule['lastSkipped']>): string {
+  const values = { when: dateTime(skipped.occurrence) };
+  return skipped.because === 'overlap'
+    ? tp('Skipped the run at {when}: the last one was still going', 'Skipped {count} runs from {when}: the last one was still going', skipped.occurrences, values)
+    : tp('Missed the run at {when}: too late to be worth running', 'Missed {count} runs from {when}: too late to be worth running', skipped.occurrences, values);
+}
+
 function Schedules({
   companyId, structure, schedules, changed,
 }: { companyId: string; structure: Structure; schedules: Schedule[]; changed: () => void }) {
@@ -1276,13 +1304,23 @@ function Schedules({
             <Table.Tbody>
               {schedules.map((schedule) => (
                 <Table.Tr key={schedule.id}>
-                  <Table.Td><Text size="sm" fw={600}>{schedule.slug}</Text><Text size="xs" c="dimmed">P{schedule.priority}</Text></Table.Td>
+                  <Table.Td>
+                    <Text size="sm" fw={600}>{schedule.slug}</Text>
+                    <Text size="xs" c="dimmed">P{schedule.priority} · {t(OVERLAP_SAID[schedule.overlap])}</Text>
+                    <Text size="xs" c="dimmed">{catchUpSaid(schedule.catchUpMinutes)}</Text>
+                  </Table.Td>
                   <Table.Td><Text size="sm" ff="monospace">{schedule.cron}</Text><Text size="xs" c="dimmed">{schedule.timezone}</Text></Table.Td>
                   <Table.Td><Text size="sm">{schedule.roleSlug}</Text><Text size="xs" c="dimmed">{schedule.divisionName}</Text></Table.Td>
-                  <Table.Td><Text size="sm">{relative(schedule.nextRunAt)}</Text></Table.Td>
+                  <Table.Td>
+                    <Text size="sm">{relative(schedule.nextRunAt)}</Text>
+                    {schedule.lastSkipped && <Text size="xs" c="dimmed">{skippedSaid(schedule.lastSkipped)}</Text>}
+                  </Table.Td>
                   <Table.Td>
                     {schedule.failure ? <Tooltip label={schedule.failure}><Badge color="red" variant="light">{t('Cannot fire')}</Badge></Tooltip>
-                      : schedule.enabled ? <Badge color="teal" variant="light">{t('On')}</Badge> : <Badge color="gray" variant="light">{t('Off')}</Badge>}
+                      : !schedule.enabled ? <Badge color="gray" variant="light">{t('Off')}</Badge>
+                        : schedule.waitingFor
+                          ? <Tooltip label={t('Its last run is still going. This one runs when that one finishes.')}><Badge color="yellow" variant="light">{t('Waiting')}</Badge></Tooltip>
+                          : <Badge color="teal" variant="light">{t('On')}</Badge>}
                   </Table.Td>
                 </Table.Tr>
               ))}
@@ -1311,16 +1349,36 @@ function Schedules({
             { name: 'priority', label: t('Priority'), type: 'select', initial: '2', options: [
               { value: '0', label: t('P0 · first') }, { value: '1', label: 'P1' }, { value: '2', label: t('P2 · normal') }, { value: '3', label: t('P3 · last') },
             ] },
+            { name: 'overlap', label: t('If the last run is still going'), type: 'select', required: true, initial: 'skip',
+              description: t('A run that takes longer than the gap, or waits for you, would otherwise have a second one beside it.'),
+              options: [
+                { value: 'skip', label: t('Skip this one') },
+                { value: 'queue', label: t('Run it when the last one finishes') },
+                { value: 'allow', label: t('Run both') },
+              ] },
+            // The shortest window is the scheduler's floor (MIN_CATCH_UP_MINUTES):
+            // shorter, and an ordinary busy pass would count as missed.
+            { name: 'catchUpMinutes', label: t('If missed while PALUGADA was down'), type: 'select', required: true, initial: 'always',
+              description: t('A run found later than this is dropped and noted here, so a morning briefing does not arrive in the evening.'),
+              options: [
+                { value: 'always', label: t('Always run it once') },
+                { value: '15', label: t('Skip it if more than 15 minutes late') },
+                { value: '60', label: t('Skip it if more than an hour late') },
+                { value: '180', label: t('Skip it if more than 3 hours late') },
+                { value: '720', label: t('Skip it if more than 12 hours late') },
+                { value: '1440', label: t('Skip it if more than a day late') },
+              ] },
           ]}
           submit={(values) => {
             const role = structure.roles.find((one) => one.id === values.roleId);
-            const { brief, ...rest } = values;
+            const { brief, catchUpMinutes, ...rest } = values;
             return api('POST', `/api/companies/${companyId}/schedules`, {
               ...rest,
               divisionId: role?.divisionId,
               // The standard roles take their work as `goal`.
               input: { goal: brief },
               ...(values.priority === undefined ? {} : { priority: Number(values.priority) }),
+              catchUpMinutes: catchUpMinutes === undefined || catchUpMinutes === 'always' ? null : Number(catchUpMinutes),
             });
           }}
           action={t('Schedule it')}

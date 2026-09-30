@@ -581,9 +581,14 @@ test('the weekly review is handed the week: its numbers, its finished work, its 
   assert.equal(carried.length, 1);
 
   // And it is bounded: a busy week is cut, one line a task, and says how much it left out.
+  //
+  // The first review's task is still pending -- nothing here runs it -- and
+  // a review whose last run is live skips its next occurrence (F9.1). This
+  // test is about what the second review is handed, not about overlap, so it
+  // lets the two run side by side rather than running the first to its end.
   for (let more = 0; more < 20; more += 1) await finish(`Busy work ${more}`, `Did it. ${'And more. '.repeat(60)}`);
   await withTenant(fixture.companyId, (tx) => tx.query(
-    "UPDATE schedules SET next_run_at = now() - interval '1 minute' WHERE slug = 'weekly-business-review'"));
+    "UPDATE schedules SET next_run_at = now() - interval '1 minute', overlap = 'allow' WHERE slug = 'weekly-business-review'"));
   const [busy] = await runDueSchedules();
   const { rows: [next] } = await withTenant(fixture.companyId, (tx) => tx.query<{ input: { week: WeekFacts } }>(
     'SELECT input FROM tasks WHERE id = $1', [busy!.taskId]));

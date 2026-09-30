@@ -21,6 +21,7 @@ import { useSyncExternalStore } from 'react';
 import { DICTIONARY as ID } from './locales/id.ts';
 import { DICTIONARY as MS } from './locales/ms.ts';
 import { DICTIONARY as ZH } from './locales/zh.ts';
+import { DICTIONARY as HI } from './locales/hi.ts';
 import { DICTIONARY as PT_BR } from './locales/pt-BR.ts';
 import { DICTIONARY as RU } from './locales/ru.ts';
 import type { Dictionary, Translation } from './locales/types.ts';
@@ -35,6 +36,7 @@ export const LANGUAGES = [
   { code: 'id', name: 'Bahasa Indonesia', locale: 'id-ID' },
   { code: 'ms', name: 'Bahasa Melayu', locale: 'ms-MY' },
   { code: 'zh', name: '简体中文', locale: 'zh-CN' },
+  { code: 'hi', name: 'हिन्दी', locale: 'hi-IN' },
   { code: 'pt-BR', name: 'Português (Brasil)', locale: 'pt-BR' },
   { code: 'ru', name: 'Русский', locale: 'ru-RU' },
 ] as const;
@@ -45,6 +47,7 @@ const DICTIONARIES: Record<Language, Dictionary> = {
   id: ID,
   ms: MS,
   zh: ZH,
+  hi: HI,
   'pt-BR': PT_BR,
   ru: RU,
 };

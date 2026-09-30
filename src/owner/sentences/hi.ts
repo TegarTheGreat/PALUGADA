@@ -1,0 +1,105 @@
+/**
+ * हिन्दी: what the platform itself says to the owner outside the console
+ * (src/owner/say.ts), keyed by its English.
+ *
+ * The terms are the console's (console/src/locales/hi.ts): its buttons are
+ * named as the console names them, and a screen it points to ("यह
+ * डिप्लॉयमेंट, टूल, सुनना") is spelled as the console draws it. Whoever is
+ * speaking as "I" -- the CEO a company chose, or PALUGADA -- is given no
+ * gender: the sentences are turned so that no verb needs one.
+ */
+export const SENTENCES: Readonly<Record<string, string>> = {
+  'Incident: {title}': 'घटना: {title}',
+  'Done: {goal}': 'पूरा हुआ: {goal}',
+  'Stopped before finishing: {goal}': 'पूरा होने से पहले रुका: {goal}',
+  'Why: {reason}': 'कारण: {reason}',
+  'a task': 'एक कार्य',
+  'Approval needed: {title}': 'स्वीकृति चाहिए: {title}',
+  '{summary} — if denied: {consequence}': '{summary} — अस्वीकार करने पर: {consequence}',
+  'If denied:': 'अस्वीकार करने पर:',
+  'Expires:': 'समाप्ति:',
+  'This one is decided in the app.': 'इस पर निर्णय ऐप में होता है।',
+  'Open in PALUGADA': 'PALUGADA में खोलें',
+  'Approve': 'स्वीकृत करें',
+  'Deny': 'अस्वीकार करें',
+  'Ask': 'पूछें',
+  'Approved. Nothing left to press here.': 'स्वीकृत। यहाँ अब कुछ दबाना बाकी नहीं है।',
+  'Denied. Nothing left to press here.': 'अस्वीकृत। यहाँ अब कुछ दबाना बाकी नहीं है।',
+  'Decided ({decision}). Nothing left to press here.': 'निर्णय हो गया ({decision})। यहाँ अब कुछ दबाना बाकी नहीं है।',
+  'Expired unanswered. Silence is a refusal, so nothing was done.':
+    'बिना जवाब के समाप्त। चुप रहना इनकार माना जाता है, इसलिए कुछ नहीं किया गया।',
+  'Withdrawn: the task it was asking about is {state}.': 'वापस लिया गया: जिस कार्य के बारे में यह पूछ रहा था, उसकी स्थिति अब {state} है।',
+  'Withdrawn ({reason}).': 'वापस लिया गया ({reason})।',
+  'no reason recorded': 'कोई कारण दर्ज नहीं',
+  'This bot only answers to its owner.': 'यह बॉट सिर्फ़ अपने स्वामी को जवाब देता है।',
+  'Recorded: {decision}.': 'दर्ज हुआ: {decision}।',
+  'That one has to be approved in the app.': 'इसे ऐप में ही स्वीकृत करना होगा।',
+  'Already closed: {reason}.': 'पहले ही बंद हो चुका है: {reason}।',
+  'That could not be recorded.': 'इसे दर्ज नहीं किया जा सका।',
+  'That item no longer exists.': 'वह आइटम अब मौजूद नहीं है।',
+  'What do you want to ask about "{title}"? Reply to this message.':
+    '"{title}" के बारे में आप क्या पूछना चाहते हैं? इस संदेश पर रिप्लाई करें।',
+  'Your question': 'आपका सवाल',
+  'Type your question as a reply.': 'अपना सवाल रिप्लाई में टाइप करें।',
+  'Asked. The answer will be on the item in the app.': 'पूछ लिया गया। जवाब ऐप में उसी आइटम पर मिलेगा।',
+  'Answer': 'जवाब दें',
+  'Answer in words': 'शब्दों में जवाब दें',
+  'That choice is not on this question.': 'यह विकल्प इस सवाल में नहीं है।',
+  'Chosen: {choice}.': 'चुना गया: {choice}।',
+  'Stop the task': 'कार्य रोकें',
+  'Your answer to "{question}"? Reply to this message.': '"{question}" का आपका जवाब? इस संदेश पर रिप्लाई करें।',
+  'Your answer': 'आपका जवाब',
+  'Type your answer as a reply.': 'अपना जवाब रिप्लाई में टाइप करें।',
+  'Answered. The task carries on with it.': 'जवाब दे दिया गया। कार्य उसी के साथ आगे बढ़ता है।',
+  'That is too long for one question; keep it under {max} characters.':
+    'एक सवाल के लिए यह बहुत लंबा है; इसे {max} अक्षरों से कम रखें।',
+  '[a key, not kept]': '[एक कुंजी, रखी नहीं गई]',
+  'That looks like a key, so I did not keep it or send it anywhere. Keys go in the sealed field on a card, or on their page in This deployment: tell me what it is for and I will put the card in front of you.':
+    'यह कुंजी जैसा दिखता है, इसलिए मैंने इसे न रखा है, न कहीं भेजा है। कुंजियाँ किसी कार्ड के सील किए गए फ़ील्ड में, या “यह डिप्लॉयमेंट” में उनके अपने पेज पर डाली जाती हैं: मुझे बताइए कि यह किसलिए है, और उसका कार्ड आपके सामने आ जाएगा।',
+  'No model is set up yet, so I cannot think. Choose one under This deployment, Model; then I can help with everything else.':
+    'अभी कोई मॉडल सेट नहीं है, इसलिए सोचना मेरे बस में नहीं है। “यह डिप्लॉयमेंट, मॉडल” में जाकर एक मॉडल चुनें; उसके बाद बाकी हर काम में मेरी मदद मिल सकेगी।',
+  'The model did not answer: {reason}': 'मॉडल ने जवाब नहीं दिया: {reason}',
+  'Here is what I propose.': 'मेरा प्रस्ताव यह है।',
+  'I have nothing to add.': 'मेरे पास जोड़ने को कुछ नहीं है।',
+  '{name}, CEO of {company}': '{name}, {company} में CEO',
+  'That could not be answered: {reason}': 'इसका जवाब नहीं दिया जा सका: {reason}',
+  'I read text and voice notes.': 'यहाँ टेक्स्ट और वॉइस नोट पढ़े जाते हैं।',
+  'Now talking to {name}.': 'अब {name} से बात हो रही है।',
+  'Choose whom to talk to.': 'चुनें कि आप किससे बात करना चाहते हैं।',
+  'Choose whom to talk to': 'चुनें कि किससे बात करनी है',
+  'Talk to PALUGADA about the whole deployment': 'पूरे डिप्लॉयमेंट के बारे में PALUGADA से बात करें',
+  'Who you are talking to, and how': 'आप किससे बात कर रहे हैं, और कैसे',
+  'Stopped.': 'रोक दिया गया।',
+  'Write here to talk to {name}.': '{name} से बात करने के लिए यहाँ लिखें।',
+  'You are talking to {name}. Write, or send a voice note. /ceo chooses whom you talk to; /palugada talks to PALUGADA about the whole deployment.':
+    'आप {name} से बात कर रहे हैं। लिखें, या वॉइस नोट भेजें। /ceo से चुनें कि आप किससे बात करें; /palugada से पूरे डिप्लॉयमेंट के बारे में PALUGADA से बात करें।',
+  'You said: "{words}"': 'आपने कहा: "{words}"',
+  'in the app': 'ऐप में',
+  'Apply: {summary}': 'लागू करें: {summary}',
+  'Nothing hears speech yet: choose a provider in the app, under This deployment, Tools, Listening.':
+    'अभी कोई भी आवाज़ नहीं सुन सकता: ऐप में “यह डिप्लॉयमेंट, टूल, सुनना” में जाकर कोई प्रदाता चुनें।',
+  'That recording is too long; keep a voice note under {max} MB.': 'वह रिकॉर्डिंग बहुत लंबी है; वॉइस नोट {max} MB से छोटा रखें।',
+  'I could not make out any words in that.': 'उसमें मुझे कोई भी शब्द समझ नहीं आया।',
+  'Done: {summary}': 'हो गया: {summary}',
+  'That one is applied in the app.': 'इसे ऐप में ही लागू किया जाता है।',
+  'That card no longer exists.': 'वह कार्ड अब मौजूद नहीं है।',
+  'That card was already applied.': 'वह कार्ड पहले ही लागू हो चुका है।',
+  'That card was dismissed.': 'वह कार्ड खारिज कर दिया गया था।',
+  'That card failed when it was applied.': 'लागू करते समय वह कार्ड विफल रहा।',
+  'That could not be done: {reason}': 'यह नहीं किया जा सका: {reason}',
+  'Choose': 'चुनें',
+  'What do you want to ask about "{title}"? Reply to this message with your question.':
+    '"{title}" के बारे में आप क्या पूछना चाहते हैं? इस संदेश पर रिप्लाई करके अपना सवाल भेजें।',
+  'Your answer to "{question}"? Reply to this message with your answer.':
+    '"{question}" का आपका जवाब? इस संदेश पर रिप्लाई करके अपना जवाब भेजें।',
+  'I read text messages here.': 'यहाँ टेक्स्ट संदेश पढ़े जाते हैं।',
+  'Apply one of these here:': 'इनमें से कोई एक यहाँ लागू करें:',
+  'Apply {number}': '{number} लागू करें',
+  'Signed in to {provider} for the {alias} key': '{alias} कुंजी के लिए {provider} में साइन इन हो गया',
+  'Go back to PALUGADA: the division holds this key now, and it is renewed before it runs out. This tab can be closed.':
+    'PALUGADA पर लौटें: यह कुंजी अब विभाग के पास है, और खत्म होने से पहले अपने आप रिन्यू हो जाती है। यह टैब बंद किया जा सकता है।',
+  'Signed in to {name}': '{name} में साइन इन हो गया',
+  'Go back to PALUGADA to choose which of its tools roles may use. This tab can be closed.':
+    'PALUGADA पर लौटकर चुनें कि भूमिकाएँ इसके कौन-से टूल इस्तेमाल कर सकती हैं। यह टैब बंद किया जा सकता है।',
+  'Not signed in': 'साइन इन नहीं हुआ',
+};

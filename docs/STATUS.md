@@ -4685,6 +4685,87 @@ either platform in this environment was not allowed, so neither ran it.
   template catalogue can list PALUGADA: both take an image, not a build.
   Coolify's official templates also need a thousand GitHub stars.
 
+## 2.57 A critic before every stage move (from Auto-Company)
+
+Auto-Company asks for a "Munger" premortem before any GO, written by the
+same model session that wants the GO. Nothing makes it happen, and nothing
+puts it in front of whoever decides. The operating kit (`company-os` 1.4.0,
+`src/bundles/builtin.ts`) makes it a rule.
+
+- **The critic.** A role in a `strategy-review` division of its own, whose
+  charter is to assume the move failed six months from now and say how:
+  its verdict in one line first -- support, oppose or need more -- then, for
+  each risk, the way it would kill the company, and why it supports the
+  move despite them when it does. Its output schema is the verdict a review
+  reads (`decision`, `reason`), so a run is shown what to return.
+- **It holds nothing that acts.** Its grants are four reads, each tier 0 in
+  the catalogue -- memory, skills, metrics and the ledger -- to check the
+  evidence against the company's own numbers and money. The kit's hook
+  `strategy-review.read-only` refuses its division anything at tier 1 or
+  above, so a grant somebody adds later changes nothing. It does not hold
+  `stage.propose`.
+- **Every stage proposal goes to it first.** `stage-move-needs-the-critic`,
+  company-wide, puts `stage.propose` behind the critic's review, against
+  these criteria: willingness to pay shown by money or a signed commitment,
+  not interest; where each piece of evidence came from; the three likeliest
+  failures, each with an early warning; what stops a competitor copying it
+  in two weeks. A missing answer is a rejection that names it.
+- **The owner reads what the critic said, either way.** When it supports a
+  move, the proposal reaches the owner as before, with "Reviewed by critic
+  before you:" and the verdict on the card, and the review in its payload.
+  When it opposes one, nothing the owner could approve into a move is
+  raised; an item says what was proposed, on what evidence, and why the
+  critic stopped it. Answering it moves nothing, and the owner can still
+  set the stage on the Overview. "Need more" sends the proposal back to the
+  strategist, and two revisions without agreement reach the owner as any
+  review deadlock does (F7.2).
+- **A no to a stage move does not stop the work that proposed it.** A
+  rejected review fails the task that proposed the action (F7.1). The
+  owner's own no to a stage proposal never did, and the critic's would have
+  failed a weekly business review for one line in it. For `stage.propose`
+  the proposer goes back to work, and asking again is refused with the
+  critic's reasons. Every refusal after a rejected review now carries the
+  reviewer's reasons; it said only "review rejected".
+- **Found on the way, and closed: a reviewer from another division could
+  never be given a review.** `openReview` made the review task in the
+  proposer's division, so a reviewer ran under the grants of the role it
+  was judging. Since 0058, a task's role must also belong to its division,
+  so a reviewer in another division could not be given a review at all:
+  `qa-review`'s for `content-ops`, `palugada-dev`'s, and now the critic. The
+  review task also had no goal, and a bundle role's input schema requires
+  one, so a bundle reviewer halted on its input before reading the
+  proposal. It is now made in the reviewer's division, with a goal. Every
+  existing review test put the reviewer in the proposer's division, which
+  is why none of them saw this.
+- **Installing 1.4.0 over an earlier version** adds the division, the
+  critic, its grants, hook and heartbeat, and the rule. Everything else
+  stays as it was: the same role rows, the same weekly review schedule,
+  still on, every grant, and work in flight
+  (`test/acceptance/bundles.test.ts`). As with any reinstall, the kit's
+  skills are proposed again as candidates.
+- **Tests.** `test/acceptance/stages.test.ts`: with the shipped kit
+  installed, no stage proposal exists until the critic's verdict is
+  recorded; a supported proposal carries the verdict; an opposed one is
+  never raised, its reasons reach the owner, and the strategist finishes;
+  the critic's grants are tier 0, and a tier 1 call is refused by the hook
+  even with a grant.
+- **Unverified, and not done.**
+  - How a real model does as the critic. The tests script its verdicts.
+  - The criteria are written for a move forward. A proposal to go back, or
+    to wind down, is judged by the same questions, and a critic that
+    follows "if any answer is missing, reject" will stop it. The owner is
+    then told, with the reasons, and can move the company themselves.
+  - `qa-reviewer` and `platform-reviewer` still return the ordinary work
+    output, which has no `decision`, so a model's review by either still
+    goes to the owner as unreadable. The critic's output schema shows the
+    fix; applying it is a new version of their bundles.
+  - The verdict is in the item's rationale, which the console shows under
+    "Why". A Telegram or WhatsApp card shows an escalation's title and
+    what a no means, not its rationale, so the verdict, like the
+    strategist's evidence, is read in the app. A move forward is tier 3
+    and is decided there anyway. A move back is tier 2 and can be
+    answered from the chat without either.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

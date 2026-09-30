@@ -37,12 +37,38 @@ const WORK_OUTPUT = {
   },
 };
 
+/**
+ * What a reviewer returns: the verdict `settleCompletedReviews` reads.
+ *
+ * A reviewer's output is shown its schema before it answers (context/builder.ts),
+ * so the schema is where it learns that a verdict is `decision` and `reason`.
+ * Given the ordinary work output instead, a reviewer answers with a summary, and
+ * a review with no readable verdict goes to the owner as undecided.
+ */
+const VERDICT_OUTPUT = {
+  type: 'object',
+  additionalProperties: true,
+  required: ['decision', 'reason'],
+  properties: {
+    decision: {
+      enum: ['approve', 'revise', 'reject'],
+      description: 'approve to support it, reject to oppose it, revise when you need more before you can say',
+    },
+    reason: {
+      type: 'string',
+      minLength: 1,
+      description: 'Your verdict line first, then what decided it. The owner reads it with the proposal.',
+    },
+  },
+};
+
 function role(input: {
   slug: string;
   division: string;
   prompt: string;
   tools: string[];
   doneCriteria: string[];
+  outputSchema?: Record<string, unknown>;
 }) {
   return {
     slug: input.slug,
@@ -54,7 +80,7 @@ function role(input: {
     model: 'standard',
     tools: input.tools,
     inputSchema: WORK_INPUT,
-    outputSchema: WORK_OUTPUT,
+    outputSchema: input.outputSchema ?? WORK_OUTPUT,
     maxTokensPerRun: 40_000,
     doneCriteria: input.doneCriteria,
   };
@@ -516,20 +542,35 @@ Approving is a claim that you checked. Say what you checked.
  * stage -- no paid reach before launch, and nothing new once the company is
  * winding down.
  *
+ * And a critic (1.4.0). auto-company asks for a premortem before any GO, from
+ * the same model session that wants the GO, and nothing makes it happen. Here
+ * every stage proposal is reviewed by a role of its own before the owner is
+ * asked: a policy puts `stage.propose` behind its review, it sits in a
+ * division of its own so it works under its own grants rather than the
+ * strategist's, and it holds reads and nothing else. What it says reaches
+ * the owner either way -- on the proposal when it supports it, on an item of
+ * its own when it stops it.
+ *
  * Written for this platform rather than copied: each skill is short, says what
  * a run must do rather than what an expert believes, and has an eval naming the
  * sentence that must not be lost.
  */
 export const COMPANY_OS: Bundle = {
   slug: 'company-os',
-  version: '1.2.0',
+  version: '1.4.0',
   name: 'Company operating kit',
   description:
-    'A strategist, a weekly business review, stage gates, and the operating skills a company decides ' +
-    'with: validating an idea, premortems, pricing, unit economics, customer discovery, launch ' +
-    'readiness, outbound rules and the weekly review.',
+    'A strategist, a critic who reviews every stage move before the owner does, a weekly business ' +
+    'review, stage gates, and the operating skills a company decides with: validating an idea, ' +
+    'premortems, pricing, unit economics, customer discovery, launch readiness, outbound rules and the ' +
+    'weekly review.',
   body: {
-    divisions: [{ slug: 'strategy', name: 'Strategy', maxConcurrency: 1 }],
+    divisions: [
+      { slug: 'strategy', name: 'Strategy', maxConcurrency: 1 },
+      // Its own division, because a review runs in the reviewer's division
+      // and under its grants: a critic in Strategy would hold stage.propose.
+      { slug: 'strategy-review', name: 'Strategy review', maxConcurrency: 1 },
+    ],
     roles: [
       role({
         slug: 'strategist',
@@ -555,6 +596,24 @@ export const COMPANY_OS: Bundle = {
           'a change to a goal is written as a proposal for the owner, never applied',
         ],
       }),
+      role({
+        slug: 'critic',
+        division: 'strategy-review',
+        prompt:
+          'You challenge a proposal to move the company\'s stage before the owner sees it. Assume it ' +
+          'failed six months from now and ask how. Give your verdict in one line first: support, oppose ' +
+          'or need more. For each risk, write the concrete way it would kill the company. If you support ' +
+          'it, say why despite those risks. Answer with "decision": "approve" to support, "reject" to ' +
+          'oppose or "revise" to need more, and "reason": your verdict line and the risks, written for ' +
+          'the owner in the company\'s language.',
+        tools: ['memory.search', 'skill.read', 'metrics.read', 'ledger.read'],
+        doneCriteria: [
+          'the reason opens with the verdict in one line: support, oppose or need more',
+          'each risk says the concrete way it would kill the company',
+          'every question in the criteria is answered, and one without an answer is named',
+        ],
+        outputSchema: VERDICT_OUTPUT,
+      }),
     ],
     grants: [
       { division: 'strategy', capability: 'memory.search' },
@@ -572,12 +631,35 @@ export const COMPANY_OS: Bundle = {
       { division: 'strategy', capability: 'ledger.read' },
       { division: 'strategy', capability: 'web.fetch' },
       { division: 'strategy', capability: 'doc.draft' },
+      // The critic reads, to check a proposal's evidence against the company's
+      // own numbers and money, and does nothing else: every one is tier 0.
+      { division: 'strategy-review', capability: 'memory.search' },
+      { division: 'strategy-review', capability: 'skill.read' },
+      { division: 'strategy-review', capability: 'metrics.read' },
+      { division: 'strategy-review', capability: 'ledger.read' },
     ],
     // The stage gates (0057), as rules. Company-wide, because paid reach and
     // new work are the company's to hold back, whichever division reaches for
     // them. A company with no stage set has proved nothing a stage policy
     // allows, so it is held back too.
     policies: [
+      {
+        // Company-wide, so whichever role proposes a move -- the strategist,
+        // or any the owner later gives stage.propose -- the critic reads it
+        // before the owner is asked.
+        slug: 'stage-move-needs-the-critic',
+        scope: 'company',
+        condition: { field: 'tool', op: 'eq', value: 'stage.propose' },
+        effect: 'require_review',
+        params: {
+          reviewer_role: 'critic',
+          criteria:
+            'Is willingness to pay shown by money or a signed commitment, not interest? Does each piece of ' +
+            'evidence say where it came from? Are the three likeliest failures named, each with an early ' +
+            'warning? What stops a competitor copying this in two weeks? If any answer is missing, reject ' +
+            'and name it.',
+        },
+      },
       {
         slug: 'no-paid-reach-before-launch',
         scope: 'company',
@@ -907,8 +989,21 @@ a review.
         ],
       },
     ],
-    hooks: [],
-    schedules: [{ roleSlug: 'strategist', heartbeatMinutes: 720 }],
+    hooks: [
+      {
+        name: 'strategy-review.read-only',
+        on: 'pre_tool',
+        division: 'strategy-review',
+        refuseAtOrAboveTier: 1,
+        reason:
+          'The critic judges a proposal and holds nothing that acts: a critic that could act could do ' +
+          'what it was asked to judge (F7.3). Its grants are reads, and a grant added later is refused here.',
+      },
+    ],
+    schedules: [
+      { roleSlug: 'strategist', heartbeatMinutes: 720 },
+      { roleSlug: 'critic', heartbeatMinutes: 240 },
+    ],
     cadences: [
       {
         slug: 'weekly-business-review',

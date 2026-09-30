@@ -300,7 +300,7 @@ cost, and opens the step-by-step trace behind it.
 |---|---|---|
 | approval | An action that needs your yes | **Approve**, **Deny**, or **Ask a question** back; the task carries on, is cancelled, or reads your question |
 | question | An agent asked you something with `owner.ask`, and its task waits | Pick one of the options it offered, or write **Your answer** and press **Send the answer**; **Stop the task** cancels it |
-| question | An escalation: a division is stuck, or a role proposes a goal change or a stage move, or a schedule keeps producing the same result | Approve or deny it, or use **Answer the agent instead** to reply without deciding |
+| question | An escalation: a division is stuck, or a role proposes a goal change or a stage move, or the critic stopped a stage move, or a schedule keeps producing the same result | Approve or deny it, or use **Answer the agent instead** to reply without deciding |
 | incident | Something went wrong: a failed read-back, a crash loop, a broken capability, a role spending too fast | Deal with the cause; deciding the item closes it, with your note |
 | procedure, skill | Something the company learned, waiting for your yes before any agent uses it | Approve or deny |
 | budget | 80% or 100% of the month's ceiling | Raise the ceiling or override the pause on **Money**, or leave it paused |
@@ -345,6 +345,13 @@ for, and policies can read it, so "no paid advertising before launch" is a
 rule rather than a hope. Moving forward loosens those rules, so it takes your
 code; moving into wind down only closes things. The strategist may propose a
 move with the evidence; the move itself is always yours.
+
+With `company-os`, a critic reads every stage proposal before you do. It is
+in a division of its own, and it cannot change anything. When it supports a
+move, its verdict is on the card you answer. When it opposes one, you are not
+asked to approve the move; an item tells you what was proposed, on what
+evidence, and why the critic stopped it. You can still set the stage
+yourself.
 
 ## Memory and distillation
 

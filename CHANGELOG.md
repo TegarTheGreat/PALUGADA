@@ -22,6 +22,9 @@ The first version. What it holds, in the order an owner meets it.
 - The platform's and each company's charter kept as files in a git
   repository beside the deployment, edited there or in the console
   (STATUS 2.44).
+- The operating kit (`company-os` 1.4.0) has a critic that reads every stage
+  proposal before the owner does and holds nothing that acts. The owner sees
+  its verdict whether it supports the move or stops it (STATUS 2.57).
 - Every step journalled, so a crash loses nothing; money and tokens reserved
   before work starts; leases, deadlines, per-run length and token ceilings;
   tasks at once per division and calls at once per capability, across every

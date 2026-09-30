@@ -33,6 +33,7 @@ import {
   type SignedBundle,
 } from '../../src/bundles/bundle.ts';
 import { HookPipeline } from '../../src/engine/hooks.ts';
+import { createRootTask } from '../../src/engine/tasks.ts';
 import { evaluate } from '../../src/policy/engine.ts';
 import {
   isTrustedPublisher,
@@ -317,7 +318,7 @@ test('a company can be assembled from several bundles (F16.3, F16.5)', async () 
     const { rows } = await tx.query<{ slug: string }>('SELECT slug FROM divisions ORDER BY slug');
     return rows.map((row) => row.slug);
   });
-  assert.deepEqual(divisions, ['content', 'ops', 'platform', 'platform-review', 'review', 'strategy', 'web']);
+  assert.deepEqual(divisions, ['content', 'ops', 'platform', 'platform-review', 'review', 'strategy', 'strategy-review', 'web']);
 
   // And the rules they came with are in force. Every built-in bundle declared
   // its policies and none was ever installed, so "a push waits for the
@@ -329,6 +330,7 @@ test('a company can be assembled from several bundles (F16.3, F16.5)', async () 
     ['content-external-publish-needs-review', 'require_review', 'content'],
     ['no-paid-reach-before-launch', 'deny', null],
     ['palugada-dev-push-is-reviewed', 'require_review', 'platform'],
+    ['stage-move-needs-the-critic', 'require_review', null],
     ['web-dns-always-owner', 'require_approval', 'web'],
     ['wind-down-starts-nothing', 'deny', null],
   ]);
@@ -398,7 +400,7 @@ test('the operating kit brings a strategist, its frameworks for review, and a we
 
   await publishBundle(signBundle(COMPANY_OS, keys));
   const installed = await installBundle({ companyId: fixture.companyId, slug: 'company-os', version: COMPANY_OS.version });
-  assert.deepEqual(installed.roles, ['strategist']);
+  assert.deepEqual(installed.roles, ['strategist', 'critic']);
 
   const { rows: schedules } = await withTenant(fixture.companyId, (tx) => tx.query<{
     slug: string; cron_expression: string; timezone: string; enabled: boolean; goal: string; kind: string; role: string;
@@ -466,6 +468,91 @@ test("the platform's own kit installs as shipped, and a copy somebody changed do
     body: { ...COMPANY_OS.body, cadences: [{ ...COMPANY_OS.body.cadences![0]!, roleSlug: 'nobody' }] },
   };
   await assert.rejects(publishBundle(orphan), /names role nobody/);
+});
+
+/**
+ * The kit as it was before the critic: the same body without the critic and
+ * what came with it -- its division, grants, hook, heartbeat and the rule
+ * that names it.
+ */
+function kitBeforeTheCritic(): Bundle {
+  const body = COMPANY_OS.body;
+  const division = body.roles.find((role) => role.slug === 'critic')!.division;
+  return {
+    ...COMPANY_OS,
+    version: '1.3.0',
+    body: {
+      ...body,
+      divisions: body.divisions.filter((one) => one.slug !== division),
+      roles: body.roles.filter((one) => one.slug !== 'critic'),
+      grants: body.grants.filter((one) => one.division !== division),
+      policies: body.policies.filter((one) => one.params?.reviewer_role !== 'critic'),
+      hooks: body.hooks.filter((one) => one.division !== division),
+      schedules: body.schedules.filter((one) => one.roleSlug !== 'critic'),
+    },
+  };
+}
+
+test('installing the kit over the version before it adds the critic and leaves the company as it was', async () => {
+  const fixture = await createCompany('bundle-company-os-upgrade');
+  const { companyId } = fixture;
+  await registerStandardCatalogue();
+  // Installed as written, as the shipped version was on its own deployment.
+  const keys = publisher();
+  await trustPublisher({ publicKeyPem: keys.publicKey, label: 'the test publisher', ownerApproved: true });
+  const before = kitBeforeTheCritic();
+  await publishBundle(signBundle(before, keys));
+  assert.equal((await installBundle({ companyId, slug: before.slug, version: before.version })).quarantined, false);
+
+  const snapshot = () => withTenant(companyId, async (tx) => ({
+    roles: (await tx.query<{ id: string; slug: string; division: string; division_id: string }>(
+      `SELECT r.id, r.slug, d.slug AS division, d.id AS division_id
+         FROM roles r JOIN divisions d ON d.id = r.division_id ORDER BY r.slug`)).rows,
+    schedules: (await tx.query<{ id: string; enabled: boolean }>('SELECT id, enabled FROM schedules ORDER BY slug')).rows,
+    grants: (await tx.query<{ division: string; capability: string }>(
+      `SELECT d.slug AS division, g.capability_name AS capability
+         FROM capability_grants g JOIN divisions d ON d.id = g.division_id ORDER BY 1, 2`)).rows,
+  }));
+  const was = await snapshot();
+  const strategist = was.roles.find((role) => role.slug === 'strategist')!;
+  // Work in flight when the new version arrives.
+  const inFlight = await createRootTask({
+    companyId, projectId: fixture.projectId, divisionId: strategist.division_id, roleId: strategist.id,
+    budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId,
+    input: { goal: 'Weekly business review' }, createdBy: 'owner', reserveTokens: 1_000,
+  });
+
+  await publishBundle(COMPANY_OS);
+  const upgraded = await installBundle({ companyId, slug: 'company-os', version: COMPANY_OS.version });
+  assert.equal(upgraded.quarantined, false);
+  assert.ok(upgraded.policies.includes('stage-move-needs-the-critic'));
+
+  // Everything that was there is there, as the same rows.
+  const now = await snapshot();
+  for (const role of was.roles) {
+    assert.ok(now.roles.some((one) => one.id === role.id && one.division_id === role.division_id), role.slug);
+  }
+  assert.deepEqual(now.schedules, was.schedules, 'the weekly review is the same schedule, still on');
+  for (const grant of was.grants) {
+    assert.ok(now.grants.some((one) => one.division === grant.division && one.capability === grant.capability),
+      `${grant.division} still holds ${grant.capability}`);
+  }
+  const task = await withTenant(companyId, (tx) => tx.query<{ status: string; role_id: string }>(
+    'SELECT status, role_id FROM tasks WHERE id = $1', [inFlight.id]));
+  assert.deepEqual(task.rows[0], { status: 'pending', role_id: strategist.id });
+
+  // And the critic, in a division of its own that holds reads and nothing else.
+  const added = now.roles.filter((role) => !was.roles.some((one) => one.id === role.id));
+  assert.deepEqual(added.map((role) => [role.slug, role.division]), [['critic', 'strategy-review']]);
+  assert.deepEqual(now.grants.filter((grant) => grant.division === 'strategy-review').map((grant) => grant.capability),
+    ['ledger.read', 'memory.search', 'metrics.read', 'skill.read']);
+  const refused = await new HookPipeline().run('pre_tool', {
+    companyId, divisionId: added[0]!.division_id, capability: 'doc.draft', tier: 1,
+  });
+  assert.equal(refused.refusedBy, 'strategy-review.read-only');
+  const { rows: installs } = await withTenant(companyId, (tx) => tx.query<{ version: string; quarantined: boolean }>(
+    "SELECT version, quarantined FROM bundle_installs WHERE slug = 'company-os'"));
+  assert.deepEqual(installs, [{ version: COMPANY_OS.version, quarantined: false }]);
 });
 
 test("each of the kit's frameworks says what its eval asks for", () => {

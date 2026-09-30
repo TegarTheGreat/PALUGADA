@@ -21,6 +21,7 @@ import { hashInput } from '../engine/hash.ts';
 import { createSubTask, getTask, transition } from '../engine/tasks.ts';
 import { LEARNED_CONFIDENCE, remember } from '../memory/store.ts';
 import * as inbox from '../inbox/inbox.ts';
+import { stageOf } from '../domain/stage.ts';
 import { PalugadaError } from '../errors.ts';
 
 /** F7.2. Round 1 is the first review; two revisions take it to round 3. */
@@ -116,7 +117,6 @@ export async function latestReview(
 export interface OpenReviewInput {
   companyId: string;
   projectId: string;
-  divisionId: string;
   proposerTaskId: string;
   proposerRoleId: string;
   reviewerRoleSlug: string;
@@ -130,7 +130,7 @@ export interface OpenReviewInput {
 export type OpenReviewResult =
   | { outcome: 'already_approved' }
   | { outcome: 'pending'; reviewRequestId: string; reviewTaskId: string; round: number }
-  | { outcome: 'rejected'; reviewRequestId: string }
+  | { outcome: 'rejected'; reviewRequestId: string; reason: string | null }
   | { outcome: 'escalated'; reviewRequestId: string };
 
 /**
@@ -146,7 +146,9 @@ export async function openReview(input: OpenReviewInput): Promise<OpenReviewResu
   );
 
   if (existing?.status === 'approved') return { outcome: 'already_approved' };
-  if (existing?.status === 'rejected') return { outcome: 'rejected', reviewRequestId: existing.id };
+  if (existing?.status === 'rejected') {
+    return { outcome: 'rejected', reviewRequestId: existing.id, reason: existing.reason };
+  }
   if (existing?.status === 'escalated') return { outcome: 'escalated', reviewRequestId: existing.id };
   if (existing?.status === 'pending') {
     return {
@@ -185,20 +187,20 @@ export async function openReview(input: OpenReviewInput): Promise<OpenReviewResu
     return { outcome: 'escalated', reviewRequestId: escalatedId };
   }
 
-  const reviewerRoleId = await withTenant(input.companyId, async (tx) => {
-    const { rows } = await tx.query<{ id: string }>('SELECT id FROM roles WHERE slug = $1', [
-      input.reviewerRoleSlug,
-    ]);
-    return rows[0]?.id ?? null;
+  const reviewer = await withTenant(input.companyId, async (tx) => {
+    const { rows } = await tx.query<{ id: string; division_id: string }>(
+      'SELECT id, division_id FROM roles WHERE slug = $1', [input.reviewerRoleSlug]);
+    return rows[0] ?? null;
   });
 
-  if (!reviewerRoleId) {
+  if (!reviewer) {
     throw new PalugadaError(
       'review.required',
       `policy names reviewer role ${input.reviewerRoleSlug}, which does not exist`,
       { reviewerRoleSlug: input.reviewerRoleSlug },
     );
   }
+  const reviewerRoleId = reviewer.id;
 
   if (reviewerRoleId === input.proposerRoleId) {
     // Also a database constraint. Caught here so the message names the cause
@@ -219,12 +221,22 @@ export async function openReview(input: OpenReviewInput): Promise<OpenReviewResu
   // The review runs as a separate task, so it has its own step journal and
   // therefore its own working memory. F7.3 asks for exactly that: a reviewer
   // that shares the proposer's scratch space is reviewing its own reasoning.
+  //
+  // In the reviewer's own division, for the same reason: a task's division is
+  // whose grants and hooks its calls answer to. It was the proposer's, so a
+  // reviewer held every grant of the role it judged -- and since 0058 a task's
+  // role must be in its division, so a reviewer from another division, which
+  // is every bundle's, could not be given a review at all.
   const reviewTask = await createSubTask(input.proposerTaskId, {
     companyId: input.companyId,
     projectId: input.projectId,
-    divisionId: input.divisionId,
+    divisionId: reviewer.division_id,
     roleId: reviewerRoleId,
     input: {
+      // Every task says what it is for (F2.7), and a role's input schema may
+      // ask for it: without one a bundle's reviewer halted on its own input
+      // contract before it read the proposal.
+      goal: `Review ${input.capabilityName} before it runs, against the criteria you are given`,
       proposal: input.proposal,
       criteria: input.criteria,
       round,
@@ -398,13 +410,27 @@ export async function recordVerdict(
       confidence: LEARNED_CONFIDENCE.first,
     });
 
-    return { decisionRecordId, proposerTaskId: review.proposer_task_id, status: nextStatus };
+    // A stage move is the owner's alone (0057). A reviewer's no stops it
+    // reaching them as something to approve, and must not stop them knowing
+    // it was proposed: told here, in the verdict's own transaction, so the
+    // one is never recorded without the other.
+    const stageMove = review.capability_name === 'stage.propose';
+    if (stageMove && nextStatus === 'rejected') {
+      await tellOwnerOfStoppedStageMove(tx, companyId, review, verdict.reason);
+    }
+
+    return { decisionRecordId, proposerTaskId: review.proposer_task_id, status: nextStatus, stageMove };
   });
 
   // The proposing task waits in `waiting_review`; the verdict releases it.
   const proposer = await withTenant(companyId, (tx) => getTask(tx, result.proposerTaskId));
   if (proposer && proposer.status === 'waiting_review') {
-    if (result.status === 'rejected') {
+    // A rejection stops the work (F7.1) -- except a stage move's. The owner's
+    // own no to one does not stop the work that proposed it (stage.propose),
+    // and the critic's no stopped a weekly review whole for one line in it.
+    // The proposer goes back to work, and asking again is refused with the
+    // reviewer's reasons (the broker, on a rejected review).
+    if (result.status === 'rejected' && !result.stageMove) {
       await transition(companyId, result.proposerTaskId, 'failed');
     } else {
       // Both `approved` and `revise` return the proposer to work. On approval
@@ -415,6 +441,78 @@ export async function recordVerdict(
   }
 
   return { decisionRecordId: result.decisionRecordId, proposerTaskId: result.proposerTaskId };
+}
+
+/** The reviewing role, by the name the owner knows it by and by its slug. */
+async function reviewerOf(tx: TenantClient, roleId: string): Promise<{ slug: string; name: string }> {
+  const { rows } = await tx.query<{ slug: string; name: string }>(
+    'SELECT slug, coalesce(display_name, slug) AS name FROM roles WHERE id = $1', [roleId]);
+  return rows[0] ?? { slug: 'reviewer', name: 'the reviewer' };
+}
+
+/**
+ * Tells the owner of a stage move a reviewer stopped (company-os's critic).
+ *
+ * An escalation with no stage change on it, so no answer moves the company:
+ * the reviewer's no stands until a proposal passes it or the owner sets the
+ * stage themselves, which the item says they may. Not tied to the proposing
+ * task either, which goes on with its work.
+ */
+async function tellOwnerOfStoppedStageMove(
+  tx: TenantClient,
+  companyId: string,
+  review: { id: string; proposer_task_id: string; reviewer_role_id: string; proposal: Record<string, unknown> },
+  reason: string,
+): Promise<void> {
+  const proposed = (review.proposal.input ?? {}) as Record<string, unknown>;
+  const said = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
+  const from = await stageOf(tx, companyId);
+  const to = said(proposed.to) || 'another stage';
+  const reviewer = await reviewerOf(tx, review.reviewer_role_id);
+  await inbox.raiseEscalationWithin(tx, {
+    companyId,
+    title: `${reviewer.name} stopped a proposal to move the company from ${from ?? 'no stage'} to ${to}`,
+    detail: [
+      `${reviewer.name} reviewed it before you and stopped it:`,
+      said(reason) || 'No reason was given.',
+      '',
+      'What was proposed:',
+      said(proposed.evidence),
+      ...(said(proposed.why) ? ['', said(proposed.why)] : []),
+    ].join('\n'),
+    payload: {
+      stoppedStageChange: { from, to },
+      reviewRequestId: review.id,
+      reviewer: reviewer.slug,
+      proposedByTask: review.proposer_task_id,
+    },
+    consequenceIfDenied:
+      `Either answer only closes this: the company stays ${from ? `in the ${from} stage` : 'without a stage'}. ` +
+      'To move it anyway, set the stage on the Overview.',
+  });
+}
+
+/**
+ * The review that let this exact action through, or null when none did.
+ *
+ * For an action whose result is put before the owner -- a stage proposal --
+ * so the owner reads the reviewer's reasons on the same card as the
+ * proposer's, rather than the reviewer's reaching only the proposer.
+ */
+export async function approvedReviewOf(
+  tx: TenantClient,
+  proposerTaskId: string,
+  actionFingerprint: string,
+): Promise<{ reviewRequestId: string; reviewer: { slug: string; name: string }; reason: string } | null> {
+  const { rows } = await tx.query<{ id: string; reviewer_role_id: string; reason: string | null }>(
+    `SELECT id, reviewer_role_id, reason FROM review_requests
+      WHERE proposer_task_id = $1 AND action_fingerprint = $2 AND status = 'approved'
+      ORDER BY round DESC LIMIT 1`,
+    [proposerTaskId, actionFingerprint],
+  );
+  const found = rows[0];
+  if (!found) return null;
+  return { reviewRequestId: found.id, reviewer: await reviewerOf(tx, found.reviewer_role_id), reason: found.reason ?? '' };
 }
 
 /**

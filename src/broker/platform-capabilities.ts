@@ -27,6 +27,7 @@ import { recordPlan, type PlanStep } from '../engine/plan.ts';
 import { recordObservation } from '../domain/metrics.ts';
 import { askOwner, raiseEscalationWithin } from '../inbox/inbox.ts';
 import { STAGES, assertStage, loosens, stageOf, type Stage } from '../domain/stage.ts';
+import { approvedReviewOf, fingerprintAction } from '../review/review.ts';
 import { createSubTask, getTask, transition } from '../engine/tasks.ts';
 import { listTickets, openTicket, readTicket, startTicket } from '../engine/tickets.ts';
 import { searchDocuments } from '../knowledge/documents.ts';
@@ -464,12 +465,29 @@ export function stageProposeCapability(): Capability<StageProposeInput, { propos
         }
         const tier = loosens(from, to) ? 3 : 2;
         const why = typeof input.why === 'string' && input.why.trim() ? `\n\n${input.why.trim()}` : '';
+        // A policy may have had another role review this first -- company-os
+        // has its critic read every one. What it said goes on the card the
+        // owner answers, beside the proposer's case, not only back to the
+        // proposer. Found by this exact action, as the broker's grant was.
+        const review = await approvedReviewOf(tx, ctx.taskId, fingerprintAction('stage.propose', input));
+        const reviewed = review ? `\n\nReviewed by ${review.reviewer.name} before you:\n${review.reason}` : '';
         const inboxItemId = await raiseEscalationWithin(tx, {
           companyId: ctx.companyId,
           title: `Move the company from ${from ?? 'no stage'} to ${to}?`,
-          detail: `${evidence}${why}`,
+          detail: `${evidence}${why}${reviewed}`,
           tier,
-          payload: { stageChange: { from, to }, proposedByTask: ctx.taskId },
+          payload: {
+            stageChange: { from, to },
+            proposedByTask: ctx.taskId,
+            ...(review
+              ? {
+                  review: {
+                    reviewer: review.reviewer.slug, decision: 'approve', reason: review.reason,
+                    reviewRequestId: review.reviewRequestId,
+                  },
+                }
+              : {}),
+          },
           consequenceIfDenied: from
             ? `The company stays in the ${from} stage.`
             : 'The company stays without a stage.',

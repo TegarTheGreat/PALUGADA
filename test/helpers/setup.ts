@@ -31,7 +31,9 @@ process.on('warning', (warning) => {
 });
 
 function ownerPool(): pg.Pool {
-  owner ??= new pg.Pool({ connectionString: connectionString('owner'), max: 4 });
+  // The reset empties the append-only tables with the rest, and says so: a
+  // TRUNCATE of them is refused to a session that has not (0082).
+  owner ??= new pg.Pool({ connectionString: connectionString('owner'), max: 4, options: '-c app.allow_truncate=on' });
   return owner;
 }
 

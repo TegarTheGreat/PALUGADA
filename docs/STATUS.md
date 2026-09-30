@@ -3880,7 +3880,7 @@ this file had not yet answered. Each was reproduced by a test first.
   came back at $0.15 and $0.60 per million tokens, where the fallback had
   charged $15 and $75.
 
-## 2.27 Operating it: metrics and point-in-time recovery
+## 2.27 Operating it: metrics, point-in-time recovery, and the schema owner
 
 Read against what an operator has at three in the morning, and against the
 competitors checked again on 2026-09-30: Multica serves Prometheus metrics,
@@ -3911,6 +3911,30 @@ Paperclip exports traces, and PALUGADA had a health check and log lines.
   came back, and a delete after it did not. It says what a recovery cannot
   undo -- effects in the world after the target -- and how the idempotency
   keys bound it.
+- **TRUNCATE went round the append-only rule (0082).** `events`,
+  `governance_log` and `retention_log` refuse UPDATE and DELETE through a
+  row trigger, and TRUNCATE fires no row trigger. OpenBot found the same
+  hole in its own audit log. Only the schema owner holds TRUNCATE, and its
+  TRUNCATE emptied the history without a word, directly or through
+  `TRUNCATE companies CASCADE`. A statement trigger now refuses it unless
+  the session sets `app.allow_truncate`, which only the test suite's reset
+  does. An owner who means it can still drop the trigger; this stops the
+  mistake, not the owner.
+- **The running platform held the schema owner's password.** Under Docker
+  Compose the app container was given all three database URLs, so that it
+  could migrate before it started, and kept them for its whole life. The
+  systemd guide said to copy `.env`, which has all three, into the
+  service's file. That role can alter and empty any table.
+  - Compose now migrates in a `migrate` service of its own, and `app`
+    starts after it with only the application and control-plane URLs.
+  - The image migrates only when it is given the owner URL, and starts the
+    platform without it.
+  - The unit removes it with `UnsetEnvironment=`.
+
+  Run with Docker Compose from a clean volume: `migrate` applied every
+  migration and exited 0, and `app` then started healthy. No process in the
+  app container had `PALUGADA_OWNER_URL` in its environment, tini's
+  included. A `TRUNCATE events CASCADE` as the owner role was refused.
 
 ## 3. Decisions, deviations, and what is unverified
 

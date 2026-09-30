@@ -38,6 +38,14 @@ longer be read and is skipped, and you can revoke it under **Settings**,
 before the first start, and run `npm run db:migrate` there with the same
 database settings the unit uses.
 
+Leave `PALUGADA_OWNER_URL` out of `/etc/palugada/palugada.env`: it is the
+role that owns the schema, which can alter and empty any table, and only
+`npm run db:migrate` needs it. Give it to that command alone:
+`PALUGADA_OWNER_URL=postgres://palugada_owner:…@127.0.0.1:5432/palugada npm run db:migrate`.
+The unit removes
+it with `UnsetEnvironment=` even when the file has it, so that no process of
+the service, and no agent CLI it starts, can read it.
+
 The platform's boot lines go to standard output and its JSON log lines to
 standard error, so both are in the journal.
 
@@ -253,9 +261,10 @@ npm run db:migrate
 and restart the platform (`npm start` again, or restart the service).
 
 With Docker Compose, take a backup, then `git pull` and
-`docker compose up -d --build`. The image applies pending migrations when it
-starts, under a database lock, so several containers starting at once apply
-each migration once.
+`docker compose up -d --build`. The `migrate` service applies pending
+migrations under a database lock and exits, and `app` starts after it. Run
+alone with `docker run`, the image migrates first when it is given
+`PALUGADA_OWNER_URL`, and starts the platform without it.
 
 With more than one process, migrate once, then restart the processes one at
 a time.
@@ -478,7 +487,7 @@ is a security boundary, not bookkeeping:
 
 | Role | Used by | Attributes |
 |---|---|---|
-| `palugada_owner` | Migrations; owns the schema objects | `NOSUPERUSER NOCREATEDB NOBYPASSRLS` |
+| `palugada_owner` | Migrations alone (`PALUGADA_OWNER_URL`); owns the schema objects, and is the only role that can empty a table, which the append-only tables refuse it too. The running platform is never given it | `NOSUPERUSER NOCREATEDB NOBYPASSRLS` |
 | `palugada_app` | Every agent run, the engine and the broker (`PALUGADA_APP_URL`) | `NOSUPERUSER NOCREATEDB NOBYPASSRLS`: row-level security always applies |
 | `palugada_admin` | The control plane: creating companies, the owner's views across companies (`PALUGADA_ADMIN_URL`) | `NOSUPERUSER NOCREATEDB BYPASSRLS`, and never reachable from agent code |
 

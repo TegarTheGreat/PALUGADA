@@ -45,9 +45,11 @@ starts two services from `docker-compose.yml`:
   volume it runs `scripts/setup-database.sh` (through
   `deploy/docker/initdb.sh`), which creates the `palugada` database and its
   three roles with the passwords the setup wrote.
-- `app`, built from the `Dockerfile`. It applies any pending migrations under
-  a lock, so replicas starting together apply each one once, and then starts
-  the worker and the console as an unprivileged user.
+- `migrate`, the same image, which applies any pending migrations under a
+  lock and exits. It is the only service given the schema owner's password.
+- `app`, built from the `Dockerfile`, which starts once `migrate` has
+  finished: the worker and the console, as an unprivileged user, with the
+  passwords of the two roles the platform runs as and not the owner's.
 
 The console is published on this machine's loopback address only, at
 `http://127.0.0.1:8787`. To reach it from anywhere else, put it behind HTTPS

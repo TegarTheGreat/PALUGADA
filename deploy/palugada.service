@@ -33,6 +33,11 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=/opt/palugada
 EnvironmentFile=/etc/palugada/palugada.env
+# The schema owner's URL is for `npm run db:migrate`, not for the platform:
+# that role can alter and empty any table. Taken out even when the env file
+# was copied from a .env that has it, so no process of the service, and no
+# agent CLI it starts, can read it.
+UnsetEnvironment=PALUGADA_OWNER_URL
 ExecStart=/usr/bin/node src/main.ts
 Restart=on-failure
 RestartSec=10

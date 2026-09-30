@@ -8,6 +8,8 @@
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
+import pg from 'pg';
+import { connectionString } from '../../src/config.ts';
 import { withTenant, withControlPlane } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
 import {
@@ -123,6 +125,39 @@ test('an event inside the window cannot be purged, even deliberately', async () 
   );
 });
 
+test('TRUNCATE is refused on every append-only table, even to the role that owns them', async () => {
+  // A row trigger refuses UPDATE and DELETE, and TRUNCATE fires no row
+  // trigger: it empties the table without visiting a row. OpenBot found the
+  // same hole in its own audit log. The roles the platform runs as hold no
+  // TRUNCATE at all; the schema owner does, and its TRUNCATE -- a typo, a
+  // script given that role's URL -- emptied the history without a word.
+  const fixture = await createCompany('truncate-refused');
+  await seedHistory(fixture, 3, 'ancient');
+  const owner = new pg.Client({ connectionString: connectionString('owner') });
+  await owner.connect();
+  try {
+    for (const table of ['events', 'governance_log', 'retention_log']) {
+      await assert.rejects(owner.query(`TRUNCATE ${table} CASCADE`), new RegExp(`${table} is append-only; TRUNCATE is refused`));
+    }
+    // Reached through a cascade too, which is how a company's history would go.
+    await assert.rejects(owner.query('TRUNCATE companies CASCADE'), /is append-only; TRUNCATE is refused/);
+  } finally {
+    await owner.end();
+  }
+  const kept = await withControlPlane((tx) => tx.query<{ n: string }>(
+    'SELECT count(*) AS n FROM events WHERE company_id = $1', [fixture.companyId]));
+  assert.ok(Number(kept.rows[0]!.n) >= 3, 'the history is still there');
+
+  const truncating = await withControlPlane((tx) => tx.query<{ role: string; table_name: string }>(
+    `SELECT r.rolname AS role, c.relname AS table_name
+       FROM pg_class c CROSS JOIN pg_roles r
+      WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'r'
+        AND r.rolname IN ('palugada_app', 'palugada_admin')
+        AND has_table_privilege(r.rolname, c.oid, 'TRUNCATE')`,
+  ));
+  assert.deepEqual(truncating.rows, [], 'neither role the platform runs as can empty a table');
+});
+
 test('an event cannot be deleted outside a purge at all', async () => {
   const fixture = await createCompany('retention-append-only');
   await seedHistory(fixture, 500, 'ancient');
@@ -214,7 +249,7 @@ test('a purge past the window succeeds and records itself', async () => {
     );
     return rows.map((row) => row.tgname);
   });
-  assert.deepEqual(triggers, ['retention_log_append_only']);
+  assert.deepEqual(triggers.sort(), ['retention_log_append_only', 'retention_log_refuse_truncate']);
 });
 
 test('one company\'s retention never touches another\'s history', async () => {

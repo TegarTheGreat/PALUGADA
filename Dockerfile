@@ -38,7 +38,10 @@ EXPOSE 8787
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s \
   CMD node -e "fetch('http://127.0.0.1:8787/api/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
 
-# Migrations first, under an advisory lock, so replicas starting together
-# apply each once; then the platform, as the only child of tini.
+# Migrations first when the schema owner's URL is given, under an advisory
+# lock, so replicas starting together apply each once; then the platform, as
+# the only child of tini, without that URL: it can alter and empty any table,
+# and nothing the platform runs needs it. Docker Compose migrates in a service
+# of its own and gives the platform no such URL at all.
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["sh", "-c", "node scripts/migrate.ts && exec node src/main.ts"]
+CMD ["sh", "-c", "if [ -n \"$PALUGADA_OWNER_URL\" ]; then node scripts/migrate.ts || exit $?; fi; exec env -u PALUGADA_OWNER_URL node src/main.ts"]

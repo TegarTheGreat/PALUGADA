@@ -4600,6 +4600,70 @@ Read against what Coolify and Dokploy give a container they run, on
   (THREAT-MODEL 2.3). Running agent CLIs as a user of their own, or in the
   container backend, is what closes it.
 
+## 2.51 Found by reading Buzz: erasure one company at a time, and the files too
+
+Found by reading the source of Block's Buzz against 2.38, on 2026-09-30.
+
+- **One company that could not be erased stopped every one after it.**
+  `eraseDueCompanies` went through the due companies oldest first with no
+  catch of its own, and the worker's stage caught what it threw. A trigger
+  refusing, or a statement timing out on a large company, was every later
+  company's failure too, on every tick, and all that showed was a count of
+  stage failures. Each company is now erased on its own. One that fails
+  keeps the failure on its row (0096: how many tries, what the last one
+  said, when the next is), is named with its reason on the tick and in the
+  log, and waits a minute, then two, doubling up to six hours, rather than
+  failing every few seconds; the companies after it are erased in the same
+  pass. **Keep this company** clears the failure with the closing, and a
+  table constraint holds that a company that is not closing carries none.
+  **This deployment**, **Erased companies** lists the companies not erased
+  yet above the ones that were. The test puts a trigger on `companies` that
+  refuses one company's delete: the worker's tick erases the next company,
+  names the first with the trigger's words, the console lists it with one
+  try and a minute to wait, the next pass leaves it alone, and the try
+  after its time fails again and waits two minutes.
+- **Erasure deleted rows and left the files.** A company's drafts,
+  generated pictures and recordings live in its directory under
+  `PALUGADA_FILES_ROOT`, named by its id, and its charter in the charter
+  repository's `companies/<slug>/`; both outlived it. After its rows, never
+  before, the worker now removes the directory and the folder, and commits
+  the folder's removal in the charter repository as PALUGADA, as it commits
+  every charter. A link is removed as a link and never followed, and a
+  charter folder that leads out of the repository is refused. What cannot
+  be removed is named on the tick with its path and why, and the rows stay
+  erased: they are most of what the right to erasure is about. On its first
+  tick a worker removes what earlier erasures left -- one from before this
+  change, one whose process stopped between the rows and the files, a
+  removal that failed -- skipping a slug a live company has taken since.
+  The deployment hands the worker the files root and the charter repository
+  it was started with (`src/main.ts`). Tested with two companies, each with
+  a committed charter and a draft on disk: the erased one's are gone, the
+  removal is committed with nothing left uncommitted, and the other's are
+  as they were; a charter folder replaced by a link is reported and not
+  followed while the rows stay erased; and a company erased by its rows
+  alone has its files and charter removed on a worker's first tick.
+- **A table added without a cascade would have been erased only by
+  accident**, or not at all. An erasure is one delete of the company, and
+  the cascade from `companies` reaches everything else. A test now reads
+  the catalogue: every table with a `company_id` has a foreign key to
+  `companies` that cascades, or is named with how it goes --
+  `company_erasures`, the line that outlives the company on purpose, and
+  `credential_authorizations`, which the erasure deletes by the company.
+  It found no table missed today, and fails on one made without a cascade
+  (checked by adding one).
+- **Closing and keeping wrote their event in a second transaction.** A
+  process that stopped between the two closed or kept a company with
+  nothing in its history to say so. Each is now one transaction on the
+  control plane, the way a rollback records itself. Tested with a trigger
+  that refuses the event: the company is then neither closing nor frozen,
+  and a keeping refused the same way leaves it closing.
+- **Still not erased**, and the guide says so: the charter repository's
+  history, whose commits before the removal hold every charter the company
+  had (rewriting a repository an operator may have cloned is theirs to do,
+  and the guide says how); backups taken before the day, until they age
+  out; files under a root the deployment is no longer started with; what
+  model providers and vendors were sent; and the owner's own chat history.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

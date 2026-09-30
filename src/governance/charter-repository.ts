@@ -44,6 +44,11 @@
  *     left; it does not stop the rest, and it cannot leave the record behind
  *     the files, which would make the next save look like an edit to undo.
  *
+ * A company that is erased (0088) takes its folder with it: `forget`
+ * removes `companies/<slug>/` and commits the removal (0096). The commits
+ * before it still hold what its charter said; the history is not rewritten,
+ * and the guide says so.
+ *
  * git is the deployment's history of its charters, not a condition of
  * having them. Without the binary the files are still written and read, and
  * the report says so; a commit that fails never fails a charter.
@@ -51,7 +56,7 @@
 import { execFile } from 'node:child_process';
 import { constants } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { access, lstat, mkdir, open, readdir, realpath, rename } from 'node:fs/promises';
+import { access, lstat, mkdir, open, readdir, realpath, rename, rm } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { withControlPlane } from '../db/tenant.ts';
@@ -90,13 +95,26 @@ export interface CharterSync {
   git: 'committed' | 'nothing to commit' | 'not available' | `failed: ${string}` | `held: ${string}`;
 }
 
+/** What removing erased companies' folders did (`forget`). */
+export interface CharterForgetting {
+  /** Folders removed, by their path inside the repository. */
+  removed: string[];
+  /** Folders that could not be removed, and why. */
+  refused: Array<{ slug: string; path: string; reason: string }>;
+  /** Whether the removal was committed, and if not, why; as `CharterSync.git`. */
+  git: CharterSync['git'];
+}
+
 /** A file that is not a charter, said in words the operator acts on. */
 class Refusal extends Error {}
+
+/** What a company's slug may be (0001), checked again before one names a folder to remove. */
+const SLUG = /^[a-z0-9][a-z0-9-]{1,62}$/;
 
 export class CharterRepository {
   readonly root: string;
   readonly #git: string | null;
-  #syncing: Promise<CharterSync> | null = null;
+  #busy: Promise<unknown> | null = null;
 
   /** `git: null` keeps the files without a repository, as a machine with no git does. */
   constructor(options: { root: string; git?: string | null }) {
@@ -109,18 +127,106 @@ export class CharterRepository {
    * change and the worker's tick arriving together sync once, then again.
    */
   async sync(): Promise<CharterSync> {
-    while (this.#syncing) await this.#syncing.catch(() => undefined);
-    this.#syncing = this.#sync();
+    return this.#alone(() => this.#sync());
+  }
+
+  /**
+   * Removes the folders of companies that were erased (0088, 0096), and
+   * commits the removal as PALUGADA, like every charter it writes. Given the
+   * slugs of erased companies that no company here has now; a folder that is
+   * already gone still has its removal committed, which is how a commit that
+   * failed once is finished by the next.
+   *
+   * What it cannot do is rewrite the history: every charter a company had is
+   * still in the commits before its removal, and stays there. Rewriting a
+   * repository an operator may have cloned or pushed is not a thing a worker
+   * does on its own; the guide says what is left, and how to take it out.
+   */
+  async forget(slugs: string[]): Promise<CharterForgetting> {
+    return this.#alone(() => this.#forget(slugs));
+  }
+
+  /** A sync or a removal in progress, finished: what a process that is stopping waits for. */
+  async settled(): Promise<void> {
+    while (this.#busy) await this.#busy.catch(() => undefined);
+  }
+
+  /** One thing at a time in the repository: a sync and a removal together would commit each other's halves. */
+  async #alone<T>(work: () => Promise<T>): Promise<T> {
+    while (this.#busy) await this.#busy.catch(() => undefined);
+    const running = work();
+    this.#busy = running;
     try {
-      return await this.#syncing;
+      return await running;
     } finally {
-      this.#syncing = null;
+      this.#busy = null;
     }
   }
 
-  /** A sync in progress, finished: what a process that is stopping waits for. */
-  async settled(): Promise<void> {
-    while (this.#syncing) await this.#syncing.catch(() => undefined);
+  async #forget(slugs: string[]): Promise<CharterForgetting> {
+    const report: CharterForgetting = { removed: [], refused: [], git: 'nothing to commit' };
+    // No repository here: nothing of anybody's was kept in it.
+    if (!(await lstat(this.root).catch(() => null))?.isDirectory()) return report;
+    const git = await this.#ready();
+    const midway = git === null ? await this.#midway() : null;
+    const gone: string[] = [];
+    for (const slug of slugs) {
+      const path = join('companies', slug);
+      try {
+        if (!SLUG.test(slug)) throw new Refusal('it is not a company\'s slug, so it names no folder here');
+        // Before anything is removed: a `companies` or a company folder that
+        // leads out of the repository is refused, never followed.
+        await this.#inside(join(path, COMPANY_CHARTER_FILE));
+        const stats = await lstat(join(this.root, path)).catch((error: NodeJS.ErrnoException) => {
+          if (error.code === 'ENOENT') return null;
+          throw error;
+        });
+        if (stats === null) {
+          gone.push(path);
+          continue;
+        }
+        if (stats.isSymbolicLink()) throw new Refusal('it is a link, and a link is never followed: remove it, or put the folder itself there');
+        // A merge or a rebase may be about these very files; it is the
+        // operator's to finish first, as it is for a sync.
+        if (midway) throw new Refusal(`${midway}; finish it, and the next worker to start removes it`);
+        await rm(join(this.root, path), { recursive: true, force: true });
+        report.removed.push(path);
+        gone.push(path);
+      } catch (error) {
+        report.refused.push({ slug, path, reason: oneLine(error) });
+      }
+    }
+
+    // What PALUGADA last wrote there is forgotten with it. A record that
+    // cannot be read is left alone: it holds the next sync, which says so.
+    const written = await this.#readWritten();
+    if (typeof written !== 'string') {
+      const before = Object.keys(written).length;
+      for (const key of Object.keys(written)) {
+        if (gone.some((path) => key.startsWith(`${path}/`))) delete written[key];
+      }
+      if (Object.keys(written).length !== before) await this.#saveWritten(written);
+    }
+
+    if (git !== null) return { ...report, git };
+    if (midway || gone.length === 0) return report;
+    try {
+      // Only these folders, whatever else is staged: the operator's own
+      // changes are theirs to commit.
+      await this.#run(['rm', '-r', '-q', '--cached', '--ignore-unmatch', '--', ...gone]);
+      const { stdout } = await this.#run(['diff', '--cached', '--name-only', '--', ...gone]);
+      const staged = stdout.split('\n').filter(Boolean);
+      if (staged.length === 0) return report;
+      const erased = [...new Set(staged.map((path) => path.split('/')[1]!))];
+      const subject = erased.length === 1
+        ? `Charter for ${erased[0]} removed: the company was erased`
+        : `${erased.length} charters removed, their companies erased: ${erased.join(', ')}`;
+      await this.#run(['-c', 'user.name=PALUGADA', '-c', 'user.email=palugada@localhost',
+        'commit', '--quiet', '-m', subject.slice(0, 200), '--', ...staged]);
+      return { ...report, git: 'committed' };
+    } catch (error) {
+      return { ...report, git: `failed: ${gitSaid(error)}` };
+    }
   }
 
   async #sync(): Promise<CharterSync> {

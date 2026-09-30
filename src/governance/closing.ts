@@ -10,14 +10,30 @@
  * left is one line in `company_erasures`: its name, when it was closed and
  * erased, and how many rows of what went.
  *
+ * Then what it kept outside its rows (0096): its directory in the files
+ * root, and its charter's folder in the charter repository, whose removal is
+ * committed there. After the rows, never before, and a failure to remove them
+ * is said without bringing the rows back: the rows are most of what the
+ * people in them have the right to have erased.
+ *
+ * Each company is erased on its own (0096). One whose erasure fails keeps
+ * the failure on its row, is named on the worker's tick, and waits longer
+ * each time before it is tried again; the companies after it are erased
+ * regardless.
+ *
  * What this cannot reach, and the guide says so: the backups taken before
- * the day, until they age out; what the model providers and vendors were
- * sent; and the owner's own chat history on Telegram or WhatsApp.
+ * the day, until they age out; the charter repository's history, which
+ * still holds every charter the company had; what the model providers and
+ * vendors were sent; and the owner's own chat history on Telegram or
+ * WhatsApp.
  */
-import { withControlPlane, withTenant } from '../db/tenant.ts';
+import { join } from 'node:path';
+import { withControlPlane } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
 import { CREDENTIAL_SECRETS } from '../secrets/manager.ts';
+import { removeCompanyFiles } from '../capabilities/files.ts';
+import type { CharterRepository } from './charter-repository.ts';
 
 /** How long a closing company waits, in days: at least a week to notice a mistake, at most a quarter. */
 export const CLOSING_GRACE_DAYS = { least: 7, most: 90 } as const;
@@ -54,23 +70,34 @@ export async function closeCompany(companyId: string, days: number): Promise<{ e
         WHERE id = $1
         RETURNING erase_after`,
       [companyId, days]);
-    return closed[0]!.erase_after;
+    const day = closed[0]!.erase_after;
+    // Recorded in the same transaction: written after it, a process that
+    // stopped between the two closed a company with nothing in its history
+    // to say who closed it, or when.
+    await appendEvent(tx, {
+      companyId, type: 'company.closing', actor: 'owner', payload: { days, eraseAfter: day.toISOString() },
+    });
+    return day;
   });
-  await withTenant(companyId, (tx) => appendEvent(tx, {
-    companyId, type: 'company.closing', actor: 'owner', payload: { days, eraseAfter: eraseAfter.toISOString() },
-  }));
   return { eraseAfter };
 }
 
 /** Takes a closing back. The company stays frozen: starting it again is the owner's other decision. */
 export async function keepCompany(companyId: string): Promise<void> {
-  const kept = await withControlPlane((tx) => tx.query(
-    'UPDATE companies SET closing_at = NULL, erase_after = NULL WHERE id = $1 AND closing_at IS NOT NULL',
-    [companyId]));
-  if (kept.rowCount === 0) {
-    throw new PalugadaError('contract.violation', 'this company is not closing', { companyId });
-  }
-  await withTenant(companyId, (tx) => appendEvent(tx, { companyId, type: 'company.kept', actor: 'owner', payload: {} }));
+  await withControlPlane(async (tx) => {
+    // A failed erasure goes with the closing it belonged to (0096): kept,
+    // the company is due nothing, and closed again it starts from nothing.
+    const kept = await tx.query(
+      `UPDATE companies
+          SET closing_at = NULL, erase_after = NULL, erase_attempts = 0, erase_failure = NULL, erase_retry_at = NULL
+        WHERE id = $1 AND closing_at IS NOT NULL`,
+      [companyId]);
+    if (kept.rowCount === 0) {
+      throw new PalugadaError('contract.violation', 'this company is not closing', { companyId });
+    }
+    // With its record, as a closing is.
+    await appendEvent(tx, { companyId, type: 'company.kept', actor: 'owner', payload: {} });
+  });
 }
 
 /** Whether a company is closing, for a control that would start it again. */
@@ -90,24 +117,95 @@ export interface Erasure {
   counts: Record<string, number>;
 }
 
-/** Erases every company whose day has come. Answers what it erased. */
-export async function eraseDueCompanies(): Promise<Erasure[]> {
-  const due = await withControlPlane((tx) => tx.query<{ id: string }>(
-    'SELECT id FROM companies WHERE erase_after <= now() ORDER BY erase_after'));
-  const erased: Erasure[] = [];
-  for (const { id } of due.rows) {
-    const one = await eraseCompany(id);
-    if (one) erased.push(one);
+/**
+ * Where a deployment keeps what a company has outside its rows (0096). Both
+ * optional: a deployment with no files root keeps no files, and a test of
+ * rows wants rows alone.
+ */
+export interface ErasureDisk {
+  /** `PALUGADA_FILES_ROOT`: each company's files are the directory under it named by its id. */
+  filesRoot?: string | null | undefined;
+  /** The charter repository, whose `companies/<slug>/` holds the company's charter. */
+  charters?: Pick<CharterRepository, 'root' | 'forget'> | null | undefined;
+}
+
+/** A company whose erasure failed, why, and when it is tried again (0096). */
+export interface ErasureFailure {
+  companyId: string;
+  name: string;
+  reason: string;
+  /** How many times it has failed since it was closed. */
+  attempts: number;
+  /** When it is tried again; null when not even the failure could be recorded. */
+  retryAt: Date | null;
+}
+
+/** Something an erased company kept that is still on disk, where, and why. */
+export interface LeftBehind {
+  companyId: string;
+  path: string;
+  reason: string;
+}
+
+/** What one pass over the due companies did. */
+export interface ErasurePass {
+  erased: Erasure[];
+  failed: ErasureFailure[];
+  leftBehind: LeftBehind[];
+}
+
+/** Erases every company whose day has come, each on its own. Answers what it erased, what failed, and what stayed on disk. */
+export async function eraseDueCompanies(disk: ErasureDisk = {}): Promise<ErasurePass> {
+  const due = await withControlPlane((tx) => tx.query<{ id: string; name: string }>(
+    `SELECT id, name FROM companies
+      WHERE erase_after <= now() AND (erase_retry_at IS NULL OR erase_retry_at <= now())
+      ORDER BY erase_after`));
+  const pass: ErasurePass = { erased: [], failed: [], leftBehind: [] };
+  for (const { id, name } of due.rows) {
+    // One company that cannot be erased -- a trigger refusing, a statement
+    // timing out on a large one -- is that company's failure. Thrown out of
+    // the loop, it was every later company's too, on every tick.
+    let one: Erasure | null;
+    try {
+      one = await eraseCompany(id);
+    } catch (error) {
+      pass.failed.push(await recordFailure(id, name, error));
+      continue;
+    }
+    if (!one) continue;
+    pass.erased.push(one);
+    pass.leftBehind.push(...await removeFromDisk(disk, [{ companyId: one.companyId, slug: one.slug }]));
   }
-  return erased;
+  return pass;
+}
+
+/**
+ * What erasures left on disk, removed: the files and charter folder of every
+ * company erased here. For a worker's first tick, which is where an erasure
+ * from before files were removed, one whose process stopped between its rows
+ * and its files, and a removal that failed are finished. A slug a company
+ * here has taken since is that company's folder, and is left alone.
+ */
+export async function removeWhatErasuresLeft(disk: ErasureDisk): Promise<LeftBehind[]> {
+  if (!disk.filesRoot && !disk.charters) return [];
+  const erased = await withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ company_id: string; slug: string; taken: boolean }>(
+      `SELECT e.company_id, e.slug, EXISTS (SELECT 1 FROM companies c WHERE c.slug = e.slug) AS taken
+         FROM company_erasures e ORDER BY e.erased_at`);
+    return rows;
+  });
+  return removeFromDisk(disk, erased.map((row) => ({ companyId: row.company_id, slug: row.taken ? null : row.slug })));
 }
 
 async function eraseCompany(companyId: string): Promise<Erasure | null> {
   return withControlPlane(async (tx) => {
     // Locked, and checked again under the lock: two workers that both saw it
-    // due erase it once, and a closing kept a moment ago is not erased.
+    // due erase it once, a closing kept a moment ago is not erased, and one
+    // that another worker has just failed to erase waits its turn.
     const { rows } = await tx.query<{ slug: string; name: string; closing_at: Date }>(
-      'SELECT slug, name, closing_at FROM companies WHERE id = $1 AND erase_after <= now() FOR UPDATE',
+      `SELECT slug, name, closing_at FROM companies
+        WHERE id = $1 AND erase_after <= now() AND (erase_retry_at IS NULL OR erase_retry_at <= now())
+          FOR UPDATE`,
       [companyId]);
     const company = rows[0];
     if (!company) return null;
@@ -142,6 +240,82 @@ async function eraseCompany(companyId: string): Promise<Erasure | null> {
   });
 }
 
+/**
+ * Keeps a failed erasure on the company (0096) and says when it is tried
+ * again: a minute after the first failure, doubling to at most six hours. A
+ * lock or a deadlock has cleared within the minute; what has not needs a
+ * person, and a try every few seconds until they come is a log nobody can
+ * read for the same line.
+ */
+async function recordFailure(companyId: string, name: string, error: unknown): Promise<ErasureFailure> {
+  const reason = said(error);
+  try {
+    return await withControlPlane(async (tx) => {
+      const { rows } = await tx.query<{ erase_attempts: number; erase_retry_at: Date }>(
+        `UPDATE companies
+            SET erase_attempts = erase_attempts + 1, erase_failure = $2,
+                erase_retry_at = now() + least(interval '1 minute' * power(2, least(erase_attempts, 16)), interval '6 hours')
+          WHERE id = $1 AND erase_after IS NOT NULL
+        RETURNING erase_attempts, erase_retry_at`,
+        [companyId, reason]);
+      // Kept, or erased by another worker, since: nothing is due to wait.
+      return { companyId, name, reason, attempts: rows[0]?.erase_attempts ?? 0, retryAt: rows[0]?.erase_retry_at ?? null };
+    });
+  } catch (recording) {
+    // The database went away, most likely: the failure is said on the tick
+    // alone, and the company is tried again on the next.
+    return { companyId, name, reason: `${reason}; the failure could not be recorded either: ${said(recording)}`, attempts: 0, retryAt: null };
+  }
+}
+
+/**
+ * Removes what erased companies kept outside their rows: each one's files,
+ * and the charter folders of those given a slug. Answers what stayed, and
+ * why. The rows are gone whatever this answers.
+ */
+async function removeFromDisk(disk: ErasureDisk, companies: Array<{ companyId: string; slug: string | null }>): Promise<LeftBehind[]> {
+  const left: LeftBehind[] = [];
+  if (disk.filesRoot) {
+    for (const { companyId } of companies) {
+      try {
+        await removeCompanyFiles(disk.filesRoot, companyId);
+      } catch (error) {
+        left.push({ companyId, path: join(disk.filesRoot, companyId), reason: said(error) });
+      }
+    }
+  }
+  const charters = disk.charters;
+  const bySlug = new Map(companies.flatMap((one) => (one.slug === null ? [] : [[one.slug, one.companyId] as const])));
+  if (charters && bySlug.size > 0) {
+    try {
+      const forgotten = await charters.forget([...bySlug.keys()]);
+      for (const one of forgotten.refused) {
+        left.push({ companyId: bySlug.get(one.slug)!, path: join(charters.root, one.path), reason: one.reason });
+      }
+      // Removed from the folder and still in the repository's last commit is
+      // not removed; the next worker to start commits it.
+      if (forgotten.git.startsWith('failed') || forgotten.git.startsWith('held')) {
+        for (const path of forgotten.removed) {
+          left.push({
+            companyId: bySlug.get(path.split('/')[1]!)!, path: join(charters.root, path),
+            reason: `removed from the folder, and its removal is not committed: git ${forgotten.git}`,
+          });
+        }
+      }
+    } catch (error) {
+      for (const [slug, companyId] of bySlug) {
+        left.push({ companyId, path: join(charters.root, 'companies', slug), reason: said(error) });
+      }
+    }
+  }
+  return left;
+}
+
+/** What an error said, on one line and short enough to keep on a row. */
+function said(error: unknown): string {
+  return String((error as Error)?.message ?? error).replace(/\s+/g, ' ').trim().slice(0, 500);
+}
+
 /** Every company erased here, newest first. */
 export async function erasures(): Promise<Erasure[]> {
   return withControlPlane(async (tx) => {
@@ -150,6 +324,23 @@ export async function erasures(): Promise<Erasure[]> {
     }>('SELECT company_id, slug, name, closed_at, erased_at, counts FROM company_erasures ORDER BY erased_at DESC');
     return rows.map((row) => ({
       companyId: row.company_id, slug: row.slug, name: row.name, closedAt: row.closed_at, erasedAt: row.erased_at, counts: row.counts,
+    }));
+  });
+}
+
+/** Companies whose day has come and whose erasure has failed (0096), the longest overdue first. */
+export async function failingErasures(): Promise<Array<{
+  companyId: string; name: string; eraseAfter: Date; attempts: number; failure: string | null; retryAt: Date | null;
+}>> {
+  return withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{
+      id: string; name: string; erase_after: Date; erase_attempts: number; erase_failure: string | null; erase_retry_at: Date | null;
+    }>(
+      `SELECT id, name, erase_after, erase_attempts, erase_failure, erase_retry_at
+         FROM companies WHERE erase_attempts > 0 ORDER BY erase_after`);
+    return rows.map((row) => ({
+      companyId: row.id, name: row.name, eraseAfter: row.erase_after, attempts: row.erase_attempts,
+      failure: row.erase_failure, retryAt: row.erase_retry_at,
     }));
   });
 }

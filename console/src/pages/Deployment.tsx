@@ -127,48 +127,73 @@ export function DeploymentSettings({ section }: { section: DeploymentSection }) 
   );
 }
 
-/** The line each erased company leaves (0088), and nothing else of it. */
+/**
+ * The line each erased company leaves (0088), and nothing else of it. Above
+ * it, a company whose day has come and whose erasure failed (0096): what the
+ * last try said and when the next one is, since an erasure the owner is owed
+ * and has not had is the one thing on this page they have to act on.
+ */
 function ErasureList() {
   const view = useLoad(async () => {
     const answer: {
       erasures: Array<{ companyId: string; name: string; closedAt: string; erasedAt: string; counts: Record<string, number> }>;
+      failing: Array<{ companyId: string; name: string; attempts: number; failure: string | null; retryAt: string | null }>;
     } = await api('GET', '/api/erasures');
-    return answer.erasures;
+    return answer;
   }, []);
   if (view.error) return <LoadFailed message={view.error} retry={view.reload} />;
   if (!view.data) return <Loading rows={2} />;
+  const { erasures, failing } = view.data;
   return (
-    <Section title={t('Erased companies')} description={t('What each one kept is gone, backups aside until they age out; this line is all that is left of it.')}>
-      {view.data.length === 0 ? <Text size="sm" c="dimmed">{t('No company has been erased here.')}</Text> : (
-        <Table verticalSpacing="sm">
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th>{t('Company')}</Table.Th>
-              <Table.Th>{t('Closed')}</Table.Th>
-              <Table.Th>{t('Erased')}</Table.Th>
-              <Table.Th>{t('What went')}</Table.Th>
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {view.data.map((one) => (
-              <Table.Tr key={one.companyId}>
-                <Table.Td><Text size="sm" fw={600}>{one.name}</Text></Table.Td>
-                <Table.Td>{new Date(one.closedAt).toLocaleDateString()}</Table.Td>
-                <Table.Td>{new Date(one.erasedAt).toLocaleDateString()}</Table.Td>
-                <Table.Td>
-                  <Text size="xs" c="dimmed">
-                    {t('{tasks} tasks, {events} events, {memories} memories, {documents} documents', {
-                      tasks: one.counts.tasks ?? 0, events: one.counts.events ?? 0,
-                      memories: one.counts.memories ?? 0, documents: one.counts.documents ?? 0,
-                    })}
-                  </Text>
-                </Table.Td>
-              </Table.Tr>
+    <Stack gap="md">
+      {failing.length > 0 && (
+        <Section title={t('Not erased yet')} description={t('Their day has come and erasing them failed. Each is tried again, less often each time; until it succeeds, everything of it is still here.')}>
+          <Stack gap="xs">
+            {failing.map((one) => (
+              <Alert key={one.companyId} color="red" variant="light" title={one.name}>
+                <Text size="sm">{one.failure}</Text>
+                <Text size="xs" c="dimmed">
+                  {t('Tried {attempts} times; next at {when}.', {
+                    attempts: one.attempts, when: one.retryAt ? new Date(one.retryAt).toLocaleString() : '-',
+                  })}
+                </Text>
+              </Alert>
             ))}
-          </Table.Tbody>
-        </Table>
+          </Stack>
+        </Section>
       )}
-    </Section>
+      <Section title={t('Erased companies')} description={t('What each one kept is gone, backups aside until they age out; this line is all that is left of it.')}>
+        {erasures.length === 0 ? <Text size="sm" c="dimmed">{t('No company has been erased here.')}</Text> : (
+          <Table verticalSpacing="sm">
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>{t('Company')}</Table.Th>
+                <Table.Th>{t('Closed')}</Table.Th>
+                <Table.Th>{t('Erased')}</Table.Th>
+                <Table.Th>{t('What went')}</Table.Th>
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {erasures.map((one) => (
+                <Table.Tr key={one.companyId}>
+                  <Table.Td><Text size="sm" fw={600}>{one.name}</Text></Table.Td>
+                  <Table.Td>{new Date(one.closedAt).toLocaleDateString()}</Table.Td>
+                  <Table.Td>{new Date(one.erasedAt).toLocaleDateString()}</Table.Td>
+                  <Table.Td>
+                    <Text size="xs" c="dimmed">
+                      {t('{tasks} tasks, {events} events, {memories} memories, {documents} documents', {
+                        tasks: one.counts.tasks ?? 0, events: one.counts.events ?? 0,
+                        memories: one.counts.memories ?? 0, documents: one.counts.documents ?? 0,
+                      })}
+                    </Text>
+                  </Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        )}
+      </Section>
+    </Stack>
   );
 }
 

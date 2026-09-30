@@ -328,7 +328,14 @@ authority below tier 3.
   closed with a factor whose grace (at least seven days, a table constraint)
   is over: the append-only triggers check a session setting naming the
   company and its line in `company_erasures`, which cannot be written
-  earlier (0088, `company-closing.test.ts`).
+  earlier (0088, `company-closing.test.ts`). Each company is erased on its
+  own, so one whose erasure fails cannot hold back another's; its failure
+  is kept on its row and it is tried again less often each time (0096).
+  After the rows, its directory under the files root and its charter's
+  folder are removed; a link there is removed or refused, never followed,
+  so an erasure cannot be pointed at files outside them. The charter
+  repository's history still holds the company's charters: it is not
+  rewritten, and the guide tells the operator how.
 - A division's credential may not name a sealed secret of the deployment's,
   any reference the deployment's configuration names (the owner's TOTP secret
   as setup writes it included), or anything that resolves to the same value

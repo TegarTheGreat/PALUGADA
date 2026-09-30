@@ -803,6 +803,10 @@ even when the runtime inside ignored its stop.
    must be on the platform's `PATH` and able to reach a daemon.
 3. Restart, and move a role onto it under **Who does its work**.
 
+Each run's container is labelled with the worker that started it
+(`palugada.worker`). If a worker is killed outright, its containers keep
+running; within a minute, a live worker that shares the daemon removes them.
+
 A remote sandbox is the same idea on a provider's machines:
 `PALUGADA_SANDBOX_URL` and `PALUGADA_SANDBOX_IMAGE` together, with
 `PALUGADA_SANDBOX_TOKEN` and `PALUGADA_SANDBOX_PROVIDER` as needed.

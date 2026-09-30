@@ -18,6 +18,7 @@ import { reclaimExpiredLeases, reclaimOrphans, MAX_RECLAIMS } from '../../src/en
 import * as inbox from '../../src/inbox/inbox.ts';
 import { Engine } from '../../src/engine/engine.ts';
 import { Worker, type TickReport } from '../../src/worker.ts';
+import { AdapterRegistry } from '../../src/runtime/protocol.ts';
 import { CapabilityRegistry } from '../../src/broker/registry.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';
@@ -311,6 +312,34 @@ test('a process that cannot work says so to whatever asks, with a 503', async ()
 /* --------------------------------------------------------------- metrics --- */
 
 const SCRAPE_TOKEN = 'metrics-token-for-the-operability-suite-0123456789';
+
+test('a worker clears what dead workers left running, once a minute, and never a live worker\'s', async () => {
+  const fixture = await createCompany('leftovers');
+  const asked: Array<string[]> = [];
+  const adapters = new AdapterRegistry();
+  adapters.register({
+    name: 'leaves-things', backends: ['docker'],
+    health: async () => ({ ok: true }),
+    run: async () => { throw new Error('not run here'); },
+    sweep: async (alive: ReadonlySet<string>) => { asked.push([...alive].sort()); return ['palugada-run-left']; },
+  });
+  const engine = new Engine({
+    broker: new CapabilityBroker(new CapabilityRegistry()), adapters, workerId: 'worker-me',
+  });
+  await withControlPlane(async (tx) => {
+    await tx.query("INSERT INTO worker_heartbeats (worker_id) VALUES ('worker-alive')");
+    await tx.query("INSERT INTO worker_heartbeats (worker_id, beat_at) VALUES ('worker-dead', now() - interval '5 minutes')");
+  });
+  const worker = new Worker({ engine, companyId: fixture.companyId });
+  const now = new Date();
+  const first = await worker.tick(now);
+  assert.equal(first.leftovers, 1);
+  assert.deepEqual(asked, [['worker-alive', 'worker-me']], 'alive is what beat lately, and this worker');
+  await worker.tick(new Date(now.getTime() + 10_000));
+  assert.equal(asked.length, 1, 'not every tick: listing containers is a call to the daemon');
+  await worker.tick(new Date(now.getTime() + 61_000));
+  assert.equal(asked.length, 2);
+});
 
 test('a metrics scrape counts each company\'s live work, what waits for the owner and what it spent, and what the worker ran', async () => {
   // An operator had /api/health, which says whether the process can work,

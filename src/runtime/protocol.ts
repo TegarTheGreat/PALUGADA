@@ -229,6 +229,13 @@ export interface Adapter {
   readonly backends: readonly ExecutionBackend[];
   health(): Promise<AdapterHealth>;
   run(request: RunRequest, services: RunServices): Promise<AdapterResult>;
+  /**
+   * Removes what runs of workers no longer alive left behind -- a container
+   * a killed worker never reached its `finally` for -- and names what it
+   * removed. Optional: a runtime whose runs end with their process leaves
+   * nothing. `alive` is every worker that beat lately, this one included.
+   */
+  sweep?(alive: ReadonlySet<string>): Promise<string[]>;
 }
 
 /**
@@ -252,6 +259,16 @@ export class AdapterRegistry {
 
   names(): string[] {
     return [...this.#adapters.keys()];
+  }
+
+  /** Every adapter's leftovers, swept; one that cannot sweep costs only its own. */
+  async sweep(alive: ReadonlySet<string>): Promise<string[]> {
+    const removed: string[] = [];
+    for (const adapter of this.#adapters.values()) {
+      if (!adapter.sweep) continue;
+      removed.push(...await adapter.sweep(alive).catch(() => []));
+    }
+    return removed;
   }
 
   async health(): Promise<Record<string, AdapterHealth>> {

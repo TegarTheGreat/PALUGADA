@@ -41,7 +41,7 @@ import { withControlPlane } from './db/tenant.ts';
 import { Engine, type RunOutcome } from './engine/engine.ts';
 import {
   HEARTBEAT_EVERY_MS, beat, claimTask, haltPastDeadlines, reclaimExpiredLeases, reclaimOrphans, releaseTask,
-  silentHolders, stopBeating,
+  liveHolders, silentHolders, stopBeating,
 } from './engine/checkout.ts';
 import { getTask } from './engine/tasks.ts';
 import { withTenant } from './db/tenant.ts';
@@ -194,12 +194,17 @@ export interface TickReport {
   stranded: number;
   /** Escalations handed to the role their division names (F2.1). */
   escalated: number;
+  /** Run containers and the like that dead workers left, removed (`Adapter.sweep`). */
+  leftovers: number;
   /** Set when the platform stop is in effect: the tick did nothing else. */
   stopped: boolean;
   errors: Array<{ stage: string; message: string }>;
 }
 
 export const DEFAULT_IDLE_MS = 5_000;
+
+/** How often a worker looks for what dead workers left running. */
+const SWEEP_EVERY_MS = 60_000;
 export const DEFAULT_MAX_RUNS_PER_TICK = 8;
 
 /** The priority the place kept by a concurrent worker takes: the owner's urgent work (F5.10). */
@@ -253,6 +258,7 @@ function emptyReport(): TickReport {
     pastDeadline: 0,
     stranded: 0,
     escalated: 0,
+    leftovers: 0,
     stopped: false, errors: [],
   };
 }
@@ -289,6 +295,8 @@ export class Worker {
 
   /** When each company's retention was last applied by *this* worker. */
   readonly #retainedAt = new Map<string, number>();
+  /** When this worker last looked for what dead workers left running. */
+  #sweptAt: number | null = null;
   /** Which company this worker starts its tick on. See `#rotate`. */
   #turn = 0;
   #lastTickAt: Date | null = null;
@@ -370,6 +378,20 @@ export class Worker {
     // only the shortcut; the leases still expire.
     let silent: string[] = [];
     await this.#stage(report, 'heartbeat', async () => { silent = await silentHolders(this.id); });
+
+    // What dead workers left running -- a container is the case -- asked at
+    // most once a minute, since listing containers is a call to the daemon.
+    // Alive is what beat lately, and this worker whatever its own beat says.
+    if (this.#sweptAt === null || now.getTime() - this.#sweptAt >= SWEEP_EVERY_MS) {
+      await this.#stage(report, 'leftovers', async () => {
+        const alive = await liveHolders();
+        alive.add(this.id);
+        const removed = await this.#options.engine.adapters.sweep(alive);
+        this.#sweptAt = now.getTime();
+        report.leftovers += removed.length;
+        if (removed.length > 0) this.#options.log?.({ level: 'warn', event: 'leftovers.removed', removed });
+      });
+    }
 
     for (const company of companies) {
       await this.#stage(report, 'reclaim', async () => {

@@ -745,9 +745,20 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   // platform's purpose is to run work and the deployment could not run any.
   // Every test builds its own `Engine` with its own handlers, so the assembly
   // was the one caller nobody wrote.
+  // Unique per boot, not per PID. Every replica of a container image is
+  // usually PID 1, so `worker-${pid}` gave two replicas one identity -- and
+  // a shared identity is the one thing a lease cannot survive: each renews
+  // the other's claim and both run the task. The engine's own default was
+  // already a random id; this line replaced it with a worse one. Host and
+  // PID stay in it for a person reading `lease_holder`, and the boot id is
+  // what makes it unique (Paperclip keys run ownership on a boot id for the
+  // same reason). An operator who sets PALUGADA_WORKER_ID owns its
+  // uniqueness. Known before the runtimes, which label what they start with it.
+  const workerId = env.PALUGADA_WORKER_ID ?? defaultWorkerId();
   const runtimes = assembleRuntimes({
     env,
     secrets,
+    workerId,
     ...(options.adapters ? { registry: options.adapters } : {}),
     ...(llm ? { llm } : {}),
     ...(options.handlers ? { handlers: options.handlers } : {}),
@@ -760,16 +771,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   const engine = new Engine({
     broker,
     adapters: runtimes.adapters,
-    // Unique per boot, not per PID. Every replica of a container image is
-    // usually PID 1, so `worker-${pid}` gave two replicas one identity -- and
-    // a shared identity is the one thing a lease cannot survive: each renews
-    // the other's claim and both run the task. The engine's own default was
-    // already a random id; this line replaced it with a worse one. Host and
-    // PID stay in it for a person reading `lease_holder`, and the boot id is
-    // what makes it unique (Paperclip keys run ownership on a boot id for the
-    // same reason). An operator who sets PALUGADA_WORKER_ID owns its
-    // uniqueness.
-    workerId: env.PALUGADA_WORKER_ID ?? defaultWorkerId(),
+    workerId,
     prices,
     stopping: stopping.signal,
   });

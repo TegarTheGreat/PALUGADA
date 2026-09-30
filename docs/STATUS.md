@@ -4110,6 +4110,23 @@ closed". Signal and email as owner channels are still open.
   it can only be set again. A malformed old key stops the start with the
   variable named.
 
+## 2.34 Containers a killed worker left running
+
+- **`--rm` and the adapter's `finally` both depend on the worker.** A worker
+  killed outright (SIGKILL, the out-of-memory killer) reaches neither, and
+  the runtime inside its container keeps its memory and CPU until it
+  chooses to stop.
+- **Each run's container now carries its worker** as the label
+  `palugada.worker`. At most once a minute, a worker lists the containers
+  with that label and removes those whose worker has not beaten lately. Its
+  own runs, and those of every worker still beating, are runs in flight
+  and are left alone. A daemon that is not there has nothing to sweep.
+- **Checked against a real daemon** (Docker 29.3.1), not only against the
+  fake client the suite uses. Two workers each started a container with
+  the adapter's own argv and were killed with SIGKILL, and both containers
+  kept running. A third process swept with only one of the two workers
+  alive, and removed only the dead worker's container.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

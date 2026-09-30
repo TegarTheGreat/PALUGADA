@@ -431,6 +431,17 @@ export async function silentHolders(self: string): Promise<string[]> {
   });
 }
 
+/** The workers that beat lately: every one whose runs are still its own. */
+export async function liveHolders(): Promise<Set<string>> {
+  return withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ worker_id: string }>(
+      'SELECT worker_id FROM worker_heartbeats WHERE beat_at >= now() - make_interval(secs => $1)',
+      [SILENT_AFTER_SECONDS],
+    );
+    return new Set(rows.map((row) => row.worker_id));
+  });
+}
+
 export interface Reclaimed {
   taskId: string;
   previousHolder: string;

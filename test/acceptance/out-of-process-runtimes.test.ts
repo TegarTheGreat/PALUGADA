@@ -827,6 +827,44 @@ test('a run\'s container is named, not PID 1, and removed when the run ends (F13
   }
 });
 
+/**
+ * A worker killed outright -- SIGKILL, the out-of-memory killer, a host that
+ * lost its power supply to the database but not to docker -- never reaches
+ * the `finally` that removes its run's container, and the runtime inside
+ * keeps its memory and its CPU. Each container carries the worker that
+ * started it, so any live worker can tell a leftover from a run in flight.
+ */
+test('a container a dead worker left running is removed, and one of a live worker is not (F13.5)', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'palugada-docker-'));
+  const log = join(dir, 'docker.log');
+  const docker = join(dir, 'docker');
+  writeFileSync(docker, [
+    '#!/bin/sh',
+    `echo "$*" >> '${log}'`,
+    'if [ "$1" = ps ]; then',
+    "  printf 'palugada-run-a\\tworker-dead\\npalugada-run-b\\tworker-alive\\npalugada-run-c\\tworker-me\\n'",
+    'fi',
+    'exit 0',
+  ].join('\n'), { mode: 0o755 });
+
+  const adapter = new ContainerAdapter({ image: 'palugada/runtime:1', docker, worker: 'worker-me' });
+  const argv = adapter.argv('palugada-run-x');
+  assert.equal(argv[argv.indexOf('--label') + 1], 'palugada.worker=worker-me', 'each container says whose run it is');
+
+  const registry = new AdapterRegistry();
+  registry.register(adapter);
+  const removed = await registry.sweep(new Set(['worker-alive']));
+  assert.deepEqual(removed, ['palugada-run-a']);
+  const calls = (await readFile(log, 'utf8')).trim().split('\n');
+  assert.ok(calls.some((line) => line.startsWith('ps --all --filter label=palugada.worker')), calls.join('\n'));
+  assert.deepEqual(calls.filter((line) => line.startsWith('rm ')), ['rm --force palugada-run-a'],
+    'a live worker\'s run and this worker\'s own are left alone');
+
+  // A docker that is not there is nothing to sweep, not an error.
+  const absent = new ContainerAdapter({ image: 'palugada/runtime:1', docker: '/nonexistent/docker', worker: 'worker-me' });
+  assert.deepEqual(await absent.sweep(new Set()), []);
+});
+
 test('a missing docker binary is unhealthy rather than an exception (F13.8)', async () => {
   const adapter = new ContainerAdapter({
     image: 'palugada/runtime:1',

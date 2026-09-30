@@ -42,6 +42,8 @@ export interface RuntimeAssemblyOptions {
   registry?: AdapterRegistry;
   /** Where a CLI's own credential is resolved from, when its entry names one by reference. */
   secrets?: SecretManager;
+  /** This process's worker, for what a runtime leaves behind it (`Adapter.sweep`). */
+  workerId?: string;
 }
 
 export interface RuntimeAssembly {
@@ -207,6 +209,7 @@ export function assembleRuntimes(options: RuntimeAssemblyOptions): RuntimeAssemb
         : {}),
       image: env.PALUGADA_RUNTIME_IMAGE,
       ...(env.PALUGADA_RUNTIME_DOCKER ? { docker: env.PALUGADA_RUNTIME_DOCKER } : {}),
+      ...(options.workerId ? { worker: options.workerId } : {}),
     }));
   }
 

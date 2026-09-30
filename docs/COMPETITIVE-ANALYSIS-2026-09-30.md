@@ -328,8 +328,9 @@ Yang **belum** ditutup, dan dicatat sebagai sisa risiko:
 - Dua replika yang berbagi satu direktori piagam tidak saling mengunci di luar
   proses.
 - Selama berkas piagam ditolak atau sinkronisasi ditahan, piagam yang disimpan
-  owner di konsol tidak sampai ke berkasnya, dan konsol belum memberi tahu;
-  yang memberi tahu baru catatan boot dan sinkronisasi berikutnya.
+  owner di konsol tidak sampai ke berkasnya. Konsol kini memberi tahu saat itu
+  juga ("Tersimpan, tetapi berkasnya tidak ditulis", beserta alasannya), tetapi
+  berkasnya tetap tertinggal sampai seseorang memperbaikinya.
 - Anggaran belum bisa menghentikan run ACP di tengah jalan; biaya kini
   tercatat selama run, tetapi yang menghentikannya tetap deadline atau batas
   panjang run.

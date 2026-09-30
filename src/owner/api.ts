@@ -122,6 +122,7 @@ import { MAX_IN_FLIGHT } from '../broker/in-flight.ts';
 import { history as configHistory, type ConfigKind } from '../governance/config-versions.ts';
 import { rollBack } from '../governance/rollback.ts';
 import type { CharterRepository } from '../governance/charter-repository.ts';
+import { COMPANY_CHARTER_FILE, PLATFORM_CHARTER_FILE } from '../governance/charter-files.ts';
 import { assertValidCondition, type Condition } from '../policy/condition.ts';
 import { POLICY_EFFECTS, type PolicyEffect } from '../policy/engine.ts';
 import { setThresholds } from '../reporting/alerts.ts';
@@ -5073,21 +5074,26 @@ export class OwnerApi {
    * nothing -- saving an unchanged page would otherwise put a version in the
    * history that nobody can tell from the one before it.
    */
-  async #writeCharter(companyId: string | null, body: Record<string, unknown>): Promise<{ version: number; unchanged: boolean }> {
+  async #writeCharter(
+    companyId: string | null,
+    body: Record<string, unknown>,
+  ): Promise<{ version: number; unchanged: boolean; file?: string | null }> {
     const text = charterText(body.body);
-    const current = await withControlPlane(async (tx) => {
+    const { current, slug } = await withControlPlane(async (tx) => {
+      let slug: string | null = null;
       if (companyId !== null) {
-        const { rows } = await tx.query('SELECT 1 FROM companies WHERE id = $1', [companyId]);
+        const { rows } = await tx.query<{ slug: string }>('SELECT slug FROM companies WHERE id = $1', [companyId]);
         if (rows.length === 0) {
           throw new PalugadaError('contract.violation', 'there is no company with that id', { companyId });
         }
+        slug = rows[0]!.slug;
       }
       const { rows } = await tx.query<{ version: number; body: string }>(
         `SELECT version, body FROM charters WHERE company_id IS NOT DISTINCT FROM $1
           ORDER BY version DESC LIMIT 1`,
         [companyId],
       );
-      return rows[0];
+      return { current: rows[0], slug };
     });
     if (current?.body === text) return { version: current.version, unchanged: true };
     await this.#requireFactor(
@@ -5095,9 +5101,17 @@ export class OwnerApi {
     const published = await publishCharter(companyId === null ? { body: text } : { companyId, body: text });
     // F3.11: into its file and committed now, rather than on the next tick.
     // A repository that cannot be written does not undo a charter the owner
-    // saved; the next sync tries again.
-    await this.#options.charters?.sync().catch(() => undefined);
-    return { version: published.version, unchanged: false };
+    // saved; the next sync tries again. But the owner is told now: a file
+    // that stays behind is the one a later edit, or a pull, is made from.
+    if (!this.#options.charters) return { version: published.version, unchanged: false };
+    const synced = await this.#options.charters.sync().catch(() => null);
+    const path = slug === null ? PLATFORM_CHARTER_FILE : join('companies', slug, COMPANY_CHARTER_FILE);
+    const refused = synced?.refused.find((one) => one.path === path);
+    const file = !synced ? 'Not written to its file: the charter repository could not be reached; the next sync tries again.'
+      : synced.git.startsWith('held: ') ? `Not written to its file: ${synced.git.slice('held: '.length)}`
+        : refused ? `Not written to its file: ${refused.reason}`
+          : null;
+    return { version: published.version, unchanged: false, file };
   }
 
   async #requireFactor(

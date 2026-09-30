@@ -956,7 +956,9 @@ characters; anything else is left as it is and named at boot, and the
 other charters carry on. While a merge or a rebase is in progress there,
 nothing is read, written or committed until you finish it. A version taken
 from a file shows in **History** as from the charter repository, not as
-yours.
+yours. When you save a charter whose file cannot be written, the save still
+counts, and the console says **Saved, but its file was not written** with
+the reason.
 
 ## Set budgets and alert thresholds
 

@@ -14,7 +14,7 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { closePools } from '../../src/db/pool.ts';
@@ -2588,7 +2588,7 @@ test('the owner reads both charters and rewrites either with a factor (F3.1, F3.
       token, body: { body: '  Answer within a day.\n', proof: { totp: owner.code() } },
     });
     assert.equal(written.status, 200, JSON.stringify(written.body));
-    assert.deepEqual(written.body, { version: 1, unchanged: false });
+    assert.deepEqual(written.body, { version: 1, unchanged: false, file: null });
     assert.equal(await readFile(join(tree, 'companies', fixture.slug, 'SOUL.md'), 'utf8'), 'Answer within a day.\n');
 
     // The same words again are not a new version, and ask for nothing.
@@ -2600,7 +2600,7 @@ test('the owner reads both charters and rewrites either with a factor (F3.1, F3.
       token, body: { body: 'Never deceive anyone.', proof: { totp: owner.code() } },
     });
     assert.equal(platform.status, 200, JSON.stringify(platform.body));
-    assert.deepEqual(platform.body, { version: 1, unchanged: false });
+    assert.deepEqual(platform.body, { version: 1, unchanged: false, file: null });
     assert.equal(await readFile(join(tree, 'PLATFORM.md'), 'utf8'), 'Never deceive anyone.\n');
 
     const both = await call(owner.url, 'GET', company, { token });
@@ -2616,6 +2616,18 @@ test('the owner reads both charters and rewrites either with a factor (F3.1, F3.
     const theirs = await call(owner.url, 'GET', `/api/companies/${other.companyId}/charter`, { token });
     assert.equal((theirs.body as { company: unknown }).company, null);
     assert.equal((theirs.body as { platform: { body: string } }).platform.body, 'Never deceive anyone.');
+
+    // A file that cannot be kept does not undo the save, and the owner is
+    // told so then, not only at the next boot.
+    const soul = join(tree, 'companies', fixture.slug, 'SOUL.md');
+    await rm(soul);
+    await symlink(join(tree, '..', 'elsewhere.txt'), soul);
+    const unkept = await call(owner.url, 'POST', company, {
+      token, body: { body: 'Answer within the hour.', proof: { totp: owner.code() } },
+    });
+    assert.equal(unkept.status, 200, JSON.stringify(unkept.body));
+    assert.equal(unkept.body.version, 2, 'the charter is saved, and runs are told it');
+    assert.match(String(unkept.body.file), /^Not written to its file: it is a link, and a link is never followed/);
   } finally {
     await owner.close();
   }

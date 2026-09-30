@@ -4465,9 +4465,10 @@ the code against it found these, and each is now closed with a test.
     of cherry-picks and a detached HEAD hold the sync.
   - *A file where `companies` should be stopped every charter*; it now
     refuses the companies' and keeps the platform's.
-  - *Left:* while a file is refused or the sync held, the owner's saves in
-    the console do not reach it and the console does not say so; the boot
-    and the next sync do.
+  - *The owner was not told when a save did not reach its file*, only the
+    boot was. A save now answers with why its file was not written, and
+    the console keeps that on screen: the charter is saved and runs are
+    told it, and the file is what the next edit there starts from.
 
 ## 2.45 A guardian that may only tighten
 

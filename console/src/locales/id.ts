@@ -1066,6 +1066,7 @@ export const ID: Readonly<Record<string, string>> = {
   "Save prices": "Simpan harga",
   "Save the charter": "Simpan piagam",
   "Save the {alias} key": "Simpan kunci {alias}",
+  "Saved, but its file was not written": "Tersimpan, tetapi berkasnya tidak ditulis",
   "Saved, not yet in use": "Tersimpan, belum dipakai",
   "Saved.": "Tersimpan.",
   "Saved. Agents follow it from their next run.": "Tersimpan. Agent mengikutinya mulai run berikutnya.",

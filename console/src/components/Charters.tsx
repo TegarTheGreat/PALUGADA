@@ -23,6 +23,9 @@ import { ConfigHistory } from './ConfigHistory.tsx';
 /** The server's bound: every run carries a charter whole, so it is kept short. */
 const CHARTER_LIMIT = 20_000;
 
+/** What a save answers: the version, and why its file was not written, when it was not. */
+type SaveAnswer = { version: number; unchanged: boolean; file?: string | null };
+
 export function Charters({ companyId }: { companyId: string }) {
   const requireFactor = useFactor();
   const view = useLoad(async () => {
@@ -34,11 +37,22 @@ export function Charters({ companyId }: { companyId: string }) {
   if (view.error && !view.data) return <LoadFailed message={view.error} retry={view.reload} />;
   if (!view.data) return <Loading rows={3} />;
 
-  const saved = (answer: { version: number; unchanged: boolean }) => {
+  const saved = (answer: SaveAnswer) => {
     notifications.show({
       color: 'teal',
       message: answer.unchanged ? t('Nothing changed.') : t('Charter v{version} saved. The next run is told it.', { version: answer.version }),
     });
+    // Saved, and runs are told it, but its file in the charter repository
+    // was not written: said now and kept on screen, since the file is what
+    // the next edit there, or the next pull, starts from.
+    if (answer.file) {
+      notifications.show({
+        color: 'yellow',
+        title: t('Saved, but its file was not written'),
+        message: answer.file,
+        autoClose: false,
+      });
+    }
     view.reload();
   };
 
@@ -53,7 +67,7 @@ export function Charters({ companyId }: { companyId: string }) {
           <Button size="compact-sm" variant="subtle" onClick={() => setHistory(true)}>{t('History')}</Button>
         )}
         save={async (body) => {
-          let answer: { version: number; unchanged: boolean } | null = null;
+          let answer: SaveAnswer | null = null;
           const done = await requireFactor(t('Change the company charter'), async (proof) => {
             answer = await api('POST', `/api/companies/${companyId}/charter`, { body, proof });
           });
@@ -67,7 +81,7 @@ export function Charters({ companyId }: { companyId: string }) {
         current={view.data.platform}
         empty={t('This deployment has no platform charter yet.')}
         save={async (body) => {
-          let answer: { version: number; unchanged: boolean } | null = null;
+          let answer: SaveAnswer | null = null;
           const done = await requireFactor(t('Change the platform charter'), async (proof) => {
             answer = await api('POST', '/api/control/charter', { body, proof });
           });

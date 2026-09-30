@@ -35,6 +35,7 @@ import { OAuthCredentials } from './capabilities/vendor-oauth.ts';
 import { Worker, type WorkerOptions } from './worker.ts';
 import { DivisionSecrets, deploymentReferences, type SecretManager } from './secrets/manager.ts';
 import { OtlpExporter, otlpFrom } from './reporting/otlp.ts';
+import { VERSION } from './version.ts';
 import { EMAIL_PROVIDERS, EmailChannel, emailAddress, emailProvider } from './owner/email.ts';
 import { OwnerMfa, decodeBase32 } from './owner/mfa.ts';
 import {
@@ -934,6 +935,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
       return {
         ok: database === 'ok' && !stalled,
         database,
+        version: VERSION,
         worker: {
           lastTickAt: lastTickAt?.toISOString() ?? null,
           ...(stalled ? { problem: `no tick has finished since ${lastTickAt!.toISOString()}` } : {}),

@@ -17,9 +17,9 @@
  * only once it has answered 2xx.
  */
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import { withControlPlane } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';
+import { VERSION } from '../version.ts';
 
 export interface OtlpTarget {
   /** Where spans are posted: the traces endpoint itself, `…/v1/traces`. */
@@ -106,9 +106,6 @@ const nanos = (at: Date): string => `${BigInt(at.getTime()) * 1_000_000n}`;
 const hex = (uuid: string): string => uuid.replace(/-/g, '');
 /** A span id: sixteen hex digits, the same every time for the same thing. */
 const spanId = (...parts: string[]): string => createHash('sha256').update(parts.join('\u0000')).digest('hex').slice(0, 16);
-
-/** What the spans say sent them: this checkout's version. */
-const VERSION = (JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { version: string }).version;
 
 const SPAN_KIND_INTERNAL = 1;
 const SPAN_KIND_CLIENT = 3;

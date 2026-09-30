@@ -18,6 +18,7 @@
  * What finished is counted by the process that finished it, as counters that
  * start again at zero with it (`WorkerCounts`).
  */
+import { VERSION } from '../version.ts';
 import { monitorEventLoopDelay, type IntervalHistogram } from 'node:perf_hooks';
 import { withControlPlane } from '../db/tenant.ts';
 import { adminPool, appPool } from '../db/pool.ts';
@@ -72,6 +73,11 @@ function processMetrics(): Family[] {
       'The 99th percentile of how long the event loop was held, since the previous scrape.', finite(p99)),
     gauge('nodejs_eventloop_delay_max_seconds',
       'The longest the event loop was held, since the previous scrape.', finite(max)),
+    {
+      name: 'palugada_build_info', type: 'gauge',
+      help: 'Which PALUGADA this process runs, as a label; always 1.',
+      samples: [{ labels: { version: VERSION }, value: 1 }],
+    },
   ];
 }
 

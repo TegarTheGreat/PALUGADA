@@ -273,6 +273,10 @@ exits 78, and names the command:
 palugada: configuration refused: the database is 2 migrations behind this code (…): run `npm run db:migrate`, then start again
 ```
 
+What each version changed is in `CHANGELOG.md`; which version is running
+is on `/api/health` (`"version"`), in the metrics as `palugada_build_info`,
+and at the foot of the owner's menu.
+
 On this machine, take a backup, then:
 
 ```sh

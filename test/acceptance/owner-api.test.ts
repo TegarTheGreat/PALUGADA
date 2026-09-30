@@ -731,6 +731,7 @@ test('the console reads a company\'s shape, work and recent history (F10.1, F10.
     deploymentNotes: [
       'bound by the platform: memory.search, skill.read',
       'no push channel: set PALUGADA_PUSH_URL (F10.5)',
+      'finished runs go to http://collector:4318/v1/traces as OpenTelemetry spans, without what was said in them',
     ],
   });
   const { url: noted } = await replica.listen();
@@ -841,9 +842,10 @@ test('the console reads a company\'s shape, work and recent history (F10.1, F10.
     // What the deployment is missing, where the owner will see it. The
     // session is the database's, so the other console takes the same token.
     const setup = await call(noted, 'GET', '/api/control/setup', { token });
-    assert.equal((setup.body.notes as string[]).length, 2);
+    assert.equal((setup.body.notes as string[]).length, 3);
     assert.deepEqual(setup.body.todo, ['no push channel: set PALUGADA_PUSH_URL (F10.5)'],
       'what is set up is not on the list of what is not');
+    assert.match(String(setup.body.version), /^\d+\.\d+\.\d+/, 'and which version this is, for the owner\'s menu');
   } finally {
     await replica.close();
     await owner.close();

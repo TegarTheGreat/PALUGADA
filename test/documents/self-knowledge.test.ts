@@ -115,3 +115,14 @@ test('PALUGADA can develop PALUGADA, and only by pull request', () => {
   assert.ok(body.grants.filter((grant) => grant.division === reviewer.division).every((grant) => grant.capability !== 'repo.branch'));
   assert.ok(body.hooks.some((hook) => hook.division === reviewer.division && hook.refuseAtOrAboveTier === 1));
 });
+
+/**
+ * Which version is running is said on the health page, in the metrics and
+ * in the console, and a version is only worth saying if what it holds is
+ * written down: the one package.json names has its section in CHANGELOG.md.
+ */
+test('the version package.json names has its section in CHANGELOG.md', async () => {
+  const { version } = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8')) as { version: string };
+  const changelog = await readFile(new URL('../../CHANGELOG.md', import.meta.url), 'utf8');
+  assert.match(changelog, new RegExp(`^## ${version.replace(/\./g, '\\.')}( |$)`, 'm'));
+});

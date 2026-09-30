@@ -240,6 +240,7 @@ broker, journalled steps, contained sub-tasks and a way to report cost.
 - [docs/features.md](docs/features.md): the guarantees and everything that is built.
 - [docs/configuration.md](docs/configuration.md): installing, production and every setting.
 - [docs/STATUS.md](docs/STATUS.md): every requirement graded, with the defects found and fixed.
+- [CHANGELOG.md](CHANGELOG.md): what each version changed, for an owner or an operator.
 - [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md): who can attack a deployment, what stops each in order, the test for each defence, and what is left.
 - [docs/PRD.md](docs/PRD.md): the specification (v2, in Indonesian); `F5.4` in the code refers to it.
 - [docs/RESEARCH-2026-09.md](docs/RESEARCH-2026-09.md): the comparison with Slack, Buzz, auto-company and Paperclip.

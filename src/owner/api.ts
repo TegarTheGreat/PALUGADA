@@ -66,6 +66,7 @@ import { frozenRoles, pauseRole, unfreezeRole } from '../governance/role-freeze.
 import { cancelTask, giveFeedback, instructTask, rerunTask, type Verdict } from '../engine/owner-control.ts';
 import { assertClosingDays, closeCompany, closingOf, erasures, keepCompany } from '../governance/closing.ts';
 import { EMAIL_PROVIDERS, EmailChannel, emailAddress, emailProvider, type EmailProviderId } from './email.ts';
+import { VERSION } from '../version.ts';
 import { transcriptOf } from '../engine/transcript.ts';
 import {
   clearSpendPause,
@@ -830,7 +831,8 @@ export class OwnerApi {
           // something switched off until the operator sets it.
           return {
             notes,
-            todo: notes.filter((note) => !/^(enrolled |bound by |bound from |model: |model prices from |runtimes: |seeded )/.test(note)),
+            todo: notes.filter((note) => !/^(enrolled |bound by |bound from |model: |model prices from |runtimes: |seeded |finished runs go to )/.test(note)),
+            version: VERSION,
           };
         },
       },

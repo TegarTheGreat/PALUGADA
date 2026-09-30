@@ -26,6 +26,7 @@ import { InMemorySecretManager } from '../../src/secrets/manager.ts';
 import { OwnerMfa, decodeBase32, newTotpSecret, stepFor, totpCode } from '../../src/owner/mfa.ts';
 import { OtlpExporter, otlpFrom } from '../../src/reporting/otlp.ts';
 import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
 import { createCompany, grantCapability, planTask, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
@@ -286,9 +287,11 @@ test('a deployment answers whether it can work, without a session', async () => 
     await until(() => deployment.worker.lastTickAt !== null, 'the first tick');
     const answer = await fetch(`${deployment.url}/api/health`);
     assert.equal(answer.status, 200);
-    const body = await answer.json() as { ok: boolean; database: string; worker: { lastTickAt: string | null } };
+    const body = await answer.json() as { ok: boolean; database: string; version: string; worker: { lastTickAt: string | null } };
     assert.equal(body.ok, true);
     assert.equal(body.database, 'ok');
+    const { version } = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8')) as { version: string };
+    assert.equal(body.version, version, 'which version answers, for whoever is upgrading');
     assert.ok(body.worker.lastTickAt);
   } finally {
     await deployment.stop();
@@ -400,6 +403,8 @@ test('a metrics scrape counts each company\'s live work, what waits for the owne
   has(`palugada_budget_limit_cents{${company}} 100000`);
   has('palugada_worker_runs_total{status="completed"} 1');
   has('palugada_worker_places 3');
+  const { version } = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8')) as { version: string };
+  has(`palugada_build_info{version="${version}"} 1`);
   has('palugada_worker_places_busy 0');
   has('palugada_platform_stopped 0');
   assert.match(text, new RegExp(`^palugada_tasks_pending_oldest_age_seconds\\{${company}\\} \\d`, 'm'));

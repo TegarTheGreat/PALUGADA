@@ -148,7 +148,7 @@ function Console({ device, recovered, signOut }: { device: string; recovered: bo
 
   const base = useLoad(async () => {
     const [{ companies }, control, setup, languages]: [
-      { companies: Company[] }, { stopAll: boolean }, { notes: string[]; todo: string[] }, Languages,
+      { companies: Company[] }, { stopAll: boolean }, { notes: string[]; todo: string[]; version?: string }, Languages,
     ] = await Promise.all([
       api('GET', '/api/companies'),
       api('GET', '/api/control'),
@@ -318,7 +318,7 @@ function Console({ device, recovered, signOut }: { device: string; recovered: bo
     return !text || `${action.label ?? ''} ${action.description ?? ''}`.toLowerCase().includes(text);
   };
 
-  const setup = base.data?.setup ?? { notes: [], todo: [] };
+  const setup: { notes: string[]; todo: string[]; version?: string } = base.data?.setup ?? { notes: [], todo: [] };
   const inboxCount = company ? openCount[company.id] ?? 0 : 0;
   const active = route.kind === 'company' ? route.page : route.kind;
 
@@ -494,6 +494,7 @@ function Console({ device, recovered, signOut }: { device: string; recovered: bo
               <Menu.Item color="red" leftSection={<IconAlertOctagon size={16} />} onClick={() => setCancelling(true)}>{t('Cancel every task…')}</Menu.Item>
               <Menu.Divider />
               <Menu.Item leftSection={<IconLogout size={16} />} onClick={() => void signOut()}>{t('Sign out')}</Menu.Item>
+              {setup.version && <Menu.Label>{t('PALUGADA {version}', { version: setup.version })}</Menu.Label>}
             </Menu.Dropdown>
           </Menu>
         </AppShell.Section>

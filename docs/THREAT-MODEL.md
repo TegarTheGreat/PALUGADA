@@ -35,7 +35,7 @@ refer to `docs/PRD.md`.
 **Reach.** One port. Without a session only the open routes: `/api/auth/challenge`,
 `/api/auth/sign-in`, `/api/auth/claim`, `/api/auth/claim/confirm`, `/api/hooks/:publicId`, `/api/channels/telegram`,
 `/api/channels/whatsapp`, `/api/oauth/callback`, `/api/health`,
-`/api/metrics`, and the console's static files.
+`/api/ready`, `/api/metrics`, and the console's static files.
 
 **Defences, in order.**
 
@@ -65,8 +65,11 @@ refer to `docs/PRD.md`.
    hash, with PKCE (`src/capabilities/mcp-oauth.ts`,
    `src/capabilities/vendor-oauth.ts`). Metrics: 404 until
    `PALUGADA_METRICS_TOKEN` of at least 32 characters is set.
-6. `/api/health` says whether the database answers, not why it does not:
-   the driver's words go to the log (`databaseHealth`, `src/main.ts`).
+6. `/api/health` and `/api/ready` say whether the database answers, not why
+   it does not: the driver's words go to the log (`databaseHealth`,
+   `src/main.ts`). Both are told one sample of the database, taken at most
+   once every five seconds and given two to answer (`databaseSample`), so a
+   flood of them costs one query and holds no more than one pool connection.
 7. Secrets compared in the process use `timingSafeEqual` (`sameSecret` in
    `api.ts`, `same` in `triggers.ts` and `whatsapp.ts`); a session token or an
    OAuth state is looked up by its hash.

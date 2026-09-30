@@ -111,6 +111,9 @@ run_db_sql() {
 }
 run_db_sql "CREATE EXTENSION IF NOT EXISTS pgcrypto"
 run_db_sql "CREATE EXTENSION IF NOT EXISTS vector"
+# The search's trigram indexes (0098). Trusted, so the schema owner could
+# install it itself; installed here with the others so it is never a surprise.
+run_db_sql "CREATE EXTENSION IF NOT EXISTS pg_trgm"
 
 echo "==> Role attributes"
 query "SELECT rolname || ' super=' || rolsuper || ' bypassrls=' || rolbypassrls FROM pg_roles WHERE rolname LIKE 'palugada%' ORDER BY rolname"

@@ -59,6 +59,10 @@ The first version. What it holds, in the order an owner meets it.
 - Health, Prometheus metrics with their own token, and traces to an
   OpenTelemetry collector (STATUS 2.27, 2.40); point-in-time recovery
   documented.
+- Readiness for a load balancer (`/api/ready`), which says no the moment a
+  stop begins while the console answers a few seconds more; health that asks
+  the database once every five seconds however often it is asked; and the
+  search across companies served by trigram indexes (STATUS 2.58).
 - Docker Compose, a Docker image and a systemd unit; the running platform
   never holds the schema owner's URL; append-only history refuses TRUNCATE.
 - The image sets its own database up from a superuser's URL and migrates

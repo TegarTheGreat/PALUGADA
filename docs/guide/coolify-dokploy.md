@@ -26,6 +26,14 @@ What makes this work without a terminal on the server:
 Everything else -- the model, agent CLIs, channels, MCP servers -- is set in
 the console after you sign in, as on any other deployment.
 
+The image checks its own health (`GET /api/health`, every thirty seconds),
+and Docker reports the answer as the container's health; nothing needs
+setting on either platform, and the check should stay on that path, which
+keeps saying the process works while it stops. `GET /api/ready`, which says
+no from the moment a stop begins, is for a load balancer of your own in
+front of more than one replica
+([operations](operations.md#readiness-for-a-load-balancer)).
+
 ## Coolify
 
 1. **+ New**, then **Public Repository** with this repository's URL (for a

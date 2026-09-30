@@ -48,6 +48,8 @@ const API_ONLY: Record<string, string> = {
     'machine: an authorization server sends the owner\'s browser back here with a code, checked against the state the console began',
   'GET /api/health':
     'machine: a supervisor or a load balancer asks whether this process can work',
+  'GET /api/ready':
+    'machine: a load balancer asks whether to send this process requests, which it is told not to from the moment the process begins to stop',
   'GET /api/metrics':
     'machine: a Prometheus scraper reads what the deployment is doing, with a token of its own',
 };

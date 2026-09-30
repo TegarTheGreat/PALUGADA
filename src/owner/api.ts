@@ -307,8 +307,9 @@ export interface OwnerApiOptions {
   };
   /**
    * Whether this process can do its work: the database answers, the worker's
-   * loop is going round. Read by `GET /api/health`, which a supervisor or a
-   * load balancer asks without a session.
+   * loop is going round. Read by `GET /api/health`, which a supervisor asks
+   * without a session, and by `GET /api/ready`, which a load balancer asks,
+   * and which also says no once the process has begun to stop.
    */
   health?: () => Promise<{ ok: boolean } & Record<string, unknown>>;
   /**
@@ -353,7 +354,7 @@ interface Handler {
   }): Promise<unknown>;
 }
 
-/** A route's answer with a status other than 200: only the health check needs one. */
+/** A route's answer with a status other than 200: only the health and readiness checks need one. */
 class WithStatus {
   readonly status: number;
   readonly body: unknown;
@@ -414,6 +415,12 @@ export class OwnerApi {
   readonly #agentJobs = new AgentJobs();
   #server: Server | null = null;
   #allowedHosts: ReadonlySet<string> | null = null;
+  /** The answers being written, so that a closing listener finishes them rather than cutting them off. */
+  readonly #answering = new Set<ServerResponse>();
+  /** Set by `drain()`: readiness says 503, and every answer lets its connection go. */
+  #draining = false;
+  /** Whether anything has asked `/api/ready`: only then is there a balancer to wait for. */
+  #readinessAsked = false;
 
   constructor(options: OwnerApiOptions) {
     this.#options = options;
@@ -434,6 +441,9 @@ export class OwnerApi {
 
   async listen(port = 0, host = '127.0.0.1'): Promise<{ url: string; port: number }> {
     const server = createServer((req, res) => {
+      this.#answering.add(res);
+      res.once('close', () => this.#answering.delete(res));
+      if (this.#draining) res.setHeader('connection', 'close');
       void this.#handle(req, res).catch(() => {
         if (!res.headersSent) res.writeHead(500, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: 'internal error' }));
@@ -445,6 +455,9 @@ export class OwnerApi {
       throw new Error('the owner API did not bind to a port');
     }
     this.#server = server;
+    // A listener opened again after a close is ready again.
+    this.#draining = false;
+    this.#readinessAsked = false;
     const given = this.#options.allowedHosts;
     this.#allowedHosts = given
       ? new Set([...given, host].map(normaliseHost))
@@ -452,12 +465,53 @@ export class OwnerApi {
     return { url: `http://${host}:${address.port}`, port: address.port };
   }
 
-  async close(): Promise<void> {
+  /**
+   * Says "not ready" from now on, and waits `ms` while still answering.
+   *
+   * `/api/ready` answers 503 at once, and every answer from here closes its
+   * connection, so a client holding one open makes its next elsewhere. The
+   * wait is for a load balancer that asks readiness every few seconds to
+   * notice before the listener closes; when nothing has asked, there is no
+   * balancer to tell, and it returns at once.
+   */
+  async drain(ms: number): Promise<void> {
+    this.#letConnectionsGo();
+    if (!this.#readinessAsked || ms <= 0) return;
+    await new Promise<void>((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Closes the listener. No connection is taken from here; an answer already
+   * being written is given `finishMs` to finish before its connection is cut,
+   * and with none given, every connection is cut at once.
+   */
+  async close(finishMs = 0): Promise<void> {
     const server = this.#server;
     if (!server) return;
     this.#server = null;
-    server.closeAllConnections();
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    this.#letConnectionsGo();
+    // Before anything is awaited, so no connection is accepted after this line.
+    const closed = new Promise<void>((resolve) => server.close(() => resolve()));
+    server.closeIdleConnections();
+    if (finishMs <= 0) {
+      server.closeAllConnections();
+      await closed;
+      return;
+    }
+    const cut = setTimeout(() => server.closeAllConnections(), finishMs);
+    try {
+      await closed;
+    } finally {
+      clearTimeout(cut);
+    }
+  }
+
+  /** From here, readiness says no, and each answer not yet begun closes its connection when it is sent. */
+  #letConnectionsGo(): void {
+    this.#draining = true;
+    for (const res of this.#answering) {
+      if (!res.headersSent) res.setHeader('connection', 'close');
+    }
   }
 
   #buildRoutes(): Route[] {
@@ -830,6 +884,27 @@ export class OwnerApi {
         handle: async () => {
           const health = this.#options.health ? await this.#options.health() : { ok: true };
           return new WithStatus(health.ok ? 200 : 503, health);
+        },
+      },
+
+      {
+        // Whether a load balancer should send this process requests: what
+        // `/api/health` says, and no from the moment the process begins to
+        // stop, while it still answers everything else (Buzz's readiness).
+        // `/api/health` keeps saying whether the process works, which is what
+        // a supervisor that restarts it needs; a stopping process still works.
+        // Open for the same reason, and says as little.
+        method: 'GET',
+        pattern: '/api/ready',
+        open: true,
+        handle: async () => {
+          this.#readinessAsked = true;
+          const stopping = new WithStatus(503, { ok: false, stopping: true, version: VERSION });
+          if (this.#draining) return stopping;
+          const health = this.#options.health ? await this.#options.health() : { ok: true };
+          // The stop may have begun while the database was being asked.
+          if (this.#draining) return stopping;
+          return new WithStatus(health.ok ? 200 : 503, { ...health, stopping: false });
         },
       },
 

@@ -12,6 +12,11 @@
  * query is taken literally: `%` and `_` are characters, not wildcards. Each
  * kind is capped and newest first, so a common word answers quickly with the
  * most recent and does not return the company's history.
+ *
+ * A phrase anywhere in a text is a pattern no ordinary index serves, so every
+ * column searched here has a trigram index (0098), and each is written here
+ * exactly as its index is: a column spelled differently is one the planner
+ * cannot match to its index, and the search reads the table whole again.
  */
 import { withControlPlane } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';
@@ -59,6 +64,8 @@ export async function searchEverywhere(query: string): Promise<SearchHit[]> {
         ORDER BY t.created_at DESC LIMIT $2`,
       [pattern, PER_KIND],
     );
+    // The note as it is, not coalesced to '': a decision without one matched
+    // nothing either way, and its index is on the column.
     const decisions = await tx.query<{
       id: string; company_id: string; company: string; title: string; detail: string | null; status: string; at: Date;
     }>(
@@ -66,7 +73,7 @@ export async function searchEverywhere(query: string): Promise<SearchHit[]> {
               i.status, i.created_at AS at
          FROM inbox_items i JOIN companies c ON c.id = i.company_id
         WHERE i.title ILIKE $1 ESCAPE '\\' OR i.action_summary ILIKE $1 ESCAPE '\\'
-           OR coalesce(i.owner_note, '') ILIKE $1 ESCAPE '\\'
+           OR i.owner_note ILIKE $1 ESCAPE '\\'
         ORDER BY i.created_at DESC LIMIT $2`,
       [pattern, PER_KIND],
     );

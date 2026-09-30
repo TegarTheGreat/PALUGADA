@@ -134,6 +134,30 @@ export const MCP_PRESETS: readonly McpPreset[] = [
     id: 'zapier', name: 'Zapier', about: 'Other apps, through the actions you set up in Zapier', url: 'https://mcp.zapier.com/api/v1/connect',
     key: 'optional', keyUrl: 'https://mcp.zapier.com', signIn: 'registers',
   },
+  // Aggregators: one server that reaches many apps, each authorised with its
+  // vendor. Every tool they list is still allowed one at a time, with its
+  // tier, like any other server's -- an aggregator is breadth, not trust.
+  // Each was checked against its own reference and, without credentials,
+  // against its 401 and metadata (September 2026): all four register
+  // PALUGADA as a client when the owner signs in.
+  {
+    id: 'composio', name: 'Composio', about: 'Hundreds of apps, each authorised the first time a role needs it',
+    url: 'https://connect.composio.dev/mcp', key: 'none', signIn: 'registers',
+  },
+  {
+    id: 'pipedream', name: 'Pipedream', about: 'Thousands of apps, through the accounts you connect at Pipedream',
+    url: 'https://mcp.pipedream.net/v2', key: 'none', signIn: 'registers',
+  },
+  {
+    // The gateway's slug is the owner's: the address is theirs to complete.
+    id: 'arcade', name: 'Arcade', about: 'The apps and tools you chose for an Arcade gateway',
+    url: 'https://api.arcade.dev/mcp/{gateway}', key: 'none', signIn: 'registers',
+  },
+  {
+    id: 'smithery', name: 'Smithery', about: 'Every connection in your Smithery namespace',
+    url: 'https://mcp.smithery.run/{namespace}', key: 'optional', keyUrl: 'https://smithery.ai/account/api-keys',
+    keyHint: 'An API key, or sign in instead.', signIn: 'registers',
+  },
   {
     id: 'apify', name: 'Apify', about: 'Ready-made scrapers and automations', url: 'https://mcp.apify.com',
     key: 'required', keyUrl: 'https://console.apify.com/settings/integrations',

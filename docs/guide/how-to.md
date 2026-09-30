@@ -466,18 +466,25 @@ only the ones you allow, at the tier you choose.
 1. Open **This deployment**, **MCP servers**, and press **Add an MCP server**.
 2. Under **Start from**, pick a service, and its name, address and how it
    lets PALUGADA in are filled in. There are three kinds:
-   - **Signed in to, with nothing to copy:** Notion, Webflow and Square.
-     Choosing one asks the server at once, and **It asks you to sign in**
-     appears (step 3).
+   - **Signed in to, with nothing to copy:** Notion, Webflow, Square,
+     Composio, Pipedream and Arcade. Choosing one asks the server at once,
+     and **It asks you to sign in** appears (step 3). Arcade's address ends
+     in `{gateway}`: replace it with your gateway's slug from Arcade's
+     dashboard.
    - **A key, or a sign-in:** Linear, Atlassian, Airtable, monday.com,
-     Intercom, Stripe, Resend, Sentry, Cloudflare, Supabase, Neon and
-     Zapier. Paste a key (**Get a key** opens the page where the service
+     Intercom, Stripe, Resend, Sentry, Cloudflare, Supabase, Neon, Zapier
+     and Smithery (whose address ends in your `{namespace}`). Paste a key (**Get a key** opens the page where the service
      makes one), or leave the **Token** empty and sign in.
    - **Through an app you register first:** GitHub, Asana, Slack, HubSpot
      and Box let an outside tool in only as an app registered with them.
      **Register an app** opens the page where you make one; give it the
      return address the console shows, and paste its **Client ID** and
      **Client secret** when you sign in. GitHub also takes a key.
+
+   Composio, Pipedream, Zapier, Arcade and Smithery each reach many apps
+   through one server. What you connect there is what the server lists
+   here, and every tool it lists is still allowed one at a time with its
+   tier, like any other server's: breadth, not trust.
 
    Apify, Hugging Face, Context7, Firecrawl, Tavily, Exa and Browserbase take
    a key; Playwright is run on a machine of yours. For any other server,

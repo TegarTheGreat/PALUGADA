@@ -1566,6 +1566,10 @@ const MCP_PRESET_TEXT: Record<string, string> = {
   supabase: N('Projects, databases and functions'),
   neon: N('Postgres databases'),
   zapier: N('Other apps, through the actions you set up in Zapier'),
+  composio: N('Hundreds of apps, each authorised the first time a role needs it'),
+  pipedream: N('Thousands of apps, through the accounts you connect at Pipedream'),
+  arcade: N('The apps and tools you chose for an Arcade gateway'),
+  smithery: N('Every connection in your Smithery namespace'),
   apify: N('Ready-made scrapers and automations'),
   huggingface: N('Models, datasets and Spaces'),
   context7: N('Current documentation for code libraries'),
@@ -1579,6 +1583,7 @@ const MCP_PRESET_TEXT: Record<string, string> = {
 const MCP_KEY_HINT: Record<string, string> = {
   github: N('A fine-grained personal access token, limited to the repositories and permissions roles need.'),
   linear: N('A personal API key.'),
+  smithery: N('An API key, or sign in instead.'),
   stripe: N('A restricted key tagged for agents: from 31 October 2026 Stripe refuses a secret key here.'),
   atlassian: N('An API key for a service account, which an organisation admin makes; a personal token is refused.'),
   sentry: N('A user auth token from Sentry\'s settings.'),
@@ -1926,8 +1931,11 @@ function McpServerForm({ saved, presets, callback, onDone, onCancel }: {
     return () => clearInterval(timer);
   }, [authorizeUrl]);
 
+  // An address still holding the owner's part in braces -- an Arcade gateway,
+  // a Smithery namespace -- is not asked until it is theirs.
+  const unfinished = /\{[^}]*\}/.test(url);
   useEffect(() => {
-    if (saved === null && preset?.signIn && preset.key === 'none') void look();
+    if (saved === null && preset?.signIn && preset.key === 'none' && !/\{[^}]*\}/.test(preset.url)) void look();
   }, [preset?.id]);
 
   const change = (tool: string, patch: Partial<McpChoice>) => setChoices((all) => ({ ...all, [tool]: { ...all[tool]!, ...patch } }));
@@ -2018,7 +2026,8 @@ function McpServerForm({ saved, presets, callback, onDone, onCancel }: {
         <SimpleGrid cols={{ base: 1, sm: 2 }}>
           <TextInput label={t('Name')} placeholder={t('payments')} value={name} disabled={saved !== null}
             description={t('Lowercase letters, digits, - and _. Each tool is called mcp.name.tool.')} onChange={(event) => setName(event.currentTarget.value)} required />
-          <TextInput label={t('Address')} placeholder="https://mcp.example.com/mcp" value={url} onChange={(event) => { setUrl(event.currentTarget.value); setTools(null); }} required />
+          <TextInput label={t('Address')} placeholder="https://mcp.example.com/mcp" value={url} onChange={(event) => { setUrl(event.currentTarget.value); setTools(null); }} required
+            error={unfinished ? t('Put your own in place of the part in braces, as the service shows it.') : undefined} />
         </SimpleGrid>
         {!(preset?.key === 'none' && preset.signIn) && (
           <PasswordInput
@@ -2031,7 +2040,7 @@ function McpServerForm({ saved, presets, callback, onDone, onCancel }: {
           />
         )}
         <Group>
-          <Button variant="default" leftSection={<IconListSearch size={16} />} loading={looking} disabled={url.trim() === ''} onClick={() => void look()}>
+          <Button variant="default" leftSection={<IconListSearch size={16} />} loading={looking} disabled={url.trim() === '' || unfinished} onClick={() => void look()}>
             {t('Look at its tools')}
           </Button>
           <Button variant="subtle" color="gray" onClick={onCancel}>{t('Cancel')}</Button>

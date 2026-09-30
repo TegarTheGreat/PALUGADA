@@ -256,7 +256,7 @@ perusahaan dari ponsel, di Indonesia.
 | 6 | WhatsApp sebagai kanal owner, dengan tanda terima masuk yang tahan duplikat | Manor, Polsia (iMessage), Meta | Tinggi (Indonesia) | **Selesai** (STATUS 2.31): Cloud API, tanda tangan Meta, tanda terima masuk di database (0085), tombol, template di luar jendela 24 jam, dan percakapan dengan CEO. Desainnya ditiru dari Manor, bukan kodenya (lisensi Sustainable Use) |
 | 7 | Model yang menilai tiap panggilan: jalankan atau tanya owner | Claude `auto`, Dots, Google | Tinggi, berisiko | Direncanakan dengan batas keras. Model hanya boleh memperketat, atau meloloskan tier ≤ 1. Tier 3 tetap owner dengan faktor kedua |
 | 8 | Penyedia sandbox siap pakai (E2B, Daytona, Modal) | Paperclip (8) | Tinggi | Direncanakan. Butuh akun uji nyata; tidak ditulis dari tebakan |
-| 9 | Agregator MCP (Zapier, Composio, Arcade) | Paperclip, Multica | Tinggi | Direncanakan sebagai preset. Setiap tool agregat tetap harus dipetakan ke tier |
+| 9 | Agregator MCP (Zapier, Composio, Arcade) | Paperclip, Multica | Tinggi | **Selesai**: preset Composio, Pipedream, Arcade, dan Smithery di samping Zapier, diperiksa ke dokumen vendor dan metadata OAuth-nya tanpa kredensial. Setiap tool agregat tetap dipetakan ke tier satu per satu |
 | 10 | Email untuk agen dan owner | Paperclip (AgentMail), Opifer (IMAP) | Sedang-tinggi | Direncanakan |
 | 11 | Menutup perusahaan: arsip, lalu hapus (UU PDP) | Buzz | Sedang | Direncanakan. Ekspor sudah ada; penghapusan akan butuh faktor kedua dan masa tenggang, bukan persetujuan otomatis seperti Buzz |
 | 12 | Iklan (Meta Ads, Google Ads) dengan belanja yang disetujui | Polsia, Runable | Sedang | Direncanakan sebagai konektor vendor dengan tier 3 untuk belanja |

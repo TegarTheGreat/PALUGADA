@@ -4152,6 +4152,21 @@ closed". Signal and email as owner channels are still open.
   dimensions, from before a provider could be chosen) and the owner's
   search across companies.
 
+## 2.36 Aggregators among the MCP servers offered by name
+
+- **One server that reaches many apps.** Composio, Pipedream, Arcade and
+  Smithery join Zapier among the servers the console offers by name.
+- **Checked before they were offered.** Each was checked against its own
+  reference and, without credentials, against its 401 and its OAuth
+  metadata. All four register PALUGADA as a client when the owner signs
+  in; Smithery also takes a key.
+- **Breadth, not trust.** Every tool an aggregator lists is still allowed
+  one at a time, with its tier, like any other server's.
+- **Addresses the owner completes.** Arcade's address ends in the owner's
+  gateway, and Smithery's in their namespace. The console neither asks the
+  server nor saves while the part in braces is still there. Seen in a
+  screenshot, the first version asked Arcade for the gateway `{gateway}`.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

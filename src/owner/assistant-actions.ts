@@ -248,8 +248,16 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   {
     pattern: '/api/companies/:companyId/inbox/:itemId/decide',
     what: `Approve, deny or ask about an item in the inbox (GET /api/companies/:companyId/inbox). ${COMPANY}`,
-    fields: { decision: 'approve, deny or ask', note: 'why, or the question' },
+    fields: {
+      decision: 'approve, deny or ask', note: 'why, or the question',
+      allowForHours: 'optional, with approve: allow the same capability to the same role for this many hours (1 to 168), only where the item says allowFor',
+    },
     factor: 'sometimes',
+  },
+  {
+    pattern: '/api/companies/:companyId/standing-approvals/:standingId/revoke',
+    what: 'Take back a yes the owner gave for a while (GET /api/companies/:companyId/standing-approvals), so the next such action asks again.',
+    factor: 'never', chat: true,
   },
   {
     pattern: '/api/companies/:companyId/inbox/:itemId/answer',

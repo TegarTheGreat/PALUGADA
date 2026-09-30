@@ -216,6 +216,27 @@ incidents stay behind and are decided one at a time. **Later** puts an item
 out of the queue for an hour, until tomorrow morning, three days or a week,
 but never past its expiry.
 
+### Approve for a while
+
+When one of your policies asks before a role does something, for example
+before the marketing lead sends email, the same card comes back for every
+email. On such a card the **Approve** button has an hourglass beside it:
+press it and choose an hour, eight hours, a day or a week. Your code is
+asked for, because this loosens a rule. The action on the card runs, and
+the same capability by the same role runs without a card until the time
+ends. Each use is written in the task's timeline, with the yes it ran on.
+
+It is offered only where a policy is what asked, at tier 2 or below. A tier
+3 action is approved one at a time. Work that read something from outside
+the company, such as a customer's email or a webhook, is asked about every
+time, whatever you allowed: that text may be trying to talk the role into
+it. Another role, or another capability, is not covered.
+
+What you allowed is listed at the top of **Inbox** under **Allowed for a
+while**, with when it ends and how often it was used. **Take back** ends it
+at once, without a code. From Telegram and in a batch, a card is approved
+once only.
+
 ## Answer a question from an agent
 
 A role that needs something only you know asks with `owner.ask`, and its

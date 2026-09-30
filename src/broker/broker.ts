@@ -615,6 +615,9 @@ export class CapabilityBroker {
           input: shown,
           plan,
           goalAncestry: chain.map((goal) => ({ kind: goal.kind, statement: goal.statement })),
+          // Why the owner is asked, which decides whether they may answer for
+          // a while (0083): the tier itself, content from outside, or a policy.
+          reason: requiresOwnerApproval(tier) ? 'tier' : outside !== null ? 'outside' : 'policy',
         },
       });
       throw new PalugadaError(
@@ -623,7 +626,29 @@ export class CapabilityBroker {
         { name, tier },
       );
     };
-    if (needsOwner && !grantedApproval) await askOwner();
+    // The owner's yes for a while (0083): only where a policy is what asks,
+    // below tier 3, and the work read nothing from outside. Counted as used,
+    // and the record says which yes the action ran on. Not spent like a
+    // card's yes: it covers every such action until it ends.
+    let standing: { id: string; grantedByItem: string } | null = null;
+    if (needsOwner && !grantedApproval && !requiresOwnerApproval(tier) && outside === null
+        && policy.effect === 'require_approval') {
+      standing = await withTenant(ctx.companyId, async (tx) => {
+        const found = await inbox.useStanding(tx, ctx.roleId, name);
+        if (found) {
+          await appendEvent(tx, {
+            companyId: ctx.companyId,
+            projectId: ctx.projectId,
+            taskId: ctx.taskId,
+            type: 'approval.standing_used',
+            actor: 'broker',
+            payload: { capability: name, standingApprovalId: found.id, inboxItemId: found.grantedByItem },
+          });
+        }
+        return found;
+      });
+    }
+    if (needsOwner && !grantedApproval && !standing) await askOwner();
 
     const controller = new AbortController();
     const signal = ctx.signal ?? controller.signal;
@@ -647,6 +672,7 @@ export class CapabilityBroker {
           policies: policy.matched.map((m) => m.slug),
           observedPolicies: policy.observed.map((m) => m.slug),
           ...(grantedApproval ? { approvedBy: grantedApproval } : {}),
+          ...(standing ? { approvedBy: standing.grantedByItem, standingApprovalId: standing.id } : {}),
         },
       });
     });

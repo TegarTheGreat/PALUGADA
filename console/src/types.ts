@@ -51,6 +51,21 @@ export interface InboxItem {
   snoozedUntil: string | null;
   /** What an approval's action is called with, redacted; absent on anything else. */
   input?: unknown;
+  /** Whether it may be approved for a while (0083): a policy asked, at tier 2 or below. */
+  allowFor?: boolean;
+}
+
+/** A yes the owner gave for a while (0083). */
+export interface StandingApproval {
+  id: string;
+  roleId: string;
+  roleSlug: string;
+  capabilityName: string;
+  grantedByItem: string;
+  createdAt: string;
+  expiresAt: string;
+  uses: number;
+  lastUsedAt: string | null;
 }
 
 export interface Digest {

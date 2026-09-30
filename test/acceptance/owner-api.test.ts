@@ -4353,3 +4353,54 @@ test('the owner reads the policies and a role\'s history, and puts a version bac
     await owner.close();
   }
 });
+
+/**
+ * 0083 through the console: a yes for a while is asked for with the decision,
+ * refused without the owner's device, listed once given, and taken back with
+ * the session alone, since taking it back tightens.
+ */
+test('the console approves for a while with a factor, lists it, and takes it back', async () => {
+  const { createRootTask, transition } = await import('../../src/engine/tasks.ts');
+  const fixture = await createCompany('console-standing');
+  const task = await createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    roleId: fixture.roleId, budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId,
+    input: { goal: 'follow up' }, createdBy: 'owner', reserveTokens: 1_000,
+  });
+  await transition(fixture.companyId, task.id, 'running');
+  const itemId = await inbox.requestApproval({
+    companyId: fixture.companyId, taskId: task.id, capabilityName: 'email.send', tier: 2,
+    actionSummary: 'Send the follow-up', rationale: 'A policy asks', consequenceIfDenied: 'Not sent',
+    payload: { reason: 'policy' },
+  });
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+    const company = `/api/companies/${fixture.companyId}`;
+    const listed = await call(owner.url, 'GET', `${company}/inbox`, { token });
+    assert.equal((listed.body.items as Array<{ allowFor: boolean }>)[0]!.allowFor, true);
+
+    const bare = await call(owner.url, 'POST', `${company}/inbox/${itemId}/decide`, {
+      token, body: { decision: 'approve', allowForHours: 8 },
+    });
+    assert.equal(bare.status, 403, JSON.stringify(bare.body));
+    assert.equal(bare.body.code, 'approval.channel_forbidden');
+
+    const given = await call(owner.url, 'POST', `${company}/inbox/${itemId}/decide`, {
+      token, body: { decision: 'approve', allowForHours: 8, proof: { totp: owner.code() } },
+    });
+    assert.equal(given.status, 200, JSON.stringify(given.body));
+    const standing = await call(owner.url, 'GET', `${company}/standing-approvals`, { token });
+    const [entry] = standing.body.standing as Array<{ id: string; capabilityName: string; roleSlug: string; uses: number }>;
+    assert.equal(entry?.capabilityName, 'email.send');
+    assert.equal(entry?.uses, 0);
+
+    const revoked = await call(owner.url, 'POST', `${company}/standing-approvals/${entry!.id}/revoke`, { token });
+    assert.equal(revoked.status, 200, JSON.stringify(revoked.body));
+    assert.deepEqual((await call(owner.url, 'GET', `${company}/standing-approvals`, { token })).body.standing, []);
+    const again = await call(owner.url, 'POST', `${company}/standing-approvals/${entry!.id}/revoke`, { token });
+    assert.equal(again.status, 400, 'a yes already taken back is not taken back twice');
+  } finally {
+    await owner.close();
+  }
+});

@@ -3936,6 +3936,45 @@ Paperclip exports traces, and PALUGADA had a health check and log lines.
   app container had `PALUGADA_OWNER_URL` in its environment, tini's
   included. A `TRUNCATE events CASCADE` as the owner role was refused.
 
+## 2.28 Fewer cards for the owner: a yes for a while
+
+Read against the competitors checked on 2026-09-30. Copilot Studio offers
+"approve for this session" and OpenAI's Dots lets a person write rules per
+action; both answer the complaint that too many approvals is how one person
+loses control of a queue. PALUGADA asked about every action a policy
+covered, one card each, for as long as the policy stood.
+
+- **A yes for a while (0083).** On a card a policy raised, the owner may
+  approve and allow the same capability to the same role for an hour,
+  eight hours, a day or a week. It takes their second factor, because it
+  loosens a rule, like a policy made looser. Each action it lets through is
+  counted and written on the task as `approval.standing_used`, naming the
+  yes. It is listed in the inbox and taken back with one press.
+- **What it never covers.**
+  - A tier 3 action: approved one at a time, with the factor (F10.10).
+  - Work that read content from outside: asked about every time (F8.9),
+    since that content may be what is asking.
+  - Another role or another capability.
+  - Anything past a week: the database refuses one longer.
+
+  The broker now writes on each card why it asked (the tier, content from
+  outside, or a policy), so which cards are eligible is decided by the
+  server, not by a card's wording. A card from before this knows no reason
+  and is not eligible.
+- **Written by the owner alone.** The application role can read a standing
+  yes and count its uses; it cannot make one or extend one. Only the
+  control plane writes the table, in the same transaction as the decision
+  it came with.
+
+Reproduced by tests first:
+- a second send on a new task, to another recipient, went without a card;
+- another role still asked;
+- a send after the yes was taken back asked again;
+- a task that had read a customer's email asked, and its card could not be
+  answered for a while;
+- tier 3, 169 hours, and an insert as the application role were each
+  refused.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

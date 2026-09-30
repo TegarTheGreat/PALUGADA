@@ -821,9 +821,29 @@ export class OwnerApi {
               assurance: 'session',
               ...(proof ? { proof } : {}),
               mfa: this.#options.mfa,
+              // 0083: `decide` checks it, and asks for the factor it needs.
+              ...(body.allowForHours === undefined || body.allowForHours === null
+                ? {} : { allowForHours: Number(body.allowForHours) }),
             },
           );
           void session;
+          return { ok: true };
+        },
+      },
+
+      {
+        // 0083: the yeses the owner gave for a while, still in force.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/standing-approvals',
+        handle: async ({ params }) => ({ standing: await inbox.standingApprovals(params.companyId!) }),
+      },
+
+      {
+        // Taking one back is a tightening, so the session is enough.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/standing-approvals/:standingId/revoke',
+        handle: async ({ params }) => {
+          await inbox.revokeStanding(params.companyId!, params.standingId!);
           return { ok: true };
         },
       },

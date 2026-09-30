@@ -194,6 +194,7 @@ import {
   type ImageProvider, type MediaBinding, type SpeechProvider,
 } from '../capabilities/media.ts';
 import { TOOL_KINDS, type ToolKind } from '../capabilities/tools.ts';
+import { say } from './say.ts';
 import {
   AGENT_CATALOGUE, AgentJobs, agentEntry, cannotInstall, claudeSetupToken, findAgent, installAgent, type AgentEntry,
 } from '../settings/agents.ts';
@@ -381,11 +382,14 @@ class HtmlPage {
   readonly status: number;
   readonly title: string;
   readonly text: string;
+  /** The language the page is written in, for the browser's reader and its fonts. */
+  readonly language: string;
 
-  constructor(status: number, title: string, text: string) {
+  constructor(status: number, title: string, text: string, language: string | null = null) {
     this.status = status;
     this.title = title;
     this.text = text;
+    this.language = language ?? 'en';
   }
 }
 
@@ -2195,7 +2199,7 @@ export class OwnerApi {
         handle: async ({ query }) => {
           const deployment = this.#deploymentSettings();
           const master = deployment.master(false);
-          const indonesian = (await deploymentLanguages()).console === 'id';
+          const language = (await deploymentLanguages()).console;
           try {
             if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
             // A division's sign-in for a vendor key, when the state is one of those.
@@ -2203,16 +2207,18 @@ export class OwnerApi {
             if (signedIn) {
               await this.#keepDivisionKey({ ...signedIn, value: signedIn.grant, prefix: OAUTH_CREDENTIALS });
               const provider = this.#signInFor(signedIn.alias, null)?.name ?? signedIn.provider;
-              return indonesian
-                ? new HtmlPage(200, `Sudah masuk ke ${provider} untuk kunci ${signedIn.alias}`, 'Kembali ke PALUGADA: divisi itu kini memegang kunci ini, dan diperbarui sendiri sebelum habis. Tab ini boleh ditutup.')
-                : new HtmlPage(200, `Signed in to ${provider} for the ${signedIn.alias} key`, 'Go back to PALUGADA: the division holds this key now, and it is renewed before it runs out. This tab can be closed.');
+              return new HtmlPage(200,
+                say(language, 'Signed in to {provider} for the {alias} key', { provider, alias: signedIn.alias }),
+                say(language, 'Go back to PALUGADA: the division holds this key now, and it is renewed before it runs out. This tab can be closed.'),
+                language);
             }
             const { name } = await finishSignIn(query, { secrets: deployment.secrets, master });
-            return indonesian
-              ? new HtmlPage(200, `Sudah masuk ke ${name}`, 'Kembali ke PALUGADA untuk memilih alat yang boleh dipakai peran. Tab ini boleh ditutup.')
-              : new HtmlPage(200, `Signed in to ${name}`, 'Go back to PALUGADA to choose which of its tools roles may use. This tab can be closed.');
+            return new HtmlPage(200,
+              say(language, 'Signed in to {name}', { name }),
+              say(language, 'Go back to PALUGADA to choose which of its tools roles may use. This tab can be closed.'),
+              language);
           } catch (failure) {
-            return new HtmlPage(400, indonesian ? 'Tidak masuk' : 'Not signed in', (failure as Error).message);
+            return new HtmlPage(400, say(language, 'Not signed in'), (failure as Error).message, language);
           }
         },
       },
@@ -6124,7 +6130,7 @@ function sendPage(res: ServerResponse, page: HtmlPage): void {
     'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'",
     'referrer-policy': 'no-referrer',
   });
-  res.end(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">`
+  res.end(`<!doctype html><html lang="${escapeHtml(page.language)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">`
     + `<title>${escapeHtml(page.title)}</title></head>`
     + `<body style="font-family: system-ui, sans-serif; max-width: 34rem; margin: 4rem auto; padding: 0 1rem; line-height: 1.5">`
     + `<h1 style="font-size: 1.4rem">${escapeHtml(page.title)}</h1><p>${escapeHtml(page.text)}</p></body></html>`);

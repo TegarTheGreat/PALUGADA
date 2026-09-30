@@ -22,7 +22,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { api, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { useLoad } from '../hooks.ts';
-import { N, t } from '../i18n.ts';
+import { dateTime } from '../format.ts';
+import { N, locale, t } from '../i18n.ts';
 import { go, type DeploymentSection } from '../router.ts';
 import { LoadFailed, Loading, PageHeader, Section, TierBadge } from '../components/ui.tsx';
 import { recordingSupported, useRecorder } from '../recorder.ts';
@@ -154,7 +155,7 @@ function ErasureList() {
                 <Text size="sm">{one.failure}</Text>
                 <Text size="xs" c="dimmed">
                   {t('Tried {attempts} times; next at {when}.', {
-                    attempts: one.attempts, when: one.retryAt ? new Date(one.retryAt).toLocaleString() : '-',
+                    attempts: one.attempts, when: one.retryAt ? dateTime(one.retryAt) : '-',
                   })}
                 </Text>
               </Alert>
@@ -177,8 +178,8 @@ function ErasureList() {
               {erasures.map((one) => (
                 <Table.Tr key={one.companyId}>
                   <Table.Td><Text size="sm" fw={600}>{one.name}</Text></Table.Td>
-                  <Table.Td>{new Date(one.closedAt).toLocaleDateString()}</Table.Td>
-                  <Table.Td>{new Date(one.erasedAt).toLocaleDateString()}</Table.Td>
+                  <Table.Td>{new Date(one.closedAt).toLocaleDateString(locale())}</Table.Td>
+                  <Table.Td>{new Date(one.erasedAt).toLocaleDateString(locale())}</Table.Td>
                   <Table.Td>
                     <Text size="xs" c="dimmed">
                       {t('{tasks} tasks, {events} events, {memories} memories, {documents} documents', {

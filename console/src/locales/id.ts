@@ -5,7 +5,9 @@
  * `test/documents/console-i18n.test.ts` fails on one that is missing or one
  * nothing says any more.
  */
-export const ID: Readonly<Record<string, string>> = {
+import type { Dictionary } from './types.ts';
+
+export const DICTIONARY: Dictionary = {
   "1. In Meta for Developers, make an app with WhatsApp, add your business number, and make a system user with a permanent token that may send for it.": "1. Di Meta for Developers, buat aplikasi dengan WhatsApp, tambahkan nomor bisnis Anda, lalu buat system user dengan token permanen yang boleh mengirim untuk nomor itu.",
   "1. In Telegram, open @BotFather, send /newbot, and paste the token it gives you.": "1. Di Telegram, buka @BotFather, kirim /newbot, lalu tempel token yang diberikannya.",
   "1. Open the sign-in page, and sign in with your plan.": "1. Buka halaman login, lalu login dengan paket Anda.",
@@ -1843,3 +1845,54 @@ export const ID: Readonly<Record<string, string>> = {
   "{tasks} tasks, {events} events, {memories} memories, {documents} documents": "{tasks} tugas, {events} peristiwa, {memories} memori, {documents} dokumen",
   "{words} words": "{words} kata",
 };
+
+/**
+ * Sentences written as they are in English on purpose: names, and the
+ * words Indonesian software uses as they are. Any other translation equal
+ * to its English is a sentence nobody translated, and the test says so.
+ */
+export const KEPT: readonly string[] = [
+  "App secret",
+  "Callback URL",
+  "Client ID",
+  "Client secret",
+  "Cloud API",
+  "Cron",
+  "Default",
+  "Default: {language}",
+  "Discord",
+  "Email",
+  "GPT Image",
+  "GitHub",
+  "Model",
+  "P2 · normal",
+  "PALUGADA {version}",
+  "Passkey",
+  "Persona",
+  "Phone number ID",
+  "Platform",
+  "Reviewer: {note}",
+  "Runtime",
+  "Server",
+  "Slack",
+  "Standard Webhooks",
+  "Standard Webhooks (Svix, Resend, Clerk)",
+  "Status",
+  "Stripe",
+  "Target",
+  "Telegram",
+  "Tier",
+  "Tier {tier}",
+  "Token",
+  "Tools",
+  "Trigger",
+  "URL",
+  "Verify token",
+  "WhatsApp",
+  "Worker {worker}",
+  "ntfy",
+  "skill",
+  "tier {tier}",
+  "{capability}: {status}",
+  "{name}, tier {tier}",
+];

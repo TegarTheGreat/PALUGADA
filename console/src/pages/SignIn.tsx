@@ -13,10 +13,10 @@
  */
 import { useEffect, useState } from 'react';
 import {
-  Alert, Anchor, Button, Center, Divider, Grid, Group, Image, List, Paper, PinInput, SegmentedControl, Stack, Text,
+  Alert, Anchor, Button, Center, Divider, Grid, Group, Image, List, Paper, PinInput, Select, Stack, Text,
   TextInput, ThemeIcon, Title, useComputedColorScheme,
 } from '@mantine/core';
-import { IconCheck, IconFingerprint } from '@tabler/icons-react';
+import { IconCheck, IconFingerprint, IconLanguage } from '@tabler/icons-react';
 import { useMediaQuery } from '@mantine/hooks';
 import { api, explain } from '../api.ts';
 import { LANGUAGES, language, setLanguage, t, type Language } from '../i18n.ts';
@@ -125,12 +125,18 @@ function Door({ onSignedIn }: { onSignedIn: (session: { token: string; device: s
       <Grid.Col span={{ base: 12, md: 6 }}>
         <Center h="100%" mih="100vh" p="md" pos="relative">
           <Group pos="absolute" top={16} right={16}>
-            <SegmentedControl
+            {/* A list rather than a row of codes: seven codes do not fit
+                a phone, and "PT-BR" says less to its reader than "Português". */}
+            <Select
               size="xs"
+              w={180}
               value={language()}
-              onChange={(value) => setLanguage(value as Language)}
-              data={LANGUAGES.map((one) => ({ value: one.code, label: one.code.toUpperCase() }))}
+              onChange={(value) => { if (value) setLanguage(value as Language); }}
+              data={LANGUAGES.map((one) => ({ value: one.code, label: one.name }))}
+              allowDeselect={false}
+              leftSection={<IconLanguage size={14} />}
               aria-label={t('Language')}
+              comboboxProps={{ withinPortal: true }}
             />
           </Group>
           <Paper withBorder shadow="md" radius="lg" p={{ base: 'lg', xs: 36 }} w="100%" maw={440}>

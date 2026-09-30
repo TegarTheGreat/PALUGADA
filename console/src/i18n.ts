@@ -18,25 +18,40 @@
  * preference decides.
  */
 import { useSyncExternalStore } from 'react';
-import { ID } from './locales/id.ts';
+import { DICTIONARY as ID } from './locales/id.ts';
+import type { Dictionary, Translation } from './locales/types.ts';
 
+/**
+ * The languages the console is drawn in: each one's code as the owner API
+ * keeps it, its name in itself, and the BCP 47 locale its dates, numbers and
+ * plural forms follow.
+ */
 export const LANGUAGES = [
   { code: 'en', name: 'English', locale: 'en-US' },
   { code: 'id', name: 'Bahasa Indonesia', locale: 'id-ID' },
 ] as const;
 export type Language = (typeof LANGUAGES)[number]['code'];
 
-const DICTIONARIES: Record<Language, Readonly<Record<string, string>>> = { en: {}, id: ID };
+const DICTIONARIES: Record<Language, Dictionary> = { en: {}, id: ID };
 
 export function isLanguage(value: unknown): value is Language {
   return typeof value === 'string' && LANGUAGES.some((language) => language.code === value);
 }
 
+/**
+ * The browser's first preference the console has, matched whole and then by
+ * its language alone: `pt-PT` and `pt` get Brazilian Portuguese, `zh-TW`
+ * gets simplified Chinese, which a reader of either can read, rather than
+ * English, which they may not.
+ */
 function fromBrowser(): Language {
   const preferred = typeof navigator === 'undefined' ? [] : navigator.languages ?? [navigator.language];
+  const primary = (tag: string) => tag.split('-')[0]!.toLowerCase();
   for (const tag of preferred) {
-    const code = tag.slice(0, 2).toLowerCase();
-    if (isLanguage(code)) return code;
+    const whole = LANGUAGES.find((one) => one.code.toLowerCase() === tag.toLowerCase());
+    if (whole) return whole.code;
+    const same = LANGUAGES.find((one) => primary(one.code) === primary(tag));
+    if (same) return same.code;
   }
   return 'en';
 }
@@ -77,21 +92,34 @@ function fill(template: string, values: Values | undefined): string {
   return template.replace(/\{(\w+)\}/g, (whole, name: string) => (name in values ? String(values[name]) : whole));
 }
 
+/** The form of a translation for a plural category; a plain string serves them all. */
+function form(translation: Translation, category: Intl.LDMLPluralRule): string {
+  return typeof translation === 'string' ? translation : translation[category] ?? translation.other;
+}
+
 /** A sentence in the owner's language, with `{name}` filled from `values`. */
 export function t(text: string, values?: Values): string {
-  return fill(DICTIONARIES[current][text] ?? text, values);
+  const translation = DICTIONARIES[current][text];
+  return fill(translation === undefined ? text : form(translation, 'other'), values);
 }
 
 /**
  * A sentence that depends on a count: `tp('{count} task', '{count} tasks', n)`.
  *
- * The plural rule is the language's own (Indonesian has one form, English
- * two), which is why both English forms are keys: a language chooses which it
- * needs.
+ * The plural rule is the language's own, which is why both English forms are
+ * keys: Indonesian has one form and translates both alike; English has two;
+ * Russian has three, and its translation of the second names the forms for
+ * the counts that are not "one" (`few` for 2, `many` for 5). The category is
+ * the locale's, so 21 is "one" in Russian as 1 is, and 0 is "one" in Hindi.
  */
 export function tp(one: string, other: string, count: number, values?: Values): string {
-  const form = new Intl.PluralRules(locale()).select(count) === 'one' ? one : other;
-  return t(form, { count: count.toLocaleString(locale()), ...values });
+  const category = new Intl.PluralRules(locale()).select(count);
+  const text = category === 'one' ? one : other;
+  const translation = DICTIONARIES[current][text];
+  return fill(translation === undefined ? text : form(translation, category), {
+    count: count.toLocaleString(locale()),
+    ...values,
+  });
 }
 
 /**

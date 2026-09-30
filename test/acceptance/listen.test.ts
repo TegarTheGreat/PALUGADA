@@ -122,6 +122,24 @@ test('every listening provider is sent the recording and its key the way it docu
   }
 });
 
+/**
+ * The panel's language can name a region -- Brazilian Portuguese is `pt-BR`
+ * -- and the providers take a language: Whisper's API refuses `pt-BR` as an
+ * unknown language, so a Brazilian owner's voice note was never heard.
+ */
+test('a language with a region is sent to every listening provider as the language alone', async () => {
+  for (const provider of LISTEN_PROVIDERS) {
+    const { answer } = ANSWERS[provider.id]!;
+    const { fetch, heard } = providerFetch(answer);
+    await transcribe({
+      provider, url: provider.urlExample ? 'http://speech.internal:8000' : null, model: null, key: async () => 'the-key-0123', fetch,
+    }, { bytes: CLIP, mime: 'audio/webm;codecs=opus' }, 'pt-BR');
+    const language = heard[0]!.fields.language ?? heard[0]!.fields.language_code ?? new URL(heard[0]!.url).searchParams.get('language') ?? heard[0]!.fields.prompt;
+    assert.match(String(language), /\bpt\b/, `${provider.id} is told the language`);
+    assert.doesNotMatch(String(language), /pt-BR/, `${provider.id} is not sent the region`);
+  }
+});
+
 test('a refused key and an empty answer are said as what they are', async () => {
   const openai = LISTEN_PROVIDERS.find((one) => one.id === 'openai') as ListenProvider;
   const refusing = (async () => new Response('{"error":"bad key"}', { status: 401 })) as unknown as typeof globalThis.fetch;

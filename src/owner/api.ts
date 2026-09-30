@@ -154,6 +154,7 @@ import { DEFAULT_PRICE_TABLE, parsePriceTable, rateFor, withConsolePrices, type 
 import { MODELS_DEV_URL, lookupPrices } from '../engine/models-dev.ts';
 import { beginCredentialSignIn, finishCredentialSignIn, hasClient, OAUTH_CREDENTIALS, type CredentialSignIn } from '../capabilities/vendor-oauth.ts';
 import { LISTEN_PROVIDERS, listenProvider, transcribe, type Heard, type ListenBinding, type ListenProvider } from '../capabilities/listen.ts';
+import { EMBED_PROVIDERS, embed, embedProvider, type EmbedBinding, type EmbedProvider } from '../capabilities/embed.ts';
 import {
   chatMayApply, chatPartners, chatScope, closeProposal, conversation, converse, forgetConversation, moveChat, patternFor, proposalById,
   speakerOf, type AssistantChannel, type AssistantProposal, type AssistantReach,
@@ -1727,6 +1728,7 @@ export class OwnerApi {
             kinds,
             providers: {
               search: SEARCH_PROVIDERS, extract: EXTRACT_PROVIDERS, image: IMAGE_PROVIDERS, speech: SPEECH_PROVIDERS, listen: LISTEN_PROVIDERS,
+              embed: EMBED_PROVIDERS,
             },
             filesRoot: Boolean(deployment.baseEnv.PALUGADA_FILES_ROOT),
             applies: deployment.restart ? 'now' : 'next_start',
@@ -1745,6 +1747,12 @@ export class OwnerApi {
           const { kind, binding } = await this.#toolCandidate(params.kind!, body);
           try {
             const signal = AbortSignal.timeout(kind === 'image' || kind === 'speech' || kind === 'listen' ? 120_000 : 30_000);
+            if (kind === 'embed') {
+              // One sentence, to show the provider answers and how long its vectors are.
+              const model = typeof body.model === 'string' && body.model.trim() ? body.model.trim() : null;
+              const [vector] = await embed({ ...binding as EmbedBinding, model }, [typeof body.text === 'string' && body.text.trim() ? body.text.slice(0, 500) : 'PALUGADA'], signal);
+              return { problem: null, dimensions: vector!.length };
+            }
             if (kind === 'listen') {
               // A clip the owner recorded on the page, heard once and kept nowhere.
               const text = await transcribe({ ...binding as ToolBinding<ListenProvider>, model: typeof body.model === 'string' && body.model.trim() ? body.model.trim() : null },
@@ -1793,7 +1801,7 @@ export class OwnerApi {
           }
           const tools = { ...((await readSettings()).tools as Partial<Record<ToolKind, ToolSetting>> | undefined) };
           const text = (field: string) => (typeof body[field] === 'string' && (body[field] as string).trim() ? (body[field] as string).trim().slice(0, 120) : null);
-          const model = kind === 'image' || kind === 'speech' || kind === 'listen' ? text('model') : null;
+          const model = kind === 'image' || kind === 'speech' || kind === 'listen' || kind === 'embed' ? text('model') : null;
           const voice = kind === 'speech' ? text('voice') : null;
           tools[kind] = {
             provider: provider.id, ...(url ? { url } : {}), ...(typed || keep ? { keySecret: secret } : {}),
@@ -4850,9 +4858,11 @@ export class OwnerApi {
     const id = typeof body.provider === 'string' ? body.provider : '';
     const lists = {
       search: SEARCH_PROVIDERS, extract: EXTRACT_PROVIDERS, image: IMAGE_PROVIDERS, speech: SPEECH_PROVIDERS, listen: LISTEN_PROVIDERS,
+      embed: EMBED_PROVIDERS,
     } as const;
     const provider = kind === 'search' ? searchProvider(id) : kind === 'extract' ? extractProvider(id)
-      : kind === 'image' ? imageProvider(id) : kind === 'speech' ? speechProvider(id) : listenProvider(id);
+      : kind === 'image' ? imageProvider(id) : kind === 'speech' ? speechProvider(id)
+        : kind === 'embed' ? embedProvider(id) : listenProvider(id);
     if (!provider) {
       const known = lists[kind].map((one) => one.id);
       throw new PalugadaError('contract.violation', `provider is one of ${known.join(', ')}; got ${id || 'nothing'}`, { field: 'provider' });
@@ -4873,7 +4883,7 @@ export class OwnerApi {
     if (provider.key === 'required' && !typed && !keep) {
       throw new PalugadaError('contract.violation', `${provider.name} needs a key`, { field: 'key' });
     }
-    const binding: ToolBinding<SearchProvider | ExtractProvider | ImageProvider | SpeechProvider | ListenProvider> = {
+    const binding: ToolBinding<SearchProvider | ExtractProvider | ImageProvider | SpeechProvider | ListenProvider | EmbedProvider> = {
       provider,
       url,
       key: async () => (typed ?? (keep ? deployment.secrets.resolve(`db://tool-${kind}`) : null)),

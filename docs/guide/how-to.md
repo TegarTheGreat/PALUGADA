@@ -165,6 +165,17 @@ it reads there is shown to it as data, never as instructions. **Archive**
 takes a document out of every search and keeps its text; **Put it back**
 returns it.
 
+**Found by meaning, too.** By default a passage is found by the words it
+shares with the question: "refund policy" does not find a document that
+says "returns and money back". Under **This deployment**, **Tools**,
+**Meaning**, choose a provider (OpenAI, Gemini, Mistral, Voyage, Jina, or
+Ollama on your own machine), press **Test it**, and **Save**. The worker then
+sends each passage to the provider once, in the background, a batch at a
+time; a search then ranks passages by words and meaning together. Choosing
+another model gives every passage its new vector the same way, and until
+then those passages are found by their words. Each passage's text goes to
+the provider you chose, so choose one you would trust with the documents.
+
 ## Write, review and switch on skills
 
 A skill is a written procedure the roles follow: how to answer a refund,

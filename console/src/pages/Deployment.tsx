@@ -70,7 +70,7 @@ interface SettingsView {
 
 const SECTIONS: Array<{ id: DeploymentSection; label: string; hint: string; icon: typeof IconBrain }> = [
   { id: 'model', label: N('Model'), hint: N('What every role thinks with, unless a role is given its own.'), icon: IconBrain },
-  { id: 'tools', label: N('Tools'), hint: N('Where roles search the web, read pages, make pictures and speak: the provider, and its key.'), icon: IconWorldSearch },
+  { id: 'tools', label: N('Tools'), hint: N('Where roles search the web, read pages, make pictures and speak, and what finds documents by meaning: the provider, and its key.'), icon: IconWorldSearch },
   { id: 'channels', label: N('Channels'), hint: N('Where PALUGADA reaches you: Telegram, WhatsApp, your phone, Slack or Discord.'), icon: IconBell },
   { id: 'services', label: N('Services'), hint: N('The services capabilities call: email, DNS, payments, posts, analytics. Connect one here, then give each division that uses it its key on Team.'), icon: IconApi },
   { id: 'mcp', label: N('MCP servers'), hint: N('Tools from other services\' MCP servers: which of them roles may use, and how far each is trusted.'), icon: IconPlug },
@@ -807,7 +807,7 @@ function AgentCard({ agent, reload }: { agent: AgentRow; reload: () => void }) {
   );
 }
 
-type ToolKind = 'search' | 'extract' | 'image' | 'speech' | 'listen';
+type ToolKind = 'search' | 'extract' | 'image' | 'speech' | 'listen' | 'embed';
 
 interface ToolProvider {
   id: string;
@@ -846,6 +846,7 @@ const TOOL_TEXT: Record<ToolKind, { title: string; hint: string }> = {
   image: { title: N('Making pictures'), hint: N('Lets a role draw a picture from a description. It is kept in the company\'s files, and the role\'s draft names it.') },
   speech: { title: N('Speaking'), hint: N('Lets a role turn text into a voice recording, kept in the company\'s files.') },
   listen: { title: N('Listening'), hint: N('Writes down what is said: what you say to the assistant, and recordings in the company\'s files for a role.') },
+  embed: { title: N('Meaning'), hint: N('Finds the company\'s documents by what they mean, not only by the words a question shares with them. Each passage is sent to the provider once, in the background.') },
 };
 
 /** The same words the server sends about each provider, here so that they are translated. */
@@ -883,6 +884,13 @@ const TOOL_ABOUT: Record<string, string> = {
   'listen:deepinfra': N('Whisper, a fraction of a cent'),
   'listen:speaches': N('Whisper on your own machine, OpenAI-compatible'),
   'listen:whisper-cpp': N('Its server, started with --convert so it takes any audio'),
+  'embed:openai': N('text-embedding-3, cheap and good in most languages'),
+  'embed:gemini': N('Gemini embedding; free on its free tier'),
+  'embed:mistral': N('Mistral embed, hosted in Europe'),
+  'embed:voyage': N('Built for search, with a free allowance'),
+  'embed:jina': N('Multilingual, with a free allowance'),
+  'embed:ollama': N('On your own machine: ollama pull nomic-embed-text'),
+  'embed:openai-compatible': N('vLLM, LM Studio, llama.cpp or another server of your own'),
 };
 
 /** What each tool is tried with. */
@@ -892,6 +900,7 @@ const TOOL_PROBE: Record<ToolKind, { label: string; value: string }> = {
   image: { label: N('Try a picture of'), value: N('A lighthouse at dawn, flat illustration') },
   speech: { label: N('Try saying'), value: N('Good morning. Here is what happened overnight.') },
   listen: { label: N('Try it: say a few words'), value: '' },
+  embed: { label: N('Try a sentence'), value: N('What is our refund policy?') },
 };
 
 function ToolSettings() {
@@ -900,7 +909,7 @@ function ToolSettings() {
   if (!view.data) return <Loading rows={5} />;
   return (
     <Stack gap="lg">
-      {(['search', 'extract', 'image', 'speech', 'listen'] as const).map((kind) => (
+      {(['search', 'extract', 'image', 'speech', 'listen', 'embed'] as const).map((kind) => (
         <ToolCard key={kind} kind={kind} state={view.data!.kinds[kind]} providers={view.data!.providers[kind]}
           filesRoot={view.data!.filesRoot} reload={view.reload} />
       ))}
@@ -926,10 +935,11 @@ function ToolCard({ kind, state, providers, filesRoot, reload }: {
     page?: { url: string; title: string | null; excerpt: string };
     media?: { mime: string; bytes: number; dataUrl: string };
     text?: string;
+    dimensions?: number;
   } | null>(null);
   const recorder = useRecorder();
   // Which of the tools has a model to choose; speaking also has a voice.
-  const makesFiles = kind === 'image' || kind === 'speech' || kind === 'listen';
+  const hasModel = kind === 'image' || kind === 'speech' || kind === 'listen' || kind === 'embed';
   const keyKept = state.keySet && state.provider === providerId && key === '';
 
   const options = [
@@ -940,9 +950,9 @@ function ToolCard({ kind, state, providers, filesRoot, reload }: {
 
   const body = () => ({
     provider: providerId, url: url.trim() || undefined, key: key.trim() || undefined,
-    ...(makesFiles ? { model: model.trim() || undefined } : {}), ...(kind === 'speech' ? { voice: voice.trim() || undefined } : {}),
+    ...(hasModel ? { model: model.trim() || undefined } : {}), ...(kind === 'speech' ? { voice: voice.trim() || undefined } : {}),
   });
-  const tried = { search: { query: probe }, extract: { url: probe }, image: { prompt: probe }, speech: { text: probe }, listen: {} }[kind];
+  const tried = { search: { query: probe }, extract: { url: probe }, image: { prompt: probe }, speech: { text: probe }, listen: {}, embed: { text: probe } }[kind];
 
   /** Listening is tried with the owner's own voice: tap to record, tap again to send it. */
   const listenTest = async () => {
@@ -1031,7 +1041,7 @@ function ToolCard({ kind, state, providers, filesRoot, reload }: {
                 autoComplete="off"
               />
             )}
-            {makesFiles && (
+            {hasModel && (
               <Group grow align="flex-start">
                 {provider.defaultModel && (
                   <TextInput label={t('Model')} placeholder={provider.defaultModel} value={model}
@@ -1073,6 +1083,9 @@ function ToolCard({ kind, state, providers, filesRoot, reload }: {
                       <Text size="sm" fw={600}>{result.page.title ?? result.page.url}</Text>
                       <Text size="xs" c="dimmed" lineClamp={4}>{result.page.excerpt}</Text>
                     </>
+                  )}
+                  {result.dimensions !== undefined && (
+                    <Text size="sm">{t('It answered: {n} numbers for that sentence. A passage that means the same will be near it.', { n: String(result.dimensions) })}</Text>
                   )}
                   {result.text !== undefined && (
                     <Text size="sm">{result.text ? `“${result.text}”` : t('It answered, and heard no words.')}</Text>

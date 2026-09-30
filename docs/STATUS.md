@@ -3583,8 +3583,8 @@ the run's own account -- the engine holds it to answering every criterion
 with evidence, and nothing yet judges whether the evidence holds; a run had
 no wall-clock ceiling of its own beyond its deadline and its lease (closed
 in 2.30); documents
-are matched by their words, not their meaning -- pgvector is installed and
-unused -- and a scanned PDF, or any file but Word, PDF and text, reaches them
+are matched by their meaning only when the owner chooses a provider (2.35)
+-- and a scanned PDF, or any file but Word, PDF and text, reaches them
 only as text the owner pastes. Signal and email as owner channels are not
 built (WhatsApp is, in 2.31); Slack and Discord cannot carry buttons, so
 Telegram and WhatsApp are the chats that decide. Subscription
@@ -4126,6 +4126,31 @@ closed". Signal and email as owner channels are still open.
   the adapter's own argv and were killed with SIGKILL, and both containers
   kept running. A third process swept with only one of the two workers
   alive, and removed only the dead worker's container.
+
+## 2.35 Documents found by meaning (F4.2)
+
+- **A search matched words only.** A role asking about the refund policy
+  found nothing in "Returns and money back", and pgvector sat installed and
+  unused.
+- **Meaning is a tool the owner chooses** under **Tools**: OpenAI, Gemini,
+  Mistral, Voyage, Jina, Ollama or any OpenAI-compatible server, all through
+  OpenAI's `/embeddings` request as each one documents it. None was called
+  with a live key here; a local server answering as they do was.
+- **How passages get their meaning (0087).**
+  - The worker gives each company's passages their vectors, one batch a
+    tick, in the background, never while the owner waits for an upload.
+  - Each vector is kept with the model that made it. A search compares
+    only vectors of the model in use, since two models' vectors are not
+    comparable, and a new model means every passage is embedded again.
+- **How a search ranks.** `memory.search` ranks by words and by meaning,
+  fused by reciprocal rank. A passage is found by meaning alone only above a
+  similarity floor, so none is found for merely being the least unlike.
+  A provider that is down leaves the search to words.
+- **Not carried by an export.** A vector is made again by the receiving
+  deployment's provider.
+- **Not yet by meaning.** Memories (their column is fixed at 1536
+  dimensions, from before a provider could be chosen) and the owner's
+  search across companies.
 
 ## 3. Decisions, deviations, and what is unverified
 

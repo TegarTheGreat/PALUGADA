@@ -49,6 +49,7 @@ import { WebhookChatChannel } from './owner/webhook-chat.ts';
 import type { OwnerChannel } from './owner/notify.ts';
 import { AdapterRegistry } from './runtime/protocol.ts';
 import { assembleRuntimes } from './runtime/assemble.ts';
+import { useMeaning } from './knowledge/meaning.ts';
 import type { TaskHandler } from './runtime/in-process.ts';
 import { registerPlatformCapabilities } from './capabilities/platform.ts';
 import { toolBindingsFrom } from './capabilities/tools.ts';
@@ -603,6 +604,9 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     ...(toolBindings.listen ? { listen: toolBindings.listen } : {}),
   });
   notes.push(...toolBindings.notes);
+  // A search for a role's documents reaches the provider through this: the
+  // binding is the deployment's, and the search runs inside a capability.
+  useMeaning(toolBindings.embed ?? null);
   if (!filesRoot) {
     notes.push('files.list is unbound: set PALUGADA_FILES_ROOT to the company\'s files (F8)');
   }
@@ -793,6 +797,8 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // work; without it the worker never distils and never screens, which the
     // note below says out loud.
     ...(llm ? { learning: { llm, model: draftModel } } : {}),
+    // The documents' meaning, from the provider chosen under Tools.
+    ...(toolBindings.embed ? { meaning: toolBindings.embed } : {}),
     // What failed, in lines a log collector reads. A worker whose stage
     // failures went only into a report nobody read looked, from outside,
     // exactly like one with nothing to do.

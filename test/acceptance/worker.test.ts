@@ -834,7 +834,7 @@ test('a tick that only met an unhealthy runtime is not progress (F13.8)', async 
 
 test('a tick that only met an unhealthy runtime sleeps rather than spinning (F13.8)', () => {
   const base = { reclaimed: 0, scheduled: 0, woken: 0, alerts: 0, retained: 0, handedOff: 0,
-    notified: 0, digests: 0, retracted: 0, stranded: 0, escalated: 0, leftovers: 0, distilled: 0, screened: 0, pastDeadline: 0, stopped: false, errors: [] };
+    notified: 0, digests: 0, retracted: 0, stranded: 0, escalated: 0, leftovers: 0, embedded: 0, distilled: 0, screened: 0, pastDeadline: 0, stopped: false, errors: [] };
 
   // The case the loop got wrong: a run happened, and it got nowhere.
   assert.equal(

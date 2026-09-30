@@ -54,6 +54,8 @@ import { evaluateAlerts } from './reporting/alerts.ts';
 import { evaluateCircuitBreakers, evaluateSpendLimit } from './governance/spend-guard.ts';
 import * as inbox from './inbox/inbox.ts';
 import { runRetention } from './retention/retention.ts';
+import { embedBacklog } from './knowledge/meaning.ts';
+import type { EmbedBinding } from './capabilities/embed.ts';
 import { processHandoffs, type HandoffRule } from './engine/handoff.ts';
 import { ownerHandoffRules } from './engine/handoff-rules.ts';
 import {
@@ -78,6 +80,12 @@ import { sleep } from './timers.ts';
 
 export interface WorkerOptions {
   engine: Engine;
+  /**
+   * The deployment's provider of meaning (Tools): each tick gives a batch of
+   * each company's passages their vectors, so its documents are found by
+   * what they mean as well as by their words.
+   */
+  meaning?: EmbedBinding;
   /** Restrict to one company. Omitted means every company that is not frozen. */
   companyId?: string;
   /** How long to wait between ticks when a tick found nothing to do. */
@@ -196,6 +204,8 @@ export interface TickReport {
   escalated: number;
   /** Run containers and the like that dead workers left, removed (`Adapter.sweep`). */
   leftovers: number;
+  /** Passages of the company's documents given their vectors this tick (0087). */
+  embedded: number;
   /** Set when the platform stop is in effect: the tick did nothing else. */
   stopped: boolean;
   errors: Array<{ stage: string; message: string }>;
@@ -259,6 +269,7 @@ function emptyReport(): TickReport {
     stranded: 0,
     escalated: 0,
     leftovers: 0,
+    embedded: 0,
     stopped: false, errors: [],
   };
 }
@@ -508,6 +519,17 @@ export class Worker {
       // incidents and budget alerts this one delivers -- notifying before
       // them would tell the owner about this tick's news on the next tick.
       await this.#notify(report, company, now);
+
+      // One batch of passages a company a tick, so a hundred-page upload is
+      // given its meaning over a minute or two rather than holding one tick
+      // on a provider. A provider that is down costs only this stage: the
+      // documents are still found by their words.
+      const meaning = this.#options.meaning;
+      if (meaning) {
+        await this.#stage(report, 'meaning', async () => {
+          report.embedded += await embedBacklog(company, meaning);
+        });
+      }
 
       // Section 12.3. Deletes, so it goes after everything that reads.
       const interval = this.#options.retentionIntervalMs ?? DEFAULT_RETENTION_INTERVAL_MS;

@@ -30,6 +30,7 @@ import { STAGES, assertStage, loosens, stageOf, type Stage } from '../domain/sta
 import { createSubTask, getTask, transition } from '../engine/tasks.ts';
 import { listTickets, openTicket, readTicket, startTicket } from '../engine/tickets.ts';
 import { searchDocuments } from '../knowledge/documents.ts';
+import { queryMeaning } from '../knowledge/meaning.ts';
 import { containChildResult } from '../engine/containment.ts';
 import { taskCostCents } from '../reporting/cost.ts';
 import { enqueueWake } from '../scheduler/wake.ts';
@@ -100,8 +101,12 @@ export function memorySearchCapability(): Capability<MemorySearchInput, MemorySe
       // (0075), from what this division may read. Each is data -- a
       // contract or a supplier's price list says what it says, and never
       // instructs the run that reads it.
+      // And by meaning, when the deployment has a provider for it: the
+      // query's vector is made before the transaction, which a network call
+      // should not hold open.
+      const meaning = await queryMeaning(input.query);
       const passages = await withTenant(ctx.companyId, (tx) => searchDocuments(tx, {
-        divisionId: ctx.divisionId, query: input.query, limit: 3,
+        divisionId: ctx.divisionId, query: input.query, limit: 3, ...(meaning ? { meaning } : {}),
       }));
 
       return {

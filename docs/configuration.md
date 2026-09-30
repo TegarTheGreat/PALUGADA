@@ -322,6 +322,10 @@ make is a file, written under the company's own directory in
 | `PALUGADA_LISTEN_URL` | Your own server's address, for `speaches` and `whisper-cpp` (start whisper.cpp's server with `--convert`, so it takes the browser's WebM) |
 | `PALUGADA_LISTEN_KEY_REF` | Its key; `speaches` takes one only if yours asks, `whisper-cpp` none |
 | `PALUGADA_LISTEN_MODEL` | A model other than the one each suggests |
+| `PALUGADA_EMBED_PROVIDER` | What finds the company's documents by meaning as well as by words: `openai`, `gemini`, `mistral`, `voyage`, `jina`, or your own `ollama` or `openai-compatible` server |
+| `PALUGADA_EMBED_URL` | Your own server's address, for `ollama` (`http://localhost:11434/v1`) and `openai-compatible` |
+| `PALUGADA_EMBED_KEY_REF` | Its key; `ollama` takes none |
+| `PALUGADA_EMBED_MODEL` | A model other than the one each suggests. Changing it gives every passage a new vector, a batch at a time |
 
 Each call reserves the provider's price for one call before it runs.
 DuckDuckGo is not offered: it has no web-results API, and what other agents

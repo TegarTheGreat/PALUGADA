@@ -21,7 +21,7 @@ import { narrator } from './transcript.ts';
 import { containChildResult, type ChildResult } from './containment.ts';
 import { taskCostCents } from '../reporting/cost.ts';
 import { isTerminal } from '../domain/task.ts';
-import { DEFAULT_PRICE_TABLE, estimateCents, type PriceTable } from './pricing.ts';
+import { DEFAULT_PRICE_TABLE, estimateCents, wholeCents, type PriceTable } from './pricing.ts';
 import { checkUsage } from '../runtime/wire.ts';
 import { reopenFinalTurns, runStep, type StepKind } from './journal.ts';
 import { keepBriefing } from './briefing.ts';
@@ -204,7 +204,14 @@ const PARKING_CODES: ReadonlySet<string> = new Set([
  * of these nothing more reaches the broker, and the task halts on it even if
  * the run goes on to return an output.
  */
-const HALTING_CODES: ReadonlySet<string> = new Set(['capability.verify_failed']);
+const HALTING_CODES: ReadonlySet<string> = new Set([
+  'capability.verify_failed',
+  // Money that is not there is not there on the next try either. A runtime
+  // in another process was shown these as tool errors and went on, and
+  // each try could be another paid look by the guardian, unpaid for (the
+  // review of 3d1cf73); in-process, the agent loop already ends on them.
+  'budget.exceeded', 'budget.reservation_refused', 'spend.paused',
+]);
 
 /**
  * The writes this run tried that failed and that no later call of the same
@@ -1853,15 +1860,4 @@ export class Engine {
       );
     });
   }
-}
-
-/**
- * Cents, rounded up to a whole one. Runtimes report dollars, and dollars
- * times a hundred are not exact in floating point: $0.07 is
- * 7.000000000000001 cents, which rounded straight up was charged as eight
- * (the review of 9d4e2d8 found 573 of 10,000 whole-cent amounts overcharged
- * so). What lies below a millionth of a cent is that error, not a charge.
- */
-function wholeCents(cents: number): number {
-  return Math.ceil(Math.round(cents * 1e6) / 1e6);
 }

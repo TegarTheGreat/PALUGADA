@@ -28,6 +28,7 @@ import { appendEvent } from '../audit/event-log.ts';
 import { ancestryForTask, renderAncestry } from '../domain/goals.ts';
 import { wrapUntrusted } from '../context/builder.ts';
 import * as budget from '../engine/budget.ts';
+import { wholeCents } from '../engine/pricing.ts';
 import { PalugadaError } from '../errors.ts';
 import type { LlmClient, LlmResponse } from '../llm/client.ts';
 
@@ -81,8 +82,14 @@ const JUDGE_WAIT_MS = 30_000;
  * would be the guardian's reference for what the owner wants; they are shown
  * fenced, as data, beneath the nearest request the owner did make.
  */
-async function whatWasAsked(tx: TenantClient, taskId: string): Promise<{ request: string | null; brief: string | null }> {
-  const { rows } = await tx.query<{ goal: unknown; owners: boolean }>(
+async function whatWasAsked(
+  tx: TenantClient,
+  taskId: string,
+  reruns = 0,
+): Promise<{ request: string | null; brief: string | null; known: boolean }> {
+  // A task the owner handed a ticket a run filed is the run's words too; a
+  // rerun is whatever the task it reruns was, which is followed.
+  const { rows } = await tx.query<{ goal: unknown; owners: boolean; rerun_of: string | null }>(
     `WITH RECURSIVE up AS (
        SELECT id, parent_task_id, input, created_by, idempotency_key, 0 AS depth FROM tasks WHERE id = $1
        UNION ALL
@@ -91,17 +98,26 @@ async function whatWasAsked(tx: TenantClient, taskId: string): Promise<{ request
         WHERE up.depth < 64
      )
      SELECT input->'goal' AS goal,
-            created_by IN ('owner', 'scheduler', 'webhook') AND coalesce(idempotency_key, '') NOT LIKE 'rerun:%' AS owners
+            CASE WHEN coalesce(idempotency_key, '') LIKE 'rerun:%' THEN substr(idempotency_key, 7) END AS rerun_of,
+            created_by IN ('owner', 'scheduler', 'webhook')
+              AND coalesce(idempotency_key, '') NOT LIKE 'rerun:%'
+              AND NOT EXISTS (SELECT 1 FROM tickets k
+                               WHERE coalesce(up.idempotency_key, '') LIKE 'ticket:%'
+                                 AND k.id::text = up.input->>'ticketId' AND k.opened_by = 'agent') AS owners
        FROM up ORDER BY depth`,
     [taskId],
   );
   const text = (goal: unknown) => (typeof goal === 'string' && goal.trim() ? goal.trim() : null);
-  const request = rows.find((row) => row.owners);
   const own = rows[0];
-  return {
-    request: request ? text(request.goal) : null,
-    brief: own && !own.owners ? text(own.goal) : null,
-  };
+  const brief = own && !own.owners && !own.rerun_of ? text(own.goal) : null;
+  for (const row of rows) {
+    if (row.owners) return { request: text(row.goal), brief, known: true };
+    if (row.rerun_of && reruns < 8) {
+      const first = await whatWasAsked(tx, row.rerun_of, reruns + 1);
+      return { request: first.request, brief: brief ?? first.brief, known: first.known };
+    }
+  }
+  return { request: null, brief, known: false };
 }
 
 export class Guardian {
@@ -117,12 +133,13 @@ export class Guardian {
   }
 
   async judge(call: GuardedCall): Promise<GuardianVerdict> {
-    const { request, brief, chain } = await withTenant(call.companyId, async (tx) => ({
+    const { request, brief, known, chain } = await withTenant(call.companyId, async (tx) => ({
       ...(await whatWasAsked(tx, call.taskId)),
       chain: await ancestryForTask(tx, call.taskId),
     }));
     const asked = [
-      `What the owner asked for: ${request ?? '(not known: an agent set this work, and the owner\'s own request is not in it)'}`,
+      `What the owner asked for: ${request
+        ?? (known ? '(the owner named no goal for it)' : '(not known: an agent set this work, and the owner\'s own request is not in it)')}`,
       ...(chain.length > 0 ? [`What that is for: ${renderAncestry(chain)}`] : []),
       ...(brief ? [wrapUntrusted('the brief this work was handed, written by an agent rather than the owner', brief)] : []),
       '',
@@ -136,6 +153,8 @@ export class Guardian {
 
     let response: LlmResponse;
     let timer: NodeJS.Timeout | undefined;
+    // Past the wait the request is withdrawn, not left running unpaid for.
+    const withdraw = new AbortController();
     try {
       response = await Promise.race([
         this.#llm.complete({
@@ -143,9 +162,12 @@ export class Guardian {
           system: SYSTEM,
           messages: [{ role: 'user', content: asked }],
           maxTokens: 200,
-        }),
+        }, withdraw.signal),
         new Promise<never>((_, reject) => {
-          timer = setTimeout(() => reject(new Error(`no answer within ${seconds(this.#waitMs)}`)), this.#waitMs);
+          timer = setTimeout(() => {
+            withdraw.abort();
+            reject(new Error(`no answer within ${seconds(this.#waitMs)}`));
+          }, this.#waitMs);
         }),
       ]);
     } catch (error) {
@@ -168,7 +190,7 @@ export class Guardian {
    * is traced at what it cost, and the call it was about is not made.
    */
   async #record(call: GuardedCall, asked: string, response: LlmResponse | null, verdict: GuardianVerdict): Promise<void> {
-    const costCents = response ? Math.ceil(Math.max(0, response.costCents)) : 0;
+    const costCents = response ? wholeCents(Math.max(0, response.costCents)) : 0;
     const refused = await withTenant(call.companyId, async (tx) => {
       let refusedBy: string | null = null;
       if (response) {

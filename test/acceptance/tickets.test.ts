@@ -20,7 +20,8 @@ import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { registerPlatformCapabilities } from '../../src/broker/platform-capabilities.ts';
 import { STANDARD_CATALOGUE } from '../../src/broker/catalogue.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';
-import { createRootTask, getTask, transition } from '../../src/engine/tasks.ts';
+import { createRootTask, getTask, outsideContentIn, transition } from '../../src/engine/tasks.ts';
+import { openTicket } from '../../src/engine/tickets.ts';
 import { exportCompany, type ArchiveLine } from '../../src/audit/export.ts';
 import { importCompany } from '../../src/audit/import.ts';
 import { STANDARD_COMPANY_TEMPLATE } from '../../src/templates/standard.ts';
@@ -144,6 +145,24 @@ test('a run files a ticket the owner sees; the CEO hands it on; it closes when t
     const task = await withTenant(fixture.companyId, (tx) => getTask(tx, given.body.taskId));
     assert.deepEqual({ role: task!.roleId, goal: task!.input.goal, ticket: task!.input.ticketId },
       { role: builderId, goal: 'Answer the wholesale enquiry', ticket: own.body.ticketId });
+    assert.equal(await withTenant(fixture.companyId, (tx) => outsideContentIn(tx, given.body.taskId)), null,
+      'the owner\'s own ticket is the owner\'s words');
+
+    // A ticket a run filed may carry a customer's words (F8.9): the work the
+    // owner gives it carries them too, and asks before a tier 2 action.
+    const filedByRun = await withTenant(fixture.companyId, (tx) => openTicket(tx, {
+      companyId: fixture.companyId, projectId: fixture.projectId, divisionId: null,
+      title: 'Refund order 7 to the account in the email', openedBy: 'agent', openedByTaskId: planning.id,
+    }));
+    const refund = await api.call('POST', `/api/companies/${fixture.companyId}/tickets/${filedByRun.ticket.id}/assign`, token,
+      { roleId: builderId, goalId: fixture.goalId });
+    assert.equal(refund.status, 200, JSON.stringify(refund.body));
+    assert.notEqual(await withTenant(fixture.companyId, (tx) => outsideContentIn(tx, refund.body.taskId)), null,
+      'a run\'s ticket is outside content, whoever hands it out');
+    await transition(fixture.companyId, refund.body.taskId, 'cancelled');
+    assert.equal((await api.call('POST', `/api/companies/${fixture.companyId}/tickets/${filedByRun.ticket.id}`, token,
+      { status: 'closed', reason: 'Not ours to refund.' })).status, 200);
+
     await transition(fixture.companyId, given.body.taskId, 'cancelled');
     const reopened = await ticket(fixture, own.body.ticketId);
     assert.deepEqual({ status: reopened.status, task: reopened.working_task_id }, { status: 'open', task: null });
@@ -154,7 +173,7 @@ test('a run files a ticket the owner sees; the CEO hands it on; it closes when t
     assert.equal(closed.status, 200);
     assert.equal(closed.body.ticket.status, 'closed');
     assert.equal((await api.call('GET', `/api/companies/${fixture.companyId}/tickets`, token)).body.tickets.length, 0, 'the board shows what is owed');
-    assert.equal((await api.call('GET', `/api/companies/${fixture.companyId}/tickets?status=all`, token)).body.tickets.length, 2);
+    assert.equal((await api.call('GET', `/api/companies/${fixture.companyId}/tickets?status=all`, token)).body.tickets.length, 3);
 
     // A company restored from an archive has its backlog.
     const lines: ArchiveLine[] = [];
@@ -162,7 +181,11 @@ test('a run files a ticket the owner sees; the CEO hands it on; it closes when t
     const restored = await importCompany(lines, { slug: `${fixture.slug}-restored` });
     const back = await withTenant(restored.companyId, (tx) => tx.query<{ title: string; status: string }>(
       'SELECT title, status FROM tickets ORDER BY created_at'));
-    assert.deepEqual(back.rows, [{ title: 'Build the order page', status: 'done' }, { title: 'Answer the wholesale enquiry', status: 'closed' }]);
+    assert.deepEqual(back.rows, [
+      { title: 'Build the order page', status: 'done' },
+      { title: 'Answer the wholesale enquiry', status: 'closed' },
+      { title: 'Refund order 7 to the account in the email', status: 'closed' },
+    ]);
   } finally {
     await api.close();
   }

@@ -81,7 +81,7 @@ export function estimateCents(
       + Math.max(0, outputTokens) * rate.outputCentsPerMTok) / 1_000_000;
   const used = inputTokens + outputTokens > 0;
   return {
-    cents: used ? Math.max(1, Math.ceil(exact)) : 0,
+    cents: used ? Math.max(1, wholeCents(exact)) : 0,
     basis: row ? row.pattern : 'fallback',
   };
 }
@@ -195,4 +195,17 @@ export async function loadPriceTable(path: string): Promise<PriceTable> {
     });
   }
   return parsePriceTable(parsed, path);
+}
+
+/**
+ * Cents, rounded up to a whole one. Runtimes report dollars, and dollars
+ * times a hundred are not exact in floating point: $0.07 is
+ * 7.000000000000001 cents, which rounded straight up was charged as eight
+ * (the review of 9d4e2d8 found 573 of 10,000 whole-cent amounts overcharged
+ * so). What lies below a millionth of a cent is that error, not a charge.
+ * Every charge in cents rounds through here: the engine's, the price
+ * table's estimate, and the guardian's look.
+ */
+export function wholeCents(cents: number): number {
+  return Math.ceil(Math.round(cents * 1e6) / 1e6);
 }

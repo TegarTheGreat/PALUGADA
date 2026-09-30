@@ -1216,6 +1216,17 @@ test('an ACP agent whose output cannot be read is stopped at once, and the run s
   assert.equal(outcome.status, 'failed', outcome.reason);
   assert.match(outcome.reason ?? '', /output could not be read: .*without a line break/);
   assert.ok(Date.now() - began < 60_000, 'not left waiting for a deadline two minutes away');
+
+  // Started through a shell, as npx and uvx start one: the shell holds the
+  // same pipes, and the whole group is stopped.
+  const shimmed = await newTask(fixture, { ask: 'say too much, through a shim' }, { attemptMax: 1, deadlineAt: new Date(Date.now() + 120_000) });
+  const shim = runtimeSpecsFrom([{
+    name: 'loud-acp', command: 'bash', args: ['-c', `"${process.execPath}" "${ACP_AGENT}" --huge-line; echo after`], dialect: 'acp',
+  }])[0]!;
+  const again = Date.now();
+  const through = await engineWith(broker, new CliAdapter(shim)).runTask(fixture.companyId, shimmed.id, 'worker');
+  assert.equal(through.status, 'failed', through.reason);
+  assert.ok(Date.now() - again < 60_000, 'a shim does not keep the run waiting either');
 });
 
 test('an ACP run withdrawn before its session opens is never prompted', async () => {
@@ -1255,6 +1266,24 @@ test('an out-of-process run whose call finds every place taken parks, spending n
   const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ attempt: number }>(
     'SELECT attempt FROM tasks WHERE id = $1', [task.id]));
   assert.equal(rows[0]!.attempt, 0, 'waiting is not failing');
+});
+
+test('an out-of-process run whose call the budget cannot pay for halts, as an in-process one does', async () => {
+  const fixture = await createCompany('acp-unfunded');
+  const registry = new CapabilityRegistry();
+  registry.register<{ zone: string }, { records: string[] }>({
+    name: 'dns.read', adapter: 'test:dns', defaultTier: 0, estimatedCostCents: 5,
+    async execute() { return { records: ['a.example.com'] }; },
+  });
+  await registry.sync();
+  await grantCapability(fixture, 'dns.read');
+  await configureRole(fixture, { runtime: 'poor-acp', tools: ['dns.read'] });
+  await withControlPlane((tx) => tx.query(
+    'UPDATE budget_accounts SET money_max_cents = money_spent_cents WHERE id = $1', [fixture.budgetAccountId]));
+  const task = await newTask(fixture, { ask: 'read the zone' });
+  const outcome = await engineWith(new CapabilityBroker(registry), new CliAdapter(acpSpec('poor-acp', ['--call', 'dns__read'])))
+    .runTask(fixture.companyId, task.id, 'worker');
+  assert.deepEqual([outcome.status, outcome.reason], ['halted', 'budget_exhausted']);
 });
 
 /* ---------------------------------------------------------------- cli --- */

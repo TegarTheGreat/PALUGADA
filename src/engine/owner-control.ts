@@ -161,6 +161,14 @@ export async function rerunTask(companyId: string, taskId: string, note?: string
     throw new PalugadaError('contract.violation', `a note is at most ${INSTRUCTION_MAX} characters`, { field: 'note' });
   }
   const key = `rerun:${taskId}`;
+  // F8.9: the new task is a root the owner made, and its chain says nothing
+  // of how the first one began. Its input is the first one's -- a webhook's
+  // event, a brief written after reading an email -- so what the first one
+  // carried, it carries: pressing "do it again" on a send the owner refused
+  // must not send it unasked.
+  const carried = await withTenant(companyId, (tx) => outsideContentIn(tx, taskId));
+  const carries = carried === null ? undefined
+    : { capability: 'the task it reruns', from: carried, rerunOf: taskId };
   const already = await withTenant(companyId, (tx) =>
     tx.query<{ id: string }>('SELECT id FROM tasks WHERE idempotency_key = $1', [key]));
   if (already.rows[0]) return already.rows[0].id;
@@ -174,6 +182,7 @@ export async function rerunTask(companyId: string, taskId: string, note?: string
     input: previous.input,
     createdBy: 'owner',
     idempotencyKey: key,
+    carriesOutside: carries,
     priority: previous.priority,
     detail: `the owner asked for task ${taskId} again`,
   });
@@ -198,22 +207,6 @@ export async function rerunTask(companyId: string, taskId: string, note?: string
       actor: 'owner',
       payload: { rerunTaskId: task.id },
     });
-    // F8.9: the new task is a root the owner made, and its chain says
-    // nothing of how the first one began. Its input is the first one's --
-    // a webhook's event, a brief written after reading an email -- so what
-    // the first one carried, it carries: pressing "do it again" on a send
-    // the owner refused must not send it unasked.
-    const carried = await outsideContentIn(tx, taskId);
-    if (carried !== null && (await outsideContentIn(tx, task.id)) === null) {
-      await appendEvent(tx, {
-        companyId,
-        projectId: task.projectId,
-        taskId: task.id,
-        type: 'content.read_outside',
-        actor: 'engine',
-        payload: { capability: 'the task it reruns', from: carried === 'begun' ? 'begun' : 'read', rerunOf: taskId },
-      });
-    }
   });
   return task.id;
 }

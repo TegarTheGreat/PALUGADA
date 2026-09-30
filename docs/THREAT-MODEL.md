@@ -125,10 +125,11 @@ refer to `docs/PRD.md`.
    brief and the call's description are fenced as data. A failure to judge,
    a provider that does not answer, asks the owner, and a look the budget
    cannot pay for stops the call.
-5b. Taint follows the work to new tasks: a rerun carries what the task it
-   reruns carried, and a sub-task is made carrying its parent's, including
-   what the parent's other sub-tasks read. A yes for a while never covers a
-   call in tainted work, at any tier.
+5b. Taint follows the work to new tasks, in the transaction that makes
+   them: a rerun carries what the task it reruns carried, a sub-task its
+   parent's, including what the parent's other sub-tasks read, and a task
+   the owner makes from a ticket a run filed carries the ticket's words. A
+   yes for a while never covers a call in tainted work, at any tier.
 6. A lesson from tainted work is stored `outside` and shown later as data
    (0071, `keepLessons` in `src/engine/tasks.ts`).
 7. `web.fetch`, vendor and MCP calls refuse private and metadata addresses,

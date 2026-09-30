@@ -163,6 +163,13 @@ export interface CreateTaskInput {
   budgetAccountId?: string;
   /** `webhook`: begun by an inbound trigger, so from outside the company (0054, F8.9). */
   createdBy: 'scheduler' | 'event' | 'agent_run' | 'owner' | 'webhook';
+  /**
+   * F8.9: the task is made from words written outside the company -- a
+   * rerun of tainted work, a ticket a run filed -- and carries them from its
+   * first step. Recorded in the transaction that makes the task, so no
+   * worker can claim it clean in between. The payload says where from.
+   */
+  carriesOutside?: Record<string, unknown> | undefined;
   deadlineAt?: Date | undefined;
   hopMax?: number | undefined;
   attemptMax?: number | undefined;
@@ -302,6 +309,12 @@ export async function createRootTask(input: CreateTaskInput): Promise<TaskRow> {
         { parentTaskId: null, hopDepth: 0, reserveTokens },
       );
       await tx.query('RELEASE SAVEPOINT insert_task');
+      if (input.carriesOutside) {
+        await appendEvent(tx, {
+          companyId: input.companyId, projectId: task.projectId, taskId: task.id,
+          type: 'content.read_outside', actor: 'engine', payload: input.carriesOutside,
+        });
+      }
       return task;
     } catch (error) {
       // Two workers raced for the same occurrence. The unique constraint on

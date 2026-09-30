@@ -46,8 +46,11 @@ const ACP_PROTOCOL_VERSION = 1;
 /** How long the agent has to answer before the prompt: starting, and opening a session. */
 const HANDSHAKE_MS = 60_000;
 
-/** How often the session's cost is reported while it runs. */
-const USAGE_EVERY_MS = 5_000;
+/**
+ * How often the session's cost is reported while it runs. Each report is a
+ * settlement on the ledger; half a minute keeps a long run's record short.
+ */
+const USAGE_EVERY_MS = 30_000;
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -320,7 +323,16 @@ export function acpSession(run: AcpRun): AcpSession {
         // left running, it waits on a pipe nobody empties and the run waits
         // on it, until a deadline if it has one and for ever if not.
         unreadable = error as Error;
-        run.child.kill('SIGKILL');
+        // The whole group: an agent started through a shim (npx, uvx, a
+        // shell) shares its pipes with the shim, and the pipes close only
+        // when every process holding them is gone.
+        const pid = run.child.pid;
+        try {
+          if (pid === undefined) throw new Error('no pid');
+          process.kill(-pid, 'SIGKILL');
+        } catch {
+          run.child.kill('SIGKILL');
+        }
       } finally {
         const code = await run.exit().catch(() => null);
         const detail = run.stderr().trim().split('\n').slice(-3).join(' ').slice(0, 500);
@@ -372,6 +384,9 @@ export function acpSession(run: AcpRun): AcpSession {
       // prompt after it does the whole turn -- spending, and calling tools.
       if (cancelling) {
         answered?.();
+        while (events.length > 0) yield events.shift()!;
+        const spent = usage();
+        if (spent) yield spent;
         yield { type: 'error', message: `${run.name} stopped: the run was withdrawn before it began`, providerFailure: false };
         return;
       }
@@ -421,6 +436,9 @@ export function acpSession(run: AcpRun): AcpSession {
           yield { type: 'error', message: `${run.name} ended the turn as ${JSON.stringify(reason)}, which ACP version 1 does not name`, providerFailure: false };
       }
     } catch (failure) {
+      // What the agent said before it failed -- a cost reported while the
+      // session opened, say -- is handed on first.
+      while (events.length > 0) yield events.shift()!;
       const spent = usage();
       if (spent) yield spent;
       if (failure instanceof PalugadaError) throw failure;

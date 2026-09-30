@@ -4334,7 +4334,12 @@ the code against it found these, and each is now closed with a test.
     that call as it began it, and a kind of its own there still refuses it.
   - *Dollars to cents overcharged.* $0.07 is 7.000000000000001 cents in
     floating point, charged as eight; the engine now ignores what lies
-    below a millionth of a cent, for every runtime.
+    below a millionth of a cent, for every runtime, the price table's
+    estimates and the guardian's looks.
+  - *A second review:* an agent started through a shim shares its pipes
+    with the shim, so the whole process group is stopped; a cost reported
+    before the prompt is charged; and the cost is reported every thirty
+    seconds rather than five, each report being a settlement.
 
 ## 2.43 Calls at once, per capability (F5.7)
 
@@ -4513,6 +4518,19 @@ the code against it found these, and each is now closed with a test.
     stops the call now, as `budget.exceeded`, and is traced at its cost. A
     provider that does not answer in thirty seconds is a doubt, and a call
     withdrawn while it was judged is not made.
+- **A second review, and what it closed.**
+  - *A task the owner handed a ticket a run filed was clean*, though a
+    ticket's words may be a customer's (`ticket.list` reads as outside
+    content). It carries them now, and the guardian fences its goal.
+  - *The rerun's taint was written after the task was made*, in a second
+    transaction a worker could claim the task before. It is written with
+    the task.
+  - *Out of process, a budget refusal was a tool error*: the run went on,
+    and each try could be another paid look by the guardian. It halts the
+    task, as it does in-process.
+  - *A rerun of the owner's own work was shown as an agent's*; the rerun
+    is followed to the task it reruns. The timed-out model request is
+    withdrawn, not left running.
 
 ## 2.46 A whole run in a real container
 

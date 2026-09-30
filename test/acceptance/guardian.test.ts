@@ -311,3 +311,15 @@ test('a sub-task made after another came back from outside content carries it (F
   // One made before anything was read was briefed before it came back.
   assert.equal(await withTenant(fixture.companyId, (tx) => outsideContentIn(tx, early.id)), null);
 });
+
+test('a rerun is judged against what the owner asked for the first time (row 7)', async () => {
+  const llm = new RecordingLlmClient(() => '{"ask": false, "reason": "It opens the order page."}');
+  const { fixture, broker, task } = await company('guardian-rerun', llm);
+  await broker.invoke(context(fixture, task.id, 'read'), 'mailbox.read', { folder: 'inbox' });
+  await transition(fixture.companyId, task.id, 'cancelled');
+  const again = await rerunTask(fixture.companyId, task.id);
+  await transition(fixture.companyId, again, 'running');
+  await broker.invoke(context(fixture, again, 'fetch'), 'page.fetch', { url: 'https://shop.example/orders/7' });
+  assert.equal(llm.callCount, 1, 'the rerun carries what the first one read, so its small calls are judged');
+  assert.match(llm.calls[0]!.messages[0]!.content, /What the owner asked for: answer the customer about their order/);
+});

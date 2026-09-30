@@ -3083,6 +3083,12 @@ export class OwnerApi {
             input: { goal: ticket.title, ...(ticket.body ? { context: ticket.body } : {}), ticketId: ticket.id },
             createdBy: 'owner',
             idempotencyKey: `ticket:${ticket.id}:${ticket.updatedAt.toISOString()}`,
+            // A ticket a run filed may hold a customer's words, which is why
+            // `ticket.list` reads as outside content (F8.9); handed out by the
+            // owner, they are still not the owner's words.
+            ...(ticket.openedBy === 'agent'
+              ? { carriesOutside: { capability: 'the ticket it was given', ticketId: ticket.id } }
+              : {}),
             detail: `the owner gave it ticket ${ticket.id}`,
           });
           await withTenant(companyId, (tx) => startTicket(tx, companyId, ticket.id, assigned.task.id));

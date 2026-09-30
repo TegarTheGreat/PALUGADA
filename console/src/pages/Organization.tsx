@@ -14,16 +14,16 @@ import { notifications } from '@mantine/notifications';
 import {
   IconArrowsRight, IconCalendarTime, IconChartBar, IconCoin, IconCrown, IconFlag, IconFlask, IconHammer, IconHeadset, IconMessageCircle, IconPlus,
   IconRoute, IconLicense, IconSettings, IconShieldCheck, IconSparkles, IconTarget, IconTrendingUp, IconUserCircle, IconUsersGroup, IconWebhook, IconFolders,
-  IconKey, IconExternalLink, IconLogin,
+  IconKey, IconExternalLink, IconLogin, IconPlayerPlay,
 } from '@tabler/icons-react';
 import { useMediaQuery } from '@mantine/hooks';
-import { api, explain } from '../api.ts';
+import { api, ApiError, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { useLoad } from '../hooks.ts';
 import type { Division, Goal, PersonaPreset, PolicyRow, Role, Schedule, Structure } from '../types.ts';
 import { count, dateTime, goalKind, money, relative } from '../format.ts';
 import type { PageProps } from '../App.tsx';
-import { N, t } from '../i18n.ts';
+import { N, t, tp } from '../i18n.ts';
 import { LoadFailed, Loading, PageHeader, Section } from '../components/ui.tsx';
 import { ActionButton, ActionForm } from '../components/ActionForm.tsx';
 import { AssignWork } from '../components/AssignWork.tsx';
@@ -90,7 +90,8 @@ export function Organization({ ctx }: PageProps) {
           <Projects companyId={companyId} structure={structure} changed={view.reload} />
         </Tabs.Panel>
         <Tabs.Panel value="schedules">
-          <Schedules companyId={companyId} structure={structure} schedules={schedules} changed={view.reload} />
+          <Schedules companyId={companyId} structure={structure} schedules={schedules} changed={view.reload}
+            openTask={(taskId) => ctx.open('work', { item: taskId })} />
         </Tabs.Panel>
         <Tabs.Panel value="handoffs">
           <Handoffs companyId={companyId} structure={structure} />
@@ -1256,10 +1257,73 @@ function GoalEditor({ companyId, goal, close, changed }: { companyId: string; go
 
 const ZONES = ['UTC', 'Asia/Jakarta', 'Asia/Makassar', 'Asia/Jayapura', 'Asia/Singapore', 'Europe/London', 'America/New_York', 'America/Los_Angeles'];
 
+/** What a schedule does while its last run is still going (F9.1), as the table says it. */
+const OVERLAP_SAID: Record<Schedule['overlap'], string> = {
+  skip: N('Skips a run while the last one is going'),
+  queue: N('Waits for the last run to finish'),
+  allow: N('Runs beside the last run'),
+};
+
+/** A catch-up window in the largest whole unit it fills: 90 minutes, 3 hours, 2 days. */
+function windowLength(minutes: number): string {
+  if (minutes % 1440 === 0) return tp('{count} day', '{count} days', minutes / 1440);
+  if (minutes % 60 === 0) return tp('{count} hour', '{count} hours', minutes / 60);
+  return tp('{count} minute', '{count} minutes', minutes);
+}
+
+function catchUpSaid(minutes: number | null): string {
+  return minutes === null
+    ? t('Always catches up once')
+    : t('Skips a run more than {late} late', { late: windowLength(minutes) });
+}
+
+/** Why the last run that did not happen did not, so a quiet night is explained rather than guessed at. */
+function skippedSaid(skipped: NonNullable<Schedule['lastSkipped']>): string {
+  const values = { when: dateTime(skipped.occurrence) };
+  return skipped.because === 'overlap'
+    ? tp('Skipped the run at {when}: the last one was still going', 'Skipped {count} runs from {when}: the last one was still going', skipped.occurrences, values)
+    : tp('Missed the run at {when}: too late to be worth running', 'Missed {count} runs from {when}: too late to be worth running', skipped.occurrences, values);
+}
+
 function Schedules({
-  companyId, structure, schedules, changed,
-}: { companyId: string; structure: Structure; schedules: Schedule[]; changed: () => void }) {
+  companyId, structure, schedules, changed, openTask,
+}: { companyId: string; structure: Structure; schedules: Schedule[]; changed: () => void; openTask: (taskId: string) => void }) {
   const [adding, setAdding] = useState(false);
+  // The schedule about to be run now. Every run reserves from the schedule's
+  // budget account, so the press says how much before it spends it.
+  const [running, setRunning] = useState<Schedule | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const runNow = async (schedule: Schedule) => {
+    setBusy(true);
+    try {
+      const answer: { task: { id: string } } = await api('POST', `/api/companies/${companyId}/schedules/${schedule.id}/run`);
+      notifications.show({
+        color: 'teal',
+        title: t('{slug} is running', { slug: schedule.slug }),
+        message: <Anchor size="sm" onClick={() => openTask(answer.task.id)}>{t('Open the task')}</Anchor>,
+      });
+      changed();
+    } catch (failure) {
+      // Its last run has not ended: the refusal names that run, so it is one press away.
+      const live = failure instanceof ApiError && failure.code === 'schedule.still_running'
+        && typeof failure.details.taskId === 'string' ? failure.details.taskId : null;
+      notifications.show({
+        color: live ? 'orange' : 'red',
+        title: t('Run now'),
+        message: live ? (
+          <Stack gap={4}>
+            <Text size="sm">{explain(failure)}</Text>
+            <Anchor size="sm" onClick={() => openTask(live)}>{t('Open the run in progress')}</Anchor>
+          </Stack>
+        ) : explain(failure),
+      });
+    } finally {
+      setBusy(false);
+      setRunning(null);
+    }
+  };
+
   return (
     <Section
       title={t('Schedules')}
@@ -1271,18 +1335,33 @@ function Schedules({
         <Table.ScrollContainer minWidth={640}>
           <Table verticalSpacing="sm" highlightOnHover>
             <Table.Thead>
-              <Table.Tr><Table.Th>{t('Schedule')}</Table.Th><Table.Th>{t('When')}</Table.Th><Table.Th>{t('Role')}</Table.Th><Table.Th>{t('Next')}</Table.Th><Table.Th>{t('State')}</Table.Th></Table.Tr>
+              <Table.Tr><Table.Th>{t('Schedule')}</Table.Th><Table.Th>{t('When')}</Table.Th><Table.Th>{t('Role')}</Table.Th><Table.Th>{t('Next')}</Table.Th><Table.Th>{t('State')}</Table.Th><Table.Th /></Table.Tr>
             </Table.Thead>
             <Table.Tbody>
               {schedules.map((schedule) => (
                 <Table.Tr key={schedule.id}>
-                  <Table.Td><Text size="sm" fw={600}>{schedule.slug}</Text><Text size="xs" c="dimmed">P{schedule.priority}</Text></Table.Td>
+                  <Table.Td>
+                    <Text size="sm" fw={600}>{schedule.slug}</Text>
+                    <Text size="xs" c="dimmed">P{schedule.priority} · {t(OVERLAP_SAID[schedule.overlap])}</Text>
+                    <Text size="xs" c="dimmed">{catchUpSaid(schedule.catchUpMinutes)}</Text>
+                  </Table.Td>
                   <Table.Td><Text size="sm" ff="monospace">{schedule.cron}</Text><Text size="xs" c="dimmed">{schedule.timezone}</Text></Table.Td>
                   <Table.Td><Text size="sm">{schedule.roleSlug}</Text><Text size="xs" c="dimmed">{schedule.divisionName}</Text></Table.Td>
-                  <Table.Td><Text size="sm">{relative(schedule.nextRunAt)}</Text></Table.Td>
+                  <Table.Td>
+                    <Text size="sm">{relative(schedule.nextRunAt)}</Text>
+                    {schedule.lastSkipped && <Text size="xs" c="dimmed">{skippedSaid(schedule.lastSkipped)}</Text>}
+                  </Table.Td>
                   <Table.Td>
                     {schedule.failure ? <Tooltip label={schedule.failure}><Badge color="red" variant="light">{t('Cannot fire')}</Badge></Tooltip>
-                      : schedule.enabled ? <Badge color="teal" variant="light">{t('On')}</Badge> : <Badge color="gray" variant="light">{t('Off')}</Badge>}
+                      : !schedule.enabled ? <Badge color="gray" variant="light">{t('Off')}</Badge>
+                        : schedule.waitingFor
+                          ? <Tooltip label={t('Its last run is still going. This one runs when that one finishes.')}><Badge color="yellow" variant="light">{t('Waiting')}</Badge></Tooltip>
+                          : <Badge color="teal" variant="light">{t('On')}</Badge>}
+                  </Table.Td>
+                  <Table.Td ta="right">
+                    <Button size="compact-xs" variant="light" leftSection={<IconPlayerPlay size={12} />} onClick={() => setRunning(schedule)}>
+                      {t('Run now')}
+                    </Button>
                   </Table.Td>
                 </Table.Tr>
               ))}
@@ -1290,6 +1369,20 @@ function Schedules({
           </Table>
         </Table.ScrollContainer>
       )}
+      <Modal opened={running !== null} onClose={() => { if (!busy) setRunning(null); }} title={t('Run {slug} now', { slug: running?.slug ?? '' })} centered>
+        {running && (
+          <Stack>
+            <Text size="sm">
+              {t('It starts now, as its next occurrence would, and reserves {tokens} tokens from its budget account. Its next run does not move.', { tokens: count(running.reserveTokens) })}
+            </Text>
+            {!running.enabled && <Text size="sm" c="dimmed">{t('It is off: this runs it once and leaves it off.')}</Text>}
+            <Group justify="flex-end">
+              <Button variant="default" disabled={busy} onClick={() => setRunning(null)}>{t('Cancel')}</Button>
+              <Button loading={busy} leftSection={<IconPlayerPlay size={16} />} onClick={() => void runNow(running)}>{t('Run it now')}</Button>
+            </Group>
+          </Stack>
+        )}
+      </Modal>
       <Modal opened={adding} onClose={() => setAdding(false)} title={t('New schedule')} centered size="lg">
         <ActionForm
           fields={[
@@ -1311,16 +1404,36 @@ function Schedules({
             { name: 'priority', label: t('Priority'), type: 'select', initial: '2', options: [
               { value: '0', label: t('P0 · first') }, { value: '1', label: 'P1' }, { value: '2', label: t('P2 · normal') }, { value: '3', label: t('P3 · last') },
             ] },
+            { name: 'overlap', label: t('If the last run is still going'), type: 'select', required: true, initial: 'skip',
+              description: t('A run that takes longer than the gap, or waits for you, would otherwise have a second one beside it.'),
+              options: [
+                { value: 'skip', label: t('Skip this one') },
+                { value: 'queue', label: t('Run it when the last one finishes') },
+                { value: 'allow', label: t('Run both') },
+              ] },
+            // The shortest window is the scheduler's floor (MIN_CATCH_UP_MINUTES):
+            // shorter, and an ordinary busy pass would count as missed.
+            { name: 'catchUpMinutes', label: t('If missed while PALUGADA was down'), type: 'select', required: true, initial: 'always',
+              description: t('A run found later than this is dropped and noted here, so a morning briefing does not arrive in the evening.'),
+              options: [
+                { value: 'always', label: t('Always run it once') },
+                { value: '15', label: t('Skip it if more than 15 minutes late') },
+                { value: '60', label: t('Skip it if more than an hour late') },
+                { value: '180', label: t('Skip it if more than 3 hours late') },
+                { value: '720', label: t('Skip it if more than 12 hours late') },
+                { value: '1440', label: t('Skip it if more than a day late') },
+              ] },
           ]}
           submit={(values) => {
             const role = structure.roles.find((one) => one.id === values.roleId);
-            const { brief, ...rest } = values;
+            const { brief, catchUpMinutes, ...rest } = values;
             return api('POST', `/api/companies/${companyId}/schedules`, {
               ...rest,
               divisionId: role?.divisionId,
               // The standard roles take their work as `goal`.
               input: { goal: brief },
               ...(values.priority === undefined ? {} : { priority: Number(values.priority) }),
+              catchUpMinutes: catchUpMinutes === undefined || catchUpMinutes === 'always' ? null : Number(catchUpMinutes),
             });
           }}
           action={t('Schedule it')}

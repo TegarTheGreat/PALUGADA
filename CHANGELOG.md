@@ -49,6 +49,11 @@ The first version. What it holds, in the order an owner meets it.
 - Done criteria whose evidence may cite a tool call by its step: the
   platform checks it against the journal and shows each criterion as
   verified or only claimed (STATUS 2.56).
+- A schedule no longer starts a second run beside one still going: it
+  skips the occurrence (the default, existing schedules included), waits
+  for the last run to finish, or runs both, as the owner chooses; and a
+  catch-up window drops an occurrence found too late after downtime. The
+  schedules table says which occurrence did not run and why (STATUS 2.59).
 
 ### The owner
 
@@ -64,6 +69,10 @@ The first version. What it holds, in the order an owner meets it.
   model, agent CLIs, tools, channels, services and MCP servers.
 - Export and import of a whole company, and closing one, which erases every
   row of it after a grace period the owner chooses (STATUS 2.38).
+- **Run now** on a schedule: the task its next occurrence would make, at
+  once, with that occurrence left where it was; an off schedule can be tried
+  this way and stays off, and a second press while the run is still going is
+  refused and links to it (STATUS 2.61).
 
 ### Operating it
 

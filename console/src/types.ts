@@ -271,9 +271,19 @@ export interface Schedule {
   roleSlug: string;
   divisionName: string;
   priority: number;
+  /** What each run reserves from its budget account. */
+  reserveTokens: number;
   nextRunAt: string | null;
   lastRunAt: string | null;
   failure: string | null;
+  /** What a due run does while the last one is still going (F9.1). */
+  overlap: 'skip' | 'queue' | 'allow';
+  /** How late a missed run may be and still happen; null always runs one. */
+  catchUpMinutes: number | null;
+  /** The run a queued one is waiting for, while it waits. */
+  waitingFor: string | null;
+  /** The last run that did not happen, and why. */
+  lastSkipped: { occurrence: string; because: 'overlap' | 'late'; occurrences: number; taskId: string | null } | null;
 }
 
 export interface Device {

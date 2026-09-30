@@ -24,6 +24,7 @@ import { TASK_COST_SQL } from '../reporting/cost.ts';
 import { readCursor, writeCursor } from '../inbox/inbox.ts';
 import { weighEvidence, type Weighed } from '../engine/done.ts';
 import { journalOf } from '../engine/journal.ts';
+import type { OverlapPolicy } from '../scheduler/scheduler.ts';
 
 /* -------------------------------------------------------------- structure --- */
 
@@ -702,21 +703,46 @@ export interface ScheduleView {
   roleSlug: string;
   divisionName: string;
   priority: number;
+  /** What each run reserves from its budget account, so running one now can say so first. */
+  reserveTokens: number;
   nextRunAt: Date | null;
   lastRunAt: Date | null;
   /** Why the last occurrence could not fire, while it still cannot. */
   failure: string | null;
+  /** F9.1: what a due occurrence does while an earlier run is live. */
+  overlap: OverlapPolicy;
+  /** F9.1: minutes late past which a missed occurrence is dropped; null runs one catch-up however late. */
+  catchUpMinutes: number | null;
+  /** The live run a queued occurrence is waiting for, while it waits. */
+  waitingFor: string | null;
+  /**
+   * The last occurrence that did not run, and why: `overlap` when it gave way
+   * to a live run (`taskId`), `late` when it fell outside the catch-up window.
+   * `occurrences` is how many that pass dropped, itself included. Kept after
+   * later runs, so a schedule that quietly skipped last night still says so.
+   */
+  lastSkipped: {
+    occurrence: Date;
+    because: 'overlap' | 'late';
+    occurrences: number;
+    taskId: string | null;
+  } | null;
 }
 
 export async function schedulesOf(companyId: string): Promise<ScheduleView[]> {
   return withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
       id: string; slug: string; cron_expression: string; timezone: string; enabled: boolean;
-      role_slug: string; division_name: string; priority: number;
+      role_slug: string; division_name: string; priority: number; reserve_tokens: string;
       next_run_at: Date | null; last_run_at: Date | null; fire_failure: string | null;
+      overlap: OverlapPolicy; catch_up_minutes: number | null; held_by_task_id: string | null;
+      skipped_for: Date | null; skipped_because: 'overlap' | 'late' | null;
+      skipped_count: number | null; skipped_task_id: string | null;
     }>(
       `SELECT s.id, s.slug, s.cron_expression, s.timezone, s.enabled, r.slug AS role_slug,
-              d.name AS division_name, s.priority, s.next_run_at, s.last_run_at, s.fire_failure
+              d.name AS division_name, s.priority, s.reserve_tokens, s.next_run_at, s.last_run_at, s.fire_failure,
+              s.overlap, s.catch_up_minutes, s.held_by_task_id,
+              s.skipped_for, s.skipped_because, s.skipped_count, s.skipped_task_id
          FROM schedules s
          JOIN roles r ON r.id = s.role_id
          JOIN divisions d ON d.id = s.division_id
@@ -731,9 +757,21 @@ export async function schedulesOf(companyId: string): Promise<ScheduleView[]> {
       roleSlug: row.role_slug,
       divisionName: row.division_name,
       priority: row.priority,
+      reserveTokens: Number(row.reserve_tokens),
       nextRunAt: row.next_run_at,
       lastRunAt: row.last_run_at,
       failure: row.fire_failure,
+      overlap: row.overlap,
+      catchUpMinutes: row.catch_up_minutes,
+      waitingFor: row.held_by_task_id,
+      lastSkipped: row.skipped_for && row.skipped_because
+        ? {
+          occurrence: row.skipped_for,
+          because: row.skipped_because,
+          occurrences: row.skipped_count ?? 1,
+          taskId: row.skipped_task_id,
+        }
+        : null,
     }));
   });
 }

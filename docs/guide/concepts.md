@@ -478,6 +478,13 @@ lift its quarantine.
 - A *schedule* starts work for a role on a cron expression, in the
   schedule's own time zone, with a priority. A schedule whose last five runs
   produced the same result asks you whether it is still worth running.
+  While its last run is still going, it skips the next occurrence, waits
+  for the run to finish, or runs beside it, as you choose; skipping is the
+  default. After downtime it runs one catch-up, or, with a catch-up window,
+  drops an occurrence too late to be worth running. Either way the table
+  says which occurrence did not run and why. You can also run one now,
+  once, without moving its next occurrence; not while a task it made is
+  still under way.
 - A *heartbeat* wakes a role every so many minutes to look for work.
 - A *handoff* starts a role's work when another role finishes, with your
   brief and what the first one produced.

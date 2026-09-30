@@ -349,6 +349,31 @@ example. The same occurrence is tried again on every pass until it can be.
 
 **Fix.** Deal with the reason the tooltip names.
 
+### A schedule did not run when it should have, or shows **Waiting**
+
+**Cause.** Under **Next**, the table says which occurrence did not run and
+why. *The last one was still going*: the schedule skips an occurrence while
+a run it started earlier has not finished, which is its default. *Too late
+to be worth running*: PALUGADA found the occurrence later than the
+schedule's catch-up window, usually after it was down. **Waiting** is a
+schedule set to run when the last one finishes, holding for it; a run
+waiting for your approval holds it as long as you do.
+
+**Fix.** Finish, decide or stop the run it gave way to, from **Work**. To
+have occurrences run beside a live one, or always catch up, save the
+schedule again under the same short name with **Run both** or **Always run
+it once**.
+
+### **Run now** says the schedule's last run has not ended
+
+**Cause.** A task this schedule made -- by its clock or by an earlier **Run
+now** -- is still queued, running or waiting for you. A schedule runs one
+task at a time from this button, so a second press does not start the same
+work twice.
+
+**Fix.** Open the run in progress from the notification. Let it finish, or
+cancel it from its task, and press **Run now** again.
+
 ## Models and agent CLIs
 
 ### A role on an agent CLI halts at once, saying the CLI does not know a tier

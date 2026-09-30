@@ -16,7 +16,13 @@ import { N, t } from './i18n.ts';
 import type { PasskeyAssertion } from './passkey.ts';
 
 export class ApiError extends Error {
-  constructor(message: string, readonly status: number, readonly code: string | undefined) {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code: string | undefined,
+    /** What the refusal names -- the task already running, the field that was wrong -- for a page to act on. */
+    readonly details: Record<string, unknown> = {},
+  ) {
     super(message);
   }
 }
@@ -57,6 +63,7 @@ export async function api<T = any>(method: 'GET' | 'POST', path: string, body?: 
       typeof answer.error === 'string' ? answer.error : `HTTP ${response.status}`,
       response.status,
       code,
+      answer.details && typeof answer.details === 'object' ? answer.details as Record<string, unknown> : {},
     );
   }
   return answer as T;
@@ -101,6 +108,7 @@ const EXPLAINED: Record<string, string> = {
   'publisher.invalid_key': N('That is not a valid publisher key.'),
   'capability.unknown': N('No capability by that name is bound on this deployment.'),
   'goal.required': N('Pick the goal this work serves.'),
+  'schedule.still_running': N('This schedule\'s last run has not ended yet. Open it, or run the schedule again once it has.'),
 };
 
 /** What went wrong, in words for the owner. */

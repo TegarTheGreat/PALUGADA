@@ -881,6 +881,43 @@ schedule whose last five runs said the same thing asks you whether it is
 still worth running, and one that cannot fire shows **Cannot fire** with the
 reason.
 
+Two more choices say what happens when a run cannot go at its time:
+
+- **If the last run is still going**: **Skip this one** (the default) lets
+  the occurrence pass and waits for the next; **Run it when the last one
+  finishes** holds it, and the table shows **Waiting** until the last run
+  ends, then it runs once; **Run both** starts a second run beside the
+  first. Skip suits most work: an hourly report whose run takes seventy
+  minutes, or a daily one whose task is waiting for your approval, would
+  otherwise pay twice for the same work.
+- **If missed while PALUGADA was down**: **Always run it once** (the
+  default) runs one catch-up however late PALUGADA comes back; **Skip it if
+  more than … late** drops an occurrence found later than that, so a 07:00
+  briefing does not arrive at 19:00. Late is measured from the most recent
+  occurrence that fell due, so an hourly job back from three hours down at
+  ten past still runs the one from ten minutes ago. The shortest choice is
+  fifteen minutes: a busy deployment can find an occurrence a few minutes
+  after its time, and that is not a missed run. A run held by **Run it when
+  the last one finishes** that waits past this is dropped too.
+
+Under **Next**, the table says when the last run did not happen and why,
+and how many were dropped. Saving a schedule again under the same short name
+replaces it, these two choices included; through the API they are
+`overlap` (`skip`, `queue` or `allow`) and `catchUpMinutes` (15 to 525600,
+or `null`).
+
+To see what a schedule does without waiting for its next occurrence, press
+**Run now** on its row. The dialog says how many tokens the run reserves from
+the schedule's budget account; **Run it now** makes the same task an
+occurrence would -- the same role, project, goal, brief, priority and budget
+account, and for the weekly business review the week read from the company's
+records -- and the notification links to it. The schedule's **Next** does not
+move: the run is extra, not the next occurrence brought forward. A schedule
+that is **Off** can be run this way to try it before you turn it on, and
+stays off. Run now is refused while a task the schedule made has not ended
+(the notification links to that task), in a frozen company, and when the
+goal the schedule serves is closed.
+
 ## Let other services start work: triggers
 
 1. On **Team**, **Triggers**, press **New trigger**.

@@ -228,7 +228,7 @@ export class ClaudeCodeAdapter implements Adapter {
       ...(this.#options.cwd ? { cwd: this.#options.cwd } : {}),
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    }, services.processes);
 
     let stderr = '';
     child.stderr!.setEncoding('utf8');

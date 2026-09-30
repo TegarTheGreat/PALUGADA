@@ -37,6 +37,7 @@ import type { StepKind } from '../engine/journal.ts';
 import type { Goal } from '../domain/goals.ts';
 import type { TaskRow } from '../engine/tasks.ts';
 import type { ChildResult } from '../engine/containment.ts';
+import type { TreeLedger } from './process-tree.ts';
 
 export interface ToolDeclaration {
   name: string;
@@ -172,6 +173,13 @@ export interface RunServices {
    * a line never fails the run.
    */
   narrate?(text: string): Promise<void>;
+  /**
+   * Where the process groups a run starts are written down (0095), so that
+   * a worker killed outright leaves a record the next worker on its machine
+   * can act on (`TreeLedger`). Optional: a runtime that starts no process
+   * never needs it, and a caller with nowhere to keep it leaves it out.
+   */
+  processes?: TreeLedger;
   signal: AbortSignal;
 }
 

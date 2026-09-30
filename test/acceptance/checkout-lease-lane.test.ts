@@ -489,10 +489,15 @@ test('a run waiting within its deadline keeps its lease (F5.12)', async () => {
     reserveTokens: 1_000,
     deadlineAt: new Date(Date.now() + 30_000),
   });
+  // Three leases long, so it is kept only by renewing. A lease of a second
+  // rather than less: the keeper gives a run up when no renewal has succeeded
+  // for a whole lease (STATUS 2.50), and with 400 ms one renewal slowed past
+  // two thirds of it by a busy CI runner looked, correctly, like a lease that
+  // might have lapsed.
   const engine = engineWith(async (ctx) => {
-    await ctx.step('one long thing', 'internal', {}, () => pause(1_500));
+    await ctx.step('one long thing', 'internal', {}, () => pause(3_000));
     return {};
-  }, { leaseMs: 400 });
+  }, { leaseMs: 1_000 });
 
   const replica = otherReplica(fixture.companyId);
   const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');

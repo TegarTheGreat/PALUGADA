@@ -445,12 +445,27 @@ export interface Deliverable {
   at: string | null;
 }
 
+/**
+ * How a run said it met one done criterion, and whether the platform could
+ * check it: `verified` when the evidence cites a tool call of the task that
+ * succeeded (`step:<n>`), `claimed` when it is the run's word alone.
+ */
+export interface DoneReportEntry {
+  criterion: string;
+  met: boolean;
+  evidence: string;
+  check: 'verified' | 'claimed';
+  steps: Array<{ step: number; capability: string }>;
+}
+
 /** One task with what it produced (`GET /tasks/:taskId`). */
 export interface TaskDetail {
   id: string;
   status: string;
   input: unknown;
   output: unknown;
+  /** The run's report on its done criteria, weighed against its journal; null when it made none. */
+  done: DoneReportEntry[] | null;
   deliverables: Deliverable[];
   /** The owner's last word on it, or null. */
   feedback: { verdict: 'good' | 'needs_work'; note: string | null; at: string } | null;

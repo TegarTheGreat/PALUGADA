@@ -27,6 +27,7 @@
  */
 import { PalugadaError } from '../errors.ts';
 import { wrapUntrusted } from '../context/builder.ts';
+import { citeStep } from '../engine/done.ts';
 import { renderSystem, renderTask, toWireRequest } from './wire.ts';
 import { toolsForModel } from './tool-names.ts';
 import type { LlmBlock, ToolUsingLlmClient } from '../llm/client.ts';
@@ -215,13 +216,16 @@ async function answer(
     };
   }
   try {
-    const output = await services.callTool<unknown, unknown>(name, call.input ?? {});
+    const placed: { step?: number } = {};
+    const output = await services.callTool<unknown, unknown>(name, call.input ?? {}, (step) => { placed.step = step; });
     // What a tool returns is data from wherever the tool reached -- a web
     // page, an inbox, another company's API -- and it is shown to the model
-    // as data, never as instructions (F8.9).
+    // as data, never as instructions (F8.9). Which step it is, is the
+    // platform's word, so it goes after the fence.
+    const shown = bounded(wrapUntrusted(`tool ${name}`, JSON.stringify(output ?? null)));
     return {
       type: 'tool_result', toolUseId: call.id,
-      content: bounded(wrapUntrusted(`tool ${name}`, JSON.stringify(output ?? null))),
+      content: placed.step === undefined ? shown : `${shown}\n${citeStep(placed.step)}`,
     };
   } catch (error) {
     if (services.signal.aborted) throw error;

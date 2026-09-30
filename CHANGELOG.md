@@ -36,6 +36,9 @@ The first version. What it holds, in the order an owner meets it.
   (STATUS 2.35).
 - Capabilities from vendor files, MCP servers (Composio, Pipedream, Arcade,
   Smithery and Zapier by name) and the platform's own, each at a tier.
+- Done criteria whose evidence may cite a tool call by its step: the
+  platform checks it against the journal and shows each criterion as
+  verified or only claimed (STATUS 2.56).
 
 ### The owner
 

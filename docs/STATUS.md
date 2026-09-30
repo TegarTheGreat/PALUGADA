@@ -4685,6 +4685,71 @@ either platform in this environment was not allowed, so neither ran it.
   template catalogue can list PALUGADA: both take an image, not a build.
   Coolify's official templates also need a thousand GitHub stars.
 
+## 2.56 Evidence the platform can check (from Auto-Company)
+
+Read from Auto-Company's source on 2026-09-30: its check runner is the
+program's, so a test's exit status, counts and hashes are recorded by the
+program and a report cannot invent them.
+
+- **Here, the evidence was the run's word.** `checkDone` read only the
+  output: a criterion was met when the run said `"met": true` and wrote
+  anything at all as evidence. Its own comment said so ("what this checks is
+  the run's own account, not the world"), and nothing in it opened the
+  journal. The journal already held what Auto-Company's runner records:
+  every tool call a run makes is a step, committed with its output or
+  failed with its error.
+- **Evidence may cite a step, `step:<n>`, and `checkDone` holds it to the
+  journal** (`engine/done.ts`, `weighEvidence`; the journal read is
+  `journalOf` in `engine/journal.ts`). A citation of a tool call this task
+  made that committed makes the criterion **verified**. A citation of a
+  step that failed, never finished, or that this task's journal does not
+  have -- another task's step of the same number included, since the
+  journal read is this task's alone -- fails the criterion like one not
+  met, and the retry is told which step and why. Evidence that cites
+  nothing, or only the model's own turn, is **claimed**: it passes as it
+  always did. Failing rather than leaving a false citation claimed is the
+  point: a run that names the CRM write that failed as proof the note was
+  written (the chaos run of 2026-09-29) would otherwise reach the owner
+  looking like any honest claim.
+- **A run is told which step each call is.** The step index is handed back
+  as the call is placed (`callTool`'s `journalled`), and written after each
+  result, outside the fence around what the tool returned: by the agent
+  loop, by the tool bridge an agent CLI reaches, and as `step` on the
+  wire's `tool_result`. A failed call is shown as refused, with no step to
+  cite. The done instruction says evidence may cite `step:<n>` and that the
+  platform checks it.
+- **The owner sees which.** The task detail (`taskDetailOf`) carries the
+  report weighed against the journal when it is read, rather than a copy
+  kept at completion: tool steps keep their name and status as long as the
+  task is kept (retention scrubs only a model's replies), so the answer is
+  the one the engine gave. **Work**, a task, **Done means** shows a
+  **Verified** or **Claimed** badge beside each met criterion, with a
+  tooltip saying what each means and which steps were checked.
+- **The platform charter says it too.** A new rule 3: a summary says what
+  was done and what is still unproven; "ready for review" is not
+  "accepted"; a test result, a number or a date is given as a finding only
+  if a tool call in this task produced it. The default is published only
+  where there is none, so an owner's charter is never replaced; a platform
+  charter still word for word the earlier default, as the platform wrote
+  it, is given the new one as its next version (`EARLIER_PLATFORM_CHARTERS`).
+  The same words put back by the owner, or taken from a file, are theirs.
+- **Tested.** `done-criteria.test.ts`: a run through the agent loop cites
+  the dns.read it made, is shown `step:1` after the result, completes, and
+  the owner's task detail has that criterion verified with its step and the
+  other claimed; a run whose call failed cites it, then a step only another
+  task of the company has, then one no task has, and each attempt fails
+  with the step and the reason, the retry told why; and directly, a model
+  turn alone is claimed, a step that never finished and one missing beside
+  one that holds are refused. `charter-context.test.ts`: the rule is in the
+  default, an earlier default is brought up once, and the owner's copy of
+  the same words is left alone.
+- **Not done.** A verified criterion shows that a call succeeded, not that
+  it shows what the criterion asks: a run can cite a dns.read for "the
+  invoice was sent". Judging that is still the reviewer's or the owner's.
+  And the platform does not yet run checks of its own, as Auto-Company's
+  runner does; a role whose criteria need a test run cites the tool call
+  that ran it.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

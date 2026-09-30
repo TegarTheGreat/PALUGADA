@@ -22,6 +22,8 @@ import { TERMINAL_STATUSES, type TaskStatus } from '../domain/task.ts';
 import { LOW_CONFIDENCE } from '../context/builder.ts';
 import { TASK_COST_SQL } from '../reporting/cost.ts';
 import { readCursor, writeCursor } from '../inbox/inbox.ts';
+import { weighEvidence, type Weighed } from '../engine/done.ts';
+import { journalOf } from '../engine/journal.ts';
 
 /* -------------------------------------------------------------- structure --- */
 
@@ -476,11 +478,27 @@ export interface Deliverable {
   at: Date | null;
 }
 
+/**
+ * One entry of a run's report on its done criteria, as it wrote it, and what
+ * the journal makes of its evidence (engine/done.ts).
+ */
+export interface DoneReportEntry {
+  criterion: string;
+  met: boolean;
+  evidence: string;
+  /** `verified`: it cites a tool call this task made that succeeded. `claimed`: the run's word. */
+  check: Weighed['check'];
+  /** The succeeded tool calls it cites. */
+  steps: Weighed['steps'];
+}
+
 export interface TaskDetail {
   id: string;
   status: TaskStatus;
   input: unknown;
   output: unknown;
+  /** The run's report on its done criteria, weighed against the journal; null when it made none. */
+  done: DoneReportEntry[] | null;
   deliverables: Deliverable[];
   /** The owner's last word on it (`giveFeedback`), or null. */
   feedback: { verdict: 'good' | 'needs_work'; note: string | null; at: Date } | null;
@@ -532,6 +550,19 @@ export async function taskDetailOf(companyId: string, taskId: string): Promise<T
     // Field by field rather than `redactDeep` over the whole answer, which
     // would turn each `Date` into an empty object.
     const text = (value: unknown) => (typeof value === 'string' ? redactor.redact(value) : null);
+    // Weighed when read, against the journal the engine held it to at the
+    // end of the run: tool steps keep their status and name for as long as
+    // the task is kept (retention scrubs only a model's replies), so the
+    // answer is the same one, and nothing is stored twice.
+    const report = task.output && typeof task.output === 'object' ? (task.output as { done?: unknown }).done : undefined;
+    const entries = (Array.isArray(report) ? report : []).filter((entry): entry is Record<string, unknown> =>
+      typeof entry === 'object' && entry !== null && typeof (entry as Record<string, unknown>).criterion === 'string');
+    const journal = entries.length > 0 ? await journalOf(tx, taskId) : [];
+    const done = entries.map((entry): DoneReportEntry => {
+      const evidence = typeof entry.evidence === 'string' ? entry.evidence : '';
+      const { check, steps: cited } = weighEvidence(evidence, journal);
+      return { criterion: text(entry.criterion)!, met: entry.met === true, evidence: text(evidence)!, check, steps: cited };
+    });
     return {
       id: task.id,
       status: task.status,
@@ -540,6 +571,7 @@ export async function taskDetailOf(companyId: string, taskId: string): Promise<T
         : null,
       input: redactor.redactDeep(task.input),
       output: redactor.redactDeep(task.output),
+      done: done.length > 0 ? done : null,
       deliverables: steps.map((step) => ({
         step: step.step_index,
         capability: step.name.replace(/^capability:/, ''),

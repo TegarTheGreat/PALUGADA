@@ -24,6 +24,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { PalugadaError } from '../errors.ts';
 import { wrapUntrusted } from '../context/builder.ts';
+import { citeStep } from '../engine/done.ts';
 import { toolsForModel } from './tool-names.ts';
 import type { RunServices, ToolDeclaration } from './protocol.ts';
 
@@ -146,14 +147,19 @@ export async function startToolBridge(
 
       calls.push({ name, input: params.arguments });
       try {
-        const output = await services.callTool(name, params.arguments);
+        // Told per call rather than read afterwards: a CLI may call two
+        // tools at once, and each result must name its own step.
+        const placed: { step?: number } = {};
+        const output = await services.callTool(name, params.arguments, (step) => { placed.step = step; });
+        const shown = wrapUntrusted(`tool ${name}`, JSON.stringify(output ?? null));
         return {
           jsonrpc: '2.0',
           id,
           result: {
             // Data from wherever the capability reached, never instructions
-            // (F8.9): the same envelope the platform's own loop uses.
-            content: [{ type: 'text', text: wrapUntrusted(`tool ${name}`, JSON.stringify(output ?? null)) }],
+            // (F8.9): the same envelope the platform's own loop uses, and
+            // after it, in the platform's words, the step a run cites.
+            content: [{ type: 'text', text: placed.step === undefined ? shown : `${shown}\n${citeStep(placed.step)}` }],
             isError: false,
           },
         };

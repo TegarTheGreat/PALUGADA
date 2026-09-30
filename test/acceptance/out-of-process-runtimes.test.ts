@@ -235,6 +235,9 @@ test("a runtime's tool call is resolved by the broker and answered (F13.4)", asy
       type: 'tool_result',
       id: 'call-1',
       output: { records: ['a.example.com'] },
+      // The step the journal keeps the call as, which the run's done report
+      // may cite (engine/done.ts): the run's first, as it made no other.
+      step: 0,
     },
     done: ECHOED,
   });
@@ -1355,7 +1358,11 @@ test('an agent CLI is employed from a configuration entry alone (F13.3)', async 
   // The answer, inside the envelope that says it is data (F8.9).
   const text = String(output.tool.text);
   assert.match(text, /^<<<UNTRUSTED_CONTENT>>> source="tool dns\.read"/);
-  assert.deepEqual(JSON.parse(text.split('\n').at(-2)!), { records: ['a.example.com'] });
+  const lines = text.split('\n');
+  assert.deepEqual(JSON.parse(lines.at(-3)!), { records: ['a.example.com'] });
+  // After the fence, in the platform's words, the step a done report cites.
+  assert.equal(lines.at(-2), '<<<UNTRUSTED_CONTENT>>>');
+  assert.match(lines.at(-1)!, /^This call is step:0 of your task; evidence may cite it as step:0\.$/);
   // The role's model reached the command line through the placeholder.
   assert.equal(output.model, 'test-model');
 

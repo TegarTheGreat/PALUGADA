@@ -320,8 +320,9 @@ async function handleToolCall(
   transport: Transport,
 ): Promise<void> {
   try {
-    const output = await services.callTool(event.name, event.args);
-    await transport.send({ type: 'tool_result', id: event.id, output });
+    const placed: { step?: number } = {};
+    const output = await services.callTool(event.name, event.args, (step) => { placed.step = step; });
+    await transport.send({ type: 'tool_result', id: event.id, output, ...placed });
   } catch (error) {
     if (error instanceof PalugadaError) {
       await transport.send({

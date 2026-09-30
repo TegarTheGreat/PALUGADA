@@ -510,7 +510,12 @@ only the ones you allow, at the tier you choose.
    tier, like any other server's: breadth, not trust.
 
    Apify, Hugging Face, Context7, Firecrawl, Tavily, Exa and Browserbase take
-   a key; Playwright is run on a machine of yours. For any other server,
+   a key; Playwright is run on a machine of yours. Coolify takes a token, at
+   your own instance's address in place of `{coolify-host}`; Dokploy's
+   server is run by you, and lets in whoever reaches it, so it goes where
+   only this deployment can. Both let roles see and deploy what runs there:
+   [Coolify and Dokploy](coolify-dokploy.md#letting-a-company-see-and-deploy-what-runs-there)
+   says how, and why a deploy should wait for you. For any other server,
    leave **Start from** empty and give a **Name** -- lowercase, such as
    `payments`; each tool becomes `mcp.payments.<tool>` -- and its
    **Address**. Paste the **Token** if the server asks for one: it is sealed

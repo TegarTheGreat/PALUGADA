@@ -36,7 +36,10 @@ export interface McpPreset {
   tokenIn?: TokenIn;
   key: 'required' | 'optional' | 'none';
   keyUrl?: string;
-  /** Which kind of key, when the vendor offers several and only one works. */
+  /**
+   * Which kind of key, when the vendor offers several and only one works, and
+   * what else it takes to make one that works.
+   */
   keyHint?: string;
   /** How the owner signs in instead of pasting a key, when they can. */
   signIn?: 'registers' | 'client';
@@ -44,6 +47,11 @@ export interface McpPreset {
   clientUrl?: string;
   /** For a server the owner runs: the command that starts it. */
   run?: string;
+  /**
+   * For a server the owner runs: where to run it, when the server itself
+   * does not keep out whoever else can reach it.
+   */
+  runHint?: string;
 }
 
 export const MCP_PRESETS: readonly McpPreset[] = [
@@ -131,6 +139,21 @@ export const MCP_PRESETS: readonly McpPreset[] = [
     key: 'optional', keyUrl: 'https://neon.com/docs/manage/api-keys', signIn: 'registers',
   },
   {
+    // Coolify serves MCP itself, on the owner's own instance, so the host is
+    // theirs to complete. Read in Coolify's source (main at 284aded,
+    // 2026-09-30): routes/ai.php mounts CoolifyServer at /mcp behind
+    // auth:sanctum, a bearer token; it answers 404 until an administrator
+    // turns it on in Settings, Advanced, and 403 for a team that turned it
+    // off. It lists 45 tools: reading, and with a token's deploy permission
+    // deploy, cancel_deployment and control (start, stop, restart). Nothing
+    // creates or deletes. None of the 45 carries an annotation, so none says
+    // it only reads, and none can be tier 0 here. Coolify Cloud, asked
+    // without a real token, answered 401 with `Bearer realm="mcp"`.
+    id: 'coolify', name: 'Coolify', about: 'Read, deploy and restart what runs on your Coolify',
+    url: 'https://{coolify-host}/mcp', key: 'required', keyUrl: 'https://coolify.io/docs/api-reference/authorization',
+    keyHint: 'An API token from Keys & Tokens, API Tokens, with read, and deploy only if roles should deploy. An administrator turns the MCP server on first, under Settings, Advanced.',
+  },
+  {
     id: 'zapier', name: 'Zapier', about: 'Other apps, through the actions you set up in Zapier', url: 'https://mcp.zapier.com/api/v1/connect',
     key: 'optional', keyUrl: 'https://mcp.zapier.com', signIn: 'registers',
   },
@@ -191,5 +214,20 @@ export const MCP_PRESETS: readonly McpPreset[] = [
     // navigation read back in the same session.
     id: 'playwright', name: 'Playwright', about: 'A real browser, on a machine of yours', url: 'http://localhost:8931/mcp',
     key: 'none', run: 'npx @playwright/mcp@0.0.82 --port 8931 --headless',
+  },
+  {
+    // Dokploy's own server is a package the owner runs; it speaks stdio
+    // unless started with --http. Read in 0.30.7 and run here with a made-up
+    // key: the port is 3000, fixed in its code; it listens on every interface
+    // and takes no address to listen on; and it asks nothing of whoever
+    // reaches it, checking neither a token nor the Host or Origin, while it
+    // acts with the Dokploy key it was started with. PALUGADA's own client
+    // listed 604 tools from it, 119 with the deploy tool preset, whose tools
+    // do carry annotations: 47 only read, 7 are destructive.
+    id: 'dokploy', name: 'Dokploy', about: 'Projects, applications and deployments on your Dokploy',
+    url: 'http://localhost:3000/mcp', key: 'none',
+    keyHint: 'A Dokploy API key, from Settings, Profile, API/CLI Keys, made by a user with only the permissions roles need. It goes in the command, not here.',
+    run: 'DOKPLOY_URL=https://{dokploy-host} DOKPLOY_API_KEY={api-key} DOKPLOY_TOOL_PRESET=deploy npx @dokploy/mcp@0.30.7 --http',
+    runHint: 'It lets in whoever reaches it, acting with your Dokploy key, and listens on port 3000 of every network it is on: it cannot be told otherwise. Run it where only this deployment can reach it.',
   },
 ];

@@ -313,7 +313,15 @@ authority below tier 3.
   `src/settings/agents.ts`). Residual: no integrity pin beyond the version,
   install scripts run, dependencies float. Hermes installs from a shell script.
 - **npm.** Three runtime dependencies (`ajv`, `cron-parser`, `pg`) from the
-  lockfile with `npm ci`. Residual: no audit step in CI; base images by tag.
+  lockfile with `npm ci`. CI audits the platform's and the console's
+  production dependencies and fails on a high or critical advisory
+  (`.github/workflows/ci.yml`, job `audit`).
+- **The image and CI.** The Dockerfile's base is pinned by digest, and CI's
+  actions by commit; Dependabot proposes the next of each, and of the npm
+  lockfiles, weekly (`.github/dependabot.yml`). Residual: a moderate
+  advisory passes the audit; `pgvector/pgvector:pg16` in the compose files
+  and `deploy/container-check`'s base are still by tag; and a pin is only as
+  good as the review of the pull request that moves it.
 
 ### 2.9 The operator's own mistakes
 

@@ -78,12 +78,16 @@ export class OwnerSessions {
    * the cheaper door should be the weaker one.
    */
   async signIn(
-    proof: { totp: string } | { webauthn: WebAuthnAssertion },
+    proof: { totp: string } | { webauthn: WebAuthnAssertion } | { recovery: string },
   ): Promise<OwnerSession> {
+    // A recovery code signs in like a device, and the session says so: the
+    // console then asks for a new device, and a code still approves nothing.
     const factor =
       'totp' in proof
         ? await this.#mfa.verifyTotp(proof.totp, { purpose: 'owner.sign_in' })
-        : await this.#mfa.verifyWebAuthn(proof.webauthn, { purpose: 'owner.sign_in' });
+        : 'recovery' in proof
+          ? await this.#mfa.verifyRecoveryCode(proof.recovery, { purpose: 'owner.sign_in' })
+          : await this.#mfa.verifyWebAuthn(proof.webauthn, { purpose: 'owner.sign_in' });
 
     const issuedAt = this.#now();
     const session: OwnerSession = {

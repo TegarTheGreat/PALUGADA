@@ -181,6 +181,11 @@ authenticator app. Type it and press **Sign in**. A few things to know:
   offer **Use a passkey**. A browser makes passkeys only over HTTPS or on
   `localhost`, and only at the address in `PALUGADA_APP_URL_PUBLIC`: the
   console says where when it is opened anywhere else.
+- Make recovery codes under **Settings**, **Security**, **Recovery codes**,
+  and write them down or save the file somewhere that is not this phone.
+  If the phone is lost, **Lost your phone? Use a recovery code** on the
+  sign-in page lets you in once per code, to add a passkey and take the
+  lost phone off. A code approves nothing.
 - The first time you sign in, the console offers a tour of itself. You can
   skip it and take it later from the menu under **Owner**.
 - The language switch on the sign-in page (EN or ID) applies to this visit.

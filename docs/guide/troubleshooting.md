@@ -189,8 +189,16 @@ signed it in was revoked.
 
 ### A lost phone
 
-**Fix.** If you kept the key the setup showed you, add it to an
-authenticator app on the new phone and carry on. If you did not, the
+**Fix.** With recovery codes: on the sign-in page press **Lost your
+phone? Use a recovery code** and type one. The console says you signed in
+with a recovery code. Under **Settings**, **Security**, add a passkey on the
+device you are using, confirming with a second code, then revoke the lost
+phone, confirming with the passkey or a third. Each code works once; make a
+new set when few are left. A code cannot approve anything, so a tier 3
+approval waits for the passkey.
+
+Without recovery codes: if you kept the key the setup showed you, add it
+to an authenticator app on the new phone and carry on. If you did not, the
 operator makes a new secret with `npm run totp:new` and puts it where
 `PALUGADA_OWNER_TOTP_REF` points, replacing the old value, then restarts:
 the old phone's codes stop working because the secret behind them has

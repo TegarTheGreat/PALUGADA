@@ -62,8 +62,12 @@ export async function api<T = any>(method: 'GET' | 'POST', path: string, body?: 
   return answer as T;
 }
 
-/** A second factor, as the API takes it: a code, or a passkey's signature. */
-export type Proof = { totp: string } | { webauthn: PasskeyAssertion };
+/**
+ * A second factor, as the API takes it: a code, a passkey's signature, or one
+ * of the owner's recovery codes -- which the API takes only to sign in and to
+ * put a new device in a lost one's place.
+ */
+export type Proof = { totp: string } | { webauthn: PasskeyAssertion } | { recovery: string };
 
 /**
  * The refusals an owner meets in the console, in their language. Anything not

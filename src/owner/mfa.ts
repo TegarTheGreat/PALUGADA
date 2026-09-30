@@ -49,7 +49,22 @@ import { PASSKEY_ALGORITHMS, parseAttestation } from './passkey.ts';
 import { withControlPlane, type TenantClient } from '../db/tenant.ts';
 import { redactor, type SecretManager } from '../secrets/manager.ts';
 
-export type FactorKind = 'totp' | 'webauthn';
+export type FactorKind = 'totp' | 'webauthn' | 'recovery';
+
+/**
+ * What a recovery code may be presented for: getting back in, and putting a
+ * device in the lost one's place. Nothing that approves or loosens a rule --
+ * a code is paper in a drawer, weaker than a phone behind a fingerprint.
+ */
+export const RECOVERY_PURPOSES: readonly string[] = [
+  'owner.sign_in',
+  'console.add a passkey',
+  'console.revoke an authenticator',
+  'console.make new recovery codes',
+];
+
+/** How many codes one set holds. */
+export const RECOVERY_CODES = 10;
 
 export interface OwnerAuthenticator {
   id: string;
@@ -559,6 +574,86 @@ export class OwnerMfa {
   }
 
   /**
+   * Makes the owner a new set of recovery codes, and ends the old set.
+   *
+   * Ten codes of sixteen base32 characters: eighty random bits each, so the
+   * SHA-256 kept in their place is beyond guessing from a backup, as a
+   * session token's is. Returned once, to be written down; nothing can show
+   * them again. The old set is revoked in the same transaction, so a sheet
+   * the owner threw away stops working the moment the new one exists, and
+   * the sessions it signed in end with it.
+   */
+  async issueRecoveryCodes(): Promise<string[]> {
+    const codes = Array.from({ length: RECOVERY_CODES }, () =>
+      encodeBase32(randomBytes(10)).toLowerCase().replace(/(.{4})(?!$)/g, '$1-'));
+    await withControlPlane(async (tx) => {
+      await tx.query("SELECT pg_advisory_xact_lock(hashtext('palugada:owner-mfa'))");
+      const { rows: old } = await tx.query<{ id: string }>(
+        `UPDATE owner_authenticators SET revoked_at = now()
+          WHERE kind = 'recovery' AND company_id IS NULL AND revoked_at IS NULL RETURNING id`);
+      if (old.length > 0) {
+        await tx.query('UPDATE owner_sessions SET ended_at = now() WHERE ended_at IS NULL AND authenticator_id = ANY ($1::uuid[])',
+          [old.map((row) => row.id)]);
+      }
+      const { rows } = await tx.query<{ id: string }>(
+        "INSERT INTO owner_authenticators (kind, label) VALUES ('recovery', 'Recovery codes') RETURNING id");
+      for (const code of codes) {
+        await tx.query('INSERT INTO owner_recovery_codes (code_hash, authenticator_id) VALUES ($1, $2)',
+          [recoveryHash(code), rows[0]!.id]);
+      }
+    });
+    return codes;
+  }
+
+  /** How many codes of the live set are left, or null when the owner has none. */
+  async recoveryCodesLeft(): Promise<number | null> {
+    return withControlPlane(async (tx) => {
+      const { rows } = await tx.query<{ left: number }>(
+        `SELECT count(c.code_hash) FILTER (WHERE c.used_at IS NULL)::int AS left
+           FROM owner_authenticators a LEFT JOIN owner_recovery_codes c ON c.authenticator_id = a.id
+          WHERE a.kind = 'recovery' AND a.company_id IS NULL AND a.revoked_at IS NULL
+          GROUP BY a.id`);
+      return rows[0]?.left ?? null;
+    });
+  }
+
+  /**
+   * Checks a recovery code, and spends it.
+   *
+   * Only for what `RECOVERY_PURPOSES` names; anything else is refused before
+   * the code is looked at, so a code offered to approve something is not
+   * spent on the refusal. Typed from paper, so case, spaces and dashes are
+   * forgiven. Not counted by the lockout, like a passkey: eighty bits cannot
+   * be guessed, and counting them would let anyone lock the owner out of the
+   * one way back in by knocking.
+   */
+  async verifyRecoveryCode(code: string, context: VerificationContext = {}): Promise<VerifiedFactor> {
+    if (!RECOVERY_PURPOSES.includes(context.purpose ?? '')) {
+      throw new PalugadaError('approval.channel_forbidden',
+        'a recovery code signs you in and adds a device; it does not approve or change anything else. '
+          + 'Add a passkey with it, then use the passkey (PRD F10.10, F12.5)',
+        { purpose: context.purpose ?? null });
+    }
+    return this.#attempt('recovery', context, async (tx) => {
+      const { rows } = await tx.query<{ authenticator_id: string; used_at: Date | null }>(
+        `SELECT c.authenticator_id, c.used_at
+           FROM owner_recovery_codes c JOIN owner_authenticators a ON a.id = c.authenticator_id
+          WHERE c.code_hash = $1 AND a.revoked_at IS NULL AND a.company_id IS NULL`,
+        [recoveryHash(code)]);
+      const found = rows[0];
+      if (!found) return refused('mfa.code_invalid', 'that is not one of your recovery codes');
+      // Spent by the write, so two presentations at once cannot both pass.
+      const { rowCount } = await tx.query(
+        'UPDATE owner_recovery_codes SET used_at = now() WHERE code_hash = $1 AND used_at IS NULL', [recoveryHash(code)]);
+      if (rowCount !== 1) {
+        return refused('mfa.replayed', 'that recovery code has already been used', {}, found.authenticator_id);
+      }
+      await tx.query('UPDATE owner_authenticators SET last_used_at = now() WHERE id = $1', [found.authenticator_id]);
+      return { factor: { authenticatorId: found.authenticator_id, kind: 'recovery', label: 'Recovery codes' } };
+    });
+  }
+
+  /**
    * Revokes one of the owner's own devices, and never the last.
    *
    * The owner's platform-wide factors are the only way in: without one the
@@ -571,18 +666,22 @@ export class OwnerMfa {
   async revokeOwnDevice(authenticatorId: string): Promise<void> {
     await withControlPlane(async (tx) => {
       await tx.query("SELECT pg_advisory_xact_lock(hashtext('palugada:owner-mfa'))");
-      const { rows } = await tx.query<{ id: string }>(
-        `SELECT id FROM owner_authenticators
+      const { rows } = await tx.query<{ id: string; kind: FactorKind }>(
+        `SELECT id, kind FROM owner_authenticators
           WHERE company_id IS NULL AND revoked_at IS NULL`,
       );
-      if (!rows.some((row) => row.id === authenticatorId)) {
+      const target = rows.find((row) => row.id === authenticatorId);
+      if (!target) {
         throw new PalugadaError(
           'contract.violation',
           'no live authenticator of the owner has that id',
           { authenticatorId },
         );
       }
-      if (rows.length === 1) {
+      // Recovery codes are not a device: they approve nothing, so a phone
+      // with only codes beside it is still the only authenticator.
+      const devices = rows.filter((row) => row.kind !== 'recovery');
+      if (target.kind !== 'recovery' && devices.length === 1) {
         throw new PalugadaError(
           'contract.violation',
           'that is the owner\'s only authenticator: enrol another before revoking it, or '
@@ -1136,6 +1235,11 @@ export class OwnerMfa {
  * appear in a QR code and a log line at the same moment, and the whole of
  * F12.4 is that the second one does not happen.
  */
+/** What is kept in a recovery code's place: the SHA-256 of the code as typed, less case, spaces and dashes. */
+function recoveryHash(code: string): string {
+  return createHash('sha256').update(code.toLowerCase().replace(/[\s-]/g, '')).digest('hex');
+}
+
 export function newTotpSecret(label: string, issuer = 'PALUGADA'): {
   secret: string;
   uri: string;

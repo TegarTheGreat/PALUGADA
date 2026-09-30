@@ -579,6 +579,7 @@ export const NOT_FOR_THE_ASSISTANT: Readonly<Record<string, string>> = {
   '/api/auth/sign-out-everywhere': 'signing out is the owner\'s',
   '/api/mfa/authenticators/:authenticatorId/revoke': 'the owner\'s own second factor is changed only by hand',
   '/api/mfa/passkeys': 'the owner\'s own second factor is changed only by hand',
+  '/api/mfa/recovery-codes': 'recovery codes are shown to the owner once, in Security, and are theirs to write down',
   '/api/channels/telegram': 'Telegram posts here, not a person',
   '/api/channels/whatsapp': 'Meta posts here, not a person',
   '/api/control/mcp/oauth/start': 'signing in to a service is the owner\'s, in their own browser',

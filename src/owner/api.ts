@@ -851,7 +851,12 @@ export class OwnerApi {
           // needed -- this module does not read the tier and does not
           // second-guess the gate, because a second implementation of F10.10
           // is a second thing that can be wrong.
-          const proof = body.proof === undefined ? undefined : proofFrom(body.proof);
+          const presented = body.proof === undefined ? undefined : proofFrom(body.proof);
+          if (presented && 'recovery' in presented) {
+            // Refused by the check that knows what a code may do, and not spent.
+            await this.#options.mfa.verifyRecoveryCode(presented.recovery, { purpose: 'inbox.decide', subjectId: params.itemId! });
+          }
+          const proof = presented && !('recovery' in presented) ? presented : undefined;
 
           await inbox.decide(
             params.companyId!,
@@ -4392,13 +4397,27 @@ export class OwnerApi {
           // list of devices, and the console needs a label and a kind to draw
           // one. Anything more is a detail an owner console has no use for and
           // a compromised browser would.
-          authenticators: (await this.#options.mfa.enrolled()).map((factor) => ({
+          authenticators: await Promise.all((await this.#options.mfa.enrolled()).map(async (factor) => ({
             id: factor.id,
             kind: factor.kind,
             label: factor.label,
-          })),
+            // How many recovery codes are left; never the codes.
+            ...(factor.kind === 'recovery' ? { left: await this.#options.mfa.recoveryCodesLeft() ?? 0 } : {}),
+          }))),
           passkeys: this.#options.mfa.relyingParty,
         }),
+      },
+
+      {
+        // Ten codes to write down, for the day the phone is gone. Shown once;
+        // the old set stops working. With a device, or with a code, since
+        // an owner who used some should be able to make a fresh set.
+        method: 'POST',
+        pattern: '/api/mfa/recovery-codes',
+        handle: async ({ body }) => {
+          await this.#requireFactor(body.proof, 'make new recovery codes');
+          return { codes: await this.#options.mfa.issueRecoveryCodes() };
+        },
       },
 
       {
@@ -4926,6 +4945,8 @@ export class OwnerApi {
     // own platform-scoped device still answers for all of them.
     const asking = { purpose: `console.${purpose}`, subjectId: null, companyId };
     if ('totp' in presented) await this.#options.mfa.verifyTotp(presented.totp, asking);
+    // Taken only for what a code may do (RECOVERY_PURPOSES), and refused for the rest.
+    else if ('recovery' in presented) await this.#options.mfa.verifyRecoveryCode(presented.recovery, asking);
     else await this.#options.mfa.verifyWebAuthn(presented.webauthn, asking);
   }
 
@@ -5508,15 +5529,16 @@ function modelSettingFrom(body: Record<string, unknown>, previous: ModelSetting 
   };
 }
 
-function proofFrom(value: unknown): { totp: string } | { webauthn: WebAuthnAssertion } {
+function proofFrom(value: unknown): { totp: string } | { webauthn: WebAuthnAssertion } | { recovery: string } {
   const body = (value ?? {}) as Record<string, unknown>;
   if (typeof body.totp === 'string') return { totp: body.totp };
   if (body.webauthn && typeof body.webauthn === 'object') {
     return { webauthn: body.webauthn as WebAuthnAssertion };
   }
+  if (typeof body.recovery === 'string' && body.recovery.length <= 64) return { recovery: body.recovery };
   throw new PalugadaError(
     'contract.violation',
-    'a second factor is a totp code or a webauthn assertion',
+    'a second factor is a totp code, a webauthn assertion or a recovery code',
     {},
   );
 }

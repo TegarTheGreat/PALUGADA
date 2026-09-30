@@ -21,7 +21,7 @@
  */
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react';
 import { api, explain } from './api.ts';
-import { Alert, Button, Divider, Group, Modal, PinInput, Stack, Text, ThemeIcon } from '@mantine/core';
+import { Alert, Anchor, Button, Divider, Group, Modal, PinInput, Stack, Text, TextInput, ThemeIcon } from '@mantine/core';
 import { IconFingerprint, IconShieldLock } from '@tabler/icons-react';
 import type { Proof } from './api.ts';
 import { t } from './i18n.ts';
@@ -49,11 +49,16 @@ export function FactorProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [passkey, setPasskey] = useState(false);
+  // A recovery code instead of the phone: what the owner has after losing it.
+  const [recovering, setRecovering] = useState(false);
+  const [recovery, setRecovery] = useState('');
   const settled = useRef(false);
 
   const requireFactor = useCallback((what: string, attempt: Attempt) => new Promise<boolean>((resolve) => {
     settled.current = false;
     setCode('');
+    setRecovery('');
+    setRecovering(false);
     setError(null);
     setPending({ what, attempt, resolve });
     // Asked each time rather than remembered: a passkey added or revoked in
@@ -91,6 +96,19 @@ export function FactorProvider({ children }: { children: ReactNode }) {
       // has been used" and "locked out" are three different next actions.
       setError(explain(failure));
       setCode('');
+      setBusy(false);
+    }
+  };
+
+  const withRecovery = async () => {
+    if (!pending || busy || !recovery.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await pending.attempt({ recovery: recovery.trim() });
+      close(true);
+    } catch (failure) {
+      setError(explain(failure));
       setBusy(false);
     }
   };
@@ -149,12 +167,23 @@ export function FactorProvider({ children }: { children: ReactNode }) {
               </Button>
             </>
           )}
+          {recovering ? (
+            <TextInput w="100%" label={t('Recovery code')} placeholder="abcd-efgh-ijkl-mnop" value={recovery} autoComplete="off"
+              onChange={(event) => setRecovery(event.currentTarget.value)} disabled={busy}
+              description={t('Each code works once. It adds a device or takes a lost one off; it does not approve.')} />
+          ) : (
+            <Anchor component="button" type="button" size="xs" onClick={() => setRecovering(true)}>{t('Lost your phone? Use a recovery code')}</Anchor>
+          )}
           {error && <Alert color="red" variant="light" w="100%">{error}</Alert>}
           <Group justify="flex-end" w="100%" mt="xs">
             <Button variant="default" onClick={() => close(false)}>{t('Cancel')}</Button>
-            <Button loading={busy} disabled={code.length !== 6} onClick={() => void submit(code)}>
-              {t('Confirm')}
-            </Button>
+            {recovering ? (
+              <Button loading={busy} disabled={!recovery.trim()} onClick={() => void withRecovery()}>{t('Confirm')}</Button>
+            ) : (
+              <Button loading={busy} disabled={code.length !== 6} onClick={() => void submit(code)}>
+                {t('Confirm')}
+              </Button>
+            )}
           </Group>
         </Stack>
       </Modal>

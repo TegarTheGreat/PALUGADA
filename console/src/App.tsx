@@ -21,7 +21,7 @@ import { notifications } from '@mantine/notifications';
 import { Spotlight, spotlight, type SpotlightActionData } from '@mantine/spotlight';
 import {
   IconActivity, IconAlertOctagon, IconBrain, IconBuildingStore, IconCheck, IconChecklist, IconChevronDown,
-  IconCoin, IconDots, IconHistory, IconHome, IconInbox, IconLanguage, IconLayoutDashboard, IconLogout, IconMap,
+  IconCoin, IconDots, IconHistory, IconHome, IconInbox, IconKey, IconLanguage, IconLayoutDashboard, IconLogout, IconMap,
   IconMoon, IconPlayerPlay, IconPlayerStop, IconPlus, IconSearch, IconSparkles, IconServer2, IconSettings, IconSitemap, IconSun,
 } from '@tabler/icons-react';
 import { api, explain, setToken, whenSignedOut } from './api.ts';
@@ -64,17 +64,20 @@ const PAGES: Array<{ id: CompanyPage; label: string; icon: typeof IconInbox; gro
 
 export function App() {
   const [device, setDevice] = useState<string | null>(null);
+  // Which kind of factor signed in: after a recovery code, the console asks for a new device.
+  const [factor, setFactor] = useState<string | null>(null);
   const lang = useLanguage();
   useEffect(() => { takeLinkedRoute(); }, []);
   useEffect(() => whenSignedOut(() => setDevice(null)), []);
 
   if (!device) {
-    return <SignIn key={lang} onSignedIn={(session) => { setToken(session.token); setDevice(session.device); }} />;
+    return <SignIn key={lang} onSignedIn={(session) => { setToken(session.token); setDevice(session.factor === 'recovery' ? t('Recovery code') : session.device); setFactor(session.factor); }} />;
   }
   return (
     <Console
       key={lang}
       device={device}
+      recovered={factor === 'recovery'}
       signOut={async () => {
         await api('POST', '/api/auth/sign-out', {}).catch(() => undefined);
         setToken(null);
@@ -119,7 +122,7 @@ export async function chooseLanguage(code: Language): Promise<void> {
   setLanguage(code);
 }
 
-function Console({ device, signOut }: { device: string; signOut: () => Promise<void> }) {
+function Console({ device, recovered, signOut }: { device: string; recovered: boolean; signOut: () => Promise<void> }) {
   const route = useRoute();
   const mobile = useMediaQuery('(max-width: 48em)') ?? false;
   const requireFactor = useFactor();
@@ -503,6 +506,19 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
               <IconAlertOctagon size={18} />
               <Text size="sm" fw={600}>{t('Everything is stopped. No company is doing any work.')}</Text>
               <Button size="compact-sm" variant="white" color="red" onClick={() => void toggleStop()}>{t('Resume')}</Button>
+            </Group>
+          </Box>
+        )}
+        {recovered && (
+          <Box bg="yellow.1" c="dark" py={8} px="lg">
+            <Group justify="center" gap="sm">
+              <IconKey size={18} />
+              <Text size="sm" fw={600}>{t('You signed in with a recovery code. Add a passkey on this device, then take the lost phone off.')}</Text>
+              {companies[0] && (
+                <Button size="compact-sm" variant="white" color="dark" onClick={() => open('settings', { companyId: companies[0]!.id, section: 'security' })}>
+                  {t('Open Security')}
+                </Button>
+              )}
             </Group>
           </Box>
         )}

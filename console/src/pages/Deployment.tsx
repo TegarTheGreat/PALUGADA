@@ -1273,6 +1273,9 @@ function WhatsAppCard({ view, reload }: { view: ChannelsView; reload: () => void
           ...(token.trim() ? { token: token.trim() } : {}), ...(appSecret.trim() ? { appSecret: appSecret.trim() } : {}), proof,
         });
         notifications.show({ color: 'teal', message: t('WhatsApp is connected to {number}.', { number: answer.number.name ? `${answer.number.name} (${answer.number.number})` : answer.number.number }) });
+        // Sealed now: the fields go back to saying so rather than holding them.
+        setToken('');
+        setAppSecret('');
       });
       if (done) setTimeout(reload, 3_000);
     } catch (failure) {

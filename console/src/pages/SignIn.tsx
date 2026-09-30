@@ -13,18 +13,34 @@
  */
 import { useState } from 'react';
 import {
-  Alert, Button, Center, Divider, Grid, Group, Image, List, Paper, PinInput, SegmentedControl, Stack, Text,
-  ThemeIcon, Title, useComputedColorScheme,
+  Alert, Anchor, Button, Center, Divider, Grid, Group, Image, List, Paper, PinInput, SegmentedControl, Stack, Text,
+  TextInput, ThemeIcon, Title, useComputedColorScheme,
 } from '@mantine/core';
 import { IconCheck, IconFingerprint } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
 import { LANGUAGES, language, setLanguage, t, type Language } from '../i18n.ts';
 import { passkeysSupported, presentPasskey, type RelyingParty } from '../passkey.ts';
 
-export function SignIn({ onSignedIn }: { onSignedIn: (session: { token: string; device: string }) => void }) {
+export function SignIn({ onSignedIn }: { onSignedIn: (session: { token: string; device: string; factor: string }) => void }) {
   const [code, setCode] = useState('');
-  const [error, setError] = useState<{ message: string; from: 'code' | 'passkey' } | null>(null);
-  const [busy, setBusy] = useState<'code' | 'passkey' | null>(null);
+  const [error, setError] = useState<{ message: string; from: 'code' | 'passkey' | 'recovery' } | null>(null);
+  const [busy, setBusy] = useState<'code' | 'passkey' | 'recovery' | null>(null);
+  // The phone is gone: one of the codes written down on the day.
+  const [recovering, setRecovering] = useState(false);
+  const [recovery, setRecovery] = useState('');
+
+  const withRecovery = async () => {
+    if (!recovery.trim() || busy) return;
+    setBusy('recovery');
+    setError(null);
+    try {
+      const session: { token: string; device: string; factor: string } = await api('POST', '/api/auth/sign-in', { recovery: recovery.trim() });
+      onSignedIn(session);
+    } catch (failure) {
+      setError({ message: explain(failure), from: 'recovery' });
+      setBusy(null);
+    }
+  };
   const scheme = useComputedColorScheme('light');
 
   const submit = async (value: string) => {
@@ -32,7 +48,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: (session: { token: string; 
     setBusy('code');
     setError(null);
     try {
-      const session: { token: string; device: string } = await api('POST', '/api/auth/sign-in', { totp: value });
+      const session: { token: string; device: string; factor: string } = await api('POST', '/api/auth/sign-in', { totp: value });
       onSignedIn(session);
     } catch (failure) {
       setError({ message: explain(failure), from: 'code' });
@@ -48,7 +64,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: (session: { token: string; 
     try {
       const challenge: RelyingParty & { challenge: string } = await api('GET', '/api/auth/challenge');
       const webauthn = await presentPasskey(challenge);
-      const session: { token: string; device: string } = await api('POST', '/api/auth/sign-in', { webauthn });
+      const session: { token: string; device: string; factor: string } = await api('POST', '/api/auth/sign-in', { webauthn });
       onSignedIn(session);
     } catch (failure) {
       // Said below the buttons, and not drawn on the code: the code was not
@@ -132,6 +148,18 @@ export function SignIn({ onSignedIn }: { onSignedIn: (session: { token: string; 
                     {t('Sign in with a passkey')}
                   </Button>
                 </>
+              )}
+              {recovering ? (
+                <Stack gap="xs" w="100%">
+                  <TextInput label={t('Recovery code')} placeholder="abcd-efgh-ijkl-mnop" value={recovery} autoComplete="off"
+                    onChange={(event) => setRecovery(event.currentTarget.value)} error={error?.from === 'recovery'} disabled={busy !== null}
+                    onKeyDown={(event) => { if (event.key === 'Enter') void withRecovery(); }} />
+                  <Button fullWidth variant="light" loading={busy === 'recovery'} disabled={!recovery.trim() || busy !== null} onClick={() => void withRecovery()}>
+                    {t('Sign in with a recovery code')}
+                  </Button>
+                </Stack>
+              ) : (
+                <Anchor component="button" type="button" size="sm" onClick={() => setRecovering(true)}>{t('Lost your phone? Use a recovery code')}</Anchor>
               )}
               <Text size="xs" c="dimmed" ta="center">
                 {t('The session lives in this tab only. Tier 3 approvals ask for your authenticator every time.')}

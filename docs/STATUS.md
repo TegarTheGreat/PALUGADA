@@ -4074,6 +4074,28 @@ the console), and retracting a message once its item closes, since the Cloud
 API cannot edit a message; a press on a closed item is answered "Already
 closed". Signal and email as owner channels are still open.
 
+## 2.32 Recovery codes: back in without the phone (F12.5)
+
+- **A lost phone locked the owner out of the console.** The only way back
+  was an operator at the server's shell making a new secret. An owner
+  travelling with a laptop has no shell.
+- **Ten codes, each good once (0086).** Made under **Settings**,
+  **Security** with the owner's factor, shown once, and kept only as their
+  SHA-256: eighty random bits are beyond guessing from a backup, as a
+  session token's are. A new set ends the old one and every session it
+  signed in.
+- **What a code can do.** Sign in, add a passkey, revoke a device, and make
+  new codes. Nothing else:
+  - `decide` refuses one before it is spent, so a tier 3 approval waits for
+    a device (F10.10);
+  - every other action that takes a factor refuses one;
+  - the codes do not count as the owner's last device, so the phone cannot
+    be revoked while codes are all that would be left.
+- **The console.** **Lost your phone? Use a recovery code** on the sign-in
+  page and in every confirm dialog. After a sign-in with a code, a banner
+  asks for a new device. Every attempt is recorded with the others, as kind
+  `recovery`.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

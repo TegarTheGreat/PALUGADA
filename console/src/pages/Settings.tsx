@@ -6,9 +6,9 @@
  * Each is a section of the settings page (SettingsHub), not a page of its
  * own: an owner changes these rarely and should find them all in one place.
  */
-import { Alert, Badge, Button, Grid, Group, Select, SimpleGrid, Stack, Table, Text, TextInput } from '@mantine/core';
+import { Alert, Badge, Button, Code, CopyButton, Grid, Group, Select, SimpleGrid, Stack, Table, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconDownload, IconFingerprint, IconLanguage, IconShieldCheck, IconSnowflake, IconSnowflakeOff } from '@tabler/icons-react';
+import { IconCheck, IconCopy, IconDownload, IconFingerprint, IconKey, IconLanguage, IconShieldCheck, IconSnowflake, IconSnowflakeOff } from '@tabler/icons-react';
 import { useState } from 'react';
 import { api, explain } from '../api.ts';
 import { useLoad } from '../hooks.ts';
@@ -146,12 +146,15 @@ export function CompanySettings({ ctx }: { ctx: ConsoleContext }) {
 
 export function SecuritySettings() {
   const view = useLoad(async () => {
-    const answer: { authenticators: Array<{ id: string; label: string; kind: string }>; passkeys: RelyingParty } = await api('GET', '/api/mfa/authenticators');
+    const answer: { authenticators: Array<{ id: string; label: string; kind: string; left?: number }>; passkeys: RelyingParty } = await api('GET', '/api/mfa/authenticators');
     return answer;
   }, []);
   if (view.error) return <LoadFailed message={view.error} retry={view.reload} />;
   if (!view.data) return <Loading rows={2} />;
-  const { authenticators, passkeys } = view.data;
+  const { passkeys } = view.data;
+  // The codes are a way back in, not a device: listed apart, below.
+  const authenticators = view.data.authenticators.filter((one) => one.kind !== 'recovery');
+  const recovery = view.data.authenticators.find((one) => one.kind === 'recovery') ?? null;
   return (
     <Stack gap="lg">
       <Section title={t('Your authenticators')} description={t('What can approve a tier 3 action in your name. Revoking takes a code from a device that is staying, and ends every session the revoked one signed in.')}>
@@ -178,10 +181,73 @@ export function SecuritySettings() {
         )}
       </Section>
       <AddPasskey party={passkeys} added={view.reload} />
+      <RecoveryCodes recovery={recovery} changed={view.reload} />
       <Section title={t('Sessions')} description={t('Every browser signed in to this console, on every device. Signing out everywhere ends all of them, this one included.')}>
         <ActionButton label={t('Sign out everywhere')} color="red" variant="light" run={() => api('POST', '/api/auth/sign-out-everywhere', {})} done={() => window.location.reload()} />
       </Section>
     </Stack>
+  );
+}
+
+/**
+ * Codes for the day the phone is gone.
+ *
+ * Shown once, when made, with a way to copy them and to save them as a file
+ * the owner keeps; nothing here keeps them, and the API cannot show them
+ * again. A code signs in and puts a new device in the lost one's place, and
+ * approves nothing.
+ */
+function RecoveryCodes({ recovery, changed }: { recovery: { id: string; left?: number } | null; changed: () => void }) {
+  const [codes, setCodes] = useState<string[] | null>(null);
+  const text = (codes ?? []).join('\n');
+  const save = () => {
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob([`PALUGADA recovery codes\n\n${text}\n`], { type: 'text/plain' }));
+    link.download = 'palugada-recovery-codes.txt';
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+  return (
+    <Section title={t('Recovery codes')} description={t('For the day your phone is gone: each code signs you in once, so you can add a new device and take the lost one off. A code approves nothing.')}>
+      <Stack gap="sm">
+        <Group justify="space-between">
+          {recovery ? (
+            <Text size="sm" c={(recovery.left ?? 0) <= 2 ? 'orange' : undefined}>{t('{left} of 10 codes left.', { left: String(recovery.left ?? 0) })}</Text>
+          ) : (
+            <Text size="sm" c="orange">{t('None made yet. Without them, a lost phone needs whoever runs the server.')}</Text>
+          )}
+          <ActionButton
+            label={recovery ? t('Make new codes') : t('Make recovery codes')}
+            variant="light"
+            leftSection={<IconKey size={16} />}
+            factor={t('Make new recovery codes; the old ones stop working')}
+            run={async (proof) => {
+              const answer: { codes: string[] } = await api('POST', '/api/mfa/recovery-codes', { proof });
+              setCodes(answer.codes);
+            }}
+            done={changed}
+          />
+        </Group>
+        {codes && (
+          <Alert color="yellow" variant="light" title={t('Write these down now. They are not shown again.')}>
+            <SimpleGrid cols={2} spacing={4} my="xs">
+              {codes.map((code) => <Code key={code} fz="sm">{code}</Code>)}
+            </SimpleGrid>
+            <Group gap="xs">
+              <CopyButton value={text}>
+                {({ copied, copy }) => (
+                  <Button size="xs" variant="default" onClick={copy} leftSection={copied ? <IconCheck size={14} /> : <IconCopy size={14} />}>
+                    {copied ? t('Copied') : t('Copy')}
+                  </Button>
+                )}
+              </CopyButton>
+              <Button size="xs" variant="default" leftSection={<IconDownload size={14} />} onClick={save}>{t('Save as a file')}</Button>
+              <Button size="xs" onClick={() => setCodes(null)}>{t('I have written them down')}</Button>
+            </Group>
+          </Alert>
+        )}
+      </Stack>
+    </Section>
   );
 }
 

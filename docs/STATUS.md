@@ -3683,6 +3683,7 @@ events.
 | SIGTERM while a call is in flight | -- | the run finished its step and handed the task back; both completed in 19 s, one note each, nothing leaked |
 | SIGKILL as the CRM's answer arrives | -- | the step was repeated under its first key; both completed in 62 s, one note each |
 | PostgreSQL restarted while a call is in flight | -- | the process logged the lost connections and carried on; both completed in 12 s, one note each, nothing leaked |
+| Two replicas share the queue; one is SIGKILLed while a call is in flight and stays down | -- | the other finished all six tasks in 62 s: one note each (the killed call was repeated under its first key and deduplicated), one run per task, no two runs of a task at once, nothing leaked |
 
 A separate review reported more, and four of its findings are handled:
 

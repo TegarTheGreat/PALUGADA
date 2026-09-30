@@ -368,12 +368,23 @@ migration once.
 
 ### Stopping and restarting
 
-On SIGTERM or SIGINT the console closes first, then the worker. A run in
-flight is given about twenty seconds to finish its step, and then hands its
-task back to the queue with its journal, well inside the minute the systemd
-unit and the compose file wait before they kill. The task's timeline says it
-was handed back; no attempt is charged, it does not count as a lost worker,
-and the next worker to come up resumes it at the step it reached.
+On SIGTERM or SIGINT the process says it is stopping before it stops
+anything. `GET /api/ready` answers 503 at once
+([Readiness, for a load balancer](#readiness-for-a-load-balancer)), and
+every answer from then on carries `Connection: close`, so a client holding
+a connection open makes its next one elsewhere. If anything has asked
+`/api/ready` since the process started -- a load balancer that decides by
+it -- the console goes on answering everything else for five seconds, long
+enough for the balancer to take the process out before its port refuses.
+With nothing asking, there is nobody to tell, and it does not wait.
+
+Then the console closes: it takes no new connection, and a request already
+in flight is answered rather than cut off. Then the worker. A run in flight
+is given about twenty seconds to finish its step, and then hands its task
+back to the queue with its journal, well inside the minute the systemd unit
+and the compose file wait before they kill. The task's timeline says it was
+handed back; no attempt is charged, it does not count as a lost worker, and
+the next worker to come up resumes it at the step it reached.
 
 A process killed outright loses no work either, but it is slower. Every
 worker writes to `worker_heartbeats` every fifteen seconds; when a worker
@@ -409,11 +420,21 @@ and roles -- is in the platform's log, as a line with `"stage":"health"`,
 not on the page anyone can fetch:
 
 ```json
-{ "ok": true, "database": "ok", "worker": { "lastTickAt": "2026-09-26T08:15:02.114Z" } }
+{ "ok": true, "database": "ok", "version": "0.1.0", "worker": { "lastTickAt": "2026-09-26T08:15:02.114Z" } }
 ```
 
-The Docker image's own health check calls it. Point your monitor at it
-through the loopback address or an allowed host name.
+The database is asked at most once every five seconds, however many ask
+the page: everyone within five seconds of an answer is told that answer,
+so a flood of checks costs one query and holds at most one of the
+platform's database connections. A database that has not answered within
+two seconds is `"unreachable"`, and the log line says it `did not answer
+within 2000 ms` -- inside the five seconds the image's own check waits, so
+a hung database is a 503 rather than a check that gave up.
+
+It says whether the process works, and a process that is stopping still
+works: it is what a supervisor that restarts the process should ask. The
+Docker image's own health check calls it. Point your monitor at it through
+the loopback address or an allowed host name.
 
 **Log lines.** At boot the platform prints one line per fact to standard
 output, each starting `palugada:`: what it enrolled and bound, which model
@@ -438,6 +459,26 @@ another reason. 0 is a clean stop. The systemd unit does not restart on 78.
 Compose restarts the container whatever the code, so under Compose a
 configuration error repeats until you fix it; `docker compose logs app`
 shows the message.
+
+### Readiness, for a load balancer
+
+`GET /api/ready` answers what `/api/health` answers, with
+`"stopping": false`, and from the moment the process begins to stop, 503
+without asking the database:
+
+```json
+{ "ok": false, "stopping": true, "version": "0.1.0" }
+```
+
+Point the health check of whatever spreads requests across more than one
+process at it -- HAProxy's `option httpchk GET /api/ready`, Traefik's or
+Caddy's active health checks, a Kubernetes `readinessProbe` (with
+`/api/health` as its `livenessProbe`) -- and have it ask every two seconds
+or so: a stopping process keeps answering for five seconds after
+it first says no ([Stopping and restarting](#stopping-and-restarting)).
+It needs no session and says nothing about any company. A proxy that routes
+by the container's state and asks nothing, as Coolify's and Dokploy's do,
+needs no change; the image's own check stays on `/api/health`.
 
 ### Metrics
 
@@ -597,7 +638,9 @@ database:
   each item reaches you once, whichever worker sends it.
 - Console sessions are stored in the database, hashed, so a load balancer
   can send you to any process. **Sign out everywhere**, or revoking an
-  authenticator, ends its sessions on every process.
+  authenticator, ends its sessions on every process. Have the balancer ask
+  `GET /api/ready`, so that a process being restarted is taken out before
+  its port closes ([Readiness, for a load balancer](#readiness-for-a-load-balancer)).
 
 A process runs up to four tasks at once (`PALUGADA_WORKER_CONCURRENCY`,
 from 1 to 16). One of the four is kept for P0 work, so a task you mark
@@ -643,7 +686,13 @@ is a security boundary, not bookkeeping:
 | `palugada_admin` | The control plane: creating companies, the owner's views across companies (`PALUGADA_ADMIN_URL`) | `NOSUPERUSER NOCREATEDB BYPASSRLS`, and never reachable from agent code |
 
 The script connects as a superuser only to create these and to install the
-`pgcrypto` and `vector` extensions, which a superuser must install. It takes
+`pgcrypto` and `vector` extensions, which a superuser must install, and
+`pg_trgm`, whose trigram indexes serve the search across every company
+(migration 0098). `pg_trgm` is a trusted extension, so where a database was
+set up before it was on this list, the migration installs it as the
+database's owner; where the server does not have it at all, the migration
+stops and says so. It ships with PostgreSQL's contrib modules, which the
+`postgres` and `pgvector/pgvector` images include. It takes
 each role's password from `PALUGADA_OWNER_URL`, `PALUGADA_APP_URL` and
 `PALUGADA_ADMIN_URL` (from the environment or `.env`); passwords may use
 letters, digits and `_ . ~ -`. `PALUGADA_DB_NAME` names the database
@@ -661,7 +710,7 @@ carry percent-encoded. The image runs it before every start when it is given
 `PALUGADA_SUPERUSER_URL`.
 
 A managed PostgreSQL service works if it offers PostgreSQL 16 with pgvector
-and lets you create a role with `BYPASSRLS`; check both before you choose
-one. Keeping the database available, replicated and backed up is yours: the
+and pg_trgm and lets you create a role with `BYPASSRLS`; check them before
+you choose one. Keeping the database available, replicated and backed up is yours: the
 platform reconnects after a database restart, but it does not manage
 failover.

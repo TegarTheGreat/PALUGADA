@@ -404,6 +404,165 @@ test('a process that cannot work says so to whatever asks, with a 503', async ()
   }
 });
 
+/**
+ * Found by reading Buzz. A process told to stop closed its listener at once:
+ * a load balancer that asked every few seconds went on sending requests into
+ * a port that refused them until it next asked. Readiness now says no the
+ * moment the stop begins, the console keeps answering while the balancer
+ * notices, and only then does the listener close.
+ */
+test('a deployment being stopped says it is not ready at once, answers while a load balancer notices, then closes', async () => {
+  const { start } = await import('../../src/main.ts');
+  const { version } = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8')) as { version: string };
+  const deployment = await start({ port: 0, env: {}, worker: { idleMs: 60_000 }, drainMs: 800, log: () => undefined });
+  let stopped: Promise<void> | null = null;
+  try {
+    const ready = await fetch(`${deployment.url}/api/ready`);
+    assert.equal(ready.status, 200);
+    const said = await ready.json() as { ok: boolean; stopping: boolean; database: string; version: string };
+    assert.deepEqual([said.ok, said.stopping, said.database, said.version], [true, false, 'ok', version],
+      'what /api/health says, and that it is not stopping');
+
+    const began = Date.now();
+    stopped = deployment.stop();
+    const draining = await fetch(`${deployment.url}/api/ready`);
+    assert.equal(draining.status, 503, 'not ready from the moment the stop begins');
+    assert.deepEqual(await draining.json(), { ok: false, stopping: true, version });
+    assert.equal(draining.headers.get('connection'), 'close', 'and a kept-alive connection is let go, to be made again elsewhere');
+    const health = await fetch(`${deployment.url}/api/health`);
+    assert.equal(health.status, 200, 'liveness is unchanged: the process is still working');
+    assert.equal(health.headers.get('connection'), 'close');
+
+    await stopped;
+    assert.ok(Date.now() - began >= 700, `the listener stayed open for the drain, and closed after ${Date.now() - began} ms`);
+    await assert.rejects(fetch(`${deployment.url}/api/ready`), 'and then it is closed');
+  } finally {
+    await (stopped ?? deployment.stop());
+  }
+
+  // A deployment nobody asked whether it was ready has no balancer to tell,
+  // and stops without waiting for one.
+  const unwatched = await start({ port: 0, env: {}, worker: { idleMs: 60_000 }, drainMs: 20_000, log: () => undefined });
+  const quick = Date.now();
+  await unwatched.stop();
+  assert.ok(Date.now() - quick < 5_000, `stopped in ${Date.now() - quick} ms`);
+});
+
+test('a console being closed answers the requests it already has, and refuses new ones', async () => {
+  const { OwnerApi } = await import('../../src/owner/api.ts');
+  const held: { answer: (() => void) | null } = { answer: null };
+  const api = new OwnerApi({
+    mfa: new OwnerMfa({ secrets: new InMemorySecretManager() }),
+    health: () => new Promise((resolve) => { held.answer = () => resolve({ ok: true }); }),
+  });
+  const { url } = await api.listen();
+  const inFlight = fetch(`${url}/api/health`);
+  await until(() => held.answer !== null, 'the request to arrive');
+  const closed = api.close(5_000);
+  await assert.rejects(fetch(`${url}/api/health`), 'a new connection is refused');
+  held.answer!();
+  const answered = await inFlight;
+  assert.equal(answered.status, 200, 'the request in flight is answered rather than cut');
+  assert.equal(answered.headers.get('connection'), 'close');
+  await closed;
+});
+
+/**
+ * Found by reading Buzz, which samples its database for health every thirty
+ * seconds. Every unauthenticated `/api/health` ran `SELECT 1` on the shared
+ * application pool, so a flood of probes -- a balancer, a monitor, anyone --
+ * cost a pool slot each, and a database that hung held every probe, and the
+ * slots with them, until the checker gave up.
+ */
+test('a flood of health and readiness probes costs the database one query, and a database that does not answer is said to within seconds', async () => {
+  const { start } = await import('../../src/main.ts');
+  const pool = appPool();
+  const query = pool.query;
+  let probes = 0;
+  let hang = false;
+  pool.query = function probeCounting(this: typeof pool, ...args: unknown[]) {
+    const [asked] = args;
+    const text = typeof asked === 'string' ? asked : (asked as { text?: string } | undefined)?.text;
+    if (text === 'SELECT 1') {
+      probes += 1;
+      if (hang) return new Promise(() => {});
+    }
+    return (query as (...given: unknown[]) => unknown).apply(this, args);
+  } as unknown as typeof pool.query;
+  const lines: Array<Record<string, unknown>> = [];
+  const log = (entry: Record<string, unknown>) => { lines.push(entry); };
+  try {
+    const deployment = await start({ port: 0, env: {}, worker: { idleMs: 60_000 }, drainMs: 0, log });
+    try {
+      const flood = await Promise.all(Array.from({ length: 40 }, (_, n) =>
+        fetch(`${deployment.url}/api/${n % 4 === 0 ? 'ready' : 'health'}`)));
+      assert.deepEqual([...new Set(flood.map((answer) => answer.status))], [200]);
+      assert.equal(probes, 1, 'forty probes at once, one query');
+      const again = await Promise.all(Array.from({ length: 20 }, () => fetch(`${deployment.url}/api/health`)));
+      assert.deepEqual([...new Set(again.map((answer) => answer.status))], [200]);
+      assert.equal(probes, 1, 'and the next twenty within the window are told the same sample');
+    } finally {
+      await deployment.stop();
+    }
+
+    hang = true;
+    probes = 0;
+    const stuck = await start({ port: 0, env: {}, worker: { idleMs: 60_000 }, drainMs: 0, log });
+    try {
+      const asked = Date.now();
+      const answer = await fetch(`${stuck.url}/api/health`);
+      assert.ok(Date.now() - asked < 4_000, `answered in ${Date.now() - asked} ms, inside the image's five-second check`);
+      assert.equal(answer.status, 503);
+      assert.equal(((await answer.json()) as { database: string }).database, 'unreachable');
+      assert.ok(lines.some((line) => line.stage === 'health' && /did not answer within/.test(String(line.message))),
+        JSON.stringify(lines));
+      const more = await Promise.all(Array.from({ length: 10 }, () => fetch(`${stuck.url}/api/ready`)));
+      assert.deepEqual([...new Set(more.map((reply) => reply.status))], [503]);
+      assert.equal(probes, 1, 'a probe still waiting is not joined by another');
+    } finally {
+      await stuck.stop();
+    }
+  } finally {
+    pool.query = query;
+  }
+});
+
+test('the database is sampled once a window however many ask, and never twice at once', async () => {
+  const { databaseSample } = await import('../../src/main.ts');
+  let clock = 1_000_000;
+  let probes = 0;
+  const quiet = () => assert.fail('nothing to log');
+  const sample = databaseSample(async () => { probes += 1; }, quiet, { everyMs: 5_000, withinMs: 1_000, now: () => clock });
+  assert.deepEqual([...new Set(await Promise.all(Array.from({ length: 25 }, () => sample())))], ['ok']);
+  assert.equal(probes, 1);
+  clock += 4_999;
+  await sample();
+  assert.equal(probes, 1, 'the same sample until the window is over');
+  clock += 1;
+  await sample();
+  assert.equal(probes, 2, 'and a new one after');
+
+  // A probe past its deadline is said to be unreachable, is not asked again
+  // beside itself, and is asked again once it has finished.
+  const logged: Array<Record<string, unknown>> = [];
+  const held: { finish: (() => void) | null } = { finish: null };
+  let slowProbes = 0;
+  const slow = databaseSample(() => {
+    slowProbes += 1;
+    if (slowProbes > 1) return Promise.resolve();
+    return new Promise<void>((resolve) => { held.finish = resolve; });
+  }, (entry) => { logged.push(entry); }, { everyMs: 5_000, withinMs: 30, now: () => clock });
+  assert.equal(await slow(), 'unreachable');
+  assert.match(String(logged[0]?.message), /did not answer within 30 ms/);
+  clock += 5_000;
+  assert.equal(await slow(), 'unreachable');
+  assert.equal(slowProbes, 1, 'still waiting on the first');
+  held.finish!();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(await slow(), 'ok');
+  assert.equal(slowProbes, 2);
+});
+
 /* --------------------------------------------------------------- metrics --- */
 
 const SCRAPE_TOKEN = 'metrics-token-for-the-operability-suite-0123456789';

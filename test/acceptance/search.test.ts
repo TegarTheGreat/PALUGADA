@@ -10,7 +10,9 @@
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { withTenant } from '../../src/db/tenant.ts';
+import pg from 'pg';
+import { connectionString } from '../../src/config.ts';
+import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
 import { createRootTask, transition } from '../../src/engine/tasks.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
@@ -83,6 +85,80 @@ test('each kind is capped, newest first, and a replaced fact is not found', asyn
     await supersede(tx, old, { companyId: fixture.companyId, memoryType: 'semantic', scopeType: 'company', body: 'The roaster moved to Garut.' });
   });
   assert.deepEqual((await searchEverywhere('roaster')).map((hit) => hit.title), ['The roaster moved to Garut.']);
+});
+
+/**
+ * Found by reading Buzz. The search looks for a phrase anywhere in a text,
+ * `ILIKE '%...%'`, which no ordinary index can serve: every search read every
+ * task, decision and fact of every company. Migration 0098 gives each column
+ * it searches a trigram index. On tables this small the planner would read
+ * them whole anyway, so the whole-table reads -- in order, or along another
+ * index -- are priced out of the running: a table any of whose searched
+ * columns lacks a trigram index can then still only be read row by row, and
+ * a plan that reads each through a bitmap of those indexes proves that every
+ * column is served. For the statements the search actually sends, recorded
+ * as it sends them rather than copied here, where they could drift.
+ */
+test('the search reads each table through its trigram indexes, never row by row', async () => {
+  const fixture = await createCompany('search-indexed');
+  await finished(fixture, 'Email the wholesale buyers', 'Sent to 12 buyers.');
+  // Enough facts, counted as autovacuum would count them in a deployment, that
+  // reading every live one is dearer than asking the index: with a few facts
+  // and no count, walking the partial index of live facts whole is the
+  // cheaper plan, and the planner is right to take it. The table's owner is
+  // the role that may count it.
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    `INSERT INTO memories (company_id, memory_type, scope_type, body, source)
+     SELECT $1, 'semantic', 'company', 'Filler fact number ' || n, 'owner' FROM generate_series(1, 400) AS n`,
+    [fixture.companyId]));
+  const owner = new pg.Client({ connectionString: connectionString('owner') });
+  await owner.connect();
+  try {
+    await owner.query('ANALYZE memories');
+  } finally {
+    await owner.end();
+  }
+  const sent: Array<{ text: string; values: unknown[] }> = [];
+  const query = pg.Client.prototype.query;
+  pg.Client.prototype.query = function recording(this: pg.Client, ...args: unknown[]) {
+    const [text, values] = args;
+    if (typeof text === 'string' && / ILIKE /.test(text)) sent.push({ text, values: values as unknown[] });
+    return (query as (...given: unknown[]) => unknown).apply(this, args);
+  } as typeof query;
+  let found;
+  try {
+    found = await searchEverywhere('wholesale');
+  } finally {
+    pg.Client.prototype.query = query;
+  }
+  assert.equal(found.length, 1);
+  assert.equal(sent.length, 3, 'one statement for the work, one for the decisions, one for what is known');
+
+  const scans: string[] = [];
+  const walk = (node: { 'Node Type': string; 'Relation Name'?: string; 'Index Name'?: string; Plans?: unknown[] }) => {
+    scans.push(`${node['Node Type']} ${node['Relation Name'] ?? node['Index Name'] ?? ''}`.trim());
+    for (const child of node.Plans ?? []) walk(child as typeof node);
+  };
+  for (const { text, values } of sent) {
+    const { rows } = await withControlPlane(async (tx) => {
+      await tx.query('SET LOCAL enable_seqscan = off');
+      await tx.query('SET LOCAL enable_indexscan = off');
+      await tx.query('SET LOCAL enable_indexonlyscan = off');
+      return tx.query<{ 'QUERY PLAN': Array<{ Plan: Parameters<typeof walk>[0] }> }>(`EXPLAIN (FORMAT JSON) ${text}`, values);
+    });
+    walk(rows[0]!['QUERY PLAN'][0]!.Plan);
+  }
+  for (const table of ['tasks', 'inbox_items', 'memories']) {
+    assert.deepEqual(scans.filter((scan) => scan.endsWith(` ${table}`)), [`Bitmap Heap Scan ${table}`],
+      `${table} is read row by row:\n${scans.join('\n')}`);
+  }
+  for (const index of [
+    'tasks_goal_trgm_idx', 'tasks_summary_trgm_idx',
+    'inbox_items_title_trgm_idx', 'inbox_items_action_summary_trgm_idx', 'inbox_items_owner_note_trgm_idx',
+    'memories_body_trgm_idx',
+  ]) {
+    assert.ok(scans.includes(`Bitmap Index Scan ${index}`), `${index} is not used:\n${scans.join('\n')}`);
+  }
 });
 
 test("a company's memory page takes a search literally too", async () => {

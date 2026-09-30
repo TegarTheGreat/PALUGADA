@@ -417,6 +417,7 @@ test('a database is provisioned from a superuser, a second time changes nothing,
     assert.equal(first.database, name);
     assert.ok(first.changed.includes(`made database ${name}`), first.changed.join('; '));
     assert.ok(first.changed.includes('installed vector'), first.changed.join('; '));
+    assert.ok(first.changed.includes('installed pg_trgm'), first.changed.join('; '));
 
     const { rows: owned } = await superuser.query<{ owner: string }>(
       'SELECT pg_get_userbyid(datdba) AS owner FROM pg_database WHERE datname = $1', [name]);
@@ -441,8 +442,8 @@ test('a database is provisioned from a superuser, a second time changes nothing,
     await check.connect();
     assert.deepEqual((await check.query('SELECT note FROM kept')).rows, [{ note: 'still here' }]);
     const { rows: extensions } = await check.query<{ extname: string }>(
-      "SELECT extname FROM pg_extension WHERE extname IN ('vector', 'pgcrypto') ORDER BY extname");
-    assert.deepEqual(extensions.map((row) => row.extname), ['pgcrypto', 'vector']);
+      "SELECT extname FROM pg_extension WHERE extname IN ('vector', 'pgcrypto', 'pg_trgm') ORDER BY extname");
+    assert.deepEqual(extensions.map((row) => row.extname), ['pg_trgm', 'pgcrypto', 'vector']);
     await check.end();
 
     // A role someone loosened by hand is put back: the boundary is its attributes.

@@ -51,6 +51,9 @@ each task it runs and for anything that failed: a whole tick
 dropped under it (`db.connection_lost`). `GET /api/health` needs no session
 and answers 200 when the database answers and the worker's loop has gone
 round in the last half hour, and 503 with the reason when not.
+`GET /api/ready` answers the same for a load balancer, and 503 from the
+moment the process begins to stop
+([operations](guide/operations.md#readiness-for-a-load-balancer)).
 `GET /api/metrics` serves the same and much more to a Prometheus scraper
 once `PALUGADA_METRICS_TOKEN` is set ([operations](guide/operations.md#metrics)). A task that
 loses its worker three times is halted and raised to the owner as an

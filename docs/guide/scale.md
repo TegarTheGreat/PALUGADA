@@ -89,7 +89,10 @@ than one worker can run.
 **Set up.**
 - Several worker processes, each running `PALUGADA_WORKER_CONCURRENCY`
   tasks at once (four by default, one of them kept for urgent work). Put
-  them on one or more hosts behind the proxy or a load balancer; console
+  them on one or more hosts behind the proxy or a load balancer, whose
+  health check asks `GET /api/ready` so that a process being restarted is
+  taken out before it closes
+  ([operations](operations.md#readiness-for-a-load-balancer)); console
   sessions are shared through the database, so any process can serve you.
 - Give every process the same configuration: the same model, runtimes,
   vendor file, MCP servers and price list. Any worker can claim any task, and

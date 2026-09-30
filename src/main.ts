@@ -180,6 +180,15 @@ export interface DeploymentOptions {
   /** How long `stop()` lets a run in flight finish before it hands its task back. */
   stopGraceMs?: number;
   /**
+   * How long `stop()` keeps the console answering after `/api/ready` has
+   * begun to say 503, so that a load balancer asking every few seconds takes
+   * this process out before its port refuses. Five seconds unless a caller --
+   * a test -- says otherwise, and never longer than `stopGraceMs`. Waited only
+   * when something has asked `/api/ready`: with nobody asking, there is no
+   * balancer to tell.
+   */
+  drainMs?: number;
+  /**
    * Where the deployment says what happens while it runs. JSON lines on
    * standard error unless a caller -- a test, an embedding -- takes them.
    */
@@ -450,6 +459,64 @@ export function workerHealth(
     problem: ticked
       ? `no tick has finished since ${since.toISOString()}`
       : `no tick has finished since the worker started at ${since.toISOString()}`,
+  };
+}
+
+/**
+ * How long one sample of the database stands for every health and readiness
+ * answer. Buzz samples every thirty seconds; five is as stale as a balancer
+ * deciding where to send the owner's next request should see.
+ */
+const HEALTH_SAMPLE_MS = 5_000;
+
+/**
+ * How long a sample waits for the database before it says the database does
+ * not answer: under the image's own check, which gives up after five seconds,
+ * so the checker hears 503 rather than nothing.
+ */
+const HEALTH_PROBE_MS = 2_000;
+
+/**
+ * `databaseHealth`, asked at most once a window however many ask.
+ *
+ * Every `/api/health` ran `SELECT 1` on the shared application pool, and it
+ * is open to anyone: a flood of probes cost a pool slot each, and a database
+ * that hung held each probe, and each slot, until the checker gave up. Now
+ * whoever asks within `everyMs` of a sample is told that sample, callers who
+ * arrive while one is being taken wait for the same one, and a probe that
+ * has not answered within `withinMs` is said to be unreachable. A probe past
+ * its deadline is not joined by a second: it holds at most one connection,
+ * and its own timeouts end it.
+ */
+export function databaseSample(
+  probe: () => Promise<unknown>,
+  log: (entry: Record<string, unknown>) => void,
+  timing: { everyMs: number; withinMs: number; now?: () => number } = { everyMs: HEALTH_SAMPLE_MS, withinMs: HEALTH_PROBE_MS },
+): () => Promise<'ok' | 'unreachable'> {
+  const now = timing.now ?? Date.now;
+  let last: { at: number; said: 'ok' | 'unreachable' } | null = null;
+  let taking: Promise<'ok' | 'unreachable'> | null = null;
+  let probing = false;
+  return () => {
+    if (last && now() - last.at < timing.everyMs) return Promise.resolve(last.said);
+    if (taking) return taking;
+    if (probing) return Promise.resolve(last?.said ?? 'unreachable');
+    probing = true;
+    const probed = Promise.resolve().then(probe).finally(() => { probing = false; });
+    let timer: NodeJS.Timeout | undefined;
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error(`the database did not answer within ${timing.withinMs} ms`)), timing.withinMs);
+    });
+    taking = databaseHealth(() => Promise.race([probed, deadline]), log)
+      .then((said) => {
+        last = { at: now(), said };
+        return said;
+      })
+      .finally(() => {
+        clearTimeout(timer);
+        taking = null;
+      });
+    return taking;
   };
 }
 
@@ -955,6 +1022,13 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     );
   }
 
+  // One sample of the database for every health and readiness answer in a
+  // window. The query's own timeout ends a probe the database never answers,
+  // so the connection it holds is dropped rather than kept in the pool.
+  const databaseNow = databaseSample(
+    () => appPool().query({ text: 'SELECT 1', query_timeout: HEALTH_PROBE_MS } as { text: string }),
+    log,
+  );
   const api = new OwnerApi({
     mfa,
     charters: charterRepository,
@@ -997,7 +1071,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // loop has gone round lately. A process that is up and whose loop has
     // stopped is the failure a supervisor cannot see from outside.
     health: async () => {
-      const database = await databaseHealth(() => appPool().query('SELECT 1'), log);
+      const database = await databaseNow();
       const { ok, ...said } = workerHealth(worker);
       return { ok: database === 'ok' && ok, database, version: VERSION, worker: said };
     },
@@ -1042,16 +1116,23 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     async stop() {
       if (watching) clearInterval(watching);
       clearInterval(keepingCharters);
-      // The console first: a worker still ticking while the owner can no
-      // longer reach it is the one order that has a bad minute in it.
-      await api.close();
+      const graceMs = options.stopGraceMs ?? STOP_GRACE_MS;
+      // Readiness first. The listener closed at once, and a load balancer
+      // that asked every few seconds went on sending requests into a port
+      // that refused them until it next asked. From here `/api/ready` says
+      // 503 while the console still answers everything it is sent, for as
+      // long as a balancer takes to notice.
+      await api.drain(Math.min(options.drainMs ?? DRAIN_MS, graceMs));
+      // Then the console, before the worker: it takes no new connection from
+      // here, and a request already in flight is answered, within the same
+      // grace as a run, rather than cut off halfway.
+      const closed = api.close(graceMs);
       shutdown.abort();
       // A run in flight gets a moment to finish, and then gives its task back
       // -- well inside the minute a supervisor waits before it kills (the
       // systemd unit's TimeoutStopSec, compose's stop_grace_period). Killed
       // instead, its lease lapsed and the reclaim counted towards `crash_loop`,
       // so three upgrades during one long task halted it.
-      const graceMs = options.stopGraceMs ?? STOP_GRACE_MS;
       const grace = setTimeout(() => stopping.abort(), graceMs);
       // An answer the owner is waiting for in a chat gets the same moment:
       // their message is already in the conversation, and stopped halfway
@@ -1060,6 +1141,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
       const graceOver = new Promise<void>((resolve) => { answered = setTimeout(resolve, graceMs); });
       try {
         await Promise.all([
+          closed,
           running,
           ...[telegram, whatsapp].map((chat) => (chat ? Promise.race([chat.settled(), graceOver]) : undefined)),
           // A charter sync halfway through its files would leave the record
@@ -1086,6 +1168,13 @@ const CHARTER_SYNC_MS = 60_000;
 /** Twenty seconds: most steps finish in that, and it leaves forty before a supervisor's kill. */
 const STOP_GRACE_MS = 20_000;
 
+/**
+ * Five seconds of saying "not ready" while still answering: two asks of a
+ * balancer that asks every two seconds, and with the grace still inside the
+ * minute a supervisor waits.
+ */
+const DRAIN_MS = 5_000;
+
 /** `host-pid-bootid`: readable, and unique across replicas and restarts. */
 export function defaultWorkerId(): string {
   return `worker-${hostname()}-${process.pid}-${randomUUID().slice(0, 8)}`;
@@ -1110,8 +1199,9 @@ export function defaultWorkerId(): string {
  * restarts it into the same refusal for ever; auto-company's daemon units
  * stop that with `RestartPreventExitStatus=78`, and
  * `deploy/palugada.service` does the same. SIGTERM and SIGINT stop the
- * deployment the way `stop()` does -- the console first, then the worker --
- * so a restart does not abandon a run half-journalled.
+ * deployment the way `stop()` does -- readiness says no, then the console
+ * closes, then the worker -- so a restart does not abandon a run
+ * half-journalled.
  */
 export const EXIT_CONFIG = 78;
 

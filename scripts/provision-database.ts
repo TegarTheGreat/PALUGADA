@@ -14,7 +14,8 @@
  *     attributes the boundary depends on: only palugada_admin bypasses row
  *     level security, and none is a superuser or may create databases.
  *   - The database, owned by palugada_owner, named by the owner URL's path.
- *   - pgcrypto and pgvector, which only a superuser may install.
+ *   - pgcrypto and pgvector, which only a superuser may install, and pg_trgm,
+ *     which the search's indexes are made with (0098).
  *
  * Passwords are quoted by the driver, so a generated one may hold any
  * character; the URLs they come from must percent-encode what a URL cannot
@@ -122,7 +123,7 @@ export async function provisionDatabase(options: {
   const target = new pg.Client({ connectionString: inside.toString() });
   await target.connect();
   try {
-    for (const extension of ['pgcrypto', 'vector']) {
+    for (const extension of ['pgcrypto', 'vector', 'pg_trgm']) {
       const { rows } = await target.query('SELECT 1 FROM pg_extension WHERE extname = $1', [extension]);
       if (rows.length > 0) continue;
       await target.query(`CREATE EXTENSION IF NOT EXISTS ${target.escapeIdentifier(extension)}`);

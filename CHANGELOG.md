@@ -22,9 +22,6 @@ The first version. What it holds, in the order an owner meets it.
 - The platform's and each company's charter kept as files in a git
   repository beside the deployment, edited there or in the console
   (STATUS 2.44).
-- The operating kit (`company-os` 1.4.0) has a critic that reads every stage
-  proposal before the owner does and holds nothing that acts. The owner sees
-  its verdict whether it supports the move or stops it (STATUS 2.57).
 - Every step journalled, so a crash loses nothing; money and tokens reserved
   before work starts; leases, deadlines, per-run length and token ceilings;
   tasks at once per division and calls at once per capability, across every
@@ -41,13 +38,14 @@ The first version. What it holds, in the order an owner meets it.
   Smithery and Zapier by name) and the platform's own, each at a tier.
 - Coolify's and Dokploy's MCP servers by name, so a company's roles can see
   what runs there and, as far as the owner allows, deploy it (STATUS 2.54).
-- The operating kit (`company-os` 1.3.0): a weekly business review handed
+- The operating kit (`company-os` 1.4.0): a weekly business review handed
   the week from the company's records -- every goal's numbers and their
   change, the work finished, the spend against the limit, a stage move
   waiting -- goal changes a run proposes and the owner's yes applies, a
-  wind-down that puts a reply to a customer to the owner instead of refusing
-  it, past events a run can search, and skills for positioning and market
-  research (STATUS 2.53).
+  critic that reads every stage proposal before the owner does and holds
+  nothing that acts, a wind-down that puts a reply to a customer to the
+  owner instead of refusing it, past events a run can search, and skills for
+  positioning and market research (STATUS 2.53, 2.57).
 - Done criteria whose evidence may cite a tool call by its step: the
   platform checks it against the journal and shows each criterion as
   verified or only claimed (STATUS 2.56).
@@ -74,6 +72,10 @@ The first version. What it holds, in the order an owner meets it.
 - Health, Prometheus metrics with their own token, and traces to an
   OpenTelemetry collector (STATUS 2.27, 2.40); point-in-time recovery
   documented.
+- Readiness for a load balancer (`/api/ready`), which says no the moment a
+  stop begins while the console answers a few seconds more; health that asks
+  the database once every five seconds however often it is asked; and the
+  search across companies served by trigram indexes (STATUS 2.58).
 - Docker Compose, a Docker image and a systemd unit; the running platform
   never holds the schema owner's URL; append-only history refuses TRUNCATE.
 - The image sets its own database up from a superuser's URL and migrates

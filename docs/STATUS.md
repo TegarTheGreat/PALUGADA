@@ -5219,6 +5219,91 @@ puts it in front of whoever decides. The operating kit (`company-os` 1.4.0,
     and is decided there anyway. A move back is tier 2 and can be
     answered from the chat without either.
 
+## 2.58 Found by reading Buzz: readiness while stopping, a probe that costs one query, a search with an index
+
+Read against the source of Block's Buzz, on 2026-09-30.
+
+- **A stopping process shut its door on a load balancer that had not been
+  told.** `stop()` closed the console's listener first thing, and cut every
+  connection with it, including requests half answered. A balancer that
+  asks every few seconds went on sending requests into a port that refused
+  them until it next asked and gave up on the process. Buzz answers
+  readiness 503 before its listener closes. `GET /api/ready` is new, open
+  like `/api/health` and saying as little: what `/api/health` says, with
+  `"stopping": false`, and from the moment `stop()` begins, 503 with
+  `{"ok":false,"stopping":true,"version":…}` without asking the database.
+  From then every answer carries `Connection: close`, so a client holding a
+  connection makes its next one elsewhere. If anything has asked
+  `/api/ready` since the listener opened, the console goes on answering
+  everything for five seconds (`drainMs`, never longer than the stop's
+  grace) before the listener closes; with nothing asking there is no
+  balancer to tell, and it does not wait, so a settings restart and a
+  deployment nobody balances stop as quickly as before. The listener then
+  takes no new connection, and an answer already being written is given the
+  grace to finish rather than cut off, while the worker stops as before.
+  `/api/health` keeps its meaning: whether the process works, which a
+  stopping process still does, and which is what a supervisor that restarts
+  it should ask; the image's own check stays on it. `operability.test.ts`
+  starts a deployment, finds it ready, begins the stop, and is told 503
+  with `stopping: true` and `Connection: close` at once, while `/api/health`
+  still answers 200; the stop takes the 800 ms drain it was given, and the
+  port then refuses. A deployment never asked stops in well under the
+  twenty seconds of drain it was given. A console closed with a request in
+  flight refuses a new connection and answers the one it had, with 200.
+- **Every probe cost a query on the application's pool, and a database that
+  hung held every probe.** `/api/health` is open to anyone and ran
+  `SELECT 1` on the shared pool each time it was asked. A flood of probes --
+  balancers, monitors, anyone -- took a pool slot each, and a database that
+  did not answer held each probe and its slot until the checker gave up.
+  Buzz samples its database every thirty seconds. `databaseSample`
+  (`src/main.ts`) takes one sample for every health and readiness answer in
+  a five-second window: callers who arrive while one is being taken wait for
+  the same one, a sample that has not answered within two seconds is
+  `"unreachable"` -- inside the five seconds the image's own check waits --
+  with `did not answer within 2000 ms` in the log, and a probe past its
+  deadline is not joined by a second. The query carries its own two-second
+  timeout, so a connection whose database never answers is dropped by the
+  pool rather than held. The test counts the probe's queries on the pool:
+  forty health and readiness requests at once cost one, and twenty more in
+  the window none; with a database that never answers, the page says 503
+  and `unreachable` in about two seconds, and ten more asks cost no second
+  query. A test with its own clock holds the window and the one probe at a
+  time.
+- **The search across companies read every row.** `searchEverywhere`
+  (`src/owner/search.ts`) looks for a phrase anywhere in a task's goal and
+  result, a decision's title, summary and note, and a fact:
+  `ILIKE '%…%'`, which no btree serves, so each search read all three
+  tables for every company. Migration 0098 makes a `pg_trgm` GIN index on
+  exactly those six columns, spelled as the search spells them; the note is
+  now searched as the column rather than `coalesce(owner_note, '')`, which
+  matched nothing more and no index could serve. `pg_trgm` is installed
+  with `pgcrypto` and `vector` by `provision-database.ts` and
+  `setup-database.sh`; it is a trusted extension, so the migration installs
+  it as the database's owner where a database was provisioned before, and
+  stops with what to do where the server lacks it. The indexes are made
+  with a plain `CREATE INDEX`: every migration runs in one transaction with
+  its record, which `CONCURRENTLY` cannot, and the build holds writes to
+  each table for the seconds one owner's rows take, once, in the upgrade's
+  migrate step. The test records the three statements the search sends as
+  it sends them, and explains each on the control plane with sequential and
+  plain index scans priced out: each table is read by a bitmap heap scan,
+  over every one of the six indexes, and no table is read row by row. With
+  a handful of facts and no statistics the planner rightly prefers walking
+  the partial index of live facts whole, so the test adds four hundred and
+  counts them first, as autovacuum would in a deployment. The existing
+  search tests pass unchanged.
+- **Not done.** A proxy that routes by the container's state and asks
+  nothing -- the Traefik in front of Coolify and Dokploy -- is not told by
+  the drain, and, routing to the containers that are running, still sends
+  requests to a stopping one until it has stopped (read in how its Docker
+  provider works, not tried here); the listener closes before the worker's
+  grace, so for a run that takes the whole grace, requests routed there in
+  that time are refused. Keeping the listener open until the worker has
+  stopped would close that window, and changes the order `stop()` keeps:
+  the console before the worker. The drain's five seconds are not a setting an operator
+  can change. The migration's refusal where the server lacks `pg_trgm` was
+  read, not run: every server here has it.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

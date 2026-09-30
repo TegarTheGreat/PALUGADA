@@ -447,6 +447,12 @@ Skala: 33 crate, sekitar 645 ribu baris Rust, sekitar 6.500 tes Rust.
   setiap tabel ber-`company_id` ikut terhapus lewat cascade atau terdaftar
   dengan alasan (manifest ala Buzz). Tutup dan batalkan-tutup kini satu
   transaksi dengan event auditnya.
+- **Readiness saat berhenti, health yang murah, pencarian berindeks
+  (STATUS 2.58).** `GET /api/ready` menjawab 503 begitu penghentian dimulai,
+  sebelum listener ditutup; sampel database diambil sekali per lima detik
+  berapa pun banyaknya probe, dan database yang diam dijawab "tak terjangkau"
+  dalam dua detik; pencarian lintas perusahaan memakai indeks trigram
+  (`pg_trgm`) yang dibuktikan dipakai lewat `EXPLAIN` di tes.
 
 ### 10.3 Auto-Company
 
@@ -504,6 +510,22 @@ model headless kira-kira setiap 30 detik, dengan 14 persona sub-agen.
   bahaya dan angka mana yang dibaca; skill baru `positioning` dan
   `market-research`, masing-masing dengan kasus uji.
 
+- **Bukti yang bisa dicek platform (STATUS 2.56).** Dulu kriteria "selesai"
+  dianggap terpenuhi bila run berkata demikian dan menulis bukti apa saja.
+  Kini bukti boleh mengutip panggilan tool sebagai `step:<n>`; platform
+  mencocokkannya dengan jurnal tugas itu. Kriteria yang mengutip langkah
+  yang berhasil ditandai **Terverifikasi**, yang tidak mengutip apa pun
+  **Diklaim**, dan kutipan palsu (langkah gagal, milik tugas lain, atau tidak
+  ada) menggagalkan kriteria. Piagam platform menambah aturan: angka, hasil
+  tes atau tanggal hanya muncul bila tool di tugas itu menghasilkannya.
+- **Kritikus sebelum setiap perpindahan tahap (STATUS 2.57).** Premortem
+  "Munger" di Auto-Company hanya ada di prompt. Di PALUGADA, company-os 1.4.0
+  punya peran `critic` di divisinya sendiri yang tidak bisa bertindak, dan
+  kebijakan yang menaruh `stage.propose` di belakang ulasannya. Pemilik
+  melihat vonis kritikus baik saat mendukung maupun menghentikan usulan.
+  Sambil jalan ditemukan bug lama: tugas ulasan dibuat di divisi pengusul,
+  sehingga ulasan lintas divisi gagal di database sejak migrasi 0058.
+
 **Yang sengaja tidak diambil:** loop yang memaksa membangun setiap siklus
 ("force a choice and build it"), kontrol di pohon berkas yang bisa ditulis
 agen, dan mode izin `bypassPermissions` bawaan.
@@ -519,6 +541,9 @@ agen, dan mode izin `bypassPermissions` bawaan.
 | Lease saat database hilang | Kunci di memori | Lease dengan deadline | Tidak ada | Deadline lokal (2.50) |
 | Penghapusan tenant | Menghapus log audit | Bertahap, manifest | Tidak ada | Per perusahaan, berkas ikut, manifest (2.51) |
 | Keadaan perusahaan untuk agen | Tidak ada | Tidak ada | Ditulis ulang model | Dihitung dari database (2.53) |
+| Bukti "selesai" | Kata run | Tidak ada | Pemeriksa milik program | Dikutip ke jurnal, Terverifikasi/Diklaim (2.56) |
+| Keputusan GO/NO-GO | Tidak ada | Tidak ada | Premortem di prompt | Kritikus yang ditegakkan kebijakan (2.57) |
+| Health/readiness | Tidak ada Prometheus | Readiness lokal, sampel 30 detik | Tidak ada | Readiness 503 saat berhenti, sampel 5 detik (2.58) |
 | Rantai pasok CI | SHA, Dependabot, tanda tangan image | SHA, `cargo-deny` | Tidak ada | SHA, Dependabot, audit, digest (2.54) |
 | Pemasangan | Postgres tertanam | Helm | Skrip | Compose, Coolify, Dokploy, klaim pemilik (2.48, 2.49) |
 

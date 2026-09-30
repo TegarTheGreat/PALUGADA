@@ -703,6 +703,8 @@ export interface ScheduleView {
   roleSlug: string;
   divisionName: string;
   priority: number;
+  /** What each run reserves from its budget account, so running one now can say so first. */
+  reserveTokens: number;
   nextRunAt: Date | null;
   lastRunAt: Date | null;
   /** Why the last occurrence could not fire, while it still cannot. */
@@ -731,14 +733,14 @@ export async function schedulesOf(companyId: string): Promise<ScheduleView[]> {
   return withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
       id: string; slug: string; cron_expression: string; timezone: string; enabled: boolean;
-      role_slug: string; division_name: string; priority: number;
+      role_slug: string; division_name: string; priority: number; reserve_tokens: string;
       next_run_at: Date | null; last_run_at: Date | null; fire_failure: string | null;
       overlap: OverlapPolicy; catch_up_minutes: number | null; held_by_task_id: string | null;
       skipped_for: Date | null; skipped_because: 'overlap' | 'late' | null;
       skipped_count: number | null; skipped_task_id: string | null;
     }>(
       `SELECT s.id, s.slug, s.cron_expression, s.timezone, s.enabled, r.slug AS role_slug,
-              d.name AS division_name, s.priority, s.next_run_at, s.last_run_at, s.fire_failure,
+              d.name AS division_name, s.priority, s.reserve_tokens, s.next_run_at, s.last_run_at, s.fire_failure,
               s.overlap, s.catch_up_minutes, s.held_by_task_id,
               s.skipped_for, s.skipped_because, s.skipped_count, s.skipped_task_id
          FROM schedules s
@@ -755,6 +757,7 @@ export async function schedulesOf(companyId: string): Promise<ScheduleView[]> {
       roleSlug: row.role_slug,
       divisionName: row.division_name,
       priority: row.priority,
+      reserveTokens: Number(row.reserve_tokens),
       nextRunAt: row.next_run_at,
       lastRunAt: row.last_run_at,
       failure: row.fire_failure,

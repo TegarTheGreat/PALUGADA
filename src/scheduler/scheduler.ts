@@ -13,6 +13,7 @@
  * reverse order would lose an occurrence outright, which is the worse failure:
  * a duplicate is visible, a silently skipped nightly job is not.
  */
+import { randomUUID } from 'node:crypto';
 import { PalugadaError } from '../errors.ts';
 
 // cron-parser is CommonJS while its type declarations are written in ESM
@@ -255,7 +256,7 @@ export async function upsertSchedule(input: ScheduleInput, now = new Date()): Pr
 }
 
 /** A task a schedule made that has not ended. */
-export interface LiveScheduledTask {
+interface LiveScheduledTask {
   id: string;
   status: TaskStatus;
 }
@@ -273,7 +274,7 @@ export interface LiveScheduledTask {
  * predicate spells the same list; were the list to change, the index would
  * stop being used and the answer would still be right.
  */
-export async function liveTaskOf(
+async function liveTaskOf(
   tx: TenantClient,
   scheduleId: string,
   options: { except?: string } = {},
@@ -388,32 +389,9 @@ export async function runDueSchedules(now = new Date()): Promise<FiredOccurrence
 
     let task: TaskRow;
     try {
-      // A schedule whose input asks for the week -- the weekly business
-      // review's does (bundles/builtin.ts) -- is handed it, read from the
-      // company's records as it fires (reporting/week.ts). Inside the `try`,
-      // so a week that cannot be read is a failed occurrence, recorded and
-      // tried again, like one that cannot be funded.
-      const week = schedule.input.facts === 'week' ? await buildWeekFacts(schedule.company_id, now) : null;
-      const outside = week?.finished.filter((one) => one.outside).map((one) => one.task) ?? [];
-      task = await createRootTask({
-        companyId: schedule.company_id,
-        projectId: schedule.project_id,
-        divisionId: schedule.division_id,
-        roleId: schedule.role_id,
-        budgetAccountId: schedule.budget_account_id,
-        input: week ? { ...schedule.input, week } : schedule.input,
-        // What finished work reported after reading outside content is in
-        // the week, as data; the review carries that, as work that read it
-        // itself would (F8.9).
-        ...(outside.length > 0 ? { carriesOutside: { capability: 'the week it was handed', tasks: outside } } : {}),
-        createdBy: 'scheduler',
-        reserveTokens: Number(schedule.reserve_tokens),
-        idempotencyKey: key,
-        scheduleId: schedule.id,
-        priority: schedule.priority,
-        batchable: schedule.batchable,
-        ...(schedule.goal_id ? { goalId: schedule.goal_id } : {}),
-      });
+      // Inside the `try`, so a week that cannot be read is a failed
+      // occurrence, recorded and tried again, like one that cannot be funded.
+      task = await createScheduledTask(schedule, { createdBy: 'scheduler', idempotencyKey: key, now });
     } catch (error) {
       // A schedule whose goal the owner has closed is paused, not retried:
       // closing the goal paused it once (goals.ts), and one turned back on by
@@ -634,6 +612,134 @@ async function giveWay(schedule: DueSchedule, key: string, now: Date): Promise<b
         });
     }
     return true;
+  });
+}
+
+/** What one run of a schedule is made from, whether the clock or the owner starts it. */
+type ScheduleWork = Pick<DueSchedule,
+  | 'id' | 'company_id' | 'project_id' | 'division_id' | 'role_id' | 'budget_account_id'
+  | 'input' | 'reserve_tokens' | 'batchable' | 'goal_id' | 'priority'>;
+
+/**
+ * Creates the task one run of a schedule does.
+ *
+ * One function for the occurrence the clock fires and the run the owner asks
+ * for, so the two cannot drift apart: the same division, role, project,
+ * account, input, priority, batching and goal, and the task names the
+ * schedule, which is what puts it in the schedule's history.
+ *
+ * A schedule whose input asks for the week -- the weekly business review's
+ * does (bundles/builtin.ts) -- is handed it, read from the company's records
+ * as the run starts (reporting/week.ts).
+ */
+async function createScheduledTask(
+  schedule: ScheduleWork,
+  run: { createdBy: 'scheduler' | 'owner'; idempotencyKey: string; now: Date },
+): Promise<TaskRow> {
+  const week = schedule.input.facts === 'week' ? await buildWeekFacts(schedule.company_id, run.now) : null;
+  const outside = week?.finished.filter((one) => one.outside).map((one) => one.task) ?? [];
+  return createRootTask({
+    companyId: schedule.company_id,
+    projectId: schedule.project_id,
+    divisionId: schedule.division_id,
+    roleId: schedule.role_id,
+    budgetAccountId: schedule.budget_account_id,
+    input: week ? { ...schedule.input, week } : schedule.input,
+    // What finished work reported after reading outside content is in the
+    // week, as data; the review carries that, as work that read it itself
+    // would (F8.9).
+    ...(outside.length > 0 ? { carriesOutside: { capability: 'the week it was handed', tasks: outside } } : {}),
+    createdBy: run.createdBy,
+    reserveTokens: Number(schedule.reserve_tokens),
+    idempotencyKey: run.idempotencyKey,
+    scheduleId: schedule.id,
+    priority: schedule.priority,
+    batchable: schedule.batchable,
+    ...(schedule.goal_id ? { goalId: schedule.goal_id } : {}),
+  });
+}
+
+/**
+ * Runs a schedule once, now, because the owner asked, and returns the task.
+ *
+ * The task is the one an occurrence would make, by the same function, except
+ * that the owner made it. The schedule's cadence is left alone: `next_run_at`
+ * and `last_run_at` are not touched, because an extra run is not an
+ * occurrence -- an owner who tries the weekly review on a Thursday still gets
+ * Monday's.
+ *
+ * A schedule that is off may be run. Trying one once before turning it on is
+ * most of what this is for -- a bundle installs its schedules off -- and
+ * running it does not turn it on, which stays the owner's separate decision.
+ * One paused because its goal closed is refused all the same, by the goal:
+ * `createRootTask` starts no work under a closed goal, whoever asks.
+ *
+ * Refused while a task the schedule made has not ended, naming that task, so
+ * a second press -- or an owner pressing again because nothing seemed to
+ * happen -- does not start the same work twice. Two presses at once are
+ * serialized on the schedule by a transaction-level advisory lock, held from
+ * the check until the new task has committed: the second waits for the lock,
+ * then finds the first one's task live and is refused. The lock is taken on
+ * the control plane, whose pool no task creation draws on, so a press waiting
+ * for it never holds a connection the press it waits for needs. A lock rather
+ * than `FOR UPDATE` on the schedule row, which would also hold up the clock
+ * advancing the schedule and the owner editing it for as long as the week
+ * takes to read; and rather than a key that hands the second press the first
+ * one's task, because two racing presses would have to derive the same key
+ * from what they read, and an owner who pressed twice should be told the run
+ * is under way, not handed it as if theirs had started it.
+ */
+export async function runScheduleNow(companyId: string, scheduleId: string, now = new Date()): Promise<TaskRow> {
+  return withControlPlane(async (tx) => {
+    const { rows } = await tx.query<ScheduleWork & { slug: string; enabled: boolean; frozen: boolean }>(
+      `SELECT s.id, s.company_id, s.project_id, s.division_id, s.role_id, s.budget_account_id,
+              s.slug, s.enabled, s.input, s.reserve_tokens, s.batchable, s.goal_id, s.priority,
+              c.frozen_at IS NOT NULL AS frozen
+         FROM schedules s
+         JOIN companies c ON c.id = s.company_id
+        WHERE s.id = $1 AND s.company_id = $2`,
+      [scheduleId, companyId],
+    );
+    const schedule = rows[0];
+    if (!schedule) {
+      throw new PalugadaError('contract.violation', 'no such schedule in this company', { scheduleId });
+    }
+    // F1.4: a freeze stops tasks starting. The clock passes over a frozen
+    // company's schedules; the owner pressing one is told why nothing runs.
+    if (schedule.frozen) {
+      throw new PalugadaError(
+        'company.frozen', 'this company is frozen and starts no work; unfreeze it first', { companyId },
+      );
+    }
+
+    await tx.query("SELECT pg_advisory_xact_lock(hashtext('schedule-run:' || $1))", [scheduleId]);
+    const live = await liveTaskOf(tx, scheduleId);
+    if (live) {
+      throw new PalugadaError(
+        'schedule.still_running',
+        `schedule ${schedule.slug} is still on task ${live.id}, which is ${live.status}; `
+          + 'open that task, or run the schedule again once it has ended',
+        { scheduleId, taskId: live.id, status: live.status },
+      );
+    }
+
+    // A key of its own for every press. Left to derive one, the engine keys a
+    // task by its role and input, which two runs of the same schedule share
+    // once it is not handed the week, so the second run after the first had
+    // ended was refused as a duplicate of it. The lock and the check above
+    // are what make one press one task; this only has to differ.
+    const task = await createScheduledTask(schedule, {
+      createdBy: 'owner', idempotencyKey: `schedule:${schedule.id}:owner:${randomUUID()}`, now,
+    });
+    await appendEvent(tx, {
+      companyId,
+      projectId: schedule.project_id,
+      taskId: task.id,
+      type: 'schedule.run_by_owner',
+      actor: 'owner',
+      payload: { scheduleId: schedule.id, slug: schedule.slug, enabled: schedule.enabled },
+    });
+    return task;
   });
 }
 

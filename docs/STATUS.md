@@ -5395,6 +5395,81 @@ Read against the source of Block's Buzz, on 2026-09-30.
   occurrence is comes from `nextOccurrence`, so across a daylight-saving
   change it is exactly as right as that function is.
 
+## 2.61 Run a schedule now (F9.1)
+
+Asked for on 2026-09-30: a schedule could be created, changed, and turned on
+or off, and an owner who wanted to see what one does waited for its next
+occurrence -- for the weekly business review, a week.
+
+- **A schedule could only be waited for.**
+  `POST /api/companies/:companyId/schedules/:scheduleId/run`
+  (`runScheduleNow`, `src/scheduler/scheduler.ts`) makes the task an
+  occurrence would make, by the same function: `createScheduledTask` was
+  taken out of `runDueSchedules`, which calls it for every occurrence, so the
+  two cannot drift apart. The same division, role, project, budget account,
+  input -- with the week read from the company's records for a schedule
+  whose input asks for it, and the outside-content carry that comes with it
+  (F8.9) -- priority, batching and goal, and `schedule_id`, which puts the
+  run in the schedule's history. The task is created by `owner`, and
+  `next_run_at` and `last_run_at` are not touched: an extra run is not an
+  occurrence, and an owner who tries the weekly review on a Thursday still
+  gets Monday's. A `schedule.run_by_owner` event names the task, and the
+  answer is the task, which the console links to. A schedule that is off may
+  be run -- trying one before turning it on is most of what this is for, and
+  a bundle installs its schedules off -- and stays off.
+- **Twice is refused, and so is at once.** While a task the schedule made has
+  not ended (any status outside `TERMINAL_STATUSES`), whether the clock or an
+  earlier press made it, the route answers 409 with a new code,
+  `schedule.still_running`, naming the task and its status in the message and
+  the task in `details.taskId`; the console explains it and links to that
+  task. Two presses at once are serialized on the schedule by a
+  transaction-level advisory lock taken on the control plane and held from
+  the check until the new task has committed, so the second waits and then
+  finds the first one's task live. Why a lock rather than `FOR UPDATE` on the
+  schedule row or a key that hands the second press the first one's task is
+  written at the function. Every press gives its task a key of its own:
+  left to derive one, the engine keys a task by its role and input, which two
+  runs of a schedule not handed the week share, so the second run after the
+  first had ended would have been refused as a duplicate of it.
+- **Refused where new work is refused.** A frozen company answers
+  `company.frozen`, the code the engine and the hooks give a freeze; a
+  schedule whose goal is closed, or under a closed one, answers `goal.closed`
+  from `createRootTask`, as the clock's own firing meets it; a paused spend,
+  a frozen role and an account that cannot cover the reservation are refused
+  by the checks an occurrence meets. A schedule of another company is not
+  found.
+- **The console and the assistant.** On **Team**, **Schedules**, every row
+  has **Run now**. Every run reserves (`reserve_tokens` is at least one), so
+  the press asks first and says how many tokens the run reserves from the
+  schedule's budget account -- the schedules list now carries
+  `reserveTokens` -- and whether an off schedule stays off; the notification
+  links to the new task. The owner's assistant may propose it, and its card
+  may be applied from a chat, as giving work may: it takes no device, and it
+  spends from the schedule's own account under grants its role already has.
+- **Tested.** `schedule-run-now.test.ts`, against the database: the task
+  carries the schedule's settings and is the owner's, `next_run_at` is
+  unchanged to the millisecond and `last_run_at` stays empty, the event is
+  written, an occurrence that falls due while the owner's run is live gives
+  way to it under the default overlap policy (2.59) and names it, and once it
+  has ended the next occurrence fires; an off schedule
+  runs and stays off; a second press is answered 409 naming the task while it
+  is pending and while it is running, a press after it failed works, and a
+  live task the clock made refuses a press the same way; six presses at once
+  make one task and five refusals that name it, with only its reservation
+  held (with the lock taken out, the same test made six tasks, every time it
+  was run); a frozen company and a closed goal are refused and reserve
+  nothing; another company's schedule and one that does not exist are not
+  found, and a press without a session is 401; a schedule that asks for the
+  week is handed it, with the outside-content carry.
+- **The clock and the owner.** The clock's own firing takes no lock, but it
+  looks for a live task of the schedule before an occurrence fires (2.59),
+  and the owner's run is one: under the default `skip` an occurrence gives
+  way to it, under `queue` waits for it, and only under `allow` runs beside
+  it, as the owner chose.
+- **Not done.** The console learns that a run is live only by pressing: the
+  schedules list does not say so, and the button is not greyed out while one
+  is.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

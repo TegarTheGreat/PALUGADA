@@ -96,6 +96,7 @@ const EVENT_SENTENCES: Record<string, string> = {
   'schedule.skipped': N('Schedule skipped a run: the last one was still going'),
   'schedule.held': N('Schedule waiting for its last run to finish'),
   'schedule.missed': N('Schedule missed a run: too late to be worth running'),
+  'schedule.run_by_owner': N('You ran the schedule now'),
   'role.frozen': N('Role frozen'),
   'role.unfrozen': N('Role resumed'),
   'wake.queued': N('Role woken'),

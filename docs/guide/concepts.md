@@ -482,7 +482,9 @@ lift its quarantine.
   for the run to finish, or runs beside it, as you choose; skipping is the
   default. After downtime it runs one catch-up, or, with a catch-up window,
   drops an occurrence too late to be worth running. Either way the table
-  says which occurrence did not run and why.
+  says which occurrence did not run and why. You can also run one now,
+  once, without moving its next occurrence; not while a task it made is
+  still under way.
 - A *heartbeat* wakes a role every so many minutes to look for work.
 - A *handoff* starts a role's work when another role finishes, with your
   brief and what the first one produced.

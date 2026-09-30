@@ -906,6 +906,18 @@ replaces it, these two choices included; through the API they are
 `overlap` (`skip`, `queue` or `allow`) and `catchUpMinutes` (15 to 525600,
 or `null`).
 
+To see what a schedule does without waiting for its next occurrence, press
+**Run now** on its row. The dialog says how many tokens the run reserves from
+the schedule's budget account; **Run it now** makes the same task an
+occurrence would -- the same role, project, goal, brief, priority and budget
+account, and for the weekly business review the week read from the company's
+records -- and the notification links to it. The schedule's **Next** does not
+move: the run is extra, not the next occurrence brought forward. A schedule
+that is **Off** can be run this way to try it before you turn it on, and
+stays off. Run now is refused while a task the schedule made has not ended
+(the notification links to that task), in a frozen company, and when the
+goal the schedule serves is closed.
+
 ## Let other services start work: triggers
 
 1. On **Team**, **Triggers**, press **New trigger**.

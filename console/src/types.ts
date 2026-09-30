@@ -271,6 +271,8 @@ export interface Schedule {
   roleSlug: string;
   divisionName: string;
   priority: number;
+  /** What each run reserves from its budget account. */
+  reserveTokens: number;
   nextRunAt: string | null;
   lastRunAt: string | null;
   failure: string | null;

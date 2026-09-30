@@ -15,6 +15,7 @@
  */
 import { SENTENCES as ID } from './sentences/id.ts';
 import { SENTENCES as MS } from './sentences/ms.ts';
+import { SENTENCES as RU } from './sentences/ru.ts';
 
 /**
  * The sentences each language has, one file each in `sentences/`. Every
@@ -24,6 +25,7 @@ import { SENTENCES as MS } from './sentences/ms.ts';
 export const OWNER_SENTENCES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   id: ID,
   ms: MS,
+  ru: RU,
 };
 
 /** `text` in `language`, with `{name}` filled from `values`; English when there is no translation. */

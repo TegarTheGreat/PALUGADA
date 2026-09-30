@@ -62,18 +62,25 @@ matang".**
 - **SQL manual tidak lagi dibutuhkan.** Vendor, kredensial divisi, dan harga
   model kini diatur dari console dan langsung berlaku tanpa restart.
 - **Uji ulang juga menemukan hal baru:**
-  - Satu tugas pemasaran dengan model reasoning menghabiskan **325 ribu
-    token** dan menguras seluruh jatah **seumur hidup** divisi Growth dalam
-    sekali jalan. Task berhenti tanpa item di inbox owner.
+  - **Plafon token PALUGADA buta harga.** Satu tugas pemasaran dengan model
+    reasoning dihitung 325 ribu token dan menguras seluruh jatah **seumur
+    hidup** divisi Growth dalam sekali jalan, lalu berhenti tanpa item di
+    inbox owner.
+    - Biaya DeepSeek sebenarnya hanya ±4–9 sen; diukur dengan proxy pencatat
+      tagihan pada 30 Sep, lihat
+      [`FEATURE-COMPARISON-2026-09-30.md`](FEATURE-COMPARISON-2026-09-30.md)
+      §2.
+    - Jadi yang menghentikan perusahaan adalah hitungan token, bukan uang.
   - Deteksi "pertanyaan setup" menelan pertanyaan kerja **berbahasa
     Indonesia**.
   - Ada dua temuan keamanan tingkat Sedang di kode baru: klaim deployment dan
     OAuth MCP tanpa faktor kedua.
   - Pemulihan crash yang baru bisa salah menganggap replika hidup sebagai
     mati setelah database terputus lebih dari 60 detik.
-- **Kesiapan pasar tidak berubah.** Masih 0 bintang dan 0 pengguna, tanpa
-  lisensi, tanpa rilis bertag, dan default branch masih `claude/…`. Paperclip
-  bertambah **+5,4 ribu bintang** dalam dua hari yang sama (95,3 ribu).
+- **Perbandingan fitur per area** terhadap Paperclip, Buzz, Auto-Company,
+  Multica, dan Opifer ada di
+  [`FEATURE-COMPARISON-2026-09-30.md`](FEATURE-COMPARISON-2026-09-30.md).
+  Isinya fitur, kode, keunggulan, dan kekurangan, tanpa metrik popularitas.
 
 **Skor ringkas** (0–10):
 
@@ -83,12 +90,9 @@ matang".**
 | Keamanan & tata kelola agen | 7 | 7 | Temuan HIGH beres, taint tidak bisa lagi "dicuci", dan passkey kebal lockout; tetapi muncul 2 temuan Sedang baru |
 | Keandalan operasional | 5 | **6,5** | Konkurensi, pemulihan 47 detik, rate limit model di-*park*; tersisa H2, M1, M6, M10, dan risiko heartbeat |
 | Kelengkapan produk & integrasi | 3 | **5** | Vendor, kredensial, dan harga dari console; OAuth vendor; WhatsApp; metrik Prometheus; OTLP; agregator MCP; runtime ACP |
-| Adopsi, ekosistem, keberlanjutan | 1 | 1 | Tidak berubah |
-| **Keseluruhan** | **4,5** | **5,5 — beta awal secara teknis, belum siap pasar** | |
 
-Paperclip tetap 5,5, jadi keduanya kini setara di angka keseluruhan dengan
-profil yang berkebalikan. PALUGADA jauh lebih ketat dan benar, sedangkan
-Paperclip jauh lebih lengkap, lebih luas, dan sudah dipakai orang.
+Skor per area fitur ada di
+[`FEATURE-COMPARISON-2026-09-30.md`](FEATURE-COMPARISON-2026-09-30.md).
 
 ---
 
@@ -151,7 +155,7 @@ Kolom "Bukti" menandai jenis pembuktiannya:
 
 | # | Keparahan | Temuan | Bukti |
 |---|---|---|---|
-| B1 | **Tinggi** | **Model reasoning kini menghabiskan anggaran, bukan lagi gagal.** Satu tugas pemasaran memakai 325.448 token (263 rb input, 62 rb output): giliran kosong diulang dengan jatah 8.192, lalu 16.384, lalu ±20 rb, dan setiap ulangan mengirim ulang ±20 rb token konteks. Hasilnya: jatah **seumur hidup** divisi Growth (300 rb) habis dalam satu task, perusahaan memakai 381 rb dari 2 juta dalam ±10 menit, dan task berhenti `budget_exhausted`. **Tidak ada item inbox atau insiden**; owner hanya melihatnya sebagai "stopped" di Home/Work. Pertumbuhan jatah tidak dibatasi sisa anggaran run | uji langsung; `agent-loop.ts:115,155`; `budget_accounts` |
+| B1 | **Tinggi** | **Plafon token buta harga: model reasoning yang murah tetap menguras kuota token.** Satu tugas pemasaran dihitung 325.448 token (263 rb input, 62 rb output): giliran kosong diulang dengan jatah 8.192, lalu 16.384, lalu ±20 rb, dan setiap ulangan mengirim ulang ±20 rb token konteks. Biaya DeepSeek nyatanya hanya ±4–9 sen, karena sebagian besar input kena cache; PALUGADA tidak mengenal harga cache. Hasilnya: jatah **seumur hidup** divisi Growth (300 rb) habis dalam satu task, perusahaan memakai 381 rb dari 2 juta dalam ±10 menit, dan task berhenti `budget_exhausted`. **Tidak ada item inbox atau insiden**; owner hanya melihatnya sebagai "stopped" di Home/Work. Pertumbuhan jatah tidak dibatasi sisa anggaran run | uji langsung; `agent-loop.ts:115,155`; `budget_accounts` |
 | B2 | **Sedang** | **Pertanyaan kerja berbahasa Indonesia ditelan platform.** Deteksi "pertanyaan setup" (L7) memakai regex berisi `hubung\w*` dan `pasang`. "Siapa pelanggan yang harus saya hubungi lewat email?" dan "Berapa harga yang harus saya pasang di postingan social media?" dijawab otomatis oleh platform dan tidak pernah sampai ke owner. Ini justru menyasar pasar utama PALUGADA | `src/broker/platform-capabilities.ts:608-631`, direproduksi dengan logika yang sama |
 | B3 | **Sedang** | **Rahasia klaim deployment bisa dikloning.** Secret TOTP yang ditawarkan tautan klaim adalah `HMAC(masterKey, claim.id)`, sama setiap kali tautan dibuka. Siapa pun yang membaca tautan dari log PaaS (Coolify/Dokploy) lalu membukanya sebelum owner mengonfirmasi akan memegang salinan authenticator owner selamanya | `src/owner/claim.ts:99-104, 157-161` |
 | B4 | **Sedang** | **OAuth MCP tanpa faktor kedua.** `POST /api/control/mcp/oauth/start` tidak memanggil `#requireFactor`, dan callback-nya menimpa token server yang sudah tersimpan. Pencuri sesi bisa menyambungkan server MCP perusahaan ke akun miliknya sendiri, sementara rute setara untuk kredensial divisi meminta faktor | `src/owner/api.ts:2168-2190`; `src/capabilities/mcp-oauth.ts:434-506` |
@@ -169,7 +173,6 @@ Diperbarui 30 September dari clone dan halaman GitHub publik.
 
 | | PALUGADA | Paperclip | Buzz | Auto-Company |
 |---|---|---|---|---|
-| Bintang | 0 | **95,3 rb** (+5,4 rb) | ±35 rb (angka 28 Sep) | 3,1 rb |
 | Commit sejak 28 Sep | 90 | 56 | 22 | 0 |
 | RLS di migrasi | FORCE di semua tabel tenant | **0** | **0** | — |
 | Biaya tak berharga | harga fallback, atau harga models.dev | **masih 0 sen** (`heartbeat.ts:5251`) | tanpa budget | jeda |
@@ -183,8 +186,8 @@ Auto-Company yang diverifikasi ulang di sini, dan semuanya masih benar.
 
 **Kesimpulan kompetitif tidak berubah.** Keunggulan inti PALUGADA (isolasi di
 database, faktor kedua untuk aksi ireversibel, dan reservasi anggaran) masih
-belum dimiliki kompetitor besar mana pun. Selisih ekosistem dan adopsinya
-justru melebar.
+belum dimiliki kompetitor besar mana pun. Selisih kelengkapan fitur
+(integrasi, runtime, kanal) masih besar; lihat perbandingan per area.
 
 ---
 
@@ -195,7 +198,8 @@ justru melebar.
 1. **B1.**
    - Batasi pertumbuhan jatah per giliran dengan sisa anggaran run.
    - Jadikan plafon token berperiode (bulanan seperti uang), bukan seumur
-     hidup.
+     hidup, atau jadikan uang (dengan harga model dan cache) sebagai batas
+     utama.
    - Munculkan item inbox yang bisa ditindaklanjuti (naikkan plafon lalu
      lanjutkan) saat task berhenti `budget_exhausted`.
 2. **B2.** Jangan menjawab pertanyaan agen secara otomatis berdasarkan kata
@@ -217,8 +221,8 @@ justru melebar.
 8. Sebutkan kebutuhan superuser berpassword di `AGENTS.md`, dan sesuaikan
    pesan boot tentang harga.
 
-**P2, tidak berubah dari 28 September:** lisensi, rilis bertag, default
-branch `main`, dan operasi nyata 14 hari sesuai kriteria keluar PRD.
+**P2:** operasi nyata 14 hari sesuai kriteria keluar PRD, dengan model
+sungguhan dan `kill -9` harian.
 
 ---
 

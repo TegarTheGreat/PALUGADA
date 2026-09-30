@@ -33,7 +33,7 @@ import { say } from './say.ts';
 import { withTenant } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { redactor } from '../secrets/manager.ts';
-import { channelDelivery, type ChannelDelivery } from '../inbox/inbox.ts';
+import { channelDelivery, type ChannelDelivery, type Decision } from '../inbox/inbox.ts';
 import { buildDailyDigest, renderDailyDigest } from '../reporting/digest.ts';
 import { notifyAfterFor } from '../scheduler/windows.ts';
 
@@ -943,7 +943,8 @@ export function closureText(closed: ClosedItem): string {
   if (closed.status === 'decided') {
     return closed.decision === 'approve' ? say(language, 'Approved. Nothing left to press here.')
       : closed.decision === 'deny' ? say(language, 'Denied. Nothing left to press here.')
-        : say(language, 'Decided ({decision}). Nothing left to press here.', { decision: closed.decision ?? 'unknown' });
+        : closed.decision === 'ask' ? say(language, 'Asked. Nothing left to press here.')
+          : say(language, 'Decided ({decision}). Nothing left to press here.', { decision: closed.decision ?? 'unknown' });
   }
   if (closed.status === 'expired') {
     return say(language, 'Expired unanswered. Silence is a refusal, so nothing was done.');
@@ -951,9 +952,25 @@ export function closureText(closed: ClosedItem): string {
   const task = closed.closedReason?.startsWith('task_')
     ? closed.closedReason.slice('task_'.length)
     : null;
+  // Each end of a task is a sentence of its own: a status code filled into
+  // one sentence stays English inside every translation of it.
+  if (task === 'completed') return say(language, 'Withdrawn: the task it was asking about has finished.');
+  if (task === 'failed') return say(language, 'Withdrawn: the task it was asking about has failed.');
+  if (task === 'halted') return say(language, 'Withdrawn: the task it was asking about was stopped.');
+  if (task === 'cancelled') return say(language, 'Withdrawn: the task it was asking about was cancelled.');
   return task
     ? say(language, 'Withdrawn: the task it was asking about is {state}.', { state: task })
     : say(language, 'Withdrawn ({reason}).', { reason: closed.closedReason ?? say(language, 'no reason recorded') });
+}
+
+/**
+ * What a chat says once the owner's press is recorded: the decision as a
+ * word of the owner's language, not the code the button carried.
+ */
+export function recordedText(language: string | null, decision: Decision): string {
+  if (decision === 'approve') return say(language, 'Recorded: approved.');
+  if (decision === 'deny') return say(language, 'Recorded: denied.');
+  return say(language, 'Recorded: asked.');
 }
 
 /**

@@ -31,7 +31,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Withdrawn ({reason}).': '已撤回（{reason}）。',
   'no reason recorded': '未记录原因',
   'This bot only answers to its owner.': '此机器人只回应其所有者。',
-  'Recorded: {decision}.': '已记录：{decision}。',
   'That one has to be approved in the app.': '此事项必须在控制台中批准。',
   'Already closed: {reason}.': '已关闭：{reason}。',
   'That could not be recorded.': '无法记录此操作。',
@@ -101,4 +100,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Go back to PALUGADA to choose which of its tools roles may use. This tab can be closed.':
     '请返回 PALUGADA，选择角色可以使用它的哪些工具。此标签页可以关闭了。',
   'Not signed in': '未登录',
+  "Recorded: approved.": "已记录：批准。",
+  "Recorded: denied.": "已记录：拒绝。",
+  "Recorded: asked.": "已记录：提问。",
+  "Asked. Nothing left to press here.": "已提问。这里无需再操作。",
+  "Withdrawn: the task it was asking about has finished.": "已撤回：所询问的任务已完成。",
+  "Withdrawn: the task it was asking about has failed.": "已撤回：所询问的任务已失败。",
+  "Withdrawn: the task it was asking about was stopped.": "已撤回：所询问的任务已被停止。",
+  "Withdrawn: the task it was asking about was cancelled.": "已撤回：所询问的任务已被取消。",
 };

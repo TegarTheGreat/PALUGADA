@@ -40,7 +40,7 @@ import { channelDelivery } from '../inbox/inbox.ts';
 import { deploymentLanguages } from '../domain/language.ts';
 import { say } from './say.ts';
 import { decodeAction, encodeAction, type ChatConversation } from './telegram.ts';
-import type { DeliveryResult, DoneNotice, NotifiableItem, OwnerChannel } from './notify.ts';
+import { recordedText, type DeliveryResult, type DoneNotice, type NotifiableItem, type OwnerChannel } from './notify.ts';
 
 export interface WhatsAppOptions {
   /** The business number's id in the Cloud API (not the number itself). */
@@ -360,7 +360,7 @@ export class WhatsAppChannel implements OwnerChannel {
     }
     try {
       await inbox.decide(companyId, action.itemId, action.decision, 'via chat', { channel: 'chat' });
-      await this.#tell(say(language, 'Recorded: {decision}.', { decision: action.decision }));
+      await this.#tell(recordedText(language, action.decision));
       return { handled: true };
     } catch (error) {
       await this.#tell(refusal(error, language));

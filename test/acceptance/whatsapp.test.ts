@@ -200,7 +200,9 @@ test('a press from the owner decides; unsigned, from another number, or the same
     const decided = await channel.onDelivery(deny, signed(deny));
     assert.equal(decided.results[0]!.handled, true);
     assert.equal((await inbox.listOpen(fixture.companyId)).length, 0);
-    assert.match(String((graph.sent.at(-1)!.body.text as { body: string }).body), /Recorded: deny/);
+    // A sentence, not the code the button carried ("Recorded: deny."), which
+    // no translation could say in the owner's language.
+    assert.equal(String((graph.sent.at(-1)!.body.text as { body: string }).body), 'Recorded: denied.');
 
     // Meta retries a delivery it did not see answered, for days, and after a
     // restart too: the same message is recognised and left alone.

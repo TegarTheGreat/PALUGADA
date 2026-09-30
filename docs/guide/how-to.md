@@ -995,7 +995,10 @@ and you to approve.
 
 Under **Settings**, **Languages**:
 
-- **Panel language** is what the console is drawn in, on every device.
+- **Panel language** is what the console is drawn in, on every device, and
+  what PALUGADA's own messages to you are written in: Telegram, WhatsApp,
+  email and push. English, Indonesian, Malay, Simplified Chinese, Hindi,
+  Brazilian Portuguese or Russian.
 - **Agents, by default** is the language every company's agents use unless
   the company sets its own. Press **Save**.
 - Under the company's own section, **Work language** is what it produces for

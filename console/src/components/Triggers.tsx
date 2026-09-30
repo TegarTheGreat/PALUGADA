@@ -100,8 +100,8 @@ export function Triggers({ companyId, structure }: { companyId: string; structur
                   </Table.Td>
                   <Table.Td>
                     {!trigger.hasToken ? <Badge color="orange" variant="light">{t('Needs a token')}</Badge>
-                      : trigger.enabled ? <Badge color="teal" variant="light">{t('Open')}</Badge>
-                        : <Badge color="gray" variant="light">{t('Closed')}</Badge>}
+                      : trigger.enabled ? <Badge color="teal" variant="light">{t('Accepting')}</Badge>
+                        : <Badge color="gray" variant="light">{t('Refusing')}</Badge>}
                   </Table.Td>
                   <Table.Td>
                     <Group gap={6} justify="flex-end" wrap="nowrap">
@@ -139,7 +139,7 @@ export function Triggers({ companyId, structure }: { companyId: string; structur
                         <ActionButton
                           size="xs"
                           variant="subtle"
-                          label={t('Open')}
+                          label={t('Reopen')}
                           factor={t('Open {trigger} again', { trigger: trigger.slug })}
                           run={(proof) => api('POST', `/api/companies/${companyId}/triggers/${trigger.id}`, { enabled: true, proof })}
                           done={view.reload}

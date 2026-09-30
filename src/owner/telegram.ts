@@ -43,7 +43,7 @@ import { appendEvent } from '../audit/event-log.ts';
 import { redactor } from '../secrets/manager.ts';
 import { PalugadaError } from '../errors.ts';
 import * as inbox from '../inbox/inbox.ts';
-import { closureText } from './notify.ts';
+import { closureText, recordedText } from './notify.ts';
 import { say } from './say.ts';
 import { deploymentLanguages } from '../domain/language.ts';
 import type { Heard } from '../capabilities/listen.ts';
@@ -535,7 +535,7 @@ export class TelegramChannel implements OwnerChannel {
       await inbox.decide(companyId, action.itemId, action.decision, 'via chat', {
         channel: 'chat',
       });
-      await this.#answer(query.id, say(await ownerLanguage(), 'Recorded: {decision}.', { decision: action.decision }));
+      await this.#answer(query.id, recordedText(await ownerLanguage(), action.decision));
       return { handled: true };
     } catch (error) {
       // A stale button -- one the retraction sweep has not reached yet, or one

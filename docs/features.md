@@ -164,9 +164,14 @@ freeze, raise a ceiling, rewrite what a model call cost, or delete history.
   the owner decides on it.
 
 **The owner's console**
-- A React and Mantine app in **English and Indonesian**, with light and dark
+- A React and Mantine app in **English, Indonesian, Malay, Simplified
+  Chinese, Hindi, Brazilian Portuguese and Russian**, with light and dark
   themes, that works on a phone. The language is the owner's choice, kept by
-  the deployment rather than the browser, so it follows them to every device.
+  the deployment rather than the browser, so it follows them to every device,
+  and it is also the language of every message PALUGADA itself sends them:
+  Telegram, WhatsApp, email and push. Each dictionary is held complete by a
+  test, with every plural form its language has (Russian's three) and nothing
+  left in English but names.
 - **Home** shows every company at once: what needs the owner across all of
   them, what is running with how far it has got, and each company's budget.
   Pages refresh themselves while open and say when they last did.

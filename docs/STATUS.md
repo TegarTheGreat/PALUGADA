@@ -5557,6 +5557,59 @@ occurrence -- for the weekly business review, a week.
   schedules list does not say so, and the button is not greyed out while one
   is.
 
+## 2.62 Seven languages, each held whole
+
+The console and everything PALUGADA says to the owner outside it were in
+English and Indonesian. They are now also in Malay (Malaysia), Simplified
+Chinese, Hindi, Brazilian Portuguese and Russian. What two languages never
+showed, seven did:
+
+- **Plural forms.** `tp` knew "one" and "other"; Russian has one, few and
+  many ("1 задача, 2 задачи, 5 задач"), and a language's "one" is not the
+  number 1 -- Russian says it for 21, Hindi and Portuguese for 0. A
+  translation of a plural sentence can now name each CLDR form, `tp` picks
+  the form `Intl.PluralRules` answers for the locale, and a test requires
+  every form a language's whole counts fall in and a `{count}` in every
+  "one" sentence (the skipped-run sentence said "the run" for 21 runs, and
+  now says one run apart through `t`).
+- **Completeness in every language.** The test that held the Indonesian
+  dictionary complete now holds every dictionary in `console/src/locales/`
+  to every sentence and the same placeholders; for Chinese, Hindi and
+  Russian every translation must be in its own script; and a translation
+  equal to its English must be a name listed in the dictionary's `KEPT`, at
+  most 3% of it. The server's sentences moved to one file per language in
+  `src/owner/sentences/`, held to the same placeholders and scripts, and a
+  language the console offers without them fails.
+- **Codes inside sentences.** "Recorded: {decision}." and "the task it was
+  asking about is {state}" were filled with `deny` and `cancelled`, English
+  inside every translation. Each decision and each way a task ends is its own
+  sentence now (`recordedText`, `closureText`).
+- **One English word, two meanings.** Translators found labels that one
+  language cannot translate once for all their uses: "To" for an email's
+  recipient and an hours window's end, "Open" for a status and a button,
+  "Now" for a memory's current text and un-snoozing an item, "Next" and
+  "Done" for the tour and a column or status. Each use has its own sentence.
+- **Around the words.** The browser's `pt-PT` or `zh-TW` now finds a
+  language by its first part; the sign-in page lists languages by name
+  rather than seven codes that did not fit a phone; the page's `lang` is the
+  locale (`zh-CN`), and the console names Han and Devanagari fonts after
+  Inter, so Chinese is not drawn with Japanese glyphs; the OAuth result page
+  is said through `say`; speech providers are sent `pt`, not `pt-BR`, which
+  Whisper refuses; agents are told "Simplified Chinese" rather than
+  "Chinese", and Brazilian Portuguese is a language a company can write in.
+- **Tested.** `console-i18n.test.ts` (every dictionary, script, KEPT, plural
+  forms, a `{count}` in every "one"); the owner-sentences test in
+  `owner-channels.test.ts` (every language the console offers, placeholders,
+  scripts) and one for decisions and task ends said as sentences;
+  `languages.test.ts` (the languages agents are told, precisely named, and
+  Brazilian Portuguese not drift from Portuguese); `listen.test.ts` (every
+  speech provider sent the language without its region).
+- **Not verified.** Each translation was written and read through by one
+  translator per language against the English with a glossary kept in its
+  file's header, and spot-checked; none has been read by a native-speaking
+  owner using the product. Chinese is simplified only; a reader of
+  traditional Chinese gets simplified. The documentation is in English.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

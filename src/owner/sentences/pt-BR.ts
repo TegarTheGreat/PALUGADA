@@ -31,7 +31,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Withdrawn ({reason}).': 'Retirado ({reason}).',
   'no reason recorded': 'nenhum motivo registrado',
   'This bot only answers to its owner.': 'Este bot só responde ao proprietário.',
-  'Recorded: {decision}.': 'Decisão registrada: {decision}.',
   'That one has to be approved in the app.': 'Este precisa ser aprovado no app.',
   'Already closed: {reason}.': 'Já encerrado: {reason}.',
   'That could not be recorded.': 'Não foi possível registrar isso.',
@@ -101,4 +100,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Go back to PALUGADA to choose which of its tools roles may use. This tab can be closed.':
     'Volte ao PALUGADA para escolher quais ferramentas dele os cargos podem usar. Você pode fechar esta aba.',
   'Not signed in': 'Não conectado',
+  "Recorded: approved.": "Registrado: aprovado.",
+  "Recorded: denied.": "Registrado: recusado.",
+  "Recorded: asked.": "Registrado: pergunta enviada.",
+  "Asked. Nothing left to press here.": "Pergunta enviada. Não há mais nada para tocar aqui.",
+  "Withdrawn: the task it was asking about has finished.": "Retirado: a tarefa a que ele se referia foi concluída.",
+  "Withdrawn: the task it was asking about has failed.": "Retirado: a tarefa a que ele se referia falhou.",
+  "Withdrawn: the task it was asking about was stopped.": "Retirado: a tarefa a que ele se referia foi interrompida.",
+  "Withdrawn: the task it was asking about was cancelled.": "Retirado: a tarefa a que ele se referia foi cancelada.",
 };

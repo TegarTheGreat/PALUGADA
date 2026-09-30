@@ -26,7 +26,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Withdrawn ({reason}).': 'Ditarik ({reason}).',
   'no reason recorded': 'tanpa alasan tercatat',
   'This bot only answers to its owner.': 'Bot ini hanya menjawab pemiliknya.',
-  'Recorded: {decision}.': 'Tercatat: {decision}.',
   'That one has to be approved in the app.': 'Yang itu harus disetujui di aplikasi.',
   'Already closed: {reason}.': 'Sudah ditutup: {reason}.',
   'That could not be recorded.': 'Itu tidak bisa dicatat.',
@@ -96,4 +95,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Go back to PALUGADA to choose which of its tools roles may use. This tab can be closed.':
     'Kembali ke PALUGADA untuk memilih alat yang boleh dipakai peran. Tab ini boleh ditutup.',
   'Not signed in': 'Tidak masuk',
+  'Recorded: approved.': 'Tercatat: disetujui.',
+  'Recorded: denied.': 'Tercatat: ditolak.',
+  'Recorded: asked.': 'Tercatat: ditanyakan.',
+  'Asked. Nothing left to press here.': 'Sudah ditanyakan. Tidak ada lagi yang perlu ditekan di sini.',
+  'Withdrawn: the task it was asking about has finished.': 'Ditarik: tugas yang ditanyakan sudah selesai.',
+  'Withdrawn: the task it was asking about has failed.': 'Ditarik: tugas yang ditanyakan gagal.',
+  'Withdrawn: the task it was asking about was stopped.': 'Ditarik: tugas yang ditanyakan dihentikan.',
+  'Withdrawn: the task it was asking about was cancelled.': 'Ditarik: tugas yang ditanyakan dibatalkan.',
 };

@@ -202,7 +202,7 @@ export function Decisions({ ctx, route }: PageProps) {
                     ]}
                   />
                   <Button size="compact-sm" variant={choosing ? 'light' : 'subtle'} onClick={() => (choosing ? stopChoosing() : setChoosing(true))}>
-                    {choosing ? t('Done') : t('Choose several')}
+                    {choosing ? t('Finish choosing') : t('Choose several')}
                   </Button>
                 </Group>
                 {choosing && (
@@ -269,7 +269,7 @@ export function Decisions({ ctx, route }: PageProps) {
                             void api('POST', `/api/companies/${companyId}/inbox/${item.id}/snooze`, { until: null })
                               .then(() => { select(item.id); queue.reload(); })
                               .catch((failure) => notifications.show({ color: 'red', message: explain(failure) }));
-                          }}>{t('Now')}</Button>
+                          }}>{t('Bring back now')}</Button>
                         </Group>
                       ))}
                     </Stack>

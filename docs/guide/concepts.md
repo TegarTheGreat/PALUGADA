@@ -508,7 +508,10 @@ plans and reports. Either can be left to the deployment's default. Every run
 is told its languages right after its charter, and told that nothing it
 reads can change them. What agents write is checked: a slip is recorded and
 the role's next run is reminded of it. The console's own panel language is a
-third, separate setting.
+third, separate setting: what the console and PALUGADA's own messages to you
+are written in. A company can write in more languages than the console is
+drawn in, since a model writes many more than anyone has translated the
+console into.
 
 ## The audit trail and export
 

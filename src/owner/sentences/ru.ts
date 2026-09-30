@@ -32,7 +32,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Withdrawn ({reason}).': 'Отозвано ({reason}).',
   'no reason recorded': 'причина не записана',
   'This bot only answers to its owner.': 'Этот бот отвечает только своему владельцу.',
-  'Recorded: {decision}.': 'Записано: {decision}.',
   'That one has to be approved in the app.': 'Это нужно одобрить в приложении.',
   'Already closed: {reason}.': 'Уже закрыто: {reason}.',
   'That could not be recorded.': 'Не удалось это записать.',
@@ -102,4 +101,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Go back to PALUGADA to choose which of its tools roles may use. This tab can be closed.':
     'Вернитесь в PALUGADA, чтобы выбрать, какие из его инструментов могут использовать роли. Эту вкладку можно закрыть.',
   'Not signed in': 'Вход не выполнен',
+  "Recorded: approved.": "Записано: одобрено.",
+  "Recorded: denied.": "Записано: отклонено.",
+  "Recorded: asked.": "Записано: вопрос задан.",
+  "Asked. Nothing left to press here.": "Вопрос задан. Здесь больше ничего нажимать не нужно.",
+  "Withdrawn: the task it was asking about has finished.": "Отозвано: задача, о которой шла речь, выполнена.",
+  "Withdrawn: the task it was asking about has failed.": "Отозвано: задача, о которой шла речь, завершилась ошибкой.",
+  "Withdrawn: the task it was asking about was stopped.": "Отозвано: задача, о которой шла речь, остановлена.",
+  "Withdrawn: the task it was asking about was cancelled.": "Отозвано: задача, о которой шла речь, отменена.",
 };

@@ -71,8 +71,12 @@ The first version. What it holds, in the order an owner meets it.
   never let one through (STATUS 2.45).
 - Told on Telegram, WhatsApp, a phone push, Slack, Discord or email, and able
   to decide on Telegram and WhatsApp (STATUS 2.31, 2.41).
-- A console in English and Indonesian, set up entirely from the panel: the
-  model, agent CLIs, tools, channels, services and MCP servers.
+- A console set up entirely from the panel -- the model, agent CLIs, tools,
+  channels, services and MCP servers -- in English, Indonesian, Malay,
+  Simplified Chinese, Hindi, Brazilian Portuguese and Russian, with every
+  message PALUGADA sends the owner in the same language, Russian's three
+  plural forms, and a decision or a task's end said as a sentence rather
+  than a code (STATUS 2.62).
 - Export and import of a whole company, and closing one, which erases every
   row of it after a grace period the owner chooses (STATUS 2.38).
 - **Run now** on a schedule: the task its next occurrence would make, at

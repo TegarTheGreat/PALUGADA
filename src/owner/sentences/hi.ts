@@ -32,7 +32,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Withdrawn ({reason}).': 'वापस लिया गया ({reason})।',
   'no reason recorded': 'कोई कारण दर्ज नहीं',
   'This bot only answers to its owner.': 'यह बॉट सिर्फ़ अपने स्वामी को जवाब देता है।',
-  'Recorded: {decision}.': 'दर्ज हुआ: {decision}।',
   'That one has to be approved in the app.': 'इसे ऐप में ही स्वीकृत करना होगा।',
   'Already closed: {reason}.': 'पहले ही बंद हो चुका है: {reason}।',
   'That could not be recorded.': 'इसे दर्ज नहीं किया जा सका।',
@@ -102,4 +101,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Go back to PALUGADA to choose which of its tools roles may use. This tab can be closed.':
     'PALUGADA पर लौटकर चुनें कि भूमिकाएँ इसके कौन-से टूल इस्तेमाल कर सकती हैं। यह टैब बंद किया जा सकता है।',
   'Not signed in': 'साइन इन नहीं हुआ',
+  "Recorded: approved.": "दर्ज हुआ: स्वीकृत।",
+  "Recorded: denied.": "दर्ज हुआ: अस्वीकृत।",
+  "Recorded: asked.": "दर्ज हुआ: सवाल पूछा गया।",
+  "Asked. Nothing left to press here.": "पूछ लिया गया। यहाँ अब कुछ दबाना बाकी नहीं है।",
+  "Withdrawn: the task it was asking about has finished.": "वापस लिया गया: जिस कार्य के बारे में यह पूछ रहा था, वह पूरा हो चुका है।",
+  "Withdrawn: the task it was asking about has failed.": "वापस लिया गया: जिस कार्य के बारे में यह पूछ रहा था, वह विफल हो गया है।",
+  "Withdrawn: the task it was asking about was stopped.": "वापस लिया गया: जिस कार्य के बारे में यह पूछ रहा था, उसे रोक दिया गया।",
+  "Withdrawn: the task it was asking about was cancelled.": "वापस लिया गया: जिस कार्य के बारे में यह पूछ रहा था, उसे रद्द कर दिया गया।",
 };

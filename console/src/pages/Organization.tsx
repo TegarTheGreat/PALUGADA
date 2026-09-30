@@ -1280,9 +1280,16 @@ function catchUpSaid(minutes: number | null): string {
 /** Why the last run that did not happen did not, so a quiet night is explained rather than guessed at. */
 function skippedSaid(skipped: NonNullable<Schedule['lastSkipped']>): string {
   const values = { when: dateTime(skipped.occurrence) };
+  // One run is "the run"; any other number goes through `tp`, whose "one"
+  // form some languages use for 21 as well, so that form names the count.
+  if (skipped.occurrences === 1) {
+    return skipped.because === 'overlap'
+      ? t('Skipped the run at {when}: the last one was still going', values)
+      : t('Missed the run at {when}: too late to be worth running', values);
+  }
   return skipped.because === 'overlap'
-    ? tp('Skipped the run at {when}: the last one was still going', 'Skipped {count} runs from {when}: the last one was still going', skipped.occurrences, values)
-    : tp('Missed the run at {when}: too late to be worth running', 'Missed {count} runs from {when}: too late to be worth running', skipped.occurrences, values);
+    ? tp('Skipped {count} run from {when}: the last one was still going', 'Skipped {count} runs from {when}: the last one was still going', skipped.occurrences, values)
+    : tp('Missed {count} run from {when}: too late to be worth running', 'Missed {count} runs from {when}: too late to be worth running', skipped.occurrences, values);
 }
 
 function Schedules({
@@ -1335,7 +1342,7 @@ function Schedules({
         <Table.ScrollContainer minWidth={640}>
           <Table verticalSpacing="sm" highlightOnHover>
             <Table.Thead>
-              <Table.Tr><Table.Th>{t('Schedule')}</Table.Th><Table.Th>{t('When')}</Table.Th><Table.Th>{t('Role')}</Table.Th><Table.Th>{t('Next')}</Table.Th><Table.Th>{t('State')}</Table.Th><Table.Th /></Table.Tr>
+              <Table.Tr><Table.Th>{t('Schedule')}</Table.Th><Table.Th>{t('When')}</Table.Th><Table.Th>{t('Role')}</Table.Th><Table.Th>{t('Next run')}</Table.Th><Table.Th>{t('State')}</Table.Th><Table.Th /></Table.Tr>
             </Table.Thead>
             <Table.Tbody>
               {schedules.map((schedule) => (

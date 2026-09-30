@@ -62,8 +62,8 @@ export function CompanySettings({ ctx }: { ctx: ConsoleContext }) {
               columns={3}
               fields={[
                 { name: 'timezone', label: t('Time zone'), type: 'select', required: true, initial: view.data.window.timezone, options: zoneOptions },
-                { name: 'startHour', label: t('From'), type: 'number', required: true, initial: view.data.window.startHour },
-                { name: 'endHour', label: t('To'), type: 'number', required: true, initial: view.data.window.endHour },
+                { name: 'startHour', label: t('Start hour'), type: 'number', required: true, initial: view.data.window.startHour },
+                { name: 'endHour', label: t('End hour'), type: 'number', required: true, initial: view.data.window.endHour },
               ]}
               submit={(values) => api('POST', '/api/control/owner-window', values)}
             />
@@ -75,8 +75,8 @@ export function CompanySettings({ ctx }: { ctx: ConsoleContext }) {
               columns={3}
               fields={[
                 { name: 'timezone', label: t('Time zone'), type: 'select', required: true, initial: 'UTC', options: zoneOptions },
-                { name: 'startHour', label: t('From'), type: 'number', required: true, initial: 2 },
-                { name: 'endHour', label: t('To'), type: 'number', required: true, initial: 5 },
+                { name: 'startHour', label: t('Start hour'), type: 'number', required: true, initial: 2 },
+                { name: 'endHour', label: t('End hour'), type: 'number', required: true, initial: 5 },
               ]}
               submit={(values) => api('POST', `/api/companies/${companyId}/batch-window`, values)}
             />

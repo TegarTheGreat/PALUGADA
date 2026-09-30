@@ -276,7 +276,7 @@ function Correct({ companyId, item, close, done }: { companyId: string; item: Me
     <Modal opened={item !== null} onClose={close} title={t('Correct what the company knows')} size="lg" centered>
       <Stack>
         <Paper withBorder radius="md" p="sm" bg="var(--mantine-color-default-hover)">
-          <Text size="xs" c="dimmed" mb={4}>{t('Now')}</Text>
+          <Text size="xs" c="dimmed" mb={4}>{t('What it says now')}</Text>
           <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{item?.body}</Text>
         </Paper>
         <Textarea label={t('What it should say')} autosize minRows={3} value={body} onChange={(event) => setBody(event.currentTarget.value)} />

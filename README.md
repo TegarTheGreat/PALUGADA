@@ -21,7 +21,7 @@
   <img alt="Node 22.18+" src="https://img.shields.io/badge/Node-22.18%2B-339933?logo=node.js&logoColor=white">
   <img alt="PostgreSQL 16 with pgvector" src="https://img.shields.io/badge/PostgreSQL-16%20%2B%20pgvector-4169E1?logo=postgresql&logoColor=white">
   <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white">
-  <img alt="Console in English and Indonesian" src="https://img.shields.io/badge/console-EN%20%C2%B7%20ID-4f46e5">
+  <img alt="Console in seven languages" src="https://img.shields.io/badge/console-EN%20%C2%B7%20ID%20%C2%B7%20MS%20%C2%B7%20ZH%20%C2%B7%20HI%20%C2%B7%20PT--BR%20%C2%B7%20RU-4f46e5">
 </p>
 
 <p align="center">
@@ -139,7 +139,7 @@ Every setting is in [docs/configuration.md](docs/configuration.md).
   <tr>
     <td valign="top"><b>🛡️ Isolation in the database</b><br>Row-level security forced on every tenant table: a row cannot even point into another company.</td>
     <td valign="top"><b>🧠 A company that learns</b><br>Versioned facts found by what they say, procedures distilled from experience once a model is set, skills with eval cases, and your word first in every run.</td>
-    <td valign="top"><b>🌏 In your language</b><br>The console in English and Indonesian, and each company chooses what its agents write in.</td>
+    <td valign="top"><b>🌏 In your language</b><br>The console, and what it sends to your phone, in English, Indonesian, Malay, Chinese, Hindi, Brazilian Portuguese and Russian; each company chooses what its agents write in.</td>
   </tr>
 </table>
 

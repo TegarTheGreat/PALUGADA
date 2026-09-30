@@ -169,7 +169,7 @@ function ErasureList() {
             <Table.Thead>
               <Table.Tr>
                 <Table.Th>{t('Company')}</Table.Th>
-                <Table.Th>{t('Closed')}</Table.Th>
+                <Table.Th>{t('Closed on')}</Table.Th>
                 <Table.Th>{t('Erased')}</Table.Th>
                 <Table.Th>{t('What went')}</Table.Th>
               </Table.Tr>

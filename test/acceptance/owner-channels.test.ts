@@ -1339,6 +1339,31 @@ test("notifications speak the owner's language, and an agent's words are left as
   assert.equal(new WebhookPush({ url: 'http://127.0.0.1:1' }).message(english!).title, 'Approval needed: Pay the supplier');
 });
 
+/**
+ * A decision and a task's end reached the owner as the codes the platform
+ * keeps them by -- "Recorded: deny.", "the task it was asking about is
+ * cancelled" -- which a translation can only leave in English inside its
+ * own sentence. Each is a sentence of its own now.
+ */
+test('what the owner decided, and why an item closed, are said in their language rather than as codes', async () => {
+  const { closureText, recordedText } = await import('../../src/owner/notify.ts');
+  assert.equal(recordedText('en', 'approve'), 'Recorded: approved.');
+  assert.equal(recordedText('en', 'deny'), 'Recorded: denied.');
+  assert.equal(recordedText('id', 'deny'), 'Tercatat: ditolak.');
+  const closed = { id: 'x', companyId: 'c', kind: 'approval', title: 't', decision: null } as const;
+  for (const [state, english] of [
+    ['completed', 'Withdrawn: the task it was asking about has finished.'],
+    ['failed', 'Withdrawn: the task it was asking about has failed.'],
+    ['halted', 'Withdrawn: the task it was asking about was stopped.'],
+    ['cancelled', 'Withdrawn: the task it was asking about was cancelled.'],
+  ] as const) {
+    assert.equal(closureText({ ...closed, status: 'withdrawn', closedReason: `task_${state}`, language: 'en' }), english);
+    assert.doesNotMatch(closureText({ ...closed, status: 'withdrawn', closedReason: `task_${state}`, language: 'id' }), new RegExp(state));
+  }
+  assert.equal(closureText({ ...closed, status: 'decided', decision: 'ask', closedReason: null, language: 'en' }),
+    'Asked. Nothing left to press here.');
+});
+
 test('every sentence the platform says to the owner has its translation (src/owner/say.ts)', async () => {
   const { readdir, readFile } = await import('node:fs/promises');
   const { OWNER_SENTENCES } = await import('../../src/owner/say.ts');

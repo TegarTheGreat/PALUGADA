@@ -47,9 +47,11 @@ people, and it is the same document either way.
 ## Things that surprise people
 
 - **Migrations never change once pushed.** Add the next number instead.
-- **The console speaks English and Indonesian.** Every sentence goes through
-  `t()`; add the Indonesian to `console/src/locales/id.ts`. The suite names
-  any you missed.
+- **The console speaks seven languages.** Every sentence goes through `t()`
+  and needs a translation in every dictionary in `console/src/locales/`
+  (Indonesian, Malay, Simplified Chinese, Hindi, Brazilian Portuguese,
+  Russian), with each plural form its language has. The suite names any you
+  missed, and any left in English.
 - **Every API route must be usable from the console.** A route nobody can
   press is refused by the suite.
 - **Tests share one database** and run one file at a time. Do not start two

@@ -203,6 +203,11 @@ export interface RoleFields {
    * say otherwise (the competitive analysis of that week, L5).
    */
   doneCriteria?: string[];
+  /**
+   * How long one run may take, in seconds, before it is stopped and the
+   * attempt counts (0084); null is no limit beyond the task's deadline.
+   */
+  maxRunSeconds?: number | null;
 }
 
 /** The most criteria a role is held to: each is answered, with evidence, in every run. */
@@ -283,6 +288,12 @@ export async function applyRoleChange(
   // for exactly this -- had no caller. Two statements of one rule is how they
   // drift, and the one that matters is always the one nobody re-read.
   assertApproved(options.ownerApproved, changeKindOf(fields));
+  const seconds = fields.maxRunSeconds;
+  if (seconds !== undefined && seconds !== null && (!Number.isInteger(seconds) || seconds < 1 || seconds > 86_400)) {
+    throw new PalugadaError('contract.violation',
+      `a run's length is ${String(seconds)} seconds; it is a whole number from 1 to 86400 (a day), or none`,
+      { field: 'maxRunSeconds' });
+  }
   const doneCriteria = fields.doneCriteria === undefined ? undefined : doneCriteriaFrom(fields.doneCriteria);
 
   return withTenant(companyId, async (tx) => {
@@ -298,9 +309,10 @@ export async function applyRoleChange(
       title: string | null;
       persona: RolePersona | null;
       done_criteria: string[];
+      max_run_seconds: number | null;
     }>(
       `SELECT slug, system_prompt, tools, model_primary, model, model_fallback, runtime, display_name, title, persona,
-              done_criteria
+              done_criteria, max_run_seconds
          FROM roles WHERE id = $1`,
       [roleId],
     );
@@ -325,6 +337,7 @@ export async function applyRoleChange(
         title: before.title,
         persona: before.persona,
         doneCriteria: before.done_criteria,
+        maxRunSeconds: before.max_run_seconds,
       },
       summary: options.summary ?? `State of ${before.slug} before this change`,
     });
@@ -340,7 +353,8 @@ export async function applyRoleChange(
               display_name   = CASE WHEN $7 THEN $8 ELSE display_name END,
               title          = CASE WHEN $9 THEN $10 ELSE title END,
               persona        = CASE WHEN $11 THEN $12::jsonb ELSE persona END,
-              done_criteria  = coalesce($13::text[], done_criteria)
+              done_criteria  = coalesce($13::text[], done_criteria),
+              max_run_seconds = CASE WHEN $14 THEN $15::integer ELSE max_run_seconds END
         WHERE id = $1`,
       [
         roleId,
@@ -353,6 +367,7 @@ export async function applyRoleChange(
         title !== undefined, title ?? null,
         fields.persona !== undefined, fields.persona ? JSON.stringify(fields.persona) : null,
         doneCriteria ?? null,
+        fields.maxRunSeconds !== undefined, fields.maxRunSeconds ?? null,
       ],
     );
 

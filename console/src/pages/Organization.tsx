@@ -580,7 +580,7 @@ function RoleDrawer({
               <Accordion.Panel><RoleRuntime companyId={companyId} role={role} changed={changed} /></Accordion.Panel>
             </Accordion.Item>
             <Accordion.Item value="change">
-              <Accordion.Control>{t('Change its charter, done criteria or model')}</Accordion.Control>
+              <Accordion.Control>{t('Change its charter, done criteria, model or run length')}</Accordion.Control>
               <Accordion.Panel>
                 <ActionForm
                   columns={1}
@@ -591,15 +591,23 @@ function RoleDrawer({
                       description: t('One testable sentence per line. Every run answers each one with evidence; name what counts when a tool it needs is not connected.'),
                     },
                     { name: 'modelPrimary', label: t('Primary model'), initial: role.model },
+                    {
+                      name: 'maxRunMinutes', label: t('Longest one run may take, in minutes'), type: 'number',
+                      initial: role.maxRunSeconds === null ? 0 : Math.ceil(role.maxRunSeconds / 60),
+                      description: t('A run still going then is stopped and the task waits for you. 0 is no limit but the task\'s own deadline.'),
+                    },
                   ]}
                   submit={(values, proof) => {
                     // Sent only when changed, so a new model is not also
-                    // recorded as new criteria in the role's history.
-                    const { doneCriteria, ...rest } = values;
+                    // recorded as new criteria, or a new length, in the role's history.
+                    const { doneCriteria, maxRunMinutes, ...rest } = values;
                     const lines = String(doneCriteria ?? '').split('\n').map((line) => line.trim()).filter(Boolean);
                     const changedCriteria = lines.join('\n') !== role.doneCriteria.join('\n');
+                    const current = role.maxRunSeconds === null ? 0 : Math.ceil(role.maxRunSeconds / 60);
+                    const changedLength = maxRunMinutes !== undefined && Number(maxRunMinutes) !== current;
                     return api('POST', `/api/companies/${companyId}/roles/${role.id}`, {
-                      ...rest, ...(changedCriteria ? { doneCriteria: lines } : {}), proof,
+                      ...rest, ...(changedCriteria ? { doneCriteria: lines } : {}),
+                      ...(changedLength ? { maxRunMinutes } : {}), proof,
                     });
                   }}
                   factor={t('Change {role}', { role: role.slug })}

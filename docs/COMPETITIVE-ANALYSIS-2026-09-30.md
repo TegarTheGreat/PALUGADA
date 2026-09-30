@@ -74,8 +74,9 @@ Revisi yang dibaca:
    Business Summit Jakarta. Cakupannya hanya front office di WhatsApp: tanpa
    back office dan tanpa tata kelola anggaran. Tidak ada proyek open-source
    yang serius untuk UMKM Indonesia.
-5. **Yang dikerjakan hari ini sebagai jawaban ada di bagian 7.** Dua celah
-   sudah ditutup (metrik dan PITR). Sisanya diurutkan.
+5. **Yang dikerjakan hari ini sebagai jawaban ada di bagian 7.** Lima celah
+   sudah ditutup: metrik, PITR, izin sementara, pin versi CLI, dan larangan
+   TRUNCATE. Sisanya diurutkan.
 
 ---
 
@@ -249,9 +250,9 @@ perusahaan dari ponsel, di Indonesia.
 |---|---|---|---|---|
 | 1 | Metrik untuk operator (antrean, tempat kerja, belanja per perusahaan) | Multica, Buzz | Sedang | **Selesai hari ini**: `GET /api/metrics` format Prometheus dengan token scrape (STATUS 2.27) |
 | 2 | Pemulihan ke titik waktu | — (kebutuhan operasi) | Sedang | **Selesai hari ini**: panduan PITR yang dijalankan sebagai drill di PostgreSQL 16 |
-| 3 | Terlalu banyak persetujuan: "setujui untuk sementara" | Copilot Studio, Dots | Tinggi | Dikerjakan berikutnya. Izin sempit per peran dan kapabilitas, berbatas waktu (maks. 7 hari), dengan faktor kedua, dan bisa dicabut. Hanya untuk tier ≤ 2, dan tidak pernah untuk aksi yang dipicu konten dari luar (F8.9) |
-| 4 | Pin versi agent CLI yang pengamanannya sudah diuji | OtoDock | Tinggi (keamanan) | Dikerjakan berikutnya. Pengamanan CLI bergantung pada flag seperti `--tools ''` dan `shell_tool = false`; versi yang belum diuji harus terlihat, bukan diam-diam dipakai |
-| 5 | Larangan TRUNCATE pada tabel append-only | OpenBot | Sedang | Dikerjakan berikutnya. Trigger baris tidak menyala saat TRUNCATE. Proses app di Docker Compose juga masih mewarisi URL peran pemilik skema setelah migrasi |
+| 3 | Terlalu banyak persetujuan: "setujui untuk sementara" | Copilot Studio, Dots | Tinggi | **Selesai hari ini** (STATUS 2.28). Izin sempit per peran dan kapabilitas, berbatas waktu (maks. 7 hari), dengan faktor kedua, dan bisa dicabut. Hanya untuk tier ≤ 2, dan tidak pernah untuk aksi yang dipicu konten dari luar (F8.9) |
+| 4 | Pin versi agent CLI yang pengamanannya sudah diuji | OtoDock | Tinggi (keamanan) | **Selesai hari ini** (STATUS 2.29). Versi lain tidak mendapat pekerjaan sampai owner memasang versi teruji atau menerimanya dengan faktor kedua; pembaruan otomatis tiap CLI dimatikan. Claude Code 2.1.285 di mesin ini langsung tertangkap |
+| 5 | Larangan TRUNCATE pada tabel append-only | OpenBot | Sedang | **Selesai hari ini** (STATUS 2.27). Trigger pernyataan menolak TRUNCATE; Compose memigrasi di layanan terpisah sehingga proses app tidak lagi memegang URL pemilik skema (diverifikasi di stack Compose nyata) |
 | 6 | WhatsApp sebagai kanal owner, dengan tanda terima masuk yang tahan duplikat | Manor, Polsia (iMessage), Meta | Tinggi (Indonesia) | Direncanakan. Desainnya ditiru dari Manor, bukan kodenya (lisensi Sustainable Use) |
 | 7 | Model yang menilai tiap panggilan: jalankan atau tanya owner | Claude `auto`, Dots, Google | Tinggi, berisiko | Direncanakan dengan batas keras. Model hanya boleh memperketat, atau meloloskan tier ≤ 1. Tier 3 tetap owner dengan faktor kedua |
 | 8 | Penyedia sandbox siap pakai (E2B, Daytona, Modal) | Paperclip (8) | Tinggi | Direncanakan. Butuh akun uji nyata; tidak ditulis dari tebakan |
@@ -264,6 +265,7 @@ perusahaan dari ponsel, di Indonesia.
 | 15 | Rilis bernomor dan updater | Paperclip, Opifer | Tinggi | Sebagian terbuka. **Lisensi adalah keputusan pemilik repositori** dan tidak dipilih di sini |
 | 16 | Owner mengambil alih browser saat agen menemui login/OTP | OpenBot | Rendah sekarang | Terbuka. Relevan kalau agen menjalankan seller center atau portal bank |
 | 17 | Halaman perbandingan yang jujur soal apa yang tidak dihentikan anggaran kompetitor | — | Rendah (dokumen) | Terbuka |
+| — | Batas lama satu run per peran (item lama #102) | — (kebutuhan sendiri) | Sedang | **Selesai hari ini** (STATUS 2.30) |
 
 ---
 

@@ -81,14 +81,15 @@ const SECTIONS: Section[] = [
   },
   {
     name: 'roles',
-    // F1.5 counts a role's runtime, routing and completion criteria as config:
-    // an archive that restored a role without them would restore something
-    // that behaves differently and is still called the same thing.
+    // F1.5 counts a role's runtime, routing, completion criteria and run
+    // length as config: an archive that restored a role without them would
+    // restore something that behaves differently and is still called the
+    // same thing.
     sql: `SELECT id, division_id, slug, system_prompt, model, tools, input_schema,
                  output_schema, max_tokens_per_run, attempt_max, done_criteria,
                  runtime, backend, model_primary, model_fallback,
                  heartbeat_minutes, dormant_until, frozen_at, frozen_reason, created_at,
-                 display_name, title, persona
+                 display_name, title, persona, max_run_seconds
             FROM roles ORDER BY slug`,
   },
   {

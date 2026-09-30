@@ -166,6 +166,8 @@ export interface Role {
   /** Who the role is and how it works: first in every run's context. */
   charter: string;
   doneCriteria: string[];
+  /** How long one run may take (0084); null is no limit beyond the task's deadline. */
+  maxRunSeconds: number | null;
   /** Who it is: the name the owner calls it, its title, and the way of working it takes after. */
   displayName: string | null;
   title: string | null;

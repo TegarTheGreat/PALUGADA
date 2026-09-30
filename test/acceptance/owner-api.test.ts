@@ -4404,3 +4404,29 @@ test('the console approves for a while with a factor, lists it, and takes it bac
     await owner.close();
   }
 });
+
+/** #102 through the console: the owner sets how long one of a role's runs may take, in minutes. */
+test('the console sets and clears how long a role\'s runs may take', async () => {
+  const fixture = await createCompany('console-run-length');
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+    const path = `/api/companies/${fixture.companyId}/roles/${fixture.roleId}`;
+    const lengthOf = async () => ((await call(owner.url, 'GET', `/api/companies/${fixture.companyId}/structure`, { token }))
+      .body.roles as Array<{ id: string; maxRunSeconds: number | null }>).find((role) => role.id === fixture.roleId)!.maxRunSeconds;
+    assert.equal(await lengthOf(), null, 'no limit until the owner sets one');
+
+    const tooLong = await call(owner.url, 'POST', path, { token, body: { maxRunMinutes: 2000, proof: { totp: owner.code() } } });
+    assert.equal(tooLong.status, 400);
+    assert.match(String(tooLong.body.error), /maxRunMinutes is 2000; it is a whole number of minutes from 1 to 1440, or 0 for no limit/);
+
+    const set = await call(owner.url, 'POST', path, { token, body: { maxRunMinutes: 30, proof: { totp: owner.code() } } });
+    assert.equal(set.status, 200, JSON.stringify(set.body));
+    assert.equal(await lengthOf(), 1800);
+    const cleared = await call(owner.url, 'POST', path, { token, body: { maxRunMinutes: 0, proof: { totp: owner.code() } } });
+    assert.equal(cleared.status, 200, JSON.stringify(cleared.body));
+    assert.equal(await lengthOf(), null);
+  } finally {
+    await owner.close();
+  }
+});

@@ -420,6 +420,43 @@ test('a deployment given a metrics token serves its worker and its database to a
   }
 });
 
+test('a role\'s runs are stopped at the length the owner set for them, and the task halts for the owner (#102)', async () => {
+  // A run that keeps going was bounded only by the task's deadline, and most
+  // tasks have none: an agent CLI working for an hour on a ten-minute job
+  // spent an hour of tokens before anything looked at the clock. The owner
+  // now says how long a role's runs may take.
+  const { applyRoleChange } = await import('../../src/governance/structure.ts');
+  const fixture = await createCompany('run-ceiling');
+  await applyRoleChange(fixture.companyId, fixture.roleId, { maxRunSeconds: 1 }, { ownerApproved: true });
+  const task = await newTask(fixture);
+  const engine = new Engine({
+    broker: new CapabilityBroker(new CapabilityRegistry()),
+    llm: new RecordingLlmClient(),
+    handlers: new Map([['worker', () => new Promise<Record<string, unknown>>(() => {})]]),
+    workerId: 'ceiling-worker',
+  });
+  const started = Date.now();
+  const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.ok(Date.now() - started < 5_000, 'stopped at its length, not at the lease');
+  // Like a run that outgrew its token ceiling, it would outgrow its length
+  // again: halted for the owner, with the reason in words, rather than
+  // retried into the same wall.
+  assert.equal(outcome.status, 'halted');
+  assert.equal(outcome.reason, 'run_limit');
+  const after = (await withTenant(fixture.companyId, (tx) => getTask(tx, task.id)))!;
+  assert.equal(after.haltReason, 'run_limit');
+  const halted = await withTenant(fixture.companyId, (tx) => tx.query<{ payload: { detail?: string } }>(
+    "SELECT payload FROM events WHERE task_id = $1 AND type = 'task.halted'", [task.id]));
+  assert.match(halted.rows[0]?.payload.detail ?? '',
+    /ran longer than the 1 second this role's runs may take, and was stopped; what it committed is kept/);
+
+  // Changed back by the owner, and kept in the role's history like any change.
+  await applyRoleChange(fixture.companyId, fixture.roleId, { maxRunSeconds: null }, { ownerApproved: true });
+  const versions = await withTenant(fixture.companyId, (tx) => tx.query<{ snapshot: { maxRunSeconds?: number | null } }>(
+    "SELECT snapshot FROM config_versions WHERE kind = 'role' AND subject_id = $1 ORDER BY version", [fixture.roleId]));
+  assert.deepEqual(versions.rows.map((row) => row.snapshot.maxRunSeconds), [null, 1]);
+});
+
 test('a run that shows no progress for a whole lease is stopped while its worker still holds it, and the task goes back', async () => {
   // The keeper stopped renewing a silent run's lease and said nothing: the
   // run carried on, the lease lapsed, and the next worker ran the task beside

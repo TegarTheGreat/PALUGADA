@@ -3628,6 +3628,17 @@ export class OwnerApi {
               return line;
             });
           }
+          if (body.maxRunMinutes !== undefined) {
+            // 0084. In minutes from the console; none, or 0, is no limit
+            // beyond the task's own deadline.
+            const minutes = body.maxRunMinutes === null ? 0 : Number(body.maxRunMinutes);
+            if (!Number.isInteger(minutes) || minutes < 0 || minutes > 1_440) {
+              throw new PalugadaError('contract.violation',
+                `maxRunMinutes is ${String(body.maxRunMinutes)}; it is a whole number of minutes from 1 to 1440, or 0 for no limit`,
+                { field: 'maxRunMinutes' });
+            }
+            fields.maxRunSeconds = minutes === 0 ? null : minutes * 60;
+          }
           if (body.runtime !== undefined) {
             // Only one this deployment runs. A role moved onto a runtime
             // nothing here employs halts on its next task, and the owner

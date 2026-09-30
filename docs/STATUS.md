@@ -3580,8 +3580,9 @@ has.
 
 **Still open, next.** From the same audits, in order: the done report is
 the run's own account -- the engine holds it to answering every criterion
-with evidence, and nothing yet judges whether the evidence holds; a run has no
-wall-clock ceiling of its own beyond its deadline and its lease; documents
+with evidence, and nothing yet judges whether the evidence holds; a run had
+no wall-clock ceiling of its own beyond its deadline and its lease (closed
+in 2.30); documents
 are matched by their words, not their meaning -- pgvector is installed and
 unused -- and a scanned PDF, or any file but Word, PDF and text, reaches them
 only as text the owner pastes. WhatsApp, Signal and email as
@@ -4009,6 +4010,29 @@ once offered seventeen tools the old deny list did not name.
 
 Hermes installs from its own script at no version the console can choose,
 and is held to none; it is on this list's open side.
+
+## 2.30 How long a role's run may take (#102)
+
+- **A run that kept going was bounded by nothing the owner set.** The run
+  was held to its task's deadline, and most tasks have none. The lease
+  keeper renews a lease for as long as a run shows progress, so an agent
+  CLI working an hour on a ten-minute job spent an hour of tokens before
+  anything looked at the clock.
+- **The owner now sets a length per role (0084).** It is under **Change
+  its charter, done criteria, model or run length**, in minutes, up to a
+  day; 0 is no limit.
+- **What happens at the limit.** The run is stopped and what it committed
+  is kept. The task halts as `run_limit` with the length in words, as a
+  run that outgrows its token ceiling does, because it would outgrow the
+  length again. The owner reruns it with a note or gives the role longer.
+- **Where else the length shows.**
+  - It is sent to every runtime as the run's wall clock, with the
+    deadline, whichever is sooner.
+  - It is kept in the role's history, so a rollback restores it.
+  - It travels with the company's export.
+
+Reproduced first: a role limited to one second, with a run that never
+finished, was halted after about one second rather than at the lease.
 
 ## 3. Decisions, deviations, and what is unverified
 

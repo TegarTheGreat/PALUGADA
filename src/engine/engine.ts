@@ -289,6 +289,8 @@ export class Engine {
     modelFallback: string[];
     tools: string[];
     maxTokensPerRun: number;
+    /** How long one run may take (0084); null is no limit beyond the task's deadline. */
+    maxRunSeconds: number | null;
   }> {
     return withTenant(companyId, async (tx) => {
       const { rows } = await tx.query<{
@@ -299,9 +301,10 @@ export class Engine {
         model_fallback: string[];
         tools: string[];
         max_tokens_per_run: number;
+        max_run_seconds: number | null;
       }>(
         `SELECT runtime, backend, model, model_primary, model_fallback, tools,
-                max_tokens_per_run
+                max_tokens_per_run, max_run_seconds
            FROM roles WHERE id = $1`,
         [roleId],
       );
@@ -317,6 +320,7 @@ export class Engine {
         modelFallback: row.model_fallback,
         tools: row.tools,
         maxTokensPerRun: row.max_tokens_per_run,
+        maxRunSeconds: row.max_run_seconds,
       };
     });
   }
@@ -339,6 +343,7 @@ export class Engine {
       modelFallback: string[];
       tools: string[];
       maxTokensPerRun: number;
+      maxRunSeconds: number | null;
     };
     agentRunId: string;
   }): Promise<RunRequest> {
@@ -406,11 +411,15 @@ export class Engine {
         backend: runtime.backend,
         limits: {
           tokens: runtime.maxTokensPerRun,
-          // F6.4's deadline where the task has one; otherwise the lease, which
-          // is the longest a worker may hold anything without saying so.
-          wallClockMs: task.deadlineAt
-            ? Math.max(0, task.deadlineAt.getTime() - Date.now())
-            : DEFAULT_LEASE_MS,
+          // F6.4's deadline where the task has one, and the role's own
+          // length where the owner set one (0084), whichever comes first;
+          // otherwise the lease, which is the longest a worker may hold
+          // anything without saying so.
+          wallClockMs: Math.min(
+            task.deadlineAt ? Math.max(0, task.deadlineAt.getTime() - Date.now()) : Number.POSITIVE_INFINITY,
+            runtime.maxRunSeconds !== null ? runtime.maxRunSeconds * 1000 : Number.POSITIVE_INFINITY,
+            task.deadlineAt || runtime.maxRunSeconds !== null ? Number.POSITIVE_INFINITY : DEFAULT_LEASE_MS,
+          ),
         },
         dropped: context.dropped,
       };
@@ -678,6 +687,24 @@ export class Engine {
       leaseMs,
       coverUntil: task.deadlineAt?.getTime() ?? Date.now() + leaseMs,
     });
+    // 0084: the length the owner set for this role's runs. Past it the run
+    // is stopped like one that went quiet, but not handed back: it was
+    // working, and like a run that outgrew its token ceiling it would outgrow
+    // its length again, so the task halts (`run.limit`) and the owner decides
+    // -- rerun it with a note, or give the role longer.
+    let overran: PalugadaError | null = null;
+    const overrun = runtime.maxRunSeconds === null ? null : setTimeout(() => {
+      const seconds = runtime.maxRunSeconds!;
+      const length = seconds % 60 === 0
+        ? `${seconds / 60} minute${seconds === 60 ? '' : 's'}`
+        : `${seconds} second${seconds === 1 ? '' : 's'}`;
+      overran = new PalugadaError('run.limit',
+        `the run ran longer than the ${length} this role's runs may take, and was stopped; what it committed is kept`,
+        { maxRunSeconds: seconds });
+      controller.abort();
+      giveUp(overran);
+    }, runtime.maxRunSeconds * 1000);
+    overrun?.unref();
     let stopped: Error | null = null;
     const stop = () => {
       stopped = new Error('the platform was stopped while the run was in flight; what it committed is kept');
@@ -1162,7 +1189,7 @@ export class Engine {
       // The run may have ended on something else by the time it stopped --
       // the runtime reacting to the withdrawal, or failing on its own -- but
       // the reason it stopped is the wait.
-      const outcome = await this.#classifyFailure(companyId, taskId, parked ?? ended ?? error, agentRunId);
+      const outcome = await this.#classifyFailure(companyId, taskId, parked ?? ended ?? overran ?? error, agentRunId);
       // A parked task is not being worked, so it names no worker. The lease
       // used to stay behind, and a task approved a minute later could not be
       // resumed by any other worker until it expired -- half an hour of an
@@ -1174,6 +1201,7 @@ export class Engine {
       return outcome;
     } finally {
       lease.stop();
+      if (overrun) clearTimeout(overrun);
       this.#options.stopping?.removeEventListener('abort', stop);
     }
   }
@@ -1551,6 +1579,7 @@ export class Engine {
         modelFallback: string[];
         tools: string[];
         maxTokensPerRun: number;
+        maxRunSeconds: number | null;
       };
       agentRunId: string;
       /**

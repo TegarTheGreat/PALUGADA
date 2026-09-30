@@ -71,7 +71,7 @@ interface SettingsView {
 const SECTIONS: Array<{ id: DeploymentSection; label: string; hint: string; icon: typeof IconBrain }> = [
   { id: 'model', label: N('Model'), hint: N('What every role thinks with, unless a role is given its own.'), icon: IconBrain },
   { id: 'tools', label: N('Tools'), hint: N('Where roles search the web, read pages, make pictures and speak, and what finds documents by meaning: the provider, and its key.'), icon: IconWorldSearch },
-  { id: 'channels', label: N('Channels'), hint: N('Where PALUGADA reaches you: Telegram, WhatsApp, your phone, Slack or Discord.'), icon: IconBell },
+  { id: 'channels', label: N('Channels'), hint: N('Where PALUGADA reaches you: Telegram, WhatsApp, your phone, Slack, Discord or email.'), icon: IconBell },
   { id: 'services', label: N('Services'), hint: N('The services capabilities call: email, DNS, payments, posts, analytics. Connect one here, then give each division that uses it its key on Team.'), icon: IconApi },
   { id: 'mcp', label: N('MCP servers'), hint: N('Tools from other services\' MCP servers: which of them roles may use, and how far each is trusted.'), icon: IconPlug },
   { id: 'agents', label: N('Agent CLIs'), hint: N('Claude Code, Codex, Gemini CLI and others: install them here, sign them in, and let roles run on them.'), icon: IconTerminal2 },
@@ -1171,6 +1171,10 @@ interface ChannelsView {
   push: { source: 'console' | 'environment' | null; format: 'webhook' | 'ntfy' | null; url: string | null; topic: string | null; tokenSet: boolean };
   slack: { source: 'console' | 'environment' | null };
   discord: { source: 'console' | 'environment' | null };
+  email: {
+    source: 'console' | 'environment' | null; provider: string | null; from: string | null; to: string | null;
+    providers: Array<{ id: string; name: string; keyUrl: string }>;
+  };
 }
 
 function ChannelSettings() {
@@ -1184,6 +1188,7 @@ function ChannelSettings() {
       <PushCard view={view.data} reload={view.reload} />
       <ChatWebhookCard kind="slack" source={view.data.slack.source} reload={view.reload} />
       <ChatWebhookCard kind="discord" source={view.data.discord.source} reload={view.reload} />
+      <EmailCard view={view.data} reload={view.reload} />
     </Stack>
   );
 }
@@ -1467,6 +1472,69 @@ function PushCard({ view, reload }: { view: ChannelsView; reload: () => void }) 
           <Group gap="xs">
             <Button variant="default" loading={busy} onClick={() => void test()}>{t('Send a test')}</Button>
             <Button onClick={() => void save()}>{t('Save')}</Button>
+          </Group>
+        </Group>
+      </Stack>
+    </Section>
+  );
+}
+
+/**
+ * Email to the owner through a sending service. Told, never asked: an email
+ * carries a link to decide in the console, not a button to decide in it.
+ */
+function EmailCard({ view, reload }: { view: ChannelsView; reload: () => void }) {
+  const requireFactor = useFactor();
+  const saved = view.email;
+  const [provider, setProvider] = useState(saved.provider ?? 'resend');
+  const [from, setFrom] = useState(saved.from ?? '');
+  const [to, setTo] = useState(saved.to ?? '');
+  const [key, setKey] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const chosen = saved.providers.find((one) => one.id === provider) ?? saved.providers[0]!;
+  const keySaved = saved.source === 'console' && saved.provider === provider;
+  const ready = Boolean(from.trim() && to.trim() && (key.trim() || keySaved));
+  const body = () => ({ provider, from: from.trim(), to: to.trim(), ...(key.trim() ? { key: key.trim() } : {}) });
+  const test = async () => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      await api('POST', '/api/control/channels/email/test', { ...body(), text: t('PALUGADA is connected: this is where it will tell you what needs you.') });
+      notifications.show({ color: 'teal', message: t('Sent. Look in {name}.', { name: to.trim() }) });
+    } catch (failure) {
+      setProblem(explain(failure));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const save = async () => {
+    const done = await requireFactor(t('Connect email'), (proof) => api('POST', '/api/control/channels/email', { ...body(), proof }));
+    if (done) setTimeout(reload, 3_000);
+  };
+  const disconnect = async () => {
+    const done = await requireFactor(t('Disconnect {name}', { name: t('Email') }), (proof) => api('POST', '/api/control/channels/email/clear', { proof }));
+    if (done) setTimeout(reload, 3_000);
+  };
+  return (
+    <Section title={t('Email')} description={t('What needs you, by email, with a link to decide it here: an email is read, forwarded and scanned, so it carries no buttons.')} actions={<SourceBadge source={saved.source} />}>
+      <Stack gap="sm">
+        <SegmentedControl value={provider} onChange={setProvider} data={saved.providers.map((one) => ({ value: one.id, label: one.name }))} />
+        <SimpleGrid cols={{ base: 1, sm: 2 }}>
+          <TextInput label={t('From')} description={t('An address {name} lets this account send from.', { name: chosen.name })}
+            placeholder="alerts@yourdomain.com" value={from} onChange={(event) => setFrom(event.currentTarget.value)} />
+          <TextInput label={t('To')} description={t('Your own address.')} placeholder="you@yourdomain.com"
+            value={to} onChange={(event) => setTo(event.currentTarget.value)} />
+        </SimpleGrid>
+        <PasswordInput leftSection={<IconKey size={16} />} label={t('API key')} value={key} onChange={(event) => setKey(event.currentTarget.value)}
+          placeholder={keySaved ? t('Saved. Paste a new key to replace it.') : ''} autoComplete="off"
+          description={<Anchor href={chosen.keyUrl} target="_blank" rel="noreferrer" size="xs">{t('Make a key at {name}', { name: chosen.name })} <IconExternalLink size={11} /></Anchor>} />
+        {problem && <Alert color="red" variant="light">{problem}</Alert>}
+        <Group justify="space-between">
+          {saved.source === 'console' ? <Button variant="subtle" color="gray" size="compact-sm" onClick={() => void disconnect()}>{t('Disconnect')}</Button> : <span />}
+          <Group gap="xs">
+            <Button variant="default" loading={busy} disabled={!ready} onClick={() => void test()}>{t('Send a test')}</Button>
+            <Button disabled={!ready} onClick={() => void save()}>{t('Save')}</Button>
           </Group>
         </Group>
       </Stack>

@@ -26,6 +26,7 @@ import { TelegramChannel } from '../../src/owner/telegram.ts';
 import { WebhookPush } from '../../src/owner/push.ts';
 import { WebhookChatChannel } from '../../src/owner/webhook-chat.ts';
 import { WhatsAppChannel } from '../../src/owner/whatsapp.ts';
+import { EmailChannel } from '../../src/owner/email.ts';
 import type { NotifiableItem } from '../../src/owner/notify.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
@@ -423,3 +424,114 @@ async function consoleWithSettings(baseEnv: NodeJS.ProcessEnv) {
     close: () => api.close(),
   };
 }
+
+/**
+ * Email (F10.9's sending half; the competitive analysis of 2026-09-30, item
+ * 10): an owner who lives in their inbox was told nothing there. Through a
+ * sending service's API, each in its own shape, with a link to decide in the
+ * console: an email carries no button anyone should trust.
+ */
+test('email tells the owner what needs them, through Resend, Postmark or SendGrid, each in its own shape', async () => {
+  const sent: Array<{ url: string; headers: Record<string, string>; body: Record<string, unknown> }> = [];
+  const fetch = (async (url: string, init: RequestInit) => {
+    sent.push({ url: String(url), headers: init.headers as Record<string, string>, body: JSON.parse(String(init.body)) });
+    return String(url).includes('sendgrid')
+      ? new Response(null, { status: 202, headers: { 'x-message-id': 'sg-1' } })
+      : new Response(JSON.stringify(String(url).includes('resend') ? { id: 're-1' } : { MessageID: 'pm-1', ErrorCode: 0 }), { status: 200 });
+  }) as unknown as typeof globalThis.fetch;
+  const channel = (provider: 'resend' | 'postmark' | 'sendgrid') =>
+    new EmailChannel({ provider, key: `key-${provider}-0123456789`, from: 'alerts@kopi.example', to: 'owner@kopi.example', fetch });
+
+  assert.deepEqual(await channel('resend').deliver(incident), { ref: 're-1' });
+  assert.equal(sent.at(-1)!.url, 'https://api.resend.com/emails');
+  assert.equal(sent.at(-1)!.headers.authorization, 'Bearer key-resend-0123456789');
+  assert.deepEqual(sent.at(-1)!.body, {
+    from: 'alerts@kopi.example', to: ['owner@kopi.example'], subject: 'The site is down',
+    text: 'uptime.check failed three times\n\nOpen in PALUGADA: https://palugada.example/?item=i1',
+  });
+
+  assert.deepEqual(await channel('postmark').deliver(incident), { ref: 'pm-1' });
+  assert.equal(sent.at(-1)!.url, 'https://api.postmarkapp.com/email');
+  assert.equal(sent.at(-1)!.headers['x-postmark-server-token'], 'key-postmark-0123456789');
+  assert.deepEqual(Object.keys(sent.at(-1)!.body).sort(), ['From', 'MessageStream', 'Subject', 'TextBody', 'To']);
+
+  assert.deepEqual(await channel('sendgrid').deliver(incident), { ref: 'sg-1' });
+  assert.equal(sent.at(-1)!.url, 'https://api.sendgrid.com/v3/mail/send');
+  assert.deepEqual(sent.at(-1)!.body.personalizations, [{ to: [{ email: 'owner@kopi.example' }] }]);
+  assert.deepEqual(sent.at(-1)!.body.content, [{ type: 'text/plain', value: 'uptime.check failed three times\n\nOpen in PALUGADA: https://palugada.example/?item=i1' }]);
+
+  // A refused key is said as one, and the key is never in what is said.
+  const refusing = new EmailChannel({
+    provider: 'resend', key: 're_refused_0123456789', from: 'alerts@kopi.example', to: 'owner@kopi.example',
+    fetch: (async () => new Response('{"message":"API key is invalid: re_refused_0123456789"}', { status: 401 })) as unknown as typeof globalThis.fetch,
+  });
+  await assert.rejects(refusing.deliver(incident), (error: unknown) =>
+    /Resend refused the key \(401\)/.test((error as Error).message) && !(error as Error).message.includes('re_refused_0123456789'));
+});
+
+test('the owner connects email from the console: a test first, then saved sealed, and the deployment sends through it', async () => {
+  const received: Array<{ path: string; body: Record<string, unknown> }> = [];
+  const service = createServer((req, res) => {
+    let raw = '';
+    req.on('data', (chunk: Buffer) => { raw += chunk.toString('utf8'); });
+    req.on('end', () => {
+      received.push({ path: req.url ?? '', body: JSON.parse(raw) as Record<string, unknown> });
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end('{"id":"re-local"}');
+    });
+  });
+  servers.push(service);
+  await new Promise<void>((resolve) => service.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${(service.address() as AddressInfo).port}`;
+  const api = await consoleWithSettings({ PALUGADA_EMAIL_API: base });
+  try {
+    const token = await api.signIn();
+    const wrong = await api.call('POST', '/api/control/channels/email/test', token,
+      { provider: 'resend', key: 're_local_0123456789', from: 'not an address', to: 'owner@kopi.example' });
+    assert.equal(wrong.status, 400);
+    assert.match(String(wrong.body.error), /from is an address Resend lets this account send from/);
+
+    const tried = await api.call('POST', '/api/control/channels/email/test', token,
+      { provider: 'resend', key: 're_local_0123456789', from: 'alerts@kopi.example', to: 'owner@kopi.example', text: 'It works.' });
+    assert.equal(tried.status, 200, JSON.stringify(tried.body));
+    assert.deepEqual(received.at(-1), {
+      path: '/emails', body: { from: 'alerts@kopi.example', to: ['owner@kopi.example'], subject: 'PALUGADA', text: 'It works.' },
+    });
+
+    const unproved = await api.call('POST', '/api/control/channels/email', token,
+      { provider: 'resend', key: 're_local_0123456789', from: 'alerts@kopi.example', to: 'owner@kopi.example' });
+    assert.equal(unproved.status, 403, 'where the owner is told things is changed with their device');
+    const saved = await api.call('POST', '/api/control/channels/email', token,
+      { provider: 'resend', key: 're_local_0123456789', from: 'alerts@kopi.example', to: 'owner@kopi.example', proof: { totp: api.code() } });
+    assert.equal(saved.status, 200, JSON.stringify(saved.body));
+    const view = (await api.call('GET', '/api/control/channels', token)).body.email;
+    assert.deepEqual([view.source, view.provider, view.from, view.to], ['console', 'resend', 'alerts@kopi.example', 'owner@kopi.example']);
+    assert.ok(!JSON.stringify(view).includes('re_local_0123456789'), 'the key is said to be set, never shown');
+
+    // A test with the key saved, not typed again.
+    const again = await api.call('POST', '/api/control/channels/email/test', token,
+      { provider: 'resend', from: 'alerts@kopi.example', to: 'owner@kopi.example' });
+    assert.equal(again.status, 200, JSON.stringify(again.body));
+
+    const built = await channelsFrom(withSettings({ PALUGADA_EMAIL_API: base }, await readSettings()), (reference) => api.secrets.resolve(reference));
+    const email = built.channels.find((one) => one.name === 'email');
+    assert.ok(email, JSON.stringify(built.notes));
+    await email!.deliver(incident);
+    assert.equal(received.at(-1)!.body.subject, 'The site is down');
+
+    const cleared = await api.call('POST', '/api/control/channels/email/clear', token, { proof: { totp: api.code() } });
+    assert.equal(cleared.status, 200);
+    assert.equal((await api.call('GET', '/api/control/channels', token)).body.email.source, null);
+  } finally {
+    await api.close();
+  }
+});
+
+test('an email channel half set up in the environment is left out, and the start says what is missing', async () => {
+  const built = await channelsFrom({ PALUGADA_EMAIL_PROVIDER: 'mailchimp', PALUGADA_EMAIL_TO: 'owner@kopi.example' });
+  assert.equal(built.channels.some((one) => one.name === 'email'), false);
+  assert.ok(built.notes.some((note) => /PALUGADA_EMAIL_PROVIDER is mailchimp; it is resend, postmark, sendgrid/.test(note)), JSON.stringify(built.notes));
+  const keyless = await channelsFrom({ PALUGADA_EMAIL_PROVIDER: 'postmark', PALUGADA_EMAIL_FROM: 'alerts@kopi.example', PALUGADA_EMAIL_TO: 'owner@kopi.example' });
+  assert.ok(keyless.notes.some((note) => /no email channel: set PALUGADA_EMAIL_KEY/.test(note)), JSON.stringify(keyless.notes));
+});
+

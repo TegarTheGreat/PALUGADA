@@ -35,6 +35,7 @@ import { OAuthCredentials } from './capabilities/vendor-oauth.ts';
 import { Worker, type WorkerOptions } from './worker.ts';
 import { DivisionSecrets, deploymentReferences, type SecretManager } from './secrets/manager.ts';
 import { OtlpExporter, otlpFrom } from './reporting/otlp.ts';
+import { EMAIL_PROVIDERS, EmailChannel, emailAddress, emailProvider } from './owner/email.ts';
 import { OwnerMfa, decodeBase32 } from './owner/mfa.ts';
 import {
   DeploymentSecretManager, masterKeyFrom, previousMasterKeysFrom, readSettings, resealSecrets, settingsVersion, type MasterKey,
@@ -338,6 +339,24 @@ export async function channelsFrom(
     const upper = kind.toUpperCase();
     const url = await read(`PALUGADA_${upper}_WEBHOOK`, `PALUGADA_${upper}_WEBHOOK_REF`);
     if (url) channels.push(new WebhookChatChannel({ kind, url }));
+  }
+
+  // Email, through a sending service: told, never asked (src/owner/email.ts).
+  if (env.PALUGADA_EMAIL_PROVIDER || env.PALUGADA_EMAIL_TO) {
+    const provider = emailProvider(env.PALUGADA_EMAIL_PROVIDER ?? '');
+    const key = await read('PALUGADA_EMAIL_KEY', 'PALUGADA_EMAIL_KEY_REF');
+    if (!provider) {
+      notes.push(`no email channel: PALUGADA_EMAIL_PROVIDER is ${env.PALUGADA_EMAIL_PROVIDER ?? 'not set'}; it is ${EMAIL_PROVIDERS.map((one) => one.id).join(', ')}`);
+    } else if (key === undefined) {
+      // Said already, by `read`: the key could not be opened.
+    } else if (!key || !emailAddress(env.PALUGADA_EMAIL_FROM ?? '') || !emailAddress(env.PALUGADA_EMAIL_TO ?? '')) {
+      notes.push('no email channel: set PALUGADA_EMAIL_KEY (or _REF), and PALUGADA_EMAIL_FROM and PALUGADA_EMAIL_TO as addresses');
+    } else {
+      channels.push(new EmailChannel({
+        provider: provider.id, key, from: env.PALUGADA_EMAIL_FROM!, to: env.PALUGADA_EMAIL_TO!,
+        ...(env.PALUGADA_EMAIL_API ? { apiBase: env.PALUGADA_EMAIL_API } : {}),
+      }));
+    }
   }
 
   return { channels, notes };

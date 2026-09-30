@@ -927,7 +927,7 @@ best kept to what holds for every piece of work.
   **Failure rate, 0 to 1** and **Policy denials a day**. Each fires once per
   condition per day.
 
-## Push notifications, Telegram and WhatsApp
+## Push notifications, Telegram, WhatsApp and email
 
 Open **This deployment**, **Channels**. For the chat buttons and the
 links in every notification to work, the console must be reachable from your
@@ -1052,6 +1052,13 @@ told what needs you, with a link to decide it in the console: a webhook
 message cannot carry buttons. The address is sealed, since anyone holding
 it can post to that channel.
 
+**Email.** Choose Resend, Postmark or SendGrid, type an address the service
+lets your account send from (one on a domain you verified there) and your
+own, paste an API key, press **Send a test**, and **Save** with a code. You
+are emailed what needs you, the daily digest and finished work, each with a
+link to decide or read it in the console: an email is forwarded, previewed
+and scanned by filters, so it carries no buttons. The key is sealed.
+
 **From the environment instead.** `PALUGADA_TELEGRAM_TOKEN`,
 `PALUGADA_TELEGRAM_CHAT` (your user id) and
 `PALUGADA_TELEGRAM_WEBHOOK_SECRET` (a random string you then give
@@ -1064,7 +1071,9 @@ the stop button); `PALUGADA_PUSH_URL`, with
 `PALUGADA_WHATSAPP_TOKEN`, `PALUGADA_WHATSAPP_APP_SECRET`,
 `PALUGADA_WHATSAPP_VERIFY_TOKEN` (a random string you give Meta as the
 webhook's verify token), `PALUGADA_WHATSAPP_OWNER` and, optionally,
-`PALUGADA_WHATSAPP_TEMPLATE`. Each credential can instead be a secret
+`PALUGADA_WHATSAPP_TEMPLATE`; `PALUGADA_EMAIL_PROVIDER` (`resend`,
+`postmark` or `sendgrid`), `PALUGADA_EMAIL_KEY`, `PALUGADA_EMAIL_FROM` and
+`PALUGADA_EMAIL_TO`. Each credential can instead be a secret
 reference in the variable of the same name ending `_REF`. A channel set in
 the console replaces that channel's variables.
 

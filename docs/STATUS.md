@@ -4267,6 +4267,24 @@ the code against it found these, and each is now closed with a test.
 - **One format.** OTLP over HTTP in JSON, which every collector accepts on
   its HTTP port. `grpc` or `http/protobuf` is refused at the start by name.
 
+## 2.41 Email as a place the owner is told things
+
+- **An owner who lives in their inbox was told nothing there.** Row 10 of
+  the competitive analysis of 2026-09-30, its owner half.
+- **Through a sending service**, chosen under **Channels**: Resend,
+  Postmark or SendGrid, each in its own request shape. One HTTPS request
+  with a key, where SMTP would be a conversation and a dependency. Each
+  service's address and key header were confirmed by the 401 it answers a
+  key that is not one; no real message was sent from here. Brevo is not
+  offered: its reference could not be read to check the body it takes.
+- **Told, never asked.** What needs the owner, the daily digest and
+  finished work, each with a link to decide or read it in the console. An
+  email is forwarded, previewed and scanned by filters, so it carries no
+  button that decides anything.
+- **Set like the other channels**: a test before saving, the key sealed,
+  saving with a factor, a half-set environment named at the start.
+- **Not yet**: a mailbox for agents to receive email.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

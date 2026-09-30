@@ -118,6 +118,19 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     factor: 'always',
   },
   {
+    pattern: '/api/control/channels/email',
+    what: 'Email the owner what needs them, through Resend, Postmark or SendGrid.',
+    fields: { provider: 'resend, postmark or sendgrid', from: 'an address the service may send from', to: 'the owner\'s address' },
+    secrets: { key: 'API key' },
+    factor: 'always',
+  },
+  {
+    pattern: '/api/control/channels/email/test',
+    what: 'Send one test email through the email settings saved.',
+    fields: { provider: 'as saved', from: 'as saved', to: 'as saved', text: 'optional' },
+    factor: 'never',
+  },
+  {
     pattern: '/api/control/channels/chat/:kind/test',
     what: 'Send one test message to the Slack or Discord webhook saved.',
     fields: { text: 'optional' },

@@ -65,6 +65,7 @@ import {
 import { frozenRoles, pauseRole, unfreezeRole } from '../governance/role-freeze.ts';
 import { cancelTask, giveFeedback, instructTask, rerunTask, type Verdict } from '../engine/owner-control.ts';
 import { assertClosingDays, closeCompany, closingOf, erasures, keepCompany } from '../governance/closing.ts';
+import { EMAIL_PROVIDERS, EmailChannel, emailAddress, emailProvider, type EmailProviderId } from './email.ts';
 import { transcriptOf } from '../engine/transcript.ts';
 import {
   clearSpendPause,
@@ -1498,6 +1499,13 @@ export class OwnerApi {
                 : null,
             },
             slack: { source: stored?.slack ? 'console' : env.PALUGADA_SLACK_WEBHOOK || env.PALUGADA_SLACK_WEBHOOK_REF ? 'environment' : null },
+            email: {
+              source: stored?.email ? 'console' : env.PALUGADA_EMAIL_PROVIDER ? 'environment' : null,
+              provider: stored?.email?.provider ?? env.PALUGADA_EMAIL_PROVIDER ?? null,
+              from: stored?.email?.from ?? env.PALUGADA_EMAIL_FROM ?? null,
+              to: stored?.email?.to ?? env.PALUGADA_EMAIL_TO ?? null,
+              providers: EMAIL_PROVIDERS.map(({ id, name, keyUrl }) => ({ id, name, keyUrl })),
+            },
             discord: { source: stored?.discord ? 'console' : env.PALUGADA_DISCORD_WEBHOOK || env.PALUGADA_DISCORD_WEBHOOK_REF ? 'environment' : null },
           };
         },
@@ -1719,13 +1727,45 @@ export class OwnerApi {
       },
 
       {
+        // One email through the service, with the key typed or the one saved:
+        // a message the owner can see arrive before anything is kept.
+        method: 'POST',
+        pattern: '/api/control/channels/email/test',
+        handle: async ({ body }) => {
+          const candidate = await this.#emailCandidate(body);
+          const text = typeof body.text === 'string' && body.text.trim() ? body.text.trim().slice(0, 500) : 'PALUGADA';
+          await outside(new EmailChannel({ ...candidate, ...this.#emailApi() }).send('PALUGADA', text));
+          return { ok: true };
+        },
+      },
+
+      {
+        // Email to the owner through Resend, Postmark or SendGrid: what needs
+        // them, with a link to decide it here. The key is sealed.
+        method: 'POST',
+        pattern: '/api/control/channels/email',
+        handle: async ({ body }) => {
+          const deployment = this.#deploymentSettings();
+          const candidate = await this.#emailCandidate(body);
+          await this.#requireFactor(body.proof, 'connect email');
+          const master = deployment.master(true);
+          if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
+          await putSecret('channel-email', candidate.key, master);
+          const channels = { ...((await readSettings()).channels as ChannelSettings | undefined) };
+          channels.email = { provider: candidate.provider, from: candidate.from, to: candidate.to, keySecret: 'channel-email' };
+          await writeSetting('channels', channels);
+          return this.#applySettings();
+        },
+      },
+
+      {
         method: 'POST',
         pattern: '/api/control/channels/:name/clear',
         handle: async ({ params, body }) => {
           this.#deploymentSettings();
           const name = params.name!;
-          if (!['telegram', 'whatsapp', 'push', 'slack', 'discord'].includes(name)) {
-            throw new PalugadaError('contract.violation', `a channel is telegram, whatsapp, push, slack or discord; got ${name}`, { name });
+          if (!['telegram', 'whatsapp', 'push', 'slack', 'discord', 'email'].includes(name)) {
+            throw new PalugadaError('contract.violation', `a channel is telegram, whatsapp, push, slack, discord or email; got ${name}`, { name });
           }
           await this.#requireFactor(body.proof, `disconnect ${name}`);
           const channels = { ...((await readSettings()).channels as ChannelSettings | undefined) };
@@ -4885,6 +4925,33 @@ export class OwnerApi {
   }
 
   /** A Slack or Discord incoming webhook: the one pasted, checked for where it points, or the one saved. */
+  /** The sending service the console asks about: checked, with the key typed or the one saved for that same service. */
+  async #emailCandidate(body: Record<string, unknown>): Promise<{ provider: EmailProviderId; key: string; from: string; to: string }> {
+    const provider = emailProvider(typeof body.provider === 'string' ? body.provider : '');
+    if (!provider) {
+      throw new PalugadaError('contract.violation', `a sending service is ${EMAIL_PROVIDERS.map((one) => one.id).join(', ')}`, { field: 'provider' });
+    }
+    const from = typeof body.from === 'string' ? body.from.trim() : '';
+    const to = typeof body.to === 'string' ? body.to.trim() : '';
+    if (!emailAddress(from)) {
+      throw new PalugadaError('contract.violation', `from is an address ${provider.name} lets this account send from, as alerts@yourdomain.com`, { field: 'from' });
+    }
+    if (!emailAddress(to)) throw new PalugadaError('contract.violation', 'to is your own address', { field: 'to' });
+    const typed = typeof body.key === 'string' ? body.key.trim() : '';
+    const stored = ((await readSettings()).channels as ChannelSettings | undefined)?.email;
+    const key = typed || (stored?.provider === provider.id
+      ? await this.#deploymentSettings().secrets.resolve(`db://${stored.keySecret}`).catch(() => '')
+      : '');
+    if (!key || /\s/.test(key)) throw new PalugadaError('contract.violation', `paste an API key from ${provider.name}`, { field: 'key' });
+    return { provider: provider.id, key, from, to };
+  }
+
+  /** Another origin for the sending service's API, when a test or a proxy names one. */
+  #emailApi(): { apiBase?: string } {
+    const base = this.#deploymentSettings().baseEnv.PALUGADA_EMAIL_API;
+    return base ? { apiBase: base } : {};
+  }
+
   async #chatWebhook(kind: WebhookChatKind, body: Record<string, unknown>): Promise<string> {
     const typed = typeof body.url === 'string' ? body.url.trim() : '';
     if (typed) {

@@ -67,6 +67,8 @@ export interface ChannelSettings {
   push?: { format: 'webhook' | 'ntfy'; url: string; topic?: string; tokenSecret?: string };
   slack?: { urlSecret: string };
   discord?: { urlSecret: string };
+  /** A sending service, the addresses it sends from and to, and its key as a sealed secret's name. */
+  email?: { provider: string; from: string; to: string; keySecret: string };
 }
 
 /**
@@ -93,6 +95,7 @@ const CHANNEL_KEYS: Readonly<Record<keyof ChannelSettings, readonly string[]>> =
   push: ['PALUGADA_PUSH_URL', 'PALUGADA_PUSH_TOKEN', 'PALUGADA_PUSH_TOKEN_REF', 'PALUGADA_PUSH_FORMAT', 'PALUGADA_PUSH_TOPIC'],
   slack: ['PALUGADA_SLACK_WEBHOOK', 'PALUGADA_SLACK_WEBHOOK_REF'],
   discord: ['PALUGADA_DISCORD_WEBHOOK', 'PALUGADA_DISCORD_WEBHOOK_REF'],
+  email: ['PALUGADA_EMAIL_PROVIDER', 'PALUGADA_EMAIL_KEY', 'PALUGADA_EMAIL_KEY_REF', 'PALUGADA_EMAIL_FROM', 'PALUGADA_EMAIL_TO'],
 };
 
 /** The variables the agent CLIs were configured by, which a console choice replaces together. */
@@ -157,6 +160,11 @@ export function withSettings(env: NodeJS.ProcessEnv, settings: Settings): NodeJS
       if (channels.push.tokenSecret) out.PALUGADA_PUSH_TOKEN_REF = `db://${channels.push.tokenSecret}`;
     } else if ((name === 'slack' || name === 'discord') && channels[name]) {
       out[`PALUGADA_${name.toUpperCase()}_WEBHOOK_REF`] = `db://${channels[name]!.urlSecret}`;
+    } else if (name === 'email' && channels.email) {
+      out.PALUGADA_EMAIL_PROVIDER = channels.email.provider;
+      out.PALUGADA_EMAIL_FROM = channels.email.from;
+      out.PALUGADA_EMAIL_TO = channels.email.to;
+      out.PALUGADA_EMAIL_KEY_REF = `db://${channels.email.keySecret}`;
     }
   }
   // The console's MCP servers are the owner's, next to the operator's file

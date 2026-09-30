@@ -49,6 +49,11 @@ The first version. What it holds, in the order an owner meets it.
 - Done criteria whose evidence may cite a tool call by its step: the
   platform checks it against the journal and shows each criterion as
   verified or only claimed (STATUS 2.56).
+- A schedule no longer starts a second run beside one still going: it
+  skips the occurrence (the default, existing schedules included), waits
+  for the last run to finish, or runs both, as the owner chooses; and a
+  catch-up window drops an occurrence found too late after downtime. The
+  schedules table says which occurrence did not run and why (STATUS 2.59).
 
 ### The owner
 

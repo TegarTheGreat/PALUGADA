@@ -243,7 +243,8 @@ const SECTIONS: Section[] = [
     name: 'schedules',
     sql: `SELECT id, project_id, division_id, role_id, budget_account_id, slug,
                  cron_expression, timezone, input, reserve_tokens, batchable, goal_id,
-                 priority, enabled, last_run_at, next_run_at, created_at
+                 priority, enabled, last_run_at, next_run_at, overlap, catch_up_minutes,
+                 created_at
             FROM schedules ORDER BY created_at`,
   },
   {

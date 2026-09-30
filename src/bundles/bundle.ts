@@ -36,7 +36,12 @@ import { isTrustedPublisher, keyFingerprint } from './publishers.ts';
 import { BUILT_IN_BUNDLES } from './builtin.ts';
 import type { CompanyTemplate, TemplateGrant, TemplateRole } from '../templates/company.ts';
 import type { Hook, HookName, HookPipeline } from '../engine/hooks.ts';
-import { assertValidCron, upsertSchedule } from '../scheduler/scheduler.ts';
+import {
+  assertScheduleTiming,
+  assertValidCron,
+  type OverlapPolicy,
+  upsertSchedule,
+} from '../scheduler/scheduler.ts';
 import { assertValidCondition, type Condition } from '../policy/condition.ts';
 import { POLICY_EFFECTS, type PolicyEffect } from '../policy/engine.ts';
 import { putPolicy } from '../governance/store.ts';
@@ -106,6 +111,13 @@ export interface BundleCadence {
    * report every number against its target could see almost none of them.
    */
   facts?: 'week';
+  /**
+   * F9.1: what an occurrence does while the cadence's last run is live, as
+   * a schedule takes it; `skip` when not given.
+   */
+  overlap?: OverlapPolicy;
+  /** F9.1: minutes late past which a missed occurrence is dropped; unset runs one catch-up. */
+  catchUpMinutes?: number;
 }
 
 /** What a cadence may be handed as it fires. */
@@ -601,6 +613,8 @@ async function installCadences(
       input: { goal: cadence.goal, ...(cadence.facts ? { facts: cadence.facts } : {}) },
       priority: cadence.priority ?? 2,
       enabled: !quarantined,
+      ...(cadence.overlap === undefined ? {} : { overlap: cadence.overlap }),
+      ...(cadence.catchUpMinutes === undefined ? {} : { catchUpMinutes: cadence.catchUpMinutes }),
     });
   }
 }
@@ -833,6 +847,17 @@ export function assertBundleIsCoherent(bundle: Bundle): void {
     }
     // A typo fails when the bundle is published, not on Monday morning.
     assertValidCron(cadence.cron, 'UTC');
+    // The same check a schedule the owner writes passes, so a bundle cannot
+    // bring a window the form would refuse.
+    try {
+      assertScheduleTiming(cadence);
+    } catch (error) {
+      throw new PalugadaError(
+        'bundle.invalid',
+        `cadence ${cadence.slug}: ${(error as Error).message}`,
+        { slug: bundle.slug },
+      );
+    }
   }
 }
 

@@ -137,6 +137,10 @@ freeze, raise a ceiling, rewrite what a model call cost, or delete history.
 
 **Scheduling**
 - Durable cron in each schedule's own time zone, with a priority.
+- No second run beside a live one unless the schedule allows it: an
+  occurrence skips, or waits for the last run to finish. A catch-up window
+  drops an occurrence found too late after downtime, and the schedule says
+  which occurrence did not run and why.
 - Vendor windows that defer work instead of failing it. Owner hours that hold
   non-urgent escalations until the owner is available, while incidents still
   come through.

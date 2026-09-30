@@ -127,7 +127,7 @@ import { assertValidCondition, type Condition } from '../policy/condition.ts';
 import { POLICY_EFFECTS, type PolicyEffect } from '../policy/engine.ts';
 import { setThresholds } from '../reporting/alerts.ts';
 import { pendingReviews } from '../review/review.ts';
-import { upsertSchedule } from '../scheduler/scheduler.ts';
+import { OVERLAP_POLICIES, upsertSchedule } from '../scheduler/scheduler.ts';
 import {
   addEvalCase,
   approveSkillVersion,
@@ -4588,6 +4588,14 @@ export class OwnerApi {
             ...(body.batchable === undefined ? {} : { batchable: body.batchable === true }),
             ...(body.enabled === undefined ? {} : { enabled: body.enabled !== false }),
             ...(body.priority === undefined ? {} : { priority: wholeNumber(body.priority, 'priority') }),
+            // F9.1. Checked here for its shape; the range, and why it has a
+            // floor, is the scheduler's to say (`assertScheduleTiming`). Null
+            // is a choice -- always run a missed occurrence once -- rather
+            // than an absence, so it is passed on as one.
+            ...(body.overlap === undefined ? {} : { overlap: oneOf(body.overlap, OVERLAP_POLICIES, 'overlap') }),
+            ...(body.catchUpMinutes === undefined ? {} : {
+              catchUpMinutes: body.catchUpMinutes === null ? null : wholeNumber(body.catchUpMinutes, 'catchUpMinutes'),
+            }),
           }),
         }),
       },

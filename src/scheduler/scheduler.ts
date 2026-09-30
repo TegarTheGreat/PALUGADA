@@ -21,11 +21,12 @@ import { PalugadaError } from '../errors.ts';
 // does not find it and the import fails at runtime. Taking the default export
 // and destructuring works under both.
 import cronParser from 'cron-parser';
-import { withControlPlane, withTenant } from '../db/tenant.ts';
+import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
 import { createRootTask, type TaskRow } from '../engine/tasks.ts';
 import * as budget from '../engine/budget.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { raiseEscalationWithin } from '../inbox/inbox.ts';
+import { TERMINAL_STATUSES, type TaskStatus } from '../domain/task.ts';
 import { assertTimeZone } from './windows.ts';
 import { buildWeekFacts } from '../reporting/week.ts';
 
@@ -33,6 +34,80 @@ const { parseExpression } = cronParser;
 
 /** A scheduled task's place in the queue when its schedule does not say (F5.10). */
 const DEFAULT_SCHEDULE_PRIORITY = 2;
+
+/**
+ * What a due occurrence does while a task this schedule made is still live.
+ *
+ * `skip` does not run it and moves on; `queue` waits and runs once the live
+ * task has ended; `allow` runs beside it. Skip is the default because a
+ * second run beside a live one is twice the spend on the same work, and the
+ * live one is usually live for a reason -- still working, or waiting for the
+ * owner -- that a second run would not change.
+ */
+export const OVERLAP_POLICIES = ['skip', 'queue', 'allow'] as const;
+export type OverlapPolicy = (typeof OVERLAP_POLICIES)[number];
+
+/**
+ * The shortest catch-up window a schedule may have, in minutes.
+ *
+ * The window is for downtime, and it must not mistake an ordinary pass for
+ * downtime. The pass runs every five seconds on an idle worker, but it shares
+ * its tick with the rest of the housekeeping -- reclaiming leases, telling
+ * the owner, distilling memory, which waits on a model -- and a worker with
+ * one place runs up to eight tasks between two passes. A restart to apply a
+ * setting or a new version adds its minute or two. An occurrence found
+ * several minutes after it fell due is a working deployment, and a window
+ * shorter than this would drop occurrences on a busy morning that nobody
+ * would call missed. Fifteen minutes is above that lag and still short enough
+ * for work whose value is being on time.
+ */
+const MIN_CATCH_UP_MINUTES = 15;
+
+/** A year: no cron expression has a longer gap, so a longer window means nothing more. */
+const MAX_CATCH_UP_MINUTES = 525_600;
+
+/**
+ * Refuses an overlap policy or catch-up window the scheduler does not know,
+ * naming what it does. One check for every way a schedule is written -- the
+ * owner's form, a bundle's cadence, a direct call -- so they cannot disagree;
+ * the columns' CHECK constraints (0099) say the same to anything else.
+ */
+export function assertScheduleTiming(timing: { overlap?: unknown; catchUpMinutes?: unknown }): void {
+  const { overlap, catchUpMinutes } = timing;
+  if (overlap !== undefined && !(OVERLAP_POLICIES as readonly unknown[]).includes(overlap)) {
+    throw new PalugadaError(
+      'contract.violation',
+      `overlap is ${String(overlap)}; it is one of ${OVERLAP_POLICIES.join(', ')} `
+        + '(skip an occurrence while the last run is live, run it when that run ends, or run both)',
+      { field: 'overlap' },
+    );
+  }
+  if (catchUpMinutes === undefined || catchUpMinutes === null) return;
+  if (typeof catchUpMinutes !== 'number' || !Number.isInteger(catchUpMinutes)) {
+    throw new PalugadaError(
+      'contract.violation',
+      `catchUpMinutes is ${String(catchUpMinutes)}; a catch-up window is a whole number of minutes, `
+        + 'or unset to always run a missed occurrence once',
+      { field: 'catchUpMinutes' },
+    );
+  }
+  if (catchUpMinutes < MIN_CATCH_UP_MINUTES) {
+    throw new PalugadaError(
+      'contract.violation',
+      `catchUpMinutes is ${catchUpMinutes}; a catch-up window is at least ${MIN_CATCH_UP_MINUTES} minutes, `
+        + 'because a working deployment can find an occurrence several minutes after it fell due and a '
+        + 'shorter window would drop it. Leave it unset to always run a missed occurrence once',
+      { field: 'catchUpMinutes' },
+    );
+  }
+  if (catchUpMinutes > MAX_CATCH_UP_MINUTES) {
+    throw new PalugadaError(
+      'contract.violation',
+      `catchUpMinutes is ${catchUpMinutes}; a catch-up window is at most ${MAX_CATCH_UP_MINUTES} minutes, a year`,
+      { field: 'catchUpMinutes' },
+    );
+  }
+}
 
 export interface ScheduleInput {
   companyId: string;
@@ -70,6 +145,13 @@ export interface ScheduleInput {
   batchable?: boolean;
   /** F2.7: the goal every task this schedule creates will serve. */
   goalId?: string;
+  /** F9.1: what a due occurrence does while an earlier run is live; `skip` when not given. */
+  overlap?: OverlapPolicy;
+  /**
+   * F9.1: how many minutes late an occurrence may be and still run. Unset or
+   * null, one catch-up run happens however late, as it always has.
+   */
+  catchUpMinutes?: number | null;
 }
 
 /**
@@ -107,6 +189,7 @@ export function assertValidCron(cronExpression: string, timezone: string): void 
 export async function upsertSchedule(input: ScheduleInput, now = new Date()): Promise<string> {
   const timezone = input.timezone ?? 'UTC';
   assertValidCron(input.cronExpression, timezone);
+  assertScheduleTiming(input);
   const next = nextOccurrence(input.cronExpression, timezone, now);
 
   return withTenant(input.companyId, async (tx) => {
@@ -129,18 +212,23 @@ export async function upsertSchedule(input: ScheduleInput, now = new Date()): Pr
       `INSERT INTO schedules
          (company_id, project_id, division_id, role_id, budget_account_id, slug,
           cron_expression, timezone, input, reserve_tokens, enabled, next_run_at,
-          batchable, goal_id, priority)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+          batchable, goal_id, priority, overlap, catch_up_minutes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
        ON CONFLICT (company_id, slug) DO UPDATE
-         SET cron_expression = EXCLUDED.cron_expression,
-             priority        = EXCLUDED.priority,
-             timezone        = EXCLUDED.timezone,
-             input           = EXCLUDED.input,
-             reserve_tokens  = EXCLUDED.reserve_tokens,
-             enabled         = EXCLUDED.enabled,
-             next_run_at     = EXCLUDED.next_run_at,
-             batchable       = EXCLUDED.batchable,
-             goal_id         = EXCLUDED.goal_id
+         SET cron_expression  = EXCLUDED.cron_expression,
+             priority         = EXCLUDED.priority,
+             timezone         = EXCLUDED.timezone,
+             input            = EXCLUDED.input,
+             reserve_tokens   = EXCLUDED.reserve_tokens,
+             enabled          = EXCLUDED.enabled,
+             next_run_at      = EXCLUDED.next_run_at,
+             batchable        = EXCLUDED.batchable,
+             goal_id          = EXCLUDED.goal_id,
+             overlap          = EXCLUDED.overlap,
+             catch_up_minutes = EXCLUDED.catch_up_minutes,
+             -- Saving moves the schedule to its next future occurrence, so
+             -- nothing is due and nothing is being held for.
+             held_by_task_id  = NULL
        RETURNING id`,
       [
         input.companyId,
@@ -158,10 +246,48 @@ export async function upsertSchedule(input: ScheduleInput, now = new Date()): Pr
         input.batchable ?? false,
         input.goalId ?? null,
         input.priority ?? DEFAULT_SCHEDULE_PRIORITY,
+        input.overlap ?? 'skip',
+        input.catchUpMinutes ?? null,
       ],
     );
     return rows[0]!.id;
   });
+}
+
+/** A task a schedule made that has not ended. */
+export interface LiveScheduledTask {
+  id: string;
+  status: TaskStatus;
+}
+
+/**
+ * The newest task this schedule made that is not terminal, or null.
+ *
+ * `except` leaves out the task an occurrence's own key names: a crash between
+ * creating an occurrence's task and advancing the schedule leaves that task
+ * live and the occurrence still due, and the occurrence must not give way to
+ * itself.
+ *
+ * The terminal statuses are written into the statement rather than passed as
+ * a parameter so that it matches `tasks_schedule_live_idx` (0099), whose
+ * predicate spells the same list; were the list to change, the index would
+ * stop being used and the answer would still be right.
+ */
+export async function liveTaskOf(
+  tx: TenantClient,
+  scheduleId: string,
+  options: { except?: string } = {},
+): Promise<LiveScheduledTask | null> {
+  const terminal = TERMINAL_STATUSES.map((status) => `'${status}'`).join(', ');
+  const { rows } = await tx.query<LiveScheduledTask>(
+    `SELECT id, status FROM tasks
+      WHERE schedule_id = $1 AND status NOT IN (${terminal})
+        AND idempotency_key IS DISTINCT FROM $2
+      ORDER BY created_at DESC
+      LIMIT 1`,
+    [scheduleId, options.except ?? null],
+  );
+  return rows[0] ?? null;
 }
 
 interface DueSchedule {
@@ -180,6 +306,8 @@ interface DueSchedule {
   goal_id: string | null;
   priority: number;
   next_run_at: Date;
+  overlap: OverlapPolicy;
+  catch_up_minutes: number | null;
 }
 
 export interface FiredOccurrence {
@@ -229,13 +357,18 @@ function countOccurrences(
  * dropped are counted into the `schedule.fired` event rather than disappearing
  * quietly, because a schedule that silently skipped a night's work looks
  * exactly like one that had nothing to do.
+ *
+ * Before any of that, an occurrence may give way (`giveWay`): to its
+ * schedule's catch-up window when it is too late to be worth running, and to
+ * a run the schedule made earlier that is still live.
  */
 export async function runDueSchedules(now = new Date()): Promise<FiredOccurrence[]> {
   const due = await withControlPlane(async (tx) => {
     const { rows } = await tx.query<DueSchedule>(
       `SELECT s.id, s.company_id, s.project_id, s.division_id, s.role_id,
               s.budget_account_id, s.slug, s.cron_expression, s.timezone,
-              s.input, s.reserve_tokens, s.next_run_at, s.batchable, s.goal_id, s.priority
+              s.input, s.reserve_tokens, s.next_run_at, s.batchable, s.goal_id, s.priority,
+              s.overlap, s.catch_up_minutes
          FROM schedules s
          JOIN companies c ON c.id = s.company_id
         WHERE s.enabled AND s.next_run_at <= $1 AND c.frozen_at IS NULL
@@ -250,6 +383,8 @@ export async function runDueSchedules(now = new Date()): Promise<FiredOccurrence
   for (const schedule of due) {
     const occurrence = schedule.next_run_at;
     const key = `schedule:${schedule.id}:${occurrence.toISOString()}`;
+
+    if (await giveWay(schedule, key, now)) continue;
 
     let task: TaskRow;
     try {
@@ -353,7 +488,7 @@ export async function runDueSchedules(now = new Date()): Promise<FiredOccurrence
       const { rowCount } = await tx.query(
         `UPDATE schedules
             SET last_run_at = $2, next_run_at = $3,
-                fire_failed_for = NULL, fire_failure = NULL
+                fire_failed_for = NULL, fire_failure = NULL, held_by_task_id = NULL
           WHERE id = $1 AND date_trunc('milliseconds', next_run_at) = $2`,
         [schedule.id, occurrence, next],
       );
@@ -392,6 +527,114 @@ export async function runDueSchedules(now = new Date()): Promise<FiredOccurrence
   }
 
   return fired;
+}
+
+/**
+ * Whether a due occurrence is later than its schedule's catch-up window.
+ *
+ * Measured from the latest occurrence that has fallen due, not the oldest.
+ * An hourly job with a thirty-minute window, back from three hours down at
+ * ten past, has an occurrence ten minutes old: that one is still worth
+ * running, and the two before it are the backlog that collapses into it. Put
+ * the other way: the occurrence is too late when neither it nor any later
+ * occurrence up to now falls inside the window.
+ */
+function pastCatchUp(schedule: DueSchedule, now: Date): boolean {
+  if (schedule.catch_up_minutes === null) return false;
+  const edge = new Date(now.getTime() - schedule.catch_up_minutes * 60_000);
+  if (schedule.next_run_at >= edge) return false;
+  return nextOccurrence(schedule.cron_expression, schedule.timezone, edge) > now;
+}
+
+/**
+ * Lets a due occurrence give way instead of creating a task, and says so once.
+ * True when it gave way: the caller creates nothing for it this pass.
+ *
+ * Too late for its catch-up window, it is dropped with every occurrence
+ * behind it, and the schedule moves to its next future one
+ * (`schedule.missed`). With a run this schedule made still live, `skip` drops
+ * it the same way (`schedule.skipped`), and `queue` leaves the schedule where
+ * it is until that run ends (`schedule.held`). The window is asked first, so
+ * a queued occurrence that has waited past it is dropped too, rather than run
+ * hours after it was meant for.
+ *
+ * Each is written once. A drop moves the schedule on under the same guard a
+ * fire uses, so of two workers only one writes it, and the pass after finds
+ * nothing due. A hold does not move the schedule -- every pass sees the same
+ * occurrence until the run ends -- so the row remembers which run it waits
+ * for, and the event is written only when that changes, as 0038 does for a
+ * failure.
+ */
+async function giveWay(schedule: DueSchedule, key: string, now: Date): Promise<boolean> {
+  const late = pastCatchUp(schedule, now);
+  if (!late && schedule.overlap === 'allow') return false;
+
+  return withTenant(schedule.company_id, async (tx) => {
+    const occurrence = schedule.next_run_at;
+    const live = late ? null : await liveTaskOf(tx, schedule.id, { except: key });
+    if (!late && !live) return false;
+
+    if (live && schedule.overlap === 'queue') {
+      const { rowCount } = await tx.query(
+        `UPDATE schedules SET held_by_task_id = $3
+          WHERE id = $1 AND date_trunc('milliseconds', next_run_at) = $2
+            AND held_by_task_id IS DISTINCT FROM $3`,
+        [schedule.id, occurrence, live.id],
+      );
+      if (rowCount === 1) {
+        await appendEvent(tx, {
+          companyId: schedule.company_id,
+          projectId: schedule.project_id,
+          type: 'schedule.held',
+          actor: 'scheduler',
+          payload: {
+            scheduleId: schedule.id,
+            slug: schedule.slug,
+            occurrence: occurrence.toISOString(),
+            runningTaskId: live.id,
+            runningStatus: live.status,
+          },
+        });
+      }
+      return true;
+    }
+
+    // Dropped: this occurrence and every one after it up to now.
+    const next = nextOccurrence(schedule.cron_expression, schedule.timezone, now);
+    const dropped = 1 + countOccurrences(schedule.cron_expression, schedule.timezone, occurrence, now);
+    const { rowCount } = await tx.query(
+      `UPDATE schedules
+          SET next_run_at = $3, held_by_task_id = NULL,
+              fire_failed_for = NULL, fire_failure = NULL,
+              skipped_for = $2, skipped_because = $4, skipped_count = $5, skipped_task_id = $6
+        WHERE id = $1 AND date_trunc('milliseconds', next_run_at) = $2`,
+      [schedule.id, occurrence, next, late ? 'late' : 'overlap', dropped, live?.id ?? null],
+    );
+    if (rowCount === 1) {
+      const said = {
+        scheduleId: schedule.id,
+        slug: schedule.slug,
+        occurrence: occurrence.toISOString(),
+        nextRunAt: next.toISOString(),
+      };
+      await appendEvent(tx, late
+        ? {
+          companyId: schedule.company_id,
+          projectId: schedule.project_id,
+          type: 'schedule.missed',
+          actor: 'scheduler',
+          payload: { ...said, droppedOccurrences: dropped, catchUpMinutes: schedule.catch_up_minutes },
+        }
+        : {
+          companyId: schedule.company_id,
+          projectId: schedule.project_id,
+          type: 'schedule.skipped',
+          actor: 'scheduler',
+          payload: { ...said, skippedOccurrences: dropped, runningTaskId: live!.id, runningStatus: live!.status },
+        });
+    }
+    return true;
+  });
 }
 
 /** How many identical results in a row make a schedule worth asking about. */

@@ -74,9 +74,11 @@ Revisi yang dibaca:
    Business Summit Jakarta. Cakupannya hanya front office di WhatsApp: tanpa
    back office dan tanpa tata kelola anggaran. Tidak ada proyek open-source
    yang serius untuk UMKM Indonesia.
-5. **Yang dikerjakan hari ini sebagai jawaban ada di bagian 7.** Lima celah
-   sudah ditutup: metrik, PITR, izin sementara, pin versi CLI, dan larangan
-   TRUNCATE. Sisanya diurutkan.
+5. **Yang dikerjakan hari ini sebagai jawaban ada di bagian 7.** Sepuluh
+   celah sudah ditutup: metrik, PITR, izin sementara, pin versi CLI,
+   larangan TRUNCATE, WhatsApp, agregator MCP, penutupan perusahaan, ekspor
+   OTLP, dan runtime ACP. Email untuk owner dan versi yang terlihat sudah
+   sebagian. Sisanya diurutkan.
 
 ---
 
@@ -261,8 +263,8 @@ perusahaan dari ponsel, di Indonesia.
 | 11 | Menutup perusahaan: arsip, lalu hapus (UU PDP) | Buzz | Sedang | **Selesai** (STATUS 2.38). Owner menutup dengan faktor kedua dan mengetik nama perusahaan; perusahaan langsung dibekukan, masa tenggang 7–90 hari bisa dibatalkan, lalu worker menghapus setiap barisnya termasuk riwayat append-only. Database sendiri yang memeriksa bahwa perusahaan sudah ditutup dan masa tenggangnya habis (0088), lalu menyisakan satu baris jejak berisi nama dan jumlah yang dihapus |
 | 12 | Iklan (Meta Ads, Google Ads) dengan belanja yang disetujui | Polsia, Runable | Sedang | Direncanakan sebagai konektor vendor dengan tier 3 untuk belanja |
 | 13 | Ekspor trace OTLP | Paperclip, OpenAI, Google | Rendah-sedang | **Selesai** (STATUS 2.40). Setiap run yang selesai dikirim sebagai span OTLP/HTTP JSON ke collector yang dinamai lewat variabel standar `OTEL_EXPORTER_OTLP_*`, dengan langkah dan panggilan model di bawahnya (konvensi GenAI). Prompt, respons, dan isi alat tidak ikut dikirim |
-| 14 | Runtime ACP generik | Paperclip, Multica | Sedang | Terbuka |
-| 15 | Rilis bernomor dan updater | Paperclip, Opifer | Tinggi | Sebagian terbuka. **Lisensi adalah keputusan pemilik repositori** dan tidak dipilih di sini |
+| 14 | Runtime ACP generik | Paperclip, Multica | Sedang | **Selesai** (STATUS 2.42). Satu entri `"dialect": "acp"` menjalankan agen apa pun yang berbicara ACP versi 1 (Gemini CLI `--acp`, adaptor Claude dan Codex, Goose, OpenCode). Tool peran diberikan lewat server MCP HTTP di `session/new`; izin dijawab sekali, tidak pernah "selalu", ya hanya untuk tool peran; tidak ada file system atau terminal; `session/cancel` sebelum proses dihentikan; biaya dari `usage_update`. Diuji terhadap agen tiruan yang ditulis dari skema v1; belum ada agen ACP asli yang dijalankan di sini |
+| 15 | Rilis bernomor dan updater | Paperclip, Opifer | Tinggi | **Sebagian.** Versi yang berjalan kini terlihat di `/api/health`, di metrik (`palugada_build_info`), di span OTLP, dan di menu owner; `CHANGELOG.md` mencatat isi tiap versi dan tes menolak versi tanpa catatan. Rilis bernomor dan updater masih terbuka. **Lisensi adalah keputusan pemilik repositori** dan tidak dipilih di sini |
 | 16 | Owner mengambil alih browser saat agen menemui login/OTP | OpenBot | Rendah sekarang | Terbuka. Relevan kalau agen menjalankan seller center atau portal bank |
 | 17 | Halaman perbandingan yang jujur soal apa yang tidak dihentikan anggaran kompetitor | — | Rendah (dokumen) | Terbuka |
 | — | Batas lama satu run per peran (item lama #102) | — (kebutuhan sendiri) | Sedang | **Selesai hari ini** (STATUS 2.30) |

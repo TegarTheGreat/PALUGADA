@@ -44,9 +44,10 @@
 import { uncheckedVersion, versionIn } from './checked-versions.ts';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { spawnTree, TreeKeeper } from './process-tree.ts';
+import { acpSession } from './acp.ts';
 import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, isAbsolute, join, normalize, sep } from 'node:path';
+import { dirname, isAbsolute, join, normalize, resolve, sep } from 'node:path';
 import type {
   Adapter,
   AdapterHealth,
@@ -85,6 +86,9 @@ import {
  */
 export const CLI_DIALECTS = [
   'stream-json', 'text', 'hermes-stream-json', 'openclaw-json', 'opencode-json', 'codex-jsonl', 'gemini-stream-json',
+  // The Agent Client Protocol (acp.ts): not an output to read but a
+  // conversation on stdin and stdout, which names the tool bridge itself.
+  'acp',
 ] as const;
 export type CliDialect = (typeof CLI_DIALECTS)[number];
 
@@ -221,6 +225,9 @@ export interface CliRuntimeSpec {
 
 const BRIDGE_PLACEHOLDERS = ['{mcpConfig}', '{mcpConfigFile}', '{mcpUrl}'] as const;
 
+/** How long a withdrawn ACP agent has to stop after `session/cancel` before its process is ended. */
+const ACP_CANCEL_GRACE_MS = 5_000;
+
 /**
  * Reads runtime specs out of a deployment's configuration.
  *
@@ -294,7 +301,8 @@ export class CliAdapter implements Adapter {
     const placed = [
       ...spec.args, ...Object.values(spec.env ?? {}), ...Object.values(spec.files ?? {}),
     ].join('\n');
-    if (!BRIDGE_PLACEHOLDERS.some((placeholder) => placed.includes(placeholder))) {
+    // An ACP agent is given the bridge in `session/new`, by the protocol.
+    if (spec.dialect !== 'acp' && !BRIDGE_PLACEHOLDERS.some((placeholder) => placed.includes(placeholder))) {
       throw new Error(
         `runtime ${spec.name} places no tool bridge: one of ` +
           `${BRIDGE_PLACEHOLDERS.join(', ')} must appear in its arguments, environment or ` +
@@ -450,14 +458,29 @@ export class CliAdapter implements Adapter {
     // A withdrawn run ends its process now, not when the process next says
     // something: these CLIs have no cancel message to receive, and one that
     // has gone quiet would otherwise hold a worker for as long as it liked.
-    const withdraw = () => void this.#trees.end(child);
+    // An ACP agent has one, `session/cancel`, and is sent it first (acp.ts):
+    // it has a few seconds to stop cleanly before it is stopped.
+    const acp = this.#spec.dialect === 'acp'
+      ? acpSession({
+        child, name: this.name, model: values.model, prompt, cwd: resolve(place.cwd ?? runDir),
+        bridge: request.allowedTools.length > 0 ? { url: bridge.url, token: bridge.token } : null,
+        tools: request.allowedTools, stderr: () => stderr, exit: () => exitCode(child),
+      })
+      : null;
+    const withdraw = acp
+      ? () => void acp.cancel(ACP_CANCEL_GRACE_MS).then(() => this.#trees.end(child))
+      : () => void this.#trees.end(child);
     services.signal.addEventListener('abort', withdraw, { once: true });
 
     const transport: Transport = {
-      events: this.#events(child, () => stderr, values.model, (sessionId) => this.#sessionCost(sessionId, place)),
-      async send() {
-        // Nothing to send. Tool answers reach this runtime over MCP, and a
-        // cancellation reaches it as the killed process below.
+      events: acp
+        ? acp.events
+        : this.#events(child, () => stderr, values.model, (sessionId) => this.#sessionCost(sessionId, place)),
+      async send(message) {
+        // Tool answers reach this runtime over MCP. A cancellation reaches
+        // most as the killed process below, and an ACP agent as
+        // `session/cancel` first, with a few seconds to stop.
+        if (acp && message.type === 'cancel') await acp.cancel(ACP_CANCEL_GRACE_MS);
       },
       terminate: async () => {
         await this.#trees.end(child);
@@ -471,9 +494,11 @@ export class CliAdapter implements Adapter {
       },
     };
 
-    if (this.#spec.promptVia === 'arg') {
+    // An ACP agent's stdin stays open: the conversation is on it, and the
+    // prompt goes in `session/prompt`.
+    if (!acp && this.#spec.promptVia === 'arg') {
       child.stdin!.end();
-    } else {
+    } else if (!acp) {
       child.stdin!.end(prompt);
     }
     return driveRun(request, services, transport);

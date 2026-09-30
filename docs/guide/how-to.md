@@ -788,6 +788,16 @@ prompt and which output dialect it speaks. The configuration page lists the
 fields. A spec that never hands its CLI the bridge is refused at boot,
 because the CLI would run with no tools and answer as though it had them.
 
+An agent that speaks the Agent Client Protocol -- Gemini CLI with `--acp`,
+Claude or Codex through their ACP adapters, Goose, OpenCode and many more --
+needs no dialect of its own: give its entry `"dialect": "acp"` and the
+command that starts it in ACP mode, for example
+`{"name":"goose-acp","command":"goose","args":["acp"],"dialect":"acp","env":{"GOOSE_PROVIDER":"anthropic","GOOSE_MODEL":"{model}"},"apiKeyEnvVar":"ANTHROPIC_API_KEY"}`
+for Goose on Anthropic's models, with the role's model a model name.
+PALUGADA hands it the role's tools in the protocol, says yes to those and
+no to its own shell and files, and charges what it reports the session
+cost. The configuration page has the whole entry for Gemini CLI.
+
 ## Use an HTTP runtime
 
 For a runtime that lives behind a URL, such as a hosted agent or a service

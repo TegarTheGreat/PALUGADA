@@ -22,9 +22,10 @@ The first version. What it holds, in the order an owner meets it.
 - Every step journalled, so a crash loses nothing; money and tokens reserved
   before work starts; leases, deadlines, per-run length and token ceilings.
 - Any model through an OpenAI-compatible client, and any agent CLI (Claude
-  Code, Codex, Gemini CLI, OpenCode, OpenClaw, Hermes), a script, an HTTP
-  service or a container as a role's runtime. A runtime in another process
-  may call only its role's tools (STATUS 2.37).
+  Code, Codex, Gemini CLI, OpenCode, OpenClaw, Hermes), any agent that
+  speaks the Agent Client Protocol (STATUS 2.42), a script, an HTTP service
+  or a container as a role's runtime. A runtime in another process may call
+  only its role's tools (STATUS 2.37).
 - Memory that learns from real work and keeps what came from outside as data;
   the company's documents, found by their words and by their meaning
   (STATUS 2.35).

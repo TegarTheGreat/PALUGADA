@@ -28,7 +28,7 @@ import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { readdir, readFile, mkdtemp, stat } from 'node:fs/promises';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
 import { InMemorySecretManager } from '../../src/secrets/manager.ts';
 import { DeploymentSecretManager, putSecret } from '../../src/settings/store.ts';
@@ -1069,6 +1069,99 @@ test('no agent CLI updates itself under a run, and each is checked at the versio
   };
   assert.deepEqual(gemini.general, { enableAutoUpdate: false, enableAutoUpdateNotification: false });
   assert.equal(knownCli('opencode').env!.OPENCODE_DISABLE_AUTOUPDATE, '1');
+});
+
+/* ---------------------------------------------------------------- acp --- */
+
+const ACP_AGENT = new URL('../fixtures/runtimes/fake-acp-agent.mjs', import.meta.url).pathname;
+
+function acpSpec(name: string, args: string[]) {
+  return runtimeSpecsFrom([{ name, command: process.execPath, args: [ACP_AGENT, ...args], dialect: 'acp' }])[0]!;
+}
+
+async function reportFrom(path: string): Promise<{
+  initialize: { protocolVersion: number; clientCapabilities: { fs: { readTextFile: boolean; writeTextFile: boolean }; terminal: boolean }; clientInfo: { name: string } };
+  newSession: { cwd: string; mcpServers: Array<{ type: string; name: string; url: string; headers: Array<{ name: string; value: string }> }> };
+  permissions: Array<{ outcome: { outcome: string; optionId?: string } }>;
+  fsError: { code: number; message: string } | null;
+  cancelled: boolean;
+}> {
+  return JSON.parse(await readFile(path, 'utf8'));
+}
+
+/**
+ * Any agent that speaks the Agent Client Protocol, from one entry (the
+ * competitive analysis of 2026-09-30, item 14). Gemini CLI with `--acp`,
+ * Claude through `claude-agent-acp`, Goose, OpenCode and some forty more
+ * speak it; none is installed here, so the stand-in speaks version 1 as its
+ * schema writes it, and the claims are about what PALUGADA says to it.
+ */
+test('an agent that speaks ACP is a runtime from one entry: its tools through the bridge, its own refused, no file system, its cost charged', async () => {
+  const fixture = await createCompany('acp-configured');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'goose-acp', tools: ['dns.read'] });
+  const task = await newTask(fixture, { ask: 'read the zone' });
+  const reportPath = join(await mkdtemp(join(tmpdir(), 'acp-report-')), 'report.json');
+  const adapter = new CliAdapter(acpSpec('goose-acp', ['--call', 'dns__read', '--ask-permission', '--cost', '0.0123', '--report', reportPath]));
+
+  const outcome = await engineWith(broker, adapter).runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(outcome.status, 'completed', outcome.reason);
+  const output = outcome.output as { tool: { isError: boolean; text: string } };
+  assert.equal(output.tool.isError, false, `the capability was resolved by the broker: ${output.tool.text}`);
+  assert.match(output.tool.text, /^<<<UNTRUSTED_CONTENT>>> source="tool dns\.read"/);
+
+  const report = await reportFrom(reportPath);
+  assert.equal(report.initialize.protocolVersion, 1, 'the stable version, as an integer');
+  assert.deepEqual(report.initialize.clientCapabilities, { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+    'no file system and no terminal of PALUGADA\'s to reach through');
+  assert.equal(report.initialize.clientInfo.name, 'palugada');
+  assert.ok(isAbsolute(report.newSession.cwd), 'the session works in an absolute directory');
+  const [server] = report.newSession.mcpServers;
+  assert.deepEqual([server!.type, server!.name, server!.headers[0]!.name], ['http', 'palugada', 'Authorization']);
+  assert.match(server!.headers[0]!.value, /^Bearer [0-9a-f]{64}$/, 'the run\'s own token');
+  assert.deepEqual(report.permissions, [
+    { outcome: { outcome: 'selected', optionId: 'no' } },
+    { outcome: { outcome: 'selected', optionId: 'no' } },
+    { outcome: { outcome: 'selected', optionId: 'yes' } },
+  ], 'its own shell refused, also when named like a bridge tool; the role\'s own tool allowed once, never always');
+  assert.equal(report.fsError?.code, -32601, 'a file it was not offered is a method not found');
+
+  // What it said the session cost ($0.0123) is what the run is charged, in whole cents up.
+  const settled = await withTenant(fixture.companyId, (tx) => tx.query<{ payload: { actualCents: number } }>(
+    "SELECT payload FROM events WHERE task_id = $1 AND type = 'cost.settled'", [task.id]));
+  assert.deepEqual(settled.rows.map((row) => row.payload.actualCents), [2]);
+});
+
+test('an ACP agent that cannot take the tools, speaks another version or is not signed in halts the task with the reason', async () => {
+  const fixture = await createCompany('acp-refused');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'old-acp', tools: ['dns.read'] });
+  const cases: Array<[string[], RegExp]> = [
+    [['--no-http'], /old-acp cannot reach an MCP server over HTTP/],
+    [['--version-reply', '2'], /old-acp speaks ACP version 2; PALUGADA speaks 1/],
+    [['--auth-required'], /old-acp needs to be signed in.*Authentication required/],
+  ];
+  for (const [args, reason] of cases) {
+    const task = await newTask(fixture, { ask: args.join(' ') });
+    const outcome = await engineWith(broker, new CliAdapter(acpSpec('old-acp', args))).runTask(fixture.companyId, task.id, 'worker');
+    // Another attempt would meet the same agent: the owner is told instead.
+    assert.deepEqual([outcome.status, outcome.reason], ['halted', 'runtime_unavailable'], args.join(' '));
+    const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ payload: unknown }>(
+      "SELECT payload FROM events WHERE task_id = $1 AND type = 'task.halted'", [task.id]));
+    assert.match(JSON.stringify(rows[0]?.payload), reason);
+  }
+});
+
+test('a withdrawn ACP run is cancelled in the protocol before its process is ended', async () => {
+  const fixture = await createCompany('acp-cancelled');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'slow-acp', tools: ['dns.read'] });
+  const reportPath = join(await mkdtemp(join(tmpdir(), 'acp-report-')), 'report.json');
+  const task = await newTask(fixture, { ask: 'wait' }, { deadlineAt: new Date(Date.now() + 1_500) });
+  const outcome = await engineWith(broker, new CliAdapter(acpSpec('slow-acp', ['--hang-prompt', '--report', reportPath]))).runTask(
+    fixture.companyId, task.id, 'worker');
+  assert.notEqual(outcome.status, 'completed');
+  assert.equal((await reportFrom(reportPath)).cancelled, true, 'told session/cancel, not only killed');
 });
 
 /* ---------------------------------------------------------------- cli --- */

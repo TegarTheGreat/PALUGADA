@@ -184,7 +184,13 @@ refer to `docs/PRD.md`.
 - An agent CLI runs as the platform's OS user with the network open. Its
   containment is its own flags; if they fail it reads what that user reads,
   `.env` in a checkout included.
-- The version check believes `--version`. Hermes is held to none.
+- The version check believes `--version`. Hermes is held to none, and
+  neither is an agent run over ACP.
+- An ACP agent is refused its own tools only when it asks: permission
+  goes to a call named exactly as a role tool on the bridge, never to a
+  shell, edit, delete or move (`ours`, `src/runtime/acp.ts`). One that runs
+  its tools without asking is held by its own containment, as a CLI is;
+  the refusal is the protocol's, not a sandbox.
 - A process that leaves its group with `setsid()` survives (stated in
   `process-tree.ts`).
 - Only the container argv and the sweep are tested; no whole run in a real

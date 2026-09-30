@@ -256,7 +256,7 @@ deadline in seconds, or the lease when the task has none: for a CLI with a
 timeout of its own), `{mcpConfigFile}`, `{mcpUrl}`, `{mcpToken}`,
 `{allowedTools}`, `{prompt}` and `{runDir}`, `promptVia`, `dialect`
 (`stream-json`, `text`, `hermes-stream-json`, `openclaw-json`,
-`opencode-json`, `codex-jsonl` or `gemini-stream-json`), `env`, `files`,
+`opencode-json`, `codex-jsonl`, `gemini-stream-json` or `acp`), `env`, `files`,
 `cwd`, `models`, `apiKeyEnvVar`, `maxTurns` (a whole number of at least 1:
 Hermes reads 0 as no limit) and `hostSignInModels` (model name prefixes the
 CLI would sign in to with the machine's own identity, which are refused;
@@ -266,6 +266,33 @@ stream does not say; `{sessionId}` is the id its result line gave -- Hermes's
 entry reads its own ledger with `sessions export`). A spec that
 never hands its CLI the bridge is refused at boot, because the CLI would run
 with no tools and answer as though it had them.
+
+**Agents that speak ACP.** An agent that speaks the Agent Client Protocol,
+version 1, is a runtime from one entry with `"dialect": "acp"`: Gemini CLI
+with `--acp`, Claude through `npx @agentclientprotocol/claude-agent-acp`,
+Codex through `npx @agentclientprotocol/codex-acp`, `goose acp`,
+`opencode acp`, and the others in the protocol's registry. For Gemini CLI,
+signed in with its key as its own entry is:
+
+```json
+[{"name": "gemini-acp", "command": "gemini", "args": ["--acp", "--model", "{model}"], "dialect": "acp",
+  "models": {"fast": "gemini-2.5-flash", "standard": "gemini-2.5-pro", "deep": "gemini-2.5-pro"},
+  "env": {"HOME": "{runDir}"}, "apiKeyEnvVar": "GEMINI_API_KEY",
+  "files": {".gemini/settings.json": "{"security": {"auth": {"selectedType": "gemini-api-key"}}}"}}]
+```
+
+The protocol hands the agent the tool bridge itself, as an MCP server over
+HTTP named `palugada`, so an ACP entry needs no bridge placeholder. An
+agent that cannot reach an MCP server over HTTP, speaks another version,
+or says it is not signed in halts its task with that reason, once, rather
+than spending the task's attempts on the same answer. PALUGADA offers
+it no file system and no terminal, answers its permission questions --
+once, never "always" -- yes for the role's own tools and no for anything
+else, and sends `session/cancel` to a withdrawn run five seconds before
+the process is ended. What the agent says the session cost, in US
+dollars, is what the run is charged. The model is chosen in `args`, as
+the agent reads it: version 1 has no message for it. The version check
+does not hold these entries: they are not ones PALUGADA installs.
 
 **MCP servers.** `PALUGADA_MCP_SERVERS` names a file listing servers
 (streamable HTTP) and, under each, the tools this deployment may use: each

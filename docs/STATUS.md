@@ -4285,6 +4285,36 @@ the code against it found these, and each is now closed with a test.
   saving with a factor, a half-set environment named at the start.
 - **Not yet**: a mailbox for agents to receive email.
 
+## 2.42 Any agent that speaks ACP, from one entry
+
+- **Each agent needed a dialect written for it.** Row 14 of the
+  competitive analysis of 2026-09-30: Paperclip and Multica run agents
+  through the Agent Client Protocol, which some forty agents speak.
+- **`"dialect": "acp"`** in a `PALUGADA_RUNTIME_SPECS` entry
+  (`src/runtime/acp.ts`): version 1, JSON-RPC on the agent's stdin and
+  stdout. `initialize`, then `session/new` with the tool bridge as an MCP
+  server over HTTP and the run's own token in its header, then the prompt.
+- **PALUGADA is a client with nothing to lend.** It advertises no file
+  system and no terminal and answers "method not found" if asked anyway.
+  A permission question is answered once, never "always": yes only when
+  the call is named exactly as a role tool on the bridge, and never for a
+  shell, edit, delete or move, however it is named -- an agent titles a
+  shell call with its command, and one ending in a bridge tool's name is
+  tested. The no is in the run's transcript.
+- **Stopped in the protocol first.** A withdrawn run sends
+  `session/cancel`; the process is ended five seconds later whatever it
+  did.
+- **Charged what it says.** `usage_update` carries the session's cost in
+  US dollars, which is what the run is charged; version 1 reports no
+  tokens.
+- **Halted with the reason**, as `runtime_unavailable`, when the agent
+  cannot reach an MCP server over HTTP, answers with another version, or
+  refuses the session as not signed in: another attempt would meet the
+  same agent.
+- **Unverified**: no real ACP agent ran here, since each needs a
+  provider's key. The tests run a stand-in written to the version 1
+  schema; what they prove is what PALUGADA says and answers.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

@@ -375,6 +375,9 @@ test('the servers offered by name are each a server the rules accept, and the co
     else assert.ok(preset.url.startsWith('https://'), `${preset.id} is reached over HTTPS`);
     if (preset.signIn === 'client') assert.ok(preset.clientUrl?.startsWith('https://'), `${preset.id} says where to register a client`);
     else assert.equal(preset.clientUrl, undefined, `${preset.id} registers PALUGADA itself, or takes no sign-in`);
+    // A command the owner copies runs the version that was checked, not whatever is newest that day.
+    if (preset.run) assert.match(preset.run, /@\d+\.\d+\.\d+ /, `${preset.id} runs one version`);
+    if (preset.runHint) assert.ok(preset.run, `${preset.id} says where to run a server it does not run`);
   }
   assert.ok(names.has('github') && names.has('playwright'));
   // Servers that are signed in to rather than given a key are offered too.
@@ -385,6 +388,7 @@ test('the servers offered by name are each a server the rules accept, and the co
   for (const preset of MCP_PRESETS) {
     assert.ok(console.includes(`${preset.id}: N('${preset.about.replace(/'/g, "\\'")}')`), `the console says what ${preset.id} is, in the same words`);
     if (preset.keyHint) assert.ok(console.includes(preset.keyHint.replace(/'/g, "\\'")), `the console gives ${preset.id}'s key hint in the same words`);
+    if (preset.runHint) assert.ok(console.includes(preset.runHint.replace(/'/g, "\\'")), `the console says where to run ${preset.id} in the same words`);
   }
   const api = await consoleWithSettings();
   try {
@@ -393,4 +397,34 @@ test('the servers offered by name are each a server the rules accept, and the co
   } finally {
     await api.close();
   }
+});
+
+/**
+ * Coolify and Dokploy run what a company deploys, on the owner's own
+ * machines, so neither lives at an address PALUGADA could know. Coolify
+ * serves MCP itself, at /mcp on the owner's instance, and reads a bearer
+ * token: the host is the part the owner completes. Dokploy's server is a
+ * package the owner runs, which asks nothing of whoever reaches it, so the
+ * console says so beside the command that starts it.
+ */
+test('Coolify is its owner\'s own address with a token, and Dokploy is run by the owner and said to let in whoever reaches it', () => {
+  const coolify = MCP_PRESETS.find((one) => one.id === 'coolify');
+  assert.ok(coolify, 'Coolify is offered');
+  assert.match(coolify.url, /^https:\/\/\{[a-z-]+\}\/mcp$/, 'at /mcp, on a host the owner puts in place of the braces');
+  assert.equal(coolify.key, 'required');
+  assert.equal(coolify.signIn, undefined, 'it publishes no sign-in, only tokens');
+  assert.deepEqual(accessFor({ ...coolify, url: coolify.url.replace(/\{[^}]*\}/, 'coolify.example.com') }, 'k').headers,
+    { authorization: 'Bearer k' }, 'the token goes where Coolify reads it');
+  assert.match(coolify.keyHint ?? '', /\bread\b.*\bdeploy\b/, 'it says which permissions the token needs, and no others');
+
+  const dokploy = MCP_PRESETS.find((one) => one.id === 'dokploy');
+  assert.ok(dokploy, 'Dokploy is offered');
+  assert.equal(dokploy.key, 'none', 'it asks PALUGADA for nothing');
+  assert.match(dokploy.run ?? '', /\bnpx @dokploy\/mcp@\d+\.\d+\.\d+ --http$/, 'the official package, over streamable HTTP rather than stdio');
+  assert.match(dokploy.run ?? '', /DOKPLOY_TOOL_PRESET=/, 'with fewer than its hundreds of tools');
+  const address = new URL(dokploy.url);
+  assert.deepEqual([address.protocol, address.port, address.pathname], ['http:', '3000', '/mcp'], 'the port and path its code fixes');
+  assert.doesNotThrow(() => assertPlainHttpIsLocal(dokploy.url));
+  assert.match(dokploy.runHint ?? '', /whoever reaches it/);
+  assert.match(dokploy.runHint ?? '', /only this deployment can reach/);
 });

@@ -36,6 +36,8 @@ The first version. What it holds, in the order an owner meets it.
   (STATUS 2.35).
 - Capabilities from vendor files, MCP servers (Composio, Pipedream, Arcade,
   Smithery and Zapier by name) and the platform's own, each at a tier.
+- Coolify's and Dokploy's MCP servers by name, so a company's roles can see
+  what runs there and, as far as the owner allows, deploy it (STATUS 2.54).
 
 ### The owner
 
@@ -71,5 +73,8 @@ The first version. What it holds, in the order an owner meets it.
 - A deployment with no owner prints a link as it starts; whoever opens it
   first adds their authenticator app and is the owner, with no secret in
   the environment (STATUS 2.48).
+- CI's actions pinned by commit and the image's base by digest, moved by
+  Dependabot's weekly pull requests; CI fails on a high or critical advisory
+  in a production dependency (STATUS 2.54).
 - A threat model ([docs/THREAT-MODEL.md](docs/THREAT-MODEL.md)) naming each
   defence, its test, and what is left.

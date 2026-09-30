@@ -1,0 +1,61 @@
+# What PALUGADA runs on is pinned: npm by its lockfiles, CI's actions by
+# commit, and the image's base by digest. A pin that nobody moves goes stale
+# and keeps whatever was found in it later, so Dependabot proposes the moves,
+# once a week, as pull requests the owner reads and merges like any other.
+#
+# Minor and patch updates come as one pull request per ecosystem, so a week's
+# worth is one review rather than twenty; a major update comes on its own,
+# because it is the one that can change behaviour. At most three are open at
+# once for each: more is noise that gets merged unread.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      minor-and-patch:
+        patterns: ['*']
+        update-types: [minor, patch]
+
+  # The console has a lockfile of its own, and its build is what the owner's
+  # browser runs.
+  - package-ecosystem: npm
+    directory: /console
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      minor-and-patch:
+        patterns: ['*']
+        update-types: [minor, patch]
+
+  # Each action is pinned to a commit with its tag in a comment; Dependabot
+  # moves both.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      minor-and-patch:
+        patterns: ['*']
+        update-types: [minor, patch]
+
+  # The Dockerfile's base image, pinned by digest under its tag. The tag is
+  # Node's major version, which the code is written for (package.json's
+  # engines), so a new major is a decision rather than an update: only the
+  # digest behind the same tag is proposed.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      minor-and-patch:
+        patterns: ['*']
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: node
+        update-types: ['version-update:semver-major']

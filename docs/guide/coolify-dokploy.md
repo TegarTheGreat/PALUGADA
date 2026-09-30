@@ -100,6 +100,101 @@ Dokploy's outgoing notifications can start work in PALUGADA: a
 scheme, and the notification's custom header set to
 `Authorization: Bearer <the trigger's token>`.
 
+## Letting a company see and deploy what runs there
+
+Both platforms have an MCP server, and both are offered by name under
+**This deployment**, **MCP servers**, **Add an MCP server**
+([Add MCP servers](how-to.md#add-mcp-servers)). Either lets a company's
+roles see what runs on the platform and, if you allow it, deploy it -- the
+platform PALUGADA runs on, or another one.
+
+A deploy, a restart or a stop changes something people are using, and a
+failed one can take it down. Allow those tools at **tier 3**, so each one
+waits for you in the inbox with its arguments, or at tier 2 with a policy
+that asks you. Everything these servers return counts as content from
+outside the company, so work that read it asks you before its next tier 2
+action anyway. Allow the reading tools roles need, and leave the rest
+unticked: a tool that is not allowed is not offered to any role.
+
+### Coolify
+
+Coolify serves MCP itself, at `/mcp` on your own instance.
+
+1. As an administrator, open **Settings**, **Advanced**, and under **API and
+   MCP** set **MCP server** to **Enabled**. It is off on a new instance, and
+   the address answers `404` until it is on. Each team can also turn it off
+   for its own tokens, on the team's page; it is on unless someone did.
+2. Under **Keys & Tokens**, **API Tokens**, make a token for PALUGADA with
+   **read** and, only if roles should deploy, **deploy**. Nothing else: the
+   MCP server needs no other permission, and **root** or **write** would let
+   the token do what no tool here asks for.
+3. In PALUGADA, choose **Coolify** under **Start from**, put your instance's
+   address in place of `{coolify-host}` (Coolify shows the whole address
+   under **Settings**, **Advanced** once the server is on), and paste the
+   token.
+
+It lists 45 tools: reading servers, projects, applications, databases,
+services, deployments and logs, and, with the **deploy** permission,
+`deploy`, `cancel_deployment` and `control` (start, stop or restart). It
+creates and deletes nothing, and never returns the values of environment
+variables. Coolify marks none of its tools as only reading, so none can be
+tier 0: allow a reading tool at tier 1, with a reading tool as its read-back,
+and read `deploy` back with `get_deployment`. An instance reached over plain
+`http` is refused unless its address is on this network, since the token
+would cross the internet in the clear.
+
+### Dokploy
+
+Dokploy's MCP server is a package you run,
+[`@dokploy/mcp`](https://github.com/Dokploy/mcp), that calls Dokploy's API
+with a key you give it. It speaks streamable HTTP only when started with
+`--http`.
+
+**It lets in whoever reaches it.** It checks no token, and acts with your
+Dokploy key for anyone who can open its port. It listens on port 3000 of
+every network its machine is on, and neither the port nor the address can
+be changed. Run it where only this deployment can reach it:
+
+- **Beside a deployment on Docker**, as a container on PALUGADA's network
+  with no published port. With Compose, that is one more service in the
+  file PALUGADA runs from:
+
+  ```yaml
+  dokploy-mcp:
+    image: node:22-bookworm-slim
+    command: ["npx", "-y", "@dokploy/mcp@0.30.7", "--http"]
+    environment:
+      DOKPLOY_URL: https://dokploy.example.com
+      DOKPLOY_API_KEY: ${DOKPLOY_API_KEY:?give a Dokploy API key}
+      DOKPLOY_TOOL_PRESET: deploy
+  ```
+
+  and its address in PALUGADA is `http://dokploy-mcp:3000/mcp`.
+- **On a machine of your own**, the command the console shows, on a machine
+  whose port 3000 nothing else can reach:
+
+  ```sh
+  DOKPLOY_URL=https://{dokploy-host} DOKPLOY_API_KEY={api-key} DOKPLOY_TOOL_PRESET=deploy npx @dokploy/mcp@0.30.7 --http
+  ```
+
+  Not on the machine Dokploy itself runs on, whose port 3000 is Dokploy's
+  own panel.
+
+The key is made in Dokploy under **Settings**, **Profile**, **API/CLI
+Keys**, for one organisation. It acts as the user who made it, so make it
+as a user whose permissions are only what the roles need, and give it an
+expiry. It goes in the server's environment, not in PALUGADA's **Token**
+field, which stays empty.
+
+In version 0.30.7, Dokploy's whole API is 604 tools. `DOKPLOY_TOOL_PRESET`
+narrows what the server lists: `deploy` is 119 (projects, environments,
+servers, applications, compose, domains and deployments), `minimal` is 43
+(projects and applications). Unlike Coolify's, its tools say what they do:
+reading ones can be tier 0, and a delete is destructive, so only tier 3. Leave
+`DOKPLOY_REDACT_ENV` unset: by default the server replaces environment
+variables, passwords, tokens and keys with `[REDACTED]` before an answer
+reaches a role.
+
 ## Backups
 
 The database is in the `database` volume and the master key in the platform's

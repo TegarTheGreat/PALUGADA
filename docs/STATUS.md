@@ -4874,6 +4874,83 @@ Found by reading the source of Block's Buzz against 2.38, on 2026-09-30.
     owner (F5.8), so neither this sweep nor the container sweep runs until
     it is lifted.
 
+## 2.54 Coolify's and Dokploy's MCP servers, and a pinned supply chain
+
+Read on 2026-09-30: Coolify's source and the `@dokploy/mcp` package for the
+first half. The second follows Paperclip's and Buzz's workflows, which pin
+each action to a commit with its tag in a comment; Paperclip also has
+Dependabot.
+
+- **Coolify by name.** Coolify serves MCP itself. In its source (main at
+  284aded), `routes/ai.php` mounts its server at `/mcp` behind
+  `auth:sanctum`, a bearer token. The preset's address is
+  `https://{coolify-host}/mcp`, which the owner completes as they complete
+  Arcade's gateway (2.36), and its key hint names the token's permissions:
+  `read`, and `deploy` only if roles should deploy. Also read there: an
+  administrator turns the server on under Settings, Advanced, where it is
+  off on a new instance and the address answers 404 until then; a team can
+  turn it off for its tokens (403); a token without `deploy` is refused
+  `deploy`, `cancel_deployment` and `control`. It lists 45 tools, and
+  nothing among them creates or deletes. None of the 45 carries an
+  annotation (laravel/mcp sends `{}` for a tool with none), so none says it
+  only reads, and here none can be tier 0: a reading tool is allowed at
+  tier 1 with a read-back. Coolify Cloud, asked with a made-up token,
+  answered 401 with `WWW-Authenticate: Bearer realm="mcp"`, and PALUGADA's
+  own client reported that 401: the path and the scheme, on a real
+  instance.
+- **Dokploy by name, run by the owner.** Its server is the npm package
+  `@dokploy/mcp` (Apache-2.0). Version 0.30.7 was read, then run here with
+  `DOKPLOY_URL=http://127.0.0.1:9` and a made-up key. Without `--http` it
+  speaks stdio, which PALUGADA does not run (F13.4); with it, it served
+  streamable HTTP at `/mcp` on port 3000, which is fixed in its code. It
+  passes no host to `listen`, and answered on the machine's other
+  addresses too; it asked for no token, and accepted an `initialize` sent
+  with a foreign Host and Origin. So the preset is one the owner runs, and
+  presets gained `runHint`, which the console shows in orange under the
+  command: it lets in whoever reaches it, acting with the Dokploy key, and
+  must run where only this deployment can reach it. The guide gives a
+  Compose service with no published port, whose command was run here in
+  `node:22-bookworm-slim` and answered `initialize`.
+- **Its tools, through PALUGADA's own client.** `offeredTools`, which the
+  console's "Look at its tools" calls, listed 604 tools: 226 that only read,
+  52 destructive. `DOKPLOY_TOOL_PRESET=deploy` narrowed them to 119 (47
+  and 7), and `minimal` to 43 (11 and 2); the package's README says 508. The
+  whole list was 319 KB, well under the client's 2 MiB. The preset's
+  command sets `deploy` and names its version, which a new check now asks
+  of every preset the owner runs.
+- **Deploys wait for the owner.** The guide (coolify-dokploy.md) says to
+  allow deploy, restart and stop at tier 3, or at tier 2 with a policy that
+  asks: each changes something people are using.
+- **Not verified.** No Coolify or Dokploy account was used. No tool of
+  either was called with a real token, and nothing was deployed through
+  either. That Coolify's tools behave as its source reads, and that a
+  Dokploy key made by a restricted user is held to that user's
+  permissions, are unchecked.
+- **CI's actions by commit.** `actions/checkout` and `actions/setup-node`
+  were used as `@v4`, a tag whoever controls the action can move to other
+  code, in a job that holds the repository's token. Each is now pinned to
+  the commit of the latest v4 release, v4.4.0 for both, which is where
+  `v4` pointed on 2026-09-30, so CI runs the code it ran before. Each SHA
+  came from `git ls-remote`; neither tag is annotated, so the SHA is the
+  commit.
+- **The image's base by digest.** Both stages of the Dockerfile start from
+  `node:22-bookworm-slim@sha256:43ac6c60…`, the multi-platform index that
+  `docker buildx imagetools`, Docker Hub's registry and mirror.gcr.io each
+  gave, and whose body hashes to that digest; it holds Node 22.23.3. The
+  image built from it here, through this machine's proxy, and its Node,
+  tini and console build were there.
+- **Dependabot** (`.github/dependabot.yml`), weekly, for npm at the root
+  and in `console`, GitHub Actions and Docker: minor and patch updates as
+  one pull request per ecosystem, at most three open, and no new Node major
+  for the image, which is a decision rather than an update.
+- **An audit job in CI.** `npm audit --omit=dev --audit-level=high`, at the
+  root and in `console`, in a job of its own, so that an advisory published
+  overnight does not also hide what the tests say. Both passed here. The
+  root has one moderate advisory, `fast-uri` 3.0.0 to 3.1.7
+  (GHSA-hrr3-gc8f-f4qj), below the level that fails, left for Dependabot.
+- **Still by tag.** `pgvector/pgvector:pg16` in the compose files and
+  `deploy/container-check`'s `node:22-alpine`; THREAT-MODEL 2.8 says so.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

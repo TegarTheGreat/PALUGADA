@@ -1662,6 +1662,8 @@ interface McpPreset {
   signIn?: 'registers' | 'client';
   clientUrl?: string;
   run?: string;
+  /** Where to run a server that keeps nobody out itself. */
+  runHint?: string;
 }
 
 interface McpView {
@@ -1705,6 +1707,7 @@ const MCP_PRESET_TEXT: Record<string, string> = {
   cloudflare: N('Your Cloudflare account'),
   supabase: N('Projects, databases and functions'),
   neon: N('Postgres databases'),
+  coolify: N('Read, deploy and restart what runs on your Coolify'),
   zapier: N('Other apps, through the actions you set up in Zapier'),
   composio: N('Hundreds of apps, each authorised the first time a role needs it'),
   pipedream: N('Thousands of apps, through the accounts you connect at Pipedream'),
@@ -1718,6 +1721,7 @@ const MCP_PRESET_TEXT: Record<string, string> = {
   exa: N('Search by meaning'),
   browserbase: N('A browser in the cloud'),
   playwright: N('A real browser, on a machine of yours'),
+  dokploy: N('Projects, applications and deployments on your Dokploy'),
 };
 
 const MCP_KEY_HINT: Record<string, string> = {
@@ -1729,6 +1733,12 @@ const MCP_KEY_HINT: Record<string, string> = {
   sentry: N('A user auth token from Sentry\'s settings.'),
   monday: N('A personal API token, from the Developers section of your profile.'),
   intercom: N('An access token from an app in your Developer Hub.'),
+  coolify: N('An API token from Keys & Tokens, API Tokens, with read, and deploy only if roles should deploy. An administrator turns the MCP server on first, under Settings, Advanced.'),
+  dokploy: N('A Dokploy API key, from Settings, Profile, API/CLI Keys, made by a user with only the permissions roles need. It goes in the command, not here.'),
+};
+
+const MCP_RUN_HINT: Record<string, string> = {
+  dokploy: N('It lets in whoever reaches it, acting with your Dokploy key, and listens on port 3000 of every network it is on: it cannot be told otherwise. Run it where only this deployment can reach it.'),
 };
 
 const MCP_TIERS = [
@@ -2158,6 +2168,7 @@ function McpServerForm({ saved, presets, callback, onDone, onCancel }: {
                 <>
                   <Text size="xs" c="dimmed">{t('Start it on a machine this deployment can reach, then look at its tools:')}</Text>
                   <Code block>{preset.run}</Code>
+                  {preset.runHint && <Text size="xs" c="orange">{MCP_RUN_HINT[preset.id] ? t(MCP_RUN_HINT[preset.id]!) : preset.runHint}</Text>}
                 </>
               )}
             </Stack>

@@ -38,7 +38,10 @@ people, and it is the same document either way.
    ```
 
    That is the type check, the console's build and every test. It is what CI
-   runs, so a green `check` is a green pull request.
+   runs, so a green `check` is a green pull request -- except that CI also
+   audits the production dependencies, here and in `console`, with
+   `npm audit --omit=dev --audit-level=high`, and an advisory published
+   since your last run can turn it red with nothing of yours at fault.
 4. Open a pull request. The template asks five questions; answer them.
 
 ## Things that surprise people

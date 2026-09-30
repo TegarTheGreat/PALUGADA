@@ -174,6 +174,7 @@ import { telegramApi, telegramBot, telegramChats, telegramCommands, telegramProf
 import { whatsappNumber, type WhatsAppChannel } from './whatsapp.ts';
 import { WebhookPush, ntfyBody } from './push.ts';
 import { OwnerSessions, type OwnerSession } from './session.ts';
+import { OwnerClaims } from './claim.ts';
 import { MODEL_TIERS, modelSettingsFrom } from '../llm/models.ts';
 import { checkModel, listModels } from '../llm/check.ts';
 import { MODEL_PROVIDERS, modelProvider } from '../llm/providers.ts';
@@ -407,6 +408,7 @@ interface Route {
 export class OwnerApi {
   readonly #options: OwnerApiOptions;
   readonly #sessions: OwnerSessions;
+  readonly #claims: OwnerClaims;
   readonly #routes: Route[];
   readonly #signInThrottle = new SignInThrottle();
   readonly #agentJobs = new AgentJobs();
@@ -416,6 +418,13 @@ export class OwnerApi {
   constructor(options: OwnerApiOptions) {
     this.#options = options;
     this.#sessions = options.sessions ?? new OwnerSessions({ mfa: options.mfa });
+    // The first owner's claim seals their secret with the deployment's master
+    // key; built without console settings, there is none, and a claim says so.
+    this.#claims = new OwnerClaims({
+      mfa: options.mfa,
+      sessions: this.#sessions,
+      master: () => options.deploymentSettings?.master(true) ?? null,
+    });
     this.#routes = this.#buildRoutes();
   }
 
@@ -461,7 +470,59 @@ export class OwnerApi {
         open: true,
         // With where a passkey is used, which the browser needs to be asked
         // for one. Neither is a secret: both are this console's own address.
-        handle: async () => ({ challenge: this.#sessions.challenge(), ...this.#options.mfa.relyingParty }),
+        // And whether the deployment has an owner yet, so a sign-in page that
+        // nothing on it can open says where the way in is (F12.5, 0094).
+        handle: async () => ({
+          challenge: this.#sessions.challenge(),
+          ...this.#options.mfa.relyingParty,
+          claimable: await this.#claims.claimable(),
+        }),
+      },
+
+      {
+        // F12.5: the link a deployment with no owner printed as it started
+        // (src/owner/claim.ts). Open, like signing in, and throttled like it:
+        // the code in the link is the credential, and a wrong one is a guess.
+        // Answers with the secret to add to an authenticator app.
+        method: 'POST',
+        pattern: '/api/auth/claim',
+        open: true,
+        handle: async ({ body, request }) => {
+          const address = addressOf(request, this.#options.behindProxy === true);
+          this.#signInThrottle.check(address);
+          try {
+            return await this.#claims.open(String(body.code ?? ''), `owner@${hostLabel(request)}`);
+          } catch (failure) {
+            this.#signInThrottle.failed(address, failure);
+            throw failure;
+          }
+        },
+      },
+
+      {
+        // The code the app then shows: the authenticator becomes the owner's,
+        // and they are signed in, as `/api/auth/sign-in` answers.
+        method: 'POST',
+        pattern: '/api/auth/claim/confirm',
+        open: true,
+        handle: async ({ body, request }) => {
+          const address = addressOf(request, this.#options.behindProxy === true);
+          this.#signInThrottle.check(address);
+          let session: OwnerSession;
+          try {
+            session = await this.#claims.confirm(String(body.code ?? ''), String(body.totp ?? ''));
+          } catch (failure) {
+            this.#signInThrottle.failed(address, failure);
+            throw failure;
+          }
+          this.#signInThrottle.succeeded(address);
+          return {
+            token: session.token,
+            expiresAt: session.expiresAt.toISOString(),
+            device: session.factor.label,
+            factor: session.factor.kind,
+          };
+        },
       },
 
       {
@@ -5377,6 +5438,7 @@ const CONTENT_TYPES: Record<string, string> = {
 function statusFor(code: string): number {
   if (code === 'owner.unauthenticated') return 401;
   if (code === 'owner.throttled') return 429;
+  if (code === 'owner.claimed') return 409;
   if (code === 'mfa.locked_out') return 429;
   if (code.startsWith('mfa.')) return 401;
   if (code === 'approval.channel_forbidden' || code === 'policy.denied') return 403;
@@ -5443,6 +5505,15 @@ class SignInThrottle {
   succeeded(address: string): void {
     this.#failures.delete(address);
   }
+}
+
+/**
+ * The console's name as the request gave it, for the label an authenticator
+ * app shows beside the code: an owner of two deployments tells them apart.
+ */
+function hostLabel(request: IncomingMessage): string {
+  const host = /^[a-z0-9.-]+/i.exec(String(request.headers.host ?? ''))?.[0];
+  return host || 'palugada';
 }
 
 /** Who is asking: the connection's address, or behind a proxy the one it vouches for. */

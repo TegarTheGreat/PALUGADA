@@ -1,0 +1,82 @@
+# PALUGADA on Coolify, built from this repository.
+#
+#   New resource: a Git repository (public, or through the GitHub App)
+#   Build Pack: Docker Compose
+#   Base Directory: /
+#   Docker Compose Location: /deploy/coolify/docker-compose.yml
+#
+# then give the `app` service a domain and deploy. docs/guide/coolify-dokploy.md
+# has the whole walk-through, and what to do after.
+#
+# Coolify generates every SERVICE_PASSWORD_* and SERVICE_HEX_* below the first
+# time it reads this file and keeps them in its own store, so nothing here is
+# typed by hand. It gives every service of the resource all of them (as
+# .env); the image's entrypoint unsets them, provisions the database from the
+# superuser, migrates, and starts the platform without either URL
+# (deploy/docker/entrypoint.sh).
+#
+# Written for how Coolify reads a compose file:
+#   - No `${VAR:?message}`: Coolify keeps the message as the variable's value.
+#   - No published port: Coolify's proxy reaches `app` on its network, and
+#     SERVICE_URL_APP_8787 tells it which port.
+#   - No bind mount from the repository: Coolify does not keep the checkout
+#     after the build unless told to, so the database is set up by the app
+#     rather than by files mounted into it.
+#   - Paths are the repository's: Coolify runs Compose with the base
+#     directory as the project directory.
+
+services:
+  db:
+    # PostgreSQL 16 with pgvector, which the stock image lacks. Coolify's
+    # scheduled database backups are for databases it runs as such, not one
+    # inside a compose application: back this one up as the guide says.
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}
+    volumes:
+      - database:/var/lib/postgresql/data
+    healthcheck:
+      # Over TCP and to the server's own database: the platform's database
+      # does not exist until the app makes it, and the image's first start
+      # runs a socket-only server while it initialises.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      # The domain Coolify gives this service, proxied to port 8787. Without
+      # one, the console answers only on its own loopback.
+      - SERVICE_URL_APP_8787
+      - PALUGADA_APP_URL_PUBLIC=${SERVICE_URL_APP}
+      # Coolify's proxy writes the caller's address into X-Forwarded-For,
+      # which sign-in throttles by.
+      - PALUGADA_BEHIND_PROXY=1
+      # Used before the platform starts, and unset before it does.
+      - PALUGADA_SUPERUSER_URL=postgres://postgres:${SERVICE_PASSWORD_POSTGRES}@db:5432/postgres
+      - PALUGADA_OWNER_URL=postgres://palugada_owner:${SERVICE_PASSWORD_DBOWNER}@db:5432/palugada
+      # What the platform runs with.
+      - PALUGADA_APP_URL=postgres://palugada_app:${SERVICE_PASSWORD_DBAPP}@db:5432/palugada
+      - PALUGADA_ADMIN_URL=postgres://palugada_admin:${SERVICE_PASSWORD_DBADMIN}@db:5432/palugada
+      # Seals the secrets the owner saves in the console. Kept by Coolify
+      # rather than in the home volume, so that it outlives the volume; copy
+      # it somewhere apart from the database's backups.
+      - PALUGADA_MASTER_KEY=${SERVICE_HEX_64_MASTERKEY}
+    volumes:
+      # Agent CLIs' settings, and the charters' git repository.
+      - home:/home/node
+    depends_on:
+      db:
+        condition: service_healthy
+    # SIGTERM lets the worker hand in-flight work back; give it the time.
+    stop_grace_period: 60s
+
+volumes:
+  database:
+  home:

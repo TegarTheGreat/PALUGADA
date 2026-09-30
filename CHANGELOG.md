@@ -65,5 +65,11 @@ The first version. What it holds, in the order an owner meets it.
   before it starts, so it runs beside a stock pgvector database with nothing
   from the repository; PID 1 is started without any database password
   (STATUS 2.47).
+- Compose files for Coolify and Dokploy, which build it from this
+  repository and put HTTPS in front (docs/guide/coolify-dokploy.md,
+  STATUS 2.49).
+- A deployment with no owner prints a link as it starts; whoever opens it
+  first adds their authenticator app and is the owner, with no secret in
+  the environment (STATUS 2.48).
 - A threat model ([docs/THREAT-MODEL.md](docs/THREAT-MODEL.md)) naming each
   defence, its test, and what is left.

@@ -86,6 +86,8 @@ const EXPLAINED: Record<string, string> = {
   'mfa.challenge_unknown': N('That took too long. Try again.'),
   'mfa.wrong_origin': N('This page is not at the address this console\'s passkeys belong to. Open the console at its public address.'),
   'mfa.already_enrolled': N('That passkey is already enrolled.'),
+  'mfa.claim_invalid': N('That link has expired or been used. Start PALUGADA again for a new one, or sign in if you are the owner.'),
+  'owner.claimed': N('This deployment already has an owner. Sign in with their device.'),
   'inbox.not_open': N('This has already been decided or has closed.'),
   'approval.channel_forbidden': N('This needs your authenticator.'),
   'company.frozen': N('This company is frozen. Unfreeze it in its settings first.'),

@@ -106,6 +106,55 @@ test('npm start serves the console, lets the owner in, and stops on SIGTERM', as
 });
 
 /**
+ * F12.5 on a platform that runs the image: no terminal to make a TOTP secret
+ * in, and nothing in the environment to enrol. The start prints a link; the
+ * first to open it adds the owner's authenticator and is in, and the next
+ * start, which has an owner, prints none.
+ */
+test('npm start with no owner prints a link that makes whoever opens it the owner', async () => {
+  const post = async (url: string, path: string, body: unknown) => {
+    const response = await fetch(`${url}${path}`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    });
+    return { status: response.status, body: (await response.json()) as Record<string, unknown> };
+  };
+  const first = run({ PALUGADA_OWNER_TOTP_REF: '' });
+  try {
+    const url = await within(first.url, 20_000, `boot (${first.output()})`);
+    const link = await within((async () => {
+      for (;;) {
+        const found = /no owner yet: open (\S+)/.exec(first.output());
+        if (found) return found[1]!;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    })(), 5_000, `the claim link (${first.output()})`);
+    assert.ok(link.startsWith(`${url}/#/claim/`), link);
+    const code = link.slice(link.lastIndexOf('/') + 1);
+
+    const offered = await post(url, '/api/auth/claim', { code });
+    assert.equal(offered.status, 200, JSON.stringify(offered.body));
+    const secret = String(offered.body.secret);
+    const confirmed = await post(url, '/api/auth/claim/confirm', { code, totp: totpCode(decodeBase32(secret), stepFor(new Date())) });
+    assert.equal(confirmed.status, 200, JSON.stringify(confirmed.body));
+    const control = await fetch(`${url}/api/control`, { headers: { authorization: `Bearer ${String(confirmed.body.token)}` } });
+    assert.equal(control.status, 200);
+  } finally {
+    first.signal('SIGTERM');
+  }
+  assert.equal(await within(first.exited, 20_000, 'a clean stop'), 0, first.output());
+
+  const second = run({ PALUGADA_OWNER_TOTP_REF: '' });
+  try {
+    await within(second.url, 20_000, `second boot (${second.output()})`);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.doesNotMatch(second.output(), /no owner yet/, 'an owned deployment prints no link');
+  } finally {
+    second.signal('SIGTERM');
+  }
+  assert.equal(await within(second.exited, 20_000, 'second stop'), 0, second.output());
+});
+
+/**
  * A stop asked for while the deployment starts is a stop, not a kill.
  *
  * The listeners were installed after "console at" was printed, so a SIGTERM

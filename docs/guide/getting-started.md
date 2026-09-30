@@ -162,6 +162,24 @@ authenticator `PALUGADA_OWNER_TOTP_REF` points at, and says
 `enrolled the owner's authenticator from env://PALUGADA_SECRET_OWNER_TOTP`
 among its boot lines.
 
+**Without an authenticator in the environment** -- you skipped that step, or
+PALUGADA runs on a platform such as Coolify or Dokploy where there is no
+terminal to make one in -- a deployment with no owner prints a link instead:
+
+```
+palugada: no owner yet: open https://palugada.example.com/#/claim/QMJW… within a day to add your authenticator app and become the owner
+```
+
+Open it. The page shows a new secret as a QR code and as a key; add it to
+your authenticator app, type the six-digit code the app then shows, and you
+are signed in as the owner. The link works once, for a day, and only while
+the deployment has no owner; each start prints a new one until then. Anyone
+who can read the log holds the machine already, but open it straight away
+all the same, since whoever opens it first becomes the owner. The code is
+after the `#`, so your browser never sends it to the server or to a proxy's
+log. The sign-in page says **This deployment has no owner yet** while this
+is the way in.
+
 The page says **Welcome back** and asks for the six-digit code from your
 authenticator app. Type it and press **Sign in**. A few things to know:
 

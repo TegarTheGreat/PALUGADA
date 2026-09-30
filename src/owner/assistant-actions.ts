@@ -588,6 +588,8 @@ export const ASSISTANT_CHECKS: Readonly<Record<string, string>> = {
 /** POST routes the assistant neither proposes nor calls, and why. */
 export const NOT_FOR_THE_ASSISTANT: Readonly<Record<string, string>> = {
   '/api/auth/sign-in': 'signing in is the owner\'s',
+  '/api/auth/claim': 'claiming a deployment with no owner is done from the link its start printed, before there is anyone to assist',
+  '/api/auth/claim/confirm': 'the same claim, confirmed with the owner\'s new authenticator',
   '/api/auth/sign-out': 'signing out is the owner\'s',
   '/api/auth/sign-out-everywhere': 'signing out is the owner\'s',
   '/api/mfa/authenticators/:authenticatorId/revoke': 'the owner\'s own second factor is changed only by hand',

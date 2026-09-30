@@ -104,6 +104,10 @@ export type ErrorCode =
   /** F12.5: the owner's console was reached without a session. */
   | 'owner.unauthenticated'
   | 'owner.throttled'
+  /** F12.5: a claim link that is not one, has expired, or was used (0094). Counted as a guess. */
+  | 'mfa.claim_invalid'
+  /** F12.5: a claim of a deployment that already has an owner (0094). */
+  | 'owner.claimed'
   | 'review.required'
   | 'window.closed'
   | 'approval.required'

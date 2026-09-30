@@ -33,7 +33,7 @@ refer to `docs/PRD.md`.
 ### 2.1 Someone on the internet
 
 **Reach.** One port. Without a session only the open routes: `/api/auth/challenge`,
-`/api/auth/sign-in`, `/api/hooks/:publicId`, `/api/channels/telegram`,
+`/api/auth/sign-in`, `/api/auth/claim`, `/api/auth/claim/confirm`, `/api/hooks/:publicId`, `/api/channels/telegram`,
 `/api/channels/whatsapp`, `/api/oauth/callback`, `/api/health`,
 `/api/metrics`, and the console's static files.
 
@@ -73,6 +73,13 @@ refer to `docs/PRD.md`.
 8. The page is served with a content security policy that allows only its own
    scripts and forbids framing, and a path resolving outside the build is
    refused (`#serveConsole`).
+9. A deployment with no owner is claimed with a link its start prints: 160
+   random bits kept as their SHA-256, good for a day, in the URL's fragment so
+   no proxy logs it, and a wrong one counted by the sign-in throttle. It is
+   refused while any live authenticator of the owner's exists, checked under
+   a lock in the transaction that enrols the claimed one, and the secret it
+   offers is derived from the master key and the claim, not kept, until it is
+   enrolled and sealed (`src/owner/claim.ts`, 0094, `owner-claim.test.ts`).
 
 **Residual risk.**
 
@@ -88,6 +95,10 @@ refer to `docs/PRD.md`.
 - A GitHub hook carries no timestamp; a replay is stopped only because an
   identical body is deduplicated.
 - The platform serves HTTP. TLS is a proxy's job.
+- Until the owner claims it, whoever reads the deployment's log can become
+  the owner. That is someone who holds the machine already, and the claim
+  closes the moment an authenticator exists; a log shipped somewhere wider
+  than the machine widens who that is.
 
 ### 2.2 Content an agent reads
 
@@ -356,6 +367,7 @@ All under `test/acceptance/` unless named.
 | Host allowlist; traversal; CSP; CORS; session on every route | `owner-api.test.ts` |
 | Sign-in throttle, forwarded address | `owner-api.test.ts` |
 | TOTP lockout, replay, tier 3 factor, no tier 3 over chat | `owner-mfa.test.ts` |
+| First owner's claim: single use, a day, none once owned, sealed secret | `owner-claim.test.ts`, `process.test.ts` |
 | Session is not a factor; tighten with session, loosen with factor | `owner-api.test.ts` |
 | Recovery codes hashed and limited | `recovery-codes.test.ts` |
 | Hook tokens and signatures | `triggers.test.ts` |

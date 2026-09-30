@@ -104,7 +104,7 @@ A secret the owner saved is named like any other, as a reference:
 
 | Variable | What it turns on |
 |---|---|
-| `PALUGADA_OWNER_TOTP_REF` | The owner's first factor, enrolled at boot |
+| `PALUGADA_OWNER_TOTP_REF` | The owner's first factor, enrolled at boot. Without it, a deployment with no owner prints a link as it starts that makes whoever opens it first the owner ([getting started](guide/getting-started.md#sign-in-for-the-first-time)) |
 | `PALUGADA_MODEL_PROVIDER` | Which API the model speaks: `anthropic` (the default when a key is set) or `openai` for any OpenAI-compatible API: OpenAI, OpenRouter, Groq, Together, DeepSeek, Mistral, Gemini's compatible endpoint, and Ollama, vLLM, LM Studio or llama.cpp on your own machine. See **Models** below |
 | `PALUGADA_MODEL_KEY_REF` | The model's key, as a secret reference (`env://PALUGADA_SECRET_MODEL_KEY`). Needed for `anthropic`; optional for `openai`, since a model on your own machine has none. Without a model, no role on the in-process runtime can work, and every role a template creates is on it |
 | `PALUGADA_MODEL_URL` | Where the model API is. Defaults: `https://api.anthropic.com`, or `https://api.openai.com/v1` for `openai` |

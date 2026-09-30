@@ -104,6 +104,12 @@ npm run console:build
 npm start
 ```
 
+**On Coolify or Dokploy**: point a Docker Compose application at this
+repository with `deploy/coolify/docker-compose.yml` or
+`deploy/dokploy/docker-compose.yml`, give the `app` service a domain, and
+deploy. The image sets its database up, and its log prints a link that makes
+you the owner ([the walk-through](docs/guide/coolify-dokploy.md)).
+
 `npm run setup` asks three things and writes them to `.env`: where PALUGADA
 runs, your authenticator (it shows a QR code and checks a code from your
 phone), and which model does the work. Any model that calls tools will do --

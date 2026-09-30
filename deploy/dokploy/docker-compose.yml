@@ -1,0 +1,82 @@
+# PALUGADA on Dokploy, built from this repository.
+#
+#   Create Service: Compose, type Docker Compose (not Stack: a stack cannot
+#   build, and does not wait for the database)
+#   Provider: Git or GitHub, this repository
+#   Compose Path: ./deploy/dokploy/docker-compose.yml
+#   Environment: the four passwords below, and the console's address
+#   Domains: service `app`, port 8787, HTTPS on
+#
+# then deploy. docs/guide/coolify-dokploy.md has the whole walk-through, and
+# what to do after.
+#
+# Dokploy writes the Environment tab to .env beside this file and runs
+# `docker compose` on the file as it is, so a variable left out stops the
+# deploy with the message after `:?`. The app's entrypoint provisions the
+# database from the superuser, migrates, and starts the platform without
+# either URL or any of the passwords (deploy/docker/entrypoint.sh).
+#
+# Written for how Dokploy runs a compose file:
+#   - Paths are this file's: with no File Mounts, Dokploy runs Compose from
+#     here, so the repository is two directories up. A File Mount would move
+#     that to the repository, and PALUGADA needs none.
+#   - No published port: Dokploy's Traefik reaches `app` over its network.
+#   - No bind mount from the repository: Dokploy clones it again on every
+#     deploy, and what was mounted from it goes missing.
+#   - Leave "Randomize Compose" off: it renames `db`, which the URLs name.
+#     Never redeploy with fresh volumes: that deletes the database.
+
+services:
+  db:
+    # PostgreSQL 16 with pgvector, which the stock image lacks.
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${PALUGADA_DB_SUPERUSER_PASSWORD:?set PALUGADA_DB_SUPERUSER_PASSWORD in the Environment tab, letters and digits (openssl rand -hex 24)}
+    volumes:
+      - database:/var/lib/postgresql/data
+    healthcheck:
+      # Over TCP and to the server's own database: the platform's database
+      # does not exist until the app makes it, and the image's first start
+      # runs a socket-only server while it initialises.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  app:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    # Anything else set in the Environment tab -- a master key, a metrics
+    # token -- reaches the platform through here.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Used before the platform starts, and unset before it does.
+      PALUGADA_SUPERUSER_URL: postgres://postgres:${PALUGADA_DB_SUPERUSER_PASSWORD:?set PALUGADA_DB_SUPERUSER_PASSWORD in the Environment tab}@db:5432/postgres
+      PALUGADA_OWNER_URL: postgres://palugada_owner:${PALUGADA_DB_OWNER_PASSWORD:?set PALUGADA_DB_OWNER_PASSWORD in the Environment tab, letters and digits (openssl rand -hex 24)}@db:5432/palugada
+      # What the platform runs with.
+      PALUGADA_APP_URL: postgres://palugada_app:${PALUGADA_DB_APP_PASSWORD:?set PALUGADA_DB_APP_PASSWORD in the Environment tab, letters and digits (openssl rand -hex 24)}@db:5432/palugada
+      PALUGADA_ADMIN_URL: postgres://palugada_admin:${PALUGADA_DB_ADMIN_PASSWORD:?set PALUGADA_DB_ADMIN_PASSWORD in the Environment tab, letters and digits (openssl rand -hex 24)}@db:5432/palugada
+      # The HTTPS address of the domain given to `app`; the console answers
+      # to its host name and refuses any other (421).
+      PALUGADA_APP_URL_PUBLIC: ${PALUGADA_APP_URL_PUBLIC:?set PALUGADA_APP_URL_PUBLIC in the Environment tab to https:// and the domain you give the app}
+      # Traefik writes the caller's address into X-Forwarded-For, which
+      # sign-in throttles by.
+      PALUGADA_BEHIND_PROXY: "1"
+    volumes:
+      # Agent CLIs' settings, the charters' git repository, and -- unless
+      # PALUGADA_MASTER_KEY is set -- the master key file.
+      - home:/home/node
+    depends_on:
+      db:
+        condition: service_healthy
+    # SIGTERM lets the worker hand in-flight work back; give it the time.
+    stop_grace_period: 60s
+
+volumes:
+  database:
+  home:

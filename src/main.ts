@@ -38,6 +38,7 @@ import { OtlpExporter, otlpFrom } from './reporting/otlp.ts';
 import { VERSION } from './version.ts';
 import { EMAIL_PROVIDERS, EmailChannel, emailAddress, emailProvider } from './owner/email.ts';
 import { OwnerMfa, decodeBase32 } from './owner/mfa.ts';
+import { openOwnerClaim } from './owner/claim.ts';
 import {
   DeploymentSecretManager, masterKeyFrom, previousMasterKeysFrom, readSettings, resealSecrets, settingsVersion, stateDirFrom, type MasterKey,
 } from './settings/store.ts';
@@ -210,6 +211,12 @@ export interface Deployment {
   url: string;
   /** What was left unconfigured, in the words an operator can act on. */
   notes: string[];
+  /**
+   * Where the first owner claims this deployment (F12.5, 0094), while it has
+   * no owner: printed as it starts, and kept out of `notes`, which the
+   * console shows.
+   */
+  claimUrl: string | null;
   stop(): Promise<void>;
 }
 
@@ -977,6 +984,13 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   });
   const { url } = await api.listen(options.port ?? Number(env.PALUGADA_PORT ?? 8787), bindHost);
 
+  // No owner yet, and no secret in the environment to enrol: a link that
+  // makes whoever opens it first the owner (src/owner/claim.ts). Its reader
+  // holds this machine's log, and so the machine already.
+  const claimCode = await openOwnerClaim();
+  const claimBase = published?.origin ?? url.replace(/\/\/(0\.0\.0\.0|\[::\]|::)(?=:)/, '//localhost');
+  const claimUrl = claimCode ? `${claimBase}/#/claim/${claimCode}` : null;
+
   // Started last, so a console that failed to bind does not leave a worker
   // running with nobody able to stop it.
   const running = worker.start();
@@ -1003,6 +1017,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     engine,
     url,
     notes,
+    claimUrl,
     async stop() {
       if (watching) clearInterval(watching);
       clearInterval(keepingCharters);
@@ -1105,6 +1120,10 @@ export async function runFromCommandLine(env: NodeJS.ProcessEnv = process.env): 
   const announce = (started: Deployment) => {
     for (const note of started.notes) process.stdout.write(`palugada: ${note}\n`);
     process.stdout.write(`palugada: console at ${started.url}\n`);
+    if (started.claimUrl) {
+      process.stdout.write(`palugada: no owner yet: open ${started.claimUrl} within a day to add your `
+        + 'authenticator app and become the owner; a new link is printed at each start until then\n');
+    }
   };
   const restart = async (): Promise<void> => {
     if (stopping || restarting) return restarting ?? undefined;

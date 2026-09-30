@@ -23,6 +23,7 @@ anything you never answer is cancelled rather than carried out.
 | [Concepts](concepts.md) | Every idea the console shows you, explained once: companies, roles, tiers, budgets, the inbox, memory, runtimes and the rest |
 | [How-to](how-to.md) | Recipes with exact steps: approving, answering, rerunning, hiring, connecting vendors and MCP servers, models, agent CLIs, schedules, triggers, bundles, languages, budgets, notifications, export |
 | [Operations](operations.md) | Running it for real: HTTPS, secrets, backups, upgrades, monitoring, more than one worker, sizing, the database roles |
+| [Coolify and Dokploy](coolify-dokploy.md) | Running it on a self-hosted platform that builds it from this repository and puts HTTPS in front |
 | [Scale](scale.md) | What to set up and watch for a small, medium, large or enterprise deployment, and what is not there yet |
 | [Troubleshooting](troubleshooting.md) | Messages the platform prints, what causes each, and what to do |
 

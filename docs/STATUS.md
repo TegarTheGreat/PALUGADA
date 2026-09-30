@@ -4600,6 +4600,91 @@ Read against what Coolify and Dokploy give a container they run, on
   (THREAT-MODEL 2.3). Running agent CLIs as a user of their own, or in the
   container backend, is what closes it.
 
+## 2.48 The first owner, without a secret in the environment (F12.5)
+
+- **A deployment on a platform could not be entered.** Signing in takes the
+  owner's authenticator, and the first one came only from
+  `PALUGADA_OWNER_TOTP_REF`: a base32 secret `npm run setup` or
+  `npm run totp:new` made in a terminal. Coolify and Dokploy offer no
+  terminal before the first deploy and generate passwords, not base32, and
+  the console had no route that adds a TOTP authenticator at all. A
+  deployment started without the variable said "no authenticator is
+  enrolled" and could be entered by nobody.
+- **A claim link (`src/owner/claim.ts`, 0094).** A start with no live
+  authenticator of the owner's makes a claim and prints
+  `no owner yet: open <address>/#/claim/<code>`. The code is 160 random bits
+  kept as their SHA-256, good for a day, in the fragment so neither the
+  server nor a proxy logs it. Opening it shows a secret as a QR code and as a
+  key; the code the app then shows enrols it, sealed under the master key, as
+  the one authenticator, spends every claim, and signs the owner in. The
+  secret is derived from the master key and the claim rather than kept, so
+  the laptop and then the phone see the same one, and the code left in the
+  log does not give it.
+- **Nothing is claimed once there is an owner.** `enrolTotp` takes a lock
+  and refuses in the transaction that would enrol, so two claims confirmed
+  at once make one owner, and a claim opened before the operator enrolled a
+  phone from the environment is refused with 409. A wrong code is counted by
+  the sign-in throttle like a wrong sign-in code.
+- **Tested.** `owner-claim.test.ts`: a guess refused; the same secret twice;
+  nothing kept before the code is confirmed; a code from another secret
+  refused and nothing enrolled; the right one signs in and signs in again
+  later; the link spent afterwards and no new one made; a link a day old
+  refused; two links from two starts; neither honoured once a phone was
+  enrolled from the environment. `process.test.ts`: `npm start` with no
+  owner prints the link, the link makes the owner, and the next start prints
+  none.
+- **Seen in a browser.** The sign-in page says the deployment has no owner
+  yet; the claim page's QR code decoded, with jsQR, to the `otpauth://` link
+  holding the key shown beside it; typing the code from that key landed on
+  **Home** signed in; the spent link says so. Opening the link in a tab
+  already on the console changed only the fragment and showed nothing new --
+  the page now follows the address. Both pages overflowed a 390-pixel phone:
+  six large code boxes are wider than the card, on the sign-in page too
+  since it was written; they are the medium size on a narrow screen now.
+
+## 2.49 Coolify and Dokploy
+
+Read from the source of both on 2026-09-30 (Coolify 4.3.23 and main,
+Dokploy 0.30.8 and canary) for how each runs a compose file, and each
+verified here by running Compose the way the platform does. Installing
+either platform in this environment was not allowed, so neither ran it.
+
+- **Coolify (`deploy/coolify/docker-compose.yml`).** A Git application with
+  the Docker Compose build pack. Coolify runs Compose with the repository as
+  the project directory, keeps `${VAR:?message}`'s message as the variable's
+  value, gives every service of the resource every variable as `.env`, and
+  generates `SERVICE_PASSWORD_*` (32 letters and digits) and
+  `SERVICE_HEX_64_*` the first time it reads the file. The file uses those
+  for the superuser, the three roles and the master key, takes the public
+  address from `SERVICE_URL_APP` (the domain given in the UI, without the
+  port `SERVICE_URL_APP_8787` routes to), publishes no port and mounts
+  nothing from the repository, which Coolify does not keep after the build.
+- **Dokploy (`deploy/dokploy/docker-compose.yml`).** A Compose service in
+  Docker Compose mode: a stack cannot build and ignores the database's
+  health. Dokploy writes the Environment tab to `.env` beside the file and
+  runs Compose from there unless a File Mount is set, so the build context
+  is two directories up; a missing password stops the deploy with the
+  message after `:?`. It generates nothing for a repository's compose file,
+  so the guide says how to make the four passwords.
+- **Simulated.** Each file run as its platform runs it -- Coolify's
+  project directory and `.env` added to every service; Dokploy's working
+  directory, `--env-file` and `env -i` -- with the image built from this
+  tree and a fresh volume: the database was provisioned and migrated
+  (0001 to 0093), the app came up healthy, `/api/health` answered 200 for
+  the public name and the console 421 for another, and PID 1
+  (`/usr/bin/tini -- node src/main.ts`) and the platform held no
+  `SERVICE_*`, `POSTGRES_PASSWORD` or `PALUGADA_DB_*` variable. A restart
+  said the database was already as PALUGADA needs it and the schema already
+  up to date. A Dokploy file with the passwords missing refused before
+  anything ran, naming the variable.
+- **Backups.** Dokploy backs up a PostgreSQL service inside a compose stack
+  on a schedule; Coolify's scheduled backups are for databases it runs as
+  such, not one inside a compose application, which its parser does not
+  treat as a database. The guide says so and gives a `pg_dump` for Coolify.
+- **Not done.** No published image, so neither platform's one-click
+  template catalogue can list PALUGADA: both take an image, not a build.
+  Coolify's official templates also need a thousand GitHub stars.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

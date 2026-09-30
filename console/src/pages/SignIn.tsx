@@ -11,18 +11,42 @@
  * nothing is saved until the owner is in and chooses in the console, where
  * the choice goes to the deployment rather than to the browser.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Alert, Anchor, Button, Center, Divider, Grid, Group, Image, List, Paper, PinInput, SegmentedControl, Stack, Text,
   TextInput, ThemeIcon, Title, useComputedColorScheme,
 } from '@mantine/core';
 import { IconCheck, IconFingerprint } from '@tabler/icons-react';
+import { useMediaQuery } from '@mantine/hooks';
 import { api, explain } from '../api.ts';
 import { LANGUAGES, language, setLanguage, t, type Language } from '../i18n.ts';
 import { passkeysSupported, presentPasskey, type RelyingParty } from '../passkey.ts';
+import { Claim, claimCode } from './Claim.tsx';
 
 export function SignIn({ onSignedIn }: { onSignedIn: (session: { token: string; device: string; factor: string }) => void }) {
+  // Opened from the link a deployment with no owner printed as it started --
+  // or pasted into a tab already showing this page, which changes only the
+  // fragment and loads nothing.
+  const [claim, setClaim] = useState(claimCode);
+  useEffect(() => {
+    const changed = () => setClaim(claimCode());
+    window.addEventListener('hashchange', changed);
+    return () => window.removeEventListener('hashchange', changed);
+  }, []);
+  if (claim) return <Claim code={claim} onSignedIn={onSignedIn} />;
+  return <Door onSignedIn={onSignedIn} />;
+}
+
+function Door({ onSignedIn }: { onSignedIn: (session: { token: string; device: string; factor: string }) => void }) {
   const [code, setCode] = useState('');
+  // Six boxes at the large size are wider than a phone's card.
+  const narrow = useMediaQuery('(max-width: 26em)') ?? false;
+  // No owner yet: nothing on this page can open it, and the owner is told where the way in is.
+  const [claimable, setClaimable] = useState(false);
+  useEffect(() => {
+    const asking: Promise<{ claimable?: boolean }> = api('GET', '/api/auth/challenge');
+    asking.then((answer) => setClaimable(answer.claimable === true), () => undefined);
+  }, []);
   const [error, setError] = useState<{ message: string; from: 'code' | 'passkey' | 'recovery' } | null>(null);
   const [busy, setBusy] = useState<'code' | 'passkey' | 'recovery' | null>(null);
   // The phone is gone: one of the codes written down on the day.
@@ -109,7 +133,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: (session: { token: string; 
               aria-label={t('Language')}
             />
           </Group>
-          <Paper withBorder shadow="md" radius="lg" p={36} w="100%" maw={440}>
+          <Paper withBorder shadow="md" radius="lg" p={{ base: 'lg', xs: 36 }} w="100%" maw={440}>
             <Stack gap="lg" align="center">
               <img className="brand-mark" src="/brand/palugada-app-icon.svg" alt="" width={56} height={56} />
               <div style={{ textAlign: 'center' }}>
@@ -121,7 +145,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: (session: { token: string; 
                 type="number"
                 oneTimeCode
                 autoFocus
-                size="lg"
+                size={narrow ? 'md' : 'lg'}
                 value={code}
                 onChange={setCode}
                 onComplete={(value) => void submit(value)}
@@ -129,6 +153,11 @@ export function SignIn({ onSignedIn }: { onSignedIn: (session: { token: string; 
                 disabled={busy !== null}
                 aria-label={t('Six-digit code')}
               />
+              {claimable && (
+                <Alert color="blue" variant="light" w="100%" title={t('This deployment has no owner yet')}>
+                  {t('Open the link PALUGADA printed in its log when it started. It ends in /#/claim/ and a code, and makes whoever opens it first the owner.')}
+                </Alert>
+              )}
               {error && <Alert color="red" variant="light" w="100%">{error.message}</Alert>}
               <Button fullWidth size="md" loading={busy === 'code'} disabled={code.length !== 6 || busy === 'passkey'} onClick={() => void submit(code)}>
                 {t('Sign in')}

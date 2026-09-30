@@ -78,6 +78,9 @@ export async function resetData(): Promise<void> {
   // right rule -- a record of every second-factor attempt that the console's
   // own role could delete would not be much of a record.
   await ownerPool().query('TRUNCATE owner_authenticators, owner_authentications CASCADE');
+  // And the links a deployment with no owner made (0094), which a later file's
+  // console would otherwise still honour.
+  await ownerPool().query('TRUNCATE owner_claims');
 
   // The deployment's own settings and sealed secrets (0065): a model one
   // test chose in the console would otherwise be the model every later

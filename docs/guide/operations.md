@@ -61,10 +61,15 @@ docker run -d --name palugada -p 127.0.0.1:8787:8787 -v palugada-home:/home/node
   -e PALUGADA_OWNER_URL='postgres://palugada_owner:…@db:5432/palugada' \
   -e PALUGADA_APP_URL='postgres://palugada_app:…@db:5432/palugada' \
   -e PALUGADA_ADMIN_URL='postgres://palugada_admin:…@db:5432/palugada' \
-  -e PALUGADA_OWNER_TOTP_REF=env://PALUGADA_SECRET_OWNER_TOTP \
-  -e PALUGADA_SECRET_OWNER_TOTP=… \
   palugada
+docker logs palugada | grep 'no owner yet'
 ```
+
+The last line is the link that makes you the owner
+([getting started](getting-started.md#sign-in-for-the-first-time)); give the
+container `PALUGADA_OWNER_TOTP_REF` instead if you already have a secret.
+Coolify and Dokploy have files of their own
+([Coolify and Dokploy](coolify-dokploy.md)).
 
 Before the platform starts, the image's entrypoint
 (`deploy/docker/entrypoint.sh`):

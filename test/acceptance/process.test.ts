@@ -12,7 +12,7 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, writeFile, symlink } from 'node:fs/promises';
+import { copyFile, mkdtemp, readdir, readFile, rm, writeFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import pg from 'pg';
@@ -23,6 +23,7 @@ import { decodeBase32, newTotpSecret, stepFor, totpCode } from '../../src/owner/
 import { LocalSecretManager } from '../../src/secrets/local.ts';
 import { isPalugadaError } from '../../src/errors.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
+import { migrate } from '../../scripts/migrate.ts';
 
 before(ensureSchema);
 beforeEach(resetData);
@@ -211,6 +212,47 @@ test('code ahead of its database refuses to start and names the migration', asyn
   } finally {
     await pool.query(`INSERT INTO schema_migrations (version) VALUES ('0063_schema_version_readable.sql') ON CONFLICT DO NOTHING`);
     await pool.end();
+  }
+});
+
+/**
+ * A migration is never edited once it has run, because a deployed database
+ * has run the old text. `migrate` recorded names alone, so an edited one was
+ * skipped wherever it had run and applied as edited wherever it had not, and
+ * the two databases differed with nothing to say so. What each ran as is
+ * kept now, and a file that no longer says that is refused by name, before
+ * anything after it runs.
+ */
+test('a migration changed after it ran is refused by name, and nothing after it runs', async () => {
+  const source = new URL('../../db/migrations/', import.meta.url).pathname;
+  const directory = await mkdtemp(join(tmpdir(), 'palugada-migrations-'));
+  const pool = new pg.Pool({ connectionString: connectionString('owner'), max: 1 });
+  const files = (await readdir(source)).filter((file) => file.endsWith('.sql')).sort();
+  const edited = files[3]!;
+  try {
+    for (const file of files) await copyFile(join(source, file), join(directory, file));
+    assert.deepEqual(await migrate(directory), [], 'the same files: nothing to do');
+
+    const original = await readFile(join(source, edited), 'utf8');
+    await writeFile(join(directory, edited), `${original}\n-- and one thing more\n`);
+    await writeFile(join(directory, '9999_after_the_edit.sql'), 'CREATE TABLE after_the_edit (id int);');
+    await assert.rejects(migrate(directory), new RegExp(`${edited.replace(/\./g, '\\.')} is not the migration this database ran`));
+    const made = await pool.query<{ found: string | null }>("SELECT to_regclass('after_the_edit')::text AS found");
+    assert.equal(made.rows[0]!.found, null, 'nothing after it ran');
+
+    // Line endings are the editor's, not the migration's.
+    await writeFile(join(directory, edited), original.replace(/\n/g, '\r\n'));
+    await rm(join(directory, '9999_after_the_edit.sql'));
+    assert.deepEqual(await migrate(directory), []);
+
+    // One that ran before checksums were kept is taken as it is now.
+    await pool.query('UPDATE schema_migrations SET checksum = NULL WHERE version = $1', [files[0]]);
+    assert.deepEqual(await migrate(directory), []);
+    const kept = await pool.query<{ checksum: string | null }>('SELECT checksum FROM schema_migrations WHERE version = $1', [files[0]]);
+    assert.match(kept.rows[0]!.checksum ?? '', /^[0-9a-f]{64}$/);
+  } finally {
+    await pool.end();
+    await rm(directory, { recursive: true, force: true });
   }
 });
 

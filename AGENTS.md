@@ -89,7 +89,9 @@ you test in, leave `.env` out, or point it at the development database.
 Each of these is a test, and each exists because the mistake was made once.
 
 - **Migrations are append-only.** Never edit one that has been pushed; add the
-  next number. A deployed database has already run the old text.
+  next number. A deployed database has already run the old text, and
+  `npm run db:migrate` refuses, by name, a migration whose file changed after
+  it ran. `test/acceptance/process.test.ts`.
 - **Every tenant table has row level security, forced, with a policy.**
   `test/acceptance/tenant-isolation.test.ts`.
 - **References between tenant tables carry the company**: composite keys on

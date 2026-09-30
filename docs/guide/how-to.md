@@ -140,6 +140,9 @@ came from work which read an email, a web page or a customer's message:
 every run is shown it as the data it came from, not as something known,
 until you confirm it. **learned 3 more times** means the same lesson came
 back from later work. **The work that taught it** opens that task.
+**Episodes** holds a line for each piece of finished work -- what it was for
+and what it reported -- which runs in the same project find when they search
+for past events.
 
 A fact that is wrong: **Correct** it when you know the right one, or
 **Take back** when there is nothing to put in its place. Either way it
@@ -164,6 +167,17 @@ run quoting a cafe reads the payment terms rather than guessing them. What
 it reads there is shown to it as data, never as instructions. **Archive**
 takes a document out of every search and keeps its text; **Put it back**
 returns it.
+
+**Found by meaning, too.** By default a passage is found by the words it
+shares with the question: "refund policy" does not find a document that
+says "returns and money back". Under **This deployment**, **Tools**,
+**Meaning**, choose a provider (OpenAI, Gemini, Mistral, Voyage, Jina, or
+Ollama on your own machine), press **Test it**, and **Save**. The worker then
+sends each passage to the provider once, in the background, a batch at a
+time; a search then ranks passages by words and meaning together. Choosing
+another model gives every passage its new vector the same way, and until
+then those passages are found by their words. Each passage's text goes to
+the provider you chose, so choose one you would trust with the documents.
 
 ## Write, review and switch on skills
 
@@ -216,6 +230,44 @@ incidents stay behind and are decided one at a time. **Later** puts an item
 out of the queue for an hour, until tomorrow morning, three days or a week,
 but never past its expiry.
 
+### Approve for a while
+
+When one of your policies asks before a role does something, for example
+before the marketing lead sends email, the same card comes back for every
+email. On such a card the **Approve** button has an hourglass beside it:
+press it and choose an hour, eight hours, a day or a week. Your code is
+asked for, because this loosens a rule. The action on the card runs, and
+the same capability by the same role runs without a card until the time
+ends. Each use is written in the task's timeline, with the yes it ran on.
+
+It is offered only where a policy is what asked, at tier 2 or below. A tier
+3 action is approved one at a time. Work that read something from outside
+the company, such as a customer's email or a webhook, is asked about every
+time, whatever you allowed: that text may be trying to talk the role into
+it. Another role, or another capability, is not covered.
+
+What you allowed is listed at the top of **Inbox** under **Allowed for a
+while**, with when it ends and how often it was used. **Take back** ends it
+at once, without a code. From Telegram and in a batch, a card is approved
+once only.
+
+### Have a model look first: the guardian
+
+Once a role has read something from outside the company, anything it does
+at tier 2 or above waits for you. What it does at tier 0 or 1 does not: a
+web fetch, a note to memory. A message written to steer it could have it
+fetch an address with your customer list in it. On **Settings**,
+**Company**, **The guardian**, press **Turn it on**. From then on, in such
+work, a model looks at each of those small actions first -- what you asked
+for, and the action as your card would describe it, never the outside text
+itself -- and sends you the doubtful ones as a card saying why.
+
+It can only ask you more. It never lets through anything a tier, a policy or
+outside content would have asked about, and when it cannot judge -- no
+model, a provider down, an answer that is not a verdict -- it asks you. A
+card you approve is not judged again. Each look is a model call charged to
+the work, shown in its timeline. Turning it off takes your code.
+
 ## Answer a question from an agent
 
 A role that needs something only you know asks with `owner.ask`, and its
@@ -242,7 +294,9 @@ Open the task from **Work** (or **Open the task** on an inbox item).
 - **Cancel this task** cancels it and everything it started.
 - Once it has ended, **Do it again** starts a new task with the same work
   and your optional note. A halted task is never retried by itself; this is
-  how you retry it.
+  how you retry it. The new task is told everything you said to the tasks
+  it replaces: your notes, and your answers to their questions, however
+  many times the work was done again.
 - **Replay against the journal** runs the handler again with every side
   effect answered from the record. Nothing leaves.
 
@@ -294,7 +348,13 @@ All three are on **Team**, **Divisions & roles**.
 To grant a capability, open the division and use **Change a grant**: the
 **Capability** name and its **Tier**, then **Apply** with a code. The tier
 may be the catalogue's or stricter; a looser one is refused. Leaving
-**Tier** blank revokes the grant.
+**Tier** blank revokes the grant. **Calls at once, at most** says how many
+calls to it the division may have under way at the same moment, across
+every worker -- one for production deploys, or for a vendor that refuses a
+second request while the first runs. Blank keeps what it was, and 0 takes
+the limit away. A call that finds every place taken waits up to half a
+minute; past that its task is parked and picked up again, spending no
+attempt.
 
 **Team**, **Projects** lists every project with what it is for, how much
 work is under way and done in it, and what it has cost. **Edit** renames it
@@ -306,25 +366,71 @@ the list to one project, role or goal, and **Show older** pages back past
 the newest hundred.
 
 A hired role runs on the company's most common runtime and the `standard`
-model tier. The role's **Change its charter or model** section changes its
-charter and its **Primary model**; the console does not change a role's
-tools after it is hired.
+model tier. The role's **Change its charter, done criteria, model or run length**
+section changes its charter, what done means for it (**Done means**, one
+criterion per line) and its **Primary model**; the console does not change a
+role's tools after it is hired. A criterion that needs a vendor should say
+what counts when that vendor is not connected: a run is told which of its
+role's tools are not connected, and cannot meet a criterion that only one of
+them could.
 
 ## Connect a vendor
 
 Capabilities that need somebody's account, such as `email.send`,
-`invoice.issue` or `dns.update`, are bound by a JSON file you write. The file
-holds no code: each entry is a method, a URL, headers and a body template,
-where the result is found, how to read it back, and which credential it
-uses. [config/vendors.example.json](../../config/vendors.example.json) binds
-`email.send` to Resend, `dns.read` and `dns.update` to Cloudflare,
-`invoice.issue` to a QRIS payment through Midtrans, `social.publish` to a
-Mastodon account and `metrics.read` to Plausible. Each was written from the
-vendor's own documentation; none has been run against the vendor from here.
-The Midtrans entry points at Midtrans' sandbox, so a copied example charges
-nobody: change `api.sandbox.midtrans.com` to `api.midtrans.com`, and use the
-production server key, when it is right. The Mastodon entry names
+`invoice.issue` or `dns.update`, are bound to a vendor by an entry: a
+method, a URL, headers and a body template, where the result is found, how
+to read it back, and which credential it uses. No code. The entries in
+[config/vendors.example.json](../../config/vendors.example.json) are offered
+as presets: `email.send` on Resend, `dns.read` and `dns.update` on
+Cloudflare, `invoice.issue` as a QRIS payment through Midtrans,
+`social.publish` on a Mastodon account, `metrics.read` on Plausible and
+`calendar.read` on Google Calendar. Each was written from the vendor's own
+documentation; none has been run against the vendor from here. The Midtrans entry points at Midtrans' sandbox, so it
+charges nobody: change `api.sandbox.midtrans.com` to `api.midtrans.com`, and
+use the production server key, when it is right. The Mastodon entry names
 `mastodon.social`; change it to your instance.
+
+### From the console
+
+1. Open **This deployment**, **Services**, and press **Connect** on the
+   service. Change its address if yours lives elsewhere; **Change the whole
+   entry** edits all of it, in the file's shape, for a service that is not a
+   preset. The entry is checked against every rule the file is held to
+   before your authenticator is asked for, and the deployment starts again
+   to bind it.
+2. Make sure the division is granted the capability (**Change a grant**) and
+   the role lists it among its tools. The standard template already grants
+   `email.send` to Growth and Support, for example.
+3. Open the division on **Team**. Under **Keys for services** it says which
+   of its capabilities need a key, by the name the entry gives it (for
+   Resend, `email`), and what the key must be issued with. Paste the key the
+   service gave you and confirm with your authenticator. It is sealed in the
+   deployment's store, declared with those scopes, and never shown again.
+   Paste another under the same name to replace it: the next call uses the
+   new one, and the old one is deleted. **Remove** takes it away.
+
+   A key that is signed in for rather than pasted -- Google Calendar's,
+   named `google` -- shows **Sign in with Google** instead. The first time,
+   register an app with the provider for this deployment:
+   - **Register an app** opens the page where one is made. For Google, make
+     an OAuth client of type **Web application**, with the consent screen set
+     to **Internal** if your account is Google Workspace.
+   - Give the app the return address the console shows.
+   - Paste its **Client ID** and **Client secret**.
+
+   Press **Sign in with Google**, confirm with your authenticator, then
+   **Open the sign-in page** and sign in there in the new tab. The key is
+   held when the tab says so. It is sealed like a pasted one, renewed before
+   it runs out, and never shown. **Sign in again** replaces it. A Google
+   consent screen left in **Testing** ends its sign-ins after seven days;
+   publish it, or keep it **Internal**.
+
+A division's key can only name its own sealed secrets, an environment
+variable or a mounted file: never one of the deployment's own keys -- the
+model's, a channel's, an MCP server's -- which would otherwise be sent, in
+a header, to whatever the capability calls.
+
+### From a file
 
 Some vendors cannot be written as one entry, and the example leaves them
 out rather than shipping an entry that looks right and is not:
@@ -337,8 +443,13 @@ out rather than shipping an entry that looks right and is not:
   which is why the example uses it.
 - **GitHub branches, Hetzner, Cloudflare record deletion, HubSpot notes and
   Vercel deployments** document no idempotency key either.
-- **Google Calendar and Gmail** take OAuth access tokens that expire within
-  the hour, and PALUGADA has no OAuth flow yet.
+- **Gmail** lists messages by id only, so reading one is a second call per
+  message, and sending takes the whole message encoded, which a template
+  cannot do. Its sign-in works like Google Calendar's; the calls do not fit
+  an entry.
+
+An operator can bind vendors in a file instead, which the console cannot
+change and whose names it cannot take:
 
 1. Copy the example and change it for your vendor. The platform refuses a
    file that writes without a read-back, has a side effect without an
@@ -361,36 +472,15 @@ out rather than shipping an entry that looks right and is not:
    file in `config/` and rebuild with `docker compose up -d --build`: the
    image copies that directory, and a relative path is read from the app's
    directory, so the setting is `config/` followed by the file's name.
-3. Put each vendor's API key where a secret reference can reach it: an
-   environment variable whose name starts with `PALUGADA_SECRET_`
-   (referenced as `env://` followed by the variable's name), or a file under
-   one of the `PALUGADA_SECRET_DIRS` directories, `/run/secrets` by default
-   (referenced as `file://` followed by its absolute path). Only those two
-   are read; see [operations](operations.md#secrets).
-4. Restart. The boot lists `bound by <file>: …` and what is still unbound.
-5. Make sure the division is granted the capability (**Change a grant**) and
-   the role lists it among its tools. The standard template already grants
-   `email.send` to Growth and Support, for example.
-6. Give the division a credential with the entry's `credentialAlias` (for
-   Resend, `email`) pointing at the secret, and declaring the scopes the
-   entry's `requiredScopes` names. There is no console form for adding one
-   yet, so the operator adds the row as the control-plane role, after step 4
-   so the platform already knows what the capability needs:
-
-   ```sh
-   psql "<PALUGADA_ADMIN_URL from .env>" -c "
-     INSERT INTO credentials (company_id, division_id, alias, secret_ref, scopes)
-     SELECT d.company_id, d.id, 'email', 'env://PALUGADA_SECRET_<NAME>', '{email:send}'
-       FROM divisions d JOIN companies c ON c.id = d.company_id
-      WHERE c.slug = 'kopi-nusantara' AND d.slug = 'growth'"
-   ```
-
-   With Docker Compose, run the same statement with
-   `docker compose exec db psql -U postgres -d palugada -c "…"`. The database
-   refuses a scope no capability of the division needs, and a secret written
-   into the reference column instead of a reference. This row does not pass
-   through the governance log. Once it exists, **Rotate a credential** in
-   the division repoints or rotates it from the console with a code.
+3. Restart. The boot lists `bound by <file>: …` and what is still unbound.
+4. Give each division its key as above, under **Keys for services**. A key
+   the operator keeps outside the console instead goes where a secret
+   reference can reach it: an environment variable whose name starts with
+   `PALUGADA_SECRET_` (referenced as `env://` followed by the variable's
+   name), or a file under one of the `PALUGADA_SECRET_DIRS` directories,
+   `/run/secrets` by default (referenced as `file://` followed by its
+   absolute path); see [operations](operations.md#secrets). **Rotate a
+   credential** in the division points an existing key at such a reference.
 
 ## Add MCP servers
 
@@ -400,18 +490,59 @@ only the ones you allow, at the tier you choose.
 ### From the console
 
 1. Open **This deployment**, **MCP servers**, and press **Add an MCP server**.
-2. Under **Start from**, pick a service -- GitHub, Linear, Stripe,
-   Atlassian, Sentry, Cloudflare, Neon, Zapier, Apify, Hugging Face,
-   Context7, Firecrawl, Tavily, Exa, Browserbase, or Playwright, which you
-   run yourself -- and its name, address and where its token goes are
-   filled in; **Get a key** opens the page where the service makes one.
-   For any other server, leave it empty and give a **Name** -- lowercase,
-   such as `payments`; each tool becomes `mcp.payments.<tool>` -- and its
+2. Under **Start from**, pick a service, and its name, address and how it
+   lets PALUGADA in are filled in. There are three kinds:
+   - **Signed in to, with nothing to copy:** Notion, Webflow, Square,
+     Composio, Pipedream and Arcade. Choosing one asks the server at once,
+     and **It asks you to sign in** appears (step 3). Arcade's address ends
+     in `{gateway}`: replace it with your gateway's slug from Arcade's
+     dashboard.
+   - **A key, or a sign-in:** Linear, Atlassian, Airtable, monday.com,
+     Intercom, Stripe, Resend, Sentry, Cloudflare, Supabase, Neon, Zapier
+     and Smithery (whose address ends in your `{namespace}`). Paste a key (**Get a key** opens the page where the service
+     makes one), or leave the **Token** empty and sign in.
+   - **Through an app you register first:** GitHub, Asana, Slack, HubSpot
+     and Box let an outside tool in only as an app registered with them.
+     **Register an app** opens the page where you make one; give it the
+     return address the console shows, and paste its **Client ID** and
+     **Client secret** when you sign in. GitHub also takes a key.
+
+   Composio, Pipedream, Zapier, Arcade and Smithery each reach many apps
+   through one server. What you connect there is what the server lists
+   here, and every tool it lists is still allowed one at a time with its
+   tier, like any other server's: breadth, not trust.
+
+   Apify, Hugging Face, Context7, Firecrawl, Tavily, Exa and Browserbase take
+   a key; Playwright is run on a machine of yours. Coolify takes a token, at
+   your own instance's address in place of `{coolify-host}`; Dokploy's
+   server is run by you, and lets in whoever reaches it, so it goes where
+   only this deployment can. Both let roles see and deploy what runs there:
+   [Coolify and Dokploy](coolify-dokploy.md#letting-a-company-see-and-deploy-what-runs-there)
+   says how, and why a deploy should wait for you. For any other server,
+   leave **Start from** empty and give a **Name** -- lowercase, such as
+   `payments`; each tool becomes `mcp.payments.<tool>` -- and its
    **Address**. Paste the **Token** if the server asks for one: it is sealed
    here, and sent where the server reads it.
 3. Press **Look at its tools**. Each tool is shown with what it says it does,
    what it takes, and whether the server says it only reads or is
    destructive. Nothing is saved yet.
+
+   A server that signs in with OAuth says **It asks you to sign in**
+   instead.
+   Give it a **Name**, press **Sign in**, then **Open the sign-in page**, and
+   sign in there in the new tab; the tab says when it is done, and the
+   console lists the server's tools with what the sign-in gave. PALUGADA
+   registers itself with the server's authorization server when it allows
+   that. One that does not, such as GitHub's, asks for the **Client ID** (and
+   **Client secret**) of an app you register with it, coming back to the
+   return address shown above them. A sign-in's token is always sent as a
+   bearer token, whatever the service's pasted key would have been sent as. The sign-in comes back only to an https
+   address or to the machine the console runs on, so on a server reached by
+   another address, set `PALUGADA_APP_URL_PUBLIC` to its https address
+   first. What the sign-in gives is sealed and never shown, sent only to the
+   server it was issued for, and refreshed when the server says it has run
+   out; one that can no longer be refreshed makes its tools say to sign in
+   again.
 4. Tick the tools roles may use and choose each one's **Tier**. Tier 0 is
    offered only for a tool the server says only reads; a tool it calls
    destructive can only be tier 3.
@@ -584,10 +715,24 @@ boot stops and says which is missing.
 - Roles name a tier (`fast`, `standard`, `deep`), so changing the model
   changes it for every role at once. A role's **Primary model** can also
   name a model directly.
-- Give a model its real price in the file `PALUGADA_MODEL_PRICES` names
-  (see [config/prices.example.json](../../config/prices.example.json)); a
-  model on your own machine costs zero. Unpriced models are charged at a
-  deliberately high rate so a budget is never understated.
+- Say what each model costs under **What it costs**, on the same page.
+  An unpriced model is charged at a deliberately high rate, $15 in and $75
+  out per million tokens, so a budget is never understated. For most
+  models that is many times the bill, and a budget stops long before the
+  money it names is spent. To price your models:
+  1. **Fill from models.dev** fills in the prices the open catalogue at
+     [models.dev](https://models.dev) gives. It uses the provider you reach
+     the model at, when two list the same model.
+  2. Check them against your bill, or type your own, in dollars per
+     million tokens.
+  3. Press **Save prices** and type a code. A lower price loosens every
+     budget, which is why it asks.
+
+  `npm run setup` offers the same prices when it chooses a model, and
+  prices a model on your own machine at zero. The file
+  `PALUGADA_MODEL_PRICES` names
+  ([config/prices.example.json](../../config/prices.example.json)) is laid
+  under both.
 - `PALUGADA_DRAFT_MODEL` chooses the tier or model for drafting and
   distilling memory (default `standard`).
 
@@ -625,6 +770,13 @@ in, and whether roles can use it now.
    means to it if you want to, press **Save** and confirm. PALUGADA starts
    itself again, and the CLI is offered to roles.
 
+A CLI at a version other than the one PALUGADA checked shows **Not the
+version PALUGADA checked** on its card, and its roles get no work until you
+press **Install** for the checked version or **Accept** for the one you
+have, with a code. What keeps a CLI to PALUGADA's tools, and none of its
+own, is its flags, and another version may read them differently. Updating
+to the newest from the console accepts that version as it installs it.
+
 A ChatGPT or other subscription login whose tokens rotate is not offered:
 every run would hold a copy, and the first to refresh would sign the rest
 out. Use an API key for those.
@@ -657,7 +809,8 @@ Then, however it was set up:
    `PALUGADA_RUNTIME_SPECS=[{"name":"codex","models":{"fast":"…","standard":"…","deep":"…"}}]`.
    A tier the CLI has no model for halts the task with a message that says
    so, rather than failing every attempt. A role whose **Primary model** is
-   a model name, under **Change its charter or model**, is passed as it is.
+   a model name, under **Change its charter, done criteria, model or run length**, is passed
+   as it is.
 
 Any other CLI, or a correction to a known one, goes in
 `PALUGADA_RUNTIME_SPECS` as JSON: its `command`, its `args` with
@@ -665,6 +818,16 @@ placeholders such as `{model}` and `{mcpConfigFile}`, how it takes the
 prompt and which output dialect it speaks. The configuration page lists the
 fields. A spec that never hands its CLI the bridge is refused at boot,
 because the CLI would run with no tools and answer as though it had them.
+
+An agent that speaks the Agent Client Protocol -- Gemini CLI with `--acp`,
+Claude or Codex through their ACP adapters, Goose, OpenCode and many more --
+needs no dialect of its own: give its entry `"dialect": "acp"` and the
+command that starts it in ACP mode, for example
+`{"name":"goose-acp","command":"goose","args":["acp"],"dialect":"acp","env":{"GOOSE_PROVIDER":"anthropic","GOOSE_MODEL":"{model}"},"apiKeyEnvVar":"ANTHROPIC_API_KEY"}`
+for Goose on Anthropic's models, with the role's model a model name.
+PALUGADA hands it the role's tools in the protocol, says yes to those and
+no to its own shell and files, and charges what it reports the session
+cost. The configuration page has the whole entry for Gemini CLI.
 
 ## Use an HTTP runtime
 
@@ -684,7 +847,9 @@ in another language:
 
 The Docker runtime runs a role's runtime inside a container with no network
 at all (`--network none`), read-only, with memory and CPU limits, as a
-non-root user. It is the only runtime with network isolation.
+non-root user. It is the only runtime with network isolation. Each run's
+container is named `palugada-run-<run id>` and is removed when the run ends,
+even when the runtime inside ignored its stop.
 
 1. Build an image whose entry point speaks the platform's stdio protocol:
    one JSON request in, one event per line out, and tool calls as events on
@@ -696,6 +861,10 @@ non-root user. It is the only runtime with network isolation.
    `PALUGADA_RUNTIME_DOCKER` for another CLI such as podman. The docker CLI
    must be on the platform's `PATH` and able to reach a daemon.
 3. Restart, and move a role onto it under **Who does its work**.
+
+Each run's container is labelled with the worker that started it
+(`palugada.worker`). If a worker is killed outright, its containers keep
+running; within a minute, a live worker that shares the daemon removes them.
 
 A remote sandbox is the same idea on a provider's machines:
 `PALUGADA_SANDBOX_URL` and `PALUGADA_SANDBOX_IMAGE` together, with
@@ -717,8 +886,9 @@ reason.
 1. On **Team**, **Triggers**, press **New trigger**.
 2. Choose the **Role** that does the work, the goal it **Serves**, a
    **Short name**, **At most, per hour**, and **Who calls it**: a token from
-   any service, or Stripe, GitHub, Slack or Standard Webhooks, which sign
-   their deliveries.
+   any service, a token in the address for a service that takes only a URL
+   (Coolify's notifications, many form builders), or Stripe, GitHub, Slack
+   or Standard Webhooks, which sign their deliveries.
 3. For a signing sender, give **Where the signing secret is kept**: a
    secret reference such as `env://PALUGADA_SECRET_STRIPE_HOOK`, never the
    secret itself.
@@ -727,7 +897,11 @@ reason.
 5. **Give these to the other service** shows the URL
    (`/api/hooks/<id>`) and, for a token, the token once. Copy it now; if it is
    lost, make a new one. The dialog says where each sender takes them and,
-   for a token, shows a `curl` line to test with.
+   for a token, shows a `curl` line to test with. For a token in the address
+   it shows one URL ending in `?token=`: anyone who sees that address can
+   start the work, so keep it out of anything shared, and make a new token if
+   it leaks. A trigger that takes a bearer token refuses a token in the
+   address, even the right one.
 
 Each delivery becomes one task, and a retried delivery returns the task the
 first one started. What the event says reaches the role as data, and the
@@ -747,6 +921,25 @@ the sender, so it needs the HTTPS set-up in [operations](operations.md).
 3. **Is it still what was signed?** checks an installed bundle against the
    hash recorded at install. **Trust a publisher** adds a publisher's public
    key; bundles it signs install as written.
+
+`company-os` brings the weekly business review, run by the strategist on
+Monday at 07:45 in the company's time zone. Each week's task is handed the
+week in its input, read from the company's records: every active goal with
+its numbers and their change over the week, the work finished, the spend
+against the monthly limit, and any stage move waiting for you. A goal the
+strategist thinks is wrong arrives in your inbox as a proposal; approve it
+with your code and the goal changes. Installing a newer `company-os` over an
+older one updates its role, rules, cadence and skills in place; it adds
+grants and takes none away, so a grant the new version no longer names
+(1.3.0 no longer names `metrics.read`) stays until you revoke it.
+
+To bring an installed bundle up to date, install the version this deployment
+ships over it. For `company-os`, 1.4.0 adds a critic in its own Strategy
+review division: it reads every stage proposal before you do, holds nothing
+that acts, and what it said reaches you whether it supports the move or
+stops it. What the bundle brings is updated or added in place. Roles,
+schedules, work in flight, and any grant an earlier version made stay; its
+skills arrive again as candidates.
 
 The built-in bundles install as written when they are exactly what this
 version of PALUGADA ships: they are part of the platform, as trusted as its
@@ -770,6 +963,35 @@ Under **Settings**, **Languages**:
   each other. Empty means the default. Press **Save**; agents follow it from
   their next run.
 
+## Rewrite a charter
+
+On **Team**, **Charter**, the company's charter sits above the platform's.
+Edit either and press **Save the charter**; your authenticator is asked
+for, and the next run of every role is told the new text. **History** lists
+the company charter's versions, each with **Put this back**. A charter
+travels whole in every run, so it is limited to 20,000 characters and is
+best kept to what holds for every piece of work.
+
+The charters are also files, in a git repository beside the deployment's
+state (`charters` in `PALUGADA_STATE_DIR`, or `PALUGADA_CHARTERS_DIR`):
+`PLATFORM.md`, and `companies/<slug>/SOUL.md` for each company. Every
+version saved in the console is written there and committed. Edit a file
+there instead -- in an editor, or by pulling from a repository of your own
+-- and within a minute it is the charter's next version, recorded in its
+history like any other. A file PALUGADA wrote and nobody changed never
+overrides the charter in the database.
+
+The directory is a repository of its own, even inside another one. A file
+is taken only when it is a plain file within the directory (a link is
+never followed), holds no conflict markers and is within the 20,000
+characters; anything else is left as it is and named at boot, and the
+other charters carry on. While a merge or a rebase is in progress there,
+nothing is read, written or committed until you finish it. A version taken
+from a file shows in **History** as from the charter repository, not as
+yours. When you save a charter whose file cannot be written, the save still
+counts, and the console says **Saved, but its file was not written** with
+the reason.
+
 ## Set budgets and alert thresholds
 
 - On **Money**, set the **Monthly ceiling** and press **Set**. Raising it
@@ -780,14 +1002,19 @@ Under **Settings**, **Languages**:
   role: a **Name**, a **Token ceiling**, optionally a
   **Money ceiling (cents)**, what it is **For**, **Which one**, and
   **The account above it**. It takes a code.
+- An account's ceilings are for its whole life: tokens spent stay spent.
+  When one runs out -- its bar turns red and work is refused with "raise its
+  ceiling under Money" -- press **Ceilings** on its row and raise the
+  **Token ceiling** or the **Money ceiling**. Raising takes a code; lowering
+  does not.
 - Under **Settings**, **Company**, **Alert thresholds** sets when you are
   told something is going wrong: **Daily cost, cents**,
   **Failure rate, 0 to 1** and **Policy denials a day**. Each fires once per
   condition per day.
 
-## Push notifications and Telegram
+## Push notifications, Telegram, WhatsApp and email
 
-Open **This deployment**, **Channels**. For Telegram's buttons and the
+Open **This deployment**, **Channels**. For the chat buttons and the
 links in every notification to work, the console must be reachable from your
 phone: set `PALUGADA_APP_URL_PUBLIC` to its HTTPS address first.
 
@@ -847,6 +1074,49 @@ taken out before it is sent, and a picture becomes a link you see before
 opening. A local Bot API server too old for rich messages or drafts gets
 plain text and "typing…" instead.
 
+**WhatsApp.** The same as Telegram, on a WhatsApp Business number through
+Meta's Cloud API. It needs a Meta app, which takes longer to set up than a
+Telegram bot, and Meta charges for a conversation the business starts.
+
+1. In Meta for Developers, make an app with the WhatsApp product and add
+   your business number. Under **Business settings**, **System users**,
+   make a system user, give it the app and the number, and generate a
+   token that does not expire, with `whatsapp_business_messaging`.
+2. In the card, fill in the **Phone number ID** (under WhatsApp, **API
+   Setup**; it is not the number), **Your WhatsApp number** with its
+   country code, the **Access token**, and the **App secret** (the app's
+   **Basic** settings). Press **Save** with a code from your
+   authenticator. The number is checked with Meta first, and the three
+   secrets are sealed.
+3. The card then shows a **Callback URL** and a **Verify token**. In the
+   app's WhatsApp **Configuration**, paste both as the webhook and
+   subscribe to `messages`.
+4. Send the number any message from your WhatsApp. That opens the
+   conversation, and your CEO answers.
+
+WhatsApp lets a business write first only within 24 hours of your last
+message. Past that, a message is refused, and PALUGADA can only send an
+approved template in its place. Make a **utility** template with one body
+parameter (for example `PALUGADA: {{1}}. Reply to see the buttons.`),
+and put its name and language in **Template**, as `palugada_notice:id`.
+The item's summary goes in the parameter, and its buttons follow as soon
+as you reply. Without a template, the message is not sent, and the
+company's record says why.
+
+What arrives, and what a press can do, is what Telegram gets: buttons for
+questions, proposed procedures and skills, and approvals up to tier 2; a
+tier 3 approval or an incident is a link. A question with choices is a
+list. **Ask** sends a message you answer by replying to it (swipe it), and
+the task reads your words. Write anything else and your CEO answers;
+`/ceo` lists whom you can talk to, and `/palugada` talks to PALUGADA's
+assistant. A card the chat may apply comes with an **Apply** button.
+WhatsApp reads text here; a voice note is for Telegram or the console.
+
+Only your number is heard. A press from any other number is recorded as a
+security event in the item's company and is not answered. Every delivery
+is checked against Meta's signature, and each message is acted on once,
+even when Meta sends it again after a restart.
+
 **Your phone (push).** Push carries only incidents and tier 3 approvals,
 which is what may interrupt you outside your hours, and the daily digest,
 quietly.
@@ -867,6 +1137,13 @@ told what needs you, with a link to decide it in the console: a webhook
 message cannot carry buttons. The address is sealed, since anyone holding
 it can post to that channel.
 
+**Email.** Choose Resend, Postmark or SendGrid, type an address the service
+lets your account send from (one on a domain you verified there) and your
+own, paste an API key, press **Send a test**, and **Save** with a code. You
+are emailed what needs you, the daily digest and finished work, each with a
+link to decide or read it in the console: an email is forwarded, previewed
+and scanned by filters, so it carries no buttons. The key is sealed.
+
 **From the environment instead.** `PALUGADA_TELEGRAM_TOKEN`,
 `PALUGADA_TELEGRAM_CHAT` (your user id) and
 `PALUGADA_TELEGRAM_WEBHOOK_SECRET` (a random string you then give
@@ -875,7 +1152,13 @@ Telegram's `setWebhook` as its secret token, with `allowed_updates` of
 the stop button); `PALUGADA_PUSH_URL`, with
 `PALUGADA_PUSH_FORMAT=ntfy` and `PALUGADA_PUSH_TOPIC` for ntfy and
 `PALUGADA_PUSH_TOKEN`; `PALUGADA_SLACK_WEBHOOK` and
-`PALUGADA_DISCORD_WEBHOOK`. Each credential can instead be a secret
+`PALUGADA_DISCORD_WEBHOOK`; `PALUGADA_WHATSAPP_PHONE_ID`,
+`PALUGADA_WHATSAPP_TOKEN`, `PALUGADA_WHATSAPP_APP_SECRET`,
+`PALUGADA_WHATSAPP_VERIFY_TOKEN` (a random string you give Meta as the
+webhook's verify token), `PALUGADA_WHATSAPP_OWNER` and, optionally,
+`PALUGADA_WHATSAPP_TEMPLATE`; `PALUGADA_EMAIL_PROVIDER` (`resend`,
+`postmark` or `sendgrid`), `PALUGADA_EMAIL_KEY`, `PALUGADA_EMAIL_FROM` and
+`PALUGADA_EMAIL_TO`. Each credential can instead be a secret
 reference in the variable of the same name ending `_REF`. A channel set in
 the console replaces that channel's variables.
 
@@ -897,6 +1180,50 @@ Every reference is remapped on the way in. Credentials must be set up again
 behind their references, skills from outside come back quarantined, and
 bundle installs, model traces, retention records and devices are not
 restored.
+
+## Close a company
+
+For a business that is over, or whose records the people in them have asked
+you to erase (UU 27/2022 on personal data).
+
+1. Export it first if you want a copy: **Settings**, **Company**, **Export**.
+2. In the same place, under **Close this company**, choose how many days
+   it has before it is erased, from 7 to 90, type its name exactly as it is
+   shown, press **Close the company** and confirm with a code.
+3. It is frozen at once: nothing of it starts, and what is running stops at
+   its next step. The sidebar marks it **closing**, and its settings say the
+   day.
+4. Until that day, **Keep this company** takes the closing back. It stays
+   frozen; unfreeze it when you want it working again.
+5. On the day, the worker erases it: every row of it -- work, history,
+   memory, documents, model traces, conversations -- and the keys its
+   divisions held. Then what it kept on disk: its directory under the files
+   root (`PALUGADA_FILES_ROOT`), with the drafts, pictures and recordings its
+   roles made, and its folder in the charter repository, whose removal is
+   committed there. **This deployment**, **Erased companies** keeps one
+   line: its name, when it was closed and erased, and how much went.
+6. If erasing it fails, it is listed on the same page under **Not erased
+   yet**, with what went wrong and when it is tried next. It is tried again
+   a minute later, then less often each time, up to every six hours; the
+   other companies whose day has come are erased meanwhile, and everything
+   of this one stays until a try succeeds. **Keep this company** still
+   takes it back. A file or folder that could not be removed after the rows
+   went is named in the worker's log with its path; the rows stay erased,
+   and the next worker to start tries again.
+
+What erasing cannot reach: backups taken before the day, until they age out
+(see [Backups](operations.md#backups)); the charter repository's history,
+whose earlier commits still hold every charter the company had; files under
+a files root the deployment is no longer started with; what the model
+provider and the vendors were sent while it worked; and your own chat
+history on Telegram or WhatsApp.
+
+To take a company's charters out of the repository's history as well,
+rewrite it yourself once the company is erased, for example with
+`git filter-repo --invert-paths --path companies/<slug>` in the charters
+directory (`PALUGADA_CHARTERS_DIR`, or `charters` in the state directory),
+and do the same to every clone of it. PALUGADA does not rewrite a history
+someone may have pulled.
 
 ## Search
 

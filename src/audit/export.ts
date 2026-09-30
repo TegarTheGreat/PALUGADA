@@ -68,7 +68,7 @@ interface Section {
 }
 
 const SECTIONS: Section[] = [
-  { name: 'company', sql: 'SELECT id, slug, name, timezone, frozen_at, created_at, work_language, talk_language, stage FROM companies' },
+  { name: 'company', sql: 'SELECT id, slug, name, timezone, frozen_at, created_at, work_language, talk_language, stage, guardian FROM companies' },
   { name: 'projects', sql: 'SELECT id, slug, name, created_at, description, archived_at FROM projects ORDER BY created_at' },
   {
     name: 'divisions',
@@ -81,14 +81,15 @@ const SECTIONS: Section[] = [
   },
   {
     name: 'roles',
-    // F1.5 counts a role's runtime, routing and completion criteria as config:
-    // an archive that restored a role without them would restore something
-    // that behaves differently and is still called the same thing.
+    // F1.5 counts a role's runtime, routing, completion criteria and run
+    // length as config: an archive that restored a role without them would
+    // restore something that behaves differently and is still called the
+    // same thing.
     sql: `SELECT id, division_id, slug, system_prompt, model, tools, input_schema,
                  output_schema, max_tokens_per_run, attempt_max, done_criteria,
                  runtime, backend, model_primary, model_fallback,
                  heartbeat_minutes, dormant_until, frozen_at, frozen_reason, created_at,
-                 display_name, title, persona
+                 display_name, title, persona, max_run_seconds
             FROM roles ORDER BY slug`,
   },
   {
@@ -105,7 +106,7 @@ const SECTIONS: Section[] = [
   },
   {
     name: 'capability_grants',
-    sql: `SELECT id, division_id, capability_name, tier_override, rate_limit_per_hour, created_at
+    sql: `SELECT id, division_id, capability_name, tier_override, rate_limit_per_hour, max_in_flight, created_at
             FROM capability_grants ORDER BY created_at`,
   },
   {

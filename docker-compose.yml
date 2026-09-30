@@ -13,6 +13,12 @@ name: palugada
 x-database-urls: &database-urls
   PALUGADA_APP_URL: postgres://palugada_app:${PALUGADA_DB_APP_PASSWORD:?run npm run setup and choose Docker Compose}@db:5432/palugada
   PALUGADA_ADMIN_URL: postgres://palugada_admin:${PALUGADA_DB_ADMIN_PASSWORD:?run npm run setup and choose Docker Compose}@db:5432/palugada
+
+# The role that owns the schema, which migrations need and the running
+# platform does not: it can alter any table, and it is the one role that can
+# empty one. Given to the database's first start and to `migrate` alone, so
+# no process of the platform, and no agent CLI it starts, has it to read.
+x-owner-url: &owner-url
   PALUGADA_OWNER_URL: postgres://palugada_owner:${PALUGADA_DB_OWNER_PASSWORD:?run npm run setup and choose Docker Compose}@db:5432/palugada
 
 services:
@@ -21,7 +27,7 @@ services:
     image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
-      <<: *database-urls
+      <<: [*database-urls, *owner-url]
       POSTGRES_PASSWORD: ${PALUGADA_DB_SUPERUSER_PASSWORD:?run npm run setup and choose Docker Compose}
     volumes:
       - database:/var/lib/postgresql/data
@@ -34,6 +40,19 @@ services:
       interval: 5s
       timeout: 5s
       retries: 30
+
+  # Brings the schema up to date, then exits; the platform starts after it.
+  migrate:
+    build: .
+    image: palugada:local
+    environment:
+      <<: *owner-url
+    entrypoint: ["node", "scripts/migrate.ts"]
+    command: []
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
 
   app:
     build: .
@@ -53,6 +72,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     # SIGTERM lets the worker hand in-flight work back; give it the time.
     stop_grace_period: 60s
 

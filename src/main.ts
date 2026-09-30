@@ -27,29 +27,39 @@
 import { CapabilityBroker } from './broker/broker.ts';
 import { CapabilityRegistry } from './broker/registry.ts';
 import { Engine } from './engine/engine.ts';
-import { DEFAULT_PRICE_TABLE, loadPriceTable } from './engine/pricing.ts';
+import { DEFAULT_PRICE_TABLE, loadPriceTable, withConsolePrices } from './engine/pricing.ts';
 import { modelClientFrom, modelSettingsFrom } from './llm/models.ts';
 import { bindMcpServers, closeMcpSessions, registerMcpServers } from './capabilities/mcp.ts';
+import { refreshMcpAccess } from './capabilities/mcp-oauth.ts';
+import { OAuthCredentials } from './capabilities/vendor-oauth.ts';
 import { Worker, type WorkerOptions } from './worker.ts';
-import type { SecretManager } from './secrets/manager.ts';
+import { DivisionSecrets, deploymentReferences, type SecretManager } from './secrets/manager.ts';
+import { OtlpExporter, otlpFrom } from './reporting/otlp.ts';
+import { VERSION } from './version.ts';
+import { EMAIL_PROVIDERS, EmailChannel, emailAddress, emailProvider } from './owner/email.ts';
 import { OwnerMfa, decodeBase32 } from './owner/mfa.ts';
+import { openOwnerClaim } from './owner/claim.ts';
 import {
-  DeploymentSecretManager, masterKeyFrom, readSettings, settingsVersion, type MasterKey,
+  DeploymentSecretManager, masterKeyFrom, previousMasterKeysFrom, readSettings, resealSecrets, settingsVersion, stateDirFrom, type MasterKey,
 } from './settings/store.ts';
+import { CharterRepository } from './governance/charter-repository.ts';
+import { Guardian } from './broker/guardian.ts';
 import { withSettings } from './settings/overlay.ts';
 import { LocalSecretManager } from './secrets/local.ts';
 import { PalugadaError } from './errors.ts';
 import { OwnerApi } from './owner/api.ts';
 import { WebhookPush, ntfyBody } from './owner/push.ts';
 import { TelegramChannel } from './owner/telegram.ts';
+import { WhatsAppChannel } from './owner/whatsapp.ts';
 import { WebhookChatChannel } from './owner/webhook-chat.ts';
 import type { OwnerChannel } from './owner/notify.ts';
 import { AdapterRegistry } from './runtime/protocol.ts';
 import { assembleRuntimes } from './runtime/assemble.ts';
+import { useMeaning } from './knowledge/meaning.ts';
 import type { TaskHandler } from './runtime/in-process.ts';
 import { registerPlatformCapabilities } from './capabilities/platform.ts';
 import { toolBindingsFrom } from './capabilities/tools.ts';
-import { registerVendorCapabilities } from './capabilities/vendors.ts';
+import { bindVendorSettings, registerVendorCapabilities } from './capabilities/vendors.ts';
 import { STANDARD_CATALOGUE } from './broker/catalogue.ts';
 import { seed } from './seed.ts';
 import { registerPlatformCapabilities as registerPlatformTools, PLATFORM_CAPABILITIES }
@@ -64,6 +74,37 @@ import { adminPool, appPool, closePools } from './db/pool.ts';
  * whole lease, so this is two leases' worth rather than a few seconds.
  */
 const WORKER_STALL_MS = 30 * 60_000;
+
+/** How many tasks a process runs at once when nothing says otherwise (L3). */
+const DEFAULT_WORKER_CONCURRENCY = 4;
+
+/**
+ * `PALUGADA_WORKER_CONCURRENCY`: how many tasks this process runs at once,
+ * one of them kept for the owner's urgent work. Four by default: each run
+ * holds a database connection only while it writes, and the pools keep ten.
+ */
+function workerConcurrency(raw: string | undefined): number {
+  if (raw === undefined || raw.trim() === '') return DEFAULT_WORKER_CONCURRENCY;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1 || value > 16) {
+    throw new PalugadaError('config.invalid',
+      `PALUGADA_WORKER_CONCURRENCY is ${raw}; it is a whole number from 1 to 16`, { variable: 'PALUGADA_WORKER_CONCURRENCY' });
+  }
+  return value;
+}
+/**
+ * The token a metrics scraper sends, or null to serve no metrics. Refused at
+ * boot when it is short enough to guess: it opens a view of every company.
+ */
+function metricsToken(raw: string | undefined): string | null {
+  if (raw === undefined || raw.trim() === '') return null;
+  if (raw.trim().length < 32) {
+    throw new PalugadaError('config.invalid',
+      `PALUGADA_METRICS_TOKEN is ${raw.trim().length} characters; it is a secret of at least 32, `
+        + 'such as the output of `openssl rand -hex 32`', { variable: 'PALUGADA_METRICS_TOKEN' });
+  }
+  return raw.trim();
+}
 import { existsSync, realpathSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -71,6 +112,7 @@ import { hostname } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { consoleLinkFor, consoleTaskLinkFor } from './owner/notify.ts';
+import { metricsText } from './reporting/metrics.ts';
 
 export interface DeploymentOptions {
   /**
@@ -138,6 +180,15 @@ export interface DeploymentOptions {
   /** How long `stop()` lets a run in flight finish before it hands its task back. */
   stopGraceMs?: number;
   /**
+   * How long `stop()` keeps the console answering after `/api/ready` has
+   * begun to say 503, so that a load balancer asking every few seconds takes
+   * this process out before its port refuses. Five seconds unless a caller --
+   * a test -- says otherwise, and never longer than `stopGraceMs`. Waited only
+   * when something has asked `/api/ready`: with nobody asking, there is no
+   * balancer to tell.
+   */
+  drainMs?: number;
+  /**
    * Where the deployment says what happens while it runs. JSON lines on
    * standard error unless a caller -- a test, an embedding -- takes them.
    */
@@ -169,6 +220,12 @@ export interface Deployment {
   url: string;
   /** What was left unconfigured, in the words an operator can act on. */
   notes: string[];
+  /**
+   * Where the first owner claims this deployment (F12.5, 0094), while it has
+   * no owner: printed as it starts, and kept out of `notes`, which the
+   * console shows.
+   */
+  claimUrl: string | null;
   stop(): Promise<void>;
 }
 
@@ -262,10 +319,63 @@ export async function channelsFrom(
     );
   }
 
+  // WhatsApp through Meta's Cloud API: the business number's id, a system
+  // user's token, the app secret that signs deliveries, the verify token the
+  // webhook is subscribed with, and the owner's number. Without the secret
+  // the channel could not tell Meta from anyone, so it is not made at all.
+  const whatsappToken = await read('PALUGADA_WHATSAPP_TOKEN', 'PALUGADA_WHATSAPP_TOKEN_REF');
+  const whatsappSecret = await read('PALUGADA_WHATSAPP_APP_SECRET', 'PALUGADA_WHATSAPP_APP_SECRET_REF');
+  const whatsappVerify = await read('PALUGADA_WHATSAPP_VERIFY_TOKEN', 'PALUGADA_WHATSAPP_VERIFY_TOKEN_REF');
+  if (env.PALUGADA_WHATSAPP_PHONE_ID || whatsappToken) {
+    const owner = (env.PALUGADA_WHATSAPP_OWNER ?? '').replace(/[\s+()-]/g, '');
+    const template = /^([a-z0-9_]{1,512}):([A-Za-z_]{2,8})$/.exec(env.PALUGADA_WHATSAPP_TEMPLATE ?? '');
+    const missing = [
+      ...(env.PALUGADA_WHATSAPP_PHONE_ID ? [] : ['PALUGADA_WHATSAPP_PHONE_ID']),
+      ...(whatsappToken ? [] : ['PALUGADA_WHATSAPP_TOKEN']),
+      ...(whatsappSecret ? [] : ['PALUGADA_WHATSAPP_APP_SECRET']),
+      ...(whatsappVerify ? [] : ['PALUGADA_WHATSAPP_VERIFY_TOKEN']),
+      ...(/^\d{8,15}$/.test(owner) ? [] : ['PALUGADA_WHATSAPP_OWNER (the owner\'s number with its country code, digits only)']),
+    ];
+    if (missing.length > 0) {
+      notes.push(`no WhatsApp channel: set ${missing.join(', ')} (F10.9)`);
+    } else {
+      if (env.PALUGADA_WHATSAPP_TEMPLATE && !template) {
+        notes.push('PALUGADA_WHATSAPP_TEMPLATE is not name:language (palugada_notice:id); WhatsApp can only answer the owner within a day of their last message');
+      }
+      channels.push(new WhatsAppChannel({
+        phoneNumberId: env.PALUGADA_WHATSAPP_PHONE_ID!,
+        token: whatsappToken!,
+        appSecret: whatsappSecret!,
+        verifyToken: whatsappVerify!,
+        owner,
+        ...(template ? { template: { name: template[1]!, language: template[2]! } } : {}),
+        ...(env.PALUGADA_WHATSAPP_API ? { apiBase: env.PALUGADA_WHATSAPP_API } : {}),
+      }));
+    }
+  }
+
   for (const kind of ['slack', 'discord'] as const) {
     const upper = kind.toUpperCase();
     const url = await read(`PALUGADA_${upper}_WEBHOOK`, `PALUGADA_${upper}_WEBHOOK_REF`);
     if (url) channels.push(new WebhookChatChannel({ kind, url }));
+  }
+
+  // Email, through a sending service: told, never asked (src/owner/email.ts).
+  if (env.PALUGADA_EMAIL_PROVIDER || env.PALUGADA_EMAIL_TO) {
+    const provider = emailProvider(env.PALUGADA_EMAIL_PROVIDER ?? '');
+    const key = await read('PALUGADA_EMAIL_KEY', 'PALUGADA_EMAIL_KEY_REF');
+    if (!provider) {
+      notes.push(`no email channel: PALUGADA_EMAIL_PROVIDER is ${env.PALUGADA_EMAIL_PROVIDER ?? 'not set'}; it is ${EMAIL_PROVIDERS.map((one) => one.id).join(', ')}`);
+    } else if (key === undefined) {
+      // Said already, by `read`: the key could not be opened.
+    } else if (!key || !emailAddress(env.PALUGADA_EMAIL_FROM ?? '') || !emailAddress(env.PALUGADA_EMAIL_TO ?? '')) {
+      notes.push('no email channel: set PALUGADA_EMAIL_KEY (or _REF), and PALUGADA_EMAIL_FROM and PALUGADA_EMAIL_TO as addresses');
+    } else {
+      channels.push(new EmailChannel({
+        provider: provider.id, key, from: env.PALUGADA_EMAIL_FROM!, to: env.PALUGADA_EMAIL_TO!,
+        ...(env.PALUGADA_EMAIL_API ? { apiBase: env.PALUGADA_EMAIL_API } : {}),
+      }));
+    }
   }
 
   return { channels, notes };
@@ -306,6 +416,110 @@ function allowedHostsFrom(env: NodeJS.ProcessEnv): string[] | null {
  * the boot refuses instead and names the command. A database that is ahead
  * (code rolled back) is let through: the migrations only add.
  */
+/**
+ * Whether the database answers, as `/api/health` says it to anyone who asks.
+ * The driver's own words -- a host, a port, a role's name, why its password
+ * was refused -- go to the log, where the operator reads them; the page says
+ * only that it could not be reached.
+ */
+export async function databaseHealth(
+  probe: () => Promise<unknown>,
+  log: (entry: Record<string, unknown>) => void,
+): Promise<'ok' | 'unreachable'> {
+  try {
+    await probe();
+    return 'ok';
+  } catch (failure) {
+    log({ stage: 'health', message: (failure as Error).message });
+    return 'unreachable';
+  }
+}
+
+/**
+ * Whether the worker's loop has gone round lately, as `/api/health` says it.
+ *
+ * Measured from the later of when the worker started and when it last
+ * finished a tick. From the last tick alone, a worker that had never finished
+ * one -- a first tick that hung, or failed every time while the database
+ * answered `SELECT 1` -- had nothing to measure from and was reported able to
+ * work for as long as the process lived.
+ */
+export function workerHealth(
+  worker: { startedAt: Date | null; lastTickAt: Date | null },
+  now: number = Date.now(),
+): { ok: boolean; lastTickAt: string | null; problem?: string } {
+  const { startedAt, lastTickAt } = worker;
+  const said = lastTickAt?.toISOString() ?? null;
+  const ticked = lastTickAt !== null && (startedAt === null || lastTickAt >= startedAt);
+  const since = ticked ? lastTickAt : startedAt;
+  if (since === null || now - since.getTime() <= WORKER_STALL_MS) return { ok: true, lastTickAt: said };
+  return {
+    ok: false,
+    lastTickAt: said,
+    problem: ticked
+      ? `no tick has finished since ${since.toISOString()}`
+      : `no tick has finished since the worker started at ${since.toISOString()}`,
+  };
+}
+
+/**
+ * How long one sample of the database stands for every health and readiness
+ * answer. Buzz samples every thirty seconds; five is as stale as a balancer
+ * deciding where to send the owner's next request should see.
+ */
+const HEALTH_SAMPLE_MS = 5_000;
+
+/**
+ * How long a sample waits for the database before it says the database does
+ * not answer: under the image's own check, which gives up after five seconds,
+ * so the checker hears 503 rather than nothing.
+ */
+const HEALTH_PROBE_MS = 2_000;
+
+/**
+ * `databaseHealth`, asked at most once a window however many ask.
+ *
+ * Every `/api/health` ran `SELECT 1` on the shared application pool, and it
+ * is open to anyone: a flood of probes cost a pool slot each, and a database
+ * that hung held each probe, and each slot, until the checker gave up. Now
+ * whoever asks within `everyMs` of a sample is told that sample, callers who
+ * arrive while one is being taken wait for the same one, and a probe that
+ * has not answered within `withinMs` is said to be unreachable. A probe past
+ * its deadline is not joined by a second: it holds at most one connection,
+ * and its own timeouts end it.
+ */
+export function databaseSample(
+  probe: () => Promise<unknown>,
+  log: (entry: Record<string, unknown>) => void,
+  timing: { everyMs: number; withinMs: number; now?: () => number } = { everyMs: HEALTH_SAMPLE_MS, withinMs: HEALTH_PROBE_MS },
+): () => Promise<'ok' | 'unreachable'> {
+  const now = timing.now ?? Date.now;
+  let last: { at: number; said: 'ok' | 'unreachable' } | null = null;
+  let taking: Promise<'ok' | 'unreachable'> | null = null;
+  let probing = false;
+  return () => {
+    if (last && now() - last.at < timing.everyMs) return Promise.resolve(last.said);
+    if (taking) return taking;
+    if (probing) return Promise.resolve(last?.said ?? 'unreachable');
+    probing = true;
+    const probed = Promise.resolve().then(probe).finally(() => { probing = false; });
+    let timer: NodeJS.Timeout | undefined;
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error(`the database did not answer within ${timing.withinMs} ms`)), timing.withinMs);
+    });
+    taking = databaseHealth(() => Promise.race([probed, deadline]), log)
+      .then((said) => {
+        last = { at: now(), said };
+        return said;
+      })
+      .finally(() => {
+        clearTimeout(timer);
+        taking = null;
+      });
+    return taking;
+  };
+}
+
 async function pendingMigrations(): Promise<string[]> {
   const files = (await readdir(fileURLToPath(new URL('../db/migrations', import.meta.url))))
     .filter((file) => file.endsWith('.sql'))
@@ -350,6 +564,16 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     delete settings.model;
   }
   const env = withSettings(baseEnv, settings);
+  // What failed, in lines a log collector reads: the worker's stages, and
+  // why the health page said the database could not be reached.
+  const log = options.log ?? ((entry: Record<string, unknown>) => {
+    process.stderr.write(`${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`);
+  });
+  // Traces to the operator's OpenTelemetry collector, when they named one
+  // with the standard variables. A protocol this does not speak stops the
+  // boot, like any other setting that says something it cannot mean.
+  const otlp = otlpFrom(env);
+  if (otlp) notes.push(`finished runs go to ${otlp.endpoint} as OpenTelemetry spans, without what was said in them`);
 
   // The names the console answers to (see `OwnerApiOptions.allowedHosts`).
   // Read first, so a malformed URL is refused before anything is built.
@@ -370,12 +594,27 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   // The in-memory manager this fell back to was empty and forgot everything
   // on restart, so a deployment started from the README had nowhere for a
   // vendor credential or the owner's own factor to live.
+  //
+  // A key being rotated out is named beside the new one: what it sealed still
+  // opens, and is resealed under the new key here, once, as the deployment
+  // starts. Nothing the owner typed has to be typed again.
+  const previousKeys = previousMasterKeysFrom(env);
+  if (previousKeys.length > 0) {
+    const current = master(true)!;
+    const { resealed, unopened } = await resealSecrets(current, previousKeys);
+    notes.push(`resealed ${resealed} secret${resealed === 1 ? '' : 's'} under the master key ${current.id}; `
+      + 'remove PALUGADA_MASTER_KEY_PREVIOUS once every process of this deployment has the new key');
+    for (const one of unopened) {
+      notes.push(`secret db://${one.name} is sealed with the master key ${one.keyId}, which is neither PALUGADA_MASTER_KEY `
+        + 'nor one in PALUGADA_MASTER_KEY_PREVIOUS: set it again in the console');
+    }
+  }
   const secrets = options.secrets ?? new DeploymentSecretManager(new LocalSecretManager({
     env,
     ...(env.PALUGADA_SECRET_DIRS
       ? { directories: env.PALUGADA_SECRET_DIRS.split(':').filter(Boolean) }
       : {}),
-  }), () => master());
+  }), () => master(), () => previousKeys);
   // A passkey belongs to the site the owner opens the console at, and the
   // public URL is that site: each of the two defaults to it, and the setting
   // that names one outright wins. Without the public URL, `OwnerMfa`'s own
@@ -446,7 +685,12 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   // is set high on purpose -- so the note says so, because an owner reading
   // an estimate should know whether it came from their own list.
   const pricesFile = options.pricesFile ?? env.PALUGADA_MODEL_PRICES ?? null;
-  const prices = pricesFile ? await loadPriceTable(pricesFile) : DEFAULT_PRICE_TABLE;
+  const filePrices = pricesFile ? await loadPriceTable(pricesFile) : DEFAULT_PRICE_TABLE;
+  // And what the owner said a model costs in the console (L12), over the file.
+  const prices = withConsolePrices(filePrices, env.PALUGADA_MODEL_PRICE_SETTINGS);
+  if (env.PALUGADA_MODEL_PRICE_SETTINGS) {
+    notes.push(`model prices set in the console: ${Object.keys((JSON.parse(env.PALUGADA_MODEL_PRICE_SETTINGS) as { models: object }).models).join(', ')}`);
+  }
   notes.push(
     pricesFile
       ? `model prices from ${pricesFile}: ${prices.rates.length} model pattern(s), `
@@ -513,6 +757,9 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     ...(toolBindings.listen ? { listen: toolBindings.listen } : {}),
   });
   notes.push(...toolBindings.notes);
+  // A search for a role's documents reaches the provider through this: the
+  // binding is the deployment's, and the search runs inside a capability.
+  useMeaning(toolBindings.embed ?? null);
   if (!filesRoot) {
     notes.push('files.list is unbound: set PALUGADA_FILES_ROOT to the company\'s files (F8)');
   }
@@ -546,13 +793,22 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   if (vendorNames.length > 0) {
     notes.push(`bound by ${vendorsFile}: ${vendorNames.join(', ')}`);
   }
+  // The services the owner connected in the console, after the file, so the
+  // file keeps a name both bind; one that no longer passes is a note.
+  const consoleVendors = bindVendorSettings(registry, env.PALUGADA_VENDOR_SETTINGS, notes);
+  if (consoleVendors.length > 0) notes.push(`services connected in the console: ${consoleVendors.join(', ')}`);
 
   // Tools from MCP servers, only those the file names, each at the tier it
   // states (`src/capabilities/mcp.ts`). Refused at boot like the vendor file
   // when it is wrong; a server that does not answer is a note, and its tools
   // are checked again at every call.
   const mcpFile = env.PALUGADA_MCP_SERVERS ?? null;
-  const mcpOptions = { resolve: (reference: string) => secrets.resolve(reference) };
+  const mcpOptions = {
+    resolve: (reference: string) => secrets.resolve(reference),
+    // A server signed in to with OAuth whose token has run out: refreshed,
+    // and the call made again (`mcp-oauth.ts`).
+    refresh: (name: string, since: number) => refreshMcpAccess(name, since, { secrets, master: () => master(false) }),
+  };
   if (mcpFile) {
     const mcp = await registerMcpServers(registry, mcpFile, mcpOptions);
     notes.push(`bound from ${mcpFile}: ${mcp.bound.join(', ')}`, ...mcp.notes);
@@ -596,7 +852,8 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     notes.push(
       `${unbound.length} catalogued ${unbound.length === 1 ? 'capability needs' : 'capabilities need'} `
       + `a vendor: ${unbound.join(', ')}`
-      + (vendorsFile ? '' : ' -- set PALUGADA_VENDORS to a file that binds them'),
+      + ' -- connect them on This deployment, Services'
+      + (vendorsFile ? '' : ', or set PALUGADA_VENDORS to a file that binds them'),
     );
   }
 
@@ -611,6 +868,36 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     `seeded the standard company template and ${seeded.bundles.length} built-in bundles`
     + (seeded.bundles.length === 0 ? ' (all were already published)' : ''),
   );
+  // Said once, on the boot that did it: the operator should know the
+  // deployment wrote a charter, and the owner where to change it.
+  const charters = seeded.charters.filter((one) => one.version !== null);
+  if (charters.length > 0) {
+    notes.push(
+      `published charters where there were none: ${charters.map((one) => `${one.scope} v${one.version}`).join(', ')}`
+      + ' (the owner changes them on Team, Charter)',
+    );
+  }
+
+  // F3.11: the charters as files, in a git repository beside the state. A
+  // file edited there is the next version; anything published is written
+  // and committed. Brought level now, on every save in the console, and
+  // every minute for what a template or a bundle published.
+  const charterRepository = new CharterRepository({
+    root: env.PALUGADA_CHARTERS_DIR ?? join(stateDirFrom(env), 'charters'),
+  });
+  try {
+    const synced = await charterRepository.sync();
+    notes.push(
+      `charters kept in ${charterRepository.root}`
+      + (synced.taken.length > 0 ? `; taken from their files: ${synced.taken.map((one) => `${one.path} v${one.version}`).join(', ')}` : '')
+      + (synced.unknown.length > 0 ? `; left alone, no such company: ${synced.unknown.join(', ')}` : '')
+      + (synced.refused.length > 0 ? `; refused: ${synced.refused.map((one) => `${one.path} (${one.reason})`).join(', ')}` : '')
+      + (synced.git === 'not available' ? ' (no git on this machine: the files are kept, without their history)'
+        : synced.git.startsWith('failed') || synced.git.startsWith('held') ? ` (git ${synced.git})` : ''),
+    );
+  } catch (error) {
+    notes.push(`charters are not kept as files: ${(error as Error).message} -- set PALUGADA_CHARTERS_DIR to a directory this process may write`);
+  }
 
   const broker = new CapabilityBroker(
     registry,
@@ -621,7 +908,20 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // actually runs. Cached because F12.3 reads the version on every call, and
     // the cache is what stops that becoming a round trip per tool call while
     // still picking up a rotation within its short life.
-    new CachedSecretManager(secrets),
+    // Less the deployment's own keys -- the sealed ones, and every one its
+    // configuration names -- which no division's credential may name.
+    // A key signed in for rather than pasted resolves to its access token,
+    // renewed before it runs out (`vendor-oauth.ts`).
+    new CachedSecretManager(new OAuthCredentials(new DivisionSecrets(secrets, deploymentReferences(env)), {
+      deployment: secrets, master: () => master(false),
+    })),
+    // Row 7: the guardian a company may turn on. With no model it cannot
+    // judge, and a guardian that cannot judge sends the call to the owner.
+    {
+      guardian: new Guardian(llm ?? {
+        async complete() { throw new Error('this deployment has no model to judge with'); },
+      }),
+    },
   );
 
   // The runtimes, which is the whole of what a worker does.
@@ -633,9 +933,20 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   // platform's purpose is to run work and the deployment could not run any.
   // Every test builds its own `Engine` with its own handlers, so the assembly
   // was the one caller nobody wrote.
+  // Unique per boot, not per PID. Every replica of a container image is
+  // usually PID 1, so `worker-${pid}` gave two replicas one identity -- and
+  // a shared identity is the one thing a lease cannot survive: each renews
+  // the other's claim and both run the task. The engine's own default was
+  // already a random id; this line replaced it with a worse one. Host and
+  // PID stay in it for a person reading `lease_holder`, and the boot id is
+  // what makes it unique (Paperclip keys run ownership on a boot id for the
+  // same reason). An operator who sets PALUGADA_WORKER_ID owns its
+  // uniqueness. Known before the runtimes, which label what they start with it.
+  const workerId = env.PALUGADA_WORKER_ID ?? defaultWorkerId();
   const runtimes = assembleRuntimes({
     env,
     secrets,
+    workerId,
     ...(options.adapters ? { registry: options.adapters } : {}),
     ...(llm ? { llm } : {}),
     ...(options.handlers ? { handlers: options.handlers } : {}),
@@ -648,16 +959,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   const engine = new Engine({
     broker,
     adapters: runtimes.adapters,
-    // Unique per boot, not per PID. Every replica of a container image is
-    // usually PID 1, so `worker-${pid}` gave two replicas one identity -- and
-    // a shared identity is the one thing a lease cannot survive: each renews
-    // the other's claim and both run the task. The engine's own default was
-    // already a random id; this line replaced it with a worse one. Host and
-    // PID stay in it for a person reading `lease_holder`, and the boot id is
-    // what makes it unique (Paperclip keys run ownership on a boot id for the
-    // same reason). An operator who sets PALUGADA_WORKER_ID owns its
-    // uniqueness.
-    workerId: env.PALUGADA_WORKER_ID ?? defaultWorkerId(),
+    workerId,
     prices,
     stopping: stopping.signal,
   });
@@ -668,21 +970,27 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   // The worker stops by an abort signal rather than a method, which is what
   // lets one `stop()` here reach both halves.
   const shutdown = new AbortController();
+  const scrapeToken = metricsToken(env.PALUGADA_METRICS_TOKEN);
   const worker = new Worker({
     engine,
     signal: shutdown.signal,
+    concurrency: workerConcurrency(env.PALUGADA_WORKER_CONCURRENCY),
     ownerChannels: channels,
     // F4.5 and F15.3 need a model. The same one the drafting capabilities use,
     // because a deployment that configured one meant it for the platform's own
     // work; without it the worker never distils and never screens, which the
     // note below says out loud.
     ...(llm ? { learning: { llm, model: draftModel } } : {}),
+    // The documents' meaning, from the provider chosen under Tools.
+    ...(toolBindings.embed ? { meaning: toolBindings.embed } : {}),
     // What failed, in lines a log collector reads. A worker whose stage
     // failures went only into a report nobody read looked, from outside,
     // exactly like one with nothing to do.
-    log: options.log ?? ((entry) => {
-      process.stderr.write(`${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`);
-    }),
+    log,
+    // What a company keeps outside its rows, so an erasure removes that
+    // too (0096): its directory in the files root, its charter's folder.
+    erasure: { filesRoot, charters: charterRepository },
+    ...(otlp ? { telemetry: new OtlpExporter({ ...otlp, holder: workerId }) } : {}),
     ...(env.PALUGADA_APP_URL_PUBLIC
       ? {
         ownerLinkFor: (item) => consoleLinkFor(env.PALUGADA_APP_URL_PUBLIC!, item),
@@ -697,6 +1005,8 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   // nothing at all.
   const telegram = channels.find((channel): channel is TelegramChannel =>
     channel instanceof TelegramChannel);
+  const whatsapp = channels.find((channel): channel is WhatsAppChannel =>
+    channel instanceof WhatsAppChannel);
 
   const bindHost = options.host ?? env.PALUGADA_HOST ?? '127.0.0.1';
   // The console is a built page. A deployment started from a fresh checkout
@@ -712,8 +1022,16 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     );
   }
 
+  // One sample of the database for every health and readiness answer in a
+  // window. The query's own timeout ends a probe the database never answers,
+  // so the connection it holds is dropped rather than kept in the pool.
+  const databaseNow = databaseSample(
+    () => appPool().query({ text: 'SELECT 1', query_timeout: HEALTH_PROBE_MS } as { text: string }),
+    log,
+  );
   const api = new OwnerApi({
     mfa,
+    charters: charterRepository,
     // The registry and the resolver, so F12.3's rotation can sweep the
     // division afterwards. Without both, a rotation through the console still
     // works and simply does not re-check -- which is better than a sweep that
@@ -721,6 +1039,8 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // unhealthy, and halts the next task that needs one.
     registry,
     credentialFor: (companyId, divisionId) => broker.credentialFor(companyId, divisionId),
+    // The file's prices, which the console's are laid over as the owner saves them.
+    prices: filePrices,
     // The same store, for the signing secrets of triggers the sender signs.
     secrets,
     // The same handlers the in-process runtime executes, so F11.4 replays the
@@ -729,6 +1049,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     ...(options.consoleRoot ? { staticRoot: options.consoleRoot } : {}),
     ...(env.PALUGADA_CONSOLE_ORIGIN ? { origin: env.PALUGADA_CONSOLE_ORIGIN } : {}),
     ...(telegram ? { telegram } : {}),
+    ...(whatsapp ? { whatsapp } : {}),
     ...(allowedHosts ? { allowedHosts } : {}),
     ...(env.PALUGADA_BEHIND_PROXY === '1' || env.PALUGADA_BEHIND_PROXY === 'true' ? { behindProxy: true } : {}),
     // The same list the process prints, held by reference: notes added
@@ -750,20 +1071,20 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // loop has gone round lately. A process that is up and whose loop has
     // stopped is the failure a supervisor cannot see from outside.
     health: async () => {
-      const database = await appPool().query('SELECT 1').then(() => 'ok', (failure: Error) => failure.message);
-      const lastTickAt = worker.lastTickAt;
-      const stalled = lastTickAt !== null && Date.now() - lastTickAt.getTime() > WORKER_STALL_MS;
-      return {
-        ok: database === 'ok' && !stalled,
-        database,
-        worker: {
-          lastTickAt: lastTickAt?.toISOString() ?? null,
-          ...(stalled ? { problem: `no tick has finished since ${lastTickAt!.toISOString()}` } : {}),
-        },
-      };
+      const database = await databaseNow();
+      const { ok, ...said } = workerHealth(worker);
+      return { ok: database === 'ok' && ok, database, version: VERSION, worker: said };
     },
+    ...(scrapeToken ? { metrics: { token: scrapeToken, text: () => metricsText({ worker }) } } : {}),
   });
   const { url } = await api.listen(options.port ?? Number(env.PALUGADA_PORT ?? 8787), bindHost);
+
+  // No owner yet, and no secret in the environment to enrol: a link that
+  // makes whoever opens it first the owner (src/owner/claim.ts). Its reader
+  // holds this machine's log, and so the machine already.
+  const claimCode = await openOwnerClaim();
+  const claimBase = published?.origin ?? url.replace(/\/\/(0\.0\.0\.0|\[::\]|::)(?=:)/, '//localhost');
+  const claimUrl = claimCode ? `${claimBase}/#/claim/${claimCode}` : null;
 
   // Started last, so a console that failed to bind does not leave a worker
   // running with nobody able to stop it.
@@ -780,6 +1101,8 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     }, SETTINGS_POLL_MS)
     : null;
   watching?.unref();
+  const keepingCharters = setInterval(() => void charterRepository.sync().catch(() => undefined), CHARTER_SYNC_MS);
+  keepingCharters.unref();
 
   return {
     worker,
@@ -789,27 +1112,41 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     engine,
     url,
     notes,
+    claimUrl,
     async stop() {
       if (watching) clearInterval(watching);
-      // The console first: a worker still ticking while the owner can no
-      // longer reach it is the one order that has a bad minute in it.
-      await api.close();
+      clearInterval(keepingCharters);
+      const graceMs = options.stopGraceMs ?? STOP_GRACE_MS;
+      // Readiness first. The listener closed at once, and a load balancer
+      // that asked every few seconds went on sending requests into a port
+      // that refused them until it next asked. From here `/api/ready` says
+      // 503 while the console still answers everything it is sent, for as
+      // long as a balancer takes to notice.
+      await api.drain(Math.min(options.drainMs ?? DRAIN_MS, graceMs));
+      // Then the console, before the worker: it takes no new connection from
+      // here, and a request already in flight is answered, within the same
+      // grace as a run, rather than cut off halfway.
+      const closed = api.close(graceMs);
       shutdown.abort();
       // A run in flight gets a moment to finish, and then gives its task back
       // -- well inside the minute a supervisor waits before it kills (the
       // systemd unit's TimeoutStopSec, compose's stop_grace_period). Killed
       // instead, its lease lapsed and the reclaim counted towards `crash_loop`,
       // so three upgrades during one long task halted it.
-      const graceMs = options.stopGraceMs ?? STOP_GRACE_MS;
       const grace = setTimeout(() => stopping.abort(), graceMs);
-      // An answer the owner is waiting for in Telegram gets the same moment:
+      // An answer the owner is waiting for in a chat gets the same moment:
       // their message is already in the conversation, and stopped halfway
       // they would have asked and heard nothing.
       let answered: NodeJS.Timeout | undefined;
+      const graceOver = new Promise<void>((resolve) => { answered = setTimeout(resolve, graceMs); });
       try {
         await Promise.all([
+          closed,
           running,
-          telegram ? Promise.race([telegram.settled(), new Promise<void>((resolve) => { answered = setTimeout(resolve, graceMs); })]) : undefined,
+          ...[telegram, whatsapp].map((chat) => (chat ? Promise.race([chat.settled(), graceOver]) : undefined)),
+          // A charter sync halfway through its files would leave the record
+          // of what it wrote behind them.
+          Promise.race([charterRepository.settled(), graceOver]),
         ]);
       } finally {
         clearTimeout(grace);
@@ -825,8 +1162,18 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
 /** How often a replica looks for settings changed elsewhere. */
 const SETTINGS_POLL_MS = 30_000;
 
+/** How often the charter repository is brought level with the database (F3.11). */
+const CHARTER_SYNC_MS = 60_000;
+
 /** Twenty seconds: most steps finish in that, and it leaves forty before a supervisor's kill. */
 const STOP_GRACE_MS = 20_000;
+
+/**
+ * Five seconds of saying "not ready" while still answering: two asks of a
+ * balancer that asks every two seconds, and with the grace still inside the
+ * minute a supervisor waits.
+ */
+const DRAIN_MS = 5_000;
 
 /** `host-pid-bootid`: readable, and unique across replicas and restarts. */
 export function defaultWorkerId(): string {
@@ -852,8 +1199,9 @@ export function defaultWorkerId(): string {
  * restarts it into the same refusal for ever; auto-company's daemon units
  * stop that with `RestartPreventExitStatus=78`, and
  * `deploy/palugada.service` does the same. SIGTERM and SIGINT stop the
- * deployment the way `stop()` does -- the console first, then the worker --
- * so a restart does not abandon a run half-journalled.
+ * deployment the way `stop()` does -- readiness says no, then the console
+ * closes, then the worker -- so a restart does not abandon a run
+ * half-journalled.
  */
 export const EXIT_CONFIG = 78;
 
@@ -883,6 +1231,10 @@ export async function runFromCommandLine(env: NodeJS.ProcessEnv = process.env): 
   const announce = (started: Deployment) => {
     for (const note of started.notes) process.stdout.write(`palugada: ${note}\n`);
     process.stdout.write(`palugada: console at ${started.url}\n`);
+    if (started.claimUrl) {
+      process.stdout.write(`palugada: no owner yet: open ${started.claimUrl} within a day to add your `
+        + 'authenticator app and become the owner; a new link is printed at each start until then\n');
+    }
   };
   const restart = async (): Promise<void> => {
     if (stopping || restarting) return restarting ?? undefined;
@@ -933,6 +1285,12 @@ export async function runFromCommandLine(env: NodeJS.ProcessEnv = process.env): 
 
 // Run only when this file is the program, not when a test imports `start`.
 if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  // The schema owner's URL is for `npm run db:migrate`. `npm start` reads the
+  // same `.env`, which setup writes with all three URLs, so the running
+  // platform held the one role that can alter its tables and empty them.
+  // Nothing here uses it, and nothing here should be able to; the image and
+  // the systemd unit leave it out of the environment already.
+  delete process.env.PALUGADA_OWNER_URL;
   runFromCommandLine().then(async (code) => {
     await closePools().catch(() => undefined);
     process.exit(code);

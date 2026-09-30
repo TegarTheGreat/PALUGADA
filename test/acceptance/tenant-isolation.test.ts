@@ -146,6 +146,29 @@ test('every table holding tenant data is protected', async () => {
     // Which topic of the owner's Telegram chat each company's messages go to
     // (0077): the owner's, like the conversation, and no agent's business.
     'telegram_topics',
+    // Which worker processes are alive (0079): the platform's, read by the
+    // lease sweep on the control plane and by no agent.
+    'worker_heartbeats',
+    // The line an erased company leaves (0088): its name and how much went,
+    // after the company and every row of it are gone. The platform's, read
+    // by the owner on the control plane; the application role has no grant.
+    'company_erasures',
+    // Which Telegram updates were taken in (0089): update ids, nothing of
+    // what they said, and the platform's like WhatsApp's.
+    'telegram_receipts',
+    // Which runs went to the OpenTelemetry collector (0090): a timestamp and
+    // an id, the platform's; the application role has no grant.
+    'telemetry_cursor',
+    // A sign-in to an MCP server between the console and the callback (0080):
+    // the platform's, like the deployment's settings it ends in.
+    'mcp_authorizations',
+    // A division's sign-in for a vendor key, the same way (0081). It names the
+    // company and division the key is for and holds nothing of theirs.
+    'credential_authorizations',
+    // Which WhatsApp messages were taken in and what was sent (0085): the
+    // owner's chat, like the Telegram topics, and no agent's business.
+    'whatsapp_receipts',
+    'whatsapp_sent',
   ]);
 
   const rows = await withControlPlane(async (tx) => {

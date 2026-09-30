@@ -17,6 +17,7 @@ import { setDeploymentLanguages } from '../../src/domain/language.ts';
 import { withTenant } from '../../src/db/tenant.ts';
 import { looksLikeSecret } from '../../src/owner/assistant.ts';
 import { ASSISTANT_ACTIONS, ASSISTANT_CHECKS, NOT_FOR_THE_ASSISTANT } from '../../src/owner/assistant-actions.ts';
+import { AGENT_CATALOGUE } from '../../src/settings/agents.ts';
 import type { LlmBlock, LlmTurn, LlmTurnRequest, ToolUsingLlmClient } from '../../src/llm/client.ts';
 import { createCompany } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
@@ -84,6 +85,20 @@ test('every POST route is one the assistant may propose, may check, or is kept f
       assert.ok(!(secret in (action.fields ?? {})), `${action.pattern}: ${secret} is typed by the owner, not the model`);
     }
   }
+});
+
+/**
+ * The assistant was told an agent CLI signs in with `kind: 'api_key'`, a kind
+ * no CLI takes: every card it wrote to sign one in was refused by the route
+ * when the owner applied it. What it is told is the catalogue's own list.
+ */
+test('the assistant is told the kinds of key an agent CLI takes, as the route takes them', () => {
+  const action = ASSISTANT_ACTIONS.find((one) => one.pattern === '/api/control/agents/:name/credential')!;
+  const told = action.fields?.kind ?? '';
+  for (const entry of AGENT_CATALOGUE) {
+    for (const kind of entry.credentials) assert.match(told, new RegExp(`\\b${kind.id}\\b`), `${entry.name} takes ${kind.id}`);
+  }
+  assert.doesNotMatch(told, /api_key/);
 });
 
 test('the owner asks; the assistant reads and proposes; nothing changes until the owner applies the card with their device', async () => {
@@ -178,6 +193,13 @@ test('what the assistant may not do, it cannot: a route outside its lists, a key
       ['check', { path: '/api/control/settings/model', body: {} }],
       ['check', { path: '/api/control/settings/model/models', body: { provider: 'openai', key: 'sk-x' } }],
       ['propose', { path: '/api/control/channels/telegram', body: {}, summary: 'Telegram.' }],
+      // An address a page it read could have named: the metadata service, or
+      // a server that would take the saved key.
+      ['check', { path: '/api/control/settings/model/models', body: { provider: 'openai', url: 'http://169.254.169.254/v1' } }],
+      // The same through the MCP check: it looks at a server the owner saved,
+      // by its name, and never at an address the assistant brings.
+      ['check', { path: '/api/control/mcp/inspect', body: { url: 'http://169.254.169.254/latest/meta-data/' } }],
+      ['check', { path: '/api/control/mcp/inspect', body: { name: 'payments', url: 'http://10.0.0.5/mcp' } }],
     ),
     says('I cannot do those.'),
   ]);
@@ -187,7 +209,7 @@ test('what the assistant may not do, it cannot: a route outside its lists, a key
     const said = await api.call('POST', '/api/assistant/messages', token, { text: 'do everything' });
     assert.equal(said.status, 200);
     const answers = results(model);
-    assert.equal(answers.length, 10);
+    assert.equal(answers.length, 13);
     assert.ok(answers.every((one) => one.isError === true), JSON.stringify(answers));
     assert.match(answers[0]!.content, /not one of the actions/);
     assert.match(answers[1]!.content, /key is typed by the owner on the card/);
@@ -199,6 +221,9 @@ test('what the assistant may not do, it cannot: a route outside its lists, a key
     assert.match(answers[7]!.content, /not one of the checks/);
     assert.match(answers[8]!.content, /sent no key/);
     assert.match(answers[9]!.content, /not one of the actions/, 'Telegram is connected on its own page');
+    assert.match(answers[10]!.content, /checks the one saved/, 'no address of its own choosing');
+    assert.match(answers[11]!.content, /looks at a server already saved: send \{ name \}/);
+    assert.match(answers[12]!.content, /looks at a server already saved: send \{ name \}/);
     assert.deepEqual(said.body.messages[1].proposals, [], 'no card was made');
   } finally {
     await api.close();
@@ -258,6 +283,30 @@ test('the assistant gives a company work through a card, which needs no device, 
     assert.equal(applied.status, 200, JSON.stringify(applied.body));
     const tasks = await withTenant(fixture.companyId, (tx) => tx.query<{ input: { goal: string } }>('SELECT input FROM tasks WHERE role_id = $1', [fixture.roleId]));
     assert.ok(tasks.rows.some((row) => row.input.goal === 'Write the launch announcement'));
+  } finally {
+    await api.close();
+  }
+});
+
+/**
+ * A reasoning model can spend a whole answer's allowance thinking and say
+ * nothing -- the live run of 2026-09-28's defect L4, met here at the
+ * assistant's own smaller allowance. That was "I have nothing to add" for a
+ * question that had an answer; it is asked again with more room.
+ */
+test('an answer a reasoning model spent thinking is asked again with more room', async () => {
+  const model = new ScriptedModel([
+    { content: [], stopReason: 'max_tokens' },
+    says('Kopi Senja has two tasks waiting for you.'),
+  ]);
+  const api = await consoleWithSettings({ assistant: { llm: model } });
+  try {
+    const token = await api.signIn();
+    const said = await api.call('POST', '/api/assistant/messages', token, { text: 'Ada apa hari ini?' });
+    assert.equal(said.status, 200, JSON.stringify(said.body));
+    assert.equal(said.body.messages[1].body, 'Kopi Senja has two tasks waiting for you.');
+    assert.ok(model.requests[1]!.maxTokens! > model.requests[0]!.maxTokens!, 'more room the second time');
+    assert.ok(!model.requests[1]!.messages.some((message) => message.role === 'assistant'), 'the empty answer is not kept');
   } finally {
     await api.close();
   }

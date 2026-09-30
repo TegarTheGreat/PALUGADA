@@ -38,8 +38,62 @@ longer be read and is skipped, and you can revoke it under **Settings**,
 before the first start, and run `npm run db:migrate` there with the same
 database settings the unit uses.
 
+Leave `PALUGADA_OWNER_URL` out of `/etc/palugada/palugada.env`: it is the
+role that owns the schema, which can alter and empty any table, and only
+`npm run db:migrate` needs it. Give it to that command alone:
+`PALUGADA_OWNER_URL=postgres://palugada_owner:…@127.0.0.1:5432/palugada npm run db:migrate`.
+The unit removes
+it with `UnsetEnvironment=` even when the file has it, so that no process of
+the service, and no agent CLI it starts, can read it.
+
 The platform's boot lines go to standard output and its JSON log lines to
 standard error, so both are in the journal.
+
+## Running the image by itself
+
+The image runs beside any PostgreSQL 16 with pgvector, without the compose
+file and without the repository:
+
+```sh
+docker build -t palugada .
+docker run -d --name palugada -p 127.0.0.1:8787:8787 -v palugada-home:/home/node \
+  -e PALUGADA_SUPERUSER_URL='postgres://postgres:…@db:5432/postgres' \
+  -e PALUGADA_OWNER_URL='postgres://palugada_owner:…@db:5432/palugada' \
+  -e PALUGADA_APP_URL='postgres://palugada_app:…@db:5432/palugada' \
+  -e PALUGADA_ADMIN_URL='postgres://palugada_admin:…@db:5432/palugada' \
+  palugada
+docker logs palugada | grep 'no owner yet'
+```
+
+The last line is the link that makes you the owner
+([getting started](getting-started.md#sign-in-for-the-first-time)); give the
+container `PALUGADA_OWNER_TOTP_REF` instead if you already have a secret.
+Coolify and Dokploy have files of their own
+([Coolify and Dokploy](coolify-dokploy.md)).
+
+Before the platform starts, the image's entrypoint
+(`deploy/docker/entrypoint.sh`):
+
+1. provisions the database when it is given `PALUGADA_SUPERUSER_URL`: the
+   three roles with the passwords in their URLs, the database, and the
+   extensions ([The database roles](#the-database-roles)). Nothing is
+   dropped, and a second start changes nothing;
+2. migrates when it is given `PALUGADA_OWNER_URL`, under a lock, so replicas
+   that start together apply each migration once;
+3. removes both URLs from its environment, with `POSTGRES_PASSWORD`, every
+   `PALUGADA_DB_*_PASSWORD` and every `SERVICE_*` variable, and only then
+   starts tini and the platform.
+
+The third step is why this happens in the entrypoint rather than in the
+platform. Agent CLIs run as the platform's user, and a process can read the
+environment another process of its user was started with
+(`/proc/<pid>/environ`); a variable removed later, or only from a child, is
+still there to read. A step that fails stops the container with its message,
+and the platform does not start on a database that is not ready.
+
+Leave out `PALUGADA_SUPERUSER_URL` once the database exists if you would
+rather the container never hold it; migrations still need
+`PALUGADA_OWNER_URL` at every upgrade.
 
 ## HTTPS in front of it
 
@@ -124,6 +178,23 @@ same protected file: the three database URLs, `PALUGADA_TELEGRAM_TOKEN`,
 `PALUGADA_PUSH_TOKEN`, `PALUGADA_RUNTIME_HTTP_TOKEN`,
 `PALUGADA_SANDBOX_TOKEN`, and the variable an agent CLI's key is in.
 
+### Rotating the master key
+
+When the master key may have been seen -- it was in a backup that leaked,
+or someone who held it left -- change it without typing any secret again:
+
+1. Make a new key: `openssl rand -hex 32`.
+2. Set `PALUGADA_MASTER_KEY` to the new key, and
+   `PALUGADA_MASTER_KEY_PREVIOUS` to the old one. With the key file, the old
+   key is its contents: `cat ~/.palugada/master.key`.
+3. Restart every process of the deployment. The first to start reseals each
+   secret under the new key; the log says `resealed N secrets under the
+   master key …`, and names any secret sealed with a key that is neither.
+4. Remove `PALUGADA_MASTER_KEY_PREVIOUS`, restart, and destroy the old key.
+
+A process that still has only the old key cannot open what was resealed,
+so restart them all before removing the old key.
+
 ## Backups
 
 The database holds everything PALUGADA knows: every company's structure,
@@ -133,7 +204,9 @@ notes, budgets and spending, configuration versions, the owner's sessions
 and the record of applied migrations.
 
 It does not hold the secrets themselves, the vendor, MCP and price files,
-the built console, or the agent CLIs' home directory. Back those up
+the built console, or the agent CLIs' home directory. The charters'
+repository (`charters` in the state directory) holds nothing the database
+does not, only their history as git keeps it. Back the rest up
 separately: above all `.env` or the environment file and the authenticator
 secret, without which you cannot sign in, and the master key
 (`PALUGADA_MASTER_KEY`, or `master.key` in the state directory). The keys
@@ -159,6 +232,79 @@ passwords from `.env`, so use the same one), restore the dump into it as a
 superuser, keeping the dump's object ownership, and start the platform.
 Practise this on a spare machine before you need it.
 
+A company the owner closed is erased from the database on the day it names,
+and from nothing else: a dump or a base backup taken before that day still
+holds it until it is deleted. Keep backups no longer than you need them,
+and when an erasure must be complete, delete or expire the older ones too.
+Restoring a backup from before an erasure brings the company back; the line
+in **Erased companies** is kept, so check it after a restore.
+
+### Point-in-time recovery
+
+A nightly dump loses the day, and a mistake -- a company deleted, a bad
+import, a migration run against the wrong database -- is usually noticed
+after more work has been written on top of it. With the write-ahead log
+archived as well, the database can be brought back to the second before the
+mistake instead. The steps below were run as a drill on PostgreSQL 16: rows
+written after the base backup and before the target came back, and a delete
+after it did not.
+
+Archive the log and take base backups. In `postgresql.conf`:
+
+```ini
+wal_level = replica
+archive_mode = on
+# Never overwrite a segment already archived; keep the archive on another disk or machine.
+archive_command = 'test ! -f /backup/wal/%f && cp %p /backup/wal/%f'
+# A quiet deployment still archives at least this often, so at most this much is lost.
+archive_timeout = 300
+```
+
+Restart PostgreSQL, then take a base backup, and another every week or so
+(recovery replays every segment since the last one):
+
+```sh
+pg_basebackup -D /backup/base/$(date +%F) -Ft -z -Xs -c fast
+```
+
+Under Docker Compose the same settings go on the `db` service as
+`command: postgres -c wal_level=replica -c archive_mode=on -c archive_command=...`,
+with the archive directory on a volume of its own.
+
+To recover to a moment, stop the platform and PostgreSQL, move the data
+directory aside (do not delete it until the recovery is checked), and:
+
+```sh
+mkdir -m 700 "$PGDATA"
+tar -xzf /backup/base/2026-09-28/base.tar.gz -C "$PGDATA"
+tar -xzf /backup/base/2026-09-28/pg_wal.tar.gz -C "$PGDATA/pg_wal"
+cat >> "$PGDATA/postgresql.conf" <<'CONF'
+restore_command = 'cp /backup/wal/%f %p'
+recovery_target_time = '2026-09-30 05:23:45+00'
+recovery_target_action = 'promote'
+CONF
+touch "$PGDATA/recovery.signal"
+```
+
+Start PostgreSQL. The log says `starting point-in-time recovery to ...`,
+then `recovery stopping before commit of transaction ...` and
+`archive recovery complete`; `SELECT pg_is_in_recovery()` answers `f` once
+it is open for writes. Take the recovery settings back out of
+`postgresql.conf` and start the platform.
+
+What the recovered database does not know about is anything the companies
+did in the world after the target: an email sent, an invoice issued. Their
+journals end at the target, so a step that had committed after it runs
+again; the idempotency key a vendor call carries is the same on the second
+attempt, so a vendor that honours it does not do it twice, but not every
+vendor does. Read the vendor's side for the minutes between the target and
+the recovery before starting the worker again.
+
+For more than one machine or a managed service, use a tool made for this --
+pgBackRest or WAL-G, which add retention, checks and cloud storage -- or a
+managed PostgreSQL 16 with pgvector whose point-in-time recovery is built
+in. Practise the recovery itself, not only the backup.
+
 A company's export (**Download as JSON** under **Settings**, **Company**) is
 a useful second copy of one company that can be restored on any deployment,
 but it is not a backup of the deployment: it leaves out prompt bodies,
@@ -175,6 +321,10 @@ exits 78, and names the command:
 palugada: configuration refused: the database is 2 migrations behind this code (…): run `npm run db:migrate`, then start again
 ```
 
+What each version changed is in `CHANGELOG.md`; which version is running
+is on `/api/health` (`"version"`), in the metrics as `palugada_build_info`,
+and at the foot of the owner's menu.
+
 On this machine, take a backup, then:
 
 ```sh
@@ -187,40 +337,104 @@ npm run db:migrate
 and restart the platform (`npm start` again, or restart the service).
 
 With Docker Compose, take a backup, then `git pull` and
-`docker compose up -d --build`. The image applies pending migrations when it
-starts, under a database lock, so several containers starting at once apply
-each migration once.
+`docker compose up -d --build`. The `migrate` service applies pending
+migrations under a database lock and exits, and `app` starts after it. Run
+alone, with `docker run` or on a platform that runs images (see
+[Running the image by itself](#running-the-image-by-itself)), the image
+migrates first when it is given `PALUGADA_OWNER_URL`, and starts the
+platform without it.
 
 With more than one process, migrate once, then restart the processes one at
 a time.
 
+`npm run db:migrate` keeps each migration's checksum. If it says a migration
+"is not the migration this database ran", the file was edited after it was
+applied: check out the release you meant to run, or put the file back as it
+was. Nothing is applied until every migration that ran matches. Line
+endings do not count, and a database migrated before checksums were kept
+takes its files as they are the first time.
+
+A migration waits at most ten seconds for a lock on what it changes. A
+statement that alters a table waits for every transaction that is reading
+it, and every query on that table after it waits behind the statement, so
+one long transaction -- a report, a `pg_dump`, an open `psql` session --
+would otherwise stop the platform for as long as it ran. A migration that
+cannot get its lock is not applied, and says so by name ("was not applied:
+it waited 10 seconds for a lock another session holds"): run the migrations
+again once that session is done. The image run by itself exits, and its
+restart runs them again. Waiting for another process that is migrating is
+not limited: that wait is how replicas that start together apply each
+migration once.
+
 ### Stopping and restarting
 
-On SIGTERM or SIGINT the console closes first, then the worker. A run in
-flight is given about twenty seconds to finish its step, and then hands its
-task back to the queue with its journal, well inside the minute the systemd
-unit and the compose file wait before they kill. The task's timeline says it
-was handed back; no attempt is charged, it does not count as a lost worker,
-and the next worker to come up resumes it at the step it reached.
+On SIGTERM or SIGINT the process says it is stopping before it stops
+anything. `GET /api/ready` answers 503 at once
+([Readiness, for a load balancer](#readiness-for-a-load-balancer)), and
+every answer from then on carries `Connection: close`, so a client holding
+a connection open makes its next one elsewhere. If anything has asked
+`/api/ready` since the process started -- a load balancer that decides by
+it -- the console goes on answering everything else for five seconds, long
+enough for the balancer to take the process out before its port refuses.
+With nothing asking, there is nobody to tell, and it does not wait.
 
-A process killed outright loses no work either, but it is slower: its
-tasks' leases run out within fifteen minutes, another worker resumes them
-from the last committed step, and each counts as a lost worker towards the
-crash-loop limit of three.
+Then the console closes: it takes no new connection, and a request already
+in flight is answered rather than cut off. Then the worker. A run in flight
+is given about twenty seconds to finish its step, and then hands its task
+back to the queue with its journal, well inside the minute the systemd unit
+and the compose file wait before they kill. The task's timeline says it was
+handed back; no attempt is charged, it does not count as a lost worker, and
+the next worker to come up resumes it at the step it reached.
+
+A process killed outright loses no work either, but it is slower. Every
+worker writes to `worker_heartbeats` every fifteen seconds; when a worker
+has been quiet for a minute, the next sweep by any other worker -- or by the
+same process restarted -- returns its tasks to the queue, and they resume
+from the last committed step. Each counts as a lost worker towards the
+crash-loop limit of three. The lease of fifteen minutes stays the backstop
+for a holder that never wrote there. A write that was in flight when the
+process died is sent again under the key it first had, so a vendor that
+honours the key makes it once.
+
+A failed attempt is not tried again at once: it waits ten seconds, then
+forty, then two minutes and forty seconds before the next is claimed, so a
+service that is down for a moment does not spend every attempt a task has.
+
+When the model does not answer -- a provider's outage, a local model
+restarting -- a call is tried three times, and then the role's fallback
+models if it has any and may use them. A task whose models are all down
+waits for them: half a minute, then twice as long each time, five times.
+Only a model still down after about a quarter of an hour halts the task,
+with one incident.
 
 ## Monitoring
 
 **The health check.** `GET /api/health` needs no session and says nothing
 about any company. It answers 200 when the database answers and the
-worker's loop has finished a tick in the last half hour, and 503 with the
-reason otherwise:
+worker's loop has finished a tick in the last half hour, or started less
+than half an hour ago and has not finished its first yet, and 503 with the
+reason otherwise: `no tick has finished since …`, or `since the worker
+started at …` for one that never has. A database that does not answer is
+`"database": "unreachable"`; why -- the driver's words, which name hosts
+and roles -- is in the platform's log, as a line with `"stage":"health"`,
+not on the page anyone can fetch:
 
 ```json
-{ "ok": true, "database": "ok", "worker": { "lastTickAt": "2026-09-26T08:15:02.114Z" } }
+{ "ok": true, "database": "ok", "version": "0.1.0", "worker": { "lastTickAt": "2026-09-26T08:15:02.114Z" } }
 ```
 
-The Docker image's own health check calls it. Point your monitor at it
-through the loopback address or an allowed host name.
+The database is asked at most once every five seconds, however many ask
+the page: everyone within five seconds of an answer is told that answer,
+so a flood of checks costs one query and holds at most one of the
+platform's database connections. A database that has not answered within
+two seconds is `"unreachable"`, and the log line says it `did not answer
+within 2000 ms` -- inside the five seconds the image's own check waits, so
+a hung database is a 503 rather than a check that gave up.
+
+It says whether the process works, and a process that is stopping still
+works: it is what a supervisor that restarts the process should ask. The
+Docker image's own health check calls it. Point your monitor at it through
+the loopback address or an allowed host name.
 
 **Log lines.** At boot the platform prints one line per fact to standard
 output, each starting `palugada:`: what it enrolled and bound, which model
@@ -246,7 +460,152 @@ Compose restarts the container whatever the code, so under Compose a
 configuration error repeats until you fix it; `docker compose logs app`
 shows the message.
 
-There is no metrics endpoint and no tracing yet.
+### Readiness, for a load balancer
+
+`GET /api/ready` answers what `/api/health` answers, with
+`"stopping": false`, and from the moment the process begins to stop, 503
+without asking the database:
+
+```json
+{ "ok": false, "stopping": true, "version": "0.1.0" }
+```
+
+Point the health check of whatever spreads requests across more than one
+process at it -- HAProxy's `option httpchk GET /api/ready`, Traefik's or
+Caddy's active health checks, a Kubernetes `readinessProbe` (with
+`/api/health` as its `livenessProbe`) -- and have it ask every two seconds
+or so: a stopping process keeps answering for five seconds after
+it first says no ([Stopping and restarting](#stopping-and-restarting)).
+It needs no session and says nothing about any company. A proxy that routes
+by the container's state and asks nothing, as Coolify's and Dokploy's do,
+needs no change; the image's own check stays on `/api/health`.
+
+### Metrics
+
+Set `PALUGADA_METRICS_TOKEN` to a secret of at least 32 characters
+(`openssl rand -hex 32`) and `GET /api/metrics` answers a scraper that sends
+it as a bearer token, in the Prometheus text format that Prometheus,
+VictoriaMetrics, Grafana Alloy and the OpenTelemetry collector all read.
+Without the variable the route answers 404, and with another token 401. It
+takes a token of its own rather than the owner's session because a scraper
+holds no session, and because what it answers is about every company: how
+much work each has waiting and what each has spent. A shorter token is
+refused at boot.
+
+```yaml
+# prometheus.yml
+scrape_configs:
+  - job_name: palugada
+    metrics_path: /api/metrics
+    authorization:
+      credentials_file: /etc/prometheus/palugada-metrics-token
+    static_configs:
+      - targets: ['palugada.internal:8787']
+```
+
+The console answers only the host names it knows, so add the name the
+scraper uses to `PALUGADA_ALLOWED_HOSTS` unless it scrapes through the
+loopback address. Each replica serves its own worker's numbers and the same
+database-wide ones, so scrape every replica and aggregate the `palugada_worker_*`
+series with `sum`.
+
+| Metric | Type | What it counts |
+|---|---|---|
+| `palugada_tasks{company,status}` | gauge | Live tasks by company slug and status (`pending`, `checked_out`, `running`, `waiting_approval`, `waiting_review`, `waiting_window`); finished ones are history, not load |
+| `palugada_tasks_pending_oldest_age_seconds{company}` | gauge | How long the oldest pending task of each company has existed |
+| `palugada_runs_running{company}`, `palugada_runs_quiet_seconds{company}` | gauge | Runs going on now, and how long the quietest of them has shown no progress |
+| `palugada_inbox_open{company,kind}` | gauge | Items waiting for the owner: approvals, escalations, incidents, budget alerts, candidates |
+| `palugada_budget_spent_cents{company}`, `palugada_budget_limit_cents{company}` | gauge | Money spent against each company-wide budget, and its ceiling; `_tokens` for tokens |
+| `palugada_companies{state}` | gauge | Companies, `active` or `frozen` |
+| `palugada_platform_stopped` | gauge | 1 while the owner's stop of all work is in effect |
+| `palugada_workers_alive` | gauge | Workers that have said they are alive in the last minute, across every replica |
+| `palugada_worker_places`, `palugada_worker_places_busy` | gauge | This process's places for runs, and how many are running one |
+| `palugada_worker_last_tick_timestamp_seconds` | gauge | When this worker last finished a pass of its housekeeping |
+| `palugada_worker_runs_total{status}` | counter | Runs this process finished, by how they ended (`completed`, `failed`, `halted`, `waiting_approval`, `runtime_unavailable` and the others) |
+| `palugada_worker_stage_failures_total{stage}` | counter | Stages of a pass that failed, by stage; the `stage.failed` log lines say why |
+| `palugada_worker_loop_failures_total{loop}` | counter | Passes of the housekeeping loop (`tick`) and of a place (`place`) that failed outright |
+| `palugada_database_connections{pool,state}` | gauge | Connections the process holds, `idle` or `busy`, and callers `waiting` for one |
+| `process_resident_memory_bytes`, `nodejs_heap_used_bytes`, `nodejs_eventloop_delay_p99_seconds` and the like | gauge | The process itself |
+
+The counters start again at zero when the process does, which `rate()` and
+`increase()` expect. A scrape reads live work over the indexes the worker
+already keeps, so it stays cheap however much history the companies have.
+
+Rules worth starting from:
+
+```yaml
+groups:
+  - name: palugada
+    rules:
+      - alert: PalugadaWorkerStalled
+        expr: time() - palugada_worker_last_tick_timestamp_seconds > 600
+        for: 5m
+      - alert: PalugadaNoWorkerAlive
+        expr: palugada_workers_alive == 0
+        for: 2m
+      - alert: PalugadaWorkWaiting
+        expr: palugada_tasks_pending_oldest_age_seconds > 3600
+        for: 15m
+      - alert: PalugadaEveryPlaceBusy
+        expr: palugada_worker_places_busy >= palugada_worker_places
+        for: 30m
+      - alert: PalugadaStageFailing
+        expr: increase(palugada_worker_stage_failures_total[15m]) > 3
+      - alert: PalugadaDatabaseWaits
+        expr: palugada_database_connections{state="waiting"} > 0
+        for: 5m
+      - alert: PalugadaBudgetNearCeiling
+        expr: palugada_budget_spent_cents / (palugada_budget_limit_cents > 0) > 0.9
+```
+
+### Traces
+
+Name an OpenTelemetry collector with the standard variables and each
+finished run is sent to it as a span, with its steps and its model calls
+under it, one trace per task:
+
+```sh
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318   # the collector's HTTP port
+OTEL_EXPORTER_OTLP_HEADERS=x-honeycomb-team=your-key # when the backend wants a key
+OTEL_SERVICE_NAME=palugada                           # the default
+```
+
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` names the traces address itself
+instead, as Honeycomb and Grafana Cloud give it. PALUGADA speaks OTLP over
+HTTP in JSON, which every collector accepts on its HTTP port; a
+`OTEL_EXPORTER_OTLP_PROTOCOL` of `grpc` or `http/protobuf` stops the start
+and says so.
+
+What is sent: the company, the task, the role, each step's name and status,
+and each model call's model, tokens and cost, with their times; model calls
+follow the GenAI semantic conventions. What is not: prompts, responses, and
+what tools were given or returned. A collector is often a vendor's; those
+stay in the console, behind your sign-in.
+
+A run is sent half a minute after it finishes, by one worker at a time. If
+the collector is down, nothing is lost: the worker's `telemetry` stage fails
+(and `palugada_worker_stage_failures_total` counts it), and the same runs go
+when it answers again.
+
+## The container backend
+
+A role on the `docker` backend runs its runtime in a container with no
+network, a read-only image, a small scratch space, no capabilities,
+no-new-privileges, 512 MiB, one CPU and user 65534; the runtime reaches its
+tools through the engine over its standard input and output and nothing else.
+Check that your daemon honours all of it before relying on it:
+
+```sh
+npm run container:check
+```
+
+It builds a small image, runs one run whose runtime tries to write its image,
+resolve a name, reach the internet and this machine's database port, and read
+this process's environment, and prints `ok` or `FAIL` for each property. It
+exits 0 when every one holds, 1 when any does not, and 78 when there is no
+daemon. Run it on the machine that will run the containers: podman, rootless
+Docker and a remote `DOCKER_HOST` each decide some of these for themselves.
+Pin the runtime image a role uses by its digest.
 
 ## Running more than one worker
 
@@ -264,30 +623,44 @@ database:
   workers. `PALUGADA_WORKER_ID` overrides it; if you set it, keep it unique.
 - A claim is a lease of fifteen minutes. The worker renews it every five
   minutes while the run shows progress. A run that shows none for a whole
-  lease is stopped and its task handed back.
-- If a worker dies, its leases run out and the tasks return to the queue
-  with their journals; the next worker resumes from the last committed step
-  and repeats no action. A task that loses its worker three times is halted
+  lease is stopped and its task handed back. A worker that has not managed
+  to renew it for a whole lease -- its database unreachable, or not
+  answering -- stops the run itself, because another worker may hold the
+  task by then.
+- If a worker dies, its tasks return to the queue once it has been quiet
+  for a minute (`worker_heartbeats`), or when their leases run out if it
+  never wrote there; the next worker resumes from the last committed step
+  and repeats no action. The heartbeat is compared on the database's clock,
+  so machines whose clocks disagree cannot make a live worker look dead. A task that loses its worker three times is halted
   as a crash loop and raised to you as an incident, rather than taking a
   third worker down.
 - A schedule's occurrence creates one task however many workers see it, and
   each item reaches you once, whichever worker sends it.
 - Console sessions are stored in the database, hashed, so a load balancer
   can send you to any process. **Sign out everywhere**, or revoking an
-  authenticator, ends its sessions on every process.
+  authenticator, ends its sessions on every process. Have the balancer ask
+  `GET /api/ready`, so that a process being restarted is taken out before
+  its port closes ([Readiness, for a load balancer](#readiness-for-a-load-balancer)).
 
-A worker runs one task at a time. Each tick it claims up to eight, one after
-another, starting from a different company each time so none is starved.
-Tasks that wait, for you, a review or a sub-task, hold no worker. To run
-several tasks at the same moment, run several processes. Each also serves
-the console, so each needs its own `PALUGADA_PORT` on a shared machine. The
-compose file as shipped runs one app container on one published port.
+A process runs up to four tasks at once (`PALUGADA_WORKER_CONCURRENCY`,
+from 1 to 16). One of the four is kept for P0 work, so a task you mark
+urgent starts even while three long runs are going. Expiring approvals,
+notices and the budget watch run on their own five-second clock, not
+between runs. Each claim starts from a different company, so none is
+starved. Tasks that wait, for you, a review or a sub-task, hold no place.
+A division's **Runs at once, at most** and its budget still bound what
+runs, across every process. To run more at the same moment, raise the
+number or run several processes. Each process also serves the console, so
+each needs its own `PALUGADA_PORT` on a shared machine. The compose file as
+shipped runs one app container on one published port.
 
 ## Sizing
 
-- **Processes.** One per task you want running at the same moment. A single
-  process suits a handful of companies whose work is mostly model calls. A
-  long agent CLI run occupies its worker for as long as it takes.
+- **Processes.** Each runs `PALUGADA_WORKER_CONCURRENCY` tasks at once
+  (four by default). A single process suits a handful of companies whose
+  work is mostly model calls. A long agent CLI run holds one place for as
+  long as it takes, and an agent CLI is a process of its own on the same
+  machine, so count its memory per place.
 - **Database connections.** Each process keeps up to ten connections as the
   application role and ten as the control plane, and migrations open one
   more. Size PostgreSQL's connection limit for about twenty a process.
@@ -308,12 +681,18 @@ is a security boundary, not bookkeeping:
 
 | Role | Used by | Attributes |
 |---|---|---|
-| `palugada_owner` | Migrations; owns the schema objects | `NOSUPERUSER NOCREATEDB NOBYPASSRLS` |
+| `palugada_owner` | Migrations alone (`PALUGADA_OWNER_URL`); owns the schema objects, and is the only role that can empty a table, which the append-only tables refuse it too. The running platform is never given it | `NOSUPERUSER NOCREATEDB NOBYPASSRLS` |
 | `palugada_app` | Every agent run, the engine and the broker (`PALUGADA_APP_URL`) | `NOSUPERUSER NOCREATEDB NOBYPASSRLS`: row-level security always applies |
 | `palugada_admin` | The control plane: creating companies, the owner's views across companies (`PALUGADA_ADMIN_URL`) | `NOSUPERUSER NOCREATEDB BYPASSRLS`, and never reachable from agent code |
 
 The script connects as a superuser only to create these and to install the
-`pgcrypto` and `vector` extensions, which a superuser must install. It takes
+`pgcrypto` and `vector` extensions, which a superuser must install, and
+`pg_trgm`, whose trigram indexes serve the search across every company
+(migration 0098). `pg_trgm` is a trusted extension, so where a database was
+set up before it was on this list, the migration installs it as the
+database's owner; where the server does not have it at all, the migration
+stops and says so. It ships with PostgreSQL's contrib modules, which the
+`postgres` and `pgvector/pgvector` images include. It takes
 each role's password from `PALUGADA_OWNER_URL`, `PALUGADA_APP_URL` and
 `PALUGADA_ADMIN_URL` (from the environment or `.env`); passwords may use
 letters, digits and `_ . ~ -`. `PALUGADA_DB_NAME` names the database
@@ -322,8 +701,16 @@ letters, digits and `_ . ~ -`. `PALUGADA_DB_NAME` names the database
 It refuses to run over an existing database; `PALUGADA_RESET_DATABASE=yes`
 drops and recreates it, with everything in it.
 
+`node scripts/provision-database.ts` does the same without the repository's
+shell scripts, and without dropping anything: given `PALUGADA_SUPERUSER_URL`
+and the three URLs, it makes what is missing, corrects a role whose
+attributes are wrong, sets each role's password to the one in its URL, and a
+second run changes nothing. Its passwords may hold any character a URL can
+carry percent-encoded. The image runs it before every start when it is given
+`PALUGADA_SUPERUSER_URL`.
+
 A managed PostgreSQL service works if it offers PostgreSQL 16 with pgvector
-and lets you create a role with `BYPASSRLS`; check both before you choose
-one. Keeping the database available, replicated and backed up is yours: the
+and pg_trgm and lets you create a role with `BYPASSRLS`; check them before
+you choose one. Keeping the database available, replicated and backed up is yours: the
 platform reconnects after a database restart, but it does not manage
 failover.

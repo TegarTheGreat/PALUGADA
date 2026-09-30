@@ -11,6 +11,7 @@ import {
 } from './search.ts';
 import { imageProvider, speechProvider, type ImageProvider, type MediaBinding, type SpeechProvider } from './media.ts';
 import { listenProvider, type ListenBinding } from './listen.ts';
+import { embedProvider, type EmbedBinding } from './embed.ts';
 
 /** Each kind of tool, the capability it binds, and the variables it is configured by. */
 export const TOOL_KINDS = {
@@ -27,6 +28,12 @@ export const TOOL_KINDS = {
   listen: {
     capability: 'speech.transcribe', provider: 'PALUGADA_LISTEN_PROVIDER', url: 'PALUGADA_LISTEN_URL', key: 'PALUGADA_LISTEN_KEY_REF',
     model: 'PALUGADA_LISTEN_MODEL',
+  },
+  // Not a capability a role calls: what `memory.search` finds documents by,
+  // besides their words.
+  embed: {
+    capability: 'document meaning', provider: 'PALUGADA_EMBED_PROVIDER', url: 'PALUGADA_EMBED_URL', key: 'PALUGADA_EMBED_KEY_REF',
+    model: 'PALUGADA_EMBED_MODEL',
   },
 } as const;
 export type ToolKind = keyof typeof TOOL_KINDS;
@@ -50,6 +57,8 @@ export interface ToolBindings {
    * whenever its provider is chosen.
    */
   voice: { listen?: ListenBinding; speak?: MediaBinding<SpeechProvider> };
+  /** What the company's documents are found by besides their words (`knowledge/meaning.ts`). */
+  embed?: EmbedBinding;
   notes: string[];
 }
 
@@ -109,6 +118,7 @@ export function toolBindingsFrom(
   const image = media('image', imageProvider);
   const speech = media('speech', speechProvider);
   const heard = bind('listen', listenProvider);
+  const meaning = bind('embed', embedProvider);
   const listening = heard ? { ...heard, model: env[TOOL_KINDS.listen.model]?.trim() || null } : undefined;
   if (listening && !filesRoot) {
     notes.push('speech.transcribe is unbound for roles: the recordings it reads are the company\'s files, and PALUGADA_FILES_ROOT is not set; the owner can still speak to the assistant');
@@ -130,6 +140,7 @@ export function toolBindingsFrom(
     ...(search ? { search } : {}), ...(extract ? { extract } : {}), ...(image ? { image } : {}), ...(speech ? { speech } : {}),
     ...(listening && filesRoot ? { listen: { ...listening, root: filesRoot } } : {}),
     voice: { ...(listening ? { listen: listening } : {}), ...(speaking ? { speak: speaking } : {}) },
+    ...(meaning ? { embed: { ...meaning, model: env[TOOL_KINDS.embed.model]?.trim() || null } } : {}),
     notes,
   };
 }

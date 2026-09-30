@@ -37,6 +37,7 @@ import type { StepKind } from '../engine/journal.ts';
 import type { Goal } from '../domain/goals.ts';
 import type { TaskRow } from '../engine/tasks.ts';
 import type { ChildResult } from '../engine/containment.ts';
+import type { TreeLedger } from './process-tree.ts';
 
 export interface ToolDeclaration {
   name: string;
@@ -141,8 +142,12 @@ export interface ModelUsage {
  * asking for something the platform is not supposed to hand over.
  */
 export interface RunServices {
-  /** F13.4: resolved through the broker, which holds the credentials. */
-  callTool<I, O>(name: string, input: I): Promise<O>;
+  /**
+   * F13.4: resolved through the broker, which holds the credentials.
+   * `journalled` is told the step the journal keeps the call as, so a run can
+   * cite the call as evidence that a done criterion is met (engine/done.ts).
+   */
+  callTool<I, O>(name: string, input: I, journalled?: (step: number) => void): Promise<O>;
   /** F5.1: journals the step, so a crash resumes rather than repeats. */
   step<T>(name: string, kind: StepKind, input: unknown, fn: (key: string) => Promise<T>): Promise<T>;
   /**
@@ -172,6 +177,13 @@ export interface RunServices {
    * a line never fails the run.
    */
   narrate?(text: string): Promise<void>;
+  /**
+   * Where the process groups a run starts are written down (0095), so that
+   * a worker killed outright leaves a record the next worker on its machine
+   * can act on (`TreeLedger`). Optional: a runtime that starts no process
+   * never needs it, and a caller with nowhere to keep it leaves it out.
+   */
+  processes?: TreeLedger;
   signal: AbortSignal;
 }
 
@@ -196,9 +208,13 @@ export type RunEvent =
   | { type: 'done'; output: Record<string, unknown> }
   | { type: 'error'; message: string; retryable?: boolean; providerFailure?: boolean };
 
-/** What the engine says back. */
+/**
+ * What the engine says back. A result carries the step the journal keeps the
+ * call as, which is what the run's done report cites (engine/done.ts): the
+ * one piece of bookkeeping a runtime is given, because it is its own call's.
+ */
 export type EngineMessage =
-  | { type: 'tool_result'; id: string; output: unknown }
+  | { type: 'tool_result'; id: string; output: unknown; step?: number }
   | { type: 'tool_error'; id: string; code: string; message: string }
   | { type: 'cancel'; reason: string };
 
@@ -229,6 +245,13 @@ export interface Adapter {
   readonly backends: readonly ExecutionBackend[];
   health(): Promise<AdapterHealth>;
   run(request: RunRequest, services: RunServices): Promise<AdapterResult>;
+  /**
+   * Removes what runs of workers no longer alive left behind -- a container
+   * a killed worker never reached its `finally` for -- and names what it
+   * removed. Optional: a runtime whose runs end with their process leaves
+   * nothing. `alive` is every worker that beat lately, this one included.
+   */
+  sweep?(alive: ReadonlySet<string>): Promise<string[]>;
 }
 
 /**
@@ -252,6 +275,16 @@ export class AdapterRegistry {
 
   names(): string[] {
     return [...this.#adapters.keys()];
+  }
+
+  /** Every adapter's leftovers, swept; one that cannot sweep costs only its own. */
+  async sweep(alive: ReadonlySet<string>): Promise<string[]> {
+    const removed: string[] = [];
+    for (const adapter of this.#adapters.values()) {
+      if (!adapter.sweep) continue;
+      removed.push(...await adapter.sweep(alive).catch(() => []));
+    }
+    return removed;
   }
 
   async health(): Promise<Record<string, AdapterHealth>> {

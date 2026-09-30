@@ -122,6 +122,24 @@ test('every listening provider is sent the recording and its key the way it docu
   }
 });
 
+/**
+ * The panel's language can name a region -- Brazilian Portuguese is `pt-BR`
+ * -- and the providers take a language: Whisper's API refuses `pt-BR` as an
+ * unknown language, so a Brazilian owner's voice note was never heard.
+ */
+test('a language with a region is sent to every listening provider as the language alone', async () => {
+  for (const provider of LISTEN_PROVIDERS) {
+    const { answer } = ANSWERS[provider.id]!;
+    const { fetch, heard } = providerFetch(answer);
+    await transcribe({
+      provider, url: provider.urlExample ? 'http://speech.internal:8000' : null, model: null, key: async () => 'the-key-0123', fetch,
+    }, { bytes: CLIP, mime: 'audio/webm;codecs=opus' }, 'pt-BR');
+    const language = heard[0]!.fields.language ?? heard[0]!.fields.language_code ?? new URL(heard[0]!.url).searchParams.get('language') ?? heard[0]!.fields.prompt;
+    assert.match(String(language), /\bpt\b/, `${provider.id} is told the language`);
+    assert.doesNotMatch(String(language), /pt-BR/, `${provider.id} is not sent the region`);
+  }
+});
+
 test('a refused key and an empty answer are said as what they are', async () => {
   const openai = LISTEN_PROVIDERS.find((one) => one.id === 'openai') as ListenProvider;
   const refusing = (async () => new Response('{"error":"bad key"}', { status: 401 })) as unknown as typeof globalThis.fetch;
@@ -237,10 +255,42 @@ test('the owner chooses what hears them, tries it with a clip, and speaks to the
 });
 
 /** A speaches server for listening, and a Piper for speaking, on one port. */
+/**
+ * A saved key goes only to the address it was saved for. The tool settings
+ * kept a saved key whenever the provider was the same, so a provider you run
+ * yourself, tried at another address -- and a try needs no second factor --
+ * was sent the key saved for the first. The model, MCP and push settings
+ * already compared the address.
+ */
+test('a saved tool key is sent only to the address it was saved for (security)', async () => {
+  const mine = await speechServer();
+  const theirs = await speechServer();
+  const api = await consoleWithSettings();
+  try {
+    const token = await api.signIn();
+    const saved = await api.call('POST', '/api/control/tools/listen', token,
+      { provider: 'speaches', url: mine.url, key: 'sk-speaches-saved-key', proof: { totp: api.code() } });
+    assert.equal(saved.status, 200, JSON.stringify(saved.body));
+    const here = await api.call('POST', '/api/control/tools/listen/test', token,
+      { provider: 'speaches', url: mine.url, audio: CLIP.toString('base64'), mime: 'audio/webm' });
+    assert.deepEqual(here.body, { problem: null, text: SAID });
+    assert.equal(mine.keys.at(-1), 'Bearer sk-speaches-saved-key', 'the saved key, at the address it was saved for');
+
+    const there = await api.call('POST', '/api/control/tools/listen/test', token,
+      { provider: 'speaches', url: theirs.url, audio: CLIP.toString('base64'), mime: 'audio/webm' });
+    assert.equal(there.status, 200, JSON.stringify(there.body));
+    assert.deepEqual(theirs.keys, [null], 'another address is sent no key it was not given');
+  } finally {
+    await api.close();
+  }
+});
+
 async function speechServer() {
   const heard: Array<{ path: string; model: string; language: string; bytes: number }> = [];
   const said: string[] = [];
+  const keys: Array<string | null> = [];
   const server = createServer((req, res) => {
+    keys.push(req.headers.authorization ?? null);
     const chunks: Buffer[] = [];
     req.on('data', (chunk: Buffer) => chunks.push(chunk));
     req.on('end', async () => {
@@ -258,7 +308,7 @@ async function speechServer() {
   });
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, heard, said };
+  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, heard, said, keys };
 }
 
 /** The console with a voice behind the assistant, as main.ts gives it one: a fresh one, so its authenticator enrols again. */

@@ -41,6 +41,7 @@ import { assertValidCondition, type Condition } from '../policy/condition.ts';
 import { POLICY_EFFECTS, type PolicyEffect } from '../policy/engine.ts';
 import { putPolicy } from '../governance/store.ts';
 import { ensureCeo } from '../governance/ceo.ts';
+import { MAX_IN_FLIGHT } from '../broker/in-flight.ts';
 
 export interface BundleSkill {
   slug: string;
@@ -97,7 +98,18 @@ export interface BundleCadence {
   /** The brief each occurrence's task is given. */
   goal: string;
   priority?: number;
+  /**
+   * What each occurrence is handed from the company's own records as it
+   * fires, beside the brief: `week` is the week's numbers, finished work,
+   * spend and what waits for the owner (reporting/week.ts). A run sees the
+   * metrics of its own goal chain and nothing else, so a review told to
+   * report every number against its target could see almost none of them.
+   */
+  facts?: 'week';
 }
+
+/** What a cadence may be handed as it fires. */
+const CADENCE_FACTS = ['week'] as const;
 
 /**
  * A rule the bundle brings (F3.4, F16.1).
@@ -431,12 +443,13 @@ export async function installBundle(input: {
       if (!divisionId) continue;
       await tx.query(
         `INSERT INTO capability_grants
-           (company_id, division_id, capability_name, tier_override, rate_limit_per_hour)
-         VALUES ($1,$2,$3,$4,$5)
+           (company_id, division_id, capability_name, tier_override, rate_limit_per_hour, max_in_flight)
+         VALUES ($1,$2,$3,$4,$5,$6)
          ON CONFLICT (division_id, capability_name) DO UPDATE
            SET tier_override = EXCLUDED.tier_override,
-               rate_limit_per_hour = EXCLUDED.rate_limit_per_hour`,
-        [input.companyId, divisionId, grant.capability, tier, grant.rateLimitPerHour ?? null],
+               rate_limit_per_hour = EXCLUDED.rate_limit_per_hour,
+               max_in_flight = EXCLUDED.max_in_flight`,
+        [input.companyId, divisionId, grant.capability, tier, grant.rateLimitPerHour ?? null, grant.maxInFlight ?? null],
       );
     }
 
@@ -583,7 +596,9 @@ async function installCadences(
       slug: cadence.slug,
       cronExpression: cadence.cron,
       timezone: place.timezone || 'UTC',
-      input: { goal: cadence.goal },
+      // The scheduler reads `facts` from the schedule's input when it fires,
+      // so it is the schedule that asks, whichever bundle or route made it.
+      input: { goal: cadence.goal, ...(cadence.facts ? { facts: cadence.facts } : {}) },
       priority: cadence.priority ?? 2,
       enabled: !quarantined,
     });
@@ -730,6 +745,17 @@ export function assertBundleIsCoherent(bundle: Bundle): void {
         { slug: bundle.slug },
       );
     }
+    // Refused here with the bundle's name, rather than by the database as a
+    // bare constraint in the middle of an install.
+    const limit = grant.maxInFlight;
+    if (limit !== undefined && limit !== null && !(Number.isInteger(limit) && limit >= 1 && limit <= MAX_IN_FLIGHT)) {
+      throw new PalugadaError(
+        'bundle.invalid',
+        `the grant of ${grant.capability} to ${grant.division} allows ${String(limit)} calls in flight; `
+          + `it is a whole number from 1 to ${MAX_IN_FLIGHT}, or left out for no limit`,
+        { slug: bundle.slug },
+      );
+    }
   }
   for (const hook of bundle.body.hooks) {
     if (hook.refuseCapability === undefined && hook.refuseAtOrAboveTier === undefined) {
@@ -795,6 +821,13 @@ export function assertBundleIsCoherent(bundle: Bundle): void {
       throw new PalugadaError(
         'bundle.invalid',
         `cadence ${cadence.slug} needs a lowercase slug and a brief`,
+        { slug: bundle.slug },
+      );
+    }
+    if (cadence.facts !== undefined && !(CADENCE_FACTS as readonly string[]).includes(cadence.facts)) {
+      throw new PalugadaError(
+        'bundle.invalid',
+        `cadence ${cadence.slug} asks to be handed ${String(cadence.facts)}; a cadence can be handed ${CADENCE_FACTS.join(', ')}, or nothing`,
         { slug: bundle.slug },
       );
     }

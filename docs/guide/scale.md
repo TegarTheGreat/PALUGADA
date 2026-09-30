@@ -34,9 +34,9 @@ tools; a hosted model's fast or standard tier, or a capable local model.
 
 **Configure.**
 - The monthly ceiling on **Money** for each company. USD 200 is the default.
-- Telegram or push, so the inbox reaches you. Both need the console
+- Telegram, WhatsApp or push, so the inbox reaches you. Each needs the console
   reachable over HTTPS from your phone
-  ([how-to](how-to.md#push-notifications-and-telegram)).
+  ([how-to](how-to.md#push-notifications-telegram-and-whatsapp)).
 - The company's languages, if its customers or you work in something other
   than the default.
 - A price list (`PALUGADA_MODEL_PRICES`) if your model is not priced by
@@ -73,8 +73,9 @@ worker processes.
   schedules for recurring work (for now created through the owner API; see
   [how-to](how-to.md#schedule-recurring-work)).
 - Retention windows that match what you are obliged to keep.
-- Monitoring on `GET /api/health`, and the JSON log lines collected
-  somewhere you will read them.
+- Monitoring on `GET /api/health`, metrics scraped from `GET /api/metrics`
+  with alerts on them ([operations](operations.md#metrics)), and the JSON
+  log lines collected somewhere you will read them.
 
 **Watch.** The health check; `stage.failed` and `tick.failed` in the logs;
 halted tasks on **Work** and incidents in the inbox; spend per company, side
@@ -86,10 +87,13 @@ Dozens of companies, long-running agent CLIs, and more work at any moment
 than one worker can run.
 
 **Set up.**
-- Several worker processes, one for each task you want running at the same
-  moment: a worker runs one task at a time. Put them on one or more hosts
-  behind the proxy or a load balancer; console sessions are shared through
-  the database, so any process can serve you.
+- Several worker processes, each running `PALUGADA_WORKER_CONCURRENCY`
+  tasks at once (four by default, one of them kept for urgent work). Put
+  them on one or more hosts behind the proxy or a load balancer, whose
+  health check asks `GET /api/ready` so that a process being restarted is
+  taken out before it closes
+  ([operations](operations.md#readiness-for-a-load-balancer)); console
+  sessions are shared through the database, so any process can serve you.
 - Give every process the same configuration: the same model, runtimes,
   vendor file, MCP servers and price list. Any worker can claim any task, and
   a task whose role names a runtime that worker does not have is halted with
@@ -114,8 +118,9 @@ roles paused for spending too fast.
 count long runs when you count processes. A division's
 **Runs at once, at most** holds across every worker, so a division set to
 two runs two tasks at a time however many workers you add; raise it for the
-divisions that should use them. There is no limit per capability yet, beyond
-each grant's rate per hour. Memory search is exact rather than approximate,
+divisions that should use them. A grant's **Calls at once, at most** holds
+across every worker too, and a place held by a worker that died is given
+back when its lease lapses. Memory search is exact rather than approximate,
 which keeps scope filters correct and gets slower as a company's memory
 grows.
 
@@ -153,8 +158,9 @@ expects are not there. Be clear about both before you commit.
   yours; the platform reconnects after a database restart.
 - Protection against guessing from many addresses at once. Five wrong codes
   from one address hold that address back for fifteen minutes, but ten wrong
-  codes from any mix of addresses lock the second factor for fifteen
-  minutes, for you as well. Limit who can reach the console.
+  codes from any mix of addresses lock codes for fifteen minutes, for you as
+  well. A passkey is not locked by wrong codes, so add one, and limit who can
+  reach the console.
 - Platforms other than Linux, and an image with agent CLIs in it.
 - Proof against the vendors themselves: push, Telegram, the model APIs and
   MCP servers are exercised against local servers. The

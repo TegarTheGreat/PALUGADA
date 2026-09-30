@@ -43,7 +43,8 @@ A division groups roles by function: Operations, Delivery, Growth and so on.
 Divisions nest two levels deep at most. A division holds:
 
 - its grants: the capabilities its roles may use, each at the catalogue's
-  tier or a stricter one (**Capabilities it may use**);
+  tier or a stricter one (**Capabilities it may use**), and for any of them,
+  how many calls may be under way at once, up to 100;
 - how many of its tasks may run at once (**Runs at once, at most**),
   across every worker. A sub-task that its own running parent is driving
   runs inside the parent's place rather than waiting for another;
@@ -68,9 +69,20 @@ defines it:
   in its work shows it -- and work that leaves one out, says one is not
   met, or shows nothing for one does not count as done: the task tries
   again, told why. The answers are shown with the work, under **Done
-  means**. What they check is the run's own account; whether the evidence
-  holds is yours, or a reviewer's, to judge. Code a deployment registers as
-  a role's handler is checked by its own tests instead.
+  means**. Evidence may cite a tool call by its step in the task's journal
+  (`step:3`): the platform checks that this task made the call and that it
+  succeeded, and shows the criterion as **Verified**. Evidence that cites
+  nothing is the run's own account, shown as **Claimed**; one that cites a
+  step that failed, or that the task never took, does not count as met.
+  Verified means the call succeeded, not that it proves the criterion:
+  whether the evidence holds is yours, or a reviewer's, to judge. Code a
+  deployment registers as a role's handler is checked by its own tests
+  instead. You change them
+  from the role; a criterion that needs a vendor says what counts when it
+  is not connected, and a run is told which of its tools are not.
+- **Its tools:** what it may call, within its division's grants. A tool
+  nothing in the deployment is bound to yet -- a CRM, a mail provider -- is
+  not offered to a run, and the run is told so.
 - **Its output schema:** the shape its answer must have. Every role in the
   standard template returns a `summary`, and may return `artefacts`. An
   answer that does not fit is refused and the task tries again, up to its
@@ -196,7 +208,7 @@ and fixes each one's tier, with the reason it is not the tier above or below.
   picture and voice providers you choose, kept as files; `speech.transcribe`,
 which writes down a recording in the company's files; and the tools a run uses to work inside the company:
   `plan.record`, `task.delegate`, `task.await`, `owner.ask`,
-  `metric.record` and `stage.propose`.
+  `metric.record`, `stage.propose` and `goal.propose`.
 - The rest need somebody's account and are bound by a vendor file you
   provide, or come from an MCP server you allow-list as
   `mcp.<server>.<tool>`. Until then they are known by name and refused with a
@@ -227,6 +239,22 @@ No template, policy, bundle or agent can move a tier 3 action out of your
 hands. An approval covers exactly one action: a different amount or recipient
 is a new question. An approval nobody answers expires, after 72 hours by
 default, and its task is cancelled: silence never executes anything.
+
+## Charters
+
+A charter is what every run is told before anything else. There are three,
+read in this order and never dropped to fit the context: the platform's,
+which every company on the deployment works under and none can set aside;
+the company's, which says what it is for and how it works; and the role's.
+
+A new deployment starts with a short platform charter, and a company made
+from a template with one that names it and its mission. Both are yours to
+rewrite on **Team**, **Charter**: each change asks for your authenticator,
+and every version of the company's is kept and can be put back. A platform
+charter still word for word the default an earlier version started with is
+given the current default, as a new version, when the platform next starts;
+one you have written, or put back, is never replaced. A reviewer
+reading a proposed skill judges it against the charters and the policies.
 
 ## Policies
 
@@ -281,7 +309,7 @@ cost, and opens the step-by-step trace behind it.
 |---|---|---|
 | approval | An action that needs your yes | **Approve**, **Deny**, or **Ask a question** back; the task carries on, is cancelled, or reads your question |
 | question | An agent asked you something with `owner.ask`, and its task waits | Pick one of the options it offered, or write **Your answer** and press **Send the answer**; **Stop the task** cancels it |
-| question | An escalation: a division is stuck, or a role proposes a goal change or a stage move, or a schedule keeps producing the same result | Approve or deny it, or use **Answer the agent instead** to reply without deciding |
+| question | An escalation: a division is stuck, or a role proposes a goal change or a stage move, or the critic stopped a stage move, or a schedule keeps producing the same result | Approve or deny it, or use **Answer the agent instead** to reply without deciding |
 | incident | Something went wrong: a failed read-back, a crash loop, a broken capability, a role spending too fast | Deal with the cause; deciding the item closes it, with your note |
 | procedure, skill | Something the company learned, waiting for your yes before any agent uses it | Approve or deny |
 | budget | 80% or 100% of the month's ceiling | Raise the ceiling or override the pause on **Money**, or leave it paused |
@@ -296,7 +324,11 @@ to **History** with your note, and your notes are searched too.
 Goals form a ladder: a mission, objectives under it, key results under those.
 Every task names the goal it serves, and the chain travels into every
 approval so you can see why the work exists. Agents read goals and never
-change them; one that thinks a goal is wrong proposes a change in your inbox.
+change them; one that thinks a goal is wrong proposes a change in your inbox
+with `goal.propose` -- new words, or closing it as met or abandoned -- with
+its evidence. Approving it, with your code, makes the change; a proposal
+about a goal you have changed since is refused, and saying no leaves the
+work that proposed it running.
 
 A goal can be measured by a number: a unit (money, a count, a percentage or a
 ratio), which way is better, a baseline, a target, a date, and optionally the
@@ -327,12 +359,30 @@ rule rather than a hope. Moving forward loosens those rules, so it takes your
 code; moving into wind down only closes things. The strategist may propose a
 move with the evidence; the move itself is always yours.
 
+With the operating kit (`company-os`), a company winding down starts nothing
+new -- no advertising and nothing bought, whoever asks -- and every other
+action at tier 2 or above outside the finance division comes to you to
+approve, so a reply to a customer who is owed one is yours to let through
+rather than refused. You may allow a role's replies for a while instead of
+one by one, where the work read nothing from outside.
+
+With `company-os`, a critic reads every stage proposal before you do. It is
+in a division of its own, and it cannot change anything. When it supports a
+move, its verdict is on the card you answer. When it opposes one, you are not
+asked to approve the move; an item tells you what was proposed, on what
+evidence, and why the critic stopped it. You can still set the stage
+yourself.
+
 ## Memory and distillation
 
 The company keeps four kinds of memory: working memory (one task's steps),
-episodic memory (the event log), semantic memory (facts) and procedural
-memory (ways to work). Memory is scoped to the company, a project or a
-division, and a run only sees what its scope allows.
+episodic memory (a line for each piece of finished work: what it was for and
+what it reported), semantic memory (facts) and procedural memory (ways to
+work). Memory is scoped to the company, a project or a division, and a run
+only sees what its scope allows: facts and ways to work belong to a division
+unless shared, and past events to a project, so `memory.search` asked for
+past events searches the finished work of the run's own project. An event
+from work that read outside content comes back as data, like such a fact.
 
 A fact is never overwritten: a correction supersedes it, and the old version
 is kept, marked as replaced. Facts the platform is unsure of are flagged to
@@ -383,8 +433,18 @@ outside. Skills are under **Settings**, **Skills**.
 A bundle is a package of divisions, roles, grants, policies, skills with
 their eval cases, and schedules, installed into a company. The built-in ones
 are `company-os`, `content-ops`, `web-ops`, `qa-review` and `palugada-dev`
-(PALUGADA's own engineering team; see [AGENTS.md](../../AGENTS.md)). A bundle
-signed by a publisher you trust installs as written, and so does a built-in
+(PALUGADA's own engineering team; see [AGENTS.md](../../AGENTS.md)).
+`company-os` is the operating kit: a strategist that proposes bets, stage
+moves and goal changes and applies none; the stage rules; skills for
+validating an idea, premortems, pricing, unit economics, customer discovery,
+positioning, market research, launch readiness, outbound messages and the
+weekly review; and the weekly business review itself, on Monday morning in
+the company's time zone. That review is handed the week from the company's
+records, not from a model: every active goal with its numbers -- the latest,
+whether it was verified, and the change over the week -- the work finished,
+the spend against the monthly limit, and any stage move waiting for you.
+
+A bundle signed by a publisher you trust installs as written, and so does a built-in
 one that is exactly what this version ships. Any other unsigned bundle,
 including a built-in one somebody changed, installs quarantined: only grants
 it names at tier 0 are created, its schedules start switched off, and its

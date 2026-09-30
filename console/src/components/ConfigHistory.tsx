@@ -19,13 +19,14 @@ import { ActionButton } from './ActionForm.tsx';
 
 export function ConfigHistory({ companyId, kind, subjectId, changed }: {
   companyId: string;
-  kind: 'role' | 'policy';
-  subjectId: string;
+  kind: 'role' | 'policy' | 'charter';
+  /** Which role or policy; a company has one charter, so none for it. */
+  subjectId?: string;
   changed: () => void;
 }) {
   const view = useLoad(async () => {
     const answer: { versions: ConfigVersion[] } =
-      await api('GET', `/api/companies/${companyId}/config/${kind}/history?subject=${subjectId}`);
+      await api('GET', `/api/companies/${companyId}/config/${kind}/history?subject=${subjectId ?? ''}`);
     return answer.versions;
   }, [companyId, kind, subjectId]);
 
@@ -38,7 +39,9 @@ export function ConfigHistory({ companyId, kind, subjectId, changed }: {
       <Text size="xs" c="dimmed">
         {kind === 'role'
           ? t('Each version is the role as it was before that change. Putting one back is a change of its own, and is recorded.')
-          : t('Each version is the policy as that change left it. Putting one back is a change of its own, and is recorded.')}
+          : kind === 'charter'
+            ? t('Each version is the charter as that change left it. Putting one back is a change of its own, and is recorded.')
+            : t('Each version is the policy as that change left it. Putting one back is a change of its own, and is recorded.')}
       </Text>
       {view.data.map((version, index) => (
         <Stack key={version.id} gap={4} p="sm" style={{ border: '1px solid var(--mantine-color-default-border)', borderRadius: 8 }}>
@@ -62,12 +65,24 @@ export function ConfigHistory({ companyId, kind, subjectId, changed }: {
               }}
             />
           </Group>
-          <Text size="xs" c="dimmed">{dateTime(version.createdAt)} · {version.changedBy}</Text>
+          <Text size="xs" c="dimmed">{dateTime(version.createdAt)} · {changedBy(version.changedBy)}</Text>
           <Spoiler maxHeight={0} showLabel={t('What it held')} hideLabel={t('Hide')}>
-            <Code block style={{ maxHeight: 220, overflow: 'auto' }}>{JSON.stringify(version.snapshot, null, 2)}</Code>
+            {/* A charter is prose, and reads as prose rather than as a JSON string with its line breaks escaped. */}
+            <Code block style={{ maxHeight: 220, overflow: 'auto', whiteSpace: 'pre-wrap' }}>
+              {kind === 'charter' ? String(version.snapshot.body ?? '') : JSON.stringify(version.snapshot, null, 2)}
+            </Code>
           </Spoiler>
         </Stack>
       ))}
     </Stack>
   );
+}
+
+/** Who made a version, in words: the owner, or the deployment on the owner's behalf. */
+function changedBy(who: string): string {
+  if (who === 'owner') return t('you');
+  if (who === 'template') return t('from the company template');
+  if (who === 'platform') return t('written by PALUGADA');
+  if (who === 'repository') return t('from the charter repository');
+  return who;
 }

@@ -42,12 +42,13 @@
  * cannot set that header, and a browser will not attach it on its own. The
  * cost is that the console has to hold the token itself, which it does.
  */
+import { versionIn } from '../runtime/checked-versions.ts';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { PalugadaError } from '../errors.ts';
-import { withControlPlane, withTenant } from '../db/tenant.ts';
+import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
 import * as inbox from '../inbox/inbox.ts';
 import { briefingOf, traceFromInboxItem, traceOfTask } from '../reporting/trace.ts';
 import { addDocument, archiveDocument, listDocuments, readDocument } from '../knowledge/documents.ts';
@@ -63,6 +64,9 @@ import {
 } from '../engine/control.ts';
 import { frozenRoles, pauseRole, unfreezeRole } from '../governance/role-freeze.ts';
 import { cancelTask, giveFeedback, instructTask, rerunTask, type Verdict } from '../engine/owner-control.ts';
+import { assertClosingDays, closeCompany, closingOf, erasures, failingErasures, keepCompany } from '../governance/closing.ts';
+import { EMAIL_PROVIDERS, EmailChannel, emailAddress, emailProvider, type EmailProviderId } from './email.ts';
+import { VERSION } from '../version.ts';
 import { transcriptOf } from '../engine/transcript.ts';
 import {
   clearSpendPause,
@@ -74,10 +78,11 @@ import {
 import { readGovernanceLog } from '../governance/store.ts';
 import { readRetentionLog, retentionFor, setRetention } from '../retention/retention.ts';
 import { ownerWindow, setBatchWindow, setOwnerWindow } from '../scheduler/windows.ts';
-import { healthFor } from '../broker/preflight.ts';
+import { healthFor, preflightGrants } from '../broker/preflight.ts';
 import { costTimeline, platformCost } from '../reporting/cost.ts';
 import { rotateCredential } from '../secrets/rotation.ts';
-import { redactor, type SecretManager } from '../secrets/manager.ts';
+import { CREDENTIAL_SECRETS, redactor, type SecretManager } from '../secrets/manager.ts';
+import { checkVendorEntry, vendorPresets, type VendorSpec } from '../capabilities/vendors.ts';
 import { assertStage, loosens, setStage, stageOf, type Stage } from '../domain/stage.ts';
 import { createHandoffRule, handoffRulesOf, setHandoffRuleEnabled } from '../engine/handoff-rules.ts';
 import { searchEverywhere } from './search.ts';
@@ -86,7 +91,7 @@ import { describeReplay, replayTask } from '../engine/replay.ts';
 import { assignTask } from '../scheduler/wake.ts';
 import { TICKET_STATUSES, listTickets, openTicket, readTicket, setTicketStatus, startTicket } from '../engine/tickets.ts';
 import { createCompanyFromTemplate, readTemplate } from '../templates/company.ts';
-import { accountFor, chainFor, createAccount, snapshot } from '../engine/budget.ts';
+import { accountFor, chainFor, createAccount, setCeilings, snapshot } from '../engine/budget.ts';
 import { remember, retract, supersede } from '../memory/store.ts';
 import { changeMetric, defineMetric, headlines, recordObservation, type Headline, type MetricChange, type MetricUnit } from '../domain/metrics.ts';
 import {
@@ -112,9 +117,12 @@ import {
   type RoleFields,
   type StructuralChange,
 } from '../governance/structure.ts';
-import { putPolicy } from '../governance/store.ts';
+import { CHARTER_LIMIT, publishCharter, putPolicy } from '../governance/store.ts';
+import { MAX_IN_FLIGHT } from '../broker/in-flight.ts';
 import { history as configHistory, type ConfigKind } from '../governance/config-versions.ts';
 import { rollBack } from '../governance/rollback.ts';
+import type { CharterRepository } from '../governance/charter-repository.ts';
+import { COMPANY_CHARTER_FILE, PLATFORM_CHARTER_FILE } from '../governance/charter-files.ts';
 import { assertValidCondition, type Condition } from '../policy/condition.ts';
 import { POLICY_EFFECTS, type PolicyEffect } from '../policy/engine.ts';
 import { setThresholds } from '../reporting/alerts.ts';
@@ -145,9 +153,14 @@ import {
   type RoleChange,
 } from '../eval/role-eval.ts';
 import { CapabilityRegistry } from '../broker/registry.ts';
-import { accessFor, bindMcpServers, currentPins, offeredTools, type TokenIn } from '../capabilities/mcp.ts';
+import { McpUnauthorized, accessFor, assertPlainHttpIsLocal, bindMcpServers, currentPins, offeredTools, type TokenIn } from '../capabilities/mcp.ts';
+import { beginSignIn, discoverSignIn, finishSignIn, forgetSignIn, mcpSecretName, oauthGrantsIn } from '../capabilities/mcp-oauth.ts';
 import { MCP_PRESETS } from '../capabilities/mcp-presets.ts';
+import { DEFAULT_PRICE_TABLE, parsePriceTable, rateFor, withConsolePrices, type PriceTable } from '../engine/pricing.ts';
+import { MODELS_DEV_URL, lookupPrices } from '../engine/models-dev.ts';
+import { beginCredentialSignIn, finishCredentialSignIn, hasClient, OAUTH_CREDENTIALS, type CredentialSignIn } from '../capabilities/vendor-oauth.ts';
 import { LISTEN_PROVIDERS, listenProvider, transcribe, type Heard, type ListenBinding, type ListenProvider } from '../capabilities/listen.ts';
+import { EMBED_PROVIDERS, embed, embedProvider, type EmbedBinding, type EmbedProvider } from '../capabilities/embed.ts';
 import {
   chatMayApply, chatPartners, chatScope, closeProposal, conversation, converse, forgetConversation, moveChat, patternFor, proposalById,
   speakerOf, type AssistantChannel, type AssistantProposal, type AssistantReach,
@@ -158,8 +171,10 @@ import { appointCeo } from '../governance/ceo.ts';
 import type { ToolUsingLlmClient } from '../llm/client.ts';
 import type { OwnerMfa, WebAuthnAssertion } from './mfa.ts';
 import { telegramApi, telegramBot, telegramChats, telegramCommands, telegramProfilePhoto, type ChatConversation, type TelegramChannel, type TelegramUpdate } from './telegram.ts';
+import { whatsappNumber, type WhatsAppChannel } from './whatsapp.ts';
 import { WebhookPush, ntfyBody } from './push.ts';
 import { OwnerSessions, type OwnerSession } from './session.ts';
+import { OwnerClaims } from './claim.ts';
 import { MODEL_TIERS, modelSettingsFrom } from '../llm/models.ts';
 import { checkModel, listModels } from '../llm/check.ts';
 import { MODEL_PROVIDERS, modelProvider } from '../llm/providers.ts';
@@ -179,6 +194,7 @@ import {
   type ImageProvider, type MediaBinding, type SpeechProvider,
 } from '../capabilities/media.ts';
 import { TOOL_KINDS, type ToolKind } from '../capabilities/tools.ts';
+import { say } from './say.ts';
 import {
   AGENT_CATALOGUE, AgentJobs, agentEntry, cannotInstall, claudeSetupToken, findAgent, installAgent, type AgentEntry,
 } from '../settings/agents.ts';
@@ -200,6 +216,8 @@ import {
 export interface OwnerApiOptions {
   mfa: OwnerMfa;
   sessions?: OwnerSessions;
+  /** F3.11: the repository of charter files, written as the owner saves a charter. */
+  charters?: CharterRepository;
   /**
    * The console is reached through a reverse proxy, so the caller's address
    * is the last one the proxy added to `X-Forwarded-For` rather than the
@@ -226,6 +244,11 @@ export interface OwnerApiOptions {
    * one. Better to rotate without the check than to file a false alarm.
    */
   registry?: CapabilityRegistry;
+  /**
+   * The operator's price list, which what the owner says a model costs is
+   * laid over (L12). Absent, the conservative fallback alone.
+   */
+  prices?: PriceTable;
   /**
    * The handlers F11.4's replay re-runs (F5.9).
    *
@@ -285,15 +308,28 @@ export interface OwnerApiOptions {
   };
   /**
    * Whether this process can do its work: the database answers, the worker's
-   * loop is going round. Read by `GET /api/health`, which a supervisor or a
-   * load balancer asks without a session.
+   * loop is going round. Read by `GET /api/health`, which a supervisor asks
+   * without a session, and by `GET /api/ready`, which a load balancer asks,
+   * and which also says no once the process has begun to stop.
    */
   health?: () => Promise<{ ok: boolean } & Record<string, unknown>>;
+  /**
+   * What `GET /api/metrics` answers a scraper that holds `token`, in the
+   * Prometheus text format. Absent means the route refuses: the numbers are
+   * about every company, so nothing serves them until the operator has chosen
+   * who may read them.
+   */
+  metrics?: { token: string; text: () => Promise<string> };
   /**
    * The message channel whose button presses arrive at
    * `/api/channels/telegram` (F10.9). Absent means the route refuses.
    */
   telegram?: TelegramChannel;
+  /**
+   * WhatsApp, whose deliveries arrive at `/api/channels/whatsapp` (F10.9).
+   * Absent means the route refuses.
+   */
+  whatsapp?: WhatsAppChannel;
   /** How that sweep resolves a division's credential. Comes from the broker. */
   credentialFor?: (
     companyId: string,
@@ -319,7 +355,7 @@ interface Handler {
   }): Promise<unknown>;
 }
 
-/** A route's answer with a status other than 200: only the health check needs one. */
+/** A route's answer with a status other than 200: only the health and readiness checks need one. */
 class WithStatus {
   readonly status: number;
   readonly body: unknown;
@@ -327,6 +363,33 @@ class WithStatus {
   constructor(status: number, body: unknown) {
     this.status = status;
     this.body = body;
+  }
+}
+
+/** Plain text rather than JSON: only for the metrics scraper, which reads its own format. */
+class PlainText {
+  readonly contentType: string;
+  readonly text: string;
+
+  constructor(contentType: string, text: string) {
+    this.contentType = contentType;
+    this.text = text;
+  }
+}
+
+/** A page rather than JSON: only for a browser sent here by somebody else, which has no console open in it. */
+class HtmlPage {
+  readonly status: number;
+  readonly title: string;
+  readonly text: string;
+  /** The language the page is written in, for the browser's reader and its fonts. */
+  readonly language: string;
+
+  constructor(status: number, title: string, text: string, language: string | null = null) {
+    this.status = status;
+    this.title = title;
+    this.text = text;
+    this.language = language ?? 'en';
   }
 }
 
@@ -350,15 +413,29 @@ interface Route {
 export class OwnerApi {
   readonly #options: OwnerApiOptions;
   readonly #sessions: OwnerSessions;
+  readonly #claims: OwnerClaims;
   readonly #routes: Route[];
   readonly #signInThrottle = new SignInThrottle();
   readonly #agentJobs = new AgentJobs();
   #server: Server | null = null;
   #allowedHosts: ReadonlySet<string> | null = null;
+  /** The answers being written, so that a closing listener finishes them rather than cutting them off. */
+  readonly #answering = new Set<ServerResponse>();
+  /** Set by `drain()`: readiness says 503, and every answer lets its connection go. */
+  #draining = false;
+  /** Whether anything has asked `/api/ready`: only then is there a balancer to wait for. */
+  #readinessAsked = false;
 
   constructor(options: OwnerApiOptions) {
     this.#options = options;
     this.#sessions = options.sessions ?? new OwnerSessions({ mfa: options.mfa });
+    // The first owner's claim seals their secret with the deployment's master
+    // key; built without console settings, there is none, and a claim says so.
+    this.#claims = new OwnerClaims({
+      mfa: options.mfa,
+      sessions: this.#sessions,
+      master: () => options.deploymentSettings?.master(true) ?? null,
+    });
     this.#routes = this.#buildRoutes();
   }
 
@@ -368,6 +445,9 @@ export class OwnerApi {
 
   async listen(port = 0, host = '127.0.0.1'): Promise<{ url: string; port: number }> {
     const server = createServer((req, res) => {
+      this.#answering.add(res);
+      res.once('close', () => this.#answering.delete(res));
+      if (this.#draining) res.setHeader('connection', 'close');
       void this.#handle(req, res).catch(() => {
         if (!res.headersSent) res.writeHead(500, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: 'internal error' }));
@@ -379,6 +459,9 @@ export class OwnerApi {
       throw new Error('the owner API did not bind to a port');
     }
     this.#server = server;
+    // A listener opened again after a close is ready again.
+    this.#draining = false;
+    this.#readinessAsked = false;
     const given = this.#options.allowedHosts;
     this.#allowedHosts = given
       ? new Set([...given, host].map(normaliseHost))
@@ -386,12 +469,53 @@ export class OwnerApi {
     return { url: `http://${host}:${address.port}`, port: address.port };
   }
 
-  async close(): Promise<void> {
+  /**
+   * Says "not ready" from now on, and waits `ms` while still answering.
+   *
+   * `/api/ready` answers 503 at once, and every answer from here closes its
+   * connection, so a client holding one open makes its next elsewhere. The
+   * wait is for a load balancer that asks readiness every few seconds to
+   * notice before the listener closes; when nothing has asked, there is no
+   * balancer to tell, and it returns at once.
+   */
+  async drain(ms: number): Promise<void> {
+    this.#letConnectionsGo();
+    if (!this.#readinessAsked || ms <= 0) return;
+    await new Promise<void>((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Closes the listener. No connection is taken from here; an answer already
+   * being written is given `finishMs` to finish before its connection is cut,
+   * and with none given, every connection is cut at once.
+   */
+  async close(finishMs = 0): Promise<void> {
     const server = this.#server;
     if (!server) return;
     this.#server = null;
-    server.closeAllConnections();
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    this.#letConnectionsGo();
+    // Before anything is awaited, so no connection is accepted after this line.
+    const closed = new Promise<void>((resolve) => server.close(() => resolve()));
+    server.closeIdleConnections();
+    if (finishMs <= 0) {
+      server.closeAllConnections();
+      await closed;
+      return;
+    }
+    const cut = setTimeout(() => server.closeAllConnections(), finishMs);
+    try {
+      await closed;
+    } finally {
+      clearTimeout(cut);
+    }
+  }
+
+  /** From here, readiness says no, and each answer not yet begun closes its connection when it is sent. */
+  #letConnectionsGo(): void {
+    this.#draining = true;
+    for (const res of this.#answering) {
+      if (!res.headersSent) res.setHeader('connection', 'close');
+    }
   }
 
   #buildRoutes(): Route[] {
@@ -404,7 +528,59 @@ export class OwnerApi {
         open: true,
         // With where a passkey is used, which the browser needs to be asked
         // for one. Neither is a secret: both are this console's own address.
-        handle: async () => ({ challenge: this.#sessions.challenge(), ...this.#options.mfa.relyingParty }),
+        // And whether the deployment has an owner yet, so a sign-in page that
+        // nothing on it can open says where the way in is (F12.5, 0094).
+        handle: async () => ({
+          challenge: this.#sessions.challenge(),
+          ...this.#options.mfa.relyingParty,
+          claimable: await this.#claims.claimable(),
+        }),
+      },
+
+      {
+        // F12.5: the link a deployment with no owner printed as it started
+        // (src/owner/claim.ts). Open, like signing in, and throttled like it:
+        // the code in the link is the credential, and a wrong one is a guess.
+        // Answers with the secret to add to an authenticator app.
+        method: 'POST',
+        pattern: '/api/auth/claim',
+        open: true,
+        handle: async ({ body, request }) => {
+          const address = addressOf(request, this.#options.behindProxy === true);
+          this.#signInThrottle.check(address);
+          try {
+            return await this.#claims.open(String(body.code ?? ''), `owner@${hostLabel(request)}`);
+          } catch (failure) {
+            this.#signInThrottle.failed(address, failure);
+            throw failure;
+          }
+        },
+      },
+
+      {
+        // The code the app then shows: the authenticator becomes the owner's,
+        // and they are signed in, as `/api/auth/sign-in` answers.
+        method: 'POST',
+        pattern: '/api/auth/claim/confirm',
+        open: true,
+        handle: async ({ body, request }) => {
+          const address = addressOf(request, this.#options.behindProxy === true);
+          this.#signInThrottle.check(address);
+          let session: OwnerSession;
+          try {
+            session = await this.#claims.confirm(String(body.code ?? ''), String(body.totp ?? ''));
+          } catch (failure) {
+            this.#signInThrottle.failed(address, failure);
+            throw failure;
+          }
+          this.#signInThrottle.succeeded(address);
+          return {
+            token: session.token,
+            expiresAt: session.expiresAt.toISOString(),
+            device: session.factor.label,
+            factor: session.factor.kind,
+          };
+        },
       },
 
       {
@@ -431,6 +607,43 @@ export class OwnerApi {
           }
           // Anything else is an answer Telegram should not retry: a press
           // refused, a stale button, an item closed since.
+          return outcome;
+        },
+      },
+
+      {
+        // F10.9 on WhatsApp: Meta's check when the webhook is subscribed. It
+        // is answered with the challenge, as plain text, only for the verify
+        // token this deployment chose (PALUGADA_WHATSAPP_VERIFY_TOKEN).
+        method: 'GET',
+        pattern: '/api/channels/whatsapp',
+        open: true,
+        handle: async ({ query }) => {
+          const challenge = this.#options.whatsapp?.verifySubscription(query) ?? null;
+          if (challenge === null) throw new PalugadaError('owner.unauthenticated', 'that is not this deployment\'s verify token', {});
+          return new PlainText('text/plain; charset=utf-8', challenge);
+        },
+      },
+
+      {
+        // Where Meta posts what the owner sends on WhatsApp. Open, like
+        // Telegram's; what stands in for a session is Meta's signature over
+        // the bytes, so the body is read as those bytes, not parsed first.
+        method: 'POST',
+        pattern: '/api/channels/whatsapp',
+        open: true,
+        raw: true,
+        maxBodyBytes: 256 * 1024,
+        handle: async ({ request, raw }) => {
+          const channel = this.#options.whatsapp;
+          if (!channel) throw new PalugadaError('contract.violation', 'this deployment has no WhatsApp channel', {});
+          const signature = request.headers['x-hub-signature-256'];
+          const outcome = await channel.onDelivery(raw, typeof signature === 'string' ? signature : undefined, {
+            conversation: this.#chatConversation(request, 'whatsapp'),
+          });
+          if (outcome.reason === 'signature') throw new PalugadaError('owner.unauthenticated', 'that delivery is not signed by Meta', {});
+          // Anything else is answered as received, so Meta does not send it
+          // again: a press refused, a stranger, a delivery seen before.
           return outcome;
         },
       },
@@ -679,6 +892,53 @@ export class OwnerApi {
       },
 
       {
+        // Whether a load balancer should send this process requests: what
+        // `/api/health` says, and no from the moment the process begins to
+        // stop, while it still answers everything else (Buzz's readiness).
+        // `/api/health` keeps saying whether the process works, which is what
+        // a supervisor that restarts it needs; a stopping process still works.
+        // Open for the same reason, and says as little.
+        method: 'GET',
+        pattern: '/api/ready',
+        open: true,
+        handle: async () => {
+          this.#readinessAsked = true;
+          const stopping = new WithStatus(503, { ok: false, stopping: true, version: VERSION });
+          if (this.#draining) return stopping;
+          const health = this.#options.health ? await this.#options.health() : { ok: true };
+          // The stop may have begun while the database was being asked.
+          if (this.#draining) return stopping;
+          return new WithStatus(health.ok ? 200 : 503, { ...health, stopping: false });
+        },
+      },
+
+      {
+        // Section 12: what this deployment is doing, for a metrics scraper.
+        // Not the owner's session, which a scraper does not hold, but a token
+        // of its own: what it answers is about every company -- how much work
+        // each has waiting and what each has spent -- so it is served to
+        // nobody until the operator has chosen who may read it.
+        method: 'GET',
+        pattern: '/api/metrics',
+        open: true,
+        handle: async ({ request }) => {
+          const metrics = this.#options.metrics;
+          if (!metrics) {
+            throw new PalugadaError(
+              'metrics.off',
+              'metrics are off: set PALUGADA_METRICS_TOKEN to a secret of at least 32 characters, '
+                + 'and give the scraper the same token as its bearer token',
+              {},
+            );
+          }
+          if (!sameSecret(bearer(request) ?? '', metrics.token)) {
+            throw new PalugadaError('metrics.refused', 'send the metrics token as a bearer token', {});
+          }
+          return new PlainText('text/plain; version=0.0.4; charset=utf-8', await metrics.text());
+        },
+      },
+
+      {
         // F13.1, F13.8: what can do a role's work here, and whether it answers.
         // Asked of every runtime at once, each given two seconds: a runtime
         // that does not answer in that time is not one to move a role onto.
@@ -716,7 +976,8 @@ export class OwnerApi {
           // something switched off until the operator sets it.
           return {
             notes,
-            todo: notes.filter((note) => !/^(enrolled |bound by |bound from |model: |model prices from |runtimes: |seeded )/.test(note)),
+            todo: notes.filter((note) => !/^(enrolled |bound by |bound from |model: |model prices from |runtimes: |seeded |finished runs go to |charters kept in )/.test(note)),
+            version: VERSION,
           };
         },
       },
@@ -740,7 +1001,12 @@ export class OwnerApi {
           // needed -- this module does not read the tier and does not
           // second-guess the gate, because a second implementation of F10.10
           // is a second thing that can be wrong.
-          const proof = body.proof === undefined ? undefined : proofFrom(body.proof);
+          const presented = body.proof === undefined ? undefined : proofFrom(body.proof);
+          if (presented && 'recovery' in presented) {
+            // Refused by the check that knows what a code may do, and not spent.
+            await this.#options.mfa.verifyRecoveryCode(presented.recovery, { purpose: 'inbox.decide', subjectId: params.itemId! });
+          }
+          const proof = presented && !('recovery' in presented) ? presented : undefined;
 
           await inbox.decide(
             params.companyId!,
@@ -754,9 +1020,29 @@ export class OwnerApi {
               assurance: 'session',
               ...(proof ? { proof } : {}),
               mfa: this.#options.mfa,
+              // 0083: `decide` checks it, and asks for the factor it needs.
+              ...(body.allowForHours === undefined || body.allowForHours === null
+                ? {} : { allowForHours: Number(body.allowForHours) }),
             },
           );
           void session;
+          return { ok: true };
+        },
+      },
+
+      {
+        // 0083: the yeses the owner gave for a while, still in force.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/standing-approvals',
+        handle: async ({ params }) => ({ standing: await inbox.standingApprovals(params.companyId!) }),
+      },
+
+      {
+        // Taking one back is a tightening, so the session is enough.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/standing-approvals/:standingId/revoke',
+        handle: async ({ params }) => {
+          await inbox.revokeStanding(params.companyId!, params.standingId!);
           return { ok: true };
         },
       },
@@ -890,16 +1176,92 @@ export class OwnerApi {
       },
 
       {
+        // Closing a company (0088): frozen now, erased on a day 7 to 90 days
+        // away, every row of it. Nothing erased comes back, so it takes the
+        // owner's device and the company's name typed out -- the one
+        // confirmation a slip on the wrong company's page does not pass. Both
+        // are checked before the code is spent.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/close',
+        handle: async ({ params, body }) => {
+          const companyId = params.companyId!;
+          const name = await withControlPlane(async (tx) => {
+            const { rows } = await tx.query<{ name: string }>('SELECT name FROM companies WHERE id = $1', [companyId]);
+            return rows[0]?.name ?? null;
+          });
+          if (name === null) throw new PalugadaError('contract.violation', `no company ${companyId}`, { companyId });
+          if (typeof body.name !== 'string' || body.name.trim() !== name) {
+            throw new PalugadaError('contract.violation',
+              "type the company's name exactly as it is shown, to close it", { field: 'name' });
+          }
+          const days = Number(body.days);
+          assertClosingDays(days);
+          await this.#requireFactor(body.proof, `close ${name}`, companyId);
+          const { eraseAfter } = await closeCompany(companyId, days);
+          return { eraseAfter: eraseAfter.toISOString() };
+        },
+      },
+
+      {
+        // Keeping it is the safe direction, so the session is enough. The
+        // company stays frozen: unfreezing is the owner's other decision.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/close/keep',
+        handle: async ({ params }) => {
+          await keepCompany(params.companyId!);
+          return { ok: true };
+        },
+      },
+
+      {
+        // What was erased here, and when: the one line each erased company
+        // leaves. And the companies whose day has come and whose erasure
+        // failed (0096), with why and when it is tried again: an erasure the
+        // owner is owed and has not had is theirs to know about.
+        method: 'GET',
+        pattern: '/api/erasures',
+        handle: async () => ({ erasures: await erasures(), failing: await failingErasures() }),
+      },
+
+      {
         method: 'POST',
         pattern: '/api/control/company/:companyId/freeze',
         handle: async ({ params, body }) => {
           if (body.on === false) {
+            // A closing company is kept first, and unfrozen after: thawing
+            // one that is still to be erased would set it working on a
+            // business the owner has decided to end.
+            if (await closingOf(params.companyId!)) {
+              throw new PalugadaError('contract.violation',
+                'this company is closing; keep it first, then unfreeze it', { companyId: params.companyId });
+            }
             await this.#requireFactor(body.proof, 'unfreeze a company', params.companyId!);
             await unfreezeCompany(params.companyId!);
           } else {
             await freezeCompany(params.companyId!);
           }
           return { ok: true };
+        },
+      },
+
+      {
+        // The guardian (row 7 of the competitive analysis of 2026-09-30,
+        // 0092): a model that may send a low-tier call to the owner after the
+        // work read content from outside. Turning it on only tightens;
+        // turning it off loosens, so it takes the owner's device.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/guardian',
+        handle: async ({ params, body }) => {
+          if (typeof body.on !== 'boolean') {
+            throw new PalugadaError('contract.violation', 'on must be true or false', { field: 'on' });
+          }
+          if (!body.on) await this.#requireFactor(body.proof, 'turn the guardian off', params.companyId!);
+          const { rowCount } = await withControlPlane((tx) => tx.query(
+            'UPDATE companies SET guardian = $2 WHERE id = $1', [params.companyId, body.on]));
+          if (rowCount === 0) {
+            throw new PalugadaError('contract.violation', 'there is no company with that id', { companyId: params.companyId });
+          }
+          return { on: body.on };
         },
       },
 
@@ -1131,6 +1493,10 @@ export class OwnerApi {
                 : null,
             },
             providers: MODEL_PROVIDERS,
+            // What each model the tiers name costs, and who said so (L12): the
+            // owner here, the operator's file, or nobody -- the fallback,
+            // high on purpose, which the console says in as many words.
+            prices: this.#pricesFor(effective ? MODEL_TIERS.map((tier) => effective.aliases[tier]) : [], stored),
             secrets: await secretNames(),
             masterKey: deployment.master(false)?.source ?? null,
             applies: deployment.restart ? 'now' : 'next_start',
@@ -1197,6 +1563,59 @@ export class OwnerApi {
       },
 
       {
+        // What models.dev says each model the tiers name costs, for the owner
+        // to look at and save (L12). Saves nothing, and sends nothing of the
+        // deployment's: the catalogue is read whole and searched here.
+        method: 'POST',
+        pattern: '/api/control/settings/model/prices/lookup',
+        handle: async () => {
+          const deployment = this.#deploymentSettings();
+          const effective = modelSettingsFrom(deployment.env);
+          const models = effective
+            ? [...new Set(MODEL_TIERS.map((tier) => effective.aliases[tier]).filter((model): model is string => Boolean(model)))]
+            : [];
+          if (models.length === 0) return { prices: {}, missing: [], problem: 'no model is set yet' };
+          try {
+            const found = await lookupPrices(models, { url: effective?.url ?? null, provider: effective?.provider ?? null },
+              deployment.baseEnv.PALUGADA_MODELS_DEV_URL ?? MODELS_DEV_URL);
+            return { ...found, problem: null };
+          } catch (failure) {
+            return { prices: {}, missing: models, problem: `models.dev could not be read: ${(failure as Error).message}` };
+          }
+        },
+      },
+
+      {
+        // What each model costs, in cents per million tokens, or null to take
+        // a price back. A lower price loosens every company's money ceiling,
+        // so it takes the owner's device, like the model itself (L12).
+        method: 'POST',
+        pattern: '/api/control/settings/model/prices',
+        handle: async ({ body }) => {
+          this.#deploymentSettings();
+          const given = body.prices && typeof body.prices === 'object' && !Array.isArray(body.prices)
+            ? body.prices as Record<string, unknown> : null;
+          if (!given || Object.keys(given).length === 0) {
+            throw new PalugadaError('contract.violation', 'say which model costs what: { model: { input, output } }', { field: 'prices' });
+          }
+          const stored = await readSettings();
+          const models = { ...((stored.model_prices as { models?: Record<string, unknown> } | undefined)?.models ?? {}) };
+          for (const [model, rate] of Object.entries(given)) {
+            if (!model.trim() || model.length > 200 || model.includes('*')) {
+              throw new PalugadaError('contract.violation', `"${model.slice(0, 60)}" is not a model's name`, { field: 'prices' });
+            }
+            if (rate === null) delete models[model];
+            else models[model] = rate;
+          }
+          // Held to the price file's rules before the device is asked for.
+          parsePriceTable({ models }, 'these prices');
+          await this.#requireFactor(body.proof, 'change what a model costs');
+          await writeSetting('model_prices', Object.keys(models).length > 0 ? { models } : null);
+          return this.#applySettings();
+        },
+      },
+
+      {
         // Back to what the environment says, and the stored key with it.
         method: 'POST',
         pattern: '/api/control/settings/model/clear',
@@ -1237,7 +1656,27 @@ export class OwnerApi {
               topic: push?.topic ?? env.PALUGADA_PUSH_TOPIC ?? null,
               tokenSet: push ? Boolean(push.tokenSecret) : Boolean(env.PALUGADA_PUSH_TOKEN || env.PALUGADA_PUSH_TOKEN_REF),
             },
+            whatsapp: {
+              source: stored?.whatsapp ? 'console' : env.PALUGADA_WHATSAPP_PHONE_ID ? 'environment' : null,
+              phoneNumberId: stored?.whatsapp?.phoneNumberId ?? env.PALUGADA_WHATSAPP_PHONE_ID ?? null,
+              owner: stored?.whatsapp?.owner ?? env.PALUGADA_WHATSAPP_OWNER ?? null,
+              template: stored?.whatsapp?.template ?? env.PALUGADA_WHATSAPP_TEMPLATE ?? null,
+              // What Meta's webhook settings ask for. The verify token only
+              // answers Meta's subscription check, and the owner pastes it
+              // there, so it is shown to them rather than sealed away.
+              callbackUrl: env.PALUGADA_APP_URL_PUBLIC ? `${env.PALUGADA_APP_URL_PUBLIC.replace(/\/+$/, '')}/api/channels/whatsapp` : null,
+              verifyToken: stored?.whatsapp
+                ? await deployment.secrets.resolve(`db://${stored.whatsapp.verifySecret}`).catch(() => null)
+                : null,
+            },
             slack: { source: stored?.slack ? 'console' : env.PALUGADA_SLACK_WEBHOOK || env.PALUGADA_SLACK_WEBHOOK_REF ? 'environment' : null },
+            email: {
+              source: stored?.email ? 'console' : env.PALUGADA_EMAIL_PROVIDER ? 'environment' : null,
+              provider: stored?.email?.provider ?? env.PALUGADA_EMAIL_PROVIDER ?? null,
+              from: stored?.email?.from ?? env.PALUGADA_EMAIL_FROM ?? null,
+              to: stored?.email?.to ?? env.PALUGADA_EMAIL_TO ?? null,
+              providers: EMAIL_PROVIDERS.map(({ id, name, keyUrl }) => ({ id, name, keyUrl })),
+            },
             discord: { source: stored?.discord ? 'console' : env.PALUGADA_DISCORD_WEBHOOK || env.PALUGADA_DISCORD_WEBHOOK_REF ? 'environment' : null },
           };
         },
@@ -1338,6 +1777,54 @@ export class OwnerApi {
       },
 
       {
+        // WhatsApp through Meta's Cloud API: the business number's id, a
+        // system user's token and the app's secret, checked with Meta before
+        // they are sealed. The verify token is made here, for the owner to
+        // paste into the app's webhook settings with the callback address.
+        method: 'POST',
+        pattern: '/api/control/channels/whatsapp',
+        handle: async ({ body }) => {
+          const deployment = this.#deploymentSettings();
+          const stored = ((await readSettings()).channels as ChannelSettings | undefined)?.whatsapp;
+          const phoneNumberId = typeof body.phoneNumberId === 'string' ? body.phoneNumberId.trim() : '';
+          if (!/^\d{5,20}$/.test(phoneNumberId)) {
+            throw new PalugadaError('contract.violation', 'the phone number ID is the number Meta shows under API Setup, digits only; it is not the phone number', { field: 'phoneNumberId' });
+          }
+          const owner = (typeof body.owner === 'string' ? body.owner : '').replace(/[\s+()-]/g, '');
+          if (!/^\d{8,15}$/.test(owner)) {
+            throw new PalugadaError('contract.violation', 'your number is written with its country code, as 62812…', { field: 'owner' });
+          }
+          const template = typeof body.template === 'string' ? body.template.trim() : '';
+          if (template && !/^[a-z0-9_]{1,512}:[A-Za-z_]{2,8}$/.test(template)) {
+            throw new PalugadaError('contract.violation', 'a template is written as its name and language, as palugada_notice:id', { field: 'template' });
+          }
+          const typed = (name: string) => (typeof body[name] === 'string' && (body[name] as string).trim() ? (body[name] as string).trim() : null);
+          const saved = async (secret: string | undefined) => (secret ? deployment.secrets.resolve(`db://${secret}`).catch(() => null) : null);
+          const token = typed('token') ?? await saved(stored?.tokenSecret);
+          const appSecret = typed('appSecret') ?? await saved(stored?.appSecretSecret);
+          if (!token) throw new PalugadaError('contract.violation', 'paste the access token of a system user that may send for this number', { field: 'token' });
+          if (!appSecret || /\s/.test(appSecret)) {
+            throw new PalugadaError('contract.violation', 'paste the app secret, from the app\'s Basic settings: it is how a delivery is known to be from Meta', { field: 'appSecret' });
+          }
+          const number = await outside(whatsappNumber(token, phoneNumberId, this.#whatsappApi()));
+          await this.#requireFactor(body.proof, 'connect WhatsApp');
+          const master = deployment.master(true);
+          if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
+          const verifyToken = (await saved(stored?.verifySecret)) ?? randomBytes(24).toString('hex');
+          await putSecret('channel-whatsapp', token, master);
+          await putSecret('channel-whatsapp-app-secret', appSecret, master);
+          await putSecret('channel-whatsapp-verify', verifyToken, master);
+          const channels = { ...((await readSettings()).channels as ChannelSettings | undefined) };
+          channels.whatsapp = {
+            phoneNumberId, owner, ...(template ? { template } : {}),
+            tokenSecret: 'channel-whatsapp', appSecretSecret: 'channel-whatsapp-app-secret', verifySecret: 'channel-whatsapp-verify',
+          };
+          await writeSetting('channels', channels);
+          return { ...this.#applySettings(), number };
+        },
+      },
+
+      {
         // A push to the owner's phone, in the chosen format, before or after
         // saving: an alert the owner can see arrive.
         method: 'POST',
@@ -1411,19 +1898,62 @@ export class OwnerApi {
       },
 
       {
+        // One email through the service, with the key typed or the one saved:
+        // a message the owner can see arrive before anything is kept.
+        method: 'POST',
+        pattern: '/api/control/channels/email/test',
+        handle: async ({ body }) => {
+          const candidate = await this.#emailCandidate(body);
+          const text = typeof body.text === 'string' && body.text.trim() ? body.text.trim().slice(0, 500) : 'PALUGADA';
+          await outside(new EmailChannel({ ...candidate, ...this.#emailApi() }).send('PALUGADA', text));
+          return { ok: true };
+        },
+      },
+
+      {
+        // Email to the owner through Resend, Postmark or SendGrid: what needs
+        // them, with a link to decide it here. The key is sealed.
+        method: 'POST',
+        pattern: '/api/control/channels/email',
+        handle: async ({ body }) => {
+          const deployment = this.#deploymentSettings();
+          const candidate = await this.#emailCandidate(body);
+          await this.#requireFactor(body.proof, 'connect email');
+          const master = deployment.master(true);
+          if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
+          await putSecret('channel-email', candidate.key, master);
+          const channels = { ...((await readSettings()).channels as ChannelSettings | undefined) };
+          channels.email = { provider: candidate.provider, from: candidate.from, to: candidate.to, keySecret: 'channel-email' };
+          await writeSetting('channels', channels);
+          return this.#applySettings();
+        },
+      },
+
+      {
         method: 'POST',
         pattern: '/api/control/channels/:name/clear',
         handle: async ({ params, body }) => {
           this.#deploymentSettings();
           const name = params.name!;
-          if (!['telegram', 'push', 'slack', 'discord'].includes(name)) {
-            throw new PalugadaError('contract.violation', `a channel is telegram, push, slack or discord; got ${name}`, { name });
+          if (!['telegram', 'whatsapp', 'push', 'slack', 'discord', 'email'].includes(name)) {
+            throw new PalugadaError('contract.violation', `a channel is telegram, whatsapp, push, slack, discord or email; got ${name}`, { name });
           }
           await this.#requireFactor(body.proof, `disconnect ${name}`);
           const channels = { ...((await readSettings()).channels as ChannelSettings | undefined) };
+          // Telegram is told too. A webhook left behind kept sending the chat's
+          // messages to an address that now refuses them, and Telegram retries
+          // a refused update for a day, holding every later one behind it. Best
+          // effort: a bot already revoked has no webhook to take off.
+          if (name === 'telegram' && channels.telegram) {
+            const token = await this.#deploymentSettings().secrets.resolve('db://channel-telegram').catch(() => null);
+            if (token) await telegramApi(token, 'deleteWebhook', { drop_pending_updates: true }, this.#botApi()).catch(() => undefined);
+          }
           delete channels[name as keyof ChannelSettings];
           await writeSetting('channels', Object.keys(channels).length > 0 ? channels : null);
-          for (const secret of name === 'telegram' ? ['channel-telegram', 'channel-telegram-webhook'] : [`channel-${name}`]) {
+          const sealed = name === 'telegram' ? ['channel-telegram', 'channel-telegram-webhook']
+            : name === 'whatsapp' ? ['channel-whatsapp', 'channel-whatsapp-app-secret', 'channel-whatsapp-verify']
+              : [`channel-${name}`];
+          for (const secret of sealed) {
             await deleteSecret(secret);
           }
           return this.#applySettings();
@@ -1462,6 +1992,7 @@ export class OwnerApi {
             kinds,
             providers: {
               search: SEARCH_PROVIDERS, extract: EXTRACT_PROVIDERS, image: IMAGE_PROVIDERS, speech: SPEECH_PROVIDERS, listen: LISTEN_PROVIDERS,
+              embed: EMBED_PROVIDERS,
             },
             filesRoot: Boolean(deployment.baseEnv.PALUGADA_FILES_ROOT),
             applies: deployment.restart ? 'now' : 'next_start',
@@ -1480,6 +2011,12 @@ export class OwnerApi {
           const { kind, binding } = await this.#toolCandidate(params.kind!, body);
           try {
             const signal = AbortSignal.timeout(kind === 'image' || kind === 'speech' || kind === 'listen' ? 120_000 : 30_000);
+            if (kind === 'embed') {
+              // One sentence, to show the provider answers and how long its vectors are.
+              const model = typeof body.model === 'string' && body.model.trim() ? body.model.trim() : null;
+              const [vector] = await embed({ ...binding as EmbedBinding, model }, [typeof body.text === 'string' && body.text.trim() ? body.text.slice(0, 500) : 'PALUGADA'], signal);
+              return { problem: null, dimensions: vector!.length };
+            }
             if (kind === 'listen') {
               // A clip the owner recorded on the page, heard once and kept nowhere.
               const text = await transcribe({ ...binding as ToolBinding<ListenProvider>, model: typeof body.model === 'string' && body.model.trim() ? body.model.trim() : null },
@@ -1528,7 +2065,7 @@ export class OwnerApi {
           }
           const tools = { ...((await readSettings()).tools as Partial<Record<ToolKind, ToolSetting>> | undefined) };
           const text = (field: string) => (typeof body[field] === 'string' && (body[field] as string).trim() ? (body[field] as string).trim().slice(0, 120) : null);
-          const model = kind === 'image' || kind === 'speech' || kind === 'listen' ? text('model') : null;
+          const model = kind === 'image' || kind === 'speech' || kind === 'listen' || kind === 'embed' ? text('model') : null;
           const voice = kind === 'speech' ? text('voice') : null;
           tools[kind] = {
             provider: provider.id, ...(url ? { url } : {}), ...(typed || keep ? { keySecret: secret } : {}),
@@ -1562,9 +2099,18 @@ export class OwnerApi {
         // named, since its servers are bound next to these.
         method: 'GET',
         pattern: '/api/control/mcp',
-        handle: async () => {
+        handle: async ({ request }) => {
           const deployment = this.#deploymentSettings();
           const running = mcpNamesIn(deployment.env.PALUGADA_MCP_SETTINGS);
+          // Where a sign-in comes back, for the vendors that make the owner
+          // register a client with it first; null where this console's
+          // address is one no sign-in may come back to, and the start says why.
+          let callback: string | null = null;
+          try {
+            callback = this.#callbackAddress(request);
+          } catch {
+            callback = null;
+          }
           return {
             servers: mcpServersIn(await readSettings()).map((server) => ({
               name: server.name,
@@ -1575,6 +2121,10 @@ export class OwnerApi {
               tools: server.tools,
             })),
             presets: MCP_PRESETS,
+            // The servers signed in to with OAuth, by name: never a token.
+            signedIn: Object.fromEntries(Object.entries(oauthGrantsIn(await readSettings()))
+              .map(([name, grant]) => [name, { issuer: grant.issuer, url: grant.url }])),
+            callback,
             file: deployment.baseEnv.PALUGADA_MCP_SERVERS ?? null,
             applies: deployment.restart ? 'now' : 'next_start',
           };
@@ -1589,13 +2139,86 @@ export class OwnerApi {
         pattern: '/api/control/mcp/inspect',
         handle: async ({ body }) => {
           this.#deploymentSettings();
-          const url = mcpUrl(body.url);
-          const tokenIn = mcpTokenIn(body.tokenIn);
-          const { token } = await this.#mcpToken(body, url);
+          // A saved server by its name alone looks at it where it was saved,
+          // with its token: what the assistant may ask, and never another address.
+          const saved = body.url === undefined && typeof body.name === 'string'
+            ? mcpServersIn(await readSettings()).find((one) => one.name === body.name) : undefined;
+          if (body.url === undefined && !saved) {
+            throw new PalugadaError('config.invalid', 'give the server\'s address, or the name of one already saved', { field: 'url' });
+          }
+          const url = saved ? saved.url : mcpUrl(body.url);
+          const { token, signedIn } = await this.#mcpToken(body, url);
+          const tokenIn = signedIn ? undefined : saved ? saved.tokenIn : mcpTokenIn(body.tokenIn);
           try {
             return { problem: null, tools: await offeredTools(accessFor({ url, ...(tokenIn ? { tokenIn } : {}) }, token)) };
           } catch (failure) {
+            // A server that wants a sign-in says where, and the owner is
+            // offered it rather than a 401 to make sense of.
+            if (failure instanceof McpUnauthorized && !token) {
+              const point = await discoverSignIn(url).catch(() => null);
+              if (point) {
+                return { problem: `${new URL(url).host} asks you to sign in, with ${point.issuer}`, signIn: point.issuer };
+              }
+            }
             return { problem: (failure as Error).message };
+          }
+        },
+      },
+
+      {
+        // Begins a sign-in to a server that asks for OAuth, and answers with
+        // the page the owner's browser opens to sign in. Nothing is bound by
+        // it: the tokens the sign-in leaves are the server's once it is saved,
+        // with the owner's device, as a pasted token is.
+        method: 'POST',
+        pattern: '/api/control/mcp/oauth/start',
+        handle: async ({ body, request }) => {
+          const deployment = this.#deploymentSettings();
+          const name = mcpServerNamed(body.name);
+          const url = mcpUrl(body.url);
+          const master = deployment.master(true);
+          if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
+          const clientId = typeof body.clientId === 'string' ? body.clientId.trim() : '';
+          const clientSecret = typeof body.clientSecret === 'string' ? body.clientSecret.trim() : '';
+          const { authorizeUrl, issuer } = await beginSignIn({
+            name, url, master,
+            redirectUri: this.#callbackAddress(request),
+            client: clientId ? { clientId, ...(clientSecret ? { clientSecret } : {}) } : null,
+          });
+          return { authorizeUrl, issuer };
+        },
+      },
+
+      {
+        // Where the authorization server sends the owner's browser back. Open,
+        // because that browser has no session: the state stands in for one,
+        // made by the owner's own console, spent here, and good for minutes.
+        method: 'GET',
+        pattern: '/api/oauth/callback',
+        open: true,
+        handle: async ({ query }) => {
+          const deployment = this.#deploymentSettings();
+          const master = deployment.master(false);
+          const language = (await deploymentLanguages()).console;
+          try {
+            if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
+            // A division's sign-in for a vendor key, when the state is one of those.
+            const signedIn = await finishCredentialSignIn(query, { secrets: deployment.secrets });
+            if (signedIn) {
+              await this.#keepDivisionKey({ ...signedIn, value: signedIn.grant, prefix: OAUTH_CREDENTIALS });
+              const provider = this.#signInFor(signedIn.alias, null)?.name ?? signedIn.provider;
+              return new HtmlPage(200,
+                say(language, 'Signed in to {provider} for the {alias} key', { provider, alias: signedIn.alias }),
+                say(language, 'Go back to PALUGADA: the division holds this key now, and it is renewed before it runs out. This tab can be closed.'),
+                language);
+            }
+            const { name } = await finishSignIn(query, { secrets: deployment.secrets, master });
+            return new HtmlPage(200,
+              say(language, 'Signed in to {name}', { name }),
+              say(language, 'Go back to PALUGADA to choose which of its tools roles may use. This tab can be closed.'),
+              language);
+          } catch (failure) {
+            return new HtmlPage(400, say(language, 'Not signed in'), (failure as Error).message, language);
           }
         },
       },
@@ -1616,8 +2239,10 @@ export class OwnerApi {
           if (Object.keys(chosen).length === 0) {
             throw new PalugadaError('config.invalid', `${name} allows none of its tools: allow at least one, or remove the server`, { name });
           }
-          const tokenIn = mcpTokenIn(body.tokenIn);
-          const { token, typed, keep } = await this.#mcpToken(body, url);
+          const { token, typed, keep, signedIn } = await this.#mcpToken(body, url);
+          // A sign-in's token is a bearer token (RFC 6750), however a preset
+          // says a pasted key is sent.
+          const tokenIn = signedIn ? undefined : mcpTokenIn(body.tokenIn);
           let pins: Map<string, string>;
           try {
             pins = await currentPins(accessFor({ url, ...(tokenIn ? { tokenIn } : {}) }, token));
@@ -1649,7 +2274,7 @@ export class OwnerApi {
             throw failure;
           }
           await this.#requireFactor(body.proof, `let roles use the tools of ${name}`);
-          const secret = `mcp-${name}`;
+          const secret = mcpSecretName(name);
           if (typed) {
             const master = deployment.master(true);
             if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
@@ -1680,7 +2305,62 @@ export class OwnerApi {
           await this.#requireFactor(body.proof, `stop roles using the tools of ${name}`);
           const rest = servers.filter((one) => one.name !== name);
           await writeSetting('mcp', rest.length > 0 ? { servers: rest } : null);
-          await deleteSecret(`mcp-${name}`);
+          await deleteSecret(mcpSecretName(name));
+          await forgetSignIn(name);
+          return this.#applySettings();
+        },
+      },
+
+      /* ---------------------------------------------------- services --- */
+
+      {
+        // The services capabilities call: the presets this repository ships,
+        // the ones the owner connected here, and which preset names the
+        // deployment binds some other way. A division's key is the
+        // division's, below, never here.
+        method: 'GET',
+        pattern: '/api/control/vendors',
+        handle: async () => {
+          this.#deploymentSettings();
+          const saved = vendorsIn(await readSettings());
+          const presets = await vendorPresets();
+          const taken: Record<string, string> = {};
+          for (const preset of presets) {
+            const bound = this.#options.registry?.get(preset.name);
+            if (bound && !saved.some((one) => one.name === preset.name)) taken[preset.name] = bound.adapter;
+          }
+          return { presets, saved, taken };
+        },
+      },
+
+      {
+        // A service connected from the console: the file's entry, checked as
+        // the file is, before the device is asked for.
+        method: 'POST',
+        pattern: '/api/control/vendors',
+        handle: async ({ body }) => {
+          this.#deploymentSettings();
+          const saved = vendorsIn(await readSettings());
+          const entry = checkVendorEntry(body.entry, this.#options.registry, saved.map((one) => one.name));
+          await this.#requireFactor(body.proof, `connect ${entry.name}`);
+          await writeSetting('vendors', { capabilities: [...saved.filter((one) => one.name !== entry.name), entry] });
+          return { ...this.#applySettings(), name: entry.name };
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/control/vendors/:name/remove',
+        handle: async ({ params, body }) => {
+          this.#deploymentSettings();
+          const name = params.name!;
+          const saved = vendorsIn(await readSettings());
+          if (!saved.some((one) => one.name === name)) {
+            throw new PalugadaError('contract.violation', `${name} is not a service connected in the console`, { name });
+          }
+          await this.#requireFactor(body.proof, `disconnect ${name}`);
+          const rest = saved.filter((one) => one.name !== name);
+          await writeSetting('vendors', rest.length > 0 ? { capabilities: rest } : null);
           return this.#applySettings();
         },
       },
@@ -1861,6 +2541,7 @@ export class OwnerApi {
               installed: await findAgent(entry, stateDir),
               cannotInstall: cannotInstall(entry),
               tested: entry.install.kind === 'npm' ? entry.install.tested : null,
+              accepted: setting?.acceptVersion ?? null,
               enabled: setting?.enabled ?? false,
               inUse: inUse.includes(entry.name),
               credential: setting?.credential
@@ -1895,11 +2576,47 @@ export class OwnerApi {
             // changed another CLI in the minutes it took.
             const agents = agentsFrom(await readSettings(), deployment.baseEnv);
             const current = agents[entry.name] ?? { enabled: false };
-            agents[entry.name] = { ...current, command: found.command };
+            // The latest was chosen with the owner's device, knowing it is not
+            // the version checked, so it is accepted; the checked one needs no
+            // acceptance, and a stale one would outlive the install.
+            const { acceptVersion: _stale, ...kept } = current;
+            const installed = found.version ? versionIn(found.version) : null;
+            agents[entry.name] = {
+              ...kept, command: found.command,
+              ...(version === 'latest' && installed ? { acceptVersion: installed } : {}),
+            };
             await writeSetting('agents', agents);
             if (current.enabled) this.#applySettings();
           });
           return { job };
+        },
+      },
+
+      {
+        // A version other than the one whose containment was checked
+        // (`checked-versions.ts`), accepted as it is installed now. It lets a
+        // CLI run whose flags nobody read at that version, so it takes the
+        // owner's device, like installing the latest does.
+        method: 'POST',
+        pattern: '/api/control/agents/:name/accept',
+        handle: async ({ params, body }) => {
+          const deployment = this.#deploymentSettings();
+          const entry = agentNamed(params.name!);
+          const stored = await readSettings();
+          const agents = agentsFrom(stored, deployment.baseEnv);
+          // The same one the page shows as installed.
+          const found = await findAgent(entry, stateDirFrom(deployment.baseEnv));
+          if (!found?.version) {
+            throw new PalugadaError('contract.violation',
+              `${entry.title} is not installed here, or did not say its version; install it first`, { agent: entry.name });
+          }
+          const version = versionIn(found.version);
+          await this.#requireFactor(body.proof, `run ${entry.title} ${version}, a version PALUGADA did not check`);
+          const current = agents[entry.name] ?? { enabled: false };
+          agents[entry.name] = { ...current, acceptVersion: version };
+          await writeSetting('agents', agents);
+          if (current.enabled) this.#applySettings();
+          return { accepted: version };
         },
       },
 
@@ -2308,8 +3025,12 @@ export class OwnerApi {
         open: true,
         raw: true,
         maxBodyBytes: 256 * 1024,
-        handle: async ({ params, request, raw }) =>
-          receiveHook(params.publicId!, { raw, headers: request.headers }, this.#options.secrets),
+        handle: async ({ params, request, raw, query }) => {
+          // A sender that can set nothing but the address carries the token
+          // there (0097); only a door made for that takes it.
+          const token = query.get('token');
+          return receiveHook(params.publicId!, { raw, headers: request.headers, ...(token ? { token } : {}) }, this.#options.secrets);
+        },
       },
 
       {
@@ -2512,6 +3233,12 @@ export class OwnerApi {
             input: { goal: ticket.title, ...(ticket.body ? { context: ticket.body } : {}), ticketId: ticket.id },
             createdBy: 'owner',
             idempotencyKey: `ticket:${ticket.id}:${ticket.updatedAt.toISOString()}`,
+            // A ticket a run filed may hold a customer's words, which is why
+            // `ticket.list` reads as outside content (F8.9); handed out by the
+            // owner, they are still not the owner's words.
+            ...(ticket.openedBy === 'agent'
+              ? { carriesOutside: { capability: 'the ticket it was given', ticketId: ticket.id } }
+              : {}),
             detail: `the owner gave it ticket ${ticket.id}`,
           });
           await withTenant(companyId, (tx) => startTicket(tx, companyId, ticket.id, assigned.task.id));
@@ -2584,6 +3311,29 @@ export class OwnerApi {
               }),
           }),
           }));
+        },
+      },
+
+      {
+        // An account's ceilings, changed. Raising either loosens a control
+        // and takes the owner's factor, as the spend ceiling does; lowering is
+        // the session's. The factor is asked for only once the account is
+        // known to be this company's, so a wrong id does not spend a code.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/budget-accounts/:accountId/limit',
+        handle: async ({ params, body }) => {
+          const tokensMax = wholeNumber(body.tokensMax, 'tokensMax');
+          const moneyMaxCents = body.moneyMaxCents === undefined ? undefined : wholeNumber(body.moneyMaxCents, 'moneyMaxCents');
+          await setCeilings(
+            params.companyId!, params.accountId!,
+            { tokensMax, ...(moneyMaxCents === undefined ? {} : { moneyMaxCents }) },
+            async (before) => {
+              if (tokensMax > before.tokensMax || (moneyMaxCents ?? 0) > before.moneyMaxCents) {
+                await this.#requireFactor(body.proof, 'raise a budget account\'s ceiling', params.companyId!);
+              }
+            },
+          );
+          return { ok: true };
         },
       },
 
@@ -2824,6 +3574,171 @@ export class OwnerApi {
       /* ----------------------------------------------------------- F12.3 --- */
 
       {
+        // A division's keys for services: which it holds, where each lives,
+        // and which its granted capabilities ask for that it does not hold.
+        // Never a value -- a key pasted here is not shown again.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/divisions/:divisionId/credentials',
+        handle: async ({ params, request }) => {
+          const companyId = params.companyId!;
+          const divisionId = params.divisionId!;
+          const { held, granted } = await withControlPlane(async (tx) => {
+            await assertDivisionOf(tx, companyId, divisionId);
+            const held = await tx.query<{ alias: string; version: number; secret_ref: string; scopes: string[]; rotated_at: Date | null; created_at: Date }>(
+              `SELECT alias, version, secret_ref, scopes, rotated_at, created_at FROM credentials
+                WHERE company_id = $1 AND division_id = $2 ORDER BY alias`,
+              [companyId, divisionId],
+            );
+            const granted = await tx.query<{ capability_name: string }>(
+              `SELECT capability_name FROM capability_grants
+                WHERE company_id = $1 AND division_id = $2 ORDER BY capability_name`,
+              [companyId, divisionId],
+            );
+            return { held: held.rows, granted: granted.rows };
+          });
+          const have = new Set(held.map((row) => row.alias));
+          const asked = keysAskedFor(this.#options.registry, granted.map((row) => row.capability_name));
+          // How a key is signed in for, when it is: the provider, where its app
+          // is registered, and whether this deployment has registered one.
+          const signIns = new Map<string, { provider: string; name: string; clientUrl: string | null; client: boolean }>();
+          for (const [alias, need] of asked) {
+            if (need.signIn) {
+              signIns.set(alias, {
+                provider: need.signIn.provider, name: need.signIn.name, clientUrl: need.signIn.clientUrl,
+                client: await hasClient(need.signIn.provider),
+              });
+            }
+          }
+          let callback: string | null = null;
+          try {
+            callback = this.#callbackAddress(request);
+          } catch {
+            callback = null;
+          }
+          return {
+            credentials: held.map((row) => ({
+              alias: row.alias,
+              version: row.version,
+              stored: storedAt(row.secret_ref),
+              signedIn: row.secret_ref.startsWith(`db://${OAUTH_CREDENTIALS}`),
+              scopes: row.scopes,
+              createdAt: row.created_at.toISOString(),
+              rotatedAt: row.rotated_at?.toISOString() ?? null,
+              ...(signIns.has(row.alias) ? { signIn: signIns.get(row.alias) } : {}),
+            })),
+            needs: [...asked].filter(([alias]) => !have.has(alias)).map(([alias, need]) => ({
+              alias, capabilities: need.capabilities, scopes: need.scopes,
+              ...(signIns.has(alias) ? { signIn: signIns.get(alias) } : {}),
+            })),
+            callback,
+          };
+        },
+      },
+
+      {
+        // A key pasted for a division, sealed in the deployment's store under
+        // a name only a division's credential may use (`DivisionSecrets`).
+        // Pasted again for the same alias it is a rotation (F12.3): the next
+        // call signs in with it, and the key it replaced is deleted.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/divisions/:divisionId/credentials',
+        handle: async ({ params, body }) => {
+          const deployment = this.#deploymentSettings();
+          const companyId = params.companyId!;
+          const divisionId = params.divisionId!;
+          const alias = typeof body.alias === 'string' ? body.alias.trim() : '';
+          if (!/^[a-z][a-z0-9_-]{0,39}$/.test(alias)) {
+            throw new PalugadaError('contract.violation',
+              'an alias is lower-case letters, digits, - and _, starting with a letter: the name the service asks for, such as email or crm',
+              { field: 'alias' });
+          }
+          const value = typeof body.value === 'string' ? body.value.trim() : '';
+          if (value.length < 8 || value.length > 8_192) {
+            throw new PalugadaError('contract.violation', 'paste the whole key the service gave you', { field: 'value' });
+          }
+          // A sign-in's record, pasted, would choose where its refresh -- and
+          // the registered app's secret -- is sent.
+          if (value.startsWith('{"oauth2"')) {
+            throw new PalugadaError('contract.violation', 'a key that is signed in for is made by signing in, not pasted', { field: 'value' });
+          }
+          await withControlPlane((tx) => assertDivisionOf(tx, companyId, divisionId));
+          await this.#requireFactor(body.proof, `save the ${alias} key`, companyId);
+          if (!deployment.master(true)) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
+          return this.#keepDivisionKey({ companyId, divisionId, alias, value, prefix: CREDENTIAL_SECRETS });
+        },
+      },
+
+      {
+        // A division's key signed in for rather than pasted: the vendor entry
+        // says with whom, the owner's device says yes here, and the page this
+        // answers with is opened in the owner's browser. The key is kept when
+        // the provider sends the browser back (`/api/oauth/callback`).
+        method: 'POST',
+        pattern: '/api/companies/:companyId/divisions/:divisionId/credentials/:alias/oauth/start',
+        handle: async ({ params, body, request }) => {
+          const deployment = this.#deploymentSettings();
+          const companyId = params.companyId!;
+          const divisionId = params.divisionId!;
+          const alias = params.alias!;
+          await withControlPlane((tx) => assertDivisionOf(tx, companyId, divisionId));
+          const signIn = this.#signInFor(alias, await this.#grantedTo(companyId, divisionId));
+          if (!signIn) {
+            throw new PalugadaError('contract.violation',
+              `nothing this division may use signs in for the ${alias} key; paste the key instead`, { alias });
+          }
+          const clientId = typeof body.clientId === 'string' ? body.clientId.trim() : '';
+          const clientSecret = typeof body.clientSecret === 'string' ? body.clientSecret.trim() : '';
+          const redirectUri = this.#callbackAddress(request);
+          // Asked before the device, so an owner with no app registered is told
+          // what to register rather than asked for a code first.
+          if (!clientId && !(await hasClient(signIn.provider))) {
+            throw new PalugadaError('config.invalid',
+              `${signIn.name} lets PALUGADA in only through an app you register with it: register one, `
+                + `with ${redirectUri} as the address to come back to, and give its client ID and secret`,
+              { provider: signIn.provider, redirectUri });
+          }
+          await this.#requireFactor(body.proof, `sign in to ${signIn.name} for the ${alias} key`, companyId);
+          const master = deployment.master(true);
+          if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
+          return beginCredentialSignIn({
+            companyId, divisionId, alias, signIn, redirectUri, master,
+            client: clientId ? { clientId, ...(clientSecret ? { clientSecret } : {}) } : null,
+          });
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/divisions/:divisionId/credentials/:alias/remove',
+        handle: async ({ params, body }) => {
+          const companyId = params.companyId!;
+          const divisionId = params.divisionId!;
+          const alias = params.alias!;
+          const reference = await withControlPlane(async (tx) => {
+            await assertDivisionOf(tx, companyId, divisionId);
+            const { rows } = await tx.query<{ secret_ref: string }>(
+              'SELECT secret_ref FROM credentials WHERE company_id = $1 AND division_id = $2 AND alias = $3',
+              [companyId, divisionId, alias],
+            );
+            return rows[0]?.secret_ref ?? null;
+          });
+          if (!reference) {
+            throw new PalugadaError('contract.violation', `this division holds no key named ${alias}`, { alias });
+          }
+          await this.#requireFactor(body.proof, `remove the ${alias} key`, companyId);
+          await withControlPlane((tx) => tx.query(
+            'DELETE FROM credentials WHERE company_id = $1 AND division_id = $2 AND alias = $3',
+            [companyId, divisionId, alias],
+          ));
+          if (reference.startsWith(`db://${CREDENTIAL_SECRETS}`)) await deleteSecret(reference.slice('db://'.length));
+          await withTenant(companyId, (tx) => appendEvent(tx, {
+            companyId, type: 'credential.removed', actor: 'owner', payload: { alias, divisionId, secretRef: reference },
+          }));
+          return { ok: true };
+        },
+      },
+
+      {
         // Rotating is the answer to "that token leaked", so it is a tier 3
         // shaped action: it takes a fresh factor, not a session eight hours
         // old. The gate is here rather than in `rotateCredential` because
@@ -2861,16 +3776,12 @@ export class OwnerApi {
       /* ----------------------------------------------------------- F10.3 --- */
 
       {
-        // An agent asked the owner something. This is the answer going back,
-        // which puts the task back on the queue rather than deciding it.
+        // The owner's answer to an escalation, without deciding it: told to
+        // the task, which goes back to work if it was waiting on the owner.
         method: 'POST',
         pattern: '/api/companies/:companyId/inbox/:itemId/answer',
         handle: async ({ params, body }) => {
-          const answer = String(body.answer ?? '').trim();
-          if (!answer) {
-            throw new PalugadaError('contract.violation', 'an answer cannot be empty', {});
-          }
-          await inbox.answerOwnerQuestion(params.companyId!, params.itemId!, answer);
+          await inbox.answerEscalation(params.companyId!, params.itemId!, String(body.answer ?? ''));
           return { ok: true };
         },
       },
@@ -2905,9 +3816,10 @@ export class OwnerApi {
 
       {
         // Editing the ladder redirects the company, so it takes the owner's
-        // device. `proposeGoalChange` is the agent's path -- it files an item
-        // and waits; this is the owner acting directly, which is why there is
-        // nothing to wait for and why the factor is the whole check.
+        // device. `goal.propose` is the agent's path (`proposeGoalChange`) --
+        // it files an item, and the owner's yes to it, with the same device,
+        // is the change; this is the owner acting directly, which is why there
+        // is nothing to wait for and why the factor is the whole check.
         method: 'POST',
         pattern: '/api/companies/:companyId/goals/:goalId',
         handle: async ({ params, body }) => {
@@ -2959,6 +3871,12 @@ export class OwnerApi {
               tierOverride: body.tierOverride === null
                 ? null
                 : wholeNumber(body.tierOverride, 'tierOverride'),
+              // F5.7: calls in flight at once. Left out keeps it; 0 or null lifts it.
+              ...(body.maxInFlight === undefined ? {} : {
+                maxInFlight: body.maxInFlight === null || body.maxInFlight === 0
+                  ? null
+                  : inFlightLimit(body.maxInFlight),
+              }),
             }) as Extract<StructuralChange, { kind: 'change_grant' | 'revoke_grant' }>;
           await applyGrantChange(params.companyId!, change, { ownerApproved: true });
           return { ok: true };
@@ -3098,6 +4016,32 @@ export class OwnerApi {
           if (body.modelFallback !== undefined) {
             fields.modelFallback = textList(body.modelFallback, 'modelFallback');
           }
+          if (body.doneCriteria !== undefined) {
+            // A list, one criterion each; blank lines are dropped and the
+            // rest bounded where the change is made (governance/structure.ts).
+            if (!Array.isArray(body.doneCriteria)) {
+              throw new PalugadaError('contract.violation', 'doneCriteria must be an array: one criterion each', { field: 'doneCriteria' });
+            }
+            // Checked for text rather than cast: `String(null)` is a criterion
+            // reading "null" that no run could ever meet.
+            fields.doneCriteria = body.doneCriteria.map((line, index) => {
+              if (typeof line !== 'string') {
+                throw new PalugadaError('contract.violation', `doneCriteria[${index}] must be text`, { field: 'doneCriteria' });
+              }
+              return line;
+            });
+          }
+          if (body.maxRunMinutes !== undefined) {
+            // 0084. In minutes from the console; none, or 0, is no limit
+            // beyond the task's own deadline.
+            const minutes = body.maxRunMinutes === null ? 0 : Number(body.maxRunMinutes);
+            if (!Number.isInteger(minutes) || minutes < 0 || minutes > 1_440) {
+              throw new PalugadaError('contract.violation',
+                `maxRunMinutes is ${String(body.maxRunMinutes)}; it is a whole number of minutes from 1 to 1440, or 0 for no limit`,
+                { field: 'maxRunMinutes' });
+            }
+            fields.maxRunSeconds = minutes === 0 ? null : minutes * 60;
+          }
           if (body.runtime !== undefined) {
             // Only one this deployment runs. A role moved onto a runtime
             // nothing here employs halts on its next task, and the owner
@@ -3225,6 +4169,49 @@ export class OwnerApi {
         }),
       },
 
+      /* ----------------------------------------------------------- F3.1 --- */
+
+      {
+        // The charters every run of the company is told first: its own, and
+        // the platform's above it (F3.1, F3.2). Read together, because the
+        // company's is read under the platform's and the owner changing one
+        // should see the other.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/charter',
+        handle: async ({ params }) => withTenant(params.companyId!, async (tx) => {
+          const { rows } = await tx.query<{ company_id: string | null; version: number; body: string; created_at: Date }>(
+            `SELECT DISTINCT ON (company_id) company_id, version, body, created_at
+               FROM charters
+              WHERE company_id IS NULL OR company_id = $1
+              ORDER BY company_id NULLS FIRST, version DESC`,
+            [params.companyId],
+          );
+          const shaped = (row: (typeof rows)[number] | undefined) =>
+            row ? { version: row.version, body: row.body, createdAt: row.created_at.toISOString() } : null;
+          return {
+            company: shaped(rows.find((row) => row.company_id !== null)),
+            platform: shaped(rows.find((row) => row.company_id === null)),
+          };
+        }),
+      },
+
+      {
+        // F3.6: the owner's to write. Behind the factor, because it is the
+        // first thing every run of the company obeys, and a session alone
+        // could otherwise rewrite what every agent is told to do.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/charter',
+        handle: async ({ params, body }) => this.#writeCharter(params.companyId!, body),
+      },
+
+      {
+        // The platform's, which every company's runs are told above their
+        // own (F3.1). The same write, for the whole deployment.
+        method: 'POST',
+        pattern: '/api/control/charter',
+        handle: async ({ body }) => this.#writeCharter(null, body),
+      },
+
       {
         // F3.9: every recorded version of one piece of configuration, newest
         // first, with what it held.
@@ -3246,9 +4233,11 @@ export class OwnerApi {
           const kind = configKind(params.kind);
           const version = wholeNumber(body.version, 'version');
           await this.#requireFactor(body.proof, `put back version ${version} of a ${kind}`, params.companyId!);
-          return rollBack(
+          const restored = await rollBack(
             params.companyId!, kind, typeof body.subjectId === 'string' ? body.subjectId : null, version,
           );
+          if (kind === 'charter') await this.#options.charters?.sync().catch(() => undefined);
+          return restored;
         },
       },
 
@@ -3701,13 +4690,27 @@ export class OwnerApi {
           // list of devices, and the console needs a label and a kind to draw
           // one. Anything more is a detail an owner console has no use for and
           // a compromised browser would.
-          authenticators: (await this.#options.mfa.enrolled()).map((factor) => ({
+          authenticators: await Promise.all((await this.#options.mfa.enrolled()).map(async (factor) => ({
             id: factor.id,
             kind: factor.kind,
             label: factor.label,
-          })),
+            // How many recovery codes are left; never the codes.
+            ...(factor.kind === 'recovery' ? { left: await this.#options.mfa.recoveryCodesLeft() ?? 0 } : {}),
+          }))),
           passkeys: this.#options.mfa.relyingParty,
         }),
+      },
+
+      {
+        // Ten codes to write down, for the day the phone is gone. Shown once;
+        // the old set stops working. With a device, or with a code, since
+        // an owner who used some should be able to make a fresh set.
+        method: 'POST',
+        pattern: '/api/mfa/recovery-codes',
+        handle: async ({ body }) => {
+          await this.#requireFactor(body.proof, 'make new recovery codes');
+          return { codes: await this.#options.mfa.issueRecoveryCodes() };
+        },
       },
 
       {
@@ -3775,7 +4778,9 @@ export class OwnerApi {
   async #modelCandidate(body: Record<string, unknown>): Promise<{ env: NodeJS.ProcessEnv; secrets: SecretManager }> {
     const deployment = this.#deploymentSettings();
     const stored = await readSettings();
-    const candidate = modelSettingFrom(body, stored.model as ModelSetting | undefined);
+    // Naming nothing checks what is saved, as it is: how the assistant asks.
+    const saved = stored.model as ModelSetting | undefined;
+    const candidate = body.provider === undefined && saved ? saved : modelSettingFrom(body, saved);
     const env = withSettings(deployment.baseEnv, { ...stored, model: candidate });
     const typed = typeof body.key === 'string' && body.key.trim() !== '' ? body.key.trim() : null;
     if (!typed) return { env, secrets: deployment.secrets };
@@ -3787,6 +4792,12 @@ export class OwnerApi {
   }
 
   /** A local Bot API server, when the deployment names one; Telegram's own otherwise. */
+  /** Where Meta's Graph API is reached: its own address unless a test or a proxy names another. */
+  #whatsappApi(): { apiBase?: string } {
+    const base = this.#deploymentSettings().baseEnv.PALUGADA_WHATSAPP_API;
+    return base ? { apiBase: base } : {};
+  }
+
   #botApi(): { apiBase?: string } {
     const base = this.#deploymentSettings().baseEnv.PALUGADA_TELEGRAM_API;
     return base ? { apiBase: base } : {};
@@ -3860,20 +4871,20 @@ export class OwnerApi {
   }
 
   /**
-   * The owner's conversation as Telegram reaches it: the same conversations
+   * The owner's conversation as a chat reaches it: the same conversations
    * as the console's, with the same model and reads, the owner's authority
    * and no session -- a chat has none, and no route a card from a chat may
    * reach needs one (`chatMayApply`).
    */
-  #chatConversation(request: IncomingMessage): ChatConversation {
+  #chatConversation(request: IncomingMessage, channel: 'telegram' | 'whatsapp' = 'telegram'): ChatConversation {
     const voice = this.#options.assistant?.voice;
     const language = async () => (await deploymentLanguages()).console ?? 'en';
     return {
       hears: Boolean(voice?.listen),
       speaks: Boolean(voice?.speak),
       partners: async () => chatPartners(await language()),
-      current: () => chatScope('telegram'),
-      moveTo: (companyId) => moveChat(companyId),
+      current: () => chatScope(channel),
+      moveTo: (companyId) => moveChat(companyId, channel),
       talk: async (companyId, text, signal) => {
         const said = (await converse({
           llm: this.#options.assistant?.llm ?? null,
@@ -3881,7 +4892,7 @@ export class OwnerApi {
           language,
           ...(companyId ? { companyId } : {}),
           ...(signal ? { signal } : {}),
-        }, text, 'telegram')).at(-1)!;
+        }, text, channel)).at(-1)!;
         // Stopped, the conversation ends on what happened rather than on an answer.
         if (said.role === 'event') return { answer: '', cards: [], stopped: true };
         return {
@@ -3897,7 +4908,7 @@ export class OwnerApi {
         if (!proposal) return { outcome: 'unknown' };
         if (proposal.status !== 'open') return { outcome: 'closed', status: proposal.status };
         if (!chatMayApply(proposal)) return { outcome: 'app' };
-        await this.#applyProposal(proposal, {}, request, null, 'telegram');
+        await this.#applyProposal(proposal, {}, request, null, channel);
         return { outcome: 'applied', summary: proposal.summary };
       },
     };
@@ -3927,12 +4938,159 @@ export class OwnerApi {
    * typed, or the one saved for that server -- but only while the address is
    * on the host it was saved for, or it would be handed to another server.
    */
-  async #mcpToken(body: Record<string, unknown>, url: string): Promise<{ token: string | null; typed: string | null; keep: boolean }> {
+  async #mcpToken(body: Record<string, unknown>, url: string): Promise<{
+    token: string | null; typed: string | null; keep: boolean; signedIn: boolean;
+  }> {
     const typed = typeof body.token === 'string' && body.token.trim() ? body.token.trim() : null;
-    if (typed) return { token: typed, typed, keep: false };
-    const saved = typeof body.name === 'string' ? mcpServersIn(await readSettings()).find((one) => one.name === body.name) : undefined;
-    if (!saved?.tokenSecret || new URL(saved.url).origin !== new URL(url).origin) return { token: null, typed: null, keep: false };
-    return { token: await this.#deploymentSettings().secrets.resolve(`db://${saved.tokenSecret}`), typed: null, keep: true };
+    if (typed) return { token: typed, typed, keep: false, signedIn: false };
+    const settings = await readSettings();
+    // Signed in to with OAuth: the token the sign-in left, for the address it
+    // was issued for and no other. Saved or not, it is kept under the same
+    // name as a pasted one, and this says which it is.
+    const grant = typeof body.name === 'string' ? oauthGrantsIn(settings)[body.name] : undefined;
+    const signedIn = Boolean(grant && grant.url === url);
+    const saved = typeof body.name === 'string' ? mcpServersIn(settings).find((one) => one.name === body.name) : undefined;
+    if (saved?.tokenSecret && new URL(saved.url).origin === new URL(url).origin) {
+      return { token: await this.#deploymentSettings().secrets.resolve(`db://${saved.tokenSecret}`), typed: null, keep: true, signedIn };
+    }
+    if (signedIn) {
+      return { token: await this.#deploymentSettings().secrets.resolve(`db://${mcpSecretName(body.name as string)}`), typed: null, keep: true, signedIn };
+    }
+    return { token: null, typed: null, keep: false, signedIn: false };
+  }
+
+  /**
+   * Seals a division's key and makes it the credential for its alias: a key
+   * pasted, or a sign-in's grant. Kept again for the same alias it is a
+   * rotation (F12.3): the next call uses it, and the key it replaced is
+   * deleted. F12.6: it is declared as carrying what the division's
+   * capabilities ask of it and nothing more -- the broker refuses a key that
+   * does not declare a scope its capability needs, and the database one that
+   * declares a scope nothing here needs.
+   */
+  async #keepDivisionKey(input: {
+    companyId: string; divisionId: string; alias: string; value: string; prefix: string;
+  }): Promise<{ alias: string; version: number }> {
+    const { companyId, divisionId, alias } = input;
+    const master = this.#deploymentSettings().master(true);
+    if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
+    const { previous, scopes } = await withControlPlane(async (tx) => {
+      await assertDivisionOf(tx, companyId, divisionId);
+      const { rows } = await tx.query<{ secret_ref: string }>(
+        'SELECT secret_ref FROM credentials WHERE company_id = $1 AND division_id = $2 AND alias = $3',
+        [companyId, divisionId, alias],
+      );
+      const granted = await tx.query<{ capability_name: string }>(
+        'SELECT capability_name FROM capability_grants WHERE company_id = $1 AND division_id = $2',
+        [companyId, divisionId],
+      );
+      const asked = keysAskedFor(this.#options.registry, granted.rows.map((row) => row.capability_name)).get(alias);
+      return { previous: rows[0]?.secret_ref ?? null, scopes: asked?.scopes ?? [] };
+    });
+    const secret = `${input.prefix}${randomBytes(8).toString('hex')}`;
+    await putSecret(secret, input.value, master);
+    const reference = `db://${secret}`;
+    const sweep = {
+      ...(this.#options.registry ? { registry: this.#options.registry } : {}),
+      ...(this.#options.credentialFor ? { credential: this.#options.credentialFor } : {}),
+    };
+    let version = 1;
+    try {
+      if (previous) {
+        // Declared before the rotation's sweep, which checks the key
+        // against what its capabilities need.
+        await withControlPlane((tx) => tx.query(
+          'UPDATE credentials SET scopes = $4 WHERE company_id = $1 AND division_id = $2 AND alias = $3',
+          [companyId, divisionId, alias, scopes],
+        ));
+        version = (await rotateCredential({ companyId, divisionId, alias, newSecretRef: reference, ...sweep })).version;
+      } else {
+        await withControlPlane((tx) => tx.query(
+          'INSERT INTO credentials (company_id, division_id, alias, secret_ref, scopes) VALUES ($1, $2, $3, $4, $5)',
+          [companyId, divisionId, alias, reference, scopes],
+        ));
+        await withTenant(companyId, (tx) => appendEvent(tx, {
+          companyId, type: 'credential.added', actor: 'owner', payload: { alias, divisionId, secretRef: reference },
+        }));
+        // The same sweep a rotation takes, so a capability that was
+        // unhealthy for want of this key is checked again now.
+        if (sweep.registry) {
+          await preflightGrants(sweep.registry, { companyId, divisionId, ...(sweep.credential ? { credential: sweep.credential } : {}) });
+        }
+      }
+    } catch (failure) {
+      await deleteSecret(secret).catch(() => undefined);
+      throw failure;
+    }
+    if (previous?.startsWith(`db://${CREDENTIAL_SECRETS}`)) await deleteSecret(previous.slice('db://'.length));
+    return { alias, version };
+  }
+
+  /** The capabilities a division may use, by name. */
+  async #grantedTo(companyId: string, divisionId: string): Promise<string[]> {
+    return withControlPlane(async (tx) => (await tx.query<{ capability_name: string }>(
+      'SELECT capability_name FROM capability_grants WHERE company_id = $1 AND division_id = $2',
+      [companyId, divisionId],
+    )).rows.map((row) => row.capability_name));
+  }
+
+  /**
+   * How a key is signed in for: from the capabilities that use it -- those
+   * granted, when the division is known -- with every scope they ask for.
+   */
+  #signInFor(alias: string, granted: readonly string[] | null): CredentialSignIn | null {
+    const registry = this.#options.registry;
+    if (!registry) return null;
+    const names = granted ?? registry.names();
+    return keysAskedFor(registry, names).get(alias)?.signIn ?? null;
+  }
+
+  /**
+   * What each model costs as the next start will price it: the operator's
+   * list with the owner's laid over it, from what is stored now, so a price
+   * just saved shows before the restart that takes it up.
+   */
+  #pricesFor(models: ReadonlyArray<string | undefined>, stored: Record<string, unknown>) {
+    const own = (stored.model_prices as { models?: Record<string, unknown> } | undefined)?.models ?? {};
+    // The file's, then setup's (PALUGADA_MODEL_PRICE_SETTINGS in the
+    // environment), then the owner's: the order the start lays them in.
+    const configured = withConsolePrices(this.#options.prices ?? DEFAULT_PRICE_TABLE,
+      this.#deploymentSettings().baseEnv.PALUGADA_MODEL_PRICE_SETTINGS);
+    const table = withConsolePrices(configured, Object.keys(own).length > 0 ? JSON.stringify({ models: own }) : undefined);
+    return [...new Set(models.filter((model): model is string => Boolean(model)))].map((model) => {
+      const { rate, basis } = rateFor(table, model);
+      return {
+        model,
+        input: rate.inputCentsPerMTok,
+        output: rate.outputCentsPerMTok,
+        source: model in own ? 'console' : basis === 'fallback' ? 'fallback' : 'file',
+      };
+    });
+  }
+
+  /**
+   * Where an authorization server sends the owner back: this deployment's
+   * public address, or the address the owner reached this console at, which
+   * must be https or this machine's own -- the only kinds OAuth sends a code to.
+   */
+  #callbackAddress(request: IncomingMessage): string {
+    const configured = this.#deploymentSettings().baseEnv.PALUGADA_APP_URL_PUBLIC;
+    const base = configured
+      ? configured.replace(/\/+$/, '')
+      : `${this.#options.behindProxy && request.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http'}://${request.headers.host ?? ''}`;
+    let url: URL;
+    try {
+      url = new URL(`${base}/api/oauth/callback`);
+    } catch {
+      throw new PalugadaError('config.invalid', 'this console cannot tell its own address; set PALUGADA_APP_URL_PUBLIC', {});
+    }
+    const loopback = ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname);
+    if (url.protocol !== 'https:' && !loopback) {
+      throw new PalugadaError('config.invalid',
+        `a sign-in comes back only to an https address or to this machine, and this console is at ${url.origin}: `
+          + 'set PALUGADA_APP_URL_PUBLIC to its https address, or open the console on this machine at localhost', { origin: url.origin });
+    }
+    return url.toString();
   }
 
   /** The push channel the console is asking about: checked, with the token typed or the one saved. */
@@ -3959,6 +5117,33 @@ export class OwnerApi {
   }
 
   /** A Slack or Discord incoming webhook: the one pasted, checked for where it points, or the one saved. */
+  /** The sending service the console asks about: checked, with the key typed or the one saved for that same service. */
+  async #emailCandidate(body: Record<string, unknown>): Promise<{ provider: EmailProviderId; key: string; from: string; to: string }> {
+    const provider = emailProvider(typeof body.provider === 'string' ? body.provider : '');
+    if (!provider) {
+      throw new PalugadaError('contract.violation', `a sending service is ${EMAIL_PROVIDERS.map((one) => one.id).join(', ')}`, { field: 'provider' });
+    }
+    const from = typeof body.from === 'string' ? body.from.trim() : '';
+    const to = typeof body.to === 'string' ? body.to.trim() : '';
+    if (!emailAddress(from)) {
+      throw new PalugadaError('contract.violation', `from is an address ${provider.name} lets this account send from, as alerts@yourdomain.com`, { field: 'from' });
+    }
+    if (!emailAddress(to)) throw new PalugadaError('contract.violation', 'to is your own address', { field: 'to' });
+    const typed = typeof body.key === 'string' ? body.key.trim() : '';
+    const stored = ((await readSettings()).channels as ChannelSettings | undefined)?.email;
+    const key = typed || (stored?.provider === provider.id
+      ? await this.#deploymentSettings().secrets.resolve(`db://${stored.keySecret}`).catch(() => '')
+      : '');
+    if (!key || /\s/.test(key)) throw new PalugadaError('contract.violation', `paste an API key from ${provider.name}`, { field: 'key' });
+    return { provider: provider.id, key, from, to };
+  }
+
+  /** Another origin for the sending service's API, when a test or a proxy names one. */
+  #emailApi(): { apiBase?: string } {
+    const base = this.#deploymentSettings().baseEnv.PALUGADA_EMAIL_API;
+    return base ? { apiBase: base } : {};
+  }
+
   async #chatWebhook(kind: WebhookChatKind, body: Record<string, unknown>): Promise<string> {
     const typed = typeof body.url === 'string' ? body.url.trim() : '';
     if (typed) {
@@ -3985,9 +5170,11 @@ export class OwnerApi {
     const id = typeof body.provider === 'string' ? body.provider : '';
     const lists = {
       search: SEARCH_PROVIDERS, extract: EXTRACT_PROVIDERS, image: IMAGE_PROVIDERS, speech: SPEECH_PROVIDERS, listen: LISTEN_PROVIDERS,
+      embed: EMBED_PROVIDERS,
     } as const;
     const provider = kind === 'search' ? searchProvider(id) : kind === 'extract' ? extractProvider(id)
-      : kind === 'image' ? imageProvider(id) : kind === 'speech' ? speechProvider(id) : listenProvider(id);
+      : kind === 'image' ? imageProvider(id) : kind === 'speech' ? speechProvider(id)
+        : kind === 'embed' ? embedProvider(id) : listenProvider(id);
     if (!provider) {
       const known = lists[kind].map((one) => one.id);
       throw new PalugadaError('contract.violation', `provider is one of ${known.join(', ')}; got ${id || 'nothing'}`, { field: 'provider' });
@@ -4000,11 +5187,15 @@ export class OwnerApi {
     }
     const typed = typeof body.key === 'string' && body.key.trim() !== '' && provider.key !== 'none' ? body.key.trim() : null;
     const saved = ((await readSettings()).tools as Partial<Record<ToolKind, ToolSetting>> | undefined)?.[kind];
-    const keep = !typed && body.clearKey !== true && saved?.provider === provider.id && Boolean(saved.keySecret);
+    // The saved key stays with the address it was saved for, as the model's
+    // does: a provider you run yourself, tried at another address -- a try
+    // needs no second factor -- would otherwise be sent the saved key there.
+    const keep = !typed && body.clearKey !== true && saved?.provider === provider.id && Boolean(saved.keySecret)
+      && sameOrigin(saved.url ?? undefined, url ?? undefined);
     if (provider.key === 'required' && !typed && !keep) {
       throw new PalugadaError('contract.violation', `${provider.name} needs a key`, { field: 'key' });
     }
-    const binding: ToolBinding<SearchProvider | ExtractProvider | ImageProvider | SpeechProvider | ListenProvider> = {
+    const binding: ToolBinding<SearchProvider | ExtractProvider | ImageProvider | SpeechProvider | ListenProvider | EmbedProvider> = {
       provider,
       url,
       key: async () => (typed ?? (keep ? deployment.secrets.resolve(`db://tool-${kind}`) : null)),
@@ -4022,6 +5213,55 @@ export class OwnerApi {
     if (!restart) return { applies: 'next_start' };
     setTimeout(restart, 250).unref();
     return { applies: 'now' };
+  }
+
+  /**
+   * A new version of a charter: the platform's when `companyId` is null.
+   *
+   * Everything that can be checked without the factor is checked first, so
+   * a blank or runaway charter costs a correction rather than a code. The
+   * same words again are not a change: no version, and no factor asked for
+   * nothing -- saving an unchanged page would otherwise put a version in the
+   * history that nobody can tell from the one before it.
+   */
+  async #writeCharter(
+    companyId: string | null,
+    body: Record<string, unknown>,
+  ): Promise<{ version: number; unchanged: boolean; file?: string | null }> {
+    const text = charterText(body.body);
+    const { current, slug } = await withControlPlane(async (tx) => {
+      let slug: string | null = null;
+      if (companyId !== null) {
+        const { rows } = await tx.query<{ slug: string }>('SELECT slug FROM companies WHERE id = $1', [companyId]);
+        if (rows.length === 0) {
+          throw new PalugadaError('contract.violation', 'there is no company with that id', { companyId });
+        }
+        slug = rows[0]!.slug;
+      }
+      const { rows } = await tx.query<{ version: number; body: string }>(
+        `SELECT version, body FROM charters WHERE company_id IS NOT DISTINCT FROM $1
+          ORDER BY version DESC LIMIT 1`,
+        [companyId],
+      );
+      return { current: rows[0], slug };
+    });
+    if (current?.body === text) return { version: current.version, unchanged: true };
+    await this.#requireFactor(
+      body.proof, companyId === null ? 'change the platform charter' : 'change the company charter', companyId);
+    const published = await publishCharter(companyId === null ? { body: text } : { companyId, body: text });
+    // F3.11: into its file and committed now, rather than on the next tick.
+    // A repository that cannot be written does not undo a charter the owner
+    // saved; the next sync tries again. But the owner is told now: a file
+    // that stays behind is the one a later edit, or a pull, is made from.
+    if (!this.#options.charters) return { version: published.version, unchanged: false };
+    const synced = await this.#options.charters.sync().catch(() => null);
+    const path = slug === null ? PLATFORM_CHARTER_FILE : join('companies', slug, COMPANY_CHARTER_FILE);
+    const refused = synced?.refused.find((one) => one.path === path);
+    const file = !synced ? 'Not written to its file: the charter repository could not be reached; the next sync tries again.'
+      : synced.git.startsWith('held: ') ? `Not written to its file: ${synced.git.slice('held: '.length)}`
+        : refused ? `Not written to its file: ${refused.reason}`
+          : null;
+    return { version: published.version, unchanged: false, file };
   }
 
   async #requireFactor(
@@ -4044,6 +5284,8 @@ export class OwnerApi {
     // own platform-scoped device still answers for all of them.
     const asking = { purpose: `console.${purpose}`, subjectId: null, companyId };
     if ('totp' in presented) await this.#options.mfa.verifyTotp(presented.totp, asking);
+    // Taken only for what a code may do (RECOVERY_PURPOSES), and refused for the rest.
+    else if ('recovery' in presented) await this.#options.mfa.verifyRecoveryCode(presented.recovery, asking);
     else await this.#options.mfa.verifyWebAuthn(presented.webauthn, asking);
   }
 
@@ -4114,6 +5356,11 @@ export class OwnerApi {
         query: url.searchParams,
       });
       if (answer instanceof WithStatus) send(res, answer.status, answer.body);
+      else if (answer instanceof HtmlPage) sendPage(res, answer);
+      else if (answer instanceof PlainText) {
+        res.writeHead(200, { 'content-type': answer.contentType, 'cache-control': 'no-store' });
+        res.end(answer.text);
+      }
       else send(res, 200, answer ?? { ok: true });
     } catch (error) {
       // A refusal is an answer. `decide` refusing a tier 3 approval without a
@@ -4280,14 +5527,17 @@ const CONTENT_TYPES: Record<string, string> = {
 function statusFor(code: string): number {
   if (code === 'owner.unauthenticated') return 401;
   if (code === 'owner.throttled') return 429;
+  if (code === 'owner.claimed') return 409;
   if (code === 'mfa.locked_out') return 429;
   if (code.startsWith('mfa.')) return 401;
   if (code === 'approval.channel_forbidden' || code === 'policy.denied') return 403;
-  if (code === 'capability.rate_limited' || code === 'hook.rate_limited') return 429;
+  if (code === 'capability.rate_limited' || code === 'capability.busy' || code === 'hook.rate_limited') return 429;
   if (code === 'hook.unknown') return 404;
   if (code === 'hook.refused') return 401;
   if (code === 'hook.unsupported') return 415;
   if (code === 'hook.unavailable') return 503;
+  if (code === 'metrics.off') return 404;
+  if (code === 'metrics.refused') return 401;
   return 400;
 }
 
@@ -4344,6 +5594,15 @@ class SignInThrottle {
   succeeded(address: string): void {
     this.#failures.delete(address);
   }
+}
+
+/**
+ * The console's name as the request gave it, for the label an authenticator
+ * app shows beside the code: an owner of two deployments tells them apart.
+ */
+function hostLabel(request: IncomingMessage): string {
+  const host = /^[a-z0-9.-]+/i.exec(String(request.headers.host ?? ''))?.[0];
+  return host || 'palugada';
 }
 
 /** Who is asking: the connection's address, or behind a proxy the one it vouches for. */
@@ -4423,6 +5682,57 @@ function outcomeOf(result: unknown): string {
 }
 
 /** The console's MCP servers, as saved. */
+/** The services the owner connected in the console. */
+function vendorsIn(settings: Record<string, unknown>): VendorSpec[] {
+  return ((settings.vendors as { capabilities?: VendorSpec[] } | undefined)?.capabilities) ?? [];
+}
+
+/**
+ * The keys a division's granted capabilities ask for, by alias: which
+ * capabilities use each, and the scopes they need of it (F12.6).
+ */
+function keysAskedFor(
+  registry: CapabilityRegistry | undefined,
+  granted: readonly string[],
+): Map<string, { capabilities: string[]; scopes: string[]; signIn?: CredentialSignIn }> {
+  const asked = new Map<string, { capabilities: string[]; scopes: string[]; signIn?: CredentialSignIn }>();
+  for (const name of [...granted].sort()) {
+    const capability = registry?.get(name);
+    if (!capability?.credentialAlias) continue;
+    const entry: { capabilities: string[]; scopes: string[]; signIn?: CredentialSignIn } = asked.get(capability.credentialAlias) ?? { capabilities: [], scopes: [] };
+    entry.capabilities.push(name);
+    for (const scope of capability.requiredScopes ?? []) if (!entry.scopes.includes(scope)) entry.scopes.push(scope);
+    // One sign-in for the key, asking for every scope its capabilities need
+    // of the same provider.
+    if (capability.signIn && (!entry.signIn || entry.signIn.provider === capability.signIn.provider)) {
+      entry.signIn = entry.signIn
+        ? { ...entry.signIn, scopes: [...new Set([...entry.signIn.scopes, ...capability.signIn.scopes])] }
+        : capability.signIn;
+    }
+    asked.set(capability.credentialAlias, entry);
+  }
+  return asked;
+}
+
+/** Where a credential's value lives, said without saying the value. */
+function storedAt(reference: string): 'console' | 'environment' | 'file' | 'elsewhere' {
+  if (reference.startsWith(`db://${CREDENTIAL_SECRETS}`)) return 'console';
+  if (reference.startsWith('env://')) return 'environment';
+  if (reference.startsWith('file://')) return 'file';
+  return 'elsewhere';
+}
+
+/** Refused unless the division is the company's: a path can name any pair of ids. */
+async function assertDivisionOf(tx: TenantClient, companyId: string, divisionId: string): Promise<void> {
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const { rows } = uuid.test(companyId) && uuid.test(divisionId)
+    ? await tx.query('SELECT 1 FROM divisions WHERE id = $1 AND company_id = $2', [divisionId, companyId])
+    : { rows: [] };
+  if (rows.length === 0) {
+    throw new PalugadaError('contract.violation', `there is no division ${divisionId} in that company`, { divisionId });
+  }
+}
+
 function mcpServersIn(settings: Record<string, unknown>): McpServerSetting[] {
   return [...((settings.mcp as { servers?: McpServerSetting[] } | undefined)?.servers ?? [])];
 }
@@ -4473,6 +5783,7 @@ function mcpUrl(value: unknown): string {
   if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
     throw new PalugadaError('config.invalid', `an MCP server is reached over HTTP; ${parsed.protocol} is not`, { field: 'url' });
   }
+  assertPlainHttpIsLocal(url);
   return url;
 }
 
@@ -4512,6 +5823,16 @@ function agentsFrom(stored: Settings, env: NodeJS.ProcessEnv): Record<string, Ag
  * The model the console sent, checked for shape; what it leaves out is kept
  * from the model already chosen, so saving a new tier does not forget the key.
  */
+/** Whether two model addresses are one server; no address is the provider's own. */
+function sameOrigin(saved: string | undefined, asked: string | undefined): boolean {
+  if (saved === undefined || asked === undefined) return saved === asked;
+  try {
+    return new URL(saved).origin === new URL(asked).origin;
+  } catch {
+    return false;
+  }
+}
+
 function modelSettingFrom(body: Record<string, unknown>, previous: ModelSetting | undefined): ModelSetting {
   const provider = body.provider;
   if (provider !== 'anthropic' && provider !== 'openai') {
@@ -4542,7 +5863,11 @@ function modelSettingFrom(body: Record<string, unknown>, previous: ModelSetting 
     throw new PalugadaError('contract.violation',
       `preset is one of ${MODEL_PROVIDERS.map((entry) => entry.id).join(', ')}; got ${preset}`, { field: 'preset' });
   }
-  const keep = previous && previous.provider === provider ? previous.keySecret : undefined;
+  // The saved key goes only where it was saved for: the same provider at the
+  // same origin. A check, a test or a save naming another address gets no
+  // key, or it would be handed to whoever answers there -- and the assistant
+  // runs the checks itself, so a page it read could name that address.
+  const keep = previous && previous.provider === provider && sameOrigin(previous.url, url) ? previous.keySecret : undefined;
   return {
     ...(preset ? { preset } : {}),
     provider,
@@ -4553,15 +5878,16 @@ function modelSettingFrom(body: Record<string, unknown>, previous: ModelSetting 
   };
 }
 
-function proofFrom(value: unknown): { totp: string } | { webauthn: WebAuthnAssertion } {
+function proofFrom(value: unknown): { totp: string } | { webauthn: WebAuthnAssertion } | { recovery: string } {
   const body = (value ?? {}) as Record<string, unknown>;
   if (typeof body.totp === 'string') return { totp: body.totp };
   if (body.webauthn && typeof body.webauthn === 'object') {
     return { webauthn: body.webauthn as WebAuthnAssertion };
   }
+  if (typeof body.recovery === 'string' && body.recovery.length <= 64) return { recovery: body.recovery };
   throw new PalugadaError(
     'contract.violation',
-    'a second factor is a totp code or a webauthn assertion',
+    'a second factor is a totp code, a webauthn assertion or a recovery code',
     {},
   );
 }
@@ -4584,6 +5910,17 @@ function wholeNumber(value: unknown, field: string): number {
     );
   }
   return parsed;
+}
+
+/** Calls in flight at once, as a grant may allow them: a whole number from 1 to `MAX_IN_FLIGHT`. */
+function inFlightLimit(value: unknown): number {
+  const limit = wholeNumber(value, 'maxInFlight');
+  if (limit > MAX_IN_FLIGHT) {
+    throw new PalugadaError('contract.violation',
+      `maxInFlight is ${limit}; a grant allows at most ${MAX_IN_FLIGHT} calls at once, or 0 for no limit`,
+      { field: 'maxInFlight' });
+  }
+  return limit;
 }
 
 function hour(value: unknown, field: string): number {
@@ -4671,6 +6008,25 @@ function requireText(value: unknown, field: string): string {
   return text;
 }
 
+/**
+ * A charter's text, trimmed at its ends. Bounded because every run of the
+ * company carries it whole and it is never dropped to make room (F3.2): a
+ * charter of a book's length would be paid for on every call a model makes,
+ * and would crowd out the task it is meant to govern.
+ */
+function charterText(value: unknown): string {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!text) throw new PalugadaError('contract.violation', 'write the charter: it is empty', { field: 'body' });
+  if (text.length > CHARTER_LIMIT) {
+    throw new PalugadaError(
+      'contract.violation',
+      `a charter is at most ${CHARTER_LIMIT} characters, and this one is ${text.length}; every run carries it whole`,
+      { field: 'body' },
+    );
+  }
+  return text;
+}
+
 /** A list of non-empty strings, which `Array.map(String)` is not. */
 function textList(value: unknown, field: string): string[] {
   if (!Array.isArray(value)) {
@@ -4725,6 +6081,15 @@ function hostOf(header: string | undefined): string | null {
   }
 }
 
+/**
+ * Whether two secrets are the same, in time that does not depend on where they
+ * first differ. Compared as digests, so their lengths do not show either.
+ */
+function sameSecret(given: string, expected: string): boolean {
+  const digest = (value: string) => createHash('sha256').update(value).digest();
+  return timingSafeEqual(digest(given), digest(expected));
+}
+
 function bearer(req: IncomingMessage): string | undefined {
   const header = req.headers.authorization ?? '';
   return header.startsWith('Bearer ') ? header.slice(7) : undefined;
@@ -4753,6 +6118,24 @@ function jsonObject(bytes: Buffer): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>"']/g, (character) => `&#${character.charCodeAt(0)};`);
+}
+
+/** A page with no script and nothing loaded from anywhere: what it says, and nothing it could be made to do. */
+function sendPage(res: ServerResponse, page: HtmlPage): void {
+  res.writeHead(page.status, {
+    'content-type': 'text/html; charset=utf-8',
+    'cache-control': 'no-store',
+    'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'",
+    'referrer-policy': 'no-referrer',
+  });
+  res.end(`<!doctype html><html lang="${escapeHtml(page.language)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">`
+    + `<title>${escapeHtml(page.title)}</title></head>`
+    + `<body style="font-family: system-ui, sans-serif; max-width: 34rem; margin: 4rem auto; padding: 0 1rem; line-height: 1.5">`
+    + `<h1 style="font-size: 1.4rem">${escapeHtml(page.title)}</h1><p>${escapeHtml(page.text)}</p></body></html>`);
+}
+
 function send(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
@@ -4763,17 +6146,19 @@ function send(res: ServerResponse, status: number, body: unknown): void {
 
 /** Every company the owner has, newest last, which is how they were made. */
 async function companies(): Promise<Array<{
-  id: string; slug: string; name: string; frozen: boolean; workLanguage: string | null; talkLanguage: string | null;
+  id: string; slug: string; name: string; frozen: boolean; eraseAfter: Date | null; workLanguage: string | null; talkLanguage: string | null;
+  guardian: boolean;
   stage: Stage | null; headline: Headline | null; ceo: { roleId: string; slug: string; displayName: string | null } | null;
 }>> {
   return withControlPlane(async (tx) => {
     const { rows } = await tx.query<{
-      id: string; slug: string; name: string; frozen: boolean; workLanguage: string | null; talkLanguage: string | null;
+      id: string; slug: string; name: string; frozen: boolean; eraseAfter: Date | null; workLanguage: string | null; talkLanguage: string | null;
+      guardian: boolean;
       stage: Stage | null; ceo: { roleId: string; slug: string; displayName: string | null } | null;
     }>(
       // Who the owner talks to in each (0068), for the pages that offer the conversation.
-      `SELECT company.id, company.slug, company.name, company.frozen_at IS NOT NULL AS frozen,
-              company.work_language AS "workLanguage", company.talk_language AS "talkLanguage", company.stage,
+      `SELECT company.id, company.slug, company.name, company.frozen_at IS NOT NULL AS frozen, company.erase_after AS "eraseAfter",
+              company.work_language AS "workLanguage", company.talk_language AS "talkLanguage", company.stage, company.guardian,
               CASE WHEN ceo.id IS NULL THEN NULL
                    ELSE jsonb_build_object('roleId', ceo.id, 'slug', ceo.slug, 'displayName', ceo.display_name) END AS ceo
          FROM companies company LEFT JOIN roles ceo ON ceo.company_id = company.id AND ceo.title = 'CEO'

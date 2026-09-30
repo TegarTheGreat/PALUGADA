@@ -1,18 +1,20 @@
 /**
  * The company's shape (F2, F2.7, F3): the goal ladder it works towards, its
- * divisions and the roles in them, its schedules and its policies. Every
+ * divisions and the roles in them, its schedules, its charter and its
+ * policies. Every
  * change is made from the thing it changes -- a role's charter from the role,
  * a division's grants from the division -- instead of from a form that asks
  * which one by id.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  Accordion, Alert, Avatar, Badge, Box, Button, Card, Divider, Drawer, Group, List, Modal, Paper, Progress, Select, SimpleGrid, Spoiler, Stack, Table, Tabs, Text, TextInput, Textarea, ThemeIcon, Tooltip,
+  Accordion, Alert, Anchor, Avatar, Badge, Box, Button, Card, Code, Divider, Drawer, Group, List, Modal, Paper, PasswordInput, Progress, Select, SimpleGrid, Spoiler, Stack, Table, Tabs, Text, TextInput, Textarea, ThemeIcon, Tooltip,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
   IconArrowsRight, IconCalendarTime, IconChartBar, IconCoin, IconCrown, IconFlag, IconFlask, IconHammer, IconHeadset, IconMessageCircle, IconPlus,
-  IconRoute, IconSettings, IconShieldCheck, IconSparkles, IconTarget, IconTrendingUp, IconUserCircle, IconUsersGroup, IconWebhook, IconFolders,
+  IconRoute, IconLicense, IconSettings, IconShieldCheck, IconSparkles, IconTarget, IconTrendingUp, IconUserCircle, IconUsersGroup, IconWebhook, IconFolders,
+  IconKey, IconExternalLink, IconLogin,
 } from '@tabler/icons-react';
 import { useMediaQuery } from '@mantine/hooks';
 import { api, explain } from '../api.ts';
@@ -30,6 +32,7 @@ import { Triggers } from '../components/Triggers.tsx';
 import { Handoffs } from '../components/Handoffs.tsx';
 import { Projects } from '../components/Projects.tsx';
 import { ConfigHistory } from '../components/ConfigHistory.tsx';
+import { Charters } from '../components/Charters.tsx';
 import { companyEmblem, OWNER_PICTURE, rolePicture } from '../images.ts';
 import { openGoals } from '../goals.ts';
 
@@ -49,7 +52,7 @@ export function Organization({ ctx }: PageProps) {
     <PageHeader
       crumbs={[ctx.company.name]}
       title={t('Team')}
-      description={t('Who does the work: divisions and the roles in them, the goals they work towards, their schedules and the policies they work under.')}
+      description={t('Who does the work: divisions and the roles in them, the goals they work towards, their schedules, and the charter and policies they work under.')}
       live={view.updatedAt}
       actions={<Button leftSection={<IconPlus size={16} />} onClick={ctx.giveWork}>{t('Give work')}</Button>}
     />
@@ -72,6 +75,7 @@ export function Organization({ ctx }: PageProps) {
           <Tabs.Tab value="schedules" leftSection={<IconCalendarTime size={16} />}>{t('Schedules')}</Tabs.Tab>
           <Tabs.Tab value="handoffs" leftSection={<IconArrowsRight size={16} />}>{t('Handoffs')}</Tabs.Tab>
           <Tabs.Tab value="triggers" leftSection={<IconWebhook size={16} />}>{t('Triggers')}</Tabs.Tab>
+          <Tabs.Tab value="charter" leftSection={<IconLicense size={16} />}>{t('Charter')}</Tabs.Tab>
           <Tabs.Tab value="policies" leftSection={<IconShieldCheck size={16} />}>{t('Policies')}</Tabs.Tab>
         </Tabs.List>
 
@@ -93,6 +97,9 @@ export function Organization({ ctx }: PageProps) {
         </Tabs.Panel>
         <Tabs.Panel value="triggers">
           <Triggers companyId={companyId} structure={structure} />
+        </Tabs.Panel>
+        <Tabs.Panel value="charter">
+          <Charters companyId={companyId} />
         </Tabs.Panel>
         <Tabs.Panel value="policies">
           <Policies companyId={companyId} />
@@ -573,15 +580,36 @@ function RoleDrawer({
               <Accordion.Panel><RoleRuntime companyId={companyId} role={role} changed={changed} /></Accordion.Panel>
             </Accordion.Item>
             <Accordion.Item value="change">
-              <Accordion.Control>{t('Change its charter or model')}</Accordion.Control>
+              <Accordion.Control>{t('Change its charter, done criteria, model or run length')}</Accordion.Control>
               <Accordion.Panel>
                 <ActionForm
                   columns={1}
                   fields={[
                     { name: 'systemPrompt', label: t('Charter'), type: 'textarea', description: t('Blank keeps the current one') },
+                    {
+                      name: 'doneCriteria', label: t('Done means'), type: 'textarea', initial: role.doneCriteria.join('\n'),
+                      description: t('One testable sentence per line. Every run answers each one with evidence; name what counts when a tool it needs is not connected.'),
+                    },
                     { name: 'modelPrimary', label: t('Primary model'), initial: role.model },
+                    {
+                      name: 'maxRunMinutes', label: t('Longest one run may take, in minutes'), type: 'number',
+                      initial: role.maxRunSeconds === null ? 0 : Math.ceil(role.maxRunSeconds / 60),
+                      description: t('A run still going then is stopped and the task waits for you. 0 is no limit but the task\'s own deadline.'),
+                    },
                   ]}
-                  submit={(values, proof) => api('POST', `/api/companies/${companyId}/roles/${role.id}`, { ...values, proof })}
+                  submit={(values, proof) => {
+                    // Sent only when changed, so a new model is not also
+                    // recorded as new criteria, or a new length, in the role's history.
+                    const { doneCriteria, maxRunMinutes, ...rest } = values;
+                    const lines = String(doneCriteria ?? '').split('\n').map((line) => line.trim()).filter(Boolean);
+                    const changedCriteria = lines.join('\n') !== role.doneCriteria.join('\n');
+                    const current = role.maxRunSeconds === null ? 0 : Math.ceil(role.maxRunSeconds / 60);
+                    const changedLength = maxRunMinutes !== undefined && Number(maxRunMinutes) !== current;
+                    return api('POST', `/api/companies/${companyId}/roles/${role.id}`, {
+                      ...rest, ...(changedCriteria ? { doneCriteria: lines } : {}),
+                      ...(changedLength ? { maxRunMinutes } : {}), proof,
+                    });
+                  }}
                   factor={t('Change {role}', { role: role.slug })}
                   action={t('Change it')}
                   success={t('Role changed.')}
@@ -771,6 +799,206 @@ function RoleEvals({ companyId, role }: { companyId: string; role: Role }) {
 
 /* -------------------------------------------------------- division drawer --- */
 
+/** How a key is signed in for, when it is: with whom, and whether the app is registered. */
+interface KeySignIn {
+  provider: string;
+  name: string;
+  clientUrl: string | null;
+  client: boolean;
+}
+
+interface DivisionKeysView {
+  credentials: Array<{
+    alias: string; version: number; stored: 'console' | 'environment' | 'file' | 'elsewhere'; signedIn: boolean;
+    scopes: string[]; createdAt: string; rotatedAt: string | null; signIn?: KeySignIn;
+  }>;
+  needs: Array<{ alias: string; capabilities: string[]; scopes: string[]; signIn?: KeySignIn }>;
+  /** Where a sign-in comes back to, for the app the owner registers. */
+  callback: string | null;
+}
+
+/**
+ * Signs a division in for a key, in the owner's own browser: the app
+ * registered with the provider once for the deployment -- asked for here the
+ * first time, with the address to give it -- then the provider's page in a
+ * new tab. The key is held when the provider sends the browser back, and this
+ * asks until it is.
+ */
+function SignInKey({ companyId, divisionId, alias, signIn, callback, again, done }: {
+  companyId: string; divisionId: string; alias: string; signIn: KeySignIn; callback: string | null; again: boolean; done: () => void;
+}) {
+  const requireFactor = useFactor();
+  const [clientId, setClientId] = useState('');
+  const [clientSecret, setClientSecret] = useState('');
+  const [authorizeUrl, setAuthorizeUrl] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const begin = async () => {
+    setProblem(null);
+    let opened: string | null = null;
+    try {
+      await requireFactor(t('Sign in to {name} for the {alias} key', { name: signIn.name, alias }), async (proof) => {
+        const answer: { authorizeUrl: string } = await api('POST', `/api/companies/${companyId}/divisions/${divisionId}/credentials/${alias}/oauth/start`, {
+          proof, ...(clientId.trim() ? { clientId: clientId.trim(), clientSecret: clientSecret.trim() || undefined } : {}),
+        });
+        opened = answer.authorizeUrl;
+        return answer;
+      });
+    } catch (failure) {
+      setProblem(explain(failure));
+    }
+    if (opened) setAuthorizeUrl(opened);
+  };
+  // While the owner signs in in the other tab: asked every few seconds
+  // whether the key has arrived.
+  useEffect(() => {
+    if (!authorizeUrl) return undefined;
+    const started = Date.now();
+    const timer = setInterval(() => {
+      void api('GET', `/api/companies/${companyId}/divisions/${divisionId}/credentials`).then((view: DivisionKeysView) => {
+        const held = view.credentials.find((row) => row.alias === alias);
+        if (!held?.signedIn || Date.parse(held.rotatedAt ?? held.createdAt) < started - 5_000) return;
+        clearInterval(timer);
+        setAuthorizeUrl(null);
+        notifications.show({ color: 'teal', message: t('Signed in to {name}. The {alias} key is held, and renewed before it runs out.', { name: signIn.name, alias }) });
+        done();
+      }, () => undefined);
+    }, 3_000);
+    return () => clearInterval(timer);
+  }, [authorizeUrl]);
+  const needsClient = !signIn.client && !authorizeUrl;
+  return (
+    <Stack gap={6}>
+      {needsClient && (
+        <>
+          <Text size="xs">
+            {t('{name} lets PALUGADA in through an app you register with it, once for this deployment. Give the app this return address, then paste its client ID and secret.', { name: signIn.name })}
+            {signIn.clientUrl && <>{' '}<Anchor href={signIn.clientUrl} target="_blank" rel="noreferrer" size="xs">{t('Register an app')} <IconExternalLink size={10} /></Anchor></>}
+          </Text>
+          {callback && <Code>{callback}</Code>}
+          <SimpleGrid cols={{ base: 1, sm: 2 }}>
+            <TextInput size="xs" label={t('Client ID')} description={t('From the app you registered')} value={clientId} onChange={(event) => setClientId(event.currentTarget.value)} />
+            <PasswordInput size="xs" label={t('Client secret')} description={t('If it gave you one')} value={clientSecret} onChange={(event) => setClientSecret(event.currentTarget.value)} autoComplete="off" />
+          </SimpleGrid>
+        </>
+      )}
+      {authorizeUrl
+        ? (
+          <Group gap="sm">
+            <Button size="xs" component="a" href={authorizeUrl} target="_blank" rel="noopener noreferrer" leftSection={<IconExternalLink size={14} />}>
+              {t('Open the sign-in page')}
+            </Button>
+            <Text size="xs" c="dimmed">{t('Waiting for you to sign in there…')}</Text>
+          </Group>
+        )
+        : (
+          <Group gap="xs">
+            <Button size="xs" variant={again ? 'subtle' : 'filled'} leftSection={<IconLogin size={14} />}
+              disabled={needsClient && clientId.trim() === ''} onClick={() => void begin()}>
+              {again ? t('Sign in again') : t('Sign in with {name}', { name: signIn.name })}
+            </Button>
+          </Group>
+        )}
+      {problem && <Text size="xs" c="red">{problem}</Text>}
+    </Stack>
+  );
+}
+
+const STORED: Record<DivisionKeysView['credentials'][number]['stored'], string> = {
+  console: N('sealed here'),
+  environment: N('from the environment'),
+  file: N('from a file'),
+  elsewhere: N('from a secret manager'),
+};
+
+/**
+ * The keys a division's services sign in with: what it holds, what its
+ * capabilities ask for that it does not, and a place to paste one. A key is
+ * sealed as it is saved and never shown again; pasting another for the same
+ * name replaces it at the next call.
+ */
+function DivisionKeys({ companyId, divisionId }: { companyId: string; divisionId: string }) {
+  const requireFactor = useFactor();
+  const view = useLoad(async (): Promise<DivisionKeysView> =>
+    api('GET', `/api/companies/${companyId}/divisions/${divisionId}/credentials`), [companyId, divisionId]);
+  const [alias, setAlias] = useState('');
+  const [value, setValue] = useState('');
+  const save = async (name: string, key: string) => {
+    const done = await requireFactor(t('Save the {alias} key', { alias: name }), (proof) =>
+      api('POST', `/api/companies/${companyId}/divisions/${divisionId}/credentials`, { alias: name, value: key, proof }));
+    if (done) {
+      notifications.show({ color: 'teal', message: t('The {alias} key is sealed. Calls use it from the next one.', { alias: name }) });
+      setAlias('');
+      setValue('');
+      view.reload();
+    }
+  };
+  const remove = async (name: string) => {
+    const done = await requireFactor(t('Remove the {alias} key', { alias: name }), (proof) =>
+      api('POST', `/api/companies/${companyId}/divisions/${divisionId}/credentials/${name}/remove`, { proof }));
+    if (done) view.reload();
+  };
+  return (
+    <Section title={t('Keys for services')} description={t('What its services sign in with. A key is sealed as it is saved and never shown again; paste another to replace it.')}>
+      {view.error && <LoadFailed message={view.error} retry={view.reload} />}
+      {!view.data && !view.error && <Loading rows={2} />}
+      {view.data && (
+        <Stack gap="sm">
+          {view.data.needs.map((need) => (
+            <Alert key={need.alias} variant="light" color="yellow" icon={<IconKey size={18} />}
+              title={t('{capabilities} needs the {alias} key', { capabilities: need.capabilities.join(', '), alias: need.alias })}>
+              {need.scopes.length > 0 && (
+                <Text size="xs" mb={6}>{t('Issue it with {scopes}, and nothing wider.', { scopes: need.scopes.join(', ') })}</Text>
+              )}
+              {need.signIn
+                ? <SignInKey companyId={companyId} divisionId={divisionId} alias={need.alias} signIn={need.signIn} callback={view.data!.callback} again={false} done={view.reload} />
+                : (
+                  <Group gap="xs" align="flex-end" wrap="nowrap">
+                    <PasswordInput style={{ flex: 1 }} aria-label={t('The {alias} key', { alias: need.alias })} placeholder={t('Paste the key the service gave you')}
+                      value={alias === need.alias ? value : ''} onChange={(event) => { setAlias(need.alias); setValue(event.currentTarget.value); }} />
+                    <Button disabled={alias !== need.alias || value.trim() === ''} onClick={() => void save(need.alias, value)}>{t('Save')}</Button>
+                  </Group>
+                )}
+            </Alert>
+          ))}
+          {view.data.credentials.length > 0 && (
+            <Table>
+              <Table.Tbody>
+                {view.data.credentials.map((row) => (
+                  <Table.Tr key={row.alias}>
+                    <Table.Td><Group gap={6}><IconKey size={14} /><Text size="sm" fw={600}>{row.alias}</Text></Group></Table.Td>
+                    <Table.Td>
+                      <Text size="xs" c="dimmed">
+                        {row.signedIn && row.signIn ? t('signed in with {name}', { name: row.signIn.name }) : t(STORED[row.stored])} · {t('version {version}', { version: row.version })}
+                      </Text>
+                      {row.scopes.length > 0 && <Text size="xs" c="dimmed">{t('declared with {scopes}', { scopes: row.scopes.join(', ') })}</Text>}
+                      {row.signIn && (
+                        <SignInKey companyId={companyId} divisionId={divisionId} alias={row.alias} signIn={row.signIn} callback={view.data!.callback} again done={view.reload} />
+                      )}
+                    </Table.Td>
+                    <Table.Td><Text size="xs" c="dimmed">{relative(row.rotatedAt ?? row.createdAt)}</Text></Table.Td>
+                    <Table.Td ta="right"><Button variant="subtle" color="red" size="compact-xs" onClick={() => void remove(row.alias)}>{t('Remove')}</Button></Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          )}
+          {view.data.needs.length === 0 && view.data.credentials.length === 0 && (
+            <Text size="sm" c="dimmed">{t('None of its capabilities asks for a key.')}</Text>
+          )}
+          <Group gap="xs" align="flex-end" wrap="nowrap">
+            <TextInput style={{ width: 140 }} label={t('Name')} placeholder={t('such as crm')} value={view.data.needs.some((need) => need.alias === alias) ? '' : alias}
+              onChange={(event) => { setAlias(event.currentTarget.value.trim().toLowerCase()); setValue(''); }} />
+            <PasswordInput style={{ flex: 1 }} label={t('Key')} placeholder={t('Paste the key the service gave you')}
+              value={view.data.needs.some((need) => need.alias === alias) ? '' : value} onChange={(event) => setValue(event.currentTarget.value)} />
+            <Button variant="light" disabled={alias === '' || value.trim() === '' || view.data.needs.some((need) => need.alias === alias)}
+              onClick={() => void save(alias, value)}>{t('Save')}</Button>
+          </Group>
+        </Stack>
+      )}
+    </Section>
+  );
+}
+
 function DivisionDrawer({
   companyId, division, structure, close, changed,
 }: { companyId: string; division: Division | null; structure: Structure; close: () => void; changed: () => void }) {
@@ -798,10 +1026,13 @@ function DivisionDrawer({
               {division.grants.map((grant) => (
                 <Badge key={grant.capability} variant="light" color={grant.tier === null ? 'gray' : ['gray', 'blue', 'orange', 'red'][grant.tier]} radius="sm">
                   {grant.capability}{grant.tier !== null ? ` · T${grant.tier}` : ''}
+                  {grant.maxInFlight !== null ? ` · ${t('{count} at once', { count: grant.maxInFlight })}` : ''}
                 </Badge>
               ))}
             </Group>
           </Section>
+
+          <DivisionKeys key={division.id} companyId={companyId} divisionId={division.id} />
 
           <Accordion variant="separated" radius="md">
             <Accordion.Item value="grant">
@@ -809,16 +1040,20 @@ function DivisionDrawer({
               <Accordion.Panel>
                 <ActionForm
                   fields={[
-                    { name: 'capabilityName', label: t('Capability'), required: true, placeholder: 'email.send' },
+                    { name: 'capabilityName', label: t('Capability'), required: true, placeholder: 'email.send',
+                      description: t('As the catalogue names it') },
                     { name: 'tierOverride', label: t('Tier'), type: 'select', description: t('Blank revokes the grant'), options: [
                       { value: '0', label: t('Tier 0 · read only') }, { value: '1', label: t('Tier 1 · cheap to undo') },
                       { value: '2', label: t('Tier 2 · costly') }, { value: '3', label: t('Tier 3 · irreversible') },
                     ] },
+                    { name: 'maxInFlight', label: t('Calls at once, at most'), type: 'number',
+                      description: t('Blank keeps it as it is; 0 takes the limit away; at most 100') },
                   ]}
                   submit={(values, proof) => api('POST', `/api/companies/${companyId}/structure/grant`, {
                     divisionId: division.id,
                     capabilityName: values.capabilityName,
                     ...(values.tierOverride === undefined ? { revoke: true } : { tierOverride: Number(values.tierOverride) }),
+                    ...(values.maxInFlight === undefined ? {} : { maxInFlight: Number(values.maxInFlight) }),
                     proof,
                   })}
                   factor={t('Change a grant in {division}', { division: division.name })}

@@ -210,10 +210,12 @@ freeze, raise a ceiling, rewrite what a model call cost, or delete history.
 - Goals are measured by numbers with targets, and an agent's number counts as
   verified only when it read that number from its source.
 - The built-in `company-os` bundle adds a strategist that proposes at most
-  three bets and never applies them, a weekly business review every Monday
-  morning in the company's time zone, and operating skills -- validating an
-  idea, premortems, pricing, unit economics, customer discovery, launch
-  readiness, outbound rules -- that still go through review and the owner.
+  three bets and never applies them, a critic that reads every stage
+  proposal before the owner does and whose verdict the owner sees, a weekly
+  business review every Monday morning in the company's time zone, and
+  operating skills -- validating an idea, premortems, pricing, unit
+  economics, customer discovery, launch readiness, outbound rules -- that
+  still go through review and the owner.
 - Other services can start work through a trigger URL the owner opens, with a
   token or with the sender's own signature -- Stripe, GitHub, Slack and
   Standard Webhooks are checked exactly as they sign; what they send (JSON, a

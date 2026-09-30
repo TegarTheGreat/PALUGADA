@@ -39,8 +39,12 @@
  */
 import { withControlPlane } from './db/tenant.ts';
 import { Engine, type RunOutcome } from './engine/engine.ts';
-import { claimTask, haltPastDeadlines, reclaimExpiredLeases, reclaimOrphans, releaseTask } from './engine/checkout.ts';
+import {
+  HEARTBEAT_EVERY_MS, beat, claimTask, haltPastDeadlines, reclaimExpiredLeases, reclaimOrphans, releaseTask,
+  liveHolders, silentHolders, stopBeating,
+} from './engine/checkout.ts';
 import { getTask } from './engine/tasks.ts';
+import { sweepLeftoverProcesses } from './engine/process-ledger.ts';
 import { withTenant } from './db/tenant.ts';
 import { isStopAllRequested } from './engine/control.ts';
 import { reportStranded } from './engine/liveness.ts';
@@ -51,6 +55,8 @@ import { evaluateAlerts } from './reporting/alerts.ts';
 import { evaluateCircuitBreakers, evaluateSpendLimit } from './governance/spend-guard.ts';
 import * as inbox from './inbox/inbox.ts';
 import { runRetention } from './retention/retention.ts';
+import { embedBacklog } from './knowledge/meaning.ts';
+import type { EmbedBinding } from './capabilities/embed.ts';
 import { processHandoffs, type HandoffRule } from './engine/handoff.ts';
 import { ownerHandoffRules } from './engine/handoff-rules.ts';
 import {
@@ -72,15 +78,48 @@ import {
 import { advanceSkillCandidates, settleSkillReviews } from './skills/skills.ts';
 import type { LlmClient } from './llm/client.ts';
 import { sleep } from './timers.ts';
+import { eraseDueCompanies, removeWhatErasuresLeft, type ErasureDisk } from './governance/closing.ts';
+import type { OtlpExporter } from './reporting/otlp.ts';
 
 export interface WorkerOptions {
   engine: Engine;
+  /**
+   * The deployment's provider of meaning (Tools): each tick gives a batch of
+   * each company's passages their vectors, so its documents are found by
+   * what they mean as well as by their words.
+   */
+  meaning?: EmbedBinding;
   /** Restrict to one company. Omitted means every company that is not frozen. */
   companyId?: string;
+  /**
+   * Where the deployment keeps what a company has outside its rows -- its
+   * files, its charter's folder -- so an erasure removes those too (0096).
+   * Omitted, an erasure removes the rows alone, which is what a test of rows
+   * wants; a deployment passes the roots it was started with.
+   */
+  erasure?: ErasureDisk;
+  /**
+   * Where finished runs go as OpenTelemetry spans, when the operator named a
+   * collector (0090). Sent by a worker that is not kept to one company.
+   */
+  telemetry?: Pick<OtlpExporter, 'export'>;
   /** How long to wait between ticks when a tick found nothing to do. */
   idleMs?: number;
   /** How many tasks one tick may run. Bounds how long a stop takes to bite. */
   maxRunsPerTick?: number;
+  /**
+   * How many tasks `start()` runs at once (L3).
+   *
+   * One ran a task at a time and did everything else between runs, so an
+   * owner's P0 task waited behind whatever long run had started first, and
+   * an approval past its expiry stayed open -- its task still waiting -- for
+   * as long as that run took. Above one, the loop keeps one place for P0 work
+   * alone, runs the rest in the others, and does its housekeeping on its own
+   * clock. A division's own limit and its budget still bound what runs. One,
+   * the default here, is the loop as `tick()` runs it; the deployment sets
+   * its own (`PALUGADA_WORKER_CONCURRENCY`).
+   */
+  concurrency?: number;
   /**
    * How often a company's retention policy is applied.
    *
@@ -178,13 +217,27 @@ export interface TickReport {
   stranded: number;
   /** Escalations handed to the role their division names (F2.1). */
   escalated: number;
+  /** Run containers and agent CLIs' process groups that dead workers left, ended (`Adapter.sweep`, 0095). */
+  leftovers: number;
+  /** Passages of the company's documents given their vectors this tick (0087). */
+  embedded: number;
+  /** Companies erased this tick, their grace over (0088). */
+  erased: number;
+  /** Spans sent to the OpenTelemetry collector this tick (0090). */
+  traced: number;
   /** Set when the platform stop is in effect: the tick did nothing else. */
   stopped: boolean;
   errors: Array<{ stage: string; message: string }>;
 }
 
 export const DEFAULT_IDLE_MS = 5_000;
+
+/** How often a worker looks for what dead workers left running. */
+const SWEEP_EVERY_MS = 60_000;
 export const DEFAULT_MAX_RUNS_PER_TICK = 8;
+
+/** The priority the place kept by a concurrent worker takes: the owner's urgent work (F5.10). */
+export const URGENT_PRIORITY = 0;
 
 /**
  * Six hours, which is four sweeps a day.
@@ -223,6 +276,44 @@ export const DEFAULT_LEARNING_INTERVAL_MS = 60 * 60 * 1_000;
  * round again at whatever rate the database could answer. With a docker daemon
  * down that is a hot loop against Postgres, not a retry.
  */
+function emptyReport(): TickReport {
+  return {
+    reclaimed: 0, scheduled: 0, woken: 0, ran: [], alerts: 0, retained: 0, handedOff: 0,
+    notified: 0,
+    digests: 0,
+    retracted: 0,
+    distilled: 0,
+    screened: 0,
+    pastDeadline: 0,
+    stranded: 0,
+    escalated: 0,
+    leftovers: 0,
+    embedded: 0,
+    erased: 0,
+    traced: 0,
+    stopped: false, errors: [],
+  };
+}
+
+/**
+ * What one worker has done since it started, for the metrics endpoint.
+ *
+ * Counted in the process rather than read from the tables, so a scrape costs
+ * nothing, and they start again at zero with the process -- which is what a
+ * scraper expects of a counter, and why a rate over them survives a restart.
+ */
+export interface WorkerCounts {
+  /** The places runs are made in, and how many are running one now. */
+  places: number;
+  busy: number;
+  /** Runs finished, by how they ended. */
+  runs: ReadonlyMap<string, number>;
+  /** Stages of a tick that failed, by stage. */
+  stageFailures: ReadonlyMap<string, number>;
+  /** Passes of the housekeeping loop, and of a place, that failed outright. */
+  loopFailures: { tick: number; place: number };
+}
+
 export function madeProgress(report: TickReport): boolean {
   const ran = report.ran.some((run) => run.status !== 'runtime_unavailable');
   return ran || report.reclaimed > 0 || report.scheduled > 0;
@@ -236,9 +327,18 @@ export class Worker {
 
   /** When each company's retention was last applied by *this* worker. */
   readonly #retainedAt = new Map<string, number>();
+  /** When this worker last looked for what dead workers left running. */
+  #sweptAt: number | null = null;
+  /** Whether this worker has removed what earlier erasures left on disk. See the erasure stage. */
+  #erasuresFinished = false;
   /** Which company this worker starts its tick on. See `#rotate`. */
   #turn = 0;
   #lastTickAt: Date | null = null;
+  #startedAt: Date | null = null;
+  readonly #runs = new Map<string, number>();
+  readonly #stageFailures = new Map<string, number>();
+  readonly #loopFailures = { tick: 0, place: 0 };
+  #busy = 0;
 
   /**
    * When this worker last finished a tick, or null before its first.
@@ -248,6 +348,31 @@ export class Worker {
    */
   get lastTickAt(): Date | null {
     return this.#lastTickAt;
+  }
+
+  /**
+   * When `start()` was called, or null before it was.
+   *
+   * What a readiness check measures from until the first tick finishes: a
+   * first tick that hangs, or fails every time, leaves `lastTickAt` null for
+   * ever, and a loop that never went round once is still a loop that stopped.
+   */
+  get startedAt(): Date | null {
+    return this.#startedAt;
+  }
+
+  get counts(): WorkerCounts {
+    return {
+      places: this.#places(),
+      busy: this.#busy,
+      runs: new Map(this.#runs),
+      stageFailures: new Map(this.#stageFailures),
+      loopFailures: { ...this.#loopFailures },
+    };
+  }
+
+  #places(): number {
+    return Math.max(1, Math.floor(this.#options.concurrency ?? 1));
   }
 
   constructor(options: WorkerOptions) {
@@ -262,19 +387,11 @@ export class Worker {
    * One pass. Returns what it did, which is what makes the loop testable
    * without running it.
    */
-  async tick(now = new Date()): Promise<TickReport> {
-    const report: TickReport = {
-      reclaimed: 0, scheduled: 0, woken: 0, ran: [], alerts: 0, retained: 0, handedOff: 0,
-      notified: 0,
-      digests: 0,
-      retracted: 0,
-      distilled: 0,
-      screened: 0,
-      pastDeadline: 0,
-      stranded: 0,
-      escalated: 0,
-      stopped: false, errors: [],
-    };
+  async tick(now = new Date(), options: { runs?: boolean } = {}): Promise<TickReport> {
+    const report = emptyReport();
+    // A concurrent worker runs its tasks in places of their own, and this
+    // pass only looks after everything else (L3).
+    const runs = options.runs ?? true;
 
     // F5.8: a halted platform runs no work, and finds out within one polling
     // interval.
@@ -302,9 +419,77 @@ export class Worker {
       return report;
     }
 
+    // Who has stopped saying it is alive, asked once a tick: their tasks come
+    // back now, not when their leases run out (0079). A failure here costs
+    // only the shortcut; the leases still expire.
+    let silent: string[] = [];
+    await this.#stage(report, 'heartbeat', async () => { silent = await silentHolders(this.id); });
+
+    // What dead workers left running -- a container, or an agent CLI's
+    // process group on this machine (0095) -- asked at most once a minute,
+    // since listing containers is a call to the daemon. The first tick asks
+    // at once, which is what ends a killed predecessor's CLI on a restart.
+    // Alive is what beat lately, and this worker whatever its own beat says.
+    if (this.#sweptAt === null || now.getTime() - this.#sweptAt >= SWEEP_EVERY_MS) {
+      await this.#stage(report, 'leftovers', async () => {
+        const alive = await liveHolders();
+        alive.add(this.id);
+        const removed = await this.#options.engine.adapters.sweep(alive);
+        const companyId = this.#options.companyId;
+        removed.push(...await sweepLeftoverProcesses(alive, { by: this.id, ...(companyId ? { companyId } : {}) }));
+        this.#sweptAt = now.getTime();
+        report.leftovers += removed.length;
+        if (removed.length > 0) this.#options.log?.({ level: 'warn', event: 'leftovers.removed', removed });
+      });
+    }
+
+    // A company whose grace is over is erased (0088), by whichever worker
+    // gets there first: the company's row is locked and checked again under
+    // the lock. Not by a worker kept to one company, which has no business
+    // with another's.
+    //
+    // Each company on its own (0096): one that cannot be erased is named here
+    // with its reason and waits before it is tried again, and the rest are
+    // erased regardless. What an erased company kept on disk is removed after
+    // its rows; what could not be is named too, and the rows stay erased.
+    if (this.#options.companyId === undefined) {
+      const disk = this.#options.erasure ?? {};
+      // Once a process, what earlier erasures left on disk: one from before
+      // files were removed, one whose process stopped between its rows and
+      // its files, a removal that failed. A stage of its own, so a failure
+      // here never holds back the erasures that are due.
+      if (!this.#erasuresFinished) {
+        await this.#stage(report, 'erasure', async () => {
+          const left = await removeWhatErasuresLeft(disk);
+          this.#erasuresFinished = true;
+          for (const one of left) this.#failed(report, 'erasure', leftBehindSaid(one));
+        });
+      }
+      await this.#stage(report, 'erasure', async () => {
+        const pass = await eraseDueCompanies(disk);
+        report.erased += pass.erased.length;
+        for (const one of pass.erased) {
+          this.#options.log?.({ level: 'info', event: 'company.erased', companyId: one.companyId, counts: one.counts });
+        }
+        for (const one of pass.failed) {
+          this.#failed(report, 'erasure',
+            `${one.name} (${one.companyId}) could not be erased${one.attempts > 0 ? ` (attempt ${one.attempts})` : ''}: ${one.reason}`
+            + (one.retryAt ? `; tried again after ${one.retryAt.toISOString()}` : ''));
+        }
+        for (const one of pass.leftBehind) this.#failed(report, 'erasure', leftBehindSaid(one));
+      });
+    }
+
+    const telemetry = this.#options.telemetry;
+    if (telemetry && this.#options.companyId === undefined) {
+      await this.#stage(report, 'telemetry', async () => {
+        report.traced += await telemetry.export();
+      });
+    }
+
     for (const company of companies) {
       await this.#stage(report, 'reclaim', async () => {
-        report.reclaimed += (await reclaimExpiredLeases(company, now)).length;
+        report.reclaimed += (await reclaimExpiredLeases(company, now, { silent })).length;
         report.reclaimed += (await reclaimOrphans(company, { now })).length;
         // After the reclaim, which is what returns a dead worker's task to
         // the queue for this to find.
@@ -329,7 +514,7 @@ export class Worker {
       // claim both ran the same task and both got the same refusal.
       let runtimeDown = false;
 
-      await this.#stage(report, 'wakes', async () => {
+      if (runs) await this.#stage(report, 'wakes', async () => {
         const budget = this.#options.maxRunsPerTick ?? DEFAULT_MAX_RUNS_PER_TICK;
         const drained = await drainWakes(company, {
           holder: this.id,
@@ -355,7 +540,7 @@ export class Worker {
         }
       });
 
-      await this.#stage(report, 'claim', async () => {
+      if (runs) await this.#stage(report, 'claim', async () => {
         if (runtimeDown) return;
         const budget = (this.#options.maxRunsPerTick ?? DEFAULT_MAX_RUNS_PER_TICK)
           - report.ran.length;
@@ -418,6 +603,17 @@ export class Worker {
       // them would tell the owner about this tick's news on the next tick.
       await this.#notify(report, company, now);
 
+      // One batch of passages a company a tick, so a hundred-page upload is
+      // given its meaning over a minute or two rather than holding one tick
+      // on a provider. A provider that is down costs only this stage: the
+      // documents are still found by their words.
+      const meaning = this.#options.meaning;
+      if (meaning) {
+        await this.#stage(report, 'meaning', async () => {
+          report.embedded += await embedBacklog(company, meaning);
+        });
+      }
+
       // Section 12.3. Deletes, so it goes after everything that reads.
       const interval = this.#options.retentionIntervalMs ?? DEFAULT_RETENTION_INTERVAL_MS;
       const last = this.#retainedAt.get(company);
@@ -457,13 +653,47 @@ export class Worker {
    * speed of the work rather than at the speed of the poll.
    */
   async start(): Promise<void> {
+    this.#startedAt = new Date();
     const signal = this.#options.signal;
     const idle = this.#options.idleMs ?? DEFAULT_IDLE_MS;
 
+    // Said on a timer of its own, not once a tick: a tick can spend minutes on
+    // one run, and a worker busy with a long task is not a worker that died.
+    const alive = async () => {
+      try {
+        await beat(this.id);
+      } catch (error) {
+        this.#options.log?.({ level: 'warn', event: 'heartbeat.failed', message: (error as Error).message });
+      }
+    };
+    await alive();
+    const beating = setInterval(() => void alive(), HEARTBEAT_EVERY_MS);
+    beating.unref();
+    const places = this.#places();
+    try {
+      if (places === 1) {
+        await this.#loop(signal, idle, true);
+      } else {
+        // The housekeeping on its own clock, and the runs in their places:
+        // the first kept for P0 work, so there is always room for it.
+        await Promise.all([
+          this.#loop(signal, idle, false),
+          ...Array.from({ length: places }, (_, place) => this.#place(signal, idle, place === 0)),
+        ]);
+      }
+    } finally {
+      clearInterval(beating);
+      // Stopped cleanly, its tasks were handed back already; its word is taken
+      // back so it is not mistaken for a worker that died.
+      await stopBeating(this.id).catch(() => undefined);
+    }
+  }
+
+  async #loop(signal: AbortSignal | undefined, idle: number, runs: boolean): Promise<void> {
     while (!signal?.aborted) {
       let report: TickReport;
       try {
-        report = await this.tick();
+        report = runs ? await this.tick() : await this.tick(undefined, { runs: false });
         this.#lastTickAt = new Date();
         this.#say(report);
       } catch (error) {
@@ -472,6 +702,7 @@ export class Worker {
         // daemon: a transient blip should cost one interval, not the worker.
         // A permanent failure keeps failing and stays visible in the logs
         // rather than leaving a process that exited for reasons nobody saw.
+        this.#loopFailures.tick += 1;
         this.#options.onTickError?.(error as Error);
         this.#options.log?.({ level: 'error', event: 'tick.failed', message: (error as Error).message });
         await sleep(idle, signal);
@@ -482,6 +713,52 @@ export class Worker {
 
       await sleep(idle, signal);
     }
+  }
+
+  /**
+   * One place a concurrent worker runs tasks in: claims the next task across
+   * its companies, runs it, and goes straight round again; sleeps only when
+   * there was nothing to claim. `urgent` keeps the place for P0 work alone.
+   *
+   * No wake is drained by the urgent place: a wake names a role, not a
+   * priority, and taking one there would give the place to routine work.
+   */
+  async #place(signal: AbortSignal | undefined, idle: number, urgent: boolean): Promise<void> {
+    while (!signal?.aborted) {
+      let ran = false;
+      try {
+        if (!(await isStopAllRequested())) {
+          for (const company of this.#rotate(await this.#companies())) {
+            const taskId = await this.#claimOne(company, urgent);
+            if (!taskId) continue;
+            const report = emptyReport();
+            const status = await this.#runClaimed(report, company, taskId);
+            this.#say(report);
+            // A runtime that is down puts its task back; trying again at once
+            // would spend this place on the same refusal.
+            ran = status !== null && status !== 'runtime_unavailable';
+            break;
+          }
+        }
+      } catch (error) {
+        this.#loopFailures.place += 1;
+        this.#options.log?.({ level: 'error', event: 'place.failed', message: (error as Error).message });
+      }
+      if (!ran) await sleep(idle, signal);
+    }
+  }
+
+  /** The next task for a place, from a wake first as a tick takes it, or null. */
+  async #claimOne(companyId: string, urgent: boolean): Promise<string | null> {
+    if (!urgent) {
+      const drained = await drainWakes(companyId, { holder: this.id, now: new Date(), maxClaims: 1 });
+      const woken = drained.find((wake) => wake.taskId)?.taskId;
+      if (woken) return woken;
+    }
+    const claim = await claimTask(companyId, {
+      holder: this.id, now: new Date(), ...(urgent ? { priorityAtMost: URGENT_PRIORITY } : {}),
+    });
+    return claim?.taskId ?? null;
   }
 
   /**
@@ -530,7 +807,14 @@ export class Worker {
     });
     if (!roleSlug) return null;
 
-    const outcome = await this.#options.engine.runTask(companyId, taskId, roleSlug);
+    this.#busy += 1;
+    let outcome: RunOutcome;
+    try {
+      outcome = await this.#options.engine.runTask(companyId, taskId, roleSlug);
+    } finally {
+      this.#busy -= 1;
+    }
+    this.#runs.set(outcome.status, (this.#runs.get(outcome.status) ?? 0) + 1);
     report.ran.push({ taskId, status: outcome.status });
     return outcome.status;
   }
@@ -750,15 +1034,29 @@ export class Worker {
     try {
       await run();
     } catch (error) {
-      const message = (error as Error).message ?? String(error);
-      report.errors.push({ stage, message });
-      // Reported on the tick rather than written to the event log: the log is
-      // tenant-scoped and a stage failure is the platform's, not a company's.
-      // A caller that wants it durable has the report; inventing a company to
-      // file it against would put the platform's problem in somebody's audit
-      // trail.
+      this.#failed(report, stage, (error as Error).message ?? String(error));
     }
   }
+
+  /**
+   * A failure in a stage, said on the tick and counted: what a stage throws,
+   * and what one that carried on past a part of its work reports of it.
+   */
+  #failed(report: TickReport, stage: string, message: string): void {
+    report.errors.push({ stage, message });
+    this.#stageFailures.set(stage, (this.#stageFailures.get(stage) ?? 0) + 1);
+    // Reported on the tick rather than written to the event log: the log is
+    // tenant-scoped and a stage failure is the platform's, not a company's.
+    // A caller that wants it durable has the report; inventing a company to
+    // file it against would put the platform's problem in somebody's audit
+    // trail.
+  }
+}
+
+/** What an erased company kept on disk and could not be removed, said so the operator can remove it. */
+function leftBehindSaid(one: { companyId: string; path: string; reason: string }): string {
+  return `company ${one.companyId} was erased, and ${one.path} was not removed: ${one.reason}; `
+    + 'the next worker to start tries again, or remove it by hand';
 }
 
 /** Convenience for a process that just wants to run until it is stopped. */

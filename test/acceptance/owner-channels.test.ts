@@ -1355,9 +1355,24 @@ test('every sentence the platform says to the owner has its translation (src/own
     }
   }
   assert.ok(said.size >= 15, `only ${said.size} sentences were found; the scan is broken`);
+  // The language that picks these is the panel's, so every language the
+  // console is drawn in has them: an owner who reads the panel in Russian
+  // gets Russian on the phone too.
+  const locales = (await readdir(new URL('../../console/src/locales/', import.meta.url)))
+    .filter((name) => name.endsWith('.ts') && name !== 'types.ts').map((name) => name.replace(/\.ts$/, ''));
+  assert.deepEqual(Object.keys(OWNER_SENTENCES).sort(), locales.sort(), 'the languages the console offers and the ones the platform speaks differ');
+  const placeholders = (text: string) => [...text.matchAll(/\{(\w+)\}/g)].map((match) => match[1]!).sort();
+  // A translation into a language with a script of its own that has none of
+  // it is English that nobody translated.
+  const script: Record<string, RegExp> = { zh: /\p{Script=Han}/u, ru: /\p{Script=Cyrillic}/u, hi: /\p{Script=Devanagari}/u };
   for (const [language, sentences] of Object.entries(OWNER_SENTENCES)) {
     assert.deepEqual([...said].filter((sentence) => !(sentence in sentences)), [], `${language} is missing sentences`);
     assert.deepEqual(Object.keys(sentences).filter((sentence) => !said.has(sentence)), [], `${language} keeps sentences nothing says`);
+    for (const [english, translated] of Object.entries(sentences)) {
+      assert.deepEqual(placeholders(translated), placeholders(english), `${language}: "${english}" and its translation name different values`);
+      assert.notEqual(translated.trim(), '', `${language}: "${english}" is translated as nothing`);
+      if (script[language]) assert.match(translated, script[language]!, `${language}: "${english}" is not written in its script`);
+    }
   }
 });
 

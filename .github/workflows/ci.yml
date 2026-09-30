@@ -21,6 +21,10 @@ on:
     - cron: '17 3 * * *'
   workflow_dispatch:
 
+# Every action is pinned to a commit, with its tag beside it: a tag can be
+# moved to other code by whoever controls the action's repository, and a job
+# here holds the repository's token. Dependabot (.github/dependabot.yml)
+# proposes the next commit, and its tag, as a pull request.
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -51,9 +55,9 @@ jobs:
       PALUGADA_OWNER_URL: postgres://palugada_owner:dev_owner@localhost:5432/palugada
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
           cache: npm
@@ -100,6 +104,29 @@ jobs:
           PALUGADA_SOAK: '1'
         run: node --test --test-concurrency=1 test/acceptance/checkout-lease-lane.test.ts
 
+  # Known vulnerabilities in what ships: the platform's production
+  # dependencies, and the console's, whose build is what the browser runs.
+  # High and critical fail the run; a moderate one is printed and left to
+  # Dependabot's weekly update. A job of its own, so an advisory published
+  # overnight does not also hide what the tests say.
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - name: Audit the platform's production dependencies
+        run: npm audit --omit=dev --audit-level=high
+        continue-on-error: false
+
+      - name: Audit the console's production dependencies
+        working-directory: console
+        run: npm audit --omit=dev --audit-level=high
+        continue-on-error: false
+
   # The image as an operator runs it: built from the Dockerfile, started by
   # docker-compose.yml beside a database on a fresh volume, healthy, able to
   # do one piece of work (scripts/smoke.ts), with an init that reaps what an
@@ -109,7 +136,7 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # What `npm run setup` writes when "With Docker Compose" is chosen:
       # a password for each database role, and the owner's TOTP secret.
@@ -155,6 +182,16 @@ jobs:
           docker compose stop app
           test "$(docker inspect "$(docker compose ps -aq app)" --format '{{.State.ExitCode}}')" = 0
           docker compose logs app | grep -q 'SIGTERM, stopping'
+
+      # F12.9 on a real daemon: one run on the `docker` backend, whose runtime
+      # tries what a compromised one would, and reports what it could do.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+      - name: A run on the docker backend is contained
+        run: |
+          npm ci --omit=dev --no-audit --no-fund
+          npm run container:check
 
       - name: What the containers said
         if: failure()

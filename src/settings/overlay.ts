@@ -40,6 +40,11 @@ export interface AgentSetting {
   models?: Record<string, string>;
   /** What else it reads to choose its provider, such as Hermes's HERMES_INFERENCE_PROVIDER. Never a secret. */
   env?: Record<string, string>;
+  /**
+   * A version other than the checked one that the owner accepted with their
+   * device (`checked-versions.ts`); runs on any other still get no work.
+   */
+  acceptVersion?: string;
 }
 
 /** A tool's provider, as the console sets it: web search, or reading pages. */
@@ -57,9 +62,13 @@ export interface ToolSetting {
 /** How the owner is reached, as the console sets it. Every credential is a sealed secret's name. */
 export interface ChannelSettings {
   telegram?: { chatId: string; tokenSecret: string; webhookSecret?: string };
+  /** The number's id, the owner's number, an approved template as name:language, and three sealed secrets. */
+  whatsapp?: { phoneNumberId: string; owner: string; template?: string; tokenSecret: string; appSecretSecret: string; verifySecret: string };
   push?: { format: 'webhook' | 'ntfy'; url: string; topic?: string; tokenSecret?: string };
   slack?: { urlSecret: string };
   discord?: { urlSecret: string };
+  /** A sending service, the addresses it sends from and to, and its key as a sealed secret's name. */
+  email?: { provider: string; from: string; to: string; keySecret: string };
 }
 
 /**
@@ -80,9 +89,13 @@ export interface McpServerSetting {
 const CHANNEL_KEYS: Readonly<Record<keyof ChannelSettings, readonly string[]>> = {
   telegram: ['PALUGADA_TELEGRAM_TOKEN', 'PALUGADA_TELEGRAM_TOKEN_REF', 'PALUGADA_TELEGRAM_CHAT',
     'PALUGADA_TELEGRAM_WEBHOOK_SECRET', 'PALUGADA_TELEGRAM_WEBHOOK_SECRET_REF'],
+  whatsapp: ['PALUGADA_WHATSAPP_PHONE_ID', 'PALUGADA_WHATSAPP_OWNER', 'PALUGADA_WHATSAPP_TEMPLATE',
+    'PALUGADA_WHATSAPP_TOKEN', 'PALUGADA_WHATSAPP_TOKEN_REF', 'PALUGADA_WHATSAPP_APP_SECRET', 'PALUGADA_WHATSAPP_APP_SECRET_REF',
+    'PALUGADA_WHATSAPP_VERIFY_TOKEN', 'PALUGADA_WHATSAPP_VERIFY_TOKEN_REF'],
   push: ['PALUGADA_PUSH_URL', 'PALUGADA_PUSH_TOKEN', 'PALUGADA_PUSH_TOKEN_REF', 'PALUGADA_PUSH_FORMAT', 'PALUGADA_PUSH_TOPIC'],
   slack: ['PALUGADA_SLACK_WEBHOOK', 'PALUGADA_SLACK_WEBHOOK_REF'],
   discord: ['PALUGADA_DISCORD_WEBHOOK', 'PALUGADA_DISCORD_WEBHOOK_REF'],
+  email: ['PALUGADA_EMAIL_PROVIDER', 'PALUGADA_EMAIL_KEY', 'PALUGADA_EMAIL_KEY_REF', 'PALUGADA_EMAIL_FROM', 'PALUGADA_EMAIL_TO'],
 };
 
 /** The variables the agent CLIs were configured by, which a console choice replaces together. */
@@ -133,6 +146,13 @@ export function withSettings(env: NodeJS.ProcessEnv, settings: Settings): NodeJS
       out.PALUGADA_TELEGRAM_TOKEN_REF = `db://${channels.telegram.tokenSecret}`;
       out.PALUGADA_TELEGRAM_CHAT = channels.telegram.chatId;
       if (channels.telegram.webhookSecret) out.PALUGADA_TELEGRAM_WEBHOOK_SECRET_REF = `db://${channels.telegram.webhookSecret}`;
+    } else if (name === 'whatsapp' && channels.whatsapp) {
+      out.PALUGADA_WHATSAPP_PHONE_ID = channels.whatsapp.phoneNumberId;
+      out.PALUGADA_WHATSAPP_OWNER = channels.whatsapp.owner;
+      if (channels.whatsapp.template) out.PALUGADA_WHATSAPP_TEMPLATE = channels.whatsapp.template;
+      out.PALUGADA_WHATSAPP_TOKEN_REF = `db://${channels.whatsapp.tokenSecret}`;
+      out.PALUGADA_WHATSAPP_APP_SECRET_REF = `db://${channels.whatsapp.appSecretSecret}`;
+      out.PALUGADA_WHATSAPP_VERIFY_TOKEN_REF = `db://${channels.whatsapp.verifySecret}`;
     } else if (name === 'push' && channels.push) {
       out.PALUGADA_PUSH_URL = channels.push.url;
       out.PALUGADA_PUSH_FORMAT = channels.push.format;
@@ -140,6 +160,11 @@ export function withSettings(env: NodeJS.ProcessEnv, settings: Settings): NodeJS
       if (channels.push.tokenSecret) out.PALUGADA_PUSH_TOKEN_REF = `db://${channels.push.tokenSecret}`;
     } else if ((name === 'slack' || name === 'discord') && channels[name]) {
       out[`PALUGADA_${name.toUpperCase()}_WEBHOOK_REF`] = `db://${channels[name]!.urlSecret}`;
+    } else if (name === 'email' && channels.email) {
+      out.PALUGADA_EMAIL_PROVIDER = channels.email.provider;
+      out.PALUGADA_EMAIL_FROM = channels.email.from;
+      out.PALUGADA_EMAIL_TO = channels.email.to;
+      out.PALUGADA_EMAIL_KEY_REF = `db://${channels.email.keySecret}`;
     }
   }
   // The console's MCP servers are the owner's, next to the operator's file
@@ -152,6 +177,28 @@ export function withSettings(env: NodeJS.ProcessEnv, settings: Settings): NodeJS
         servers: mcp.servers.map(({ tokenSecret, ...server }) => ({ ...server, ...(tokenSecret ? { tokenRef: `db://${tokenSecret}` } : {}) })),
       });
     }
+  }
+  // And its services, likewise beside PALUGADA_VENDORS rather than in place of
+  // it. An entry holds no secret: a division's key is a credential of its own.
+  const vendors = settings.vendors as { capabilities?: unknown[] } | undefined;
+  if (vendors) {
+    delete out.PALUGADA_VENDOR_SETTINGS;
+    if (vendors.capabilities && vendors.capabilities.length > 0) {
+      out.PALUGADA_VENDOR_SETTINGS = JSON.stringify({ capabilities: vendors.capabilities });
+    }
+  }
+  // What the owner said each model costs (L12), over the operator's price file.
+  // Laid over the ones setup wrote, not in place of them: a price the owner
+  // saves for one model leaves the others where setup put them.
+  const prices = settings.model_prices as { models?: Record<string, unknown> } | undefined;
+  if (prices?.models && Object.keys(prices.models).length > 0) {
+    let written: Record<string, unknown> = {};
+    try {
+      written = (JSON.parse(out.PALUGADA_MODEL_PRICE_SETTINGS ?? '{}') as { models?: Record<string, unknown> }).models ?? {};
+    } catch {
+      written = {};
+    }
+    out.PALUGADA_MODEL_PRICE_SETTINGS = JSON.stringify({ models: { ...written, ...prices.models } });
   }
   const agents = settings.agents as Record<string, AgentSetting> | undefined;
   if (agents) {
@@ -170,6 +217,7 @@ export function withSettings(env: NodeJS.ProcessEnv, settings: Settings): NodeJS
         ...(agent.models && Object.keys(agent.models).length > 0 ? { models: agent.models } : {}),
         ...(agent.credential ? { secretEnv: { [agent.credential.variable]: `db://${agent.credential.secret}` } } : {}),
         ...(agent.env && Object.keys(agent.env).length > 0 ? { env: agent.env } : {}),
+        ...(agent.acceptVersion ? { acceptVersion: agent.acceptVersion } : {}),
       }])));
     }
   }

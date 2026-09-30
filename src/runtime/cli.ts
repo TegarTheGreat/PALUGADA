@@ -41,11 +41,13 @@
  *     isolation setting a value with no effect -- worse than a missing
  *     feature, because it reads like a choice somebody made.
  */
+import { uncheckedVersion, versionIn } from './checked-versions.ts';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { spawnTree, TreeKeeper } from './process-tree.ts';
+import { spawnTree, TreeKeeper, type TreeLedger } from './process-tree.ts';
+import { acpSession } from './acp.ts';
 import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, isAbsolute, join, normalize, sep } from 'node:path';
+import { dirname, isAbsolute, join, normalize, resolve, sep } from 'node:path';
 import type {
   Adapter,
   AdapterHealth,
@@ -55,7 +57,7 @@ import type {
   RunRequest,
   RunServices,
 } from './protocol.ts';
-import { driveRun, renderPrompt, toWireRequest, type Transport } from './wire.ts';
+import { driveRun, readLines, renderPrompt, toWireRequest, type Transport } from './wire.ts';
 import { toolsForModel } from './tool-names.ts';
 import { startToolBridge, type ToolBridge } from './tool-bridge.ts';
 import { cliModelFor } from './cli-models.ts';
@@ -84,6 +86,9 @@ import {
  */
 export const CLI_DIALECTS = [
   'stream-json', 'text', 'hermes-stream-json', 'openclaw-json', 'opencode-json', 'codex-jsonl', 'gemini-stream-json',
+  // The Agent Client Protocol (acp.ts): not an output to read but a
+  // conversation on stdin and stdout, which names the tool bridge itself.
+  'acp',
 ] as const;
 export type CliDialect = (typeof CLI_DIALECTS)[number];
 
@@ -208,9 +213,20 @@ export interface CliRuntimeSpec {
   models?: Record<string, string>;
   /** How to ask the binary whether it is there (F13.8). Default `--version`. */
   versionArgs?: string[];
+  /**
+   * The version whose containment was checked (`checked-versions.ts`). Set on
+   * the known entries; a CLI at another version gets no work until the owner
+   * accepts it. An entry the operator wrote names none and is held to none.
+   */
+  checkedVersion?: string;
+  /** Another version the owner accepted, from the console (`acceptVersion`). */
+  acceptedVersion?: string;
 }
 
 const BRIDGE_PLACEHOLDERS = ['{mcpConfig}', '{mcpConfigFile}', '{mcpUrl}'] as const;
+
+/** How long a withdrawn ACP agent has to stop after `session/cancel` before its process is ended. */
+const ACP_CANCEL_GRACE_MS = 5_000;
 
 /**
  * Reads runtime specs out of a deployment's configuration.
@@ -285,7 +301,8 @@ export class CliAdapter implements Adapter {
     const placed = [
       ...spec.args, ...Object.values(spec.env ?? {}), ...Object.values(spec.files ?? {}),
     ].join('\n');
-    if (!BRIDGE_PLACEHOLDERS.some((placeholder) => placed.includes(placeholder))) {
+    // An ACP agent is given the bridge in `session/new`, by the protocol.
+    if (spec.dialect !== 'acp' && !BRIDGE_PLACEHOLDERS.some((placeholder) => placed.includes(placeholder))) {
       throw new Error(
         `runtime ${spec.name} places no tool bridge: one of ` +
           `${BRIDGE_PLACEHOLDERS.join(', ')} must appear in its arguments, environment or ` +
@@ -322,13 +339,15 @@ export class CliAdapter implements Adapter {
           detail: `${this.#spec.command} is not runnable: ${error.message}`,
         }),
       );
-      child.on('close', (code) =>
-        resolve(
-          code === 0
-            ? { ok: true, detail: out.trim() || this.#spec.command }
-            : { ok: false, detail: `${this.#spec.command} ${args.join(' ')} exited ${code}` },
-        ),
-      );
+      child.on('close', (code) => {
+        if (code !== 0) {
+          resolve({ ok: false, detail: `${this.#spec.command} ${args.join(' ')} exited ${code}` });
+          return;
+        }
+        const unchecked = uncheckedVersion(
+          this.#spec.name, versionIn(out), this.#spec.checkedVersion, this.#spec.acceptedVersion);
+        resolve(unchecked ? { ok: false, detail: unchecked } : { ok: true, detail: out.trim() || this.#spec.command });
+      });
     });
   }
 
@@ -420,7 +439,7 @@ export class CliAdapter implements Adapter {
       // failing to say so.
       env: { ...this.#childEnv(layout.env), ...credentials },
     };
-    const child = spawnTree(this.#spec.command, layout.argv, { ...place, stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawnTree(this.#spec.command, layout.argv, { ...place, stdio: ['pipe', 'pipe', 'pipe'] }, services.processes);
 
     let stderr = '';
     child.stderr!.setEncoding('utf8');
@@ -439,14 +458,29 @@ export class CliAdapter implements Adapter {
     // A withdrawn run ends its process now, not when the process next says
     // something: these CLIs have no cancel message to receive, and one that
     // has gone quiet would otherwise hold a worker for as long as it liked.
-    const withdraw = () => void this.#trees.end(child);
+    // An ACP agent has one, `session/cancel`, and is sent it first (acp.ts):
+    // it has a few seconds to stop cleanly before it is stopped.
+    const acp = this.#spec.dialect === 'acp'
+      ? acpSession({
+        child, name: this.name, model: values.model, prompt, cwd: resolve(place.cwd ?? runDir),
+        bridge: request.allowedTools.length > 0 ? { url: bridge.url, token: bridge.token } : null,
+        tools: request.allowedTools, stderr: () => stderr, exit: () => exitCode(child),
+      })
+      : null;
+    const withdraw = acp
+      ? () => void acp.cancel(ACP_CANCEL_GRACE_MS).then(() => this.#trees.end(child))
+      : () => void this.#trees.end(child);
     services.signal.addEventListener('abort', withdraw, { once: true });
 
     const transport: Transport = {
-      events: this.#events(child, () => stderr, values.model, (sessionId) => this.#sessionCost(sessionId, place)),
-      async send() {
-        // Nothing to send. Tool answers reach this runtime over MCP, and a
-        // cancellation reaches it as the killed process below.
+      events: acp
+        ? acp.events
+        : this.#events(child, () => stderr, values.model, (sessionId) => this.#sessionCost(sessionId, place, services.processes)),
+      async send(message) {
+        // Tool answers reach this runtime over MCP. A cancellation reaches
+        // most as the killed process below, and an ACP agent as
+        // `session/cancel` first, with a few seconds to stop.
+        if (acp && message.type === 'cancel') await acp.cancel(ACP_CANCEL_GRACE_MS);
       },
       terminate: async () => {
         await this.#trees.end(child);
@@ -460,9 +494,11 @@ export class CliAdapter implements Adapter {
       },
     };
 
-    if (this.#spec.promptVia === 'arg') {
+    // An ACP agent's stdin stays open: the conversation is on it, and the
+    // prompt goes in `session/prompt`.
+    if (!acp && this.#spec.promptVia === 'arg') {
       child.stdin!.end();
-    } else {
+    } else if (!acp) {
       child.stdin!.end(prompt);
     }
     return driveRun(request, services, transport);
@@ -479,11 +515,11 @@ export class CliAdapter implements Adapter {
     switch (this.#spec.dialect ?? 'stream-json') {
       case 'text': return this.#textEvents(child, stderr);
       case 'hermes-stream-json':
-        return hermesEvents(lines(child), () => exitCode(child), stderr, this.name, model, this.#spec.costArgs ? costOf : undefined);
+        return hermesEvents(readLines(child.stdout!, this.name), () => exitCode(child), stderr, this.name, model, this.#spec.costArgs ? costOf : undefined);
       case 'openclaw-json': return openClawEvents(whole(child), () => exitCode(child), stderr, this.name, model);
-      case 'opencode-json': return openCodeEvents(lines(child), () => exitCode(child), stderr, this.name, model);
-      case 'codex-jsonl': return codexEvents(lines(child), () => exitCode(child), stderr, this.name, model);
-      case 'gemini-stream-json': return geminiEvents(lines(child), () => exitCode(child), stderr, this.name, model);
+      case 'opencode-json': return openCodeEvents(readLines(child.stdout!, this.name), () => exitCode(child), stderr, this.name, model);
+      case 'codex-jsonl': return codexEvents(readLines(child.stdout!, this.name), () => exitCode(child), stderr, this.name, model);
+      case 'gemini-stream-json': return geminiEvents(readLines(child.stdout!, this.name), () => exitCode(child), stderr, this.name, model);
       default: return this.#streamJsonEvents(child, stderr);
     }
   }
@@ -494,11 +530,13 @@ export class CliAdapter implements Adapter {
    * read -- Hermes puts the whole conversation after it -- and a call that
    * says nothing usable in fifteen seconds leaves the price to the engine.
    */
-  async #sessionCost(sessionId: string, place: { cwd?: string; env: Record<string, string> }): Promise<number | null> {
+  async #sessionCost(
+    sessionId: string, place: { cwd?: string; env: Record<string, string> }, processes: TreeLedger | undefined,
+  ): Promise<number | null> {
     // It came from the CLI's own output, and it is about to be an argument.
     if (!/^[A-Za-z0-9][\w.:-]{0,127}$/.test(sessionId)) return null;
     const probe = spawnTree(this.#spec.command, this.#spec.costArgs!.map((arg) => arg.replaceAll('{sessionId}', sessionId)),
-      { ...place, stdio: ['ignore', 'pipe', 'ignore'] });
+      { ...place, stdio: ['ignore', 'pipe', 'ignore'] }, processes);
     probe.on('error', () => {});
     try {
       const first = await new Promise<string | null>((resolve) => {
@@ -537,28 +575,19 @@ export class CliAdapter implements Adapter {
   }
 
   async *#streamJsonEvents(child: ChildProcess, stderr: () => string): AsyncGenerator<RunEvent> {
-    let buffer = '';
-    for await (const chunk of child.stdout!) {
-      buffer += (chunk as Buffer).toString('utf8');
-      let index = buffer.indexOf('\n');
-      while (index !== -1) {
-        const line = buffer.slice(0, index).trim();
-        buffer = buffer.slice(index + 1);
-        index = buffer.indexOf('\n');
-        if (!line) continue;
-        let parsed: StreamJsonLine;
-        try {
-          parsed = JSON.parse(line) as StreamJsonLine;
-        } catch {
-          // Agent CLIs print things that are not events -- banners, progress,
-          // a warning about a config file. Ignoring an unreadable line is
-          // right here and wrong in the `script` adapter, where every line is
-          // supposed to be an event and an unreadable one means the runtime is
-          // not speaking the protocol at all.
-          continue;
-        }
-        yield* translateStreamJsonLine(parsed, stderr, this.name);
+    for await (const line of readLines(child.stdout!, this.name)) {
+      let parsed: StreamJsonLine;
+      try {
+        parsed = JSON.parse(line) as StreamJsonLine;
+      } catch {
+        // Agent CLIs print things that are not events -- banners, progress,
+        // a warning about a config file. Ignoring an unreadable line is
+        // right here and wrong in the `script` adapter, where every line is
+        // supposed to be an event and an unreadable one means the runtime is
+        // not speaking the protocol at all.
+        continue;
       }
+      yield* translateStreamJsonLine(parsed, stderr, this.name);
     }
   }
 
@@ -625,22 +654,6 @@ function exitCode(child: ChildProcess): Promise<number> {
     // so that "did it succeed" stays a single comparison.
     child.once('close', (code) => resolve(code ?? 1));
   });
-}
-
-/** The child's stdout, a line at a time, blank lines dropped. */
-async function* lines(child: ChildProcess): AsyncGenerator<string> {
-  let buffer = '';
-  for await (const chunk of child.stdout!) {
-    buffer += (chunk as Buffer).toString('utf8');
-    let index = buffer.indexOf('\n');
-    while (index !== -1) {
-      const line = buffer.slice(0, index).trim();
-      buffer = buffer.slice(index + 1);
-      index = buffer.indexOf('\n');
-      if (line) yield line;
-    }
-  }
-  if (buffer.trim()) yield buffer.trim();
 }
 
 /** The child's whole stdout, bounded, once it has closed it. */

@@ -21,6 +21,8 @@ import { exportCompany, type ArchiveLine } from '../../src/audit/export.ts';
 import { importCompany } from '../../src/audit/import.ts';
 import { createHmac } from 'node:crypto';
 import { InMemorySecretManager } from '../../src/secrets/manager.ts';
+import { OwnerApi } from '../../src/owner/api.ts';
+import { OwnerMfa } from '../../src/owner/mfa.ts';
 import {
   createTrigger, receiveHook, rotateTriggerToken, setTriggerEnabled, triggersOf,
   type HookAnswer, type HookHeaders,
@@ -290,7 +292,7 @@ test("a payment gets in with Stripe's signature, fresh, and nothing else does", 
   }, secrets), /takes no secret/);
   await assert.rejects(createTrigger(fixture.companyId, {
     slug: 'orders', roleId: fixture.roleId, goalId: fixture.goalId, instruction: 'x', scheme: 'paypal' as never,
-  }, secrets), /bearer, github, stripe, slack, standard/);
+  }, secrets), /bearer, url, github, stripe, slack, standard/);
 
   const opened = await signedDoor(fixture, 'stripe', secrets);
   assert.equal(opened.token, null, 'the secret is Stripe\'s; there is no token to show');
@@ -477,4 +479,60 @@ test("a signed door's secret moves to a new place, and travels as a reference", 
   assert.deepEqual([copy!.scheme, copy!.secretRef, copy!.enabled], ['stripe', 'vault://hooks/stripe-2', false]);
   await setTriggerEnabled(restored.companyId, copy!.id, true);
   started(await receiveHook(copy!.publicId, stripe('whsec_new_secret_value', '{"id":"b"}'), secrets));
+});
+
+/**
+ * Coolify's outgoing webhook is an address and nothing else: no header, no
+ * signature. A door for such a sender takes a token the platform makes, in
+ * the address. Anyone who sees the address can start the work, so a door that
+ * takes a bearer header refuses a token in the address: that token belongs
+ * out of URLs, where proxies and logs keep them.
+ */
+test('a sender that can set no header carries the token in the address, and only its door takes it', async () => {
+  const fixture = await createCompany('hook-address');
+  const opened = await createTrigger(fixture.companyId, {
+    slug: 'deploys', roleId: fixture.roleId, goalId: fixture.goalId,
+    instruction: 'Find out why the deploy failed and say what to change.', scheme: 'url',
+  });
+  assert.ok(opened.token && opened.token.length >= 40, 'the platform makes its token');
+  const event = { event: 'deployment_failed', application: 'shop' };
+  const plain = { raw: Buffer.from(JSON.stringify(event)), headers: { 'content-type': 'application/json' } as HookHeaders };
+
+  await assert.rejects(receiveHook(opened.publicId, plain), refused('hook.refused'));
+  await assert.rejects(receiveHook(opened.publicId, { ...plain, token: 'not-it' }), refused('hook.refused'));
+  // A bearer header is not what this door takes.
+  await assert.rejects(receiveHook(opened.publicId, bearer(opened.token, event)), refused('hook.refused'));
+  const first = started(await receiveHook(opened.publicId, { ...plain, token: opened.token }));
+  assert.equal((await receiveHook(opened.publicId, { ...plain, token: opened.token }) as { taskId: string }).taskId,
+    first.taskId, 'the same event again is the same delivery');
+
+  // A bearer door refuses its own token in the address, however right it is.
+  const headerDoor = await door(fixture);
+  await assert.rejects(
+    receiveHook(headerDoor.publicId, { ...bearer(headerDoor.token, event), token: headerDoor.token! }),
+    refused('hook.refused'),
+  );
+
+  // A new token closes the old address.
+  const rotated = await rotateTriggerToken(fixture.companyId, opened.id);
+  assert.ok(rotated.token);
+  await assert.rejects(receiveHook(opened.publicId, { ...plain, token: opened.token }), refused('hook.refused'));
+  started(await receiveHook(opened.publicId, { raw: Buffer.from('{"n":2}'), headers: plain.headers, token: rotated.token! }));
+  assert.equal((await triggersOf(fixture.companyId)).find((one) => one.slug === 'deploys')!.scheme, 'url');
+
+  // And through the console's own route, with the token in the query.
+  const api = new OwnerApi({ mfa: new OwnerMfa({ secrets: new InMemorySecretManager() }) });
+  const { url } = await api.listen();
+  try {
+    const posted = await fetch(`${url}/api/hooks/${opened.publicId}?token=${rotated.token}`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ n: 3 }),
+    });
+    assert.equal(posted.status, 200, await posted.clone().text());
+    const refusedPost = await fetch(`${url}/api/hooks/${opened.publicId}?token=wrong`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ n: 4 }),
+    });
+    assert.equal(refusedPost.status, 401);
+  } finally {
+    await api.close();
+  }
 });

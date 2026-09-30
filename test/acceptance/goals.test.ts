@@ -23,6 +23,10 @@ import { createRootTask, createSubTask, transition } from '../../src/engine/task
 import { assertTemplateIsCoherent } from '../../src/templates/company.ts';
 import { CapabilityRegistry, type Capability } from '../../src/broker/registry.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
+import { registerPlatformCapabilities } from '../../src/broker/platform-capabilities.ts';
+import { COMPANY_OS } from '../../src/bundles/builtin.ts';
+import { InMemorySecretManager } from '../../src/secrets/manager.ts';
+import { OwnerMfa, decodeBase32, newTotpSecret, stepFor, totpCode } from '../../src/owner/mfa.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { createCompany, grantCapability, planTask, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
@@ -264,10 +268,10 @@ test('a proposed strategy change is the owner\'s decision (F3.10)', async () => 
   const fixture = await createCompany('goal-proposal');
   const task = await newTask(fixture);
 
-  const itemId = await proposeGoalChange({
+  const { inboxItemId: itemId } = await proposeGoalChange({
     companyId: fixture.companyId,
     taskId: task.id,
-    goalId: fixture.goalId,
+    goal: fixture.goalId,
     proposedStatement: 'Grow revenue by shipping faster.',
     rationale: 'The current objective does not mention revenue at all.',
   });
@@ -313,6 +317,82 @@ test('a proposed strategy change is the owner\'s decision (F3.10)', async () => 
     return rows[0]!.statement;
   });
   assert.equal(after, 'Grow revenue by shipping faster.');
+});
+
+test('a run proposes a goal change with goal.propose, and the owner\'s yes is the change (F3.10)', async () => {
+  // `proposeGoalChange` was "the agent's path" and no agent could reach it:
+  // the strategist was told to write goal changes as proposals and had no
+  // tool to write one with. And approving the item changed nothing -- the
+  // owner then had to make the same edit again by hand.
+  const fixture = await createCompany('goal-propose-tool');
+  const registry = new CapabilityRegistry();
+  registerPlatformCapabilities(registry);
+  await registry.sync();
+  await grantCapability(fixture, 'goal.propose');
+  const strategist = await newTask(fixture);
+  await transition(fixture.companyId, strategist.id, 'running');
+  const broker = new CapabilityBroker(registry);
+  let key = 0;
+  const propose = (input: Record<string, unknown>) => broker.invoke<unknown, { proposed: boolean; inboxItemId: string; note?: string }>({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    roleId: fixture.roleId, taskId: strategist.id, idempotencyKey: `propose-${key += 1}`,
+  }, 'goal.propose', input);
+  const goalNow = async () => (await withTenant(fixture.companyId, (tx) => tx.query<{ statement: string; status: string }>(
+    'SELECT statement, status FROM goals WHERE id = $1', [fixture.goalId]))).rows[0]!;
+
+  await assert.rejects(propose({ goal: 'nowhere', statement: 'x', why: 'y' }),
+    /no goal nowhere in this company; name one by its slug: mission, objective/);
+  await assert.rejects(propose({ goal: 'objective', why: 'y' }), /a new statement, a new status, or both/);
+
+  const first = (await propose({
+    goal: 'objective', statement: 'Ten paying cafes in Bandung by December.',
+    why: 'Revenue is flat for six weeks; the objective names no customer.',
+  })).output;
+  assert.equal(first.proposed, true);
+  const [item] = (await inbox.listOpen(fixture.companyId)).filter((open) => open.id === first.inboxItemId);
+  assert.equal(item!.kind, 'escalation');
+  assert.equal(item!.tier, 3, 'what the company is for takes the owner\'s device');
+  assert.equal(item!.taskId, null, 'a no to the proposal is not a stop to the work that made it');
+  assert.match(item!.rationale, /Currently: Keep the work moving/);
+  assert.match(item!.rationale, /Proposed: Ten paying cafes/);
+  assert.match(item!.rationale, /Revenue is flat/);
+  assert.equal((await goalNow()).statement, 'Keep the work moving without surprising the owner.', 'proposing changes nothing');
+  const again = (await propose({ goal: fixture.goalId, statement: 'Something else.', why: 'z' })).output;
+  assert.deepEqual([again.proposed, again.inboxItemId], [false, first.inboxItemId], 'one proposal about a goal at a time');
+
+  // The owner's yes, with their device, is the change.
+  await assert.rejects(inbox.decide(fixture.companyId, first.inboxItemId, 'approve', ''),
+    (error: unknown) => isPalugadaError(error, 'approval.channel_forbidden'));
+  const secrets = new InMemorySecretManager();
+  const { secret } = newTotpSecret('owner phone');
+  secrets.set('vault://owner/goal-totp', secret);
+  const mfa = new OwnerMfa({ secrets });
+  await mfa.enrolTotp({ label: 'owner phone', secretRef: 'vault://owner/goal-totp' });
+  let drift = 0;
+  const code = () => totpCode(decodeBase32(secret), stepFor(new Date()) + drift++);
+  await inbox.decide(fixture.companyId, first.inboxItemId, 'approve', 'Yes.', { channel: 'app', proof: { totp: code() }, mfa });
+  assert.equal((await goalNow()).statement, 'Ten paying cafes in Bandung by December.');
+  const { rows: changed } = await withTenant(fixture.companyId, (tx) => tx.query<{ payload: Record<string, unknown> }>(
+    "SELECT payload FROM events WHERE type = 'goal.changed' ORDER BY occurred_at DESC LIMIT 1"));
+  assert.equal(changed[0]!.payload.inboxItemId, first.inboxItemId);
+
+  // A proposal about a goal the owner has changed since is refused, not applied over them.
+  const stale = (await propose({ goal: 'objective', status: 'abandoned', why: 'Nobody will pay.' })).output;
+  await applyGoalChange({ companyId: fixture.companyId, goalId: fixture.goalId, statement: 'The owner\'s own words.' });
+  await assert.rejects(
+    inbox.decide(fixture.companyId, stale.inboxItemId, 'approve', '', { channel: 'app', proof: { totp: code() }, mfa }),
+    /the goal has changed since this was proposed/);
+  await inbox.decide(fixture.companyId, stale.inboxItemId, 'deny', 'Not yet.');
+  assert.deepEqual(await goalNow(), { statement: 'The owner\'s own words.', status: 'active' });
+  const { rows: still } = await withTenant(fixture.companyId, (tx) => tx.query<{ status: string }>(
+    'SELECT status FROM tasks WHERE id = $1', [strategist.id]));
+  assert.equal(still[0]!.status, 'running', 'the strategist carries on under the goals as they are');
+
+  // The kit's strategist holds it, within the tools a role may have.
+  const tools = COMPANY_OS.body.roles.find((role) => role.slug === 'strategist')!.tools ?? [];
+  assert.ok(tools.includes('goal.propose'));
+  assert.ok(tools.length <= 12);
+  assert.ok(COMPANY_OS.body.grants.some((grant) => grant.division === 'strategy' && grant.capability === 'goal.propose'));
 });
 
 test('a role that cannot say what done looks like is given no work (F2.8)', async () => {

@@ -225,8 +225,11 @@ const TOPIC_GONE = /message thread not found|TOPIC_(?:DELETED|CLOSED)|topic (?:w
 /** A voice note past this is not something said to a CEO, and more than a transcription provider takes at once. */
 const VOICE_MAX_BYTES = 20 * 1024 * 1024;
 
-/** How many update ids are remembered, to know one sent again. */
-const SEEN_MAX = 1_000;
+/**
+ * How long an update id is remembered, to know one sent again (0089).
+ * Telegram gives up on an update after a day; two weeks is room to spare.
+ */
+const RECEIPTS_KEPT_DAYS = 14;
 
 /**
  * How an "Ask" prompt names its item, as the last line of the prompt.
@@ -245,8 +248,8 @@ export class TelegramChannel implements OwnerChannel {
   readonly name: string;
   readonly #options: TelegramOptions;
   readonly #fetch: typeof globalThis.fetch;
-  /** Update ids already taken in. */
-  readonly #seen = new Set<number>();
+  /** When receipts older than they need to be were last cleared. */
+  #cleared = 0;
   /**
    * The owner's messages and presses, answered one at a time in the order
    * they came -- a conversation read out of order is another conversation,
@@ -573,10 +576,8 @@ export class TelegramChannel implements OwnerChannel {
       return { handled: false, reason: 'webhook_secret' };
     }
     // After the secret, so that nobody but Telegram can fill the list.
-    if (typeof update.update_id === 'number') {
-      if (this.#seen.has(update.update_id)) return { handled: false, reason: 'duplicate' };
-      this.#seen.add(update.update_id);
-      if (this.#seen.size > SEEN_MAX) this.#seen.delete(this.#seen.values().next().value as number);
+    if (typeof update.update_id === 'number' && !(await this.#firstTime(update.update_id))) {
+      return { handled: false, reason: 'duplicate' };
     }
     if (update.stopped_message_generation) return this.#onStop(update.stopped_message_generation);
     if (update.message) {
@@ -593,6 +594,25 @@ export class TelegramChannel implements OwnerChannel {
       return { handled: false, reason: 'unknown_item' };
     }
     return this.onCallback(companyId, update, options);
+  }
+
+  /**
+   * Whether this update is new, claimed in the database (0089): an update
+   * Telegram sends again after a restart, or to another replica, is the same
+   * update. Keyed by the bot, whose number starts its token, because update
+   * ids are counted per bot and the owner may change bots.
+   */
+  async #firstTime(updateId: number): Promise<boolean> {
+    const key = `${this.#options.token.split(':')[0]}:${updateId}`;
+    return withControlPlane(async (tx) => {
+      const { rowCount } = await tx.query(
+        'INSERT INTO telegram_receipts (update_key) VALUES ($1) ON CONFLICT (update_key) DO NOTHING', [key]);
+      if (Date.now() - this.#cleared > 3_600_000) {
+        this.#cleared = Date.now();
+        await tx.query('DELETE FROM telegram_receipts WHERE received_at < now() - make_interval(days => $1)', [RECEIPTS_KEPT_DAYS]);
+      }
+      return rowCount === 1;
+    });
   }
 
   /**

@@ -11,12 +11,25 @@ import '@mantine/spotlight/styles.css';
 import './app.css';
 import { App } from './App.tsx';
 import { FactorProvider } from './factor.tsx';
-import { language } from './i18n.ts';
+import { locale } from './i18n.ts';
 
 /** One colour for the product, an indigo: calm enough for money, distinct from every status colour. */
 const brand: MantineColorsTuple = [
   '#eef2ff', '#e0e7ff', '#c7d2fe', '#a5b4fc', '#818cf8', '#6366f1', '#4f46e5', '#4338ca', '#3730a3', '#312e81',
 ];
+
+/**
+ * Inter for Latin and Cyrillic, then each platform's own face for the scripts
+ * Inter lacks, named rather than left to the browser: a machine whose first
+ * Han font is a Japanese one draws Chinese with Japanese glyph shapes, and
+ * the page's `lang` (set from the locale, `zh-CN`) is only a hint.
+ */
+const FONTS = [
+  "'Inter Variable'", 'system-ui', '-apple-system', "'Segoe UI'", 'Roboto',
+  "'PingFang SC'", "'Microsoft YaHei'", "'Noto Sans SC'", "'Noto Sans CJK SC'",
+  "'Noto Sans Devanagari'", "'Nirmala UI'", "'Kohinoor Devanagari'",
+  'sans-serif',
+].join(', ');
 
 const theme = createTheme({
   primaryColor: 'brand',
@@ -24,8 +37,8 @@ const theme = createTheme({
   primaryShade: { light: 6, dark: 5 },
   defaultRadius: 'md',
   cursorType: 'pointer',
-  fontFamily: "'Inter Variable', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
-  headings: { fontFamily: "'Inter Variable', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif", fontWeight: '750' },
+  fontFamily: FONTS,
+  headings: { fontFamily: FONTS, fontWeight: '750' },
 });
 
 /**
@@ -46,7 +59,7 @@ function memoryColorSchemeManager(): MantineColorSchemeManager {
   };
 }
 
-document.documentElement.lang = language();
+document.documentElement.lang = locale();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

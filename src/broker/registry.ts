@@ -12,6 +12,7 @@ import { PalugadaError } from '../errors.ts';
 import { isTier, requiresVerification, type Tier } from '../domain/tier.ts';
 import { withControlPlane } from '../db/tenant.ts';
 import { assertCalibrated, type CapabilityDeclaration } from './catalogue.ts';
+import type { CredentialSignIn } from '../capabilities/vendor-oauth.ts';
 
 export interface CapabilityContext {
   companyId: string;
@@ -58,11 +59,25 @@ export interface Capability<I = unknown, O = unknown> {
    */
   inputSchema?: Record<string, unknown>;
   /**
-   * Whether what it returns was written outside the company (F8.9), for a
-   * capability the catalogue does not know -- a tool from an MCP server.
-   * The catalogue's own say so for everything it names.
+   * Which of the division's credentials it signs in with, when it takes one:
+   * how the console tells a division which keys its capabilities are
+   * missing, rather than the first call finding out.
    */
-  readsOutside?: boolean;
+  credentialAlias?: string;
+  /**
+   * How the owner signs a division in for that credential, when it is not a
+   * key they paste: a vendor entry's `signIn` (`vendor-oauth.ts`).
+   */
+  signIn?: CredentialSignIn;
+  /**
+   * Whether what it returns was written outside the company (F8.9), for a
+   * capability the catalogue does not know -- a tool from an MCP server --
+   * or, asked of what it returned, for one whose answer only sometimes is:
+   * `memory.search` returns the company's own facts, and now and then a
+   * lesson learned from outside content. The catalogue's own say so for
+   * everything it names.
+   */
+  readsOutside?: boolean | ((output: unknown) => boolean);
   estimatedCostCents?: number;
   execute(input: I, ctx: CapabilityContext): Promise<O>;
   /**

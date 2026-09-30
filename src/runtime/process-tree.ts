@@ -20,6 +20,14 @@
  *      to honour it, kept running. The group gets a grace period, then
  *      SIGKILL, then a check that it is actually empty -- and a group that is
  *      still there after that is *reported*, not assumed gone.
+ *   4. **The worker killed outright.** Everything above runs in the worker,
+ *      and a worker killed with SIGKILL or by the out-of-memory killer runs
+ *      none of it, not even its exit hook. So each group is also written
+ *      down as it starts (`TreeLedger`), with its leader's start time, and
+ *      the next worker on the same machine ends the ones whose worker is gone
+ *      (`src/engine/process-ledger.ts`). Paperclip does the same: it keeps
+ *      a run's pid, group and start time, and kills a lost run's group after
+ *      a restart.
  *
  * The shape is taken from auto-company's supervisor
  * (`scripts/core/process-supervisor-linux.py`), which does this for one agent
@@ -33,7 +41,7 @@
  * the old single-process behaviour is kept and the limitation is the same one
  * it always had.
  */
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, readlinkSync } from 'node:fs';
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 
 /** Process groups are a POSIX idea. */
@@ -67,23 +75,86 @@ function installExitHook(): void {
 }
 
 /**
+ * Which process a group was started as: its leader's pid, the group, and the
+ * leader's start time in clock ticks since boot (`/proc/<pid>/stat`, field
+ * 22). The start time is what makes a pid mean one process: the kernel hands
+ * a freed pid to the next process that asks, and two processes never share a
+ * pid and a start time.
+ */
+export interface TreeIdentity {
+  pid: number;
+  pgid: number;
+  /** Decimal, as the kernel writes it; a string so no width is assumed. */
+  startTicks: string;
+}
+
+/**
+ * Where a run's process groups are written down (0095).
+ *
+ * The exit hook above runs only when this process gets to run it: a worker
+ * killed with SIGKILL, or by the out-of-memory killer, runs nothing, and every
+ * agent CLI it started went on spending the owner's key with nobody counting.
+ * A ledger keeps each group somewhere that outlives the worker, so the next
+ * worker on the same machine can find the ones nobody ended
+ * (`src/engine/process-ledger.ts`).
+ *
+ * Neither call may fail a run: they are made on the way into and out of one,
+ * and a group the ledger failed to write down is the same group it was
+ * before there was a ledger.
+ */
+export interface TreeLedger {
+  opened(tree: TreeIdentity): Promise<void>;
+  ended(tree: TreeIdentity): Promise<void>;
+}
+
+/** The groups written in a ledger and not yet written out, by group id. */
+const ledgered = new Map<number, { ledger: TreeLedger; tree: TreeIdentity; written: Promise<void> }>();
+
+/**
  * `spawn`, with the child made the leader of a new process group.
  *
  * The group id is the child's pid. Nothing else about the spawn changes -- the
  * caller's stdio, environment and working directory are passed through -- so
  * an adapter switching to this changes what can be *killed*, not what runs.
+ *
+ * With a `ledger`, the group is also written down as soon as it exists, and
+ * written out when `terminateTree` finds it empty.
  */
 export function spawnTree(
   command: string,
   args: readonly string[],
   options: SpawnOptions,
+  ledger?: TreeLedger,
 ): ChildProcess {
   const child = spawn(command, args, { ...options, detached: GROUPS });
   if (GROUPS && child.pid !== undefined) {
     installExitHook();
     live.add(child.pid);
+    // Read now, while the child cannot have been reaped: libuv reaps only
+    // once this turn of the event loop is over, so even a child that has
+    // already exited is still in /proc as a zombie with its start time.
+    const startTicks = ledger ? startTicksOf(child.pid) : null;
+    if (ledger && startTicks !== null) {
+      const tree = { pid: child.pid, pgid: child.pid, startTicks };
+      ledgered.set(child.pid, { ledger, tree, written: ledger.opened(tree).catch(() => undefined) });
+    }
   }
   return child;
+}
+
+/**
+ * Writes a group out of its ledger, once it is known to be empty.
+ *
+ * After the write that put it there, however that went: a group that ended
+ * before its row was committed would otherwise be written out first and
+ * written in afterwards, and look running until a sweep found it gone.
+ */
+async function writtenOut(pgid: number): Promise<void> {
+  const entry = ledgered.get(pgid);
+  if (!entry) return;
+  ledgered.delete(pgid);
+  await entry.written;
+  await entry.ledger.ended(entry.tree).catch(() => undefined);
 }
 
 export type TreeOutcome =
@@ -124,28 +195,43 @@ export async function terminateTree(
 ): Promise<TreeOutcome> {
   const pid = child.pid;
   if (pid === undefined) return 'never_started';
-  const graceMs = options.graceMs ?? DEFAULT_GRACE_MS;
-  const killWaitMs = options.killWaitMs ?? DEFAULT_KILL_WAIT_MS;
-
-  const alive = GROUPS ? () => groupAlive(pid) : () => child.exitCode === null && child.signalCode === null;
-  const signal = GROUPS
-    ? (name: NodeJS.Signals) => signalGroup(pid, name)
-    : (name: NodeJS.Signals) => void child.kill(name);
-
-  if (!alive()) {
+  const outcome = GROUPS
+    ? await endGroup(pid, options)
+    : await escalate(
+      () => child.exitCode === null && child.signalCode === null,
+      (name) => void child.kill(name),
+      options,
+    );
+  if (outcome !== 'survived') {
     live.delete(pid);
-    return 'already_gone';
+    await writtenOut(pid);
   }
+  return outcome;
+}
+
+/**
+ * Ends a process group by its id: SIGTERM, a grace period, SIGKILL, and a
+ * check that it is empty.
+ *
+ * `terminateTree` for a group this process holds no `ChildProcess` for --
+ * one a worker that has since died started (`src/engine/process-ledger.ts`).
+ * The caller has to have made sure the group is still the one it means;
+ * a number alone is not a process.
+ */
+export function endGroup(pgid: number, options: TerminateOptions = {}): Promise<TreeOutcome> {
+  return escalate(() => groupAlive(pgid), (name) => signalGroup(pgid, name), options);
+}
+
+async function escalate(
+  alive: () => boolean,
+  signal: (name: NodeJS.Signals) => void,
+  options: TerminateOptions,
+): Promise<TreeOutcome> {
+  if (!alive()) return 'already_gone';
   signal('SIGTERM');
-  if (await until(() => !alive(), graceMs)) {
-    live.delete(pid);
-    return 'terminated';
-  }
+  if (await until(() => !alive(), options.graceMs ?? DEFAULT_GRACE_MS)) return 'terminated';
   signal('SIGKILL');
-  if (await until(() => !alive(), killWaitMs)) {
-    live.delete(pid);
-    return 'killed';
-  }
+  if (await until(() => !alive(), options.killWaitMs ?? DEFAULT_KILL_WAIT_MS)) return 'killed';
   return 'survived';
 }
 
@@ -184,6 +270,51 @@ export function groupAlive(pgid: number): boolean {
 interface Member {
   pid: number;
   state: string;
+}
+
+/**
+ * A process's start time, in clock ticks since boot, or null when there is
+ * no such process or no `/proc` to ask.
+ *
+ * Field 22 of `/proc/<pid>/stat`, read after the last `)` for the reason
+ * `membersOf` gives. A zombie still has one: it is a process until it is
+ * reaped, and its pid is not free until then.
+ */
+export function startTicksOf(pid: number): string | null {
+  let stat: string;
+  try {
+    stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+  } catch {
+    return null;
+  }
+  // Field 3, the state, is the first after the `)`; field 22 is the 20th.
+  const ticks = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19];
+  return ticks !== undefined && /^\d+$/.test(ticks) ? ticks : null;
+}
+
+let host: string | null | undefined;
+
+/**
+ * The pids this process can see, named: the kernel's boot and this process's
+ * pid namespace. Null where there is no `/proc`.
+ *
+ * A pid means something only within one namespace on one boot. Two replicas
+ * on two machines, or in two containers on one, number their processes
+ * independently, and pid 4242 in one is nothing to do with pid 4242 in the
+ * other; a machine that rebooted starts counting again. The hostname would
+ * say neither -- containers share one with each other or take the
+ * container's id, and it can be anything the operator likes -- so the kernel
+ * is asked. Neither can change while this process lives, so it is read once.
+ */
+export function hostIdentity(): string | null {
+  if (host !== undefined) return host;
+  try {
+    const boot = readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim();
+    host = boot ? `${boot} ${readlinkSync('/proc/self/ns/pid')}` : null;
+  } catch {
+    host = null;
+  }
+  return host;
 }
 
 /** The processes in a group, read from `/proc`. Linux only. */
@@ -254,6 +385,7 @@ export class TreeKeeper {
       if (!groupAlive(pgid)) {
         this.#survivors.delete(pgid);
         live.delete(pgid);
+        void writtenOut(pgid);
       }
     }
     return [...this.#survivors];

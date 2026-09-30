@@ -25,3 +25,22 @@ export function idempotencyKey(taskId: string, stepIndex: number, inputHash: str
     .digest('hex')
     .slice(0, 32);
 }
+
+/**
+ * The key of a tool call: what it does, not where it falls in the run.
+ *
+ * A model that tries a write again -- its answer never came, a vendor
+ * timed out after acting -- makes a step of its own, and a key made from
+ * the step's place gave the second try a key of its own, so a vendor that
+ * had acted on the first could not tell they were one write. Made from the
+ * task and the call (the capability and its input, in `inputHash`), the
+ * same write asked twice in one task is sent under one key, and the vendor
+ * that deduplicates on it acts once.
+ */
+export function callKey(taskId: string, inputHash: string): string {
+  return createHash('sha256')
+    .update(`${taskId}:call:${inputHash}`)
+    .digest('hex')
+    .slice(0, 32);
+}
+

@@ -14,6 +14,8 @@ export type ErrorCode =
   | 'capability.miscalibrated'
   | 'capability.verify_failed'
   | 'capability.rate_limited'
+  /** F5.7: every call the grant allows at once is in flight, and a place did not free in time. */
+  | 'capability.busy'
   /** F12.9: the capability was asked to reach somewhere it may not. */
   | 'capability.unreachable'
   /** The broker was built with no secret manager, so no credential can be resolved. */
@@ -102,6 +104,10 @@ export type ErrorCode =
   /** F12.5: the owner's console was reached without a session. */
   | 'owner.unauthenticated'
   | 'owner.throttled'
+  /** F12.5: a claim link that is not one, has expired, or was used (0094). Counted as a guess. */
+  | 'mfa.claim_invalid'
+  /** F12.5: a claim of a deployment that already has an owner (0094). */
+  | 'owner.claimed'
   | 'review.required'
   | 'window.closed'
   | 'approval.required'
@@ -151,7 +157,11 @@ export type ErrorCode =
    * give one call another call's answer.
    */
   | 'journal.divergence'
-  | 'tenant.context_missing';
+  | 'tenant.context_missing'
+  /** Section 12: the metrics endpoint was asked for and none is configured. */
+  | 'metrics.off'
+  /** Section 12: the metrics endpoint was asked without its token, or with another. */
+  | 'metrics.refused';
 
 export class PalugadaError extends Error {
   readonly code: ErrorCode;

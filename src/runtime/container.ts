@@ -26,13 +26,20 @@
  * `--read-only` with a `tmpfs` for scratch, so a compromised runtime cannot
  * leave anything behind; `--memory` and `--cpus`, so one run cannot starve the
  * host; `--user`, so nothing inside runs as root; `--rm`, so a crashed run
- * does not accumulate containers until the disk fills.
+ * does not accumulate containers until the disk fills; `--init`, so the
+ * runtime is not PID 1, which ignores SIGTERM unless it installs a handler;
+ * and `--name`, so that when the run ends the container is removed by it.
+ * Ending the docker client does not end its container, and a runtime that
+ * ignored its stop outlived the client the tree keeper killed.
  *
- * **Unverified end to end.** There is a docker CLI in this environment and no
- * daemon, so what the suite covers is the argv and the health check's refusal.
- * Running a real container against a real image is not something this
- * repository can do, and docs/STATUS.md says so rather than letting a green
- * suite imply otherwise.
+ * **What the suite covers is the argv, the health check and the sweep**,
+ * against fake docker clients, since whether a daemon is there is a fact about
+ * a machine rather than a property of the code. What the flags do is checked
+ * on a real daemon by `npm run container:check` (scripts/container-check.ts),
+ * in CI's docker job and on any machine an operator runs it on: one whole run
+ * whose runtime tries to write its image, resolve a name, reach the internet
+ * and the host's database, and read the orchestrator's environment, and is
+ * refused each (docs/STATUS.md, 2.46).
  */
 import { spawn } from 'node:child_process';
 import type {
@@ -44,6 +51,9 @@ import type {
   RunServices,
 } from './protocol.ts';
 import { ScriptAdapter } from './script.ts';
+
+/** The label that says which worker started a run's container. */
+const WORKER_LABEL = 'palugada.worker';
 
 export interface ContainerAdapterOptions {
   name?: string;
@@ -59,6 +69,12 @@ export interface ContainerAdapterOptions {
   user?: string;
   /** Passed into the container. Never the orchestrator's environment. */
   env?: Record<string, string>;
+  /**
+   * The worker running this process, written on each container as a label
+   * so a live worker can tell another's run in flight from one a dead
+   * worker left behind (`sweep`).
+   */
+  worker?: string;
 }
 
 export class ContainerAdapter implements Adapter {
@@ -83,10 +99,12 @@ export class ContainerAdapter implements Adapter {
    * the flags *are* the security property, and a test that could only check
    * them by running a container could not check them here at all.
    */
-  argv(): string[] {
+  argv(name?: string): string[] {
     const options = this.#options;
     return [
-      'run', '--rm', '--interactive',
+      'run', '--rm', '--interactive', '--init',
+      ...(name ? ['--name', name] : []),
+      ...(options.worker ? ['--label', `${WORKER_LABEL}=${options.worker}`] : []),
       // The whole point. See the module comment.
       '--network', 'none',
       '--read-only',
@@ -145,10 +163,11 @@ export class ContainerAdapter implements Adapter {
    * not exist twice and drift.
    */
   async run(request: RunRequest, services: RunServices): Promise<AdapterResult> {
+    const name = `palugada-run-${request.runId}`;
     const inner = new ScriptAdapter({
       name: this.name,
       command: this.docker,
-      args: this.argv(),
+      args: this.argv(name),
       backends: this.backends,
       // The docker *client's* own configuration, and only that. A deployment
       // whose daemon is not on this machine sets DOCKER_HOST, and without it
@@ -161,7 +180,74 @@ export class ContainerAdapter implements Adapter {
       // question.
       health: () => this.health(),
     });
-    return inner.run(request, services);
+    try {
+      return await inner.run(request, services);
+    } finally {
+      await this.#remove(name);
+    }
+  }
+
+  /**
+   * Removes the run containers of workers that are not alive.
+   *
+   * `--rm` and the `finally` in `run` both depend on the worker that started
+   * the container: killed outright, it reaches neither, and the runtime keeps
+   * running with its memory and CPU until it chooses to stop. Any live worker
+   * sharing the daemon finds those by their label. Its own, and those of every
+   * worker that beat lately, are runs in flight and left alone. A daemon that
+   * is not there, or does not answer, has nothing to sweep.
+   */
+  async sweep(alive: ReadonlySet<string>): Promise<string[]> {
+    const listed = await this.#docker(['ps', '--all', '--filter', `label=${WORKER_LABEL}`, '--format', `{{.Names}}\t{{.Label "${WORKER_LABEL}"}}`]);
+    if (listed === null) return [];
+    const removed: string[] = [];
+    for (const line of listed.split('\n')) {
+      const [name, worker] = line.trim().split('\t');
+      if (!name || !worker || worker === this.#options.worker || alive.has(worker)) continue;
+      await this.#remove(name);
+      removed.push(name);
+    }
+    return removed;
+  }
+
+  /** What a docker command printed, or null when it could not be run or failed. Bounded like `#remove`. */
+  #docker(args: string[]): Promise<string | null> {
+    return new Promise((resolve) => {
+      const child = spawn(this.docker, args, {
+        env: { PATH: process.env.PATH ?? '', ...dockerClientEnv() },
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+      let out = '';
+      child.stdout.on('data', (chunk: Buffer) => { out = (out + chunk.toString('utf8')).slice(0, 1_000_000); });
+      const timer = setTimeout(() => child.kill('SIGKILL'), 30_000);
+      child.on('error', () => { clearTimeout(timer); resolve(null); });
+      child.on('close', (code) => { clearTimeout(timer); resolve(code === 0 ? out : null); });
+    });
+  }
+
+  /**
+   * Removes a run's container, whether or not it is still there.
+   *
+   * Usually it is not: `--rm` took it when the runtime exited, and the
+   * daemon's "no such container" is the ordinary answer, so no answer is an
+   * error here. What this catches is the container whose client was killed
+   * while the runtime inside kept going. Bounded, because a daemon that does
+   * not answer must not hold the worker that asked.
+   */
+  #remove(name: string): Promise<void> {
+    return new Promise((resolve) => {
+      const child = spawn(this.docker, ['rm', '--force', name], {
+        env: { PATH: process.env.PATH ?? '', ...dockerClientEnv() },
+        stdio: 'ignore',
+      });
+      const timer = setTimeout(() => child.kill('SIGKILL'), 30_000);
+      const done = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      child.on('error', done);
+      child.on('close', done);
+    });
   }
 }
 

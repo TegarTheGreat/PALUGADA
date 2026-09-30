@@ -21,6 +21,20 @@ is already one.
 instead. To throw it away and start again, deliberately:
 `PALUGADA_RESET_DATABASE=yes npm run db:setup`. That drops every company.
 
+### `migration … was not applied: it waited 10 seconds for a lock another session holds, …`
+
+**Cause.** The migration changes a table another session is using and has
+not finished with: a long transaction, a `pg_dump` in progress, an open
+`psql` session. A migration waiting for it would make every query on that
+table wait behind the migration, so it gave up instead. Nothing of it was
+applied.
+
+**Fix.** Let that session finish, or end it, and run `npm run db:migrate`
+again. `SELECT pid, xact_start, query FROM pg_stat_activity WHERE xact_start
+< now() - interval '1 minute'` lists the long ones. An image run by itself
+exits and runs the migrations again when it is restarted; under Compose,
+run `docker compose up -d` again.
+
 ### `db:setup: a database password may use letters, digits and _ . ~ - only`
 
 **Cause.** A password in one of the three connection URLs contains a
@@ -140,11 +154,13 @@ enrolled.
 
 ### "Too many wrong codes. Wait a few minutes before trying again."
 
-**Cause.** Ten wrong codes in a row lock the second factor for fifteen
-minutes (`too many failed attempts; the second factor is locked for 15
-minutes`). The lock covers signing in and every approval.
+**Cause.** Ten wrong codes in a row lock codes for fifteen minutes (`too
+many failed attempts; the second factor is locked for 15 minutes`). The lock
+covers signing in and every approval made with a code. A passkey is not
+locked by wrong codes.
 
-**Fix.** Wait. A correct code afterwards clears the count.
+**Fix.** Use a passkey if you have one; otherwise wait. A correct code
+afterwards clears the count.
 
 ### `too many wrong codes from this address; try again after …`
 
@@ -187,8 +203,16 @@ signed it in was revoked.
 
 ### A lost phone
 
-**Fix.** If you kept the key the setup showed you, add it to an
-authenticator app on the new phone and carry on. If you did not, the
+**Fix.** With recovery codes: on the sign-in page press **Lost your
+phone? Use a recovery code** and type one. The console says you signed in
+with a recovery code. Under **Settings**, **Security**, add a passkey on the
+device you are using, confirming with a second code, then revoke the lost
+phone, confirming with the passkey or a third. Each code works once; make a
+new set when few are left. A code cannot approve anything, so a tier 3
+approval waits for the passkey.
+
+Without recovery codes: if you kept the key the setup showed you, add it
+to an authenticator app on the new phone and carry on. If you did not, the
 operator makes a new secret with `npm run totp:new` and puts it where
 `PALUGADA_OWNER_TOTP_REF` points, replacing the old value, then restarts:
 the old phone's codes stop working because the secret behind them has
@@ -224,7 +248,8 @@ Look for the cause in this order:
   example that the CLI `is not runnable`.
 - **The budget account has no room.** A task is claimed only when its
   account can cover its reservation on top of what is already running.
-  Check **Accounts** on **Money**.
+  Check **Accounts** on **Money**, and raise the account's **Ceilings** if
+  it has spent them: tokens spent stay spent.
 - **No worker is running.** `GET /api/health` answers 503 with `no tick has
   finished since …`, or not at all. Check the process and its logs.
 
@@ -244,6 +269,11 @@ no external action runs.
 **Fix.** On **Money**, raise the **Monthly ceiling**, **Lift the pause**, or
 **Override** it until a time. Each takes a code. If spending was not
 expected, look at **Cost per day** and **Accounts** first.
+
+If the spending is far above your provider's bill, the model has no price
+and is charged at the high fallback. Under **This deployment**, **Model**,
+**What it costs**, press **Fill from models.dev** or type your prices, then
+**Save prices**.
 
 ### "Role … is paused for spending too fast"
 
@@ -277,12 +307,31 @@ unreachable. No task that needs it starts until it passes.
 **Fix.** Open the division on **Team**, read **Capability health**, and fix
 the credential; **Rotate a credential** repoints it.
 
-### An agent says `… needs a vendor: bind it in the file PALUGADA_VENDORS names`
+### An agent says `… needs a vendor: connect one on This deployment, Services, or bind it in the file PALUGADA_VENDORS names`
 
 **Cause.** The capability is catalogued but nothing is bound to it.
 
 **Fix.** [Connect a vendor](how-to.md#connect-a-vendor), or accept that the
 role works without it.
+
+### "Google lets PALUGADA in only through an app you register with it"
+
+**Cause.** The division's key is signed in for, and no app is registered
+with that provider for this deployment yet.
+
+**Fix.** Under the division's **Keys for services**, press **Register an
+app**, make one with the return address shown, and paste its **Client ID**
+and **Client secret**; then sign in. See
+[Connect a vendor](how-to.md#connect-a-vendor).
+
+### "The google sign-in behind this key has ended … sign in again"
+
+**Cause.** The provider would not renew the key. It was revoked, its app
+was deleted, or a Google consent screen in **Testing** ended it after seven
+days.
+
+**Fix.** Press **Sign in again** on the key, under the division's **Keys for
+services**.
 
 ### **Its result did not check out**, and "External write failed verification"
 
@@ -340,7 +389,7 @@ channel: set PALUGADA_TELEGRAM_TOKEN and PALUGADA_TELEGRAM_CHAT (F10.9)`
 among the boot lines. Also, outside **Your hours** only incidents come
 through, and push carries only incidents and tier 3 approvals.
 
-**Fix.** [Set up push or Telegram](how-to.md#push-notifications-and-telegram).
+**Fix.** [Set up push or Telegram](how-to.md#push-notifications-telegram-and-whatsapp).
 
 ## Console messages
 

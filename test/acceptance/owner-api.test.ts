@@ -14,9 +14,13 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
+import { mkdtemp, readFile, rm, symlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { closePools } from '../../src/db/pool.ts';
 import { InMemorySecretManager } from '../../src/secrets/manager.ts';
 import { OwnerApi, type OwnerApiOptions } from '../../src/owner/api.ts';
+import { CharterRepository } from '../../src/governance/charter-repository.ts';
 import { AdapterRegistry, type Adapter } from '../../src/runtime/protocol.ts';
 import { rollBack } from '../../src/governance/rollback.ts';
 import { withTenant as withTenantTx } from '../../src/db/tenant.ts';
@@ -552,6 +556,8 @@ test('a session alone can tighten any control and loosen none (F12.5, F10.7)', a
         condition: { field: 'tier', op: 'gte', value: 2 },
       }],
       [`${company}/skills/versions/${fixture.roleId}/approve`, {}],
+      [`${company}/charter`, { body: 'Anything goes.' }],
+      ['/api/control/charter', { body: 'Anything goes.' }],
     ];
     for (const [path, body] of loosening) {
       const answer = await call(owner.url, 'POST', path, { token, body });
@@ -729,6 +735,7 @@ test('the console reads a company\'s shape, work and recent history (F10.1, F10.
     deploymentNotes: [
       'bound by the platform: memory.search, skill.read',
       'no push channel: set PALUGADA_PUSH_URL (F10.5)',
+      'finished runs go to http://collector:4318/v1/traces as OpenTelemetry spans, without what was said in them',
     ],
   });
   const { url: noted } = await replica.listen();
@@ -839,9 +846,10 @@ test('the console reads a company\'s shape, work and recent history (F10.1, F10.
     // What the deployment is missing, where the owner will see it. The
     // session is the database's, so the other console takes the same token.
     const setup = await call(noted, 'GET', '/api/control/setup', { token });
-    assert.equal((setup.body.notes as string[]).length, 2);
+    assert.equal((setup.body.notes as string[]).length, 3);
     assert.deepEqual(setup.body.todo, ['no push channel: set PALUGADA_PUSH_URL (F10.5)'],
       'what is set up is not on the list of what is not');
+    assert.match(String(setup.body.version), /^\d+\.\d+\.\d+/, 'and which version this is, for the owner\'s menu');
   } finally {
     await replica.close();
     await owner.close();
@@ -1303,7 +1311,7 @@ test('a fresh deployment starts the standard company, and can let it run itself'
     const broker = new CapabilityBroker(new CapabilityRegistry());
     await assert.rejects(
       broker.invoke({ companyId, projectId: companyId, divisionId: companyId, roleId: companyId, taskId: companyId, idempotencyKey: 'x' }, 'email.send', {}),
-      /email\.send needs a vendor: bind it in the file PALUGADA_VENDORS names/,
+      /email\.send needs a vendor: connect one on This deployment, Services, or bind it in the file PALUGADA_VENDORS names/,
     );
   } finally {
     await deployment.stop();
@@ -1812,6 +1820,30 @@ test('the environment describes which runtimes exist (F13.1, F13.3, F12.9)', asy
   assert.ok(notes.some((note) => note.startsWith('runtimes:')));
 });
 
+/**
+ * The HTTP runtime's and the remote sandbox's tokens came from the
+ * environment straight into a header, and the redactor was never told them:
+ * an error that echoed a request, or a runtime that printed its own headers
+ * into a transcript, kept them in the clear.
+ */
+test('the runtimes\' own tokens are redacted wherever they would be written (F12.1)', async () => {
+  const { assembleRuntimes } = await import('../../src/runtime/assemble.ts');
+  const { redactor } = await import('../../src/secrets/manager.ts');
+  const runtimeToken = 'rt-http-token-6f1c2a9d8e7b';
+  const sandboxToken = 'sbx-token-0d9e8f7a6b5c';
+  assembleRuntimes({
+    env: {
+      PALUGADA_RUNTIME_HTTP_URL: 'https://runtime.example',
+      PALUGADA_RUNTIME_HTTP_TOKEN: runtimeToken,
+      PALUGADA_SANDBOX_URL: 'https://sandbox.example',
+      PALUGADA_SANDBOX_IMAGE: 'ghcr.io/example/sandbox:1',
+      PALUGADA_SANDBOX_TOKEN: sandboxToken,
+    },
+  });
+  const said = redactor.redact(`authorization: Bearer ${runtimeToken}; sandbox ${sandboxToken}`);
+  assert.ok(!said.includes(runtimeToken) && !said.includes(sandboxToken), said);
+});
+
 test('an agent CLI this platform knows is turned on by its name, and corrected in part (F13.3)', async () => {
   const { assembleRuntimes } = await import('../../src/runtime/assemble.ts');
   const { knownCli } = await import('../../src/runtime/known-clis.ts');
@@ -2318,6 +2350,42 @@ test('the owner can change a grant and a role, with their device (F2.9, F3.9)', 
     });
     assert.equal(tightened.status, 200, JSON.stringify(tightened.body));
 
+    // F5.7: how many calls to it the division may have in flight at once.
+    // Left out, it stays as it is; 0 takes the limit away.
+    const grantOf = async () => ((await call(owner.url, 'GET', `/api/companies/${fixture.companyId}/structure`, { token }))
+      .body.divisions as Array<{ id: string; grants: Array<{ capability: string; tier: number | null; maxInFlight: number | null }> }>)
+      .find((division) => division.id === fixture.divisionId)!.grants.find((grant) => grant.capability === 'dns.update');
+    const limited = await call(owner.url, 'POST', grantPath, {
+      token,
+      body: { divisionId: fixture.divisionId, capabilityName: 'dns.update', tierOverride: 2, maxInFlight: 2, proof: { totp: owner.code() } },
+    });
+    assert.equal(limited.status, 200, JSON.stringify(limited.body));
+    assert.deepEqual(await grantOf(), { capability: 'dns.update', tier: 2, maxInFlight: 2 });
+    const kept = await call(owner.url, 'POST', grantPath, {
+      token,
+      body: { divisionId: fixture.divisionId, capabilityName: 'dns.update', tierOverride: 2, proof: { totp: owner.code() } },
+    });
+    assert.equal(kept.status, 200, JSON.stringify(kept.body));
+    assert.equal((await grantOf())!.maxInFlight, 2, 'a change that does not name it leaves the limit alone');
+    const nonsense = await call(owner.url, 'POST', grantPath, {
+      token,
+      body: { divisionId: fixture.divisionId, capabilityName: 'dns.update', tierOverride: 2, maxInFlight: 1.5, proof: { totp: owner.code() } },
+    });
+    assert.equal(nonsense.status, 400, JSON.stringify(nonsense.body));
+    // A place is a row made the first time it is wanted: a limit in the millions was a million rows.
+    const huge = await call(owner.url, 'POST', grantPath, {
+      token,
+      body: { divisionId: fixture.divisionId, capabilityName: 'dns.update', tierOverride: 2, maxInFlight: 2_000_000, proof: { totp: owner.code() } },
+    });
+    assert.equal(huge.status, 400, JSON.stringify(huge.body));
+    assert.match(JSON.stringify(huge.body), /at most 100 calls at once/);
+    const lifted = await call(owner.url, 'POST', grantPath, {
+      token,
+      body: { divisionId: fixture.divisionId, capabilityName: 'dns.update', tierOverride: 2, maxInFlight: 0, proof: { totp: owner.code() } },
+    });
+    assert.equal(lifted.status, 200, JSON.stringify(lifted.body));
+    assert.equal((await grantOf())!.maxInFlight, null);
+
     // F8.3 still holds through this surface: a grant may tighten and never
     // loosen, and the database is what says so.
     const loosened = await call(owner.url, 'POST', grantPath, {
@@ -2443,6 +2511,123 @@ test('the owner can write a policy, and cannot write one the engine cannot read 
       owner.url, 'GET', `/api/companies/${fixture.companyId}/governance`, { token },
     );
     assert.ok((log.body.log as unknown[]).length > 0, 'the change was not recorded');
+  } finally {
+    await owner.close();
+  }
+});
+
+/**
+ * F3.6 makes the charters the owner's to write, and nothing let the owner
+ * write one: the only writer was a file import the boot never ran. Both are
+ * read on one page, because a company charter is read under the platform's,
+ * and either is changed with the owner's device -- every run is told them
+ * first, so a session alone could otherwise rewrite what every agent obeys.
+ */
+/**
+ * The guardian (row 7 of the competitive analysis of 2026-09-30): on with the
+ * session, since it only ever asks the owner more, and off only with their
+ * device, since that loosens.
+ */
+test('the owner turns the guardian on with a session, and off only with a factor (row 7)', async () => {
+  const fixture = await createCompany('console-guardian');
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+    const path = `/api/companies/${fixture.companyId}/guardian`;
+    const guarded = async () => ((await call(owner.url, 'GET', '/api/companies', { token })).body.companies as Array<{ id: string; guardian: boolean }>)
+      .find((company) => company.id === fixture.companyId)!.guardian;
+    assert.equal(await guarded(), false, 'off as every company starts');
+
+    const on = await call(owner.url, 'POST', path, { token, body: { on: true } });
+    assert.equal(on.status, 200, JSON.stringify(on.body));
+    assert.equal(await guarded(), true);
+
+    const unproven = await call(owner.url, 'POST', path, { token, body: { on: false } });
+    assert.equal(unproven.status, 403, JSON.stringify(unproven.body));
+    assert.equal(await guarded(), true);
+    const vague = await call(owner.url, 'POST', path, { token, body: { on: 'no' } });
+    assert.equal(vague.status, 400, JSON.stringify(vague.body));
+
+    const off = await call(owner.url, 'POST', path, { token, body: { on: false, proof: { totp: owner.code() } } });
+    assert.equal(off.status, 200, JSON.stringify(off.body));
+    assert.equal(await guarded(), false);
+  } finally {
+    await owner.close();
+  }
+});
+
+test('the owner reads both charters and rewrites either with a factor (F3.1, F3.6)', async () => {
+  const fixture = await createCompany('console-charter');
+  // F3.11: the deployment's repository of charters, which a save writes at once.
+  const tree = join(await mkdtemp(join(tmpdir(), 'palugada-console-tree-')), 'charters');
+  const owner = await console_({ charters: new CharterRepository({ root: tree }) });
+  try {
+    const token = await signIn(owner.url, owner.code());
+    const company = `/api/companies/${fixture.companyId}/charter`;
+
+    const none = await call(owner.url, 'GET', company, { token });
+    assert.equal(none.status, 200, JSON.stringify(none.body));
+    assert.deepEqual(none.body, { company: null, platform: null });
+
+    const unproven = await call(owner.url, 'POST', company, { token, body: { body: 'Answer within a day.' } });
+    assert.equal(unproven.status, 403, JSON.stringify(unproven.body));
+    // Checked before the factor, so a blank or runaway charter costs a
+    // correction rather than a code.
+    const blank = await call(owner.url, 'POST', company, { token, body: { body: '  \n ' } });
+    assert.equal(blank.status, 400, JSON.stringify(blank.body));
+    const long = await call(owner.url, 'POST', company, { token, body: { body: 'x'.repeat(20_001) } });
+    assert.equal(long.status, 400, JSON.stringify(long.body));
+    assert.match(String(long.body.error), /20000 characters/);
+    const nobody = await call(owner.url, 'POST', '/api/companies/00000000-0000-4000-8000-000000000000/charter', {
+      token, body: { body: 'Answer within a day.' },
+    });
+    assert.equal(nobody.status, 400, JSON.stringify(nobody.body));
+    assert.match(String(nobody.body.error), /no company with that id/);
+
+    const written = await call(owner.url, 'POST', company, {
+      token, body: { body: '  Answer within a day.\n', proof: { totp: owner.code() } },
+    });
+    assert.equal(written.status, 200, JSON.stringify(written.body));
+    assert.deepEqual(written.body, { version: 1, unchanged: false, file: null });
+    assert.equal(await readFile(join(tree, 'companies', fixture.slug, 'SOUL.md'), 'utf8'), 'Answer within a day.\n');
+
+    // The same words again are not a new version, and ask for nothing.
+    const same = await call(owner.url, 'POST', company, { token, body: { body: 'Answer within a day.' } });
+    assert.equal(same.status, 200, JSON.stringify(same.body));
+    assert.deepEqual(same.body, { version: 1, unchanged: true });
+
+    const platform = await call(owner.url, 'POST', '/api/control/charter', {
+      token, body: { body: 'Never deceive anyone.', proof: { totp: owner.code() } },
+    });
+    assert.equal(platform.status, 200, JSON.stringify(platform.body));
+    assert.deepEqual(platform.body, { version: 1, unchanged: false, file: null });
+    assert.equal(await readFile(join(tree, 'PLATFORM.md'), 'utf8'), 'Never deceive anyone.\n');
+
+    const both = await call(owner.url, 'GET', company, { token });
+    const read = both.body as { company: { version: number; body: string; createdAt: string }; platform: { version: number; body: string } };
+    assert.equal(read.company.version, 1);
+    assert.equal(read.company.body, 'Answer within a day.');
+    assert.ok(!Number.isNaN(Date.parse(read.company.createdAt)));
+    assert.equal(read.platform.version, 1);
+    assert.equal(read.platform.body, 'Never deceive anyone.');
+
+    // And another company's page shows the platform's, never this one's.
+    const other = await createCompany('console-charter-other');
+    const theirs = await call(owner.url, 'GET', `/api/companies/${other.companyId}/charter`, { token });
+    assert.equal((theirs.body as { company: unknown }).company, null);
+    assert.equal((theirs.body as { platform: { body: string } }).platform.body, 'Never deceive anyone.');
+
+    // A file that cannot be kept does not undo the save, and the owner is
+    // told so then, not only at the next boot.
+    const soul = join(tree, 'companies', fixture.slug, 'SOUL.md');
+    await rm(soul);
+    await symlink(join(tree, '..', 'elsewhere.txt'), soul);
+    const unkept = await call(owner.url, 'POST', company, {
+      token, body: { body: 'Answer within the hour.', proof: { totp: owner.code() } },
+    });
+    assert.equal(unkept.status, 200, JSON.stringify(unkept.body));
+    assert.equal(unkept.body.version, 2, 'the charter is saved, and runs are told it');
+    assert.match(String(unkept.body.file), /^Not written to its file: it is a link, and a link is never followed/);
   } finally {
     await owner.close();
   }
@@ -2676,6 +2861,9 @@ test('every route in the second block needs a session too (F10, F12.5)', async (
       ['POST', `/api/companies/${fixture.companyId}/roles/${fixture.roleId}`],
       ['POST', `/api/companies/${fixture.companyId}/divisions/${fixture.divisionId}/escalation`],
       ['POST', '/api/policies'],
+      ['GET', `/api/companies/${fixture.companyId}/charter`],
+      ['POST', `/api/companies/${fixture.companyId}/charter`],
+      ['POST', '/api/control/charter'],
       ['GET', `/api/companies/${fixture.companyId}/skills`],
       ['POST', `/api/companies/${fixture.companyId}/skills/import`],
       ['POST', `/api/companies/${fixture.companyId}/skills/x/scope`],
@@ -2888,6 +3076,43 @@ test('a role field cannot be set to the word "null" (F3.9)', async () => {
     });
     assert.equal(listOfNulls.status, 400, JSON.stringify(listOfNulls.body));
     assert.match(String(listOfNulls.body.error), /tools\[1\] is required/);
+  } finally {
+    await owner.close();
+  }
+});
+
+/**
+ * What done means is the owner's to change from the console (L5): a role
+ * held to a criterion its deployment cannot meet otherwise fails every task,
+ * and hiring it again was the only way out.
+ */
+test('the owner changes what done means for a role, with the device (F2.8)', async () => {
+  const fixture = await createCompany('console-role-done');
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+    const path = `/api/companies/${fixture.companyId}/roles/${fixture.roleId}`;
+    const criteria = ['the output names every draft it made', 'nothing was sent that was not drafted first'];
+
+    const unproven = await call(owner.url, 'POST', path, { token, body: { doneCriteria: criteria } });
+    assert.equal(unproven.status, 403, JSON.stringify(unproven.body));
+    const one = await call(owner.url, 'POST', path, {
+      token, body: { doneCriteria: 'the output names every draft it made', proof: { totp: owner.code() } },
+    });
+    assert.equal(one.status, 400, 'a list, one criterion each');
+    assert.match(String(one.body.error), /doneCriteria must be an array/);
+    const nulled = await call(owner.url, 'POST', path, {
+      token, body: { doneCriteria: ['the output names every draft it made', null], proof: { totp: owner.code() } },
+    });
+    assert.equal(nulled.status, 400, JSON.stringify(nulled.body));
+    assert.match(String(nulled.body.error), /doneCriteria\[1\] must be text/);
+
+    const changed = await call(owner.url, 'POST', path, { token, body: { doneCriteria: criteria, proof: { totp: owner.code() } } });
+    assert.equal(changed.status, 200, JSON.stringify(changed.body));
+    const role = (await call(owner.url, 'GET', `/api/companies/${fixture.companyId}/structure`, { token })).body as {
+      roles: Array<{ id: string; doneCriteria: string[] }>;
+    };
+    assert.deepEqual(role.roles.find((one) => one.id === fixture.roleId)!.doneCriteria, criteria);
   } finally {
     await owner.close();
   }
@@ -3288,6 +3513,67 @@ test('the owner can see what funds a role, and open an account (F1.2, F1.6)', as
       },
     );
     assert.equal(opened.status >= 200 && opened.status < 500, true, JSON.stringify(opened.body));
+  } finally {
+    await owner.close();
+  }
+});
+
+/**
+ * A company that has spent its token ceiling is revived from the console.
+ * In the live run of 2026-09-28 (defect L11) the ceilings were for the
+ * company's whole life: nothing but SQL raised one, and opening a new account
+ * did not help, because a task draws on the chain it belongs to. A company
+ * that spent its two million tokens stopped for good.
+ */
+test('an exhausted account is raised from the console with a factor, and work is funded again (F1.5, F1.6)', async () => {
+  const { createRootTask } = await import('../../src/engine/tasks.ts');
+  const { withControlPlane } = await import('../../src/db/tenant.ts');
+  const fixture = await createCompany('console-exhausted', { tokensMax: 10_000 });
+  const other = await createCompany('console-exhausted-other');
+  const owner = await console_();
+  const fund = () => createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    roleId: fixture.roleId, budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId,
+    input: { goal: 'Plan the October promotion' }, createdBy: 'owner', reserveTokens: 1_000,
+  });
+  try {
+    const token = await signIn(owner.url, owner.code());
+    await withControlPlane((tx) => tx.query(
+      'UPDATE budget_accounts SET tokens_spent = tokens_max WHERE id = $1', [fixture.budgetAccountId]));
+    await assert.rejects(fund(), (error: unknown) =>
+      (error as { code?: string }).code === 'budget.reservation_refused'
+      && /Raise its ceiling under Money/.test((error as Error).message),
+    'the refusal says where the way out is');
+
+    const limit = `/api/companies/${fixture.companyId}/budget-accounts/${fixture.budgetAccountId}/limit`;
+    const raised = { tokensMax: 20_000 };
+    const withoutFactor = await call(owner.url, 'POST', limit, { token, body: raised });
+    assert.equal(withoutFactor.status, 403, 'raising a ceiling loosens a control');
+
+    const withFactor = await call(owner.url, 'POST', limit, { token, body: { ...raised, proof: { totp: owner.code() } } });
+    assert.equal(withFactor.status, 200, JSON.stringify(withFactor.body));
+    await fund();
+
+    const listed = await call(owner.url, 'GET', `/api/companies/${fixture.companyId}/budget-accounts`, { token });
+    const account = (listed.body.accounts as Array<{ id: string; tokensMax: number }>)
+      .find((one) => one.id === fixture.budgetAccountId)!;
+    assert.equal(account.tokensMax, 20_000);
+
+    // Lowering takes only the session, as the spend ceiling does.
+    const lowered = await call(owner.url, 'POST', limit, { token, body: { tokensMax: 15_000 } });
+    assert.equal(lowered.status, 200, JSON.stringify(lowered.body));
+    const moreMoney = await call(owner.url, 'POST', limit, { token, body: { tokensMax: 15_000, moneyMaxCents: 999_999_99 } });
+    assert.equal(moreMoney.status, 403, 'more money is a raise too');
+
+    // An account is the company's own: another's cannot be raised through it.
+    const theirs = await call(
+      owner.url, 'POST', `/api/companies/${fixture.companyId}/budget-accounts/${other.budgetAccountId}/limit`,
+      { token, body: { tokensMax: 1, proof: { totp: owner.code() } } },
+    );
+    assert.equal(theirs.status, 400, JSON.stringify(theirs.body));
+    const untouched = await withControlPlane((tx) => tx.query<{ tokens_max: string }>(
+      'SELECT tokens_max FROM budget_accounts WHERE id = $1', [other.budgetAccountId]));
+    assert.notEqual(Number(untouched.rows[0]!.tokens_max), 1);
   } finally {
     await owner.close();
   }
@@ -4154,6 +4440,83 @@ test('the owner reads the policies and a role\'s history, and puts a version bac
     const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ system_prompt: string }>(
       'SELECT system_prompt FROM roles WHERE id = $1', [fixture.roleId]));
     assert.notEqual(rows[0]!.system_prompt, 'Be terse.');
+  } finally {
+    await owner.close();
+  }
+});
+
+/**
+ * 0083 through the console: a yes for a while is asked for with the decision,
+ * refused without the owner's device, listed once given, and taken back with
+ * the session alone, since taking it back tightens.
+ */
+test('the console approves for a while with a factor, lists it, and takes it back', async () => {
+  const { createRootTask, transition } = await import('../../src/engine/tasks.ts');
+  const fixture = await createCompany('console-standing');
+  const task = await createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    roleId: fixture.roleId, budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId,
+    input: { goal: 'follow up' }, createdBy: 'owner', reserveTokens: 1_000,
+  });
+  await transition(fixture.companyId, task.id, 'running');
+  const itemId = await inbox.requestApproval({
+    companyId: fixture.companyId, taskId: task.id, capabilityName: 'email.send', tier: 2,
+    actionSummary: 'Send the follow-up', rationale: 'A policy asks', consequenceIfDenied: 'Not sent',
+    payload: { reason: 'policy' },
+  });
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+    const company = `/api/companies/${fixture.companyId}`;
+    const listed = await call(owner.url, 'GET', `${company}/inbox`, { token });
+    assert.equal((listed.body.items as Array<{ allowFor: boolean }>)[0]!.allowFor, true);
+
+    const bare = await call(owner.url, 'POST', `${company}/inbox/${itemId}/decide`, {
+      token, body: { decision: 'approve', allowForHours: 8 },
+    });
+    assert.equal(bare.status, 403, JSON.stringify(bare.body));
+    assert.equal(bare.body.code, 'approval.channel_forbidden');
+
+    const given = await call(owner.url, 'POST', `${company}/inbox/${itemId}/decide`, {
+      token, body: { decision: 'approve', allowForHours: 8, proof: { totp: owner.code() } },
+    });
+    assert.equal(given.status, 200, JSON.stringify(given.body));
+    const standing = await call(owner.url, 'GET', `${company}/standing-approvals`, { token });
+    const [entry] = standing.body.standing as Array<{ id: string; capabilityName: string; roleSlug: string; uses: number }>;
+    assert.equal(entry?.capabilityName, 'email.send');
+    assert.equal(entry?.uses, 0);
+
+    const revoked = await call(owner.url, 'POST', `${company}/standing-approvals/${entry!.id}/revoke`, { token });
+    assert.equal(revoked.status, 200, JSON.stringify(revoked.body));
+    assert.deepEqual((await call(owner.url, 'GET', `${company}/standing-approvals`, { token })).body.standing, []);
+    const again = await call(owner.url, 'POST', `${company}/standing-approvals/${entry!.id}/revoke`, { token });
+    assert.equal(again.status, 400, 'a yes already taken back is not taken back twice');
+  } finally {
+    await owner.close();
+  }
+});
+
+/** #102 through the console: the owner sets how long one of a role's runs may take, in minutes. */
+test('the console sets and clears how long a role\'s runs may take', async () => {
+  const fixture = await createCompany('console-run-length');
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+    const path = `/api/companies/${fixture.companyId}/roles/${fixture.roleId}`;
+    const lengthOf = async () => ((await call(owner.url, 'GET', `/api/companies/${fixture.companyId}/structure`, { token }))
+      .body.roles as Array<{ id: string; maxRunSeconds: number | null }>).find((role) => role.id === fixture.roleId)!.maxRunSeconds;
+    assert.equal(await lengthOf(), null, 'no limit until the owner sets one');
+
+    const tooLong = await call(owner.url, 'POST', path, { token, body: { maxRunMinutes: 2000, proof: { totp: owner.code() } } });
+    assert.equal(tooLong.status, 400);
+    assert.match(String(tooLong.body.error), /maxRunMinutes is 2000; it is a whole number of minutes from 1 to 1440, or 0 for no limit/);
+
+    const set = await call(owner.url, 'POST', path, { token, body: { maxRunMinutes: 30, proof: { totp: owner.code() } } });
+    assert.equal(set.status, 200, JSON.stringify(set.body));
+    assert.equal(await lengthOf(), 1800);
+    const cleared = await call(owner.url, 'POST', path, { token, body: { maxRunMinutes: 0, proof: { totp: owner.code() } } });
+    assert.equal(cleared.status, 200, JSON.stringify(cleared.body));
+    assert.equal(await lengthOf(), null);
   } finally {
     await owner.close();
   }

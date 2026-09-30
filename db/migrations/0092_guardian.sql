@@ -1,0 +1,13 @@
+-- A model that may only tighten (the competitive analysis of 2026-09-30,
+-- row 7; src/broker/guardian.ts).
+--
+-- After the work has read content from outside the company, a tier 2 action
+-- asks the owner (F8.9) and a tier 0 or 1 action runs on whatever the content
+-- persuaded the run to do. With this on, each such call is shown to a model
+-- first, which may send it to the owner and can let nothing through that
+-- the tiers, the policies or F8.9 would have asked about.
+--
+-- Off until the owner turns it on: it costs a model call per low-tier call
+-- in such work, and it asks the owner more often. Written by the owner's
+-- console on the control plane; the application role reads it.
+ALTER TABLE companies ADD COLUMN guardian boolean NOT NULL DEFAULT false;

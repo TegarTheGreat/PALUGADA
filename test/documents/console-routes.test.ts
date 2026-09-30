@@ -38,10 +38,20 @@ const API_ONLY: Record<string, string> = {
   // Not a page's at all: Telegram posts button presses here.
   'POST /api/channels/telegram':
     'machine: Telegram posts the owner\'s button presses here, authenticated by the webhook secret',
+  'GET /api/channels/whatsapp':
+    'machine: Meta checks the webhook subscription here, with the verify token',
+  'POST /api/channels/whatsapp':
+    'machine: Meta posts what the owner sends on WhatsApp here, signed with the app secret',
   'POST /api/hooks/:publicId':
     'machine: another service posts its events here, authenticated by the trigger\'s token',
+  'GET /api/oauth/callback':
+    'machine: an authorization server sends the owner\'s browser back here with a code, checked against the state the console began',
   'GET /api/health':
     'machine: a supervisor or a load balancer asks whether this process can work',
+  'GET /api/ready':
+    'machine: a load balancer asks whether to send this process requests, which it is told not to from the moment the process begins to stop',
+  'GET /api/metrics':
+    'machine: a Prometheus scraper reads what the deployment is doing, with a token of its own',
 };
 
 const PATTERN = /method: '([A-Z]+)',\s*\n\s*pattern: '([^']+)'/g;

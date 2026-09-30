@@ -443,7 +443,7 @@ test('the example file in this repository builds, and its read-backs resolve (§
   const specs = parseVendors(document, 'config/vendors.example.json');
   assert.deepEqual(
     specs.map((spec) => spec.name),
-    ['email.send', 'dns.read', 'dns.update', 'invoice.issue', 'social.publish', 'metrics.read'],
+    ['email.send', 'dns.read', 'dns.update', 'invoice.issue', 'social.publish', 'metrics.read', 'calendar.read'],
   );
 
   // Building is not enough, and this is the mistake the example itself made:
@@ -730,6 +730,49 @@ test('an amount in whole units is described in cents, and a file cannot say both
     (error: unknown) => isPalugadaError(error, 'config.invalid') && /moneyCents|moneyUnits/.test((error as Error).message),
     'one amount, stated one way',
   );
+});
+
+/**
+ * A delete is read back by the record being gone. The live run of
+ * 2026-09-28 (defect L10) deleted a customer record through a tier 3
+ * approval, the read-back answered 404, and the task halted as
+ * verification_failed -- the owner got two incidents for an action that had
+ * worked -- because any answer of 400 or more failed before the entry's own
+ * rule was read. The rule names what counts: here, that the record is gone.
+ */
+test('a delete is verified by the record being gone, when the rule says so (F8.4)', async () => {
+  let present = true;
+  const server = await vendor((call) => {
+    if (call.method === 'DELETE') {
+      present = false;
+      return { status: 200, body: { id: 'cust-042' } };
+    }
+    return present ? { status: 200, body: { id: 'cust-042' } } : { status: 404, body: { error: 'not found' } };
+  });
+  try {
+    const entry = (matches: Record<string, unknown>) => ({
+      name: 'record.delete', adapter: 'crm', tier: 3, method: 'DELETE',
+      url: `${server.url}/records/{input.recordId}`,
+      headers: { 'idempotency-key': '{idempotencyKey}' },
+      verify: { url: `${server.url}/records/{input.recordId}`, matches },
+      allowPrivateHosts: ['127.0.0.1'],
+    });
+    const gone = httpCapability(parseVendors({ capabilities: [entry({ status: [404, 410] })] })[0]!);
+    const input = { recordId: 'cust-042' };
+
+    assert.equal(await gone.verify!(input, null, ctx()), false, 'still there: not deleted');
+    const result = await gone.execute(input, ctx());
+    assert.equal(await gone.verify!(input, result, ctx()), true, 'gone: deleted');
+
+    // A rule that did not name 404 still fails on one: a record that should
+    // exist and does not is the failure a read-back is for.
+    const created = httpCapability(parseVendors({
+      capabilities: [{ ...entry({ path: 'body.id', equals: 'cust-042' }), name: 'crm.note', tier: 1 }],
+    })[0]!);
+    assert.equal(await created.verify!(input, result, ctx()), false);
+  } finally {
+    await server.close();
+  }
 });
 
 test('a form body must be an object of fields (F8)', () => {

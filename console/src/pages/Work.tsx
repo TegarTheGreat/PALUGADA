@@ -21,7 +21,7 @@ import {
 import { api, explain } from '../api.ts';
 import { useLoad, useNow } from '../hooks.ts';
 import { go } from '../router.ts';
-import type { Deliverable, Structure, TaskDetail, Trace, WorkGroup, WorkItem } from '../types.ts';
+import type { Deliverable, DoneReportEntry, Structure, TaskDetail, Trace, WorkGroup, WorkItem } from '../types.ts';
 import { dateTime, eventSentence, haltReason, humanize, money, relative, time } from '../format.ts';
 import { t } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
@@ -477,7 +477,7 @@ function Steps({ companyId, task }: { companyId: string; task: WorkItem }) {
           {trace.data.outside.length > 0 && (
             <Alert color="grape" variant="light" title={t('It read content from outside')}>
               {t('Through {capabilities}. What came from there is data the company did not write; check what it did with it.', {
-                capabilities: trace.data.outside.join(', '),
+                capabilities: trace.data.outside.map(outsideLabel).join(', '),
               })}
             </Alert>
           )}
@@ -489,6 +489,19 @@ function Steps({ companyId, task }: { companyId: string; task: WorkItem }) {
 }
 
 /** Which capability an event is about, when it is about one. */
+/**
+ * How the work came to carry outside content, where it is not a capability's
+ * name: handed down, rerun, given a run's ticket, or told a lesson learned
+ * from outside. In the owner's language, like the sentence around it.
+ */
+function outsideLabel(name: string): string {
+  if (name === 'the task that made it') return t('the task that made it');
+  if (name === 'the task it reruns') return t('the task it reruns');
+  if (name === 'the ticket it was given') return t('the ticket it was given');
+  if (name === 'memory') return t('a lesson learned from outside');
+  return name;
+}
+
 function capabilityOf(event: { payload: Record<string, unknown> }): string | null {
   return typeof event.payload.capability === 'string' ? event.payload.capability : null;
 }
@@ -532,15 +545,24 @@ function resultText(output: unknown): string | null {
   return null;
 }
 
-/** How a run said it met each of its role's done criteria (engine/done.ts), when it did. */
-function doneReport(output: unknown): Array<{ criterion: string; met: boolean; evidence: string }> | null {
-  if (!output || typeof output !== 'object' || Array.isArray(output)) return null;
-  const report = (output as { done?: unknown }).done;
-  if (!Array.isArray(report)) return null;
-  const entries = report
-    .filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null && typeof entry.criterion === 'string')
-    .map((entry) => ({ criterion: entry.criterion as string, met: entry.met === true, evidence: typeof entry.evidence === 'string' ? entry.evidence : '' }));
-  return entries.length > 0 ? entries : null;
+/**
+ * Whether the platform could check a criterion's evidence (engine/done.ts):
+ * verified when it cites a tool call of this task that succeeded, claimed
+ * when it is the run's word. The tooltip says what the word means, since the
+ * difference is the whole point of showing it.
+ */
+function EvidenceCheck({ entry }: { entry: DoneReportEntry }) {
+  const verified = entry.check === 'verified';
+  const steps = entry.steps.map((one) => `step:${one.step} (${one.capability})`).join(', ');
+  return (
+    <Tooltip multiline w={280} withArrow label={verified
+      ? t('Verified: the evidence cites {steps}, and the platform found each in this task\'s journal as a tool call that succeeded.', { steps })
+      : t('Claimed: the run\'s own word. Its evidence cites no tool call that the platform found succeeded in this task.')}>
+      <Badge size="xs" variant="light" color={verified ? 'teal' : 'gray'} style={{ flexShrink: 0 }}>
+        {verified ? t('Verified') : t('Claimed')}
+      </Badge>
+    </Tooltip>
+  );
 }
 
 /**
@@ -630,9 +652,8 @@ function TaskOutput({ companyId, task }: { companyId: string; task: WorkItem }) 
 
   if (detail.error) return <Text c="red" size="sm">{detail.error}</Text>;
   if (!detail.data) return <Loading rows={2} />;
-  const { output, deliverables } = detail.data;
+  const { output, deliverables, done: report } = detail.data;
   const answer = resultText(output);
-  const report = doneReport(output);
   if (output === null && deliverables.length === 0) {
     return (
       <div>
@@ -659,15 +680,16 @@ function TaskOutput({ companyId, task }: { companyId: string; task: WorkItem }) 
                   {entry.met
                     ? <IconCircleCheck size={18} color="var(--mantine-color-teal-6)" style={{ flexShrink: 0, marginTop: 1 }} />
                     : <IconCircleX size={18} color="var(--mantine-color-red-6)" style={{ flexShrink: 0, marginTop: 1 }} />}
-                  <div style={{ minWidth: 0 }}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
                     <Text size="sm">{entry.criterion}</Text>
                     {entry.evidence && <Text size="xs" c="dimmed" style={{ whiteSpace: 'pre-wrap' }}>{entry.evidence}</Text>}
                   </div>
+                  {entry.met && <EvidenceCheck entry={entry} />}
                 </Group>
               ))}
             </Stack>
             <Text size="xs" c="dimmed" mt="xs">
-              {t('As the run reported it. Every criterion has to be answered and shown before the task counts as done; whether the evidence holds is yours or a reviewer\'s to judge.')}
+              {t('As the run reported it. Every criterion has to be answered and shown before the task counts as done. Verified evidence cites a tool call of this task that the platform found succeeded; claimed evidence is the run\'s word, for you or a reviewer to judge.')}
             </Text>
           </Paper>
         )}

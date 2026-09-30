@@ -8,6 +8,9 @@
  * intended production behaviour (section 7.4 admits no deletion, only freeze
  * and export) and must not be relaxed to make tests convenient.
  */
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import pg from 'pg';
 import { connectionString } from '../../src/config.ts';
 import { withControlPlane } from '../../src/db/tenant.ts';
@@ -31,9 +34,18 @@ process.on('warning', (warning) => {
 });
 
 function ownerPool(): pg.Pool {
-  owner ??= new pg.Pool({ connectionString: connectionString('owner'), max: 4 });
+  // The reset empties the append-only tables with the rest, and says so: a
+  // TRUNCATE of them is refused to a session that has not (0082).
+  owner ??= new pg.Pool({ connectionString: connectionString('owner'), max: 4, options: '-c app.allow_truncate=on' });
   return owner;
 }
+
+// A deployment a test boots with no state directory keeps its state -- the
+// charters repository, a master key -- in its home, which is this process's
+// unless the test names one. Each test file gets a home of its own: tests
+// wrote into the home of whoever ran them, and a real deployment on the same
+// machine shared what they left.
+process.env.HOME = mkdtempSync(join(tmpdir(), 'palugada-test-home-'));
 
 export async function ensureSchema(): Promise<void> {
   if (migrated) return;
@@ -66,6 +78,9 @@ export async function resetData(): Promise<void> {
   // right rule -- a record of every second-factor attempt that the console's
   // own role could delete would not be much of a record.
   await ownerPool().query('TRUNCATE owner_authenticators, owner_authentications CASCADE');
+  // And the links a deployment with no owner made (0094), which a later file's
+  // console would otherwise still honour.
+  await ownerPool().query('TRUNCATE owner_claims');
 
   // The deployment's own settings and sealed secrets (0065): a model one
   // test chose in the console would otherwise be the model every later
@@ -73,6 +88,22 @@ export async function resetData(): Promise<void> {
   await ownerPool().query('TRUNCATE deployment_settings, deployment_secrets');
   // And the owner's conversation with the assistant (0066).
   await ownerPool().query('TRUNCATE assistant_messages, assistant_proposals');
+  // And what WhatsApp delivered and was sent (0085): a message id one file
+  // claimed would be a duplicate to every later one.
+  await ownerPool().query('TRUNCATE whatsapp_receipts, whatsapp_sent');
+  // And Telegram's (0089), for the same reason: each file counts its updates from one.
+  await ownerPool().query('TRUNCATE telegram_receipts');
+  // And where the traces had got to (0090), which names runs no later file has.
+  await ownerPool().query(
+    `UPDATE telemetry_cursor SET through_at = '-infinity', through_id = '00000000-0000-0000-0000-000000000000',
+            holder = NULL, held_until = '-infinity'`);
+  // And which workers said they were alive (0079): a worker a test left
+  // running, or a process killed before it could take its word back, would
+  // otherwise be a holder every later file's sweep thinks has died.
+  await ownerPool().query('TRUNCATE worker_heartbeats, mcp_authorizations, credential_authorizations');
+  // And the lines erased companies left (0088), which name companies no
+  // later file made.
+  await ownerPool().query('TRUNCATE company_erasures');
 
   // TRUNCATE ... CASCADE empties the whole referencing table, not only the
   // rows that pointed at a company -- so it also removes the platform-default

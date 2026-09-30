@@ -23,7 +23,7 @@ import { exportCompany } from '../../src/audit/export.ts';
 import { importCompany } from '../../src/audit/import.ts';
 import type { ArchiveLine } from '../../src/audit/export.ts';
 import {
-  detectLanguage, driftFrom, languageRule, languagesFor, setCompanyLanguages, setDeploymentLanguages,
+  detectLanguage, driftFrom, languageCode, languageRule, languagesFor, setCompanyLanguages, setDeploymentLanguages,
 } from '../../src/domain/language.ts';
 import { addRole, createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
@@ -134,6 +134,23 @@ test('one language for both says so once', () => {
 });
 
 /* ------------------------------------------------------------- the drift --- */
+
+/**
+ * The languages the console is drawn in are languages a company can write in,
+ * named exactly enough for a model: "Chinese" alone leaves traditional or
+ * simplified to chance, and Portuguese written for Brazil differs from
+ * Portugal's in words a customer notices.
+ */
+test('a language the console offers is one agents can be told, named precisely', () => {
+  for (const code of ['en', 'id', 'ms', 'zh', 'hi', 'pt-BR', 'ru']) {
+    assert.equal(languageCode(code, 'work'), code, `${code} is a language a company can choose`);
+  }
+  assert.match(languageRule({ work: 'zh', talk: 'zh' }), /Simplified Chinese \(简体中文\)/);
+  assert.match(languageRule({ work: 'pt-BR', talk: 'pt-BR' }), /Brazilian Portuguese \(Português \(Brasil\)\)/);
+  const portuguese = 'Vou enviar a fatura para o cliente e conferir se o pagamento já chegou antes de fechar a tarefa, como sempre.';
+  assert.equal(driftFrom(portuguese, 'pt-BR'), null, 'Portuguese written for Brazil is not drift from Brazilian Portuguese');
+  assert.equal(driftFrom(ENGLISH, 'pt-BR'), 'en', 'English is');
+});
 
 test("a plan written in the wrong language is recorded, and the role's next run is reminded", async () => {
   const fixture = await createCompany('lang-plan');

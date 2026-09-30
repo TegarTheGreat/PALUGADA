@@ -56,11 +56,14 @@ import { ancestryForTask, renderAncestry } from '../domain/goals.ts';
 import { checkAgainstPlan, readPlan, type TaskPlan } from '../engine/plan.ts';
 import { outsideContentIn } from '../engine/tasks.ts';
 import { Ajv, type ValidateFunction } from 'ajv';
+import { setTimeout as sleep } from 'node:timers/promises';
 import type { Capability, CapabilityContext, CapabilityRegistry } from './registry.ts';
 import { declarationFor } from './catalogue.ts';
 import { CachedSecretManager, resolveCurrent } from '../secrets/rotation.ts';
 import { assertScopesCover } from '../secrets/scopes.ts';
 import { HookPipeline } from '../engine/hooks.ts';
+import { givePlaceBack, takePlace, type PlaceHolder } from './in-flight.ts';
+import type { Guardian } from './guardian.ts';
 
 export interface InvokeContext {
   companyId: string;
@@ -101,12 +104,21 @@ type Verdict =
       facts: ActionFacts;
       plan: TaskPlan | null;
       window: { closed: true; reopensAt: Date | null } | { closed: false };
+      /** F5.7: how many calls the grant allows in flight at once, when it says. */
+      maxInFlight: number | null;
     }
   | {
       allowed: false; reason: DenialCode; message: string; policy?: PolicyDecision;
       /** For a rate limit: when a slot frees, so the engine can wait for it. */
       notBefore?: Date;
     };
+
+/**
+ * F5.7: how long a call waits for a place among those its grant allows at
+ * once before the task is parked, and how long it is parked for.
+ */
+const IN_FLIGHT_WAIT_MS = 30_000;
+const BUSY_RETRY_MS = 15_000;
 
 const inputs = new Ajv({ allErrors: true, strict: false });
 const acceptors = new WeakMap<object, ValidateFunction>();
@@ -127,10 +139,61 @@ function assertAccepted(capability: Capability<never, never>, name: string, inpu
   );
 }
 
+/** The longest a card's title runs, and its one-line summary. */
+const TITLE_LIMIT = 80;
+const SUMMARY_LIMIT = 240;
+
+/**
+ * What an action would do, in a line: the capability, then each argument.
+ *
+ * The card said "Run record.delete" and nothing else (the competitive
+ * analysis of 2026-09-28, L9), so an owner approving a tier 3 action on a
+ * phone approved a name: which record, to whom, how much, was in the
+ * payload and on no surface. Every argument is shown as far as the line
+ * allows -- a long text cut, a list joined -- and the whole input travels
+ * with the item for the console to list.
+ */
+function describeAction(name: string, input: unknown, limit: number): string {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return name;
+  let line = `${name}:`;
+  let first = true;
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    const next = `${line}${first ? ' ' : '; '}${key} ${shownValue(value)}`;
+    if (next.length > limit) {
+      return first ? `${next.slice(0, limit - 1).trimEnd()}\u2026` : `${line}; \u2026`;
+    }
+    line = next;
+    first = false;
+  }
+  return first ? name : line;
+}
+
+function shownValue(value: unknown): string {
+  if (typeof value === 'string') {
+    const flat = value.replace(/\s+/g, ' ').trim();
+    // Cut at a word where one is near, so a line ends on a word the owner can read.
+    const space = flat.lastIndexOf(' ', 60);
+    const cut = flat.length > 60 ? `${flat.slice(0, space > 40 ? space : 60).trimEnd()}\u2026` : flat;
+    return cut === '' || /\s/.test(cut) ? `"${cut}"` : cut;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (value === null || value === undefined) return 'none';
+  if (Array.isArray(value)) {
+    if (value.every((one) => one === null || typeof one !== 'object')) {
+      const joined = value.map((one) => String(one)).join(', ');
+      return joined.length > 80 ? `${joined.slice(0, 80).trimEnd()}\u2026 (${value.length})` : joined;
+    }
+    return `${value.length} items`;
+  }
+  return '{\u2026}';
+}
+
 export class CapabilityBroker {
   readonly #registry: CapabilityRegistry;
   readonly #hooks: HookPipeline;
   readonly #secrets: CachedSecretManager | null;
+  readonly #inFlightWaitMs: number;
+  readonly #guardian: Guardian | null;
 
   /**
    * `secrets` is what makes F12.1-F12.3 reachable from a running capability.
@@ -145,8 +208,11 @@ export class CapabilityBroker {
     registry: CapabilityRegistry,
     hooks?: HookPipeline,
     secrets?: CachedSecretManager,
+    options: { inFlightWaitMs?: number; guardian?: Guardian } = {},
   ) {
     this.#registry = registry;
+    this.#inFlightWaitMs = options.inFlightWaitMs ?? IN_FLIGHT_WAIT_MS;
+    this.#guardian = options.guardian ?? null;
     // A broker built without one still has every built-in hook: F14.2 is not
     // an option a caller can decline by leaving an argument out.
     this.#hooks = hooks ?? new HookPipeline();
@@ -262,6 +328,38 @@ export class CapabilityBroker {
       this.#credential(companyId, divisionId, alias, capabilityName);
   }
 
+  /**
+   * F5.7: waits a while for a place, then says the capability is busy. The
+   * wait is short, because a worker waiting holds a run; past it the engine
+   * parks the task and a worker comes back to it (`capability.busy`).
+   */
+  async #takePlace(place: PlaceHolder, limit: number, signal: AbortSignal | undefined): Promise<void> {
+    const until = Date.now() + this.#inFlightWaitMs;
+    let pause = 50;
+    while (!(await takePlace(place, limit))) {
+      const left = until - Date.now();
+      if (left <= 0 || signal?.aborted) {
+        throw new PalugadaError('capability.busy',
+          `${place.capability} already has ${limit} call${limit === 1 ? '' : 's'} in flight for this division, `
+            + `as many as its grant allows; this one waited ${Math.ceil(this.#inFlightWaitMs / 1000)} seconds for one to finish`,
+          {
+            name: place.capability, capability: place.capability, limit,
+            notBefore: new Date(Date.now() + BUSY_RETRY_MS).toISOString(), source: 'in_flight',
+          });
+      }
+      await sleep(Math.min(pause, left));
+      pause = Math.min(pause * 2, 1_000);
+    }
+  }
+
+  /** Whether the company turned the guardian on, and this work has read content from outside. */
+  async #guarding(ctx: InvokeContext): Promise<boolean> {
+    return withTenant(ctx.companyId, async (tx) => {
+      const { rows } = await tx.query<{ guardian: boolean }>('SELECT guardian FROM companies WHERE id = $1', [ctx.companyId]);
+      return rows[0]?.guardian === true && (await outsideContentIn(tx, ctx.taskId)) !== null;
+    });
+  }
+
   async invoke<I, O>(ctx: InvokeContext, name: string, input: I): Promise<InvokeResult<O>> {
     const capability = this.#registry.get(name);
     if (!capability) {
@@ -270,7 +368,7 @@ export class CapabilityBroker {
       if (declarationFor(name)) {
         throw new PalugadaError(
           'capability.unknown',
-          `${name} needs a vendor: bind it in the file PALUGADA_VENDORS names`,
+          `${name} needs a vendor: connect one on This deployment, Services, or bind it in the file PALUGADA_VENDORS names`,
           { name, unbound: true },
         );
       }
@@ -387,7 +485,7 @@ export class CapabilityBroker {
           ? ({ closed: true, reopensAt: nextOpening(window, now) } as const)
           : ({ closed: false } as const);
 
-      return { allowed: true, tier, policy, facts, plan, window: windowState };
+      return { allowed: true, tier, policy, facts, plan, window: windowState, maxInFlight: grant.maxInFlight };
     });
 
     if (!verdict.allowed) {
@@ -459,7 +557,6 @@ export class CapabilityBroker {
         const review = await openReview({
           companyId: ctx.companyId,
           projectId: ctx.projectId,
-          divisionId: ctx.divisionId,
           proposerTaskId: ctx.taskId,
           proposerRoleId: ctx.roleId,
           reviewerRoleSlug,
@@ -478,14 +575,16 @@ export class CapabilityBroker {
 
         if (review.outcome === 'rejected') {
           // A rejection is an answer, not a delay. Retrying it would be asking
-          // the same reviewer the same question.
+          // the same reviewer the same question. The answer carries the
+          // reviewer's reasons: a proposer that goes on working after a no
+          // (a stage move's, review.ts) is otherwise told only that it was one.
           await withTenant(ctx.companyId, (tx) =>
             recordDenial(tx, ctx, name, 'policy.denied', policy),
           );
           await countTowardsRoleFreeze(ctx);
           throw new PalugadaError(
             'policy.denied',
-            `review rejected ${name}`,
+            `review rejected ${name}${review.reason ? `: ${review.reason}` : ''}`,
             { name, reviewRequestId: review.reviewRequestId },
           );
         }
@@ -514,14 +613,69 @@ export class CapabilityBroker {
     const outside = tier >= 2
       ? await withTenant(ctx.companyId, (tx) => outsideContentIn(tx, ctx.taskId))
       : null;
-    const needsOwner = requiresOwnerApproval(tier) || policy.effect === 'require_approval' || outside !== null;
+    // F5.7: a place among the calls the grant allows at once, taken before
+    // anything is recorded, charged or judged -- a call that waited and
+    // found none did not happen, and is tried again later: judged first, each
+    // try was another look the company paid for, and a yes for a while was
+    // counted as used each time (the review of d1b8142). Given back once the
+    // vendor has answered, or as soon as anything on the way there fails,
+    // the owner being asked included.
+    const place: PlaceHolder | null = verdict.maxInFlight === null ? null : {
+      companyId: ctx.companyId, divisionId: ctx.divisionId, capability: name,
+      taskId: ctx.taskId, holderKey: ctx.idempotencyKey,
+    };
+    if (place && verdict.maxInFlight !== null) await this.#takePlace(place, verdict.maxInFlight, ctx.signal);
+    const giveBack = async (): Promise<void> => {
+      if (place) await givePlaceBack(place).catch(() => undefined);
+    };
+    const holding = async <T>(work: () => Promise<T>): Promise<T> => {
+      try {
+        return await work();
+      } catch (error) {
+        await giveBack();
+        throw error;
+      }
+    };
+
+    // Row 7 of the competitive analysis of 2026-09-30 (guardian.ts, 0092):
+    // where nothing above asks -- tier 0 or 1, no policy -- in work that has
+    // read content from outside, a company that turned the guardian on has
+    // each call judged first. It may send the call to the owner; nothing it
+    // answers lets through a call that would otherwise have asked.
+    let guardianAsks: string | null = null;
+    if (this.#guardian && tier <= 1 && policy.effect !== 'require_approval' && await holding(() => this.#guarding(ctx))) {
+      const asked = fingerprintAction(name, input);
+      const allowed = await holding(() => withTenant(ctx.companyId, (tx) => inbox.findGrantedApproval(tx, ctx.taskId, name, asked)));
+      if (allowed) {
+        // Judged before and allowed by the owner: that yes is spent below,
+        // and the guardian is not asked the same question twice.
+        guardianAsks = 'it doubted this call before, and you allowed it once';
+      } else {
+        const shown = redactor.redactDeep(input) as unknown;
+        const verdict = await holding(() => this.#guardian!.judge({
+          companyId: ctx.companyId, projectId: ctx.projectId, taskId: ctx.taskId,
+          capability: name, tier, summary: describeAction(name, shown, SUMMARY_LIMIT), input: shown,
+        }));
+        if (verdict.ask) guardianAsks = verdict.reason;
+        // Stopped while the guardian was looking: the call is not made on
+        // the strength of an answer nobody is waiting for any more.
+        if (ctx.signal?.aborted) {
+          await giveBack();
+          throw ctx.signal.reason ?? new Error('the call was withdrawn while the guardian judged it');
+        }
+      }
+    }
+    const needsOwner = requiresOwnerApproval(tier) || policy.effect === 'require_approval' || outside !== null
+      || guardianAsks !== null;
     const fingerprint = needsOwner ? fingerprintAction(name, input) : null;
     if (needsOwner) {
-      grantedApproval = await withTenant(ctx.companyId, (tx) =>
-        inbox.findGrantedApproval(tx, ctx.taskId, name, fingerprint!));
+      grantedApproval = await holding(() => withTenant(ctx.companyId, (tx) =>
+        inbox.findGrantedApproval(tx, ctx.taskId, name, fingerprint!)));
     }
 
     const askOwner = async (): Promise<never> => {
+      // Asked, the call is not made now: its place is someone else's.
+      await giveBack();
       // F10.2 asks the item to say why. The plan says what will happen; the
       // goal chain says what it is ultimately for. An owner reading this on a
       // phone gets both without following a link.
@@ -532,13 +686,18 @@ export class CapabilityBroker {
         // is asked again, and told the first attempt may have acted.
         interrupted: await inbox.spentByInterruptedStep(tx, ctx.taskId, name, fingerprint!, ctx.idempotencyKey),
       }));
+      // Described from the redacted input, the same one the payload keeps:
+      // the card is read on a phone and in a chat, and neither is a place for
+      // a secret the adapter was handed.
+      const shown = redactor.redactDeep(input) as unknown;
       await inbox.requestApproval({
         actionFingerprint: fingerprint!,
         companyId: ctx.companyId,
         taskId: ctx.taskId,
         capabilityName: name,
         tier,
-        actionSummary: `Run ${name}`,
+        title: describeAction(name, shown, TITLE_LIMIT),
+        actionSummary: describeAction(name, shown, SUMMARY_LIMIT),
         rationale:
           (interrupted
             ? 'You approved this once already, and the worker carrying it out stopped before it could say ' +
@@ -551,16 +710,21 @@ export class CapabilityBroker {
               ? outside === 'begun'
                 ? ', and the task began with content from outside the company (F8.9).'
                 : ', and the work read content from outside the company before asking (F8.9).'
-              : ', which cannot be reversed.') +
+              : guardianAsks !== null
+                ? `, after the work read content from outside the company, and the guardian asked you first: ${guardianAsks}`
+                : ', which cannot be reversed.') +
           (chain.length > 0 ? `\n\nWhat this is for — ${renderAncestry(chain)}` : ''),
         consequenceIfDenied: 'The task halts and no external change is made.',
         estimatedCostCents: capability.estimatedCostCents ?? 0,
         // F10.2 asks an approval item to say why. The plan is most of the
         // answer, so it travels with the item rather than being a click away.
         payload: {
-          input: redactor.redactDeep(input) as unknown,
+          input: shown,
           plan,
           goalAncestry: chain.map((goal) => ({ kind: goal.kind, statement: goal.statement })),
+          // Why the owner is asked, which decides whether they may answer for
+          // a while (0083): the tier itself, content from outside, or a policy.
+          reason: requiresOwnerApproval(tier) ? 'tier' : outside !== null ? 'outside' : guardianAsks !== null ? 'guardian' : 'policy',
         },
       });
       throw new PalugadaError(
@@ -569,7 +733,34 @@ export class CapabilityBroker {
         { name, tier },
       );
     };
-    if (needsOwner && !grantedApproval) await askOwner();
+    // The owner's yes for a while (0083): only where a policy is what asks,
+    // below tier 3, and the work read nothing from outside. Counted as used,
+    // and the record says which yes the action ran on. Not spent like a
+    // card's yes: it covers every such action until it ends.
+    // "Read nothing from outside" at every tier: `outside` above is looked up
+    // for tier 2 only, and a tier 0 or 1 call a policy asks about in work
+    // that did read something was covered by a yes the owner gave for clean
+    // work -- with less scrutiny than the same call with no policy, which the
+    // guardian would have looked at (the review of 51e870a).
+    let standing: { id: string; grantedByItem: string } | null = null;
+    if (needsOwner && !grantedApproval && !requiresOwnerApproval(tier) && policy.effect === 'require_approval'
+        && (outside ?? await holding(() => withTenant(ctx.companyId, (tx) => outsideContentIn(tx, ctx.taskId)))) === null) {
+      standing = await holding(() => withTenant(ctx.companyId, async (tx) => {
+        const found = await inbox.useStanding(tx, ctx.roleId, name);
+        if (found) {
+          await appendEvent(tx, {
+            companyId: ctx.companyId,
+            projectId: ctx.projectId,
+            taskId: ctx.taskId,
+            type: 'approval.standing_used',
+            actor: 'broker',
+            payload: { capability: name, standingApprovalId: found.id, inboxItemId: found.grantedByItem },
+          });
+        }
+        return found;
+      }));
+    }
+    if (needsOwner && !grantedApproval && !standing) await askOwner();
 
     const controller = new AbortController();
     const signal = ctx.signal ?? controller.signal;
@@ -593,8 +784,12 @@ export class CapabilityBroker {
           policies: policy.matched.map((m) => m.slug),
           observedPolicies: policy.observed.map((m) => m.slug),
           ...(grantedApproval ? { approvedBy: grantedApproval } : {}),
+          ...(standing ? { approvedBy: standing.grantedByItem, standingApprovalId: standing.id } : {}),
         },
       });
+    }).catch(async (error: unknown) => {
+      await giveBack();
+      throw error;
     });
 
     const capabilityContext: CapabilityContext = {
@@ -610,17 +805,28 @@ export class CapabilityBroker {
     // has to happen while the money is still unspent, so the estimate is
     // charged here and refunded below if the call does not happen.
     const estimatedCents = estimateFor(capability, input);
-    const charged = await chargeEstimate(costContext, name, estimatedCents);
+    const charged = await chargeEstimate(costContext, name, estimatedCents).catch(async (error: unknown) => {
+      await giveBack();
+      throw error;
+    });
 
     // The owner's yes is spent now, immediately before the call, and not
     // after it: see `spendApproval`. Another attempt that spent it first
     // leaves this one with no approval, which is the same as never having
     // had one.
     if (grantedApproval) {
+      // The place is given back first, whatever happens after: a place
+      // left held by a call that never ran is read as live again when the
+      // same worker picks the task up (the review of d1b8142).
       const spent = await inbox.spendApproval(ctx.companyId, grantedApproval, {
         taskId: ctx.taskId, capability: name, idempotencyKey: ctx.idempotencyKey,
+      }).catch(async (error: unknown) => {
+        await giveBack();
+        if (charged) await refundEstimate(costContext, charged.accountId, estimatedCents);
+        throw error;
       });
       if (!spent) {
+        await giveBack();
         if (charged) await refundEstimate(costContext, charged.accountId, estimatedCents);
         await askOwner();
       }
@@ -629,7 +835,9 @@ export class CapabilityBroker {
     let output: O;
     try {
       output = (await capability.execute(input as never, capabilityContext)) as O;
+      await giveBack();
     } catch (error) {
+      await giveBack();
       // An action that did not happen must not leave a charge behind.
       if (charged) await refundEstimate(costContext, charged.accountId, estimatedCents);
       // Nor spend the owner's yes: a vendor that refused should not cost them
@@ -666,7 +874,10 @@ export class CapabilityBroker {
     // F8.9: what this returned was written outside the company, and the
     // work now carries it. Recorded once the read has happened, where the
     // audit trail shows it and where the next tier 2 action looks.
-    if (capability.readsOutside || declarationFor(name)?.readsOutside) {
+    const readOutside = typeof capability.readsOutside === 'function'
+      ? capability.readsOutside(output)
+      : capability.readsOutside || declarationFor(name)?.readsOutside;
+    if (readOutside) {
       await withTenant(ctx.companyId, (tx) => appendEvent(tx, {
         companyId: ctx.companyId,
         projectId: ctx.projectId,
@@ -805,12 +1016,13 @@ async function readGrant(
   tx: TenantClient,
   divisionId: string,
   name: string,
-): Promise<{ tierOverride: Tier | null; rateLimitPerHour: number | null } | null> {
+): Promise<{ tierOverride: Tier | null; rateLimitPerHour: number | null; maxInFlight: number | null } | null> {
   const { rows } = await tx.query<{
     tier_override: number | null;
     rate_limit_per_hour: number | null;
+    max_in_flight: number | null;
   }>(
-    `SELECT tier_override, rate_limit_per_hour FROM capability_grants
+    `SELECT tier_override, rate_limit_per_hour, max_in_flight FROM capability_grants
       WHERE division_id = $1 AND capability_name = $2`,
     [divisionId, name],
   );
@@ -819,6 +1031,7 @@ async function readGrant(
   return {
     tierOverride: row.tier_override === null ? null : (row.tier_override as Tier),
     rateLimitPerHour: row.rate_limit_per_hour,
+    maxInFlight: row.max_in_flight,
   };
 }
 

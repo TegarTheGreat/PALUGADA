@@ -89,7 +89,9 @@ you test in, leave `.env` out, or point it at the development database.
 Each of these is a test, and each exists because the mistake was made once.
 
 - **Migrations are append-only.** Never edit one that has been pushed; add the
-  next number. A deployed database has already run the old text.
+  next number. A deployed database has already run the old text, and
+  `npm run db:migrate` refuses, by name, a migration whose file changed after
+  it ran. `test/acceptance/process.test.ts`.
 - **Every tenant table has row level security, forced, with a policy.**
   `test/acceptance/tenant-isolation.test.ts`.
 - **References between tenant tables carry the company**: composite keys on
@@ -101,9 +103,13 @@ Each of these is a test, and each exists because the mistake was made once.
   `api('METHOD', '/api/...')` with the path spelled out.
   `test/documents/console-routes.test.ts`.
 - **Every sentence the console shows goes through `t()`** and has a
-  translation in `console/src/locales/id.ts`. Write the English in the source;
-  add the Indonesian to the dictionary. `test/documents/console-i18n.test.ts`
-  names anything missing.
+  translation in every dictionary in `console/src/locales/` (Indonesian in
+  `console/src/locales/id.ts`, and one file for each other language). Write
+  the English in the source; add each language's to its dictionary, with every
+  plural form the language has. `test/documents/console-i18n.test.ts` names
+  anything missing, left in English, or short of a form. What the server says
+  to the owner (`src/owner/say.ts`) has one dictionary per language in
+  `src/owner/sentences/`, held the same way.
 - **Nothing is drawn from the letters of a name.** A company, a role and the
   owner are pictures (`console/src/images.ts`), and every image the console
   names ships in `console/public`. `test/documents/console-images.test.ts`.

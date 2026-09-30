@@ -20,7 +20,7 @@ import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts
 import { TERMINAL_STATUSES, isTerminal, type TaskStatus } from '../domain/task.ts';
 import { PalugadaError } from '../errors.ts';
 import { assignTask } from '../scheduler/wake.ts';
-import { getTask } from './tasks.ts';
+import { getTask, outsideContentIn } from './tasks.ts';
 import { remember, supersede } from '../memory/store.ts';
 
 /** The longest instruction or note, the same bound as a question from the owner. */
@@ -161,6 +161,14 @@ export async function rerunTask(companyId: string, taskId: string, note?: string
     throw new PalugadaError('contract.violation', `a note is at most ${INSTRUCTION_MAX} characters`, { field: 'note' });
   }
   const key = `rerun:${taskId}`;
+  // F8.9: the new task is a root the owner made, and its chain says nothing
+  // of how the first one began. Its input is the first one's -- a webhook's
+  // event, a brief written after reading an email -- so what the first one
+  // carried, it carries: pressing "do it again" on a send the owner refused
+  // must not send it unasked.
+  const carried = await withTenant(companyId, (tx) => outsideContentIn(tx, taskId));
+  const carries = carried === null ? undefined
+    : { capability: 'the task it reruns', from: carried, rerunOf: taskId };
   const already = await withTenant(companyId, (tx) =>
     tx.query<{ id: string }>('SELECT id FROM tasks WHERE idempotency_key = $1', [key]));
   if (already.rows[0]) return already.rows[0].id;
@@ -174,6 +182,7 @@ export async function rerunTask(companyId: string, taskId: string, note?: string
     input: previous.input,
     createdBy: 'owner',
     idempotencyKey: key,
+    carriesOutside: carries,
     priority: previous.priority,
     detail: `the owner asked for task ${taskId} again`,
   });
@@ -268,6 +277,33 @@ export async function instructionsFor(
       ? payload.previous as { status: TaskStatus; haltReason: string | null }
       : null,
   }));
+}
+
+/** How far back a rerun reads the attempts before it. */
+const LINEAGE_MAX = 10;
+
+/**
+ * The earlier attempts at the same work, nearest first: the task this one
+ * was asked for again in place of, the one that one replaced, and so on
+ * (L6). What the owner said to any of them is still true of this one -- a
+ * price given in an answer to the first attempt is the price for the third.
+ */
+export async function earlierAttempts(tx: TenantClient, taskId: string): Promise<string[]> {
+  const chain: string[] = [];
+  let current = taskId;
+  while (chain.length < LINEAGE_MAX) {
+    const { rows } = await tx.query<{ rerun_of: string | null }>(
+      `SELECT payload->>'rerunOf' AS rerun_of FROM events
+        WHERE task_id = $1 AND type = 'owner.instructed' AND payload ? 'rerunOf'
+        ORDER BY occurred_at, id LIMIT 1`,
+      [current],
+    );
+    const previous = rows[0]?.rerun_of;
+    if (!previous || previous === taskId || chain.includes(previous)) break;
+    chain.push(previous);
+    current = previous;
+  }
+  return chain;
 }
 
 export type Verdict = 'good' | 'needs_work';

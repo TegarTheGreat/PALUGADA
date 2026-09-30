@@ -284,7 +284,7 @@ test('a retryable failure returns the task to the queue, not to limbo (F5.12)', 
   assert.equal(first.reason, 'retryable');
 
   const parked = await withTenant(fixture.companyId, (tx) => getTask(tx, task.id));
-  assert.equal(parked!.status, 'pending', 'claimable again without waiting for a lease to expire');
+  assert.equal(parked!.status, 'waiting_window', 'claimable again when its short wait is over, without waiting for a lease to expire');
   assert.equal(parked!.leaseHolder, null, 'and not appearing to belong to anybody');
   assert.equal(parked!.attempt, 1);
 

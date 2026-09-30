@@ -2,9 +2,10 @@
  * One POST to a model API, with the retries every provider needs (F13.6).
  *
  * Shared by the clients so that "what counts as the provider being down" is
- * decided once: a request that never got an answer, a rate limit, the
- * provider's own overload and its 5xx are tried again and then handed to the
- * engine as a `ProviderFailure`, which is what a fallback model is for; a
+ * decided once: a connection refused or reset, a rate limit, the provider's
+ * own overload and its 5xx are tried again and then handed to the engine as a
+ * `ProviderFailure`, which is what a fallback model -- and then waiting -- is
+ * for; a call that never answered in ten minutes is handed over at once; a
  * refused key is said plainly and not retried, because every task would fail
  * the same way until an operator changes it; anything else is the request's
  * own fault.
@@ -50,7 +51,20 @@ export async function postModel(post: ModelPost): Promise<unknown> {
       });
     } catch (failure) {
       if (post.signal?.aborted) throw failure;
-      throw new ProviderFailure(post.model, `the model API could not be reached: ${(failure as Error).message}`);
+      // A connection refused or reset is the provider's moment as much as a
+      // 503 is: tried again the same way. A call that ran out its ten minutes
+      // is not -- two more would hold the run for half an hour.
+      const cause = (failure as { cause?: { code?: string } }).cause?.code;
+      const why = cause ? `${(failure as Error).message} (${cause})` : (failure as Error).message;
+      if (timeout.aborted) {
+        throw new ProviderFailure(post.model, `the model API did not answer in ${CALL_TIMEOUT_MS / 60_000} minutes`);
+      }
+      if (attempt < RETRIES) {
+        await sleep(post.retryDelayMs(attempt, null), post.signal);
+        if (post.signal?.aborted) throw post.signal.reason;
+        continue;
+      }
+      throw new ProviderFailure(post.model, `the model API could not be reached ${attempt + 1} times: ${why}`);
     }
 
     if (response.ok) return response.json();

@@ -60,12 +60,12 @@ means less than that, the row says so.
 | F2 organisation | F2.1–F2.9 | — | — |
 | F3 charter, policy | F3.1–F3.12 | — | — |
 | F4 memory | F4.1–F4.8 | — | — |
-| F5 engine | F5.1–F5.6, F5.8–F5.14 | F5.7 (per division, enforced at the claim; per capability, not built -- see 2.22) | — |
+| F5 engine | F5.1–F5.14 | — | — |
 | F6 agent communication | F6.1–F6.7 | — | — |
 | F7 adversarial review | F7.1–F7.7 | — | — |
 | F8 broker, tiers | F8.1–F8.13 | — | — |
 | F9 scheduler | F9.1–F9.10 | — | — |
-| F10 owner surface | F10.1–F10.4, F10.6–F10.8, F10.10, F10.11 | F10.5, F10.9 (both transports are written and driven end to end against a local server; no push service and no bot account exist here to point them at) | — |
+| F10 owner surface | F10.1–F10.4, F10.6–F10.8, F10.10, F10.11 | F10.5, F10.9 (push, Telegram and WhatsApp are written and driven end to end against a local server; no push service, bot account or WhatsApp Business number exists here to point them at) | — |
 | F11 observability | F11.1–F11.7 | — | — |
 | F12 credentials, gateway | F12.1–F12.10 | — | — |
 | F13 runtime adapters | F13.1, F13.2, F13.4–F13.8 | F13.3 (the machinery, the four named specs and the override path are built and driven end to end; `codex`, `gemini-cli` and `opencode` were run against their binaries, `hermes` and `openclaw` checked against their source; compatibility with Paperclip's adapter packages is not offered, by decision -- section 2.12) | — |
@@ -2996,17 +2996,16 @@ vendor files (`src/capabilities/mcp.ts`, `PALUGADA_MCP_SERVERS`).
 - Resuming an agent CLI's run is by position: a CLI that re-issues an
   earlier call after a restart is told the journal diverged. The platform's
   own loop replays exactly; a CLI does not.
-- The worker runs one company's work at a time; more work in parallel is
-  more replicas, which share the queue through leases.
-- No connector catalogue, no OAuth flow, no tracing or metrics endpoint.
+- No tracing endpoint: a run's model calls, tool calls and briefing are
+  kept on the task and shown in the console, not exported as spans.
 
 (A shutdown that handed nothing back, sign-in with no per-address throttle,
-and no container image were on this list; section 2.22 closes them.)
-- A way for a run to write down what it learned. A `memory.note` would be a
-  thirteenth tool for every role in the standard company but one, and F2.4
-  caps a role at twelve; until a role can spare one, what a run learned
-  reaches memory through distillation, which now runs whenever a model is
-  configured, and through the owner's word on delivered work.
+and no container image were on this list; section 2.22 closes them. So
+were a worker that ran one task at a time, closed in 2.26; no connector
+catalogue and no OAuth flow, closed in 2.23 and 2.25; no metrics endpoint,
+closed in 2.27; and no way for a run to write down what it learned, which
+a run now does as `learned` in its output, without a thirteenth tool
+(2.23).)
 
 ## 2.22 Any model, and a company that runs itself
 
@@ -3177,10 +3176,10 @@ per-company lock that makes the lane and the budget exact. A child its own
 running parent drives is inside the parent's place, or a full division
 would leave the parent waiting on a child nothing could start.
 
-The requirement's other half, a limit per capability, is not built: a
-vendor's own limits are met by its 429s and `Retry-After` (F9.2), and a
-count shared by every replica needs a slot table this has not got. F5.7 is
-graded partial until it has.
+The requirement's other half, a limit per capability, was not built then:
+a vendor's own limits were met by its 429s and `Retry-After` (F9.2), and a
+count shared by every replica needed a table of places. It has one now
+(section 2.43), and F5.7 is graded built.
 
 ### Three more the guide found
 
@@ -3581,13 +3580,14 @@ has.
 
 **Still open, next.** From the same audits, in order: the done report is
 the run's own account -- the engine holds it to answering every criterion
-with evidence, and nothing yet judges whether the evidence holds; a run has no
-wall-clock ceiling of its own beyond its deadline and its lease; documents
-are matched by their words, not their meaning -- pgvector is installed and
-unused -- and a scanned PDF, or any file but Word, PDF and text, reaches them
-only as text the owner pastes. WhatsApp, Signal and email as
-owner channels are not built; Slack and Discord cannot carry buttons, so
-Telegram remains the chat that decides. Subscription
+with evidence, and nothing yet judges whether the evidence holds; a run had
+no wall-clock ceiling of its own beyond its deadline and its lease (closed
+in 2.30); documents
+are matched by their meaning only when the owner chooses a provider (2.35)
+-- and a scanned PDF, or any file but Word, PDF and text, reaches them
+only as text the owner pastes. Signal and email as owner channels are not
+built (WhatsApp is, in 2.31); Slack and Discord cannot carry buttons, so
+Telegram and WhatsApp are the chats that decide. Subscription
 logins whose tokens rotate (ChatGPT, Hermes' Nous and Codex logins) are not
 offered: every run would hold a copy and the first to refresh would sign
 the rest out. Hermes' entry still gives each run its own `HERMES_HOME`,
@@ -3596,6 +3596,1713 @@ a source install; a key reaches it now, and the directory is the next fix.
 Claude Code reads a host-wide credential outside `HOME` when one exists
 (a managed settings directory, a remote session's token), which only a
 mount namespace could hide.
+
+## 2.24 Read against a live run on a real model
+
+`docs/COMPETITIVE-ANALYSIS-2026-09-28.md` gave a fresh deployment one task
+on DeepSeek through the standard template, and graded what happened. The
+suite was green; the task did not finish. What it found, and what has been
+done:
+
+- **A reasoning model's empty turn was kept (L4).** DeepSeek spent the
+  per-call allowance thinking and answered nothing with
+  `finish_reason: length`; the loop pushed the empty turn and the next call
+  was refused. A turn that says nothing is never kept now: one cut off by
+  the allowance is asked again with twice the room, up to a ceiling, and an
+  empty `end_turn` is nudged once and then fails with why. The owner's
+  assistant does the same with its answer.
+- **A company that spent its lifetime tokens could not be given more (L11).**
+  The engine refused every task with a message that pointed nowhere. The
+  ceilings are raised on **Money**, **Ceilings** (raising asks for the
+  authenticator, lowering does not), and the refusal says where.
+- **A delete could not be verified (L10).** Every read-back answering 400
+  or more counted as failed, so a rule that proves a delete by a 404 could
+  never pass. A status the vendor file names in `matches.status` is now an
+  answer, not a failure.
+- **A saved model key followed the address (security #1).** Checking a
+  model with a new address and no key sent the saved key to the new
+  address, and the assistant could ask for such a check. The key is reused
+  only for the same provider at the same origin, and the assistant may
+  check only the saved model.
+- **No charter ever reached a run (L8).** Charters were written only by the
+  file import, which the boot never ran, so F3.1, F3.2 and F3.6 described
+  tested code no deployment used, and a reviewer told to check a skill
+  "against the company's charter and policies" turned five of the nine
+  built-in skills down for want of either. A deployment now starts with a
+  short platform charter and a company from a template with one naming it
+  and its mission; each is published only where there is none, so the
+  owner's word is never overwritten, and replicas booting together publish
+  one (0078 gives the platform's versions the uniqueness `UNIQUE
+  (company_id, version)` never gave a null company). The owner reads and
+  rewrites both on **Team**, **Charter**, with the authenticator, and puts
+  the company's back from its history. The skill reviewer's task carries
+  the policies in force, since no run is otherwise told them.
+
+- **The marketer could not finish anything (L5).** Its second criterion
+  was "the customer record says what was sent and to whom", which only
+  `crm.note` can make true, and a deployment with no vendor file binds no
+  CRM: the run wrote its drafts, said honestly the criterion was not met,
+  and failed three times alike. The responder, the bookkeeper and the
+  builder had one each of the same kind. Each now says what counts where
+  its vendor is not connected, and `company-template.test.ts` holds every
+  criterion of the template to a written list of what it needs, so the
+  next one added has to say. A role's tools that nothing is bound to are
+  no longer offered to its runs, and every runtime is told their names --
+  a run found them unusable only by calling them. The owner changes what
+  done means for a role from its drawer; it is recorded with the role's
+  version and put back with it, which is how a company made before this
+  gets the new criteria.
+
+**Still open, next.** F3.11's files are read only when the boot is given a
+directory, and it is not given one. (Closed in section 2.44.)
+
+## 2.25 Chaos, and every connector
+
+The owner asked two things of the platform: whether it is safe when things
+break, and whether everything that connects it to other services -- OAuth,
+connectors, keys -- is there and easy. Both were answered by running things
+rather than by reading them.
+
+### Faults injected into a running deployment
+
+A harness ran PALUGADA as its own OS process (`node src/main.ts`), with a
+fake OpenAI-compatible model and a fake CRM in another process that outlive
+it. The CRM deduplicates on `idempotency-key`, can hold a request open, and
+can answer 5xx. Each scenario created tasks for a role that writes a
+`crm.note`, injected one fault, and then read the books: task outcomes,
+CRM posts per key, tokens still reserved, leases held, runs, incidents and
+events.
+
+| Fault | Before | After |
+|---|---|---|
+| SIGKILL while a `crm.note` call is in flight, restart at once | exactly one note per task (the retried step went out under its first key, and the CRM deduplicated it); no reservation or lease leaked; **recovery 908 s**, the killed worker's task leased to a dead process until its lease ran out | the same books; **recovery 62 s**: workers write `worker_heartbeats` (0079) every 15 s, and the sweep returns the tasks of a holder quiet for 60 s |
+| The model's connections dropped for 20 s | both tasks **halted**, `runtime_unavailable`, **2 incidents** for the owner to resume by hand; a dropped connection was not even retried | both **completed** in 46 s, **0 incidents**: a dropped connection is retried like a 503, then the task waits for the same model -- 30 s, doubling, five times -- and only a model that stays down halts it |
+| The CRM refused the note, and the model said it was done | the task **completed** with a summary saying the note was written | refused: a write above tier 0 that failed and was not put right later must be named under `failed`, with why the work is done anyway |
+| The model tried a write again after its answer never came | the second try carried a **new key**, so the vendor could not tell it was the same write | tool calls are keyed by the task, the capability and the input, so the same write asked twice is sent under one key |
+| The CRM answered 503 to everything for 20 s | both tasks **failed**: a failed attempt went straight back on the queue, and three were spent in seconds | both **completed** in 56 s: a failed attempt waits 10 s, then 40 s, then 160 s before the next is claimed; the same key on every try, one note each |
+| SIGTERM while a call is in flight | -- | the run finished its step and handed the task back; both completed in 19 s, one note each, nothing leaked |
+| SIGKILL as the CRM's answer arrives | -- | the step was repeated under its first key; both completed in 62 s, one note each |
+| PostgreSQL restarted while a call is in flight | -- | the process logged the lost connections and carried on; both completed in 12 s, one note each, nothing leaked |
+| Two replicas share the queue; one is SIGKILLed while a call is in flight and stays down | -- | the other finished all six tasks in 62 s: one note each (the killed call was repeated under its first key and deduplicated), one run per task, no two runs of a task at once, nothing leaked |
+
+A separate review reported more, and four of its findings are handled:
+
+- A SIGTERM mid-run, reproduced above.
+- `agent_runs.tokens_used` was written by nothing, so every run and every
+  export said a run had used no tokens. A run now counts what its traces
+  count.
+- A runtime that wrote without ending a line was held whole in the worker's
+  memory. That covers every reader: Claude Code's stream-json, the other
+  CLIs' lines, and a script's or sandbox's protocol. Reproduced with a
+  runtime that writes for ever, it ran to its deadline. Every reader now
+  stops the run at 16 MiB of one line, says so in the failure, and ends the
+  process.
+- A container whose runtime ignored SIGTERM outlived the docker client that
+  the tree keeper killed. Each run's container now has a name
+  (`palugada-run-<run id>`), runs under `--init` so the runtime is not
+  PID 1, and is removed by that name when the run ends, however it ended.
+
+Two are not changed:
+
+- A preflight that fails once for a network blip halts the task with an
+  incident, which is what F8.12 asks.
+- A container whose worker was itself killed with SIGKILL is not swept at
+  the next boot: the removal above runs in the worker that started it.
+
+### Connectors, keys and OAuth
+
+Every path by which a key reaches something outside was read, and the ones
+that sent a key somewhere the owner never chose were closed:
+
+- **A division's credential could name one of the deployment's own sealed
+  secrets** -- `db://model-key` -- and the broker would send the model
+  provider's key to whatever vendor the capability called. Division
+  credentials now resolve only `env://`, `file://` and
+  `db://credential-*` (`DivisionSecrets`), and a rotation refuses anything
+  else before it moves.
+- **The owner's assistant could check an MCP server at an address of its
+  own with a saved server's token.** Its check is `{ name }` only, looked
+  up at the saved address.
+- **An MCP server could be reached over plain http anywhere, and redirects
+  were followed with its token.** Plain http is accepted only on this
+  network, and a redirect is refused with where it pointed.
+- **A tool's saved key was sent to a different address when a tool was
+  tried there**, and a try needs no second factor. It now stays with its
+  address, as the model's does.
+- **Disconnecting Telegram left the webhook set at Telegram**, which kept
+  retrying the chat's messages against an address that refused them; it is
+  now deleted. **The assistant proposed agent-CLI keys with a kind no CLI
+  takes**; it is told the catalogue's own kinds.
+
+And what made connecting a service hard:
+
+- **A vendor was a JSON file an operator wrote, and a division's key was a
+  row inserted with SQL** beside an environment variable and a restart.
+  **This deployment, Services** now connects the shipped presets, or any
+  entry of the file's shape, checked against every rule the file is held
+  to; and a division's **Keys for services** says which of its capabilities
+  need a key, takes the key pasted, seals it as `db://credential-…`,
+  declares it with the scopes those capabilities need (F12.6), replaces it
+  as a rotation and deletes the old one. Each change asks for the owner's
+  authenticator; a key is never shown again.
+- Approval cards now say what the action would do, with every argument
+  (L9), and the owner's answer to an escalation reaches the task and puts
+  it back to work (L18).
+
+- **There was no OAuth anywhere, so no hosted MCP server that signs in with
+  it could be connected.** Linear's, Notion's, Sentry's, Atlassian's and
+  Stripe's all answer 401 and name an authorization server. PALUGADA is now
+  a client of the MCP authorization spec (revision 2026-07-28):
+  - it discovers the resource's and the authorization server's metadata
+    (RFC 9728, RFC 8414 and OpenID, in the spec's order), and checks that
+    each is who it says it is and that PKCE with S256 is offered;
+  - it registers a client (RFC 7591), or uses one the owner registered, kept
+    per authorization server;
+  - the owner signs in in their own browser, with PKCE, a single-use state
+    kept by its hash (0080), and the server as the token's `resource`
+    (RFC 8707);
+  - the callback checks the issuer (RFC 9207) before the code is redeemed;
+  - the tokens are sealed, and refreshed once across every worker when the
+    server says they have run out.
+
+  A server's name with `_` in it could not keep a token at all, since a
+  sealed secret's name cannot hold one; it now can.
+- **The servers offered by name still said sign-in did not exist.** Their
+  list left out Notion "because this client runs no sign-in flow", and
+  offered Linear, Atlassian and Stripe only with a pasted key. The list was
+  checked again against each vendor's documentation and public OAuth
+  metadata; none was signed in to. It now has twenty-eight servers, each
+  marked with how it lets PALUGADA in:
+  - Notion, Webflow and Square are signed in to with nothing to copy.
+    Choosing one asks the server, and the sign-in is offered at once.
+  - Twelve take a key or a sign-in.
+  - GitHub, Asana, Slack, HubSpot and Box let PALUGADA in only through an
+    app the owner registers. The console links to where one is made, and
+    shows the return address to give it, which it did not show before.
+
+  Choosing Notion and HubSpot in the console reached their real servers,
+  and both answered with their authorization servers. Vercel, Figma and
+  Canva are left out: they register only clients they have approved.
+  Google Workspace's servers are left out too, because they are a
+  developer preview.
+
+  A sign-in's token was also sent the way the preset sends a pasted key:
+  Sentry's `Sentry-Bearer` scheme, for a token that OAuth issues as a bearer
+  token. It is now always sent, and saved, as a bearer token.
+
+- **A vendor bound by an entry could not sign in, so Google Calendar and
+  Gmail could not be bound at all.** Their keys are not pasted: a person
+  signs in, and the token runs out within the hour. Google's own MCP
+  servers are a developer preview. An entry may now say how its key is
+  signed in for (`signIn`): `google` or `microsoft` by name, or any
+  provider by its two addresses, with the scopes its call needs.
+  - The owner signs a division in from its keys, with the device, in their
+    own browser: the authorization code grant with PKCE and a single-use
+    state (0081).
+  - The app registered with the provider is asked for once per deployment,
+    with the return address to give it, and its secret is sealed.
+  - What the sign-in leaves is the division's credential, as a pasted key
+    is: sealed under a name only a division's credential may use, scoped to
+    what its capabilities need, rotated by signing in again, and never shown.
+  - Wherever a credential is resolved, it becomes the access token. It is
+    refreshed first when it has five minutes or less to run: once across
+    every worker, and only at the endpoint the app was registered for.
+  - A sign-in's record cannot be pasted in as a key, since it would choose
+    where the app's secret is sent.
+
+  The example file offers `calendar.read` on Google Calendar. Gmail's calls
+  do not fit an entry: listing gives ids only, and sending takes an encoded
+  message.
+
+**Still open, next.** Client ID Metadata Documents and re-authorizing for
+more scope on a 403 are not built. (The runtimes' HTTP and sandbox tokens, which
+came from the environment into a header without the redactor being told
+them, are now registered with it.) The master key
+cannot be rotated from the console, and the authenticator has no recovery
+codes. The second-factor lockout is global, so anyone who can reach the
+sign-in page can still lock the owner's *codes* for its window; it no longer
+locks a passkey, which cannot be guessed, so an owner with one is never
+kept out by somebody else's wrong codes.
+
+
+## 2.26 The rest of the analysis of 2026-09-28
+
+The last four findings of `docs/COMPETITIVE-ANALYSIS-2026-09-28.md` that
+this file had not yet answered. Each was reproduced by a test first.
+
+- **The owner's urgent task waited behind a long run (L3).** A process ran
+  one task at a time and did everything else between runs. A P0 task the
+  owner gave waited behind whatever automatic work had started first. An
+  approval past its expiry stayed open, and its task still waiting, for as
+  long as that run took; notices and the budget watch waited as well.
+  - A process now runs `PALUGADA_WORKER_CONCURRENCY` tasks at once (four
+    by default). One place is kept for P0 work, so an urgent task starts
+    even while the others are busy.
+  - The housekeeping runs on its own five-second clock.
+  - A division's limit, its budget and the claim's lock still bound what
+    runs, across every process.
+
+  Reproduced with a run held open: the owner's task and the expiry both
+  waited for it; now both finish while it is still going.
+- **A rerun of a rerun forgot what the owner said (L6).** The third attempt
+  at a launch post still wrote "[TBD: price]" after the owner had given
+  the price twice: once as an answer to the first attempt, once in a note.
+  A run read only what was said to its own task. Every attempt at the same
+  work now reads the owner's notes and answers to all the attempts before
+  it, oldest first, under its own.
+- **A run asked the owner which CRM to bind (L7).** It is a question the
+  owner cannot answer from the inbox: a service is connected on This
+  deployment, Services, and an answer typed into an item connects nothing.
+  - `owner.ask` now answers such a question itself. A question naming a
+    tool of the role's that nothing is bound to, in words about setting it
+    up, gets that answer at once, the event
+    `task.question_answered_by_platform`, and no inbox item.
+  - A question about the work, even one naming the tool, still goes to the
+    owner.
+  - Runs are also told, with the names of their unconnected tools, not to
+    ask.
+- **Every call was priced at the top of the market (L12).** With no price
+  list, a model is charged $15 in and $75 out per million tokens, on
+  purpose. A company on DeepSeek was charged about 58 times its bill, and
+  its $200 ceiling stopped work worth $3.40. Nothing offered to say what a
+  model costs. There are now three places, laid over each other in this
+  order:
+  1. `npm run setup` prices a model on this machine at zero. For a hosted
+     model it offers what [models.dev](https://models.dev) says.
+  2. The console's **What it costs**, on the Model page, shows each
+     model's price and who set it. It fills itself from models.dev, using
+     the provider the model is reached at.
+  3. The console saves prices with the owner's device, since a lower price
+     loosens every budget.
+
+  models.dev is read live and only offered; nothing it says is saved
+  without the owner. `pricing.ts` still compiles in no price list. The
+  console's fill was run against the real catalogue: DeepSeek V4 Flash
+  came back at $0.15 and $0.60 per million tokens, where the fallback had
+  charged $15 and $75.
+
+## 2.27 Operating it: metrics, point-in-time recovery, and the schema owner
+
+Read against what an operator has at three in the morning, and against the
+competitors checked again on 2026-09-30: Multica serves Prometheus metrics,
+Paperclip exports traces, and PALUGADA had a health check and log lines.
+
+- **Nothing showed the load over time.** `/api/health` says whether the
+  process can work; the console is the owner's. A queue growing behind one
+  role, every place of a worker taken, or a company's spend climbing toward
+  its ceiling was visible to no graph and no alert. `GET /api/metrics` now
+  serves them in the Prometheus text format:
+  - live tasks by company and status, and the age of the oldest pending one;
+  - running runs and how long the quietest has shown no progress;
+  - what waits for the owner, by kind;
+  - each company's spend against its ceiling;
+  - workers alive across replicas, this worker's places and how many are
+    busy, and its runs and failures as counters;
+  - the database pools and the process itself.
+
+  A scrape reads live work over the partial indexes the worker already
+  keeps, so it stays cheap however much history there is. The numbers are
+  about every company, so they are served only with
+  `PALUGADA_METRICS_TOKEN`, a token of at least 32 characters, and the
+  route answers 404 until one is set. The operations guide has the scrape
+  configuration and rules to alert on.
+- **A backup lost the day.** The guide had `pg_dump` only. It now has
+  point-in-time recovery from an archived write-ahead log, drilled on
+  PostgreSQL 16: rows written after the base backup and before the target
+  came back, and a delete after it did not. It says what a recovery cannot
+  undo -- effects in the world after the target -- and how the idempotency
+  keys bound it.
+- **TRUNCATE went round the append-only rule (0082).** `events`,
+  `governance_log` and `retention_log` refuse UPDATE and DELETE through a
+  row trigger, and TRUNCATE fires no row trigger. OpenBot found the same
+  hole in its own audit log. Only the schema owner holds TRUNCATE, and its
+  TRUNCATE emptied the history without a word, directly or through
+  `TRUNCATE companies CASCADE`. A statement trigger now refuses it unless
+  the session sets `app.allow_truncate`, which only the test suite's reset
+  does. An owner who means it can still drop the trigger; this stops the
+  mistake, not the owner.
+- **The running platform held the schema owner's password.** Under Docker
+  Compose the app container was given all three database URLs, so that it
+  could migrate before it started, and kept them for its whole life. The
+  systemd guide said to copy `.env`, which has all three, into the
+  service's file. That role can alter and empty any table.
+  - Compose now migrates in a `migrate` service of its own, and `app`
+    starts after it with only the application and control-plane URLs.
+  - The image migrates only when it is given the owner URL, and starts the
+    platform without it.
+  - The unit removes it with `UnsetEnvironment=`.
+
+  Run with Docker Compose from a clean volume: `migrate` applied every
+  migration and exited 0, and `app` then started healthy. No process in the
+  app container had `PALUGADA_OWNER_URL` in its environment, tini's
+  included. A `TRUNCATE events CASCADE` as the owner role was refused.
+
+## 2.28 Fewer cards for the owner: a yes for a while
+
+Read against the competitors checked on 2026-09-30. Copilot Studio offers
+"approve for this session" and OpenAI's Dots lets a person write rules per
+action; both answer the complaint that too many approvals is how one person
+loses control of a queue. PALUGADA asked about every action a policy
+covered, one card each, for as long as the policy stood.
+
+- **A yes for a while (0083).** On a card a policy raised, the owner may
+  approve and allow the same capability to the same role for an hour,
+  eight hours, a day or a week. It takes their second factor, because it
+  loosens a rule, like a policy made looser. Each action it lets through is
+  counted and written on the task as `approval.standing_used`, naming the
+  yes. It is listed in the inbox and taken back with one press.
+- **What it never covers.**
+  - A tier 3 action: approved one at a time, with the factor (F10.10).
+  - Work that read content from outside: asked about every time (F8.9),
+    since that content may be what is asking.
+  - Another role or another capability.
+  - Anything past a week: the database refuses one longer.
+
+  The broker now writes on each card why it asked (the tier, content from
+  outside, or a policy), so which cards are eligible is decided by the
+  server, not by a card's wording. A card from before this knows no reason
+  and is not eligible.
+- **Written by the owner alone.** The application role can read a standing
+  yes and count its uses; it cannot make one or extend one. Only the
+  control plane writes the table, in the same transaction as the decision
+  it came with.
+
+Reproduced by tests first:
+- a second send on a new task, to another recipient, went without a card;
+- another role still asked;
+- a send after the yes was taken back asked again;
+- a task that had read a customer's email asked, and its card could not be
+  answered for a while;
+- tier 3, 169 hours, and an insert as the application role were each
+  refused.
+
+## 2.29 Agent CLIs held to the versions their containment was checked on
+
+Read against OtoDock, which pins and freezes the Claude Code and Codex it
+runs, and against this platform's own history: what keeps an agent CLI to
+the tool bridge is its own flags and settings, and a Claude Code release
+once offered seventeen tools the old deny list did not name.
+
+- **A CLI at another version ran as if nothing had changed.** The console
+  installed the checked version, but nothing looked again: an update from
+  outside, or the CLI's own updater, left a version nobody had checked
+  running every role on it. The Claude Code on the machine this was written
+  on was 2.1.285, two releases past the checked 2.1.283.
+  - Each known CLI now names the version it was checked on
+    (`src/runtime/checked-versions.ts`, one list the installer uses too).
+  - Its health check reads `--version`. At any other version it answers
+    not healthy with the reason, so its tasks wait on the queue (F13.8).
+  - The owner installs the checked version, or accepts the one installed,
+    from **Agent CLIs** with their device. Updating to the newest from the
+    console accepts that version as it installs it.
+  - An accepted version covers that version and no later one.
+- **Each CLI could update itself between runs.** Each run now turns its
+  updater off, under the names each CLI's own settings use:
+  - Claude Code: `DISABLE_AUTOUPDATER`, which 2.1.285 reads.
+  - Codex: `check_for_update_on_startup = false`, which 0.157.1 accepts
+    under `--strict-config` (that mode refuses a key it does not know).
+  - Gemini CLI: `general.enableAutoUpdate` and
+    `enableAutoUpdateNotification`, from 0.61.0's settings schema.
+  - OpenCode: `autoupdate`, which was already off.
+
+  Codex and Gemini CLI were run with the new settings at their checked
+  versions.
+
+Hermes installs from its own script at no version the console can choose,
+and is held to none; it is on this list's open side.
+
+## 2.30 How long a role's run may take (#102)
+
+- **A run that kept going was bounded by nothing the owner set.** The run
+  was held to its task's deadline, and most tasks have none. The lease
+  keeper renews a lease for as long as a run shows progress, so an agent
+  CLI working an hour on a ten-minute job spent an hour of tokens before
+  anything looked at the clock.
+- **The owner now sets a length per role (0084).** It is under **Change
+  its charter, done criteria, model or run length**, in minutes, up to a
+  day; 0 is no limit.
+- **What happens at the limit.** The run is stopped and what it committed
+  is kept. The task halts as `run_limit` with the length in words, as a
+  run that outgrows its token ceiling does, because it would outgrow the
+  length again. The owner reruns it with a note or gives the role longer.
+- **Where else the length shows.**
+  - It is sent to every runtime as the run's wall clock, with the
+    deadline, whichever is sooner.
+  - It is kept in the role's history, so a rollback restores it.
+  - It travels with the company's export.
+
+Reproduced first: a role limited to one second, with a run that never
+finished, was halted after about one second rather than at the lease.
+
+## 2.31 WhatsApp as the owner's channel (F10.9)
+
+- **An owner in Indonesia reads WhatsApp, not Telegram.** Meta's own Business
+  AI answers a company's customers there since August 2026, and Manor, the
+  one competitor with a WhatsApp channel, builds it on the Cloud API with
+  receipts that survive a duplicate. The channel is built the same way here,
+  from the design, not the code.
+- **What it carries.** Everything Telegram carries, with the same rules:
+  - Approve, Deny and Ask buttons up to tier 2; a question's choices as a
+    list; a tier 3 approval or an incident as a link (F10.10).
+  - The daily digest and a message when work the owner gave has finished.
+  - The owner's own words go to the CEO, as in the console; `/ceo` and
+    `/palugada` choose whom they talk to, and a card the chat may apply
+    comes with its button.
+- **What stands between a delivery and a decision.**
+  - Meta's signature over the bytes (`X-Hub-Signature-256`), checked in
+    constant time before anything is parsed.
+  - The owner's number: a press from any other is recorded as
+    `security.chat_stranger_refused` in the item's company, and not answered.
+  - Each message id, claimed in the database before it is acted on (0085),
+    so a delivery Meta sends again -- for days, and across a restart -- is
+    acted on once.
+  - `decide` over `chat`, which refuses tier 3 whatever arrives.
+- **WhatsApp's 24-hour window.** A business may write first only within a
+  day of the owner's last message. The send is accepted and reported failed
+  later, in a status delivery. The item then goes as the approved template
+  (`PALUGADA_WHATSAPP_TEMPLATE`), and its buttons follow when the owner
+  replies. Without a template, the company's record says why it was not sent.
+- **A reply names only its message.** The item an "Ask" prompt is about is
+  kept against the prompt's message id, in the database, so the owner's
+  question reaches the task after a restart too.
+- **Set up from the console.** Under **Channels**: the number is checked with
+  Meta, three secrets are sealed with the owner's factor, and the card shows
+  the callback address and verify token to paste into Meta's app.
+
+Not built: a voice note on WhatsApp (it says so, and points to Telegram and
+the console), and retracting a message once its item closes, since the Cloud
+API cannot edit a message; a press on a closed item is answered "Already
+closed". Signal and email as owner channels are still open.
+
+## 2.32 Recovery codes: back in without the phone (F12.5)
+
+- **A lost phone locked the owner out of the console.** The only way back
+  was an operator at the server's shell making a new secret. An owner
+  travelling with a laptop has no shell.
+- **Ten codes, each good once (0086).** Made under **Settings**,
+  **Security** with the owner's factor, shown once, and kept only as their
+  SHA-256: eighty random bits are beyond guessing from a backup, as a
+  session token's are. A new set ends the old one and every session it
+  signed in.
+- **What a code can do.** Sign in, add a passkey, revoke a device, and make
+  new codes. Nothing else:
+  - `decide` refuses one before it is spent, so a tier 3 approval waits for
+    a device (F10.10);
+  - every other action that takes a factor refuses one;
+  - the codes do not count as the owner's last device, so the phone cannot
+    be revoked while codes are all that would be left.
+- **The console.** **Lost your phone? Use a recovery code** on the sign-in
+  page and in every confirm dialog. After a sign-in with a code, a banner
+  asks for a new device. Every attempt is recorded with the others, as kind
+  `recovery`.
+
+## 2.33 Rotating the master key
+
+- **A master key could not be changed.** Every key the owner typed into the
+  console is sealed under it, and a new `PALUGADA_MASTER_KEY` left all of
+  them unopenable. The only way forward was typing each one again.
+- **Now the old key is named beside the new one**
+  (`PALUGADA_MASTER_KEY_PREVIOUS`). What it sealed still opens, and the
+  deployment reseals each secret under the new key when it starts, in one
+  transaction with the rows locked, so two replicas reseal each once.
+- **What the operator sees.** The start says how many were resealed. A
+  secret sealed with a key named nowhere is left as it is and named, since
+  it can only be set again. A malformed old key stops the start with the
+  variable named.
+
+## 2.34 Containers a killed worker left running
+
+- **`--rm` and the adapter's `finally` both depend on the worker.** A worker
+  killed outright (SIGKILL, the out-of-memory killer) reaches neither, and
+  the runtime inside its container keeps its memory and CPU until it
+  chooses to stop.
+- **Each run's container now carries its worker** as the label
+  `palugada.worker`. At most once a minute, a worker lists the containers
+  with that label and removes those whose worker has not beaten lately. Its
+  own runs, and those of every worker still beating, are runs in flight
+  and are left alone. A daemon that is not there has nothing to sweep.
+- **Checked against a real daemon** (Docker 29.3.1), not only against the
+  fake client the suite uses. Two workers each started a container with
+  the adapter's own argv and were killed with SIGKILL, and both containers
+  kept running. A third process swept with only one of the two workers
+  alive, and removed only the dead worker's container.
+
+## 2.35 Documents found by meaning (F4.2)
+
+- **A search matched words only.** A role asking about the refund policy
+  found nothing in "Returns and money back", and pgvector sat installed and
+  unused.
+- **Meaning is a tool the owner chooses** under **Tools**: OpenAI, Gemini,
+  Mistral, Voyage, Jina, Ollama or any OpenAI-compatible server, all through
+  OpenAI's `/embeddings` request as each one documents it. None was called
+  with a live key here; a local server answering as they do was.
+- **How passages get their meaning (0087).**
+  - The worker gives each company's passages their vectors, one batch a
+    tick, in the background, never while the owner waits for an upload.
+  - Each vector is kept with the model that made it. A search compares
+    only vectors of the model in use, since two models' vectors are not
+    comparable, and a new model means every passage is embedded again.
+- **How a search ranks.** `memory.search` ranks by words and by meaning,
+  fused by reciprocal rank. A passage is found by meaning alone only above a
+  similarity floor, so none is found for merely being the least unlike.
+  A provider that is down leaves the search to words.
+- **Not carried by an export.** A vector is made again by the receiving
+  deployment's provider.
+- **Not yet by meaning.** Memories (their column is fixed at 1536
+  dimensions, from before a provider could be chosen) and the owner's
+  search across companies.
+
+## 2.36 Aggregators among the MCP servers offered by name
+
+- **One server that reaches many apps.** Composio, Pipedream, Arcade and
+  Smithery join Zapier among the servers the console offers by name.
+- **Checked before they were offered.** Each was checked against its own
+  reference and, without credentials, against its 401 and its OAuth
+  metadata. All four register PALUGADA as a client when the owner signs
+  in; Smithery also takes a key.
+- **Breadth, not trust.** Every tool an aggregator lists is still allowed
+  one at a time, with its tier, like any other server's.
+- **Addresses the owner completes.** Arcade's address ends in the owner's
+  gateway, and Smithery's in their namespace. The console neither asks the
+  server nor saves while the part in braces is still there. Seen in a
+  screenshot, the first version asked Arcade for the gateway `{gateway}`.
+
+## 2.37 What the threat model found, and what changed
+
+`docs/THREAT-MODEL.md` names, for each kind of attacker, the defences in the
+order they apply, the file and the test for each, and what is left. Reading
+the code against it found these, and each is now closed with a test.
+
+- **A role's tools were a list only the tool bridge read (F2.4).** An agent
+  CLI saw only its role's tools; a runtime that speaks the wire itself -- a
+  script, an HTTP service, a container -- could name any tool its division
+  holds, and the broker, which checks the division, let it through. The
+  engine now refuses any other name from a runtime in another process,
+  before the broker is asked, and records it as `policy.denied`.
+- **Taint flowed down and not up (F8.9).** A run could hand the reading of
+  an email to a sub-task, take its answer back and send at tier 2 with
+  nobody asked. A read anywhere below a task now counts for it. So does a
+  lesson learned from outside content: found through `memory.search`, or
+  told in the run's briefing, which the engine records as it builds the
+  run's request.
+- **A division's credential could name the deployment's own secrets** that
+  are not sealed in the console: the owner's second factor as setup writes
+  it, `env://PALUGADA_SECRET_OWNER_TOTP`, or an MCP server's token file. An
+  imported archive keeps references as they were. The broker now refuses
+  any reference the deployment's configuration names, and anything that
+  resolves to the same value under another name.
+- **`/api/health` told anyone why the database could not be reached**: a
+  host, a port, a role's name. It says `unreachable` now, and the log keeps
+  the driver's words.
+- **An edited migration was skipped where it had run.** `scripts/migrate.ts`
+  recorded names only. It keeps each migration's checksum now and refuses,
+  by name and before anything runs, one whose file changed; line endings do
+  not count. A database migrated before this takes its files as they are on
+  the next run.
+- **`npm start` held the schema owner's URL**, read from the `.env` setup
+  writes. It drops it before it boots; nothing in the platform used it.
+- **Left as stated in the threat model.** Telegram's update ids are kept in
+  memory; the TOTP lockout can be held by anyone who can reach the sign-in
+  page; a tainted run can still put company data in a tier 0 `web.fetch`;
+  the event log is not hash-chained.
+
+## 2.38 Closing a company, and erasing it (UU PDP)
+
+- **A company could be frozen and exported, never erased.** Every table
+  cascades from the company except its history, which refuses deletion,
+  so the one delete that would have erased a company failed on its first
+  event. The people in a company's records have the right to have them
+  erased (UU 27/2022), and an owner ending a business has to be able to.
+- **Closing** takes the owner's device and the company's name typed out,
+  both checked before a code is spent. The company is frozen at once and
+  given a day 7 to 90 days away; until then **Keep this company** takes it
+  back, and it stays frozen until the owner unfreezes it. A closing company
+  cannot be unfrozen.
+- **Erasing** is the worker's, when the day comes: every row of the company
+  in one transaction, the append-only history included, the keys its
+  divisions held in the deployment's sealed store, and a vendor sign-in
+  that was under way. One line is left in `company_erasures`: the name,
+  when it was closed and erased, and how many rows of what went.
+- **The database holds the rule, not the caller (0088).** The history's
+  triggers let a delete through only in a session erasing that very
+  company, after its line exists, and the line cannot be written until the
+  company was closed and its grace is over. At least seven days of grace is
+  a constraint on the table. A delete of a company that was never closed
+  still fails on its first event.
+- **What it cannot reach**, and the guide says so: backups taken before the
+  day, what model providers and vendors were sent, and the owner's own chat
+  history.
+
+## 2.39 Telegram updates taken in once, whichever process gets them
+
+- **The channel remembered update ids in its own memory.** An update
+  Telegram sent again after a restart, or to another replica behind the same
+  address, was handled again: not a decision, whose item was closed, but the
+  owner's words to the CEO, said and answered twice. The threat model named
+  it (2.37).
+- **Claimed in the database now (0089)**, keyed by the bot and the update
+  id, as WhatsApp's messages are (0085), and kept two weeks: Telegram gives
+  up on an update after a day.
+
+## 2.40 Traces for an OpenTelemetry collector
+
+- **Traces lived only in the console.** An operator with Jaeger, Tempo,
+  Honeycomb or Datadog could not see a company's runs beside the rest of
+  their services. Row 13 of the competitive analysis of 2026-09-30.
+- **Each finished run is sent as a span** over OTLP/HTTP in JSON, with its
+  steps and its model calls under it and one trace per task, to the
+  collector the standard `OTEL_EXPORTER_OTLP_*` variables name. Model calls
+  carry the GenAI semantic conventions: model, input and output tokens.
+- **Nothing that was said.** Prompts, responses and tool inputs and outputs
+  stay in the console; a collector is often a vendor's.
+- **Once, and nothing lost.** Where it had got to is kept in the database
+  (0090) under a lease, so replicas do not send a run twice and a restart
+  does not skip one; the cursor moves only when the collector has answered
+  2xx, from the row's own timestamp so a microsecond is not lost. Tested
+  against a collector's HTTP port that fails and comes back.
+- **Checked against a real collector** (OpenTelemetry Collector 0.114.0,
+  OTLP receiver on HTTP, debug exporter): a run's four spans arrived in one
+  trace, the task's id as its trace id, the steps and the model call under
+  the run, and the token counts read as integers.
+- **One format.** OTLP over HTTP in JSON, which every collector accepts on
+  its HTTP port. `grpc` or `http/protobuf` is refused at the start by name.
+
+## 2.41 Email as a place the owner is told things
+
+- **An owner who lives in their inbox was told nothing there.** Row 10 of
+  the competitive analysis of 2026-09-30, its owner half.
+- **Through a sending service**, chosen under **Channels**: Resend,
+  Postmark or SendGrid, each in its own request shape. One HTTPS request
+  with a key, where SMTP would be a conversation and a dependency. Each
+  service's address and key header were confirmed by the 401 it answers a
+  key that is not one; no real message was sent from here. Brevo is not
+  offered: its reference could not be read to check the body it takes.
+- **Told, never asked.** What needs the owner, the daily digest and
+  finished work, each with a link to decide or read it in the console. An
+  email is forwarded, previewed and scanned by filters, so it carries no
+  button that decides anything.
+- **Set like the other channels**: a test before saving, the key sealed,
+  saving with a factor, a half-set environment named at the start.
+- **Not yet**: a mailbox for agents to receive email.
+
+## 2.42 Any agent that speaks ACP, from one entry
+
+- **Each agent needed a dialect written for it.** Row 14 of the
+  competitive analysis of 2026-09-30: Paperclip and Multica run agents
+  through the Agent Client Protocol, which some forty agents speak.
+- **`"dialect": "acp"`** in a `PALUGADA_RUNTIME_SPECS` entry
+  (`src/runtime/acp.ts`): version 1, JSON-RPC on the agent's stdin and
+  stdout. `initialize`, then `session/new` with the tool bridge as an MCP
+  server over HTTP and the run's own token in its header, then the prompt.
+- **PALUGADA is a client with nothing to lend.** It advertises no file
+  system and no terminal and answers "method not found" if asked anyway.
+  A permission question is answered once, never "always": yes only when
+  the call is named exactly as a role tool on the bridge, and never for a
+  shell, edit, delete or move, however it is named -- an agent titles a
+  shell call with its command, and one ending in a bridge tool's name is
+  tested. The no is in the run's transcript.
+- **Stopped in the protocol first.** A withdrawn run sends
+  `session/cancel`; the process is ended five seconds later whatever it
+  did.
+- **Charged what it says.** `usage_update` carries the session's cost in
+  US dollars, which is what the run is charged; version 1 reports no
+  tokens.
+- **Halted with the reason**, as `runtime_unavailable`, when the agent
+  cannot reach an MCP server over HTTP, answers with another version, or
+  refuses the session as not signed in: another attempt would meet the
+  same agent.
+- **Unverified**: no real ACP agent ran here, since each needs a
+  provider's key. The tests run a stand-in written to the version 1
+  schema; what they prove is what PALUGADA says and answers.
+
+- **Found in review, and closed.**
+  - *A run that failed cost nothing.* The session's cost was reported only
+    after a successful turn, so an agent that spent and then errored,
+    crashed or was killed was free, and so was every retry. It is reported
+    as the run goes and before any failure.
+  - *A line nobody could read left the run waiting.* A failure while
+    reading was swallowed and the adapter waited on an agent that no
+    longer had a reader; one that survived the broken pipe held the run
+    until its deadline, or for ever. The agent is stopped and the run
+    fails with the reason. A line that is not a message, and an odd
+    option in a permission request, are skipped rather than fatal.
+  - *A run withdrawn before its session opened did its whole turn*, since
+    `session/cancel` is for a turn in progress. The prompt is not sent.
+  - *Not signed in* halts the task from any request, not only
+    `session/new`; an id echoed as a string is answered; a permission
+    request naming only its tool call is judged by what the agent said of
+    that call as it began it, and a kind of its own there still refuses it.
+  - *Dollars to cents overcharged.* $0.07 is 7.000000000000001 cents in
+    floating point, charged as eight; the engine now ignores what lies
+    below a millionth of a cent, for every runtime, the price table's
+    estimates and the guardian's looks.
+  - *A second review:* an agent started through a shim shares its pipes
+    with the shim, so the whole process group is stopped; a cost reported
+    before the prompt is charged; and the cost is reported every thirty
+    seconds rather than five, each report being a settlement.
+
+## 2.43 Calls at once, per capability (F5.7)
+
+- **Half of a P0 requirement was missing.** F5.7 asks for a concurrency
+  limit per division and per capability; the division's was kept by the
+  claim, and a capability had only its rate per hour, which says nothing
+  about overlap. A vendor that takes one request at a time, or production
+  deploys that must not run side by side -- the PRD's own example -- had
+  nothing to hold them.
+- **A grant says how many** (`max_in_flight`, 0091), set by the owner with
+  **Change a grant**, by a template or by a bundle. The standard company's
+  production deploys are held to one.
+- **Places are rows**, one per call the grant allows, so every worker
+  counts the same calls. A call takes a free place before anything is
+  recorded or charged and gives it back once the vendor has answered, or
+  as soon as anything on the way fails. Two workers after the last place
+  take it once (`FOR UPDATE SKIP LOCKED`). The application role writes
+  places and never deletes them (0047).
+- **A dead worker gives its place back** when its lease lapses, without
+  anyone noticing it died: a place counts only while its holder still holds
+  the task's lease. A call made outside any lease holds one fifteen minutes
+  at most.
+- **Waiting is not failing.** A call waits up to thirty seconds for a place;
+  past that the task is parked (`task.waiting_slot`) and picked up fifteen
+  seconds later, spending no attempt. Unlike a vendor's rate limit, it is
+  not counted against the five parks a task gets: the calls ahead end or
+  their leases lapse. A runtime in another process is parked the same way.
+- **Tested** with two brokers standing in for two replicas: never two
+  calls at once, a waiting call taking the place the moment it frees, a
+  lapsed lease freeing a place, and six parks in a row without a failure.
+- **Found in review, and closed.**
+  - *Two replicas could both take the last place.* A place taken and
+    committed between a second taker's snapshot and its row lock was
+    re-checked by PostgreSQL against the new row but the old join, read as
+    free, and taken again. Takers of one capability in one division now
+    take turns on an advisory lock; twelve takers at once, five rounds,
+    get exactly the two places there are. The race was reasoned from how
+    PostgreSQL re-checks, not reproduced.
+  - *A runtime in another process was not parked.* `capability.busy` and
+    `capability.rate_limited` reached it as tool errors, the run went on,
+    each try held it thirty seconds, and a write refused every time spent
+    an attempt. Both park the task now, as they do in-process.
+  - *A limit had no ceiling.* A place is a row made the first time it is
+    wanted, and 2,147,483,647 passed. A grant allows at most 100, in the
+    console, in a bundle (refused with the bundle's name) and in the
+    database (0093, not validated against grants already above it, which
+    the broker holds to 100).
+  - *A lowered limit waited for running calls to end.* Every live holder
+    counts now, whichever place it holds.
+  - *A place could be kept by a call that never ran* when spending the
+    owner's yes failed; it is given back first.
+  - *A call that waited for a place was judged, and counted a yes for a
+    while as used, on every try*, since both came before the place was
+    taken: each try was another look the company paid for. The place is
+    taken first now, and given back when the owner is asked or anything on
+    the way fails.
+
+## 2.44 Charters as files, in a git repository (F3.11)
+
+- **The requirement's direction was not the deployment's.** F3.11 has the
+  charters as `SOUL.md` and `PLATFORM.md` in an internal git repository,
+  edited as files. The code that reads and writes them was tested, and no
+  boot gave it a directory: in a stock deployment a charter lived only in
+  the database.
+- **Every deployment keeps a repository now**, `charters` beside its state
+  (`PALUGADA_CHARTERS_DIR` to put it elsewhere), made on the first boot.
+  It is brought level with the database at boot, as the owner saves or
+  puts back a charter in the console, and every minute for what a template
+  or a bundle published (`src/governance/charter-repository.ts`).
+- **Both ways.** A file edited in the repository is published as the
+  charter's next version and committed; a charter published anywhere else
+  is written to its file and committed as PALUGADA. Which one a difference
+  is, is decided by what PALUGADA last wrote to each file, kept beside them
+  and ignored by git: a file still holding what PALUGADA wrote is the
+  database's to change. Without that, a tree left from an earlier database
+  -- a restored backup, a reinstall -- would overwrite the charter the owner
+  has now; the test puts a charter back in the console after a file edit
+  and the file does not win.
+- **A directory for a company the deployment does not have** is left alone
+  and named at boot: a file is not authorisation to create a tenant.
+- **git is the history, not a condition.** Without it the files are kept
+  and read, and the boot says there is no history; a failed commit never
+  fails a charter. The Docker image installs it.
+- **Found in review, and closed.** The directory is written to by whoever
+  can push to it, and was trusted further than a charter the owner types:
+  - *A link was followed both ways.* A `SOUL.md` pointing at the master
+    key was published as the company's charter, into every run's context,
+    and the owner's next save overwrote the key through it. A link, a
+    directory or a device where a charter should be is refused now, and so
+    is a company directory that leads out of the repository.
+  - *A directory inside another repository committed that repository.*
+    `rev-parse` succeeded from the parent, and `add --all` took in its
+    `.env` and master key. The directory is made a repository of its own
+    unless it is already its repository's top level, and the repository's
+    own hooks run on a commit.
+  - *A merge in progress was published*, conflict markers and all, and the
+    commit concluded it. A merge, a rebase, a cherry-pick or a revert holds
+    the whole sync; a file holding conflict markers is refused.
+  - *One unreadable file froze the record of what was written*, and every
+    later save the owner made was then taken back from its file as if it
+    were an edit. Each file is brought level on its own, recorded as it is
+    done, and one that cannot be is reported and left.
+  - *A file skipped the console's limits and was credited to the owner.*
+    It is held to the same 20,000 characters, refused with a NUL in it, and
+    a version taken from it is the repository's in the history. A file left
+    for a company that did not exist yet is recorded as seen, not taken as
+    that company's charter when it does.
+  - *Git's reason was cut to its first line*, which is "Command failed";
+    what git said is reported now, and a failed or held repository is
+    named at boot.
+- **A second review found the repository's own files still open.**
+  - *Its record and its `.gitignore` followed links*: a pushed
+    `.palugada-written.json` linking to the master key was overwritten
+    with JSON, and a linked `.gitignore` was appended to. Both are refused
+    as links; the record is written beside itself and renamed over, and a
+    record that is not a record of files holds the sync.
+  - *A failed publish was recorded as written*, so the next sync wrote the
+    database's charter over the edit it never took. It is recorded once
+    published.
+  - *`add --all` committed refused files*, and concluded a conflicted
+    `stash pop`, which leaves no MERGE_HEAD. Only the charters brought
+    level are committed, and unmerged index entries, a bisect, a sequence
+    of cherry-picks and a detached HEAD hold the sync.
+  - *A file where `companies` should be stopped every charter*; it now
+    refuses the companies' and keeps the platform's.
+  - *The owner was not told when a save did not reach its file*, only the
+    boot was. A save now answers with why its file was not written, and
+    the console keeps that on screen: the charter is saved and runs are
+    told it, and the file is what the next edit there starts from.
+
+## 2.45 A guardian that may only tighten
+
+- **The gap F8.9 leaves.** After the work reads content from outside the
+  company, a tier 2 action asks the owner; a tier 0 or 1 action -- a fetch
+  whose address carries the customer list, a note that plants an
+  instruction in memory -- runs on whatever the content persuaded the run
+  to do. Row 7 of the competitive analysis of 2026-09-30: Claude's auto
+  mode, OpenAI's Dots and Google's semantic policies put a model in front
+  of such actions.
+- **Here it has one power and not the other** (`src/broker/guardian.ts`,
+  0092). A company that turns it on has each tier 0 or 1 call in such work,
+  that no policy already sends to the owner, judged by a model first. It
+  may send the call to the owner, with its reason on the card; nothing it
+  answers lets through a call a tier, a policy or F8.9 would have asked
+  about, and a standing approval never covers one it asked about.
+- **It is not shown the outside text**, only the owner's request and the
+  call as the approval card describes it, the arguments fenced as data. A
+  guardian talked into "no doubt" leaves the call where it was without one.
+- **It fails closed.** No model, a provider down, an answer that is not a
+  verdict: the owner is asked, and the card says why.
+- **Paid for and visible.** Each look is a model call charged to the work's
+  budget account, traced, and recorded as `guardian.judged`. A card the
+  owner approved is not judged again.
+- **Off by default**, because it costs a call per small action in such
+  work and asks the owner more. On with the session; off with the owner's
+  device, since that loosens.
+- **Unverified:** how often a real model doubts a harmless call. The tests
+  script the model's answers.
+- **Found in review, and closed.** The guardian could not be made to let a
+  call through, but work could get past it and past F8.9 itself:
+  - *A rerun dropped the taint.* "Do it again" makes a new root task from
+    the old one's input -- a webhook's event, a brief written after an
+    email -- and the new task's chain said nothing of how the old one
+    began, so a tier 2 send the owner had refused went unasked. A rerun
+    now carries what the task it reruns carried.
+  - *A sub-task briefed after a sibling's read was clean.* A parent carries
+    what its sub-tasks read, since it comes back to it; a child's chain sees
+    only reads above it. A child is now made carrying its parent's taint.
+  - *A standing yes covered tainted tier 0 and 1 calls.* `outside` was
+    looked up for tier 2 only, so a policy's yes for a while, given for
+    clean work, reached a call the guardian would have judged. It is looked
+    up at every tier now.
+  - *An agent's brief was shown as the owner's request*, unfenced, and the
+    call's description, built from the arguments, sat outside the fence.
+    The guardian is shown the nearest request the owner, a schedule or a
+    trigger made, and a delegated, handed-off or rerun brief is fenced as
+    an agent's words; so is the description.
+  - *A look the budget refused was dropped, and the call went ahead.* It
+    stops the call now, as `budget.exceeded`, and is traced at its cost. A
+    provider that does not answer in thirty seconds is a doubt, and a call
+    withdrawn while it was judged is not made.
+- **A second review, and what it closed.**
+  - *A task the owner handed a ticket a run filed was clean*, though a
+    ticket's words may be a customer's (`ticket.list` reads as outside
+    content). It carries them now, and the guardian fences its goal.
+  - *The rerun's taint was written after the task was made*, in a second
+    transaction a worker could claim the task before. It is written with
+    the task.
+  - *Out of process, a budget refusal was a tool error*: the run went on,
+    and each try could be another paid look by the guardian. It halts the
+    task, as it does in-process.
+  - *A rerun of the owner's own work was shown as an agent's*; the rerun
+    is followed to the task it reruns. The timed-out model request is
+    withdrawn, not left running.
+
+## 2.46 A whole run in a real container
+
+- **Section 3 said it had never happened.** The `docker` backend's flags
+  were tested as an argv, and the sweep once against a daemon; no run had
+  gone through a real container, so that the flags do what they say was a
+  belief.
+- **`npm run container:check`** (scripts/container-check.ts) builds a small
+  image (deploy/container-check) whose runtime tries what a compromised one
+  would, runs one run through `ContainerAdapter` with the same command line
+  every run gets, and checks the runtime's own report. On Docker 29.3.1 here:
+  it ran as 65534:65534; writing its image failed with EROFS and its scratch
+  space took a write; a name did not resolve (EAI_AGAIN); the internet and
+  the host's database port were unreachable (ENETUNREACH); it had no
+  interface but loopback, no capability, no-new-privileges set, and 512 MiB;
+  it saw none of the orchestrator's environment; its one tool call reached
+  the engine over stdio; and no container was left.
+- **The check can fail.** The same image run without the adapter's flags
+  reported root, a writable image, a resolver, the internet, an interface
+  besides loopback, capabilities and no memory limit.
+- **CI's docker job runs it**, and an operator runs it on the machine that
+  will run the containers: podman, rootless Docker and a remote DOCKER_HOST
+  each decide some of these for themselves.
+
+## 2.47 The image sets its database up, and PID 1 holds no password
+
+Read against what Coolify and Dokploy give a container they run, on
+2026-09-30.
+
+- **2.27 was true of one variable and not of the container.** It found no
+  process with `PALUGADA_OWNER_URL`. Compose's `app` service also reads
+  `.env` whole (`env_file`), and `npm run setup` writes the superuser's and
+  every role's database password there (`PALUGADA_DB_*_PASSWORD`): tini and
+  the platform were started with all four. Run alone with the owner's URL,
+  tini -- PID 1 -- was started with it, and `env -u` took it from the
+  platform's process only. Agent CLIs run as the platform's user, and a
+  process can read the environment another process of its user was started
+  with in `/proc/<pid>/environ`, so each of these was theirs to read.
+- **The entrypoint (`deploy/docker/entrypoint.sh`)** now provisions, then
+  migrates, then unsets both URLs, `POSTGRES_PASSWORD`, every
+  `PALUGADA_DB_*_PASSWORD` and every `SERVICE_*` variable (Coolify gives
+  every container of a resource all of them), and only then execs tini. The
+  test runs it with all of these set and a program in tini's place: the
+  program saw none of them, and saw the application's and control plane's
+  URLs and a model key. On the real image, with Compose from a clean volume:
+  `migrate` applied 0001 to 0093, `app` came up healthy, `/api/health`
+  answered 200, PID 1 was `/usr/bin/tini -- node src/main.ts`, and no
+  process in the container held a password variable.
+- **A database without the repository.** Compose's `db` service mounts
+  `setup-database.sh` and `initdb.sh` from the checkout; a platform that runs
+  images has no checkout to mount, and runs its setup step on every deploy.
+  `scripts/provision-database.ts` takes a superuser's URL and the three
+  roles' URLs, makes what is missing, corrects a role whose attributes are
+  wrong, sets each password to the one in its URL, and drops nothing; the
+  image runs it when given `PALUGADA_SUPERUSER_URL`. The test provisions a
+  new database, finds only `palugada_admin` bypassing row level security and
+  no superuser, has the owner write a row, runs again and finds nothing
+  changed and the row kept, loosens `palugada_app` by hand and finds it put
+  back, and refuses a URL for the wrong role, one without a password, and a
+  superuser URL that is not a superuser's.
+- **Not closed.** The platform still holds what it needs -- the application
+  and control-plane URLs, and any key given as an `env://` reference -- in
+  its own environment, readable by an agent CLI that escapes its flags
+  (THREAT-MODEL 2.3). Running agent CLIs as a user of their own, or in the
+  container backend, is what closes it.
+
+## 2.48 The first owner, without a secret in the environment (F12.5)
+
+- **A deployment on a platform could not be entered.** Signing in takes the
+  owner's authenticator, and the first one came only from
+  `PALUGADA_OWNER_TOTP_REF`: a base32 secret `npm run setup` or
+  `npm run totp:new` made in a terminal. Coolify and Dokploy offer no
+  terminal before the first deploy and generate passwords, not base32, and
+  the console had no route that adds a TOTP authenticator at all. A
+  deployment started without the variable said "no authenticator is
+  enrolled" and could be entered by nobody.
+- **A claim link (`src/owner/claim.ts`, 0094).** A start with no live
+  authenticator of the owner's makes a claim and prints
+  `no owner yet: open <address>/#/claim/<code>`. The code is 160 random bits
+  kept as their SHA-256, good for a day, in the fragment so neither the
+  server nor a proxy logs it. Opening it shows a secret as a QR code and as a
+  key; the code the app then shows enrols it, sealed under the master key, as
+  the one authenticator, spends every claim, and signs the owner in. The
+  secret is derived from the master key and the claim rather than kept, so
+  the laptop and then the phone see the same one, and the code left in the
+  log does not give it.
+- **Nothing is claimed once there is an owner.** `enrolTotp` takes a lock
+  and refuses in the transaction that would enrol, so two claims confirmed
+  at once make one owner, and a claim opened before the operator enrolled a
+  phone from the environment is refused with 409. A wrong code is counted by
+  the sign-in throttle like a wrong sign-in code.
+- **Tested.** `owner-claim.test.ts`: a guess refused; the same secret twice;
+  nothing kept before the code is confirmed; a code from another secret
+  refused and nothing enrolled; the right one signs in and signs in again
+  later; the link spent afterwards and no new one made; a link a day old
+  refused; two links from two starts; neither honoured once a phone was
+  enrolled from the environment. `process.test.ts`: `npm start` with no
+  owner prints the link, the link makes the owner, and the next start prints
+  none.
+- **Seen in a browser.** The sign-in page says the deployment has no owner
+  yet; the claim page's QR code decoded, with jsQR, to the `otpauth://` link
+  holding the key shown beside it; typing the code from that key landed on
+  **Home** signed in; the spent link says so. Opening the link in a tab
+  already on the console changed only the fragment and showed nothing new --
+  the page now follows the address. Both pages overflowed a 390-pixel phone:
+  six large code boxes are wider than the card, on the sign-in page too
+  since it was written; they are the medium size on a narrow screen now.
+
+## 2.49 Coolify and Dokploy
+
+Read from the source of both on 2026-09-30 (Coolify 4.3.23 and main,
+Dokploy 0.30.8 and canary) for how each runs a compose file, and each
+verified here by running Compose the way the platform does. Installing
+either platform in this environment was not allowed, so neither ran it.
+
+- **Coolify (`deploy/coolify/docker-compose.yml`).** A Git application with
+  the Docker Compose build pack. Coolify runs Compose with the repository as
+  the project directory, keeps `${VAR:?message}`'s message as the variable's
+  value, gives every service of the resource every variable as `.env`, and
+  generates `SERVICE_PASSWORD_*` (32 letters and digits) and
+  `SERVICE_HEX_64_*` the first time it reads the file. The file uses those
+  for the superuser, the three roles and the master key, takes the public
+  address from `SERVICE_URL_APP` (the domain given in the UI, without the
+  port `SERVICE_URL_APP_8787` routes to), publishes no port and mounts
+  nothing from the repository, which Coolify does not keep after the build.
+- **Dokploy (`deploy/dokploy/docker-compose.yml`).** A Compose service in
+  Docker Compose mode: a stack cannot build and ignores the database's
+  health. Dokploy writes the Environment tab to `.env` beside the file and
+  runs Compose from there unless a File Mount is set, so the build context
+  is two directories up; a missing password stops the deploy with the
+  message after `:?`. It generates nothing for a repository's compose file,
+  so the guide says how to make the four passwords.
+- **Simulated.** Each file run as its platform runs it -- Coolify's
+  project directory and `.env` added to every service; Dokploy's working
+  directory, `--env-file` and `env -i` -- with the image built from this
+  tree and a fresh volume: the database was provisioned and migrated
+  (0001 to 0093), the app came up healthy, `/api/health` answered 200 for
+  the public name and the console 421 for another, and PID 1
+  (`/usr/bin/tini -- node src/main.ts`) and the platform held no
+  `SERVICE_*`, `POSTGRES_PASSWORD` or `PALUGADA_DB_*` variable. A restart
+  said the database was already as PALUGADA needs it and the schema already
+  up to date. A Dokploy file with the passwords missing refused before
+  anything ran, naming the variable.
+- **Backups.** Dokploy backs up a PostgreSQL service inside a compose stack
+  on a schedule; Coolify's scheduled backups are for databases it runs as
+  such, not one inside a compose application, which its parser does not
+  treat as a database. The guide says so and gives a `pg_dump` for Coolify.
+- **Not done.** No published image, so neither platform's one-click
+  template catalogue can list PALUGADA: both take an image, not a build.
+  Coolify's official templates also need a thousand GitHub stars.
+
+## 2.50 Found by reading Buzz: a lease with a deadline, a worker that never ticked, migrations that wait
+
+Read against the source of Block's Buzz, on 2026-09-30.
+
+- **A worker cut off from its database kept its run.** The lease keeper
+  (`src/engine/lease-keeper.ts`) gave a run up only when a renewal said the
+  lease was someone else's. Any other failure -- a connection dropped, a
+  pool with nothing to lend -- was left to the next tick without limit, and
+  a renewal that never answered left every later tick returning at once,
+  because one was still in flight. The worker went on running the task
+  while its lease lapsed in the database, and the worker that took it next
+  made the same side effects beside it. The keeper now remembers when the
+  last renewal that succeeded began -- the database sets the lease to run
+  out one lease after that -- and, on every tick and before any step,
+  gives the run up once a whole lease has passed since, whether or not a
+  renewal is in flight. The run is aborted as for a lost lease, and
+  `confirm()` refuses with `task.lease_lost`: no renewal succeeded for a
+  whole lease, so another worker may hold the task. A run that showed no
+  progress is still let go as quiet and handed back while this worker
+  holds it; the deadline is for renewals the keeper wanted and did not
+  get. `lease-keeper.test.ts` holds it without a database, with a lease of
+  240 ms: renewals that always fail with a connection error, and one that
+  never answers, each give the run up within a tick of the lease running
+  out, and `confirm()` then refuses without renewing; one failure followed
+  by successes keeps the run; a lost lease is still given up on the first
+  renewal; and a quiet run is let go as quiet, not as lost.
+- **A worker that never finished a tick was healthy.** `/api/health`
+  measured a stalled loop from `worker.lastTickAt`, which is set only when
+  a tick finishes, and a worker that had never finished one had nothing to
+  measure from: a first tick that hung, or failed every time while the
+  database answered `SELECT 1`, was reported able to work for as long as
+  the process lived. The worker now records when it started
+  (`Worker.startedAt`), and `workerHealth` (`src/main.ts`) measures from
+  the later of that and the last finished tick. Half an hour after the
+  start with no tick finished, the page answers 503 with `no tick has
+  finished since the worker started at …`. `operability.test.ts` starts a
+  worker whose every tick throws, and finds it able to work a minute after
+  its start and unable to work thirty-one minutes after, with that
+  problem; a worker that has ticked is still measured from its last tick.
+- **A migration waited on a lock without limit.** A statement that alters
+  a table waits for every transaction that is reading it, and every later
+  query on that table waits behind the statement: behind one long
+  transaction, `scripts/migrate.ts` stopped the running platform for as
+  long as that transaction lasted. Once it holds the advisory lock that
+  lets one replica migrate while the others wait -- a wait still as long
+  as it needs to be -- it sets `lock_timeout` to ten seconds. A migration
+  that cannot get its lock in that time is rolled back, and fails naming
+  itself: it waited for a lock another session holds, and is to be run
+  again once that session is done. The image's entrypoint then exits, and
+  its restart runs the migrations again. `process.test.ts` holds a lock on
+  `companies` from another session and migrates a copy of the migrations
+  with one more that alters it: it fails in about ten seconds with that
+  message, and the migration is neither recorded nor applied.
+
+## 2.51 Found by reading Buzz: erasure one company at a time, and the files too
+
+Found by reading the source of Block's Buzz against 2.38, on 2026-09-30.
+
+- **One company that could not be erased stopped every one after it.**
+  `eraseDueCompanies` went through the due companies oldest first with no
+  catch of its own, and the worker's stage caught what it threw. A trigger
+  refusing, or a statement timing out on a large company, was every later
+  company's failure too, on every tick, and all that showed was a count of
+  stage failures. Each company is now erased on its own. One that fails
+  keeps the failure on its row (0096: how many tries, what the last one
+  said, when the next is), is named with its reason on the tick and in the
+  log, and waits a minute, then two, doubling up to six hours, rather than
+  failing every few seconds; the companies after it are erased in the same
+  pass. **Keep this company** clears the failure with the closing, and a
+  table constraint holds that a company that is not closing carries none.
+  **This deployment**, **Erased companies** lists the companies not erased
+  yet above the ones that were. The test puts a trigger on `companies` that
+  refuses one company's delete: the worker's tick erases the next company,
+  names the first with the trigger's words, the console lists it with one
+  try and a minute to wait, the next pass leaves it alone, and the try
+  after its time fails again and waits two minutes.
+- **Erasure deleted rows and left the files.** A company's drafts,
+  generated pictures and recordings live in its directory under
+  `PALUGADA_FILES_ROOT`, named by its id, and its charter in the charter
+  repository's `companies/<slug>/`; both outlived it. After its rows, never
+  before, the worker now removes the directory and the folder, and commits
+  the folder's removal in the charter repository as PALUGADA, as it commits
+  every charter. A link is removed as a link and never followed, and a
+  charter folder that leads out of the repository is refused. What cannot
+  be removed is named on the tick with its path and why, and the rows stay
+  erased: they are most of what the right to erasure is about. On its first
+  tick a worker removes what earlier erasures left -- one from before this
+  change, one whose process stopped between the rows and the files, a
+  removal that failed -- skipping a slug a live company has taken since.
+  The deployment hands the worker the files root and the charter repository
+  it was started with (`src/main.ts`). Tested with two companies, each with
+  a committed charter and a draft on disk: the erased one's are gone, the
+  removal is committed with nothing left uncommitted, and the other's are
+  as they were; a charter folder replaced by a link is reported and not
+  followed while the rows stay erased; and a company erased by its rows
+  alone has its files and charter removed on a worker's first tick.
+- **A table added without a cascade would have been erased only by
+  accident**, or not at all. An erasure is one delete of the company, and
+  the cascade from `companies` reaches everything else. A test now reads
+  the catalogue: every table with a `company_id` has a foreign key to
+  `companies` that cascades, or is named with how it goes --
+  `company_erasures`, the line that outlives the company on purpose, and
+  `credential_authorizations`, which the erasure deletes by the company.
+  It found no table missed today, and fails on one made without a cascade
+  (checked by adding one).
+- **Closing and keeping wrote their event in a second transaction.** A
+  process that stopped between the two closed or kept a company with
+  nothing in its history to say so. Each is now one transaction on the
+  control plane, the way a rollback records itself. Tested with a trigger
+  that refuses the event: the company is then neither closing nor frozen,
+  and a keeping refused the same way leaves it closing.
+- **Still not erased**, and the guide says so: the charter repository's
+  history, whose commits before the removal hold every charter the company
+  had (rewriting a repository an operator may have cloned is theirs to do,
+  and the guide says how); backups taken before the day, until they age
+  out; files under a root the deployment is no longer started with; what
+  model providers and vendors were sent; and the owner's own chat history.
+
+## 2.52 Found by reading Paperclip: agent CLIs a killed worker left running
+
+- **The cleanup ran in the process that was killed.** A run ends its agent
+  CLI's process group, and a worker exiting kills every group it still
+  holds (`src/runtime/process-tree.ts`). A worker killed with SIGKILL or by
+  the out-of-memory killer does neither: the exit hook never runs. Under the
+  systemd unit the service's control group is killed with it, and in the
+  image tini's exit takes the container's processes down; under `npm start`
+  on a bare machine nothing did, and the CLI and everything it had started
+  kept running on the owner's key with nothing counting it. `agent_runs`
+  held no pid, so no later worker could have found them. Paperclip keeps
+  each run's pid, process group and start time, and kills a lost run's
+  group after a restart.
+- **Each group is written down as it starts** (0095, `run_processes`): the
+  pid, the group, the leader's start time from `/proc/<pid>/stat` (field 22,
+  clock ticks since boot), the worker's id, the worker's own pid and start
+  time, and the machine -- the kernel's boot id and the pid namespace, since
+  a pid means nothing outside the two. The CLI, Claude Code and script
+  adapters write through the run's services (`processes`), and the row is
+  closed when the adapter finds the group empty. The application role may
+  add a row and change only `ended_at`.
+- **The next worker on the machine ends them**
+  (`src/engine/process-ledger.ts`). In the worker's leftovers stage, beside
+  the container sweep (2.34) -- on its first tick and once a minute after --
+  a worker reads the open rows written on its own machine and ends a group
+  whose worker's process is gone (its pid no longer has the start time
+  beside it), whose worker has not beaten for a minute, or whose run is no
+  longer `running`: SIGTERM, SIGKILL after three seconds, then a check that
+  the group is empty, as the adapters end their own. The process is asked
+  as well as the heartbeat because a worker restarted at once finds its
+  predecessor's last beat still fresh, and a `PALUGADA_WORKER_ID` fixed by
+  the operator is the same id after a restart. Each group ended is recorded
+  on its run's task (`agent_run.leftover_ended`, with the reason and whether
+  SIGKILL was needed), and a worker kept to one company sweeps only that
+  company's.
+- **A pid is checked before it is signalled.** A group is signalled only
+  while its leader's pid still has the start time written down; one that
+  now has another belongs to somebody else, and its row is closed without a
+  signal. On the machine these tests ran on pids stop at 32768, so a reused
+  pid is an ordinary day rather than a curiosity.
+- **Tested** (test/acceptance/orphan-processes.test.ts), with real
+  processes throughout. A stand-in CLI with a child of its own, written down
+  the way a runtime writes it and belonging to a worker that never beat, is
+  ended with its child and the task says so; a row whose start time is one
+  tick off the process now holding that pid leaves it running; a live run's
+  group is left alone until the run is taken back as an orphan, then ended;
+  a row from another machine is neither signalled nor closed; a CLI run
+  through the engine writes its row and closes it. And with nothing played:
+  a separate worker process runs a task on the CLI adapter and is killed
+  with SIGKILL mid-run; the CLI and its child are still running afterwards,
+  and a new worker's first tick ends both, although the dead worker's
+  heartbeat was a moment old -- its process was gone, and `/proc` said so.
+- **What is left.**
+  - Another machine's leftovers wait for a worker on that machine, and a
+    machine that never runs a worker again keeps them.
+  - A group whose leader has exited is not signalled, though its other
+    members may be the run's: the kernel keeps a pid out of use while a
+    live group bears it, but once that group has emptied, the number can
+    name a new group whose own leader has exited, and nothing left in
+    `/proc` tells the two apart. The CLI, which is what spends, is the
+    leader.
+  - A worker killed between starting a CLI and committing its row -- a few
+    milliseconds -- leaves a group nobody wrote down.
+  - Linux only. Where there is no `/proc`, nothing is written down and
+    nothing is swept, and the exit hook is all there is.
+  - A process that leaves its group with `setsid()` is still out of reach,
+    as `process-tree.ts` says.
+  - While the platform stop is pressed a tick does nothing but tell the
+    owner (F5.8), so neither this sweep nor the container sweep runs until
+    it is lifted.
+
+## 2.53 Found by reading Auto-Company: a review that sees the week, proposals that are real
+
+Read against Auto-Company's source on 2026-09-30, for what it does that
+PALUGADA said it did. Five findings; each claim was checked in the code
+before anything changed, and each change began as a failing test.
+
+- **Past events were offered and never kept (F4.6, F4.8).** `memory.search`
+  offered `episodic` memory as "past events", and nothing wrote a row of
+  that kind -- only 0004's CHECK named it -- so every run that asked what
+  the company had already done was told nothing. And `recall`'s project
+  branch, F4.6's "episodic memory is shared per project", was reached by one
+  test and no caller, because the capability never passed a project. Not
+  offering it would have been fewer lines, and would have left F4.6's half
+  about episodic memory a rule about rows that never exist; every task
+  already has a project and finishes in one transaction, so the row costs
+  one insert. A completed task now leaves one line for its project -- what
+  it was for and what it reported (`keepEpisode`, `src/engine/tasks.ts`) --
+  marked as outside content when the work read any, and not reinforced like
+  a lesson: two runs that reported the same thing are two events.
+  `memory.search` with `memoryType: 'episodic'` searches the project of the
+  work asking, read from its task. `memory-learning.test.ts`: the line, its
+  scope and task, the outside mark; a search that finds it, one from
+  outside handed back as data, and a run in another project finding
+  nothing. The owner's search across companies leaves episodes out of what
+  the companies know: the finished task is already a hit there, with its
+  goal and result, and `search.test.ts` found it listed twice.
+- **Winding down refused what it was for.** `wind-down-starts-nothing`
+  denied every tier 2 action outside finance, while the stage's purpose is
+  "finish what is owed to customers": Support could not answer a customer
+  owed a refund, and a deny is the one effect the owner cannot answer from
+  the inbox. Exempting Support by name would have been a guess -- a tool
+  name cannot tell a reply from new outreach, both are `email.send`, and a
+  division's slug differs between companies. So the rule is two
+  (`company-os` 1.3.0). `wind-down-starts-nothing` denies what is new by
+  what it is: `ads.*` and `*.purchase`, whoever asks, finance now included.
+  `wind-down-asks-first` makes every other action at tier 2 or above outside
+  finance `require_approval`: each reaches the owner, who judges what is
+  still owed, and may allow a role's replies for a while (0083) where the
+  work read nothing from outside. `stages.test.ts`: winding down, a reply
+  becomes a card naming the rule and goes once approved; an ad campaign and
+  a domain purchase are refused and put nothing in the inbox; in grow
+  neither rule reads anything.
+- **The weekly review could not see what it must report.** The
+  weekly-business-review skill asks for every goal metric against its
+  target, the change since last week, and what shipped; the cadence gave its
+  task one sentence. A run sees the measures of its own goal chain, and the
+  review's chain is the mission, so every number set on an objective or a
+  key result was out of its sight, and so was the week's work;
+  `buildWeeklyRetro` had the week, and only the owner's API called it. A
+  cadence may now say `facts: 'week'` (`BundleCadence`, refused at publish
+  for anything else), installed into the schedule's input, and the
+  scheduler hands a schedule that asks the week as it fires
+  (`src/reporting/week.ts`): the retro; every active goal by the slug
+  `goal.propose` takes, with its unretired measures -- the latest value,
+  whether verified, the value a week before and the change; the work the
+  company was given and finished that week, one line each (what it was
+  for, what it reported); the spend this week, this month and the monthly
+  limit; the stage and any stage move waiting for the owner. Read from rows,
+  never written by a model. Bounded: at most 25 goals, 40 measures and 20
+  tasks, each list saying how many it left out, and every line cut to one.
+  A result from work that read outside content is wrapped as data, and the
+  review carries that provenance from its first step (F8.9). The weekly
+  review's cadence asks for it and its skill starts from it.
+  `bundles.test.ts`: a company from the bundle, a measure with values a
+  week apart and a retired one, work finished this week -- once after
+  reading an email -- and last month, spend, and an open stage proposal; the
+  cadence fired, its task's input holds each of them and not the retired
+  measure or the old work, and the review carries outside content; with 22
+  pieces of finished work the list is 20 and says 2 were left out, in under
+  16,000 characters.
+- **Goal proposals had no caller, and approving one changed nothing
+  (F3.10).** `proposeGoalChange` was documented as the agent's path and no
+  agent could take it; the strategist's done criterion said a goal change
+  is "written as a proposal", with nothing to write one with. Two defects
+  under it: the item said "Nothing changes unless you apply it", so an
+  owner who approved then made the same edit again by hand; and the item
+  was tied to the proposing task, so a no cancelled that task if it was
+  still running. `goal.propose` is a tier 0 platform capability now,
+  catalogued, proposing new words, a close (met or abandoned) or a reopen,
+  one open proposal per goal. The owner's yes, at tier 3 with their device
+  as their own edit of the ladder takes, applies it in the same transaction
+  as the answer, and only to the goal as it stood when proposed: one the
+  owner has changed since is refused. The item is not tied to the task, as
+  a stage proposal is not. The strategist holds it in place of
+  `metrics.read`: a role holds at most twelve tools (F2.6), `metrics.read`
+  answers nothing until a vendor is bound, and the review is now handed
+  every measure. `goals.test.ts`.
+- **Premortems nobody watches, and two frameworks missing.** The premortem
+  now names, for each of its three risks, the early warning, the role that
+  watches it, the number or check it reads and the value that means act
+  now, and ends with how sure the company is and what would make it surer.
+  `positioning` (as narrow an audience as the evidence allows, the change
+  in the customer's words, why one would tell another -- and fixing the
+  product before paying for reach -- and reach owned before reach rented)
+  and `market-research` (how customers cope today before competitors; each
+  competitor's pricing page, changelog and worst reviews; every claim
+  confirmed, likely or speculative; what could not be found out and how)
+  are new, each with an eval. `bundles.test.ts` holds every eval's phrases
+  to the skill's text and every skill under sixty lines.
+- **Upgrading.** A company on `company-os` 1.2.0 keeps its rules until the
+  owner installs 1.3.0, which updates the role, the rules, the cadence and
+  the skills in place (the skills as candidates, as always). Installing
+  takes no grant away, so 1.2.0's grant of `metrics.read` stays until the
+  owner revokes it.
+
+## 2.54 Coolify's and Dokploy's MCP servers, and a pinned supply chain
+
+Read on 2026-09-30: Coolify's source and the `@dokploy/mcp` package for the
+first half. The second follows Paperclip's and Buzz's workflows, which pin
+each action to a commit with its tag in a comment; Paperclip also has
+Dependabot.
+
+- **Coolify by name.** Coolify serves MCP itself. In its source (main at
+  284aded), `routes/ai.php` mounts its server at `/mcp` behind
+  `auth:sanctum`, a bearer token. The preset's address is
+  `https://{coolify-host}/mcp`, which the owner completes as they complete
+  Arcade's gateway (2.36), and its key hint names the token's permissions:
+  `read`, and `deploy` only if roles should deploy. Also read there: an
+  administrator turns the server on under Settings, Advanced, where it is
+  off on a new instance and the address answers 404 until then; a team can
+  turn it off for its tokens (403); a token without `deploy` is refused
+  `deploy`, `cancel_deployment` and `control`. It lists 45 tools, and
+  nothing among them creates or deletes. None of the 45 carries an
+  annotation (laravel/mcp sends `{}` for a tool with none), so none says it
+  only reads, and here none can be tier 0: a reading tool is allowed at
+  tier 1 with a read-back. Coolify Cloud, asked with a made-up token,
+  answered 401 with `WWW-Authenticate: Bearer realm="mcp"`, and PALUGADA's
+  own client reported that 401: the path and the scheme, on a real
+  instance.
+- **Dokploy by name, run by the owner.** Its server is the npm package
+  `@dokploy/mcp` (Apache-2.0). Version 0.30.7 was read, then run here with
+  `DOKPLOY_URL=http://127.0.0.1:9` and a made-up key. Without `--http` it
+  speaks stdio, which PALUGADA does not run (F13.4); with it, it served
+  streamable HTTP at `/mcp` on port 3000, which is fixed in its code. It
+  passes no host to `listen`, and answered on the machine's other
+  addresses too; it asked for no token, and accepted an `initialize` sent
+  with a foreign Host and Origin. So the preset is one the owner runs, and
+  presets gained `runHint`, which the console shows in orange under the
+  command: it lets in whoever reaches it, acting with the Dokploy key, and
+  must run where only this deployment can reach it. The guide gives a
+  Compose service with no published port, whose command was run here in
+  `node:22-bookworm-slim` and answered `initialize`.
+- **Its tools, through PALUGADA's own client.** `offeredTools`, which the
+  console's "Look at its tools" calls, listed 604 tools: 226 that only read,
+  52 destructive. `DOKPLOY_TOOL_PRESET=deploy` narrowed them to 119 (47
+  and 7), and `minimal` to 43 (11 and 2); the package's README says 508. The
+  whole list was 319 KB, well under the client's 2 MiB. The preset's
+  command sets `deploy` and names its version, which a new check now asks
+  of every preset the owner runs.
+- **Deploys wait for the owner.** The guide (coolify-dokploy.md) says to
+  allow deploy, restart and stop at tier 3, or at tier 2 with a policy that
+  asks: each changes something people are using.
+- **Not verified.** No Coolify or Dokploy account was used. No tool of
+  either was called with a real token, and nothing was deployed through
+  either. That Coolify's tools behave as its source reads, and that a
+  Dokploy key made by a restricted user is held to that user's
+  permissions, are unchecked.
+- **CI's actions by commit.** `actions/checkout` and `actions/setup-node`
+  were used as `@v4`, a tag whoever controls the action can move to other
+  code, in a job that holds the repository's token. Each is now pinned to
+  the commit of the latest v4 release, v4.4.0 for both, which is where
+  `v4` pointed on 2026-09-30, so CI runs the code it ran before. Each SHA
+  came from `git ls-remote`; neither tag is annotated, so the SHA is the
+  commit.
+- **The image's base by digest.** Both stages of the Dockerfile start from
+  `node:22-bookworm-slim@sha256:43ac6c60…`, the multi-platform index that
+  `docker buildx imagetools`, Docker Hub's registry and mirror.gcr.io each
+  gave, and whose body hashes to that digest; it holds Node 22.23.3. The
+  image built from it here, through this machine's proxy, and its Node,
+  tini and console build were there.
+- **Dependabot** (`.github/dependabot.yml`), weekly, for npm at the root
+  and in `console`, GitHub Actions and Docker: minor and patch updates as
+  one pull request per ecosystem, at most three open, and no new Node major
+  for the image, which is a decision rather than an update.
+- **An audit job in CI.** `npm audit --omit=dev --audit-level=high`, at the
+  root and in `console`, in a job of its own, so that an advisory published
+  overnight does not also hide what the tests say. Both passed here. The
+  root has one moderate advisory, `fast-uri` 3.0.0 to 3.1.7
+  (GHSA-hrr3-gc8f-f4qj), below the level that fails, left for Dependabot.
+- **Still by tag.** `pgvector/pgvector:pg16` in the compose files and
+  `deploy/container-check`'s `node:22-alpine`; THREAT-MODEL 2.8 says so.
+
+## 2.55 A trigger for a sender that can set nothing but a URL
+
+- **Coolify could not start work in PALUGADA.** Its outgoing webhook is an
+  address and nothing else: no header, no signature. Every trigger scheme
+  wanted either an `Authorization` header or a sender's signature, so a
+  failed deployment or a missed backup could not become a task.
+- **`url` (0097).** A trigger like `bearer` -- the platform makes the token
+  and keeps its hash -- whose delivery carries it as `?token=`. The console
+  shows the one address to paste, and says that anyone who sees it can start
+  the work. A `bearer` trigger refuses a token in the address even when it is
+  right, because a bearer token found there has been in a URL.
+- **Tested** (`triggers.test.ts`): no token, a wrong one and a bearer header
+  are refused by a `url` door; the right one starts a task, and the same
+  event again is the same delivery; a bearer door refuses its own token in
+  the address; rotating closes the old address; and the console's route
+  takes the token from the query.
+
+## 2.56 Evidence the platform can check (from Auto-Company)
+
+Read from Auto-Company's source on 2026-09-30: its check runner is the
+program's, so a test's exit status, counts and hashes are recorded by the
+program and a report cannot invent them.
+
+- **Here, the evidence was the run's word.** `checkDone` read only the
+  output: a criterion was met when the run said `"met": true` and wrote
+  anything at all as evidence. Its own comment said so ("what this checks is
+  the run's own account, not the world"), and nothing in it opened the
+  journal. The journal already held what Auto-Company's runner records:
+  every tool call a run makes is a step, committed with its output or
+  failed with its error.
+- **Evidence may cite a step, `step:<n>`, and `checkDone` holds it to the
+  journal** (`engine/done.ts`, `weighEvidence`; the journal read is
+  `journalOf` in `engine/journal.ts`). A citation of a tool call this task
+  made that committed makes the criterion **verified**. A citation of a
+  step that failed, never finished, or that this task's journal does not
+  have -- another task's step of the same number included, since the
+  journal read is this task's alone -- fails the criterion like one not
+  met, and the retry is told which step and why. Evidence that cites
+  nothing, or only the model's own turn, is **claimed**: it passes as it
+  always did. Failing rather than leaving a false citation claimed is the
+  point: a run that names the CRM write that failed as proof the note was
+  written (the chaos run of 2026-09-29) would otherwise reach the owner
+  looking like any honest claim.
+- **A run is told which step each call is.** The step index is handed back
+  as the call is placed (`callTool`'s `journalled`), and written after each
+  result, outside the fence around what the tool returned: by the agent
+  loop, by the tool bridge an agent CLI reaches, and as `step` on the
+  wire's `tool_result`. A failed call is shown as refused, with no step to
+  cite. The done instruction says evidence may cite `step:<n>` and that the
+  platform checks it.
+- **The owner sees which.** The task detail (`taskDetailOf`) carries the
+  report weighed against the journal when it is read, rather than a copy
+  kept at completion: tool steps keep their name and status as long as the
+  task is kept (retention scrubs only a model's replies), so the answer is
+  the one the engine gave. **Work**, a task, **Done means** shows a
+  **Verified** or **Claimed** badge beside each met criterion, with a
+  tooltip saying what each means and which steps were checked.
+- **The platform charter says it too.** A new rule 3: a summary says what
+  was done and what is still unproven; "ready for review" is not
+  "accepted"; a test result, a number or a date is given as a finding only
+  if a tool call in this task produced it. The default is published only
+  where there is none, so an owner's charter is never replaced; a platform
+  charter still word for word the earlier default, as the platform wrote
+  it, is given the new one as its next version (`EARLIER_PLATFORM_CHARTERS`).
+  The same words put back by the owner, or taken from a file, are theirs.
+- **Tested.** `done-criteria.test.ts`: a run through the agent loop cites
+  the dns.read it made, is shown `step:1` after the result, completes, and
+  the owner's task detail has that criterion verified with its step and the
+  other claimed; a run whose call failed cites it, then a step only another
+  task of the company has, then one no task has, and each attempt fails
+  with the step and the reason, the retry told why; and directly, a model
+  turn alone is claimed, a step that never finished and one missing beside
+  one that holds are refused. `charter-context.test.ts`: the rule is in the
+  default, an earlier default is brought up once, and the owner's copy of
+  the same words is left alone.
+- **Not done.** A verified criterion shows that a call succeeded, not that
+  it shows what the criterion asks: a run can cite a dns.read for "the
+  invoice was sent". Judging that is still the reviewer's or the owner's.
+  And the platform does not yet run checks of its own, as Auto-Company's
+  runner does; a role whose criteria need a test run cites the tool call
+  that ran it.
+
+## 2.57 A critic before every stage move (from Auto-Company)
+
+Auto-Company asks for a "Munger" premortem before any GO, written by the
+same model session that wants the GO. Nothing makes it happen, and nothing
+puts it in front of whoever decides. The operating kit (`company-os` 1.4.0,
+`src/bundles/builtin.ts`) makes it a rule.
+
+- **The critic.** A role in a `strategy-review` division of its own, whose
+  charter is to assume the move failed six months from now and say how:
+  its verdict in one line first -- support, oppose or need more -- then, for
+  each risk, the way it would kill the company, and why it supports the
+  move despite them when it does. Its output schema is the verdict a review
+  reads (`decision`, `reason`), so a run is shown what to return.
+- **It holds nothing that acts.** Its grants are four reads, each tier 0 in
+  the catalogue -- memory, skills, metrics and the ledger -- to check the
+  evidence against the company's own numbers and money. The kit's hook
+  `strategy-review.read-only` refuses its division anything at tier 1 or
+  above, so a grant somebody adds later changes nothing. It does not hold
+  `stage.propose`.
+- **Every stage proposal goes to it first.** `stage-move-needs-the-critic`,
+  company-wide, puts `stage.propose` behind the critic's review, against
+  these criteria: willingness to pay shown by money or a signed commitment,
+  not interest; where each piece of evidence came from; the three likeliest
+  failures, each with an early warning; what stops a competitor copying it
+  in two weeks. A missing answer is a rejection that names it.
+- **The owner reads what the critic said, either way.** When it supports a
+  move, the proposal reaches the owner as before, with "Reviewed by critic
+  before you:" and the verdict on the card, and the review in its payload.
+  When it opposes one, nothing the owner could approve into a move is
+  raised; an item says what was proposed, on what evidence, and why the
+  critic stopped it. Answering it moves nothing, and the owner can still
+  set the stage on the Overview. "Need more" sends the proposal back to the
+  strategist, and two revisions without agreement reach the owner as any
+  review deadlock does (F7.2).
+- **A no to a stage move does not stop the work that proposed it.** A
+  rejected review fails the task that proposed the action (F7.1). The
+  owner's own no to a stage proposal never did, and the critic's would have
+  failed a weekly business review for one line in it. For `stage.propose`
+  the proposer goes back to work, and asking again is refused with the
+  critic's reasons. Every refusal after a rejected review now carries the
+  reviewer's reasons; it said only "review rejected".
+- **Found on the way, and closed: a reviewer from another division could
+  never be given a review.** `openReview` made the review task in the
+  proposer's division, so a reviewer ran under the grants of the role it
+  was judging. Since 0058, a task's role must also belong to its division,
+  so a reviewer in another division could not be given a review at all:
+  `qa-review`'s for `content-ops`, `palugada-dev`'s, and now the critic. The
+  review task also had no goal, and a bundle role's input schema requires
+  one, so a bundle reviewer halted on its input before reading the
+  proposal. It is now made in the reviewer's division, with a goal. Every
+  existing review test put the reviewer in the proposer's division, which
+  is why none of them saw this.
+- **Installing 1.4.0 over an earlier version** adds the division, the
+  critic, its grants, hook and heartbeat, and the rule. Everything else
+  stays as it was: the same role rows, the same weekly review schedule,
+  still on, every grant, and work in flight
+  (`test/acceptance/bundles.test.ts`). As with any reinstall, the kit's
+  skills are proposed again as candidates.
+- **Tests.** `test/acceptance/stages.test.ts`: with the shipped kit
+  installed, no stage proposal exists until the critic's verdict is
+  recorded; a supported proposal carries the verdict; an opposed one is
+  never raised, its reasons reach the owner, and the strategist finishes;
+  the critic's grants are tier 0, and a tier 1 call is refused by the hook
+  even with a grant.
+- **Unverified, and not done.**
+  - How a real model does as the critic. The tests script its verdicts.
+  - The criteria are written for a move forward. A proposal to go back, or
+    to wind down, is judged by the same questions, and a critic that
+    follows "if any answer is missing, reject" will stop it. The owner is
+    then told, with the reasons, and can move the company themselves.
+  - `qa-reviewer` and `platform-reviewer` still return the ordinary work
+    output, which has no `decision`, so a model's review by either still
+    goes to the owner as unreadable. The critic's output schema shows the
+    fix; applying it is a new version of their bundles.
+  - The verdict is in the item's rationale, which the console shows under
+    "Why". A Telegram or WhatsApp card shows an escalation's title and
+    what a no means, not its rationale, so the verdict, like the
+    strategist's evidence, is read in the app. A move forward is tier 3
+    and is decided there anyway. A move back is tier 2 and can be
+    answered from the chat without either.
+
+## 2.58 Found by reading Buzz: readiness while stopping, a probe that costs one query, a search with an index
+
+Read against the source of Block's Buzz, on 2026-09-30.
+
+- **A stopping process shut its door on a load balancer that had not been
+  told.** `stop()` closed the console's listener first thing, and cut every
+  connection with it, including requests half answered. A balancer that
+  asks every few seconds went on sending requests into a port that refused
+  them until it next asked and gave up on the process. Buzz answers
+  readiness 503 before its listener closes. `GET /api/ready` is new, open
+  like `/api/health` and saying as little: what `/api/health` says, with
+  `"stopping": false`, and from the moment `stop()` begins, 503 with
+  `{"ok":false,"stopping":true,"version":…}` without asking the database.
+  From then every answer carries `Connection: close`, so a client holding a
+  connection makes its next one elsewhere. If anything has asked
+  `/api/ready` since the listener opened, the console goes on answering
+  everything for five seconds (`drainMs`, never longer than the stop's
+  grace) before the listener closes; with nothing asking there is no
+  balancer to tell, and it does not wait, so a settings restart and a
+  deployment nobody balances stop as quickly as before. The listener then
+  takes no new connection, and an answer already being written is given the
+  grace to finish rather than cut off, while the worker stops as before.
+  `/api/health` keeps its meaning: whether the process works, which a
+  stopping process still does, and which is what a supervisor that restarts
+  it should ask; the image's own check stays on it. `operability.test.ts`
+  starts a deployment, finds it ready, begins the stop, and is told 503
+  with `stopping: true` and `Connection: close` at once, while `/api/health`
+  still answers 200; the stop takes the 800 ms drain it was given, and the
+  port then refuses. A deployment never asked stops in well under the
+  twenty seconds of drain it was given. A console closed with a request in
+  flight refuses a new connection and answers the one it had, with 200.
+- **Every probe cost a query on the application's pool, and a database that
+  hung held every probe.** `/api/health` is open to anyone and ran
+  `SELECT 1` on the shared pool each time it was asked. A flood of probes --
+  balancers, monitors, anyone -- took a pool slot each, and a database that
+  did not answer held each probe and its slot until the checker gave up.
+  Buzz samples its database every thirty seconds. `databaseSample`
+  (`src/main.ts`) takes one sample for every health and readiness answer in
+  a five-second window: callers who arrive while one is being taken wait for
+  the same one, a sample that has not answered within two seconds is
+  `"unreachable"` -- inside the five seconds the image's own check waits --
+  with `did not answer within 2000 ms` in the log, and a probe past its
+  deadline is not joined by a second. The query carries its own two-second
+  timeout, so a connection whose database never answers is dropped by the
+  pool rather than held. The test counts the probe's queries on the pool:
+  forty health and readiness requests at once cost one, and twenty more in
+  the window none; with a database that never answers, the page says 503
+  and `unreachable` in about two seconds, and ten more asks cost no second
+  query. A test with its own clock holds the window and the one probe at a
+  time.
+- **The search across companies read every row.** `searchEverywhere`
+  (`src/owner/search.ts`) looks for a phrase anywhere in a task's goal and
+  result, a decision's title, summary and note, and a fact:
+  `ILIKE '%…%'`, which no btree serves, so each search read all three
+  tables for every company. Migration 0098 makes a `pg_trgm` GIN index on
+  exactly those six columns, spelled as the search spells them; the note is
+  now searched as the column rather than `coalesce(owner_note, '')`, which
+  matched nothing more and no index could serve. `pg_trgm` is installed
+  with `pgcrypto` and `vector` by `provision-database.ts` and
+  `setup-database.sh`; it is a trusted extension, so the migration installs
+  it as the database's owner where a database was provisioned before, and
+  stops with what to do where the server lacks it. The indexes are made
+  with a plain `CREATE INDEX`: every migration runs in one transaction with
+  its record, which `CONCURRENTLY` cannot, and the build holds writes to
+  each table for the seconds one owner's rows take, once, in the upgrade's
+  migrate step. The test records the three statements the search sends as
+  it sends them, and explains each on the control plane with sequential and
+  plain index scans priced out: each table is read by a bitmap heap scan,
+  over every one of the six indexes, and no table is read row by row. With
+  a handful of facts and no statistics the planner rightly prefers walking
+  the partial index of live facts whole, so the test adds four hundred and
+  counts them first, as autovacuum would in a deployment. The existing
+  search tests pass unchanged.
+- **Not done.** A proxy that routes by the container's state and asks
+  nothing -- the Traefik in front of Coolify and Dokploy -- is not told by
+  the drain, and, routing to the containers that are running, still sends
+  requests to a stopping one until it has stopped (read in how its Docker
+  provider works, not tried here); the listener closes before the worker's
+  grace, so for a run that takes the whole grace, requests routed there in
+  that time are refused. Keeping the listener open until the worker has
+  stopped would close that window, and changes the order `stop()` keeps:
+  the console before the worker. The drain's five seconds are not a setting an operator
+  can change. The migration's refusal where the server lacks `pg_trgm` was
+  read, not run: every server here has it.
 
 ## 3. Decisions, deviations, and what is unverified
 
@@ -3612,15 +5319,25 @@ whether the change keeps what the references depended on and keeps the negative
 cases' failure modes closed. That is weaker than replaying the work, and it is
 the check that can run in the second before a decision.
 
+**A model that does not answer is waited for before it halts a task.**
+F13.6 says a tier 2 role does not fall back silently: "halted + insiden".
+It still never falls back. What changed is when it halts: every role's task
+now waits for the same model -- half a minute, doubling, five times, about
+a quarter of an hour -- and halts with one incident only when the model is
+still down. Waiting is not a substitution, since the model the owner chose
+does the work when it answers, and halting on the first dropped connection
+turned every provider blip into an inbox full of tasks to resume by hand
+(section 2.25).
+
 **Two things a green suite does not prove**, and both are named in the code as
 well as here.
 
 `ContainerAdapter` implements F12.9's `docker` backend, and its
 `--network none` is the guarantee the in-process sandbox has never been able to
 make: a runtime started there reaches the engine over stdio and nothing else.
-There is a docker CLI in this environment and no daemon, so what is tested is
-the argv — the flags *are* the security property — and the health check's
-refusal. A real container against a real image has never run here.
+What the suite tests is the argv — the flags *are* the security property —
+and the health check's refusal. A whole run in a real container is checked by
+`npm run container:check` on a real daemon, in CI's docker job (section 2.46).
 `remote_sandbox` is `RemoteSandboxAdapter` over a three-method provider --
 create, exec, destroy -- and its lifecycle runs end to end against a provider
 written for the test, including the sandbox being destroyed on every path out

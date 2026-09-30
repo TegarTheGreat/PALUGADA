@@ -7,6 +7,7 @@
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { withTenant, withControlPlane } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
 import { nextOccurrence, runDueSchedules, upsertSchedule } from '../../src/scheduler/scheduler.ts';
@@ -22,6 +23,7 @@ import {
 import { Engine } from '../../src/engine/engine.ts';
 import { CapabilityRegistry, type Capability } from '../../src/broker/registry.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
+import { givePlaceBack, takePlace } from '../../src/broker/in-flight.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';
 import { createRootTask, getTask, transition } from '../../src/engine/tasks.ts';
 import { claimTask, releaseTask } from '../../src/engine/checkout.ts';
@@ -682,13 +684,18 @@ async function rateLimitedTask(fixture: Fixture) {
   return task;
 }
 
-async function engineCalling(fixture: Fixture, capability: Capability<{ to: string }, { sent: boolean }>, options: { rateLimitPerHour?: number } = {}) {
+async function engineCalling(
+  fixture: Fixture,
+  capability: Capability<{ to: string }, { sent: boolean }>,
+  options: { rateLimitPerHour?: number; maxInFlight?: number; inFlightWaitMs?: number } = {},
+) {
   const registry = new CapabilityRegistry();
   registry.register(capability);
   await registry.sync();
-  await grantCapability(fixture, capability.name, options);
+  const { inFlightWaitMs, ...grant } = options;
+  await grantCapability(fixture, capability.name, grant);
   return new Engine({
-    broker: new CapabilityBroker(registry),
+    broker: new CapabilityBroker(registry, undefined, undefined, inFlightWaitMs === undefined ? {} : { inFlightWaitMs }),
     llm: new RecordingLlmClient(),
     handlers: new Map([['worker', async (ctx) => {
       await ctx.callCapability(capability.name, { to: 'client@example.test' });
@@ -824,6 +831,186 @@ test('a division over its hourly allowance waits for the next slot (F9.2)', asyn
   assert.ok(wait > 9 * 60_000 && wait <= 10 * 60_000, `waits for the oldest call to age out, got ${wait}ms`);
   assert.equal(calls.executions, 1, 'the second call was never made');
   assert.equal(await attemptOf(fixture, second.id), 0);
+});
+
+/**
+ * A vendor that takes one call at a time: each call is held until the test
+ * lets it finish, and the most ever running at once is counted.
+ */
+function heldVendor() {
+  const waiting: Array<() => void> = [];
+  const state = { running: 0, most: 0, calls: 0 };
+  const capability: Capability<{ to: string }, { sent: boolean }> = {
+    name: 'crm.read',
+    adapter: 'test:held',
+    defaultTier: 0,
+    async execute() {
+      state.calls += 1;
+      state.running += 1;
+      state.most = Math.max(state.most, state.running);
+      await new Promise<void>((resolve) => waiting.push(resolve));
+      state.running -= 1;
+      return { sent: true };
+    },
+    async verify() {
+      return true;
+    },
+  };
+  return {
+    capability,
+    state,
+    async started(calls: number) {
+      const until = Date.now() + 5_000;
+      while (state.calls < calls) {
+        if (Date.now() > until) throw new Error(`only ${state.calls} of ${calls} calls started`);
+        await sleep(20);
+      }
+    },
+    finish() {
+      waiting.shift()?.();
+    },
+    finishAll() {
+      while (waiting.length > 0) waiting.shift()!();
+    },
+  };
+}
+
+function callFor(fixture: Fixture, taskId: string, idempotencyKey: string) {
+  return {
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    taskId, roleId: fixture.roleId, idempotencyKey,
+  };
+}
+
+/**
+ * F5.7's other half. A division's grant may say how many calls to one
+ * capability it has in flight at once, and every worker counts the same
+ * calls. It is for a vendor that takes so many at a time -- an image model
+ * on one GPU, an API that refuses a second request while the first runs --
+ * which an hourly allowance says nothing about.
+ */
+test('a division has no more calls to one capability in flight than its grant allows, across workers (F5.7)', async () => {
+  const fixture = await createCompany('in-flight-limit');
+  const vendor = heldVendor();
+  const registry = new CapabilityRegistry();
+  registry.register(vendor.capability);
+  await registry.sync();
+  await grantCapability(fixture, 'crm.read', { maxInFlight: 1 });
+  // Two brokers, as two replicas have: nothing shared but the database.
+  const first = new CapabilityBroker(registry, undefined, undefined, { inFlightWaitMs: 5_000 });
+  const second = new CapabilityBroker(registry, undefined, undefined, { inFlightWaitMs: 300 });
+  const a = await rateLimitedTask(fixture);
+  const b = await rateLimitedTask(fixture);
+  assert.ok(await claimTask(fixture.companyId, { holder: 'worker-a', taskId: a.id }));
+  assert.ok(await claimTask(fixture.companyId, { holder: 'worker-b', taskId: b.id }));
+
+  const held = first.invoke(callFor(fixture, a.id, 'a-1'), 'crm.read', { to: 'a' });
+  await vendor.started(1);
+
+  // The other worker waits a while for the place, then is told why.
+  const refused = await second.invoke(callFor(fixture, b.id, 'b-1'), 'crm.read', { to: 'b' })
+    .then(() => null, (error: unknown) => error);
+  assert.ok(isPalugadaError(refused, 'capability.busy'), String(refused));
+  assert.match(refused.message, /crm\.read already has 1 call in flight for this division, as many as its grant allows/);
+  assert.equal(typeof refused.details.notBefore, 'string');
+  assert.equal(vendor.state.calls, 1, 'the refused call never reached the vendor');
+
+  // Waiting, it has the place the moment the first call ends.
+  const queued = first.invoke(callFor(fixture, b.id, 'b-2'), 'crm.read', { to: 'b' });
+  await sleep(300);
+  assert.equal(vendor.state.calls, 1, 'still waiting for the place');
+  vendor.finish();
+  await held;
+  await vendor.started(2);
+  vendor.finish();
+  await queued;
+  assert.equal(vendor.state.most, 1, 'never two at once');
+
+  // A worker that died holding the place gives it back when its lease lapses.
+  const stranded = first.invoke(callFor(fixture, a.id, 'a-2'), 'crm.read', { to: 'a' });
+  await vendor.started(3);
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    "UPDATE tasks SET lease_expires_at = now() - interval '1 second' WHERE id = $1", [a.id]));
+  const after = second.invoke(callFor(fixture, b.id, 'b-3'), 'crm.read', { to: 'b' });
+  await vendor.started(4);
+  vendor.finishAll();
+  await Promise.all([stranded, after]);
+
+  // And a grant with no limit of its own is not held to one.
+  await grantCapability(fixture, 'crm.read');
+  const free = [
+    first.invoke(callFor(fixture, a.id, 'a-3'), 'crm.read', { to: 'a' }),
+    second.invoke(callFor(fixture, b.id, 'b-4'), 'crm.read', { to: 'b' }),
+  ];
+  await vendor.started(6);
+  vendor.finishAll();
+  await Promise.all(free);
+});
+
+/**
+ * Places taken at the same moment, and a limit lowered while calls run (the
+ * review of d1b8142). Many takers at once each get a place or none, and never
+ * more between them than the limit; a call running in a place above a
+ * lowered limit still counts, so the lower limit holds from the moment it is
+ * set.
+ */
+test('takers at once get only the places there are, and a lowered limit holds at once (F5.7)', async () => {
+  const fixture = await createCompany('in-flight-race');
+  const tasks = await Promise.all(Array.from({ length: 12 }, () => rateLimitedTask(fixture)));
+  const holder = (taskId: string, key: string) => ({
+    companyId: fixture.companyId, divisionId: fixture.divisionId, capability: 'crm.read', taskId, holderKey: key,
+  });
+  for (let round = 0; round < 5; round += 1) {
+    const taken = await Promise.all(tasks.map((task) => takePlace(holder(task.id, `race-${round}-${task.id}`), 2)));
+    assert.equal(taken.filter(Boolean).length, 2, `round ${round}: two places, two calls`);
+    await Promise.all(tasks.map((task) => givePlaceBack(holder(task.id, `race-${round}-${task.id}`))));
+  }
+
+  const [a, b, c] = tasks as [typeof tasks[0], typeof tasks[0], typeof tasks[0]];
+  assert.equal(await takePlace(holder(a.id, 'a'), 2), true);
+  assert.equal(await takePlace(holder(b.id, 'b'), 2), true, 'b holds place 2');
+  await givePlaceBack(holder(a.id, 'a'));
+  assert.equal(await takePlace(holder(c.id, 'c'), 1), false, 'lowered to one while b runs: b is that one');
+  await givePlaceBack(holder(b.id, 'b'));
+  assert.equal(await takePlace(holder(c.id, 'c'), 1), true);
+  assert.equal(await takePlace(holder(c.id, 'c'), 1), true, 'the same call again has its own place back');
+});
+
+/**
+ * Waiting in a queue behind calls that are running is not a vendor's limit
+ * closing again and again, so it is not counted against the five parks a
+ * vendor gets: the calls ahead end, or their leases lapse.
+ */
+test('a task that finds every place taken waits for one, spending no attempt (F5.7)', async () => {
+  const fixture = await createCompany('in-flight-park');
+  const vendor = heldVendor();
+  const engine = await engineCalling(fixture, vendor.capability, { maxInFlight: 1, inFlightWaitMs: 100 });
+  const registry = new CapabilityRegistry();
+  registry.register(vendor.capability);
+  const elsewhere = new CapabilityBroker(registry);
+  const holder = await rateLimitedTask(fixture);
+  assert.ok(await claimTask(fixture.companyId, { holder: 'elsewhere', taskId: holder.id }));
+  const held = elsewhere.invoke(callFor(fixture, holder.id, 'held'), 'crm.read', { to: 'x' });
+  await vendor.started(1);
+
+  const task = await rateLimitedTask(fixture);
+  const outcomes: Array<[string, string | undefined]> = [];
+  for (let run = 0; run < 6; run += 1) {
+    const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
+    outcomes.push([outcome.status, outcome.reason]);
+  }
+  assert.deepEqual(outcomes, Array(6).fill(['waiting_window', 'capability.busy']));
+  assert.equal(await attemptOf(fixture, task.id), 0, 'waiting is not failing');
+  const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ type: string }>(
+    "SELECT type FROM events WHERE task_id = $1 AND type IN ('task.waiting_slot', 'task.rate_limited')", [task.id]));
+  assert.deepEqual([...new Set(rows.map((row) => row.type))], ['task.waiting_slot']);
+
+  vendor.finish();
+  await held;
+  const finishing = engine.runTask(fixture.companyId, task.id, 'worker');
+  await vendor.started(2);
+  vendor.finish();
+  assert.equal((await finishing).status, 'completed');
 });
 
 /**

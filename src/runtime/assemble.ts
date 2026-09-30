@@ -31,7 +31,7 @@ import { ContainerAdapter } from './container.ts';
 import { HttpSandboxProvider, RemoteSandboxAdapter } from './sandbox-adapter.ts';
 import type { LlmClient } from '../llm/client.ts';
 import { PalugadaError } from '../errors.ts';
-import type { SecretManager } from '../secrets/manager.ts';
+import { redactor, type SecretManager } from '../secrets/manager.ts';
 
 export interface RuntimeAssemblyOptions {
   env: NodeJS.ProcessEnv;
@@ -42,6 +42,8 @@ export interface RuntimeAssemblyOptions {
   registry?: AdapterRegistry;
   /** Where a CLI's own credential is resolved from, when its entry names one by reference. */
   secrets?: SecretManager;
+  /** This process's worker, for what a runtime leaves behind it (`Adapter.sweep`). */
+  workerId?: string;
 }
 
 export interface RuntimeAssembly {
@@ -55,6 +57,8 @@ interface AgentTuning {
   models?: Record<string, string>;
   secretEnv?: Record<string, string>;
   env?: Record<string, string>;
+  /** A version other than the checked one that the owner accepted (`checked-versions.ts`). */
+  acceptVersion?: string;
 }
 
 const STRING_MAPS = ['models', 'secretEnv', 'env'] as const;
@@ -86,6 +90,9 @@ function agentSettingsFrom(value: string | undefined): Record<string, AgentTunin
     if (tuning.command !== undefined && (typeof tuning.command !== 'string' || tuning.command === '')) {
       refuse(`gives ${name} a command that is not a path`);
     }
+    if (tuning.acceptVersion !== undefined && (typeof tuning.acceptVersion !== 'string' || tuning.acceptVersion === '')) {
+      refuse(`gives ${name} an acceptVersion that is not a version`);
+    }
     for (const field of STRING_MAPS) {
       const map = tuning[field];
       if (map !== undefined && (typeof map !== 'object' || map === null || Array.isArray(map)
@@ -106,6 +113,7 @@ function tunedCli(name: KnownCliName, tuning: AgentTuning | undefined) {
     ...(tuning.command ? { command: tuning.command } : {}),
     ...(tuning.models ? { models: tuning.models } : {}),
     ...(tuning.secretEnv ? { secretEnv: tuning.secretEnv } : {}),
+    ...(tuning.acceptVersion ? { acceptedVersion: tuning.acceptVersion } : {}),
     env: { ...(known.env ?? {}), ...(tuning.env ?? {}) },
   };
 }
@@ -170,7 +178,15 @@ export function assembleRuntimes(options: RuntimeAssemblyOptions): RuntimeAssemb
       ...(claudeCode?.command ? { command: claudeCode.command } : {}),
       ...(claudeCode?.models ? { models: claudeCode.models } : {}),
       ...(claudeCode?.secretEnv ? { secretEnv: claudeCode.secretEnv, ...secretOptions } : {}),
+      ...(claudeCode?.acceptVersion ? { acceptedVersion: claudeCode.acceptVersion } : {}),
     }));
+  }
+
+  // Tokens taken from the environment into a header: the redactor is told
+  // them, as it is every secret a reference resolves, so a request echoed in
+  // an error or a transcript does not carry them in the clear.
+  for (const token of [env.PALUGADA_RUNTIME_HTTP_TOKEN, env.PALUGADA_SANDBOX_TOKEN]) {
+    if (token) redactor.register(token);
   }
 
   if (env.PALUGADA_RUNTIME_HTTP_URL) {
@@ -193,6 +209,7 @@ export function assembleRuntimes(options: RuntimeAssemblyOptions): RuntimeAssemb
         : {}),
       image: env.PALUGADA_RUNTIME_IMAGE,
       ...(env.PALUGADA_RUNTIME_DOCKER ? { docker: env.PALUGADA_RUNTIME_DOCKER } : {}),
+      ...(options.workerId ? { worker: options.workerId } : {}),
     }));
   }
 

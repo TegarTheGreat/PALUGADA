@@ -34,7 +34,7 @@ export interface Field {
 export type Values = Record<string, string | number>;
 
 export function ActionForm({
-  fields, submit, action, factor, done, columns = 2, success,
+  fields, submit, action, factor, done, columns = 2, success, color,
 }: {
   fields: Field[];
   submit: (values: Values, proof?: Proof) => Promise<unknown>;
@@ -45,6 +45,8 @@ export function ActionForm({
   columns?: 1 | 2 | 3;
   /** What to say once it worked; nothing is said when this is absent and `done` is set. */
   success?: string;
+  /** The button's colour: red for a form whose effect cannot be taken back. */
+  color?: string;
 }) {
   const requireFactor = useFactor();
   const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(
@@ -117,7 +119,7 @@ export function ActionForm({
         </SimpleGrid>
         {error && <Alert color="red" variant="light">{error}</Alert>}
         <Group>
-          <Button type="submit" loading={busy}>{action ?? t('Save')}</Button>
+          <Button type="submit" loading={busy} {...(color ? { color } : {})}>{action ?? t('Save')}</Button>
         </Group>
       </Stack>
     </form>

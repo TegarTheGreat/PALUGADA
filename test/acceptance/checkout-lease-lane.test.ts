@@ -12,8 +12,11 @@ import { withTenant, withControlPlane } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
 import {
   DEFAULT_LEASE_MS,
+  beat,
   claimTask,
   reclaimExpiredLeases,
+  silentHolders,
+  stopBeating,
   reclaimOrphans,
   releaseTask,
   renewLease,
@@ -196,6 +199,50 @@ test('an expired lease returns the task with its journal intact (F5.12)', async 
   // And it is claimable again.
   const second = await claimTask(fixture.companyId, { holder: 'worker-b' });
   assert.equal(second!.taskId, task.id);
+});
+
+/**
+ * A chaos run on 2026-09-29 killed a worker in the middle of a vendor call
+ * and restarted it: the task it held stayed `running`, leased to a process
+ * that no longer existed, for the rest of its fifteen-minute lease. Workers
+ * now say they are alive every few seconds, and a lease whose holder has
+ * gone quiet is returned at once. The lease is still the backstop for a
+ * holder that never said anything, and a worker never takes back its own.
+ */
+test('a task held by a worker that has gone quiet is returned without waiting out the lease (F5.12)', async () => {
+  const fixture = await createCompany('lease-quiet');
+  const dead = await newTask(fixture);
+  await claimTask(fixture.companyId, { holder: 'worker-dead', taskId: dead.id });
+  const alive = await newTask(fixture);
+  await claimTask(fixture.companyId, { holder: 'worker-alive', taskId: alive.id });
+  const silentOne = await newTask(fixture);
+  await claimTask(fixture.companyId, { holder: 'worker-never-beat', taskId: silentOne.id });
+  const mine = await newTask(fixture);
+  await claimTask(fixture.companyId, { holder: 'worker-me', taskId: mine.id });
+
+  await beat('worker-dead');
+  await beat('worker-alive');
+  await beat('worker-me');
+  // The dead one's last word was long ago; so was mine, as after the
+  // database was away -- and I am the one sweeping, so I know I am alive.
+  await withControlPlane((tx) => tx.query(
+    "UPDATE worker_heartbeats SET beat_at = now() - interval '5 minutes' WHERE worker_id IN ('worker-dead', 'worker-me')"));
+
+  const quiet = await silentHolders('worker-me');
+  assert.deepEqual(quiet, ['worker-dead']);
+  const reclaimed = await reclaimExpiredLeases(fixture.companyId, new Date(), { silent: quiet });
+  assert.deepEqual(reclaimed.map((one) => [one.taskId, one.previousHolder]), [[dead.id, 'worker-dead']],
+    'only the quiet holder\'s task, and well inside its lease');
+  const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ payload: { reason: string } }>(
+    "SELECT payload FROM events WHERE type = 'task.lease_expired' AND task_id = $1", [dead.id]));
+  assert.equal(rows[0]!.payload.reason, 'holder_silent');
+
+  // A worker that stops cleanly takes its word back, so it is never mistaken
+  // for one that died.
+  await stopBeating('worker-alive');
+  assert.deepEqual(await silentHolders('worker-me'), ['worker-dead']);
+  const beats = await withControlPlane((tx) => tx.query<{ worker_id: string }>('SELECT worker_id FROM worker_heartbeats ORDER BY worker_id'));
+  assert.deepEqual(beats.rows.map((row) => row.worker_id), ['worker-dead', 'worker-me']);
 });
 
 test('only the holder may renew, and only what it still holds (F5.12)', async () => {
@@ -442,10 +489,15 @@ test('a run waiting within its deadline keeps its lease (F5.12)', async () => {
     reserveTokens: 1_000,
     deadlineAt: new Date(Date.now() + 30_000),
   });
+  // Three leases long, so it is kept only by renewing. A lease of a second
+  // rather than less: the keeper gives a run up when no renewal has succeeded
+  // for a whole lease (STATUS 2.50), and with 400 ms one renewal slowed past
+  // two thirds of it by a busy CI runner looked, correctly, like a lease that
+  // might have lapsed.
   const engine = engineWith(async (ctx) => {
-    await ctx.step('one long thing', 'internal', {}, () => pause(1_500));
+    await ctx.step('one long thing', 'internal', {}, () => pause(3_000));
     return {};
-  }, { leaseMs: 400 });
+  }, { leaseMs: 1_000 });
 
   const replica = otherReplica(fixture.companyId);
   const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');

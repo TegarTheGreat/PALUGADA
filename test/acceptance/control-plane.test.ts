@@ -12,10 +12,12 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, sign } from 'node:crypto';
-import { mkdtemp, mkdir, writeFile, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, readdir, realpath, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { withTenant } from '../../src/db/tenant.ts';
+import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { closePools } from '../../src/db/pool.ts';
 import { isPalugadaError } from '../../src/errors.ts';
 import * as budget from '../../src/engine/budget.ts';
@@ -38,6 +40,9 @@ import { history, recordVersion, restore } from '../../src/governance/config-ver
 import { applyRoleChange } from '../../src/governance/structure.ts';
 import { publishCharter, putPolicy } from '../../src/governance/store.ts';
 import { exportToDisk, importFromDisk } from '../../src/governance/charter-files.ts';
+import { CharterRepository } from '../../src/governance/charter-repository.ts';
+
+const exec = promisify(execFile);
 import {
   claimIdempotencyKey,
   connect,
@@ -53,6 +58,8 @@ import * as inbox from '../../src/inbox/inbox.ts';
 import { createCompany, addRole, grantCapability, type Fixture } from '../helpers/fixtures.ts';
 import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
+import { CapabilityRegistry } from '../../src/broker/registry.ts';
+import { registerPlatformCapabilities } from '../../src/broker/platform-capabilities.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
 before(ensureSchema);
@@ -463,6 +470,45 @@ test('memory.search answers through the broker, scoped like the pack (F4.8)', as
 
 /* ------------------------------------------------------------------ F10.3 --- */
 
+/**
+ * L7: a run asked the owner "which CRM vendor should I bind?" -- a question
+ * the owner cannot answer from the inbox, about a tool nothing in this
+ * deployment was bound to. The owner connects a service on This deployment,
+ * Services, and an answer typed into an item connects nothing. Such a
+ * question is answered by the platform, at once, and the owner is asked only
+ * what they can answer.
+ */
+test('a question about connecting a tool nobody bound is answered by the platform, not put to the owner (L7)', async () => {
+  const fixture = await createCompany('owner-ask-config');
+  const task = await newTask(fixture);
+  await transition(fixture.companyId, task.id, 'running');
+  await withTenant(fixture.companyId, (tx) =>
+    tx.query("UPDATE roles SET tools = ARRAY['owner.ask', 'crm.note', 'memory.search'] WHERE id = $1", [fixture.roleId]));
+  const registry = new CapabilityRegistry();
+  registerPlatformCapabilities(registry);
+  const ask = registry.get('owner.ask')! as unknown as {
+    execute(input: unknown, ctx: unknown): Promise<{ answered: boolean; answer?: string }>;
+  };
+  const ctx = {
+    companyId: fixture.companyId, divisionId: fixture.divisionId, taskId: task.id,
+    idempotencyKey: 'ask-1', signal: new AbortController().signal, credential: async () => '',
+  };
+
+  const answered = await ask.execute({ question: 'Which CRM vendor should I bind so I can add the note?' }, ctx);
+  assert.equal(answered.answered, true);
+  assert.match(answered.answer ?? '', /crm\.note is not connected[\s\S]*This deployment, Services[\s\S]*say in your output what is left/);
+  assert.deepEqual((await inbox.listOpen(fixture.companyId)).map((item) => item.kind), [], 'nothing was put to the owner');
+  const events = await withTenant(fixture.companyId, (tx) => tx.query<{ type: string }>(
+    "SELECT type FROM events WHERE task_id = $1 AND type = 'task.question_answered_by_platform'", [task.id]));
+  assert.equal(events.rows.length, 1, 'and it is on the record');
+
+  // A question about the work itself still goes to the owner, even one that
+  // names the tool.
+  await assert.rejects(ask.execute({ question: 'Which customers should the CRM note be about?' }, ctx),
+    (error: unknown) => isPalugadaError(error) && error.code === 'owner.asked');
+  assert.equal((await inbox.listOpen(fixture.companyId)).length, 1);
+});
+
 test('the owner can ask a question inside the same task (F10.3)', async () => {
   const fixture = await createCompany('owner-ask');
   const task = await newTask(fixture);
@@ -512,7 +558,7 @@ test('the owner can ask a question inside the same task (F10.3)', async () => {
   );
   assert.match(context.text, /Which host, and what is the TTL\?/);
 
-  await inbox.answerOwnerQuestion(fixture.companyId, itemId, 'host-b, TTL 300.');
+  await inbox.answerEscalation(fixture.companyId, itemId, 'host-b, TTL 300.');
   const answered = await withTenant(fixture.companyId, async (tx) => {
     const { rows } = await tx.query<{ payload: { answers?: unknown[] } }>(
       'SELECT payload FROM inbox_items WHERE id = $1',
@@ -521,6 +567,54 @@ test('the owner can ask a question inside the same task (F10.3)', async () => {
     return rows[0]!.payload;
   });
   assert.equal(answered.answers?.length, 1);
+});
+
+/**
+ * The owner's answer to an escalation reached nobody (the competitive
+ * analysis of 2026-09-28, L18). The console says "Sends your answer and puts
+ * the task back on the queue, without deciding the item"; the route wrote
+ * the words into the item under the owner's own earlier note, recorded them
+ * as an agent's, and left the task where it was. The answer is now the
+ * owner's word to the task -- read by its next run like any instruction --
+ * and a task waiting on the owner goes back to work.
+ */
+test('the owner answers an escalation without deciding it, and the task carries on with the answer (F10.3)', async () => {
+  const fixture = await createCompany('owner-answers');
+  const task = await newTask(fixture);
+  await transition(fixture.companyId, task.id, 'running');
+  await transition(fixture.companyId, task.id, 'waiting_review');
+  const itemId = await inbox.raiseEscalation({
+    companyId: fixture.companyId,
+    taskId: task.id,
+    title: 'Review deadlocked after 2 revisions: email.send',
+    detail: 'Proposer and reviewer did not converge.',
+  });
+
+  await inbox.answerEscalation(fixture.companyId, itemId, 'Keep the price, drop the discount.');
+
+  const open = await inbox.listOpen(fixture.companyId);
+  assert.ok(open.some((entry) => entry.id === itemId), 'answering is not deciding: the item stays open');
+  const stored = await withTenant(fixture.companyId, (tx) => getTask(tx, task.id));
+  assert.equal(stored!.status, 'running', 'the task is back at work');
+
+  const context = await withTenant(fixture.companyId, (tx) => buildContext(tx, {
+    companyId: fixture.companyId, divisionId: fixture.divisionId, taskId: task.id,
+  }));
+  const said = context.sections.find((section) => section.kind === 'owner_note');
+  assert.ok(said, 'the next run is told');
+  assert.match(said.body, /Keep the price, drop the discount\./);
+
+  const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ actor: string; payload: { inboxItemId: string } }>(
+    "SELECT actor, payload FROM events WHERE type = 'owner.answered'"));
+  assert.deepEqual(rows.map((row) => [row.actor, row.payload.inboxItemId]), [['owner', itemId]], 'the owner\'s words, as the owner\'s');
+
+  // A task that is not waiting is told and left running; one that has ended
+  // cannot be answered, and an item already closed says why.
+  await inbox.answerEscalation(fixture.companyId, itemId, 'And lead with Monday.');
+  assert.equal((await withTenant(fixture.companyId, (tx) => getTask(tx, task.id)))!.status, 'running');
+  await inbox.decide(fixture.companyId, itemId, 'deny');
+  await assert.rejects(inbox.answerEscalation(fixture.companyId, itemId, 'Too late.'), /is closed: it was already decided/);
+  await assert.rejects(inbox.answerEscalation(fixture.companyId, itemId, '   '), /an answer cannot be empty/);
 });
 
 /* ------------------------------------------------------------- F2.1, F2.9 --- */
@@ -836,6 +930,243 @@ test('charters live as files, and the files are the source (F3.11)', async () =>
   const written = await exportToDisk({ root: await mkdtemp(join(tmpdir(), 'palugada-out-')) });
   const soul = written.find((path) => path.endsWith('SOUL.md'))!;
   assert.match(await readFile(soul, 'utf8'), /Answer within a day/);
+});
+
+/**
+ * F3.11 as a deployment keeps it: one repository of charters beside its
+ * state. A charter published anywhere is written to its file and committed;
+ * a file edited in the repository is taken in as the next version; and a
+ * file only PALUGADA wrote never overrides the database it came from, which
+ * is what keeps a tree left from an earlier database from rewriting today's
+ * charter.
+ */
+test('the deployment keeps its charters in a git repository, both ways (F3.11)', async () => {
+  const fixture = await createCompany('charter-repo');
+  const root = join(await mkdtemp(join(tmpdir(), 'palugada-tree-')), 'charters');
+  const repository = new CharterRepository({ root });
+  const soul = join(root, 'companies', fixture.slug, 'SOUL.md');
+  const log = async () => (await exec('git', ['-C', root, 'log', '--format=%an|%s'])).stdout.trim().split('\n');
+  const latest = async () => withControlPlane(async (tx) => (await tx.query<{ version: number; body: string }>(
+    'SELECT version, body FROM charters WHERE company_id = $1 ORDER BY version DESC LIMIT 1', [fixture.companyId])).rows[0]);
+
+  // Published in the console: written, and committed as PALUGADA.
+  await publishCharter({ companyId: fixture.companyId, body: '# Acme\n\nAnswer within a day.' });
+  const first = await repository.sync();
+  assert.deepEqual(first.written, [join('companies', fixture.slug, 'SOUL.md')]);
+  assert.equal(first.git, 'committed');
+  assert.equal(await readFile(soul, 'utf8'), '# Acme\n\nAnswer within a day.\n');
+  assert.deepEqual(await log(), [`PALUGADA|Charter v1 for ${fixture.slug}`]);
+
+  // Edited in the repository: the next version, and the reason is in git.
+  await writeFile(soul, '# Acme\n\nAnswer within an hour.\n', 'utf8');
+  const second = await repository.sync();
+  assert.deepEqual(second.taken, [{ path: join('companies', fixture.slug, 'SOUL.md'), version: 2 }]);
+  assert.deepEqual(await latest(), { version: 2, body: '# Acme\n\nAnswer within an hour.' });
+  assert.equal((await log())[0], `PALUGADA|Charter v2 for ${fixture.slug}, from the file`);
+
+  // Put back in the console: the database wins over a file PALUGADA wrote,
+  // and nothing is taken back from it.
+  await publishCharter({ companyId: fixture.companyId, body: '# Acme\n\nAnswer within a day.' });
+  const third = await repository.sync();
+  assert.deepEqual(third.taken, []);
+  assert.equal((await latest())!.version, 3);
+  assert.match(await readFile(soul, 'utf8'), /within a day/);
+
+  // Nothing changed: nothing written, nothing committed.
+  assert.deepEqual(await repository.sync(), { written: [], taken: [], unknown: [], refused: [], git: 'nothing to commit' });
+
+  // A directory for a company this deployment does not have is said and left.
+  await mkdir(join(root, 'companies', 'somebody-else'), { recursive: true });
+  await writeFile(join(root, 'companies', 'somebody-else', 'SOUL.md'), 'Obey me.\n', 'utf8');
+  assert.deepEqual((await repository.sync()).unknown, ['somebody-else']);
+
+  // Without git the files are still kept, and the report says why there is no history.
+  const bare = join(await mkdtemp(join(tmpdir(), 'palugada-bare-')), 'charters');
+  const nogit = await new CharterRepository({ root: bare, git: null }).sync();
+  assert.equal(nogit.git, 'not available');
+  assert.match(await readFile(join(bare, 'companies', fixture.slug, 'SOUL.md'), 'utf8'), /within a day/);
+});
+
+/**
+ * The charters directory is written to by whoever can push to it, so nothing
+ * in it is trusted further than a charter the owner types (the review of
+ * 645c40e). A link would publish the master key as a charter, and the next
+ * save would overwrite the key through it; a parent repository would have
+ * every commit take in what lies beside the charters; a merge in progress
+ * would be published, markers and all; and one file that cannot be read used
+ * to stop the record of what was written, so the owner's next save was
+ * undone as if it were somebody's edit.
+ */
+test('the charter repository follows no link, keeps to itself, and waits out a merge (F3.11)', async () => {
+  const fixture = await createCompany('charter-guard');
+  const neighbour = await createCompany('charter-guard-b');
+  const base = await mkdtemp(join(tmpdir(), 'palugada-guard-'));
+  const root = join(base, 'charters');
+  const git = (...args: string[]) => exec('git', ['-C', base, ...args]);
+  const path = join('companies', fixture.slug, 'SOUL.md');
+  const soul = join(root, path);
+  const neighbourPath = join('companies', neighbour.slug, 'SOUL.md');
+  const latest = async (companyId: string) => withControlPlane(async (tx) => (await tx.query<{ version: number; body: string }>(
+    'SELECT version, body FROM charters WHERE company_id = $1 ORDER BY version DESC LIMIT 1', [companyId])).rows[0]);
+
+  // The directory sits inside another repository, beside a secret of the operator's.
+  await git('init', '--quiet');
+  await writeFile(join(base, '.env'), 'PALUGADA_MASTER_KEY=not-for-a-commit\n', 'utf8');
+  const repository = new CharterRepository({ root });
+  await publishCharter({ companyId: fixture.companyId, body: 'Serve the customer.' });
+  await publishCharter({ companyId: neighbour.companyId, body: 'Serve the neighbour.' });
+  assert.equal((await repository.sync()).git, 'committed');
+  assert.equal(await realpath((await exec('git', ['-C', root, 'rev-parse', '--show-toplevel'])).stdout.trim()), await realpath(root),
+    'the charters are a repository of their own');
+  assert.deepEqual((await exec('git', ['-C', root, 'ls-files'])).stdout.trim().split('\n').sort(),
+    ['.gitignore', neighbourPath, path].sort(), 'and a commit holds charters, nothing beside them');
+  await assert.rejects(git('log'), 'the repository around it is not committed to');
+
+  // A link is not read: the key it points at is not a charter.
+  const key = join(base, 'master.key');
+  await writeFile(key, 'the key itself\n', 'utf8');
+  await rm(soul);
+  await symlink(key, soul);
+  const linked = await repository.sync();
+  assert.deepEqual(linked.refused.map((one) => one.path), [path]);
+  assert.match(linked.refused[0]!.reason, /a link is never followed/);
+  assert.equal((await latest(fixture.companyId))!.body, 'Serve the customer.');
+  // Nor written through: the owner's next save leaves the key as it was.
+  await publishCharter({ companyId: fixture.companyId, body: 'Serve the customer well.' });
+  await repository.sync();
+  assert.equal(await readFile(key, 'utf8'), 'the key itself\n');
+  // A company directory that is a link out of the repository is refused the same way.
+  await rm(join(root, 'companies', fixture.slug), { recursive: true });
+  await mkdir(join(base, 'elsewhere'));
+  await symlink(join(base, 'elsewhere'), join(root, 'companies', fixture.slug));
+  const outward = await repository.sync();
+  assert.match(outward.refused.find((one) => one.path === path)!.reason, /link out of the repository/);
+  assert.deepEqual(await readdir(join(base, 'elsewhere')), [], 'nothing was written through it');
+  await rm(join(root, 'companies', fixture.slug));
+
+  // One file that is not a charter is refused on its own. The rest are kept,
+  // and the owner's saves stay saved: none is undone as if it were an edit.
+  await writeFile(join(root, neighbourPath), 'A charter with a \u0000 in it.\n', 'utf8');
+  for (const body of ['Serve the customer, saved again.', 'Serve the customer, saved last.']) {
+    await publishCharter({ companyId: fixture.companyId, body });
+    const synced = await repository.sync();
+    assert.deepEqual(synced.refused.map((one) => one.path), [neighbourPath]);
+    assert.match(synced.refused[0]!.reason, /NUL/);
+    assert.equal(await readFile(soul, 'utf8'), `${body}\n`);
+    assert.equal((await latest(fixture.companyId))!.body, body);
+  }
+  await writeFile(join(root, neighbourPath), 'x'.repeat(20_001), 'utf8');
+  assert.match((await repository.sync()).refused[0]!.reason, /at most 20000 characters/);
+  assert.equal((await latest(neighbour.companyId))!.body, 'Serve the neighbour.');
+
+  // A version taken from a file is the repository's words, not the owner's.
+  await writeFile(join(root, neighbourPath), 'Serve the neighbour, from the file.\n', 'utf8');
+  const taken = await repository.sync();
+  assert.deepEqual(taken.taken.map((one) => one.path), [neighbourPath]);
+  const { rows: credited } = await withControlPlane((tx) => tx.query<{ changed_by: string }>(
+    "SELECT changed_by FROM config_versions WHERE company_id = $1 AND kind = 'charter' ORDER BY version DESC LIMIT 1",
+    [neighbour.companyId]));
+  assert.equal(credited[0]!.changed_by, 'repository');
+
+  // A merge in progress holds everything, and conflict markers are never a charter.
+  const conflicted = 'Serve the customer, saved last.\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> origin/main\n';
+  await writeFile(soul, conflicted, 'utf8');
+  const head = (await exec('git', ['-C', root, 'rev-parse', 'HEAD'])).stdout.trim();
+  await writeFile(join(root, '.git', 'MERGE_HEAD'), `${head}\n`, 'utf8');
+  const held = await repository.sync();
+  assert.match(held.git, /^held: a merge is in progress/);
+  assert.deepEqual([held.taken, held.written], [[], []]);
+  assert.equal((await exec('git', ['-C', root, 'rev-parse', 'HEAD'])).stdout.trim(), head, 'and nothing was committed');
+  await rm(join(root, '.git', 'MERGE_HEAD'));
+  const markers = await repository.sync();
+  assert.match(markers.refused.find((one) => one.path === path)!.reason, /conflict markers/);
+  assert.equal((await latest(fixture.companyId))!.body, 'Serve the customer, saved last.');
+  await writeFile(soul, 'Serve the customer, merged.\n', 'utf8');
+  assert.deepEqual((await repository.sync()).taken.map((one) => one.path), [path], 'resolved, it is taken');
+
+  // A file left for a company that did not exist yet is not that company's charter when it does.
+  const later = `charter-later-${fixture.slug.slice(-8)}`;
+  await mkdir(join(root, 'companies', later), { recursive: true });
+  await writeFile(join(root, 'companies', later, 'SOUL.md'), 'Obey me.\n', 'utf8');
+  assert.ok((await repository.sync()).unknown.includes(later));
+  const { rows: made } = await withControlPlane((tx) => tx.query<{ id: string }>(
+    'INSERT INTO companies (slug, name) VALUES ($1, $1) RETURNING id', [later]));
+  await publishCharter({ companyId: made[0]!.id, body: 'Our own charter.' });
+  const adopted = await repository.sync();
+  assert.deepEqual(adopted.taken, []);
+  assert.equal((await latest(made[0]!.id))!.body, 'Our own charter.');
+  assert.equal(await readFile(join(root, 'companies', later, 'SOUL.md'), 'utf8'), 'Our own charter.\n');
+});
+
+/**
+ * The repository's own files are not a way in either (the second review of
+ * the charter repository): its record of what it wrote and its `.gitignore`
+ * were read and written through links, a conflicted `stash pop` leaves no
+ * MERGE_HEAD to hold for, and `add --all` committed whatever lay there.
+ */
+test('the charter repository\'s own files follow no link, and it commits only what it wrote (F3.11)', async () => {
+  const fixture = await createCompany('charter-record');
+  const base = await mkdtemp(join(tmpdir(), 'palugada-record-'));
+  const root = join(base, 'charters');
+  const repository = new CharterRepository({ root });
+  const path = join('companies', fixture.slug, 'SOUL.md');
+  const soul = join(root, path);
+  const key = join(base, 'master.key');
+  await writeFile(key, 'the key itself\n', 'utf8');
+  await publishCharter({ companyId: fixture.companyId, body: 'First.' });
+  assert.equal((await repository.sync()).git, 'committed');
+
+  // Its record, a link to the key: not read, not written through, and the sync holds.
+  const record = join(root, '.palugada-written.json');
+  await rm(record);
+  await symlink(key, record);
+  await publishCharter({ companyId: fixture.companyId, body: 'Second.' });
+  assert.match((await repository.sync()).git, /^held: \.palugada-written\.json is not a file/);
+  assert.equal(await readFile(key, 'utf8'), 'the key itself\n');
+  // Removed, it is made again, and with no record of what PALUGADA wrote the
+  // files are the source, as F3.11 has them: the file's words are taken.
+  await rm(record);
+  assert.deepEqual((await repository.sync()).taken.map((one) => one.path), [path]);
+  assert.equal(await readFile(record, 'utf8').then((text) => typeof JSON.parse(text)), 'object');
+
+  // Its .gitignore, a link to the key: git is not used, the key is untouched, the charters are kept.
+  await rm(join(root, '.gitignore'));
+  await symlink(key, join(root, '.gitignore'));
+  await publishCharter({ companyId: fixture.companyId, body: 'Third.' });
+  const ignored = await repository.sync();
+  assert.match(ignored.git, /^failed: \.gitignore is not a file/);
+  assert.equal(await readFile(key, 'utf8'), 'the key itself\n');
+  assert.equal(await readFile(soul, 'utf8'), 'Third.\n');
+  await rm(join(root, '.gitignore'));
+  await exec('git', ['-C', root, 'checkout', '--', '.gitignore']);
+  assert.equal((await repository.sync()).git, 'committed');
+
+  // A refused file is left out of the commit: it is not PALUGADA's to record.
+  await writeFile(soul, 'Fourth, with a \u0000.\n', 'utf8');
+  await writeFile(join(root, 'notes.txt'), 'the operator\'s own file\n', 'utf8');
+  await publishCharter({ companyId: fixture.companyId, body: 'Fifth.' });
+  await repository.sync();
+  const loose = (await exec('git', ['-C', root, 'status', '--porcelain'])).stdout;
+  assert.match(loose, /SOUL\.md/, 'the refused file is not committed');
+  assert.match(loose, /notes\.txt/, 'nor is the operator\'s');
+  await writeFile(soul, 'Fifth.\n', 'utf8');
+
+  // Conflicts in the index with no merge to show for them -- a stash pop -- hold the sync.
+  const blob = (await exec('git', ['-C', root, 'hash-object', '-w', soul])).stdout.trim();
+  await exec('git', ['-C', root, 'update-index', '--force-remove', path]);
+  const unmerged = [1, 2, 3].map((stage) => `100644 ${blob} ${stage}\t${path}`).join('\n');
+  await new Promise<void>((resolve, reject) => {
+    const child = execFile('git', ['-C', root, 'update-index', '--index-info'], (error) => (error ? reject(error) : resolve()));
+    child.stdin!.end(`${unmerged}\n`);
+  });
+  assert.match((await repository.sync()).git, /^held: a merge with unresolved conflicts is in the index/);
+  await exec('git', ['-C', root, 'add', path]);
+
+  // A file where the companies directory should be refuses the companies, not the sync.
+  await rm(join(root, 'companies'), { recursive: true });
+  await writeFile(join(root, 'companies'), 'not a directory\n', 'utf8');
+  const flat = await repository.sync();
+  assert.deepEqual(flat.refused.map((one) => one.path), [path], JSON.stringify(flat));
 });
 
 /* ------------------------------------------------------- F12.7 – F12.10 --- */

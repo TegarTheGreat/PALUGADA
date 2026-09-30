@@ -18,7 +18,7 @@ import { isRoleFrozen } from '../governance/role-freeze.ts';
 import { isSpendPaused } from '../governance/spend-guard.ts';
 import { assertGoalOpen } from '../domain/goals.ts';
 import { settleTicketsOf } from './tickets.ts';
-import { learn } from '../memory/store.ts';
+import { learn, remember } from '../memory/store.ts';
 
 /** F6.5: one task may spawn at most this many children unless overridden. */
 export const DEFAULT_FAN_OUT_MAX = 5;
@@ -115,7 +115,12 @@ export async function getTask(tx: TenantClient, taskId: string): Promise<TaskRow
  * company through a capability the catalogue marks `readsOutside` -- an
  * email, a web page, a customer's record. Null when neither. Delegating does
  * not launder it: a child of such a task is the same work, carrying the same
- * text in its brief.
+ * text in its brief. Nor does asking: a task whose sub-task read something
+ * gets what it found back, through `task.await` or the sub-task's result,
+ * so a read anywhere below a task counts for it too. That is wider than
+ * what it has taken back so far, and a tier 2 action it takes asks the owner
+ * a little more often for it; the other way, a run hands the email to a
+ * sub-task and sends on its answer unasked.
  */
 export async function outsideContentIn(tx: TenantClient, taskId: string): Promise<'begun' | 'read' | null> {
   const { rows } = await tx.query<{ begun: boolean | null; read: boolean }>(
@@ -125,10 +130,17 @@ export async function outsideContentIn(tx: TenantClient, taskId: string): Promis
        SELECT t.id, t.parent_task_id, t.created_by, chain.depth + 1
          FROM tasks t JOIN chain ON t.id = chain.parent_task_id
         WHERE chain.depth < 64
+     ), below AS (
+       SELECT id, 0 AS depth FROM tasks WHERE parent_task_id = $1
+       UNION ALL
+       SELECT t.id, below.depth + 1
+         FROM tasks t JOIN below ON t.parent_task_id = below.id
+        WHERE below.depth < 64
      )
      SELECT bool_or(created_by = 'webhook') AS begun,
             EXISTS (SELECT 1 FROM events e
-                     WHERE e.task_id IN (SELECT id FROM chain) AND e.type = 'content.read_outside') AS read
+                     WHERE e.type = 'content.read_outside'
+                       AND (e.task_id IN (SELECT id FROM chain) OR e.task_id IN (SELECT id FROM below))) AS read
        FROM chain`,
     [taskId],
   );
@@ -151,6 +163,13 @@ export interface CreateTaskInput {
   budgetAccountId?: string;
   /** `webhook`: begun by an inbound trigger, so from outside the company (0054, F8.9). */
   createdBy: 'scheduler' | 'event' | 'agent_run' | 'owner' | 'webhook';
+  /**
+   * F8.9: the task is made from words written outside the company -- a
+   * rerun of tainted work, a ticket a run filed -- and carries them from its
+   * first step. Recorded in the transaction that makes the task, so no
+   * worker can claim it clean in between. The payload says where from.
+   */
+  carriesOutside?: Record<string, unknown> | undefined;
   deadlineAt?: Date | undefined;
   hopMax?: number | undefined;
   attemptMax?: number | undefined;
@@ -270,7 +289,8 @@ export async function createRootTask(input: CreateTaskInput): Promise<TaskRow> {
     if (!granted) {
       throw new PalugadaError(
         'budget.reservation_refused',
-        'budget account cannot fund this task',
+        'the budget account cannot fund this task: its tokens are spent or held up to its ceiling. '
+          + 'Raise its ceiling under Money, or let running work finish and release what it holds',
         { budgetAccountId, reserveTokens },
       );
     }
@@ -289,6 +309,12 @@ export async function createRootTask(input: CreateTaskInput): Promise<TaskRow> {
         { parentTaskId: null, hopDepth: 0, reserveTokens },
       );
       await tx.query('RELEASE SAVEPOINT insert_task');
+      if (input.carriesOutside) {
+        await appendEvent(tx, {
+          companyId: input.companyId, projectId: task.projectId, taskId: task.id,
+          type: 'content.read_outside', actor: 'engine', payload: input.carriesOutside,
+        });
+      }
       return task;
     } catch (error) {
       // Two workers raced for the same occurrence. The unique constraint on
@@ -510,6 +536,22 @@ export async function createSubTask(
         { parentTaskId, hopDepth, reserveTokens },
       );
       await tx.query('RELEASE SAVEPOINT insert_child');
+      // F8.9: a parent carries a read by any of its sub-tasks, since what
+      // they found comes back to it (`outsideContentIn`), but a child's own
+      // chain sees only reads above it. A brief written after a sibling's
+      // email came back is that email's work, so it is handed down here,
+      // when the child is made from what the parent knows by then.
+      if ((await outsideContentIn(tx, parentTaskId)) !== null && (await outsideContentIn(tx, child.id)) === null) {
+        await appendEvent(tx, {
+          companyId: input.companyId,
+          projectId: child.projectId,
+          taskId: child.id,
+          type: 'content.read_outside',
+          actor: 'engine',
+          // Named as the Work page lists it: "through the task that made it".
+          payload: { capability: 'the task that made it', from: 'parent', parentTaskId },
+        });
+      }
       return child;
     } catch (error) {
       if ((error as { code?: string }).code === '23505') {
@@ -687,6 +729,45 @@ async function keepLessons(tx: TenantClient, companyId: string, task: TaskRow, o
   }
 }
 
+/** How long an episode's two halves may be: one line, not a report. */
+const EPISODE_GOAL_MAX = 200;
+const EPISODE_RESULT_MAX = 400;
+
+/**
+ * What finished work did, as one line of episodic memory for its project
+ * (F4.6): what it was for, and what it reported.
+ *
+ * `memory.search` offered "past events" and nothing wrote one, so a run that
+ * asked what the company had already done about something was told nothing.
+ * Stopping the offer would have been fewer lines, and would have left F4.6's
+ * episodic memory -- shared across a project, which `recall` already scopes
+ * -- a rule about rows that never exist. Every task has a project, and this
+ * is the transaction that finishes it, so the row costs one insert.
+ *
+ * Not `learn`: an episode is an event, not a belief, and two pieces of work
+ * that reported the same thing are two events rather than one surer fact.
+ * The result is the run's own report, and the line says so by what it is;
+ * work that read outside content leaves an episode marked as such, which a
+ * search hands back as data (F8.9).
+ */
+async function keepEpisode(tx: TenantClient, companyId: string, task: TaskRow, output: unknown): Promise<void> {
+  const line = (text: unknown, max: number): string =>
+    typeof text === 'string' ? text.replace(/\s+/g, ' ').trim().slice(0, max) : '';
+  const goal = line(task.input.goal, EPISODE_GOAL_MAX);
+  const result = line(output && typeof output === 'object' ? (output as { summary?: unknown }).summary : undefined, EPISODE_RESULT_MAX);
+  if (!goal && !result) return;
+  await remember(tx, {
+    companyId,
+    memoryType: 'episodic',
+    scopeType: 'project',
+    scopeId: task.projectId,
+    body: goal && result ? `${goal} — ${result}` : goal || result,
+    source: 'agent',
+    outside: (await outsideContentIn(tx, task.id)) !== null,
+    sourceTaskId: task.id,
+  });
+}
+
 /**
  * The same move, inside a transaction the caller already holds.
  *
@@ -779,6 +860,9 @@ export async function transitionWithin(
         ? { haltReason: options.haltReason, ...(options.detail ? { detail: options.detail.slice(0, 2_000) } : {}) }
         : completed ?? {},
     });
-    if (to === 'completed') await keepLessons(tx, companyId, task, options.output);
+    if (to === 'completed') {
+      await keepLessons(tx, companyId, task, options.output);
+      await keepEpisode(tx, companyId, task, options.output);
+    }
   }
 }

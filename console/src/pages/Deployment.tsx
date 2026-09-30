@@ -9,20 +9,21 @@
  * which is exactly when an owner needs it.
  */
 import {
-  Accordion, Alert, Anchor, Autocomplete, Avatar, Badge, Button, Code, Grid, Group, NavLink, Paper, PasswordInput, Radio,
-  Checkbox, SegmentedControl, Select, SimpleGrid, Stack, Switch, Table, Text, TextInput,
+  Accordion, Alert, Anchor, Autocomplete, Avatar, Badge, Button, Code, CopyButton, Grid, Group, NavLink, Paper, PasswordInput, Radio,
+  Checkbox, SegmentedControl, Select, SimpleGrid, Stack, Switch, Table, Text, Textarea, TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
-  IconBell, IconBrain, IconCheck, IconDownload, IconExternalLink, IconKey, IconListSearch, IconMicrophone, IconPlayerStopFilled, IconPlug,
-  IconPlugConnected, IconPlus, IconTerminal2,
+  IconApi, IconBell, IconBrain, IconCheck, IconCopy, IconDownload, IconExternalLink, IconKey, IconListSearch, IconMicrophone, IconPlayerStopFilled, IconPlug,
+  IconPlugConnected, IconPlus, IconTerminal2, IconTrash,
   IconWorldSearch,
 } from '@tabler/icons-react';
 import { useEffect, useMemo, useState } from 'react';
 import { api, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { useLoad } from '../hooks.ts';
-import { N, t } from '../i18n.ts';
+import { dateTime } from '../format.ts';
+import { N, locale, t } from '../i18n.ts';
 import { go, type DeploymentSection } from '../router.ts';
 import { LoadFailed, Loading, PageHeader, Section, TierBadge } from '../components/ui.tsx';
 import { recordingSupported, useRecorder } from '../recorder.ts';
@@ -60,6 +61,8 @@ interface SettingsView {
     } | null;
   };
   providers: ProviderEntry[];
+  /** What each model the tiers name costs, in cents per million tokens, and who said so. */
+  prices: Array<{ model: string; input: number; output: number; source: 'console' | 'file' | 'fallback' }>;
   secrets: Array<{ name: string; updatedAt: string }>;
   masterKey: string | null;
   applies: 'now' | 'next_start';
@@ -68,10 +71,12 @@ interface SettingsView {
 
 const SECTIONS: Array<{ id: DeploymentSection; label: string; hint: string; icon: typeof IconBrain }> = [
   { id: 'model', label: N('Model'), hint: N('What every role thinks with, unless a role is given its own.'), icon: IconBrain },
-  { id: 'tools', label: N('Tools'), hint: N('Where roles search the web, read pages, make pictures and speak: the provider, and its key.'), icon: IconWorldSearch },
-  { id: 'channels', label: N('Channels'), hint: N('Where PALUGADA reaches you: Telegram, your phone, Slack or Discord.'), icon: IconBell },
+  { id: 'tools', label: N('Tools'), hint: N('Where roles search the web, read pages, make pictures and speak, and what finds documents by meaning: the provider, and its key.'), icon: IconWorldSearch },
+  { id: 'channels', label: N('Channels'), hint: N('Where PALUGADA reaches you: Telegram, WhatsApp, your phone, Slack, Discord or email.'), icon: IconBell },
+  { id: 'services', label: N('Services'), hint: N('The services capabilities call: email, DNS, payments, posts, analytics. Connect one here, then give each division that uses it its key on Team.'), icon: IconApi },
   { id: 'mcp', label: N('MCP servers'), hint: N('Tools from other services\' MCP servers: which of them roles may use, and how far each is trusted.'), icon: IconPlug },
   { id: 'agents', label: N('Agent CLIs'), hint: N('Claude Code, Codex, Gemini CLI and others: install them here, sign them in, and let roles run on them.'), icon: IconTerminal2 },
+  { id: 'erasures', label: N('Erased companies'), hint: N('Companies you closed, erased here when their days were over: when, and how much of each went.'), icon: IconTrash },
 ];
 
 const GROUPS: Array<{ id: ProviderEntry['group']; label: string }> = [
@@ -114,9 +119,81 @@ export function DeploymentSettings({ section }: { section: DeploymentSection }) 
           {current.id === 'agents' && <AgentSettings />}
           {current.id === 'tools' && <ToolSettings />}
           {current.id === 'channels' && <ChannelSettings />}
+          {current.id === 'services' && <ServiceSettings />}
           {current.id === 'mcp' && <McpSettings />}
+          {current.id === 'erasures' && <ErasureList />}
         </Grid.Col>
       </Grid>
+    </Stack>
+  );
+}
+
+/**
+ * The line each erased company leaves (0088), and nothing else of it. Above
+ * it, a company whose day has come and whose erasure failed (0096): what the
+ * last try said and when the next one is, since an erasure the owner is owed
+ * and has not had is the one thing on this page they have to act on.
+ */
+function ErasureList() {
+  const view = useLoad(async () => {
+    const answer: {
+      erasures: Array<{ companyId: string; name: string; closedAt: string; erasedAt: string; counts: Record<string, number> }>;
+      failing: Array<{ companyId: string; name: string; attempts: number; failure: string | null; retryAt: string | null }>;
+    } = await api('GET', '/api/erasures');
+    return answer;
+  }, []);
+  if (view.error) return <LoadFailed message={view.error} retry={view.reload} />;
+  if (!view.data) return <Loading rows={2} />;
+  const { erasures, failing } = view.data;
+  return (
+    <Stack gap="md">
+      {failing.length > 0 && (
+        <Section title={t('Not erased yet')} description={t('Their day has come and erasing them failed. Each is tried again, less often each time; until it succeeds, everything of it is still here.')}>
+          <Stack gap="xs">
+            {failing.map((one) => (
+              <Alert key={one.companyId} color="red" variant="light" title={one.name}>
+                <Text size="sm">{one.failure}</Text>
+                <Text size="xs" c="dimmed">
+                  {t('Tried {attempts} times; next at {when}.', {
+                    attempts: one.attempts, when: one.retryAt ? dateTime(one.retryAt) : '-',
+                  })}
+                </Text>
+              </Alert>
+            ))}
+          </Stack>
+        </Section>
+      )}
+      <Section title={t('Erased companies')} description={t('What each one kept is gone, backups aside until they age out; this line is all that is left of it.')}>
+        {erasures.length === 0 ? <Text size="sm" c="dimmed">{t('No company has been erased here.')}</Text> : (
+          <Table verticalSpacing="sm">
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>{t('Company')}</Table.Th>
+                <Table.Th>{t('Closed')}</Table.Th>
+                <Table.Th>{t('Erased')}</Table.Th>
+                <Table.Th>{t('What went')}</Table.Th>
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {erasures.map((one) => (
+                <Table.Tr key={one.companyId}>
+                  <Table.Td><Text size="sm" fw={600}>{one.name}</Text></Table.Td>
+                  <Table.Td>{new Date(one.closedAt).toLocaleDateString(locale())}</Table.Td>
+                  <Table.Td>{new Date(one.erasedAt).toLocaleDateString(locale())}</Table.Td>
+                  <Table.Td>
+                    <Text size="xs" c="dimmed">
+                      {t('{tasks} tasks, {events} events, {memories} memories, {documents} documents', {
+                        tasks: one.counts.tasks ?? 0, events: one.counts.events ?? 0,
+                        memories: one.counts.memories ?? 0, documents: one.counts.documents ?? 0,
+                      })}
+                    </Text>
+                  </Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        )}
+      </Section>
     </Stack>
   );
 }
@@ -125,7 +202,111 @@ function ModelSettings() {
   const view = useLoad(async (): Promise<SettingsView> => api('GET', '/api/control/settings'), []);
   if (view.error) return <LoadFailed message={view.error} retry={view.reload} />;
   if (!view.data) return <Loading rows={5} />;
-  return <ModelForm view={view.data} reload={view.reload} />;
+  return (
+    <Stack gap="lg">
+      <ModelForm view={view.data} reload={view.reload} />
+      {view.data.prices.length > 0 && <ModelPrices prices={view.data.prices} reload={view.reload} />}
+    </Stack>
+  );
+}
+
+const PRICE_SOURCE: Record<SettingsView['prices'][number]['source'], string> = {
+  console: N('your price'),
+  file: N('set in the configuration'),
+  fallback: N('not priced: charged at the highest rate'),
+};
+
+/** Dollars per million tokens, as the owner reads a provider's price list. */
+function dollars(cents: number): string {
+  return String(Math.round(cents) / 100);
+}
+
+/**
+ * What each model costs (L12). Without a price a call is charged at the top
+ * of the market, on purpose -- a budget then stops early rather than late --
+ * which is fifty times what some models cost. The owner types the numbers
+ * from their provider's price list, in dollars per million tokens.
+ */
+function ModelPrices({ prices, reload }: { prices: SettingsView['prices']; reload: () => void }) {
+  const requireFactor = useFactor();
+  const [typed, setTyped] = useState<Record<string, { input: string; output: string }>>(
+    Object.fromEntries(prices.map((row) => [row.model, row.source === 'fallback' ? { input: '', output: '' } : { input: dollars(row.input), output: dollars(row.output) }])),
+  );
+  const changed = prices.filter((row) => {
+    const now = typed[row.model];
+    return now && now.input.trim() !== '' && now.output.trim() !== ''
+      && (row.source === 'fallback' || now.input !== dollars(row.input) || now.output !== dollars(row.output));
+  });
+  const save = async () => {
+    const body = Object.fromEntries(changed.map((row) => [row.model, {
+      input: Math.round(Number(typed[row.model]!.input) * 100), output: Math.round(Number(typed[row.model]!.output) * 100),
+    }]));
+    const done = await requireFactor(t('Change what a model costs'), (proof) =>
+      api('POST', '/api/control/settings/model/prices', { prices: body, proof }));
+    if (done) {
+      notifications.show({ color: 'teal', message: t('Saved. Calls are priced by it from the next start, in a moment.') });
+      setTimeout(reload, 3_000);
+    }
+  };
+  // models.dev's prices, filled into the form for the owner to look at and
+  // save: nothing is saved by looking.
+  const [looking, setLooking] = useState(false);
+  const [found, setFound] = useState<string | null>(null);
+  const lookUp = async () => {
+    setLooking(true);
+    setFound(null);
+    try {
+      const answer: { prices: Record<string, { input: number; output: number; provider: string }>; missing: string[]; problem: string | null } =
+        await api('POST', '/api/control/settings/model/prices/lookup', {});
+      if (answer.problem) {
+        setFound(answer.problem);
+        return;
+      }
+      setTyped((all) => ({
+        ...all,
+        ...Object.fromEntries(Object.entries(answer.prices).map(([model, price]) => [model, { input: dollars(price.input), output: dollars(price.output) }])),
+      }));
+      const from = Object.entries(answer.prices).map(([model, price]) => `${model} (${price.provider})`).join(', ');
+      setFound([
+        from ? t('Filled from models.dev: {models}. Check them against your bill, then save.', { models: from }) : '',
+        answer.missing.length > 0 ? t('Not found there: {models}.', { models: answer.missing.join(', ') }) : '',
+      ].filter(Boolean).join(' '));
+    } catch (failure) {
+      setFound(explain(failure));
+    } finally {
+      setLooking(false);
+    }
+  };
+  const unpriced = prices.some((row) => row.source === 'fallback');
+  return (
+    <Section title={t('What it costs')} description={t('From your provider\'s price list, in dollars per million tokens. Budgets are counted in these prices.')}>
+      <Stack gap="sm">
+        {unpriced && (
+          <Alert color="yellow" variant="light">
+            {t('A model with no price is charged at the highest rate, $15 in and $75 out per million tokens, so a budget stops early rather than late. For most models that is many times what they cost.')}
+          </Alert>
+        )}
+        {prices.map((row) => (
+          <Group key={row.model} gap="sm" align="flex-end" wrap="wrap">
+            <Stack gap={0} style={{ minWidth: 180, flex: 1 }}>
+              <Code>{row.model}</Code>
+              <Text size="xs" c={row.source === 'fallback' ? 'orange' : 'dimmed'}>{t(PRICE_SOURCE[row.source])}</Text>
+            </Stack>
+            <TextInput size="xs" w={130} label={t('Input, $ per million')} placeholder={dollars(row.input)} inputMode="decimal"
+              value={typed[row.model]?.input ?? ''} onChange={(event) => { const value = event.currentTarget.value; setTyped((all) => ({ ...all, [row.model]: { ...all[row.model]!, input: value } })); }} />
+            <TextInput size="xs" w={130} label={t('Output, $ per million')} placeholder={dollars(row.output)} inputMode="decimal"
+              value={typed[row.model]?.output ?? ''} onChange={(event) => { const value = event.currentTarget.value; setTyped((all) => ({ ...all, [row.model]: { ...all[row.model]!, output: value } })); }} />
+          </Group>
+        ))}
+        {found && <Text size="xs" c="dimmed">{found}</Text>}
+        <Group>
+          <Button variant="default" loading={looking} onClick={() => void lookUp()}>{t('Fill from models.dev')}</Button>
+          <Button disabled={changed.length === 0 || changed.some((row) => !Number.isFinite(Number(typed[row.model]!.input)) || !Number.isFinite(Number(typed[row.model]!.output)))}
+            onClick={() => void save()}>{t('Save prices')}</Button>
+        </Group>
+      </Stack>
+    </Section>
+  );
 }
 
 function ModelForm({ view, reload }: { view: SettingsView; reload: () => void }) {
@@ -429,6 +610,8 @@ interface AgentRow {
   installed: { command: string; managed: boolean; version: string | null } | null;
   cannotInstall: string | null;
   tested: string | null;
+  /** A version other than the tested one the owner accepted. */
+  accepted: string | null;
   enabled: boolean;
   inUse: boolean;
   credential: { kind: string | null; variable: string } | null;
@@ -497,6 +680,19 @@ function AgentCard({ agent, reload }: { agent: AgentRow; reload: () => void }) {
       const answer: { job: AgentJob } = await api('POST', `/api/control/agents/${agent.name}/install`, { version, proof });
       setJob(answer.job);
     });
+  };
+
+  // Which version is installed, and whether roles on it get work: the
+  // server holds the same rule (`checked-versions.ts`) and has the last word.
+  const found = agent.installed?.version ? versionNumber(agent.installed.version) : null;
+  const drifted = found !== null && agent.tested !== null && found !== agent.tested;
+  const accept = async () => {
+    const done = await requireFactor(t('Run {agent} {version}, a version PALUGADA did not check', { agent: agent.title, version: found ?? '' }), (proof) =>
+      api('POST', `/api/control/agents/${agent.name}/accept`, { proof }));
+    if (done) {
+      notifications.show({ color: 'teal', message: t('{agent} {version} accepted. Roles on it get work again.', { agent: agent.title, version: found ?? '' }) });
+      reload();
+    }
   };
 
   const signIn = async () => {
@@ -584,6 +780,22 @@ function AgentCard({ agent, reload }: { agent: AgentRow; reload: () => void }) {
             <Text size="xs" c="dimmed">{t('Version {version}, the one PALUGADA was checked against. It goes in this deployment\'s own directory.', { version: agent.tested ?? '' })}</Text>
           </Group>
         )}
+        {drifted && found !== agent.accepted && (
+          <Alert color="orange" variant="light" title={t('Not the version PALUGADA checked')}>
+            <Text size="sm">
+              {t('{agent} {found} is installed. What keeps it to PALUGADA\'s tools, and none of its own, was checked on {tested}, and another version may read those settings differently. Roles on it get no work until you install {tested} or accept {found}.', { agent: agent.title, found: found ?? '', tested: agent.tested ?? '' })}
+            </Text>
+            <Group gap="xs" mt="sm">
+              <Button size="xs" leftSection={<IconDownload size={14} />} loading={job?.state === 'running'} onClick={() => void install('tested')}>
+                {t('Install {version}', { version: agent.tested ?? '' })}
+              </Button>
+              <Button size="xs" variant="default" onClick={() => void accept()}>{t('Accept {version}', { version: found ?? '' })}</Button>
+            </Group>
+          </Alert>
+        )}
+        {drifted && found === agent.accepted && (
+          <Text size="xs" c="dimmed">{t('Running {found}, which you accepted; PALUGADA checked {tested}.', { found: found ?? '', tested: agent.tested ?? '' })}</Text>
+        )}
         {job?.kind === 'install' && job.state !== 'succeeded' && (
           <div>
             <Text size="xs" fw={600} c={job.state === 'failed' ? 'red' : 'dimmed'} mb={4}>
@@ -668,7 +880,7 @@ function AgentCard({ agent, reload }: { agent: AgentRow; reload: () => void }) {
   );
 }
 
-type ToolKind = 'search' | 'extract' | 'image' | 'speech' | 'listen';
+type ToolKind = 'search' | 'extract' | 'image' | 'speech' | 'listen' | 'embed';
 
 interface ToolProvider {
   id: string;
@@ -707,6 +919,7 @@ const TOOL_TEXT: Record<ToolKind, { title: string; hint: string }> = {
   image: { title: N('Making pictures'), hint: N('Lets a role draw a picture from a description. It is kept in the company\'s files, and the role\'s draft names it.') },
   speech: { title: N('Speaking'), hint: N('Lets a role turn text into a voice recording, kept in the company\'s files.') },
   listen: { title: N('Listening'), hint: N('Writes down what is said: what you say to the assistant, and recordings in the company\'s files for a role.') },
+  embed: { title: N('Meaning'), hint: N('Finds the company\'s documents by what they mean, not only by the words a question shares with them. Each passage is sent to the provider once, in the background.') },
 };
 
 /** The same words the server sends about each provider, here so that they are translated. */
@@ -744,6 +957,13 @@ const TOOL_ABOUT: Record<string, string> = {
   'listen:deepinfra': N('Whisper, a fraction of a cent'),
   'listen:speaches': N('Whisper on your own machine, OpenAI-compatible'),
   'listen:whisper-cpp': N('Its server, started with --convert so it takes any audio'),
+  'embed:openai': N('text-embedding-3, cheap and good in most languages'),
+  'embed:gemini': N('Gemini embedding; free on its free tier'),
+  'embed:mistral': N('Mistral embed, hosted in Europe'),
+  'embed:voyage': N('Built for search, with a free allowance'),
+  'embed:jina': N('Multilingual, with a free allowance'),
+  'embed:ollama': N('On your own machine: ollama pull nomic-embed-text'),
+  'embed:openai-compatible': N('vLLM, LM Studio, llama.cpp or another server of your own'),
 };
 
 /** What each tool is tried with. */
@@ -753,6 +973,7 @@ const TOOL_PROBE: Record<ToolKind, { label: string; value: string }> = {
   image: { label: N('Try a picture of'), value: N('A lighthouse at dawn, flat illustration') },
   speech: { label: N('Try saying'), value: N('Good morning. Here is what happened overnight.') },
   listen: { label: N('Try it: say a few words'), value: '' },
+  embed: { label: N('Try a sentence'), value: N('What is our refund policy?') },
 };
 
 function ToolSettings() {
@@ -761,7 +982,7 @@ function ToolSettings() {
   if (!view.data) return <Loading rows={5} />;
   return (
     <Stack gap="lg">
-      {(['search', 'extract', 'image', 'speech', 'listen'] as const).map((kind) => (
+      {(['search', 'extract', 'image', 'speech', 'listen', 'embed'] as const).map((kind) => (
         <ToolCard key={kind} kind={kind} state={view.data!.kinds[kind]} providers={view.data!.providers[kind]}
           filesRoot={view.data!.filesRoot} reload={view.reload} />
       ))}
@@ -787,10 +1008,11 @@ function ToolCard({ kind, state, providers, filesRoot, reload }: {
     page?: { url: string; title: string | null; excerpt: string };
     media?: { mime: string; bytes: number; dataUrl: string };
     text?: string;
+    dimensions?: number;
   } | null>(null);
   const recorder = useRecorder();
   // Which of the tools has a model to choose; speaking also has a voice.
-  const makesFiles = kind === 'image' || kind === 'speech' || kind === 'listen';
+  const hasModel = kind === 'image' || kind === 'speech' || kind === 'listen' || kind === 'embed';
   const keyKept = state.keySet && state.provider === providerId && key === '';
 
   const options = [
@@ -801,9 +1023,9 @@ function ToolCard({ kind, state, providers, filesRoot, reload }: {
 
   const body = () => ({
     provider: providerId, url: url.trim() || undefined, key: key.trim() || undefined,
-    ...(makesFiles ? { model: model.trim() || undefined } : {}), ...(kind === 'speech' ? { voice: voice.trim() || undefined } : {}),
+    ...(hasModel ? { model: model.trim() || undefined } : {}), ...(kind === 'speech' ? { voice: voice.trim() || undefined } : {}),
   });
-  const tried = { search: { query: probe }, extract: { url: probe }, image: { prompt: probe }, speech: { text: probe }, listen: {} }[kind];
+  const tried = { search: { query: probe }, extract: { url: probe }, image: { prompt: probe }, speech: { text: probe }, listen: {}, embed: { text: probe } }[kind];
 
   /** Listening is tried with the owner's own voice: tap to record, tap again to send it. */
   const listenTest = async () => {
@@ -892,7 +1114,7 @@ function ToolCard({ kind, state, providers, filesRoot, reload }: {
                 autoComplete="off"
               />
             )}
-            {makesFiles && (
+            {hasModel && (
               <Group grow align="flex-start">
                 {provider.defaultModel && (
                   <TextInput label={t('Model')} placeholder={provider.defaultModel} value={model}
@@ -935,6 +1157,9 @@ function ToolCard({ kind, state, providers, filesRoot, reload }: {
                       <Text size="xs" c="dimmed" lineClamp={4}>{result.page.excerpt}</Text>
                     </>
                   )}
+                  {result.dimensions !== undefined && (
+                    <Text size="sm">{t('It answered: {n} numbers for that sentence. A passage that means the same will be near it.', { n: String(result.dimensions) })}</Text>
+                  )}
                   {result.text !== undefined && (
                     <Text size="sm">{result.text ? `“${result.text}”` : t('It answered, and heard no words.')}</Text>
                   )}
@@ -965,9 +1190,17 @@ interface ChannelsView {
   publicUrl: string | null;
   applies: 'now' | 'next_start';
   telegram: { source: 'console' | 'environment' | null; chatId: string | null; receives: boolean };
+  whatsapp: {
+    source: 'console' | 'environment' | null; phoneNumberId: string | null; owner: string | null; template: string | null;
+    callbackUrl: string | null; verifyToken: string | null;
+  };
   push: { source: 'console' | 'environment' | null; format: 'webhook' | 'ntfy' | null; url: string | null; topic: string | null; tokenSet: boolean };
   slack: { source: 'console' | 'environment' | null };
   discord: { source: 'console' | 'environment' | null };
+  email: {
+    source: 'console' | 'environment' | null; provider: string | null; from: string | null; to: string | null;
+    providers: Array<{ id: string; name: string; keyUrl: string }>;
+  };
 }
 
 function ChannelSettings() {
@@ -977,9 +1210,11 @@ function ChannelSettings() {
   return (
     <Stack gap="lg">
       <TelegramCard view={view.data} reload={view.reload} />
+      <WhatsAppCard view={view.data} reload={view.reload} />
       <PushCard view={view.data} reload={view.reload} />
       <ChatWebhookCard kind="slack" source={view.data.slack.source} reload={view.reload} />
       <ChatWebhookCard kind="discord" source={view.data.discord.source} reload={view.reload} />
+      <EmailCard view={view.data} reload={view.reload} />
     </Stack>
   );
 }
@@ -1110,6 +1345,95 @@ function TelegramCard({ view, reload }: { view: ChannelsView; reload: () => void
   );
 }
 
+function WhatsAppCard({ view, reload }: { view: ChannelsView; reload: () => void }) {
+  const requireFactor = useFactor();
+  const [phoneNumberId, setPhoneNumberId] = useState(view.whatsapp.phoneNumberId ?? '');
+  const [owner, setOwner] = useState(view.whatsapp.owner ?? '');
+  const [template, setTemplate] = useState(view.whatsapp.template ?? '');
+  const [token, setToken] = useState('');
+  const [appSecret, setAppSecret] = useState('');
+  const [problem, setProblem] = useState<string | null>(null);
+  const connected = view.whatsapp.source === 'console';
+
+  const save = async () => {
+    setProblem(null);
+    try {
+      const done = await requireFactor(t('Connect WhatsApp'), async (proof) => {
+        const answer: { number: { number: string; name: string | null } } = await api('POST', '/api/control/channels/whatsapp', {
+          phoneNumberId: phoneNumberId.trim(), owner: owner.trim(), template: template.trim(),
+          ...(token.trim() ? { token: token.trim() } : {}), ...(appSecret.trim() ? { appSecret: appSecret.trim() } : {}), proof,
+        });
+        notifications.show({ color: 'teal', message: t('WhatsApp is connected to {number}.', { number: answer.number.name ? `${answer.number.name} (${answer.number.number})` : answer.number.number }) });
+        // Sealed now: the fields go back to saying so rather than holding them.
+        setToken('');
+        setAppSecret('');
+      });
+      if (done) setTimeout(reload, 3_000);
+    } catch (failure) {
+      setProblem(explain(failure));
+    }
+  };
+  const disconnect = async () => {
+    const done = await requireFactor(t('Disconnect WhatsApp'), (proof) => api('POST', '/api/control/channels/whatsapp/clear', { proof }));
+    if (done) setTimeout(reload, 3_000);
+  };
+
+  return (
+    <Section
+      title={t('WhatsApp')}
+      description={t('The same as Telegram, on a WhatsApp Business number through Meta\'s Cloud API: Approve, Deny and Ask buttons, and your CEO answers what you write. An irreversible approval is always a link to the app.')}
+      actions={<SourceBadge source={view.whatsapp.source} />}
+    >
+      <Stack gap="sm">
+        <Text size="sm">
+          {t('1. In Meta for Developers, make an app with WhatsApp, add your business number, and make a system user with a permanent token that may send for it.')}{' '}
+          <Anchor href="https://developers.facebook.com/docs/whatsapp/cloud-api/get-started" target="_blank" rel="noreferrer" size="sm">{t('Cloud API')} <IconExternalLink size={12} /></Anchor>
+        </Text>
+        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+          <TextInput label={t('Phone number ID')} description={t('Under WhatsApp, API Setup. Not the number itself.')} value={phoneNumberId}
+            onChange={(event) => setPhoneNumberId(event.currentTarget.value)} placeholder="106540352242922" />
+          <TextInput label={t('Your WhatsApp number')} description={t('The only number whose messages and presses count.')} value={owner}
+            onChange={(event) => setOwner(event.currentTarget.value)} placeholder="+62 812 3456 7890" />
+          <PasswordInput label={t('Access token')} leftSection={<IconKey size={16} />} value={token} onChange={(event) => setToken(event.currentTarget.value)}
+            placeholder={connected ? t('Saved. Paste a new one to replace it.') : 'EAAG…'} autoComplete="off" />
+          <PasswordInput label={t('App secret')} description={t('App settings, Basic. It proves a delivery is from Meta.')} leftSection={<IconKey size={16} />}
+            value={appSecret} onChange={(event) => setAppSecret(event.currentTarget.value)}
+            placeholder={connected ? t('Saved. Paste a new one to replace it.') : undefined} autoComplete="off" />
+        </SimpleGrid>
+        <TextInput label={t('Template (optional)')} value={template} onChange={(event) => setTemplate(event.currentTarget.value)} placeholder="palugada_notice:id"
+          description={t('WhatsApp lets a business write first only within a day of your last message. Past that, an approved utility template with one parameter carries the news, and the buttons follow when you answer it.')} />
+        {problem && <Alert color="red" variant="light">{problem}</Alert>}
+        <Group justify="space-between">
+          {connected ? <Button variant="subtle" color="gray" size="compact-sm" onClick={() => void disconnect()}>{t('Disconnect')}</Button> : <span />}
+          <Button disabled={!phoneNumberId.trim() || !owner.trim() || (!connected && (!token.trim() || !appSecret.trim()))} onClick={() => void save()}>{t('Save')}</Button>
+        </Group>
+        {connected && view.whatsapp.callbackUrl && view.whatsapp.verifyToken && (
+          <Stack gap={6}>
+            <Text size="sm">{t('2. In the app\'s WhatsApp Configuration, set the webhook to these two, and subscribe to messages:')}</Text>
+            {[{ label: t('Callback URL'), value: view.whatsapp.callbackUrl }, { label: t('Verify token'), value: view.whatsapp.verifyToken }].map((field) => (
+              <Group key={field.label} gap="xs" wrap="nowrap">
+                <Text size="xs" c="dimmed" w={96}>{field.label}</Text>
+                <Code style={{ flex: 1, overflowWrap: 'anywhere' }}>{field.value}</Code>
+                <CopyButton value={field.value}>
+                  {({ copied, copy }) => (
+                    <Button size="compact-xs" variant="subtle" onClick={copy} leftSection={copied ? <IconCheck size={12} /> : <IconCopy size={12} />}>
+                      {copied ? t('Copied') : t('Copy')}
+                    </Button>
+                  )}
+                </CopyButton>
+              </Group>
+            ))}
+            <Text size="sm">{t('3. Send the number any message from your WhatsApp: that opens the conversation, and your CEO answers.')}</Text>
+          </Stack>
+        )}
+        {!view.publicUrl && (
+          <Text size="xs" c="dimmed">{t('This deployment has no public address, so WhatsApp can send but its buttons and your messages cannot reach it. Set PALUGADA_APP_URL_PUBLIC to the HTTPS address the console is reached at.')}</Text>
+        )}
+      </Stack>
+    </Section>
+  );
+}
+
 function PushCard({ view, reload }: { view: ChannelsView; reload: () => void }) {
   const requireFactor = useFactor();
   const [format, setFormat] = useState<'ntfy' | 'webhook'>(view.push.format ?? 'ntfy');
@@ -1174,6 +1498,69 @@ function PushCard({ view, reload }: { view: ChannelsView; reload: () => void }) 
           <Group gap="xs">
             <Button variant="default" loading={busy} onClick={() => void test()}>{t('Send a test')}</Button>
             <Button onClick={() => void save()}>{t('Save')}</Button>
+          </Group>
+        </Group>
+      </Stack>
+    </Section>
+  );
+}
+
+/**
+ * Email to the owner through a sending service. Told, never asked: an email
+ * carries a link to decide in the console, not a button to decide in it.
+ */
+function EmailCard({ view, reload }: { view: ChannelsView; reload: () => void }) {
+  const requireFactor = useFactor();
+  const saved = view.email;
+  const [provider, setProvider] = useState(saved.provider ?? 'resend');
+  const [from, setFrom] = useState(saved.from ?? '');
+  const [to, setTo] = useState(saved.to ?? '');
+  const [key, setKey] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const chosen = saved.providers.find((one) => one.id === provider) ?? saved.providers[0]!;
+  const keySaved = saved.source === 'console' && saved.provider === provider;
+  const ready = Boolean(from.trim() && to.trim() && (key.trim() || keySaved));
+  const body = () => ({ provider, from: from.trim(), to: to.trim(), ...(key.trim() ? { key: key.trim() } : {}) });
+  const test = async () => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      await api('POST', '/api/control/channels/email/test', { ...body(), text: t('PALUGADA is connected: this is where it will tell you what needs you.') });
+      notifications.show({ color: 'teal', message: t('Sent. Look in {name}.', { name: to.trim() }) });
+    } catch (failure) {
+      setProblem(explain(failure));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const save = async () => {
+    const done = await requireFactor(t('Connect email'), (proof) => api('POST', '/api/control/channels/email', { ...body(), proof }));
+    if (done) setTimeout(reload, 3_000);
+  };
+  const disconnect = async () => {
+    const done = await requireFactor(t('Disconnect {name}', { name: t('Email') }), (proof) => api('POST', '/api/control/channels/email/clear', { proof }));
+    if (done) setTimeout(reload, 3_000);
+  };
+  return (
+    <Section title={t('Email')} description={t('What needs you, by email, with a link to decide it here: an email is read, forwarded and scanned, so it carries no buttons.')} actions={<SourceBadge source={saved.source} />}>
+      <Stack gap="sm">
+        <SegmentedControl value={provider} onChange={setProvider} data={saved.providers.map((one) => ({ value: one.id, label: one.name }))} />
+        <SimpleGrid cols={{ base: 1, sm: 2 }}>
+          <TextInput label={t('From')} description={t('An address {name} lets this account send from.', { name: chosen.name })}
+            placeholder="alerts@yourdomain.com" value={from} onChange={(event) => setFrom(event.currentTarget.value)} />
+          <TextInput label={t('To')} description={t('Your own address.')} placeholder="you@yourdomain.com"
+            value={to} onChange={(event) => setTo(event.currentTarget.value)} />
+        </SimpleGrid>
+        <PasswordInput leftSection={<IconKey size={16} />} label={t('API key')} value={key} onChange={(event) => setKey(event.currentTarget.value)}
+          placeholder={keySaved ? t('Saved. Paste a new key to replace it.') : ''} autoComplete="off"
+          description={<Anchor href={chosen.keyUrl} target="_blank" rel="noreferrer" size="xs">{t('Make a key at {name}', { name: chosen.name })} <IconExternalLink size={11} /></Anchor>} />
+        {problem && <Alert color="red" variant="light">{problem}</Alert>}
+        <Group justify="space-between">
+          {saved.source === 'console' ? <Button variant="subtle" color="gray" size="compact-sm" onClick={() => void disconnect()}>{t('Disconnect')}</Button> : <span />}
+          <Group gap="xs">
+            <Button variant="default" loading={busy} disabled={!ready} onClick={() => void test()}>{t('Send a test')}</Button>
+            <Button disabled={!ready} onClick={() => void save()}>{t('Save')}</Button>
           </Group>
         </Group>
       </Stack>
@@ -1269,29 +1656,64 @@ interface McpPreset {
   about: string;
   url: string;
   tokenIn?: McpTokenIn;
-  key: 'required' | 'none';
+  key: 'required' | 'optional' | 'none';
   keyUrl?: string;
   keyHint?: string;
+  /** Signed in to: the server registers PALUGADA itself, or the owner registers a client first. */
+  signIn?: 'registers' | 'client';
+  clientUrl?: string;
   run?: string;
+  /** Where to run a server that keeps nobody out itself. */
+  runHint?: string;
 }
 
 interface McpView {
   servers: McpServerView[];
   presets: McpPreset[];
+  /** Servers signed in to with OAuth, by name. */
+  signedIn: Record<string, { issuer: string; url: string }>;
+  /** Where a sign-in comes back to, for a client the owner registers. */
+  callback: string | null;
   file: string | null;
   applies: 'now' | 'next_start';
+}
+
+/** An address's host, for saying where the owner signs in. */
+function hostOf(address: string): string {
+  try {
+    return new URL(address).host;
+  } catch {
+    return address;
+  }
 }
 
 /** The same words the server sends about each preset, here so that they are translated. */
 const MCP_PRESET_TEXT: Record<string, string> = {
   github: N('Repositories, issues and pull requests'),
+  notion: N('Pages, databases and comments'),
   linear: N('Issues and projects'),
-  stripe: N('Payments, customers and invoices'),
   atlassian: N('Jira and Confluence'),
+  airtable: N('Bases, tables and records'),
+  monday: N('Boards, items and updates'),
+  asana: N('Projects and tasks'),
+  slack: N('Channels, messages and search'),
+  hubspot: N('Contacts, companies and deals'),
+  intercom: N('Conversations and contacts'),
+  box: N('Files and folders'),
+  webflow: N('Sites, pages and CMS collections'),
+  stripe: N('Payments, customers and invoices'),
+  square: N('Payments, orders and catalogue'),
+  resend: N('Email sending and domains'),
   sentry: N('Errors and performance'),
   cloudflare: N('Your Cloudflare account'),
+  supabase: N('Projects, databases and functions'),
   neon: N('Postgres databases'),
+  coolify: N('Read, deploy and restart what runs on your Coolify'),
   zapier: N('Other apps, through the actions you set up in Zapier'),
+  composio: N('Hundreds of apps, each authorised the first time a role needs it'),
+  pipedream: N('Thousands of apps, through the accounts you connect at Pipedream'),
+  arcade: N('The apps and tools you chose for an Arcade gateway'),
+  smithery: N('Every connection in your Smithery namespace'),
   apify: N('Ready-made scrapers and automations'),
   huggingface: N('Models, datasets and Spaces'),
   context7: N('Current documentation for code libraries'),
@@ -1300,14 +1722,24 @@ const MCP_PRESET_TEXT: Record<string, string> = {
   exa: N('Search by meaning'),
   browserbase: N('A browser in the cloud'),
   playwright: N('A real browser, on a machine of yours'),
+  dokploy: N('Projects, applications and deployments on your Dokploy'),
 };
 
 const MCP_KEY_HINT: Record<string, string> = {
   github: N('A fine-grained personal access token, limited to the repositories and permissions roles need.'),
   linear: N('A personal API key.'),
+  smithery: N('An API key, or sign in instead.'),
   stripe: N('A restricted key tagged for agents: from 31 October 2026 Stripe refuses a secret key here.'),
   atlassian: N('An API key for a service account, which an organisation admin makes; a personal token is refused.'),
   sentry: N('A user auth token from Sentry\'s settings.'),
+  monday: N('A personal API token, from the Developers section of your profile.'),
+  intercom: N('An access token from an app in your Developer Hub.'),
+  coolify: N('An API token from Keys & Tokens, API Tokens, with read, and deploy only if roles should deploy. An administrator turns the MCP server on first, under Settings, Advanced.'),
+  dokploy: N('A Dokploy API key, from Settings, Profile, API/CLI Keys, made by a user with only the permissions roles need. It goes in the command, not here.'),
+};
+
+const MCP_RUN_HINT: Record<string, string> = {
+  dokploy: N('It lets in whoever reaches it, acting with your Dokploy key, and listens on port 3000 of every network it is on: it cannot be told otherwise. Run it where only this deployment can reach it.'),
 };
 
 const MCP_TIERS = [
@@ -1316,6 +1748,154 @@ const MCP_TIERS = [
   { value: '2', label: N('Tier 2 · costly') },
   { value: '3', label: N('Tier 3 · irreversible') },
 ];
+
+/* ---------------------------------------------------------------- services --- */
+
+/** A vendor entry, as the file and the console both hold it. */
+interface ServiceEntry {
+  name: string;
+  adapter: string;
+  tier: number;
+  method: string;
+  url: string;
+  credentialAlias?: string;
+  [field: string]: unknown;
+}
+
+interface ServicesView {
+  presets: ServiceEntry[];
+  saved: ServiceEntry[];
+  /** A preset's name the deployment binds some other way, and by what. */
+  taken: Record<string, string>;
+}
+
+/** What each preset does, in the owner's words, keyed by the capability it binds. */
+const SERVICE_TEXT: Record<string, string> = {
+  'email.send': N('Send email from an address on your own domain.'),
+  'dns.read': N('Read a domain\'s DNS records.'),
+  'dns.update': N('Change a DNS record.'),
+  'invoice.issue': N('Issue an invoice a customer pays.'),
+  'social.publish': N('Publish a post.'),
+  'metrics.read': N('Read your site\'s visits and goals.'),
+  'calendar.read': N('Read the events on a Google calendar, signed in with Google.'),
+};
+
+function ServiceSettings() {
+  const view = useLoad(async (): Promise<ServicesView> => api('GET', '/api/control/vendors'), []);
+  const [editing, setEditing] = useState<ServiceEntry | null>(null);
+  if (view.error) return <LoadFailed message={view.error} retry={view.reload} />;
+  if (!view.data) return <Loading rows={4} />;
+  const { presets, saved, taken } = view.data;
+  const done = () => {
+    setEditing(null);
+    setTimeout(view.reload, 3_000);
+  };
+  return (
+    <Stack gap="lg">
+      {saved.map((entry) => <ServiceCard key={entry.name} entry={entry} onRemoved={done} />)}
+      {editing
+        ? <ServiceForm entry={editing} onDone={done} onCancel={() => setEditing(null)} />
+        : (
+          <Section title={t('Connect a service')} description={t('Each is checked against the rules a vendor file is held to before it is saved, and roles reach it only through its capability, at its tier.')}>
+            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+              {presets.map((preset) => {
+                const connected = saved.some((one) => one.name === preset.name);
+                return (
+                  <Paper key={`${preset.name}-${preset.adapter}`} withBorder radius="md" p="sm">
+                    <Group justify="space-between" wrap="nowrap" mb={4}>
+                      <Text fw={600} tt="capitalize">{preset.adapter}</Text>
+                      <TierBadge tier={preset.tier} />
+                    </Group>
+                    <Code>{preset.name}</Code>
+                    <Text size="sm" c="dimmed" mt={4} mb="xs">{SERVICE_TEXT[preset.name] ? t(SERVICE_TEXT[preset.name]!) : preset.name}</Text>
+                    {taken[preset.name]
+                      ? <Badge variant="light" color="gray">{t('bound by {adapter}', { adapter: taken[preset.name]! })}</Badge>
+                      : connected
+                        ? <Badge variant="light" color="teal">{t('connected')}</Badge>
+                        : <Button size="compact-sm" variant="light" leftSection={<IconPlugConnected size={14} />} onClick={() => setEditing(preset)}>{t('Connect')}</Button>}
+                  </Paper>
+                );
+              })}
+            </SimpleGrid>
+          </Section>
+        )}
+    </Stack>
+  );
+}
+
+function ServiceCard({ entry, onRemoved }: { entry: ServiceEntry; onRemoved: () => void }) {
+  const requireFactor = useFactor();
+  const remove = async () => {
+    const done = await requireFactor(t('Disconnect {name}', { name: entry.name }), (proof) =>
+      api('POST', `/api/control/vendors/${entry.name}/remove`, { proof }));
+    if (done) onRemoved();
+  };
+  return (
+    <Section title={entry.name} description={entry.url} actions={<Group gap={6}><Badge variant="light" color="teal">{entry.adapter}</Badge><TierBadge tier={entry.tier} /></Group>}>
+      <Stack gap="xs">
+        {entry.credentialAlias
+          ? <Text size="sm"><IconKey size={14} /> {t('Each division that uses it needs its key, named {alias}: give it on Team, in the division.', { alias: entry.credentialAlias })}</Text>
+          : <Text size="sm" c="dimmed">{t('It needs no key.')}</Text>}
+        <Text size="xs" c="dimmed">{t('Grant {name} to a division and give it to a role on Team; until then no role can call it.', { name: entry.name })}</Text>
+        <Group justify="flex-end">
+          <Button variant="subtle" color="red" size="compact-sm" onClick={() => void remove()}>{t('Disconnect')}</Button>
+        </Group>
+      </Stack>
+    </Section>
+  );
+}
+
+/**
+ * A preset's address, which is where most owners' services differ (their own
+ * Mastodon, Midtrans' production API), and the whole entry for anything else.
+ */
+function ServiceForm({ entry, onDone, onCancel }: { entry: ServiceEntry; onDone: () => void; onCancel: () => void }) {
+  const requireFactor = useFactor();
+  const [url, setUrl] = useState(entry.url);
+  const [whole, setWhole] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const save = async () => {
+    setProblem(null);
+    let chosen: unknown = { ...entry, url: url.trim() };
+    if (whole !== null) {
+      try {
+        chosen = JSON.parse(whole);
+      } catch {
+        setProblem(t('The entry is not JSON.'));
+        return;
+      }
+    }
+    const done = await requireFactor(t('Connect {name}', { name: entry.name }), (proof) =>
+      api('POST', '/api/control/vendors', { entry: chosen, proof }));
+    if (done) {
+      notifications.show({ color: 'teal', message: t('{name} is connected. It is bound as the deployment starts again, in a moment.', { name: entry.name }) });
+      onDone();
+    }
+  };
+  return (
+    <Section title={t('Connect {name}', { name: `${entry.adapter} · ${entry.name}` })} description={SERVICE_TEXT[entry.name] ? t(SERVICE_TEXT[entry.name]!) : undefined}>
+      <Stack gap="sm">
+        {whole === null
+          ? <TextInput label={t('Its address')} description={t('Change it only if your service lives elsewhere.')} value={url} onChange={(event) => setUrl(event.currentTarget.value)} />
+          : <Textarea label={t('The whole entry')} description={t('The vendor file\'s shape: what it calls, with what, and how a write is read back.')} autosize minRows={10} maxRows={24}
+              styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)', fontSize: 12 } }} value={whole} onChange={(event) => setWhole(event.currentTarget.value)} />}
+        {entry.credentialAlias && (
+          <Text size="sm" c="dimmed">{t('After this, each division that uses it needs its key, named {alias}, given on Team, in the division.', { alias: entry.credentialAlias })}</Text>
+        )}
+        {problem && <Alert color="red" variant="light">{problem}</Alert>}
+        <Group justify="space-between">
+          {whole === null
+            ? <Anchor component="button" size="sm" onClick={() => setWhole(JSON.stringify({ ...entry, url: url.trim() }, null, 2))}>{t('Change the whole entry')}</Anchor>
+            : <span />}
+          <Group gap="xs">
+            <Button variant="default" onClick={onCancel}>{t('Cancel')}</Button>
+            <Button onClick={() => void save()}>{t('Connect')}</Button>
+          </Group>
+        </Group>
+      </Stack>
+    </Section>
+  );
+}
 
 function McpSettings() {
   const view = useLoad(async (): Promise<McpView> => api('GET', '/api/control/mcp'), []);
@@ -1337,10 +1917,10 @@ function McpSettings() {
         </Paper>
       )}
       {view.data.servers.map((server) => editing !== 'new' && editing?.name === server.name
-        ? <McpServerForm key={server.name} saved={server} presets={view.data!.presets} onDone={done} onCancel={() => setEditing(null)} />
+        ? <McpServerForm key={server.name} saved={server} presets={view.data!.presets} callback={view.data!.callback} onDone={done} onCancel={() => setEditing(null)} />
         : <McpServerCard key={server.name} server={server} onEdit={() => setEditing(server)} onRemoved={done} />)}
       {editing === 'new'
-        ? <McpServerForm saved={null} presets={view.data.presets} onDone={done} onCancel={() => setEditing(null)} />
+        ? <McpServerForm saved={null} presets={view.data.presets} callback={view.data.callback} onDone={done} onCancel={() => setEditing(null)} />
         : <Group><Button leftSection={<IconPlus size={16} />} variant="light" onClick={() => setEditing('new')}>{t('Add an MCP server')}</Button></Group>}
     </Stack>
   );
@@ -1403,8 +1983,8 @@ function choiceFor(tool: McpTool, saved: McpServerView | null): McpChoice {
   };
 }
 
-function McpServerForm({ saved, presets, onDone, onCancel }: {
-  saved: McpServerView | null; presets: McpPreset[]; onDone: () => void; onCancel: () => void;
+function McpServerForm({ saved, presets, callback, onDone, onCancel }: {
+  saved: McpServerView | null; presets: McpPreset[]; callback: string | null; onDone: () => void; onCancel: () => void;
 }) {
   const requireFactor = useFactor();
   const [name, setName] = useState(saved?.name ?? '');
@@ -1417,6 +1997,10 @@ function McpServerForm({ saved, presets, onDone, onCancel }: {
     setPreset(chosen);
     setTools(null);
     setProblem(null);
+    setSignIn(null);
+    setAuthorizeUrl(null);
+    // A vendor that registers no client asks for one before the sign-in.
+    setClientNeeded(chosen?.signIn === 'client');
     if (chosen) {
       setName(chosen.id);
       setUrl(chosen.url);
@@ -1433,14 +2017,23 @@ function McpServerForm({ saved, presets, onDone, onCancel }: {
   const [problem, setProblem] = useState<string | null>(null);
   const [tools, setTools] = useState<McpTool[] | null>(null);
   const [choices, setChoices] = useState<Record<string, McpChoice>>({});
+  // A server that asks for OAuth: who it signs in with, the page the owner
+  // opens there, and the client the owner registered, when it takes no
+  // registration of its own.
+  const [signIn, setSignIn] = useState<string | null>(null);
+  const [authorizeUrl, setAuthorizeUrl] = useState<string | null>(null);
+  const [clientNeeded, setClientNeeded] = useState(false);
+  const [clientId, setClientId] = useState('');
+  const [clientSecret, setClientSecret] = useState('');
 
   const look = async () => {
     setLooking(true);
     setProblem(null);
     try {
-      const answer = await api('POST', '/api/control/mcp/inspect', { url: url.trim(), token: token.trim() || undefined, tokenIn, name: saved?.name });
+      const answer = await api('POST', '/api/control/mcp/inspect', { url: url.trim(), token: token.trim() || undefined, tokenIn, name: saved?.name ?? (name.trim() || undefined) });
+      setSignIn(answer.signIn ?? null);
       if (answer.problem) {
-        setProblem(answer.problem);
+        setProblem(answer.signIn ? null : answer.problem);
         setTools(null);
       } else {
         setTools(answer.tools);
@@ -1452,6 +2045,49 @@ function McpServerForm({ saved, presets, onDone, onCancel }: {
       setLooking(false);
     }
   };
+
+  const begin = async () => {
+    setProblem(null);
+    if (!name.trim()) {
+      setProblem(t('Give it a name first: the sign-in is kept under it.'));
+      return;
+    }
+    try {
+      const started: { authorizeUrl: string } = await api('POST', '/api/control/mcp/oauth/start', {
+        name: name.trim(), url: url.trim(),
+        ...(clientId.trim() ? { clientId: clientId.trim(), clientSecret: clientSecret.trim() || undefined } : {}),
+      });
+      setAuthorizeUrl(started.authorizeUrl);
+    } catch (failure) {
+      const said = explain(failure);
+      if (/registers no client itself/.test(said)) setClientNeeded(true);
+      setProblem(said);
+    }
+  };
+
+  // While the owner signs in in the other tab: asked every few seconds
+  // whether the sign-in has arrived, then its tools are looked at with it.
+  useEffect(() => {
+    if (!authorizeUrl) return undefined;
+    const timer = setInterval(() => {
+      void api('GET', '/api/control/mcp').then((view: McpView) => {
+        if (view.signedIn[name.trim()]?.url !== url.trim()) return;
+        clearInterval(timer);
+        setAuthorizeUrl(null);
+        setSignIn(null);
+        notifications.show({ color: 'teal', message: t('Signed in to {name}. Choose which of its tools roles may use.', { name: name.trim() }) });
+        void look();
+      }, () => undefined);
+    }, 3_000);
+    return () => clearInterval(timer);
+  }, [authorizeUrl]);
+
+  // An address still holding the owner's part in braces -- an Arcade gateway,
+  // a Smithery namespace -- is not asked until it is theirs.
+  const unfinished = /\{[^}]*\}/.test(url);
+  useEffect(() => {
+    if (saved === null && preset?.signIn && preset.key === 'none' && !/\{[^}]*\}/.test(preset.url)) void look();
+  }, [preset?.id]);
 
   const change = (tool: string, patch: Partial<McpChoice>) => setChoices((all) => ({ ...all, [tool]: { ...all[tool]!, ...patch } }));
 
@@ -1516,10 +2152,24 @@ function McpServerForm({ saved, presets, onDone, onCancel }: {
                 {preset.keyUrl && <>{' · '}<Anchor href={preset.keyUrl} target="_blank" rel="noreferrer" size="sm">{t('Get a key')} <IconExternalLink size={12} /></Anchor></>}
               </Text>
               {preset.keyHint && <Text size="xs" c="dimmed">{MCP_KEY_HINT[preset.id] ? t(MCP_KEY_HINT[preset.id]!) : preset.keyHint}</Text>}
+              {preset.signIn === 'registers' && (
+                <Text size="xs" c="dimmed">
+                  {preset.key === 'none'
+                    ? t('You sign in with {name}; there is no key to copy.', { name: preset.name })
+                    : t('Paste a key, or leave it empty and sign in with {name} instead.', { name: preset.name })}
+                </Text>
+              )}
+              {preset.signIn === 'client' && (
+                <Text size="xs" c="dimmed">
+                  {t('{name} lets PALUGADA in through an app you register with it. Make one, give it the return address below, and paste its client ID and secret when you sign in.', { name: preset.name })}
+                  {preset.clientUrl && <>{' '}<Anchor href={preset.clientUrl} target="_blank" rel="noreferrer" size="xs">{t('Register an app')} <IconExternalLink size={10} /></Anchor></>}
+                </Text>
+              )}
               {preset.run && (
                 <>
                   <Text size="xs" c="dimmed">{t('Start it on a machine this deployment can reach, then look at its tools:')}</Text>
                   <Code block>{preset.run}</Code>
+                  {preset.runHint && <Text size="xs" c="orange">{MCP_RUN_HINT[preset.id] ? t(MCP_RUN_HINT[preset.id]!) : preset.runHint}</Text>}
                 </>
               )}
             </Stack>
@@ -1528,22 +2178,56 @@ function McpServerForm({ saved, presets, onDone, onCancel }: {
         <SimpleGrid cols={{ base: 1, sm: 2 }}>
           <TextInput label={t('Name')} placeholder={t('payments')} value={name} disabled={saved !== null}
             description={t('Lowercase letters, digits, - and _. Each tool is called mcp.name.tool.')} onChange={(event) => setName(event.currentTarget.value)} required />
-          <TextInput label={t('Address')} placeholder="https://mcp.example.com/mcp" value={url} onChange={(event) => { setUrl(event.currentTarget.value); setTools(null); }} required />
+          <TextInput label={t('Address')} placeholder="https://mcp.example.com/mcp" value={url} onChange={(event) => { setUrl(event.currentTarget.value); setTools(null); }} required
+            error={unfinished ? t('Put your own in place of the part in braces, as the service shows it.') : undefined} />
         </SimpleGrid>
-        <PasswordInput
-          label={t('Token')}
-          leftSection={<IconKey size={16} />}
-          description={saved?.tokenSet ? t('A token is saved. Leave this empty to keep it while the address stays on the same host.') : where}
-          value={token}
-          onChange={(event) => setToken(event.currentTarget.value)}
-          autoComplete="off"
-        />
+        {!(preset?.key === 'none' && preset.signIn) && (
+          <PasswordInput
+            label={t('Token')}
+            leftSection={<IconKey size={16} />}
+            description={saved?.tokenSet ? t('A token is saved. Leave this empty to keep it while the address stays on the same host.') : where}
+            value={token}
+            onChange={(event) => setToken(event.currentTarget.value)}
+            autoComplete="off"
+          />
+        )}
         <Group>
-          <Button variant="default" leftSection={<IconListSearch size={16} />} loading={looking} disabled={url.trim() === ''} onClick={() => void look()}>
+          <Button variant="default" leftSection={<IconListSearch size={16} />} loading={looking} disabled={url.trim() === '' || unfinished} onClick={() => void look()}>
             {t('Look at its tools')}
           </Button>
           <Button variant="subtle" color="gray" onClick={onCancel}>{t('Cancel')}</Button>
         </Group>
+        {signIn && (
+          <Alert color="blue" variant="light" icon={<IconKey size={18} />} title={t('It asks you to sign in')}>
+            <Stack gap="xs">
+              <Text size="sm">{t('You sign in with {issuer}, in a new tab. What it gives PALUGADA is sealed here and never shown; roles use it only through the tools you allow.', { issuer: hostOf(signIn) })}</Text>
+              {clientNeeded && (
+                <>
+                  {callback && (
+                    <Stack gap={2}>
+                      <Text size="xs" c="dimmed">{t('The return address to give the app you register:')}</Text>
+                      <Code>{callback}</Code>
+                    </Stack>
+                  )}
+                  <SimpleGrid cols={{ base: 1, sm: 2 }}>
+                    <TextInput label={t('Client ID')} description={t('From the app you registered')} value={clientId} onChange={(event) => setClientId(event.currentTarget.value)} />
+                    <PasswordInput label={t('Client secret')} description={t('If it gave you one')} value={clientSecret} onChange={(event) => setClientSecret(event.currentTarget.value)} autoComplete="off" />
+                  </SimpleGrid>
+                </>
+              )}
+              {authorizeUrl
+                ? (
+                  <Group gap="sm">
+                    <Button component="a" href={authorizeUrl} target="_blank" rel="noopener noreferrer" leftSection={<IconExternalLink size={16} />}>
+                      {t('Open the sign-in page')}
+                    </Button>
+                    <Text size="xs" c="dimmed">{t('Waiting for you to sign in there…')}</Text>
+                  </Group>
+                )
+                : <Group><Button onClick={() => void begin()}>{t('Sign in')}</Button></Group>}
+            </Stack>
+          </Alert>
+        )}
         {problem && <Alert color="red" variant="light" title={t('It did not answer')}>{problem}</Alert>}
         {tools && tools.length === 0 && <Text size="sm" c="dimmed">{t('It answered, and offers no tools.')}</Text>}
         {tools?.map((tool) => {
@@ -1614,4 +2298,9 @@ function McpServerForm({ saved, presets, onDone, onCancel }: {
       </Stack>
     </Section>
   );
+}
+
+/** The version in what `--version` printed, as the server reads it (`checked-versions.ts`). */
+function versionNumber(output: string): string {
+  return /\d+\.\d+\.\d+/.exec(output)?.[0] ?? output.trim().split('\n')[0]!.trim();
 }

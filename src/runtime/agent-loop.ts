@@ -27,6 +27,7 @@
  */
 import { PalugadaError } from '../errors.ts';
 import { wrapUntrusted } from '../context/builder.ts';
+import { citeStep } from '../engine/done.ts';
 import { renderSystem, renderTask, toWireRequest } from './wire.ts';
 import { toolsForModel } from './tool-names.ts';
 import type { LlmBlock, ToolUsingLlmClient } from '../llm/client.ts';
@@ -38,13 +39,25 @@ export const MAX_TURNS = 40;
 export const TOOL_RESULT_LIMIT = 20_000;
 
 /**
+ * How much one turn may write, and how far that grows.
+ *
+ * A reasoning model counts its thinking against this allowance. DeepSeek, in
+ * the live run of 2026-09-28, spent all 8,192 tokens of a turn thinking and
+ * said nothing at all (defect L4). A turn cut off like that is asked again
+ * with twice the room, up to the ceiling -- or the role's own allowance for a
+ * whole run, if that is smaller.
+ */
+const TURN_ALLOWANCE = 8_192;
+const TURN_ALLOWANCE_CEILING = 32_768;
+
+/**
  * The broker's answers that end the run rather than inform it.
  *
  * Everything else a tool call throws is shown to the model as a failed call.
  */
 const ENDS_THE_RUN: ReadonlySet<string> = new Set([
   'approval.required', 'owner.asked', 'review.required', 'window.closed', 'task.waiting_child',
-  'capability.rate_limited', 'budget.exceeded', 'budget.reservation_refused', 'spend.paused',
+  'capability.rate_limited', 'capability.busy', 'budget.exceeded', 'budget.reservation_refused', 'spend.paused',
   'platform.stopped', 'company.frozen', 'role.frozen', 'deadline.exceeded', 'task.lease_lost',
   'task.invalid_transition', 'journal.divergence', 'tenant.context_missing', 'model.unavailable',
   // F8.4: a write that did not read back is an incident, not something for
@@ -99,13 +112,15 @@ export async function runAgentLoop(
   ];
   const model = request.modelRouting.primary;
   let askedForOutput = false;
+  let allowance = Math.min(TURN_ALLOWANCE, Math.max(1_024, request.limits.tokens));
+  const ceiling = Math.max(allowance, Math.min(TURN_ALLOWANCE_CEILING, request.limits.tokens));
 
   for (let turn = 0; turn < MAX_TURNS; turn += 1) {
     if (services.signal.aborted) throw services.signal.reason ?? new Error('the run was stopped');
     const recorded = await services.step<RecordedTurn>(`model:turn ${turn + 1}`, 'llm', { turn }, async () => {
       const started = Date.now();
       const reply = await client.turn(
-        { model, system, messages, tools, maxTokens: Math.min(8_192, Math.max(1_024, request.limits.tokens)) },
+        { model, system, messages, tools, maxTokens: allowance },
         services.signal,
       );
       // Charged before the turn is kept: the engine throws when the budget
@@ -120,8 +135,36 @@ export async function runAgentLoop(
         prompt: { system, messages },
         response: { content: reply.content },
       });
+      // Thrown inside the step, so the step is not committed: the next
+      // attempt asks the model again. Returned, it would be journalled, and
+      // every retry would replay the same silence without asking anyone.
+      if (saidNothing(reply.content) && reply.stopReason === 'max_tokens' && allowance >= ceiling) {
+        throw new Error(
+          `the model said nothing in ${allowance} tokens, the largest output allowance a turn gets here: `
+            + 'a reasoning model spent it thinking. Lower its reasoning effort, or give the role a model '
+            + 'that answers within it',
+        );
+      }
       return { content: reply.content, stopReason: reply.stopReason };
     });
+
+    // A turn that said nothing and called nothing is not one to build on: a
+    // provider refuses a conversation holding an empty assistant turn, and
+    // that refusal replayed from the journal is what spent three attempts in
+    // a second. Cut off, it is asked again with more room.
+    if (recorded.stopReason === 'max_tokens') allowance = Math.min(ceiling, allowance * 2);
+    if (saidNothing(recorded.content)) {
+      if (recorded.stopReason === 'max_tokens') continue;
+      if (askedForOutput) {
+        throw new Error('the model finished without the task\'s output as a JSON object: it said nothing');
+      }
+      askedForOutput = true;
+      messages.push({
+        role: 'user',
+        content: 'You replied with nothing. Reply now with the task\'s output as a single JSON object, or call one of your tools.',
+      });
+      continue;
+    }
 
     messages.push({ role: 'assistant', content: recorded.content });
     const said = recorded.content.flatMap((block) => (block.type === 'text' ? [block.text] : [])).join('\n').trim();
@@ -155,6 +198,11 @@ export async function runAgentLoop(
   throw new Error(`the model took ${MAX_TURNS} turns without finishing the task`);
 }
 
+/** No words and no tool call: nothing a conversation can hold. */
+function saidNothing(content: readonly LlmBlock[]): boolean {
+  return !content.some((block) => block.type === 'tool_use' || (block.type === 'text' && block.text.trim() !== ''));
+}
+
 async function answer(
   call: Extract<LlmBlock, { type: 'tool_use' }>,
   platformName: Map<string, string>,
@@ -168,13 +216,16 @@ async function answer(
     };
   }
   try {
-    const output = await services.callTool<unknown, unknown>(name, call.input ?? {});
+    const placed: { step?: number } = {};
+    const output = await services.callTool<unknown, unknown>(name, call.input ?? {}, (step) => { placed.step = step; });
     // What a tool returns is data from wherever the tool reached -- a web
     // page, an inbox, another company's API -- and it is shown to the model
-    // as data, never as instructions (F8.9).
+    // as data, never as instructions (F8.9). Which step it is, is the
+    // platform's word, so it goes after the fence.
+    const shown = bounded(wrapUntrusted(`tool ${name}`, JSON.stringify(output ?? null)));
     return {
       type: 'tool_result', toolUseId: call.id,
-      content: bounded(wrapUntrusted(`tool ${name}`, JSON.stringify(output ?? null))),
+      content: placed.step === undefined ? shown : `${shown}\n${citeStep(placed.step)}`,
     };
   } catch (error) {
     if (services.signal.aborted) throw error;

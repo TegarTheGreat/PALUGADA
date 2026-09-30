@@ -11,20 +11,60 @@
  * nothing is saved until the owner is in and chooses in the console, where
  * the choice goes to the deployment rather than to the browser.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  Alert, Button, Center, Divider, Grid, Group, Image, List, Paper, PinInput, SegmentedControl, Stack, Text,
-  ThemeIcon, Title, useComputedColorScheme,
+  Alert, Anchor, Button, Center, Divider, Grid, Group, Image, List, Paper, PinInput, Select, Stack, Text,
+  TextInput, ThemeIcon, Title, useComputedColorScheme,
 } from '@mantine/core';
-import { IconCheck, IconFingerprint } from '@tabler/icons-react';
+import { IconCheck, IconFingerprint, IconLanguage } from '@tabler/icons-react';
+import { useMediaQuery } from '@mantine/hooks';
 import { api, explain } from '../api.ts';
 import { LANGUAGES, language, setLanguage, t, type Language } from '../i18n.ts';
 import { passkeysSupported, presentPasskey, type RelyingParty } from '../passkey.ts';
+import { Claim, claimCode } from './Claim.tsx';
 
-export function SignIn({ onSignedIn }: { onSignedIn: (session: { token: string; device: string }) => void }) {
+export function SignIn({ onSignedIn }: { onSignedIn: (session: { token: string; device: string; factor: string }) => void }) {
+  // Opened from the link a deployment with no owner printed as it started --
+  // or pasted into a tab already showing this page, which changes only the
+  // fragment and loads nothing.
+  const [claim, setClaim] = useState(claimCode);
+  useEffect(() => {
+    const changed = () => setClaim(claimCode());
+    window.addEventListener('hashchange', changed);
+    return () => window.removeEventListener('hashchange', changed);
+  }, []);
+  if (claim) return <Claim code={claim} onSignedIn={onSignedIn} />;
+  return <Door onSignedIn={onSignedIn} />;
+}
+
+function Door({ onSignedIn }: { onSignedIn: (session: { token: string; device: string; factor: string }) => void }) {
   const [code, setCode] = useState('');
-  const [error, setError] = useState<{ message: string; from: 'code' | 'passkey' } | null>(null);
-  const [busy, setBusy] = useState<'code' | 'passkey' | null>(null);
+  // Six boxes at the large size are wider than a phone's card.
+  const narrow = useMediaQuery('(max-width: 26em)') ?? false;
+  // No owner yet: nothing on this page can open it, and the owner is told where the way in is.
+  const [claimable, setClaimable] = useState(false);
+  useEffect(() => {
+    const asking: Promise<{ claimable?: boolean }> = api('GET', '/api/auth/challenge');
+    asking.then((answer) => setClaimable(answer.claimable === true), () => undefined);
+  }, []);
+  const [error, setError] = useState<{ message: string; from: 'code' | 'passkey' | 'recovery' } | null>(null);
+  const [busy, setBusy] = useState<'code' | 'passkey' | 'recovery' | null>(null);
+  // The phone is gone: one of the codes written down on the day.
+  const [recovering, setRecovering] = useState(false);
+  const [recovery, setRecovery] = useState('');
+
+  const withRecovery = async () => {
+    if (!recovery.trim() || busy) return;
+    setBusy('recovery');
+    setError(null);
+    try {
+      const session: { token: string; device: string; factor: string } = await api('POST', '/api/auth/sign-in', { recovery: recovery.trim() });
+      onSignedIn(session);
+    } catch (failure) {
+      setError({ message: explain(failure), from: 'recovery' });
+      setBusy(null);
+    }
+  };
   const scheme = useComputedColorScheme('light');
 
   const submit = async (value: string) => {
@@ -32,7 +72,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: (session: { token: string; 
     setBusy('code');
     setError(null);
     try {
-      const session: { token: string; device: string } = await api('POST', '/api/auth/sign-in', { totp: value });
+      const session: { token: string; device: string; factor: string } = await api('POST', '/api/auth/sign-in', { totp: value });
       onSignedIn(session);
     } catch (failure) {
       setError({ message: explain(failure), from: 'code' });
@@ -48,7 +88,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: (session: { token: string; 
     try {
       const challenge: RelyingParty & { challenge: string } = await api('GET', '/api/auth/challenge');
       const webauthn = await presentPasskey(challenge);
-      const session: { token: string; device: string } = await api('POST', '/api/auth/sign-in', { webauthn });
+      const session: { token: string; device: string; factor: string } = await api('POST', '/api/auth/sign-in', { webauthn });
       onSignedIn(session);
     } catch (failure) {
       // Said below the buttons, and not drawn on the code: the code was not
@@ -85,15 +125,21 @@ export function SignIn({ onSignedIn }: { onSignedIn: (session: { token: string; 
       <Grid.Col span={{ base: 12, md: 6 }}>
         <Center h="100%" mih="100vh" p="md" pos="relative">
           <Group pos="absolute" top={16} right={16}>
-            <SegmentedControl
+            {/* A list rather than a row of codes: seven codes do not fit
+                a phone, and "PT-BR" says less to its reader than "Português". */}
+            <Select
               size="xs"
+              w={180}
               value={language()}
-              onChange={(value) => setLanguage(value as Language)}
-              data={LANGUAGES.map((one) => ({ value: one.code, label: one.code.toUpperCase() }))}
+              onChange={(value) => { if (value) setLanguage(value as Language); }}
+              data={LANGUAGES.map((one) => ({ value: one.code, label: one.name }))}
+              allowDeselect={false}
+              leftSection={<IconLanguage size={14} />}
               aria-label={t('Language')}
+              comboboxProps={{ withinPortal: true }}
             />
           </Group>
-          <Paper withBorder shadow="md" radius="lg" p={36} w="100%" maw={440}>
+          <Paper withBorder shadow="md" radius="lg" p={{ base: 'lg', xs: 36 }} w="100%" maw={440}>
             <Stack gap="lg" align="center">
               <img className="brand-mark" src="/brand/palugada-app-icon.svg" alt="" width={56} height={56} />
               <div style={{ textAlign: 'center' }}>
@@ -105,7 +151,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: (session: { token: string; 
                 type="number"
                 oneTimeCode
                 autoFocus
-                size="lg"
+                size={narrow ? 'md' : 'lg'}
                 value={code}
                 onChange={setCode}
                 onComplete={(value) => void submit(value)}
@@ -113,6 +159,11 @@ export function SignIn({ onSignedIn }: { onSignedIn: (session: { token: string; 
                 disabled={busy !== null}
                 aria-label={t('Six-digit code')}
               />
+              {claimable && (
+                <Alert color="blue" variant="light" w="100%" title={t('This deployment has no owner yet')}>
+                  {t('Open the link PALUGADA printed in its log when it started. It ends in /#/claim/ and a code, and makes whoever opens it first the owner.')}
+                </Alert>
+              )}
               {error && <Alert color="red" variant="light" w="100%">{error.message}</Alert>}
               <Button fullWidth size="md" loading={busy === 'code'} disabled={code.length !== 6 || busy === 'passkey'} onClick={() => void submit(code)}>
                 {t('Sign in')}
@@ -132,6 +183,18 @@ export function SignIn({ onSignedIn }: { onSignedIn: (session: { token: string; 
                     {t('Sign in with a passkey')}
                   </Button>
                 </>
+              )}
+              {recovering ? (
+                <Stack gap="xs" w="100%">
+                  <TextInput label={t('Recovery code')} placeholder="abcd-efgh-ijkl-mnop" value={recovery} autoComplete="off"
+                    onChange={(event) => setRecovery(event.currentTarget.value)} error={error?.from === 'recovery'} disabled={busy !== null}
+                    onKeyDown={(event) => { if (event.key === 'Enter') void withRecovery(); }} />
+                  <Button fullWidth variant="light" loading={busy === 'recovery'} disabled={!recovery.trim() || busy !== null} onClick={() => void withRecovery()}>
+                    {t('Sign in with a recovery code')}
+                  </Button>
+                </Stack>
+              ) : (
+                <Anchor component="button" type="button" size="sm" onClick={() => setRecovering(true)}>{t('Lost your phone? Use a recovery code')}</Anchor>
               )}
               <Text size="xs" c="dimmed" ta="center">
                 {t('The session lives in this tab only. Tier 3 approvals ask for your authenticator every time.')}

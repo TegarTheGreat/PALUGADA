@@ -22,7 +22,7 @@ import { preflightGrants } from '../broker/preflight.ts';
 import type { CapabilityRegistry } from '../broker/registry.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
-import { redactor, type SecretManager } from './manager.ts';
+import { assertDivisionReference, redactor, type SecretManager } from './manager.ts';
 
 export const DEFAULT_CACHE_TTL_MS = 60_000;
 
@@ -178,6 +178,9 @@ export async function rotateCredential(input: {
     divisionId: string,
   ) => (alias: string, capabilityName: string) => Promise<string>;
 }): Promise<RotationResult> {
+  // Refused before anything moves: a credential pointed at the deployment's
+  // own sealed keys would hand them to a vendor on the next call.
+  if (input.newSecretRef !== undefined) assertDivisionReference(input.newSecretRef);
   const result = await withControlPlane(async (tx) => {
     const { rows } = await tx.query<{
       version: number;

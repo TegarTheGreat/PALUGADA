@@ -27,7 +27,7 @@ import { renderPersona, type RolePersona } from '../domain/personas.ts';
 import { say } from './say.ts';
 import { ASSISTANT_ACTIONS, ASSISTANT_CHECKS, NOT_FOR_THE_ASSISTANT, UNREADABLE, type AssistantAction } from './assistant-actions.ts';
 
-export type AssistantChannel = 'console' | 'telegram';
+export type AssistantChannel = 'console' | 'telegram' | 'whatsapp';
 
 export interface AssistantProposal {
   id: string;
@@ -62,6 +62,8 @@ export interface AssistantReach {
 /** The longest answer a read hands the model: enough for a page of settings, not a company's history. */
 const READ_LIMIT = 12_000;
 const MAX_TURNS = 10;
+/** The most room one answer's turn is given, however much thinking eats. */
+const ANSWER_ALLOWANCE_CEILING = 12_000;
 /** How much of the conversation the model is shown each time. */
 const HISTORY = 30;
 
@@ -212,10 +214,10 @@ export async function chatScope(channel: AssistantChannel): Promise<Scope> {
   return companies.length === 1 ? companies[0]!.companyId : null;
 }
 
-/** Moves Telegram to another conversation, said in that conversation: which is where the choice is kept. */
-export async function moveChat(companyId: Scope): Promise<void> {
+/** Moves a chat to another conversation, said in that conversation: which is where the choice is kept. */
+export async function moveChat(companyId: Scope, channel: Exclude<AssistantChannel, 'console'> = 'telegram'): Promise<void> {
   if (companyId !== null) await speakerFor(companyId);
-  await record('event', 'The owner is talking from Telegram now.', 'telegram', companyId);
+  await record('event', `The owner is talking from ${channel === 'telegram' ? 'Telegram' : 'WhatsApp'} now.`, channel, companyId);
 }
 
 /**
@@ -456,13 +458,27 @@ export async function converse(options: AssistantOptions, text: string, channel:
     ...(channel === 'telegram'
       ? ['', 'The owner is reading this in Telegram, on their phone: keep it short. Bold, lists and links show as Markdown does; HTML does not, so write none. The cards you propose are shown under your answer.']
       : []),
+    // WhatsApp has its own few marks and no headings, tables or link syntax.
+    ...(channel === 'whatsapp'
+      ? ['', 'The owner is reading this in WhatsApp, on their phone: keep it short. Write *bold* with one asterisk and _italic_ with underscores; there are no headings, tables, link syntax or HTML, so write an address as it is. The cards you propose are listed under your answer.']
+      : []),
   ].join('\n');
   let answer = '';
+  // A reasoning model counts its thinking here, and can spend the whole of
+  // it saying nothing (defect L4 of the live run of 2026-09-28): that turn is
+  // asked again with twice the room, and never kept, rather than ending as
+  // "I have nothing to add" to a question that had an answer.
+  let allowance = 1_500;
   const stopped = () => options.signal?.aborted === true;
   try {
     for (let turn = 0; turn < MAX_TURNS && !stopped(); turn += 1) {
-      const reply = await options.llm.turn({ model: options.model ?? 'standard', system, messages, tools: TOOLS, maxTokens: 1_500 }, options.signal);
+      const reply = await options.llm.turn({ model: options.model ?? 'standard', system, messages, tools: TOOLS, maxTokens: allowance }, options.signal);
       if (stopped()) break;
+      const silent = !reply.content.some((block) => block.type === 'tool_use' || (block.type === 'text' && block.text.trim() !== ''));
+      if (silent && reply.stopReason === 'max_tokens' && allowance < ANSWER_ALLOWANCE_CEILING) {
+        allowance = Math.min(ANSWER_ALLOWANCE_CEILING, allowance * 2);
+        continue;
+      }
       const texts = reply.content.filter((block): block is Extract<LlmBlock, { type: 'text' }> => block.type === 'text').map((block) => block.text);
       if (texts.length > 0) answer = texts.join('\n').trim();
       const uses = reply.content.filter((block): block is Extract<LlmBlock, { type: 'tool_use' }> => block.type === 'tool_use');
@@ -523,6 +539,19 @@ async function tool(
     if (!pattern) throw new Error(`${path} is not one of the checks`);
     if (Object.keys(body).some((field) => /key|token|secret|password/i.test(field) && field !== 'tokenIn')) {
       throw new Error('a check is sent no key: it uses the one saved');
+    }
+    // The model's checks look at what is saved, and only that. An address of
+    // the assistant's choosing would have the server fetch whatever a page it
+    // read named -- a cloud's metadata service, or a server hoping for the
+    // saved key.
+    if (pattern.startsWith('/api/control/settings/model/') && Object.keys(body).length > 0) {
+      throw new Error('a check of the model checks the one saved: send {}; the owner tries another on the page');
+    }
+    // So does the MCP check: the server fetched is one the owner saved, found
+    // by its name, never an address the assistant brings.
+    if (pattern === '/api/control/mcp/inspect'
+      && (typeof body.name !== 'string' || Object.keys(body).some((field) => field !== 'name'))) {
+      throw new Error('a check of an MCP server looks at a server already saved: send { name }; the owner tries a new one on the page');
     }
     return dataFrom(await reach.post(path, body));
   }

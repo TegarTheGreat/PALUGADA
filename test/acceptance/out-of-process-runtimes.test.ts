@@ -28,15 +28,17 @@ import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { readdir, readFile, mkdtemp, stat } from 'node:fs/promises';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
 import { InMemorySecretManager } from '../../src/secrets/manager.ts';
 import { DeploymentSecretManager, putSecret } from '../../src/settings/store.ts';
 import { tmpdir } from 'node:os';
 import { startToolBridge } from '../../src/runtime/tool-bridge.ts';
-import { Engine } from '../../src/engine/engine.ts';
+import { Engine, MODEL_OUTAGE_WAITS_MS } from '../../src/engine/engine.ts';
 import { registerPlatformCapabilities } from '../../src/broker/platform-capabilities.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
+import { takePlace } from '../../src/broker/in-flight.ts';
+import { claimTask } from '../../src/engine/checkout.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { buildContext } from '../../src/context/builder.ts';
 import { CapabilityRegistry, type Capability } from '../../src/broker/registry.ts';
@@ -92,14 +94,14 @@ function capabilities() {
   return { read, write };
 }
 
-async function brokerFor(fixture: Fixture, grants: string[]) {
+async function brokerFor(fixture: Fixture, grants: string[], options: { inFlightWaitMs?: number } = {}) {
   const { read, write } = capabilities();
   const registry = new CapabilityRegistry();
   registry.register(read);
   registry.register(write);
   await registry.sync();
   for (const name of grants) await grantCapability(fixture, name);
-  return new CapabilityBroker(registry);
+  return new CapabilityBroker(registry, undefined, undefined, options);
 }
 
 async function configureRole(
@@ -233,6 +235,9 @@ test("a runtime's tool call is resolved by the broker and answered (F13.4)", asy
       type: 'tool_result',
       id: 'call-1',
       output: { records: ['a.example.com'] },
+      // The step the journal keeps the call as, which the run's done report
+      // may cite (engine/done.ts): the run's first, as it made no other.
+      step: 0,
     },
     done: ECHOED,
   });
@@ -424,13 +429,67 @@ test('a fallback run\'s own total settles its own run, not the one that failed (
 });
 
 /**
+ * A model that did not answer halted every task in flight -- a provider's
+ * blip, a local model restarting -- with an incident apiece for the owner to
+ * resume by hand, though a minute later the same call was answered (a chaos
+ * run on 2026-09-29, with the model's port closed for a moment). The task
+ * now waits and tries the same model again, longer each time, spending no
+ * attempt; only a model that stays down halts it.
+ */
+test('a model that is down for a moment parks the task, and the same model finishes it (F13.6)', async () => {
+  const fixture = await createCompany('model-outage-wait');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'script', tools: ['dns.read'] });
+  const { ProviderFailure } = await import('../../src/runtime/wire.ts');
+  const attempts: string[] = [];
+  const adapter = {
+    name: 'script',
+    backends: ['local'] as const,
+    async health() {
+      return { ok: true };
+    },
+    async run(request: { modelRouting: { primary: string } }) {
+      attempts.push(request.modelRouting.primary);
+      if (attempts.length <= 2) {
+        throw new ProviderFailure(request.modelRouting.primary, 'the model API could not be reached 3 times: fetch failed (ECONNREFUSED)');
+      }
+      return { output: { done: DONE } };
+    },
+  };
+  const engine = engineWith(broker, adapter);
+  const task = await newTask(fixture, {});
+
+  const before = Date.now();
+  const first = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(first.status, 'waiting_window', first.reason);
+  assert.equal(first.reason, 'model.unavailable');
+  const wait = first.waitUntil!.getTime() - before;
+  assert.ok(Math.abs(wait - MODEL_OUTAGE_WAITS_MS[0]!) < 2_000, `waited ${wait}ms`);
+  const second = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(second.status, 'waiting_window', second.reason);
+  assert.ok(second.waitUntil!.getTime() - Date.now() > MODEL_OUTAGE_WAITS_MS[0]!, 'longer the second time');
+
+  const third = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(third.status, 'completed', third.reason);
+  assert.deepEqual(attempts, ['test-model', 'test-model', 'test-model']);
+  const stored = await withTenant(fixture.companyId, (tx) => getTask(tx, task.id));
+  assert.equal(stored!.attempt, 0, 'waiting for the model is not failing');
+  const incidents = await withTenant(fixture.companyId, (tx) => tx.query(
+    "SELECT 1 FROM inbox_items WHERE task_id = $1 AND kind = 'incident'", [task.id]));
+  assert.equal(incidents.rows.length, 0, 'nothing for the owner to do about a moment');
+  assert.equal((await eventTypes(fixture.companyId, task.id)).filter((type) => type === 'task.model_waited').length, 2);
+});
+
+/**
  * A role that can act irreversibly does not get a silent substitution.
  *
  * Tier 2 is where an action changes something outside the company and cannot
  * be undone. Running one on a model the owner did not choose, and did not
  * calibrate the role for, is exactly what the PRD's word *silently* forbids.
+ * It waits for its own model, as every role does; one that stays down halts
+ * it, and the owner is told once.
  */
-test('a role holding a tier 2 tool halts instead of falling back (F13.6)', async () => {
+test('a role holding a tier 2 tool waits for its own model and never falls back; one that stays down halts it (F13.6)', async () => {
   const fixture = await createCompany('fallback-refused');
   const broker = await brokerFor(fixture, ['dns.write']);
   await configureRole(fixture, {
@@ -454,10 +513,14 @@ test('a role holding a tier 2 tool halts instead of falling back (F13.6)', async
   };
 
   const task = await newTask(fixture, {});
-  const outcome = await engineWith(broker, adapter).runTask(fixture.companyId, task.id, 'worker');
+  const engine = engineWith(broker, adapter);
+  const outcomes: string[] = [];
+  for (let run = 0; run <= MODEL_OUTAGE_WAITS_MS.length; run += 1) {
+    outcomes.push((await engine.runTask(fixture.companyId, task.id, 'worker')).status);
+  }
 
-  assert.equal(outcome.status, 'halted');
-  assert.deepEqual(attempts, ['test-model'], 'the fallback model was never tried');
+  assert.deepEqual(outcomes, [...MODEL_OUTAGE_WAITS_MS.map(() => 'waiting_window'), 'halted']);
+  assert.deepEqual(attempts, Array(MODEL_OUTAGE_WAITS_MS.length + 1).fill('test-model'), 'the fallback model was never tried');
 
   const types = await eventTypes(fixture.companyId, task.id);
   assert.ok(types.includes('model.fallback_refused'));
@@ -471,8 +534,11 @@ test('a role holding a tier 2 tool halts instead of falling back (F13.6)', async
     );
     return rows;
   });
-  assert.equal(incidents.length, 1);
+  assert.equal(incidents.length, 1, 'told once, when the waiting was over');
   assert.match(incidents[0]!.title, /was not moved/);
+  const detail = await withTenant(fixture.companyId, (tx) => tx.query<{ rationale: string }>(
+    "SELECT rationale FROM inbox_items WHERE task_id = $1 AND kind = 'incident'", [task.id]));
+  assert.match(detail.rows[0]!.rationale, /tried 6 times over about 16 minutes\. This role can take actions that cannot be undone/);
 });
 
 /* ------------------------------------------------------------------ http --- */
@@ -511,6 +577,46 @@ test('the http runtime finishes a turn loop and answers tool calls (F13.2)', asy
   assert.equal(turns.length, 2);
   assert.deepEqual(turns[0]!.answers, []);
   assert.equal((turns[1]!.answers[0] as { type: string }).type, 'tool_result');
+});
+
+/**
+ * A role uses its own tools (F2.4), whatever runtime it is on.
+ *
+ * The tool bridge showed an agent CLI only its role's tools, and the broker
+ * checks what the division was granted. A runtime that speaks the wire
+ * itself -- a script, an HTTP service, a container -- could name any tool
+ * its division holds, and reach it: here, a write the role was never given.
+ */
+test('a runtime in another process may call only its role\'s tools, not everything its division holds (F2.4)', async () => {
+  const fixture = await createCompany('http-role-tools');
+  const broker = await brokerFor(fixture, ['dns.read', 'dns.write']);
+  await configureRole(fixture, { runtime: 'http', tools: ['dns.read'] });
+
+  const answers: unknown[][] = [];
+  const adapter = new HttpAdapter({
+    url: 'https://runtime.invalid/run',
+    fetch: (async (_url: string, init: { method?: string; body?: string }) => {
+      if ((init.method ?? 'GET') === 'GET') return new Response('{}', { status: 200 });
+      const body = JSON.parse(init.body!) as { turn: number; answers: unknown[] };
+      answers.push(body.answers);
+      const events: RunEvent[] = body.turn === 0
+        ? [{ type: 'tool_call', id: 'w', name: 'dns.write', args: { zone: 'example.com' } }]
+        : [{ type: 'done', output: { done: DONE } }];
+      return new Response(JSON.stringify({ events }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as unknown as typeof globalThis.fetch,
+  });
+
+  const task = await newTask(fixture, {});
+  await engineWith(broker, adapter).runTask(fixture.companyId, task.id, 'worker');
+  const refused = answers[1]![0] as { type: string; code: string; message: string };
+  assert.equal(refused.type, 'tool_error');
+  assert.equal(refused.code, 'capability.not_granted');
+  assert.match(refused.message, /dns\.write is not one of this role's tools/);
+  // Refused before the broker: no card for the owner about a write the role cannot make.
+  assert.deepEqual((await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'approval'), []);
+  const denied = await withTenant(fixture.companyId, (tx) => tx.query<{ payload: { capability: string; reason: string } }>(
+    "SELECT payload FROM events WHERE task_id = $1 AND type = 'policy.denied'", [task.id]));
+  assert.deepEqual(denied.rows.map((row) => [row.payload.capability, row.payload.reason]), [['dns.write', 'not_a_role_tool']]);
 });
 
 /**
@@ -723,6 +829,87 @@ test('the docker backend asks the daemon, not the CLI (F13.8)', async () => {
   assert.match(healthy.detail ?? '', /27\.0\.1/);
 });
 
+/**
+ * Ending the docker client does not end its container. A runtime that ignores
+ * SIGTERM -- and a process that is PID 1 in a container ignores it unless it
+ * says otherwise -- outlives the client the tree keeper kills, holding its
+ * memory and CPU until it chooses to stop, with `--rm` waiting on that too.
+ * So each run's container has a name, the runtime is not PID 1, and the name
+ * is removed whenever the run ends, however it ended.
+ */
+test('a run\'s container is named, not PID 1, and removed when the run ends (F13.5)', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'palugada-docker-'));
+  const log = join(dir, 'docker.log');
+  const docker = join(dir, 'docker');
+  // A docker client that keeps a log of what it was asked and plays the
+  // container with the echo runtime.
+  writeFileSync(docker, [
+    '#!/bin/sh',
+    `echo "$*" >> '${log}'`,
+    'if [ "$1" = version ]; then echo 27.0.1; exit 0; fi',
+    `if [ "$1" = run ]; then exec '${process.execPath}' '${RUNTIME}'; fi`,
+    'exit 0',
+  ].join('\n'), { mode: 0o755 });
+
+  const fixture = await createCompany('docker-remove');
+  const broker = await brokerFor(fixture, []);
+  await configureRole(fixture, { runtime: 'docker' });
+  await withTenant(fixture.companyId, (tx) => tx.query("UPDATE roles SET backend = 'docker' WHERE id = $1", [fixture.roleId]));
+  const adapter = new ContainerAdapter({ image: 'palugada/runtime:1', docker });
+
+  for (const script of ['done', 'unreadable']) {
+    writeFileSync(log, '');
+    const task = await newTask(fixture, { script }, { attemptMax: 1 });
+    const outcome = await engineWith(broker, adapter).runTask(fixture.companyId, task.id, 'worker');
+    assert.equal(outcome.status, script === 'done' ? 'completed' : 'failed', outcome.reason);
+
+    const calls = (await readFile(log, 'utf8')).trim().split('\n').filter((line) => !line.startsWith('version'));
+    const run = calls.find((line) => line.startsWith('run '));
+    const name = /--name (\S+)/.exec(run ?? '')?.[1];
+    assert.ok(name?.startsWith('palugada-run-'), `the container has a name: ${run}`);
+    assert.ok(run!.split(' ').includes('--init'), 'the runtime is not PID 1');
+    assert.equal(calls.at(-1), `rm --force ${name}`, `${script}: removed by its name after the run`);
+  }
+});
+
+/**
+ * A worker killed outright -- SIGKILL, the out-of-memory killer, a host that
+ * lost its power supply to the database but not to docker -- never reaches
+ * the `finally` that removes its run's container, and the runtime inside
+ * keeps its memory and its CPU. Each container carries the worker that
+ * started it, so any live worker can tell a leftover from a run in flight.
+ */
+test('a container a dead worker left running is removed, and one of a live worker is not (F13.5)', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'palugada-docker-'));
+  const log = join(dir, 'docker.log');
+  const docker = join(dir, 'docker');
+  writeFileSync(docker, [
+    '#!/bin/sh',
+    `echo "$*" >> '${log}'`,
+    'if [ "$1" = ps ]; then',
+    "  printf 'palugada-run-a\\tworker-dead\\npalugada-run-b\\tworker-alive\\npalugada-run-c\\tworker-me\\n'",
+    'fi',
+    'exit 0',
+  ].join('\n'), { mode: 0o755 });
+
+  const adapter = new ContainerAdapter({ image: 'palugada/runtime:1', docker, worker: 'worker-me' });
+  const argv = adapter.argv('palugada-run-x');
+  assert.equal(argv[argv.indexOf('--label') + 1], 'palugada.worker=worker-me', 'each container says whose run it is');
+
+  const registry = new AdapterRegistry();
+  registry.register(adapter);
+  const removed = await registry.sweep(new Set(['worker-alive']));
+  assert.deepEqual(removed, ['palugada-run-a']);
+  const calls = (await readFile(log, 'utf8')).trim().split('\n');
+  assert.ok(calls.some((line) => line.startsWith('ps --all --filter label=palugada.worker')), calls.join('\n'));
+  assert.deepEqual(calls.filter((line) => line.startsWith('rm ')), ['rm --force palugada-run-a'],
+    'a live worker\'s run and this worker\'s own are left alone');
+
+  // A docker that is not there is nothing to sweep, not an error.
+  const absent = new ContainerAdapter({ image: 'palugada/runtime:1', docker: '/nonexistent/docker', worker: 'worker-me' });
+  assert.deepEqual(await absent.sweep(new Set()), []);
+});
+
 test('a missing docker binary is unhealthy rather than an exception (F13.8)', async () => {
   const adapter = new ContainerAdapter({
     image: 'palugada/runtime:1',
@@ -792,6 +979,8 @@ test('claude-code is handed a token saved in the console, and a home of its own 
   const fake = join(bin, 'claude');
   writeFileSync(fake, [
     `#!${process.execPath}`,
+    // The version whose flags were checked, as the real one says it.
+    "if (process.argv.includes('--version')) { console.log('2.1.283 (Claude Code)'); process.exit(0); }",
     "const { createHash } = require('node:crypto');",
     "const token = process.env.CLAUDE_CODE_OAUTH_TOKEN ?? '';",
     `require('node:fs').writeFileSync(${JSON.stringify(seen)}, JSON.stringify({`,
@@ -815,15 +1004,296 @@ test('claude-code is handed a token saved in the console, and a home of its own 
 
   assert.equal(outcome.status, 'completed', outcome.reason);
   const record = JSON.parse(readFileSync(seen, 'utf8')) as { env: string[]; home: string; sha: string };
-  assert.deepEqual(handed(record.env), ['CLAUDE_CODE_OAUTH_TOKEN', 'HOME', 'PATH']);
+  assert.deepEqual(handed(record.env), ['CLAUDE_CODE_OAUTH_TOKEN', 'DISABLE_AUTOUPDATER', 'HOME', 'PATH']);
   assert.equal(record.sha, createHash('sha256').update('sk-ant-oat01-saved-in-the-console').digest('hex'));
   assert.notEqual(record.home, process.env.HOME);
   assert.match(record.home, /palugada-claude-/, 'the run\'s own directory, removed when it ends');
 });
 
+/* ------------------------------------------------- versions checked --- */
+
+/**
+ * What keeps an agent CLI to the bridge is its own flags: `--tools ''`,
+ * `shell_tool = false`, a core tool list. Each was checked against one
+ * version of each CLI, and a later version may read them differently -- the
+ * Claude Code release that grew seventeen tools the old list did not name is
+ * why the list became empty. OtoDock pins and freezes the CLIs it runs for
+ * the same reason. A version nobody checked gets no work until the owner
+ * installs the checked one or accepts it.
+ */
+test('an agent CLI at a version its containment was not checked on gets no work until the owner accepts it', async () => {
+  const printing = (line: string) => ['-e', `console.log(${JSON.stringify(line)})`];
+  const codex = (line: string, extra: Record<string, unknown> = {}) => new CliAdapter(knownCli('codex', {
+    command: process.execPath, versionArgs: printing(line), ...extra,
+  }));
+  assert.equal(knownCli('codex').checkedVersion, '0.157.1');
+  assert.equal((await codex('codex-cli 0.157.1').health()).ok, true);
+
+  const newer = await codex('codex-cli 0.170.0').health();
+  assert.equal(newer.ok, false);
+  assert.match(newer.detail ?? '',
+    /0\.170\.0 is not 0\.157\.1, the version whose containment PALUGADA checked; install 0\.157\.1 from Agent CLIs, or accept 0\.170\.0 there/);
+  assert.equal((await codex('codex-cli 0.170.0', { acceptedVersion: '0.170.0' }).health()).ok, true,
+    'the owner accepted this one');
+  assert.equal((await codex('codex-cli 0.171.0', { acceptedVersion: '0.170.0' }).health()).ok, false,
+    'and only that one');
+
+  // A CLI described by the operator names no checked version, and is not held to one.
+  const { checkedVersion: _checked, ...written } = knownCli('codex');
+  assert.equal((await new CliAdapter({ ...written, name: 'my-cli',
+    command: process.execPath, versionArgs: printing('9.9.9') }).health()).ok, true);
+
+  // Claude Code the same way, through its own adapter.
+  const dir = await mkdtemp(join(tmpdir(), 'palugada-version-'));
+  const claude = (version: string) => {
+    const path = join(dir, `claude-${version}`);
+    writeFileSync(path, `#!/bin/sh\necho "${version} (Claude Code)"\n`, { mode: 0o755 });
+    return path;
+  };
+  assert.equal((await new ClaudeCodeAdapter({ command: claude('2.1.283') }).health()).ok, true);
+  const drifted = await new ClaudeCodeAdapter({ command: claude('2.1.285') }).health();
+  assert.equal(drifted.ok, false);
+  assert.match(drifted.detail ?? '', /2\.1\.285 is not 2\.1\.283/);
+  assert.equal((await new ClaudeCodeAdapter({ command: claude('2.1.285'), acceptedVersion: '2.1.285' }).health()).ok, true);
+});
+
+test('no agent CLI updates itself under a run, and each is checked at the version the console installs', async () => {
+  const { AGENT_CATALOGUE } = await import('../../src/settings/agents.ts');
+  for (const entry of AGENT_CATALOGUE) {
+    if (entry.install.kind !== 'npm') continue;
+    const checked = entry.name === 'claude-code'
+      ? new ClaudeCodeAdapter({}).checkedVersion
+      : knownCli(entry.name as Parameters<typeof knownCli>[0]).checkedVersion;
+    assert.equal(checked, entry.install.tested, `${entry.name}: the console installs the version that was checked`);
+  }
+  // A CLI that replaces itself between runs is running a version nobody
+  // checked, so each is told not to: checked against the binaries.
+  assert.match(knownCli('codex').files!['.codex/config.toml']!, /^check_for_update_on_startup = false$/m);
+  const gemini = JSON.parse(knownCli('gemini-cli').files!['.gemini/settings.json']!.replace(/\{maxTurns\}/, '1')) as {
+    general?: { enableAutoUpdate?: boolean; enableAutoUpdateNotification?: boolean };
+  };
+  assert.deepEqual(gemini.general, { enableAutoUpdate: false, enableAutoUpdateNotification: false });
+  assert.equal(knownCli('opencode').env!.OPENCODE_DISABLE_AUTOUPDATE, '1');
+});
+
+/* ---------------------------------------------------------------- acp --- */
+
+const ACP_AGENT = new URL('../fixtures/runtimes/fake-acp-agent.mjs', import.meta.url).pathname;
+
+function acpSpec(name: string, args: string[]) {
+  return runtimeSpecsFrom([{ name, command: process.execPath, args: [ACP_AGENT, ...args], dialect: 'acp' }])[0]!;
+}
+
+async function reportFrom(path: string): Promise<{
+  initialize: { protocolVersion: number; clientCapabilities: { fs: { readTextFile: boolean; writeTextFile: boolean }; terminal: boolean }; clientInfo: { name: string } };
+  newSession: { cwd: string; mcpServers: Array<{ type: string; name: string; url: string; headers: Array<{ name: string; value: string }> }> };
+  permissions: Array<{ outcome: { outcome: string; optionId?: string } }>;
+  fsError: { code: number; message: string } | null;
+  cancelled: boolean;
+  prompted: boolean;
+  junkPermission: { outcome: { outcome: string; optionId?: string } } | null;
+}> {
+  return JSON.parse(await readFile(path, 'utf8'));
+}
+
+/**
+ * Any agent that speaks the Agent Client Protocol, from one entry (the
+ * competitive analysis of 2026-09-30, item 14). Gemini CLI with `--acp`,
+ * Claude through `claude-agent-acp`, Goose, OpenCode and some forty more
+ * speak it; none is installed here, so the stand-in speaks version 1 as its
+ * schema writes it, and the claims are about what PALUGADA says to it.
+ */
+test('an agent that speaks ACP is a runtime from one entry: its tools through the bridge, its own refused, no file system, its cost charged', async () => {
+  const fixture = await createCompany('acp-configured');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'goose-acp', tools: ['dns.read'] });
+  const task = await newTask(fixture, { ask: 'read the zone' });
+  const reportPath = join(await mkdtemp(join(tmpdir(), 'acp-report-')), 'report.json');
+  const adapter = new CliAdapter(acpSpec('goose-acp', ['--call', 'dns__read', '--ask-permission', '--cost', '0.0123', '--report', reportPath]));
+
+  const outcome = await engineWith(broker, adapter).runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(outcome.status, 'completed', outcome.reason);
+  const output = outcome.output as { tool: { isError: boolean; text: string } };
+  assert.equal(output.tool.isError, false, `the capability was resolved by the broker: ${output.tool.text}`);
+  assert.match(output.tool.text, /^<<<UNTRUSTED_CONTENT>>> source="tool dns\.read"/);
+
+  const report = await reportFrom(reportPath);
+  assert.equal(report.initialize.protocolVersion, 1, 'the stable version, as an integer');
+  assert.deepEqual(report.initialize.clientCapabilities, { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+    'no file system and no terminal of PALUGADA\'s to reach through');
+  assert.equal(report.initialize.clientInfo.name, 'palugada');
+  assert.ok(isAbsolute(report.newSession.cwd), 'the session works in an absolute directory');
+  const [server] = report.newSession.mcpServers;
+  assert.deepEqual([server!.type, server!.name, server!.headers[0]!.name], ['http', 'palugada', 'Authorization']);
+  assert.match(server!.headers[0]!.value, /^Bearer [0-9a-f]{64}$/, 'the run\'s own token');
+  assert.deepEqual(report.permissions, [
+    { outcome: { outcome: 'selected', optionId: 'no' } },
+    { outcome: { outcome: 'selected', optionId: 'no' } },
+    { outcome: { outcome: 'selected', optionId: 'yes' } },
+  ], 'its own shell refused, also when named like a bridge tool; the role\'s own tool allowed once, never always');
+  assert.equal(report.fsError?.code, -32601, 'a file it was not offered is a method not found');
+
+  // What it said the session cost ($0.0123) is what the run is charged, in whole cents up.
+  const settled = await withTenant(fixture.companyId, (tx) => tx.query<{ payload: { actualCents: number } }>(
+    "SELECT payload FROM events WHERE task_id = $1 AND type = 'cost.settled'", [task.id]));
+  assert.deepEqual(settled.rows.map((row) => row.payload.actualCents), [2]);
+});
+
+test('an ACP agent that cannot take the tools, speaks another version or is not signed in halts the task with the reason', async () => {
+  const fixture = await createCompany('acp-refused');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'old-acp', tools: ['dns.read'] });
+  const cases: Array<[string[], RegExp]> = [
+    [['--no-http'], /old-acp cannot reach an MCP server over HTTP/],
+    [['--version-reply', '2'], /old-acp speaks ACP version 2; PALUGADA speaks 1/],
+    [['--auth-required'], /old-acp needs to be signed in.*Authentication required/],
+    // Some agents find out they are not signed in only when they are asked something.
+    [['--auth-on-prompt'], /old-acp needs to be signed in.*Authentication required/],
+  ];
+  for (const [args, reason] of cases) {
+    const task = await newTask(fixture, { ask: args.join(' ') });
+    const outcome = await engineWith(broker, new CliAdapter(acpSpec('old-acp', args))).runTask(fixture.companyId, task.id, 'worker');
+    // Another attempt would meet the same agent: the owner is told instead.
+    assert.deepEqual([outcome.status, outcome.reason], ['halted', 'runtime_unavailable'], args.join(' '));
+    const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ payload: unknown }>(
+      "SELECT payload FROM events WHERE task_id = $1 AND type = 'task.halted'", [task.id]));
+    assert.match(JSON.stringify(rows[0]?.payload), reason);
+  }
+});
+
+test('a withdrawn ACP run is cancelled in the protocol before its process is ended', async () => {
+  const fixture = await createCompany('acp-cancelled');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'slow-acp', tools: ['dns.read'] });
+  const reportPath = join(await mkdtemp(join(tmpdir(), 'acp-report-')), 'report.json');
+  const task = await newTask(fixture, { ask: 'wait' }, { deadlineAt: new Date(Date.now() + 1_500) });
+  const outcome = await engineWith(broker, new CliAdapter(acpSpec('slow-acp', ['--hang-prompt', '--report', reportPath]))).runTask(
+    fixture.companyId, task.id, 'worker');
+  assert.notEqual(outcome.status, 'completed');
+  assert.equal((await reportFrom(reportPath)).cancelled, true, 'told session/cancel, not only killed');
+});
+
+/**
+ * What the review of 9d4e2d8 found an agent could do to the adapter: fail
+ * after spending and be free, write a line nobody could read and leave the
+ * run waiting, or be withdrawn before its session opened and do the whole
+ * turn anyway.
+ */
+test('an ACP run that fails still costs what it said it cost, in whole cents', async () => {
+  const fixture = await createCompany('acp-failed-cost');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'costly-acp', tools: ['dns.read'] });
+  const task = await newTask(fixture, { ask: 'fail after spending' }, { attemptMax: 1 });
+  const outcome = await engineWith(broker, new CliAdapter(acpSpec('costly-acp', ['--cost', '0.07', '--fail-prompt'])))
+    .runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(outcome.status, 'failed');
+  assert.match(outcome.reason ?? '', /the provider went away/);
+  const settled = await withTenant(fixture.companyId, (tx) => tx.query<{ payload: { actualCents: number } }>(
+    "SELECT payload FROM events WHERE task_id = $1 AND type = 'cost.settled'", [task.id]));
+  // $0.07 is seven cents: 0.07 * 100 is 7.000000000000001 in floating point, which rounded up was eight.
+  assert.deepEqual(settled.rows.map((row) => row.payload.actualCents), [7]);
+});
+
+test('an ACP agent\'s stray lines are skipped, a permission asked by tool call alone is judged by that call, string ids are answered', async () => {
+  const fixture = await createCompany('acp-odd');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'odd-acp', tools: ['dns.read'] });
+  const reportPath = join(await mkdtemp(join(tmpdir(), 'acp-report-')), 'report.json');
+  const task = await newTask(fixture, { ask: 'read the zone' }, { attemptMax: 1 });
+  const outcome = await engineWith(broker, new CliAdapter(acpSpec('odd-acp', [
+    '--call', 'dns__read', '--junk', '--string-ids', '--report', reportPath,
+  ]))).runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(outcome.status, 'completed', outcome.reason);
+  assert.deepEqual((await reportFrom(reportPath)).junkPermission, { outcome: { outcome: 'selected', optionId: 'ok' } },
+    'the role\'s own tool, named by the tool call before it, allowed with the one allowing option offered');
+});
+
+test('an ACP agent whose output cannot be read is stopped at once, and the run says why', async () => {
+  const fixture = await createCompany('acp-unreadable');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'loud-acp', tools: ['dns.read'] });
+  const task = await newTask(fixture, { ask: 'say too much' }, { attemptMax: 1, deadlineAt: new Date(Date.now() + 120_000) });
+  const began = Date.now();
+  const outcome = await engineWith(broker, new CliAdapter(acpSpec('loud-acp', ['--huge-line'])))
+    .runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(outcome.status, 'failed', outcome.reason);
+  assert.match(outcome.reason ?? '', /output could not be read: .*without a line break/);
+  assert.ok(Date.now() - began < 60_000, 'not left waiting for a deadline two minutes away');
+
+  // Started through a shell, as npx and uvx start one: the shell holds the
+  // same pipes, and the whole group is stopped.
+  const shimmed = await newTask(fixture, { ask: 'say too much, through a shim' }, { attemptMax: 1, deadlineAt: new Date(Date.now() + 120_000) });
+  const shim = runtimeSpecsFrom([{
+    name: 'loud-acp', command: 'bash', args: ['-c', `"${process.execPath}" "${ACP_AGENT}" --huge-line; echo after`], dialect: 'acp',
+  }])[0]!;
+  const again = Date.now();
+  const through = await engineWith(broker, new CliAdapter(shim)).runTask(fixture.companyId, shimmed.id, 'worker');
+  assert.equal(through.status, 'failed', through.reason);
+  assert.ok(Date.now() - again < 60_000, 'a shim does not keep the run waiting either');
+});
+
+test('an ACP run withdrawn before its session opens is never prompted', async () => {
+  const fixture = await createCompany('acp-early-cancel');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'late-acp', tools: ['dns.read'] });
+  const reportPath = join(await mkdtemp(join(tmpdir(), 'acp-report-')), 'report.json');
+  const task = await newTask(fixture, { ask: 'wait' }, { deadlineAt: new Date(Date.now() + 500) });
+  const outcome = await engineWith(broker, new CliAdapter(acpSpec('late-acp', ['--slow-session', '1500', '--report', reportPath])))
+    .runTask(fixture.companyId, task.id, 'worker');
+  assert.notEqual(outcome.status, 'completed');
+  const report = await reportFrom(reportPath);
+  assert.ok(report.newSession, 'the session did open');
+  assert.equal(report.prompted, false, 'and the withdrawn turn was not begun in it');
+});
+
+/**
+ * F5.7 for a runtime in another process: a call that finds every place taken
+ * parks the task as it does in-process. Handed to the agent as a tool error,
+ * the run went on and each try held it for the wait (the review of d1b8142).
+ */
+test('an out-of-process run whose call finds every place taken parks, spending no attempt (F5.7)', async () => {
+  const fixture = await createCompany('acp-busy');
+  const broker = await brokerFor(fixture, ['dns.read'], { inFlightWaitMs: 100 });
+  await grantCapability(fixture, 'dns.read', { maxInFlight: 1 });
+  await configureRole(fixture, { runtime: 'busy-acp', tools: ['dns.read'] });
+  const elsewhere = await newTask(fixture, { ask: 'hold the place' });
+  assert.ok(await claimTask(fixture.companyId, { holder: 'elsewhere', taskId: elsewhere.id }));
+  assert.ok(await takePlace({
+    companyId: fixture.companyId, divisionId: fixture.divisionId, capability: 'dns.read', taskId: elsewhere.id, holderKey: 'held',
+  }, 1));
+
+  const task = await newTask(fixture, { ask: 'read the zone' }, { attemptMax: 1 });
+  const outcome = await engineWith(broker, new CliAdapter(acpSpec('busy-acp', ['--call', 'dns__read'])))
+    .runTask(fixture.companyId, task.id, 'worker');
+  assert.deepEqual([outcome.status, outcome.reason], ['waiting_window', 'capability.busy']);
+  const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ attempt: number }>(
+    'SELECT attempt FROM tasks WHERE id = $1', [task.id]));
+  assert.equal(rows[0]!.attempt, 0, 'waiting is not failing');
+});
+
+test('an out-of-process run whose call the budget cannot pay for halts, as an in-process one does', async () => {
+  const fixture = await createCompany('acp-unfunded');
+  const registry = new CapabilityRegistry();
+  registry.register<{ zone: string }, { records: string[] }>({
+    name: 'dns.read', adapter: 'test:dns', defaultTier: 0, estimatedCostCents: 5,
+    async execute() { return { records: ['a.example.com'] }; },
+  });
+  await registry.sync();
+  await grantCapability(fixture, 'dns.read');
+  await configureRole(fixture, { runtime: 'poor-acp', tools: ['dns.read'] });
+  await withControlPlane((tx) => tx.query(
+    'UPDATE budget_accounts SET money_max_cents = money_spent_cents WHERE id = $1', [fixture.budgetAccountId]));
+  const task = await newTask(fixture, { ask: 'read the zone' });
+  const outcome = await engineWith(new CapabilityBroker(registry), new CliAdapter(acpSpec('poor-acp', ['--call', 'dns__read'])))
+    .runTask(fixture.companyId, task.id, 'worker');
+  assert.deepEqual([outcome.status, outcome.reason], ['halted', 'budget_exhausted']);
+});
+
 /* ---------------------------------------------------------------- cli --- */
 
 const AGENT_CLI = new URL('../fixtures/runtimes/fake-agent-cli.mjs', import.meta.url).pathname;
+// The stand-in runs as `node`, so `--version` answers with Node's version,
+// which is accepted as a deployment would accept one (`checked-versions.ts`).
 
 /**
  * A spec that would leave the runtime with no tools is refused.
@@ -888,7 +1358,11 @@ test('an agent CLI is employed from a configuration entry alone (F13.3)', async 
   // The answer, inside the envelope that says it is data (F8.9).
   const text = String(output.tool.text);
   assert.match(text, /^<<<UNTRUSTED_CONTENT>>> source="tool dns\.read"/);
-  assert.deepEqual(JSON.parse(text.split('\n').at(-2)!), { records: ['a.example.com'] });
+  const lines = text.split('\n');
+  assert.deepEqual(JSON.parse(lines.at(-3)!), { records: ['a.example.com'] });
+  // After the fence, in the platform's words, the step a done report cites.
+  assert.equal(lines.at(-2), '<<<UNTRUSTED_CONTENT>>>');
+  assert.match(lines.at(-1)!, /^This call is step:0 of your task; evidence may cite it as step:0\.$/);
   // The role's model reached the command line through the placeholder.
   assert.equal(output.model, 'test-model');
 
@@ -1180,7 +1654,7 @@ test('a model OpenClaw would sign in to with the machine\'s own identity is refu
   await configureRole(fixture, { runtime: 'openclaw' });
   const pidfile = join(await mkdtemp(join(tmpdir(), 'palugada-host-identity-')), 'started');
   const adapter = new CliAdapter(knownCli('openclaw', {
-    command: process.execPath,
+    command: process.execPath, acceptedVersion: process.versions.node,
     args: [AGENT_CLI, '--dialect', 'text', '--mcp-config-from', '{runDir}/openclaw.json', '--spawn-orphan', pidfile],
     dialect: 'text',
   }));
@@ -1727,7 +2201,7 @@ test('a known spec drives a real run once the binary exists (F13.3)', async () =
   const task = await newTask(fixture, { ask: 'read the zone' });
 
   const spec = knownCli('codex', {
-    command: process.execPath,
+    command: process.execPath, acceptedVersion: process.versions.node,
     args: [AGENT_CLI, '--dialect', 'text', '--mcp-config-file', '{mcpConfigFile}', '--call', 'dns.read'],
     dialect: 'text',
   });
@@ -1765,7 +2239,7 @@ for (const [name, from] of [
 
     const real = knownCli(name);
     const spec = knownCli(name, {
-      command: process.execPath,
+      command: process.execPath, acceptedVersion: process.versions.node,
       args: [AGENT_CLI, '--dialect', real.dialect!, ...from, '--call', 'dns.read', '--dump-env'],
     });
 
@@ -1811,7 +2285,7 @@ test('a tier becomes the model each CLI knows, and one it cannot is refused by n
   await withTenant(fixture.companyId, (tx) => tx.query("UPDATE roles SET model = 'standard' WHERE id = $1", [fixture.roleId]));
 
   const told = knownCli('codex', {
-    command: process.execPath,
+    command: process.execPath, acceptedVersion: process.versions.node,
     args: [AGENT_CLI, '--dialect', 'codex-jsonl', '--mcp-config-from', '{runDir}/.codex/config.toml', '--model', '{model}'],
     models: { standard: 'gpt-something' },
   });
@@ -1820,7 +2294,7 @@ test('a tier becomes the model each CLI knows, and one it cannot is refused by n
   assert.equal((ran.output as { model: string }).model, 'gpt-something');
 
   const untold = knownCli('codex', {
-    command: process.execPath,
+    command: process.execPath, acceptedVersion: process.versions.node,
     args: [AGENT_CLI, '--dialect', 'codex-jsonl', '--mcp-config-from', '{runDir}/.codex/config.toml', '--model', '{model}'],
   });
   const refused = await engineWith(broker, new CliAdapter(untold)).runTask(fixture.companyId, (await newTask(fixture, { ask: 'x' })).id, 'worker');
@@ -2046,6 +2520,49 @@ test('a runtime ended mid-line at its deadline halts on the deadline, not on the
 
   assert.equal(outcome.status, 'halted', outcome.reason);
   assert.equal(outcome.reason, 'deadline_passed');
+});
+
+/**
+ * A runtime's output is read a line at a time, and a line is held until it
+ * ends. One that never ended -- a CLI stuck redrawing a progress bar, a model
+ * pouring a file into one string, a process gone wrong -- was held whole, and
+ * the worker's memory grew with it until the deadline or the machine gave
+ * out first. Every reader now stops the run at a bound and says why: Claude
+ * Code's stream-json, the other CLIs' lines, and a script's protocol.
+ */
+test('a runtime that writes without ever ending a line is stopped and says why (F13.2)', async () => {
+  const fixture = await createCompany('runaway-line');
+  const broker = await brokerFor(fixture, []);
+  const dir = await mkdtemp(join(tmpdir(), 'palugada-flood-'));
+  const floods = [
+    { runtime: 'codex', dialect: undefined, file: join(dir, 'stream-json.pid') },
+    { runtime: 'codex', dialect: 'codex-jsonl', file: join(dir, 'codex.pid') },
+    { runtime: 'script', dialect: undefined, file: join(dir, 'script.pid') },
+  ];
+
+  for (const flood of floods) {
+    await configureRole(fixture, { runtime: flood.runtime });
+    // A deadline, so a reader without a bound ends here rather than hanging
+    // the suite; the run must stop well before it.
+    const task = await newTask(fixture, { script: 'flood', pidFile: flood.file }, {
+      attemptMax: 1, deadlineAt: new Date(Date.now() + 20_000),
+    });
+    const adapter = flood.runtime === 'script'
+      ? scriptAdapter()
+      : new CliAdapter(runtimeSpecsFrom([{
+        name: 'codex',
+        command: process.execPath,
+        args: [AGENT_CLI, '--mcp-config', '{mcpConfig}', '--flood', flood.file],
+        ...(flood.dialect ? { dialect: flood.dialect } : {}),
+      }])[0]!);
+
+    const outcome = await engineWith(broker, adapter).runTask(fixture.companyId, task.id, 'worker');
+    const pid = await pidFrom(flood.file);
+
+    assert.equal(outcome.status, 'failed', `${flood.dialect ?? flood.runtime}: ${outcome.reason}`);
+    assert.match(outcome.reason ?? '', /without a line break/, flood.dialect ?? flood.runtime);
+    assert.equal(running(pid), false, `the flooding ${flood.dialect ?? flood.runtime} process was ended`);
+  }
 });
 
 /* ------------------------------------------------------------ the bill --- */

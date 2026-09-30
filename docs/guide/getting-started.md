@@ -45,9 +45,11 @@ starts two services from `docker-compose.yml`:
   volume it runs `scripts/setup-database.sh` (through
   `deploy/docker/initdb.sh`), which creates the `palugada` database and its
   three roles with the passwords the setup wrote.
-- `app`, built from the `Dockerfile`. It applies any pending migrations under
-  a lock, so replicas starting together apply each one once, and then starts
-  the worker and the console as an unprivileged user.
+- `migrate`, the same image, which applies any pending migrations under a
+  lock and exits. It is the only service given the schema owner's password.
+- `app`, built from the `Dockerfile`, which starts once `migrate` has
+  finished: the worker and the console, as an unprivileged user, with the
+  passwords of the two roles the platform runs as and not the owner's.
 
 The console is published on this machine's loopback address only, at
 `http://127.0.0.1:8787`. To reach it from anywhere else, put it behind HTTPS
@@ -160,6 +162,24 @@ authenticator `PALUGADA_OWNER_TOTP_REF` points at, and says
 `enrolled the owner's authenticator from env://PALUGADA_SECRET_OWNER_TOTP`
 among its boot lines.
 
+**Without an authenticator in the environment** -- you skipped that step, or
+PALUGADA runs on a platform such as Coolify or Dokploy where there is no
+terminal to make one in -- a deployment with no owner prints a link instead:
+
+```
+palugada: no owner yet: open https://palugada.example.com/#/claim/QMJW… within a day to add your authenticator app and become the owner
+```
+
+Open it. The page shows a new secret as a QR code and as a key; add it to
+your authenticator app, type the six-digit code the app then shows, and you
+are signed in as the owner. The link works once, for a day, and only while
+the deployment has no owner; each start prints a new one until then. Anyone
+who can read the log holds the machine already, but open it straight away
+all the same, since whoever opens it first becomes the owner. The code is
+after the `#`, so your browser never sends it to the server or to a proxy's
+log. The sign-in page says **This deployment has no owner yet** while this
+is the way in.
+
 The page says **Welcome back** and asks for the six-digit code from your
 authenticator app. Type it and press **Sign in**. A few things to know:
 
@@ -167,8 +187,10 @@ authenticator app. Type it and press **Sign in**. A few things to know:
   authenticator is what makes you the owner.
 - The session lives in this browser tab only and lasts up to eight hours.
   Closing the tab signs you out. Nothing is stored in the browser.
-- Ten wrong codes in a row lock the second factor for fifteen minutes, and
-  five from one address hold that address back for fifteen minutes.
+- Ten wrong codes in a row lock codes for fifteen minutes, and five from one
+  address hold that address back for fifteen minutes. A passkey is not
+  locked by them: it cannot be guessed, so somebody else's wrong codes never
+  keep you out if you have one.
 - A tier 3 approval, and anything that loosens a control, asks for a fresh
   code every time, however recently you signed in.
 - To use your fingerprint, face or screen lock instead of a code, add a
@@ -177,6 +199,11 @@ authenticator app. Type it and press **Sign in**. A few things to know:
   offer **Use a passkey**. A browser makes passkeys only over HTTPS or on
   `localhost`, and only at the address in `PALUGADA_APP_URL_PUBLIC`: the
   console says where when it is opened anywhere else.
+- Make recovery codes under **Settings**, **Security**, **Recovery codes**,
+  and write them down or save the file somewhere that is not this phone.
+  If the phone is lost, **Lost your phone? Use a recovery code** on the
+  sign-in page lets you in once per code, to add a passkey and take the
+  lost phone off. A code approves nothing.
 - The first time you sign in, the console offers a tour of itself. You can
   skip it and take it later from the menu under **Owner**.
 - The language switch on the sign-in page (EN or ID) applies to this visit.
@@ -196,11 +223,13 @@ deployment ([how-to](how-to.md#export-and-import-a-company)).
 2. Decide on **Let it run itself** (on by default). It installs the
    `company-os` bundle: a Strategy division with a strategist who reviews the
    week every Monday morning in the company's time zone, proposes at most
-   three bets, and never applies them; the operating skills (validating an
-   idea, premortems, pricing, unit economics, customer discovery, launch
-   readiness, outbound rules, stage gates, the weekly review); and two
-   company policies: no paid advertising before the launch stage, and nothing
-   new started while winding down.
+   three bets, and never applies them; a Strategy review division with a
+   critic who reads every stage proposal before you do and holds nothing
+   that acts; the operating skills (validating an idea, premortems, pricing,
+   unit economics, customer discovery, launch readiness, outbound rules,
+   stage gates, the weekly review); and three company policies: every stage
+   proposal goes to the critic first, no paid advertising before the launch
+   stage, and nothing new started while winding down.
 3. Press **Start it**, then type a code in
    **Confirm with your authenticator** and press **Confirm**.
 

@@ -17,7 +17,9 @@ import assert from 'node:assert/strict';
 import { closePools } from '../../src/db/pool.ts';
 import { isPalugadaError } from '../../src/errors.ts';
 import { CapabilityRegistry } from '../../src/broker/registry.ts';
-import { accessFor, bindMcpServers, closeMcpSessions, pinOf } from '../../src/capabilities/mcp.ts';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { accessFor, assertPlainHttpIsLocal, bindMcpServers, closeMcpSessions, pinOf } from '../../src/capabilities/mcp.ts';
 import { MCP_PRESETS } from '../../src/capabilities/mcp-presets.ts';
 import { readSettings } from '../../src/settings/store.ts';
 import { withSettings } from '../../src/settings/overlay.ts';
@@ -45,6 +47,42 @@ const LINK = {
   verify: { tool: 'get_payment_link', arguments: { id: '{result.id}' }, matches: { path: 'body.amount', equalsPath: 'input.amount' } },
 };
 
+/**
+ * A server's connection carries its token to that server and nowhere else.
+ * A redirect was followed with it -- and a header of the server's own naming,
+ * such as x-api-key, is not one fetch drops on the way to another host --
+ * and plain http took it across the internet in the clear.
+ */
+test('a server that sends its caller elsewhere is not followed there, and one outside this network is reached over https (security)', async () => {
+  const target = await mcpServer({ needsToken: TOKEN, tokenIn: { header: 'x-api-key' } });
+  const seen: string[] = [];
+  const bouncer = createServer((req, res) => {
+    seen.push(String(req.headers['x-api-key'] ?? ''));
+    res.writeHead(307, { location: target.url }).end();
+  });
+  await new Promise<void>((resolve) => bouncer.listen(0, '127.0.0.1', resolve));
+  const api = await consoleWithSettings();
+  try {
+    const token = await api.signIn();
+    const bounced = await api.call('POST', '/api/control/mcp/inspect', token,
+      { url: `http://127.0.0.1:${(bouncer.address() as AddressInfo).port}/mcp`, token: TOKEN, tokenIn: { header: 'x-api-key' } });
+    assert.match(String(bounced.body.problem), /sent this request elsewhere .*save the address it points to instead/);
+    assert.deepEqual(seen, [TOKEN], 'the token went to the address the owner gave');
+    assert.deepEqual(target.state.authorizations, [], 'and not on to the one it was sent to');
+
+    const plain = await api.call('POST', '/api/control/mcp/inspect', token, { url: 'http://mcp.example.com/mcp', token: TOKEN });
+    assert.equal(plain.status, 400, JSON.stringify(plain.body));
+    assert.match(String(plain.body.error), /mcp\.example\.com is reached over https/);
+    for (const local of ['http://localhost:8931/mcp', 'http://playwright:8931/mcp', 'http://10.0.0.5/mcp', 'http://tools.internal/mcp']) {
+      assert.doesNotThrow(() => assertPlainHttpIsLocal(local), local);
+    }
+  } finally {
+    await new Promise<void>((resolve) => bouncer.close(() => resolve()));
+    await target.close();
+    await api.close();
+  }
+});
+
 test('the owner looks at a server\'s tools before allowing any: what each does, what the server says of it, and a tier to start from', async () => {
   const server = await mcpServer({ needsToken: TOKEN });
   const api = await consoleWithSettings();
@@ -70,6 +108,28 @@ test('the owner looks at a server\'s tools before allowing any: what each does, 
   } finally {
     await api.close();
     await server.close();
+  }
+});
+
+/**
+ * A server's name may hold `_`, and a sealed secret's may not: a server named
+ * `pay_links` with a token could not be saved -- the token's secret was
+ * refused as a name -- though the console offered the name.
+ */
+test('a server whose name holds _ keeps its token', async () => {
+  const server = await mcpServer({ needsToken: TOKEN });
+  const api = await consoleWithSettings();
+  try {
+    const token = await api.signIn();
+    const saved = await api.call('POST', '/api/control/mcp/servers', token, {
+      name: 'pay_links', url: server.url, token: TOKEN, tools: { get_transaction: { tier: 0 } }, proof: { totp: api.code() },
+    });
+    assert.equal(saved.status, 200, JSON.stringify(saved.body));
+    const looked = await api.call('POST', '/api/control/mcp/inspect', token, { name: 'pay_links' });
+    assert.equal(looked.body.problem, null, JSON.stringify(looked.body));
+  } finally {
+    await server.close();
+    await api.close();
   }
 });
 
@@ -129,6 +189,13 @@ test('a server is saved only as far as the rules allow, with the owner\'s device
     // And the kept token is what the owner can look again with.
     const lookedAgain = await api.call('POST', '/api/control/mcp/inspect', token, { url: server.url, name: 'payments' });
     assert.equal(lookedAgain.body.problem, null, JSON.stringify(lookedAgain.body));
+    // By its name alone, where it was saved: the one check the assistant may make.
+    const byName = await api.call('POST', '/api/control/mcp/inspect', token, { name: 'payments' });
+    assert.equal(byName.body.problem, null, JSON.stringify(byName.body));
+    assert.ok((byName.body.tools as unknown[]).length > 0);
+    const nameless = await api.call('POST', '/api/control/mcp/inspect', token, { name: 'nothing-saved' });
+    assert.equal(nameless.status, 400, JSON.stringify(nameless.body));
+    assert.match(String(nameless.body.error), /the name of one already saved/);
 
     // A new address does not inherit the token: that would hand it to another server.
     const other = await mcpServer();
@@ -304,15 +371,24 @@ test('the servers offered by name are each a server the rules accept, and the co
         ...(preset.key === 'required' ? { tokenRef: 'env://PALUGADA_SECRET_X' } : {}), tools: { anything: { tier: 0, readOnly: true } } }],
     }, preset.id, { resolve: async () => 'k', fetch: offline });
     assert.match(notes.join('\n'), /could not list its tools at boot/, preset.id);
-    if (preset.key === 'none') assert.ok(preset.run, `${preset.id} says how to run it`);
+    if (preset.key === 'none' && !preset.signIn) assert.ok(preset.run, `${preset.id} says how to run it`);
     else assert.ok(preset.url.startsWith('https://'), `${preset.id} is reached over HTTPS`);
+    if (preset.signIn === 'client') assert.ok(preset.clientUrl?.startsWith('https://'), `${preset.id} says where to register a client`);
+    else assert.equal(preset.clientUrl, undefined, `${preset.id} registers PALUGADA itself, or takes no sign-in`);
+    // A command the owner copies runs the version that was checked, not whatever is newest that day.
+    if (preset.run) assert.match(preset.run, /@\d+\.\d+\.\d+ /, `${preset.id} runs one version`);
+    if (preset.runHint) assert.ok(preset.run, `${preset.id} says where to run a server it does not run`);
   }
   assert.ok(names.has('github') && names.has('playwright'));
+  // Servers that are signed in to rather than given a key are offered too.
+  assert.equal(MCP_PRESETS.find((one) => one.id === 'notion')?.signIn, 'registers');
+  assert.equal(MCP_PRESETS.find((one) => one.id === 'hubspot')?.signIn, 'client');
   // The console carries each one's words so that they are translated; they must be the same words.
   const console = readFileSync(new URL('../../console/src/pages/Deployment.tsx', import.meta.url), 'utf8');
   for (const preset of MCP_PRESETS) {
     assert.ok(console.includes(`${preset.id}: N('${preset.about.replace(/'/g, "\\'")}')`), `the console says what ${preset.id} is, in the same words`);
     if (preset.keyHint) assert.ok(console.includes(preset.keyHint.replace(/'/g, "\\'")), `the console gives ${preset.id}'s key hint in the same words`);
+    if (preset.runHint) assert.ok(console.includes(preset.runHint.replace(/'/g, "\\'")), `the console says where to run ${preset.id} in the same words`);
   }
   const api = await consoleWithSettings();
   try {
@@ -321,4 +397,34 @@ test('the servers offered by name are each a server the rules accept, and the co
   } finally {
     await api.close();
   }
+});
+
+/**
+ * Coolify and Dokploy run what a company deploys, on the owner's own
+ * machines, so neither lives at an address PALUGADA could know. Coolify
+ * serves MCP itself, at /mcp on the owner's instance, and reads a bearer
+ * token: the host is the part the owner completes. Dokploy's server is a
+ * package the owner runs, which asks nothing of whoever reaches it, so the
+ * console says so beside the command that starts it.
+ */
+test('Coolify is its owner\'s own address with a token, and Dokploy is run by the owner and said to let in whoever reaches it', () => {
+  const coolify = MCP_PRESETS.find((one) => one.id === 'coolify');
+  assert.ok(coolify, 'Coolify is offered');
+  assert.match(coolify.url, /^https:\/\/\{[a-z-]+\}\/mcp$/, 'at /mcp, on a host the owner puts in place of the braces');
+  assert.equal(coolify.key, 'required');
+  assert.equal(coolify.signIn, undefined, 'it publishes no sign-in, only tokens');
+  assert.deepEqual(accessFor({ ...coolify, url: coolify.url.replace(/\{[^}]*\}/, 'coolify.example.com') }, 'k').headers,
+    { authorization: 'Bearer k' }, 'the token goes where Coolify reads it');
+  assert.match(coolify.keyHint ?? '', /\bread\b.*\bdeploy\b/, 'it says which permissions the token needs, and no others');
+
+  const dokploy = MCP_PRESETS.find((one) => one.id === 'dokploy');
+  assert.ok(dokploy, 'Dokploy is offered');
+  assert.equal(dokploy.key, 'none', 'it asks PALUGADA for nothing');
+  assert.match(dokploy.run ?? '', /\bnpx @dokploy\/mcp@\d+\.\d+\.\d+ --http$/, 'the official package, over streamable HTTP rather than stdio');
+  assert.match(dokploy.run ?? '', /DOKPLOY_TOOL_PRESET=/, 'with fewer than its hundreds of tools');
+  const address = new URL(dokploy.url);
+  assert.deepEqual([address.protocol, address.port, address.pathname], ['http:', '3000', '/mcp'], 'the port and path its code fixes');
+  assert.doesNotThrow(() => assertPlainHttpIsLocal(dokploy.url));
+  assert.match(dokploy.runHint ?? '', /whoever reaches it/);
+  assert.match(dokploy.runHint ?? '', /only this deployment can reach/);
 });

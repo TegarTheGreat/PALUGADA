@@ -31,6 +31,7 @@ const urlOf = (publicId: string) => `${window.location.origin}/api/hooks/${publi
 /** Who can call, as the owner picks it. */
 const schemes = (): Array<{ value: TriggerScheme; label: string }> => [
   { value: 'bearer', label: t('A token, from any service') },
+  { value: 'url', label: t('A token in the address, for a service that takes only a URL (Coolify)') },
   { value: 'stripe', label: t('Stripe payments') },
   { value: 'github', label: t('GitHub events') },
   { value: 'slack', label: t('Slack events and commands') },
@@ -39,7 +40,7 @@ const schemes = (): Array<{ value: TriggerScheme; label: string }> => [
 
 /** A trigger's scheme in a word, for the list. */
 const shortName = (scheme: TriggerScheme): string => ({
-  bearer: t('Token'), stripe: t('Stripe'), github: t('GitHub'), slack: t('Slack'), standard: t('Standard Webhooks'),
+  bearer: t('Token'), url: t('Token in the address'), stripe: t('Stripe'), github: t('GitHub'), slack: t('Slack'), standard: t('Standard Webhooks'),
 })[scheme];
 
 /** Where, in the sender's own settings, the URL goes. */
@@ -49,6 +50,7 @@ function whereItGoes(scheme: TriggerScheme): string {
     case 'github': return t('In GitHub: Settings, Webhooks, Add webhook. Paste the URL, choose application/json, and set the secret to the value the reference you gave points to.');
     case 'slack': return t('In Slack: your app\'s Event Subscriptions or slash command. Paste the URL; the signing secret on the app\'s Basic Information page must be what the reference you gave points to.');
     case 'standard': return t('In the sender\'s webhook settings: paste the URL, then put the signing secret it shows (whsec_…) where the reference you gave points.');
+    case 'url': return t('Paste the whole address, token included, where the service asks for a webhook URL. Anyone who sees this address can start the work, so keep it out of anything shared; if it leaks, make a new token.');
     default: return t('The service posts JSON, a form or text to the URL with the token as a bearer token. A delivery id header makes a retried delivery count once.');
   }
 }
@@ -110,7 +112,7 @@ export function Triggers({ companyId, structure }: { companyId: string; structur
                           </Tooltip>
                         )}
                       </CopyButton>
-                      {trigger.scheme === 'bearer' ? (
+                      {trigger.scheme === 'bearer' || trigger.scheme === 'url' ? (
                         <ActionButton
                           size="xs"
                           variant="subtle"
@@ -186,10 +188,16 @@ export function Triggers({ companyId, structure }: { companyId: string; structur
         {secret && (
           <Stack>
             {secret.token && <Alert color="orange" variant="light">{t('Copy the token now. It is not shown again; if it is lost, make a new one.')}</Alert>}
-            <Secret label={t('URL')} value={secret.url} />
-            {secret.token && <Secret label={t('Token')} value={secret.token} />}
-            <Text size="sm" c="dimmed">{whereItGoes(secret.token ? 'bearer' : secret.scheme)}</Text>
-            {secret.token && <Code block>{curlExample(secret.url, secret.token)}</Code>}
+            {secret.scheme === 'url' && secret.token ? (
+              <Secret label={t('URL')} value={`${secret.url}?token=${secret.token}`} />
+            ) : (
+              <>
+                <Secret label={t('URL')} value={secret.url} />
+                {secret.token && <Secret label={t('Token')} value={secret.token} />}
+              </>
+            )}
+            <Text size="sm" c="dimmed">{whereItGoes(secret.scheme === 'url' ? 'url' : secret.token ? 'bearer' : secret.scheme)}</Text>
+            {secret.token && secret.scheme !== 'url' && <Code block>{curlExample(secret.url, secret.token)}</Code>}
           </Stack>
         )}
       </Modal>

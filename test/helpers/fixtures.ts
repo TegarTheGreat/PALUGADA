@@ -146,22 +146,24 @@ export async function setRoleSchemas(
 export async function grantCapability(
   fixture: Fixture,
   capabilityName: string,
-  options: { tierOverride?: number; rateLimitPerHour?: number } = {},
+  options: { tierOverride?: number; rateLimitPerHour?: number; maxInFlight?: number } = {},
 ): Promise<void> {
   await withTenant(fixture.companyId, async (tx) => {
     await tx.query(
       `INSERT INTO capability_grants
-         (company_id, division_id, capability_name, tier_override, rate_limit_per_hour)
-       VALUES ($1, $2, $3, $4, $5)
+         (company_id, division_id, capability_name, tier_override, rate_limit_per_hour, max_in_flight)
+       VALUES ($1, $2, $3, $4, $5, $6)
        ON CONFLICT (division_id, capability_name) DO UPDATE
          SET tier_override = EXCLUDED.tier_override,
-             rate_limit_per_hour = EXCLUDED.rate_limit_per_hour`,
+             rate_limit_per_hour = EXCLUDED.rate_limit_per_hour,
+             max_in_flight = EXCLUDED.max_in_flight`,
       [
         fixture.companyId,
         fixture.divisionId,
         capabilityName,
         options.tierOverride ?? null,
         options.rateLimitPerHour ?? null,
+        options.maxInFlight ?? null,
       ],
     );
   });

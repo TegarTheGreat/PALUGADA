@@ -38,9 +38,10 @@
 import { readFile } from 'node:fs/promises';
 import { Ajv } from 'ajv';
 import { PalugadaError } from '../errors.ts';
-import type { CapabilityRegistry } from '../broker/registry.ts';
+import { CapabilityRegistry } from '../broker/registry.ts';
 import type { Tier } from '../domain/tier.ts';
 import { httpCapability, type HttpCapabilitySpec, type HttpPlaceholders } from './http.ts';
+import { signInFrom, type SignInSpec } from './vendor-oauth.ts';
 
 /** A value that must be non-null to count as present. */
 type Json = unknown;
@@ -105,6 +106,8 @@ export interface VendorSpec {
   result?: string;
   credentialAlias?: string;
   requiredScopes?: string[];
+  /** How that key is signed in for, when it is not pasted (`vendor-oauth.ts`). */
+  signIn?: SignInSpec;
   verify?: {
     method?: string;
     url: string;
@@ -215,6 +218,19 @@ const SCHEMA = {
           result: { type: 'string', minLength: 1 },
           credentialAlias: { type: 'string', minLength: 1 },
           requiredScopes: { type: 'array', items: { type: 'string' } },
+          signIn: {
+            type: 'object',
+            required: ['provider', 'scopes'],
+            additionalProperties: false,
+            properties: {
+              provider: { type: 'string', pattern: '^[a-z][a-z0-9-]{0,39}$' },
+              scopes: { type: 'array', minItems: 1, items: { type: 'string', minLength: 1 } },
+              authorizeUrl: { type: 'string', minLength: 1 },
+              tokenUrl: { type: 'string', minLength: 1 },
+              params: { type: 'object', additionalProperties: { type: 'string' } },
+              clientUrl: { type: 'string', minLength: 1 },
+            },
+          },
           verify: {
             type: 'object',
             required: ['url', 'matches'],
@@ -508,6 +524,9 @@ export function specFrom(entry: VendorSpec): HttpCapabilitySpec {
       throw new Error(`its input is not a schema the validator can read: ${(failure as Error).message}`);
     }
   }
+  if (entry.signIn && !entry.credentialAlias) {
+    throw new Error('it signs in for a key, and names none: give its credentialAlias');
+  }
   const spec: HttpCapabilitySpec = {
     name: entry.name,
     inputSchema: entry.input ?? inputSchemaFrom(entry),
@@ -526,6 +545,7 @@ export function specFrom(entry: VendorSpec): HttpCapabilitySpec {
       : {}),
     ...(entry.credentialAlias ? { credentialAlias: entry.credentialAlias } : {}),
     ...(entry.requiredScopes ? { requiredScopes: entry.requiredScopes } : {}),
+    ...(entry.signIn ? { signIn: signInFrom(entry.signIn) } : {}),
     ...(entry.verify
       ? {
         verify: {
@@ -533,6 +553,10 @@ export function specFrom(entry: VendorSpec): HttpCapabilitySpec {
           url: entry.verify.url,
           ...(entry.verify.headers ? { headers: entry.verify.headers } : {}),
           matches: matcher(entry.verify.matches),
+          // A status the rule names outright is one it means to read: `404`
+          // for a delete. The matcher still requires exactly the statuses
+          // named, so naming 404 does not make any other refusal pass.
+          answers: [entry.verify.matches.status ?? []].flat().filter((status) => status >= 400),
         },
       }
       : {}),
@@ -668,4 +692,82 @@ export async function registerVendorCapabilities(
     }
   }
   return specs.map((spec) => spec.name);
+}
+
+/* ------------------------------------------------------- from the console --- */
+
+/**
+ * The services the console offers to connect: the examples this repository
+ * ships in `config/vendors.example.json`, one per core capability, each
+ * already held by `vendor-file.test.ts` to every rule a file is held to.
+ * Read at the time of asking, so an operator who edits the file sees it.
+ */
+export async function vendorPresets(): Promise<VendorSpec[]> {
+  const raw = await readFile(new URL('../../config/vendors.example.json', import.meta.url), 'utf8');
+  return (JSON.parse(raw) as VendorFile).capabilities;
+}
+
+/**
+ * One entry the owner is about to save, held to every rule the file is held
+ * to -- the schema, `httpCapability`'s refusals, and the catalogue's tier --
+ * and to one more: a name this deployment binds already is not a name the
+ * console may take, as it is not one a file may.
+ */
+export function checkVendorEntry(entry: unknown, bound: CapabilityRegistry | undefined, saved: readonly string[]): VendorSpec {
+  const name = typeof (entry as { name?: unknown } | null)?.name === 'string' ? (entry as { name: string }).name : 'this service';
+  let spec: HttpCapabilitySpec;
+  try {
+    [spec] = parseVendors({ capabilities: [entry] }, 'this service') as [HttpCapabilitySpec];
+    // A registry of its own, so the check changes nothing the deployment runs:
+    // `register` is where a tier below the catalogue's is refused.
+    new CapabilityRegistry().register(httpCapability(spec));
+  } catch (failure) {
+    throw new PalugadaError('config.invalid',
+      (failure as Error).message.replace(/^this service is not a valid vendor file: \/capabilities\/0/, `${name}:`)
+        .replace(/^this service cannot bind [^:]+: /, ''),
+      { field: 'entry', name });
+  }
+  const existing = bound?.get(spec.name);
+  if (existing && !saved.includes(spec.name)) {
+    throw new PalugadaError('config.invalid',
+      `${spec.name} is bound already, by ${existing.adapter}; a capability has one binding`,
+      { field: 'entry', name: spec.name, adapter: existing.adapter });
+  }
+  return entry as VendorSpec;
+}
+
+/**
+ * The services the owner connected in the console, bound at start the way the
+ * file is, one at a time: an entry that no longer passes -- the catalogue
+ * raised its tier, the file took its name -- is left out with a note and the
+ * rest are bound, because the console, where it is put right, must come up.
+ */
+export function bindVendorSettings(registry: CapabilityRegistry, text: string | undefined, notes: string[]): string[] {
+  if (!text) return [];
+  let entries: unknown[];
+  try {
+    const parsed = JSON.parse(text) as { capabilities?: unknown };
+    if (!Array.isArray(parsed.capabilities)) throw new Error('no list');
+    entries = parsed.capabilities;
+  } catch {
+    notes.push('PALUGADA_VENDOR_SETTINGS is not a list of services; none from the console are bound');
+    return [];
+  }
+  const bound: string[] = [];
+  for (const entry of entries) {
+    const name = String((entry as { name?: unknown } | null)?.name ?? '?');
+    try {
+      const [spec] = parseVendors({ capabilities: [entry] }, `the service ${name} set in the console`) as [HttpCapabilitySpec];
+      const existing = registry.get(spec.name);
+      if (existing) {
+        throw new PalugadaError('config.invalid', `${spec.name} is bound already, by ${existing.adapter}`, { name: spec.name });
+      }
+      registry.register(httpCapability(spec));
+      bound.push(spec.name);
+    } catch (failure) {
+      notes.push(`the service ${name} set in the console is left out: `
+        + (failure as Error).message.replace(/^the service \S+ set in the console (is not a valid vendor file|cannot bind [^:]+): /, ''));
+    }
+  }
+  return bound;
 }

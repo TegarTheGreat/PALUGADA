@@ -37,7 +37,11 @@ export type StructuralChange =
   | { kind: 'add_division'; slug: string; name: string; parentDivisionId?: string | null }
   | { kind: 'remove_division'; divisionId: string }
   | { kind: 'add_role'; divisionId: string; slug: string }
-  | { kind: 'change_grant'; divisionId: string; capabilityName: string; tierOverride: number | null }
+  | {
+    kind: 'change_grant'; divisionId: string; capabilityName: string; tierOverride: number | null;
+    /** F5.7: calls in flight at once; null lifts the limit, left out keeps it. */
+    maxInFlight?: number | null;
+  }
   | { kind: 'revoke_grant'; divisionId: string; capabilityName: string };
 
 /** What the owner is told this change would let happen. */
@@ -139,13 +143,17 @@ export async function applyGrantChange(
         [change.divisionId, change.capabilityName],
       );
     } else {
+      // A change that does not name the limit leaves it as it was: the owner
+      // tightening a tier is not also lifting a limit they did not mention.
+      const named = change.maxInFlight !== undefined;
       await tx.query(
         `INSERT INTO capability_grants
-           (company_id, division_id, capability_name, tier_override)
-         VALUES ($1, $2, $3, $4)
+           (company_id, division_id, capability_name, tier_override, max_in_flight)
+         VALUES ($1, $2, $3, $4, $5)
          ON CONFLICT (division_id, capability_name) DO UPDATE
-           SET tier_override = EXCLUDED.tier_override`,
-        [companyId, change.divisionId, change.capabilityName, change.tierOverride],
+           SET tier_override = EXCLUDED.tier_override,
+               max_in_flight = CASE WHEN $6 THEN EXCLUDED.max_in_flight ELSE capability_grants.max_in_flight END`,
+        [companyId, change.divisionId, change.capabilityName, change.tierOverride, change.maxInFlight ?? null, named],
       );
     }
 
@@ -156,7 +164,7 @@ export async function applyGrantChange(
       snapshot: {
         capability: change.capabilityName,
         before,
-        after: change.kind === 'revoke_grant' ? null : { tierOverride: change.tierOverride },
+        after: change.kind === 'revoke_grant' ? null : await readGrant(tx, change.divisionId, change.capabilityName),
       },
       summary: summaryOf(change),
     });
@@ -196,6 +204,55 @@ export interface RoleFields {
   displayName?: string | null;
   title?: string | null;
   persona?: RolePersona | null;
+  /**
+   * What done means (F2.8): every run is shown them and held to them. Fixed
+   * at hiring until 2026-09-29, so a role whose criteria needed a tool the
+   * deployment never bound could not finish anything, and the owner could not
+   * say otherwise (the competitive analysis of that week, L5).
+   */
+  doneCriteria?: string[];
+  /**
+   * How long one run may take, in seconds, before it is stopped and the
+   * attempt counts (0084); null is no limit beyond the task's deadline.
+   */
+  maxRunSeconds?: number | null;
+}
+
+/** The most criteria a role is held to: each is answered, with evidence, in every run. */
+const DONE_CRITERIA_LIMIT = 12;
+/** A criterion is one testable sentence, not a procedure. */
+const DONE_CRITERION_LENGTH = 500;
+
+/**
+ * A role's done criteria from what was given: trimmed, blank lines dropped,
+ * at least one (F2.8), and few and short enough that every run can answer
+ * each of them.
+ */
+function doneCriteriaFrom(lines: readonly unknown[]): string[] {
+  const criteria = lines.map((line) => String(line).trim()).filter(Boolean);
+  if (criteria.length === 0) {
+    throw new PalugadaError(
+      'contract.violation',
+      'a role needs at least one done criterion: how anyone will know its work is finished (F2.8)',
+      { field: 'doneCriteria' },
+    );
+  }
+  if (criteria.length > DONE_CRITERIA_LIMIT) {
+    throw new PalugadaError(
+      'contract.violation',
+      `a role has at most ${DONE_CRITERIA_LIMIT} done criteria, and ${criteria.length} were given: every run answers each one`,
+      { field: 'doneCriteria' },
+    );
+  }
+  const long = criteria.find((criterion) => criterion.length > DONE_CRITERION_LENGTH);
+  if (long) {
+    throw new PalugadaError(
+      'contract.violation',
+      `a done criterion is at most ${DONE_CRITERION_LENGTH} characters, one testable sentence; this one is ${long.length}`,
+      { field: 'doneCriteria' },
+    );
+  }
+  return criteria;
 }
 
 /**
@@ -208,7 +265,9 @@ export interface RoleFields {
  */
 function changeKindOf(fields: RoleFields): RoleChange {
   // Who a role is changes how it works, as its charter does.
-  if (fields.systemPrompt !== undefined || fields.persona !== undefined || fields.displayName !== undefined || fields.title !== undefined) {
+  // So does what done means: it is what every run is held to.
+  if (fields.systemPrompt !== undefined || fields.persona !== undefined || fields.displayName !== undefined
+    || fields.title !== undefined || fields.doneCriteria !== undefined) {
     return 'charter';
   }
   if (fields.tools !== undefined) return 'skills';
@@ -237,6 +296,13 @@ export async function applyRoleChange(
   // for exactly this -- had no caller. Two statements of one rule is how they
   // drift, and the one that matters is always the one nobody re-read.
   assertApproved(options.ownerApproved, changeKindOf(fields));
+  const seconds = fields.maxRunSeconds;
+  if (seconds !== undefined && seconds !== null && (!Number.isInteger(seconds) || seconds < 1 || seconds > 86_400)) {
+    throw new PalugadaError('contract.violation',
+      `a run's length is ${String(seconds)} seconds; it is a whole number from 1 to 86400 (a day), or none`,
+      { field: 'maxRunSeconds' });
+  }
+  const doneCriteria = fields.doneCriteria === undefined ? undefined : doneCriteriaFrom(fields.doneCriteria);
 
   return withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
@@ -250,8 +316,11 @@ export async function applyRoleChange(
       display_name: string | null;
       title: string | null;
       persona: RolePersona | null;
+      done_criteria: string[];
+      max_run_seconds: number | null;
     }>(
-      `SELECT slug, system_prompt, tools, model_primary, model, model_fallback, runtime, display_name, title, persona
+      `SELECT slug, system_prompt, tools, model_primary, model, model_fallback, runtime, display_name, title, persona,
+              done_criteria, max_run_seconds
          FROM roles WHERE id = $1`,
       [roleId],
     );
@@ -275,6 +344,8 @@ export async function applyRoleChange(
         displayName: before.display_name,
         title: before.title,
         persona: before.persona,
+        doneCriteria: before.done_criteria,
+        maxRunSeconds: before.max_run_seconds,
       },
       summary: options.summary ?? `State of ${before.slug} before this change`,
     });
@@ -289,7 +360,9 @@ export async function applyRoleChange(
               -- Absent leaves each as it is; null clears it.
               display_name   = CASE WHEN $7 THEN $8 ELSE display_name END,
               title          = CASE WHEN $9 THEN $10 ELSE title END,
-              persona        = CASE WHEN $11 THEN $12::jsonb ELSE persona END
+              persona        = CASE WHEN $11 THEN $12::jsonb ELSE persona END,
+              done_criteria  = coalesce($13::text[], done_criteria),
+              max_run_seconds = CASE WHEN $14 THEN $15::integer ELSE max_run_seconds END
         WHERE id = $1`,
       [
         roleId,
@@ -301,6 +374,8 @@ export async function applyRoleChange(
         fields.displayName !== undefined, fields.displayName ?? null,
         title !== undefined, title ?? null,
         fields.persona !== undefined, fields.persona ? JSON.stringify(fields.persona) : null,
+        doneCriteria ?? null,
+        fields.maxRunSeconds !== undefined, fields.maxRunSeconds ?? null,
       ],
     );
 
@@ -368,14 +443,7 @@ export async function addRole(
   if (!systemPrompt) {
     throw new PalugadaError('contract.violation', 'say what the role is for: its system prompt is empty', { field: 'systemPrompt' });
   }
-  const doneCriteria = (role.doneCriteria ?? []).map((line) => String(line).trim()).filter(Boolean);
-  if (doneCriteria.length === 0) {
-    throw new PalugadaError(
-      'contract.violation',
-      'a role needs at least one done criterion: how anyone will know its work is finished (F2.8)',
-      { field: 'doneCriteria' },
-    );
-  }
+  const doneCriteria = doneCriteriaFrom(role.doneCriteria ?? []);
   const tools = (role.tools ?? []).map(String);
   if (tools.length > 12) {
     throw new PalugadaError('contract.violation', 'a role has at most 12 tools (F2.6)', { field: 'tools' });
@@ -572,12 +640,12 @@ async function readGrant(
   tx: TenantClient,
   divisionId: string,
   capabilityName: string,
-): Promise<{ tierOverride: number | null } | null> {
-  const { rows } = await tx.query<{ tier_override: number | null }>(
-    'SELECT tier_override FROM capability_grants WHERE division_id = $1 AND capability_name = $2',
+): Promise<{ tierOverride: number | null; maxInFlight: number | null } | null> {
+  const { rows } = await tx.query<{ tier_override: number | null; max_in_flight: number | null }>(
+    'SELECT tier_override, max_in_flight FROM capability_grants WHERE division_id = $1 AND capability_name = $2',
     [divisionId, capabilityName],
   );
-  return rows[0] ? { tierOverride: rows[0].tier_override } : null;
+  return rows[0] ? { tierOverride: rows[0].tier_override, maxInFlight: rows[0].max_in_flight } : null;
 }
 
 /* ------------------------------------------------------------------ F2.1 --- */

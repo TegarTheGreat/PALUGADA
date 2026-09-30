@@ -19,6 +19,104 @@ export interface SecretManager {
   resolve(reference: string): Promise<string>;
 }
 
+/** The sealed secrets a division's credential may name: `db://credential-<name>`. */
+export const CREDENTIAL_SECRETS = 'credential-';
+
+/**
+ * Whether a reference is one a division's credential may name. The console
+ * seals the deployment's own keys -- the model's, the agent CLIs', the
+ * channels', the tools', the MCP servers' -- as `db://` secrets too, and a
+ * division's credential that named one would send it, in a header, to
+ * whatever vendor its capability calls.
+ */
+export function assertDivisionReference(reference: string): void {
+  if (reference.startsWith('db://') && !reference.slice('db://'.length).startsWith(CREDENTIAL_SECRETS)) {
+    throw new PalugadaError(
+      'credential.unavailable',
+      `${reference} is one of the deployment's own secrets; a division's credential names env://, file:// or db://${CREDENTIAL_SECRETS}…`,
+      { reference },
+    );
+  }
+}
+
+/**
+ * The secret references a deployment's own configuration names, each with
+ * the setting that names it: every `env://`, `file://` and `db://` that
+ * appears in its environment, the console's settings laid over it -- the
+ * owner's second factor (`PALUGADA_OWNER_TOTP_REF`), the model's key, a
+ * channel's token, an MCP server's inside `PALUGADA_MCP_SERVERS`.
+ */
+export function deploymentReferences(env: NodeJS.ProcessEnv): Map<string, string> {
+  const found = new Map<string, string>();
+  for (const [name, value] of Object.entries(env)) {
+    if (!value) continue;
+    for (const match of value.matchAll(/\b(?:env|file|db):\/\/[^\s"',;\]}]+/g)) {
+      if (!found.has(match[0])) found.set(match[0], name);
+    }
+  }
+  return found;
+}
+
+/**
+ * What the broker resolves a division's credentials through: the store, less
+ * the deployment's own secrets.
+ *
+ * The sealed ones are told apart by their names (`assertDivisionReference`).
+ * The rest are whatever the deployment's configuration names
+ * (`deploymentReferences`): the owner's second factor as `npm run setup`
+ * writes it is `env://PALUGADA_SECRET_OWNER_TOTP`, and a division's
+ * credential -- typed in a rotation, or carried in an imported archive,
+ * which keeps references as they were -- could name it, and the broker sent
+ * it in a header to whatever vendor the division's capability calls.
+ *
+ * Refused by value as well as by name: a second variable, or a link to the
+ * same file, holding the same secret is the same secret. The deployment's
+ * values are read once, the first time a division's credential is, and
+ * never leave this object; one the deployment cannot resolve either is
+ * nobody's.
+ */
+export class DivisionSecrets implements SecretManager {
+  readonly #inner: SecretManager;
+  readonly #own: ReadonlyMap<string, string>;
+  #ownValues: Promise<Map<string, string>> | null = null;
+
+  constructor(inner: SecretManager, own: ReadonlyMap<string, string> = new Map()) {
+    this.#inner = inner;
+    this.#own = own;
+  }
+
+  async resolve(reference: string): Promise<string> {
+    assertDivisionReference(reference);
+    const named = this.#own.get(reference);
+    if (named) throw ownSecret(reference, `is the deployment's own (${named})`);
+    const value = await this.#inner.resolve(reference);
+    const same = (await this.#values()).get(value);
+    if (same) throw ownSecret(reference, `holds the same secret as ${same}`);
+    return value;
+  }
+
+  #values(): Promise<Map<string, string>> {
+    this.#ownValues ??= (async () => {
+      const values = new Map<string, string>();
+      for (const [reference, name] of this.#own) {
+        try {
+          const value = await this.#inner.resolve(reference);
+          if (value && !values.has(value)) values.set(value, name);
+        } catch {
+          // Not resolvable here either: nothing a division could reach.
+        }
+      }
+      return values;
+    })();
+    return this.#ownValues;
+  }
+}
+
+function ownSecret(reference: string, why: string): PalugadaError {
+  return new PalugadaError('credential.unavailable',
+    `${reference} ${why}; a division's credential is its own: give it a secret of its own`, { reference });
+}
+
 /**
  * Redacts known secret values from any text leaving the system.
  *

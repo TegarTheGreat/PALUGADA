@@ -10,7 +10,8 @@
  * documents without another tool (F2.4 caps a role's tools).
  *
  * The words are matched by PostgreSQL's own text search, which needs no
- * embedding model: a deployment with none still has a knowledge base.
+ * embedding model: a deployment with none still has a knowledge base. With a
+ * provider chosen under Tools, meaning is matched too (`meaning.ts`, 0087).
  */
 import { withTenant, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
@@ -188,17 +189,63 @@ export interface FoundPassage {
   body: string;
 }
 
+/** How alike a passage must be to a question to be found by meaning alone: cosine similarity, 0 to 1. */
+const MEANING_FLOOR = 0.25;
+
+/** Reciprocal rank fusion's constant: how much a first place outweighs a tenth. */
+const FUSION_K = 60;
+
 /**
- * The passages a query's words point at, among the documents a division may
- * read: its own and the company's, not archived. Ranked by how much of the
- * query each passage holds, the heading counting with the text under it.
+ * The passages a query points at, among the documents a division may read:
+ * its own and the company's, not archived.
+ *
+ * By words, ranked by how much of the query each passage holds, the heading
+ * counting with the text under it. And, when the query's meaning is given
+ * (`queryMeaning`), by meaning too: the passages whose vectors of the same
+ * model are near the query's, above a floor so that a passage is not found
+ * for merely being the least unlike. The two rankings are fused by
+ * reciprocal rank, so a passage both find comes first and one only meaning
+ * finds is still found.
  */
 export async function searchDocuments(tx: TenantClient, options: {
   divisionId: string;
   query: string;
   limit?: number;
+  meaning?: { vector: string; model: string };
 }): Promise<FoundPassage[]> {
   const terms = searchTerms(options.query);
+  const limit = Math.min(Math.max(options.limit ?? 3, 1), 10);
+  if (options.meaning) {
+    // CASE keeps the distance from being worked out for a vector of another
+    // model: vectors of two lengths are an error, not a far distance.
+    const { rows } = await tx.query<{ document_id: string; title: string; heading: string | null; body: string }>(
+      `WITH scoped AS (
+         SELECT p.document_id, p.seq, p.heading, p.body, p.words, d.title, d.created_at,
+                CASE WHEN p.embedding_model = $5 THEN p.embedding <=> $4::vector END AS distance
+           FROM document_passages p JOIN documents d ON d.id = p.document_id
+          WHERE d.archived_at IS NULL AND (d.division_id IS NULL OR d.division_id = $1)
+       ),
+       by_words AS (
+         SELECT document_id, seq,
+                row_number() OVER (ORDER BY ts_rank_cd(words, to_tsquery('simple', $2)) DESC, created_at DESC, seq) AS place
+           FROM scoped WHERE $2::text IS NOT NULL AND words @@ to_tsquery('simple', $2)
+       ),
+       by_meaning AS (
+         SELECT document_id, seq, row_number() OVER (ORDER BY distance) AS place
+           FROM scoped WHERE distance IS NOT NULL AND 1 - distance >= $6
+       ),
+       fused AS (
+         SELECT document_id, seq, sum(1.0 / ($7 + place)) AS score
+           FROM (SELECT * FROM by_words WHERE place <= 50 UNION ALL SELECT * FROM by_meaning WHERE place <= 50) ranked
+          GROUP BY document_id, seq
+       )
+       SELECT s.document_id, s.title, s.heading, s.body
+         FROM fused f JOIN scoped s USING (document_id, seq)
+        ORDER BY f.score DESC, s.created_at DESC, s.seq
+        LIMIT $3`,
+      [options.divisionId, terms, limit, options.meaning.vector, options.meaning.model, MEANING_FLOOR, FUSION_K]);
+    return rows.map((row) => ({ documentId: row.document_id, title: row.title, heading: row.heading, body: row.body }));
+  }
   if (!terms) return [];
   const { rows } = await tx.query<{ document_id: string; title: string; heading: string | null; body: string }>(
     `SELECT p.document_id, d.title, p.heading, p.body
@@ -208,7 +255,7 @@ export async function searchDocuments(tx: TenantClient, options: {
         AND p.words @@ to_tsquery('simple', $2)
       ORDER BY ts_rank_cd(p.words, to_tsquery('simple', $2)) DESC, d.created_at DESC, p.seq
       LIMIT $3`,
-    [options.divisionId, terms, Math.min(Math.max(options.limit ?? 3, 1), 10)]);
+    [options.divisionId, terms, limit]);
   return rows.map((row) => ({ documentId: row.document_id, title: row.title, heading: row.heading, body: row.body }));
 }
 

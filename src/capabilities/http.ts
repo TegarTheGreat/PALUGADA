@@ -44,6 +44,7 @@ import { redactor } from '../secrets/manager.ts';
 import type { Capability, CapabilityContext } from '../broker/registry.ts';
 import type { Tier } from '../domain/tier.ts';
 import { safeFetch, type ReachableOptions } from './reachable.ts';
+import type { CredentialSignIn } from './vendor-oauth.ts';
 import { sleep } from '../timers.ts';
 
 /**
@@ -92,6 +93,13 @@ export interface VerifySpec {
     result: unknown,
     input: Record<string, unknown>,
   ): boolean;
+  /**
+   * Statuses of 400 or more that are the answer rather than a failure to
+   * read one: 404 or 410 when what was done is a delete, and the record being
+   * gone is the proof. Any other status of 400 or more fails the read-back
+   * before `matches` is asked, as it always has.
+   */
+  answers?: readonly number[];
 }
 
 export interface HttpCapabilitySpec {
@@ -124,6 +132,8 @@ export interface HttpCapabilitySpec {
   result?: (answer: { status: number; body: unknown }) => unknown;
   /** The division's credential alias. Resolved per call, never held. */
   credentialAlias?: string;
+  /** How that credential is signed in for, when it is not pasted. */
+  signIn?: CredentialSignIn;
   /** F12.6. What that credential must declare for this to be allowed. */
   requiredScopes?: readonly string[];
   /** F8.4. Required at tier 1 and above. */
@@ -256,6 +266,8 @@ export function httpCapability(spec: HttpCapabilitySpec): Capability<
     adapter: spec.adapter,
     defaultTier: spec.tier,
     ...(spec.inputSchema ? { inputSchema: spec.inputSchema } : {}),
+    ...(spec.credentialAlias ? { credentialAlias: spec.credentialAlias } : {}),
+    ...(spec.signIn ? { signIn: spec.signIn } : {}),
     ...(spec.estimatedCostCents === undefined
       ? {}
       : { estimatedCostCents: spec.estimatedCostCents }),
@@ -344,8 +356,9 @@ export function httpCapability(spec: HttpCapabilitySpec): Capability<
         await sleep(Math.max(0, waitMs), ctx.signal);
         answer = await readBack();
       }
-      // A read-back that could not be made is not a read-back that passed.
-      if (answer.status >= 400) return false;
+      // A read-back that could not be made is not a read-back that passed --
+      // unless the spec names that status as the answer, as a delete's does.
+      if (answer.status >= 400 && !verifySpec.answers?.includes(answer.status)) return false;
       return verifySpec.matches({ status: answer.status, body: answer.body }, result, input);
     };
   }

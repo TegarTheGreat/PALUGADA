@@ -36,8 +36,11 @@
  *   --prompt <text>              take the prompt here instead of on stdin
  *   --spawn-orphan <pidfile>     start a child that outlives this process, and
  *                                write its pid -- a CLI that leaves a dev
- *                                server or a watcher running behind it
+ *                                server or a watcher running behind it; with
+ *                                --hang, a CLI still working beside one
  *   --hang <pidfile>             write this pid, ignore SIGTERM, never answer
+ *   --flood <pidfile>            write this pid, then write for ever without
+ *                                a line break
  *   --total-cost <usd>           put the provider's total on the result line,
  *                                as Claude Code's total_cost_usd
  */
@@ -71,6 +74,16 @@ const model = flag('--model') ?? 'unknown';
 const fromStdin = await readAll(process.stdin);
 const prompt = flag('--prompt') ?? fromStdin;
 
+const orphan = flag('--spawn-orphan');
+if (orphan !== null) {
+  // Not detached: it stays in this process's group, which is exactly what an
+  // agent CLI's own children do. Before `--hang`, so a CLI that never
+  // answers can have one too: an agent working, with a server it started.
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  child.unref();
+  writeFileSync(orphan, String(child.pid));
+}
+
 const hang = flag('--hang');
 if (hang !== null) {
   writeFileSync(hang, String(process.pid));
@@ -79,13 +92,13 @@ if (hang !== null) {
   await new Promise(() => {});
 }
 
-const orphan = flag('--spawn-orphan');
-if (orphan !== null) {
-  // Not detached: it stays in this process's group, which is exactly what an
-  // agent CLI's own children do.
-  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
-  child.unref();
-  writeFileSync(orphan, String(child.pid));
+const flood = flag('--flood');
+if (flood !== null) {
+  writeFileSync(flood, String(process.pid));
+  const block = 'x'.repeat(65_536);
+  for (;;) {
+    if (!process.stdout.write(block)) await new Promise((resolve) => process.stdout.once('drain', resolve));
+  }
 }
 
 if (exitWith !== null) {

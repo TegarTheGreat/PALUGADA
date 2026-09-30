@@ -7,10 +7,14 @@ export interface Company {
   slug: string;
   name: string;
   frozen: boolean;
+  /** When a closing company is erased (0088); null when it is not closing. */
+  eraseAfter: string | null;
   /** What the company produces in; null follows the deployment's default. */
   workLanguage: string | null;
   /** What its agents write to the owner and each other in; null follows the default. */
   talkLanguage: string | null;
+  /** Whether a model judges low-tier calls after the work read content from outside (0092). */
+  guardian: boolean;
   /** Where the company is in its life (0057); null until the owner sets one. */
   stage: Stage | null;
   /** The first metric on its highest active goal, or null when nothing is measured yet. */
@@ -49,6 +53,23 @@ export interface InboxItem {
   goalChain: Array<{ kind: string; statement: string }>;
   /** When an item the owner put off comes back (0060). */
   snoozedUntil: string | null;
+  /** What an approval's action is called with, redacted; absent on anything else. */
+  input?: unknown;
+  /** Whether it may be approved for a while (0083): a policy asked, at tier 2 or below. */
+  allowFor?: boolean;
+}
+
+/** A yes the owner gave for a while (0083). */
+export interface StandingApproval {
+  id: string;
+  roleId: string;
+  roleSlug: string;
+  capabilityName: string;
+  grantedByItem: string;
+  createdAt: string;
+  expiresAt: string;
+  uses: number;
+  lastUsedAt: string | null;
 }
 
 export interface Digest {
@@ -130,7 +151,7 @@ export interface Division {
   escalationRole: string | null;
   escalateAfterMinutes: number | null;
   openTasks: number;
-  grants: Array<{ capability: string; tier: number | null }>;
+  grants: Array<{ capability: string; tier: number | null; maxInFlight: number | null }>;
 }
 
 export interface Role {
@@ -149,6 +170,8 @@ export interface Role {
   /** Who the role is and how it works: first in every run's context. */
   charter: string;
   doneCriteria: string[];
+  /** How long one run may take (0084); null is no limit beyond the task's deadline. */
+  maxRunSeconds: number | null;
   /** Who it is: the name the owner calls it, its title, and the way of working it takes after. */
   displayName: string | null;
   title: string | null;
@@ -422,12 +445,27 @@ export interface Deliverable {
   at: string | null;
 }
 
+/**
+ * How a run said it met one done criterion, and whether the platform could
+ * check it: `verified` when the evidence cites a tool call of the task that
+ * succeeded (`step:<n>`), `claimed` when it is the run's word alone.
+ */
+export interface DoneReportEntry {
+  criterion: string;
+  met: boolean;
+  evidence: string;
+  check: 'verified' | 'claimed';
+  steps: Array<{ step: number; capability: string }>;
+}
+
 /** One task with what it produced (`GET /tasks/:taskId`). */
 export interface TaskDetail {
   id: string;
   status: string;
   input: unknown;
   output: unknown;
+  /** The run's report on its done criteria, weighed against its journal; null when it made none. */
+  done: DoneReportEntry[] | null;
   deliverables: Deliverable[];
   /** The owner's last word on it, or null. */
   feedback: { verdict: 'good' | 'needs_work'; note: string | null; at: string } | null;
@@ -458,7 +496,7 @@ export interface HandoffRule {
 }
 
 /** How a trigger's caller proves itself (0056). */
-export type TriggerScheme = 'bearer' | 'github' | 'stripe' | 'slack' | 'standard';
+export type TriggerScheme = 'bearer' | 'url' | 'github' | 'stripe' | 'slack' | 'standard';
 
 /** An inbound trigger (0054): a URL another service posts events to. */
 export interface Trigger {
@@ -494,6 +532,19 @@ export interface ConfigVersion {
 }
 
 /** A policy as the company's policy list shows it. */
+/** One charter's current version (F3.1). */
+export interface Charter {
+  version: number;
+  body: string;
+  createdAt: string;
+}
+
+/** The company's charter and the platform's above it; null where there is none. */
+export interface Charters {
+  company: Charter | null;
+  platform: Charter | null;
+}
+
 export interface PolicyRow {
   id: string;
   slug: string;

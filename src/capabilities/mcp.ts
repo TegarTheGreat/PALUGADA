@@ -35,10 +35,12 @@
  * the operator's environment, which is the thing F13.4 keeps runtimes from.
  */
 import { createHash } from 'node:crypto';
+import { isIP } from 'node:net';
 import { readFile } from 'node:fs/promises';
 import { Ajv } from 'ajv';
 import { PalugadaError } from '../errors.ts';
 import { matcher, MATCH_RULE_SCHEMA, type MatchRule } from './vendors.ts';
+import { isPrivateAddress } from './reachable.ts';
 import type { Tier } from '../domain/tier.ts';
 import type { Capability, CapabilityContext, CapabilityRegistry } from '../broker/registry.ts';
 
@@ -107,6 +109,27 @@ export function accessFor(server: { url: string; tokenIn?: TokenIn }, token: str
   }
   const scheme = where.scheme ?? (where.header ? '' : 'Bearer');
   return { url: server.url, headers: { [(where.header ?? 'authorization').toLowerCase()]: scheme ? `${scheme} ${token}` : token } };
+}
+
+/**
+ * Plain HTTP only to a server on this network. Anywhere else a token -- and
+ * every answer the roles act on -- would cross the internet in the clear.
+ * Local means a loopback or private address, `localhost`, a name with no
+ * dot (a container on the same network), or a name under `.local`,
+ * `.internal`, `.lan` or `.home.arpa`.
+ */
+export function assertPlainHttpIsLocal(url: string): void {
+  const parsed = new URL(url);
+  if (parsed.protocol !== 'http:') return;
+  const host = parsed.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  const local = host === 'localhost' || host.endsWith('.localhost')
+    || (isIP(host) !== 0 ? isPrivateAddress(host) : !host.includes('.'))
+    || /\.(local|internal|lan|home\.arpa)$/.test(host);
+  if (!local) {
+    throw new PalugadaError('config.invalid',
+      `${parsed.host} is reached over https: over plain http its token and its answers would cross the internet in the clear`,
+      { url: `${parsed.protocol}//${parsed.host}${parsed.pathname}` });
+  }
 }
 
 export interface McpFile {
@@ -236,6 +259,7 @@ class McpConnection {
   #next = 1;
 
   constructor(access: Access, fetcher: typeof fetch) {
+    assertPlainHttpIsLocal(access.url);
     this.#url = access.url;
     this.#headers = access.headers;
     this.#fetch = fetcher;
@@ -270,6 +294,7 @@ class McpConnection {
     if (!session?.id) return;
     await this.#fetch(this.#url, {
       method: 'DELETE',
+      redirect: 'manual',
       headers: {
         'mcp-session-id': session.id,
         'mcp-protocol-version': session.protocol,
@@ -319,6 +344,11 @@ class McpConnection {
     const timeout = AbortSignal.timeout(CALL_TIMEOUT_MS);
     const response = await this.#fetch(this.#url, {
       method: 'POST',
+      // Never followed. A redirect would carry the token to wherever it
+      // points -- a header of the server's own naming is not one fetch drops
+      // on the way -- and a server that moved is given its new address by
+      // the owner, not by the server.
+      redirect: 'manual',
       headers: {
         'content-type': 'application/json',
         accept: 'application/json, text/event-stream',
@@ -329,6 +359,18 @@ class McpConnection {
       body: JSON.stringify(message),
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     });
+    if (response.status >= 300 && response.status < 400) {
+      await response.body?.cancel();
+      const location = response.headers.get('location');
+      throw new Error(`the MCP server sent this request elsewhere${location ? ` (${location.slice(0, 200)})` : ''}; ` +
+        'a redirect is not followed with its token -- save the address it points to instead');
+    }
+    // The token has run out, or was never good: said as its own kind of
+    // failure, so a server signed in to with OAuth can be refreshed and the
+    // call made again. A 401 means the server did not act on the request.
+    if (response.status === 401) {
+      throw new McpUnauthorized((await response.text().catch(() => '')).slice(0, 300));
+    }
     if (response.status === 404 && this.#session?.id && message.method !== 'initialize') {
       await response.body?.cancel();
       throw new SessionGone();
@@ -362,6 +404,13 @@ class McpConnection {
 
 /** A 404 for a session the server has ended. */
 class SessionGone extends Error {}
+
+/** A 401: the server refused the token it was sent, or wanted one, and did nothing. */
+export class McpUnauthorized extends Error {
+  constructor(detail: string) {
+    super(`the MCP server answered 401: ${detail || 'no reason given'}`);
+  }
+}
 
 /** A task's sessions, by server, task and the authority its calls carry. */
 const sessions = new Map<string, { connection: McpConnection; timer: NodeJS.Timeout }>();
@@ -490,6 +539,13 @@ export interface McpOptions {
   resolve?: (reference: string) => Promise<string>;
   /** How long a quiet task keeps its session; five minutes unless a test says otherwise. */
   sessionIdleMs?: number;
+  /**
+   * A server signed in to with OAuth, whose token the server refused: gets a
+   * fresh one into the store (`mcp-oauth.ts`), and says whether it did.
+   * `since` is when the refused call began, so a token another call has
+   * refreshed in the meantime is used rather than refreshed twice.
+   */
+  refresh?: (server: string, since: number) => Promise<boolean>;
 }
 
 /** The server reached with its own token, when it has one. */
@@ -618,6 +674,22 @@ export function mcpCapability(
     return outputOf(result);
   };
 
+  /**
+   * A call whose token the server refused, made once more after the token is
+   * refreshed -- only for a server with a token of its own, never a
+   * division's credential, which is rotated by the owner.
+   */
+  const signedIn = async <T>(run: () => Promise<T>): Promise<T> => {
+    const since = Date.now();
+    try {
+      return await run();
+    } catch (failure) {
+      if (!(failure instanceof McpUnauthorized) || server.credentialAlias || !server.tokenRef || !options.refresh) throw failure;
+      if (!(await options.refresh(server.name, since))) throw failure;
+      return run();
+    }
+  };
+
   const capability: Capability<Record<string, unknown>, unknown> = {
     name,
     adapter: `mcp:${server.name}`,
@@ -625,24 +697,28 @@ export function mcpCapability(
     readsOutside: true,
     ...(listed?.inputSchema ? { inputSchema: listed.inputSchema } : {}),
     async execute(input, ctx: CapabilityContext) {
-      const { connection, done } = await connect(ctx);
-      try {
-        await current(connection, ctx.signal);
-        return await call(connection, toolName, input, ctx.idempotencyKey, ctx.signal);
-      } finally {
-        await done();
-      }
-    },
-    async preflight(ctx) {
-      try {
-        const { connection, done } = await connect({
-          ...(ctx.credential ? { credential: (alias: string) => ctx.credential!(alias, name) } : {}),
-        });
+      return signedIn(async () => {
+        const { connection, done } = await connect(ctx);
         try {
-          await current(connection);
+          await current(connection, ctx.signal);
+          return await call(connection, toolName, input, ctx.idempotencyKey, ctx.signal);
         } finally {
           await done();
         }
+      });
+    },
+    async preflight(ctx) {
+      try {
+        await signedIn(async () => {
+          const { connection, done } = await connect({
+            ...(ctx.credential ? { credential: (alias: string) => ctx.credential!(alias, name) } : {}),
+          });
+          try {
+            await current(connection);
+          } finally {
+            await done();
+          }
+        });
         return { ok: true };
       } catch (failure) {
         return { ok: false, detail: (failure as Error).message };
@@ -656,13 +732,15 @@ export function mcpCapability(
     capability.verify = async (input, result, ctx) => {
       // The task's own session: what the write left in it -- a browser's
       // page -- is what the read-back reads.
-      const { connection, done } = await connect(ctx);
-      try {
-        const answer = await call(connection, verify.tool, fillArguments(verify.arguments ?? {}, { input, result }), `${ctx.idempotencyKey}:verify`, ctx.signal);
-        return matches({ status: 200, body: answer }, result, input);
-      } finally {
-        await done();
-      }
+      return signedIn(async () => {
+        const { connection, done } = await connect(ctx);
+        try {
+          const answer = await call(connection, verify.tool, fillArguments(verify.arguments ?? {}, { input, result }), `${ctx.idempotencyKey}:verify`, ctx.signal);
+          return matches({ status: 200, body: answer }, result, input);
+        } finally {
+          await done();
+        }
+      });
     };
   }
   return capability;

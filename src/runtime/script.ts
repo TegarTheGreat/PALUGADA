@@ -100,7 +100,7 @@ export class ScriptAdapter implements Adapter {
       // where the credentials are.
       env: { PATH: process.env.PATH ?? '', ...(this.#options.env ?? {}) },
       stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    }, services.processes);
 
     let stderr = '';
     child.stderr!.setEncoding('utf8');

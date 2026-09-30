@@ -22,6 +22,8 @@ import { TERMINAL_STATUSES, type TaskStatus } from '../domain/task.ts';
 import { LOW_CONFIDENCE } from '../context/builder.ts';
 import { TASK_COST_SQL } from '../reporting/cost.ts';
 import { readCursor, writeCursor } from '../inbox/inbox.ts';
+import { weighEvidence, type Weighed } from '../engine/done.ts';
+import { journalOf } from '../engine/journal.ts';
 
 /* -------------------------------------------------------------- structure --- */
 
@@ -62,7 +64,7 @@ export interface StructureView {
     escalateAfterMinutes: number | null;
     /** Tasks that are not finished, in this division. */
     openTasks: number;
-    grants: Array<{ capability: string; tier: number | null }>;
+    grants: Array<{ capability: string; tier: number | null; maxInFlight: number | null }>;
   }>;
   roles: Array<{
     id: string;
@@ -81,6 +83,8 @@ export interface StructureView {
     charter: string;
     /** What finished looks like for this role, testable (F2.8). */
     doneCriteria: string[];
+    /** How long one run may take (0084); null is no limit beyond the task's deadline. */
+    maxRunSeconds: number | null;
   }>;
 }
 
@@ -120,8 +124,10 @@ export async function structureOf(companyId: string): Promise<StructureView> {
         ORDER BY d.depth, d.created_at`,
       [TERMINAL_STATUSES],
     );
-    const grants = await tx.query<{ division_id: string; capability_name: string; tier_override: number | null }>(
-      `SELECT division_id, capability_name, tier_override
+    const grants = await tx.query<{
+      division_id: string; capability_name: string; tier_override: number | null; max_in_flight: number | null;
+    }>(
+      `SELECT division_id, capability_name, tier_override, max_in_flight
          FROM capability_grants ORDER BY capability_name`,
     );
     const roles = await tx.query<{
@@ -130,10 +136,11 @@ export async function structureOf(companyId: string): Promise<StructureView> {
       frozen_at: Date | null; frozen_reason: string | null;
       open_tasks: number; done_last_week: number; system_prompt: string; done_criteria: string[] | null;
       display_name: string | null; title: string | null; persona: { preset?: string; notes?: string } | null;
+      max_run_seconds: number | null;
     }>(
       `SELECT r.id, r.division_id, r.slug, coalesce(r.model_primary, r.model) AS model,
               r.runtime, r.tools, r.heartbeat_minutes, r.dormant_until,
-              r.frozen_at, r.frozen_reason, r.system_prompt, r.done_criteria,
+              r.frozen_at, r.frozen_reason, r.system_prompt, r.done_criteria, r.max_run_seconds,
               r.display_name, r.title, r.persona,
               (SELECT count(*)::int FROM tasks t
                 WHERE t.role_id = r.id AND NOT (t.status = ANY ($1))) AS open_tasks,
@@ -180,10 +187,10 @@ export async function structureOf(companyId: string): Promise<StructureView> {
       return sum;
     };
 
-    const grantsBy = new Map<string, Array<{ capability: string; tier: number | null }>>();
+    const grantsBy = new Map<string, Array<{ capability: string; tier: number | null; maxInFlight: number | null }>>();
     for (const grant of grants.rows) {
       const list = grantsBy.get(grant.division_id) ?? [];
-      list.push({ capability: grant.capability_name, tier: grant.tier_override });
+      list.push({ capability: grant.capability_name, tier: grant.tier_override, maxInFlight: grant.max_in_flight });
       grantsBy.set(grant.division_id, list);
     }
 
@@ -230,6 +237,7 @@ export async function structureOf(companyId: string): Promise<StructureView> {
         doneLastWeek: role.done_last_week,
         charter: role.system_prompt,
         doneCriteria: role.done_criteria ?? [],
+        maxRunSeconds: role.max_run_seconds,
         displayName: role.display_name,
         title: role.title,
         persona: role.persona,
@@ -470,11 +478,27 @@ export interface Deliverable {
   at: Date | null;
 }
 
+/**
+ * One entry of a run's report on its done criteria, as it wrote it, and what
+ * the journal makes of its evidence (engine/done.ts).
+ */
+export interface DoneReportEntry {
+  criterion: string;
+  met: boolean;
+  evidence: string;
+  /** `verified`: it cites a tool call this task made that succeeded. `claimed`: the run's word. */
+  check: Weighed['check'];
+  /** The succeeded tool calls it cites. */
+  steps: Weighed['steps'];
+}
+
 export interface TaskDetail {
   id: string;
   status: TaskStatus;
   input: unknown;
   output: unknown;
+  /** The run's report on its done criteria, weighed against the journal; null when it made none. */
+  done: DoneReportEntry[] | null;
   deliverables: Deliverable[];
   /** The owner's last word on it (`giveFeedback`), or null. */
   feedback: { verdict: 'good' | 'needs_work'; note: string | null; at: Date } | null;
@@ -526,6 +550,19 @@ export async function taskDetailOf(companyId: string, taskId: string): Promise<T
     // Field by field rather than `redactDeep` over the whole answer, which
     // would turn each `Date` into an empty object.
     const text = (value: unknown) => (typeof value === 'string' ? redactor.redact(value) : null);
+    // Weighed when read, against the journal the engine held it to at the
+    // end of the run: tool steps keep their status and name for as long as
+    // the task is kept (retention scrubs only a model's replies), so the
+    // answer is the same one, and nothing is stored twice.
+    const report = task.output && typeof task.output === 'object' ? (task.output as { done?: unknown }).done : undefined;
+    const entries = (Array.isArray(report) ? report : []).filter((entry): entry is Record<string, unknown> =>
+      typeof entry === 'object' && entry !== null && typeof (entry as Record<string, unknown>).criterion === 'string');
+    const journal = entries.length > 0 ? await journalOf(tx, taskId) : [];
+    const done = entries.map((entry): DoneReportEntry => {
+      const evidence = typeof entry.evidence === 'string' ? entry.evidence : '';
+      const { check, steps: cited } = weighEvidence(evidence, journal);
+      return { criterion: text(entry.criterion)!, met: entry.met === true, evidence: text(evidence)!, check, steps: cited };
+    });
     return {
       id: task.id,
       status: task.status,
@@ -534,6 +571,7 @@ export async function taskDetailOf(companyId: string, taskId: string): Promise<T
         : null,
       input: redactor.redactDeep(task.input),
       output: redactor.redactDeep(task.output),
+      done: done.length > 0 ? done : null,
       deliverables: steps.map((step) => ({
         step: step.step_index,
         capability: step.name.replace(/^capability:/, ''),

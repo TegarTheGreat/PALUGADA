@@ -8,6 +8,7 @@
  * tool, reporting usage, failing, or dying without saying anything.
  */
 import readline from 'node:readline';
+import { writeFileSync } from 'node:fs';
 
 const rl = readline.createInterface({ input: process.stdin });
 // Like an agent that read its contract: a finished run says how it met each
@@ -62,6 +63,14 @@ async function act(req) {
   if (script === 'unreadable') {
     process.stdout.write('this is not json\n');
     return;
+  }
+  if (script === 'flood') {
+    // Writes for ever without a line break, as a runtime gone wrong does.
+    writeFileSync(req.task.input.pidFile, String(process.pid));
+    const block = 'x'.repeat(65_536);
+    for (;;) {
+      if (!process.stdout.write(block)) await new Promise((resolve) => process.stdout.once('drain', resolve));
+    }
   }
   if (script === 'silent') {
     process.exit(0);
@@ -121,12 +130,16 @@ async function act(req) {
       steps: [{ capability: 'dns.write', intent: 'point the apex at the new host', expectedEffect: 'the zone has the new record' }],
     });
     const answer = await callTool('dns.write', { zone: 'example.com' });
-    say({ type: 'done', output: { answer } });
+    // A write that was refused is named, as the contract asks of every run
+    // that reports done over a write that failed.
+    say({ type: 'done', output: { answer, failed: [{ capability: 'dns.write', why: 'It was refused, and the work did not need it.' }] } });
     return;
   }
   if (script === 'call_forbidden') {
     const answer = await callTool('dns.write', { zone: 'example.com' });
-    say({ type: 'done', output: { answer } });
+    // A write that was refused is named, as the contract asks of every run
+    // that reports done over a write that failed.
+    say({ type: 'done', output: { answer, failed: [{ capability: 'dns.write', why: 'It was refused, and the work did not need it.' }] } });
     return;
   }
   if (script === 'leak_env') {

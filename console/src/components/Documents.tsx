@@ -18,7 +18,7 @@ import { IconArchive, IconArchiveOff, IconFileText, IconPlus, IconUpload } from 
 import { api, explain } from '../api.ts';
 import { useLoad } from '../hooks.ts';
 import type { Structure } from '../types.ts';
-import { relative } from '../format.ts';
+import { count, relative } from '../format.ts';
 import { t } from '../i18n.ts';
 import { ActionButton } from './ActionForm.tsx';
 import { EmptyState, LoadFailed, Loading } from './ui.tsx';
@@ -65,7 +65,7 @@ export function Documents({ companyId, structure }: { companyId: string; structu
                 <Text fw={600} size="sm">{document.title}</Text>
                 <Text size="xs" c="dimmed">
                   {t('Passages: {passages} · characters: {characters} · added {when}', {
-                    passages: document.passages, characters: document.characters.toLocaleString(), when: relative(document.createdAt),
+                    passages: document.passages, characters: count(document.characters), when: relative(document.createdAt),
                   })}
                 </Text>
               </div>

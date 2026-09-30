@@ -27,21 +27,28 @@ import { recordPlan, type PlanStep } from '../engine/plan.ts';
 import { recordObservation } from '../domain/metrics.ts';
 import { askOwner, raiseEscalationWithin } from '../inbox/inbox.ts';
 import { STAGES, assertStage, loosens, stageOf, type Stage } from '../domain/stage.ts';
+import { GOAL_STATUSES, proposeGoalChange, type GoalStatus } from '../domain/goals.ts';
+import { approvedReviewOf, fingerprintAction } from '../review/review.ts';
 import { createSubTask, getTask, transition } from '../engine/tasks.ts';
 import { listTickets, openTicket, readTicket, startTicket } from '../engine/tickets.ts';
 import { searchDocuments } from '../knowledge/documents.ts';
+import { queryMeaning } from '../knowledge/meaning.ts';
 import { containChildResult } from '../engine/containment.ts';
 import { taskCostCents } from '../reporting/cost.ts';
 import { enqueueWake } from '../scheduler/wake.ts';
 import { isTerminal, type TaskStatus } from '../domain/task.ts';
 import { PalugadaError, isPalugadaError } from '../errors.ts';
+import { appendEvent } from '../audit/event-log.ts';
 import type { Capability } from './registry.ts';
 
 export interface MemorySearchInput {
   query: string;
   /** How many facts to return. Bounded below, so a search cannot be a dump. */
   limit?: number;
-  /** Defaults to semantic: the kind F4.8 leaves out of the pack. */
+  /**
+   * Defaults to semantic: the kind F4.8 leaves out of the pack. Episodic is
+   * what finished work in the run's own project did, one line a task (F4.6).
+   */
   memoryType?: 'semantic' | 'procedural' | 'episodic';
 }
 
@@ -74,12 +81,20 @@ export function memorySearchCapability(): Capability<MemorySearchInput, MemorySe
       properties: {
         query: { type: 'string', minLength: 1, description: 'What to look for, in a few words. Searches the company\'s facts and its documents.' },
         limit: { type: 'integer', minimum: 1, maximum: MEMORY_SEARCH_MAX_RESULTS, description: 'How many facts to return (default 5).' },
-        memoryType: { enum: ['semantic', 'procedural', 'episodic'], description: 'Facts (default), procedures, or past events.' },
+        memoryType: {
+          enum: ['semantic', 'procedural', 'episodic'],
+          description: 'Facts (default), procedures, or past events: what finished work in this project did and reported.',
+        },
       },
     },
     adapter: 'platform',
     defaultTier: TIER.READ_ONLY,
     describe: () => ({ moneyCents: 0 }),
+    // A lesson learned from outside content (0071) comes back as the data it
+    // is, and the work that found it carries that data now, as if it had
+    // read the email itself (F8.9). The company's own facts do not.
+    readsOutside: (output) => ((output as { facts?: Array<{ outside?: boolean }> }).facts ?? [])
+      .some((fact) => fact.outside === true),
     async execute(input, ctx) {
       const limit = Math.min(Math.max(1, input.limit ?? 5), MEMORY_SEARCH_MAX_RESULTS);
       // Ranked by the words a fact shares with the query, in the database,
@@ -88,19 +103,38 @@ export function memorySearchCapability(): Capability<MemorySearchInput, MemorySe
       // not be found by any words. The scope rules stay in `recall`: a search
       // that reached past its division would make F4.6 a matter of which code
       // path was used.
-      const facts = await withTenant(ctx.companyId, (tx) => recall(tx, ctx.companyId, {
-        memoryType: input.memoryType ?? 'semantic',
-        divisionId: ctx.divisionId,
-        text: input.query,
-        limit: limit + 1,
-      }));
+      //
+      // Past events are shared across a project rather than walled off per
+      // division (F4.6), so an episodic search is scoped to the project of the
+      // work asking -- read from its task, the one thing the broker hands every
+      // capability. Without it `recall` fell back to the division's scope,
+      // where no episode is ever kept, and its project branch was reached by
+      // tests alone.
+      const memoryType = input.memoryType ?? 'semantic';
+      const facts = await withTenant(ctx.companyId, async (tx) => {
+        const projectId = memoryType === 'episodic'
+          ? (await tx.query<{ project_id: string }>('SELECT project_id FROM tasks WHERE id = $1', [ctx.taskId])).rows[0]?.project_id
+          : undefined;
+        if (memoryType === 'episodic' && !projectId) return [];
+        return recall(tx, ctx.companyId, {
+          memoryType,
+          divisionId: ctx.divisionId,
+          projectId,
+          text: input.query,
+          limit: limit + 1,
+        });
+      });
 
       // And the company's documents: the passages the same words point at
       // (0075), from what this division may read. Each is data -- a
       // contract or a supplier's price list says what it says, and never
       // instructs the run that reads it.
+      // And by meaning, when the deployment has a provider for it: the
+      // query's vector is made before the transaction, which a network call
+      // should not hold open.
+      const meaning = await queryMeaning(input.query);
       const passages = await withTenant(ctx.companyId, (tx) => searchDocuments(tx, {
-        divisionId: ctx.divisionId, query: input.query, limit: 3,
+        divisionId: ctx.divisionId, query: input.query, limit: 3, ...(meaning ? { meaning } : {}),
       }));
 
       return {
@@ -364,15 +398,17 @@ export function ticketListCapability(): Capability<{ status?: string; limit?: nu
 
 export function registerPlatformCapabilities(registry: {
   register(capability: Capability<never, never>): void;
+  get?(name: string): unknown;
 }): void {
   registry.register(memorySearchCapability() as unknown as Capability<never, never>);
   registry.register(skillReadCapability() as unknown as Capability<never, never>);
   registry.register(planRecordCapability() as unknown as Capability<never, never>);
   registry.register(metricRecordCapability() as unknown as Capability<never, never>);
-  registry.register(ownerAskCapability() as unknown as Capability<never, never>);
+  registry.register(ownerAskCapability(registry.get ? (name) => Boolean(registry.get!(name)) : undefined) as unknown as Capability<never, never>);
   registry.register(taskDelegateCapability() as unknown as Capability<never, never>);
   registry.register(taskAwaitCapability() as unknown as Capability<never, never>);
   registry.register(stageProposeCapability() as unknown as Capability<never, never>);
+  registry.register(goalProposeCapability() as unknown as Capability<never, never>);
   registry.register(ticketCreateCapability() as unknown as Capability<never, never>);
   registry.register(ticketListCapability() as unknown as Capability<never, never>);
 }
@@ -452,17 +488,84 @@ export function stageProposeCapability(): Capability<StageProposeInput, { propos
         }
         const tier = loosens(from, to) ? 3 : 2;
         const why = typeof input.why === 'string' && input.why.trim() ? `\n\n${input.why.trim()}` : '';
+        // A policy may have had another role review this first -- company-os
+        // has its critic read every one. What it said goes on the card the
+        // owner answers, beside the proposer's case, not only back to the
+        // proposer. Found by this exact action, as the broker's grant was.
+        const review = await approvedReviewOf(tx, ctx.taskId, fingerprintAction('stage.propose', input));
+        const reviewed = review ? `\n\nReviewed by ${review.reviewer.name} before you:\n${review.reason}` : '';
         const inboxItemId = await raiseEscalationWithin(tx, {
           companyId: ctx.companyId,
           title: `Move the company from ${from ?? 'no stage'} to ${to}?`,
-          detail: `${evidence}${why}`,
+          detail: `${evidence}${why}${reviewed}`,
           tier,
-          payload: { stageChange: { from, to }, proposedByTask: ctx.taskId },
+          payload: {
+            stageChange: { from, to },
+            proposedByTask: ctx.taskId,
+            ...(review
+              ? {
+                  review: {
+                    reviewer: review.reviewer.slug, decision: 'approve', reason: review.reason,
+                    reviewRequestId: review.reviewRequestId,
+                  },
+                }
+              : {}),
+          },
           consequenceIfDenied: from
             ? `The company stays in the ${from} stage.`
             : 'The company stays without a stage.',
         });
         return { proposed: true, inboxItemId };
+      });
+    },
+  };
+}
+
+export interface GoalProposeInput {
+  /** The goal, by its slug or its id. */
+  goal: string;
+  /** What the goal should say instead. */
+  statement?: string;
+  /** Close it as met or abandoned, or reopen it. */
+  status?: GoalStatus;
+  /** The evidence, with where each piece came from. */
+  why: string;
+}
+
+/**
+ * `goal.propose`: ask the owner to change a goal (F3.10).
+ *
+ * `proposeGoalChange` was documented as the agent's path and no agent could
+ * take it -- the strategist's done criterion says a goal change is "written
+ * as a proposal", and it had nothing to write one with, so it could only say
+ * so in prose the owner then had to carry out by hand. Tier 0 for the reason
+ * `stage.propose` is: it opens one item and changes nothing. The goal changes
+ * when the owner approves, with their device, and not before.
+ */
+export function goalProposeCapability(): Capability<GoalProposeInput, { proposed: boolean; inboxItemId: string; note?: string }> {
+  return {
+    name: 'goal.propose',
+    inputSchema: {
+      type: 'object',
+      required: ['goal', 'why'],
+      properties: {
+        goal: { type: 'string', minLength: 1, description: 'The goal, by its slug (as the weekly brief names it) or its id.' },
+        statement: { type: 'string', minLength: 1, description: 'What the goal should say instead.' },
+        status: { enum: [...GOAL_STATUSES], description: 'met or abandoned to close it, active to reopen it.' },
+        why: { type: 'string', minLength: 1, description: 'The evidence for the change, with where each piece came from.' },
+      },
+    },
+    adapter: 'platform',
+    defaultTier: TIER.READ_ONLY,
+    describe: () => ({ moneyCents: 0 }),
+    async execute(input, ctx) {
+      return proposeGoalChange({
+        companyId: ctx.companyId,
+        taskId: ctx.taskId,
+        goal: String(input.goal ?? ''),
+        proposedStatement: input.statement,
+        proposedStatus: input.status,
+        rationale: input.why,
       });
     },
   };
@@ -498,7 +601,45 @@ export const QUESTION_MAX = 1_000;
  * asked again returns it -- so a runtime that replays its calls picks up
  * where it stopped.
  */
-export function ownerAskCapability(): Capability<OwnerAskInput, OwnerAskResult> {
+/**
+ * Words that make a question one about setting a tool up rather than about
+ * the work, in English and Indonesian (L7).
+ */
+const SETUP_WORDS = /\b(bind|bound|binding|connect\w*|integrat\w*|vendor|provider|set\s?up|configure|install\w*|api\s?key|credential|hubung\w*|sambung\w*|pasang|integrasi|konfigurasi)\b/i;
+
+/** Whether a question names a capability, by its name or the service before its dot (`crm` of `crm.note`). */
+function names(question: string, capability: string): boolean {
+  const terms = [capability, capability.split('.')[0]!];
+  return terms.some((term) => new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(question));
+}
+
+/**
+ * The role's tools that nothing in this deployment is bound to, and that a
+ * question asks how to set up: what the platform answers itself (L7).
+ */
+async function setupAsked(
+  ctx: { companyId: string; taskId: string },
+  question: string,
+  bound: (name: string) => boolean,
+): Promise<string[]> {
+  if (!SETUP_WORDS.test(question)) return [];
+  const tools = await withTenant(ctx.companyId, async (tx) => {
+    const { rows } = await tx.query<{ tools: string[] | null }>(
+      'SELECT r.tools FROM tasks t JOIN roles r ON r.id = t.role_id WHERE t.id = $1', [ctx.taskId]);
+    return rows[0]?.tools ?? [];
+  });
+  return tools.filter((name) => !bound(name) && names(question, name));
+}
+
+/**
+ * `bound` says whether a capability is bound in this deployment. Given, a
+ * question about setting up a tool nothing is bound to -- "which CRM vendor
+ * should I bind?" -- is answered here rather than put to the owner (L7):
+ * the owner connects a service on This deployment, Services, and an answer
+ * typed into an inbox item connects nothing. The run is told so and carries
+ * on; the owner is asked only what they can answer.
+ */
+export function ownerAskCapability(bound?: (name: string) => boolean): Capability<OwnerAskInput, OwnerAskResult> {
   return {
     name: 'owner.ask',
     inputSchema: {
@@ -520,6 +661,20 @@ export function ownerAskCapability(): Capability<OwnerAskInput, OwnerAskResult> 
       }
       if (question.length > QUESTION_MAX) {
         throw new PalugadaError('contract.violation', `a question is at most ${QUESTION_MAX} characters`, { field: 'question' });
+      }
+      const unbound = bound ? await setupAsked(ctx, question, bound) : [];
+      if (unbound.length > 0) {
+        await withTenant(ctx.companyId, (tx) => appendEvent(tx, {
+          companyId: ctx.companyId, taskId: ctx.taskId, type: 'task.question_answered_by_platform', actor: 'system',
+          payload: { question, capabilities: unbound },
+        }));
+        return {
+          answered: true,
+          answer: `${unbound.join(', ')} ${unbound.length === 1 ? 'is' : 'are'} not connected in this deployment. The owner `
+            + 'connects a service on This deployment, Services, and an answer from the inbox connects nothing, so this was '
+            + 'not put to them. Carry on without it: do the part of the work you can, and say in your output what is left '
+            + 'for when it is connected.',
+        };
       }
       const asked = await askOwner({
         companyId: ctx.companyId,
@@ -743,5 +898,5 @@ export function taskAwaitCapability(): Capability<{ childId: string }, TaskAwait
 /** The names this module implements, for a caller that needs to know. */
 export const PLATFORM_CAPABILITIES = [
   'memory.search', 'skill.read', 'plan.record', 'metric.record', 'owner.ask', 'task.delegate', 'task.await',
-  'stage.propose',
+  'stage.propose', 'goal.propose',
 ] as const;

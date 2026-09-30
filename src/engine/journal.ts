@@ -20,7 +20,7 @@
  */
 import { withTenant, type TenantClient } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';
-import { hashInput, idempotencyKey } from './hash.ts';
+import { callKey, hashInput, idempotencyKey } from './hash.ts';
 
 export type StepKind = 'llm' | 'tool' | 'internal';
 
@@ -108,7 +108,9 @@ export async function runStep<T>(
 ): Promise<{ value: T; replayed: boolean }> {
   const inputHash = hashInput(options.input);
   const kept = keptInput(options.kind, options.input);
-  const key = idempotencyKey(ctx.taskId, options.stepIndex, inputHash);
+  // A tool call is keyed by what it does, so a write tried again is the
+  // same write to the vendor; every other step by its place in the run.
+  const key = options.kind === 'tool' ? callKey(ctx.taskId, inputHash) : idempotencyKey(ctx.taskId, options.stepIndex, inputHash);
 
   const claim = await withTenant(ctx.companyId, async (tx) => {
     const step = await findStep(tx, ctx.taskId, options.stepIndex);
@@ -236,6 +238,31 @@ export async function reopenFinalTurns(companyId: string, taskId: string, reason
     );
     return rowCount ?? 0;
   });
+}
+
+/** One step of a task's journal, as far as evidence that cites it needs (engine/done.ts). */
+export interface JournalEntry {
+  index: number;
+  name: string;
+  kind: StepKind;
+  status: 'started' | 'committed' | 'failed';
+  error: string | null;
+}
+
+/**
+ * Every step of one task, in order: what a done criterion's evidence is held
+ * to. Only this task's rows, so a citation can never be borne out by a step
+ * another task took -- the index is the task's own, and another task's step
+ * of the same number is a different call.
+ */
+export async function journalOf(tx: TenantClient, taskId: string): Promise<JournalEntry[]> {
+  const { rows } = await tx.query<{
+    step_index: number; name: string; kind: StepKind; status: JournalEntry['status']; error: string | null;
+  }>(
+    'SELECT step_index, name, kind, status, error FROM task_steps WHERE task_id = $1 ORDER BY step_index',
+    [taskId],
+  );
+  return rows.map((row) => ({ index: row.step_index, name: row.name, kind: row.kind, status: row.status, error: row.error }));
 }
 
 export async function countCommittedSteps(companyId: string, taskId: string): Promise<number> {

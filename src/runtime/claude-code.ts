@@ -21,6 +21,7 @@
  * the argv, the translation, and the bridge. docs/STATUS.md says so plainly
  * rather than letting a green suite imply more than it checked.
  */
+import { CHECKED_VERSIONS, uncheckedVersion, versionIn } from './checked-versions.ts';
 import { spawn } from 'node:child_process';
 import { spawnTree, TreeKeeper } from './process-tree.ts';
 import type {
@@ -33,7 +34,7 @@ import type {
   RunRequest,
   RunServices,
 } from './protocol.ts';
-import { driveRun, renderPrompt, toWireRequest, type Transport } from './wire.ts';
+import { driveRun, readLines, renderPrompt, toWireRequest, type Transport } from './wire.ts';
 import { startToolBridge } from './tool-bridge.ts';
 import { cliModelFor } from './cli-models.ts';
 import { resolveSecretEnv } from './credentials.ts';
@@ -70,6 +71,10 @@ export interface ClaudeCodeAdapterOptions {
   maxTurns?: number;
   /** What each tier means to Claude Code. Default its own aliases: haiku, sonnet, opus. */
   models?: Record<string, string>;
+  /** The version whose containment was checked; default `checked-versions.ts`. */
+  checkedVersion?: string;
+  /** Another version the owner accepted in the console. */
+  acceptedVersion?: string;
 }
 
 /** Claude Code's own aliases, which follow the latest model of each size. */
@@ -113,6 +118,11 @@ export class ClaudeCodeAdapter implements Adapter {
     return this.#options.command ?? 'claude';
   }
 
+  /** The version its flags were checked against, which it is held to. */
+  get checkedVersion(): string {
+    return this.#options.checkedVersion ?? CHECKED_VERSIONS['claude-code'];
+  }
+
   async health(): Promise<AdapterHealth> {
     const stuck = this.#trees.unhealthy();
     if (stuck) return stuck;
@@ -128,13 +138,14 @@ export class ClaudeCodeAdapter implements Adapter {
       child.on('error', (error) =>
         resolve({ ok: false, detail: `${this.command} is not runnable: ${error.message}` }),
       );
-      child.on('close', (code) =>
-        resolve(
-          code === 0
-            ? { ok: true, detail: out.trim() }
-            : { ok: false, detail: `${this.command} --version exited ${code}` },
-        ),
-      );
+      child.on('close', (code) => {
+        if (code !== 0) {
+          resolve({ ok: false, detail: `${this.command} --version exited ${code}` });
+          return;
+        }
+        const unchecked = uncheckedVersion(this.name, versionIn(out), this.checkedVersion, this.#options.acceptedVersion);
+        resolve(unchecked ? { ok: false, detail: unchecked } : { ok: true, detail: out.trim() });
+      });
     });
   }
 
@@ -201,7 +212,9 @@ export class ClaudeCodeAdapter implements Adapter {
       },
     }), { mode: 0o600 });
 
-    const env: Record<string, string> = { PATH: process.env.PATH ?? '', ...(this.#options.env ?? {}) };
+    // Its own updater off: a CLI that replaces itself between runs is running
+    // a version nobody checked (`checked-versions.ts`). Read by 2.1.285.
+    const env: Record<string, string> = { PATH: process.env.PATH ?? '', DISABLE_AUTOUPDATER: '1', ...(this.#options.env ?? {}) };
     if (this.#options.apiKeyEnvVar) {
       const value = process.env[this.#options.apiKeyEnvVar];
       if (value) env[this.#options.apiKeyEnvVar] = value;
@@ -215,7 +228,7 @@ export class ClaudeCodeAdapter implements Adapter {
       ...(this.#options.cwd ? { cwd: this.#options.cwd } : {}),
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    }, services.processes);
 
     let stderr = '';
     child.stderr!.setEncoding('utf8');
@@ -262,29 +275,19 @@ export class ClaudeCodeAdapter implements Adapter {
     stdout: AsyncIterable<Buffer>,
     stderr: () => string,
   ): AsyncGenerator<RunEvent> {
-    let buffer = '';
-    for await (const chunk of stdout) {
-      buffer += chunk.toString('utf8');
-      let index = buffer.indexOf('\n');
-      while (index !== -1) {
-        const line = buffer.slice(0, index).trim();
-        buffer = buffer.slice(index + 1);
-        index = buffer.indexOf('\n');
-        if (!line) continue;
-
-        let parsed: StreamJsonLine;
-        try {
-          parsed = JSON.parse(line) as StreamJsonLine;
-        } catch {
-          // The CLI prints things that are not events. Ignoring an unreadable
-          // line is right here and wrong in the script adapter: there, every
-          // line is supposed to be an event, so an unreadable one means the
-          // runtime is not speaking the protocol.
-          continue;
-        }
-
-        yield* translateStreamJsonLine(parsed, stderr, this.name);
+    for await (const line of readLines(stdout, this.name)) {
+      let parsed: StreamJsonLine;
+      try {
+        parsed = JSON.parse(line) as StreamJsonLine;
+      } catch {
+        // The CLI prints things that are not events. Ignoring an unreadable
+        // line is right here and wrong in the script adapter: there, every
+        // line is supposed to be an event, so an unreadable one means the
+        // runtime is not speaking the protocol.
+        continue;
       }
+
+      yield* translateStreamJsonLine(parsed, stderr, this.name);
     }
   }
 }

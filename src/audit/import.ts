@@ -429,8 +429,8 @@ export async function importCompany(
   // company's id and no other.
   return withControlPlane(async (tx) => {
     const { rows } = await tx.query<{ id: string }>(
-      `INSERT INTO companies (slug, name, timezone, work_language, talk_language, stage)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      `INSERT INTO companies (slug, name, timezone, work_language, talk_language, stage, guardian)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
       [
         options.slug, options.name ?? String(source!.name ?? options.slug), String(source!.timezone ?? 'UTC'),
         // What the company works and talks in travels with it; an archive from
@@ -439,6 +439,8 @@ export async function importCompany(
         typeof source!.talk_language === 'string' ? source!.talk_language : null,
         // And where it is in its life (0057), which the stage policies read.
         isStage(source!.stage) ? source!.stage : null,
+        // A safeguard the owner turned on does not come back off (0092).
+        source!.guardian === true,
       ],
     );
     const companyId = rows[0]!.id;

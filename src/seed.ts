@@ -24,6 +24,7 @@ import { registerPlatformCapabilities } from './broker/platform-capabilities.ts'
 import { BUILT_IN_BUNDLES } from './bundles/builtin.ts';
 import { publishBundle, type Bundle, type SignedBundle } from './bundles/bundle.ts';
 import { importFromDisk } from './governance/charter-files.ts';
+import { ensureDefaultCharters } from './governance/default-charters.ts';
 import { saveTemplate } from './templates/company.ts';
 import { withControlPlane } from './db/tenant.ts';
 import { STANDARD_COMPANY_TEMPLATE, STANDARD_TEMPLATE_SLUG } from './templates/standard.ts';
@@ -119,6 +120,9 @@ export async function seed(options: SeedOptions = {}): Promise<SeedReport> {
   const charters = options.charterRoot
     ? await importFromDisk({ root: options.charterRoot })
     : [];
+  // After the files, which outrank it: a scope still without any charter
+  // gets the default one, and a scope with one keeps it.
+  charters.push(...await ensureDefaultCharters());
 
   return { bundles, charters, template: STANDARD_TEMPLATE_SLUG };
 }

@@ -186,7 +186,11 @@ export async function transcribe(binding: ListenBinding, audio: Heard, language:
     throw new PalugadaError('contract.violation', `a recording is at most ${MAX_AUDIO_BYTES / 1024 / 1024} MB`, { field: 'audio' });
   }
   const model = binding.model ?? binding.provider.defaultModel ?? '';
-  const call = binding.provider.request(audio, language, await binding.key(), model, binding.url);
+  // The language alone, without a region: the panel's `pt-BR` is `pt` to
+  // Whisper's API, which refuses a tag it does not list, and every provider
+  // here hears Brazilian and European Portuguese alike.
+  const spoken = language ? language.split('-')[0]!.toLowerCase() : null;
+  const call = binding.provider.request(audio, spoken, await binding.key(), model, binding.url);
   const timeout = AbortSignal.timeout(binding.timeoutMs ?? 60_000);
   let response: Response;
   try {

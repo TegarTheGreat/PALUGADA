@@ -27,13 +27,13 @@ import {
 import { useHotkeys, useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import {
-  IconArrowLeft, IconCheck, IconClock, IconClockPause, IconMessageQuestion, IconRoute, IconTarget, IconX,
+  IconArrowLeft, IconCheck, IconClock, IconClockPause, IconHourglass, IconMessageQuestion, IconRoute, IconTarget, IconX,
 } from '@tabler/icons-react';
 import { api, ApiError, explain, type Proof } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { useLoad } from '../hooks.ts';
 import { go } from '../router.ts';
-import type { Digest, InboxItem, Trace } from '../types.ts';
+import type { Digest, InboxItem, StandingApproval, Trace } from '../types.ts';
 import { dateTime, goalKind, money, relative } from '../format.ts';
 import { t, tp } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
@@ -60,12 +60,15 @@ function urgency(item: InboxItem): number {
 export function Decisions({ ctx, route }: PageProps) {
   const { companyId } = ctx;
   const queue = useLoad(async () => {
-    const [{ items }, digest, later]: [{ items: InboxItem[] }, Digest, { items: InboxItem[] }] = await Promise.all([
+    const [{ items }, digest, later, { standing }]: [
+      { items: InboxItem[] }, Digest, { items: InboxItem[] }, { standing: StandingApproval[] },
+    ] = await Promise.all([
       api('GET', `/api/companies/${companyId}/inbox`),
       api('GET', `/api/companies/${companyId}/digest`),
       api('GET', `/api/companies/${companyId}/inbox?snoozed=1`),
+      api('GET', `/api/companies/${companyId}/standing-approvals`),
     ]);
-    return { items, digest, later: later.items };
+    return { items, digest, later: later.items, standing };
   }, [companyId], { every: 15_000 });
   const [filter, setFilter] = useState<Filter>('all');
   const [missingLink, setMissingLink] = useState(false);
@@ -165,6 +168,10 @@ export function Decisions({ ctx, route }: PageProps) {
           {t('The item you followed has already been decided or closed. It is in the history.')}
           {' '}<Anchor size="sm" onClick={() => ctx.open('history')}>{t('Open the history')}</Anchor>
         </Alert>
+      )}
+
+      {queue.data.standing.length > 0 && !(narrow && current) && (
+        <Standing companyId={companyId} standing={queue.data.standing} changed={queue.reload} />
       )}
 
       {queue.data.items.length === 0 ? (
@@ -414,10 +421,30 @@ function Detail({
   const [traceOpen, setTraceOpen] = useState(false);
   const [answer, setAnswer] = useState('');
 
-  const send = (decision: string, proof?: Proof) =>
+  const send = (decision: string, proof?: Proof, allowForHours?: number) =>
     api('POST', `/api/companies/${companyId}/inbox/${item.id}/decide`, {
-      decision, note, ...(proof ? { proof } : {}),
+      decision, note, ...(proof ? { proof } : {}), ...(allowForHours ? { allowForHours } : {}),
     });
+
+  // 0083: yes, and the same to this role for a while. It loosens a rule, so
+  // it always takes the owner's device; the dialog opens straight away.
+  const approveFor = async (hours: number, label: string) => {
+    setBusy('approve');
+    setError(null);
+    try {
+      const done = await requireFactor(
+        t('{capability} for {role}, {period}', { capability: item.capabilityName ?? '', role: item.roleSlug ?? '', period: label }),
+        (proof) => send('approve', proof, hours),
+      );
+      if (!done) return;
+      notifications.show({ color: 'teal', message: t('Approved, and allowed for {period}.', { period: label }) });
+      decided();
+    } catch (failure) {
+      setError(explain(failure));
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const decide = async (decision: 'approve' | 'deny' | 'ask') => {
     if (decision === 'ask' && !note.trim()) {
@@ -480,8 +507,9 @@ function Detail({
     }
   };
 
-  // F10.3's other direction: an agent asked something, and this is the answer
-  // going back. It puts the task back on the queue rather than deciding it.
+  // F10.3: the owner's word to the task behind an escalation, without deciding
+  // it. The task's next run reads it, and a task waiting on the owner goes
+  // back on the queue.
   const sendAnswer = async () => {
     setBusy('answer');
     setError(null);
@@ -537,6 +565,21 @@ function Detail({
       <Stack p="lg" gap="md">
         {item.actionSummary && item.actionSummary !== item.title && (
           <Block label={t('What will happen')}>{item.actionSummary}</Block>
+        )}
+        {/* Every argument, whole: the line above is cut to fit, and what is
+            approved is what the action is given, not its name. */}
+        {argumentsOf(item.input).length > 0 && (
+          <div>
+            <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb={4}>{t('What it is given, in full')}</Text>
+            <Stack gap={6}>
+              {argumentsOf(item.input).map(([name, value]) => (
+                <div key={name}>
+                  <Text size="xs" c="dimmed">{name}</Text>
+                  <Text size="sm" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{value}</Text>
+                </div>
+              ))}
+            </Stack>
+          </div>
         )}
         {item.rationale && <Block label={t('Why')}>{item.rationale}</Block>}
         {item.consequenceIfDenied && <Block label={t('If you refuse')}>{item.consequenceIfDenied}</Block>}
@@ -651,12 +694,93 @@ function Detail({
           <Button variant="default" leftSection={<IconX size={16} />} loading={busy === 'deny'} onClick={() => void decide('deny')}>
             {t('Deny')}
           </Button>
-          <Button variant="outline" color="teal" leftSection={<IconCheck size={16} />} loading={busy === 'approve'} onClick={() => void decide('approve')}>
-            {t('Approve')}
-          </Button>
+          {item.allowFor ? (
+            <Group gap={0} wrap="nowrap">
+              <Button variant="outline" color="teal" leftSection={<IconCheck size={16} />} loading={busy === 'approve'}
+                onClick={() => void decide('approve')} style={{ borderTopRightRadius: 0, borderBottomRightRadius: 0 }}>
+                {t('Approve')}
+              </Button>
+              <Menu position="top-end" withinPortal>
+                <Menu.Target>
+                  <Button variant="outline" color="teal" px={8} aria-label={t('Approve for a while')}
+                    style={{ borderTopLeftRadius: 0, borderBottomLeftRadius: 0, borderLeftWidth: 0 }}>
+                    <IconHourglass size={16} />
+                  </Button>
+                </Menu.Target>
+                <Menu.Dropdown>
+                  <Menu.Label>{t('Approve, and allow {capability} to {role} without asking for', { capability: item.capabilityName ?? '', role: item.roleSlug ?? '' })}</Menu.Label>
+                  {ALLOW_FOR.map((choice) => (
+                    <Menu.Item key={choice.hours} onClick={() => void approveFor(choice.hours, choice.label())}>{choice.label()}</Menu.Item>
+                  ))}
+                </Menu.Dropdown>
+              </Menu>
+            </Group>
+          ) : (
+            <Button variant="outline" color="teal" leftSection={<IconCheck size={16} />} loading={busy === 'approve'} onClick={() => void decide('approve')}>
+              {t('Approve')}
+            </Button>
+          )}
         </Group>
       </Group>
       )}
+    </Paper>
+  );
+}
+
+/** How long a yes may stand (0083): up to a week, which the server holds too. */
+const ALLOW_FOR: Array<{ hours: number; label: () => string }> = [
+  { hours: 1, label: () => t('an hour') },
+  { hours: 8, label: () => t('eight hours') },
+  { hours: 24, label: () => t('a day') },
+  { hours: 168, label: () => t('a week') },
+];
+
+/**
+ * The yeses the owner gave for a while (0083), each taken back with one press:
+ * a tightening, so no device is asked for.
+ */
+function Standing({ companyId, standing, changed }: {
+  companyId: string; standing: StandingApproval[]; changed: () => void;
+}) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const revoke = async (entry: StandingApproval) => {
+    setBusy(entry.id);
+    try {
+      await api('POST', `/api/companies/${companyId}/standing-approvals/${entry.id}/revoke`);
+      notifications.show({ message: t('Taken back. The next {capability} by {role} asks you again.', { capability: entry.capabilityName, role: entry.roleSlug }) });
+      changed();
+    } catch (failure) {
+      notifications.show({ color: 'red', message: explain(failure) });
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <Paper withBorder radius="lg" p="md">
+      <Group gap="xs" mb="xs">
+        <IconHourglass size={18} />
+        <Text fw={600}>{t('Allowed for a while')}</Text>
+      </Group>
+      <Text size="xs" c="dimmed" mb="sm">
+        {t('These run without a card until they end. A tier 3 action, and work that read something from outside, still ask every time.')}
+      </Text>
+      <Stack gap={6}>
+        {standing.map((entry) => (
+          <Group key={entry.id} justify="space-between" wrap="nowrap" gap="sm">
+            <Box style={{ minWidth: 0 }}>
+              <Text size="sm" truncate>
+                <Text span fw={600}>{entry.capabilityName}</Text>{' · '}{entry.roleSlug}
+              </Text>
+              <Text size="xs" c="dimmed">
+                {t('Until {when}', { when: dateTime(entry.expiresAt) })}{' · '}{tp('used {count} time', 'used {count} times', entry.uses)}
+              </Text>
+            </Box>
+            <Button size="compact-sm" variant="default" loading={busy === entry.id} onClick={() => void revoke(entry)}>
+              {t('Take back')}
+            </Button>
+          </Group>
+        ))}
+      </Stack>
     </Paper>
   );
 }
@@ -705,6 +829,24 @@ function Later({ companyId, item, done }: { companyId: string; item: InboxItem; 
       </Menu.Dropdown>
     </Menu>
   );
+}
+
+/**
+ * An action's arguments as the owner reads them: text as written, a list of
+ * words joined, anything else as JSON. Short ones first and long texts last:
+ * the database keeps an object's keys in an order of its own, which put a
+ * message's body above whom it was to.
+ */
+function argumentsOf(input: unknown): Array<[string, string]> {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return [];
+  const shown = Object.entries(input as Record<string, unknown>).map(([name, value]): [string, string] => [
+    name,
+    typeof value === 'string' ? value
+      : Array.isArray(value) && value.every((one) => one === null || typeof one !== 'object') ? value.join(', ')
+      : JSON.stringify(value, null, 2),
+  ]);
+  const long = ([, value]: [string, string]) => (value.includes('\n') || value.length > 120 ? 1 : 0);
+  return shown.sort((a, b) => long(a) - long(b));
 }
 
 function Block({ label, children }: { label: string; children: React.ReactNode }) {

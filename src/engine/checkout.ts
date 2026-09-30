@@ -32,7 +32,7 @@
  * would interleave into a state neither intended.
  */
 import { appendEvent } from '../audit/event-log.ts';
-import { withTenant, type TenantClient } from '../db/tenant.ts';
+import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
 import { transition, transitionWithin } from './tasks.ts';
 import { isPalugadaError } from '../errors.ts';
 import { raiseIncidentWithin } from '../inbox/inbox.ts';
@@ -42,6 +42,17 @@ export const DEFAULT_LEASE_MS = 15 * 60_000;
 
 /** F5.14. Two missed lease-lengths is a worker that is not coming back. */
 export const ORPHAN_MULTIPLE = 2;
+
+/** How often a worker says it is alive (0079). */
+export const HEARTBEAT_EVERY_MS = 15_000;
+
+/**
+ * How long a worker may be quiet before its tasks are returned: four missed
+ * beats. Short beside a lease, long beside a garbage-collection pause or a
+ * slow statement, and measured on the database's clock at both ends, so two
+ * machines that disagree about the time cannot make a live worker look dead.
+ */
+export const SILENT_AFTER_SECONDS = 60;
 
 export interface Claim {
   taskId: string;
@@ -55,6 +66,12 @@ export interface ClaimOptions {
   taskId?: string | undefined;
   /** Only consider work for this role (F9.8: a wake names one role). */
   roleId?: string | undefined;
+  /**
+   * Only consider work at this priority or more urgent (F5.10): the place a
+   * worker keeps for P0, so the owner's urgent task is not queued behind
+   * whatever long run started first (L3).
+   */
+  priorityAtMost?: number | undefined;
   leaseMs?: number | undefined;
   now?: Date | undefined;
 }
@@ -114,6 +131,7 @@ const CLAIM_SQL = `
             OR (t.status = 'running' AND t.lease_holder IS NULL))
        AND ($2::uuid IS NULL OR t.id = $2)
        AND ($5::uuid IS NULL OR t.role_id = $5)
+       AND ($6::smallint IS NULL OR t.priority <= $6)
        AND (t.wait_until IS NULL OR t.wait_until <= $3)
        AND (t.deadline_at IS NULL OR t.deadline_at > $3)
        AND (t.lane_key IS NULL OR NOT EXISTS (
@@ -194,6 +212,7 @@ export async function claimTask(
       now,
       expiresAt,
       options.roleId ?? null,
+      options.priorityAtMost ?? null,
     ]);
     const row = rows[0];
     if (!row) return null;
@@ -373,6 +392,56 @@ async function haltIfCrashLooping(tx: TenantClient, companyId: string, taskId: s
   return true;
 }
 
+/**
+ * A worker's word that it is alive (0079). Written on the control plane:
+ * the table is the platform's, and no agent has any business with it.
+ */
+export async function beat(workerId: string): Promise<void> {
+  await withControlPlane((tx) => tx.query(
+    `INSERT INTO worker_heartbeats (worker_id) VALUES ($1)
+     ON CONFLICT (worker_id) DO UPDATE SET beat_at = now()`,
+    [workerId],
+  ));
+}
+
+/**
+ * Takes a worker's word back as it stops cleanly, so a worker that shut down
+ * is never mistaken for one that died -- its tasks were handed back already.
+ */
+export async function stopBeating(workerId: string): Promise<void> {
+  await withControlPlane((tx) => tx.query('DELETE FROM worker_heartbeats WHERE worker_id = $1', [workerId]));
+}
+
+/**
+ * The workers that have gone quiet, other than the one asking: it is alive,
+ * whatever its last beat says -- after the database was away, its own beat
+ * is as old as everyone's, and taking back its own running tasks would stop
+ * work that is going on. Rows quiet for a day are cleared as they are read.
+ */
+export async function silentHolders(self: string): Promise<string[]> {
+  return withControlPlane(async (tx) => {
+    await tx.query("DELETE FROM worker_heartbeats WHERE beat_at < now() - interval '1 day'");
+    const { rows } = await tx.query<{ worker_id: string }>(
+      `SELECT worker_id FROM worker_heartbeats
+        WHERE worker_id <> $1 AND beat_at < now() - make_interval(secs => $2)
+        ORDER BY worker_id`,
+      [self, SILENT_AFTER_SECONDS],
+    );
+    return rows.map((row) => row.worker_id);
+  });
+}
+
+/** The workers that beat lately: every one whose runs are still its own. */
+export async function liveHolders(): Promise<Set<string>> {
+  return withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ worker_id: string }>(
+      'SELECT worker_id FROM worker_heartbeats WHERE beat_at >= now() - make_interval(secs => $1)',
+      [SILENT_AFTER_SECONDS],
+    );
+    return new Set(rows.map((row) => row.worker_id));
+  });
+}
+
 export interface Reclaimed {
   taskId: string;
   previousHolder: string;
@@ -390,6 +459,13 @@ export interface Reclaimed {
 export async function reclaimExpiredLeases(
   companyId: string,
   now = new Date(),
+  options: {
+    /**
+     * Holders that have stopped saying they are alive (`silentHolders`):
+     * their tasks come back now rather than when their leases run out.
+     */
+    silent?: readonly string[];
+  } = {},
 ): Promise<Reclaimed[]> {
   return withTenant(companyId, async (tx) => {
     // Read the rows before the update, not after. `RETURNING` on an UPDATE
@@ -400,12 +476,13 @@ export async function reclaimExpiredLeases(
       id: string;
       lease_holder: string;
       previous_status: string;
+      silent: boolean;
     }>(
       `WITH expired AS (
-         SELECT id, lease_holder, status
+         SELECT id, lease_holder, status, NOT (lease_expires_at <= $1) AS silent
            FROM tasks
           WHERE lease_expires_at IS NOT NULL
-            AND lease_expires_at <= $1
+            AND (lease_expires_at <= $1 OR lease_holder = ANY($2::text[]))
             AND status IN ('checked_out', 'running')
           -- Locked in id order, the order the stop button and the expiry
           -- sweep lock tasks in, so two sweeps over overlapping sets wait for
@@ -417,8 +494,8 @@ export async function reclaimExpiredLeases(
             SET status = 'pending', lease_holder = NULL, lease_expires_at = NULL
           WHERE id IN (SELECT id FROM expired)
        )
-       SELECT id, lease_holder, status AS previous_status FROM expired`,
-      [now],
+       SELECT id, lease_holder, status AS previous_status, silent FROM expired`,
+      [now, options.silent ?? []],
     );
 
     for (const row of rows) {
@@ -427,7 +504,11 @@ export async function reclaimExpiredLeases(
         taskId: row.id,
         type: 'task.lease_expired',
         actor: 'system',
-        payload: { holder: row.lease_holder, reclaimedFrom: row.previous_status },
+        payload: {
+          holder: row.lease_holder, reclaimedFrom: row.previous_status,
+          // Which clock ran out: the lease's, or the holder's word that it was alive.
+          reason: row.silent ? 'holder_silent' : 'lease_expired',
+        },
       });
       await haltIfCrashLooping(tx, companyId, row.id);
     }

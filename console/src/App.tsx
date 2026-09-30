@@ -21,7 +21,7 @@ import { notifications } from '@mantine/notifications';
 import { Spotlight, spotlight, type SpotlightActionData } from '@mantine/spotlight';
 import {
   IconActivity, IconAlertOctagon, IconBrain, IconBuildingStore, IconCheck, IconChecklist, IconChevronDown,
-  IconCoin, IconDots, IconHistory, IconHome, IconInbox, IconLanguage, IconLayoutDashboard, IconLogout, IconMap,
+  IconCoin, IconDots, IconHistory, IconHome, IconInbox, IconKey, IconLanguage, IconLayoutDashboard, IconLogout, IconMap,
   IconMoon, IconPlayerPlay, IconPlayerStop, IconPlus, IconSearch, IconSparkles, IconServer2, IconSettings, IconSitemap, IconSun,
 } from '@tabler/icons-react';
 import { api, explain, setToken, whenSignedOut } from './api.ts';
@@ -64,17 +64,20 @@ const PAGES: Array<{ id: CompanyPage; label: string; icon: typeof IconInbox; gro
 
 export function App() {
   const [device, setDevice] = useState<string | null>(null);
+  // Which kind of factor signed in: after a recovery code, the console asks for a new device.
+  const [factor, setFactor] = useState<string | null>(null);
   const lang = useLanguage();
   useEffect(() => { takeLinkedRoute(); }, []);
   useEffect(() => whenSignedOut(() => setDevice(null)), []);
 
   if (!device) {
-    return <SignIn key={lang} onSignedIn={(session) => { setToken(session.token); setDevice(session.device); }} />;
+    return <SignIn key={lang} onSignedIn={(session) => { setToken(session.token); setDevice(session.factor === 'recovery' ? t('Recovery code') : session.device); setFactor(session.factor); }} />;
   }
   return (
     <Console
       key={lang}
       device={device}
+      recovered={factor === 'recovery'}
       signOut={async () => {
         await api('POST', '/api/auth/sign-out', {}).catch(() => undefined);
         setToken(null);
@@ -119,7 +122,7 @@ export async function chooseLanguage(code: Language): Promise<void> {
   setLanguage(code);
 }
 
-function Console({ device, signOut }: { device: string; signOut: () => Promise<void> }) {
+function Console({ device, recovered, signOut }: { device: string; recovered: boolean; signOut: () => Promise<void> }) {
   const route = useRoute();
   const mobile = useMediaQuery('(max-width: 48em)') ?? false;
   const requireFactor = useFactor();
@@ -145,7 +148,7 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
 
   const base = useLoad(async () => {
     const [{ companies }, control, setup, languages]: [
-      { companies: Company[] }, { stopAll: boolean }, { notes: string[]; todo: string[] }, Languages,
+      { companies: Company[] }, { stopAll: boolean }, { notes: string[]; todo: string[]; version?: string }, Languages,
     ] = await Promise.all([
       api('GET', '/api/companies'),
       api('GET', '/api/control'),
@@ -315,7 +318,7 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
     return !text || `${action.label ?? ''} ${action.description ?? ''}`.toLowerCase().includes(text);
   };
 
-  const setup = base.data?.setup ?? { notes: [], todo: [] };
+  const setup: { notes: string[]; todo: string[]; version?: string } = base.data?.setup ?? { notes: [], todo: [] };
   const inboxCount = company ? openCount[company.id] ?? 0 : 0;
   const active = route.kind === 'company' ? route.page : route.kind;
 
@@ -491,6 +494,7 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
               <Menu.Item color="red" leftSection={<IconAlertOctagon size={16} />} onClick={() => setCancelling(true)}>{t('Cancel every task…')}</Menu.Item>
               <Menu.Divider />
               <Menu.Item leftSection={<IconLogout size={16} />} onClick={() => void signOut()}>{t('Sign out')}</Menu.Item>
+              {setup.version && <Menu.Label>{t('PALUGADA {version}', { version: setup.version })}</Menu.Label>}
             </Menu.Dropdown>
           </Menu>
         </AppShell.Section>
@@ -503,6 +507,19 @@ function Console({ device, signOut }: { device: string; signOut: () => Promise<v
               <IconAlertOctagon size={18} />
               <Text size="sm" fw={600}>{t('Everything is stopped. No company is doing any work.')}</Text>
               <Button size="compact-sm" variant="white" color="red" onClick={() => void toggleStop()}>{t('Resume')}</Button>
+            </Group>
+          </Box>
+        )}
+        {recovered && (
+          <Box bg="yellow.1" c="dark" py={8} px="lg">
+            <Group justify="center" gap="sm">
+              <IconKey size={18} />
+              <Text size="sm" fw={600}>{t('You signed in with a recovery code. Add a passkey on this device, then take the lost phone off.')}</Text>
+              {companies[0] && (
+                <Button size="compact-sm" variant="white" color="dark" onClick={() => open('settings', { companyId: companies[0]!.id, section: 'security' })}>
+                  {t('Open Security')}
+                </Button>
+              )}
             </Group>
           </Box>
         )}
@@ -658,7 +675,7 @@ function CompanyMenu({
           <Menu.Item
             key={one.id}
             leftSection={<Avatar size={22} radius="sm" src={companyEmblem(one)} alt="" />}
-            rightSection={openCount[one.id] ? <Badge size="xs" color="red" circle>{openCount[one.id]}</Badge> : one.frozen ? <Badge size="xs" color="gray">{t('frozen')}</Badge> : null}
+            rightSection={openCount[one.id] ? <Badge size="xs" color="red" circle>{openCount[one.id]}</Badge> : one.eraseAfter ? <Badge size="xs" color="red" variant="light">{t('closing')}</Badge> : one.frozen ? <Badge size="xs" color="gray">{t('frozen')}</Badge> : null}
             onClick={() => pick(one.id)}
           >
             {one.name}

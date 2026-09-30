@@ -50,13 +50,17 @@ export const LANGUAGES: readonly Language[] = [
   { code: 'tl', name: 'Filipino', native: 'Filipino' },
   { code: 'vi', name: 'Vietnamese', native: 'Tiếng Việt' },
   { code: 'th', name: 'Thai', native: 'ไทย' },
-  { code: 'zh', name: 'Chinese', native: '中文' },
+  // Simplified, and said so: "Chinese" alone leaves the script to chance.
+  { code: 'zh', name: 'Simplified Chinese', native: '简体中文' },
   { code: 'ja', name: 'Japanese', native: '日本語' },
   { code: 'ko', name: 'Korean', native: '한국어' },
   { code: 'hi', name: 'Hindi', native: 'हिन्दी' },
   { code: 'ar', name: 'Arabic', native: 'العربية' },
   { code: 'es', name: 'Spanish', native: 'Español' },
   { code: 'pt', name: 'Portuguese', native: 'Português' },
+  // Brazil's, which differs from Portugal's in words a customer notices
+  // (você, arquivo, celular), and which the console is drawn in.
+  { code: 'pt-BR', name: 'Brazilian Portuguese', native: 'Português (Brasil)' },
   { code: 'fr', name: 'French', native: 'Français' },
   { code: 'de', name: 'German', native: 'Deutsch' },
   { code: 'nl', name: 'Dutch', native: 'Nederlands' },
@@ -173,7 +177,7 @@ const SCRIPTS: Array<{ code: string; pattern: RegExp }> = [
 ];
 
 /** Languages close enough that mistaking one for the other is not drift. */
-const SAME_FAMILY: Record<string, string> = { ms: 'id' };
+const SAME_FAMILY: Record<string, string> = { ms: 'id', 'pt-BR': 'pt' };
 
 /** Languages this module can recognise; drift is only ever claimed for these. */
 export function detectable(code: string): boolean {

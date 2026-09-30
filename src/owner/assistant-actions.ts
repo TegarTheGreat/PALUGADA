@@ -19,6 +19,14 @@
  * fails on one that is in neither, so a route added to the API is a decision
  * about the assistant as well.
  */
+import { AGENT_CATALOGUE } from '../settings/agents.ts';
+
+/**
+ * The kinds of key an agent CLI signs in with, from the catalogue itself: a
+ * card the assistant wrote with `api_key`, a kind no CLI takes, was refused
+ * by the route every time the owner applied it.
+ */
+const AGENT_KEY_KINDS = [...new Set(AGENT_CATALOGUE.flatMap((entry) => entry.credentials.map((kind) => kind.id)))].join(', ');
 
 export interface AssistantAction {
   pattern: string;
@@ -62,6 +70,12 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   },
   { pattern: '/api/control/settings/model/clear', what: 'Go back to the model the environment names.', factor: 'always' },
   {
+    pattern: '/api/control/settings/model/prices',
+    what: 'Say what a model costs, so calls are priced by it rather than at the high fallback. The models in use and their prices are in GET /api/control/settings (prices).',
+    fields: { prices: '{ model name: { input, output } } in cents per million tokens, from the provider\'s price list; null takes a price back' },
+    factor: 'always',
+  },
+  {
     pattern: '/api/control/tools/:kind',
     what: 'Choose the provider a tool goes to. kind is search, extract, image or speech; the providers are in GET /api/control/tools.',
     fields: {
@@ -104,6 +118,19 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     factor: 'always',
   },
   {
+    pattern: '/api/control/channels/email',
+    what: 'Email the owner what needs them, through Resend, Postmark or SendGrid.',
+    fields: { provider: 'resend, postmark or sendgrid', from: 'an address the service may send from', to: 'the owner\'s address' },
+    secrets: { key: 'API key' },
+    factor: 'always',
+  },
+  {
+    pattern: '/api/control/channels/email/test',
+    what: 'Send one test email through the email settings saved.',
+    fields: { provider: 'as saved', from: 'as saved', to: 'as saved', text: 'optional' },
+    factor: 'never',
+  },
+  {
     pattern: '/api/control/channels/chat/:kind/test',
     what: 'Send one test message to the Slack or Discord webhook saved.',
     fields: { text: 'optional' },
@@ -121,6 +148,14 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     factor: 'never',
   },
   { pattern: '/api/control/channels/:name/clear', what: 'Disconnect a channel: telegram, push, slack or discord.', factor: 'always' },
+  {
+    pattern: '/api/control/vendors',
+    what: 'Connect a service a capability calls, from a preset (GET /api/control/vendors) or an entry of the vendor file\'s shape. '
+      + 'The division then needs the key the entry\'s credentialAlias names.',
+    fields: { entry: 'a preset from GET /api/control/vendors, whole, with its url changed only if the owner\'s service lives elsewhere' },
+    factor: 'always',
+  },
+  { pattern: '/api/control/vendors/:name/remove', what: 'Disconnect a service connected in the console.', factor: 'always' },
   {
     pattern: '/api/control/mcp/servers',
     what: 'Add or change an MCP server and the tools roles may use from it. Look first with the mcp/inspect check.',
@@ -145,7 +180,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   {
     pattern: '/api/control/agents/:name/credential',
     what: 'Sign an agent CLI in with an API key.',
-    fields: { kind: 'api_key' },
+    fields: { kind: `whose key it is -- ${AGENT_KEY_KINDS} -- one the CLI takes` },
     secrets: { value: 'API key' },
     factor: 'always',
   },
@@ -226,12 +261,20 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   {
     pattern: '/api/companies/:companyId/inbox/:itemId/decide',
     what: `Approve, deny or ask about an item in the inbox (GET /api/companies/:companyId/inbox). ${COMPANY}`,
-    fields: { decision: 'approve, deny or ask', note: 'why, or the question' },
+    fields: {
+      decision: 'approve, deny or ask', note: 'why, or the question',
+      allowForHours: 'optional, with approve: allow the same capability to the same role for this many hours (1 to 168), only where the item says allowFor',
+    },
     factor: 'sometimes',
   },
   {
+    pattern: '/api/companies/:companyId/standing-approvals/:standingId/revoke',
+    what: 'Take back a yes the owner gave for a while (GET /api/companies/:companyId/standing-approvals), so the next such action asks again.',
+    factor: 'never', chat: true,
+  },
+  {
     pattern: '/api/companies/:companyId/inbox/:itemId/answer',
-    what: 'Answer a question an agent asked the owner.',
+    what: 'Tell the task behind an escalation something, without deciding the item; a task waiting on the owner goes back to work.',
     fields: { answer: 'the answer' },
     factor: 'never',
   },
@@ -379,10 +422,12 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   },
   {
     pattern: '/api/companies/:companyId/roles/:roleId',
-    what: 'Change a role: its charter, tools or model, or who it is -- its name, title or persona.',
+    what: 'Change a role: its charter, what done means, tools or model, how long one run may take, or who it is -- its name, title or persona.',
     fields: {
       summary: 'what changed, for the history', systemPrompt: 'optional', tools: 'optional list',
+      doneCriteria: 'optional list, one testable sentence each, at most 12; replaces the role\'s',
       modelPrimary: 'optional tier', modelFallback: 'optional tier', runtime: 'optional runtime name from GET /api/runtimes',
+      maxRunMinutes: 'optional, the longest one run may take, 1 to 1440 minutes; 0 is no limit but the task\'s deadline',
       displayName: 'optional name', title: 'optional title, but not to or from CEO: that is the appoint action', persona: 'optional { preset, notes }; null takes it away',
     },
     factor: 'always',
@@ -428,7 +473,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     what: 'Let another service start work by posting to an address.',
     fields: {
       slug: 'short id', roleId: 'who does it', goalId: 'the goal', instruction: 'what to do with what arrives',
-      scheme: 'bearer, github, stripe, slack or standard', secretRef: 'a secret reference for the signature', maxPerHour: 'number',
+      scheme: 'bearer, url (token in the address, for a sender that takes only a URL), github, stripe, slack or standard', secretRef: 'a secret reference for the signature', maxPerHour: 'number',
     },
     factor: 'always',
   },
@@ -437,6 +482,12 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     what: 'Point a trigger at a new signing secret.', fields: { secretRef: 'the new reference' }, factor: 'never',
   },
   { pattern: '/api/companies/:companyId/triggers/:triggerId', what: 'Switch a trigger on or off.', fields: { enabled: 'true or false' }, factor: 'always' },
+  {
+    pattern: '/api/companies/:companyId/budget-accounts/:accountId/limit',
+    what: 'Change a budget account\'s ceilings; raising one takes the owner\'s device.',
+    fields: { tokensMax: 'whole tokens', moneyMaxCents: 'optional, in cents' },
+    factor: 'sometimes',
+  },
   {
     pattern: '/api/companies/:companyId/budget-accounts',
     what: 'Open a budget account under another.',
@@ -447,6 +498,17 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     factor: 'always',
   },
   {
+    pattern: '/api/companies/:companyId/divisions/:divisionId/credentials',
+    what: 'Give a division the key a service asks for (GET .../credentials names what it needs); pasted again, it replaces the old one.',
+    fields: { alias: 'the name the service asks for, such as email or crm' },
+    secrets: { value: 'The key the service gave you' },
+    factor: 'always',
+  },
+  {
+    pattern: '/api/companies/:companyId/divisions/:divisionId/credentials/:alias/remove',
+    what: 'Take a key away from a division; its calls to that service stop.', factor: 'always',
+  },
+  {
     pattern: '/api/companies/:companyId/divisions/:divisionId/credentials/:alias/rotate',
     what: 'Point a division\'s credential at a new secret reference.', fields: { newSecretRef: 'the new reference' }, factor: 'always',
   },
@@ -454,6 +516,18 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     pattern: '/api/companies/:companyId/config/:kind/rollback',
     what: 'Put a charter, policy or role back to an earlier version (GET .../config/:kind/history).',
     fields: { subjectId: 'which one', version: 'the version' },
+    factor: 'always',
+  },
+  {
+    pattern: '/api/companies/:companyId/charter',
+    what: 'Rewrite the company\'s charter, which every run of the company is told first (read it with GET .../charter).',
+    fields: { body: 'the whole new charter, in Markdown; the same words again change nothing' },
+    factor: 'always',
+  },
+  {
+    pattern: '/api/control/charter',
+    what: 'Rewrite the platform charter, which every run of every company is told above its company\'s.',
+    fields: { body: 'the whole new charter, in Markdown; the same words again change nothing' },
     factor: 'always',
   },
   {
@@ -505,24 +579,36 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
 
 /** POST routes that change nothing, which the assistant may call itself. Secrets are never sent through them. */
 export const ASSISTANT_CHECKS: Readonly<Record<string, string>> = {
-  '/api/control/settings/model/models': 'Which models a provider serves: { provider, url? } with the key saved.',
+  '/api/control/settings/model/models': 'Which models the saved provider serves: {}.',
   '/api/control/settings/model/test': 'Whether the model saved answers and can call a tool: {}.',
-  '/api/control/mcp/inspect': 'What an MCP server offers: { url, tokenIn?, name? } -- name uses the token saved for that server.',
+  '/api/control/settings/model/prices/lookup': 'What models.dev says each model in use costs, to propose saving: {}.',
+  '/api/control/mcp/inspect': 'What a saved MCP server offers now: { name }.',
 };
 
 /** POST routes the assistant neither proposes nor calls, and why. */
 export const NOT_FOR_THE_ASSISTANT: Readonly<Record<string, string>> = {
   '/api/auth/sign-in': 'signing in is the owner\'s',
+  '/api/auth/claim': 'claiming a deployment with no owner is done from the link its start printed, before there is anyone to assist',
+  '/api/auth/claim/confirm': 'the same claim, confirmed with the owner\'s new authenticator',
   '/api/auth/sign-out': 'signing out is the owner\'s',
   '/api/auth/sign-out-everywhere': 'signing out is the owner\'s',
   '/api/mfa/authenticators/:authenticatorId/revoke': 'the owner\'s own second factor is changed only by hand',
   '/api/mfa/passkeys': 'the owner\'s own second factor is changed only by hand',
+  '/api/mfa/recovery-codes': 'recovery codes are shown to the owner once, in Security, and are theirs to write down',
   '/api/channels/telegram': 'Telegram posts here, not a person',
+  '/api/channels/whatsapp': 'Meta posts here, not a person',
+  '/api/control/mcp/oauth/start': 'signing in to a service is the owner\'s, in their own browser',
+  '/api/companies/:companyId/divisions/:divisionId/credentials/:alias/oauth/start': 'signing a division in for a key is the owner\'s, with their device and in their own browser',
   '/api/hooks/:publicId': 'other services post here, not a person',
   '/api/control/tour': 'the tour\'s own buttons',
+  '/api/companies/:companyId/close': 'erasing a company is decided on its own settings page, with its name typed out, never on a card a model wrote',
+  '/api/companies/:companyId/close/keep': 'taken back where it was decided, on the company\'s settings page',
+  '/api/companies/:companyId/guardian': 'the owner\'s own judgement of how much a model may stop, turned off only with their device',
   '/api/control/channels/telegram/bot': 'Channels walks through it: the token is pasted there',
   '/api/control/channels/telegram/chats': 'Channels walks through it: the chat is found once the owner presses Start in the bot',
   '/api/control/channels/telegram': 'Channels walks through it, with the token and the chat found there',
+  '/api/control/channels/whatsapp': 'Channels walks through it: the token and the app secret are pasted there, from Meta\'s own pages',
+  '/api/control/agents/:name/accept': 'running a CLI at a version nobody checked is the owner\'s call, made in Agent CLIs with their device',
   '/api/control/agents/:name/login': 'a plan sign-in is a page the owner opens and a code they paste back, in Agent CLIs',
   '/api/control/agents/:name/login/code': 'the code from the sign-in page is pasted in Agent CLIs',
   '/api/control/agents/:name/login/cancel': 'part of the sign-in in Agent CLIs',

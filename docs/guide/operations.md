@@ -354,6 +354,18 @@ was. Nothing is applied until every migration that ran matches. Line
 endings do not count, and a database migrated before checksums were kept
 takes its files as they are the first time.
 
+A migration waits at most ten seconds for a lock on what it changes. A
+statement that alters a table waits for every transaction that is reading
+it, and every query on that table after it waits behind the statement, so
+one long transaction -- a report, a `pg_dump`, an open `psql` session --
+would otherwise stop the platform for as long as it ran. A migration that
+cannot get its lock is not applied, and says so by name ("was not applied:
+it waited 10 seconds for a lock another session holds"): run the migrations
+again once that session is done. The image run by itself exits, and its
+restart runs them again. Waiting for another process that is migrating is
+not limited: that wait is how replicas that start together apply each
+migration once.
+
 ### Stopping and restarting
 
 On SIGTERM or SIGINT the console closes first, then the worker. A run in
@@ -388,11 +400,13 @@ with one incident.
 
 **The health check.** `GET /api/health` needs no session and says nothing
 about any company. It answers 200 when the database answers and the
-worker's loop has finished a tick in the last half hour, and 503 with the
-reason otherwise. A database that does not answer is `"database":
-"unreachable"`; why -- the driver's words, which name hosts and roles -- is
-in the platform's log, as a line with `"stage":"health"`, not on the page
-anyone can fetch:
+worker's loop has finished a tick in the last half hour, or started less
+than half an hour ago and has not finished its first yet, and 503 with the
+reason otherwise: `no tick has finished since …`, or `since the worker
+started at …` for one that never has. A database that does not answer is
+`"database": "unreachable"`; why -- the driver's words, which name hosts
+and roles -- is in the platform's log, as a line with `"stage":"health"`,
+not on the page anyone can fetch:
 
 ```json
 { "ok": true, "database": "ok", "worker": { "lastTickAt": "2026-09-26T08:15:02.114Z" } }
@@ -568,7 +582,10 @@ database:
   workers. `PALUGADA_WORKER_ID` overrides it; if you set it, keep it unique.
 - A claim is a lease of fifteen minutes. The worker renews it every five
   minutes while the run shows progress. A run that shows none for a whole
-  lease is stopped and its task handed back.
+  lease is stopped and its task handed back. A worker that has not managed
+  to renew it for a whole lease -- its database unreachable, or not
+  answering -- stops the run itself, because another worker may hold the
+  task by then.
 - If a worker dies, its tasks return to the queue once it has been quiet
   for a minute (`worker_heartbeats`), or when their leases run out if it
   never wrote there; the next worker resumes from the last committed step

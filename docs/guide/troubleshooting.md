@@ -21,6 +21,20 @@ is already one.
 instead. To throw it away and start again, deliberately:
 `PALUGADA_RESET_DATABASE=yes npm run db:setup`. That drops every company.
 
+### `migration … was not applied: it waited 10 seconds for a lock another session holds, …`
+
+**Cause.** The migration changes a table another session is using and has
+not finished with: a long transaction, a `pg_dump` in progress, an open
+`psql` session. A migration waiting for it would make every query on that
+table wait behind the migration, so it gave up instead. Nothing of it was
+applied.
+
+**Fix.** Let that session finish, or end it, and run `npm run db:migrate`
+again. `SELECT pid, xact_start, query FROM pg_stat_activity WHERE xact_start
+< now() - interval '1 minute'` lists the long ones. An image run by itself
+exits and runs the migrations again when it is restarted; under Compose,
+run `docker compose up -d` again.
+
 ### `db:setup: a database password may use letters, digits and _ . ~ - only`
 
 **Cause.** A password in one of the three connection URLs contains a

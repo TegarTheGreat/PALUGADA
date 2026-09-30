@@ -324,6 +324,7 @@ export class Worker {
   /** Which company this worker starts its tick on. See `#rotate`. */
   #turn = 0;
   #lastTickAt: Date | null = null;
+  #startedAt: Date | null = null;
   readonly #runs = new Map<string, number>();
   readonly #stageFailures = new Map<string, number>();
   readonly #loopFailures = { tick: 0, place: 0 };
@@ -337,6 +338,17 @@ export class Worker {
    */
   get lastTickAt(): Date | null {
     return this.#lastTickAt;
+  }
+
+  /**
+   * When `start()` was called, or null before it was.
+   *
+   * What a readiness check measures from until the first tick finishes: a
+   * first tick that hangs, or fails every time, leaves `lastTickAt` null for
+   * ever, and a loop that never went round once is still a loop that stopped.
+   */
+  get startedAt(): Date | null {
+    return this.#startedAt;
   }
 
   get counts(): WorkerCounts {
@@ -604,6 +616,7 @@ export class Worker {
    * speed of the work rather than at the speed of the poll.
    */
   async start(): Promise<void> {
+    this.#startedAt = new Date();
     const signal = this.#options.signal;
     const idle = this.#options.idleMs ?? DEFAULT_IDLE_MS;
 

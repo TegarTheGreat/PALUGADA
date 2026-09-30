@@ -197,7 +197,10 @@ refer to `docs/PRD.md`.
 7. A CLI's process group is signalled, killed, and checked empty
    (`src/runtime/process-tree.ts`).
 8. Tokens per run, the role's run length (0084; off unless the owner sets
-   it), the deadline, and a lease that lapses without progress.
+   it), the deadline, and a lease that lapses without progress. A run whose
+   lease its worker could not renew for a whole lease is stopped by that
+   worker, so one cut off from the database does not act beside the worker
+   that took its task (`LeaseKeeper`, `src/engine/lease-keeper.ts`).
 9. Tokens are reserved across the account chain before a task exists
    (`app.budget_reserve`, 0024, from `createRootTask`); a capability's
    estimate is charged before it runs (`chargeEstimate`,
@@ -381,6 +384,7 @@ All under `test/acceptance/` unless named.
 | Address checks | `platform-capabilities.test.ts` |
 | Environment, bridge, argv, versions, process tree, container sweep | `out-of-process-runtimes.test.ts` |
 | Run length; tokens per run | `operability.test.ts`, `execution-hardening.test.ts` |
+| A run stopped when its lease could not be renewed for a whole lease | `lease-keeper.test.ts` |
 | Reservations, charges, overspend | `budget-inheritance.test.ts`, `cost-control.test.ts`, `spend-guard.test.ts` |
 | Role freeze | `role-freeze.test.ts` |
 | RLS forced, grants, composite keys | `tenant-isolation.test.ts` |

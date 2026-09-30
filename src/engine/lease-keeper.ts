@@ -19,8 +19,17 @@
  * A renewal that finds the lease gone is final: the run is aborted, and every
  * later `confirm()` refuses, so no further step starts and no finished one is
  * committed against a task that is someone else's now.
+ *
+ * So is a whole lease with no renewal that succeeded. Only a lost lease used
+ * to count: a connection dropped or a pool exhausted was left to the next
+ * tick for ever, and a renewal that never answered kept every later tick
+ * waiting on it. A worker cut off from its database went on running the task
+ * while the lease lapsed in the database and another worker took it, and
+ * both made the same side effects. The database sets a renewed lease to run
+ * out one lease after the renewal was asked for, so a whole lease since the
+ * last renewal that succeeded began is a lease that may have lapsed.
  */
-import { isPalugadaError, type PalugadaError } from '../errors.ts';
+import { isPalugadaError, PalugadaError } from '../errors.ts';
 
 export interface LeaseKeeperOptions {
   /** Renews the lease; throws `task.lease_lost` when it is not ours any more. */
@@ -51,6 +60,11 @@ export class LeaseKeeper {
   #renewing = false;
   #stopped = false;
   #lost: PalugadaError | null = null;
+  /**
+   * When the latest renewal that succeeded was begun. The lease was taken
+   * just before the keeper was made, so it starts as the time it was made.
+   */
+  #renewedAt = Date.now();
 
   constructor(options: LeaseKeeperOptions) {
     this.#renew = options.renew;
@@ -93,17 +107,20 @@ export class LeaseKeeper {
 
   /** Renews now, and throws if the lease is gone. */
   async confirm(): Promise<void> {
+    // Checked here as well as on the timer, because this comes before a side
+    // effect: a timer held up behind other work has not looked yet.
+    this.#checkDeadline();
     if (this.#lost) throw this.#lost;
-    try {
-      await this.#renew();
-    } catch (error) {
-      if (isPalugadaError(error, 'task.lease_lost')) this.#markLost(error);
-      throw error;
-    }
+    await this.#renewOnce();
   }
 
   async #tick(): Promise<void> {
-    if (this.#stopped || this.#lost || this.#renewing) return;
+    if (this.#stopped || this.#lost) return;
+    // Before the check for a renewal in flight, because a renewal that never
+    // answers is in flight for ever, and a tick that stopped there never
+    // looked at the time again.
+    this.#checkDeadline();
+    if (this.#lost || this.#renewing) return;
     if (Date.now() > this.#coverUntil) {
       if (!this.#silent) {
         this.#silent = true;
@@ -113,14 +130,41 @@ export class LeaseKeeper {
     }
     this.#renewing = true;
     try {
-      await this.#renew();
-    } catch (error) {
+      await this.#renewOnce();
+    } catch {
       // Anything but a lost lease -- a connection dropped, a pool exhausted --
-      // is left to the next tick. The lease still has two ticks of time.
-      if (isPalugadaError(error, 'task.lease_lost')) this.#markLost(error);
+      // is left to the next tick, because the lease still has two ticks of
+      // time; the deadline above is what ends the wait if none succeeds.
     } finally {
       this.#renewing = false;
     }
+  }
+
+  /** One renewal, which moves the deadline only when it succeeds. */
+  async #renewOnce(): Promise<void> {
+    const begun = Date.now();
+    try {
+      await this.#renew();
+    } catch (error) {
+      if (isPalugadaError(error, 'task.lease_lost')) this.#markLost(error);
+      throw error;
+    }
+    this.#renewedAt = Math.max(this.#renewedAt, begun);
+  }
+
+  /**
+   * Gives the run up when a whole lease has passed since the last renewal
+   * that succeeded began. Not once it has gone quiet: then the keeper stopped
+   * renewing on purpose, and the engine is handing the task back while this
+   * worker still holds it.
+   */
+  #checkDeadline(): void {
+    if (this.#stopped || this.#lost || this.#silent) return;
+    if (Date.now() - this.#renewedAt < this.#leaseMs) return;
+    this.#markLost(new PalugadaError('task.lease_lost',
+      `no renewal of the lease succeeded for ${lengthOf(this.#leaseMs)}, a whole lease: it may have lapsed, `
+        + 'and another worker may hold the task',
+      { leaseMs: this.#leaseMs }));
   }
 
   #markLost(error: PalugadaError): void {
@@ -130,4 +174,10 @@ export class LeaseKeeper {
     this.#timer = undefined;
     this.#onLost();
   }
+}
+
+function lengthOf(ms: number): string {
+  if (ms >= 60_000) return `${Math.round(ms / 60_000)} minutes`;
+  if (ms >= 1_000) return `${Math.round(ms / 1_000)} seconds`;
+  return `${ms} ms`;
 }

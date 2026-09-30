@@ -306,6 +306,57 @@ test('a migration changed after it ran is refused by name, and nothing after it 
   }
 });
 
+/**
+ * A migration that alters a table waits for every transaction that has read
+ * it to finish, and every query on that table after it waits behind the
+ * migration: one long transaction and the platform stood still, for as long
+ * as it took, with nothing said. The lock that lets one replica migrate while
+ * the others wait still waits as long as it needs; the migrations' own locks
+ * do not.
+ */
+test('a migration that cannot get its lock gives up by name within seconds, and applies nothing', async () => {
+  const source = new URL('../../db/migrations/', import.meta.url).pathname;
+  const directory = await mkdtemp(join(tmpdir(), 'palugada-migrations-'));
+  const holder = new pg.Client({ connectionString: connectionString('owner') });
+  const pool = new pg.Pool({ connectionString: connectionString('owner'), max: 1 });
+  await holder.connect();
+  let migrating: Promise<string[]> | null = null;
+  try {
+    for (const file of (await readdir(source)).filter((name) => name.endsWith('.sql'))) {
+      await copyFile(join(source, file), join(directory, file));
+    }
+    await writeFile(join(directory, '9999_waits_for_a_lock.sql'), 'ALTER TABLE companies ADD COLUMN waited_for_a_lock int;');
+    // A transaction that has read the table and not finished: a long report,
+    // an operator's open psql.
+    await holder.query('BEGIN');
+    await holder.query('LOCK TABLE companies IN ACCESS SHARE MODE');
+
+    const started = Date.now();
+    migrating = migrate(directory);
+    await assert.rejects(within(migrating, 30_000, 'the migration giving up on its lock'),
+      /migration 9999_waits_for_a_lock\.sql was not applied: it waited 10 seconds for a lock another session holds.*Run the migrations again once that session is done/);
+    const waited = Date.now() - started;
+    assert.ok(waited >= 9_000 && waited < 20_000, `it waited ${waited}ms`);
+
+    const recorded = await pool.query("SELECT 1 FROM schema_migrations WHERE version = '9999_waits_for_a_lock.sql'");
+    assert.equal(recorded.rowCount, 0, 'not recorded');
+    const column = await pool.query(
+      "SELECT 1 FROM information_schema.columns WHERE table_name = 'companies' AND column_name = 'waited_for_a_lock'");
+    assert.equal(column.rowCount, 0, 'not applied');
+  } finally {
+    // A migration that still waits is cancelled while the lock is held, so it
+    // is not applied the moment the lock is let go and left for later files.
+    await pool.query(
+      `SELECT pg_cancel_backend(pid) FROM pg_stat_activity
+        WHERE datname = current_database() AND pid <> pg_backend_pid() AND query LIKE '%waited_for_a_lock%'`);
+    await migrating?.catch(() => undefined);
+    await holder.query('ROLLBACK');
+    await holder.end();
+    await pool.end();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 /* ------------------------------------------------------ the secret store --- */
 
 test('an env:// secret is only one the operator named as a secret', async () => {

@@ -16,6 +16,7 @@ import { closePools } from '../../src/db/pool.ts';
 import {
   DivisionSecrets,
   InMemorySecretManager,
+  deploymentReferences,
   Redactor,
   redactor,
 } from '../../src/secrets/manager.ts';
@@ -191,6 +192,46 @@ test('a division\'s credential cannot name one of the deployment\'s own secrets 
   await assert.rejects(
     rotateCredential({ companyId: fixture.companyId, divisionId: fixture.divisionId, alias: 'crm', newSecretRef: 'db://model-key' }),
     /one of the deployment's own secrets/);
+});
+
+/**
+ * The deployment's secrets that are not sealed in the console: the owner's
+ * second factor as `npm run setup` writes it
+ * (`env://PALUGADA_SECRET_OWNER_TOTP`), a token in a mounted file. A
+ * division's credential could name one -- typed in a rotation, or carried in
+ * an imported archive, which keeps references as they were -- and the broker
+ * sent it, in a header, to whatever vendor that division's capability calls.
+ * Refused by name, and by value: another variable holding the same secret is
+ * the same secret.
+ */
+test('a division\'s credential cannot name a secret the deployment uses itself, under any name (F12.2, security)', async () => {
+  const env: Record<string, string> = {
+    PALUGADA_OWNER_TOTP_REF: 'env://PALUGADA_SECRET_OWNER_TOTP',
+    PALUGADA_MCP_SERVERS: JSON.stringify([{ id: 'github', url: 'https://api.githubcopilot.com/mcp/', tokenRef: 'file:///run/secrets/github' }]),
+    PALUGADA_SECRET_OWNER_TOTP: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP',
+    PALUGADA_SECRET_COPY: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP',
+    PALUGADA_SECRET_CRM: 'crm-token-for-this-division',
+    PATH: '/usr/bin',
+  };
+  const own = deploymentReferences(env);
+  assert.deepEqual([...own.entries()].sort(), [
+    ['env://PALUGADA_SECRET_OWNER_TOTP', 'PALUGADA_OWNER_TOTP_REF'],
+    ['file:///run/secrets/github', 'PALUGADA_MCP_SERVERS'],
+  ]);
+
+  const store = new InMemorySecretManager();
+  for (const [name, value] of Object.entries(env)) {
+    if (name.startsWith('PALUGADA_SECRET_')) store.set(`env://${name}`, value);
+  }
+  const division = new DivisionSecrets(store, own);
+  await assert.rejects(division.resolve('env://PALUGADA_SECRET_OWNER_TOTP'),
+    (error: unknown) => isPalugadaError(error, 'credential.unavailable')
+      && /the deployment's own \(PALUGADA_OWNER_TOTP_REF\)/.test((error as Error).message));
+  await assert.rejects(division.resolve('env://PALUGADA_SECRET_COPY'),
+    (error: unknown) => isPalugadaError(error, 'credential.unavailable')
+      && /the same secret as PALUGADA_OWNER_TOTP_REF/.test((error as Error).message)
+      && !(error as Error).message.includes(env.PALUGADA_SECRET_OWNER_TOTP!));
+  assert.equal(await division.resolve('env://PALUGADA_SECRET_CRM'), 'crm-token-for-this-division');
 });
 
 test('a division cannot resolve another division\'s credential (F12.2)', async () => {

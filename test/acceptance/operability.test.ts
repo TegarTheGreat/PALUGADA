@@ -293,6 +293,24 @@ test('a deployment answers whether it can work, without a session', async () => 
   }
 });
 
+/**
+ * `/api/health` is open, for a supervisor, and it answered with the
+ * database driver's own words -- a host, a port, a role's name, why its
+ * password was refused -- to anyone who asked. Those go to the log, which
+ * the operator reads; the page says the database could not be reached.
+ */
+test('why the database could not be reached goes to the log, not to whoever asks', async () => {
+  const { databaseHealth } = await import('../../src/main.ts');
+  const logged: Array<Record<string, unknown>> = [];
+  const said = await databaseHealth(async () => {
+    throw new Error('password authentication failed for user "palugada_app" at 10.0.4.7:5432');
+  }, (entry) => logged.push(entry));
+  assert.equal(said, 'unreachable');
+  assert.deepEqual(logged.map((entry) => [entry.stage, entry.message]),
+    [['health', 'password authentication failed for user "palugada_app" at 10.0.4.7:5432']]);
+  assert.equal(await databaseHealth(async () => ({ rows: [] }), () => assert.fail('nothing to log')), 'ok');
+});
+
 test('a process that cannot work says so to whatever asks, with a 503', async () => {
   const { OwnerApi } = await import('../../src/owner/api.ts');
   const api = new OwnerApi({

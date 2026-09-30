@@ -33,7 +33,7 @@ import { bindMcpServers, closeMcpSessions, registerMcpServers } from './capabili
 import { refreshMcpAccess } from './capabilities/mcp-oauth.ts';
 import { OAuthCredentials } from './capabilities/vendor-oauth.ts';
 import { Worker, type WorkerOptions } from './worker.ts';
-import { DivisionSecrets, type SecretManager } from './secrets/manager.ts';
+import { DivisionSecrets, deploymentReferences, type SecretManager } from './secrets/manager.ts';
 import { OwnerMfa, decodeBase32 } from './owner/mfa.ts';
 import {
   DeploymentSecretManager, masterKeyFrom, previousMasterKeysFrom, readSettings, resealSecrets, settingsVersion, type MasterKey,
@@ -377,6 +377,25 @@ function allowedHostsFrom(env: NodeJS.ProcessEnv): string[] | null {
  * the boot refuses instead and names the command. A database that is ahead
  * (code rolled back) is let through: the migrations only add.
  */
+/**
+ * Whether the database answers, as `/api/health` says it to anyone who asks.
+ * The driver's own words -- a host, a port, a role's name, why its password
+ * was refused -- go to the log, where the operator reads them; the page says
+ * only that it could not be reached.
+ */
+export async function databaseHealth(
+  probe: () => Promise<unknown>,
+  log: (entry: Record<string, unknown>) => void,
+): Promise<'ok' | 'unreachable'> {
+  try {
+    await probe();
+    return 'ok';
+  } catch (failure) {
+    log({ stage: 'health', message: (failure as Error).message });
+    return 'unreachable';
+  }
+}
+
 async function pendingMigrations(): Promise<string[]> {
   const files = (await readdir(fileURLToPath(new URL('../db/migrations', import.meta.url))))
     .filter((file) => file.endsWith('.sql'))
@@ -421,6 +440,11 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     delete settings.model;
   }
   const env = withSettings(baseEnv, settings);
+  // What failed, in lines a log collector reads: the worker's stages, and
+  // why the health page said the database could not be reached.
+  const log = options.log ?? ((entry: Record<string, unknown>) => {
+    process.stderr.write(`${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`);
+  });
 
   // The names the console answers to (see `OwnerApiOptions.allowedHosts`).
   // Read first, so a malformed URL is refused before anything is built.
@@ -734,10 +758,13 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // actually runs. Cached because F12.3 reads the version on every call, and
     // the cache is what stops that becoming a round trip per tool call while
     // still picking up a rotation within its short life.
-    // Less the deployment's own sealed keys, which no division's credential may name.
+    // Less the deployment's own keys -- the sealed ones, and every one its
+    // configuration names -- which no division's credential may name.
     // A key signed in for rather than pasted resolves to its access token,
     // renewed before it runs out (`vendor-oauth.ts`).
-    new CachedSecretManager(new OAuthCredentials(new DivisionSecrets(secrets), { deployment: secrets, master: () => master(false) })),
+    new CachedSecretManager(new OAuthCredentials(new DivisionSecrets(secrets, deploymentReferences(env)), {
+      deployment: secrets, master: () => master(false),
+    })),
   );
 
   // The runtimes, which is the whole of what a worker does.
@@ -802,9 +829,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // What failed, in lines a log collector reads. A worker whose stage
     // failures went only into a report nobody read looked, from outside,
     // exactly like one with nothing to do.
-    log: options.log ?? ((entry) => {
-      process.stderr.write(`${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`);
-    }),
+    log,
     ...(env.PALUGADA_APP_URL_PUBLIC
       ? {
         ownerLinkFor: (item) => consoleLinkFor(env.PALUGADA_APP_URL_PUBLIC!, item),
@@ -877,7 +902,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // loop has gone round lately. A process that is up and whose loop has
     // stopped is the failure a supervisor cannot see from outside.
     health: async () => {
-      const database = await appPool().query('SELECT 1').then(() => 'ok', (failure: Error) => failure.message);
+      const database = await databaseHealth(() => appPool().query('SELECT 1'), log);
       const lastTickAt = worker.lastTickAt;
       const stalled = lastTickAt !== null && Date.now() - lastTickAt.getTime() > WORKER_STALL_MS;
       return {
@@ -1062,6 +1087,12 @@ export async function runFromCommandLine(env: NodeJS.ProcessEnv = process.env): 
 
 // Run only when this file is the program, not when a test imports `start`.
 if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  // The schema owner's URL is for `npm run db:migrate`. `npm start` reads the
+  // same `.env`, which setup writes with all three URLs, so the running
+  // platform held the one role that can alter its tables and empty them.
+  // Nothing here uses it, and nothing here should be able to; the image and
+  // the systemd unit leave it out of the environment already.
+  delete process.env.PALUGADA_OWNER_URL;
   runFromCommandLine().then(async (code) => {
     await closePools().catch(() => undefined);
     process.exit(code);

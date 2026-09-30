@@ -1313,6 +1313,10 @@ export class Engine {
     companyId: string,
     taskId: string,
     error: PalugadaError,
+    // F5.7: waiting for a place among calls that are running is a queue, not
+    // a vendor's limit closing again and again, so it is recorded apart and
+    // not counted against the parks a vendor is allowed.
+    how: { event: 'task.rate_limited' | 'task.waiting_slot'; counted: boolean } = { event: 'task.rate_limited', counted: true },
   ): Promise<RunOutcome | null> {
     const raw = error.details.notBefore;
     const notBefore = typeof raw === 'string' ? new Date(raw) : null;
@@ -1322,19 +1326,19 @@ export class Engine {
 
     const parks = await withTenant(companyId, async (tx) => {
       const { rows } = await tx.query<{ count: string }>(
-        "SELECT count(*)::text AS count FROM events WHERE task_id = $1 AND type = 'task.rate_limited'",
-        [taskId],
+        'SELECT count(*)::text AS count FROM events WHERE task_id = $1 AND type = $2',
+        [taskId, how.event],
       );
       return Number(rows[0]!.count);
     });
-    if (parks >= MAX_RATE_LIMIT_PARKS) return null;
+    if (how.counted && parks >= MAX_RATE_LIMIT_PARKS) return null;
 
     const waitUntil = new Date(Math.max(notBefore.getTime(), now + 1_000));
     await withTenant(companyId, async (tx) => {
       await appendEvent(tx, {
         companyId,
         taskId,
-        type: 'task.rate_limited',
+        type: how.event,
         actor: 'engine',
         payload: {
           capability: error.details.capability ?? error.details.name ?? null,
@@ -1345,7 +1349,7 @@ export class Engine {
       });
     });
     await transition(companyId, taskId, 'waiting_window', { waitUntil });
-    return { status: 'waiting_window', reason: 'capability.rate_limited', waitUntil };
+    return { status: 'waiting_window', reason: error.code, waitUntil };
   }
 
   /**
@@ -1472,6 +1476,11 @@ export class Engine {
     // ordinary failure and goes through attempts to the owner like one.
     if (code === 'capability.rate_limited') {
       const parked = await this.#parkForRateLimit(companyId, taskId, error as PalugadaError);
+      if (parked) return parked;
+    }
+    if (code === 'capability.busy') {
+      const parked = await this.#parkForRateLimit(companyId, taskId, error as PalugadaError,
+        { event: 'task.waiting_slot', counted: false });
       if (parked) return parked;
     }
 

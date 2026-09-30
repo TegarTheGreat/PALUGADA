@@ -1026,6 +1026,7 @@ function DivisionDrawer({
               {division.grants.map((grant) => (
                 <Badge key={grant.capability} variant="light" color={grant.tier === null ? 'gray' : ['gray', 'blue', 'orange', 'red'][grant.tier]} radius="sm">
                   {grant.capability}{grant.tier !== null ? ` · T${grant.tier}` : ''}
+                  {grant.maxInFlight !== null ? ` · ${t('{count} at once', { count: grant.maxInFlight })}` : ''}
                 </Badge>
               ))}
             </Group>
@@ -1039,16 +1040,20 @@ function DivisionDrawer({
               <Accordion.Panel>
                 <ActionForm
                   fields={[
-                    { name: 'capabilityName', label: t('Capability'), required: true, placeholder: 'email.send' },
+                    { name: 'capabilityName', label: t('Capability'), required: true, placeholder: 'email.send',
+                      description: t('As the catalogue names it') },
                     { name: 'tierOverride', label: t('Tier'), type: 'select', description: t('Blank revokes the grant'), options: [
                       { value: '0', label: t('Tier 0 · read only') }, { value: '1', label: t('Tier 1 · cheap to undo') },
                       { value: '2', label: t('Tier 2 · costly') }, { value: '3', label: t('Tier 3 · irreversible') },
                     ] },
+                    { name: 'maxInFlight', label: t('Calls at once, at most'), type: 'number',
+                      description: t('Blank keeps it as it is; 0 takes the limit away') },
                   ]}
                   submit={(values, proof) => api('POST', `/api/companies/${companyId}/structure/grant`, {
                     divisionId: division.id,
                     capabilityName: values.capabilityName,
                     ...(values.tierOverride === undefined ? { revoke: true } : { tierOverride: Number(values.tierOverride) }),
+                    ...(values.maxInFlight === undefined ? {} : { maxInFlight: Number(values.maxInFlight) }),
                     proof,
                   })}
                   factor={t('Change a grant in {division}', { division: division.name })}

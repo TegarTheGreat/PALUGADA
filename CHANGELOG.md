@@ -20,7 +20,9 @@ The first version. What it holds, in the order an owner meets it.
   charters, personas and a mandatory CEO the owner talks to, projects,
   measurable goals, tickets, schedules, handoffs and inbound triggers.
 - Every step journalled, so a crash loses nothing; money and tokens reserved
-  before work starts; leases, deadlines, per-run length and token ceilings.
+  before work starts; leases, deadlines, per-run length and token ceilings;
+  tasks at once per division and calls at once per capability, across every
+  worker (STATUS 2.43).
 - Any model through an OpenAI-compatible client, and any agent CLI (Claude
   Code, Codex, Gemini CLI, OpenCode, OpenClaw, Hermes), any agent that
   speaks the Agent Client Protocol (STATUS 2.42), a script, an HTTP service

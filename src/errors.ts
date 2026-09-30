@@ -14,6 +14,8 @@ export type ErrorCode =
   | 'capability.miscalibrated'
   | 'capability.verify_failed'
   | 'capability.rate_limited'
+  /** F5.7: every call the grant allows at once is in flight, and a place did not free in time. */
+  | 'capability.busy'
   /** F12.9: the capability was asked to reach somewhere it may not. */
   | 'capability.unreachable'
   /** The broker was built with no secret manager, so no credential can be resolved. */

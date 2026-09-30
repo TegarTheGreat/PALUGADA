@@ -56,6 +56,8 @@ export interface TemplateGrant {
   capability: string;
   tierOverride?: number;
   rateLimitPerHour?: number;
+  /** F5.7: calls in flight at once. */
+  maxInFlight?: number;
 }
 
 export interface TemplateGoal {
@@ -579,14 +581,15 @@ async function insertGrants(
   for (const grant of template.grants ?? []) {
     await tx.query(
       `INSERT INTO capability_grants
-         (company_id, division_id, capability_name, tier_override, rate_limit_per_hour)
-       VALUES ($1,$2,$3,$4,$5)`,
+         (company_id, division_id, capability_name, tier_override, rate_limit_per_hour, max_in_flight)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
       [
         companyId,
         divisionIds[grant.division],
         grant.capability,
         grant.tierOverride ?? null,
         grant.rateLimitPerHour ?? null,
+        grant.maxInFlight ?? null,
       ],
     );
   }

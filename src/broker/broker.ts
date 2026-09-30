@@ -56,11 +56,13 @@ import { ancestryForTask, renderAncestry } from '../domain/goals.ts';
 import { checkAgainstPlan, readPlan, type TaskPlan } from '../engine/plan.ts';
 import { outsideContentIn } from '../engine/tasks.ts';
 import { Ajv, type ValidateFunction } from 'ajv';
+import { setTimeout as sleep } from 'node:timers/promises';
 import type { Capability, CapabilityContext, CapabilityRegistry } from './registry.ts';
 import { declarationFor } from './catalogue.ts';
 import { CachedSecretManager, resolveCurrent } from '../secrets/rotation.ts';
 import { assertScopesCover } from '../secrets/scopes.ts';
 import { HookPipeline } from '../engine/hooks.ts';
+import { givePlaceBack, takePlace, type PlaceHolder } from './in-flight.ts';
 
 export interface InvokeContext {
   companyId: string;
@@ -101,12 +103,21 @@ type Verdict =
       facts: ActionFacts;
       plan: TaskPlan | null;
       window: { closed: true; reopensAt: Date | null } | { closed: false };
+      /** F5.7: how many calls the grant allows in flight at once, when it says. */
+      maxInFlight: number | null;
     }
   | {
       allowed: false; reason: DenialCode; message: string; policy?: PolicyDecision;
       /** For a rate limit: when a slot frees, so the engine can wait for it. */
       notBefore?: Date;
     };
+
+/**
+ * F5.7: how long a call waits for a place among those its grant allows at
+ * once before the task is parked, and how long it is parked for.
+ */
+const IN_FLIGHT_WAIT_MS = 30_000;
+const BUSY_RETRY_MS = 15_000;
 
 const inputs = new Ajv({ allErrors: true, strict: false });
 const acceptors = new WeakMap<object, ValidateFunction>();
@@ -180,6 +191,7 @@ export class CapabilityBroker {
   readonly #registry: CapabilityRegistry;
   readonly #hooks: HookPipeline;
   readonly #secrets: CachedSecretManager | null;
+  readonly #inFlightWaitMs: number;
 
   /**
    * `secrets` is what makes F12.1-F12.3 reachable from a running capability.
@@ -194,8 +206,10 @@ export class CapabilityBroker {
     registry: CapabilityRegistry,
     hooks?: HookPipeline,
     secrets?: CachedSecretManager,
+    options: { inFlightWaitMs?: number } = {},
   ) {
     this.#registry = registry;
+    this.#inFlightWaitMs = options.inFlightWaitMs ?? IN_FLIGHT_WAIT_MS;
     // A broker built without one still has every built-in hook: F14.2 is not
     // an option a caller can decline by leaving an argument out.
     this.#hooks = hooks ?? new HookPipeline();
@@ -309,6 +323,30 @@ export class CapabilityBroker {
     // one before a task starts rather than during it.
     return async (alias, capabilityName) =>
       this.#credential(companyId, divisionId, alias, capabilityName);
+  }
+
+  /**
+   * F5.7: waits a while for a place, then says the capability is busy. The
+   * wait is short, because a worker waiting holds a run; past it the engine
+   * parks the task and a worker comes back to it (`capability.busy`).
+   */
+  async #takePlace(place: PlaceHolder, limit: number, signal: AbortSignal | undefined): Promise<void> {
+    const until = Date.now() + this.#inFlightWaitMs;
+    let pause = 50;
+    while (!(await takePlace(place, limit))) {
+      const left = until - Date.now();
+      if (left <= 0 || signal?.aborted) {
+        throw new PalugadaError('capability.busy',
+          `${place.capability} already has ${limit} call${limit === 1 ? '' : 's'} in flight for this division, `
+            + `as many as its grant allows; this one waited ${Math.ceil(this.#inFlightWaitMs / 1000)} seconds for one to finish`,
+          {
+            name: place.capability, capability: place.capability, limit,
+            notBefore: new Date(Date.now() + BUSY_RETRY_MS).toISOString(), source: 'in_flight',
+          });
+      }
+      await sleep(Math.min(pause, left));
+      pause = Math.min(pause * 2, 1_000);
+    }
   }
 
   async invoke<I, O>(ctx: InvokeContext, name: string, input: I): Promise<InvokeResult<O>> {
@@ -436,7 +474,7 @@ export class CapabilityBroker {
           ? ({ closed: true, reopensAt: nextOpening(window, now) } as const)
           : ({ closed: false } as const);
 
-      return { allowed: true, tier, policy, facts, plan, window: windowState };
+      return { allowed: true, tier, policy, facts, plan, window: windowState, maxInFlight: grant.maxInFlight };
     });
 
     if (!verdict.allowed) {
@@ -650,6 +688,19 @@ export class CapabilityBroker {
     }
     if (needsOwner && !grantedApproval && !standing) await askOwner();
 
+    // F5.7: a place among the calls the grant allows at once, taken before
+    // anything is recorded or charged -- a call that waited and found none
+    // did not happen -- and given back once the vendor has answered, or as
+    // soon as anything on the way there fails.
+    const place: PlaceHolder | null = verdict.maxInFlight === null ? null : {
+      companyId: ctx.companyId, divisionId: ctx.divisionId, capability: name,
+      taskId: ctx.taskId, holderKey: ctx.idempotencyKey,
+    };
+    if (place && verdict.maxInFlight !== null) await this.#takePlace(place, verdict.maxInFlight, ctx.signal);
+    const giveBack = async (): Promise<void> => {
+      if (place) await givePlaceBack(place).catch(() => undefined);
+    };
+
     const controller = new AbortController();
     const signal = ctx.signal ?? controller.signal;
     const costContext = {
@@ -675,6 +726,9 @@ export class CapabilityBroker {
           ...(standing ? { approvedBy: standing.grantedByItem, standingApprovalId: standing.id } : {}),
         },
       });
+    }).catch(async (error: unknown) => {
+      await giveBack();
+      throw error;
     });
 
     const capabilityContext: CapabilityContext = {
@@ -690,7 +744,10 @@ export class CapabilityBroker {
     // has to happen while the money is still unspent, so the estimate is
     // charged here and refunded below if the call does not happen.
     const estimatedCents = estimateFor(capability, input);
-    const charged = await chargeEstimate(costContext, name, estimatedCents);
+    const charged = await chargeEstimate(costContext, name, estimatedCents).catch(async (error: unknown) => {
+      await giveBack();
+      throw error;
+    });
 
     // The owner's yes is spent now, immediately before the call, and not
     // after it: see `spendApproval`. Another attempt that spent it first
@@ -702,6 +759,7 @@ export class CapabilityBroker {
       });
       if (!spent) {
         if (charged) await refundEstimate(costContext, charged.accountId, estimatedCents);
+        await giveBack();
         await askOwner();
       }
     }
@@ -709,7 +767,9 @@ export class CapabilityBroker {
     let output: O;
     try {
       output = (await capability.execute(input as never, capabilityContext)) as O;
+      await giveBack();
     } catch (error) {
+      await giveBack();
       // An action that did not happen must not leave a charge behind.
       if (charged) await refundEstimate(costContext, charged.accountId, estimatedCents);
       // Nor spend the owner's yes: a vendor that refused should not cost them
@@ -888,12 +948,13 @@ async function readGrant(
   tx: TenantClient,
   divisionId: string,
   name: string,
-): Promise<{ tierOverride: Tier | null; rateLimitPerHour: number | null } | null> {
+): Promise<{ tierOverride: Tier | null; rateLimitPerHour: number | null; maxInFlight: number | null } | null> {
   const { rows } = await tx.query<{
     tier_override: number | null;
     rate_limit_per_hour: number | null;
+    max_in_flight: number | null;
   }>(
-    `SELECT tier_override, rate_limit_per_hour FROM capability_grants
+    `SELECT tier_override, rate_limit_per_hour, max_in_flight FROM capability_grants
       WHERE division_id = $1 AND capability_name = $2`,
     [divisionId, name],
   );
@@ -902,6 +963,7 @@ async function readGrant(
   return {
     tierOverride: row.tier_override === null ? null : (row.tier_override as Tier),
     rateLimitPerHour: row.rate_limit_per_hour,
+    maxInFlight: row.max_in_flight,
   };
 }
 

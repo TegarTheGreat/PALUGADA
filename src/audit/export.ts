@@ -106,7 +106,7 @@ const SECTIONS: Section[] = [
   },
   {
     name: 'capability_grants',
-    sql: `SELECT id, division_id, capability_name, tier_override, rate_limit_per_hour, created_at
+    sql: `SELECT id, division_id, capability_name, tier_override, rate_limit_per_hour, max_in_flight, created_at
             FROM capability_grants ORDER BY created_at`,
   },
   {

@@ -62,7 +62,7 @@ export interface StructureView {
     escalateAfterMinutes: number | null;
     /** Tasks that are not finished, in this division. */
     openTasks: number;
-    grants: Array<{ capability: string; tier: number | null }>;
+    grants: Array<{ capability: string; tier: number | null; maxInFlight: number | null }>;
   }>;
   roles: Array<{
     id: string;
@@ -122,8 +122,10 @@ export async function structureOf(companyId: string): Promise<StructureView> {
         ORDER BY d.depth, d.created_at`,
       [TERMINAL_STATUSES],
     );
-    const grants = await tx.query<{ division_id: string; capability_name: string; tier_override: number | null }>(
-      `SELECT division_id, capability_name, tier_override
+    const grants = await tx.query<{
+      division_id: string; capability_name: string; tier_override: number | null; max_in_flight: number | null;
+    }>(
+      `SELECT division_id, capability_name, tier_override, max_in_flight
          FROM capability_grants ORDER BY capability_name`,
     );
     const roles = await tx.query<{
@@ -183,10 +185,10 @@ export async function structureOf(companyId: string): Promise<StructureView> {
       return sum;
     };
 
-    const grantsBy = new Map<string, Array<{ capability: string; tier: number | null }>>();
+    const grantsBy = new Map<string, Array<{ capability: string; tier: number | null; maxInFlight: number | null }>>();
     for (const grant of grants.rows) {
       const list = grantsBy.get(grant.division_id) ?? [];
-      list.push({ capability: grant.capability_name, tier: grant.tier_override });
+      list.push({ capability: grant.capability_name, tier: grant.tier_override, maxInFlight: grant.max_in_flight });
       grantsBy.set(grant.division_id, list);
     }
 

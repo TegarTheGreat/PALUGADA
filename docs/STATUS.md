@@ -60,7 +60,7 @@ means less than that, the row says so.
 | F2 organisation | F2.1–F2.9 | — | — |
 | F3 charter, policy | F3.1–F3.10, F3.12 | F3.11 (the files are read and written by tested code, and the boot reads no directory: in a stock deployment the charter is the database's, edited from the console -- section 2.24) | — |
 | F4 memory | F4.1–F4.8 | — | — |
-| F5 engine | F5.1–F5.6, F5.8–F5.14 | F5.7 (per division, enforced at the claim; per capability, not built -- see 2.22) | — |
+| F5 engine | F5.1–F5.14 | — | — |
 | F6 agent communication | F6.1–F6.7 | — | — |
 | F7 adversarial review | F7.1–F7.7 | — | — |
 | F8 broker, tiers | F8.1–F8.13 | — | — |
@@ -3176,10 +3176,10 @@ per-company lock that makes the lane and the budget exact. A child its own
 running parent drives is inside the parent's place, or a full division
 would leave the parent waiting on a child nothing could start.
 
-The requirement's other half, a limit per capability, is not built: a
-vendor's own limits are met by its 429s and `Retry-After` (F9.2), and a
-count shared by every replica needs a slot table this has not got. F5.7 is
-graded partial until it has.
+The requirement's other half, a limit per capability, was not built then:
+a vendor's own limits were met by its 429s and `Retry-After` (F9.2), and a
+count shared by every replica needed a table of places. It has one now
+(section 2.43), and F5.7 is graded built.
 
 ### Three more the guide found
 
@@ -4314,6 +4314,37 @@ the code against it found these, and each is now closed with a test.
 - **Unverified**: no real ACP agent ran here, since each needs a
   provider's key. The tests run a stand-in written to the version 1
   schema; what they prove is what PALUGADA says and answers.
+
+## 2.43 Calls at once, per capability (F5.7)
+
+- **Half of a P0 requirement was missing.** F5.7 asks for a concurrency
+  limit per division and per capability; the division's was kept by the
+  claim, and a capability had only its rate per hour, which says nothing
+  about overlap. A vendor that takes one request at a time, or production
+  deploys that must not run side by side -- the PRD's own example -- had
+  nothing to hold them.
+- **A grant says how many** (`max_in_flight`, 0091), set by the owner with
+  **Change a grant**, by a template or by a bundle. The standard company's
+  production deploys are held to one.
+- **Places are rows**, one per call the grant allows, so every worker
+  counts the same calls. A call takes a free place before anything is
+  recorded or charged and gives it back once the vendor has answered, or
+  as soon as anything on the way fails. Two workers after the last place
+  take it once (`FOR UPDATE SKIP LOCKED`). The application role writes
+  places and never deletes them (0047).
+- **A dead worker gives its place back** when its lease lapses, without
+  anyone noticing it died: a place counts only while its holder still holds
+  the task's lease. A call made outside any lease holds one fifteen minutes
+  at most.
+- **Waiting is not failing.** A call waits up to thirty seconds for a place;
+  past that the task is parked (`task.waiting_slot`) and picked up fifteen
+  seconds later, spending no attempt. Unlike a vendor's rate limit, it is
+  not counted against the five parks a task gets: the calls ahead end or
+  their leases lapse. A runtime in another process is told the capability
+  is busy, as it is told of a rate limit.
+- **Tested** with two brokers standing in for two replicas: never two
+  calls at once, a waiting call taking the place the moment it frees, a
+  lapsed lease freeing a place, and six parks in a row without a failure.
 
 ## 3. Decisions, deviations, and what is unverified
 

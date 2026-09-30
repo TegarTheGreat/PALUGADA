@@ -37,7 +37,11 @@ export type StructuralChange =
   | { kind: 'add_division'; slug: string; name: string; parentDivisionId?: string | null }
   | { kind: 'remove_division'; divisionId: string }
   | { kind: 'add_role'; divisionId: string; slug: string }
-  | { kind: 'change_grant'; divisionId: string; capabilityName: string; tierOverride: number | null }
+  | {
+    kind: 'change_grant'; divisionId: string; capabilityName: string; tierOverride: number | null;
+    /** F5.7: calls in flight at once; null lifts the limit, left out keeps it. */
+    maxInFlight?: number | null;
+  }
   | { kind: 'revoke_grant'; divisionId: string; capabilityName: string };
 
 /** What the owner is told this change would let happen. */
@@ -139,13 +143,17 @@ export async function applyGrantChange(
         [change.divisionId, change.capabilityName],
       );
     } else {
+      // A change that does not name the limit leaves it as it was: the owner
+      // tightening a tier is not also lifting a limit they did not mention.
+      const named = change.maxInFlight !== undefined;
       await tx.query(
         `INSERT INTO capability_grants
-           (company_id, division_id, capability_name, tier_override)
-         VALUES ($1, $2, $3, $4)
+           (company_id, division_id, capability_name, tier_override, max_in_flight)
+         VALUES ($1, $2, $3, $4, $5)
          ON CONFLICT (division_id, capability_name) DO UPDATE
-           SET tier_override = EXCLUDED.tier_override`,
-        [companyId, change.divisionId, change.capabilityName, change.tierOverride],
+           SET tier_override = EXCLUDED.tier_override,
+               max_in_flight = CASE WHEN $6 THEN EXCLUDED.max_in_flight ELSE capability_grants.max_in_flight END`,
+        [companyId, change.divisionId, change.capabilityName, change.tierOverride, change.maxInFlight ?? null, named],
       );
     }
 
@@ -156,7 +164,7 @@ export async function applyGrantChange(
       snapshot: {
         capability: change.capabilityName,
         before,
-        after: change.kind === 'revoke_grant' ? null : { tierOverride: change.tierOverride },
+        after: change.kind === 'revoke_grant' ? null : await readGrant(tx, change.divisionId, change.capabilityName),
       },
       summary: summaryOf(change),
     });
@@ -632,12 +640,12 @@ async function readGrant(
   tx: TenantClient,
   divisionId: string,
   capabilityName: string,
-): Promise<{ tierOverride: number | null } | null> {
-  const { rows } = await tx.query<{ tier_override: number | null }>(
-    'SELECT tier_override FROM capability_grants WHERE division_id = $1 AND capability_name = $2',
+): Promise<{ tierOverride: number | null; maxInFlight: number | null } | null> {
+  const { rows } = await tx.query<{ tier_override: number | null; max_in_flight: number | null }>(
+    'SELECT tier_override, max_in_flight FROM capability_grants WHERE division_id = $1 AND capability_name = $2',
     [divisionId, capabilityName],
   );
-  return rows[0] ? { tierOverride: rows[0].tier_override } : null;
+  return rows[0] ? { tierOverride: rows[0].tier_override, maxInFlight: rows[0].max_in_flight } : null;
 }
 
 /* ------------------------------------------------------------------ F2.1 --- */

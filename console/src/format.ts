@@ -62,6 +62,7 @@ const EVENT_SENTENCES: Record<string, string> = {
   'task.planned': N('Plan recorded'),
   'task.attempt_failed': N('An attempt failed'),
   'task.rate_limited': N('Parked: a vendor said not now'),
+  'task.waiting_slot': N('Parked: waiting for a call to the same capability to finish'),
   'task.model_waited': N('Parked: the model did not answer; it is tried again shortly'),
   'task.stranded': N('Task stranded, put to you'),
   'task.lease_expired': N('Worker lost the task; reclaimed'),

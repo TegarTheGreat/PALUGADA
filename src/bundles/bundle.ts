@@ -431,12 +431,13 @@ export async function installBundle(input: {
       if (!divisionId) continue;
       await tx.query(
         `INSERT INTO capability_grants
-           (company_id, division_id, capability_name, tier_override, rate_limit_per_hour)
-         VALUES ($1,$2,$3,$4,$5)
+           (company_id, division_id, capability_name, tier_override, rate_limit_per_hour, max_in_flight)
+         VALUES ($1,$2,$3,$4,$5,$6)
          ON CONFLICT (division_id, capability_name) DO UPDATE
            SET tier_override = EXCLUDED.tier_override,
-               rate_limit_per_hour = EXCLUDED.rate_limit_per_hour`,
-        [input.companyId, divisionId, grant.capability, tier, grant.rateLimitPerHour ?? null],
+               rate_limit_per_hour = EXCLUDED.rate_limit_per_hour,
+               max_in_flight = EXCLUDED.max_in_flight`,
+        [input.companyId, divisionId, grant.capability, tier, grant.rateLimitPerHour ?? null, grant.maxInFlight ?? null],
       );
     }
 

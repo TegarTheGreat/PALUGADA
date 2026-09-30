@@ -3689,6 +3689,12 @@ export class OwnerApi {
               tierOverride: body.tierOverride === null
                 ? null
                 : wholeNumber(body.tierOverride, 'tierOverride'),
+              // F5.7: calls in flight at once. Left out keeps it; 0 or null lifts it.
+              ...(body.maxInFlight === undefined ? {} : {
+                maxInFlight: body.maxInFlight === null || body.maxInFlight === 0
+                  ? null
+                  : wholeNumber(body.maxInFlight, 'maxInFlight'),
+              }),
             }) as Extract<StructuralChange, { kind: 'change_grant' | 'revoke_grant' }>;
           await applyGrantChange(params.companyId!, change, { ownerApproved: true });
           return { ok: true };
@@ -5323,7 +5329,7 @@ function statusFor(code: string): number {
   if (code === 'mfa.locked_out') return 429;
   if (code.startsWith('mfa.')) return 401;
   if (code === 'approval.channel_forbidden' || code === 'policy.denied') return 403;
-  if (code === 'capability.rate_limited' || code === 'hook.rate_limited') return 429;
+  if (code === 'capability.rate_limited' || code === 'capability.busy' || code === 'hook.rate_limited') return 429;
   if (code === 'hook.unknown') return 404;
   if (code === 'hook.refused') return 401;
   if (code === 'hook.unsupported') return 415;

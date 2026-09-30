@@ -244,7 +244,7 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     { division: 'build', capability: 'uptime.check' },
     { division: 'build', capability: 'dns.read' },
     { division: 'build', capability: 'dns.update' },
-    { division: 'build', capability: 'deploy.production', rateLimitPerHour: 4 },
+    { division: 'build', capability: 'deploy.production', rateLimitPerHour: 4, maxInFlight: 1 },
 
     // Growth speaks in public. Every tier 2 grant here is rate limited: the
     // damage from these is volume, not any single call.

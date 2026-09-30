@@ -328,7 +328,13 @@ All three are on **Team**, **Divisions & roles**.
 To grant a capability, open the division and use **Change a grant**: the
 **Capability** name and its **Tier**, then **Apply** with a code. The tier
 may be the catalogue's or stricter; a looser one is refused. Leaving
-**Tier** blank revokes the grant.
+**Tier** blank revokes the grant. **Calls at once, at most** says how many
+calls to it the division may have under way at the same moment, across
+every worker -- one for production deploys, or for a vendor that refuses a
+second request while the first runs. Blank keeps what it was, and 0 takes
+the limit away. A call that finds every place taken waits up to half a
+minute; past that its task is parked and picked up again, spending no
+attempt.
 
 **Team**, **Projects** lists every project with what it is for, how much
 work is under way and done in it, and what it has cost. **Edit** renames it

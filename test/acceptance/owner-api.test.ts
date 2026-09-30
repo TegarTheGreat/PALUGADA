@@ -2346,6 +2346,35 @@ test('the owner can change a grant and a role, with their device (F2.9, F3.9)', 
     });
     assert.equal(tightened.status, 200, JSON.stringify(tightened.body));
 
+    // F5.7: how many calls to it the division may have in flight at once.
+    // Left out, it stays as it is; 0 takes the limit away.
+    const grantOf = async () => ((await call(owner.url, 'GET', `/api/companies/${fixture.companyId}/structure`, { token }))
+      .body.divisions as Array<{ id: string; grants: Array<{ capability: string; tier: number | null; maxInFlight: number | null }> }>)
+      .find((division) => division.id === fixture.divisionId)!.grants.find((grant) => grant.capability === 'dns.update');
+    const limited = await call(owner.url, 'POST', grantPath, {
+      token,
+      body: { divisionId: fixture.divisionId, capabilityName: 'dns.update', tierOverride: 2, maxInFlight: 2, proof: { totp: owner.code() } },
+    });
+    assert.equal(limited.status, 200, JSON.stringify(limited.body));
+    assert.deepEqual(await grantOf(), { capability: 'dns.update', tier: 2, maxInFlight: 2 });
+    const kept = await call(owner.url, 'POST', grantPath, {
+      token,
+      body: { divisionId: fixture.divisionId, capabilityName: 'dns.update', tierOverride: 2, proof: { totp: owner.code() } },
+    });
+    assert.equal(kept.status, 200, JSON.stringify(kept.body));
+    assert.equal((await grantOf())!.maxInFlight, 2, 'a change that does not name it leaves the limit alone');
+    const nonsense = await call(owner.url, 'POST', grantPath, {
+      token,
+      body: { divisionId: fixture.divisionId, capabilityName: 'dns.update', tierOverride: 2, maxInFlight: 1.5, proof: { totp: owner.code() } },
+    });
+    assert.equal(nonsense.status, 400, JSON.stringify(nonsense.body));
+    const lifted = await call(owner.url, 'POST', grantPath, {
+      token,
+      body: { divisionId: fixture.divisionId, capabilityName: 'dns.update', tierOverride: 2, maxInFlight: 0, proof: { totp: owner.code() } },
+    });
+    assert.equal(lifted.status, 200, JSON.stringify(lifted.body));
+    assert.equal((await grantOf())!.maxInFlight, null);
+
     // F8.3 still holds through this surface: a grant may tighten and never
     // loosen, and the database is what says so.
     const loosened = await call(owner.url, 'POST', grantPath, {

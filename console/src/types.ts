@@ -149,7 +149,7 @@ export interface Division {
   escalationRole: string | null;
   escalateAfterMinutes: number | null;
   openTasks: number;
-  grants: Array<{ capability: string; tier: number | null }>;
+  grants: Array<{ capability: string; tier: number | null; maxInFlight: number | null }>;
 }
 
 export interface Role {

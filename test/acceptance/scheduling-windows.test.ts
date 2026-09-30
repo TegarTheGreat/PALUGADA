@@ -297,6 +297,356 @@ test('cron expressions are evaluated in the schedule zone', () => {
 });
 
 // ---------------------------------------------------------------------------
+// F9.1, F9.2 -- daylight saving changes
+//
+// Every instant below is fixed, so none of this depends on the day it runs.
+// The changes used, all in 2026:
+//
+//   America/New_York     forward 03-08 07:00Z (02:00 EST -> 03:00 EDT)
+//                        back    11-01 06:00Z (02:00 EDT -> 01:00 EST)
+//   Europe/London        forward 03-29 01:00Z, back 10-25 01:00Z
+//   Australia/Sydney     back    04-04 16:00Z (03:00 -> 02:00 on 04-05)
+//                        forward 10-03 16:00Z (02:00 -> 03:00 on 10-04)
+//   America/Santiago     back    04-05 03:00Z (00:00 -> 23:00 on 04-04)
+//                        forward 09-06 04:00Z (00:00 -> 01:00 on 09-06)
+//   Australia/Lord_Howe  back    04-04 15:00Z (02:00 -> 01:30 on 04-05)
+//                        forward 10-03 15:30Z (02:00 -> 02:30 on 10-04)
+//   Australia/Adelaide   forward 10-03 16:30Z (02:00 -> 03:00 on 10-04)
+// ---------------------------------------------------------------------------
+
+const NEW_YORK = 'America/New_York';
+const LORD_HOWE = 'Australia/Lord_Howe';
+
+/** A schedule's runs from `from`, each found from the one before, as the scheduler finds them. */
+function runsFrom(cron: string, zone: string, from: string, count: number): string[] {
+  const runs: string[] = [];
+  let after = new Date(from);
+  for (let index = 0; index < count; index += 1) {
+    after = nextOccurrence(cron, zone, after);
+    runs.push(after.toISOString());
+  }
+  return runs;
+}
+
+const iso = (instant: string) => new Date(instant).toISOString();
+
+test('a daily time in the hour the clock repeats runs once, on its first pass (F9.1)', () => {
+  // [cron, zone, the day before, the first pass, inside the second pass, the next day]
+  const cases = [
+    ['30 1 * * *', NEW_YORK, '2026-10-31T12:00Z', '2026-11-01T05:30Z', '2026-11-01T06:05Z', '2026-11-02T06:30Z'],
+    ['30 1 * * *', 'Europe/London', '2026-10-24T12:00Z', '2026-10-25T00:30Z', '2026-10-25T01:05Z', '2026-10-26T01:30Z'],
+    ['30 2 * * *', 'Australia/Sydney', '2026-04-04T00:00Z', '2026-04-04T15:30Z', '2026-04-04T16:05Z', '2026-04-05T16:30Z'],
+    ['30 23 * * *', 'America/Santiago', '2026-04-04T12:00Z', '2026-04-05T02:30Z', '2026-04-05T03:05Z', '2026-04-06T03:30Z'],
+    // Lord Howe goes back half an hour, so only 01:30 to 02:00 repeats.
+    ['45 1 * * *', LORD_HOWE, '2026-04-04T00:00Z', '2026-04-04T14:45Z', '2026-04-04T15:05Z', '2026-04-05T15:15Z'],
+  ] as const;
+  for (const [cron, zone, dayBefore, firstPass, secondPass, nextDay] of cases) {
+    assert.deepEqual(runsFrom(cron, zone, dayBefore, 2), [iso(firstPass), iso(nextDay)], zone);
+    // Asked from inside the second pass -- a pass that fired the first one
+    // late, a schedule saved then -- the answer is the next day. It was the
+    // same wall-clock time again, and the job ran twice that night.
+    assert.equal(nextOccurrence(cron, zone, new Date(secondPass)).toISOString(), iso(nextDay), zone);
+  }
+  for (const from of ['2026-11-01T05:30:00Z', '2026-11-01T06:00:00Z', '2026-11-01T06:29:59Z']) {
+    assert.equal(nextOccurrence('30 1 * * *', NEW_YORK, new Date(from)).toISOString(), iso('2026-11-02T06:30Z'), from);
+  }
+});
+
+test('a daily time in the hour the clock skips runs once, when the clock jumps (F9.1)', () => {
+  // [cron, zone, the day before, the jump, the next day]
+  const cases = [
+    ['30 2 * * *', NEW_YORK, '2026-03-07T12:00Z', '2026-03-08T07:00Z', '2026-03-09T06:30Z'],
+    ['30 1 * * *', 'Europe/London', '2026-03-28T12:00Z', '2026-03-29T01:00Z', '2026-03-30T00:30Z'],
+    ['30 2 * * *', 'Australia/Sydney', '2026-10-03T00:00Z', '2026-10-03T16:00Z', '2026-10-04T15:30Z'],
+    // Santiago skips the first hour of the day, which cron-parser dropped
+    // even when asked days ahead.
+    ['30 0 * * *', 'America/Santiago', '2026-09-05T12:00Z', '2026-09-06T04:00Z', '2026-09-07T03:30Z'],
+    ['15 2 * * *', LORD_HOWE, '2026-10-03T00:00Z', '2026-10-03T15:30Z', '2026-10-04T15:15Z'],
+  ] as const;
+  for (const [cron, zone, dayBefore, jump, nextDay] of cases) {
+    assert.deepEqual(runsFrom(cron, zone, dayBefore, 2), [iso(jump), iso(nextDay)], zone);
+  }
+  // Asked a minute before the jump it is still that day's run; asked at the
+  // jump it has happened.
+  assert.equal(nextOccurrence('30 2 * * *', NEW_YORK, new Date('2026-03-08T06:59:00Z')).toISOString(), iso('2026-03-08T07:00Z'));
+  assert.equal(nextOccurrence('30 2 * * *', NEW_YORK, new Date('2026-03-08T07:00:00Z')).toISOString(), iso('2026-03-09T06:30Z'));
+
+  // Every time the clock skips is one run at the jump, and the day's runs
+  // keep their order: 02:15 and 02:45 run at 03:00, before 03:15.
+  assert.deepEqual(runsFrom('0,30 2 * * *', NEW_YORK, '2026-03-08T06:30Z', 2), [iso('2026-03-08T07:00Z'), iso('2026-03-09T06:00Z')]);
+  assert.deepEqual(
+    runsFrom('15,45 2,3 * * *', NEW_YORK, '2026-03-08T06:30Z', 4),
+    [iso('2026-03-08T07:00Z'), iso('2026-03-08T07:15Z'), iso('2026-03-08T07:45Z'), iso('2026-03-09T06:15Z')],
+  );
+});
+
+test('a schedule that runs every hour keeps to real time through both changes (F9.1)', () => {
+  // 01:00 is shown twice on the night New York goes back, an hour apart,
+  // and an hourly job runs at both: every hour is every hour.
+  const hourly = ['2026-11-01T05:00Z', '2026-11-01T06:00Z', '2026-11-01T07:00Z', '2026-11-01T08:00Z'].map(iso);
+  assert.deepEqual(runsFrom('0 * * * *', NEW_YORK, '2026-11-01T04:30Z', 4), hourly);
+  assert.deepEqual(runsFrom('0 0-23 * * *', NEW_YORK, '2026-11-01T04:30Z', 4), hourly, 'a range of all 24 hours is every hour');
+  assert.deepEqual(runsFrom('0 */1 * * *', NEW_YORK, '2026-11-01T04:30Z', 4), hourly, 'so is a step of one');
+  assert.equal(nextOccurrence('0 * * * *', NEW_YORK, new Date('2026-11-01T05:30Z')).toISOString(), iso('2026-11-01T06:00Z'));
+  assert.deepEqual(
+    runsFrom('*/20 * * * *', NEW_YORK, '2026-11-01T05:30Z', 5),
+    ['2026-11-01T05:40Z', '2026-11-01T06:00Z', '2026-11-01T06:20Z', '2026-11-01T06:40Z', '2026-11-01T07:00Z'].map(iso),
+  );
+  // Going forward, 01:30 EST and 03:30 EDT are an hour apart.
+  assert.deepEqual(runsFrom('30 * * * *', NEW_YORK, '2026-03-08T06:00Z', 2), [iso('2026-03-08T06:30Z'), iso('2026-03-08T07:30Z')]);
+  // Lord Howe repeats half an hour: every quarter of an hour is still fifteen
+  // minutes apart through it.
+  assert.deepEqual(
+    runsFrom('*/15 * * * *', LORD_HOWE, '2026-04-04T14:40Z', 4),
+    ['2026-04-04T14:45Z', '2026-04-04T15:00Z', '2026-04-04T15:15Z', '2026-04-04T15:30Z'].map(iso),
+  );
+});
+
+test('a zone without daylight saving is unaffected (F9.1)', () => {
+  assert.deepEqual(
+    runsFrom('30 1 * * *', JAKARTA, '2026-11-01T00:00Z', 3),
+    ['2026-11-01T18:30Z', '2026-11-02T18:30Z', '2026-11-03T18:30Z'].map(iso),
+  );
+  assert.deepEqual(
+    runsFrom('30 2 * * *', JAKARTA, '2026-03-07T12:00Z', 2),
+    ['2026-03-07T19:30Z', '2026-03-08T19:30Z'].map(iso),
+  );
+});
+
+/**
+ * The defect in one sentence: the next run depended on where the search
+ * began. cron-parser, asked from inside a repeated hour, found a time it had
+ * already given; asked from just after a jump, lost the day. So for every
+ * change above and a spread of schedules, the next run asked from anywhere
+ * in the three hours either side of the change, and from a second either
+ * side of every run, is the run the schedule's own sequence says; and a
+ * schedule with fixed hours never runs twice at one wall-clock reading.
+ */
+test('where the search starts never changes the next run (F9.1)', () => {
+  const changes: Array<[string, string]> = [
+    [NEW_YORK, '2026-03-08T07:00Z'], [NEW_YORK, '2026-11-01T06:00Z'],
+    ['Europe/London', '2026-03-29T01:00Z'], ['Europe/London', '2026-10-25T01:00Z'],
+    ['Australia/Sydney', '2026-04-04T16:00Z'], ['Australia/Sydney', '2026-10-03T16:00Z'],
+    ['America/Santiago', '2026-04-05T03:00Z'], ['America/Santiago', '2026-09-06T04:00Z'],
+    [LORD_HOWE, '2026-04-04T15:00Z'], [LORD_HOWE, '2026-10-03T15:30Z'],
+    [JAKARTA, '2026-11-01T00:00Z'],
+  ];
+  const crons = [
+    '30 1 * * *', '30 2 * * *', '15 2 * * *', '45 1 * * *', '30 23 * * *', '30 0 * * *',
+    '15,45 2,3 * * *', '0 * * * *',
+  ];
+  const wallClock = (zone: string) => new Intl.DateTimeFormat('en-GB', {
+    timeZone: zone, dateStyle: 'short', timeStyle: 'medium', hourCycle: 'h23',
+  });
+  for (const [zone, change] of changes) {
+    const shown = wallClock(zone);
+    const middle = new Date(change).getTime();
+    for (const cron of crons) {
+      const runs: number[] = [];
+      for (let after = new Date(middle - 86_400_000); after.getTime() < middle + 86_400_000;) {
+        after = nextOccurrence(cron, zone, after);
+        runs.push(after.getTime());
+      }
+      if (!cron.split(' ')[1]!.includes('*')) {
+        const readings = runs.map((run) => shown.format(run));
+        assert.equal(new Set(readings).size, readings.length, `${cron} in ${zone} ran twice at one reading: ${readings.join(', ')}`);
+      }
+      // Every twenty minutes near the change, five past so that some fall
+      // just inside a repeated stretch, and a second either side of the
+      // change and of each run there.
+      const near = (instant: number) => Math.abs(instant - middle) <= 3 * 3_600_000;
+      const starts: number[] = [middle - 1000, middle, middle + 1000];
+      for (let start = middle - 3 * 3_600_000 + 300_000; start <= middle + 3 * 3_600_000; start += 1_200_000) starts.push(start);
+      for (const run of runs.filter(near)) starts.push(run - 1000, run, run + 1000);
+      for (const start of starts) {
+        const expected = runs.find((run) => run > start);
+        if (expected === undefined) continue;
+        assert.equal(
+          nextOccurrence(cron, zone, new Date(start)).toISOString(),
+          new Date(expected).toISOString(),
+          `${cron} in ${zone} asked from ${new Date(start).toISOString()}`,
+        );
+      }
+    }
+  }
+});
+
+test('a window opens on its own zone\'s hour where that is not an hour of UTC (F9.2)', () => {
+  // The next opening was looked for on the hours of UTC, which in a zone
+  // half an hour or three quarters off UTC are never the hour a window opens:
+  // a window from 09:00 in Kolkata opened at 09:30.
+  const mondayMidnightUtc = new Date('2026-09-07T00:00:00Z');
+  const kolkata = { timezone: 'Asia/Kolkata', startHour: 9, endHour: 17, daysOfWeek: [1, 2, 3, 4, 5] };
+  assert.equal(nextOpening(kolkata, mondayMidnightUtc)?.toISOString(), iso('2026-09-07T03:30Z'));
+  const kathmandu = { timezone: 'Asia/Kathmandu', startHour: 9, endHour: 17, daysOfWeek: [1, 2, 3, 4, 5] };
+  assert.equal(nextOpening(kathmandu, mondayMidnightUtc)?.toISOString(), iso('2026-09-07T03:15Z'));
+  // Lord Howe is half an hour off in winter only.
+  const lordHowe = { timezone: LORD_HOWE, startHour: 2, endHour: 5, daysOfWeek: [0, 1, 2, 3, 4, 5, 6] };
+  assert.equal(nextOpening(lordHowe, new Date('2026-07-01T12:00:00Z'))?.toISOString(), iso('2026-07-01T15:30Z'));
+});
+
+test('a window on the night the clock goes back is open while the clock shows its hours (F9.2)', () => {
+  const small = { timezone: NEW_YORK, startHour: 1, endHour: 3, daysOfWeek: [0, 1, 2, 3, 4, 5, 6] };
+  assert.equal(nextOpening(small, new Date('2026-11-01T04:10:00Z'))?.toISOString(), iso('2026-11-01T05:00Z'));
+  // 01:30 EDT, 01:30 EST, 02:30 EST: the clock shows 01:00 to 03:00 for
+  // three hours that night, and the window is open for all three.
+  for (const open of ['2026-11-01T05:30Z', '2026-11-01T06:30Z', '2026-11-01T07:30Z', '2026-11-01T07:59Z']) {
+    assert.equal(isWithin(small, new Date(open)), true, open);
+  }
+  assert.equal(isWithin(small, new Date('2026-11-01T08:00:00Z')), false, 'shut at 03:00 EST');
+  assert.equal(nextOpening(small, new Date('2026-11-01T08:00:00Z'))?.toISOString(), iso('2026-11-02T06:00Z'));
+});
+
+test('a window whose start the clock skips opens when the clock jumps (F9.2)', () => {
+  const early = { timezone: NEW_YORK, startHour: 2, endHour: 5, daysOfWeek: [0, 1, 2, 3, 4, 5, 6] };
+  assert.equal(isWithin(early, new Date('2026-03-08T06:59:00Z')), false, '01:59 EST');
+  assert.equal(nextOpening(early, new Date('2026-03-08T06:10:00Z'))?.toISOString(), iso('2026-03-08T07:00Z'));
+  assert.equal(isWithin(early, new Date('2026-03-08T08:59:00Z')), true, '04:59 EDT');
+  assert.equal(isWithin(early, new Date('2026-03-08T09:00:00Z')), false, '05:00 EDT');
+
+  // Lord Howe jumps half an hour, from 02:00 to 02:30, which is when a
+  // window from 02:00 opens; looking on the hours of UTC found 03:00.
+  const lordHowe = { timezone: LORD_HOWE, startHour: 2, endHour: 5, daysOfWeek: [0, 1, 2, 3, 4, 5, 6] };
+  assert.equal(nextOpening(lordHowe, new Date('2026-10-03T14:00:00Z'))?.toISOString(), iso('2026-10-03T15:30Z'));
+
+  // A window made only of the hour the clock skips is not open that day:
+  // the clock never shows one of its hours.
+  const skipped = { timezone: NEW_YORK, startHour: 2, endHour: 3, daysOfWeek: [0, 1, 2, 3, 4, 5, 6] };
+  assert.equal(nextOpening(skipped, new Date('2026-03-08T06:10:00Z'))?.toISOString(), iso('2026-03-09T06:00Z'));
+});
+
+test('a window that wraps midnight holds across a change (F9.2)', () => {
+  // Saturday nights in London: the night the clock goes back is an hour
+  // longer, the night it goes forward an hour shorter, and both belong to the
+  // Saturday that opened them.
+  const saturdayNights = { timezone: 'Europe/London', startHour: 22, endHour: 6, daysOfWeek: [6] };
+  assert.equal(nextOpening(saturdayNights, new Date('2026-10-24T12:00:00Z'))?.toISOString(), iso('2026-10-24T21:00Z'));
+  for (const open of ['2026-10-25T00:30Z', '2026-10-25T01:30Z', '2026-10-25T05:59Z']) {
+    assert.equal(isWithin(saturdayNights, new Date(open)), true, open);
+  }
+  assert.equal(isWithin(saturdayNights, new Date('2026-10-25T06:00:00Z')), false, '06:00 GMT');
+  assert.equal(isWithin(saturdayNights, new Date('2026-03-29T04:59:00Z')), true, '05:59 BST');
+  assert.equal(isWithin(saturdayNights, new Date('2026-03-29T05:00:00Z')), false, '06:00 BST');
+
+  // Adelaide is half an hour off UTC and goes forward in the small hours of
+  // a Sunday: the window opens at 22:00 ACST, not half an hour later, and
+  // stays open through the jump to 06:00 ACDT.
+  const adelaide = { timezone: 'Australia/Adelaide', startHour: 22, endHour: 6, daysOfWeek: [6] };
+  assert.equal(nextOpening(adelaide, new Date('2026-10-03T12:00:00Z'))?.toISOString(), iso('2026-10-03T12:30Z'));
+  assert.equal(isWithin(adelaide, new Date('2026-10-03T16:30:00Z')), true, '03:00 ACDT');
+  assert.equal(isWithin(adelaide, new Date('2026-10-03T19:29:00Z')), true, '05:59 ACDT');
+  assert.equal(isWithin(adelaide, new Date('2026-10-03T19:30:00Z')), false, '06:00 ACDT');
+});
+
+async function dailySchedule(fixture: Fixture, slug: string, cronExpression: string, savedAt: string) {
+  return upsertSchedule(
+    {
+      companyId: fixture.companyId,
+      projectId: fixture.projectId,
+      divisionId: fixture.divisionId,
+      roleId: fixture.roleId,
+      budgetAccountId: fixture.budgetAccountId,
+      goalId: fixture.goalId,
+      slug,
+      cronExpression,
+      timezone: NEW_YORK,
+      input: { kind: slug },
+      reserveTokens: 100,
+    },
+    new Date(savedAt),
+  );
+}
+
+async function scheduleState(fixture: Fixture, scheduleId: string) {
+  return withTenant(fixture.companyId, async (tx) => {
+    const { rows: [schedule] } = await tx.query<{ next_run_at: Date }>(
+      'SELECT next_run_at FROM schedules WHERE id = $1', [scheduleId],
+    );
+    const { rows: [tasks] } = await tx.query<{ count: string }>(
+      'SELECT count(*)::text AS count FROM tasks WHERE schedule_id = $1', [scheduleId],
+    );
+    const { rows: fired } = await tx.query<{ payload: { occurrence: string; nextRunAt: string; skippedOccurrences: number } }>(
+      `SELECT payload FROM events
+        WHERE type = 'schedule.fired' AND payload->>'scheduleId' = $1
+        ORDER BY occurred_at`,
+      [scheduleId],
+    );
+    return {
+      nextRunAt: schedule!.next_run_at.toISOString(),
+      tasks: Number(tasks!.count),
+      fired: fired.map((row) => row.payload),
+    };
+  });
+}
+
+test('a daily run in the hour the clock repeats fires once, even from a pass that runs late (F9.1)', async () => {
+  const fixture = await createCompany('schedule-falls-back');
+  const scheduleId = await dailySchedule(fixture, 'nightly-ledger', '30 1 * * *', '2026-10-31T12:00:00Z');
+  assert.equal((await scheduleState(fixture, scheduleId)).nextRunAt, iso('2026-11-01T05:30Z'), '01:30 EDT');
+
+  // The pass that fires 01:30 EDT runs at 01:05 EST, inside the hour the
+  // clock repeats. It worked out the next run from there, found 01:30 EST,
+  // and the passes at 01:30 EST fired the same night's work a second time.
+  const fired = await runDueSchedules(new Date('2026-11-01T06:05:00Z'));
+  assert.equal(fired.length, 1);
+  assert.equal(fired[0]!.occurrence.toISOString(), iso('2026-11-01T05:30Z'));
+  for (const pass of ['2026-11-01T06:30:00Z', '2026-11-01T06:31:00Z']) {
+    assert.equal((await runDueSchedules(new Date(pass))).length, 0, pass);
+  }
+  const state = await scheduleState(fixture, scheduleId);
+  assert.equal(state.tasks, 1, 'one task for the night');
+  assert.equal(state.nextRunAt, iso('2026-11-02T06:30Z'));
+  assert.deepEqual(state.fired, [{
+    ...state.fired[0]!, occurrence: iso('2026-11-01T05:30Z'), nextRunAt: iso('2026-11-02T06:30Z'), skippedOccurrences: 0,
+  }]);
+
+  // Saved again inside the repeated hour, it does not owe 01:30 again either.
+  await dailySchedule(fixture, 'nightly-ledger', '30 1 * * *', '2026-11-01T06:10:00Z');
+  assert.equal((await scheduleState(fixture, scheduleId)).nextRunAt, iso('2026-11-02T06:30Z'));
+});
+
+test('a daily run in the hour the clock skips fires once, when the clock jumps (F9.1)', async () => {
+  const fixture = await createCompany('schedule-springs-forward');
+  const scheduleId = await dailySchedule(fixture, 'nightly-ledger', '30 2 * * *', '2026-03-07T12:00:00Z');
+  assert.equal((await scheduleState(fixture, scheduleId)).nextRunAt, iso('2026-03-08T07:00Z'), '03:00 EDT, the jump');
+
+  assert.equal((await runDueSchedules(new Date('2026-03-08T06:59:00Z'))).length, 0, '01:59 EST');
+  assert.equal((await runDueSchedules(new Date('2026-03-08T07:00:00Z'))).length, 1, '03:00 EDT');
+  for (const pass of ['2026-03-08T07:30:00Z', '2026-03-08T07:31:00Z']) {
+    assert.equal((await runDueSchedules(new Date(pass))).length, 0, pass);
+  }
+  const state = await scheduleState(fixture, scheduleId);
+  assert.equal(state.tasks, 1, 'one task for the day');
+  assert.equal(state.nextRunAt, iso('2026-03-09T06:30Z'));
+});
+
+test('a pass that runs late across a change counts the run it folded in (F9.1)', async () => {
+  // Each schedule's last run was the day before a change, and the pass that
+  // fires it runs a day late, after that day's run. The one catch-up task is
+  // made and that day's run is counted as skipped. Across the jump, cron-
+  // parser put that day's run half an hour after the late pass and then lost
+  // it: neither run nor counted.
+  const fixture = await createCompany('schedule-late-pass');
+  const forward = await dailySchedule(fixture, 'before-forward', '30 2 * * *', '2026-03-06T12:00:00Z');
+  const back = await dailySchedule(fixture, 'before-back', '30 1 * * *', '2026-10-30T12:00:00Z');
+
+  assert.equal((await runDueSchedules(new Date('2026-03-08T07:10:00Z'))).length, 1);
+  const forwardState = await scheduleState(fixture, forward);
+  assert.equal(forwardState.tasks, 1);
+  assert.equal(forwardState.fired[0]!.occurrence, iso('2026-03-07T07:30Z'));
+  assert.equal(forwardState.fired[0]!.skippedOccurrences, 1, 'the run at the jump, 07:00Z, was folded in');
+  assert.equal(forwardState.nextRunAt, iso('2026-03-09T06:30Z'));
+
+  const late = await runDueSchedules(new Date('2026-11-01T06:05:00Z'));
+  assert.equal(late.filter((one) => one.scheduleId === back).length, 1);
+  const backState = await scheduleState(fixture, back);
+  assert.equal(backState.tasks, 1);
+  assert.equal(backState.fired[0]!.occurrence, iso('2026-10-31T05:30Z'));
+  assert.equal(backState.fired[0]!.skippedOccurrences, 1, '01:30 EDT on 11-01 was folded in, and once');
+  assert.equal(backState.nextRunAt, iso('2026-11-02T06:30Z'));
+});
+
+// ---------------------------------------------------------------------------
 // F9.5 -- non-urgent read-only work waits for cheap hours
 // ---------------------------------------------------------------------------
 

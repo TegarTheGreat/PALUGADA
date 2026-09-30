@@ -49,6 +49,11 @@ The first version. What it holds, in the order an owner meets it.
 - Done criteria whose evidence may cite a tool call by its step: the
   platform checks it against the journal and shows each criterion as
   verified or only claimed (STATUS 2.56).
+- Schedules right on the nights the clock changes: a daily job runs once
+  when the clock goes back and once, at the jump, when it goes forward; an
+  hourly one keeps to real time; and a work window opens on its own zone's
+  hour where that is not an hour of UTC, such as in Kolkata or Adelaide
+  (STATUS 2.60).
 
 ### The owner
 

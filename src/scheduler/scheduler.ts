@@ -26,7 +26,7 @@ import { createRootTask, type TaskRow } from '../engine/tasks.ts';
 import * as budget from '../engine/budget.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { raiseEscalationWithin } from '../inbox/inbox.ts';
-import { assertTimeZone } from './windows.ts';
+import { assertTimeZone, instantsShowing, wallClockAt } from './windows.ts';
 import { buildWeekFacts } from '../reporting/week.ts';
 
 const { parseExpression } = cronParser;
@@ -77,15 +77,87 @@ export interface ScheduleInput {
  *
  * Evaluated in the schedule's own zone rather than UTC, so "every weekday at
  * 08:00" means the company's morning and keeps meaning it across daylight
- * saving changes.
+ * saving changes. What it means on the nights the clock changes is Vixie
+ * cron's rule:
+ *
+ * - A schedule with fixed hours runs once for each time the clock shows it.
+ *   When the clock goes back and shows 01:30 twice, it runs at the first.
+ *   When the clock goes forward past 02:30, it runs once at the instant of
+ *   the jump (03:00 in New York); every time skipped in that jump is that
+ *   one run, and the day's runs keep their order.
+ * - A schedule whose hour field is every hour (`*`, `0-23`, or a step of one)
+ *   runs by real time: every instant the clock shows one of its minutes. It runs
+ *   at both 01:00s when the clock goes back, and nothing is owed for an hour
+ *   the clock skipped, because none passed.
+ *
+ * The rule names a fixed set of instants, so the answer does not depend on
+ * where the search starts: a pass that fires 01:30 EDT late, at 01:05 EST,
+ * gets the next day, as one on time does, and the scheduler can go on
+ * asking from `now`. cron-parser does not keep to that. Asked in the zone,
+ * it gave the second 01:30 when asked from inside the repeated hour (the
+ * job ran twice), gave both 01:45s at Lord Howe's half-hour change, and lost
+ * the day's run at a jump when asked just after it -- and at Santiago's
+ * midnight jump and Lord Howe's half-hour one, even when asked days ahead.
+ * So it is asked only in UTC, where it enumerates wall-clock readings with
+ * no changes at all, and the readings are placed in the zone here
+ * (`instantsShowing`).
  */
 export function nextOccurrence(
   cronExpression: string,
   timezone: string,
   after: Date,
 ): Date {
-  const iterator = parseExpression(cronExpression, { currentDate: after, tz: timezone });
-  return iterator.next().toDate();
+  return occurrencesAfter(cronExpression, timezone, after).next().value;
+}
+
+const DAY_MS = 86_400_000;
+
+/**
+ * Every run of a schedule after `after`, in order, by the rule above.
+ *
+ * The readings come in order but their instants need not: the second pass of
+ * a repeated 01:30 is later than the first pass of 01:45. Each reading's
+ * earliest instant (or its jump) is a floor under every later reading's, so
+ * the runs found are held until the floor passes them, and then given up
+ * in order, each once.
+ */
+function* occurrencesAfter(
+  cronExpression: string,
+  timezone: string,
+  after: Date,
+): Generator<Date, never> {
+  const from = after.getTime();
+  // An instant after `from` shows an earlier reading than `from` does only
+  // when the clock goes back in between; a day ahead covers any change that
+  // could, and a second earlier keeps a reading exactly at the start.
+  const earliestReading = Math.min(
+    wallClockAt(timezone, from),
+    wallClockAt(timezone, from + DAY_MS) - DAY_MS,
+  );
+  const readings = parseExpression(cronExpression, {
+    currentDate: new Date(earliestReading - 1000),
+    tz: 'UTC',
+  });
+  const everyHour = readings.fields.hour.length === 24;
+
+  const held: number[] = [];
+  let last = from;
+  for (;;) {
+    const reading = readings.next().getTime();
+    const { instants, jump } = instantsShowing(timezone, reading);
+    const floor = instants[0] ?? jump!;
+    for (const run of everyHour ? instants : [floor]) {
+      if (run > last) held.push(run);
+    }
+    held.sort((a, b) => a - b);
+    while (held.length > 0 && held[0]! <= floor) {
+      const run = held.shift()!;
+      if (run > last) {
+        last = run;
+        yield new Date(run);
+      }
+    }
+  }
 }
 
 /** Validates a cron expression, so a typo fails on save rather than at 03:00. */
@@ -191,10 +263,13 @@ export interface FiredOccurrence {
 }
 
 /**
- * Counts the occurrences between two instants, up to a cap.
+ * Counts the occurrences after `from` up to and including `to`, up to a cap.
  *
  * Used only to report how large a backlog was; the cap keeps a schedule that
- * has been down for a month from spending real time counting minutes.
+ * has been down for a month from spending real time counting minutes. The
+ * runs counted are the ones `nextOccurrence` gives, by the same rule, so a
+ * run the clock's change folded into another is counted once and a run at
+ * a jump is not lost between the two.
  */
 function countOccurrences(
   cronExpression: string,
@@ -203,11 +278,9 @@ function countOccurrences(
   to: Date,
   cap = 1000,
 ): number {
-  const iterator = parseExpression(cronExpression, { currentDate: from, tz: timezone });
   let count = 0;
-  while (count < cap) {
-    const next = iterator.next().toDate();
-    if (next > to) break;
+  for (const run of occurrencesAfter(cronExpression, timezone, from)) {
+    if (run > to || count === cap) break;
     count += 1;
   }
   return count;

@@ -469,6 +469,15 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     factor: 'never',
   },
   {
+    // "Run the weekly review now" is something an owner says to their CEO
+    // from a phone, like giving work: it spends from the schedule's own
+    // account under its role's grants, and the owner still applies the card.
+    pattern: '/api/companies/:companyId/schedules/:scheduleId/run',
+    what: 'Run a schedule once now, as its next occurrence would, without moving its next run; one that is off may be tried this way and stays off. '
+      + 'Refused while a task it made has not ended. The schedules are in GET /api/companies/:companyId/schedules.',
+    factor: 'never', chat: true,
+  },
+  {
     pattern: '/api/companies/:companyId/triggers',
     what: 'Let another service start work by posting to an address.',
     fields: {

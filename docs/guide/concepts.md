@@ -477,7 +477,9 @@ lift its quarantine.
 
 - A *schedule* starts work for a role on a cron expression, in the
   schedule's own time zone, with a priority. A schedule whose last five runs
-  produced the same result asks you whether it is still worth running.
+  produced the same result asks you whether it is still worth running. You
+  can also run one now, once, without moving its next occurrence; not while
+  a task it made is still under way.
 - A *heartbeat* wakes a role every so many minutes to look for work.
 - A *handoff* starts a role's work when another role finishes, with your
   brief and what the first one produced.

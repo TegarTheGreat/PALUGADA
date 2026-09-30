@@ -141,6 +141,11 @@ export type ErrorCode =
   /** A run said a done criterion is not met, or claimed one without showing how. */
   | 'done.unmet'
   | 'deadline.exceeded'
+  /**
+   * F9.1: the owner asked a schedule to run now while a task it made has not
+   * ended. Carries that task, so the owner can open it instead.
+   */
+  | 'schedule.still_running'
   | 'company.frozen'
   | 'role.frozen'
   | 'platform.stopped'

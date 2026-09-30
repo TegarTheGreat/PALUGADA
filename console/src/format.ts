@@ -93,6 +93,7 @@ const EVENT_SENTENCES: Record<string, string> = {
   'budget.period_exhausted': N('Monthly ceiling reached'),
   'schedule.fired': N('Schedule fired'),
   'schedule.fire_failed': N('Schedule could not fire'),
+  'schedule.run_by_owner': N('You ran the schedule now'),
   'role.frozen': N('Role frozen'),
   'role.unfrozen': N('Role resumed'),
   'wake.queued': N('Role woken'),

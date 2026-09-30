@@ -14,10 +14,10 @@ import { notifications } from '@mantine/notifications';
 import {
   IconArrowsRight, IconCalendarTime, IconChartBar, IconCoin, IconCrown, IconFlag, IconFlask, IconHammer, IconHeadset, IconMessageCircle, IconPlus,
   IconRoute, IconLicense, IconSettings, IconShieldCheck, IconSparkles, IconTarget, IconTrendingUp, IconUserCircle, IconUsersGroup, IconWebhook, IconFolders,
-  IconKey, IconExternalLink, IconLogin,
+  IconKey, IconExternalLink, IconLogin, IconPlayerPlay,
 } from '@tabler/icons-react';
 import { useMediaQuery } from '@mantine/hooks';
-import { api, explain } from '../api.ts';
+import { api, ApiError, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { useLoad } from '../hooks.ts';
 import type { Division, Goal, PersonaPreset, PolicyRow, Role, Schedule, Structure } from '../types.ts';
@@ -90,7 +90,8 @@ export function Organization({ ctx }: PageProps) {
           <Projects companyId={companyId} structure={structure} changed={view.reload} />
         </Tabs.Panel>
         <Tabs.Panel value="schedules">
-          <Schedules companyId={companyId} structure={structure} schedules={schedules} changed={view.reload} />
+          <Schedules companyId={companyId} structure={structure} schedules={schedules} changed={view.reload}
+            openTask={(taskId) => ctx.open('work', { item: taskId })} />
         </Tabs.Panel>
         <Tabs.Panel value="handoffs">
           <Handoffs companyId={companyId} structure={structure} />
@@ -1257,9 +1258,44 @@ function GoalEditor({ companyId, goal, close, changed }: { companyId: string; go
 const ZONES = ['UTC', 'Asia/Jakarta', 'Asia/Makassar', 'Asia/Jayapura', 'Asia/Singapore', 'Europe/London', 'America/New_York', 'America/Los_Angeles'];
 
 function Schedules({
-  companyId, structure, schedules, changed,
-}: { companyId: string; structure: Structure; schedules: Schedule[]; changed: () => void }) {
+  companyId, structure, schedules, changed, openTask,
+}: { companyId: string; structure: Structure; schedules: Schedule[]; changed: () => void; openTask: (taskId: string) => void }) {
   const [adding, setAdding] = useState(false);
+  // The schedule about to be run now. Every run reserves from the schedule's
+  // budget account, so the press says how much before it spends it.
+  const [running, setRunning] = useState<Schedule | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const runNow = async (schedule: Schedule) => {
+    setBusy(true);
+    try {
+      const answer: { task: { id: string } } = await api('POST', `/api/companies/${companyId}/schedules/${schedule.id}/run`);
+      notifications.show({
+        color: 'teal',
+        title: t('{slug} is running', { slug: schedule.slug }),
+        message: <Anchor size="sm" onClick={() => openTask(answer.task.id)}>{t('Open the task')}</Anchor>,
+      });
+      changed();
+    } catch (failure) {
+      // Its last run has not ended: the refusal names that run, so it is one press away.
+      const live = failure instanceof ApiError && failure.code === 'schedule.still_running'
+        && typeof failure.details.taskId === 'string' ? failure.details.taskId : null;
+      notifications.show({
+        color: live ? 'orange' : 'red',
+        title: t('Run now'),
+        message: live ? (
+          <Stack gap={4}>
+            <Text size="sm">{explain(failure)}</Text>
+            <Anchor size="sm" onClick={() => openTask(live)}>{t('Open the run in progress')}</Anchor>
+          </Stack>
+        ) : explain(failure),
+      });
+    } finally {
+      setBusy(false);
+      setRunning(null);
+    }
+  };
+
   return (
     <Section
       title={t('Schedules')}
@@ -1271,7 +1307,7 @@ function Schedules({
         <Table.ScrollContainer minWidth={640}>
           <Table verticalSpacing="sm" highlightOnHover>
             <Table.Thead>
-              <Table.Tr><Table.Th>{t('Schedule')}</Table.Th><Table.Th>{t('When')}</Table.Th><Table.Th>{t('Role')}</Table.Th><Table.Th>{t('Next')}</Table.Th><Table.Th>{t('State')}</Table.Th></Table.Tr>
+              <Table.Tr><Table.Th>{t('Schedule')}</Table.Th><Table.Th>{t('When')}</Table.Th><Table.Th>{t('Role')}</Table.Th><Table.Th>{t('Next')}</Table.Th><Table.Th>{t('State')}</Table.Th><Table.Th /></Table.Tr>
             </Table.Thead>
             <Table.Tbody>
               {schedules.map((schedule) => (
@@ -1284,12 +1320,31 @@ function Schedules({
                     {schedule.failure ? <Tooltip label={schedule.failure}><Badge color="red" variant="light">{t('Cannot fire')}</Badge></Tooltip>
                       : schedule.enabled ? <Badge color="teal" variant="light">{t('On')}</Badge> : <Badge color="gray" variant="light">{t('Off')}</Badge>}
                   </Table.Td>
+                  <Table.Td ta="right">
+                    <Button size="compact-xs" variant="light" leftSection={<IconPlayerPlay size={12} />} onClick={() => setRunning(schedule)}>
+                      {t('Run now')}
+                    </Button>
+                  </Table.Td>
                 </Table.Tr>
               ))}
             </Table.Tbody>
           </Table>
         </Table.ScrollContainer>
       )}
+      <Modal opened={running !== null} onClose={() => { if (!busy) setRunning(null); }} title={t('Run {slug} now', { slug: running?.slug ?? '' })} centered>
+        {running && (
+          <Stack>
+            <Text size="sm">
+              {t('It starts now, as its next occurrence would, and reserves {tokens} tokens from its budget account. Its next run does not move.', { tokens: count(running.reserveTokens) })}
+            </Text>
+            {!running.enabled && <Text size="sm" c="dimmed">{t('It is off: this runs it once and leaves it off.')}</Text>}
+            <Group justify="flex-end">
+              <Button variant="default" disabled={busy} onClick={() => setRunning(null)}>{t('Cancel')}</Button>
+              <Button loading={busy} leftSection={<IconPlayerPlay size={16} />} onClick={() => void runNow(running)}>{t('Run it now')}</Button>
+            </Group>
+          </Stack>
+        )}
+      </Modal>
       <Modal opened={adding} onClose={() => setAdding(false)} title={t('New schedule')} centered size="lg">
         <ActionForm
           fields={[

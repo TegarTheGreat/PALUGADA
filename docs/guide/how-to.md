@@ -881,6 +881,18 @@ schedule whose last five runs said the same thing asks you whether it is
 still worth running, and one that cannot fire shows **Cannot fire** with the
 reason.
 
+To see what a schedule does without waiting for its next occurrence, press
+**Run now** on its row. The dialog says how many tokens the run reserves from
+the schedule's budget account; **Run it now** makes the same task an
+occurrence would -- the same role, project, goal, brief, priority and budget
+account, and for the weekly business review the week read from the company's
+records -- and the notification links to it. The schedule's **Next** does not
+move: the run is extra, not the next occurrence brought forward. A schedule
+that is **Off** can be run this way to try it before you turn it on, and
+stays off. Run now is refused while a task the schedule made has not ended
+(the notification links to that task), in a frozen company, and when the
+goal the schedule serves is closed.
+
 ## Let other services start work: triggers
 
 1. On **Team**, **Triggers**, press **New trigger**.

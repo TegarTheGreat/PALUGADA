@@ -64,6 +64,10 @@ The first version. What it holds, in the order an owner meets it.
   model, agent CLIs, tools, channels, services and MCP servers.
 - Export and import of a whole company, and closing one, which erases every
   row of it after a grace period the owner chooses (STATUS 2.38).
+- **Run now** on a schedule: the task its next occurrence would make, at
+  once, with that occurrence left where it was; an off schedule can be tried
+  this way and stays off, and a second press while the run is still going is
+  refused and links to it (STATUS 2.61).
 
 ### Operating it
 

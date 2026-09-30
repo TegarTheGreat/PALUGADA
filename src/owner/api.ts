@@ -127,7 +127,7 @@ import { assertValidCondition, type Condition } from '../policy/condition.ts';
 import { POLICY_EFFECTS, type PolicyEffect } from '../policy/engine.ts';
 import { setThresholds } from '../reporting/alerts.ts';
 import { pendingReviews } from '../review/review.ts';
-import { upsertSchedule } from '../scheduler/scheduler.ts';
+import { runScheduleNow, upsertSchedule } from '../scheduler/scheduler.ts';
 import {
   addEvalCase,
   approveSkillVersion,
@@ -4587,6 +4587,21 @@ export class OwnerApi {
       },
 
       {
+        // F9.1: one run of a schedule, now, so the owner can see what it does
+        // without waiting a week for its next occurrence. The task an
+        // occurrence would make, made by the owner; the schedule's next run
+        // does not move. A schedule that is off may be run, to try it before
+        // turning it on, and stays off. Refused with 409 while a task the
+        // schedule made is still live, naming it, and for a frozen company or
+        // a closed goal as any new work is. The session suffices, as it does
+        // for giving work: the task draws on the schedule's own budget
+        // account under the grants its role already has.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/schedules/:scheduleId/run',
+        handle: async ({ params }) => ({ task: await runScheduleNow(params.companyId!, params.scheduleId!) }),
+      },
+
+      {
         method: 'POST',
         pattern: '/api/companies/:companyId/alert-thresholds',
         handle: async ({ params, body }) => {
@@ -5522,6 +5537,7 @@ function statusFor(code: string): number {
   if (code === 'owner.unauthenticated') return 401;
   if (code === 'owner.throttled') return 429;
   if (code === 'owner.claimed') return 409;
+  if (code === 'schedule.still_running') return 409;
   if (code === 'mfa.locked_out') return 429;
   if (code.startsWith('mfa.')) return 401;
   if (code === 'approval.channel_forbidden' || code === 'policy.denied') return 403;

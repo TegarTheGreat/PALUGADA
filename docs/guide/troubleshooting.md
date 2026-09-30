@@ -349,6 +349,16 @@ example. The same occurrence is tried again on every pass until it can be.
 
 **Fix.** Deal with the reason the tooltip names.
 
+### **Run now** says the schedule's last run has not ended
+
+**Cause.** A task this schedule made -- by its clock or by an earlier **Run
+now** -- is still queued, running or waiting for you. A schedule runs one
+task at a time from this button, so a second press does not start the same
+work twice.
+
+**Fix.** Open the run in progress from the notification. Let it finish, or
+cancel it from its task, and press **Run now** again.
+
 ## Models and agent CLIs
 
 ### A role on an agent CLI halts at once, saying the CLI does not know a tier

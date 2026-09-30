@@ -318,6 +318,59 @@ test('a deployment answers whether it can work, without a session', async () => 
 });
 
 /**
+ * The health page measured a stalled loop from its last finished tick, and a
+ * worker that had never finished one had none to measure from: a first tick
+ * that hung, or that failed every time while `SELECT 1` worked, was reported
+ * able to work for as long as the process lived.
+ */
+test('a worker that has never finished a tick is reported unable to work once the stall window has passed', async () => {
+  const { workerHealth } = await import('../../src/main.ts');
+  const controller = new AbortController();
+  const worker = new Worker({
+    engine: new Engine({
+      broker: new CapabilityBroker(new CapabilityRegistry()),
+      llm: new RecordingLlmClient(),
+      handlers: new Map([['worker', async () => ({ done: true })]]),
+      workerId: 'never-ticked',
+    }),
+    idleMs: 20,
+    signal: controller.signal,
+    log: () => undefined,
+  });
+  let ticks = 0;
+  worker.tick = async (): Promise<TickReport> => {
+    ticks += 1;
+    throw new Error('the database went away');
+  };
+  const running = worker.start();
+  try {
+    await until(() => ticks > 2, 'a few ticks, each of them failed');
+    assert.equal(worker.lastTickAt, null);
+    const started = worker.startedAt;
+    assert.ok(started, 'when it started, to measure from');
+    assert.deepEqual(workerHealth(worker, started.getTime() + 60_000), { ok: true, lastTickAt: null },
+      'a minute in, it may still be on its first tick');
+    assert.deepEqual(workerHealth(worker, started.getTime() + 31 * 60_000), {
+      ok: false,
+      lastTickAt: null,
+      problem: `no tick has finished since the worker started at ${started.toISOString()}`,
+    });
+
+    // And one that ticked measures from its last tick, as before.
+    const ticked = { startedAt: started, lastTickAt: new Date(started.getTime() + 10 * 60_000) };
+    assert.equal(workerHealth(ticked, started.getTime() + 31 * 60_000).ok, true);
+    assert.deepEqual(workerHealth(ticked, started.getTime() + 41 * 60_000), {
+      ok: false,
+      lastTickAt: ticked.lastTickAt.toISOString(),
+      problem: `no tick has finished since ${ticked.lastTickAt.toISOString()}`,
+    });
+  } finally {
+    controller.abort();
+    await running;
+  }
+});
+
+/**
  * `/api/health` is open, for a supervisor, and it answered with the
  * database driver's own words -- a host, a port, a role's name, why its
  * password was refused -- to anyone who asked. Those go to the log, which

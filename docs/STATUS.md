@@ -4600,6 +4600,60 @@ Read against what Coolify and Dokploy give a container they run, on
   (THREAT-MODEL 2.3). Running agent CLIs as a user of their own, or in the
   container backend, is what closes it.
 
+## 2.50 Found by reading Buzz: a lease with a deadline, a worker that never ticked, migrations that wait
+
+Read against the source of Block's Buzz, on 2026-09-30.
+
+- **A worker cut off from its database kept its run.** The lease keeper
+  (`src/engine/lease-keeper.ts`) gave a run up only when a renewal said the
+  lease was someone else's. Any other failure -- a connection dropped, a
+  pool with nothing to lend -- was left to the next tick without limit, and
+  a renewal that never answered left every later tick returning at once,
+  because one was still in flight. The worker went on running the task
+  while its lease lapsed in the database, and the worker that took it next
+  made the same side effects beside it. The keeper now remembers when the
+  last renewal that succeeded began -- the database sets the lease to run
+  out one lease after that -- and, on every tick and before any step,
+  gives the run up once a whole lease has passed since, whether or not a
+  renewal is in flight. The run is aborted as for a lost lease, and
+  `confirm()` refuses with `task.lease_lost`: no renewal succeeded for a
+  whole lease, so another worker may hold the task. A run that showed no
+  progress is still let go as quiet and handed back while this worker
+  holds it; the deadline is for renewals the keeper wanted and did not
+  get. `lease-keeper.test.ts` holds it without a database, with a lease of
+  240 ms: renewals that always fail with a connection error, and one that
+  never answers, each give the run up within a tick of the lease running
+  out, and `confirm()` then refuses without renewing; one failure followed
+  by successes keeps the run; a lost lease is still given up on the first
+  renewal; and a quiet run is let go as quiet, not as lost.
+- **A worker that never finished a tick was healthy.** `/api/health`
+  measured a stalled loop from `worker.lastTickAt`, which is set only when
+  a tick finishes, and a worker that had never finished one had nothing to
+  measure from: a first tick that hung, or failed every time while the
+  database answered `SELECT 1`, was reported able to work for as long as
+  the process lived. The worker now records when it started
+  (`Worker.startedAt`), and `workerHealth` (`src/main.ts`) measures from
+  the later of that and the last finished tick. Half an hour after the
+  start with no tick finished, the page answers 503 with `no tick has
+  finished since the worker started at …`. `operability.test.ts` starts a
+  worker whose every tick throws, and finds it able to work a minute after
+  its start and unable to work thirty-one minutes after, with that
+  problem; a worker that has ticked is still measured from its last tick.
+- **A migration waited on a lock without limit.** A statement that alters
+  a table waits for every transaction that is reading it, and every later
+  query on that table waits behind the statement: behind one long
+  transaction, `scripts/migrate.ts` stopped the running platform for as
+  long as that transaction lasted. Once it holds the advisory lock that
+  lets one replica migrate while the others wait -- a wait still as long
+  as it needs to be -- it sets `lock_timeout` to ten seconds. A migration
+  that cannot get its lock in that time is rolled back, and fails naming
+  itself: it waited for a lock another session holds, and is to be run
+  again once that session is done. The image's entrypoint then exits, and
+  its restart runs the migrations again. `process.test.ts` holds a lock on
+  `companies` from another session and migrates a copy of the migrations
+  with one more that alters it: it fails in about ten seconds with that
+  message, and the migration is neither recorded nor applied.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

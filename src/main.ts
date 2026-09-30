@@ -419,6 +419,33 @@ export async function databaseHealth(
   }
 }
 
+/**
+ * Whether the worker's loop has gone round lately, as `/api/health` says it.
+ *
+ * Measured from the later of when the worker started and when it last
+ * finished a tick. From the last tick alone, a worker that had never finished
+ * one -- a first tick that hung, or failed every time while the database
+ * answered `SELECT 1` -- had nothing to measure from and was reported able to
+ * work for as long as the process lived.
+ */
+export function workerHealth(
+  worker: { startedAt: Date | null; lastTickAt: Date | null },
+  now: number = Date.now(),
+): { ok: boolean; lastTickAt: string | null; problem?: string } {
+  const { startedAt, lastTickAt } = worker;
+  const said = lastTickAt?.toISOString() ?? null;
+  const ticked = lastTickAt !== null && (startedAt === null || lastTickAt >= startedAt);
+  const since = ticked ? lastTickAt : startedAt;
+  if (since === null || now - since.getTime() <= WORKER_STALL_MS) return { ok: true, lastTickAt: said };
+  return {
+    ok: false,
+    lastTickAt: said,
+    problem: ticked
+      ? `no tick has finished since ${since.toISOString()}`
+      : `no tick has finished since the worker started at ${since.toISOString()}`,
+  };
+}
+
 async function pendingMigrations(): Promise<string[]> {
   const files = (await readdir(fileURLToPath(new URL('../db/migrations', import.meta.url))))
     .filter((file) => file.endsWith('.sql'))
@@ -961,17 +988,8 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // stopped is the failure a supervisor cannot see from outside.
     health: async () => {
       const database = await databaseHealth(() => appPool().query('SELECT 1'), log);
-      const lastTickAt = worker.lastTickAt;
-      const stalled = lastTickAt !== null && Date.now() - lastTickAt.getTime() > WORKER_STALL_MS;
-      return {
-        ok: database === 'ok' && !stalled,
-        database,
-        version: VERSION,
-        worker: {
-          lastTickAt: lastTickAt?.toISOString() ?? null,
-          ...(stalled ? { problem: `no tick has finished since ${lastTickAt!.toISOString()}` } : {}),
-        },
-      };
+      const { ok, ...said } = workerHealth(worker);
+      return { ok: database === 'ok' && ok, database, version: VERSION, worker: said };
     },
     ...(scrapeToken ? { metrics: { token: scrapeToken, text: () => metricsText({ worker }) } } : {}),
   });

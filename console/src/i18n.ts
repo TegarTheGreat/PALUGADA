@@ -19,6 +19,7 @@
  */
 import { useSyncExternalStore } from 'react';
 import { DICTIONARY as ID } from './locales/id.ts';
+import { DICTIONARY as ZH } from './locales/zh.ts';
 import type { Dictionary, Translation } from './locales/types.ts';
 
 /**
@@ -29,10 +30,11 @@ import type { Dictionary, Translation } from './locales/types.ts';
 export const LANGUAGES = [
   { code: 'en', name: 'English', locale: 'en-US' },
   { code: 'id', name: 'Bahasa Indonesia', locale: 'id-ID' },
+  { code: 'zh', name: '简体中文', locale: 'zh-CN' },
 ] as const;
 export type Language = (typeof LANGUAGES)[number]['code'];
 
-const DICTIONARIES: Record<Language, Dictionary> = { en: {}, id: ID };
+const DICTIONARIES: Record<Language, Dictionary> = { en: {}, id: ID, zh: ZH };
 
 export function isLanguage(value: unknown): value is Language {
   return typeof value === 'string' && LANGUAGES.some((language) => language.code === value);

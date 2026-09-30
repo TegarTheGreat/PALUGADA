@@ -632,6 +632,9 @@ export class CapabilityBroker {
           capability: name, tier, summary: describeAction(name, shown, SUMMARY_LIMIT), input: shown,
         });
         if (verdict.ask) guardianAsks = verdict.reason;
+        // Stopped while the guardian was looking: the call is not made on
+        // the strength of an answer nobody is waiting for any more.
+        if (ctx.signal?.aborted) throw ctx.signal.reason ?? new Error('the call was withdrawn while the guardian judged it');
       }
     }
     const needsOwner = requiresOwnerApproval(tier) || policy.effect === 'require_approval' || outside !== null
@@ -704,9 +707,14 @@ export class CapabilityBroker {
     // below tier 3, and the work read nothing from outside. Counted as used,
     // and the record says which yes the action ran on. Not spent like a
     // card's yes: it covers every such action until it ends.
+    // "Read nothing from outside" at every tier: `outside` above is looked up
+    // for tier 2 only, and a tier 0 or 1 call a policy asks about in work
+    // that did read something was covered by a yes the owner gave for clean
+    // work -- with less scrutiny than the same call with no policy, which the
+    // guardian would have looked at (the review of 51e870a).
     let standing: { id: string; grantedByItem: string } | null = null;
-    if (needsOwner && !grantedApproval && !requiresOwnerApproval(tier) && outside === null
-        && policy.effect === 'require_approval') {
+    if (needsOwner && !grantedApproval && !requiresOwnerApproval(tier) && policy.effect === 'require_approval'
+        && (outside ?? await withTenant(ctx.companyId, (tx) => outsideContentIn(tx, ctx.taskId))) === null) {
       standing = await withTenant(ctx.companyId, async (tx) => {
         const found = await inbox.useStanding(tx, ctx.roleId, name);
         if (found) {

@@ -121,8 +121,14 @@ refer to `docs/PRD.md`.
 5a. A company that turns the guardian on (0092, `src/broker/guardian.ts`) has
    each tier 0 or 1 call in tainted work judged by a model first, which may
    send it to the owner and cannot let anything through. It is shown the
-   owner's request and the redacted call, not the outside text, and a failure
-   to judge asks the owner.
+   owner's request and the redacted call, not the outside text; an agent's
+   brief and the call's description are fenced as data. A failure to judge,
+   a provider that does not answer, asks the owner, and a look the budget
+   cannot pay for stops the call.
+5b. Taint follows the work to new tasks: a rerun carries what the task it
+   reruns carried, and a sub-task is made carrying its parent's, including
+   what the parent's other sub-tasks read. A yes for a while never covers a
+   call in tainted work, at any tier.
 6. A lesson from tainted work is stored `outside` and shown later as data
    (0071, `keepLessons` in `src/engine/tasks.ts`).
 7. `web.fetch`, vendor and MCP calls refuse private and metadata addresses,

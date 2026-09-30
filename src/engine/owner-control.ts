@@ -20,7 +20,7 @@ import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts
 import { TERMINAL_STATUSES, isTerminal, type TaskStatus } from '../domain/task.ts';
 import { PalugadaError } from '../errors.ts';
 import { assignTask } from '../scheduler/wake.ts';
-import { getTask } from './tasks.ts';
+import { getTask, outsideContentIn } from './tasks.ts';
 import { remember, supersede } from '../memory/store.ts';
 
 /** The longest instruction or note, the same bound as a question from the owner. */
@@ -198,6 +198,22 @@ export async function rerunTask(companyId: string, taskId: string, note?: string
       actor: 'owner',
       payload: { rerunTaskId: task.id },
     });
+    // F8.9: the new task is a root the owner made, and its chain says
+    // nothing of how the first one began. Its input is the first one's --
+    // a webhook's event, a brief written after reading an email -- so what
+    // the first one carried, it carries: pressing "do it again" on a send
+    // the owner refused must not send it unasked.
+    const carried = await outsideContentIn(tx, taskId);
+    if (carried !== null && (await outsideContentIn(tx, task.id)) === null) {
+      await appendEvent(tx, {
+        companyId,
+        projectId: task.projectId,
+        taskId: task.id,
+        type: 'content.read_outside',
+        actor: 'engine',
+        payload: { capability: 'the task it reruns', from: carried === 'begun' ? 'begun' : 'read', rerunOf: taskId },
+      });
+    }
   });
   return task.id;
 }

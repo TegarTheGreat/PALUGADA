@@ -4428,6 +4428,29 @@ the code against it found these, and each is now closed with a test.
   device, since that loosens.
 - **Unverified:** how often a real model doubts a harmless call. The tests
   script the model's answers.
+- **Found in review, and closed.** The guardian could not be made to let a
+  call through, but work could get past it and past F8.9 itself:
+  - *A rerun dropped the taint.* "Do it again" makes a new root task from
+    the old one's input -- a webhook's event, a brief written after an
+    email -- and the new task's chain said nothing of how the old one
+    began, so a tier 2 send the owner had refused went unasked. A rerun
+    now carries what the task it reruns carried.
+  - *A sub-task briefed after a sibling's read was clean.* A parent carries
+    what its sub-tasks read, since it comes back to it; a child's chain sees
+    only reads above it. A child is now made carrying its parent's taint.
+  - *A standing yes covered tainted tier 0 and 1 calls.* `outside` was
+    looked up for tier 2 only, so a policy's yes for a while, given for
+    clean work, reached a call the guardian would have judged. It is looked
+    up at every tier now.
+  - *An agent's brief was shown as the owner's request*, unfenced, and the
+    call's description, built from the arguments, sat outside the fence.
+    The guardian is shown the nearest request the owner, a schedule or a
+    trigger made, and a delegated, handed-off or rerun brief is fenced as
+    an agent's words; so is the description.
+  - *A look the budget refused was dropped, and the call went ahead.* It
+    stops the call now, as `budget.exceeded`, and is traced at its cost. A
+    provider that does not answer in thirty seconds is a doubt, and a call
+    withdrawn while it was judged is not made.
 
 ## 2.46 A whole run in a real container
 

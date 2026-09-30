@@ -523,6 +523,22 @@ export async function createSubTask(
         { parentTaskId, hopDepth, reserveTokens },
       );
       await tx.query('RELEASE SAVEPOINT insert_child');
+      // F8.9: a parent carries a read by any of its sub-tasks, since what
+      // they found comes back to it (`outsideContentIn`), but a child's own
+      // chain sees only reads above it. A brief written after a sibling's
+      // email came back is that email's work, so it is handed down here,
+      // when the child is made from what the parent knows by then.
+      if ((await outsideContentIn(tx, parentTaskId)) !== null && (await outsideContentIn(tx, child.id)) === null) {
+        await appendEvent(tx, {
+          companyId: input.companyId,
+          projectId: child.projectId,
+          taskId: child.id,
+          type: 'content.read_outside',
+          actor: 'engine',
+          // Named as the Work page lists it: "through the task that made it".
+          payload: { capability: 'the task that made it', from: 'parent', parentTaskId },
+        });
+      }
       return child;
     } catch (error) {
       if ((error as { code?: string }).code === '23505') {

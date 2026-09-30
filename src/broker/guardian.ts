@@ -23,11 +23,12 @@
  * `guardian.judged`.
  */
 import { randomUUID } from 'node:crypto';
-import { withTenant } from '../db/tenant.ts';
+import { withTenant, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { ancestryForTask, renderAncestry } from '../domain/goals.ts';
 import { wrapUntrusted } from '../context/builder.ts';
 import * as budget from '../engine/budget.ts';
+import { PalugadaError } from '../errors.ts';
 import type { LlmClient, LlmResponse } from '../llm/client.ts';
 
 export interface GuardedCall {
@@ -62,43 +63,97 @@ const SYSTEM = [
 /** The longest reason the owner is shown. */
 const REASON_LIMIT = 300;
 
+/**
+ * How long a judgement may take. Every call it judges waits on it and holds
+ * a worker; a provider that does not answer is a doubt like any other.
+ */
+const JUDGE_WAIT_MS = 30_000;
+
+/**
+ * The owner's own words for what the work is for, and the brief it was
+ * handed when that is somebody else's.
+ *
+ * A task's goal is the owner's only where the owner, a schedule or a trigger
+ * the owner set up made it. A sub-task's is the brief the agent above it
+ * wrote, a handed-off task's is mapped from the output before it, and a rerun
+ * copies whatever the task it reruns was given -- words the content that may
+ * be steering the run can have written. Shown as the owner's request, they
+ * would be the guardian's reference for what the owner wants; they are shown
+ * fenced, as data, beneath the nearest request the owner did make.
+ */
+async function whatWasAsked(tx: TenantClient, taskId: string): Promise<{ request: string | null; brief: string | null }> {
+  const { rows } = await tx.query<{ goal: unknown; owners: boolean }>(
+    `WITH RECURSIVE up AS (
+       SELECT id, parent_task_id, input, created_by, idempotency_key, 0 AS depth FROM tasks WHERE id = $1
+       UNION ALL
+       SELECT t.id, t.parent_task_id, t.input, t.created_by, t.idempotency_key, up.depth + 1
+         FROM tasks t JOIN up ON t.id = up.parent_task_id
+        WHERE up.depth < 64
+     )
+     SELECT input->'goal' AS goal,
+            created_by IN ('owner', 'scheduler', 'webhook') AND coalesce(idempotency_key, '') NOT LIKE 'rerun:%' AS owners
+       FROM up ORDER BY depth`,
+    [taskId],
+  );
+  const text = (goal: unknown) => (typeof goal === 'string' && goal.trim() ? goal.trim() : null);
+  const request = rows.find((row) => row.owners);
+  const own = rows[0];
+  return {
+    request: request ? text(request.goal) : null,
+    brief: own && !own.owners ? text(own.goal) : null,
+  };
+}
+
 export class Guardian {
   readonly #llm: LlmClient;
   readonly #model: string;
+  readonly #waitMs: number;
 
   /** `model` is a tier or a model name; the fast tier by default, since every judgement waits on it. */
-  constructor(llm: LlmClient, options: { model?: string } = {}) {
+  constructor(llm: LlmClient, options: { model?: string; waitMs?: number } = {}) {
     this.#llm = llm;
     this.#model = options.model ?? 'fast';
+    this.#waitMs = options.waitMs ?? JUDGE_WAIT_MS;
   }
 
   async judge(call: GuardedCall): Promise<GuardianVerdict> {
-    const { goal, chain } = await withTenant(call.companyId, async (tx) => {
-      const { rows } = await tx.query<{ input: { goal?: unknown } | null }>('SELECT input FROM tasks WHERE id = $1', [call.taskId]);
-      return { goal: rows[0]?.input?.goal, chain: await ancestryForTask(tx, call.taskId) };
-    });
+    const { request, brief, chain } = await withTenant(call.companyId, async (tx) => ({
+      ...(await whatWasAsked(tx, call.taskId)),
+      chain: await ancestryForTask(tx, call.taskId),
+    }));
     const asked = [
-      `What the owner asked for: ${typeof goal === 'string' && goal ? goal : '(the task names no goal)'}`,
+      `What the owner asked for: ${request ?? '(not known: an agent set this work, and the owner\'s own request is not in it)'}`,
       ...(chain.length > 0 ? [`What that is for: ${renderAncestry(chain)}`] : []),
+      ...(brief ? [wrapUntrusted('the brief this work was handed, written by an agent rather than the owner', brief)] : []),
       '',
-      `The action, at tier ${call.tier}: ${call.summary}`,
-      // The run chose these arguments after reading what may be steering it:
-      // they are evidence about the action, not instructions to follow.
-      wrapUntrusted(`arguments of ${call.capability}`, JSON.stringify(call.input ?? null)),
+      `The action: ${call.capability}, at tier ${call.tier}.`,
+      // The run chose the arguments after reading what may be steering it,
+      // and the description is made from them: both are evidence about the
+      // action, not instructions to follow.
+      wrapUntrusted(`the action as the owner's card would describe it, and the arguments of ${call.capability}`,
+        `${call.summary}\n${JSON.stringify(call.input ?? null)}`),
     ].join('\n');
 
     let response: LlmResponse;
+    let timer: NodeJS.Timeout | undefined;
     try {
-      response = await this.#llm.complete({
-        model: this.#model,
-        system: SYSTEM,
-        messages: [{ role: 'user', content: asked }],
-        maxTokens: 200,
-      });
+      response = await Promise.race([
+        this.#llm.complete({
+          model: this.#model,
+          system: SYSTEM,
+          messages: [{ role: 'user', content: asked }],
+          maxTokens: 200,
+        }),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`no answer within ${seconds(this.#waitMs)}`)), this.#waitMs);
+        }),
+      ]);
     } catch (error) {
       const verdict = { ask: true, reason: `the guardian could not judge it: ${oneLine((error as Error).message)}` };
       await this.#record(call, asked, null, verdict);
       return verdict;
+    } finally {
+      clearTimeout(timer);
     }
     const verdict = verdictFrom(response.content)
       ?? { ask: true, reason: 'the guardian could not judge it: its answer was not a verdict' };
@@ -106,19 +161,24 @@ export class Guardian {
     return verdict;
   }
 
-  /** Charged, traced and recorded in one transaction: the call happened, whatever it concluded. */
+  /**
+   * Charged, traced and recorded in one transaction: the call happened,
+   * whatever it concluded. A charge the budget refuses stops the work here,
+   * as the engine stops a run whose model call it cannot pay for: the look
+   * is traced at what it cost, and the call it was about is not made.
+   */
   async #record(call: GuardedCall, asked: string, response: LlmResponse | null, verdict: GuardianVerdict): Promise<void> {
     const costCents = response ? Math.ceil(Math.max(0, response.costCents)) : 0;
-    await withTenant(call.companyId, async (tx) => {
+    const refused = await withTenant(call.companyId, async (tx) => {
+      let refusedBy: string | null = null;
       if (response) {
         const { rows } = await tx.query<{ budget_account_id: string }>(
           'SELECT budget_account_id FROM tasks WHERE id = $1', [call.taskId]);
         const account = rows[0]?.budget_account_id;
-        // A refused charge does not change the verdict: the call has been
-        // made and the provider bills for it. The next thing the work tries
-        // to spend is what the ceiling stops.
-        if (account) {
-          await budget.spend(tx, account, { tokens: response.inputTokens + response.outputTokens, moneyCents: costCents });
+        if (account && !(await budget.spend(tx, account, {
+          tokens: response.inputTokens + response.outputTokens, moneyCents: costCents,
+        }))) {
+          refusedBy = account;
         }
         await tx.query(
           `INSERT INTO llm_traces (id, company_id, task_id, model, prompt, response, input_tokens, output_tokens, cost_cents)
@@ -136,9 +196,18 @@ export class Guardian {
         taskId: call.taskId,
         type: 'guardian.judged',
         actor: 'broker',
-        payload: { capability: call.capability, tier: call.tier, ask: verdict.ask, reason: verdict.reason, costCents },
+        payload: {
+          capability: call.capability, tier: call.tier, ask: verdict.ask, reason: verdict.reason, costCents,
+          ...(refusedBy ? { unpaid: true } : {}),
+        },
       });
+      return refusedBy;
     });
+    if (refused) {
+      throw new PalugadaError('budget.exceeded', 'the budget could not pay for the guardian\'s look at this call', {
+        budgetAccountId: refused, capability: call.capability,
+      });
+    }
   }
 }
 
@@ -155,6 +224,11 @@ function verdictFrom(text: string): GuardianVerdict | null {
   } catch {
     return null;
   }
+}
+
+function seconds(ms: number): string {
+  const whole = Math.max(1, Math.ceil(ms / 1000));
+  return `${whole} second${whole === 1 ? '' : 's'}`;
 }
 
 function oneLine(text: string): string {

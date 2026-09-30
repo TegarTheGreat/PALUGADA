@@ -94,7 +94,7 @@ refer to `docs/PRD.md`.
   note; it does not refuse. No test holds the note.
 - A GitHub hook carries no timestamp; a replay is stopped only because an
   identical body is deduplicated.
-- A trigger whose token is in the address (0098) is as secret as the places
+- A trigger whose token is in the address (0097) is as secret as the places
   that address is kept: the sender's settings, a proxy's access log. It is
   for senders that can set nothing else; a bearer trigger refuses a token in
   the address, and rotating makes the old address fail.

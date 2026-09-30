@@ -140,6 +140,9 @@ came from work which read an email, a web page or a customer's message:
 every run is shown it as the data it came from, not as something known,
 until you confirm it. **learned 3 more times** means the same lesson came
 back from later work. **The work that taught it** opens that task.
+**Episodes** holds a line for each piece of finished work -- what it was for
+and what it reported -- which runs in the same project find when they search
+for past events.
 
 A fact that is wrong: **Correct** it when you know the right one, or
 **Take back** when there is nothing to put in its place. Either way it
@@ -918,6 +921,17 @@ the sender, so it needs the HTTPS set-up in [operations](operations.md).
 3. **Is it still what was signed?** checks an installed bundle against the
    hash recorded at install. **Trust a publisher** adds a publisher's public
    key; bundles it signs install as written.
+
+`company-os` brings the weekly business review, run by the strategist on
+Monday at 07:45 in the company's time zone. Each week's task is handed the
+week in its input, read from the company's records: every active goal with
+its numbers and their change over the week, the work finished, the spend
+against the monthly limit, and any stage move waiting for you. A goal the
+strategist thinks is wrong arrives in your inbox as a proposal; approve it
+with your code and the goal changes. Installing a newer `company-os` over an
+older one updates its role, rules, cadence and skills in place; it adds
+grants and takes none away, so a grant the new version no longer names
+(1.3.0 no longer names `metrics.read`) stays until you revoke it.
 
 The built-in bundles install as written when they are exactly what this
 version of PALUGADA ships: they are part of the platform, as trusted as its

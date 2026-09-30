@@ -47,6 +47,13 @@ import {
   liftSkillQuarantine,
   skillSummariesFor,
 } from '../../src/skills/skills.ts';
+import { runDueSchedules } from '../../src/scheduler/scheduler.ts';
+import { changeMetric, defineMetric } from '../../src/domain/metrics.ts';
+import { createRootTask, transition } from '../../src/engine/tasks.ts';
+import { appendEvent } from '../../src/audit/event-log.ts';
+import { setStage } from '../../src/domain/stage.ts';
+import { stageProposeCapability } from '../../src/broker/platform-capabilities.ts';
+import type { WeekFacts } from '../../src/reporting/week.ts';
 import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
@@ -330,6 +337,7 @@ test('a company can be assembled from several bundles (F16.3, F16.5)', async () 
     ['no-paid-reach-before-launch', 'deny', null],
     ['palugada-dev-push-is-reviewed', 'require_review', 'platform'],
     ['web-dns-always-owner', 'require_approval', 'web'],
+    ['wind-down-asks-first', 'require_approval', null],
     ['wind-down-starts-nothing', 'deny', null],
   ]);
 });
@@ -466,9 +474,135 @@ test("the platform's own kit installs as shipped, and a copy somebody changed do
     body: { ...COMPANY_OS.body, cadences: [{ ...COMPANY_OS.body.cadences![0]!, roleSlug: 'nobody' }] },
   };
   await assert.rejects(publishBundle(orphan), /names role nobody/);
+  const unknownFacts = {
+    ...COMPANY_OS,
+    slug: 'company-os-month',
+    body: { ...COMPANY_OS.body, cadences: [{ ...COMPANY_OS.body.cadences![0]!, facts: 'month' as never }] },
+  };
+  await assert.rejects(publishBundle(unknownFacts), /asks to be handed month; a cadence can be handed week, or nothing/);
+});
+
+/**
+ * The weekly review's skill asks for every goal metric against its target and
+ * what shipped, and its task was given one sentence: a run sees the metrics of
+ * its own goal chain and nothing of the week. The cadence now hands it the
+ * week, read from the company's records rather than written by a model.
+ */
+test('the weekly review is handed the week: its numbers, its finished work, its spend and what waits for the owner', async () => {
+  const fixture = await createCompany('bundle-company-os-week');
+  await registerStandardCatalogue();
+  await publishBundle(COMPANY_OS);
+  await installBundle({ companyId: fixture.companyId, slug: 'company-os', version: COMPANY_OS.version });
+
+  // Numbers: one measure with a value a week ago and one now, one retired.
+  const cafes = await defineMetric(fixture.companyId, {
+    goalId: fixture.goalId, slug: 'paying-cafes', name: 'Paying cafes', unit: 'count', target: 10,
+  });
+  const retired = await defineMetric(fixture.companyId, {
+    goalId: fixture.goalId, slug: 'old-signups', name: 'Sign-ups', unit: 'count', target: 100,
+  });
+  await changeMetric(fixture.companyId, retired, { retired: true });
+  await withControlPlane(async (tx) => {
+    await tx.query(
+      `INSERT INTO metric_observations (company_id, metric_id, value, verified, recorded_by, observed_at)
+       VALUES ($1, $2, 2, true, 'owner', now() - interval '8 days')`, [fixture.companyId, cafes]);
+    await tx.query(
+      `INSERT INTO metric_observations (company_id, metric_id, value, verified, recorded_by)
+       VALUES ($1, $2, 5, true, 'owner')`, [fixture.companyId, cafes]);
+  });
+
+  // Work: two finished this week, one of them after reading an email; one last month.
+  const finish = async (goal: string, summary: string, outside = false) => {
+    const task = await createRootTask({
+      companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+      budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId, input: { goal }, createdBy: 'owner', reserveTokens: 1_000,
+    });
+    await transition(fixture.companyId, task.id, 'running');
+    if (outside) {
+      await withTenant(fixture.companyId, (tx) => appendEvent(tx, {
+        companyId: fixture.companyId, projectId: fixture.projectId, taskId: task.id, type: 'content.read_outside',
+        actor: 'system', payload: { capability: 'mailbox.read' },
+      }));
+    }
+    await transition(fixture.companyId, task.id, 'completed', { output: { summary } });
+    return task;
+  };
+  const shipped = await finish('Ship the October price list', 'Sent it to 12 cafes;\n5 replied.');
+  const replied = await finish('Answer Budi', 'Refund promised by Friday.', true);
+  const old = await finish('Last month\'s work', 'Done long ago.');
+  await withControlPlane((tx) => tx.query("UPDATE tasks SET finished_at = now() - interval '20 days' WHERE id = $1", [old.id]));
+
+  // Money, and a stage move waiting for the owner.
+  await withTenant(fixture.companyId, (tx) => appendEvent(tx, {
+    companyId: fixture.companyId, projectId: fixture.projectId, type: 'tool.cost', actor: 'broker',
+    payload: { capability: 'web.fetch', estimatedCents: 150 },
+  }));
+  await setStage(fixture.companyId, 'validate');
+  const asking = await createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId, input: { goal: 'decide' }, createdBy: 'owner', reserveTokens: 1_000,
+  });
+  const proposal = await stageProposeCapability().execute({ to: 'build', evidence: 'Twelve pre-orders, paid.' },
+    { companyId: fixture.companyId, divisionId: fixture.divisionId, taskId: asking.id } as never);
+
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    "UPDATE schedules SET next_run_at = now() - interval '1 minute' WHERE slug = 'weekly-business-review'"));
+  const [fired] = await runDueSchedules();
+  const { rows: [review] } = await withTenant(fixture.companyId, (tx) => tx.query<{ input: { goal: string; facts: string; week: WeekFacts } }>(
+    'SELECT input FROM tasks WHERE id = $1', [fired!.taskId]));
+  assert.match(review!.input.goal, /Weekly business review/);
+  const week = review!.input.week;
+
+  const measured = week.goals.flatMap((goal) => goal.metrics);
+  assert.deepEqual(measured.map((metric) => metric.slug), ['paying-cafes'], 'a retired measure is history');
+  assert.deepEqual(
+    (({ target, last, verified, weekAgo, change }) => ({ target, last, verified, weekAgo, change }))(measured[0]!),
+    { target: 10, last: 5, verified: true, weekAgo: 2, change: 3 },
+  );
+  assert.ok(week.goals.some((goal) => goal.slug === 'objective'), 'goals by the slug goal.propose takes');
+
+  assert.deepEqual(week.finished.map((one) => one.task).sort(), [shipped.id, replied.id].sort());
+  const line = week.finished.find((one) => one.task === shipped.id)!;
+  assert.equal(line.result, 'Sent it to 12 cafes; 5 replied.');
+  assert.equal(line.goal, 'Ship the October price list');
+  const email = week.finished.find((one) => one.task === replied.id)!;
+  assert.equal(email.outside, true);
+  assert.match(email.result!, /^<<<UNTRUSTED_CONTENT>>>/, 'what came from outside is data');
+
+  assert.equal(week.retro.tasksCompleted, 2);
+  assert.deepEqual([week.spend.monthCents, week.spend.monthLimitCents], [150, 20_000]);
+  assert.deepEqual(week.stageProposal, { from: 'validate', to: 'build', inboxItemId: proposal.inboxItemId });
+  assert.equal(week.stage, 'validate');
+
+  // The review carries what it was handed from outside (F8.9).
+  const { rows: carried } = await withTenant(fixture.companyId, (tx) => tx.query(
+    "SELECT 1 FROM events WHERE task_id = $1 AND type = 'content.read_outside'", [fired!.taskId]));
+  assert.equal(carried.length, 1);
+
+  // And it is bounded: a busy week is cut, one line a task, and says how much it left out.
+  for (let more = 0; more < 20; more += 1) await finish(`Busy work ${more}`, `Did it. ${'And more. '.repeat(60)}`);
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    "UPDATE schedules SET next_run_at = now() - interval '1 minute' WHERE slug = 'weekly-business-review'"));
+  const [busy] = await runDueSchedules();
+  const { rows: [next] } = await withTenant(fixture.companyId, (tx) => tx.query<{ input: { week: WeekFacts } }>(
+    'SELECT input FROM tasks WHERE id = $1', [busy!.taskId]));
+  const cut = next!.input.week;
+  assert.deepEqual([cut.finished.length, cut.finishedLeftOut], [20, 2]);
+  assert.ok(cut.finished.every((one) => one.outside || (one.result ?? '').length <= 200));
+  assert.ok(JSON.stringify(cut).length < 16_000, `${JSON.stringify(cut).length} characters`);
 });
 
 test("each of the kit's frameworks says what its eval asks for", () => {
+  // Read against auto-company's: a premortem whose warnings nobody watches
+  // warns nobody, and the kit had nothing on who a product is for or how
+  // customers cope today.
+  const slugs = COMPANY_OS.body.skills.map((skill) => skill.slug);
+  for (const slug of ['positioning', 'market-research']) assert.ok(slugs.includes(slug), `the kit has no ${slug} skill`);
+  const premortem = COMPANY_OS.body.skills.find((skill) => skill.slug === 'premortem')!;
+  for (const phrase of ['which role watches it', 'which number or check', 'how sure the company now is']) {
+    assert.ok(premortem.evals.some((one) => one.expectContains.includes(phrase)), `the premortem's eval does not ask for "${phrase}"`);
+  }
+
   // An eval that asks for a sentence the skill does not contain could never
   // pass, and a skill whose eval cannot pass can never be activated (F15.4).
   for (const skill of COMPANY_OS.body.skills) {

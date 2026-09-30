@@ -98,7 +98,18 @@ export interface BundleCadence {
   /** The brief each occurrence's task is given. */
   goal: string;
   priority?: number;
+  /**
+   * What each occurrence is handed from the company's own records as it
+   * fires, beside the brief: `week` is the week's numbers, finished work,
+   * spend and what waits for the owner (reporting/week.ts). A run sees the
+   * metrics of its own goal chain and nothing else, so a review told to
+   * report every number against its target could see almost none of them.
+   */
+  facts?: 'week';
 }
+
+/** What a cadence may be handed as it fires. */
+const CADENCE_FACTS = ['week'] as const;
 
 /**
  * A rule the bundle brings (F3.4, F16.1).
@@ -585,7 +596,9 @@ async function installCadences(
       slug: cadence.slug,
       cronExpression: cadence.cron,
       timezone: place.timezone || 'UTC',
-      input: { goal: cadence.goal },
+      // The scheduler reads `facts` from the schedule's input when it fires,
+      // so it is the schedule that asks, whichever bundle or route made it.
+      input: { goal: cadence.goal, ...(cadence.facts ? { facts: cadence.facts } : {}) },
       priority: cadence.priority ?? 2,
       enabled: !quarantined,
     });
@@ -808,6 +821,13 @@ export function assertBundleIsCoherent(bundle: Bundle): void {
       throw new PalugadaError(
         'bundle.invalid',
         `cadence ${cadence.slug} needs a lowercase slug and a brief`,
+        { slug: bundle.slug },
+      );
+    }
+    if (cadence.facts !== undefined && !(CADENCE_FACTS as readonly string[]).includes(cadence.facts)) {
+      throw new PalugadaError(
+        'bundle.invalid',
+        `cadence ${cadence.slug} asks to be handed ${String(cadence.facts)}; a cadence can be handed ${CADENCE_FACTS.join(', ')}, or nothing`,
         { slug: bundle.slug },
       );
     }

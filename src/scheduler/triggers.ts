@@ -48,7 +48,7 @@ export type TriggerScheme = (typeof TRIGGER_SCHEMES)[number];
 /**
  * The schemes whose token the platform makes and keeps only as a hash: in an
  * Authorization header, or -- for a sender that can set nothing but a URL,
- * such as Coolify's outgoing webhook -- in the address (0098).
+ * such as Coolify's outgoing webhook -- in the address (0097).
  */
 function minted(scheme: TriggerScheme): boolean {
   return scheme === 'bearer' || scheme === 'url';

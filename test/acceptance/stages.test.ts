@@ -109,6 +109,74 @@ test('a policy reads the stage: no paid reach until the company has launched', a
   assert.equal(rows[1]!.payload.note, 'checkout works; ten paying customers');
 });
 
+test('winding down, a reply to a customer goes to the owner, and nothing new is started', async () => {
+  // The stage is for finishing what is owed to customers, and its rule
+  // denied every tier 2 action outside finance -- Support's replies among
+  // them -- with an effect the owner could not answer from the inbox.
+  const fixture = await createCompany('stage-wind-down');
+  const done: string[] = [];
+  const counting = (name: string): Capability<Record<string, unknown>, { ok: boolean }> => ({
+    name,
+    adapter: `test:${name}`,
+    defaultTier: 2,
+    async execute() {
+      done.push(name);
+      return { ok: true };
+    },
+    async verify() {
+      return true;
+    },
+  });
+  const registry = new CapabilityRegistry();
+  const names = ['email.send', 'ads.campaign.start', 'domain.purchase'];
+  for (const name of names) registry.register(counting(name));
+  await registry.sync();
+  for (const name of names) await grantCapability(fixture, name);
+  for (const rule of COMPANY_OS.body.policies.filter((policy) => policy.slug.startsWith('wind-down'))) {
+    await putPolicy({ companyId: fixture.companyId, slug: rule.slug, effect: rule.effect, condition: rule.condition });
+  }
+  await setStage(fixture.companyId, 'wind_down');
+
+  const broker = new CapabilityBroker(registry);
+  const attempt = async (task: { id: string }, capability: string, input: Record<string, unknown>, key: string) =>
+    broker.invoke({
+      companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+      roleId: fixture.roleId, taskId: task.id, idempotencyKey: key,
+    }, capability, input);
+  const planned = async (capability: string, goal: string) => {
+    const task = await running(fixture, goal);
+    await recordPlan(fixture.companyId, task.id, [{ capability, intent: goal, expectedEffect: 'done' }]);
+    return task;
+  };
+
+  // A reply to a customer who is owed an answer: the owner decides.
+  const reply = await planned('email.send', 'answer Budi about his refund');
+  const sending = { to: 'budi@example.com', body: 'Your refund was sent today.' };
+  await assert.rejects(attempt(reply, 'email.send', sending, 'r1'), (error: unknown) => isPalugadaError(error, 'approval.required'));
+  const [card] = (await inbox.listOpen(fixture.companyId)).filter((item) => item.taskId === reply.id);
+  assert.equal(card!.capabilityName, 'email.send');
+  assert.match(card!.rationale, /wind-down-asks-first requires your approval/);
+  await inbox.decide(fixture.companyId, card!.id, 'approve', 'He is owed it.');
+  await attempt(reply, 'email.send', sending, 'r2');
+  assert.deepEqual(done, ['email.send'], 'approved, the reply goes');
+
+  // New reach and new purchases are refused, whoever asks.
+  const ads = await planned('ads.campaign.start', 'a closing-down sale campaign');
+  await assert.rejects(attempt(ads, 'ads.campaign.start', { budget: 100 }, 'a1'),
+    (error: unknown) => isPalugadaError(error, 'policy.denied'));
+  const domain = await planned('domain.purchase', 'a domain for the next idea');
+  await assert.rejects(attempt(domain, 'domain.purchase', { name: 'next.example' }, 'd1'),
+    (error: unknown) => isPalugadaError(error, 'policy.denied'));
+  assert.deepEqual(done, ['email.send']);
+  assert.equal((await inbox.listOpen(fixture.companyId)).length, 0, 'nothing refused was put to the owner');
+
+  // Out of wind-down, neither rule reads anything.
+  await setStage(fixture.companyId, 'grow');
+  const later = await planned('email.send', 'answer Sari');
+  await attempt(later, 'email.send', { to: 'sari@example.com', body: 'Thanks.' }, 'g1');
+  assert.deepEqual(done, ['email.send', 'email.send']);
+});
+
 test('every run is told the stage and what it is for, and no run can change it', async () => {
   const fixture = await createCompany('stage-context');
   const told = async () => (await withTenant(fixture.companyId, (tx) => buildContext(tx, {

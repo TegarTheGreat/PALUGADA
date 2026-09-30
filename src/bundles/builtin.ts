@@ -512,9 +512,10 @@ Approving is a claim that you checked. Say what you checked.
  * business review, Monday morning in the company's time zone.
  *
  * And the stage gates (0057): the strategist proposes a move with the evidence
- * the stage-gates skill names, the owner decides, and two rules read the
- * stage -- no paid reach before launch, and nothing new once the company is
- * winding down.
+ * the stage-gates skill names, the owner decides, and three rules read the
+ * stage -- no paid reach before launch, nothing new once the company is
+ * winding down, and every other outward action while it winds down put to
+ * the owner, who decides what is still owed.
  *
  * Written for this platform rather than copied: each skill is short, says what
  * a run must do rather than what an expert believes, and has an eval naming the
@@ -522,12 +523,12 @@ Approving is a claim that you checked. Say what you checked.
  */
 export const COMPANY_OS: Bundle = {
   slug: 'company-os',
-  version: '1.2.0',
+  version: '1.3.0',
   name: 'Company operating kit',
   description:
-    'A strategist, a weekly business review, stage gates, and the operating skills a company decides ' +
-    'with: validating an idea, premortems, pricing, unit economics, customer discovery, launch ' +
-    'readiness, outbound rules and the weekly review.',
+    'A strategist, a weekly business review handed the week\'s numbers, stage gates, and the operating ' +
+    'skills a company decides with: validating an idea, premortems, pricing, unit economics, customer ' +
+    'discovery, positioning, market research, launch readiness, outbound rules and the weekly review.',
   body: {
     divisions: [{ slug: 'strategy', name: 'Strategy', maxConcurrency: 1 }],
     roles: [
@@ -544,15 +545,22 @@ export const COMPANY_OS: Bundle = {
           'task.delegate and read the answer with task.await. When only the owner can answer ' +
           'something, ask them with owner.ask rather than guessing. When the evidence says the ' +
           'company should move to another stage -- or back -- propose it with stage.propose, ' +
-          'following the stage-gates skill. Write for the owner in the company\'s language, briefly.',
+          'following the stage-gates skill. When the evidence says a goal is wrong -- a target ' +
+          'nobody can reach, a goal that no longer serves the company, one met or not worth ' +
+          'pursuing -- propose the change with goal.propose, naming the goal by its slug. ' +
+          'Write for the owner in the company\'s language, briefly.',
+        // Twelve, the most a role may hold (F2.6). `metrics.read` made way
+        // for `goal.propose`: it needs a vendor bound before it answers
+        // anything, and the weekly review's brief already carries every
+        // metric, read from the company's own records.
         tools: [
           'memory.search', 'skill.read', 'plan.record', 'metric.record', 'owner.ask',
-          'task.delegate', 'task.await', 'stage.propose', 'metrics.read', 'ledger.read', 'web.fetch', 'doc.draft',
+          'task.delegate', 'task.await', 'stage.propose', 'goal.propose', 'ledger.read', 'web.fetch', 'doc.draft',
         ],
         doneCriteria: [
           'every claim names where it came from and how sure it is: confirmed, likely or speculative',
           'each bet has the number it should move, a target and a date, and the result that would stop it',
-          'a change to a goal is written as a proposal for the owner, never applied',
+          'a change to a goal is proposed to the owner with goal.propose, never applied',
         ],
       }),
     ],
@@ -568,7 +576,8 @@ export const COMPANY_OS: Bundle = {
       { division: 'strategy', capability: 'task.await' },
       // To ask the owner for the GO or NO-GO, which only they give (0057).
       { division: 'strategy', capability: 'stage.propose' },
-      { division: 'strategy', capability: 'metrics.read' },
+      // To ask the owner to change a goal, which only they do (F3.10).
+      { division: 'strategy', capability: 'goal.propose' },
       { division: 'strategy', capability: 'ledger.read' },
       { division: 'strategy', capability: 'web.fetch' },
       { division: 'strategy', capability: 'doc.draft' },
@@ -590,9 +599,34 @@ export const COMPANY_OS: Bundle = {
         effect: 'deny',
       },
       {
-        // Winding down: what is owed is finished, and nothing new reaches
-        // anybody outside. Finance still pays and invoices what is owed.
+        // Winding down starts nothing: no paid reach and nothing bought,
+        // whoever asks. These are new work by what they are, so no answer
+        // from the owner could make one part of finishing what is owed.
         slug: 'wind-down-starts-nothing',
+        scope: 'company',
+        condition: {
+          all: [
+            { field: 'stage', op: 'eq', value: 'wind_down' },
+            { any: [
+              { field: 'tool', op: 'matches', value: 'ads.*' },
+              { field: 'tool', op: 'matches', value: '*.purchase' },
+            ] },
+          ],
+        },
+        effect: 'deny',
+      },
+      {
+        // And what is owed to customers is finished, which the owner judges
+        // one action at a time. This was a deny over every tier 2 action
+        // outside finance, so Support could not answer a customer owed a
+        // refund, and a deny is the one effect the owner cannot answer from
+        // the inbox. A tool name cannot tell a reply to a customer from new
+        // outreach -- both are `email.send` -- and a division's slug differs
+        // from company to company, so the owner is asked instead. Where the
+        // work read nothing from outside, they may say yes to a role's
+        // replies for a while (0083) rather than card by card. Finance still
+        // pays and invoices what is owed without asking.
+        slug: 'wind-down-asks-first',
         scope: 'company',
         condition: {
           all: [
@@ -601,7 +635,7 @@ export const COMPANY_OS: Bundle = {
             { not: { field: 'division', op: 'eq', value: 'finance' } },
           ],
         },
-        effect: 'deny',
+        effect: 'require_approval',
       },
     ],
     skills: [
@@ -645,7 +679,7 @@ memory, so the next run does not start again from nothing.
         scope: 'company',
         source: `---
 name: premortem
-description: Imagine the plan has already failed, and find out why before spending on it.
+description: Imagine the plan has already failed, find out why before spending on it, and say who watches for each way it could.
 ---
 
 # Premortem
@@ -656,10 +690,18 @@ six months from now and the plan has already failed. Write the story of how.
 1. List every plausible cause of the failure: the market, the product, the
    money, the people, the law, a supplier, timing.
 2. Rank them by likelihood times damage and keep the top 3.
-3. For each of the top 3, write an early warning -- the first observable sign
-   it is happening -- and what the company will do when it sees it.
+3. For each of the top 3, write:
+   - an early warning: the first observable sign it is happening;
+   - which role watches it, by the role's name in this company;
+   - which number or check it reads -- a goal metric, a ledger figure, a
+     count of support messages, a test -- and the value that means act now;
+   - what the company will do when it sees it.
 4. If one of them has no early warning and would be fatal, stop and tell the
    owner before going on.
+
+End with how sure the company now is that the plan will work -- confirmed,
+likely or speculative -- and what would make it surer: the cheapest test, or
+the one number that would change your mind.
 
 A premortem that finds nothing was not done. There is always a way to fail.
 `,
@@ -668,6 +710,11 @@ A premortem that finds nothing was not done. There is always a way to fail.
             name: 'names the three causes with warnings',
             input: { plan: 'launch a paid newsletter' },
             expectContains: ['already failed', 'top 3', 'early warning'],
+          },
+          {
+            name: 'gives every warning a watcher and a number, and ends with how sure',
+            input: { plan: 'open a second warehouse' },
+            expectContains: ['which role watches it', 'which number or check', 'how sure the company now is'],
           },
         ],
       },
@@ -767,6 +814,89 @@ unless they agreed to be named.
             name: 'classifies feedback',
             input: { feedback: 'I could not find the export button' },
             expectContains: ['bug, feature request, confusion, praise', 'triangulate'],
+          },
+        ],
+      },
+      {
+        slug: 'positioning',
+        scope: 'company',
+        source: `---
+name: positioning
+description: Who the product is for, what changes for them, and why one would tell another -- before paying for reach.
+---
+
+# Positioning
+
+Name who this is for as narrowly as the evidence allows: the people who have
+the problem worst and already spend time or money coping with it, not "small
+businesses" or "everyone". Widen it only when the evidence does.
+
+Say what changes for them, in their words: quote what customers said, not
+what the company wishes they had said. A feature is not a change; "I stopped
+losing orders on Fridays" is.
+
+Say why one would tell another. If nobody would,
+fix the product before paying for reach: advertising a product nobody
+recommends buys customers who leave, and teaches the company nothing it could
+not have learned for free.
+
+Build reach you own before reach you rent. Owned reach -- people who asked to
+hear from the company, a community it belongs to, pages people find when they
+search -- keeps working. Rented reach -- ads, paid placements -- stops the day
+the payments do, and the stage rules hold it back until launch.
+
+Write the positioning as one paragraph: who, the change in their words, why
+they would tell someone, and the evidence for each, labelled confirmed, likely
+or speculative.
+`,
+        evals: [
+          {
+            name: 'narrows the audience and owns its reach',
+            input: { product: 'a tool for everyone' },
+            expectContains: [
+              'as narrowly as the evidence allows', 'in their words',
+              'fix the product before paying for reach', 'reach you own before reach you rent',
+            ],
+          },
+        ],
+      },
+      {
+        slug: 'market-research',
+        scope: 'company',
+        source: `---
+name: market-research
+description: How customers cope today, what competitors really offer, and how sure each finding is.
+---
+
+# Market research
+
+Start with how customers cope today, before competitors: a spreadsheet, a
+relative who does it for them, a tool they complain about, or nothing at all.
+What they already use is the real competitor, and what it costs them is the
+ceiling on the price.
+
+Then, for each competitor, read the
+pricing page, the changelog and the worst reviews:
+
+- the pricing page says who they sell to and what they charge along;
+- the changelog says what they are building, and how fast;
+- the worst reviews say what their customers cannot get from them.
+
+Label every claim confirmed, likely or speculative, and say where it came
+from. A competitor's marketing is their claim, not a fact about them.
+
+End with what you could not find out and how the company could: a question
+to ask five customers, something to buy and try, a number to ask for. Record
+what was found in memory, so the next run does not start again from nothing.
+`,
+        evals: [
+          {
+            name: 'starts from how customers cope and labels its claims',
+            input: { market: 'invoicing for cafes' },
+            expectContains: [
+              'how customers cope today, before competitors', 'pricing page, the changelog and the worst reviews',
+              'confirmed, likely or speculative', 'what you could not find out',
+            ],
           },
         ],
       },
@@ -884,6 +1014,11 @@ description: The weekly review of the numbers, what changed, and what to continu
 
 # Weekly business review
 
+Start from the week in the task's input (\`week\`): every active goal with its
+metrics, the work finished this week, the spend against the monthly limit,
+and any stage move waiting for the owner, all read from the company's
+records. Where it says something was left out, say so rather than guessing.
+
 One page, for the owner, in this order:
 
 1. The numbers: every goal metric against its target, verified or not, and
@@ -916,8 +1051,12 @@ a review.
         // Monday, a quarter to eight, in the company's own time zone.
         cron: '45 7 * * 1',
         goal:
-          'Weekly business review: follow the weekly-business-review skill, using this week\'s numbers ' +
-          'and work.',
+          'Weekly business review: follow the weekly-business-review skill, starting from the week in ' +
+          'this task\'s input -- every goal and its numbers, the work finished, the spend and what waits ' +
+          'for the owner, read from the company\'s records.',
+        // Without it the review saw the numbers of its own goal chain -- the
+        // mission's -- and none of the week's work.
+        facts: 'week',
       },
     ],
   },

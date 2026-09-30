@@ -2946,7 +2946,7 @@ export class OwnerApi {
         maxBodyBytes: 256 * 1024,
         handle: async ({ params, request, raw, query }) => {
           // A sender that can set nothing but the address carries the token
-          // there (0098); only a door made for that takes it.
+          // there (0097); only a door made for that takes it.
           const token = query.get('token');
           return receiveHook(params.publicId!, { raw, headers: request.headers, ...(token ? { token } : {}) }, this.#options.secrets);
         },
@@ -3735,9 +3735,10 @@ export class OwnerApi {
 
       {
         // Editing the ladder redirects the company, so it takes the owner's
-        // device. `proposeGoalChange` is the agent's path -- it files an item
-        // and waits; this is the owner acting directly, which is why there is
-        // nothing to wait for and why the factor is the whole check.
+        // device. `goal.propose` is the agent's path (`proposeGoalChange`) --
+        // it files an item, and the owner's yes to it, with the same device,
+        // is the change; this is the owner acting directly, which is why there
+        // is nothing to wait for and why the factor is the whole check.
         method: 'POST',
         pattern: '/api/companies/:companyId/goals/:goalId',
         handle: async ({ params, body }) => {

@@ -86,7 +86,7 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
     name: 'memory.search',
     adapter: 'platform',
     tier: TIER.READ_ONLY,
-    summary: "Searches the company's own semantic memory.",
+    summary: "Searches the company's own memory -- facts, procedures, and past events in its project -- and its documents.",
     calibration:
       'A read of the company\'s own store, scoped to the asking division by ' +
       'the same rules the context pack uses. It changes nothing outside the ' +
@@ -135,6 +135,17 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
       'Opens one item in the owner\'s inbox and changes nothing: the stage ' +
       'moves only when the owner approves, with their device when the move ' +
       'loosens what the company may do.',
+  },
+  {
+    // F3.10. A run proposing that a goal say something else, or close.
+    name: 'goal.propose',
+    adapter: 'platform',
+    tier: TIER.READ_ONLY,
+    summary: 'Proposes to the owner that a goal change or close, with the evidence.',
+    calibration:
+      'Opens one item in the owner\'s inbox and changes nothing: agents read ' +
+      'goals and never write them, and the goal changes only when the owner ' +
+      'approves, with their device.',
   },
   {
     // A run asking the owner what only the owner can answer; the task waits.

@@ -27,6 +27,7 @@ import { recordPlan, type PlanStep } from '../engine/plan.ts';
 import { recordObservation } from '../domain/metrics.ts';
 import { askOwner, raiseEscalationWithin } from '../inbox/inbox.ts';
 import { STAGES, assertStage, loosens, stageOf, type Stage } from '../domain/stage.ts';
+import { GOAL_STATUSES, proposeGoalChange, type GoalStatus } from '../domain/goals.ts';
 import { createSubTask, getTask, transition } from '../engine/tasks.ts';
 import { listTickets, openTicket, readTicket, startTicket } from '../engine/tickets.ts';
 import { searchDocuments } from '../knowledge/documents.ts';
@@ -43,7 +44,10 @@ export interface MemorySearchInput {
   query: string;
   /** How many facts to return. Bounded below, so a search cannot be a dump. */
   limit?: number;
-  /** Defaults to semantic: the kind F4.8 leaves out of the pack. */
+  /**
+   * Defaults to semantic: the kind F4.8 leaves out of the pack. Episodic is
+   * what finished work in the run's own project did, one line a task (F4.6).
+   */
   memoryType?: 'semantic' | 'procedural' | 'episodic';
 }
 
@@ -76,7 +80,10 @@ export function memorySearchCapability(): Capability<MemorySearchInput, MemorySe
       properties: {
         query: { type: 'string', minLength: 1, description: 'What to look for, in a few words. Searches the company\'s facts and its documents.' },
         limit: { type: 'integer', minimum: 1, maximum: MEMORY_SEARCH_MAX_RESULTS, description: 'How many facts to return (default 5).' },
-        memoryType: { enum: ['semantic', 'procedural', 'episodic'], description: 'Facts (default), procedures, or past events.' },
+        memoryType: {
+          enum: ['semantic', 'procedural', 'episodic'],
+          description: 'Facts (default), procedures, or past events: what finished work in this project did and reported.',
+        },
       },
     },
     adapter: 'platform',
@@ -95,12 +102,27 @@ export function memorySearchCapability(): Capability<MemorySearchInput, MemorySe
       // not be found by any words. The scope rules stay in `recall`: a search
       // that reached past its division would make F4.6 a matter of which code
       // path was used.
-      const facts = await withTenant(ctx.companyId, (tx) => recall(tx, ctx.companyId, {
-        memoryType: input.memoryType ?? 'semantic',
-        divisionId: ctx.divisionId,
-        text: input.query,
-        limit: limit + 1,
-      }));
+      //
+      // Past events are shared across a project rather than walled off per
+      // division (F4.6), so an episodic search is scoped to the project of the
+      // work asking -- read from its task, the one thing the broker hands every
+      // capability. Without it `recall` fell back to the division's scope,
+      // where no episode is ever kept, and its project branch was reached by
+      // tests alone.
+      const memoryType = input.memoryType ?? 'semantic';
+      const facts = await withTenant(ctx.companyId, async (tx) => {
+        const projectId = memoryType === 'episodic'
+          ? (await tx.query<{ project_id: string }>('SELECT project_id FROM tasks WHERE id = $1', [ctx.taskId])).rows[0]?.project_id
+          : undefined;
+        if (memoryType === 'episodic' && !projectId) return [];
+        return recall(tx, ctx.companyId, {
+          memoryType,
+          divisionId: ctx.divisionId,
+          projectId,
+          text: input.query,
+          limit: limit + 1,
+        });
+      });
 
       // And the company's documents: the passages the same words point at
       // (0075), from what this division may read. Each is data -- a
@@ -385,6 +407,7 @@ export function registerPlatformCapabilities(registry: {
   registry.register(taskDelegateCapability() as unknown as Capability<never, never>);
   registry.register(taskAwaitCapability() as unknown as Capability<never, never>);
   registry.register(stageProposeCapability() as unknown as Capability<never, never>);
+  registry.register(goalProposeCapability() as unknown as Capability<never, never>);
   registry.register(ticketCreateCapability() as unknown as Capability<never, never>);
   registry.register(ticketListCapability() as unknown as Capability<never, never>);
 }
@@ -475,6 +498,56 @@ export function stageProposeCapability(): Capability<StageProposeInput, { propos
             : 'The company stays without a stage.',
         });
         return { proposed: true, inboxItemId };
+      });
+    },
+  };
+}
+
+export interface GoalProposeInput {
+  /** The goal, by its slug or its id. */
+  goal: string;
+  /** What the goal should say instead. */
+  statement?: string;
+  /** Close it as met or abandoned, or reopen it. */
+  status?: GoalStatus;
+  /** The evidence, with where each piece came from. */
+  why: string;
+}
+
+/**
+ * `goal.propose`: ask the owner to change a goal (F3.10).
+ *
+ * `proposeGoalChange` was documented as the agent's path and no agent could
+ * take it -- the strategist's done criterion says a goal change is "written
+ * as a proposal", and it had nothing to write one with, so it could only say
+ * so in prose the owner then had to carry out by hand. Tier 0 for the reason
+ * `stage.propose` is: it opens one item and changes nothing. The goal changes
+ * when the owner approves, with their device, and not before.
+ */
+export function goalProposeCapability(): Capability<GoalProposeInput, { proposed: boolean; inboxItemId: string; note?: string }> {
+  return {
+    name: 'goal.propose',
+    inputSchema: {
+      type: 'object',
+      required: ['goal', 'why'],
+      properties: {
+        goal: { type: 'string', minLength: 1, description: 'The goal, by its slug (as the weekly brief names it) or its id.' },
+        statement: { type: 'string', minLength: 1, description: 'What the goal should say instead.' },
+        status: { enum: [...GOAL_STATUSES], description: 'met or abandoned to close it, active to reopen it.' },
+        why: { type: 'string', minLength: 1, description: 'The evidence for the change, with where each piece came from.' },
+      },
+    },
+    adapter: 'platform',
+    defaultTier: TIER.READ_ONLY,
+    describe: () => ({ moneyCents: 0 }),
+    async execute(input, ctx) {
+      return proposeGoalChange({
+        companyId: ctx.companyId,
+        taskId: ctx.taskId,
+        goal: String(input.goal ?? ''),
+        proposedStatement: input.statement,
+        proposedStatus: input.status,
+        rationale: input.why,
       });
     },
   };
@@ -807,5 +880,5 @@ export function taskAwaitCapability(): Capability<{ childId: string }, TaskAwait
 /** The names this module implements, for a caller that needs to know. */
 export const PLATFORM_CAPABILITIES = [
   'memory.search', 'skill.read', 'plan.record', 'metric.record', 'owner.ask', 'task.delegate', 'task.await',
-  'stage.propose',
+  'stage.propose', 'goal.propose',
 ] as const;

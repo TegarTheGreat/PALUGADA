@@ -202,7 +202,7 @@ and fixes each one's tier, with the reason it is not the tier above or below.
   picture and voice providers you choose, kept as files; `speech.transcribe`,
 which writes down a recording in the company's files; and the tools a run uses to work inside the company:
   `plan.record`, `task.delegate`, `task.await`, `owner.ask`,
-  `metric.record` and `stage.propose`.
+  `metric.record`, `stage.propose` and `goal.propose`.
 - The rest need somebody's account and are bound by a vendor file you
   provide, or come from an MCP server you allow-list as
   `mcp.<server>.<tool>`. Until then they are known by name and refused with a
@@ -315,7 +315,11 @@ to **History** with your note, and your notes are searched too.
 Goals form a ladder: a mission, objectives under it, key results under those.
 Every task names the goal it serves, and the chain travels into every
 approval so you can see why the work exists. Agents read goals and never
-change them; one that thinks a goal is wrong proposes a change in your inbox.
+change them; one that thinks a goal is wrong proposes a change in your inbox
+with `goal.propose` -- new words, or closing it as met or abandoned -- with
+its evidence. Approving it, with your code, makes the change; a proposal
+about a goal you have changed since is refused, and saying no leaves the
+work that proposed it running.
 
 A goal can be measured by a number: a unit (money, a count, a percentage or a
 ratio), which way is better, a baseline, a target, a date, and optionally the
@@ -346,12 +350,23 @@ rule rather than a hope. Moving forward loosens those rules, so it takes your
 code; moving into wind down only closes things. The strategist may propose a
 move with the evidence; the move itself is always yours.
 
+With the operating kit (`company-os`), a company winding down starts nothing
+new -- no advertising and nothing bought, whoever asks -- and every other
+action at tier 2 or above outside the finance division comes to you to
+approve, so a reply to a customer who is owed one is yours to let through
+rather than refused. You may allow a role's replies for a while instead of
+one by one, where the work read nothing from outside.
+
 ## Memory and distillation
 
 The company keeps four kinds of memory: working memory (one task's steps),
-episodic memory (the event log), semantic memory (facts) and procedural
-memory (ways to work). Memory is scoped to the company, a project or a
-division, and a run only sees what its scope allows.
+episodic memory (a line for each piece of finished work: what it was for and
+what it reported), semantic memory (facts) and procedural memory (ways to
+work). Memory is scoped to the company, a project or a division, and a run
+only sees what its scope allows: facts and ways to work belong to a division
+unless shared, and past events to a project, so `memory.search` asked for
+past events searches the finished work of the run's own project. An event
+from work that read outside content comes back as data, like such a fact.
 
 A fact is never overwritten: a correction supersedes it, and the old version
 is kept, marked as replaced. Facts the platform is unsure of are flagged to
@@ -402,8 +417,18 @@ outside. Skills are under **Settings**, **Skills**.
 A bundle is a package of divisions, roles, grants, policies, skills with
 their eval cases, and schedules, installed into a company. The built-in ones
 are `company-os`, `content-ops`, `web-ops`, `qa-review` and `palugada-dev`
-(PALUGADA's own engineering team; see [AGENTS.md](../../AGENTS.md)). A bundle
-signed by a publisher you trust installs as written, and so does a built-in
+(PALUGADA's own engineering team; see [AGENTS.md](../../AGENTS.md)).
+`company-os` is the operating kit: a strategist that proposes bets, stage
+moves and goal changes and applies none; the stage rules; skills for
+validating an idea, premortems, pricing, unit economics, customer discovery,
+positioning, market research, launch readiness, outbound messages and the
+weekly review; and the weekly business review itself, on Monday morning in
+the company's time zone. That review is handed the week from the company's
+records, not from a model: every active goal with its numbers -- the latest,
+whether it was verified, and the change over the week -- the work finished,
+the spend against the monthly limit, and any stage move waiting for you.
+
+A bundle signed by a publisher you trust installs as written, and so does a built-in
 one that is exactly what this version ships. Any other unsigned bundle,
 including a built-in one somebody changed, installs quarantined: only grants
 it names at tier 0 are created, its schedules start switched off, and its

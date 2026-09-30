@@ -172,6 +172,51 @@ test('a lesson from work that read outside content is data, never a known fact',
   assert.equal(taught!.n, 1, 'and points at the restored work, not the original');
 });
 
+test('finished work is an episode of its project, and a run asking for past events finds it (F4.6, F4.8)', async () => {
+  // `memory.search` offered "past events" and nothing ever wrote one: every
+  // run that asked was told the company had no past.
+  const fixture = await createCompany('learn-episode');
+  const done = await finish(fixture, { summary: 'Sent the October price list to 12 cafes;\n5 replied.' }, { goal: 'Reach cafes in Bandung' });
+  await finish(fixture, { summary: 'Read a supplier\'s email about arabica prices.' }, { goal: 'Check the Garut supplier', outside: true });
+
+  const { rows: episodes } = await withTenant(fixture.companyId, (tx) => tx.query<{
+    body: string; scope_type: string; scope_id: string; source_task_id: string; outside: boolean;
+  }>("SELECT body, scope_type, scope_id, source_task_id, outside FROM memories WHERE memory_type = 'episodic' ORDER BY created_at"));
+  assert.deepEqual(episodes[0], {
+    body: 'Reach cafes in Bandung — Sent the October price list to 12 cafes; 5 replied.',
+    scope_type: 'project', scope_id: fixture.projectId, source_task_id: done.id, outside: false,
+  }, 'one line: what the work was for and what it reported, for its project');
+  assert.equal(episodes[1]!.outside, true, 'work that read outside content leaves an episode marked so');
+
+  const registry = new CapabilityRegistry();
+  registerPlatformCapabilities(registry);
+  await registry.sync();
+  await grantCapability(fixture, 'memory.search');
+  const broker = new CapabilityBroker(registry);
+  const search = async (projectId: string, query: string, key: string) => {
+    const asking = await createRootTask({
+      companyId: fixture.companyId, projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+      budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId, input: { goal: `look back ${key}` },
+      createdBy: 'owner', reserveTokens: 1_000,
+    });
+    await transition(fixture.companyId, asking.id, 'running');
+    return (await broker.invoke<unknown, { facts: Array<{ body: string; outside?: boolean }> }>({
+      companyId: fixture.companyId, projectId, divisionId: fixture.divisionId,
+      roleId: fixture.roleId, taskId: asking.id, idempotencyKey: key,
+    }, 'memory.search', { query, memoryType: 'episodic' })).output.facts;
+  };
+
+  const found = await search(fixture.projectId, 'cafes in Bandung', 'episode-1');
+  assert.deepEqual(found.map((fact) => fact.body), ['Reach cafes in Bandung — Sent the October price list to 12 cafes; 5 replied.']);
+  const outside = await search(fixture.projectId, 'arabica supplier', 'episode-2');
+  assert.match(outside[0]!.body, /^<<<UNTRUSTED_CONTENT>>>/, 'and an episode from outside comes back as data');
+
+  // Shared across a project, and only its own (F4.6).
+  const side = await withTenant(fixture.companyId, async (tx) => (await tx.query<{ id: string }>(
+    "INSERT INTO projects (company_id, slug, name) VALUES ($1, 'side', 'Side') RETURNING id", [fixture.companyId])).rows[0]!.id);
+  assert.deepEqual(await search(side, 'cafes in Bandung', 'episode-3'), []);
+});
+
 test('the distiller reads what the work did, trusts its own reading no more than a lesson, and marks outside content', async () => {
   const fixture = await createCompany('learn-distil');
   await finish(fixture, { summary: 'The supplier in Garut raised the price of arabica by 8 percent.' }, { outside: true });

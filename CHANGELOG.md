@@ -38,6 +38,13 @@ The first version. What it holds, in the order an owner meets it.
   Smithery and Zapier by name) and the platform's own, each at a tier.
 - Coolify's and Dokploy's MCP servers by name, so a company's roles can see
   what runs there and, as far as the owner allows, deploy it (STATUS 2.54).
+- The operating kit (`company-os` 1.3.0): a weekly business review handed
+  the week from the company's records -- every goal's numbers and their
+  change, the work finished, the spend against the limit, a stage move
+  waiting -- goal changes a run proposes and the owner's yes applies, a
+  wind-down that puts a reply to a customer to the owner instead of refusing
+  it, past events a run can search, and skills for positioning and market
+  research (STATUS 2.53).
 
 ### The owner
 

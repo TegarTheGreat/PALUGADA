@@ -4373,6 +4373,35 @@ the code against it found these, and each is now closed with a test.
   and read, and the boot says there is no history; a failed commit never
   fails a charter. The Docker image installs it.
 
+## 2.45 A guardian that may only tighten
+
+- **The gap F8.9 leaves.** After the work reads content from outside the
+  company, a tier 2 action asks the owner; a tier 0 or 1 action -- a fetch
+  whose address carries the customer list, a note that plants an
+  instruction in memory -- runs on whatever the content persuaded the run
+  to do. Row 7 of the competitive analysis of 2026-09-30: Claude's auto
+  mode, OpenAI's Dots and Google's semantic policies put a model in front
+  of such actions.
+- **Here it has one power and not the other** (`src/broker/guardian.ts`,
+  0092). A company that turns it on has each tier 0 or 1 call in such work,
+  that no policy already sends to the owner, judged by a model first. It
+  may send the call to the owner, with its reason on the card; nothing it
+  answers lets through a call a tier, a policy or F8.9 would have asked
+  about, and a standing approval never covers one it asked about.
+- **It is not shown the outside text**, only the owner's request and the
+  call as the approval card describes it, the arguments fenced as data. A
+  guardian talked into "no doubt" leaves the call where it was without one.
+- **It fails closed.** No model, a provider down, an answer that is not a
+  verdict: the owner is asked, and the card says why.
+- **Paid for and visible.** Each look is a model call charged to the work's
+  budget account, traced, and recorded as `guardian.judged`. A card the
+  owner approved is not judged again.
+- **Off by default**, because it costs a call per small action in such
+  work and asks the owner more. On with the session; off with the owner's
+  device, since that loosens.
+- **Unverified:** how often a real model doubts a harmless call. The tests
+  script the model's answers.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

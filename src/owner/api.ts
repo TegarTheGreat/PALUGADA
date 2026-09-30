@@ -1100,6 +1100,27 @@ export class OwnerApi {
       },
 
       {
+        // The guardian (row 7 of the competitive analysis of 2026-09-30,
+        // 0092): a model that may send a low-tier call to the owner after the
+        // work read content from outside. Turning it on only tightens;
+        // turning it off loosens, so it takes the owner's device.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/guardian',
+        handle: async ({ params, body }) => {
+          if (typeof body.on !== 'boolean') {
+            throw new PalugadaError('contract.violation', 'on must be true or false', { field: 'on' });
+          }
+          if (!body.on) await this.#requireFactor(body.proof, 'turn the guardian off', params.companyId!);
+          const { rowCount } = await withControlPlane((tx) => tx.query(
+            'UPDATE companies SET guardian = $2 WHERE id = $1', [params.companyId, body.on]));
+          if (rowCount === 0) {
+            throw new PalugadaError('contract.violation', 'there is no company with that id', { companyId: params.companyId });
+          }
+          return { on: body.on };
+        },
+      },
+
+      {
         // The harder half of F10.7, and a separate button on purpose.
         //
         // `stop-all` raises the flag: the engine reads it at every step, so
@@ -5936,16 +5957,18 @@ function send(res: ServerResponse, status: number, body: unknown): void {
 /** Every company the owner has, newest last, which is how they were made. */
 async function companies(): Promise<Array<{
   id: string; slug: string; name: string; frozen: boolean; eraseAfter: Date | null; workLanguage: string | null; talkLanguage: string | null;
+  guardian: boolean;
   stage: Stage | null; headline: Headline | null; ceo: { roleId: string; slug: string; displayName: string | null } | null;
 }>> {
   return withControlPlane(async (tx) => {
     const { rows } = await tx.query<{
       id: string; slug: string; name: string; frozen: boolean; eraseAfter: Date | null; workLanguage: string | null; talkLanguage: string | null;
+      guardian: boolean;
       stage: Stage | null; ceo: { roleId: string; slug: string; displayName: string | null } | null;
     }>(
       // Who the owner talks to in each (0068), for the pages that offer the conversation.
       `SELECT company.id, company.slug, company.name, company.frozen_at IS NOT NULL AS frozen, company.erase_after AS "eraseAfter",
-              company.work_language AS "workLanguage", company.talk_language AS "talkLanguage", company.stage,
+              company.work_language AS "workLanguage", company.talk_language AS "talkLanguage", company.stage, company.guardian,
               CASE WHEN ceo.id IS NULL THEN NULL
                    ELSE jsonb_build_object('roleId', ceo.id, 'slug', ceo.slug, 'displayName', ceo.display_name) END AS ceo
          FROM companies company LEFT JOIN roles ceo ON ceo.company_id = company.id AND ceo.title = 'CEO'

@@ -141,8 +141,33 @@ export function CompanySettings({ ctx }: { ctx: ConsoleContext }) {
         </Grid.Col>
       </Grid>
 
+      <Guardian ctx={ctx} />
+
       <CloseCompany ctx={ctx} />
     </Stack>
+  );
+}
+
+/**
+ * The guardian (0092): on, a model looks at each low-tier call the work
+ * makes after reading something from outside, and may send it to the owner
+ * first. It only ever asks more; turning it off takes the owner's device.
+ */
+function Guardian({ ctx }: { ctx: ConsoleContext }) {
+  const { companyId, company } = ctx;
+  return (
+    <Section title={t('The guardian')} description={t('After the work reads something from outside the company, such as an email or a web page, a model looks at each small action it then takes and sends you the doubtful ones. It never lets through what would otherwise ask you. Each look is a model call the company pays for.')}>
+      <Group>
+        <Badge color={company.guardian ? 'teal' : 'gray'} variant="light">{company.guardian ? t('On') : t('Off')}</Badge>
+        {company.guardian
+          ? <ActionButton label={t('Turn it off')} factor={t('Turn the guardian off for {company}', { company: company.name })}
+              run={(proof) => api('POST', `/api/companies/${companyId}/guardian`, { on: false, proof })}
+              done={() => { notifications.show({ message: t('The guardian is off for {company}.', { company: company.name }) }); void ctx.refreshCompanies(); }} />
+          : <ActionButton label={t('Turn it on')} leftSection={<IconShieldCheck size={16} />}
+              run={() => api('POST', `/api/companies/${companyId}/guardian`, { on: true })}
+              done={() => { notifications.show({ color: 'teal', message: t('The guardian is on for {company}.', { company: company.name }) }); void ctx.refreshCompanies(); }} />}
+      </Group>
+    </Section>
   );
 }
 

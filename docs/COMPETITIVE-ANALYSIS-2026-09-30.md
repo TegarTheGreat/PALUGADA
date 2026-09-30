@@ -74,11 +74,12 @@ Revisi yang dibaca:
    Business Summit Jakarta. Cakupannya hanya front office di WhatsApp: tanpa
    back office dan tanpa tata kelola anggaran. Tidak ada proyek open-source
    yang serius untuk UMKM Indonesia.
-5. **Yang dikerjakan hari ini sebagai jawaban ada di bagian 7.** Sepuluh
+5. **Yang dikerjakan hari ini sebagai jawaban ada di bagian 7.** Dua belas
    celah sudah ditutup: metrik, PITR, izin sementara, pin versi CLI,
    larangan TRUNCATE, WhatsApp, agregator MCP, penutupan perusahaan, ekspor
-   OTLP, dan runtime ACP. Email untuk owner dan versi yang terlihat sudah
-   sebagian. Sisanya diurutkan.
+   OTLP, runtime ACP, model penjaga yang hanya memperketat, dan baris
+   perbandingan plafon belanja di README. Email untuk owner dan versi yang
+   terlihat sudah sebagian. Sisanya diurutkan.
 
 ---
 
@@ -256,7 +257,7 @@ perusahaan dari ponsel, di Indonesia.
 | 4 | Pin versi agent CLI yang pengamanannya sudah diuji | OtoDock | Tinggi (keamanan) | **Selesai hari ini** (STATUS 2.29). Versi lain tidak mendapat pekerjaan sampai owner memasang versi teruji atau menerimanya dengan faktor kedua; pembaruan otomatis tiap CLI dimatikan. Claude Code 2.1.285 di mesin ini langsung tertangkap |
 | 5 | Larangan TRUNCATE pada tabel append-only | OpenBot | Sedang | **Selesai hari ini** (STATUS 2.27). Trigger pernyataan menolak TRUNCATE; Compose memigrasi di layanan terpisah sehingga proses app tidak lagi memegang URL pemilik skema (diverifikasi di stack Compose nyata) |
 | 6 | WhatsApp sebagai kanal owner, dengan tanda terima masuk yang tahan duplikat | Manor, Polsia (iMessage), Meta | Tinggi (Indonesia) | **Selesai** (STATUS 2.31): Cloud API, tanda tangan Meta, tanda terima masuk di database (0085), tombol, template di luar jendela 24 jam, dan percakapan dengan CEO. Desainnya ditiru dari Manor, bukan kodenya (lisensi Sustainable Use) |
-| 7 | Model yang menilai tiap panggilan: jalankan atau tanya owner | Claude `auto`, Dots, Google | Tinggi, berisiko | Direncanakan dengan batas keras. Model hanya boleh memperketat, atau meloloskan tier ≤ 1. Tier 3 tetap owner dengan faktor kedua |
+| 7 | Model yang menilai tiap panggilan: jalankan atau tanya owner | Claude `auto`, Dots, Google | Tinggi, berisiko | **Selesai, hanya memperketat** (STATUS 2.45). "Penjaga" per perusahaan, mati secara bawaan. Setelah pekerjaan membaca konten dari luar, setiap panggilan tier 0/1 yang tidak ditanyakan aturan lain dinilai model lebih dulu; model hanya bisa meneruskannya ke owner beserta alasannya, tidak pernah meloloskan. Model tidak diperlihatkan teks dari luar. Gagal menilai berarti bertanya ke owner. Biaya tiap penilaian dibebankan ke anggaran pekerjaan. Mematikannya butuh faktor kedua |
 | 8 | Penyedia sandbox siap pakai (E2B, Daytona, Modal) | Paperclip (8) | Tinggi | Direncanakan. Butuh akun uji nyata; tidak ditulis dari tebakan |
 | 9 | Agregator MCP (Zapier, Composio, Arcade) | Paperclip, Multica | Tinggi | **Selesai**: preset Composio, Pipedream, Arcade, dan Smithery di samping Zapier, diperiksa ke dokumen vendor dan metadata OAuth-nya tanpa kredensial. Setiap tool agregat tetap dipetakan ke tier satu per satu |
 | 10 | Email untuk agen dan owner | Paperclip (AgentMail), Opifer (IMAP) | Sedang-tinggi | **Sebagian** (STATUS 2.41). Owner kini diberi tahu lewat email (Resend, Postmark, SendGrid; alamat dan header tiap layanan dikonfirmasi lewat 401 tanpa kredensial asli), dengan tautan ke konsol dan tanpa tombol. Kotak surat untuk agen (menerima email) belum |
@@ -266,7 +267,7 @@ perusahaan dari ponsel, di Indonesia.
 | 14 | Runtime ACP generik | Paperclip, Multica | Sedang | **Selesai** (STATUS 2.42). Satu entri `"dialect": "acp"` menjalankan agen apa pun yang berbicara ACP versi 1 (Gemini CLI `--acp`, adaptor Claude dan Codex, Goose, OpenCode). Tool peran diberikan lewat server MCP HTTP di `session/new`; izin dijawab sekali, tidak pernah "selalu", ya hanya untuk tool peran; tidak ada file system atau terminal; `session/cancel` sebelum proses dihentikan; biaya dari `usage_update`. Diuji terhadap agen tiruan yang ditulis dari skema v1; belum ada agen ACP asli yang dijalankan di sini |
 | 15 | Rilis bernomor dan updater | Paperclip, Opifer | Tinggi | **Sebagian.** Versi yang berjalan kini terlihat di `/api/health`, di metrik (`palugada_build_info`), di span OTLP, dan di menu owner; `CHANGELOG.md` mencatat isi tiap versi dan tes menolak versi tanpa catatan. Rilis bernomor dan updater masih terbuka. **Lisensi adalah keputusan pemilik repositori** dan tidak dipilih di sini |
 | 16 | Owner mengambil alih browser saat agen menemui login/OTP | OpenBot | Rendah sekarang | Terbuka. Relevan kalau agen menjalankan seller center atau portal bank |
-| 17 | Halaman perbandingan yang jujur soal apa yang tidak dihentikan anggaran kompetitor | — | Rendah (dokumen) | Terbuka |
+| 17 | Halaman perbandingan yang jujur soal apa yang tidak dihentikan anggaran kompetitor | — | Rendah (dokumen) | **Selesai.** Tabel "How it compares" di README kini punya baris plafon belanja: Paperclip memeriksa setelah uang terpakai; PALUGADA mencadangkan sebelum kerja dimulai, dan tetap mengakui bahwa satu panggilan yang lebih mahal dari estimasinya bisa melewati plafon. Baris integrasi dan observabilitas yang sudah usang ikut diperbarui |
 | — | Batas lama satu run per peran (item lama #102) | — (kebutuhan sendiri) | Sedang | **Selesai hari ini** (STATUS 2.30) |
 
 ---

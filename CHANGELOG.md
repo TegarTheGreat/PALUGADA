@@ -42,6 +42,9 @@ The first version. What it holds, in the order an owner meets it.
 - One inbox for what cannot be undone: approvals bound to their action, a
   second factor for tier 3 and for every loosening, standing approvals for a
   while (STATUS 2.28), passkeys and recovery codes (STATUS 2.32).
+- A guardian a company may turn on: after the work reads something from
+  outside, a model looks at each small action and may send it to the owner,
+  never let one through (STATUS 2.45).
 - Told on Telegram, WhatsApp, a phone push, Slack, Discord or email, and able
   to decide on Telegram and WhatsApp (STATUS 2.31, 2.41).
 - A console in English and Indonesian, set up entirely from the panel: the

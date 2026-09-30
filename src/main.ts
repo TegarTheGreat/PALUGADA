@@ -42,6 +42,7 @@ import {
   DeploymentSecretManager, masterKeyFrom, previousMasterKeysFrom, readSettings, resealSecrets, settingsVersion, stateDirFrom, type MasterKey,
 } from './settings/store.ts';
 import { CharterRepository } from './governance/charter-repository.ts';
+import { Guardian } from './broker/guardian.ts';
 import { withSettings } from './settings/overlay.ts';
 import { LocalSecretManager } from './secrets/local.ts';
 import { PalugadaError } from './errors.ts';
@@ -811,6 +812,13 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     new CachedSecretManager(new OAuthCredentials(new DivisionSecrets(secrets, deploymentReferences(env)), {
       deployment: secrets, master: () => master(false),
     })),
+    // Row 7: the guardian a company may turn on. With no model it cannot
+    // judge, and a guardian that cannot judge sends the call to the owner.
+    {
+      guardian: new Guardian(llm ?? {
+        async complete() { throw new Error('this deployment has no model to judge with'); },
+      }),
+    },
   );
 
   // The runtimes, which is the whole of what a worker does.

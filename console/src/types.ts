@@ -13,6 +13,8 @@ export interface Company {
   workLanguage: string | null;
   /** What its agents write to the owner and each other in; null follows the default. */
   talkLanguage: string | null;
+  /** Whether a model judges low-tier calls after the work read content from outside (0092). */
+  guardian: boolean;
   /** Where the company is in its life (0057); null until the owner sets one. */
   stage: Stage | null;
   /** The first metric on its highest active goal, or null when nothing is measured yet. */

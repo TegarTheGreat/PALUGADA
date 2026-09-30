@@ -2516,6 +2516,39 @@ test('the owner can write a policy, and cannot write one the engine cannot read 
  * and either is changed with the owner's device -- every run is told them
  * first, so a session alone could otherwise rewrite what every agent obeys.
  */
+/**
+ * The guardian (row 7 of the competitive analysis of 2026-09-30): on with the
+ * session, since it only ever asks the owner more, and off only with their
+ * device, since that loosens.
+ */
+test('the owner turns the guardian on with a session, and off only with a factor (row 7)', async () => {
+  const fixture = await createCompany('console-guardian');
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+    const path = `/api/companies/${fixture.companyId}/guardian`;
+    const guarded = async () => ((await call(owner.url, 'GET', '/api/companies', { token })).body.companies as Array<{ id: string; guardian: boolean }>)
+      .find((company) => company.id === fixture.companyId)!.guardian;
+    assert.equal(await guarded(), false, 'off as every company starts');
+
+    const on = await call(owner.url, 'POST', path, { token, body: { on: true } });
+    assert.equal(on.status, 200, JSON.stringify(on.body));
+    assert.equal(await guarded(), true);
+
+    const unproven = await call(owner.url, 'POST', path, { token, body: { on: false } });
+    assert.equal(unproven.status, 403, JSON.stringify(unproven.body));
+    assert.equal(await guarded(), true);
+    const vague = await call(owner.url, 'POST', path, { token, body: { on: 'no' } });
+    assert.equal(vague.status, 400, JSON.stringify(vague.body));
+
+    const off = await call(owner.url, 'POST', path, { token, body: { on: false, proof: { totp: owner.code() } } });
+    assert.equal(off.status, 200, JSON.stringify(off.body));
+    assert.equal(await guarded(), false);
+  } finally {
+    await owner.close();
+  }
+});
+
 test('the owner reads both charters and rewrites either with a factor (F3.1, F3.6)', async () => {
   const fixture = await createCompany('console-charter');
   // F3.11: the deployment's repository of charters, which a save writes at once.

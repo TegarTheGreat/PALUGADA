@@ -63,6 +63,7 @@ import { CachedSecretManager, resolveCurrent } from '../secrets/rotation.ts';
 import { assertScopesCover } from '../secrets/scopes.ts';
 import { HookPipeline } from '../engine/hooks.ts';
 import { givePlaceBack, takePlace, type PlaceHolder } from './in-flight.ts';
+import type { Guardian } from './guardian.ts';
 
 export interface InvokeContext {
   companyId: string;
@@ -192,6 +193,7 @@ export class CapabilityBroker {
   readonly #hooks: HookPipeline;
   readonly #secrets: CachedSecretManager | null;
   readonly #inFlightWaitMs: number;
+  readonly #guardian: Guardian | null;
 
   /**
    * `secrets` is what makes F12.1-F12.3 reachable from a running capability.
@@ -206,10 +208,11 @@ export class CapabilityBroker {
     registry: CapabilityRegistry,
     hooks?: HookPipeline,
     secrets?: CachedSecretManager,
-    options: { inFlightWaitMs?: number } = {},
+    options: { inFlightWaitMs?: number; guardian?: Guardian } = {},
   ) {
     this.#registry = registry;
     this.#inFlightWaitMs = options.inFlightWaitMs ?? IN_FLIGHT_WAIT_MS;
+    this.#guardian = options.guardian ?? null;
     // A broker built without one still has every built-in hook: F14.2 is not
     // an option a caller can decline by leaving an argument out.
     this.#hooks = hooks ?? new HookPipeline();
@@ -347,6 +350,14 @@ export class CapabilityBroker {
       await sleep(Math.min(pause, left));
       pause = Math.min(pause * 2, 1_000);
     }
+  }
+
+  /** Whether the company turned the guardian on, and this work has read content from outside. */
+  async #guarding(ctx: InvokeContext): Promise<boolean> {
+    return withTenant(ctx.companyId, async (tx) => {
+      const { rows } = await tx.query<{ guardian: boolean }>('SELECT guardian FROM companies WHERE id = $1', [ctx.companyId]);
+      return rows[0]?.guardian === true && (await outsideContentIn(tx, ctx.taskId)) !== null;
+    });
   }
 
   async invoke<I, O>(ctx: InvokeContext, name: string, input: I): Promise<InvokeResult<O>> {
@@ -601,7 +612,30 @@ export class CapabilityBroker {
     const outside = tier >= 2
       ? await withTenant(ctx.companyId, (tx) => outsideContentIn(tx, ctx.taskId))
       : null;
-    const needsOwner = requiresOwnerApproval(tier) || policy.effect === 'require_approval' || outside !== null;
+    // Row 7 of the competitive analysis of 2026-09-30 (guardian.ts, 0092):
+    // where nothing above asks -- tier 0 or 1, no policy -- in work that has
+    // read content from outside, a company that turned the guardian on has
+    // each call judged first. It may send the call to the owner; nothing it
+    // answers lets through a call that would otherwise have asked.
+    let guardianAsks: string | null = null;
+    if (this.#guardian && tier <= 1 && policy.effect !== 'require_approval' && await this.#guarding(ctx)) {
+      const asked = fingerprintAction(name, input);
+      const allowed = await withTenant(ctx.companyId, (tx) => inbox.findGrantedApproval(tx, ctx.taskId, name, asked));
+      if (allowed) {
+        // Judged before and allowed by the owner: that yes is spent below,
+        // and the guardian is not asked the same question twice.
+        guardianAsks = 'it doubted this call before, and you allowed it once';
+      } else {
+        const shown = redactor.redactDeep(input) as unknown;
+        const verdict = await this.#guardian.judge({
+          companyId: ctx.companyId, projectId: ctx.projectId, taskId: ctx.taskId,
+          capability: name, tier, summary: describeAction(name, shown, SUMMARY_LIMIT), input: shown,
+        });
+        if (verdict.ask) guardianAsks = verdict.reason;
+      }
+    }
+    const needsOwner = requiresOwnerApproval(tier) || policy.effect === 'require_approval' || outside !== null
+      || guardianAsks !== null;
     const fingerprint = needsOwner ? fingerprintAction(name, input) : null;
     if (needsOwner) {
       grantedApproval = await withTenant(ctx.companyId, (tx) =>
@@ -643,7 +677,9 @@ export class CapabilityBroker {
               ? outside === 'begun'
                 ? ', and the task began with content from outside the company (F8.9).'
                 : ', and the work read content from outside the company before asking (F8.9).'
-              : ', which cannot be reversed.') +
+              : guardianAsks !== null
+                ? `, after the work read content from outside the company, and the guardian asked you first: ${guardianAsks}`
+                : ', which cannot be reversed.') +
           (chain.length > 0 ? `\n\nWhat this is for — ${renderAncestry(chain)}` : ''),
         consequenceIfDenied: 'The task halts and no external change is made.',
         estimatedCostCents: capability.estimatedCostCents ?? 0,
@@ -655,7 +691,7 @@ export class CapabilityBroker {
           goalAncestry: chain.map((goal) => ({ kind: goal.kind, statement: goal.statement })),
           // Why the owner is asked, which decides whether they may answer for
           // a while (0083): the tier itself, content from outside, or a policy.
-          reason: requiresOwnerApproval(tier) ? 'tier' : outside !== null ? 'outside' : 'policy',
+          reason: requiresOwnerApproval(tier) ? 'tier' : outside !== null ? 'outside' : guardianAsks !== null ? 'guardian' : 'policy',
         },
       });
       throw new PalugadaError(

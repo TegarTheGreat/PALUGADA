@@ -118,6 +118,11 @@ refer to `docs/PRD.md`.
 5. A standing approval (0083) never covers tainted work, tier 3, another role
    or another capability: the broker requires no taint, and `decide` accepts
    one only on a card a policy raised.
+5a. A company that turns the guardian on (0092, `src/broker/guardian.ts`) has
+   each tier 0 or 1 call in tainted work judged by a model first, which may
+   send it to the owner and cannot let anything through. It is shown the
+   owner's request and the redacted call, not the outside text, and a failure
+   to judge asks the owner.
 6. A lesson from tainted work is stored `outside` and shown later as data
    (0071, `keepLessons` in `src/engine/tasks.ts`).
 7. `web.fetch`, vendor and MCP calls refuse private and metadata addresses,
@@ -128,9 +133,12 @@ refer to `docs/PRD.md`.
 
 **Residual risk.**
 
-- Tier 0 and 1 actions run on tainted work without asking. `web.fetch` is tier
-  0, so a persuaded run can put company data in a URL it fetches. A policy can
-  deny by host; none does by default.
+- Tier 0 and 1 actions run on tainted work without asking unless the company
+  turned the guardian on, which is off by default because each look costs a
+  model call. `web.fetch` is tier 0, so a persuaded run can put company data
+  in a URL it fetches. A policy can deny by host; none does by default. With
+  the guardian on, what is left is a call the guardian judged harmless and
+  was not.
 - A document the owner uploaded is the company's own: wrapped as data where
   it is shown, it does not taint the task that reads it.
 - Taint through a descendant counts a read the parent may not have taken back
@@ -355,6 +363,7 @@ All under `test/acceptance/` unless named.
 | Schema owner URL absent at run time | none |
 | Migration contents unchanged | `process.test.ts` |
 | A role's tools, for every runtime in another process | `out-of-process-runtimes.test.ts` |
+| The guardian: judged only after outside content, only tightens, fails closed | `guardian.test.ts` |
 | Taint through sub-tasks, searches and briefings | `tool-io.test.ts` |
 | A division's credential is not the deployment's secret | `credentials.test.ts` |
 | Health page says whether, not why | `operability.test.ts` |

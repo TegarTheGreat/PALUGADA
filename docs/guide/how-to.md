@@ -248,6 +248,23 @@ while**, with when it ends and how often it was used. **Take back** ends it
 at once, without a code. From Telegram and in a batch, a card is approved
 once only.
 
+### Have a model look first: the guardian
+
+Once a role has read something from outside the company, anything it does
+at tier 2 or above waits for you. What it does at tier 0 or 1 does not: a
+web fetch, a note to memory. A message written to steer it could have it
+fetch an address with your customer list in it. On **Settings**,
+**Company**, **The guardian**, press **Turn it on**. From then on, in such
+work, a model looks at each of those small actions first -- what you asked
+for, and the action as your card would describe it, never the outside text
+itself -- and sends you the doubtful ones as a card saying why.
+
+It can only ask you more. It never lets through anything a tier, a policy or
+outside content would have asked about, and when it cannot judge -- no
+model, a provider down, an answer that is not a verdict -- it asks you. A
+card you approve is not judged again. Each look is a model call charged to
+the work, shown in its timeline. Turning it off takes your code.
+
 ## Answer a question from an agent
 
 A role that needs something only you know asks with `owner.ask`, and its

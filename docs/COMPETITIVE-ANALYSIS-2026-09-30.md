@@ -301,15 +301,35 @@ terbukti ditulis dulu sebagai tes yang gagal, lalu diperbaiki.
 | Panggilan serentak (F5.7) | Dua replika bisa sama-sama mengambil tempat terakhir (recheck PostgreSQL atas LEFT JOIN); runtime di luar proses tidak diparkir saat penuh; batas tidak punya plafon (2^31 baris pada panggilan pertama); batas yang diturunkan tidak langsung berlaku | **Diperbaiki** (STATUS 2.43). Advisory lock per divisi dan kapabilitas, semua pemegang yang hidup dihitung, plafon 100 di API, bundle, dan database (0093), dan `capability.busy` memarkir run di luar proses |
 | Kontainer (F12.9) | STATUS mengakui belum pernah ada run utuh di kontainer sungguhan | **Selesai** (STATUS 2.46). `npm run container:check` menjalankan satu run lewat adaptor di Docker 29.3.1: nobody, image read-only, tanpa jaringan, tanpa capability, 512 MiB, tanpa env orkestrator. Kontrol negatif tanpa flag adaptor gagal di setiap sifat, jadi pemeriksaannya bisa gagal |
 
+Setelah perbaikan itu, **tinjauan kedua** dijalankan atas perbaikannya
+sendiri, dan menemukan lapisan berikutnya:
+
+- **Repositori piagam:** berkas catatan (`.palugada-written.json`) dan
+  `.gitignore` masih mengikuti symlink, sehingga catatan yang di-push sebagai
+  link ke kunci master menimpa kunci itu dengan JSON. Publish yang gagal
+  sempat dicatat seolah sudah ditulis, dan `add --all` ikut meng-commit berkas
+  yang ditolak serta menutup `stash pop` yang konflik. Semua **diperbaiki**:
+  link ditolak, catatan ditulis lewat rename, hanya piagam yang di-commit, dan
+  indeks yang belum di-merge, bisect, atau HEAD terlepas menahan sinkronisasi.
+- **Taint:** tugas yang dibuat owner dari tiket tulisan agen masih bersih,
+  dan taint rerun ditulis di transaksi terpisah. Kini taint ikut di transaksi
+  yang membuat tugas, termasuk dari tiket agen. Penolakan anggaran di runtime
+  luar proses kini menghentikan tugas, sama seperti di dalam proses.
+- **ACP:** agen yang dijalankan lewat shim (npx, uvx, shell) kini dihentikan
+  bersama seluruh grup prosesnya.
+- **Panggilan serentak:** panggilan yang menunggu tempat sempat dinilai
+  penjaga (dan dibayar) serta mencatat pemakaian izin sementara di setiap
+  percobaan. Kini tempat diambil lebih dulu.
+
 Yang **belum** ditutup, dan dicatat sebagai sisa risiko:
 
 - Tes yang menyalakan deployment penuh masih menulis ke `~/.palugada` mesin
   pengembang, termasuk direktori piagam, bila `PALUGADA_STATE_DIR` tidak diset.
 - Dua replika yang berbagi satu direktori piagam tidak saling mengunci di luar
   proses.
-- Panggilan yang menunggu tempat (F5.7) mencatat pemakaian izin sementara dan
-  bisa memanggil penjaga lagi di tiap siklus tunggu, karena keduanya terjadi
-  sebelum tempat diambil.
+- Selama berkas piagam ditolak atau sinkronisasi ditahan, piagam yang disimpan
+  owner di konsol tidak sampai ke berkasnya, dan konsol belum memberi tahu;
+  yang memberi tahu baru catatan boot dan sinkronisasi berikutnya.
 - Anggaran belum bisa menghentikan run ACP di tengah jalan; biaya kini
   tercatat selama run, tetapi yang menghentikannya tetap deadline atau batas
   panjang run.

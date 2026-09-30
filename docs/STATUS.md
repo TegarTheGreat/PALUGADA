@@ -4391,9 +4391,11 @@ the code against it found these, and each is now closed with a test.
     counts now, whichever place it holds.
   - *A place could be kept by a call that never ran* when spending the
     owner's yes failed; it is given back first.
-  - *Left:* a call that waits for a place records a standing approval's
-    use, and may be judged by the guardian, on every try, since both come
-    before the place is taken.
+  - *A call that waited for a place was judged, and counted a yes for a
+    while as used, on every try*, since both came before the place was
+    taken: each try was another look the company paid for. The place is
+    taken first now, and given back when the owner is asked or anything on
+    the way fails.
 
 ## 2.44 Charters as files, in a git repository (F3.11)
 

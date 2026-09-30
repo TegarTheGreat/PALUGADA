@@ -19,6 +19,8 @@ import { closePools } from '../../src/db/pool.ts';
 import { isPalugadaError } from '../../src/errors.ts';
 import { createRootTask, createSubTask, outsideContentIn, transition } from '../../src/engine/tasks.ts';
 import { rerunTask } from '../../src/engine/owner-control.ts';
+import { takePlace } from '../../src/broker/in-flight.ts';
+import { claimTask } from '../../src/engine/checkout.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { CapabilityRegistry } from '../../src/broker/registry.ts';
 import { Guardian } from '../../src/broker/guardian.ts';
@@ -42,7 +44,7 @@ const context = (fixture: Fixture, taskId: string, key: string) => ({
 });
 
 /** A company whose run reads a customer's email and then reaches out. */
-async function company(name: string, llm: LlmClient, options: { on?: boolean; waitMs?: number } = {}) {
+async function company(name: string, llm: LlmClient, options: { on?: boolean; waitMs?: number; inFlightWaitMs?: number } = {}) {
   const fixture = await createCompany(name);
   const fetched: string[] = [];
   const sent: string[] = [];
@@ -66,6 +68,7 @@ async function company(name: string, llm: LlmClient, options: { on?: boolean; wa
   for (const name of ['mailbox.read', 'page.fetch', 'email.send']) await grantCapability(fixture, name);
   const broker = new CapabilityBroker(registry, undefined, undefined, {
     guardian: new Guardian(llm, options.waitMs === undefined ? {} : { waitMs: options.waitMs }),
+    ...(options.inFlightWaitMs === undefined ? {} : { inFlightWaitMs: options.inFlightWaitMs }),
   });
   if (options.on !== false) {
     await withControlPlane((tx) => tx.query('UPDATE companies SET guardian = true WHERE id = $1', [fixture.companyId]));
@@ -322,4 +325,30 @@ test('a rerun is judged against what the owner asked for the first time (row 7)'
   await broker.invoke(context(fixture, again, 'fetch'), 'page.fetch', { url: 'https://shop.example/orders/7' });
   assert.equal(llm.callCount, 1, 'the rerun carries what the first one read, so its small calls are judged');
   assert.match(llm.calls[0]!.messages[0]!.content, /What the owner asked for: answer the customer about their order/);
+});
+
+/**
+ * A call that waits for a place (F5.7) and finds none did not happen, and is
+ * tried again later: judged before it had one, each try was another look the
+ * company paid for (the review of d1b8142).
+ */
+test('a call that finds every place taken is not judged until it has one (F5.7, row 7)', async () => {
+  const llm = new RecordingLlmClient(() => '{"ask": false, "reason": "It opens the order page."}');
+  const { fixture, broker, task, newTask, fetched } = await company('guardian-busy', llm, { inFlightWaitMs: 50 });
+  await grantCapability(fixture, 'page.fetch', { maxInFlight: 1 });
+  const holder = await newTask();
+  assert.ok(await claimTask(fixture.companyId, { holder: 'elsewhere', taskId: holder.id }));
+  assert.ok(await takePlace({
+    companyId: fixture.companyId, divisionId: fixture.divisionId, capability: 'page.fetch', taskId: holder.id, holderKey: 'held',
+  }, 1));
+  await broker.invoke(context(fixture, task.id, 'read'), 'mailbox.read', { folder: 'inbox' });
+  for (const attempt of [1, 2]) {
+    await assert.rejects(
+      broker.invoke(context(fixture, task.id, 'fetch'), 'page.fetch', { url: 'https://shop.example/orders/7' }),
+      (error: unknown) => isPalugadaError(error, 'capability.busy'),
+      `try ${attempt}`,
+    );
+  }
+  assert.equal(llm.callCount, 0, 'no look was paid for a call that was not made');
+  assert.deepEqual(fetched, []);
 });

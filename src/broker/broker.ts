@@ -612,40 +612,69 @@ export class CapabilityBroker {
     const outside = tier >= 2
       ? await withTenant(ctx.companyId, (tx) => outsideContentIn(tx, ctx.taskId))
       : null;
+    // F5.7: a place among the calls the grant allows at once, taken before
+    // anything is recorded, charged or judged -- a call that waited and
+    // found none did not happen, and is tried again later: judged first, each
+    // try was another look the company paid for, and a yes for a while was
+    // counted as used each time (the review of d1b8142). Given back once the
+    // vendor has answered, or as soon as anything on the way there fails,
+    // the owner being asked included.
+    const place: PlaceHolder | null = verdict.maxInFlight === null ? null : {
+      companyId: ctx.companyId, divisionId: ctx.divisionId, capability: name,
+      taskId: ctx.taskId, holderKey: ctx.idempotencyKey,
+    };
+    if (place && verdict.maxInFlight !== null) await this.#takePlace(place, verdict.maxInFlight, ctx.signal);
+    const giveBack = async (): Promise<void> => {
+      if (place) await givePlaceBack(place).catch(() => undefined);
+    };
+    const holding = async <T>(work: () => Promise<T>): Promise<T> => {
+      try {
+        return await work();
+      } catch (error) {
+        await giveBack();
+        throw error;
+      }
+    };
+
     // Row 7 of the competitive analysis of 2026-09-30 (guardian.ts, 0092):
     // where nothing above asks -- tier 0 or 1, no policy -- in work that has
     // read content from outside, a company that turned the guardian on has
     // each call judged first. It may send the call to the owner; nothing it
     // answers lets through a call that would otherwise have asked.
     let guardianAsks: string | null = null;
-    if (this.#guardian && tier <= 1 && policy.effect !== 'require_approval' && await this.#guarding(ctx)) {
+    if (this.#guardian && tier <= 1 && policy.effect !== 'require_approval' && await holding(() => this.#guarding(ctx))) {
       const asked = fingerprintAction(name, input);
-      const allowed = await withTenant(ctx.companyId, (tx) => inbox.findGrantedApproval(tx, ctx.taskId, name, asked));
+      const allowed = await holding(() => withTenant(ctx.companyId, (tx) => inbox.findGrantedApproval(tx, ctx.taskId, name, asked)));
       if (allowed) {
         // Judged before and allowed by the owner: that yes is spent below,
         // and the guardian is not asked the same question twice.
         guardianAsks = 'it doubted this call before, and you allowed it once';
       } else {
         const shown = redactor.redactDeep(input) as unknown;
-        const verdict = await this.#guardian.judge({
+        const verdict = await holding(() => this.#guardian!.judge({
           companyId: ctx.companyId, projectId: ctx.projectId, taskId: ctx.taskId,
           capability: name, tier, summary: describeAction(name, shown, SUMMARY_LIMIT), input: shown,
-        });
+        }));
         if (verdict.ask) guardianAsks = verdict.reason;
         // Stopped while the guardian was looking: the call is not made on
         // the strength of an answer nobody is waiting for any more.
-        if (ctx.signal?.aborted) throw ctx.signal.reason ?? new Error('the call was withdrawn while the guardian judged it');
+        if (ctx.signal?.aborted) {
+          await giveBack();
+          throw ctx.signal.reason ?? new Error('the call was withdrawn while the guardian judged it');
+        }
       }
     }
     const needsOwner = requiresOwnerApproval(tier) || policy.effect === 'require_approval' || outside !== null
       || guardianAsks !== null;
     const fingerprint = needsOwner ? fingerprintAction(name, input) : null;
     if (needsOwner) {
-      grantedApproval = await withTenant(ctx.companyId, (tx) =>
-        inbox.findGrantedApproval(tx, ctx.taskId, name, fingerprint!));
+      grantedApproval = await holding(() => withTenant(ctx.companyId, (tx) =>
+        inbox.findGrantedApproval(tx, ctx.taskId, name, fingerprint!)));
     }
 
     const askOwner = async (): Promise<never> => {
+      // Asked, the call is not made now: its place is someone else's.
+      await giveBack();
       // F10.2 asks the item to say why. The plan says what will happen; the
       // goal chain says what it is ultimately for. An owner reading this on a
       // phone gets both without following a link.
@@ -714,8 +743,8 @@ export class CapabilityBroker {
     // guardian would have looked at (the review of 51e870a).
     let standing: { id: string; grantedByItem: string } | null = null;
     if (needsOwner && !grantedApproval && !requiresOwnerApproval(tier) && policy.effect === 'require_approval'
-        && (outside ?? await withTenant(ctx.companyId, (tx) => outsideContentIn(tx, ctx.taskId))) === null) {
-      standing = await withTenant(ctx.companyId, async (tx) => {
+        && (outside ?? await holding(() => withTenant(ctx.companyId, (tx) => outsideContentIn(tx, ctx.taskId)))) === null) {
+      standing = await holding(() => withTenant(ctx.companyId, async (tx) => {
         const found = await inbox.useStanding(tx, ctx.roleId, name);
         if (found) {
           await appendEvent(tx, {
@@ -728,22 +757,9 @@ export class CapabilityBroker {
           });
         }
         return found;
-      });
+      }));
     }
     if (needsOwner && !grantedApproval && !standing) await askOwner();
-
-    // F5.7: a place among the calls the grant allows at once, taken before
-    // anything is recorded or charged -- a call that waited and found none
-    // did not happen -- and given back once the vendor has answered, or as
-    // soon as anything on the way there fails.
-    const place: PlaceHolder | null = verdict.maxInFlight === null ? null : {
-      companyId: ctx.companyId, divisionId: ctx.divisionId, capability: name,
-      taskId: ctx.taskId, holderKey: ctx.idempotencyKey,
-    };
-    if (place && verdict.maxInFlight !== null) await this.#takePlace(place, verdict.maxInFlight, ctx.signal);
-    const giveBack = async (): Promise<void> => {
-      if (place) await givePlaceBack(place).catch(() => undefined);
-    };
 
     const controller = new AbortController();
     const signal = ctx.signal ?? controller.signal;

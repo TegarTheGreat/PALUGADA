@@ -1,0 +1,104 @@
+/**
+ * Bahasa Melayu: what the platform itself says to the owner outside the
+ * console (src/owner/say.ts), keyed by its English.
+ *
+ * The terms are the console's (console/src/locales/ms.ts), so a button on
+ * the phone says what the same button says in the panel: Luluskan, Tolak,
+ * Tanya; "Pemasangan ini, Alatan, Mendengar" is the page it names there. The
+ * app the owner is sent to is "apl", as Malaysian software writes it.
+ */
+export const SENTENCES: Readonly<Record<string, string>> = {
+  'Incident: {title}': 'Insiden: {title}',
+  'Done: {goal}': 'Selesai: {goal}',
+  'Stopped before finishing: {goal}': 'Berhenti sebelum selesai: {goal}',
+  'Why: {reason}': 'Sebab: {reason}',
+  'a task': 'satu tugasan',
+  'Approval needed: {title}': 'Kelulusan diperlukan: {title}',
+  '{summary} — if denied: {consequence}': '{summary} — jika ditolak: {consequence}',
+  'If denied:': 'Jika ditolak:',
+  'Expires:': 'Tamat tempoh:',
+  'This one is decided in the app.': 'Yang ini diputuskan dalam apl.',
+  'Open in PALUGADA': 'Buka dalam PALUGADA',
+  'Approve': 'Luluskan',
+  'Deny': 'Tolak',
+  'Ask': 'Tanya',
+  'Approved. Nothing left to press here.': 'Diluluskan. Tiada apa-apa lagi untuk ditekan di sini.',
+  'Denied. Nothing left to press here.': 'Ditolak. Tiada apa-apa lagi untuk ditekan di sini.',
+  'Decided ({decision}). Nothing left to press here.': 'Diputuskan ({decision}). Tiada apa-apa lagi untuk ditekan di sini.',
+  'Expired unanswered. Silence is a refusal, so nothing was done.':
+    'Tamat tempoh tanpa jawapan. Berdiam diri bermaksud menolak, jadi tiada apa-apa yang dilakukan.',
+  'Withdrawn: the task it was asking about is {state}.': 'Ditarik balik: tugasan yang ditanyakannya kini {state}.',
+  'Withdrawn ({reason}).': 'Ditarik balik ({reason}).',
+  'no reason recorded': 'tiada sebab direkodkan',
+  'This bot only answers to its owner.': 'Bot ini hanya menjawab pemiliknya.',
+  'Recorded: {decision}.': 'Direkodkan: {decision}.',
+  'That one has to be approved in the app.': 'Yang itu mesti diluluskan dalam apl.',
+  'Already closed: {reason}.': 'Sudah ditutup: {reason}.',
+  'That could not be recorded.': 'Itu tidak dapat direkodkan.',
+  'That item no longer exists.': 'Item itu tidak wujud lagi.',
+  'What do you want to ask about "{title}"? Reply to this message.':
+    'Apa yang anda mahu tanya tentang "{title}"? Balas mesej ini.',
+  'Your question': 'Soalan anda',
+  'Type your question as a reply.': 'Taip soalan anda sebagai balasan.',
+  'Asked. The answer will be on the item in the app.': 'Soalan dihantar. Jawapannya akan ada pada item itu dalam apl.',
+  'Answer': 'Jawab',
+  'Answer in words': 'Jawab dengan kata-kata',
+  'That choice is not on this question.': 'Pilihan itu tiada dalam soalan ini.',
+  'Chosen: {choice}.': 'Dipilih: {choice}.',
+  'Stop the task': 'Hentikan tugasan',
+  'Your answer to "{question}"? Reply to this message.': 'Jawapan anda untuk "{question}"? Balas mesej ini.',
+  'Your answer': 'Jawapan anda',
+  'Type your answer as a reply.': 'Taip jawapan anda sebagai balasan.',
+  'Answered. The task carries on with it.': 'Dijawab. Tugasan diteruskan dengan jawapan itu.',
+  'That is too long for one question; keep it under {max} characters.':
+    'Itu terlalu panjang untuk satu soalan; pastikan kurang daripada {max} aksara.',
+  '[a key, not kept]': '[satu kunci, tidak disimpan]',
+  'That looks like a key, so I did not keep it or send it anywhere. Keys go in the sealed field on a card, or on their page in This deployment: tell me what it is for and I will put the card in front of you.':
+    'Itu kelihatan seperti kunci, jadi saya tidak menyimpannya atau menghantarnya ke mana-mana. Kunci dimasukkan dalam medan yang dimeterai pada kad, atau pada halamannya di Pemasangan ini: beritahu saya kegunaannya dan saya akan letakkan kad itu di hadapan anda.',
+  'No model is set up yet, so I cannot think. Choose one under This deployment, Model; then I can help with everything else.':
+    'Belum ada model yang disediakan, jadi saya tidak boleh berfikir. Pilih satu di bawah Pemasangan ini, Model; kemudian saya boleh membantu dengan semua perkara lain.',
+  'The model did not answer: {reason}': 'Model tidak menjawab: {reason}',
+  'Here is what I propose.': 'Ini cadangan saya.',
+  'I have nothing to add.': 'Saya tiada apa-apa untuk ditambah.',
+  '{name}, CEO of {company}': '{name}, CEO {company}',
+  'That could not be answered: {reason}': 'Itu tidak dapat dijawab: {reason}',
+  'I read text and voice notes.': 'Saya membaca teks dan mesej suara.',
+  'Now talking to {name}.': 'Kini bercakap dengan {name}.',
+  'Choose whom to talk to.': 'Pilih siapa yang anda mahu ajak bercakap.',
+  'Choose whom to talk to': 'Pilih siapa yang anda ajak bercakap',
+  'Talk to PALUGADA about the whole deployment': 'Bercakap dengan PALUGADA tentang keseluruhan pemasangan',
+  'Who you are talking to, and how': 'Dengan siapa anda bercakap, dan caranya',
+  'Stopped.': 'Dihentikan.',
+  'Write here to talk to {name}.': 'Tulis di sini untuk bercakap dengan {name}.',
+  'You are talking to {name}. Write, or send a voice note. /ceo chooses whom you talk to; /palugada talks to PALUGADA about the whole deployment.':
+    'Anda sedang bercakap dengan {name}. Tulis, atau hantar mesej suara. /ceo memilih siapa yang anda ajak bercakap; /palugada bercakap dengan PALUGADA tentang keseluruhan pemasangan.',
+  'You said: "{words}"': 'Anda berkata: "{words}"',
+  'in the app': 'dalam apl',
+  'Apply: {summary}': 'Laksanakan: {summary}',
+  'Nothing hears speech yet: choose a provider in the app, under This deployment, Tools, Listening.':
+    'Belum ada yang boleh mendengar pertuturan: pilih penyedia dalam apl, di bawah Pemasangan ini, Alatan, Mendengar.',
+  'That recording is too long; keep a voice note under {max} MB.': 'Rakaman itu terlalu panjang; pastikan mesej suara kurang daripada {max} MB.',
+  'I could not make out any words in that.': 'Saya tidak dapat menangkap sebarang perkataan daripadanya.',
+  'Done: {summary}': 'Selesai: {summary}',
+  'That one is applied in the app.': 'Yang itu dilaksanakan dalam apl.',
+  'That card no longer exists.': 'Kad itu tidak wujud lagi.',
+  'That card was already applied.': 'Kad itu sudah dilaksanakan.',
+  'That card was dismissed.': 'Kad itu telah diketepikan.',
+  'That card failed when it was applied.': 'Kad itu gagal semasa dilaksanakan.',
+  'That could not be done: {reason}': 'Itu tidak dapat dilakukan: {reason}',
+  'Choose': 'Pilih',
+  'What do you want to ask about "{title}"? Reply to this message with your question.':
+    'Apa yang anda mahu tanya tentang "{title}"? Balas mesej ini dengan soalan anda.',
+  'Your answer to "{question}"? Reply to this message with your answer.':
+    'Jawapan anda untuk "{question}"? Balas mesej ini dengan jawapan anda.',
+  'I read text messages here.': 'Di sini saya membaca mesej teks.',
+  'Apply one of these here:': 'Laksanakan salah satu daripada ini di sini:',
+  'Apply {number}': 'Laksanakan {number}',
+  'Signed in to {provider} for the {alias} key': 'Telah log masuk ke {provider} untuk kunci {alias}',
+  'Go back to PALUGADA: the division holds this key now, and it is renewed before it runs out. This tab can be closed.':
+    'Kembali ke PALUGADA: bahagian itu kini memegang kunci ini, dan ia diperbaharui sebelum tamat tempoh. Tab ini boleh ditutup.',
+  'Signed in to {name}': 'Telah log masuk ke {name}',
+  'Go back to PALUGADA to choose which of its tools roles may use. This tab can be closed.':
+    'Kembali ke PALUGADA untuk memilih alatnya yang boleh digunakan oleh peranan. Tab ini boleh ditutup.',
+  'Not signed in': 'Tidak dapat log masuk',
+};

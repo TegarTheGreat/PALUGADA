@@ -44,6 +44,7 @@ import {
   liveHolders, silentHolders, stopBeating,
 } from './engine/checkout.ts';
 import { getTask } from './engine/tasks.ts';
+import { sweepLeftoverProcesses } from './engine/process-ledger.ts';
 import { withTenant } from './db/tenant.ts';
 import { isStopAllRequested } from './engine/control.ts';
 import { reportStranded } from './engine/liveness.ts';
@@ -216,7 +217,7 @@ export interface TickReport {
   stranded: number;
   /** Escalations handed to the role their division names (F2.1). */
   escalated: number;
-  /** Run containers and the like that dead workers left, removed (`Adapter.sweep`). */
+  /** Run containers and agent CLIs' process groups that dead workers left, ended (`Adapter.sweep`, 0095). */
   leftovers: number;
   /** Passages of the company's documents given their vectors this tick (0087). */
   embedded: number;
@@ -424,14 +425,18 @@ export class Worker {
     let silent: string[] = [];
     await this.#stage(report, 'heartbeat', async () => { silent = await silentHolders(this.id); });
 
-    // What dead workers left running -- a container is the case -- asked at
-    // most once a minute, since listing containers is a call to the daemon.
+    // What dead workers left running -- a container, or an agent CLI's
+    // process group on this machine (0095) -- asked at most once a minute,
+    // since listing containers is a call to the daemon. The first tick asks
+    // at once, which is what ends a killed predecessor's CLI on a restart.
     // Alive is what beat lately, and this worker whatever its own beat says.
     if (this.#sweptAt === null || now.getTime() - this.#sweptAt >= SWEEP_EVERY_MS) {
       await this.#stage(report, 'leftovers', async () => {
         const alive = await liveHolders();
         alive.add(this.id);
         const removed = await this.#options.engine.adapters.sweep(alive);
+        const companyId = this.#options.companyId;
+        removed.push(...await sweepLeftoverProcesses(alive, { by: this.id, ...(companyId ? { companyId } : {}) }));
         this.#sweptAt = now.getTime();
         report.leftovers += removed.length;
         if (removed.length > 0) this.#options.log?.({ level: 'warn', event: 'leftovers.removed', removed });

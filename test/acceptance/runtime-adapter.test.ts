@@ -265,7 +265,11 @@ test('a runtime is lent what it needs and no more', async () => {
   // is not supposed to hand over -- a database connection most of all.
   // `narrate` (0055) is the one added since, and it is the narrowest thing
   // here: it appends a bounded, redacted line to this run's own transcript,
-  // and cannot read anything back.
+  // and cannot read anything back. `processes` (0095) is the adapter's rather
+  // than the runtime's: the adapter writes down the process group it spawns,
+  // so a worker killed outright leaves a record, and it reaches neither a
+  // process on the other side of a pipe nor an in-process handler, whose
+  // context is built without it.
   const fixture = await createCompany('runtime-services');
   await useRuntime(fixture, 'spy');
   const { adapter, seen } = spyAdapter();
@@ -274,7 +278,9 @@ test('a runtime is lent what it needs and no more', async () => {
 
   assert.deepEqual(
     Object.keys(seen.services!).sort(),
-    ['awaitChild', 'callTool', 'narrate', 'reportUsage', 'signal', 'step'],
+    process.platform === 'linux'
+      ? ['awaitChild', 'callTool', 'narrate', 'processes', 'reportUsage', 'signal', 'step']
+      : ['awaitChild', 'callTool', 'narrate', 'reportUsage', 'signal', 'step'],
   );
 });
 

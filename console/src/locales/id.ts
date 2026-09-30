@@ -42,6 +42,7 @@ export const ID: Readonly<Record<string, string>> = {
   "A personal API key.": "API key pribadi.",
   "A personal API token, from the Developers section of your profile.": "Token API pribadi, dari bagian Developers di profil Anda.",
   "A price list, a contract or the brand guide: anything longer than a fact.": "Daftar harga, kontrak, atau panduan merek: apa pun yang lebih panjang dari sebuah fakta.",
+  "A process left running by this task's run was ended": "Proses yang ditinggalkan berjalan oleh run tugas ini telah dihentikan",
   "A project": "Satu proyek",
   "A ratio": "Rasio",
   "A real browser, on a machine of yours": "Browser sungguhan, di mesin milik Anda",

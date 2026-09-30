@@ -43,7 +43,7 @@
  */
 import { uncheckedVersion, versionIn } from './checked-versions.ts';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { spawnTree, TreeKeeper } from './process-tree.ts';
+import { spawnTree, TreeKeeper, type TreeLedger } from './process-tree.ts';
 import { acpSession } from './acp.ts';
 import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -439,7 +439,7 @@ export class CliAdapter implements Adapter {
       // failing to say so.
       env: { ...this.#childEnv(layout.env), ...credentials },
     };
-    const child = spawnTree(this.#spec.command, layout.argv, { ...place, stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawnTree(this.#spec.command, layout.argv, { ...place, stdio: ['pipe', 'pipe', 'pipe'] }, services.processes);
 
     let stderr = '';
     child.stderr!.setEncoding('utf8');
@@ -475,7 +475,7 @@ export class CliAdapter implements Adapter {
     const transport: Transport = {
       events: acp
         ? acp.events
-        : this.#events(child, () => stderr, values.model, (sessionId) => this.#sessionCost(sessionId, place)),
+        : this.#events(child, () => stderr, values.model, (sessionId) => this.#sessionCost(sessionId, place, services.processes)),
       async send(message) {
         // Tool answers reach this runtime over MCP. A cancellation reaches
         // most as the killed process below, and an ACP agent as
@@ -530,11 +530,13 @@ export class CliAdapter implements Adapter {
    * read -- Hermes puts the whole conversation after it -- and a call that
    * says nothing usable in fifteen seconds leaves the price to the engine.
    */
-  async #sessionCost(sessionId: string, place: { cwd?: string; env: Record<string, string> }): Promise<number | null> {
+  async #sessionCost(
+    sessionId: string, place: { cwd?: string; env: Record<string, string> }, processes: TreeLedger | undefined,
+  ): Promise<number | null> {
     // It came from the CLI's own output, and it is about to be an argument.
     if (!/^[A-Za-z0-9][\w.:-]{0,127}$/.test(sessionId)) return null;
     const probe = spawnTree(this.#spec.command, this.#spec.costArgs!.map((arg) => arg.replaceAll('{sessionId}', sessionId)),
-      { ...place, stdio: ['ignore', 'pipe', 'ignore'] });
+      { ...place, stdio: ['ignore', 'pipe', 'ignore'] }, processes);
     probe.on('error', () => {});
     try {
       const first = await new Promise<string | null>((resolve) => {

@@ -4803,6 +4803,77 @@ Found by reading the source of Block's Buzz against 2.38, on 2026-09-30.
   out; files under a root the deployment is no longer started with; what
   model providers and vendors were sent; and the owner's own chat history.
 
+## 2.52 Found by reading Paperclip: agent CLIs a killed worker left running
+
+- **The cleanup ran in the process that was killed.** A run ends its agent
+  CLI's process group, and a worker exiting kills every group it still
+  holds (`src/runtime/process-tree.ts`). A worker killed with SIGKILL or by
+  the out-of-memory killer does neither: the exit hook never runs. Under the
+  systemd unit the service's control group is killed with it, and in the
+  image tini's exit takes the container's processes down; under `npm start`
+  on a bare machine nothing did, and the CLI and everything it had started
+  kept running on the owner's key with nothing counting it. `agent_runs`
+  held no pid, so no later worker could have found them. Paperclip keeps
+  each run's pid, process group and start time, and kills a lost run's
+  group after a restart.
+- **Each group is written down as it starts** (0095, `run_processes`): the
+  pid, the group, the leader's start time from `/proc/<pid>/stat` (field 22,
+  clock ticks since boot), the worker's id, the worker's own pid and start
+  time, and the machine -- the kernel's boot id and the pid namespace, since
+  a pid means nothing outside the two. The CLI, Claude Code and script
+  adapters write through the run's services (`processes`), and the row is
+  closed when the adapter finds the group empty. The application role may
+  add a row and change only `ended_at`.
+- **The next worker on the machine ends them**
+  (`src/engine/process-ledger.ts`). In the worker's leftovers stage, beside
+  the container sweep (2.34) -- on its first tick and once a minute after --
+  a worker reads the open rows written on its own machine and ends a group
+  whose worker's process is gone (its pid no longer has the start time
+  beside it), whose worker has not beaten for a minute, or whose run is no
+  longer `running`: SIGTERM, SIGKILL after three seconds, then a check that
+  the group is empty, as the adapters end their own. The process is asked
+  as well as the heartbeat because a worker restarted at once finds its
+  predecessor's last beat still fresh, and a `PALUGADA_WORKER_ID` fixed by
+  the operator is the same id after a restart. Each group ended is recorded
+  on its run's task (`agent_run.leftover_ended`, with the reason and whether
+  SIGKILL was needed), and a worker kept to one company sweeps only that
+  company's.
+- **A pid is checked before it is signalled.** A group is signalled only
+  while its leader's pid still has the start time written down; one that
+  now has another belongs to somebody else, and its row is closed without a
+  signal. On the machine these tests ran on pids stop at 32768, so a reused
+  pid is an ordinary day rather than a curiosity.
+- **Tested** (test/acceptance/orphan-processes.test.ts), with real
+  processes throughout. A stand-in CLI with a child of its own, written down
+  the way a runtime writes it and belonging to a worker that never beat, is
+  ended with its child and the task says so; a row whose start time is one
+  tick off the process now holding that pid leaves it running; a live run's
+  group is left alone until the run is taken back as an orphan, then ended;
+  a row from another machine is neither signalled nor closed; a CLI run
+  through the engine writes its row and closes it. And with nothing played:
+  a separate worker process runs a task on the CLI adapter and is killed
+  with SIGKILL mid-run; the CLI and its child are still running afterwards,
+  and a new worker's first tick ends both, although the dead worker's
+  heartbeat was a moment old -- its process was gone, and `/proc` said so.
+- **What is left.**
+  - Another machine's leftovers wait for a worker on that machine, and a
+    machine that never runs a worker again keeps them.
+  - A group whose leader has exited is not signalled, though its other
+    members may be the run's: the kernel keeps a pid out of use while a
+    live group bears it, but once that group has emptied, the number can
+    name a new group whose own leader has exited, and nothing left in
+    `/proc` tells the two apart. The CLI, which is what spends, is the
+    leader.
+  - A worker killed between starting a CLI and committing its row -- a few
+    milliseconds -- leaves a group nobody wrote down.
+  - Linux only. Where there is no `/proc`, nothing is written down and
+    nothing is swept, and the exit hook is all there is.
+  - A process that leaves its group with `setsid()` is still out of reach,
+    as `process-tree.ts` says.
+  - While the platform stop is pressed a tick does nothing but tell the
+    owner (F5.8), so neither this sweep nor the container sweep runs until
+    it is lifted.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

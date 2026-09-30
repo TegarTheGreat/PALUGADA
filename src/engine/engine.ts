@@ -18,6 +18,7 @@ import { createSubTask, getTask, transition, type TaskRow } from './tasks.ts';
 import { validateContract } from './contracts.ts';
 import { checkDone, checkFailedWrites, roomForDone } from './done.ts';
 import { narrator } from './transcript.ts';
+import { processLedger } from './process-ledger.ts';
 import { containChildResult, type ChildResult } from './containment.ts';
 import { taskCostCents } from '../reporting/cost.ts';
 import { isTerminal } from '../domain/task.ts';
@@ -1131,12 +1132,16 @@ export class Engine {
     };
 
 
+    // Undefined where there is no /proc to name a process by, and then a
+    // group is only as safe as the exit hook in process-tree.ts.
+    const processes = processLedger(companyId, agentRunId, this.#workerId);
     const services: RunServices = {
       step,
       callTool,
       awaitChild,
       reportUsage,
       narrate: narrator(companyId, taskId, agentRunId),
+      ...(processes ? { processes } : {}),
       signal: controller.signal,
     };
 

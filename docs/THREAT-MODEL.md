@@ -195,7 +195,11 @@ refer to `docs/PRD.md`.
    (`ContainerAdapter.argv`, `src/runtime/container.ts`); a dead worker's
    containers are swept by label.
 7. A CLI's process group is signalled, killed, and checked empty
-   (`src/runtime/process-tree.ts`).
+   (`src/runtime/process-tree.ts`). Each group is written down as it starts
+   (`run_processes`, 0095), and one a worker killed outright left running is
+   ended by the next worker on the same machine, once `/proc` shows its
+   leader still has the start time written down
+   (`src/engine/process-ledger.ts`).
 8. Tokens per run, the role's run length (0084; off unless the owner sets
    it), the deadline, and a lease that lapses without progress. A run whose
    lease its worker could not renew for a whole lease is stopped by that
@@ -225,6 +229,12 @@ refer to `docs/PRD.md`.
   the refusal is the protocol's, not a sandbox.
 - A process that leaves its group with `setsid()` survives (stated in
   `process-tree.ts`).
+- A group a killed worker left is ended only by a worker on the same
+  machine and only while its leader lives: once the CLI has exited, what it
+  started keeps running, since its group's number could by then be another
+  group's. A worker killed in the milliseconds between starting a CLI and
+  writing its row leaves one nobody knows of. None of it is written down
+  where there is no `/proc`.
 - The suite tests the container argv and the sweep; a whole run on a real
   daemon is checked by `npm run container:check`, in CI and wherever an
   operator runs it, not by the suite. Nothing requires the image pinned by
@@ -390,6 +400,7 @@ All under `test/acceptance/` unless named.
 | Outside lessons as data | `memory-learning.test.ts` |
 | Address checks | `platform-capabilities.test.ts` |
 | Environment, bridge, argv, versions, process tree, container sweep | `out-of-process-runtimes.test.ts` |
+| A killed worker's CLIs ended by the next worker; a reused pid, a live run's group and another machine's never signalled | `orphan-processes.test.ts` |
 | Run length; tokens per run | `operability.test.ts`, `execution-hardening.test.ts` |
 | A run stopped when its lease could not be renewed for a whole lease | `lease-keeper.test.ts` |
 | Reservations, charges, overspend | `budget-inheritance.test.ts`, `cost-control.test.ts`, `spend-guard.test.ts` |

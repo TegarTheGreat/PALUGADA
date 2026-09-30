@@ -1098,6 +1098,77 @@ test('the charter repository follows no link, keeps to itself, and waits out a m
   assert.equal(await readFile(join(root, 'companies', later, 'SOUL.md'), 'utf8'), 'Our own charter.\n');
 });
 
+/**
+ * The repository's own files are not a way in either (the second review of
+ * the charter repository): its record of what it wrote and its `.gitignore`
+ * were read and written through links, a conflicted `stash pop` leaves no
+ * MERGE_HEAD to hold for, and `add --all` committed whatever lay there.
+ */
+test('the charter repository\'s own files follow no link, and it commits only what it wrote (F3.11)', async () => {
+  const fixture = await createCompany('charter-record');
+  const base = await mkdtemp(join(tmpdir(), 'palugada-record-'));
+  const root = join(base, 'charters');
+  const repository = new CharterRepository({ root });
+  const path = join('companies', fixture.slug, 'SOUL.md');
+  const soul = join(root, path);
+  const key = join(base, 'master.key');
+  await writeFile(key, 'the key itself\n', 'utf8');
+  await publishCharter({ companyId: fixture.companyId, body: 'First.' });
+  assert.equal((await repository.sync()).git, 'committed');
+
+  // Its record, a link to the key: not read, not written through, and the sync holds.
+  const record = join(root, '.palugada-written.json');
+  await rm(record);
+  await symlink(key, record);
+  await publishCharter({ companyId: fixture.companyId, body: 'Second.' });
+  assert.match((await repository.sync()).git, /^held: \.palugada-written\.json is not a file/);
+  assert.equal(await readFile(key, 'utf8'), 'the key itself\n');
+  // Removed, it is made again, and with no record of what PALUGADA wrote the
+  // files are the source, as F3.11 has them: the file's words are taken.
+  await rm(record);
+  assert.deepEqual((await repository.sync()).taken.map((one) => one.path), [path]);
+  assert.equal(await readFile(record, 'utf8').then((text) => typeof JSON.parse(text)), 'object');
+
+  // Its .gitignore, a link to the key: git is not used, the key is untouched, the charters are kept.
+  await rm(join(root, '.gitignore'));
+  await symlink(key, join(root, '.gitignore'));
+  await publishCharter({ companyId: fixture.companyId, body: 'Third.' });
+  const ignored = await repository.sync();
+  assert.match(ignored.git, /^failed: \.gitignore is not a file/);
+  assert.equal(await readFile(key, 'utf8'), 'the key itself\n');
+  assert.equal(await readFile(soul, 'utf8'), 'Third.\n');
+  await rm(join(root, '.gitignore'));
+  await exec('git', ['-C', root, 'checkout', '--', '.gitignore']);
+  assert.equal((await repository.sync()).git, 'committed');
+
+  // A refused file is left out of the commit: it is not PALUGADA's to record.
+  await writeFile(soul, 'Fourth, with a \u0000.\n', 'utf8');
+  await writeFile(join(root, 'notes.txt'), 'the operator\'s own file\n', 'utf8');
+  await publishCharter({ companyId: fixture.companyId, body: 'Fifth.' });
+  await repository.sync();
+  const loose = (await exec('git', ['-C', root, 'status', '--porcelain'])).stdout;
+  assert.match(loose, /SOUL\.md/, 'the refused file is not committed');
+  assert.match(loose, /notes\.txt/, 'nor is the operator\'s');
+  await writeFile(soul, 'Fifth.\n', 'utf8');
+
+  // Conflicts in the index with no merge to show for them -- a stash pop -- hold the sync.
+  const blob = (await exec('git', ['-C', root, 'hash-object', '-w', soul])).stdout.trim();
+  await exec('git', ['-C', root, 'update-index', '--force-remove', path]);
+  const unmerged = [1, 2, 3].map((stage) => `100644 ${blob} ${stage}\t${path}`).join('\n');
+  await new Promise<void>((resolve, reject) => {
+    const child = execFile('git', ['-C', root, 'update-index', '--index-info'], (error) => (error ? reject(error) : resolve()));
+    child.stdin!.end(`${unmerged}\n`);
+  });
+  assert.match((await repository.sync()).git, /^held: a merge with unresolved conflicts is in the index/);
+  await exec('git', ['-C', root, 'add', path]);
+
+  // A file where the companies directory should be refuses the companies, not the sync.
+  await rm(join(root, 'companies'), { recursive: true });
+  await writeFile(join(root, 'companies'), 'not a directory\n', 'utf8');
+  const flat = await repository.sync();
+  assert.deepEqual(flat.refused.map((one) => one.path), [path], JSON.stringify(flat));
+});
+
 /* ------------------------------------------------------- F12.7 – F12.10 --- */
 
 /** Ed25519 signs the message itself and refuses to be handed a digest name. */

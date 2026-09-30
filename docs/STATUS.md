@@ -4443,6 +4443,24 @@ the code against it found these, and each is now closed with a test.
   - *Git's reason was cut to its first line*, which is "Command failed";
     what git said is reported now, and a failed or held repository is
     named at boot.
+- **A second review found the repository's own files still open.**
+  - *Its record and its `.gitignore` followed links*: a pushed
+    `.palugada-written.json` linking to the master key was overwritten
+    with JSON, and a linked `.gitignore` was appended to. Both are refused
+    as links; the record is written beside itself and renamed over, and a
+    record that is not a record of files holds the sync.
+  - *A failed publish was recorded as written*, so the next sync wrote the
+    database's charter over the edit it never took. It is recorded once
+    published.
+  - *`add --all` committed refused files*, and concluded a conflicted
+    `stash pop`, which leaves no MERGE_HEAD. Only the charters brought
+    level are committed, and unmerged index entries, a bisect, a sequence
+    of cherry-picks and a detached HEAD hold the sync.
+  - *A file where `companies` should be stopped every charter*; it now
+    refuses the companies' and keeps the platform's.
+  - *Left:* while a file is refused or the sync held, the owner's saves in
+    the console do not reach it and the console does not say so; the boot
+    and the next sync do.
 
 ## 2.45 A guardian that may only tighten
 

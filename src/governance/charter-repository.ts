@@ -51,7 +51,7 @@
 import { execFile } from 'node:child_process';
 import { constants } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { access, lstat, mkdir, open, readFile, readdir, realpath, writeFile } from 'node:fs/promises';
+import { access, lstat, mkdir, open, readdir, realpath, rename } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { withControlPlane } from '../db/tenant.ts';
@@ -70,6 +70,8 @@ const MIDWAY: Array<[string, string]> = [
   ['rebase-apply', 'a rebase'],
   ['CHERRY_PICK_HEAD', 'a cherry-pick'],
   ['REVERT_HEAD', 'a revert'],
+  ['BISECT_START', 'a bisect'],
+  ['sequencer', 'a sequence of cherry-picks or reverts'],
 ];
 
 export interface CharterSync {
@@ -122,17 +124,21 @@ export class CharterRepository {
   }
 
   async #sync(): Promise<CharterSync> {
-    await mkdir(join(this.root, 'companies'), { recursive: true });
+    await mkdir(this.root, { recursive: true });
+    // Not there as a directory -- a file, a dangling link -- the companies'
+    // charters are each refused below, and the platform's is still kept.
+    await mkdir(join(this.root, 'companies'), { recursive: true }).catch(() => undefined);
     const report: CharterSync = { written: [], taken: [], unknown: [], refused: [], git: 'nothing to commit' };
     // A repository that cannot be made or used leaves the files kept
     // without their history, as a machine with no git does, and says why.
     const git = await this.#ready();
     const midway = git === null ? await this.#midway() : null;
     if (midway) {
-      return { ...report, git: `held: ${midway} is in progress in ${this.root}; finish it, and the next sync takes the result` };
+      return { ...report, git: `held: ${midway} in ${this.root}; finish it, and the next sync takes the result` };
     }
 
     const written = await this.#readWritten();
+    if (typeof written === 'string') return { ...report, git: `held: ${written}` };
     const messages: string[] = [];
     const { companies, current } = await withControlPlane(async (tx) => {
       const { rows: companies } = await tx.query<{ id: string; slug: string }>('SELECT id, slug FROM companies ORDER BY slug');
@@ -190,7 +196,14 @@ export class CharterRepository {
     }
     if (seen) await this.#saveWritten(written);
 
-    report.git = git ?? await this.#commit(messages);
+    // Every charter brought level, not only this sync's: one written while
+    // git could not commit is committed on the next sync that can.
+    const refused = new Set(report.refused.map((one) => one.path));
+    const levelled: string[] = [];
+    for (const scope of scopes) {
+      if (!refused.has(scope.path) && await isFile(join(this.root, scope.path))) levelled.push(scope.path);
+    }
+    report.git = git ?? await this.#commit(messages, levelled);
     return report;
   }
 
@@ -209,16 +222,20 @@ export class CharterRepository {
       // what it held before stays recorded: it is looked at again on the
       // next sync, and taken once somebody has put it right.
       const body = onFile.trim();
-      if (body && body !== inDatabase?.body.trim()) {
-        const problem = notACharter(body);
-        if (problem) throw new Refusal(problem);
+      if (!body || body === inDatabase?.body.trim()) {
+        written[scope.path] = digest(onFile);
+        return { kind: 'seen', version: inDatabase?.version ?? 0 };
       }
-      written[scope.path] = digest(onFile);
-      if (!body || body === inDatabase?.body.trim()) return { kind: 'seen', version: inDatabase?.version ?? 0 };
+      const problem = notACharter(body);
+      if (problem) throw new Refusal(problem);
       const published = await publishCharter({
         ...(scope.companyId === null ? {} : { companyId: scope.companyId }),
         body,
       }, 'repository');
+      // Recorded only once it is published: recorded first, a publish that
+      // failed left the file looking like PALUGADA's, and the next sync
+      // wrote the database's charter over the edit it never took.
+      written[scope.path] = digest(onFile);
       return { kind: 'taken', version: published.version };
     }
     // Ours, or not there: the database's charter is what it should hold.
@@ -307,6 +324,7 @@ export class CharterRepository {
       }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'not available';
+      if (error instanceof Refusal) return `failed: ${error.message}`;
     }
     try {
       await this.#run(['init', '--quiet']);
@@ -321,38 +339,65 @@ export class CharterRepository {
     }
   }
 
-  /** The record of what PALUGADA wrote is the deployment's, not the history's; an operator's own entries are kept. */
+  /**
+   * The record of what PALUGADA wrote is the deployment's, not the
+   * history's; an operator's own entries are kept. A `.gitignore` that is a
+   * link is refused like a charter that is one: appended to through it, the
+   * master key beside the repository took the line.
+   */
   async #ignoreWritten(): Promise<void> {
     const path = join(this.root, '.gitignore');
-    let now = '';
-    try {
-      now = await readFile(path, 'utf8');
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    }
+    const stats = await lstat(path).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    });
+    if (stats && !stats.isFile()) throw new Refusal('.gitignore is not a file, and a link is never followed: put a file there');
+    const now = stats ? await readNoFollow(path) : '';
     if (now.split('\n').some((line) => line.trim() === WRITTEN)) return;
-    await writeFile(path, `${now}${now && !now.endsWith('\n') ? '\n' : ''}${WRITTEN}\n`, 'utf8');
+    const handle = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_APPEND | constants.O_NOFOLLOW, 0o644);
+    try {
+      await handle.writeFile(`${now && !now.endsWith('\n') ? '\n' : ''}${WRITTEN}\n`, 'utf8');
+    } finally {
+      await handle.close();
+    }
   }
 
-  /** The operation git is in the middle of, or null. */
+  /** What git is in the middle of, said as the operator would, or null. */
   async #midway(): Promise<string | null> {
     const { stdout } = await this.#run(['rev-parse', '--git-dir']);
     const gitDir = resolve(this.root, stdout.trim());
     for (const [name, what] of MIDWAY) {
       try {
         await access(join(gitDir, name));
-        return what;
+        return `${what} is in progress`;
       } catch {
         // Not this one.
       }
     }
+    // Conflicts with no operation to show for them: a `stash pop`, a
+    // `merge --squash`, an `apply --3way`.
+    const { stdout: unmerged } = await this.#run(['ls-files', '--unmerged']);
+    if (unmerged.trim()) return 'a merge with unresolved conflicts is in the index';
+    try {
+      await this.#run(['symbolic-ref', '--quiet', 'HEAD']);
+    } catch {
+      return 'HEAD is detached (a bisect, or an older commit checked out)';
+    }
     return null;
   }
 
-  async #commit(messages: string[]): Promise<CharterSync['git']> {
+  /**
+   * Commits the charters PALUGADA brought level, and nothing else: a file
+   * it refused, and whatever an operator left lying in the directory or
+   * staged, is theirs to commit. `add --all` committed a refused file's
+   * conflict markers, and concluded a conflicted `stash pop` with them.
+   */
+  async #commit(messages: string[], paths: string[]): Promise<CharterSync['git']> {
     try {
-      await this.#run(['add', '--all']);
-      const { stdout } = await this.#run(['status', '--porcelain']);
+      const ours = [...paths, ...(await isFile(join(this.root, '.gitignore')) ? ['.gitignore'] : [])];
+      if (ours.length === 0) return 'nothing to commit';
+      await this.#run(['add', '--', ...ours]);
+      const { stdout } = await this.#run(['diff', '--cached', '--name-only', '--', ...ours]);
       if (!stdout.trim()) return 'nothing to commit';
       const subject = messages.length === 1 ? messages[0]! : `${messages.length} charters: ${messages.join('; ')}`;
       // PALUGADA's own name, not the operator's: the commit says who wrote
@@ -360,7 +405,7 @@ export class CharterRepository {
       // commit when its author made one. The repository's own hooks run:
       // an operator who put one there, a secret scanner say, meant it.
       await this.#run(['-c', 'user.name=PALUGADA', '-c', 'user.email=palugada@localhost',
-        'commit', '--quiet', '-m', (subject || 'Charters').slice(0, 200)]);
+        'commit', '--quiet', '-m', (subject || 'Charters').slice(0, 200), '--', ...ours]);
       return 'committed';
     } catch (error) {
       return `failed: ${gitSaid(error)}`;
@@ -371,16 +416,46 @@ export class CharterRepository {
     return run(this.#git!, ['-C', this.root, ...args], { timeout: 15_000, env: { PATH: process.env.PATH ?? '' } });
   }
 
-  async #readWritten(): Promise<Record<string, string>> {
+  /**
+   * The record, or why it cannot be read. It is refused like a charter:
+   * as a link it was read and then written through, and the master key
+   * beside the repository became JSON. A record that cannot be read holds
+   * the sync, since without it every file would look like an edit.
+   */
+  async #readWritten(): Promise<Record<string, string> | string> {
+    const path = join(this.root, WRITTEN);
+    const remove = `until it is removed, nothing is read or written; removed, it is made again, and what each file holds then is taken as its charter`;
+    let stats;
     try {
-      return JSON.parse(await readFile(join(this.root, WRITTEN), 'utf8')) as Record<string, string>;
-    } catch {
-      return {};
+      stats = await lstat(path);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {};
+      return `${WRITTEN} cannot be read (${oneLine(error)}); ${remove}`;
+    }
+    if (!stats.isFile()) return `${WRITTEN} is not a file, and a link is never followed; ${remove}`;
+    try {
+      const parsed = JSON.parse(await readNoFollow(path)) as unknown;
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)
+          || Object.values(parsed).some((value) => typeof value !== 'string')) {
+        return `${WRITTEN} is not a record of files; ${remove}`;
+      }
+      return parsed as Record<string, string>;
+    } catch (error) {
+      return `${WRITTEN} cannot be read (${oneLine(error)}); ${remove}`;
     }
   }
 
+  /** Written beside it and renamed over it: a link there is replaced, not written through. */
   async #saveWritten(written: Record<string, string>): Promise<void> {
-    await writeFile(join(this.root, WRITTEN), `${JSON.stringify(written, null, 2)}\n`, 'utf8');
+    const path = join(this.root, WRITTEN);
+    const next = `${path}.${process.pid}.next`;
+    const handle = await open(next, constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW, 0o644);
+    try {
+      await handle.writeFile(`${JSON.stringify(written, null, 2)}\n`, 'utf8');
+    } finally {
+      await handle.close();
+    }
+    await rename(next, path);
   }
 }
 
@@ -414,8 +489,22 @@ function oneLine(error: unknown): string {
 
 /** What git said, which is on stderr, not in the "Command failed" line above it. */
 function gitSaid(error: unknown): string {
+  if ((error as { killed?: unknown }).killed) return 'git did not finish within 15 seconds, and was stopped';
   const said = String((error as { stderr?: unknown }).stderr ?? '').trim();
   return oneLine(said ? { message: said } : error);
+}
+
+async function isFile(path: string): Promise<boolean> {
+  return (await lstat(path).catch(() => null))?.isFile() ?? false;
+}
+
+async function readNoFollow(path: string): Promise<string> {
+  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    return await handle.readFile('utf8');
+  } finally {
+    await handle.close();
+  }
 }
 
 async function directories(path: string): Promise<string[]> {

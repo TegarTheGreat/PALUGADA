@@ -242,7 +242,9 @@ Open the task from **Work** (or **Open the task** on an inbox item).
 - **Cancel this task** cancels it and everything it started.
 - Once it has ended, **Do it again** starts a new task with the same work
   and your optional note. A halted task is never retried by itself; this is
-  how you retry it.
+  how you retry it. The new task is told everything you said to the tasks
+  it replaces: your notes, and your answers to their questions, however
+  many times the work was done again.
 - **Replay against the journal** runs the handler again with every side
   effect answered from the record. Nothing leaves.
 
@@ -643,10 +645,24 @@ boot stops and says which is missing.
 - Roles name a tier (`fast`, `standard`, `deep`), so changing the model
   changes it for every role at once. A role's **Primary model** can also
   name a model directly.
-- Give a model its real price in the file `PALUGADA_MODEL_PRICES` names
-  (see [config/prices.example.json](../../config/prices.example.json)); a
-  model on your own machine costs zero. Unpriced models are charged at a
-  deliberately high rate so a budget is never understated.
+- Say what each model costs under **What it costs**, on the same page.
+  An unpriced model is charged at a deliberately high rate, $15 in and $75
+  out per million tokens, so a budget is never understated. For most
+  models that is many times the bill, and a budget stops long before the
+  money it names is spent. To price your models:
+  1. **Fill from models.dev** fills in the prices the open catalogue at
+     [models.dev](https://models.dev) gives. It uses the provider you reach
+     the model at, when two list the same model.
+  2. Check them against your bill, or type your own, in dollars per
+     million tokens.
+  3. Press **Save prices** and type a code. A lower price loosens every
+     budget, which is why it asks.
+
+  `npm run setup` offers the same prices when it chooses a model, and
+  prices a model on your own machine at zero. The file
+  `PALUGADA_MODEL_PRICES` names
+  ([config/prices.example.json](../../config/prices.example.json)) is laid
+  under both.
 - `PALUGADA_DRAFT_MODEL` chooses the tier or model for drafting and
   distilling memory (default `standard`).
 

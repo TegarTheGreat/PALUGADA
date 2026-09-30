@@ -21,7 +21,7 @@ import { baseRegistry, seed } from '../../src/seed.ts';
 import { Engine, type TaskHandler } from '../../src/engine/engine.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';
-import { createRootTask, getTask } from '../../src/engine/tasks.ts';
+import { createRootTask, getTask, transition } from '../../src/engine/tasks.ts';
 import { enqueueWake } from '../../src/scheduler/wake.ts';
 import { requestStopAll, clearStopAll, freezeCompany } from '../../src/engine/control.ts';
 import { installBundle } from '../../src/bundles/bundle.ts';
@@ -440,6 +440,83 @@ test('the loop stops when its signal aborts', async () => {
   // shutdown a shutdown rather than a timeout.
   assert.ok(Date.now() - started < 5_000);
   assert.deepEqual(await beats(), [], 'and a clean stop takes its word back, so it is not taken for dead');
+});
+
+/**
+ * L3: one worker ran one task at a time, and everything else between runs.
+ * An owner's P0 task waited behind whatever automatic work had started
+ * first, and an approval past its expiry stayed open, with its task, for as
+ * long as that work took. The loop now runs several tasks at once, keeps one
+ * place for P0 work, and does the rest -- expiries, notices, the budget
+ * watch -- on its own clock.
+ */
+test("an owner's urgent task and the housekeeping do not wait behind a long run (L3, F5.10)", async () => {
+  const fixture = await createCompany('worker-lanes');
+  await withTenant(fixture.companyId, (tx) =>
+    tx.query('UPDATE divisions SET max_concurrency = 4 WHERE id = $1', [fixture.divisionId]));
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  const started: string[] = [];
+  const engine = new Engine({
+    broker: new CapabilityBroker(baseRegistry()),
+    llm: new RecordingLlmClient(),
+    handlers: new Map([['worker', async (ctx) => {
+      started.push(String(ctx.task.input.name));
+      if (ctx.task.input.slow) await held;
+      return { done: true };
+    }]]),
+    workerId: 'lanes-worker',
+  });
+  const controller = new AbortController();
+  const worker = new Worker({ engine, companyId: fixture.companyId, idleMs: 100, concurrency: 2, signal: controller.signal });
+  const make = (name: string, priority: number, slow: boolean) => createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+    budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId, input: { name, slow },
+    createdBy: 'owner', reserveTokens: 5_000, priority,
+  });
+  const until = async (what: string, check: () => Promise<boolean>) => {
+    for (let tries = 0; tries < 100; tries += 1) {
+      if (await check()) return;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.fail(`${what} did not happen while the long run held its place`);
+  };
+
+  // Two long automatic runs, as a schedule would start them.
+  const slow = [await make('report-1', 2, true), await make('report-2', 2, true)];
+  const running = worker.start();
+  try {
+    await until('a long run to start', async () => started.includes('report-1'));
+
+    // The owner's task, and an approval gone past its expiry.
+    const urgent = await make('owner-ask', 0, false);
+    const waiting = await make('needs-approval', 2, false);
+    await transition(fixture.companyId, waiting.id, 'running');
+    const item = await inbox.requestApproval({
+      companyId: fixture.companyId, taskId: waiting.id, capabilityName: 'dns.nameservers',
+      tier: 3, actionSummary: 'Point the domain elsewhere', rationale: 'asked', consequenceIfDenied: 'nothing',
+    });
+    await withTenant(fixture.companyId, (tx) =>
+      tx.query("UPDATE inbox_items SET expires_at = now() - interval '1 minute' WHERE id = $1", [item]));
+
+    await until("the owner's task to finish", async () =>
+      (await withTenant(fixture.companyId, (tx) => getTask(tx, urgent.id)))!.status === 'completed');
+    await until('the expired approval to cancel its task', async () =>
+      (await withTenant(fixture.companyId, (tx) => getTask(tx, waiting.id)))!.status === 'cancelled');
+    const first = await withTenant(fixture.companyId, (tx) => getTask(tx, slow[0]!.id));
+    assert.equal(first!.status, 'running', 'all of that while the long run was still going');
+  } finally {
+    release();
+    controller.abort();
+    await running;
+  }
+  const ended = await withTenant(fixture.companyId, (tx) => Promise.resolve(slow).then(async (rows) => {
+    const out: string[] = [];
+    for (const row of rows) out.push((await getTask(tx, row.id))!.status);
+    return out;
+  }));
+  assert.ok(ended.every((status) => status === 'completed' || status === 'pending' || status === 'checked_out'),
+    `a stop hands back or finishes the long runs, it does not break them: ${ended.join(', ')}`);
 });
 
 /**

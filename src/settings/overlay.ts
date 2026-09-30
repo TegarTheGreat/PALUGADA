@@ -162,6 +162,19 @@ export function withSettings(env: NodeJS.ProcessEnv, settings: Settings): NodeJS
       out.PALUGADA_VENDOR_SETTINGS = JSON.stringify({ capabilities: vendors.capabilities });
     }
   }
+  // What the owner said each model costs (L12), over the operator's price file.
+  // Laid over the ones setup wrote, not in place of them: a price the owner
+  // saves for one model leaves the others where setup put them.
+  const prices = settings.model_prices as { models?: Record<string, unknown> } | undefined;
+  if (prices?.models && Object.keys(prices.models).length > 0) {
+    let written: Record<string, unknown> = {};
+    try {
+      written = (JSON.parse(out.PALUGADA_MODEL_PRICE_SETTINGS ?? '{}') as { models?: Record<string, unknown> }).models ?? {};
+    } catch {
+      written = {};
+    }
+    out.PALUGADA_MODEL_PRICE_SETTINGS = JSON.stringify({ models: { ...written, ...prices.models } });
+  }
   const agents = settings.agents as Record<string, AgentSetting> | undefined;
   if (agents) {
     for (const key of AGENT_KEYS) {

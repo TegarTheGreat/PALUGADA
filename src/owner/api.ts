@@ -149,6 +149,8 @@ import { CapabilityRegistry } from '../broker/registry.ts';
 import { McpUnauthorized, accessFor, assertPlainHttpIsLocal, bindMcpServers, currentPins, offeredTools, type TokenIn } from '../capabilities/mcp.ts';
 import { beginSignIn, discoverSignIn, finishSignIn, forgetSignIn, mcpSecretName, oauthGrantsIn } from '../capabilities/mcp-oauth.ts';
 import { MCP_PRESETS } from '../capabilities/mcp-presets.ts';
+import { DEFAULT_PRICE_TABLE, parsePriceTable, rateFor, withConsolePrices, type PriceTable } from '../engine/pricing.ts';
+import { MODELS_DEV_URL, lookupPrices } from '../engine/models-dev.ts';
 import { beginCredentialSignIn, finishCredentialSignIn, hasClient, OAUTH_CREDENTIALS, type CredentialSignIn } from '../capabilities/vendor-oauth.ts';
 import { LISTEN_PROVIDERS, listenProvider, transcribe, type Heard, type ListenBinding, type ListenProvider } from '../capabilities/listen.ts';
 import {
@@ -229,6 +231,11 @@ export interface OwnerApiOptions {
    * one. Better to rotate without the check than to file a false alarm.
    */
   registry?: CapabilityRegistry;
+  /**
+   * The operator's price list, which what the owner says a model costs is
+   * laid over (L12). Absent, the conservative fallback alone.
+   */
+  prices?: PriceTable;
   /**
    * The handlers F11.4's replay re-runs (F5.9).
    *
@@ -1147,6 +1154,10 @@ export class OwnerApi {
                 : null,
             },
             providers: MODEL_PROVIDERS,
+            // What each model the tiers name costs, and who said so (L12): the
+            // owner here, the operator's file, or nobody -- the fallback,
+            // high on purpose, which the console says in as many words.
+            prices: this.#pricesFor(effective ? MODEL_TIERS.map((tier) => effective.aliases[tier]) : [], stored),
             secrets: await secretNames(),
             masterKey: deployment.master(false)?.source ?? null,
             applies: deployment.restart ? 'now' : 'next_start',
@@ -1208,6 +1219,59 @@ export class OwnerApi {
             await putSecret('model-key', typed, master);
           }
           await writeSetting('model', candidate);
+          return this.#applySettings();
+        },
+      },
+
+      {
+        // What models.dev says each model the tiers name costs, for the owner
+        // to look at and save (L12). Saves nothing, and sends nothing of the
+        // deployment's: the catalogue is read whole and searched here.
+        method: 'POST',
+        pattern: '/api/control/settings/model/prices/lookup',
+        handle: async () => {
+          const deployment = this.#deploymentSettings();
+          const effective = modelSettingsFrom(deployment.env);
+          const models = effective
+            ? [...new Set(MODEL_TIERS.map((tier) => effective.aliases[tier]).filter((model): model is string => Boolean(model)))]
+            : [];
+          if (models.length === 0) return { prices: {}, missing: [], problem: 'no model is set yet' };
+          try {
+            const found = await lookupPrices(models, { url: effective?.url ?? null, provider: effective?.provider ?? null },
+              deployment.baseEnv.PALUGADA_MODELS_DEV_URL ?? MODELS_DEV_URL);
+            return { ...found, problem: null };
+          } catch (failure) {
+            return { prices: {}, missing: models, problem: `models.dev could not be read: ${(failure as Error).message}` };
+          }
+        },
+      },
+
+      {
+        // What each model costs, in cents per million tokens, or null to take
+        // a price back. A lower price loosens every company's money ceiling,
+        // so it takes the owner's device, like the model itself (L12).
+        method: 'POST',
+        pattern: '/api/control/settings/model/prices',
+        handle: async ({ body }) => {
+          this.#deploymentSettings();
+          const given = body.prices && typeof body.prices === 'object' && !Array.isArray(body.prices)
+            ? body.prices as Record<string, unknown> : null;
+          if (!given || Object.keys(given).length === 0) {
+            throw new PalugadaError('contract.violation', 'say which model costs what: { model: { input, output } }', { field: 'prices' });
+          }
+          const stored = await readSettings();
+          const models = { ...((stored.model_prices as { models?: Record<string, unknown> } | undefined)?.models ?? {}) };
+          for (const [model, rate] of Object.entries(given)) {
+            if (!model.trim() || model.length > 200 || model.includes('*')) {
+              throw new PalugadaError('contract.violation', `"${model.slice(0, 60)}" is not a model's name`, { field: 'prices' });
+            }
+            if (rate === null) delete models[model];
+            else models[model] = rate;
+          }
+          // Held to the price file's rules before the device is asked for.
+          parsePriceTable({ models }, 'these prices');
+          await this.#requireFactor(body.proof, 'change what a model costs');
+          await writeSetting('model_prices', Object.keys(models).length > 0 ? { models } : null);
           return this.#applySettings();
         },
       },
@@ -4441,6 +4505,29 @@ export class OwnerApi {
     if (!registry) return null;
     const names = granted ?? registry.names();
     return keysAskedFor(registry, names).get(alias)?.signIn ?? null;
+  }
+
+  /**
+   * What each model costs as the next start will price it: the operator's
+   * list with the owner's laid over it, from what is stored now, so a price
+   * just saved shows before the restart that takes it up.
+   */
+  #pricesFor(models: ReadonlyArray<string | undefined>, stored: Record<string, unknown>) {
+    const own = (stored.model_prices as { models?: Record<string, unknown> } | undefined)?.models ?? {};
+    // The file's, then setup's (PALUGADA_MODEL_PRICE_SETTINGS in the
+    // environment), then the owner's: the order the start lays them in.
+    const configured = withConsolePrices(this.#options.prices ?? DEFAULT_PRICE_TABLE,
+      this.#deploymentSettings().baseEnv.PALUGADA_MODEL_PRICE_SETTINGS);
+    const table = withConsolePrices(configured, Object.keys(own).length > 0 ? JSON.stringify({ models: own }) : undefined);
+    return [...new Set(models.filter((model): model is string => Boolean(model)))].map((model) => {
+      const { rate, basis } = rateFor(table, model);
+      return {
+        model,
+        input: rate.inputCentsPerMTok,
+        output: rate.outputCentsPerMTok,
+        source: model in own ? 'console' : basis === 'fallback' ? 'fallback' : 'file',
+      };
+    });
   }
 
   /**

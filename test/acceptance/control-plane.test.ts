@@ -53,6 +53,8 @@ import * as inbox from '../../src/inbox/inbox.ts';
 import { createCompany, addRole, grantCapability, type Fixture } from '../helpers/fixtures.ts';
 import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
+import { CapabilityRegistry } from '../../src/broker/registry.ts';
+import { registerPlatformCapabilities } from '../../src/broker/platform-capabilities.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
 before(ensureSchema);
@@ -462,6 +464,45 @@ test('memory.search answers through the broker, scoped like the pack (F4.8)', as
 });
 
 /* ------------------------------------------------------------------ F10.3 --- */
+
+/**
+ * L7: a run asked the owner "which CRM vendor should I bind?" -- a question
+ * the owner cannot answer from the inbox, about a tool nothing in this
+ * deployment was bound to. The owner connects a service on This deployment,
+ * Services, and an answer typed into an item connects nothing. Such a
+ * question is answered by the platform, at once, and the owner is asked only
+ * what they can answer.
+ */
+test('a question about connecting a tool nobody bound is answered by the platform, not put to the owner (L7)', async () => {
+  const fixture = await createCompany('owner-ask-config');
+  const task = await newTask(fixture);
+  await transition(fixture.companyId, task.id, 'running');
+  await withTenant(fixture.companyId, (tx) =>
+    tx.query("UPDATE roles SET tools = ARRAY['owner.ask', 'crm.note', 'memory.search'] WHERE id = $1", [fixture.roleId]));
+  const registry = new CapabilityRegistry();
+  registerPlatformCapabilities(registry);
+  const ask = registry.get('owner.ask')! as unknown as {
+    execute(input: unknown, ctx: unknown): Promise<{ answered: boolean; answer?: string }>;
+  };
+  const ctx = {
+    companyId: fixture.companyId, divisionId: fixture.divisionId, taskId: task.id,
+    idempotencyKey: 'ask-1', signal: new AbortController().signal, credential: async () => '',
+  };
+
+  const answered = await ask.execute({ question: 'Which CRM vendor should I bind so I can add the note?' }, ctx);
+  assert.equal(answered.answered, true);
+  assert.match(answered.answer ?? '', /crm\.note is not connected[\s\S]*This deployment, Services[\s\S]*say in your output what is left/);
+  assert.deepEqual((await inbox.listOpen(fixture.companyId)).map((item) => item.kind), [], 'nothing was put to the owner');
+  const events = await withTenant(fixture.companyId, (tx) => tx.query<{ type: string }>(
+    "SELECT type FROM events WHERE task_id = $1 AND type = 'task.question_answered_by_platform'", [task.id]));
+  assert.equal(events.rows.length, 1, 'and it is on the record');
+
+  // A question about the work itself still goes to the owner, even one that
+  // names the tool.
+  await assert.rejects(ask.execute({ question: 'Which customers should the CRM note be about?' }, ctx),
+    (error: unknown) => isPalugadaError(error) && error.code === 'owner.asked');
+  assert.equal((await inbox.listOpen(fixture.companyId)).length, 1);
+});
 
 test('the owner can ask a question inside the same task (F10.3)', async () => {
   const fixture = await createCompany('owner-ask');

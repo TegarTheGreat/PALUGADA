@@ -3824,6 +3824,63 @@ sign-in page can still lock the owner's *codes* for its window; it no longer
 locks a passkey, which cannot be guessed, so an owner with one is never
 kept out by somebody else's wrong codes.
 
+
+## 2.26 The rest of the analysis of 2026-09-28
+
+The last four findings of `docs/COMPETITIVE-ANALYSIS-2026-09-28.md` that
+this file had not yet answered. Each was reproduced by a test first.
+
+- **The owner's urgent task waited behind a long run (L3).** A process ran
+  one task at a time and did everything else between runs. A P0 task the
+  owner gave waited behind whatever automatic work had started first. An
+  approval past its expiry stayed open, and its task still waiting, for as
+  long as that run took; notices and the budget watch waited as well.
+  - A process now runs `PALUGADA_WORKER_CONCURRENCY` tasks at once (four
+    by default). One place is kept for P0 work, so an urgent task starts
+    even while the others are busy.
+  - The housekeeping runs on its own five-second clock.
+  - A division's limit, its budget and the claim's lock still bound what
+    runs, across every process.
+
+  Reproduced with a run held open: the owner's task and the expiry both
+  waited for it; now both finish while it is still going.
+- **A rerun of a rerun forgot what the owner said (L6).** The third attempt
+  at a launch post still wrote "[TBD: price]" after the owner had given
+  the price twice: once as an answer to the first attempt, once in a note.
+  A run read only what was said to its own task. Every attempt at the same
+  work now reads the owner's notes and answers to all the attempts before
+  it, oldest first, under its own.
+- **A run asked the owner which CRM to bind (L7).** It is a question the
+  owner cannot answer from the inbox: a service is connected on This
+  deployment, Services, and an answer typed into an item connects nothing.
+  - `owner.ask` now answers such a question itself. A question naming a
+    tool of the role's that nothing is bound to, in words about setting it
+    up, gets that answer at once, the event
+    `task.question_answered_by_platform`, and no inbox item.
+  - A question about the work, even one naming the tool, still goes to the
+    owner.
+  - Runs are also told, with the names of their unconnected tools, not to
+    ask.
+- **Every call was priced at the top of the market (L12).** With no price
+  list, a model is charged $15 in and $75 out per million tokens, on
+  purpose. A company on DeepSeek was charged about 58 times its bill, and
+  its $200 ceiling stopped work worth $3.40. Nothing offered to say what a
+  model costs. There are now three places, laid over each other in this
+  order:
+  1. `npm run setup` prices a model on this machine at zero. For a hosted
+     model it offers what [models.dev](https://models.dev) says.
+  2. The console's **What it costs**, on the Model page, shows each
+     model's price and who set it. It fills itself from models.dev, using
+     the provider the model is reached at.
+  3. The console saves prices with the owner's device, since a lower price
+     loosens every budget.
+
+  models.dev is read live and only offered; nothing it says is saved
+  without the owner. `pricing.ts` still compiles in no price list. The
+  console's fill was run against the real catalogue: DeepSeek V4 Flash
+  came back at $0.15 and $0.60 per million tokens, where the fallback had
+  charged $15 and $75.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

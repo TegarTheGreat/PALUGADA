@@ -294,18 +294,25 @@ database:
   can send you to any process. **Sign out everywhere**, or revoking an
   authenticator, ends its sessions on every process.
 
-A worker runs one task at a time. Each tick it claims up to eight, one after
-another, starting from a different company each time so none is starved.
-Tasks that wait, for you, a review or a sub-task, hold no worker. To run
-several tasks at the same moment, run several processes. Each also serves
-the console, so each needs its own `PALUGADA_PORT` on a shared machine. The
-compose file as shipped runs one app container on one published port.
+A process runs up to four tasks at once (`PALUGADA_WORKER_CONCURRENCY`,
+from 1 to 16). One of the four is kept for P0 work, so a task you mark
+urgent starts even while three long runs are going. Expiring approvals,
+notices and the budget watch run on their own five-second clock, not
+between runs. Each claim starts from a different company, so none is
+starved. Tasks that wait, for you, a review or a sub-task, hold no place.
+A division's **Runs at once, at most** and its budget still bound what
+runs, across every process. To run more at the same moment, raise the
+number or run several processes. Each process also serves the console, so
+each needs its own `PALUGADA_PORT` on a shared machine. The compose file as
+shipped runs one app container on one published port.
 
 ## Sizing
 
-- **Processes.** One per task you want running at the same moment. A single
-  process suits a handful of companies whose work is mostly model calls. A
-  long agent CLI run occupies its worker for as long as it takes.
+- **Processes.** Each runs `PALUGADA_WORKER_CONCURRENCY` tasks at once
+  (four by default). A single process suits a handful of companies whose
+  work is mostly model calls. A long agent CLI run holds one place for as
+  long as it takes, and an agent CLI is a process of its own on the same
+  machine, so count its memory per place.
 - **Database connections.** Each process keeps up to ten connections as the
   application role and ten as the control plane, and migrations open one
   more. Size PostgreSQL's connection limit for about twenty a process.

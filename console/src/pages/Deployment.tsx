@@ -60,6 +60,8 @@ interface SettingsView {
     } | null;
   };
   providers: ProviderEntry[];
+  /** What each model the tiers name costs, in cents per million tokens, and who said so. */
+  prices: Array<{ model: string; input: number; output: number; source: 'console' | 'file' | 'fallback' }>;
   secrets: Array<{ name: string; updatedAt: string }>;
   masterKey: string | null;
   applies: 'now' | 'next_start';
@@ -127,7 +129,111 @@ function ModelSettings() {
   const view = useLoad(async (): Promise<SettingsView> => api('GET', '/api/control/settings'), []);
   if (view.error) return <LoadFailed message={view.error} retry={view.reload} />;
   if (!view.data) return <Loading rows={5} />;
-  return <ModelForm view={view.data} reload={view.reload} />;
+  return (
+    <Stack gap="lg">
+      <ModelForm view={view.data} reload={view.reload} />
+      {view.data.prices.length > 0 && <ModelPrices prices={view.data.prices} reload={view.reload} />}
+    </Stack>
+  );
+}
+
+const PRICE_SOURCE: Record<SettingsView['prices'][number]['source'], string> = {
+  console: N('your price'),
+  file: N('set in the configuration'),
+  fallback: N('not priced: charged at the highest rate'),
+};
+
+/** Dollars per million tokens, as the owner reads a provider's price list. */
+function dollars(cents: number): string {
+  return String(Math.round(cents) / 100);
+}
+
+/**
+ * What each model costs (L12). Without a price a call is charged at the top
+ * of the market, on purpose -- a budget then stops early rather than late --
+ * which is fifty times what some models cost. The owner types the numbers
+ * from their provider's price list, in dollars per million tokens.
+ */
+function ModelPrices({ prices, reload }: { prices: SettingsView['prices']; reload: () => void }) {
+  const requireFactor = useFactor();
+  const [typed, setTyped] = useState<Record<string, { input: string; output: string }>>(
+    Object.fromEntries(prices.map((row) => [row.model, row.source === 'fallback' ? { input: '', output: '' } : { input: dollars(row.input), output: dollars(row.output) }])),
+  );
+  const changed = prices.filter((row) => {
+    const now = typed[row.model];
+    return now && now.input.trim() !== '' && now.output.trim() !== ''
+      && (row.source === 'fallback' || now.input !== dollars(row.input) || now.output !== dollars(row.output));
+  });
+  const save = async () => {
+    const body = Object.fromEntries(changed.map((row) => [row.model, {
+      input: Math.round(Number(typed[row.model]!.input) * 100), output: Math.round(Number(typed[row.model]!.output) * 100),
+    }]));
+    const done = await requireFactor(t('Change what a model costs'), (proof) =>
+      api('POST', '/api/control/settings/model/prices', { prices: body, proof }));
+    if (done) {
+      notifications.show({ color: 'teal', message: t('Saved. Calls are priced by it from the next start, in a moment.') });
+      setTimeout(reload, 3_000);
+    }
+  };
+  // models.dev's prices, filled into the form for the owner to look at and
+  // save: nothing is saved by looking.
+  const [looking, setLooking] = useState(false);
+  const [found, setFound] = useState<string | null>(null);
+  const lookUp = async () => {
+    setLooking(true);
+    setFound(null);
+    try {
+      const answer: { prices: Record<string, { input: number; output: number; provider: string }>; missing: string[]; problem: string | null } =
+        await api('POST', '/api/control/settings/model/prices/lookup', {});
+      if (answer.problem) {
+        setFound(answer.problem);
+        return;
+      }
+      setTyped((all) => ({
+        ...all,
+        ...Object.fromEntries(Object.entries(answer.prices).map(([model, price]) => [model, { input: dollars(price.input), output: dollars(price.output) }])),
+      }));
+      const from = Object.entries(answer.prices).map(([model, price]) => `${model} (${price.provider})`).join(', ');
+      setFound([
+        from ? t('Filled from models.dev: {models}. Check them against your bill, then save.', { models: from }) : '',
+        answer.missing.length > 0 ? t('Not found there: {models}.', { models: answer.missing.join(', ') }) : '',
+      ].filter(Boolean).join(' '));
+    } catch (failure) {
+      setFound(explain(failure));
+    } finally {
+      setLooking(false);
+    }
+  };
+  const unpriced = prices.some((row) => row.source === 'fallback');
+  return (
+    <Section title={t('What it costs')} description={t('From your provider\'s price list, in dollars per million tokens. Budgets are counted in these prices.')}>
+      <Stack gap="sm">
+        {unpriced && (
+          <Alert color="yellow" variant="light">
+            {t('A model with no price is charged at the highest rate, $15 in and $75 out per million tokens, so a budget stops early rather than late. For most models that is many times what they cost.')}
+          </Alert>
+        )}
+        {prices.map((row) => (
+          <Group key={row.model} gap="sm" align="flex-end" wrap="wrap">
+            <Stack gap={0} style={{ minWidth: 180, flex: 1 }}>
+              <Code>{row.model}</Code>
+              <Text size="xs" c={row.source === 'fallback' ? 'orange' : 'dimmed'}>{t(PRICE_SOURCE[row.source])}</Text>
+            </Stack>
+            <TextInput size="xs" w={130} label={t('Input, $ per million')} placeholder={dollars(row.input)} inputMode="decimal"
+              value={typed[row.model]?.input ?? ''} onChange={(event) => { const value = event.currentTarget.value; setTyped((all) => ({ ...all, [row.model]: { ...all[row.model]!, input: value } })); }} />
+            <TextInput size="xs" w={130} label={t('Output, $ per million')} placeholder={dollars(row.output)} inputMode="decimal"
+              value={typed[row.model]?.output ?? ''} onChange={(event) => { const value = event.currentTarget.value; setTyped((all) => ({ ...all, [row.model]: { ...all[row.model]!, output: value } })); }} />
+          </Group>
+        ))}
+        {found && <Text size="xs" c="dimmed">{found}</Text>}
+        <Group>
+          <Button variant="default" loading={looking} onClick={() => void lookUp()}>{t('Fill from models.dev')}</Button>
+          <Button disabled={changed.length === 0 || changed.some((row) => !Number.isFinite(Number(typed[row.model]!.input)) || !Number.isFinite(Number(typed[row.model]!.output)))}
+            onClick={() => void save()}>{t('Save prices')}</Button>
+        </Group>
+      </Stack>
+    </Section>
+  );
 }
 
 function ModelForm({ view, reload }: { view: SettingsView; reload: () => void }) {

@@ -104,6 +104,42 @@ test('cancelling a task stops it and what it started, releases its money, and no
   assert.equal((await state(fixture, bystander.id)).status, 'pending');
 });
 
+/**
+ * L6: the owner gave a price twice -- once as an answer to the task's
+ * question, once in a note when asking for it again -- and the draft of the
+ * third attempt still said "[TBD: price]". A run read what the owner said to
+ * its own task only, so each rerun started from the rerun before it and
+ * forgot the rest. Every attempt at the same work now reads what the owner
+ * said to all of them.
+ */
+test('a rerun of a rerun still reads what the owner said to every attempt before it (L6)', async () => {
+  const fixture = await createCompany('control-lineage');
+  const first = await task(fixture, 'write the launch post');
+  await transition(fixture.companyId, first.id, 'running');
+  const asked = await inbox.askOwner({ companyId: fixture.companyId, taskId: first.id, question: 'What is the price per cup?' });
+  assert.equal(asked.state, 'waiting');
+  await inbox.decide(fixture.companyId, asked.inboxItemId!, 'approve', 'Rp95.000 for a box of twelve', { channel: 'app' });
+  await transition(fixture.companyId, first.id, 'halted', { haltReason: 'verification_failed' });
+
+  const second = await rerunTask(fixture.companyId, first.id, 'Our Instagram is @kopi.nusantara.');
+  await transition(fixture.companyId, second, 'running');
+  await transition(fixture.companyId, second, 'failed');
+  const third = await rerunTask(fixture.companyId, second, 'Shorter this time.');
+
+  const context = await withTenant(fixture.companyId, (tx) =>
+    buildContext(tx, { companyId: fixture.companyId, divisionId: fixture.divisionId, taskId: third }));
+  const said = context.sections.filter((section) => section.kind === 'owner_note').map((section) => section.body).join('\n');
+  assert.match(said, /Shorter this time\./, 'its own note');
+  assert.match(said, /@kopi\.nusantara/, "the note to the attempt before it");
+  assert.match(said, /What is the price per cup\?[\s\S]*Rp95\.000 for a box of twelve/, 'and the answer the first attempt was given');
+
+  // Another task's words are not this work's.
+  const unrelated = await task(fixture, 'reconcile the invoices');
+  const other = await withTenant(fixture.companyId, (tx) =>
+    buildContext(tx, { companyId: fixture.companyId, divisionId: fixture.divisionId, taskId: unrelated.id }));
+  assert.ok(!other.sections.some((section) => /Rp95\.000|kopi\.nusantara/.test(section.body)));
+});
+
 test('a stopped task is done again, once, with the owner\'s note in front of the run', async () => {
   const fixture = await createCompany('control-rerun');
   const halted = await task(fixture, 'renew the certificate');

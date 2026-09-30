@@ -27,7 +27,7 @@
 import { CapabilityBroker } from './broker/broker.ts';
 import { CapabilityRegistry } from './broker/registry.ts';
 import { Engine } from './engine/engine.ts';
-import { DEFAULT_PRICE_TABLE, loadPriceTable } from './engine/pricing.ts';
+import { DEFAULT_PRICE_TABLE, loadPriceTable, withConsolePrices } from './engine/pricing.ts';
 import { modelClientFrom, modelSettingsFrom } from './llm/models.ts';
 import { bindMcpServers, closeMcpSessions, registerMcpServers } from './capabilities/mcp.ts';
 import { refreshMcpAccess } from './capabilities/mcp-oauth.ts';
@@ -66,6 +66,24 @@ import { adminPool, appPool, closePools } from './db/pool.ts';
  * whole lease, so this is two leases' worth rather than a few seconds.
  */
 const WORKER_STALL_MS = 30 * 60_000;
+
+/** How many tasks a process runs at once when nothing says otherwise (L3). */
+const DEFAULT_WORKER_CONCURRENCY = 4;
+
+/**
+ * `PALUGADA_WORKER_CONCURRENCY`: how many tasks this process runs at once,
+ * one of them kept for the owner's urgent work. Four by default: each run
+ * holds a database connection only while it writes, and the pools keep ten.
+ */
+function workerConcurrency(raw: string | undefined): number {
+  if (raw === undefined || raw.trim() === '') return DEFAULT_WORKER_CONCURRENCY;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1 || value > 16) {
+    throw new PalugadaError('config.invalid',
+      `PALUGADA_WORKER_CONCURRENCY is ${raw}; it is a whole number from 1 to 16`, { variable: 'PALUGADA_WORKER_CONCURRENCY' });
+  }
+  return value;
+}
 import { existsSync, realpathSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -448,7 +466,12 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   // is set high on purpose -- so the note says so, because an owner reading
   // an estimate should know whether it came from their own list.
   const pricesFile = options.pricesFile ?? env.PALUGADA_MODEL_PRICES ?? null;
-  const prices = pricesFile ? await loadPriceTable(pricesFile) : DEFAULT_PRICE_TABLE;
+  const filePrices = pricesFile ? await loadPriceTable(pricesFile) : DEFAULT_PRICE_TABLE;
+  // And what the owner said a model costs in the console (L12), over the file.
+  const prices = withConsolePrices(filePrices, env.PALUGADA_MODEL_PRICE_SETTINGS);
+  if (env.PALUGADA_MODEL_PRICE_SETTINGS) {
+    notes.push(`model prices set in the console: ${Object.keys((JSON.parse(env.PALUGADA_MODEL_PRICE_SETTINGS) as { models: object }).models).join(', ')}`);
+  }
   notes.push(
     pricesFile
       ? `model prices from ${pricesFile}: ${prices.rates.length} model pattern(s), `
@@ -695,6 +718,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   const worker = new Worker({
     engine,
     signal: shutdown.signal,
+    concurrency: workerConcurrency(env.PALUGADA_WORKER_CONCURRENCY),
     ownerChannels: channels,
     // F4.5 and F15.3 need a model. The same one the drafting capabilities use,
     // because a deployment that configured one meant it for the platform's own
@@ -745,6 +769,8 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // unhealthy, and halts the next task that needs one.
     registry,
     credentialFor: (companyId, divisionId) => broker.credentialFor(companyId, divisionId),
+    // The file's prices, which the console's are laid over as the owner saves them.
+    prices: filePrices,
     // The same store, for the signing secrets of triggers the sender signs.
     secrets,
     // The same handlers the in-process runtime executes, so F11.4 replays the

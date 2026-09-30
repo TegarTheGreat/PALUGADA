@@ -30,6 +30,7 @@ import { LocalSecretManager } from '../src/secrets/local.ts';
 import { connectionString } from '../src/config.ts';
 import pg from 'pg';
 import { MODEL_PROVIDERS } from '../src/llm/providers.ts';
+import { lookupPrices } from '../src/engine/models-dev.ts';
 
 export interface SetupIo {
   /** One answer, trimmed; a secret is asked without echoing it. */
@@ -47,6 +48,12 @@ export interface SetupOptions {
   checkModel?: ModelCheck;
   /** Whether a database already answers at this URL, as an installation from before `.env` has. */
   probeDatabase?: (url: string) => Promise<boolean>;
+  /**
+   * What models.dev says the chosen models cost (L12). Absent, no price is
+   * offered for a model reached over the internet; the command line passes
+   * the real lookup, and a test its own.
+   */
+  lookupPrices?: typeof lookupPrices;
 }
 
 const DATABASE_URL_KEYS = { app: 'PALUGADA_APP_URL', admin: 'PALUGADA_ADMIN_URL', owner: 'PALUGADA_OWNER_URL' } as const;
@@ -162,6 +169,7 @@ export async function setup(io: SetupIo, options: SetupOptions): Promise<void> {
       }
       if ((await ask(io, 'Keep these settings anyway? [y/N] ')).toLowerCase().startsWith('y')) break;
     }
+    await offerPrices(io, updates, current(), options.lookupPrices);
   }
 
   writeEnvFile(options.envPath, original, updates);
@@ -181,6 +189,57 @@ export async function setup(io: SetupIo, options: SetupOptions): Promise<void> {
       '  npm start',
       'and open http://127.0.0.1:8787 and sign in with the code from your authenticator.',
     ].join('\n'));
+}
+
+/**
+ * What the chosen models cost, offered once they are chosen (L12). Without
+ * a price every call is charged at the top of the market, on purpose, and
+ * for most models that is many times the bill -- a budget stops long before
+ * the money it names is spent. A model on this machine costs nothing per
+ * token; one reached over the internet is priced from models.dev, shown, and
+ * written only if the operator says yes. Either way it lands in
+ * `PALUGADA_MODEL_PRICE_SETTINGS`, where the console's prices also go.
+ */
+async function offerPrices(io: SetupIo, updates: Updates, env: Record<string, string>, lookup?: typeof lookupPrices): Promise<void> {
+  let settings;
+  try {
+    settings = modelSettingsFrom(env);
+  } catch {
+    return;
+  }
+  if (!settings) return;
+  const models = [...new Set(Object.values(settings.aliases).filter((model): model is string => Boolean(model)))];
+  if (models.length === 0) return;
+  const host = new URL(settings.url).hostname;
+  const local = ['127.0.0.1', 'localhost', '::1', '[::1]', 'host.docker.internal'].includes(host);
+  let prices: Record<string, { input: number; output: number }>;
+  let said: string;
+  if (local) {
+    prices = Object.fromEntries(models.map((model) => [model, { input: 0, output: 0 }]));
+    said = `A model on this machine costs nothing per token. Price ${models.join(', ')} at 0, so budgets count only paid work? [Y/n] `;
+  } else {
+    if (!lookup) return;
+    let found;
+    try {
+      found = await lookup(models, { url: settings.url, provider: settings.provider });
+    } catch (failure) {
+      io.say(`models.dev could not be read (${(failure as Error).message}); prices can be set later in the console, This deployment, Model.`);
+      return;
+    }
+    prices = Object.fromEntries(Object.entries(found.prices).map(([model, price]) => [model, { input: price.input, output: price.output }]));
+    if (Object.keys(prices).length === 0) {
+      io.say(`models.dev has no price for ${models.join(', ')}; set one later in the console, This deployment, Model.`);
+      return;
+    }
+    io.say('What models.dev says they cost, in dollars per million tokens:');
+    for (const [model, price] of Object.entries(found.prices)) {
+      io.say(`  ${model}: ${price.input / 100} in, ${price.output / 100} out (${price.provider})`);
+    }
+    if (found.missing.length > 0) io.say(`  not found there: ${found.missing.join(', ')}`);
+    said = 'Use these prices? Without them every call is charged at $15 in and $75 out. [Y/n] ';
+  }
+  if ((await ask(io, said)).toLowerCase().startsWith('n')) return;
+  updates.PALUGADA_MODEL_PRICE_SETTINGS = JSON.stringify({ models: prices });
 }
 
 /**
@@ -380,7 +439,7 @@ if (import.meta.filename === process.argv[1]) {
   };
   const envPath = process.argv[2] ?? '.env';
   try {
-    await setup(io, { envPath });
+    await setup(io, { envPath, lookupPrices });
     reader.close();
   } catch (failure) {
     reader.close();

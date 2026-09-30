@@ -94,6 +94,7 @@ A secret the owner saved is named like any other, as a reference:
 |---|---|
 | `PALUGADA_MASTER_KEY` | The key that seals secrets set in the console: 32 bytes, as 64 hex characters or base64 (`openssl rand -hex 32`). Without it, the key file below is used |
 | `PALUGADA_STATE_DIR` | Where the platform keeps its own state: the master key file, and the agent CLIs the console installs (`tools/`). Default `~/.palugada`; under Docker Compose, the `home` volume |
+| `PALUGADA_WORKER_CONCURRENCY` | How many tasks this process runs at once, from 1 to 16 (default 4). One place is kept for P0 work, so an urgent task starts even while the others are busy |
 
 | Variable | What it turns on |
 |---|---|
@@ -108,6 +109,8 @@ A secret the owner saved is named like any other, as a reference:
 | `PALUGADA_MCP_SERVERS` | Tools from MCP servers, only those the file names (see [`config/mcp.example.json`](../config/mcp.example.json) and below) |
 | `PALUGADA_MCP_SETTINGS` | The MCP servers the owner added in the console, as JSON in the file's shape; the console writes it, next to the file rather than in place of it |
 | `PALUGADA_MODEL_PRICES` | Model prices for runtimes that report tokens but no price (see [`config/prices.example.json`](../config/prices.example.json)) |
+| `PALUGADA_MODEL_PRICE_SETTINGS` | Prices laid over that file, as JSON `{ "models": { "<model>": { "input": <cents>, "output": <cents> } } }` per million tokens. `npm run setup` writes it; prices saved in the console are laid over it |
+| `PALUGADA_MODELS_DEV_URL` | Where the console reads models.dev's catalogue for **Fill from models.dev** (default `https://models.dev/api.json`); a mirror for a deployment without the internet |
 | `PALUGADA_DRAFT_MODEL` | The tier or model used for drafting, memory distillation and skill screening (default `standard`) |
 | `PALUGADA_AGENT_CLIS` | Agent CLIs this platform knows, by name, found on `PATH`: `claude-code`, `codex`, `gemini-cli`, `opencode`, `hermes`, `openclaw`. See **Agent CLIs** below |
 | `PALUGADA_AGENT_SETTINGS` | Per agent CLI, where its binary is, its tiers, and its credential by reference, as JSON; written by the console. See **Agent CLIs** below |
@@ -166,8 +169,11 @@ A provider that is overloaded or rate limited is retried twice, honouring
 `Retry-After`, and then the task falls back or waits; a refused key stops
 every task the same way, so it is said once, naming the setting to check.
 A model the price list does not name is charged at a conservative fallback
-rate, so a budget is never understated; `PALUGADA_MODEL_PRICES` gives it its
-real price, which for a model on your own machine is zero.
+rate, so a budget is never understated. Its real price comes from the
+console (**This deployment**, **Model**, **What it costs**, which can fill
+itself from [models.dev](https://models.dev)), from `npm run setup`, or from
+the file `PALUGADA_MODEL_PRICES` names; for a model on your own machine it
+is zero.
 
 **Agent CLIs.** A role can be done by an agent CLI instead of the
 platform's own loop. The console installs, signs in and turns on the known

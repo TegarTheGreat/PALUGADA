@@ -248,6 +248,11 @@ no external action runs.
 **Override** it until a time. Each takes a code. If spending was not
 expected, look at **Cost per day** and **Accounts** first.
 
+If the spending is far above your provider's bill, the model has no price
+and is charged at the high fallback. Under **This deployment**, **Model**,
+**What it costs**, press **Fill from models.dev** or type your prices, then
+**Save prices**.
+
 ### "Role … is paused for spending too fast"
 
 **Cause.** The role spent more than three times its seven-day hourly average

@@ -70,6 +70,12 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   },
   { pattern: '/api/control/settings/model/clear', what: 'Go back to the model the environment names.', factor: 'always' },
   {
+    pattern: '/api/control/settings/model/prices',
+    what: 'Say what a model costs, so calls are priced by it rather than at the high fallback. The models in use and their prices are in GET /api/control/settings (prices).',
+    fields: { prices: '{ model name: { input, output } } in cents per million tokens, from the provider\'s price list; null takes a price back' },
+    factor: 'always',
+  },
+  {
     pattern: '/api/control/tools/:kind',
     what: 'Choose the provider a tool goes to. kind is search, extract, image or speech; the providers are in GET /api/control/tools.',
     fields: {
@@ -553,6 +559,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
 export const ASSISTANT_CHECKS: Readonly<Record<string, string>> = {
   '/api/control/settings/model/models': 'Which models the saved provider serves: {}.',
   '/api/control/settings/model/test': 'Whether the model saved answers and can call a tool: {}.',
+  '/api/control/settings/model/prices/lookup': 'What models.dev says each model in use costs, to propose saving: {}.',
   '/api/control/mcp/inspect': 'What a saved MCP server offers now: { name }.',
 };
 

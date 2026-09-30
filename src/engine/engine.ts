@@ -231,7 +231,8 @@ async function unrecoveredWrites(
 function notConnected(names: readonly string[]): string {
   return `Not connected in this deployment: ${names.join(', ')}. Nothing is bound to them yet, so they are not ` +
     'among your tools in this run. Do the part of the work you can without them, and say in your output what is ' +
-    'left for when they are connected.';
+    'left for when they are connected. Do not ask the owner which service to connect or how: they connect one on ' +
+    'This deployment, Services, and see there what is missing.';
 }
 
 export class Engine {

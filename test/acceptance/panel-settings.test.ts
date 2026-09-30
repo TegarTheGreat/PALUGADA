@@ -30,6 +30,7 @@ import {
   DeploymentSecretManager, masterKeyFrom, putSecret, readSettings, writeSetting, type MasterKey,
 } from '../../src/settings/store.ts';
 import { withSettings } from '../../src/settings/overlay.ts';
+import { DEFAULT_PRICE_TABLE, estimateCents, withConsolePrices } from '../../src/engine/pricing.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
 before(ensureSchema);
@@ -192,6 +193,91 @@ test('the owner chooses a model in the console: checked before it is saved, save
  * owner's key there -- and the assistant may run the checks itself, so a
  * page it read could ask it to.
  */
+/**
+ * L12: with no price list every model was charged at the fallback, $15 in
+ * and $75 out per million tokens, the top of the market on purpose. A
+ * company on DeepSeek was charged about 58 times what DeepSeek billed, and
+ * its $200 ceiling stopped work worth $3.40. Nothing -- not setup, not the
+ * console -- offered to say what a model costs. The owner now says it where
+ * they chose the model, with their device, and each call is priced by it.
+ */
+test('the owner says what each model costs, with their device, and calls are priced by it (L12, F13.7)', async () => {
+  const api = await consoleWithSettings({
+    PALUGADA_MODEL_PROVIDER: 'openai', PALUGADA_MODEL_URL: 'https://api.deepseek.com/v1', PALUGADA_MODEL: 'deepseek-chat',
+  });
+  try {
+    const token = await api.signIn();
+    const before = await api.call('GET', '/api/control/settings', token);
+    assert.deepEqual(before.body.prices, [
+      { model: 'deepseek-chat', input: 1500, output: 7500, source: 'fallback' },
+    ], 'the model the tiers name, priced at the fallback, and said to be');
+
+    const refused = await api.call('POST', '/api/control/settings/model/prices', token, { prices: { 'deepseek-chat': { input: 28, output: 42 } } });
+    assert.notEqual(refused.status, 200, 'a lower price loosens every budget, so it takes the device');
+    const wrong = await api.call('POST', '/api/control/settings/model/prices', token, { prices: { 'deepseek-chat': { input: -1, output: 42 } }, proof: { totp: api.code() } });
+    assert.equal(wrong.status, 400);
+    assert.match(String(wrong.body.error), /non-negative number of cents per million tokens/);
+
+    const saved = await api.call('POST', '/api/control/settings/model/prices', token, { prices: { 'deepseek-chat': { input: 28, output: 42 } }, proof: { totp: api.code() } });
+    assert.equal(saved.status, 200, JSON.stringify(saved.body));
+    const after = await api.call('GET', '/api/control/settings', token);
+    assert.deepEqual(after.body.prices, [{ model: 'deepseek-chat', input: 28, output: 42, source: 'console' }]);
+
+    // The next start prices a call by it: a million tokens in and out, 70 cents rather than 90 dollars.
+    const env = withSettings({}, await readSettings());
+    const table = withConsolePrices(DEFAULT_PRICE_TABLE, env.PALUGADA_MODEL_PRICE_SETTINGS);
+    assert.deepEqual(estimateCents(table, 'deepseek-chat', 1_000_000, 1_000_000), { cents: 70, basis: 'deepseek-chat' });
+    assert.equal(estimateCents(table, 'some-other-model', 1_000_000, 0).basis, 'fallback', 'a model not priced still is not free');
+
+    // Taken back, the model is on the fallback again.
+    const cleared = await api.call('POST', '/api/control/settings/model/prices', token, { prices: { 'deepseek-chat': null }, proof: { totp: api.code() } });
+    assert.equal(cleared.status, 200);
+    assert.equal((await api.call('GET', '/api/control/settings', token)).body.prices[0].source, 'fallback');
+  } finally {
+    await api.close();
+  }
+});
+
+/**
+ * And the owner need not type them: models.dev keeps what each provider's
+ * models cost, and the console offers its prices to save. Its provider is
+ * the one this deployment's model is reached at when two list the same
+ * model at different prices; nothing is saved until the owner saves it.
+ */
+test('the console fills a model\'s price from models.dev, for the owner to save (L12)', async () => {
+  const catalogue = createServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({
+      openrouter: { id: 'openrouter', name: 'OpenRouter', api: 'https://openrouter.ai/api/v1', models: {
+        'deepseek-chat': { id: 'deepseek-chat', cost: { input: 0.5, output: 1 } },
+      } },
+      deepseek: { id: 'deepseek', name: 'DeepSeek', api: 'https://api.deepseek.com', models: {
+        'deepseek-chat': { id: 'deepseek-chat', cost: { input: 0.28, output: 0.42, cache_read: 0.028 } },
+      } },
+    }));
+  });
+  servers.push(catalogue);
+  await new Promise<void>((resolve) => catalogue.listen(0, '127.0.0.1', resolve));
+  const api = await consoleWithSettings({
+    PALUGADA_MODEL_PROVIDER: 'openai', PALUGADA_MODEL_URL: 'https://api.deepseek.com/v1',
+    PALUGADA_MODEL_ALIASES: JSON.stringify({ fast: 'deepseek-chat', standard: 'deepseek-chat', deep: 'deepseek-reasoner-9' }),
+    PALUGADA_MODELS_DEV_URL: `http://127.0.0.1:${(catalogue.address() as AddressInfo).port}/api.json`,
+  });
+  try {
+    const token = await api.signIn();
+    const found = await api.call('POST', '/api/control/settings/model/prices/lookup', token, {});
+    assert.equal(found.status, 200, JSON.stringify(found.body));
+    assert.deepEqual(found.body, {
+      prices: { 'deepseek-chat': { input: 28, output: 42, provider: 'DeepSeek' } },
+      missing: ['deepseek-reasoner-9'],
+      problem: null,
+    });
+    assert.equal((await readSettings()).model_prices, undefined, 'a look saves nothing');
+  } finally {
+    await api.close();
+  }
+});
+
 test('the saved model key is sent only to the address it was saved for (security)', async () => {
   const api = await consoleWithSettings();
   const saved = await modelServer();

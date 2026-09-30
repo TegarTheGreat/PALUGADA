@@ -35,6 +35,7 @@ import { taskCostCents } from '../reporting/cost.ts';
 import { enqueueWake } from '../scheduler/wake.ts';
 import { isTerminal, type TaskStatus } from '../domain/task.ts';
 import { PalugadaError, isPalugadaError } from '../errors.ts';
+import { appendEvent } from '../audit/event-log.ts';
 import type { Capability } from './registry.ts';
 
 export interface MemorySearchInput {
@@ -364,12 +365,13 @@ export function ticketListCapability(): Capability<{ status?: string; limit?: nu
 
 export function registerPlatformCapabilities(registry: {
   register(capability: Capability<never, never>): void;
+  get?(name: string): unknown;
 }): void {
   registry.register(memorySearchCapability() as unknown as Capability<never, never>);
   registry.register(skillReadCapability() as unknown as Capability<never, never>);
   registry.register(planRecordCapability() as unknown as Capability<never, never>);
   registry.register(metricRecordCapability() as unknown as Capability<never, never>);
-  registry.register(ownerAskCapability() as unknown as Capability<never, never>);
+  registry.register(ownerAskCapability(registry.get ? (name) => Boolean(registry.get!(name)) : undefined) as unknown as Capability<never, never>);
   registry.register(taskDelegateCapability() as unknown as Capability<never, never>);
   registry.register(taskAwaitCapability() as unknown as Capability<never, never>);
   registry.register(stageProposeCapability() as unknown as Capability<never, never>);
@@ -498,7 +500,45 @@ export const QUESTION_MAX = 1_000;
  * asked again returns it -- so a runtime that replays its calls picks up
  * where it stopped.
  */
-export function ownerAskCapability(): Capability<OwnerAskInput, OwnerAskResult> {
+/**
+ * Words that make a question one about setting a tool up rather than about
+ * the work, in English and Indonesian (L7).
+ */
+const SETUP_WORDS = /\b(bind|bound|binding|connect\w*|integrat\w*|vendor|provider|set\s?up|configure|install\w*|api\s?key|credential|hubung\w*|sambung\w*|pasang|integrasi|konfigurasi)\b/i;
+
+/** Whether a question names a capability, by its name or the service before its dot (`crm` of `crm.note`). */
+function names(question: string, capability: string): boolean {
+  const terms = [capability, capability.split('.')[0]!];
+  return terms.some((term) => new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(question));
+}
+
+/**
+ * The role's tools that nothing in this deployment is bound to, and that a
+ * question asks how to set up: what the platform answers itself (L7).
+ */
+async function setupAsked(
+  ctx: { companyId: string; taskId: string },
+  question: string,
+  bound: (name: string) => boolean,
+): Promise<string[]> {
+  if (!SETUP_WORDS.test(question)) return [];
+  const tools = await withTenant(ctx.companyId, async (tx) => {
+    const { rows } = await tx.query<{ tools: string[] | null }>(
+      'SELECT r.tools FROM tasks t JOIN roles r ON r.id = t.role_id WHERE t.id = $1', [ctx.taskId]);
+    return rows[0]?.tools ?? [];
+  });
+  return tools.filter((name) => !bound(name) && names(question, name));
+}
+
+/**
+ * `bound` says whether a capability is bound in this deployment. Given, a
+ * question about setting up a tool nothing is bound to -- "which CRM vendor
+ * should I bind?" -- is answered here rather than put to the owner (L7):
+ * the owner connects a service on This deployment, Services, and an answer
+ * typed into an inbox item connects nothing. The run is told so and carries
+ * on; the owner is asked only what they can answer.
+ */
+export function ownerAskCapability(bound?: (name: string) => boolean): Capability<OwnerAskInput, OwnerAskResult> {
   return {
     name: 'owner.ask',
     inputSchema: {
@@ -520,6 +560,20 @@ export function ownerAskCapability(): Capability<OwnerAskInput, OwnerAskResult> 
       }
       if (question.length > QUESTION_MAX) {
         throw new PalugadaError('contract.violation', `a question is at most ${QUESTION_MAX} characters`, { field: 'question' });
+      }
+      const unbound = bound ? await setupAsked(ctx, question, bound) : [];
+      if (unbound.length > 0) {
+        await withTenant(ctx.companyId, (tx) => appendEvent(tx, {
+          companyId: ctx.companyId, taskId: ctx.taskId, type: 'task.question_answered_by_platform', actor: 'system',
+          payload: { question, capabilities: unbound },
+        }));
+        return {
+          answered: true,
+          answer: `${unbound.join(', ')} ${unbound.length === 1 ? 'is' : 'are'} not connected in this deployment. The owner `
+            + 'connects a service on This deployment, Services, and an answer from the inbox connects nothing, so this was '
+            + 'not put to them. Carry on without it: do the part of the work you can, and say in your output what is left '
+            + 'for when it is connected.',
+        };
       }
       const asked = await askOwner({
         companyId: ctx.companyId,

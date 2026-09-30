@@ -18,7 +18,7 @@ import { ancestryForTask, renderAncestry } from '../domain/goals.ts';
 import { answersFor, openQuestionsFor } from '../inbox/inbox.ts';
 import { languageName, languageRule, languagesFor } from '../domain/language.ts';
 import { metricsIn, renderMetrics } from '../domain/metrics.ts';
-import { instructionsFor } from '../engine/owner-control.ts';
+import { earlierAttempts, instructionsFor } from '../engine/owner-control.ts';
 import { STAGE_PURPOSE, stageOf } from '../domain/stage.ts';
 import { renderPersona, type RolePersona } from '../domain/personas.ts';
 import { documentTitlesFor } from '../knowledge/documents.ts';
@@ -582,6 +582,31 @@ export async function buildContext(
         kind: 'owner_note',
         title: 'The owner answered your question',
         body: `You asked: ${answered.question}\nThe owner answered: ${answered.answer || '(no words, only a yes: go ahead)'}\n\nWork from this answer.`,
+      });
+    }
+
+    // What the owner said to the earlier attempts at the same work (L6): the
+    // answers they gave and the notes they left. Without it a rerun of a
+    // rerun started from the rerun before it, and a price the owner gave
+    // twice came back as "[TBD: price]". Oldest first, above this task's own
+    // words, which are the more recent and win where they differ.
+    const earlier = await earlierAttempts(tx, options.taskId);
+    const heard: string[] = [];
+    for (const attempt of [...earlier].reverse()) {
+      for (const answered of await answersFor(tx, attempt)) {
+        heard.push(`- Asked "${answered.question}", the owner answered: ${answered.answer || '(no words, only a yes: go ahead)'}`);
+      }
+      for (const instruction of await instructionsFor(tx, attempt)) {
+        if (instruction.text) heard.push(`- The owner said: ${instruction.text}`);
+      }
+    }
+    if (heard.length > 0) {
+      sections.push({
+        kind: 'owner_note',
+        title: 'What the owner said to the earlier attempts at this work',
+        body: `This work was asked for before (${earlier.length === 1 ? 'task' : 'tasks'} ${[...earlier].reverse().join(', ')}). ` +
+          'What the owner said then still holds unless they said otherwise since:\n' + heard.join('\n') +
+          '\n\nUse it. Do not ask for it again, and do not leave a placeholder where it answers.',
       });
     }
 

@@ -270,6 +270,33 @@ export async function instructionsFor(
   }));
 }
 
+/** How far back a rerun reads the attempts before it. */
+const LINEAGE_MAX = 10;
+
+/**
+ * The earlier attempts at the same work, nearest first: the task this one
+ * was asked for again in place of, the one that one replaced, and so on
+ * (L6). What the owner said to any of them is still true of this one -- a
+ * price given in an answer to the first attempt is the price for the third.
+ */
+export async function earlierAttempts(tx: TenantClient, taskId: string): Promise<string[]> {
+  const chain: string[] = [];
+  let current = taskId;
+  while (chain.length < LINEAGE_MAX) {
+    const { rows } = await tx.query<{ rerun_of: string | null }>(
+      `SELECT payload->>'rerunOf' AS rerun_of FROM events
+        WHERE task_id = $1 AND type = 'owner.instructed' AND payload ? 'rerunOf'
+        ORDER BY occurred_at, id LIMIT 1`,
+      [current],
+    );
+    const previous = rows[0]?.rerun_of;
+    if (!previous || previous === taskId || chain.includes(previous)) break;
+    chain.push(previous);
+    current = previous;
+  }
+  return chain;
+}
+
 export type Verdict = 'good' | 'needs_work';
 
 /**

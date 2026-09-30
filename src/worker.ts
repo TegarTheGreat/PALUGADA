@@ -85,6 +85,19 @@ export interface WorkerOptions {
   /** How many tasks one tick may run. Bounds how long a stop takes to bite. */
   maxRunsPerTick?: number;
   /**
+   * How many tasks `start()` runs at once (L3).
+   *
+   * One ran a task at a time and did everything else between runs, so an
+   * owner's P0 task waited behind whatever long run had started first, and
+   * an approval past its expiry stayed open -- its task still waiting -- for
+   * as long as that run took. Above one, the loop keeps one place for P0 work
+   * alone, runs the rest in the others, and does its housekeeping on its own
+   * clock. A division's own limit and its budget still bound what runs. One,
+   * the default here, is the loop as `tick()` runs it; the deployment sets
+   * its own (`PALUGADA_WORKER_CONCURRENCY`).
+   */
+  concurrency?: number;
+  /**
    * How often a company's retention policy is applied.
    *
    * Retention is a promise about data the company no longer keeps, and a
@@ -189,6 +202,9 @@ export interface TickReport {
 export const DEFAULT_IDLE_MS = 5_000;
 export const DEFAULT_MAX_RUNS_PER_TICK = 8;
 
+/** The priority the place kept by a concurrent worker takes: the owner's urgent work (F5.10). */
+export const URGENT_PRIORITY = 0;
+
 /**
  * Six hours, which is four sweeps a day.
  *
@@ -226,6 +242,21 @@ export const DEFAULT_LEARNING_INTERVAL_MS = 60 * 60 * 1_000;
  * round again at whatever rate the database could answer. With a docker daemon
  * down that is a hot loop against Postgres, not a retry.
  */
+function emptyReport(): TickReport {
+  return {
+    reclaimed: 0, scheduled: 0, woken: 0, ran: [], alerts: 0, retained: 0, handedOff: 0,
+    notified: 0,
+    digests: 0,
+    retracted: 0,
+    distilled: 0,
+    screened: 0,
+    pastDeadline: 0,
+    stranded: 0,
+    escalated: 0,
+    stopped: false, errors: [],
+  };
+}
+
 export function madeProgress(report: TickReport): boolean {
   const ran = report.ran.some((run) => run.status !== 'runtime_unavailable');
   return ran || report.reclaimed > 0 || report.scheduled > 0;
@@ -265,19 +296,11 @@ export class Worker {
    * One pass. Returns what it did, which is what makes the loop testable
    * without running it.
    */
-  async tick(now = new Date()): Promise<TickReport> {
-    const report: TickReport = {
-      reclaimed: 0, scheduled: 0, woken: 0, ran: [], alerts: 0, retained: 0, handedOff: 0,
-      notified: 0,
-      digests: 0,
-      retracted: 0,
-      distilled: 0,
-      screened: 0,
-      pastDeadline: 0,
-      stranded: 0,
-      escalated: 0,
-      stopped: false, errors: [],
-    };
+  async tick(now = new Date(), options: { runs?: boolean } = {}): Promise<TickReport> {
+    const report = emptyReport();
+    // A concurrent worker runs its tasks in places of their own, and this
+    // pass only looks after everything else (L3).
+    const runs = options.runs ?? true;
 
     // F5.8: a halted platform runs no work, and finds out within one polling
     // interval.
@@ -338,7 +361,7 @@ export class Worker {
       // claim both ran the same task and both got the same refusal.
       let runtimeDown = false;
 
-      await this.#stage(report, 'wakes', async () => {
+      if (runs) await this.#stage(report, 'wakes', async () => {
         const budget = this.#options.maxRunsPerTick ?? DEFAULT_MAX_RUNS_PER_TICK;
         const drained = await drainWakes(company, {
           holder: this.id,
@@ -364,7 +387,7 @@ export class Worker {
         }
       });
 
-      await this.#stage(report, 'claim', async () => {
+      if (runs) await this.#stage(report, 'claim', async () => {
         if (runtimeDown) return;
         const budget = (this.#options.maxRunsPerTick ?? DEFAULT_MAX_RUNS_PER_TICK)
           - report.ran.length;
@@ -481,8 +504,18 @@ export class Worker {
     await alive();
     const beating = setInterval(() => void alive(), HEARTBEAT_EVERY_MS);
     beating.unref();
+    const places = Math.max(1, Math.floor(this.#options.concurrency ?? 1));
     try {
-      await this.#loop(signal, idle);
+      if (places === 1) {
+        await this.#loop(signal, idle, true);
+      } else {
+        // The housekeeping on its own clock, and the runs in their places:
+        // the first kept for P0 work, so there is always room for it.
+        await Promise.all([
+          this.#loop(signal, idle, false),
+          ...Array.from({ length: places }, (_, place) => this.#place(signal, idle, place === 0)),
+        ]);
+      }
     } finally {
       clearInterval(beating);
       // Stopped cleanly, its tasks were handed back already; its word is taken
@@ -491,11 +524,11 @@ export class Worker {
     }
   }
 
-  async #loop(signal: AbortSignal | undefined, idle: number): Promise<void> {
+  async #loop(signal: AbortSignal | undefined, idle: number, runs: boolean): Promise<void> {
     while (!signal?.aborted) {
       let report: TickReport;
       try {
-        report = await this.tick();
+        report = runs ? await this.tick() : await this.tick(undefined, { runs: false });
         this.#lastTickAt = new Date();
         this.#say(report);
       } catch (error) {
@@ -514,6 +547,51 @@ export class Worker {
 
       await sleep(idle, signal);
     }
+  }
+
+  /**
+   * One place a concurrent worker runs tasks in: claims the next task across
+   * its companies, runs it, and goes straight round again; sleeps only when
+   * there was nothing to claim. `urgent` keeps the place for P0 work alone.
+   *
+   * No wake is drained by the urgent place: a wake names a role, not a
+   * priority, and taking one there would give the place to routine work.
+   */
+  async #place(signal: AbortSignal | undefined, idle: number, urgent: boolean): Promise<void> {
+    while (!signal?.aborted) {
+      let ran = false;
+      try {
+        if (!(await isStopAllRequested())) {
+          for (const company of this.#rotate(await this.#companies())) {
+            const taskId = await this.#claimOne(company, urgent);
+            if (!taskId) continue;
+            const report = emptyReport();
+            const status = await this.#runClaimed(report, company, taskId);
+            this.#say(report);
+            // A runtime that is down puts its task back; trying again at once
+            // would spend this place on the same refusal.
+            ran = status !== null && status !== 'runtime_unavailable';
+            break;
+          }
+        }
+      } catch (error) {
+        this.#options.log?.({ level: 'error', event: 'place.failed', message: (error as Error).message });
+      }
+      if (!ran) await sleep(idle, signal);
+    }
+  }
+
+  /** The next task for a place, from a wake first as a tick takes it, or null. */
+  async #claimOne(companyId: string, urgent: boolean): Promise<string | null> {
+    if (!urgent) {
+      const drained = await drainWakes(companyId, { holder: this.id, now: new Date(), maxClaims: 1 });
+      const woken = drained.find((wake) => wake.taskId)?.taskId;
+      if (woken) return woken;
+    }
+    const claim = await claimTask(companyId, {
+      holder: this.id, now: new Date(), ...(urgent ? { priorityAtMost: URGENT_PRIORITY } : {}),
+    });
+    return claim?.taskId ?? null;
   }
 
   /**

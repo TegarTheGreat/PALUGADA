@@ -73,6 +73,7 @@ test('a first installation on this machine: the owner\'s factor checked, a local
     if (question.startsWith('The six-digit code')) return codeFor(keyShown(shown));
     if (question.startsWith('Its address')) return url;
     if (question.startsWith('The model every role runs on')) return 'qwen3:8b';
+    if (question.startsWith('A model on this machine costs nothing')) return '';
     throw new Error(`not expected: ${question}`);
   });
   await setup(io, { envPath, probeDatabase: async () => false });
@@ -83,6 +84,8 @@ test('a first installation on this machine: the owner\'s factor checked, a local
   assert.ok(io.shown.some((line) => /called the tool it was offered/.test(line)), io.shown.join('\n'));
   const settings = modelSettingsFrom(written)!;
   assert.deepEqual([settings.provider, settings.url, settings.aliases.standard], ['openai', url, 'qwen3:8b']);
+  assert.deepEqual(JSON.parse(written.PALUGADA_MODEL_PRICE_SETTINGS!), { models: { 'qwen3:8b': { input: 0, output: 0 } } },
+    'a model on this machine is priced at nothing, not at the top of the market (L12)');
   assert.equal(written.PALUGADA_MODEL_KEY_REF, undefined, 'a model on this machine takes no key');
   const secret = await new LocalSecretManager({ env: written }).resolve(written.PALUGADA_OWNER_TOTP_REF!);
   assert.equal(secret, keyShown(io.shown.join('\n')), 'the factor the app was given is the one the deployment reads');
@@ -111,6 +114,7 @@ test('with Docker Compose: passwords made for the database, a model that only ta
     if (question.startsWith('Its API key')) return 'sk-a-key-0123456789';
     if (question.startsWith('The model every role runs on')) return 'small-model';
     if (question.startsWith('Keep these settings anyway')) return 'y';
+    if (question.startsWith('A model on this machine costs nothing')) return 'n';
     throw new Error(`not expected: ${question}`);
   });
   await setup(io, { envPath });
@@ -124,6 +128,42 @@ test('with Docker Compose: passwords made for the database, a model that only ta
   assert.equal(written.PALUGADA_SECRET_MODEL_KEY, 'sk-a-key-0123456789');
   assert.equal(written.PALUGADA_MODEL_KEY_REF, 'env://PALUGADA_SECRET_MODEL_KEY');
   assert.ok(io.shown.some((line) => /docker compose up/.test(line)));
+  assert.equal(written.PALUGADA_MODEL_PRICE_SETTINGS, undefined, 'a price the operator declined is not written');
+});
+
+/**
+ * L12, at setup: a model reached over the internet is priced from what
+ * models.dev says, shown to the operator, and written only with their yes.
+ */
+test('setup offers what models.dev says a hosted model costs, and writes it when the operator agrees (L12)', async () => {
+  const envPath = join(mkdtempSync(join(tmpdir(), 'palugada-setup-')), '.env');
+  const looked: Array<{ models: readonly string[]; url: string | null }> = [];
+  const io = person((question, shown) => {
+    if (question.startsWith('Choose')) {
+      const lines = shown.split('\n');
+      if (!/Which model/.test(lines.slice(-40).join('\n'))) return '1';
+      const router = lines.map((line) => /^\s+(\d+)\) OpenRouter/.exec(line)).filter(Boolean).at(-1);
+      return router![1]!;
+    }
+    if (question.startsWith('The six-digit code')) return '';
+    if (question.startsWith('Its API key')) return 'sk-or-0123456789';
+    if (question.startsWith('The model every role runs on')) return 'deepseek/deepseek-v4-flash';
+    if (question.startsWith('Use these prices?')) return '';
+    throw new Error(`not expected: ${question}`);
+  });
+  await setup(io, {
+    envPath,
+    probeDatabase: async () => false,
+    checkModel: async () => ({ problem: null, warning: null }),
+    lookupPrices: async (models, where) => {
+      looked.push({ models, url: where.url });
+      return { prices: { 'deepseek/deepseek-v4-flash': { input: 15, output: 60, provider: 'OpenRouter' } }, missing: [] };
+    },
+  });
+  assert.deepEqual(looked, [{ models: ['deepseek/deepseek-v4-flash'], url: 'https://openrouter.ai/api/v1' }]);
+  assert.ok(io.shown.some((line) => /deepseek\/deepseek-v4-flash: 0\.15 in, 0\.6 out \(OpenRouter\)/.test(line)), io.shown.join('\n'));
+  const written = parseEnv(readFileSync(envPath, 'utf8'));
+  assert.deepEqual(JSON.parse(written.PALUGADA_MODEL_PRICE_SETTINGS!), { models: { 'deepseek/deepseek-v4-flash': { input: 15, output: 60 } } });
 });
 
 test('the file is edited in place: comments and order kept, a removed setting gone, JSON quoted', () => {

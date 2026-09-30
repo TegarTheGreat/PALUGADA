@@ -24,7 +24,10 @@
  *
  * **No built-in vendor price list.** Prices change several times a year and a
  * table compiled into a control plane is wrong by the next release, silently.
- * The operator's file is the source; the fallback is the floor under it.
+ * The operator's file, what setup wrote and what the owner saved in the
+ * console are the sources, laid over each other in that order
+ * (`withConsolePrices`); the console and setup offer models.dev's current
+ * prices to save (`models-dev.ts`). The fallback is the floor under them.
  */
 import { readFile } from 'node:fs/promises';
 import { PalugadaError } from '../errors.ts';
@@ -149,6 +152,29 @@ export function parsePriceTable(raw: unknown, source = 'price file'): PriceTable
   // Longest first: the most specific row is the one the operator meant.
   rates.sort((a, b) => b.pattern.length - a.pattern.length);
   return { rates, fallback };
+}
+
+/**
+ * The price list with what the owner said in the console laid over it (L12).
+ *
+ * The console's entries are the owner's word on what they pay, so a model
+ * named in both is priced by the console. The fallback is the file's, or the
+ * conservative one: the console names models, never what an unknown one
+ * costs.
+ */
+export function withConsolePrices(table: PriceTable, raw: string | undefined): PriceTable {
+  if (!raw) return table;
+  const consoleTable = parsePriceTable(JSON.parse(raw) as unknown, 'the prices set in the console');
+  const named = new Set(consoleTable.rates.map((row) => row.pattern));
+  const rates = [...consoleTable.rates, ...table.rates.filter((row) => !named.has(row.pattern))];
+  rates.sort((a, b) => b.pattern.length - a.pattern.length);
+  return { rates, fallback: table.fallback };
+}
+
+/** Which row prices a model, and at what rate: its pattern, or `fallback`. */
+export function rateFor(table: PriceTable, model: string): { rate: ModelRate; basis: string } {
+  const row = table.rates.find((candidate) => matches(candidate.pattern, model));
+  return row ? { rate: row.rate, basis: row.pattern } : { rate: table.fallback, basis: 'fallback' };
 }
 
 export async function loadPriceTable(path: string): Promise<PriceTable> {

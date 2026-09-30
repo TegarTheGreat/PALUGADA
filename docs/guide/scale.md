@@ -86,10 +86,10 @@ Dozens of companies, long-running agent CLIs, and more work at any moment
 than one worker can run.
 
 **Set up.**
-- Several worker processes, one for each task you want running at the same
-  moment: a worker runs one task at a time. Put them on one or more hosts
-  behind the proxy or a load balancer; console sessions are shared through
-  the database, so any process can serve you.
+- Several worker processes, each running `PALUGADA_WORKER_CONCURRENCY`
+  tasks at once (four by default, one of them kept for urgent work). Put
+  them on one or more hosts behind the proxy or a load balancer; console
+  sessions are shared through the database, so any process can serve you.
 - Give every process the same configuration: the same model, runtimes,
   vendor file, MCP servers and price list. Any worker can claim any task, and
   a task whose role names a runtime that worker does not have is halted with

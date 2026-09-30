@@ -76,6 +76,7 @@ const EVENT_SENTENCES: Record<string, string> = {
   'owner.answered': N('You answered'),
   'owner.instructed': N('You told it something'),
   'task.rerun': N('Done again as a new task'),
+  'task.question_answered_by_platform': N('Asked how to set up a tool; told it is not connected'),
   'owner.notified': N('You were notified'),
   'incident.raised': N('Incident raised'),
   'escalation.raised': N('Escalation raised'),

@@ -158,7 +158,9 @@ notes, budgets and spending, configuration versions, the owner's sessions
 and the record of applied migrations.
 
 It does not hold the secrets themselves, the vendor, MCP and price files,
-the built console, or the agent CLIs' home directory. Back those up
+the built console, or the agent CLIs' home directory. The charters'
+repository (`charters` in the state directory) holds nothing the database
+does not, only their history as git keeps it. Back the rest up
 separately: above all `.env` or the environment file and the authenticator
 secret, without which you cannot sign in, and the master key
 (`PALUGADA_MASTER_KEY`, or `master.key` in the state directory). The keys

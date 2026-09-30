@@ -18,11 +18,10 @@
  * import will overwrite, which is the correct outcome and is worth knowing
  * before it happens.
  *
- * Committing is left to the operator. Shelling out to `git` from inside the
- * orchestrator would put a working tree, a merge conflict and an authentication
- * failure on the path of a charter read, and none of those are things a run
- * should be able to hit. The files are written; the repository is somebody's
- * to manage.
+ * The deployment's own repository of these files, kept level with the
+ * database both ways and committed, is `charter-repository.ts`. It commits off
+ * the path of any run: a working tree or a failed commit is never something a
+ * run reading its charter can hit.
  */
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';

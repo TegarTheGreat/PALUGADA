@@ -923,6 +923,15 @@ the company charter's versions, each with **Put this back**. A charter
 travels whole in every run, so it is limited to 20,000 characters and is
 best kept to what holds for every piece of work.
 
+The charters are also files, in a git repository beside the deployment's
+state (`charters` in `PALUGADA_STATE_DIR`, or `PALUGADA_CHARTERS_DIR`):
+`PLATFORM.md`, and `companies/<slug>/SOUL.md` for each company. Every
+version saved in the console is written there and committed. Edit a file
+there instead -- in an editor, or by pulling from a repository of your own
+-- and within a minute it is the charter's next version, recorded in its
+history like any other. A file PALUGADA wrote and nobody changed never
+overrides the charter in the database.
+
 ## Set budgets and alert thresholds
 
 - On **Money**, set the **Monthly ceiling** and press **Set**. Raising it

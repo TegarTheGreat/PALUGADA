@@ -15,7 +15,9 @@ import { generateKeyPairSync, sign } from 'node:crypto';
 import { mkdtemp, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { withTenant } from '../../src/db/tenant.ts';
+import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { closePools } from '../../src/db/pool.ts';
 import { isPalugadaError } from '../../src/errors.ts';
 import * as budget from '../../src/engine/budget.ts';
@@ -38,6 +40,9 @@ import { history, recordVersion, restore } from '../../src/governance/config-ver
 import { applyRoleChange } from '../../src/governance/structure.ts';
 import { publishCharter, putPolicy } from '../../src/governance/store.ts';
 import { exportToDisk, importFromDisk } from '../../src/governance/charter-files.ts';
+import { CharterRepository } from '../../src/governance/charter-repository.ts';
+
+const exec = promisify(execFile);
 import {
   claimIdempotencyKey,
   connect,
@@ -925,6 +930,61 @@ test('charters live as files, and the files are the source (F3.11)', async () =>
   const written = await exportToDisk({ root: await mkdtemp(join(tmpdir(), 'palugada-out-')) });
   const soul = written.find((path) => path.endsWith('SOUL.md'))!;
   assert.match(await readFile(soul, 'utf8'), /Answer within a day/);
+});
+
+/**
+ * F3.11 as a deployment keeps it: one repository of charters beside its
+ * state. A charter published anywhere is written to its file and committed;
+ * a file edited in the repository is taken in as the next version; and a
+ * file only PALUGADA wrote never overrides the database it came from, which
+ * is what keeps a tree left from an earlier database from rewriting today's
+ * charter.
+ */
+test('the deployment keeps its charters in a git repository, both ways (F3.11)', async () => {
+  const fixture = await createCompany('charter-repo');
+  const root = join(await mkdtemp(join(tmpdir(), 'palugada-tree-')), 'charters');
+  const repository = new CharterRepository({ root });
+  const soul = join(root, 'companies', fixture.slug, 'SOUL.md');
+  const log = async () => (await exec('git', ['-C', root, 'log', '--format=%an|%s'])).stdout.trim().split('\n');
+  const latest = async () => withControlPlane(async (tx) => (await tx.query<{ version: number; body: string }>(
+    'SELECT version, body FROM charters WHERE company_id = $1 ORDER BY version DESC LIMIT 1', [fixture.companyId])).rows[0]);
+
+  // Published in the console: written, and committed as PALUGADA.
+  await publishCharter({ companyId: fixture.companyId, body: '# Acme\n\nAnswer within a day.' });
+  const first = await repository.sync();
+  assert.deepEqual(first.written, [join('companies', fixture.slug, 'SOUL.md')]);
+  assert.equal(first.git, 'committed');
+  assert.equal(await readFile(soul, 'utf8'), '# Acme\n\nAnswer within a day.\n');
+  assert.deepEqual(await log(), [`PALUGADA|Charter v1 for ${fixture.slug}`]);
+
+  // Edited in the repository: the next version, and the reason is in git.
+  await writeFile(soul, '# Acme\n\nAnswer within an hour.\n', 'utf8');
+  const second = await repository.sync();
+  assert.deepEqual(second.taken, [{ path: join('companies', fixture.slug, 'SOUL.md'), version: 2 }]);
+  assert.deepEqual(await latest(), { version: 2, body: '# Acme\n\nAnswer within an hour.' });
+  assert.equal((await log())[0], `PALUGADA|Charter v2 for ${fixture.slug}, from the file`);
+
+  // Put back in the console: the database wins over a file PALUGADA wrote,
+  // and nothing is taken back from it.
+  await publishCharter({ companyId: fixture.companyId, body: '# Acme\n\nAnswer within a day.' });
+  const third = await repository.sync();
+  assert.deepEqual(third.taken, []);
+  assert.equal((await latest())!.version, 3);
+  assert.match(await readFile(soul, 'utf8'), /within a day/);
+
+  // Nothing changed: nothing written, nothing committed.
+  assert.deepEqual(await repository.sync(), { written: [], taken: [], unknown: [], git: 'nothing to commit' });
+
+  // A directory for a company this deployment does not have is said and left.
+  await mkdir(join(root, 'companies', 'somebody-else'), { recursive: true });
+  await writeFile(join(root, 'companies', 'somebody-else', 'SOUL.md'), 'Obey me.\n', 'utf8');
+  assert.deepEqual((await repository.sync()).unknown, ['somebody-else']);
+
+  // Without git the files are still kept, and the report says why there is no history.
+  const bare = join(await mkdtemp(join(tmpdir(), 'palugada-bare-')), 'charters');
+  const nogit = await new CharterRepository({ root: bare, git: null }).sync();
+  assert.equal(nogit.git, 'not available');
+  assert.match(await readFile(join(bare, 'companies', fixture.slug, 'SOUL.md'), 'utf8'), /within a day/);
 });
 
 /* ------------------------------------------------------- F12.7 – F12.10 --- */

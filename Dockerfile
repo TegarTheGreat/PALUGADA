@@ -17,8 +17,10 @@ ENV NODE_ENV=production
 # now and then -- a tool process, a shell -- and are handed to PID 1 when it
 # exits. Node as PID 1 never waits for a process it did not start, so each
 # stayed a zombie for the life of the container; tini reaps them, and passes
-# SIGTERM on so the worker still hands its work back.
-RUN apt-get update && apt-get install -y --no-install-recommends tini && rm -rf /var/lib/apt/lists/*
+# SIGTERM on so the worker still hands its work back. git keeps the history
+# of the charters (F3.11, charter-repository.ts); without it they are kept as
+# files with no history.
+RUN apt-get update && apt-get install -y --no-install-recommends tini git && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force

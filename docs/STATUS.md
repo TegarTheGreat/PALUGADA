@@ -58,7 +58,7 @@ means less than that, the row says so.
 |---|---|---|---|
 | F1 tenancy, budget | F1.1–F1.9 | — | — |
 | F2 organisation | F2.1–F2.9 | — | — |
-| F3 charter, policy | F3.1–F3.10, F3.12 | F3.11 (the files are read and written by tested code, and the boot reads no directory: in a stock deployment the charter is the database's, edited from the console -- section 2.24) | — |
+| F3 charter, policy | F3.1–F3.12 | — | — |
 | F4 memory | F4.1–F4.8 | — | — |
 | F5 engine | F5.1–F5.14 | — | — |
 | F6 agent communication | F6.1–F6.7 | — | — |
@@ -3654,7 +3654,7 @@ done:
   gets the new criteria.
 
 **Still open, next.** F3.11's files are read only when the boot is given a
-directory, and it is not given one.
+directory, and it is not given one. (Closed in section 2.44.)
 
 ## 2.25 Chaos, and every connector
 
@@ -4345,6 +4345,33 @@ the code against it found these, and each is now closed with a test.
 - **Tested** with two brokers standing in for two replicas: never two
   calls at once, a waiting call taking the place the moment it frees, a
   lapsed lease freeing a place, and six parks in a row without a failure.
+
+## 2.44 Charters as files, in a git repository (F3.11)
+
+- **The requirement's direction was not the deployment's.** F3.11 has the
+  charters as `SOUL.md` and `PLATFORM.md` in an internal git repository,
+  edited as files. The code that reads and writes them was tested, and no
+  boot gave it a directory: in a stock deployment a charter lived only in
+  the database.
+- **Every deployment keeps a repository now**, `charters` beside its state
+  (`PALUGADA_CHARTERS_DIR` to put it elsewhere), made on the first boot.
+  It is brought level with the database at boot, as the owner saves or
+  puts back a charter in the console, and every minute for what a template
+  or a bundle published (`src/governance/charter-repository.ts`).
+- **Both ways.** A file edited in the repository is published as the
+  charter's next version and committed; a charter published anywhere else
+  is written to its file and committed as PALUGADA. Which one a difference
+  is, is decided by what PALUGADA last wrote to each file, kept beside them
+  and ignored by git: a file still holding what PALUGADA wrote is the
+  database's to change. Without that, a tree left from an earlier database
+  -- a restored backup, a reinstall -- would overwrite the charter the owner
+  has now; the test puts a charter back in the console after a file edit
+  and the file does not win.
+- **A directory for a company the deployment does not have** is left alone
+  and named at boot: a file is not authorisation to create a tenant.
+- **git is the history, not a condition.** Without it the files are kept
+  and read, and the boot says there is no history; a failed commit never
+  fails a charter. The Docker image installs it.
 
 ## 3. Decisions, deviations, and what is unverified
 

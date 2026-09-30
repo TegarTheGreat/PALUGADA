@@ -19,6 +19,9 @@ The first version. What it holds, in the order an owner meets it.
 - Companies of AI agents with one human owner: divisions, roles with
   charters, personas and a mandatory CEO the owner talks to, projects,
   measurable goals, tickets, schedules, handoffs and inbound triggers.
+- The platform's and each company's charter kept as files in a git
+  repository beside the deployment, edited there or in the console
+  (STATUS 2.44).
 - Every step journalled, so a crash loses nothing; money and tokens reserved
   before work starts; leases, deadlines, per-run length and token ceilings;
   tasks at once per division and calls at once per capability, across every

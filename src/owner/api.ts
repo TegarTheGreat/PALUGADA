@@ -120,6 +120,7 @@ import {
 import { publishCharter, putPolicy } from '../governance/store.ts';
 import { history as configHistory, type ConfigKind } from '../governance/config-versions.ts';
 import { rollBack } from '../governance/rollback.ts';
+import type { CharterRepository } from '../governance/charter-repository.ts';
 import { assertValidCondition, type Condition } from '../policy/condition.ts';
 import { POLICY_EFFECTS, type PolicyEffect } from '../policy/engine.ts';
 import { setThresholds } from '../reporting/alerts.ts';
@@ -211,6 +212,8 @@ import {
 export interface OwnerApiOptions {
   mfa: OwnerMfa;
   sessions?: OwnerSessions;
+  /** F3.11: the repository of charter files, written as the owner saves a charter. */
+  charters?: CharterRepository;
   /**
    * The console is reached through a reverse proxy, so the caller's address
    * is the last one the proxy added to `X-Forwarded-For` rather than the
@@ -831,7 +834,7 @@ export class OwnerApi {
           // something switched off until the operator sets it.
           return {
             notes,
-            todo: notes.filter((note) => !/^(enrolled |bound by |bound from |model: |model prices from |runtimes: |seeded |finished runs go to )/.test(note)),
+            todo: notes.filter((note) => !/^(enrolled |bound by |bound from |model: |model prices from |runtimes: |seeded |finished runs go to |charters kept in )/.test(note)),
             version: VERSION,
           };
         },
@@ -4051,9 +4054,11 @@ export class OwnerApi {
           const kind = configKind(params.kind);
           const version = wholeNumber(body.version, 'version');
           await this.#requireFactor(body.proof, `put back version ${version} of a ${kind}`, params.companyId!);
-          return rollBack(
+          const restored = await rollBack(
             params.companyId!, kind, typeof body.subjectId === 'string' ? body.subjectId : null, version,
           );
+          if (kind === 'charter') await this.#options.charters?.sync().catch(() => undefined);
+          return restored;
         },
       },
 
@@ -5060,6 +5065,10 @@ export class OwnerApi {
     await this.#requireFactor(
       body.proof, companyId === null ? 'change the platform charter' : 'change the company charter', companyId);
     const published = await publishCharter(companyId === null ? { body: text } : { companyId, body: text });
+    // F3.11: into its file and committed now, rather than on the next tick.
+    // A repository that cannot be written does not undo a charter the owner
+    // saved; the next sync tries again.
+    await this.#options.charters?.sync().catch(() => undefined);
     return { version: published.version, unchanged: false };
   }
 

@@ -14,9 +14,13 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
+import { mkdtemp, readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { closePools } from '../../src/db/pool.ts';
 import { InMemorySecretManager } from '../../src/secrets/manager.ts';
 import { OwnerApi, type OwnerApiOptions } from '../../src/owner/api.ts';
+import { CharterRepository } from '../../src/governance/charter-repository.ts';
 import { AdapterRegistry, type Adapter } from '../../src/runtime/protocol.ts';
 import { rollBack } from '../../src/governance/rollback.ts';
 import { withTenant as withTenantTx } from '../../src/db/tenant.ts';
@@ -2514,7 +2518,9 @@ test('the owner can write a policy, and cannot write one the engine cannot read 
  */
 test('the owner reads both charters and rewrites either with a factor (F3.1, F3.6)', async () => {
   const fixture = await createCompany('console-charter');
-  const owner = await console_();
+  // F3.11: the deployment's repository of charters, which a save writes at once.
+  const tree = join(await mkdtemp(join(tmpdir(), 'palugada-console-tree-')), 'charters');
+  const owner = await console_({ charters: new CharterRepository({ root: tree }) });
   try {
     const token = await signIn(owner.url, owner.code());
     const company = `/api/companies/${fixture.companyId}/charter`;
@@ -2543,6 +2549,7 @@ test('the owner reads both charters and rewrites either with a factor (F3.1, F3.
     });
     assert.equal(written.status, 200, JSON.stringify(written.body));
     assert.deepEqual(written.body, { version: 1, unchanged: false });
+    assert.equal(await readFile(join(tree, 'companies', fixture.slug, 'SOUL.md'), 'utf8'), 'Answer within a day.\n');
 
     // The same words again are not a new version, and ask for nothing.
     const same = await call(owner.url, 'POST', company, { token, body: { body: 'Answer within a day.' } });
@@ -2554,6 +2561,7 @@ test('the owner reads both charters and rewrites either with a factor (F3.1, F3.
     });
     assert.equal(platform.status, 200, JSON.stringify(platform.body));
     assert.deepEqual(platform.body, { version: 1, unchanged: false });
+    assert.equal(await readFile(join(tree, 'PLATFORM.md'), 'utf8'), 'Never deceive anyone.\n');
 
     const both = await call(owner.url, 'GET', company, { token });
     const read = both.body as { company: { version: number; body: string; createdAt: string }; platform: { version: number; body: string } };

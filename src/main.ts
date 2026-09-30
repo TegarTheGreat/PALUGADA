@@ -39,8 +39,9 @@ import { VERSION } from './version.ts';
 import { EMAIL_PROVIDERS, EmailChannel, emailAddress, emailProvider } from './owner/email.ts';
 import { OwnerMfa, decodeBase32 } from './owner/mfa.ts';
 import {
-  DeploymentSecretManager, masterKeyFrom, previousMasterKeysFrom, readSettings, resealSecrets, settingsVersion, type MasterKey,
+  DeploymentSecretManager, masterKeyFrom, previousMasterKeysFrom, readSettings, resealSecrets, settingsVersion, stateDirFrom, type MasterKey,
 } from './settings/store.ts';
+import { CharterRepository } from './governance/charter-repository.ts';
 import { withSettings } from './settings/overlay.ts';
 import { LocalSecretManager } from './secrets/local.ts';
 import { PalugadaError } from './errors.ts';
@@ -775,6 +776,25 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     );
   }
 
+  // F3.11: the charters as files, in a git repository beside the state. A
+  // file edited there is the next version; anything published is written
+  // and committed. Brought level now, on every save in the console, and
+  // every minute for what a template or a bundle published.
+  const charterRepository = new CharterRepository({
+    root: env.PALUGADA_CHARTERS_DIR ?? join(stateDirFrom(env), 'charters'),
+  });
+  try {
+    const synced = await charterRepository.sync();
+    notes.push(
+      `charters kept in ${charterRepository.root}`
+      + (synced.taken.length > 0 ? `; taken from their files: ${synced.taken.map((one) => `${one.path} v${one.version}`).join(', ')}` : '')
+      + (synced.unknown.length > 0 ? `; left alone, no such company: ${synced.unknown.join(', ')}` : '')
+      + (synced.git === 'not available' ? ' (no git on this machine: the files are kept, without their history)' : ''),
+    );
+  } catch (error) {
+    notes.push(`charters are not kept as files: ${(error as Error).message} -- set PALUGADA_CHARTERS_DIR to a directory this process may write`);
+  }
+
   const broker = new CapabilityBroker(
     registry,
     undefined,
@@ -890,6 +910,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
 
   const api = new OwnerApi({
     mfa,
+    charters: charterRepository,
     // The registry and the resolver, so F12.3's rotation can sweep the
     // division afterwards. Without both, a rotation through the console still
     // works and simply does not re-check -- which is better than a sweep that
@@ -961,6 +982,8 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     }, SETTINGS_POLL_MS)
     : null;
   watching?.unref();
+  const keepingCharters = setInterval(() => void charterRepository.sync().catch(() => undefined), CHARTER_SYNC_MS);
+  keepingCharters.unref();
 
   return {
     worker,
@@ -972,6 +995,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     notes,
     async stop() {
       if (watching) clearInterval(watching);
+      clearInterval(keepingCharters);
       // The console first: a worker still ticking while the owner can no
       // longer reach it is the one order that has a bad minute in it.
       await api.close();
@@ -1006,6 +1030,9 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
 
 /** How often a replica looks for settings changed elsewhere. */
 const SETTINGS_POLL_MS = 30_000;
+
+/** How often the charter repository is brought level with the database (F3.11). */
+const CHARTER_SYNC_MS = 60_000;
 
 /** Twenty seconds: most steps finish in that, and it leaves forty before a supervisor's kill. */
 const STOP_GRACE_MS = 20_000;

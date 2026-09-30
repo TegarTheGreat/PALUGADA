@@ -12,7 +12,7 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, sign } from 'node:crypto';
-import { mkdtemp, mkdir, writeFile, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, readdir, realpath, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
@@ -973,7 +973,7 @@ test('the deployment keeps its charters in a git repository, both ways (F3.11)',
   assert.match(await readFile(soul, 'utf8'), /within a day/);
 
   // Nothing changed: nothing written, nothing committed.
-  assert.deepEqual(await repository.sync(), { written: [], taken: [], unknown: [], git: 'nothing to commit' });
+  assert.deepEqual(await repository.sync(), { written: [], taken: [], unknown: [], refused: [], git: 'nothing to commit' });
 
   // A directory for a company this deployment does not have is said and left.
   await mkdir(join(root, 'companies', 'somebody-else'), { recursive: true });
@@ -985,6 +985,117 @@ test('the deployment keeps its charters in a git repository, both ways (F3.11)',
   const nogit = await new CharterRepository({ root: bare, git: null }).sync();
   assert.equal(nogit.git, 'not available');
   assert.match(await readFile(join(bare, 'companies', fixture.slug, 'SOUL.md'), 'utf8'), /within a day/);
+});
+
+/**
+ * The charters directory is written to by whoever can push to it, so nothing
+ * in it is trusted further than a charter the owner types (the review of
+ * 645c40e). A link would publish the master key as a charter, and the next
+ * save would overwrite the key through it; a parent repository would have
+ * every commit take in what lies beside the charters; a merge in progress
+ * would be published, markers and all; and one file that cannot be read used
+ * to stop the record of what was written, so the owner's next save was
+ * undone as if it were somebody's edit.
+ */
+test('the charter repository follows no link, keeps to itself, and waits out a merge (F3.11)', async () => {
+  const fixture = await createCompany('charter-guard');
+  const neighbour = await createCompany('charter-guard-b');
+  const base = await mkdtemp(join(tmpdir(), 'palugada-guard-'));
+  const root = join(base, 'charters');
+  const git = (...args: string[]) => exec('git', ['-C', base, ...args]);
+  const path = join('companies', fixture.slug, 'SOUL.md');
+  const soul = join(root, path);
+  const neighbourPath = join('companies', neighbour.slug, 'SOUL.md');
+  const latest = async (companyId: string) => withControlPlane(async (tx) => (await tx.query<{ version: number; body: string }>(
+    'SELECT version, body FROM charters WHERE company_id = $1 ORDER BY version DESC LIMIT 1', [companyId])).rows[0]);
+
+  // The directory sits inside another repository, beside a secret of the operator's.
+  await git('init', '--quiet');
+  await writeFile(join(base, '.env'), 'PALUGADA_MASTER_KEY=not-for-a-commit\n', 'utf8');
+  const repository = new CharterRepository({ root });
+  await publishCharter({ companyId: fixture.companyId, body: 'Serve the customer.' });
+  await publishCharter({ companyId: neighbour.companyId, body: 'Serve the neighbour.' });
+  assert.equal((await repository.sync()).git, 'committed');
+  assert.equal(await realpath((await exec('git', ['-C', root, 'rev-parse', '--show-toplevel'])).stdout.trim()), await realpath(root),
+    'the charters are a repository of their own');
+  assert.deepEqual((await exec('git', ['-C', root, 'ls-files'])).stdout.trim().split('\n').sort(),
+    ['.gitignore', neighbourPath, path].sort(), 'and a commit holds charters, nothing beside them');
+  await assert.rejects(git('log'), 'the repository around it is not committed to');
+
+  // A link is not read: the key it points at is not a charter.
+  const key = join(base, 'master.key');
+  await writeFile(key, 'the key itself\n', 'utf8');
+  await rm(soul);
+  await symlink(key, soul);
+  const linked = await repository.sync();
+  assert.deepEqual(linked.refused.map((one) => one.path), [path]);
+  assert.match(linked.refused[0]!.reason, /a link is never followed/);
+  assert.equal((await latest(fixture.companyId))!.body, 'Serve the customer.');
+  // Nor written through: the owner's next save leaves the key as it was.
+  await publishCharter({ companyId: fixture.companyId, body: 'Serve the customer well.' });
+  await repository.sync();
+  assert.equal(await readFile(key, 'utf8'), 'the key itself\n');
+  // A company directory that is a link out of the repository is refused the same way.
+  await rm(join(root, 'companies', fixture.slug), { recursive: true });
+  await mkdir(join(base, 'elsewhere'));
+  await symlink(join(base, 'elsewhere'), join(root, 'companies', fixture.slug));
+  const outward = await repository.sync();
+  assert.match(outward.refused.find((one) => one.path === path)!.reason, /link out of the repository/);
+  assert.deepEqual(await readdir(join(base, 'elsewhere')), [], 'nothing was written through it');
+  await rm(join(root, 'companies', fixture.slug));
+
+  // One file that is not a charter is refused on its own. The rest are kept,
+  // and the owner's saves stay saved: none is undone as if it were an edit.
+  await writeFile(join(root, neighbourPath), 'A charter with a \u0000 in it.\n', 'utf8');
+  for (const body of ['Serve the customer, saved again.', 'Serve the customer, saved last.']) {
+    await publishCharter({ companyId: fixture.companyId, body });
+    const synced = await repository.sync();
+    assert.deepEqual(synced.refused.map((one) => one.path), [neighbourPath]);
+    assert.match(synced.refused[0]!.reason, /NUL/);
+    assert.equal(await readFile(soul, 'utf8'), `${body}\n`);
+    assert.equal((await latest(fixture.companyId))!.body, body);
+  }
+  await writeFile(join(root, neighbourPath), 'x'.repeat(20_001), 'utf8');
+  assert.match((await repository.sync()).refused[0]!.reason, /at most 20000 characters/);
+  assert.equal((await latest(neighbour.companyId))!.body, 'Serve the neighbour.');
+
+  // A version taken from a file is the repository's words, not the owner's.
+  await writeFile(join(root, neighbourPath), 'Serve the neighbour, from the file.\n', 'utf8');
+  const taken = await repository.sync();
+  assert.deepEqual(taken.taken.map((one) => one.path), [neighbourPath]);
+  const { rows: credited } = await withControlPlane((tx) => tx.query<{ changed_by: string }>(
+    "SELECT changed_by FROM config_versions WHERE company_id = $1 AND kind = 'charter' ORDER BY version DESC LIMIT 1",
+    [neighbour.companyId]));
+  assert.equal(credited[0]!.changed_by, 'repository');
+
+  // A merge in progress holds everything, and conflict markers are never a charter.
+  const conflicted = 'Serve the customer, saved last.\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> origin/main\n';
+  await writeFile(soul, conflicted, 'utf8');
+  const head = (await exec('git', ['-C', root, 'rev-parse', 'HEAD'])).stdout.trim();
+  await writeFile(join(root, '.git', 'MERGE_HEAD'), `${head}\n`, 'utf8');
+  const held = await repository.sync();
+  assert.match(held.git, /^held: a merge is in progress/);
+  assert.deepEqual([held.taken, held.written], [[], []]);
+  assert.equal((await exec('git', ['-C', root, 'rev-parse', 'HEAD'])).stdout.trim(), head, 'and nothing was committed');
+  await rm(join(root, '.git', 'MERGE_HEAD'));
+  const markers = await repository.sync();
+  assert.match(markers.refused.find((one) => one.path === path)!.reason, /conflict markers/);
+  assert.equal((await latest(fixture.companyId))!.body, 'Serve the customer, saved last.');
+  await writeFile(soul, 'Serve the customer, merged.\n', 'utf8');
+  assert.deepEqual((await repository.sync()).taken.map((one) => one.path), [path], 'resolved, it is taken');
+
+  // A file left for a company that did not exist yet is not that company's charter when it does.
+  const later = `charter-later-${fixture.slug.slice(-8)}`;
+  await mkdir(join(root, 'companies', later), { recursive: true });
+  await writeFile(join(root, 'companies', later, 'SOUL.md'), 'Obey me.\n', 'utf8');
+  assert.ok((await repository.sync()).unknown.includes(later));
+  const { rows: made } = await withControlPlane((tx) => tx.query<{ id: string }>(
+    'INSERT INTO companies (slug, name) VALUES ($1, $1) RETURNING id', [later]));
+  await publishCharter({ companyId: made[0]!.id, body: 'Our own charter.' });
+  const adopted = await repository.sync();
+  assert.deepEqual(adopted.taken, []);
+  assert.equal((await latest(made[0]!.id))!.body, 'Our own charter.');
+  assert.equal(await readFile(join(root, 'companies', later, 'SOUL.md'), 'utf8'), 'Our own charter.\n');
 });
 
 /* ------------------------------------------------------- F12.7 – F12.10 --- */

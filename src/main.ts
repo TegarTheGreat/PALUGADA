@@ -790,7 +790,9 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
       `charters kept in ${charterRepository.root}`
       + (synced.taken.length > 0 ? `; taken from their files: ${synced.taken.map((one) => `${one.path} v${one.version}`).join(', ')}` : '')
       + (synced.unknown.length > 0 ? `; left alone, no such company: ${synced.unknown.join(', ')}` : '')
-      + (synced.git === 'not available' ? ' (no git on this machine: the files are kept, without their history)' : ''),
+      + (synced.refused.length > 0 ? `; refused: ${synced.refused.map((one) => `${one.path} (${one.reason})`).join(', ')}` : '')
+      + (synced.git === 'not available' ? ' (no git on this machine: the files are kept, without their history)'
+        : synced.git.startsWith('failed') || synced.git.startsWith('held') ? ` (git ${synced.git})` : ''),
     );
   } catch (error) {
     notes.push(`charters are not kept as files: ${(error as Error).message} -- set PALUGADA_CHARTERS_DIR to a directory this process may write`);
@@ -1024,6 +1026,9 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
         await Promise.all([
           running,
           ...[telegram, whatsapp].map((chat) => (chat ? Promise.race([chat.settled(), graceOver]) : undefined)),
+          // A charter sync halfway through its files would leave the record
+          // of what it wrote behind them.
+          Promise.race([charterRepository.settled(), graceOver]),
         ]);
       } finally {
         clearTimeout(grace);

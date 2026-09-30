@@ -108,11 +108,15 @@ async function record(
 
 /**
  * Who wrote a charter version. The owner, except for the one a deployment
- * starts with (`platform`) and the one a company is made with (`template`):
- * a history that said the owner wrote words they never saw would make "did I
- * agree to this" unanswerable.
+ * starts with (`platform`), the one a company is made with (`template`), and
+ * one taken from a file in the charter repository (`repository`), which
+ * whoever can push to it may have written: a history that said the owner
+ * wrote words they never saw would make "did I agree to this" unanswerable.
  */
-export type CharterAuthor = 'owner' | 'platform' | 'template';
+export type CharterAuthor = 'owner' | 'platform' | 'template' | 'repository';
+
+/** The longest charter, wherever it is written: every run carries it whole. */
+export const CHARTER_LIMIT = 20_000;
 
 /**
  * Holds one scope's charter until the transaction ends: the platform's when
@@ -130,8 +134,11 @@ export async function lockCharterScope(tx: TenantClient, companyId: string | nul
  * "which charter was this agent run subject to" stays answerable after the
  * fact.
  */
-export async function publishCharter(input: CharterInput): Promise<{ id: string; version: number }> {
-  return withControlPlane((tx) => publishCharterIn(tx, input));
+export async function publishCharter(
+  input: CharterInput,
+  author: CharterAuthor = 'owner',
+): Promise<{ id: string; version: number }> {
+  return withControlPlane((tx) => publishCharterIn(tx, input, author));
 }
 
 /**

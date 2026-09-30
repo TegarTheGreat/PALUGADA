@@ -117,7 +117,7 @@ import {
   type RoleFields,
   type StructuralChange,
 } from '../governance/structure.ts';
-import { publishCharter, putPolicy } from '../governance/store.ts';
+import { CHARTER_LIMIT, publishCharter, putPolicy } from '../governance/store.ts';
 import { history as configHistory, type ConfigKind } from '../governance/config-versions.ts';
 import { rollBack } from '../governance/rollback.ts';
 import type { CharterRepository } from '../governance/charter-repository.ts';
@@ -5822,8 +5822,6 @@ function requireText(value: unknown, field: string): string {
  * charter of a book's length would be paid for on every call a model makes,
  * and would crowd out the task it is meant to govern.
  */
-const CHARTER_LIMIT = 20_000;
-
 function charterText(value: unknown): string {
   const text = typeof value === 'string' ? value.trim() : '';
   if (!text) throw new PalugadaError('contract.violation', 'write the charter: it is empty', { field: 'body' });

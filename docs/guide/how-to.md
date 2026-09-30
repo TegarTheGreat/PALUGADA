@@ -949,6 +949,15 @@ there instead -- in an editor, or by pulling from a repository of your own
 history like any other. A file PALUGADA wrote and nobody changed never
 overrides the charter in the database.
 
+The directory is a repository of its own, even inside another one. A file
+is taken only when it is a plain file within the directory (a link is
+never followed), holds no conflict markers and is within the 20,000
+characters; anything else is left as it is and named at boot, and the
+other charters carry on. While a merge or a rebase is in progress there,
+nothing is read, written or committed until you finish it. A version taken
+from a file shows in **History** as from the charter repository, not as
+yours.
+
 ## Set budgets and alert thresholds
 
 - On **Money**, set the **Monthly ceiling** and press **Set**. Raising it

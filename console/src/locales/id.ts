@@ -1663,6 +1663,7 @@ export const ID: Readonly<Record<string, string>> = {
   "from a file": "dari berkas",
   "from a secret manager": "dari pengelola rahasia",
   "from outside": "dari luar",
+  "from the charter repository": "dari repositori piagam",
   "from the company template": "dari template perusahaan",
   "from the environment": "dari environment",
   "frozen": "beku",

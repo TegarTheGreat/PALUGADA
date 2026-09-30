@@ -83,5 +83,6 @@ function changedBy(who: string): string {
   if (who === 'owner') return t('you');
   if (who === 'template') return t('from the company template');
   if (who === 'platform') return t('written by PALUGADA');
+  if (who === 'repository') return t('from the charter repository');
   return who;
 }

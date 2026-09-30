@@ -4372,6 +4372,33 @@ the code against it found these, and each is now closed with a test.
 - **git is the history, not a condition.** Without it the files are kept
   and read, and the boot says there is no history; a failed commit never
   fails a charter. The Docker image installs it.
+- **Found in review, and closed.** The directory is written to by whoever
+  can push to it, and was trusted further than a charter the owner types:
+  - *A link was followed both ways.* A `SOUL.md` pointing at the master
+    key was published as the company's charter, into every run's context,
+    and the owner's next save overwrote the key through it. A link, a
+    directory or a device where a charter should be is refused now, and so
+    is a company directory that leads out of the repository.
+  - *A directory inside another repository committed that repository.*
+    `rev-parse` succeeded from the parent, and `add --all` took in its
+    `.env` and master key. The directory is made a repository of its own
+    unless it is already its repository's top level, and the repository's
+    own hooks run on a commit.
+  - *A merge in progress was published*, conflict markers and all, and the
+    commit concluded it. A merge, a rebase, a cherry-pick or a revert holds
+    the whole sync; a file holding conflict markers is refused.
+  - *One unreadable file froze the record of what was written*, and every
+    later save the owner made was then taken back from its file as if it
+    were an edit. Each file is brought level on its own, recorded as it is
+    done, and one that cannot be is reported and left.
+  - *A file skipped the console's limits and was credited to the owner.*
+    It is held to the same 20,000 characters, refused with a NUL in it, and
+    a version taken from it is the repository's in the history. A file left
+    for a company that did not exist yet is recorded as seen, not taken as
+    that company's charter when it does.
+  - *Git's reason was cut to its first line*, which is "Command failed";
+    what git said is reported now, and a failed or held repository is
+    named at boot.
 
 ## 2.45 A guardian that may only tighten
 

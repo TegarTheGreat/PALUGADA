@@ -23,6 +23,7 @@ import {
 import { Engine } from '../../src/engine/engine.ts';
 import { CapabilityRegistry, type Capability } from '../../src/broker/registry.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
+import { givePlaceBack, takePlace } from '../../src/broker/in-flight.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';
 import { createRootTask, getTask, transition } from '../../src/engine/tasks.ts';
 import { claimTask, releaseTask } from '../../src/engine/checkout.ts';
@@ -944,6 +945,35 @@ test('a division has no more calls to one capability in flight than its grant al
   await vendor.started(6);
   vendor.finishAll();
   await Promise.all(free);
+});
+
+/**
+ * Places taken at the same moment, and a limit lowered while calls run (the
+ * review of d1b8142). Many takers at once each get a place or none, and never
+ * more between them than the limit; a call running in a place above a
+ * lowered limit still counts, so the lower limit holds from the moment it is
+ * set.
+ */
+test('takers at once get only the places there are, and a lowered limit holds at once (F5.7)', async () => {
+  const fixture = await createCompany('in-flight-race');
+  const tasks = await Promise.all(Array.from({ length: 12 }, () => rateLimitedTask(fixture)));
+  const holder = (taskId: string, key: string) => ({
+    companyId: fixture.companyId, divisionId: fixture.divisionId, capability: 'crm.read', taskId, holderKey: key,
+  });
+  for (let round = 0; round < 5; round += 1) {
+    const taken = await Promise.all(tasks.map((task) => takePlace(holder(task.id, `race-${round}-${task.id}`), 2)));
+    assert.equal(taken.filter(Boolean).length, 2, `round ${round}: two places, two calls`);
+    await Promise.all(tasks.map((task) => givePlaceBack(holder(task.id, `race-${round}-${task.id}`))));
+  }
+
+  const [a, b, c] = tasks as [typeof tasks[0], typeof tasks[0], typeof tasks[0]];
+  assert.equal(await takePlace(holder(a.id, 'a'), 2), true);
+  assert.equal(await takePlace(holder(b.id, 'b'), 2), true, 'b holds place 2');
+  await givePlaceBack(holder(a.id, 'a'));
+  assert.equal(await takePlace(holder(c.id, 'c'), 1), false, 'lowered to one while b runs: b is that one');
+  await givePlaceBack(holder(b.id, 'b'));
+  assert.equal(await takePlace(holder(c.id, 'c'), 1), true);
+  assert.equal(await takePlace(holder(c.id, 'c'), 1), true, 'the same call again has its own place back');
 });
 
 /**

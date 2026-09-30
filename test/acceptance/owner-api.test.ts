@@ -2372,6 +2372,13 @@ test('the owner can change a grant and a role, with their device (F2.9, F3.9)', 
       body: { divisionId: fixture.divisionId, capabilityName: 'dns.update', tierOverride: 2, maxInFlight: 1.5, proof: { totp: owner.code() } },
     });
     assert.equal(nonsense.status, 400, JSON.stringify(nonsense.body));
+    // A place is a row made the first time it is wanted: a limit in the millions was a million rows.
+    const huge = await call(owner.url, 'POST', grantPath, {
+      token,
+      body: { divisionId: fixture.divisionId, capabilityName: 'dns.update', tierOverride: 2, maxInFlight: 2_000_000, proof: { totp: owner.code() } },
+    });
+    assert.equal(huge.status, 400, JSON.stringify(huge.body));
+    assert.match(JSON.stringify(huge.body), /at most 100 calls at once/);
     const lifted = await call(owner.url, 'POST', grantPath, {
       token,
       body: { divisionId: fixture.divisionId, capabilityName: 'dns.update', tierOverride: 2, maxInFlight: 0, proof: { totp: owner.code() } },

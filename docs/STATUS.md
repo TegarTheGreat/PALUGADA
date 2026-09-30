@@ -4361,11 +4361,34 @@ the code against it found these, and each is now closed with a test.
   past that the task is parked (`task.waiting_slot`) and picked up fifteen
   seconds later, spending no attempt. Unlike a vendor's rate limit, it is
   not counted against the five parks a task gets: the calls ahead end or
-  their leases lapse. A runtime in another process is told the capability
-  is busy, as it is told of a rate limit.
+  their leases lapse. A runtime in another process is parked the same way.
 - **Tested** with two brokers standing in for two replicas: never two
   calls at once, a waiting call taking the place the moment it frees, a
   lapsed lease freeing a place, and six parks in a row without a failure.
+- **Found in review, and closed.**
+  - *Two replicas could both take the last place.* A place taken and
+    committed between a second taker's snapshot and its row lock was
+    re-checked by PostgreSQL against the new row but the old join, read as
+    free, and taken again. Takers of one capability in one division now
+    take turns on an advisory lock; twelve takers at once, five rounds,
+    get exactly the two places there are. The race was reasoned from how
+    PostgreSQL re-checks, not reproduced.
+  - *A runtime in another process was not parked.* `capability.busy` and
+    `capability.rate_limited` reached it as tool errors, the run went on,
+    each try held it thirty seconds, and a write refused every time spent
+    an attempt. Both park the task now, as they do in-process.
+  - *A limit had no ceiling.* A place is a row made the first time it is
+    wanted, and 2,147,483,647 passed. A grant allows at most 100, in the
+    console, in a bundle (refused with the bundle's name) and in the
+    database (0093, not validated against grants already above it, which
+    the broker holds to 100).
+  - *A lowered limit waited for running calls to end.* Every live holder
+    counts now, whichever place it holds.
+  - *A place could be kept by a call that never ran* when spending the
+    owner's yes failed; it is given back first.
+  - *Left:* a call that waits for a place records a standing approval's
+    use, and may be judged by the guardian, on every try, since both come
+    before the place is taken.
 
 ## 2.44 Charters as files, in a git repository (F3.11)
 

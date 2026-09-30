@@ -183,7 +183,7 @@ export const ID: Readonly<Record<string, string>> = {
   "Belongs to": "Milik",
   "Better is": "Lebih baik jika",
   "Blank for the whole company": "Kosongkan untuk seluruh perusahaan",
-  "Blank keeps it as it is; 0 takes the limit away": "Kosong: tetap seperti sekarang; 0 menghapus batasnya",
+  "Blank keeps it as it is; 0 takes the limit away; at most 100": "Kosong: tetap seperti sekarang; 0 menghapus batasnya; paling banyak 100",
   "Blank keeps the current one": "Kosongkan untuk mempertahankan yang sekarang",
   "Blank keeps the same path": "Kosongkan untuk mempertahankan path yang sama",
   "Blank revokes the grant": "Kosongkan untuk mencabut izin",

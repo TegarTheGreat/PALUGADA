@@ -44,7 +44,7 @@ Divisions nest two levels deep at most. A division holds:
 
 - its grants: the capabilities its roles may use, each at the catalogue's
   tier or a stricter one (**Capabilities it may use**), and for any of them,
-  how many calls may be under way at once;
+  how many calls may be under way at once, up to 100;
 - how many of its tasks may run at once (**Runs at once, at most**),
   across every worker. A sub-task that its own running parent is driving
   runs inside the parent's place rather than waiting for another;

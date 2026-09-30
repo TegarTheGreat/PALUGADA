@@ -187,7 +187,14 @@ const NOTE_KINDS: ReadonlySet<ContextSection['kind']> = new Set([
   'language', 'stage', 'project', 'documents', 'contract', 'goal_measure', 'owner_question', 'owner_note', 'earlier_attempts',
 ]);
 
-const PARKING_CODES: ReadonlySet<string> = new Set(['approval.required', 'owner.asked', 'review.required', 'window.closed', 'task.waiting_child']);
+// A place or a vendor's "not now" parks the task like the rest: handed to an
+// out-of-process runtime as a tool error, the run went on, each retry held
+// it for the wait, and a write refused every time spent an attempt (the
+// review of d1b8142).
+const PARKING_CODES: ReadonlySet<string> = new Set([
+  'approval.required', 'owner.asked', 'review.required', 'window.closed', 'task.waiting_child',
+  'capability.busy', 'capability.rate_limited',
+]);
 
 /**
  * Answers that end the run however the run takes them (F8.4). A write whose

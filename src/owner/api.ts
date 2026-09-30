@@ -118,6 +118,7 @@ import {
   type StructuralChange,
 } from '../governance/structure.ts';
 import { CHARTER_LIMIT, publishCharter, putPolicy } from '../governance/store.ts';
+import { MAX_IN_FLIGHT } from '../broker/in-flight.ts';
 import { history as configHistory, type ConfigKind } from '../governance/config-versions.ts';
 import { rollBack } from '../governance/rollback.ts';
 import type { CharterRepository } from '../governance/charter-repository.ts';
@@ -3717,7 +3718,7 @@ export class OwnerApi {
               ...(body.maxInFlight === undefined ? {} : {
                 maxInFlight: body.maxInFlight === null || body.maxInFlight === 0
                   ? null
-                  : wholeNumber(body.maxInFlight, 'maxInFlight'),
+                  : inFlightLimit(body.maxInFlight),
               }),
             }) as Extract<StructuralChange, { kind: 'change_grant' | 'revoke_grant' }>;
           await applyGrantChange(params.companyId!, change, { ownerApproved: true });
@@ -5729,6 +5730,17 @@ function wholeNumber(value: unknown, field: string): number {
     );
   }
   return parsed;
+}
+
+/** Calls in flight at once, as a grant may allow them: a whole number from 1 to `MAX_IN_FLIGHT`. */
+function inFlightLimit(value: unknown): number {
+  const limit = wholeNumber(value, 'maxInFlight');
+  if (limit > MAX_IN_FLIGHT) {
+    throw new PalugadaError('contract.violation',
+      `maxInFlight is ${limit}; a grant allows at most ${MAX_IN_FLIGHT} calls at once, or 0 for no limit`,
+      { field: 'maxInFlight' });
+  }
+  return limit;
 }
 
 function hour(value: unknown, field: string): number {

@@ -798,12 +798,19 @@ export class CapabilityBroker {
     // leaves this one with no approval, which is the same as never having
     // had one.
     if (grantedApproval) {
+      // The place is given back first, whatever happens after: a place
+      // left held by a call that never ran is read as live again when the
+      // same worker picks the task up (the review of d1b8142).
       const spent = await inbox.spendApproval(ctx.companyId, grantedApproval, {
         taskId: ctx.taskId, capability: name, idempotencyKey: ctx.idempotencyKey,
+      }).catch(async (error: unknown) => {
+        await giveBack();
+        if (charged) await refundEstimate(costContext, charged.accountId, estimatedCents);
+        throw error;
       });
       if (!spent) {
-        if (charged) await refundEstimate(costContext, charged.accountId, estimatedCents);
         await giveBack();
+        if (charged) await refundEstimate(costContext, charged.accountId, estimatedCents);
         await askOwner();
       }
     }

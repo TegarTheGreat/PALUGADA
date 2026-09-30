@@ -597,6 +597,31 @@ test('a hook with no condition would refuse everything, so it is refused (F16.1)
   );
 });
 
+test('a grant allowing calls in flight is a whole number from 1 to 100, refused with the bundle\'s name (F5.7)', async () => {
+  for (const maxInFlight of [0, 1.5, 101]) {
+    await assert.rejects(
+      () => publishBundle({
+        slug: 'too-many-at-once',
+        version: '1.0.0',
+        name: 'Too many at once',
+        description: '',
+        body: {
+          divisions: [{ slug: 'x', name: 'X' }],
+          roles: [],
+          grants: [{ division: 'x', capability: 'crm.read', maxInFlight }],
+          policies: [],
+          skills: [],
+          hooks: [],
+          schedules: [],
+        },
+      }),
+      (error: unknown) => isPalugadaError(error, 'bundle.invalid')
+        && /allows .* calls in flight; it is a whole number from 1 to 100/.test((error as Error).message),
+      String(maxInFlight),
+    );
+  }
+});
+
 /* ------------------------------------------------------------ F16.4, F1.5 --- */
 
 /**

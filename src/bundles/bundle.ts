@@ -41,6 +41,7 @@ import { assertValidCondition, type Condition } from '../policy/condition.ts';
 import { POLICY_EFFECTS, type PolicyEffect } from '../policy/engine.ts';
 import { putPolicy } from '../governance/store.ts';
 import { ensureCeo } from '../governance/ceo.ts';
+import { MAX_IN_FLIGHT } from '../broker/in-flight.ts';
 
 export interface BundleSkill {
   slug: string;
@@ -728,6 +729,17 @@ export function assertBundleIsCoherent(bundle: Bundle): void {
       throw new PalugadaError(
         'bundle.invalid',
         `a grant names division ${grant.division}, which the bundle does not define`,
+        { slug: bundle.slug },
+      );
+    }
+    // Refused here with the bundle's name, rather than by the database as a
+    // bare constraint in the middle of an install.
+    const limit = grant.maxInFlight;
+    if (limit !== undefined && limit !== null && !(Number.isInteger(limit) && limit >= 1 && limit <= MAX_IN_FLIGHT)) {
+      throw new PalugadaError(
+        'bundle.invalid',
+        `the grant of ${grant.capability} to ${grant.division} allows ${String(limit)} calls in flight; `
+          + `it is a whole number from 1 to ${MAX_IN_FLIGHT}, or left out for no limit`,
         { slug: bundle.slug },
       );
     }

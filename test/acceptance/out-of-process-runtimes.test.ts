@@ -37,6 +37,8 @@ import { startToolBridge } from '../../src/runtime/tool-bridge.ts';
 import { Engine, MODEL_OUTAGE_WAITS_MS } from '../../src/engine/engine.ts';
 import { registerPlatformCapabilities } from '../../src/broker/platform-capabilities.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
+import { takePlace } from '../../src/broker/in-flight.ts';
+import { claimTask } from '../../src/engine/checkout.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { buildContext } from '../../src/context/builder.ts';
 import { CapabilityRegistry, type Capability } from '../../src/broker/registry.ts';
@@ -92,14 +94,14 @@ function capabilities() {
   return { read, write };
 }
 
-async function brokerFor(fixture: Fixture, grants: string[]) {
+async function brokerFor(fixture: Fixture, grants: string[], options: { inFlightWaitMs?: number } = {}) {
   const { read, write } = capabilities();
   const registry = new CapabilityRegistry();
   registry.register(read);
   registry.register(write);
   await registry.sync();
   for (const name of grants) await grantCapability(fixture, name);
-  return new CapabilityBroker(registry);
+  return new CapabilityBroker(registry, undefined, undefined, options);
 }
 
 async function configureRole(
@@ -1228,6 +1230,31 @@ test('an ACP run withdrawn before its session opens is never prompted', async ()
   const report = await reportFrom(reportPath);
   assert.ok(report.newSession, 'the session did open');
   assert.equal(report.prompted, false, 'and the withdrawn turn was not begun in it');
+});
+
+/**
+ * F5.7 for a runtime in another process: a call that finds every place taken
+ * parks the task as it does in-process. Handed to the agent as a tool error,
+ * the run went on and each try held it for the wait (the review of d1b8142).
+ */
+test('an out-of-process run whose call finds every place taken parks, spending no attempt (F5.7)', async () => {
+  const fixture = await createCompany('acp-busy');
+  const broker = await brokerFor(fixture, ['dns.read'], { inFlightWaitMs: 100 });
+  await grantCapability(fixture, 'dns.read', { maxInFlight: 1 });
+  await configureRole(fixture, { runtime: 'busy-acp', tools: ['dns.read'] });
+  const elsewhere = await newTask(fixture, { ask: 'hold the place' });
+  assert.ok(await claimTask(fixture.companyId, { holder: 'elsewhere', taskId: elsewhere.id }));
+  assert.ok(await takePlace({
+    companyId: fixture.companyId, divisionId: fixture.divisionId, capability: 'dns.read', taskId: elsewhere.id, holderKey: 'held',
+  }, 1));
+
+  const task = await newTask(fixture, { ask: 'read the zone' }, { attemptMax: 1 });
+  const outcome = await engineWith(broker, new CliAdapter(acpSpec('busy-acp', ['--call', 'dns__read'])))
+    .runTask(fixture.companyId, task.id, 'worker');
+  assert.deepEqual([outcome.status, outcome.reason], ['waiting_window', 'capability.busy']);
+  const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ attempt: number }>(
+    'SELECT attempt FROM tasks WHERE id = $1', [task.id]));
+  assert.equal(rows[0]!.attempt, 0, 'waiting is not failing');
 });
 
 /* ---------------------------------------------------------------- cli --- */

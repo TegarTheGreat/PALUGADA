@@ -1047,7 +1047,7 @@ function DivisionDrawer({
                       { value: '2', label: t('Tier 2 · costly') }, { value: '3', label: t('Tier 3 · irreversible') },
                     ] },
                     { name: 'maxInFlight', label: t('Calls at once, at most'), type: 'number',
-                      description: t('Blank keeps it as it is; 0 takes the limit away') },
+                      description: t('Blank keeps it as it is; 0 takes the limit away; at most 100') },
                   ]}
                   submit={(values, proof) => api('POST', `/api/companies/${companyId}/structure/grant`, {
                     divisionId: division.id,

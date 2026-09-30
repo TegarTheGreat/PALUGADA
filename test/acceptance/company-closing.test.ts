@@ -13,9 +13,18 @@
  * row of it -- the append-only history included, which the database allows
  * only for a company that was closed and whose grace is over -- with the keys
  * its divisions held, and keeps one line saying so and how much it removed.
+ *
+ * Each company is erased on its own, so one that fails holds back no other,
+ * and what it kept on disk -- its files, its charter's folder -- goes after
+ * its rows (0096; read in Buzz's source, 2026-09-30).
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
+import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { promisify } from 'node:util';
 import pg from 'pg';
 import { connectionString } from '../../src/config.ts';
 import { closePools } from '../../src/db/pool.ts';
@@ -23,7 +32,10 @@ import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import { appendEvent } from '../../src/audit/event-log.ts';
 import { remember } from '../../src/memory/store.ts';
 import { createRootTask } from '../../src/engine/tasks.ts';
-import { closeCompany, eraseDueCompanies, keepCompany } from '../../src/governance/closing.ts';
+import { closeCompany, closingOf, eraseDueCompanies, keepCompany } from '../../src/governance/closing.ts';
+import { CharterRepository } from '../../src/governance/charter-repository.ts';
+import { publishCharter } from '../../src/governance/store.ts';
+import { companyRoot } from '../../src/capabilities/files.ts';
 import { isCompanyFrozen } from '../../src/engine/control.ts';
 import { isPalugadaError } from '../../src/errors.ts';
 import { Engine } from '../../src/engine/engine.ts';
@@ -97,11 +109,53 @@ async function rowsOf(companyId: string): Promise<Record<string, number>> {
   });
 }
 
-/** The grace period, over: what a clock would do in thirty days. */
-async function graceOver(companyId: string): Promise<void> {
+/** The grace period, over some days ago: what a clock would do in thirty days. */
+async function graceOver(companyId: string, daysAgo = 1): Promise<void> {
   await withControlPlane((tx) => tx.query(
-    "UPDATE companies SET closing_at = now() - interval '31 days', erase_after = now() - interval '1 day' WHERE id = $1",
-    [companyId]));
+    "UPDATE companies SET closing_at = now() - interval '31 days', erase_after = now() - make_interval(days => $2) WHERE id = $1",
+    [companyId, daysAgo]));
+}
+
+const exec = promisify(execFile);
+
+/** Whether anything is at a path, a link included. */
+async function there(path: string): Promise<boolean> {
+  return (await lstat(path).catch(() => null)) !== null;
+}
+
+/**
+ * Runs `work` while a trigger the schema's owner puts on `table` refuses the
+ * rows `when` names, as a failure nobody planned would: a trigger somebody
+ * added, a constraint, a statement that timed out. Taken off again whatever
+ * happens, so no later test meets it.
+ */
+async function refusing<T>(table: string, operation: 'INSERT' | 'DELETE', when: string, work: () => Promise<T>): Promise<T> {
+  const owner = new pg.Pool({ connectionString: connectionString('owner'), max: 1 });
+  try {
+    await owner.query(`CREATE FUNCTION public.test_refuses() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RAISE EXCEPTION 'refused by the test on %', TG_TABLE_NAME; END $$`);
+    await owner.query(
+      `CREATE TRIGGER test_refuses BEFORE ${operation} ON ${table} FOR EACH ROW WHEN (${when}) EXECUTE FUNCTION public.test_refuses()`);
+    return await work();
+  } finally {
+    await owner.query(`DROP TRIGGER IF EXISTS test_refuses ON ${table}`);
+    await owner.query('DROP FUNCTION IF EXISTS public.test_refuses()');
+    await owner.end();
+  }
+}
+
+/** A charter repository and a files root of the test's own, with each company's charter and a draft in them. */
+async function onDisk(...fixtures: Fixture[]): Promise<{ filesRoot: string; charters: CharterRepository }> {
+  const filesRoot = await mkdtemp(join(tmpdir(), 'palugada-files-'));
+  const charters = new CharterRepository({ root: join(await mkdtemp(join(tmpdir(), 'palugada-erased-')), 'charters') });
+  for (const fixture of fixtures) {
+    await publishCharter({ companyId: fixture.companyId, body: `# ${fixture.slug}\n\nServe Budi Santoso first.` });
+    const drafts = join(await companyRoot(filesRoot, fixture.companyId), 'drafts');
+    await mkdir(drafts, { recursive: true });
+    await writeFile(join(drafts, 'invoice.md'), 'Budi Santoso, 0812-555-0199\n', 'utf8');
+  }
+  assert.equal((await charters.sync()).git, 'committed');
+  return { filesRoot, charters };
 }
 
 test('a closed company is frozen at once, and every row of it is erased when its grace is over, and nothing of another', async () => {
@@ -118,7 +172,7 @@ test('a closed company is frozen at once, and every row of it is erased when its
   const { eraseAfter } = await closeCompany(closing.companyId, 30);
   assert.ok(Math.abs(eraseAfter.getTime() - (Date.now() + 30 * 86_400_000)) < 60_000, 'thirty days from now');
   assert.equal(await isCompanyFrozen(closing.companyId), true, 'frozen at once: nothing of theirs starts');
-  assert.deepEqual(await eraseDueCompanies(), [], 'not before the day');
+  assert.deepEqual((await eraseDueCompanies()).erased, [], 'not before the day');
   assert.deepEqual(await rowsOf(closing.companyId), { ...before, events: before.events! + 1 }, 'only the closing recorded');
 
   // The database holds the day too, whatever asks it to erase early.
@@ -131,7 +185,7 @@ test('a closed company is frozen at once, and every row of it is erased when its
     [closing.companyId])), /grace period is not over/);
 
   await graceOver(closing.companyId);
-  const erased = await eraseDueCompanies();
+  const { erased } = await eraseDueCompanies();
   assert.deepEqual(erased.map((one) => one.companyId), [closing.companyId]);
   assert.deepEqual(await rowsOf(closing.companyId), {}, 'not a row of it left');
   const companies = await withControlPlane((tx) => tx.query('SELECT id FROM companies WHERE id = $1', [closing.companyId]));
@@ -159,7 +213,7 @@ test('a closed company is frozen at once, and every row of it is erased when its
   }
 
   assert.deepEqual(await rowsOf(staying.companyId), stayingBefore, 'and the other company is as it was');
-  assert.deepEqual(await eraseDueCompanies(), [], 'erased once');
+  assert.deepEqual(await eraseDueCompanies(), { erased: [], failed: [], leftBehind: [] }, 'erased once');
 });
 
 test('the worker erases a company whose day has come, and a worker kept to one company does not', async () => {
@@ -180,7 +234,7 @@ test('a closing can be kept until its day, and the company stays frozen until th
   await assert.rejects(closeCompany(fixture.companyId, 30),
     (error: unknown) => isPalugadaError(error, 'contract.violation') && /already closing/.test((error as Error).message));
   await keepCompany(fixture.companyId);
-  assert.deepEqual(await eraseDueCompanies(), []);
+  assert.deepEqual((await eraseDueCompanies()).erased, []);
   assert.equal(await isCompanyFrozen(fixture.companyId), true, 'kept, not restarted: unfreezing is its own decision');
   const row = await withControlPlane((tx) => tx.query<{ closing_at: Date | null }>(
     'SELECT closing_at FROM companies WHERE id = $1', [fixture.companyId]));
@@ -237,4 +291,214 @@ test('the owner closes a company from the console with a factor and its name, se
   } finally {
     await api.close();
   }
+});
+
+/**
+ * One company that could not be erased stopped every company after it (read
+ * in Buzz's source, 2026-09-30). The pass went through the due companies in
+ * order with no catch of its own and the worker's stage swallowed what it
+ * threw, so the oldest failure -- a trigger refusing, a statement timing out
+ * on a large company -- was every later company's too, on every tick, and all
+ * that showed was a count of stage failures. Each company is erased on its
+ * own now: a failure is kept on the company and said on the tick, the next
+ * company is erased in the same pass, and the one that failed waits longer
+ * each time before it is tried again rather than failing every few seconds.
+ */
+test('a company that cannot be erased does not stop the next, is named with its reason, and waits before it is tried again', async () => {
+  const stuck = await createCompany('erase-stuck');
+  const next = await createCompany('erase-next');
+  await lived(stuck, 'credential-crm-stuck');
+  await lived(next, 'credential-crm-next');
+  await closeCompany(stuck.companyId, 7);
+  await closeCompany(next.companyId, 7);
+  // The stuck one's day came first, so it is first in the pass.
+  await graceOver(stuck.companyId, 2);
+  await graceOver(next.companyId, 1);
+  const stuckBefore = await rowsOf(stuck.companyId);
+  const named = await withControlPlane((tx) => tx.query<{ name: string }>('SELECT name FROM companies WHERE id = $1', [stuck.companyId]));
+  const { name } = named.rows[0]!;
+  const refused = `OLD.id = '${stuck.companyId}'`;
+
+  const engine = new Engine({ broker: new CapabilityBroker(new CapabilityRegistry()), workerId: 'worker-stuck' });
+  const report = await refusing('companies', 'DELETE', refused, () => new Worker({ engine }).tick());
+  assert.equal(report.erased, 1, 'the next company went in the same tick');
+  assert.deepEqual(await rowsOf(next.companyId), {});
+  const said = report.errors.filter((one) => one.stage === 'erasure');
+  assert.equal(said.length, 1, JSON.stringify(report.errors));
+  assert.ok(said[0]!.message.includes(name) && said[0]!.message.includes(stuck.companyId), said[0]!.message);
+  assert.match(said[0]!.message, /refused by the test on companies/);
+  assert.deepEqual(await rowsOf(stuck.companyId), stuckBefore, 'and nothing of the one that failed went');
+
+  // Kept on the company, where the owner sees it beside what was erased.
+  const api = await consoleWithSettings();
+  try {
+    const token = await api.signIn();
+    const listed = await api.call('GET', '/api/erasures', token);
+    assert.equal(listed.status, 200);
+    assert.deepEqual(listed.body.erasures.map((one: { companyId: string }) => one.companyId), [next.companyId]);
+    assert.equal(listed.body.failing.length, 1);
+    const [failing] = listed.body.failing as Array<{ companyId: string; name: string; attempts: number; failure: string; retryAt: string }>;
+    assert.equal(failing!.companyId, stuck.companyId);
+    assert.equal(failing!.name, name);
+    assert.equal(failing!.attempts, 1);
+    assert.match(failing!.failure, /refused by the test on companies/);
+    const wait = new Date(failing!.retryAt).getTime() - Date.now();
+    assert.ok(wait > 30_000 && wait <= 60_000, `a minute before the next try, not the next tick: ${wait}`);
+  } finally {
+    await api.close();
+  }
+  assert.deepEqual(await eraseDueCompanies(), { erased: [], failed: [], leftBehind: [] }, 'it waits');
+
+  // Its time comes, and it is refused again: it waits twice as long.
+  await withControlPlane((tx) => tx.query('UPDATE companies SET erase_retry_at = now() WHERE id = $1', [stuck.companyId]));
+  const again = await refusing('companies', 'DELETE', refused, () => eraseDueCompanies());
+  assert.deepEqual(again.erased, []);
+  assert.deepEqual(again.failed.map((one) => [one.companyId, one.attempts]), [[stuck.companyId, 2]]);
+  assert.ok(again.failed[0]!.retryAt!.getTime() - Date.now() > 90_000, 'two minutes this time');
+
+  // Kept, nothing of the failure stays on it; closed again and due, it goes.
+  await keepCompany(stuck.companyId);
+  const kept = await withControlPlane((tx) => tx.query<{ erase_attempts: number; erase_failure: string | null; erase_retry_at: Date | null }>(
+    'SELECT erase_attempts, erase_failure, erase_retry_at FROM companies WHERE id = $1', [stuck.companyId]));
+  assert.deepEqual(kept.rows[0], { erase_attempts: 0, erase_failure: null, erase_retry_at: null });
+  await closeCompany(stuck.companyId, 7);
+  await graceOver(stuck.companyId);
+  const last = await eraseDueCompanies();
+  assert.deepEqual(last.erased.map((one) => one.companyId), [stuck.companyId]);
+  assert.deepEqual(await rowsOf(stuck.companyId), {});
+});
+
+/**
+ * An erasure deleted rows and nothing else (read in Buzz's source,
+ * 2026-09-30). What a company's roles wrote -- drafts, pictures, recordings
+ * -- is kept in its own directory under the files root, and its charter in
+ * the charter repository's `companies/<slug>/`, and both outlived it. They go
+ * after its rows, from the roots the deployment knows, and the charter's
+ * removal is committed like every other change there. The repository's
+ * history is not rewritten, and still holds what the charter said: the guide
+ * says so.
+ */
+test('erasing a company removes its files and its charter, commits the removal, and leaves another company\'s as they were', async () => {
+  const closing = await createCompany('erase-files');
+  const staying = await createCompany('keep-files');
+  const disk = await onDisk(closing, staying);
+  const soul = (fixture: Fixture) => join(disk.charters.root, 'companies', fixture.slug, 'SOUL.md');
+  const draft = (fixture: Fixture) => join(disk.filesRoot, fixture.companyId, 'drafts', 'invoice.md');
+  assert.ok(await there(soul(closing)) && await there(draft(closing)));
+
+  await closeCompany(closing.companyId, 7);
+  await graceOver(closing.companyId);
+  const pass = await eraseDueCompanies(disk);
+  assert.deepEqual(pass.erased.map((one) => one.companyId), [closing.companyId]);
+  assert.deepEqual(pass.leftBehind, []);
+  assert.equal(await there(join(disk.filesRoot, closing.companyId)), false, 'its files went');
+  assert.equal(await there(join(disk.charters.root, 'companies', closing.slug)), false, 'and its charter');
+  assert.equal(await readFile(draft(staying), 'utf8'), 'Budi Santoso, 0812-555-0199\n', 'another company\'s files stay');
+  assert.match(await readFile(soul(staying), 'utf8'), /Serve Budi Santoso first/);
+
+  const git = async (...args: string[]) => (await exec('git', ['-C', disk.charters.root, ...args])).stdout.trim();
+  assert.deepEqual((await git('ls-files', 'companies')).split('\n'), [`companies/${staying.slug}/SOUL.md`], 'the removal is committed');
+  assert.equal(await git('status', '--porcelain'), '', 'and nothing is left uncommitted');
+  assert.match(await git('log', '-1', '--format=%an|%s'), new RegExp(`^PALUGADA\\|.*${closing.slug}`));
+  // What an erasure does not reach: the history still holds what it said.
+  assert.match(await git('log', '--format=%s', '--', `companies/${closing.slug}/SOUL.md`), /Charter v1/);
+
+  // The next sync neither writes it back nor calls it somebody else's.
+  const synced = await disk.charters.sync();
+  assert.deepEqual([synced.written, synced.unknown, synced.refused], [[], [], []]);
+});
+
+/**
+ * What cannot be removed is said, not skipped, and does not bring the rows
+ * back: the rows are most of what the right to erasure is about, and they are
+ * not held hostage to a directory. What an erasure left on disk -- one that
+ * ran before files were removed, a process that stopped between the rows and
+ * the files, a removal that failed -- is removed on a worker's first tick.
+ */
+test('what an erasure cannot remove from disk is reported and the rows stay erased, and a worker removes what earlier erasures left', async () => {
+  const linked = await createCompany('erase-linked');
+  const earlier = await createCompany('erase-earlier');
+  const disk = await onDisk(linked, earlier);
+
+  // A charter folder that leads out of the repository is never followed,
+  // so it is not removed: said, with where and why.
+  const outside = await mkdtemp(join(tmpdir(), 'palugada-outside-'));
+  await writeFile(join(outside, 'SOUL.md'), 'Not the repository\'s.\n', 'utf8');
+  const folder = join(disk.charters.root, 'companies', linked.slug);
+  await rm(folder, { recursive: true });
+  await symlink(outside, folder);
+  await closeCompany(linked.companyId, 7);
+  await graceOver(linked.companyId);
+  const pass = await eraseDueCompanies(disk);
+  assert.deepEqual(pass.erased.map((one) => one.companyId), [linked.companyId]);
+  assert.deepEqual(await rowsOf(linked.companyId), {}, 'the rows stay erased');
+  assert.equal(await there(join(disk.filesRoot, linked.companyId)), false, 'and what could be removed was');
+  assert.deepEqual(pass.leftBehind.map((one) => [one.companyId, one.path]), [[linked.companyId, folder]]);
+  assert.match(pass.leftBehind[0]!.reason, /link/);
+  assert.equal(await readFile(join(outside, 'SOUL.md'), 'utf8'), 'Not the repository\'s.\n', 'and nothing through the link');
+
+  // The operator takes the link away. Then an erasure of rows alone: one
+  // from before files were removed, or one cut off before it reached them.
+  await rm(folder);
+  await closeCompany(earlier.companyId, 7);
+  await graceOver(earlier.companyId);
+  assert.deepEqual((await eraseDueCompanies()).erased.map((one) => one.companyId), [earlier.companyId]);
+  assert.ok(await there(join(disk.filesRoot, earlier.companyId)), 'left behind');
+
+  const engine = new Engine({ broker: new CapabilityBroker(new CapabilityRegistry()), workerId: 'worker-leftovers' });
+  const report = await new Worker({ engine, erasure: disk }).tick();
+  assert.deepEqual(report.errors.filter((one) => one.stage === 'erasure'), []);
+  assert.equal(await there(join(disk.filesRoot, earlier.companyId)), false, 'its files went on the first tick');
+  assert.equal(await there(join(disk.charters.root, 'companies', earlier.slug)), false, 'and its charter');
+  const status = (await exec('git', ['-C', disk.charters.root, 'status', '--porcelain'])).stdout.trim();
+  assert.equal(status, '', 'both removals committed, the linked one\'s too');
+});
+
+/**
+ * An erasure is one delete of the company, and the cascade from `companies`
+ * is what reaches every other table. A table added with a `company_id` and
+ * no cascade would either stop every erasure (a reference that refuses) or
+ * be left behind by it (no reference at all) -- found here, from the
+ * catalogue, rather than by the first owner whose company would not go.
+ */
+test('every table with a company_id goes with its company by a cascade, or is named here with how it goes', async () => {
+  const NOT_BY_CASCADE: Record<string, string> = {
+    company_erasures: 'the line an erasure leaves, which outlives the company on purpose',
+    credential_authorizations: 'a vendor sign-in under way, keyed by its state; eraseCompany deletes it by the company before the company',
+  };
+  const { rows } = await withControlPlane((tx) => tx.query<{ table_name: string; cascades: boolean }>(
+    `SELECT c.relname AS table_name,
+            EXISTS (SELECT 1 FROM pg_constraint k
+                     WHERE k.conrelid = c.oid AND k.contype = 'f' AND k.confrelid = 'companies'::regclass
+                       AND k.confdeltype = 'c' AND a.attnum = ANY (k.conkey)) AS cascades
+       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace JOIN pg_attribute a ON a.attrelid = c.oid
+      WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND a.attname = 'company_id' AND NOT a.attisdropped
+      ORDER BY 1`));
+  assert.ok(rows.length > 50, `only ${rows.length} tables were read; the sweep is broken`);
+  const uncascaded = rows.filter((row) => !row.cascades).map((row) => row.table_name);
+  assert.deepEqual(uncascaded, Object.keys(NOT_BY_CASCADE).sort(),
+    'a table with a company_id that no cascade from companies reaches: give it one, or say here how an erasure reaches it');
+});
+
+/**
+ * Closing and keeping each wrote the company's row, committed it, and then
+ * wrote the event that records it in a second transaction: a process that
+ * stopped between the two closed or kept a company with nothing in its
+ * history to say so. One transaction now, so neither happens without its
+ * record.
+ */
+test('a closing and a keeping are written with their record, or not at all', async () => {
+  const fixture = await createCompany('closing-atomic');
+  await assert.rejects(refusing('events', 'INSERT', "NEW.type = 'company.closing'", () => closeCompany(fixture.companyId, 7)),
+    /refused by the test on events/);
+  assert.equal(await closingOf(fixture.companyId), null, 'not closing without its record');
+  assert.equal(await isCompanyFrozen(fixture.companyId), false, 'nor frozen');
+
+  await closeCompany(fixture.companyId, 7);
+  await assert.rejects(refusing('events', 'INSERT', "NEW.type = 'company.kept'", () => keepCompany(fixture.companyId)),
+    /refused by the test on events/);
+  assert.ok(await closingOf(fixture.companyId), 'still closing without the record of keeping it');
+  const events = await withTenant(fixture.companyId, (tx) => tx.query<{ type: string }>(
+    "SELECT type FROM events WHERE company_id = $1 AND type LIKE 'company.%' ORDER BY occurred_at", [fixture.companyId]));
+  assert.deepEqual(events.rows.map((row) => row.type), ['company.closing']);
 });

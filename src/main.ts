@@ -920,6 +920,9 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // failures went only into a report nobody read looked, from outside,
     // exactly like one with nothing to do.
     log,
+    // What a company keeps outside its rows, so an erasure removes that
+    // too (0096): its directory in the files root, its charter's folder.
+    erasure: { filesRoot, charters: charterRepository },
     ...(otlp ? { telemetry: new OtlpExporter({ ...otlp, holder: workerId }) } : {}),
     ...(env.PALUGADA_APP_URL_PUBLIC
       ? {

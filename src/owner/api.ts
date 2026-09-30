@@ -64,7 +64,7 @@ import {
 } from '../engine/control.ts';
 import { frozenRoles, pauseRole, unfreezeRole } from '../governance/role-freeze.ts';
 import { cancelTask, giveFeedback, instructTask, rerunTask, type Verdict } from '../engine/owner-control.ts';
-import { assertClosingDays, closeCompany, closingOf, erasures, keepCompany } from '../governance/closing.ts';
+import { assertClosingDays, closeCompany, closingOf, erasures, failingErasures, keepCompany } from '../governance/closing.ts';
 import { EMAIL_PROVIDERS, EmailChannel, emailAddress, emailProvider, type EmailProviderId } from './email.ts';
 import { VERSION } from '../version.ts';
 import { transcriptOf } from '../engine/transcript.ts';
@@ -1135,10 +1135,13 @@ export class OwnerApi {
       },
 
       {
-        // What was erased here, and when: the one line each erased company leaves.
+        // What was erased here, and when: the one line each erased company
+        // leaves. And the companies whose day has come and whose erasure
+        // failed (0096), with why and when it is tried again: an erasure the
+        // owner is owed and has not had is theirs to know about.
         method: 'GET',
         pattern: '/api/erasures',
-        handle: async () => ({ erasures: await erasures() }),
+        handle: async () => ({ erasures: await erasures(), failing: await failingErasures() }),
       },
 
       {

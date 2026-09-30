@@ -77,7 +77,7 @@ import {
 import { advanceSkillCandidates, settleSkillReviews } from './skills/skills.ts';
 import type { LlmClient } from './llm/client.ts';
 import { sleep } from './timers.ts';
-import { eraseDueCompanies } from './governance/closing.ts';
+import { eraseDueCompanies, removeWhatErasuresLeft, type ErasureDisk } from './governance/closing.ts';
 import type { OtlpExporter } from './reporting/otlp.ts';
 
 export interface WorkerOptions {
@@ -90,6 +90,13 @@ export interface WorkerOptions {
   meaning?: EmbedBinding;
   /** Restrict to one company. Omitted means every company that is not frozen. */
   companyId?: string;
+  /**
+   * Where the deployment keeps what a company has outside its rows -- its
+   * files, its charter's folder -- so an erasure removes those too (0096).
+   * Omitted, an erasure removes the rows alone, which is what a test of rows
+   * wants; a deployment passes the roots it was started with.
+   */
+  erasure?: ErasureDisk;
   /**
    * Where finished runs go as OpenTelemetry spans, when the operator named a
    * collector (0090). Sent by a worker that is not kept to one company.
@@ -321,6 +328,8 @@ export class Worker {
   readonly #retainedAt = new Map<string, number>();
   /** When this worker last looked for what dead workers left running. */
   #sweptAt: number | null = null;
+  /** Whether this worker has removed what earlier erasures left on disk. See the erasure stage. */
+  #erasuresFinished = false;
   /** Which company this worker starts its tick on. See `#rotate`. */
   #turn = 0;
   #lastTickAt: Date | null = null;
@@ -433,13 +442,36 @@ export class Worker {
     // gets there first: the company's row is locked and checked again under
     // the lock. Not by a worker kept to one company, which has no business
     // with another's.
+    //
+    // Each company on its own (0096): one that cannot be erased is named here
+    // with its reason and waits before it is tried again, and the rest are
+    // erased regardless. What an erased company kept on disk is removed after
+    // its rows; what could not be is named too, and the rows stay erased.
     if (this.#options.companyId === undefined) {
+      const disk = this.#options.erasure ?? {};
+      // Once a process, what earlier erasures left on disk: one from before
+      // files were removed, one whose process stopped between its rows and
+      // its files, a removal that failed. A stage of its own, so a failure
+      // here never holds back the erasures that are due.
+      if (!this.#erasuresFinished) {
+        await this.#stage(report, 'erasure', async () => {
+          const left = await removeWhatErasuresLeft(disk);
+          this.#erasuresFinished = true;
+          for (const one of left) this.#failed(report, 'erasure', leftBehindSaid(one));
+        });
+      }
       await this.#stage(report, 'erasure', async () => {
-        const erased = await eraseDueCompanies();
-        report.erased += erased.length;
-        for (const one of erased) {
+        const pass = await eraseDueCompanies(disk);
+        report.erased += pass.erased.length;
+        for (const one of pass.erased) {
           this.#options.log?.({ level: 'info', event: 'company.erased', companyId: one.companyId, counts: one.counts });
         }
+        for (const one of pass.failed) {
+          this.#failed(report, 'erasure',
+            `${one.name} (${one.companyId}) could not be erased${one.attempts > 0 ? ` (attempt ${one.attempts})` : ''}: ${one.reason}`
+            + (one.retryAt ? `; tried again after ${one.retryAt.toISOString()}` : ''));
+        }
+        for (const one of pass.leftBehind) this.#failed(report, 'erasure', leftBehindSaid(one));
       });
     }
 
@@ -997,16 +1029,29 @@ export class Worker {
     try {
       await run();
     } catch (error) {
-      const message = (error as Error).message ?? String(error);
-      report.errors.push({ stage, message });
-      this.#stageFailures.set(stage, (this.#stageFailures.get(stage) ?? 0) + 1);
-      // Reported on the tick rather than written to the event log: the log is
-      // tenant-scoped and a stage failure is the platform's, not a company's.
-      // A caller that wants it durable has the report; inventing a company to
-      // file it against would put the platform's problem in somebody's audit
-      // trail.
+      this.#failed(report, stage, (error as Error).message ?? String(error));
     }
   }
+
+  /**
+   * A failure in a stage, said on the tick and counted: what a stage throws,
+   * and what one that carried on past a part of its work reports of it.
+   */
+  #failed(report: TickReport, stage: string, message: string): void {
+    report.errors.push({ stage, message });
+    this.#stageFailures.set(stage, (this.#stageFailures.get(stage) ?? 0) + 1);
+    // Reported on the tick rather than written to the event log: the log is
+    // tenant-scoped and a stage failure is the platform's, not a company's.
+    // A caller that wants it durable has the report; inventing a company to
+    // file it against would put the platform's problem in somebody's audit
+    // trail.
+  }
+}
+
+/** What an erased company kept on disk and could not be removed, said so the operator can remove it. */
+function leftBehindSaid(one: { companyId: string; path: string; reason: string }): string {
+  return `company ${one.companyId} was erased, and ${one.path} was not removed: ${one.reason}; `
+    + 'the next worker to start tries again, or remove it by hand';
 }
 
 /** Convenience for a process that just wants to run until it is stopped. */

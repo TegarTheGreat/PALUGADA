@@ -92,6 +92,34 @@ export async function companyRoot(root: string, companyId: string): Promise<stri
   return realpath(mine);
 }
 
+/**
+ * Removes one company's directory and everything in it, when the company is
+ * erased (0088, 0096). A root or a directory that is not there is nothing
+ * to remove.
+ *
+ * The same directory `companyRoot` names, so what a role wrote and what an
+ * erasure removes cannot drift apart. A link where the directory should be
+ * is removed as a link: `rm` follows none, there or anywhere beneath it, so
+ * a link somebody left cannot turn an erasure into the removal of whatever
+ * it points at.
+ */
+export async function removeCompanyFiles(root: string, companyId: string): Promise<void> {
+  const { lstat, realpath, rm } = await import('node:fs/promises');
+  const { join, resolve } = await import('node:path');
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(companyId)) {
+    throw new PalugadaError('contract.violation', 'that is not a company id', {});
+  }
+  const missing = (error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  };
+  const platform = await realpath(resolve(root)).catch(missing);
+  if (platform === null) return;
+  const mine = join(platform, companyId);
+  if (await lstat(mine).catch(missing) === null) return;
+  await rm(mine, { recursive: true, force: true });
+}
+
 export function filesList(options: FilesOptions): Capability<ListInput, ListOutput> {
   const maxEntries = options.maxEntries ?? 500;
 

@@ -1165,13 +1165,33 @@ you to erase (UU 27/2022 on personal data).
    frozen; unfreeze it when you want it working again.
 5. On the day, the worker erases it: every row of it -- work, history,
    memory, documents, model traces, conversations -- and the keys its
-   divisions held. **This deployment**, **Erased companies** keeps one line:
-   its name, when it was closed and erased, and how much went.
+   divisions held. Then what it kept on disk: its directory under the files
+   root (`PALUGADA_FILES_ROOT`), with the drafts, pictures and recordings its
+   roles made, and its folder in the charter repository, whose removal is
+   committed there. **This deployment**, **Erased companies** keeps one
+   line: its name, when it was closed and erased, and how much went.
+6. If erasing it fails, it is listed on the same page under **Not erased
+   yet**, with what went wrong and when it is tried next. It is tried again
+   a minute later, then less often each time, up to every six hours; the
+   other companies whose day has come are erased meanwhile, and everything
+   of this one stays until a try succeeds. **Keep this company** still
+   takes it back. A file or folder that could not be removed after the rows
+   went is named in the worker's log with its path; the rows stay erased,
+   and the next worker to start tries again.
 
 What erasing cannot reach: backups taken before the day, until they age out
-(see [Backups](operations.md#backups)); what the model provider and the
-vendors were sent while it worked; and your own chat history on Telegram or
-WhatsApp.
+(see [Backups](operations.md#backups)); the charter repository's history,
+whose earlier commits still hold every charter the company had; files under
+a files root the deployment is no longer started with; what the model
+provider and the vendors were sent while it worked; and your own chat
+history on Telegram or WhatsApp.
+
+To take a company's charters out of the repository's history as well,
+rewrite it yourself once the company is erased, for example with
+`git filter-repo --invert-paths --path companies/<slug>` in the charters
+directory (`PALUGADA_CHARTERS_DIR`, or `charters` in the state directory),
+and do the same to every clone of it. PALUGADA does not rewrite a history
+someone may have pulled.
 
 ## Search
 

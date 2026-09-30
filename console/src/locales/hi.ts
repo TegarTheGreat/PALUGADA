@@ -187,6 +187,7 @@ export const DICTIONARY: Dictionary = {
   "An open-source agent gateway": "एक ओपन-सोर्स एजेंट गेटवे",
   "An outside event started work": "बाहर के एक इवेंट से काम शुरू हुआ",
   "And {count} more in the inboxes.": "इनबॉक्स में {count} और हैं।",
+  "Another company already has this short name. Choose a different one.": "यह छोटा नाम किसी दूसरी कंपनी के पास पहले से है। कोई दूसरा नाम चुनें।",
   "Another server, by its address": "कोई दूसरा सर्वर, उसके पते से",
   "Answer sent. The task carries on with it.": "जवाब भेजा गया। कार्य उसी के साथ आगे बढ़ता है।",
   "Answer sent; the task is back in the queue.": "जवाब भेजा गया; कार्य फिर से कतार में है।",

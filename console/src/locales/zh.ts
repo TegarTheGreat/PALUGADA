@@ -203,6 +203,7 @@ export const DICTIONARY: Dictionary = {
   "An open-source agent gateway": "开源智能体网关",
   "An outside event started work": "外部事件启动了工作",
   "And {count} more in the inboxes.": "收件箱中还有 {count} 项。",
+  "Another company already has this short name. Choose a different one.": "已有其他公司使用此简称，请换一个。",
   "Another server, by its address": "其他服务器（按地址）",
   "Answer sent. The task carries on with it.": "回答已发送，任务将据此继续。",
   "Answer sent; the task is back in the queue.": "回答已发送；任务已重新排队。",

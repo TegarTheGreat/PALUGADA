@@ -64,7 +64,11 @@ export function Home({
     return { company, inbox: items, digest, running: work.items, delivered: done.items, counts: work.counts, spend };
   })), [companies.map((company) => company.id).join(',')], { every: 20_000 });
 
-  const today = new Date().toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long' });
+  // Only the first letter is raised, as a sentence starts: Portuguese and
+  // Russian write days and months in lower case ("quarta-feira, 30 de
+  // setembro"), which capitalising every word made "Quarta-Feira, 30 De".
+  const date = new Date().toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long' });
+  const today = date.charAt(0).toLocaleUpperCase(locale()) + date.slice(1);
 
   if (companies.length === 0) {
     return (
@@ -107,7 +111,7 @@ export function Home({
     <Stack gap="xl">
       <Group justify="space-between" align="flex-end" wrap="wrap">
         <div>
-          <Text size="sm" c="dimmed" fw={500} tt="capitalize">{today}</Text>
+          <Text size="sm" c="dimmed" fw={500}>{today}</Text>
           <Title order={1} fz={{ base: 26, sm: 30 }} fw={750} mt={4}>{greeting()}</Title>
           {view.data && (
             <Text size="lg" mt={6}>
@@ -123,13 +127,15 @@ export function Home({
         <>
           {setup.todo.length > 0 && (
             <Paper withBorder radius="lg" p="md" bg="var(--mantine-color-yellow-light)">
-              <Group gap="sm" wrap="nowrap">
-                <IconChecklist size={20} color="var(--mantine-color-yellow-8)" />
-                <Text size="sm" fw={600}>
+              {/* Wraps rather than squeezes: in Russian or Hindi the sentence is
+                  long enough on a phone to push the button's own label out. */}
+              <Group gap="sm" wrap="wrap">
+                <IconChecklist size={20} color="var(--mantine-color-yellow-8)" style={{ flexShrink: 0 }} />
+                <Text size="sm" fw={600} style={{ flex: '1 1 14rem' }}>
                   {tp('This deployment has {count} thing switched off until it is configured.', 'This deployment has {count} things switched off until they are configured.', setup.todo.length)}
                 </Text>
                 <Text size="sm" c="dimmed" visibleFrom="sm">{t('The checklist is at the foot of the sidebar.')}</Text>
-                <Button size="compact-sm" variant="light" color="yellow" ml="auto" onClick={() => go({ kind: 'deployment', section: 'model' })}>
+                <Button size="compact-sm" variant="light" color="yellow" ml="auto" style={{ flexShrink: 0 }} onClick={() => go({ kind: 'deployment', section: 'model' })}>
                   {t('Set the model')}
                 </Button>
               </Group>

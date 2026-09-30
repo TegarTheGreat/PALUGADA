@@ -5552,6 +5552,7 @@ function statusFor(code: string): number {
   if (code === 'owner.throttled') return 429;
   if (code === 'owner.claimed') return 409;
   if (code === 'schedule.still_running') return 409;
+  if (code === 'company.slug_taken') return 409;
   if (code === 'mfa.locked_out') return 429;
   if (code.startsWith('mfa.')) return 401;
   if (code === 'approval.channel_forbidden' || code === 'policy.denied') return 403;

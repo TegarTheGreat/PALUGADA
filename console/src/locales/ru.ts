@@ -221,6 +221,7 @@ export const DICTIONARY: Dictionary = {
   "An open-source agent gateway": "Агентский шлюз с открытым кодом",
   "An outside event started work": "Внешнее событие запустило работу",
   "And {count} more in the inboxes.": "И ещё {count} во входящих.",
+  "Another company already has this short name. Choose a different one.": "Это короткое имя уже занято другой компанией. Выберите другое.",
   "Another server, by its address": "Другой сервер по его адресу",
   "Answer sent. The task carries on with it.": "Ответ отправлен. Задача продолжится с его учётом.",
   "Answer sent; the task is back in the queue.": "Ответ отправлен; задача снова в очереди.",

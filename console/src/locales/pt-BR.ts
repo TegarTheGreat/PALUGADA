@@ -201,6 +201,7 @@ export const DICTIONARY: Dictionary = {
   "An open-source agent gateway": "Um gateway de agentes de código aberto",
   "An outside event started work": "Um evento externo iniciou um trabalho",
   "And {count} more in the inboxes.": "E mais {count} nas caixas de entrada.",
+  "Another company already has this short name. Choose a different one.": "Já existe outra empresa com este nome curto. Escolha um diferente.",
   "Another server, by its address": "Outro servidor, pelo endereço",
   "Answer sent. The task carries on with it.": "Resposta enviada. A tarefa segue com ela.",
   "Answer sent; the task is back in the queue.": "Resposta enviada; a tarefa voltou para a fila.",

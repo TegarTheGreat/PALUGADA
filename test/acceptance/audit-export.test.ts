@@ -311,6 +311,12 @@ test('a restored company still refuses what its policy refused (F1.5, F3.3)', as
   const restored = await importCompany(lines, { slug: `${fixture.slug}-restored` });
   assert.notEqual(restored.companyId, fixture.companyId);
 
+  // Restored again under the same short name: refused by name, with nothing
+  // half-written, rather than as the database's unique-constraint message.
+  await assert.rejects(importCompany(lines, { slug: `${fixture.slug}-restored` }),
+    (error: unknown) => (error as { code?: string }).code === 'company.slug_taken'
+      && /a company already has the short name/.test((error as Error).message));
+
   // The policy is in force, not merely present: asked the way the broker asks.
   const decision = await withTenant(restored.companyId, async (tx) => {
     const { rows } = await tx.query<{ id: string }>("SELECT id FROM divisions LIMIT 1");

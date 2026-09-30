@@ -3901,6 +3901,21 @@ test('the owner can start a company from a template (section 5, F2)', async () =
       (listed.body.companies as Array<{ id: string }>)
         .some((company) => company.id === created.body.companyId),
     );
+
+    // A short name already taken is refused by name, as a conflict the owner
+    // can fix, not as the database's "duplicate key value violates unique
+    // constraint", which the console showed word for word.
+    const again = await call(owner.url, 'POST', '/api/companies', {
+      token,
+      body: {
+        templateSlug: 'starter', companySlug: 'acme', name: 'Acme Two',
+        proof: { totp: owner.code() },
+      },
+    });
+    assert.equal(again.status, 409, JSON.stringify(again.body));
+    assert.equal(again.body.code, 'company.slug_taken');
+    assert.match(String(again.body.error), /a company already has the short name acme/);
+    assert.doesNotMatch(String(again.body.error), /duplicate key|constraint/);
   } finally {
     await owner.close();
   }

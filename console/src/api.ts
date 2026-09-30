@@ -109,6 +109,7 @@ const EXPLAINED: Record<string, string> = {
   'capability.unknown': N('No capability by that name is bound on this deployment.'),
   'goal.required': N('Pick the goal this work serves.'),
   'schedule.still_running': N('This schedule\'s last run has not ended yet. Open it, or run the schedule again once it has.'),
+  'company.slug_taken': N('Another company already has this short name. Choose a different one.'),
 };
 
 /** What went wrong, in words for the owner. */

@@ -40,6 +40,7 @@ import { withControlPlane, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
 import { ensureCeo } from '../governance/ceo.ts';
+import { slugTaken } from '../templates/company.ts';
 import type { ArchiveLine } from './export.ts';
 
 interface ImportSection {
@@ -428,21 +429,26 @@ export async function importCompany(
   // would have checked, `importSection` states: every row is written with this
   // company's id and no other.
   return withControlPlane(async (tx) => {
-    const { rows } = await tx.query<{ id: string }>(
-      `INSERT INTO companies (slug, name, timezone, work_language, talk_language, stage, guardian)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
-      [
-        options.slug, options.name ?? String(source!.name ?? options.slug), String(source!.timezone ?? 'UTC'),
-        // What the company works and talks in travels with it; an archive from
-        // before languages existed has neither, and gets the default here.
-        typeof source!.work_language === 'string' ? source!.work_language : null,
-        typeof source!.talk_language === 'string' ? source!.talk_language : null,
-        // And where it is in its life (0057), which the stage policies read.
-        isStage(source!.stage) ? source!.stage : null,
-        // A safeguard the owner turned on does not come back off (0092).
-        source!.guardian === true,
-      ],
-    );
+    let rows: Array<{ id: string }>;
+    try {
+      ({ rows } = await tx.query<{ id: string }>(
+        `INSERT INTO companies (slug, name, timezone, work_language, talk_language, stage, guardian)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+        [
+          options.slug, options.name ?? String(source!.name ?? options.slug), String(source!.timezone ?? 'UTC'),
+          // What the company works and talks in travels with it; an archive from
+          // before languages existed has neither, and gets the default here.
+          typeof source!.work_language === 'string' ? source!.work_language : null,
+          typeof source!.talk_language === 'string' ? source!.talk_language : null,
+          // And where it is in its life (0057), which the stage policies read.
+          isStage(source!.stage) ? source!.stage : null,
+          // A safeguard the owner turned on does not come back off (0092).
+          source!.guardian === true,
+        ],
+      ));
+    } catch (error) {
+      throw slugTaken(error, options.slug);
+    }
     const companyId = rows[0]!.id;
     // For anything below that asks which tenant it is working for.
     await tx.query("SELECT set_config('app.company_id', $1, true)", [companyId]);

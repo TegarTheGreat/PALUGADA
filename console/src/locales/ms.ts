@@ -236,6 +236,7 @@ export const DICTIONARY: Dictionary = {
   "An open-source agent gateway": "Get laluan ejen sumber terbuka",
   "An outside event started work": "Peristiwa luar memulakan kerja",
   "And {count} more in the inboxes.": "Dan {count} lagi dalam peti masuk.",
+  "Another company already has this short name. Choose a different one.": "Sudah ada syarikat lain dengan nama pendek ini. Pilih nama yang lain.",
   "Another server, by its address": "Pelayan lain, melalui alamatnya",
   "Answer sent. The task carries on with it.": "Jawapan dihantar. Tugasan diteruskan dengan jawapan itu.",
   "Answer sent; the task is back in the queue.": "Jawapan dihantar; tugasan kembali ke baris gilir.",

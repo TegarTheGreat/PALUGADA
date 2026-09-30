@@ -5597,13 +5597,28 @@ showed, seven did:
   is said through `say`; speech providers are sent `pt`, not `pt-BR`, which
   Whisper refuses; agents are told "Simplified Chinese" rather than
   "Chinese", and Brazilian Portuguese is a language a company can write in.
+- **Seen, at a phone's width.** Home, the deployment, and a company's
+  overview, team, languages, work and money, in each language at 390 pixels,
+  with no page wider than the screen. Looking found what no test had: the
+  date was capitalised word by word ("Quarta-Feira, 30 De Setembro",
+  "Среда, 30 Сентября"), now only its first letter; the setup banner's button
+  lost its label to a long sentence, and now wraps below it; the
+  second-factor dialog opened beneath the dialog that asked for it, so
+  starting a company from the console did nothing the owner could see, and
+  it now stacks above every dialog; and a short name another company had
+  came back as the database's "duplicate key value violates unique
+  constraint", in English, where it is now refused as
+  `company.slug_taken` (409) and explained in the owner's language, whether
+  the company is started or restored from an export.
 - **Tested.** `console-i18n.test.ts` (every dictionary, script, KEPT, plural
   forms, a `{count}` in every "one"); the owner-sentences test in
   `owner-channels.test.ts` (every language the console offers, placeholders,
   scripts) and one for decisions and task ends said as sentences;
   `languages.test.ts` (the languages agents are told, precisely named, and
   Brazilian Portuguese not drift from Portuguese); `listen.test.ts` (every
-  speech provider sent the language without its region).
+  speech provider sent the language without its region); `owner-api.test.ts`
+  and `audit-export.test.ts` (a taken short name refused by name, starting
+  and restoring).
 - **Not verified.** Each translation was written and read through by one
   translator per language against the English with a glossary kept in its
   file's header, and spot-checked; none has been read by a native-speaking

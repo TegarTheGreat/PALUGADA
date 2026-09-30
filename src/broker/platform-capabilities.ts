@@ -82,6 +82,11 @@ export function memorySearchCapability(): Capability<MemorySearchInput, MemorySe
     adapter: 'platform',
     defaultTier: TIER.READ_ONLY,
     describe: () => ({ moneyCents: 0 }),
+    // A lesson learned from outside content (0071) comes back as the data it
+    // is, and the work that found it carries that data now, as if it had
+    // read the email itself (F8.9). The company's own facts do not.
+    readsOutside: (output) => ((output as { facts?: Array<{ outside?: boolean }> }).facts ?? [])
+      .some((fact) => fact.outside === true),
     async execute(input, ctx) {
       const limit = Math.min(Math.max(1, input.limit ?? 5), MEMORY_SEARCH_MAX_RESULTS);
       // Ranked by the words a fact shares with the query, in the database,

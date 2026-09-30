@@ -71,10 +71,13 @@ export interface Capability<I = unknown, O = unknown> {
   signIn?: CredentialSignIn;
   /**
    * Whether what it returns was written outside the company (F8.9), for a
-   * capability the catalogue does not know -- a tool from an MCP server.
-   * The catalogue's own say so for everything it names.
+   * capability the catalogue does not know -- a tool from an MCP server --
+   * or, asked of what it returned, for one whose answer only sometimes is:
+   * `memory.search` returns the company's own facts, and now and then a
+   * lesson learned from outside content. The catalogue's own say so for
+   * everything it names.
    */
-  readsOutside?: boolean;
+  readsOutside?: boolean | ((output: unknown) => boolean);
   estimatedCostCents?: number;
   execute(input: I, ctx: CapabilityContext): Promise<O>;
   /**

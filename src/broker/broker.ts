@@ -746,7 +746,10 @@ export class CapabilityBroker {
     // F8.9: what this returned was written outside the company, and the
     // work now carries it. Recorded once the read has happened, where the
     // audit trail shows it and where the next tier 2 action looks.
-    if (capability.readsOutside || declarationFor(name)?.readsOutside) {
+    const readOutside = typeof capability.readsOutside === 'function'
+      ? capability.readsOutside(output)
+      : capability.readsOutside || declarationFor(name)?.readsOutside;
+    if (readOutside) {
       await withTenant(ctx.companyId, (tx) => appendEvent(tx, {
         companyId: ctx.companyId,
         projectId: ctx.projectId,

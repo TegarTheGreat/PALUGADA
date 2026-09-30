@@ -575,6 +575,46 @@ test('the http runtime finishes a turn loop and answers tool calls (F13.2)', asy
 });
 
 /**
+ * A role uses its own tools (F2.4), whatever runtime it is on.
+ *
+ * The tool bridge showed an agent CLI only its role's tools, and the broker
+ * checks what the division was granted. A runtime that speaks the wire
+ * itself -- a script, an HTTP service, a container -- could name any tool
+ * its division holds, and reach it: here, a write the role was never given.
+ */
+test('a runtime in another process may call only its role\'s tools, not everything its division holds (F2.4)', async () => {
+  const fixture = await createCompany('http-role-tools');
+  const broker = await brokerFor(fixture, ['dns.read', 'dns.write']);
+  await configureRole(fixture, { runtime: 'http', tools: ['dns.read'] });
+
+  const answers: unknown[][] = [];
+  const adapter = new HttpAdapter({
+    url: 'https://runtime.invalid/run',
+    fetch: (async (_url: string, init: { method?: string; body?: string }) => {
+      if ((init.method ?? 'GET') === 'GET') return new Response('{}', { status: 200 });
+      const body = JSON.parse(init.body!) as { turn: number; answers: unknown[] };
+      answers.push(body.answers);
+      const events: RunEvent[] = body.turn === 0
+        ? [{ type: 'tool_call', id: 'w', name: 'dns.write', args: { zone: 'example.com' } }]
+        : [{ type: 'done', output: { done: DONE } }];
+      return new Response(JSON.stringify({ events }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as unknown as typeof globalThis.fetch,
+  });
+
+  const task = await newTask(fixture, {});
+  await engineWith(broker, adapter).runTask(fixture.companyId, task.id, 'worker');
+  const refused = answers[1]![0] as { type: string; code: string; message: string };
+  assert.equal(refused.type, 'tool_error');
+  assert.equal(refused.code, 'capability.not_granted');
+  assert.match(refused.message, /dns\.write is not one of this role's tools/);
+  // Refused before the broker: no card for the owner about a write the role cannot make.
+  assert.deepEqual((await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'approval'), []);
+  const denied = await withTenant(fixture.companyId, (tx) => tx.query<{ payload: { capability: string; reason: string } }>(
+    "SELECT payload FROM events WHERE task_id = $1 AND type = 'policy.denied'", [task.id]));
+  assert.deepEqual(denied.rows.map((row) => [row.payload.capability, row.payload.reason]), [['dns.write', 'not_a_role_tool']]);
+});
+
+/**
  * An at-least-once transport must not become an at-least-once action.
  *
  * A retried HTTP turn that repeats a `tool_call` id is the ordinary way one

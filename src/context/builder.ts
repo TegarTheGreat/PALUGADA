@@ -45,6 +45,8 @@ export interface ContextSection {
     | 'working_memory';
   title: string;
   body: string;
+  /** A lesson learned from content written outside the company (0071). */
+  outside?: true;
 }
 
 /**
@@ -535,6 +537,7 @@ export async function buildContext(
         + `${memory.outside ? ', learned from outside content' : ''} `
         + `(confidence ${memory.confidence.toFixed(2)}, source ${memory.source})`,
       body: memory.outside ? wrapUntrusted(`memory:${memory.source}`, memory.body) : memory.body,
+      ...(memory.outside ? { outside: true as const } : {}),
     });
   }
 

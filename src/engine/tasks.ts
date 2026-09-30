@@ -115,7 +115,12 @@ export async function getTask(tx: TenantClient, taskId: string): Promise<TaskRow
  * company through a capability the catalogue marks `readsOutside` -- an
  * email, a web page, a customer's record. Null when neither. Delegating does
  * not launder it: a child of such a task is the same work, carrying the same
- * text in its brief.
+ * text in its brief. Nor does asking: a task whose sub-task read something
+ * gets what it found back, through `task.await` or the sub-task's result,
+ * so a read anywhere below a task counts for it too. That is wider than
+ * what it has taken back so far, and a tier 2 action it takes asks the owner
+ * a little more often for it; the other way, a run hands the email to a
+ * sub-task and sends on its answer unasked.
  */
 export async function outsideContentIn(tx: TenantClient, taskId: string): Promise<'begun' | 'read' | null> {
   const { rows } = await tx.query<{ begun: boolean | null; read: boolean }>(
@@ -125,10 +130,17 @@ export async function outsideContentIn(tx: TenantClient, taskId: string): Promis
        SELECT t.id, t.parent_task_id, t.created_by, chain.depth + 1
          FROM tasks t JOIN chain ON t.id = chain.parent_task_id
         WHERE chain.depth < 64
+     ), below AS (
+       SELECT id, 0 AS depth FROM tasks WHERE parent_task_id = $1
+       UNION ALL
+       SELECT t.id, below.depth + 1
+         FROM tasks t JOIN below ON t.parent_task_id = below.id
+        WHERE below.depth < 64
      )
      SELECT bool_or(created_by = 'webhook') AS begun,
             EXISTS (SELECT 1 FROM events e
-                     WHERE e.task_id IN (SELECT id FROM chain) AND e.type = 'content.read_outside') AS read
+                     WHERE e.type = 'content.read_outside'
+                       AND (e.task_id IN (SELECT id FROM chain) OR e.task_id IN (SELECT id FROM below))) AS read
        FROM chain`,
     [taskId],
   );

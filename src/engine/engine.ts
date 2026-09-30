@@ -362,6 +362,16 @@ export class Engine {
         divisionId: task.divisionId,
         taskId: task.id,
       });
+      // F8.9: a lesson learned from outside content is data, and a run told
+      // it carries that data from its first step, as if it had read the
+      // email itself: what it does at tier 2 asks the owner.
+      const outsideMemories = context.sections.filter((section) => section.outside).length;
+      if (outsideMemories > 0) {
+        await appendEvent(tx, {
+          companyId, projectId: task.projectId, taskId: task.id, type: 'content.read_outside', actor: 'engine',
+          payload: { capability: 'memory', from: 'briefing', memories: outsideMemories },
+        });
+      }
       const goalAncestry = await ancestryForTask(tx, task.id);
 
       const { rows: toolRows } = await tx.query<{
@@ -787,7 +797,23 @@ export class Engine {
     // `runTask` with the approval still open. So the first such answer is
     // kept, the run is withdrawn, and the task parks as it would have had
     // the throw ended it.
+    // F2.4: a role uses its own tools. The tool bridge showed an agent CLI
+    // only those and the broker checks the division's grants, so a runtime
+    // that speaks the wire itself -- a script, an HTTP service, a container --
+    // could name any tool its division holds and reach it. Refused here,
+    // where every runtime's call arrives, before the broker is asked. A
+    // handler registered in this process is the deployment's own code, and
+    // the model loop there offers only the role's tools already.
+    const ownTools = new Set(runtime.tools);
     const callTool = async <I, O,>(name: string, input: I): Promise<O> => {
+      if (runtime.runtime !== 'in-process' && !ownTools.has(name)) {
+        await withTenant(companyId, (tx) => appendEvent(tx, {
+          companyId, projectId: task.projectId, taskId, type: 'policy.denied', actor: 'engine',
+          payload: { capability: name, reason: 'not_a_role_tool', roleId: task.roleId },
+        }));
+        throw new PalugadaError('capability.not_granted',
+          `${name} is not one of this role's tools; a role uses only its own (PRD F2.4)`, { capability: name });
+      }
       try {
         return await step(`capability:${name}`, 'tool', { name, input }, async (key) => {
             const result = await this.#options.broker.invoke<I, O>(

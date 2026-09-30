@@ -14,6 +14,7 @@
  * agent (src/domain/language.ts), not something to translate after the fact.
  */
 import { SENTENCES as ID } from './sentences/id.ts';
+import { SENTENCES as HI } from './sentences/hi.ts';
 
 /**
  * The sentences each language has, one file each in `sentences/`. Every
@@ -22,6 +23,7 @@ import { SENTENCES as ID } from './sentences/id.ts';
  */
 export const OWNER_SENTENCES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   id: ID,
+  hi: HI,
 };
 
 /** `text` in `language`, with `{name}` filled from `values`; English when there is no translation. */

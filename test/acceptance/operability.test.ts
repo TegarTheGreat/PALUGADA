@@ -24,6 +24,8 @@ import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';
 import { InMemorySecretManager } from '../../src/secrets/manager.ts';
 import { OwnerMfa, decodeBase32, newTotpSecret, stepFor, totpCode } from '../../src/owner/mfa.ts';
+import { OtlpExporter, otlpFrom } from '../../src/reporting/otlp.ts';
+import { createServer } from 'node:http';
 import { createCompany, grantCapability, planTask, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
@@ -587,3 +589,145 @@ test('a deployment being stopped lets a run finish, then gives back the one that
   assert.equal(outcome.status, 'completed', outcome.reason);
   assert.deepEqual(outcome.output, { done: true, first: { looked: 1 } }, 'the committed step was replayed, not run again');
 });
+
+/* ---------------------------------------------------------------- traces --- */
+
+/** An OpenTelemetry collector's HTTP port, as far as a test needs one. */
+async function fakeCollector() {
+  const received: Array<{ path: string; headers: Record<string, string | string[] | undefined>; body: string }> = [];
+  let failing = false;
+  const server = createServer((req, res) => {
+    let raw = '';
+    req.on('data', (chunk: Buffer) => { raw += chunk.toString('utf8'); });
+    req.on('end', () => {
+      if (failing) { res.writeHead(503); res.end('busy'); return; }
+      received.push({ path: req.url ?? '', headers: req.headers, body: raw });
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end('{}');
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as { port: number };
+  return {
+    base: `http://127.0.0.1:${port}`, received,
+    fail: (on: boolean) => { failing = on; },
+    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  };
+}
+
+test('the standard variables name the collector, and a protocol other than http/json is refused by name', () => {
+  assert.equal(otlpFrom({}), null, 'nothing set, nothing sent');
+  assert.deepEqual(otlpFrom({
+    OTEL_EXPORTER_OTLP_ENDPOINT: 'http://collector:4318/', OTEL_EXPORTER_OTLP_HEADERS: 'x-honeycomb-team=key%20one,Authorization=Bearer abc',
+    OTEL_SERVICE_NAME: 'palugada-prod',
+  }), {
+    endpoint: 'http://collector:4318/v1/traces',
+    headers: { 'x-honeycomb-team': 'key one', authorization: 'Bearer abc' },
+    serviceName: 'palugada-prod',
+  });
+  assert.equal(otlpFrom({ OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: 'https://api.honeycomb.io/v1/traces' })!.endpoint,
+    'https://api.honeycomb.io/v1/traces', 'the traces endpoint as it is given');
+  assert.throws(() => otlpFrom({ OTEL_EXPORTER_OTLP_ENDPOINT: 'http://collector:4317', OTEL_EXPORTER_OTLP_PROTOCOL: 'grpc' }),
+    (error: unknown) => isPalugadaError(error, 'config.invalid') && /grpc/.test((error as Error).message));
+});
+
+test('a deployment given a collector says where its traces go, and refuses a protocol it does not speak before it starts', async () => {
+  const { start } = await import('../../src/main.ts');
+  const deployment = await start({
+    port: 0, env: { OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:9/' }, worker: { idleMs: 60_000 }, log: () => undefined,
+  });
+  try {
+    assert.ok(deployment.notes.some((note) => note.includes('http://127.0.0.1:9/v1/traces') && /without what was said/.test(note)),
+      JSON.stringify(deployment.notes));
+  } finally {
+    await deployment.stop();
+  }
+  await assert.rejects(start({ port: 0, env: { OTEL_EXPORTER_OTLP_ENDPOINT: 'http://127.0.0.1:9', OTEL_EXPORTER_OTLP_PROTOCOL: 'http/protobuf' } }),
+    (error: unknown) => isPalugadaError(error, 'config.invalid') && /http\/protobuf/.test((error as Error).message));
+});
+
+test('each finished run goes to an OpenTelemetry collector as spans -- the run, its steps, its model calls -- and nothing that was said', async () => {
+  const fixture = await createCompany('otlp');
+  const registry = new CapabilityRegistry();
+  registry.register<{ text: string }, { kept: number }>({
+    name: 'notes.keep', adapter: 'test:notes', defaultTier: 0,
+    async execute(input) { return { kept: input.text.length }; },
+  });
+  await registry.sync();
+  await grantCapability(fixture, 'notes.keep');
+  const engine = new Engine({
+    broker: new CapabilityBroker(registry),
+    llm: new RecordingLlmClient(() => 'Kopi Garut, 3 kg, Rp 450.000'),
+    handlers: new Map([['worker', async (ctx) => {
+      await ctx.callCapability('notes.keep', { text: 'Budi Santoso, 0812-555-0199' });
+      await ctx.llm({ system: 'You price orders.', messages: [{ role: 'user', content: 'Budi Santoso wants 3 kg' }] });
+      return { summary: 'priced' };
+    }]]),
+  });
+  const run = async (goal: string) => {
+    const task = await createRootTask({
+      companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+      budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId, input: { goal }, createdBy: 'owner', reserveTokens: 1_000,
+    });
+    assert.equal((await engine.runTask(fixture.companyId, task.id, 'worker')).status, 'completed');
+    return task;
+  };
+  const collector = await fakeCollector();
+  try {
+    const first = await run('price the Garut order');
+    const exporter = new OtlpExporter({
+      endpoint: `${collector.base}/v1/traces`, headers: { 'x-honeycomb-team': 'team-key' }, serviceName: 'palugada-test',
+      holder: 'worker-otlp', settleMs: 0, version: '0.1.0',
+    });
+    const sent = await exporter.export();
+    assert.equal(collector.received.length, 1);
+    const [request] = collector.received;
+    assert.equal(request!.path, '/v1/traces');
+    assert.equal(request!.headers['x-honeycomb-team'], 'team-key');
+    assert.equal(request!.headers['content-type'], 'application/json');
+    assert.doesNotMatch(request!.body, /Budi|Garut|Kopi|price/, 'names, times and counts; never what was said or asked');
+    const payload = JSON.parse(request!.body) as {
+      resourceSpans: Array<{ resource: { attributes: Array<{ key: string; value: { stringValue?: string } }> };
+        scopeSpans: Array<{ spans: Array<{ traceId: string; spanId: string; parentSpanId?: string; name: string; kind: number;
+          attributes: Array<{ key: string; value: { stringValue?: string; intValue?: string } }>; status: { code: number } }> }> }>;
+    };
+    const resource = payload.resourceSpans[0]!;
+    assert.equal(resource.resource.attributes.find((one) => one.key === 'service.name')!.value.stringValue, 'palugada-test');
+    const spans = resource.scopeSpans[0]!.spans;
+    assert.equal(sent, spans.length);
+    const root = spans.find((span) => span.name === 'run worker')!;
+    assert.ok(root, JSON.stringify(spans.map((span) => span.name)));
+    assert.equal(root.traceId, first.id.replace(/-/g, ''), 'one trace per task');
+    assert.match(root.spanId, /^[0-9a-f]{16}$/);
+    assert.equal(root.status.code, 1);
+    const step = spans.find((span) => span.name === 'capability:notes.keep')!;
+    assert.equal(step.parentSpanId, root.spanId);
+    const call = spans.find((span) => span.name.startsWith('chat '))!;
+    assert.equal(call.parentSpanId, root.spanId);
+    assert.equal(call.kind, 3);
+    const attribute = (name: string) => call.attributes.find((one) => one.key === name)!.value;
+    assert.equal(attribute('gen_ai.usage.input_tokens').intValue, '100');
+    assert.equal(attribute('gen_ai.usage.output_tokens').intValue, '50');
+
+    assert.equal(await exporter.export(), 0, 'sent once');
+    assert.equal(collector.received.length, 1);
+
+    // A collector that is down: nothing is lost, it is sent when it is back.
+    const second = await run('price the Bandung order');
+    collector.fail(true);
+    await assert.rejects(exporter.export(), /answered 503/);
+    collector.fail(false);
+    assert.ok(await exporter.export() > 0);
+    const resent = JSON.parse(collector.received.at(-1)!.body) as typeof payload;
+    assert.deepEqual([...new Set(resent.resourceSpans[0]!.scopeSpans[0]!.spans.map((span) => span.traceId))], [second.id.replace(/-/g, '')]);
+
+    // Another replica, while this one holds the cursor, sends nothing.
+    await withControlPlane((tx) => tx.query("UPDATE telemetry_cursor SET holder = 'worker-otlp', held_until = now() + interval '1 minute'"));
+    const other = new OtlpExporter({ endpoint: `${collector.base}/v1/traces`, headers: {}, serviceName: 'palugada-test', holder: 'worker-other', settleMs: 0 });
+    await run('price the Bogor order');
+    assert.equal(await other.export(), 0);
+  } finally {
+    await collector.close();
+  }
+});
+

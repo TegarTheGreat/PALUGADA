@@ -34,6 +34,7 @@ import { refreshMcpAccess } from './capabilities/mcp-oauth.ts';
 import { OAuthCredentials } from './capabilities/vendor-oauth.ts';
 import { Worker, type WorkerOptions } from './worker.ts';
 import { DivisionSecrets, deploymentReferences, type SecretManager } from './secrets/manager.ts';
+import { OtlpExporter, otlpFrom } from './reporting/otlp.ts';
 import { OwnerMfa, decodeBase32 } from './owner/mfa.ts';
 import {
   DeploymentSecretManager, masterKeyFrom, previousMasterKeysFrom, readSettings, resealSecrets, settingsVersion, type MasterKey,
@@ -445,6 +446,11 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   const log = options.log ?? ((entry: Record<string, unknown>) => {
     process.stderr.write(`${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`);
   });
+  // Traces to the operator's OpenTelemetry collector, when they named one
+  // with the standard variables. A protocol this does not speak stops the
+  // boot, like any other setting that says something it cannot mean.
+  const otlp = otlpFrom(env);
+  if (otlp) notes.push(`finished runs go to ${otlp.endpoint} as OpenTelemetry spans, without what was said in them`);
 
   // The names the console answers to (see `OwnerApiOptions.allowedHosts`).
   // Read first, so a malformed URL is refused before anything is built.
@@ -830,6 +836,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // failures went only into a report nobody read looked, from outside,
     // exactly like one with nothing to do.
     log,
+    ...(otlp ? { telemetry: new OtlpExporter({ ...otlp, holder: workerId }) } : {}),
     ...(env.PALUGADA_APP_URL_PUBLIC
       ? {
         ownerLinkFor: (item) => consoleLinkFor(env.PALUGADA_APP_URL_PUBLIC!, item),

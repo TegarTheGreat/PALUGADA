@@ -80,6 +80,10 @@ export async function resetData(): Promise<void> {
   await ownerPool().query('TRUNCATE whatsapp_receipts, whatsapp_sent');
   // And Telegram's (0089), for the same reason: each file counts its updates from one.
   await ownerPool().query('TRUNCATE telegram_receipts');
+  // And where the traces had got to (0090), which names runs no later file has.
+  await ownerPool().query(
+    `UPDATE telemetry_cursor SET through_at = '-infinity', through_id = '00000000-0000-0000-0000-000000000000',
+            holder = NULL, held_until = '-infinity'`);
   // And which workers said they were alive (0079): a worker a test left
   // running, or a process killed before it could take its word back, would
   // otherwise be a holder every later file's sweep thinks has died.

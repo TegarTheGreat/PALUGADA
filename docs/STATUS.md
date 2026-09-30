@@ -4244,6 +4244,29 @@ the code against it found these, and each is now closed with a test.
   id, as WhatsApp's messages are (0085), and kept two weeks: Telegram gives
   up on an update after a day.
 
+## 2.40 Traces for an OpenTelemetry collector
+
+- **Traces lived only in the console.** An operator with Jaeger, Tempo,
+  Honeycomb or Datadog could not see a company's runs beside the rest of
+  their services. Row 13 of the competitive analysis of 2026-09-30.
+- **Each finished run is sent as a span** over OTLP/HTTP in JSON, with its
+  steps and its model calls under it and one trace per task, to the
+  collector the standard `OTEL_EXPORTER_OTLP_*` variables name. Model calls
+  carry the GenAI semantic conventions: model, input and output tokens.
+- **Nothing that was said.** Prompts, responses and tool inputs and outputs
+  stay in the console; a collector is often a vendor's.
+- **Once, and nothing lost.** Where it had got to is kept in the database
+  (0090) under a lease, so replicas do not send a run twice and a restart
+  does not skip one; the cursor moves only when the collector has answered
+  2xx, from the row's own timestamp so a microsecond is not lost. Tested
+  against a collector's HTTP port that fails and comes back.
+- **Checked against a real collector** (OpenTelemetry Collector 0.114.0,
+  OTLP receiver on HTTP, debug exporter): a run's four spans arrived in one
+  trace, the task's id as its trace id, the steps and the model call under
+  the run, and the token counts read as integers.
+- **One format.** OTLP over HTTP in JSON, which every collector accepts on
+  its HTTP port. `grpc` or `http/protobuf` is refused at the start by name.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

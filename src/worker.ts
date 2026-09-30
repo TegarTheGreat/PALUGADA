@@ -78,6 +78,7 @@ import { advanceSkillCandidates, settleSkillReviews } from './skills/skills.ts';
 import type { LlmClient } from './llm/client.ts';
 import { sleep } from './timers.ts';
 import { eraseDueCompanies } from './governance/closing.ts';
+import type { OtlpExporter } from './reporting/otlp.ts';
 
 export interface WorkerOptions {
   engine: Engine;
@@ -89,6 +90,11 @@ export interface WorkerOptions {
   meaning?: EmbedBinding;
   /** Restrict to one company. Omitted means every company that is not frozen. */
   companyId?: string;
+  /**
+   * Where finished runs go as OpenTelemetry spans, when the operator named a
+   * collector (0090). Sent by a worker that is not kept to one company.
+   */
+  telemetry?: Pick<OtlpExporter, 'export'>;
   /** How long to wait between ticks when a tick found nothing to do. */
   idleMs?: number;
   /** How many tasks one tick may run. Bounds how long a stop takes to bite. */
@@ -209,6 +215,8 @@ export interface TickReport {
   embedded: number;
   /** Companies erased this tick, their grace over (0088). */
   erased: number;
+  /** Spans sent to the OpenTelemetry collector this tick (0090). */
+  traced: number;
   /** Set when the platform stop is in effect: the tick did nothing else. */
   stopped: boolean;
   errors: Array<{ stage: string; message: string }>;
@@ -274,6 +282,7 @@ function emptyReport(): TickReport {
     leftovers: 0,
     embedded: 0,
     erased: 0,
+    traced: 0,
     stopped: false, errors: [],
   };
 }
@@ -419,6 +428,13 @@ export class Worker {
         for (const one of erased) {
           this.#options.log?.({ level: 'info', event: 'company.erased', companyId: one.companyId, counts: one.counts });
         }
+      });
+    }
+
+    const telemetry = this.#options.telemetry;
+    if (telemetry && this.#options.companyId === undefined) {
+      await this.#stage(report, 'telemetry', async () => {
+        report.traced += await telemetry.export();
       });
     }
 

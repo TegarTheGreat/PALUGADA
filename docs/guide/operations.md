@@ -449,8 +449,34 @@ groups:
         expr: palugada_budget_spent_cents / (palugada_budget_limit_cents > 0) > 0.9
 ```
 
-There is no tracing endpoint yet: each run's model calls, tool calls and
-briefing are kept on the task and shown in the console instead.
+### Traces
+
+Name an OpenTelemetry collector with the standard variables and each
+finished run is sent to it as a span, with its steps and its model calls
+under it, one trace per task:
+
+```sh
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318   # the collector's HTTP port
+OTEL_EXPORTER_OTLP_HEADERS=x-honeycomb-team=your-key # when the backend wants a key
+OTEL_SERVICE_NAME=palugada                           # the default
+```
+
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` names the traces address itself
+instead, as Honeycomb and Grafana Cloud give it. PALUGADA speaks OTLP over
+HTTP in JSON, which every collector accepts on its HTTP port; a
+`OTEL_EXPORTER_OTLP_PROTOCOL` of `grpc` or `http/protobuf` stops the start
+and says so.
+
+What is sent: the company, the task, the role, each step's name and status,
+and each model call's model, tokens and cost, with their times; model calls
+follow the GenAI semantic conventions. What is not: prompts, responses, and
+what tools were given or returned. A collector is often a vendor's; those
+stay in the console, behind your sign-in.
+
+A run is sent half a minute after it finishes, by one worker at a time. If
+the collector is down, nothing is lost: the worker's `telemetry` stage fails
+(and `palugada_worker_stage_failures_total` counts it), and the same runs go
+when it answers again.
 
 ## Running more than one worker
 

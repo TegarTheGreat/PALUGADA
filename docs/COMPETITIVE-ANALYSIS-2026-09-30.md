@@ -260,7 +260,7 @@ perusahaan dari ponsel, di Indonesia.
 | 10 | Email untuk agen dan owner | Paperclip (AgentMail), Opifer (IMAP) | Sedang-tinggi | Direncanakan |
 | 11 | Menutup perusahaan: arsip, lalu hapus (UU PDP) | Buzz | Sedang | **Selesai** (STATUS 2.38). Owner menutup dengan faktor kedua dan mengetik nama perusahaan; perusahaan langsung dibekukan, masa tenggang 7–90 hari bisa dibatalkan, lalu worker menghapus setiap barisnya termasuk riwayat append-only. Database sendiri yang memeriksa bahwa perusahaan sudah ditutup dan masa tenggangnya habis (0088), lalu menyisakan satu baris jejak berisi nama dan jumlah yang dihapus |
 | 12 | Iklan (Meta Ads, Google Ads) dengan belanja yang disetujui | Polsia, Runable | Sedang | Direncanakan sebagai konektor vendor dengan tier 3 untuk belanja |
-| 13 | Ekspor trace OTLP | Paperclip, OpenAI, Google | Rendah-sedang | Terbuka. Trace sudah tersimpan per tugas di konsol |
+| 13 | Ekspor trace OTLP | Paperclip, OpenAI, Google | Rendah-sedang | **Selesai** (STATUS 2.40). Setiap run yang selesai dikirim sebagai span OTLP/HTTP JSON ke collector yang dinamai lewat variabel standar `OTEL_EXPORTER_OTLP_*`, dengan langkah dan panggilan model di bawahnya (konvensi GenAI). Prompt, respons, dan isi alat tidak ikut dikirim |
 | 14 | Runtime ACP generik | Paperclip, Multica | Sedang | Terbuka |
 | 15 | Rilis bernomor dan updater | Paperclip, Opifer | Tinggi | Sebagian terbuka. **Lisensi adalah keputusan pemilik repositori** dan tidak dipilih di sini |
 | 16 | Owner mengambil alih browser saat agen menemui login/OTP | OpenBot | Rendah sekarang | Terbuka. Relevan kalau agen menjalankan seller center atau portal bank |

@@ -15,6 +15,7 @@
  */
 import { SENTENCES as ID } from './sentences/id.ts';
 import { SENTENCES as MS } from './sentences/ms.ts';
+import { SENTENCES as ZH } from './sentences/zh.ts';
 import { SENTENCES as PT_BR } from './sentences/pt-BR.ts';
 import { SENTENCES as RU } from './sentences/ru.ts';
 
@@ -26,6 +27,7 @@ import { SENTENCES as RU } from './sentences/ru.ts';
 export const OWNER_SENTENCES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   id: ID,
   ms: MS,
+  zh: ZH,
   'pt-BR': PT_BR,
   ru: RU,
 };

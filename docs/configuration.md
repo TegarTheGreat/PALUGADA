@@ -305,4 +305,12 @@ known by name and say where to choose one. Capabilities that need somebody's acc
 such as `email.send`, `invoice.issue` or `dns.update`, are bound by a vendor
 file. The file carries no code, and PALUGADA refuses one that writes without
 verifying, has a side effect without an idempotency key, or tries to loosen
-the catalogue's tier.
+the catalogue's tier. An entry whose key is signed in for rather than pasted
+says so under `signIn`: a `provider` and the `scopes` its call needs.
+`google` and `microsoft` are known by name. For any other provider, also
+give its `authorizeUrl` and `tokenUrl`, both https. `params` adds to the
+authorization request, and `clientUrl` is where the owner registers the app.
+Such an entry must name its `credentialAlias`, and it sends the key as
+`Bearer {credential}`, like any other. The owner registers one app with the
+provider for the deployment, and the sign-in comes back to the address in
+`PALUGADA_APP_URL_PUBLIC`, as an MCP server's does.

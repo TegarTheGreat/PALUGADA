@@ -152,6 +152,9 @@ test('every table holding tenant data is protected', async () => {
     // A sign-in to an MCP server between the console and the callback (0080):
     // the platform's, like the deployment's settings it ends in.
     'mcp_authorizations',
+    // A division's sign-in for a vendor key, the same way (0081). It names the
+    // company and division the key is for and holds nothing of theirs.
+    'credential_authorizations',
   ]);
 
   const rows = await withControlPlane(async (tx) => {

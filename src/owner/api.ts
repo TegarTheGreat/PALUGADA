@@ -149,6 +149,7 @@ import { CapabilityRegistry } from '../broker/registry.ts';
 import { McpUnauthorized, accessFor, assertPlainHttpIsLocal, bindMcpServers, currentPins, offeredTools, type TokenIn } from '../capabilities/mcp.ts';
 import { beginSignIn, discoverSignIn, finishSignIn, forgetSignIn, mcpSecretName, oauthGrantsIn } from '../capabilities/mcp-oauth.ts';
 import { MCP_PRESETS } from '../capabilities/mcp-presets.ts';
+import { beginCredentialSignIn, finishCredentialSignIn, hasClient, OAUTH_CREDENTIALS, type CredentialSignIn } from '../capabilities/vendor-oauth.ts';
 import { LISTEN_PROVIDERS, listenProvider, transcribe, type Heard, type ListenBinding, type ListenProvider } from '../capabilities/listen.ts';
 import {
   chatMayApply, chatPartners, chatScope, closeProposal, conversation, converse, forgetConversation, moveChat, patternFor, proposalById,
@@ -1688,6 +1689,15 @@ export class OwnerApi {
           const indonesian = (await deploymentLanguages()).console === 'id';
           try {
             if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
+            // A division's sign-in for a vendor key, when the state is one of those.
+            const signedIn = await finishCredentialSignIn(query, { secrets: deployment.secrets });
+            if (signedIn) {
+              await this.#keepDivisionKey({ ...signedIn, value: signedIn.grant, prefix: OAUTH_CREDENTIALS });
+              const provider = this.#signInFor(signedIn.alias, null)?.name ?? signedIn.provider;
+              return indonesian
+                ? new HtmlPage(200, `Sudah masuk ke ${provider} untuk kunci ${signedIn.alias}`, 'Kembali ke PALUGADA: divisi itu kini memegang kunci ini, dan diperbarui sendiri sebelum habis. Tab ini boleh ditutup.')
+                : new HtmlPage(200, `Signed in to ${provider} for the ${signedIn.alias} key`, 'Go back to PALUGADA: the division holds this key now, and it is renewed before it runs out. This tab can be closed.');
+            }
             const { name } = await finishSignIn(query, { secrets: deployment.secrets, master });
             return indonesian
               ? new HtmlPage(200, `Sudah masuk ke ${name}`, 'Kembali ke PALUGADA untuk memilih alat yang boleh dipakai peran. Tab ini boleh ditutup.')
@@ -3007,7 +3017,7 @@ export class OwnerApi {
         // Never a value -- a key pasted here is not shown again.
         method: 'GET',
         pattern: '/api/companies/:companyId/divisions/:divisionId/credentials',
-        handle: async ({ params }) => {
+        handle: async ({ params, request }) => {
           const companyId = params.companyId!;
           const divisionId = params.divisionId!;
           const { held, granted } = await withControlPlane(async (tx) => {
@@ -3026,16 +3036,39 @@ export class OwnerApi {
           });
           const have = new Set(held.map((row) => row.alias));
           const asked = keysAskedFor(this.#options.registry, granted.map((row) => row.capability_name));
+          // How a key is signed in for, when it is: the provider, where its app
+          // is registered, and whether this deployment has registered one.
+          const signIns = new Map<string, { provider: string; name: string; clientUrl: string | null; client: boolean }>();
+          for (const [alias, need] of asked) {
+            if (need.signIn) {
+              signIns.set(alias, {
+                provider: need.signIn.provider, name: need.signIn.name, clientUrl: need.signIn.clientUrl,
+                client: await hasClient(need.signIn.provider),
+              });
+            }
+          }
+          let callback: string | null = null;
+          try {
+            callback = this.#callbackAddress(request);
+          } catch {
+            callback = null;
+          }
           return {
             credentials: held.map((row) => ({
               alias: row.alias,
               version: row.version,
               stored: storedAt(row.secret_ref),
+              signedIn: row.secret_ref.startsWith(`db://${OAUTH_CREDENTIALS}`),
               scopes: row.scopes,
               createdAt: row.created_at.toISOString(),
               rotatedAt: row.rotated_at?.toISOString() ?? null,
+              ...(signIns.has(row.alias) ? { signIn: signIns.get(row.alias) } : {}),
             })),
-            needs: [...asked].filter(([alias]) => !have.has(alias)).map(([alias, need]) => ({ alias, ...need })),
+            needs: [...asked].filter(([alias]) => !have.has(alias)).map(([alias, need]) => ({
+              alias, capabilities: need.capabilities, scopes: need.scopes,
+              ...(signIns.has(alias) ? { signIn: signIns.get(alias) } : {}),
+            })),
+            callback,
           };
         },
       },
@@ -3061,63 +3094,54 @@ export class OwnerApi {
           if (value.length < 8 || value.length > 8_192) {
             throw new PalugadaError('contract.violation', 'paste the whole key the service gave you', { field: 'value' });
           }
-          const { previous, scopes } = await withControlPlane(async (tx) => {
-            await assertDivisionOf(tx, companyId, divisionId);
-            const { rows } = await tx.query<{ secret_ref: string }>(
-              'SELECT secret_ref FROM credentials WHERE company_id = $1 AND division_id = $2 AND alias = $3',
-              [companyId, divisionId, alias],
-            );
-            const granted = await tx.query<{ capability_name: string }>(
-              'SELECT capability_name FROM capability_grants WHERE company_id = $1 AND division_id = $2',
-              [companyId, divisionId],
-            );
-            // F12.6: the key is declared as carrying what the division's
-            // capabilities ask of it and nothing more -- the broker refuses a
-            // key that does not declare a scope its capability needs, and the
-            // database one that declares a scope nothing here needs.
-            const asked = keysAskedFor(this.#options.registry, granted.rows.map((row) => row.capability_name)).get(alias);
-            return { previous: rows[0]?.secret_ref ?? null, scopes: asked?.scopes ?? [] };
-          });
+          // A sign-in's record, pasted, would choose where its refresh -- and
+          // the registered app's secret -- is sent.
+          if (value.startsWith('{"oauth2"')) {
+            throw new PalugadaError('contract.violation', 'a key that is signed in for is made by signing in, not pasted', { field: 'value' });
+          }
+          await withControlPlane((tx) => assertDivisionOf(tx, companyId, divisionId));
           await this.#requireFactor(body.proof, `save the ${alias} key`, companyId);
+          if (!deployment.master(true)) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
+          return this.#keepDivisionKey({ companyId, divisionId, alias, value, prefix: CREDENTIAL_SECRETS });
+        },
+      },
+
+      {
+        // A division's key signed in for rather than pasted: the vendor entry
+        // says with whom, the owner's device says yes here, and the page this
+        // answers with is opened in the owner's browser. The key is kept when
+        // the provider sends the browser back (`/api/oauth/callback`).
+        method: 'POST',
+        pattern: '/api/companies/:companyId/divisions/:divisionId/credentials/:alias/oauth/start',
+        handle: async ({ params, body, request }) => {
+          const deployment = this.#deploymentSettings();
+          const companyId = params.companyId!;
+          const divisionId = params.divisionId!;
+          const alias = params.alias!;
+          await withControlPlane((tx) => assertDivisionOf(tx, companyId, divisionId));
+          const signIn = this.#signInFor(alias, await this.#grantedTo(companyId, divisionId));
+          if (!signIn) {
+            throw new PalugadaError('contract.violation',
+              `nothing this division may use signs in for the ${alias} key; paste the key instead`, { alias });
+          }
+          const clientId = typeof body.clientId === 'string' ? body.clientId.trim() : '';
+          const clientSecret = typeof body.clientSecret === 'string' ? body.clientSecret.trim() : '';
+          const redirectUri = this.#callbackAddress(request);
+          // Asked before the device, so an owner with no app registered is told
+          // what to register rather than asked for a code first.
+          if (!clientId && !(await hasClient(signIn.provider))) {
+            throw new PalugadaError('config.invalid',
+              `${signIn.name} lets PALUGADA in only through an app you register with it: register one, `
+                + `with ${redirectUri} as the address to come back to, and give its client ID and secret`,
+              { provider: signIn.provider, redirectUri });
+          }
+          await this.#requireFactor(body.proof, `sign in to ${signIn.name} for the ${alias} key`, companyId);
           const master = deployment.master(true);
           if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
-          const secret = `${CREDENTIAL_SECRETS}${randomBytes(8).toString('hex')}`;
-          await putSecret(secret, value, master);
-          const reference = `db://${secret}`;
-          const sweep = {
-            ...(this.#options.registry ? { registry: this.#options.registry } : {}),
-            ...(this.#options.credentialFor ? { credential: this.#options.credentialFor } : {}),
-          };
-          let version = 1;
-          try {
-            if (previous) {
-              // Declared before the rotation's sweep, which checks the key
-              // against what its capabilities need.
-              await withControlPlane((tx) => tx.query(
-                'UPDATE credentials SET scopes = $4 WHERE company_id = $1 AND division_id = $2 AND alias = $3',
-                [companyId, divisionId, alias, scopes],
-              ));
-              version = (await rotateCredential({ companyId, divisionId, alias, newSecretRef: reference, ...sweep })).version;
-            } else {
-              await withControlPlane((tx) => tx.query(
-                'INSERT INTO credentials (company_id, division_id, alias, secret_ref, scopes) VALUES ($1, $2, $3, $4, $5)',
-                [companyId, divisionId, alias, reference, scopes],
-              ));
-              await withTenant(companyId, (tx) => appendEvent(tx, {
-                companyId, type: 'credential.added', actor: 'owner', payload: { alias, divisionId, secretRef: reference },
-              }));
-              // The same sweep a rotation takes, so a capability that was
-              // unhealthy for want of this key is checked again now.
-              if (sweep.registry) {
-                await preflightGrants(sweep.registry, { companyId, divisionId, ...(sweep.credential ? { credential: sweep.credential } : {}) });
-              }
-            }
-          } catch (failure) {
-            await deleteSecret(secret).catch(() => undefined);
-            throw failure;
-          }
-          if (previous?.startsWith(`db://${CREDENTIAL_SECRETS}`)) await deleteSecret(previous.slice('db://'.length));
-          return { alias, version };
+          return beginCredentialSignIn({
+            companyId, divisionId, alias, signIn, redirectUri, master,
+            client: clientId ? { clientId, ...(clientSecret ? { clientSecret } : {}) } : null,
+          });
         },
       },
 
@@ -4334,6 +4358,92 @@ export class OwnerApi {
   }
 
   /**
+   * Seals a division's key and makes it the credential for its alias: a key
+   * pasted, or a sign-in's grant. Kept again for the same alias it is a
+   * rotation (F12.3): the next call uses it, and the key it replaced is
+   * deleted. F12.6: it is declared as carrying what the division's
+   * capabilities ask of it and nothing more -- the broker refuses a key that
+   * does not declare a scope its capability needs, and the database one that
+   * declares a scope nothing here needs.
+   */
+  async #keepDivisionKey(input: {
+    companyId: string; divisionId: string; alias: string; value: string; prefix: string;
+  }): Promise<{ alias: string; version: number }> {
+    const { companyId, divisionId, alias } = input;
+    const master = this.#deploymentSettings().master(true);
+    if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
+    const { previous, scopes } = await withControlPlane(async (tx) => {
+      await assertDivisionOf(tx, companyId, divisionId);
+      const { rows } = await tx.query<{ secret_ref: string }>(
+        'SELECT secret_ref FROM credentials WHERE company_id = $1 AND division_id = $2 AND alias = $3',
+        [companyId, divisionId, alias],
+      );
+      const granted = await tx.query<{ capability_name: string }>(
+        'SELECT capability_name FROM capability_grants WHERE company_id = $1 AND division_id = $2',
+        [companyId, divisionId],
+      );
+      const asked = keysAskedFor(this.#options.registry, granted.rows.map((row) => row.capability_name)).get(alias);
+      return { previous: rows[0]?.secret_ref ?? null, scopes: asked?.scopes ?? [] };
+    });
+    const secret = `${input.prefix}${randomBytes(8).toString('hex')}`;
+    await putSecret(secret, input.value, master);
+    const reference = `db://${secret}`;
+    const sweep = {
+      ...(this.#options.registry ? { registry: this.#options.registry } : {}),
+      ...(this.#options.credentialFor ? { credential: this.#options.credentialFor } : {}),
+    };
+    let version = 1;
+    try {
+      if (previous) {
+        // Declared before the rotation's sweep, which checks the key
+        // against what its capabilities need.
+        await withControlPlane((tx) => tx.query(
+          'UPDATE credentials SET scopes = $4 WHERE company_id = $1 AND division_id = $2 AND alias = $3',
+          [companyId, divisionId, alias, scopes],
+        ));
+        version = (await rotateCredential({ companyId, divisionId, alias, newSecretRef: reference, ...sweep })).version;
+      } else {
+        await withControlPlane((tx) => tx.query(
+          'INSERT INTO credentials (company_id, division_id, alias, secret_ref, scopes) VALUES ($1, $2, $3, $4, $5)',
+          [companyId, divisionId, alias, reference, scopes],
+        ));
+        await withTenant(companyId, (tx) => appendEvent(tx, {
+          companyId, type: 'credential.added', actor: 'owner', payload: { alias, divisionId, secretRef: reference },
+        }));
+        // The same sweep a rotation takes, so a capability that was
+        // unhealthy for want of this key is checked again now.
+        if (sweep.registry) {
+          await preflightGrants(sweep.registry, { companyId, divisionId, ...(sweep.credential ? { credential: sweep.credential } : {}) });
+        }
+      }
+    } catch (failure) {
+      await deleteSecret(secret).catch(() => undefined);
+      throw failure;
+    }
+    if (previous?.startsWith(`db://${CREDENTIAL_SECRETS}`)) await deleteSecret(previous.slice('db://'.length));
+    return { alias, version };
+  }
+
+  /** The capabilities a division may use, by name. */
+  async #grantedTo(companyId: string, divisionId: string): Promise<string[]> {
+    return withControlPlane(async (tx) => (await tx.query<{ capability_name: string }>(
+      'SELECT capability_name FROM capability_grants WHERE company_id = $1 AND division_id = $2',
+      [companyId, divisionId],
+    )).rows.map((row) => row.capability_name));
+  }
+
+  /**
+   * How a key is signed in for: from the capabilities that use it -- those
+   * granted, when the division is known -- with every scope they ask for.
+   */
+  #signInFor(alias: string, granted: readonly string[] | null): CredentialSignIn | null {
+    const registry = this.#options.registry;
+    if (!registry) return null;
+    const names = granted ?? registry.names();
+    return keysAskedFor(registry, names).get(alias)?.signIn ?? null;
+  }
+
+  /**
    * Where an authorization server sends the owner back: this deployment's
    * public address, or the address the owner reached this console at, which
    * must be https or this machine's own -- the only kinds OAuth sends a code to.
@@ -4895,14 +5005,21 @@ function vendorsIn(settings: Record<string, unknown>): VendorSpec[] {
 function keysAskedFor(
   registry: CapabilityRegistry | undefined,
   granted: readonly string[],
-): Map<string, { capabilities: string[]; scopes: string[] }> {
-  const asked = new Map<string, { capabilities: string[]; scopes: string[] }>();
+): Map<string, { capabilities: string[]; scopes: string[]; signIn?: CredentialSignIn }> {
+  const asked = new Map<string, { capabilities: string[]; scopes: string[]; signIn?: CredentialSignIn }>();
   for (const name of [...granted].sort()) {
     const capability = registry?.get(name);
     if (!capability?.credentialAlias) continue;
-    const entry = asked.get(capability.credentialAlias) ?? { capabilities: [], scopes: [] };
+    const entry: { capabilities: string[]; scopes: string[]; signIn?: CredentialSignIn } = asked.get(capability.credentialAlias) ?? { capabilities: [], scopes: [] };
     entry.capabilities.push(name);
     for (const scope of capability.requiredScopes ?? []) if (!entry.scopes.includes(scope)) entry.scopes.push(scope);
+    // One sign-in for the key, asking for every scope its capabilities need
+    // of the same provider.
+    if (capability.signIn && (!entry.signIn || entry.signIn.provider === capability.signIn.provider)) {
+      entry.signIn = entry.signIn
+        ? { ...entry.signIn, scopes: [...new Set([...entry.signIn.scopes, ...capability.signIn.scopes])] }
+        : capability.signIn;
+    }
     asked.set(capability.credentialAlias, entry);
   }
   return asked;

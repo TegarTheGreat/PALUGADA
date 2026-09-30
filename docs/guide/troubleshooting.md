@@ -287,6 +287,25 @@ the credential; **Rotate a credential** repoints it.
 **Fix.** [Connect a vendor](how-to.md#connect-a-vendor), or accept that the
 role works without it.
 
+### "Google lets PALUGADA in only through an app you register with it"
+
+**Cause.** The division's key is signed in for, and no app is registered
+with that provider for this deployment yet.
+
+**Fix.** Under the division's **Keys for services**, press **Register an
+app**, make one with the return address shown, and paste its **Client ID**
+and **Client secret**; then sign in. See
+[Connect a vendor](how-to.md#connect-a-vendor).
+
+### "The google sign-in behind this key has ended … sign in again"
+
+**Cause.** The provider would not renew the key. It was revoked, its app
+was deleted, or a Google consent screen in **Testing** ended it after seven
+days.
+
+**Fix.** Press **Sign in again** on the key, under the division's **Keys for
+services**.
+
 ### **Its result did not check out**, and "External write failed verification"
 
 **Cause.** A write reported success and the read-back said otherwise.

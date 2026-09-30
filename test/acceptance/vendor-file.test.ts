@@ -443,7 +443,7 @@ test('the example file in this repository builds, and its read-backs resolve (§
   const specs = parseVendors(document, 'config/vendors.example.json');
   assert.deepEqual(
     specs.map((spec) => spec.name),
-    ['email.send', 'dns.read', 'dns.update', 'invoice.issue', 'social.publish', 'metrics.read'],
+    ['email.send', 'dns.read', 'dns.update', 'invoice.issue', 'social.publish', 'metrics.read', 'calendar.read'],
   );
 
   // Building is not enough, and this is the mistake the example itself made:

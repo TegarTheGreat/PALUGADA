@@ -323,9 +323,9 @@ to read it back, and which credential it uses. No code. The entries in
 [config/vendors.example.json](../../config/vendors.example.json) are offered
 as presets: `email.send` on Resend, `dns.read` and `dns.update` on
 Cloudflare, `invoice.issue` as a QRIS payment through Midtrans,
-`social.publish` on a Mastodon account and `metrics.read` on Plausible. Each
-was written from the vendor's own documentation; none has been run against
-the vendor from here. The Midtrans entry points at Midtrans' sandbox, so it
+`social.publish` on a Mastodon account, `metrics.read` on Plausible and
+`calendar.read` on Google Calendar. Each was written from the vendor's own
+documentation; none has been run against the vendor from here. The Midtrans entry points at Midtrans' sandbox, so it
 charges nobody: change `api.sandbox.midtrans.com` to `api.midtrans.com`, and
 use the production server key, when it is right. The Mastodon entry names
 `mastodon.social`; change it to your instance.
@@ -349,6 +349,22 @@ use the production server key, when it is right. The Mastodon entry names
    Paste another under the same name to replace it: the next call uses the
    new one, and the old one is deleted. **Remove** takes it away.
 
+   A key that is signed in for rather than pasted -- Google Calendar's,
+   named `google` -- shows **Sign in with Google** instead. The first time,
+   register an app with the provider for this deployment:
+   - **Register an app** opens the page where one is made. For Google, make
+     an OAuth client of type **Web application**, with the consent screen set
+     to **Internal** if your account is Google Workspace.
+   - Give the app the return address the console shows.
+   - Paste its **Client ID** and **Client secret**.
+
+   Press **Sign in with Google**, confirm with your authenticator, then
+   **Open the sign-in page** and sign in there in the new tab. The key is
+   held when the tab says so. It is sealed like a pasted one, renewed before
+   it runs out, and never shown. **Sign in again** replaces it. A Google
+   consent screen left in **Testing** ends its sign-ins after seven days;
+   publish it, or keep it **Internal**.
+
 A division's key can only name its own sealed secrets, an environment
 variable or a mounted file: never one of the deployment's own keys -- the
 model's, a channel's, an MCP server's -- which would otherwise be sent, in
@@ -367,9 +383,10 @@ out rather than shipping an entry that looks right and is not:
   which is why the example uses it.
 - **GitHub branches, Hetzner, Cloudflare record deletion, HubSpot notes and
   Vercel deployments** document no idempotency key either.
-- **Google Calendar and Gmail** take OAuth access tokens that expire within
-  the hour. PALUGADA signs in with OAuth to MCP servers, not yet to a vendor
-  bound by an entry.
+- **Gmail** lists messages by id only, so reading one is a second call per
+  message, and sending takes the whole message encoded, which a template
+  cannot do. Its sign-in works like Google Calendar's; the calls do not fit
+  an entry.
 
 An operator can bind vendors in a file instead, which the console cannot
 change and whose names it cannot take:

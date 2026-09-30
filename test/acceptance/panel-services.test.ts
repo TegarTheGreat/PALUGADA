@@ -124,7 +124,7 @@ test('a division\'s key for a service is pasted in the console, sealed, and is w
     const path = `/api/companies/${fixture.companyId}/divisions/${fixture.divisionId}/credentials`;
     const before = await api.call('GET', path, token);
     assert.equal(before.status, 200, JSON.stringify(before.body));
-    assert.deepEqual(before.body, { credentials: [], needs: [{ alias: 'crm', capabilities: ['crm.note'], scopes: ['notes:write'] }] });
+    assert.deepEqual(before.body, { credentials: [], needs: [{ alias: 'crm', capabilities: ['crm.note'], scopes: ['notes:write'] }], callback: `${api.url}/api/oauth/callback` });
 
     // Checked before the device: a blank key, a name that is not an alias, a
     // division of another company.
@@ -170,7 +170,7 @@ test('a division\'s key for a service is pasted in the console, sealed, and is w
     assert.equal((await api.call('POST', `${path}/crm/remove`, token, {})).status, 403);
     const removed = await api.call('POST', `${path}/crm/remove`, token, { proof: { totp: api.code() } });
     assert.equal(removed.status, 200, JSON.stringify(removed.body));
-    assert.deepEqual((await api.call('GET', path, token)).body, { credentials: [], needs: [{ alias: 'crm', capabilities: ['crm.note'], scopes: ['notes:write'] }] });
+    assert.deepEqual((await api.call('GET', path, token)).body, { credentials: [], needs: [{ alias: 'crm', capabilities: ['crm.note'], scopes: ['notes:write'] }], callback: `${api.url}/api/oauth/callback` });
     await assert.rejects(api.secrets.resolve(second), /nothing is stored/);
   } finally {
     await api.close();

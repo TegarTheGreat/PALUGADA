@@ -565,6 +565,7 @@ export const NOT_FOR_THE_ASSISTANT: Readonly<Record<string, string>> = {
   '/api/mfa/passkeys': 'the owner\'s own second factor is changed only by hand',
   '/api/channels/telegram': 'Telegram posts here, not a person',
   '/api/control/mcp/oauth/start': 'signing in to a service is the owner\'s, in their own browser',
+  '/api/companies/:companyId/divisions/:divisionId/credentials/:alias/oauth/start': 'signing a division in for a key is the owner\'s, with their device and in their own browser',
   '/api/hooks/:publicId': 'other services post here, not a person',
   '/api/control/tour': 'the tour\'s own buttons',
   '/api/control/channels/telegram/bot': 'Channels walks through it: the token is pasted there',

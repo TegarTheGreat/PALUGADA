@@ -31,6 +31,7 @@ import { DEFAULT_PRICE_TABLE, loadPriceTable } from './engine/pricing.ts';
 import { modelClientFrom, modelSettingsFrom } from './llm/models.ts';
 import { bindMcpServers, closeMcpSessions, registerMcpServers } from './capabilities/mcp.ts';
 import { refreshMcpAccess } from './capabilities/mcp-oauth.ts';
+import { OAuthCredentials } from './capabilities/vendor-oauth.ts';
 import { Worker, type WorkerOptions } from './worker.ts';
 import { DivisionSecrets, type SecretManager } from './secrets/manager.ts';
 import { OwnerMfa, decodeBase32 } from './owner/mfa.ts';
@@ -642,7 +643,9 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // the cache is what stops that becoming a round trip per tool call while
     // still picking up a rotation within its short life.
     // Less the deployment's own sealed keys, which no division's credential may name.
-    new CachedSecretManager(new DivisionSecrets(secrets)),
+    // A key signed in for rather than pasted resolves to its access token,
+    // renewed before it runs out (`vendor-oauth.ts`).
+    new CachedSecretManager(new OAuthCredentials(new DivisionSecrets(secrets), { deployment: secrets, master: () => master(false) })),
   );
 
   // The runtimes, which is the whole of what a worker does.

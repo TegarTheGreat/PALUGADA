@@ -12,6 +12,7 @@ import { PalugadaError } from '../errors.ts';
 import { isTier, requiresVerification, type Tier } from '../domain/tier.ts';
 import { withControlPlane } from '../db/tenant.ts';
 import { assertCalibrated, type CapabilityDeclaration } from './catalogue.ts';
+import type { CredentialSignIn } from '../capabilities/vendor-oauth.ts';
 
 export interface CapabilityContext {
   companyId: string;
@@ -63,6 +64,11 @@ export interface Capability<I = unknown, O = unknown> {
    * missing, rather than the first call finding out.
    */
   credentialAlias?: string;
+  /**
+   * How the owner signs a division in for that credential, when it is not a
+   * key they paste: a vendor entry's `signIn` (`vendor-oauth.ts`).
+   */
+  signIn?: CredentialSignIn;
   /**
    * Whether what it returns was written outside the company (F8.9), for a
    * capability the catalogue does not know -- a tool from an MCP server.

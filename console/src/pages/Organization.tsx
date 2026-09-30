@@ -6,15 +6,15 @@
  * a division's grants from the division -- instead of from a form that asks
  * which one by id.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  Accordion, Alert, Avatar, Badge, Box, Button, Card, Divider, Drawer, Group, List, Modal, Paper, PasswordInput, Progress, Select, SimpleGrid, Spoiler, Stack, Table, Tabs, Text, TextInput, Textarea, ThemeIcon, Tooltip,
+  Accordion, Alert, Anchor, Avatar, Badge, Box, Button, Card, Code, Divider, Drawer, Group, List, Modal, Paper, PasswordInput, Progress, Select, SimpleGrid, Spoiler, Stack, Table, Tabs, Text, TextInput, Textarea, ThemeIcon, Tooltip,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
   IconArrowsRight, IconCalendarTime, IconChartBar, IconCoin, IconCrown, IconFlag, IconFlask, IconHammer, IconHeadset, IconMessageCircle, IconPlus,
   IconRoute, IconLicense, IconSettings, IconShieldCheck, IconSparkles, IconTarget, IconTrendingUp, IconUserCircle, IconUsersGroup, IconWebhook, IconFolders,
-  IconKey,
+  IconKey, IconExternalLink, IconLogin,
 } from '@tabler/icons-react';
 import { useMediaQuery } from '@mantine/hooks';
 import { api, explain } from '../api.ts';
@@ -791,9 +791,108 @@ function RoleEvals({ companyId, role }: { companyId: string; role: Role }) {
 
 /* -------------------------------------------------------- division drawer --- */
 
+/** How a key is signed in for, when it is: with whom, and whether the app is registered. */
+interface KeySignIn {
+  provider: string;
+  name: string;
+  clientUrl: string | null;
+  client: boolean;
+}
+
 interface DivisionKeysView {
-  credentials: Array<{ alias: string; version: number; stored: 'console' | 'environment' | 'file' | 'elsewhere'; scopes: string[]; createdAt: string; rotatedAt: string | null }>;
-  needs: Array<{ alias: string; capabilities: string[]; scopes: string[] }>;
+  credentials: Array<{
+    alias: string; version: number; stored: 'console' | 'environment' | 'file' | 'elsewhere'; signedIn: boolean;
+    scopes: string[]; createdAt: string; rotatedAt: string | null; signIn?: KeySignIn;
+  }>;
+  needs: Array<{ alias: string; capabilities: string[]; scopes: string[]; signIn?: KeySignIn }>;
+  /** Where a sign-in comes back to, for the app the owner registers. */
+  callback: string | null;
+}
+
+/**
+ * Signs a division in for a key, in the owner's own browser: the app
+ * registered with the provider once for the deployment -- asked for here the
+ * first time, with the address to give it -- then the provider's page in a
+ * new tab. The key is held when the provider sends the browser back, and this
+ * asks until it is.
+ */
+function SignInKey({ companyId, divisionId, alias, signIn, callback, again, done }: {
+  companyId: string; divisionId: string; alias: string; signIn: KeySignIn; callback: string | null; again: boolean; done: () => void;
+}) {
+  const requireFactor = useFactor();
+  const [clientId, setClientId] = useState('');
+  const [clientSecret, setClientSecret] = useState('');
+  const [authorizeUrl, setAuthorizeUrl] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const begin = async () => {
+    setProblem(null);
+    let opened: string | null = null;
+    try {
+      await requireFactor(t('Sign in to {name} for the {alias} key', { name: signIn.name, alias }), async (proof) => {
+        const answer: { authorizeUrl: string } = await api('POST', `/api/companies/${companyId}/divisions/${divisionId}/credentials/${alias}/oauth/start`, {
+          proof, ...(clientId.trim() ? { clientId: clientId.trim(), clientSecret: clientSecret.trim() || undefined } : {}),
+        });
+        opened = answer.authorizeUrl;
+        return answer;
+      });
+    } catch (failure) {
+      setProblem(explain(failure));
+    }
+    if (opened) setAuthorizeUrl(opened);
+  };
+  // While the owner signs in in the other tab: asked every few seconds
+  // whether the key has arrived.
+  useEffect(() => {
+    if (!authorizeUrl) return undefined;
+    const started = Date.now();
+    const timer = setInterval(() => {
+      void api('GET', `/api/companies/${companyId}/divisions/${divisionId}/credentials`).then((view: DivisionKeysView) => {
+        const held = view.credentials.find((row) => row.alias === alias);
+        if (!held?.signedIn || Date.parse(held.rotatedAt ?? held.createdAt) < started - 5_000) return;
+        clearInterval(timer);
+        setAuthorizeUrl(null);
+        notifications.show({ color: 'teal', message: t('Signed in to {name}. The {alias} key is held, and renewed before it runs out.', { name: signIn.name, alias }) });
+        done();
+      }, () => undefined);
+    }, 3_000);
+    return () => clearInterval(timer);
+  }, [authorizeUrl]);
+  const needsClient = !signIn.client && !authorizeUrl;
+  return (
+    <Stack gap={6}>
+      {needsClient && (
+        <>
+          <Text size="xs">
+            {t('{name} lets PALUGADA in through an app you register with it, once for this deployment. Give the app this return address, then paste its client ID and secret.', { name: signIn.name })}
+            {signIn.clientUrl && <>{' '}<Anchor href={signIn.clientUrl} target="_blank" rel="noreferrer" size="xs">{t('Register an app')} <IconExternalLink size={10} /></Anchor></>}
+          </Text>
+          {callback && <Code>{callback}</Code>}
+          <SimpleGrid cols={{ base: 1, sm: 2 }}>
+            <TextInput size="xs" label={t('Client ID')} description={t('From the app you registered')} value={clientId} onChange={(event) => setClientId(event.currentTarget.value)} />
+            <PasswordInput size="xs" label={t('Client secret')} description={t('If it gave you one')} value={clientSecret} onChange={(event) => setClientSecret(event.currentTarget.value)} autoComplete="off" />
+          </SimpleGrid>
+        </>
+      )}
+      {authorizeUrl
+        ? (
+          <Group gap="sm">
+            <Button size="xs" component="a" href={authorizeUrl} target="_blank" rel="noopener noreferrer" leftSection={<IconExternalLink size={14} />}>
+              {t('Open the sign-in page')}
+            </Button>
+            <Text size="xs" c="dimmed">{t('Waiting for you to sign in there…')}</Text>
+          </Group>
+        )
+        : (
+          <Group gap="xs">
+            <Button size="xs" variant={again ? 'subtle' : 'filled'} leftSection={<IconLogin size={14} />}
+              disabled={needsClient && clientId.trim() === ''} onClick={() => void begin()}>
+              {again ? t('Sign in again') : t('Sign in with {name}', { name: signIn.name })}
+            </Button>
+          </Group>
+        )}
+      {problem && <Text size="xs" c="red">{problem}</Text>}
+    </Stack>
+  );
 }
 
 const STORED: Record<DivisionKeysView['credentials'][number]['stored'], string> = {
@@ -842,11 +941,15 @@ function DivisionKeys({ companyId, divisionId }: { companyId: string; divisionId
               {need.scopes.length > 0 && (
                 <Text size="xs" mb={6}>{t('Issue it with {scopes}, and nothing wider.', { scopes: need.scopes.join(', ') })}</Text>
               )}
-              <Group gap="xs" align="flex-end" wrap="nowrap">
-                <PasswordInput style={{ flex: 1 }} aria-label={t('The {alias} key', { alias: need.alias })} placeholder={t('Paste the key the service gave you')}
-                  value={alias === need.alias ? value : ''} onChange={(event) => { setAlias(need.alias); setValue(event.currentTarget.value); }} />
-                <Button disabled={alias !== need.alias || value.trim() === ''} onClick={() => void save(need.alias, value)}>{t('Save')}</Button>
-              </Group>
+              {need.signIn
+                ? <SignInKey companyId={companyId} divisionId={divisionId} alias={need.alias} signIn={need.signIn} callback={view.data!.callback} again={false} done={view.reload} />
+                : (
+                  <Group gap="xs" align="flex-end" wrap="nowrap">
+                    <PasswordInput style={{ flex: 1 }} aria-label={t('The {alias} key', { alias: need.alias })} placeholder={t('Paste the key the service gave you')}
+                      value={alias === need.alias ? value : ''} onChange={(event) => { setAlias(need.alias); setValue(event.currentTarget.value); }} />
+                    <Button disabled={alias !== need.alias || value.trim() === ''} onClick={() => void save(need.alias, value)}>{t('Save')}</Button>
+                  </Group>
+                )}
             </Alert>
           ))}
           {view.data.credentials.length > 0 && (
@@ -856,8 +959,13 @@ function DivisionKeys({ companyId, divisionId }: { companyId: string; divisionId
                   <Table.Tr key={row.alias}>
                     <Table.Td><Group gap={6}><IconKey size={14} /><Text size="sm" fw={600}>{row.alias}</Text></Group></Table.Td>
                     <Table.Td>
-                      <Text size="xs" c="dimmed">{t(STORED[row.stored])} · {t('version {version}', { version: row.version })}</Text>
+                      <Text size="xs" c="dimmed">
+                        {row.signedIn && row.signIn ? t('signed in with {name}', { name: row.signIn.name }) : t(STORED[row.stored])} · {t('version {version}', { version: row.version })}
+                      </Text>
                       {row.scopes.length > 0 && <Text size="xs" c="dimmed">{t('declared with {scopes}', { scopes: row.scopes.join(', ') })}</Text>}
+                      {row.signIn && (
+                        <SignInKey companyId={companyId} divisionId={divisionId} alias={row.alias} signIn={row.signIn} callback={view.data!.callback} again done={view.reload} />
+                      )}
                     </Table.Td>
                     <Table.Td><Text size="xs" c="dimmed">{relative(row.rotatedAt ?? row.createdAt)}</Text></Table.Td>
                     <Table.Td ta="right"><Button variant="subtle" color="red" size="compact-xs" onClick={() => void remove(row.alias)}>{t('Remove')}</Button></Table.Td>

@@ -44,6 +44,7 @@ import { redactor } from '../secrets/manager.ts';
 import type { Capability, CapabilityContext } from '../broker/registry.ts';
 import type { Tier } from '../domain/tier.ts';
 import { safeFetch, type ReachableOptions } from './reachable.ts';
+import type { CredentialSignIn } from './vendor-oauth.ts';
 import { sleep } from '../timers.ts';
 
 /**
@@ -131,6 +132,8 @@ export interface HttpCapabilitySpec {
   result?: (answer: { status: number; body: unknown }) => unknown;
   /** The division's credential alias. Resolved per call, never held. */
   credentialAlias?: string;
+  /** How that credential is signed in for, when it is not pasted. */
+  signIn?: CredentialSignIn;
   /** F12.6. What that credential must declare for this to be allowed. */
   requiredScopes?: readonly string[];
   /** F8.4. Required at tier 1 and above. */
@@ -264,6 +267,7 @@ export function httpCapability(spec: HttpCapabilitySpec): Capability<
     defaultTier: spec.tier,
     ...(spec.inputSchema ? { inputSchema: spec.inputSchema } : {}),
     ...(spec.credentialAlias ? { credentialAlias: spec.credentialAlias } : {}),
+    ...(spec.signIn ? { signIn: spec.signIn } : {}),
     ...(spec.estimatedCostCents === undefined
       ? {}
       : { estimatedCostCents: spec.estimatedCostCents }),

@@ -1377,6 +1377,7 @@ const SERVICE_TEXT: Record<string, string> = {
   'invoice.issue': N('Issue an invoice a customer pays.'),
   'social.publish': N('Publish a post.'),
   'metrics.read': N('Read your site\'s visits and goals.'),
+  'calendar.read': N('Read the events on a Google calendar, signed in with Google.'),
 };
 
 function ServiceSettings() {

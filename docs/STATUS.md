@@ -3789,10 +3789,32 @@ And what made connecting a service hard:
   Sentry's `Sentry-Bearer` scheme, for a token that OAuth issues as a bearer
   token. It is now always sent, and saved, as a bearer token.
 
-**Still open, next.** A vendor bound by an entry cannot sign in with OAuth,
-so Google Calendar and Gmail, whose tokens expire within the hour, still
-cannot be bound. Client ID Metadata Documents and re-authorizing for more
-scope on a 403 are not built. (The runtimes' HTTP and sandbox tokens, which
+- **A vendor bound by an entry could not sign in, so Google Calendar and
+  Gmail could not be bound at all.** Their keys are not pasted: a person
+  signs in, and the token runs out within the hour. Google's own MCP
+  servers are a developer preview. An entry may now say how its key is
+  signed in for (`signIn`): `google` or `microsoft` by name, or any
+  provider by its two addresses, with the scopes its call needs.
+  - The owner signs a division in from its keys, with the device, in their
+    own browser: the authorization code grant with PKCE and a single-use
+    state (0081).
+  - The app registered with the provider is asked for once per deployment,
+    with the return address to give it, and its secret is sealed.
+  - What the sign-in leaves is the division's credential, as a pasted key
+    is: sealed under a name only a division's credential may use, scoped to
+    what its capabilities need, rotated by signing in again, and never shown.
+  - Wherever a credential is resolved, it becomes the access token. It is
+    refreshed first when it has five minutes or less to run: once across
+    every worker, and only at the endpoint the app was registered for.
+  - A sign-in's record cannot be pasted in as a key, since it would choose
+    where the app's secret is sent.
+
+  The example file offers `calendar.read` on Google Calendar. Gmail's calls
+  do not fit an entry: listing gives ids only, and sending takes an encoded
+  message.
+
+**Still open, next.** Client ID Metadata Documents and re-authorizing for
+more scope on a 403 are not built. (The runtimes' HTTP and sandbox tokens, which
 came from the environment into a header without the redactor being told
 them, are now registered with it.) The master key
 cannot be rotated from the console, and the authenticator has no recovery

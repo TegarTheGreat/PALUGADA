@@ -76,7 +76,7 @@ export async function resetData(): Promise<void> {
   // And which workers said they were alive (0079): a worker a test left
   // running, or a process killed before it could take its word back, would
   // otherwise be a holder every later file's sweep thinks has died.
-  await ownerPool().query('TRUNCATE worker_heartbeats');
+  await ownerPool().query('TRUNCATE worker_heartbeats, mcp_authorizations, credential_authorizations');
 
   // TRUNCATE ... CASCADE empties the whole referencing table, not only the
   // rows that pointed at a company -- so it also removes the platform-default

@@ -41,6 +41,7 @@ import { PalugadaError } from '../errors.ts';
 import { CapabilityRegistry } from '../broker/registry.ts';
 import type { Tier } from '../domain/tier.ts';
 import { httpCapability, type HttpCapabilitySpec, type HttpPlaceholders } from './http.ts';
+import { signInFrom, type SignInSpec } from './vendor-oauth.ts';
 
 /** A value that must be non-null to count as present. */
 type Json = unknown;
@@ -105,6 +106,8 @@ export interface VendorSpec {
   result?: string;
   credentialAlias?: string;
   requiredScopes?: string[];
+  /** How that key is signed in for, when it is not pasted (`vendor-oauth.ts`). */
+  signIn?: SignInSpec;
   verify?: {
     method?: string;
     url: string;
@@ -215,6 +218,19 @@ const SCHEMA = {
           result: { type: 'string', minLength: 1 },
           credentialAlias: { type: 'string', minLength: 1 },
           requiredScopes: { type: 'array', items: { type: 'string' } },
+          signIn: {
+            type: 'object',
+            required: ['provider', 'scopes'],
+            additionalProperties: false,
+            properties: {
+              provider: { type: 'string', pattern: '^[a-z][a-z0-9-]{0,39}$' },
+              scopes: { type: 'array', minItems: 1, items: { type: 'string', minLength: 1 } },
+              authorizeUrl: { type: 'string', minLength: 1 },
+              tokenUrl: { type: 'string', minLength: 1 },
+              params: { type: 'object', additionalProperties: { type: 'string' } },
+              clientUrl: { type: 'string', minLength: 1 },
+            },
+          },
           verify: {
             type: 'object',
             required: ['url', 'matches'],
@@ -508,6 +524,9 @@ export function specFrom(entry: VendorSpec): HttpCapabilitySpec {
       throw new Error(`its input is not a schema the validator can read: ${(failure as Error).message}`);
     }
   }
+  if (entry.signIn && !entry.credentialAlias) {
+    throw new Error('it signs in for a key, and names none: give its credentialAlias');
+  }
   const spec: HttpCapabilitySpec = {
     name: entry.name,
     inputSchema: entry.input ?? inputSchemaFrom(entry),
@@ -526,6 +545,7 @@ export function specFrom(entry: VendorSpec): HttpCapabilitySpec {
       : {}),
     ...(entry.credentialAlias ? { credentialAlias: entry.credentialAlias } : {}),
     ...(entry.requiredScopes ? { requiredScopes: entry.requiredScopes } : {}),
+    ...(entry.signIn ? { signIn: signInFrom(entry.signIn) } : {}),
     ...(entry.verify
       ? {
         verify: {

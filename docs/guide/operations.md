@@ -132,6 +132,23 @@ same protected file: the three database URLs, `PALUGADA_TELEGRAM_TOKEN`,
 `PALUGADA_PUSH_TOKEN`, `PALUGADA_RUNTIME_HTTP_TOKEN`,
 `PALUGADA_SANDBOX_TOKEN`, and the variable an agent CLI's key is in.
 
+### Rotating the master key
+
+When the master key may have been seen -- it was in a backup that leaked,
+or someone who held it left -- change it without typing any secret again:
+
+1. Make a new key: `openssl rand -hex 32`.
+2. Set `PALUGADA_MASTER_KEY` to the new key, and
+   `PALUGADA_MASTER_KEY_PREVIOUS` to the old one. With the key file, the old
+   key is its contents: `cat ~/.palugada/master.key`.
+3. Restart every process of the deployment. The first to start reseals each
+   secret under the new key; the log says `resealed N secrets under the
+   master key …`, and names any secret sealed with a key that is neither.
+4. Remove `PALUGADA_MASTER_KEY_PREVIOUS`, restart, and destroy the old key.
+
+A process that still has only the old key cannot open what was resealed,
+so restart them all before removing the old key.
+
 ## Backups
 
 The database holds everything PALUGADA knows: every company's structure,

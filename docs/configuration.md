@@ -95,6 +95,7 @@ A secret the owner saved is named like any other, as a reference:
 | Variable | What it is for |
 |---|---|
 | `PALUGADA_MASTER_KEY` | The key that seals secrets set in the console: 32 bytes, as 64 hex characters or base64 (`openssl rand -hex 32`). Without it, the key file below is used |
+| `PALUGADA_MASTER_KEY_PREVIOUS` | While the master key is rotated: the old key, or several separated by commas. What it sealed still opens, and each start reseals it under the current key and says how many. Remove it once every process has the new key |
 | `PALUGADA_STATE_DIR` | Where the platform keeps its own state: the master key file, and the agent CLIs the console installs (`tools/`). Default `~/.palugada`; under Docker Compose, the `home` volume |
 | `PALUGADA_WORKER_CONCURRENCY` | How many tasks this process runs at once, from 1 to 16 (default 4). One place is kept for P0 work, so an urgent task starts even while the others are busy |
 | `PALUGADA_METRICS_TOKEN` | Turns on `GET /api/metrics` for a scraper that sends it as a bearer token: a secret of at least 32 characters (`openssl rand -hex 32`). Unset, the route answers 404; the numbers are about every company, so nothing serves them without it |

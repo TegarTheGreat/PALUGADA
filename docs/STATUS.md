@@ -4096,6 +4096,20 @@ closed". Signal and email as owner channels are still open.
   asks for a new device. Every attempt is recorded with the others, as kind
   `recovery`.
 
+## 2.33 Rotating the master key
+
+- **A master key could not be changed.** Every key the owner typed into the
+  console is sealed under it, and a new `PALUGADA_MASTER_KEY` left all of
+  them unopenable. The only way forward was typing each one again.
+- **Now the old key is named beside the new one**
+  (`PALUGADA_MASTER_KEY_PREVIOUS`). What it sealed still opens, and the
+  deployment reseals each secret under the new key when it starts, in one
+  transaction with the rows locked, so two replicas reseal each once.
+- **What the operator sees.** The start says how many were resealed. A
+  secret sealed with a key named nowhere is left as it is and named, since
+  it can only be set again. A malformed old key stops the start with the
+  variable named.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

@@ -36,7 +36,7 @@ import { Worker, type WorkerOptions } from './worker.ts';
 import { DivisionSecrets, type SecretManager } from './secrets/manager.ts';
 import { OwnerMfa, decodeBase32 } from './owner/mfa.ts';
 import {
-  DeploymentSecretManager, masterKeyFrom, readSettings, settingsVersion, type MasterKey,
+  DeploymentSecretManager, masterKeyFrom, previousMasterKeysFrom, readSettings, resealSecrets, settingsVersion, type MasterKey,
 } from './settings/store.ts';
 import { withSettings } from './settings/overlay.ts';
 import { LocalSecretManager } from './secrets/local.ts';
@@ -440,12 +440,27 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   // The in-memory manager this fell back to was empty and forgot everything
   // on restart, so a deployment started from the README had nowhere for a
   // vendor credential or the owner's own factor to live.
+  //
+  // A key being rotated out is named beside the new one: what it sealed still
+  // opens, and is resealed under the new key here, once, as the deployment
+  // starts. Nothing the owner typed has to be typed again.
+  const previousKeys = previousMasterKeysFrom(env);
+  if (previousKeys.length > 0) {
+    const current = master(true)!;
+    const { resealed, unopened } = await resealSecrets(current, previousKeys);
+    notes.push(`resealed ${resealed} secret${resealed === 1 ? '' : 's'} under the master key ${current.id}; `
+      + 'remove PALUGADA_MASTER_KEY_PREVIOUS once every process of this deployment has the new key');
+    for (const one of unopened) {
+      notes.push(`secret db://${one.name} is sealed with the master key ${one.keyId}, which is neither PALUGADA_MASTER_KEY `
+        + 'nor one in PALUGADA_MASTER_KEY_PREVIOUS: set it again in the console');
+    }
+  }
   const secrets = options.secrets ?? new DeploymentSecretManager(new LocalSecretManager({
     env,
     ...(env.PALUGADA_SECRET_DIRS
       ? { directories: env.PALUGADA_SECRET_DIRS.split(':').filter(Boolean) }
       : {}),
-  }), () => master());
+  }), () => master(), () => previousKeys);
   // A passkey belongs to the site the owner opens the console at, and the
   // public URL is that site: each of the two defaults to it, and the setting
   // that names one outright wins. Without the public URL, `OwnerMfa`'s own

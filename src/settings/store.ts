@@ -44,7 +44,7 @@ export function stateDirFrom(env: NodeJS.ProcessEnv): string {
 export function masterKeyFrom(env: NodeJS.ProcessEnv, create = true): MasterKey | null {
   const given = env.PALUGADA_MASTER_KEY?.trim();
   if (given) {
-    const key = /^[0-9a-f]{64}$/i.test(given) ? Buffer.from(given, 'hex') : Buffer.from(given, 'base64');
+    const key = keyFromText(given);
     if (key.length !== 32) {
       throw new PalugadaError('config.invalid',
         'PALUGADA_MASTER_KEY is 32 bytes, as 64 hex characters or base64', { source: 'PALUGADA_MASTER_KEY' });
@@ -68,6 +68,30 @@ export function masterKeyFrom(env: NodeJS.ProcessEnv, create = true): MasterKey 
   return { id: fingerprint(key), key, source: path };
 }
 
+/**
+ * The keys this deployment sealed with before, from
+ * PALUGADA_MASTER_KEY_PREVIOUS: comma-separated, each written as
+ * PALUGADA_MASTER_KEY is. Named while a key is rotated, so what the old one
+ * sealed still opens and is resealed under the new one (`resealSecrets`).
+ */
+export function previousMasterKeysFrom(env: NodeJS.ProcessEnv): MasterKey[] {
+  const given = env.PALUGADA_MASTER_KEY_PREVIOUS?.trim();
+  if (!given) return [];
+  return given.split(',').map((one) => one.trim()).filter(Boolean).map((one) => {
+    const key = keyFromText(one);
+    if (key.length !== 32) {
+      throw new PalugadaError('config.invalid',
+        'PALUGADA_MASTER_KEY_PREVIOUS holds a key that is not 32 bytes; each is written as PALUGADA_MASTER_KEY is, '
+          + '64 hex characters or base64, separated by commas', { source: 'PALUGADA_MASTER_KEY_PREVIOUS' });
+    }
+    return { id: fingerprint(key), key, source: 'PALUGADA_MASTER_KEY_PREVIOUS' };
+  });
+}
+
+function keyFromText(text: string): Buffer {
+  return /^[0-9a-f]{64}$/i.test(text) ? Buffer.from(text, 'hex') : Buffer.from(text, 'base64');
+}
+
 function fingerprint(key: Buffer): string {
   return createHash('sha256').update(key).digest('hex').slice(0, 16);
 }
@@ -85,12 +109,7 @@ function assertSecretName(name: string): void {
 export async function putSecret(name: string, value: string, master: MasterKey): Promise<void> {
   assertSecretName(name);
   if (value === '') throw new PalugadaError('contract.violation', 'a secret is not empty', { name });
-  const nonce = randomBytes(12);
-  const cipher = createCipheriv('aes-256-gcm', master.key, nonce);
-  // The name is bound in, so a sealed value moved to another name does not open.
-  cipher.setAAD(Buffer.from(name, 'utf8'));
-  const ciphertext = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
-  const tag = cipher.getAuthTag();
+  const { nonce, ciphertext, tag } = seal(name, value, master);
   await withControlPlane((tx) => tx.query(
     `INSERT INTO deployment_secrets (name, nonce, ciphertext, tag, key_id)
      VALUES ($1, $2, $3, $4, $5)
@@ -115,7 +134,63 @@ export async function secretNames(): Promise<Array<{ name: string; updatedAt: st
   });
 }
 
-async function openSecret(name: string, master: MasterKey | null): Promise<string> {
+/**
+ * Reseals, under the current key, every secret an older key sealed.
+ *
+ * Run when the deployment starts with PALUGADA_MASTER_KEY_PREVIOUS set: the
+ * rotation is the restart, and nothing has to be typed again. In one
+ * transaction, the rows locked, so two replicas starting at once reseal each
+ * secret once. A secret sealed with a key that is not named anywhere is left
+ * as it is and named in the answer: it can only be set again.
+ */
+export async function resealSecrets(master: MasterKey, previous: readonly MasterKey[]): Promise<{
+  resealed: number; unopened: Array<{ name: string; keyId: string }>;
+}> {
+  return withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ name: string; nonce: Buffer; ciphertext: Buffer; tag: Buffer; key_id: string }>(
+      'SELECT name, nonce, ciphertext, tag, key_id FROM deployment_secrets WHERE key_id <> $1 ORDER BY name FOR UPDATE',
+      [master.id]);
+    let resealed = 0;
+    const unopened: Array<{ name: string; keyId: string }> = [];
+    for (const row of rows) {
+      const old = previous.find((one) => one.id === row.key_id);
+      const value = old ? unsealed(row.name, row, old) : null;
+      if (value === null) {
+        unopened.push({ name: row.name, keyId: row.key_id });
+        continue;
+      }
+      const { nonce, ciphertext, tag } = seal(row.name, value, master);
+      await tx.query(
+        'UPDATE deployment_secrets SET nonce = $2, ciphertext = $3, tag = $4, key_id = $5, updated_at = now() WHERE name = $1',
+        [row.name, nonce, ciphertext, tag, master.id]);
+      resealed += 1;
+    }
+    return { resealed, unopened };
+  });
+}
+
+function seal(name: string, value: string, master: MasterKey): { nonce: Buffer; ciphertext: Buffer; tag: Buffer } {
+  const nonce = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', master.key, nonce);
+  // The name is bound in, so a sealed value moved to another name does not open.
+  cipher.setAAD(Buffer.from(name, 'utf8'));
+  const ciphertext = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
+  return { nonce, ciphertext, tag: cipher.getAuthTag() };
+}
+
+/** The value a key opens, or null when it does not open: changed, or another name's. */
+function unsealed(name: string, row: { nonce: Buffer; ciphertext: Buffer; tag: Buffer }, key: MasterKey): string | null {
+  try {
+    const decipher = createDecipheriv('aes-256-gcm', key.key, row.nonce);
+    decipher.setAAD(Buffer.from(name, 'utf8'));
+    decipher.setAuthTag(row.tag);
+    return Buffer.concat([decipher.update(row.ciphertext), decipher.final()]).toString('utf8');
+  } catch {
+    return null;
+  }
+}
+
+async function openSecret(name: string, master: MasterKey | null, previous: readonly MasterKey[] = []): Promise<string> {
   const reference = `db://${name}`;
   const { rows } = await withControlPlane((tx) => tx.query<{
     nonce: Buffer; ciphertext: Buffer; tag: Buffer; key_id: string;
@@ -124,21 +199,21 @@ async function openSecret(name: string, master: MasterKey | null): Promise<strin
   if (!row) {
     throw new PalugadaError('credential.unavailable', `secret ${reference}: nothing is stored under that name`, { reference });
   }
-  if (!master || master.id !== row.key_id) {
+  // The current key, or one named as a previous key while a rotation is under way.
+  const key = [master, ...previous].find((one) => one?.id === row.key_id);
+  if (!key) {
     throw new PalugadaError('credential.unavailable',
       `secret ${reference} was sealed with the master key ${row.key_id}, and this deployment has `
-        + `${master ? master.id : 'none'}: restore that key (PALUGADA_MASTER_KEY or the key file), or set the secret again`,
+        + `${master ? master.id : 'none'}: restore that key (PALUGADA_MASTER_KEY or the key file, or name it in `
+        + 'PALUGADA_MASTER_KEY_PREVIOUS), or set the secret again',
       { reference });
   }
-  try {
-    const decipher = createDecipheriv('aes-256-gcm', master.key, row.nonce);
-    decipher.setAAD(Buffer.from(name, 'utf8'));
-    decipher.setAuthTag(row.tag);
-    return Buffer.concat([decipher.update(row.ciphertext), decipher.final()]).toString('utf8');
-  } catch {
+  const value = unsealed(name, row, key);
+  if (value === null) {
     throw new PalugadaError('credential.unavailable',
       `secret ${reference} does not open with this deployment's key: it was changed outside the console`, { reference });
   }
+  return value;
 }
 
 /**
@@ -149,17 +224,19 @@ async function openSecret(name: string, master: MasterKey | null): Promise<strin
 export class DeploymentSecretManager implements SecretManager {
   readonly #inner: SecretManager;
   readonly #master: () => MasterKey | null;
+  readonly #previous: () => readonly MasterKey[];
 
-  constructor(inner: SecretManager, master: () => MasterKey | null) {
+  constructor(inner: SecretManager, master: () => MasterKey | null, previous: () => readonly MasterKey[] = () => []) {
     this.#inner = inner;
     this.#master = master;
+    this.#previous = previous;
   }
 
   async resolve(reference: string): Promise<string> {
     if (!reference.startsWith('db://')) return this.#inner.resolve(reference);
     const name = reference.slice('db://'.length);
     assertSecretName(name);
-    const value = await openSecret(name, this.#master());
+    const value = await openSecret(name, this.#master(), this.#previous());
     redactor.register(value);
     return value;
   }

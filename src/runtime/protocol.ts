@@ -142,8 +142,12 @@ export interface ModelUsage {
  * asking for something the platform is not supposed to hand over.
  */
 export interface RunServices {
-  /** F13.4: resolved through the broker, which holds the credentials. */
-  callTool<I, O>(name: string, input: I): Promise<O>;
+  /**
+   * F13.4: resolved through the broker, which holds the credentials.
+   * `journalled` is told the step the journal keeps the call as, so a run can
+   * cite the call as evidence that a done criterion is met (engine/done.ts).
+   */
+  callTool<I, O>(name: string, input: I, journalled?: (step: number) => void): Promise<O>;
   /** F5.1: journals the step, so a crash resumes rather than repeats. */
   step<T>(name: string, kind: StepKind, input: unknown, fn: (key: string) => Promise<T>): Promise<T>;
   /**
@@ -204,9 +208,13 @@ export type RunEvent =
   | { type: 'done'; output: Record<string, unknown> }
   | { type: 'error'; message: string; retryable?: boolean; providerFailure?: boolean };
 
-/** What the engine says back. */
+/**
+ * What the engine says back. A result carries the step the journal keeps the
+ * call as, which is what the run's done report cites (engine/done.ts): the
+ * one piece of bookkeeping a runtime is given, because it is its own call's.
+ */
 export type EngineMessage =
-  | { type: 'tool_result'; id: string; output: unknown }
+  | { type: 'tool_result'; id: string; output: unknown; step?: number }
   | { type: 'tool_error'; id: string; code: string; message: string }
   | { type: 'cancel'; reason: string };
 

@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
 import { publishCharter, publishCharterIn, readGovernanceLog } from '../../src/governance/store.ts';
-import { DEFAULT_PLATFORM_CHARTER, ensureDefaultCharters } from '../../src/governance/default-charters.ts';
+import { DEFAULT_PLATFORM_CHARTER, EARLIER_PLATFORM_CHARTERS, ensureDefaultCharters } from '../../src/governance/default-charters.ts';
 import { history as configHistory } from '../../src/governance/config-versions.ts';
 import { createCompanyFromTemplate, saveTemplate } from '../../src/templates/company.ts';
 import { seed } from '../../src/seed.ts';
@@ -169,6 +169,35 @@ test('a deployment starts with a platform charter and every company with its own
   const [ownPlatform, ownCompany] = (await briefing()).sections;
   assert.equal(ownPlatform!.body, 'Our platform: be kind, be exact.');
   assert.equal(ownCompany!.body, 'Our company: answer within a day.');
+});
+
+/**
+ * After Auto-Company, whose reports could not invent a test result: the
+ * default says what a report may state, and a deployment still on an earlier
+ * default word for word is given the new one, while a charter anyone else
+ * wrote -- the owner, a file, a rollback -- is theirs and stays.
+ */
+test('the default platform charter holds a report to what the work shows, and a later seed brings only an untouched earlier default up to it', async () => {
+  assert.match(DEFAULT_PLATFORM_CHARTER, /A summary says what was done and what is still unproven/);
+  assert.match(DEFAULT_PLATFORM_CHARTER, /"Ready for review" is not "accepted"/);
+  assert.match(DEFAULT_PLATFORM_CHARTER, /a test result, a number or a date[^.]*only if a tool call in this task produced it/i);
+
+  const platformCharter = () => withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ version: number; body: string }>(
+      'SELECT version, body FROM charters WHERE company_id IS NULL ORDER BY version');
+    return rows.map((row) => [row.version, row.body]);
+  });
+  const [earlier] = EARLIER_PLATFORM_CHARTERS;
+  assert.ok(earlier && earlier !== DEFAULT_PLATFORM_CHARTER);
+  await withControlPlane((tx) => publishCharterIn(tx, { body: earlier }, 'platform'));
+  assert.deepEqual(await ensureDefaultCharters(), [{ scope: 'platform', version: 2 }]);
+  assert.deepEqual(await platformCharter(), [[1, earlier], [2, DEFAULT_PLATFORM_CHARTER]], 'a new version; the old one is kept');
+  assert.deepEqual(await ensureDefaultCharters(), [], 'and once is enough');
+
+  // The owner putting the earlier words back is the owner's charter.
+  await publishCharter({ body: earlier });
+  assert.deepEqual(await ensureDefaultCharters(), []);
+  assert.deepEqual((await platformCharter()).at(-1), [3, earlier]);
 });
 
 test('replicas starting at once publish one platform charter, and the database refuses a second version 1', async () => {

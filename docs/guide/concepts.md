@@ -69,9 +69,15 @@ defines it:
   in its work shows it -- and work that leaves one out, says one is not
   met, or shows nothing for one does not count as done: the task tries
   again, told why. The answers are shown with the work, under **Done
-  means**. What they check is the run's own account; whether the evidence
-  holds is yours, or a reviewer's, to judge. Code a deployment registers as
-  a role's handler is checked by its own tests instead. You change them
+  means**. Evidence may cite a tool call by its step in the task's journal
+  (`step:3`): the platform checks that this task made the call and that it
+  succeeded, and shows the criterion as **Verified**. Evidence that cites
+  nothing is the run's own account, shown as **Claimed**; one that cites a
+  step that failed, or that the task never took, does not count as met.
+  Verified means the call succeeded, not that it proves the criterion:
+  whether the evidence holds is yours, or a reviewer's, to judge. Code a
+  deployment registers as a role's handler is checked by its own tests
+  instead. You change them
   from the role; a criterion that needs a vendor says what counts when it
   is not connected, and a run is told which of its tools are not.
 - **Its tools:** what it may call, within its division's grants. A tool
@@ -244,7 +250,10 @@ the company's, which says what it is for and how it works; and the role's.
 A new deployment starts with a short platform charter, and a company made
 from a template with one that names it and its mission. Both are yours to
 rewrite on **Team**, **Charter**: each change asks for your authenticator,
-and every version of the company's is kept and can be put back. A reviewer
+and every version of the company's is kept and can be put back. A platform
+charter still word for word the default an earlier version started with is
+given the current default, as a new version, when the platform next starts;
+one you have written, or put back, is never replaced. A reviewer
 reading a proposed skill judges it against the charters and the policies.
 
 ## Policies

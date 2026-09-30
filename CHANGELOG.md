@@ -45,6 +45,9 @@ The first version. What it holds, in the order an owner meets it.
   wind-down that puts a reply to a customer to the owner instead of refusing
   it, past events a run can search, and skills for positioning and market
   research (STATUS 2.53).
+- Done criteria whose evidence may cite a tool call by its step: the
+  platform checks it against the journal and shows each criterion as
+  verified or only claimed (STATUS 2.56).
 
 ### The owner
 

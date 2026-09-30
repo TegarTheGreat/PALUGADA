@@ -24,7 +24,7 @@ import { taskCostCents } from '../reporting/cost.ts';
 import { isTerminal } from '../domain/task.ts';
 import { DEFAULT_PRICE_TABLE, estimateCents, wholeCents, type PriceTable } from './pricing.ts';
 import { checkUsage } from '../runtime/wire.ts';
-import { reopenFinalTurns, runStep, type StepKind } from './journal.ts';
+import { journalOf, reopenFinalTurns, runStep, type StepKind } from './journal.ts';
 import { keepBriefing } from './briefing.ts';
 import { LeaseKeeper } from './lease-keeper.ts';
 import { setLongTimeout, sleep, type LongTimer } from '../timers.ts';
@@ -744,7 +744,12 @@ export class Engine {
     let parked: PalugadaError | null = null;
     let ended: PalugadaError | null = null;
 
-    const step = async <T,>(name: string, kind: StepKind, input: unknown, fn: (key: string) => Promise<T>) => {
+    // `placed` is told the index the step is journalled at, as soon as it has
+    // one: a tool call's caller hands it on to the run, which cites it.
+    const step = async <T,>(
+      name: string, kind: StepKind, input: unknown, fn: (key: string) => Promise<T>,
+      placed?: (index: number) => void,
+    ) => {
         // A run withdrawn for what ends it takes no further step -- no model
         // call, no tool -- however it handled being told.
         if (ended) throw ended;
@@ -754,6 +759,7 @@ export class Engine {
         // the task must not send the email and then find out.
         await lease.confirm();
         const index = stepIndex++;
+        placed?.(index);
         const { value } = await runStep(
           { companyId, taskId },
           {
@@ -820,7 +826,7 @@ export class Engine {
     // handler registered in this process is the deployment's own code, and
     // the model loop there offers only the role's tools already.
     const ownTools = new Set(runtime.tools);
-    const callTool = async <I, O,>(name: string, input: I): Promise<O> => {
+    const callTool = async <I, O,>(name: string, input: I, journalled?: (step: number) => void): Promise<O> => {
       if (runtime.runtime !== 'in-process' && !ownTools.has(name)) {
         await withTenant(companyId, (tx) => appendEvent(tx, {
           companyId, projectId: task.projectId, taskId, type: 'policy.denied', actor: 'engine',
@@ -840,7 +846,7 @@ export class Engine {
               input,
             );
           return result.output;
-        });
+        }, journalled);
       } catch (error) {
         if (!parked && error instanceof PalugadaError && PARKING_CODES.has(error.code)) {
           parked = error;
@@ -1167,8 +1173,13 @@ export class Engine {
         // downstream task triggered by `task.completed` has no other guarantee
         // about what it is about to read.
         validateContract('output', task.roleId, roleSlug, contract.output, output);
-        // F2.8: a model's run says how it met each of its role's criteria.
-        if (writtenBy !== 'code' && contract.done.length > 0 && roomForDone(contract.output)) checkDone(contract.done, output);
+        // F2.8: a model's run says how it met each of its role's criteria,
+        // and a step its evidence cites is held to this task's journal. What
+        // it verified is not kept here: the owner's view weighs the same
+        // report against the same journal when it is read (owner/views.ts).
+        if (writtenBy !== 'code' && contract.done.length > 0 && roomForDone(contract.output)) {
+          checkDone(contract.done, output, await withTenant(companyId, (tx) => journalOf(tx, taskId)));
+        }
         // And to the writes that failed in this run and were never put right.
         if (writtenBy !== 'code' && roomForDone(contract.output)) {
           checkFailedWrites(await withTenant(companyId, (tx) => unrecoveredWrites(tx, taskId, agentRunId)), output);

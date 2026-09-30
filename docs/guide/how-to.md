@@ -876,10 +876,13 @@ On **Team**, **Schedules**, press **New schedule**, choose the **Role** and
 **Project**, the goal it **Serves**, **What each run is asked to do**, a
 **Short name**, the **Cron** expression (minute, hour, day, month,
 weekday), the **Time zone** and the **Priority**, and press **Schedule it**.
-Each occurrence creates one task, in the schedule's own time zone. A
-schedule whose last five runs said the same thing asks you whether it is
-still worth running, and one that cannot fire shows **Cannot fire** with the
-reason.
+Each occurrence creates one task, in the schedule's own time zone. On the
+nights the clock changes, a schedule at fixed hours still runs once: at the
+first 01:30 when the clock goes back and shows 01:30 twice, and at the moment
+the clock jumps (03:00) for a time it skips, such as 02:30. One that runs
+every hour keeps to real time, so it runs at both 01:00s. A schedule whose
+last five runs said the same thing asks you whether it is still worth
+running, and one that cannot fire shows **Cannot fire** with the reason.
 
 Two more choices say what happens when a run cannot go at its time:
 

@@ -5395,6 +5395,93 @@ Read against the source of Block's Buzz, on 2026-09-30.
   occurrence is comes from `nextOccurrence`, so across a daylight-saving
   change it is exactly as right as that function is.
 
+## 2.60 Schedules and work windows on the nights the clock changes (F9.1, F9.2)
+
+Found by running cron-parser 4.9 across the 2026 changes, on 2026-09-30.
+Nothing tested a schedule or a window at a daylight saving change.
+
+- **A daily job in the hour the clock repeats ran twice.**
+  `runDueSchedules` works out the next run from the time of the pass, not
+  from the run that fired, and cron-parser, asked from inside a repeated
+  hour, answers with a time it has already given. A `30 1 * * *` schedule in
+  America/New_York whose 01:30 EDT (05:30Z on 2026-11-01) was fired by a
+  pass at 01:05 EST (06:05Z) -- a worker that had been down, a busy queue --
+  was given 01:30 EST (06:30Z) as its next run and made a second task that
+  night, and one saved during that hour was given the same double. London,
+  Sydney and Santiago did the same on their nights back; at Lord Howe, which
+  goes back half an hour, cron-parser gave both 01:45s even to a pass on
+  time.
+- **A job in the hour the clock skips could be lost.** Asked from just after
+  New York's jump (03:00 to 03:29 EDT on 2026-03-08), cron-parser gave the
+  next day for a `30 2` schedule, so a pass that fired the previous day's
+  run late there dropped that day's run, neither run nor counted. At
+  Santiago, whose clock skips from midnight to 01:00, and at Lord Howe's
+  half-hour jump, it dropped the day's run even when asked days ahead.
+- **What changed.** One rule, Vixie cron's, written above `nextOccurrence`
+  (`src/scheduler/scheduler.ts`). A schedule with fixed hours runs once for
+  each time the clock shows it: at the first pass of a repeated time, and at
+  the instant of the jump for a skipped one -- 02:30 in New York runs at
+  03:00 EDT, every time inside the jump is that one run, and a day's runs
+  keep their order. A schedule whose hour field is every hour runs by real
+  time: at both 01:00s, with nothing owed for an hour that did not pass.
+  cron-parser is now asked only in UTC, where it lists wall-clock readings
+  with no change to get wrong, and `instantsShowing`
+  (`src/scheduler/windows.ts`) places each reading in the zone: the one or
+  two instants that show it, or the instant the clock jumped over it. The
+  rule names a fixed set of instants, so the next run no longer depends on
+  where the search starts, and `runDueSchedules` and `upsertSchedule` go on
+  asking from `now`. `countOccurrences`, the `skippedOccurrences` of
+  `schedule.fired`, walks the same runs, so a run a late pass folded in is
+  counted once, not twice or not at all. Checked outside the suite against a
+  minute-by-minute walk of real time around each of the 260 changes in the
+  130 zones that change in 2026, for twelve schedules each: no difference.
+  A daily schedule's next run now takes about 0.4 ms here, where cron-parser
+  asked in the zone took 1.4 ms.
+- **A work window opened late wherever its hour is not an hour of UTC.**
+  `nextOpening` looked for the opening on the hours of UTC, so in a zone
+  half an hour or three quarters off UTC -- Kolkata, Kathmandu, Adelaide,
+  Newfoundland, Lord Howe in winter -- every window opened thirty or
+  forty-five minutes late, and a window from 02:00 at Lord Howe opened at
+  03:00 on the night its clock jumps from 02:00 to 02:30. It now steps by
+  quarter hours: every offset is a whole number of them, and every change
+  from 2026 to 2040, in every zone, falls on one. Windows on the nights the
+  clock changes were otherwise right, and are now pinned: open while the
+  clock shows their hours (three real hours for 01:00-03:00 on the night
+  back), opening at the jump when their start is skipped, and, wrapping
+  midnight, belonging to the day that opened them through either change.
+  Reading the clock reuses one formatter per zone instead of building one
+  each time.
+- **Tests.** In `test/acceptance/scheduling-windows.test.ts`, with fixed
+  instants: `a daily time in the hour the clock repeats runs once, on its
+  first pass (F9.1)` and `a daily time in the hour the clock skips runs
+  once, when the clock jumps (F9.1)`, each in New York, London, Sydney,
+  Santiago and Lord Howe; `a schedule that runs every hour keeps to real
+  time through both changes (F9.1)`; `a zone without daylight saving is
+  unaffected (F9.1)` (Jakarta); `where the search starts never changes the
+  next run (F9.1)`, from every twenty minutes around each change and a
+  second either side of every run. Through `runDueSchedules` and the
+  database: `a daily run in the hour the clock repeats fires once, even from
+  a pass that runs late (F9.1)` -- passes at 06:05Z, 06:30Z and 06:31Z make
+  one task, the next run is 2026-11-02T06:30Z, and a save at 06:10Z says the
+  same -- `a daily run in the hour the clock skips fires once, when the clock
+  jumps (F9.1)`, and `a pass that runs late across a change counts the run
+  it folded in (F9.1)`. For windows: `a window opens on its own zone's hour
+  where that is not an hour of UTC (F9.2)`, `a window on the night the clock
+  goes back is open while the clock shows its hours (F9.2)`, `a window whose
+  start the clock skips opens when the clock jumps (F9.2)` and `a window
+  that wraps midnight holds across a change (F9.2)`.
+- **Not done.** A job at a skipped time now runs at the jump, 03:00, where
+  cron-parser asked ahead of time put it as long after the jump as it was
+  after the skipped hour began, 03:30; such a run comes earlier, by less than
+  the length of the jump, once a year. `instantsShowing` assumes a zone changes its offset at
+  most once in two days (the closest two changes from 2026 to 2040 are
+  Casablanca's, 35 days apart), and `nextOpening` that changes fall on a
+  quarter hour of UTC; a zone that broke either would be wrong near that
+  change, not everywhere. A window made only of hours the clock skips does
+  not open that night -- 02:00-03:00 in New York on 2026-03-08 -- which is
+  what its hours say, and may not be what an owner who put cheap hours there
+  expects. cron-parser stays at 4.9: it is asked nothing it gets wrong.
+
 ## 2.61 Run a schedule now (F9.1)
 
 Asked for on 2026-09-30: a schedule could be created, changed, and turned on

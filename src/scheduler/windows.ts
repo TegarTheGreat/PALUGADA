@@ -21,24 +21,90 @@ export interface LocalTime {
   dayOfWeek: number;
 }
 
-const WEEKDAY_INDEX: Record<string, number> = {
-  Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
-};
+const DAY_MS = 86_400_000;
+
+/**
+ * One formatter per zone. Building one costs many times what using it does,
+ * and the scheduler reads the clock thousands of times while it walks past a
+ * daylight saving change. Only a name `Intl` accepted is kept, so the map
+ * holds at most the zones there are.
+ */
+const clockFormatters = new Map<string, Intl.DateTimeFormat>();
+
+/**
+ * What the clock on the wall in `timezone` shows at `instant`, written as
+ * milliseconds since the epoch as if that reading were UTC.
+ *
+ * The one representation both the scheduler and the windows reason in: a
+ * wall-clock reading as a number, so "the next 01:30" is arithmetic, and the
+ * instants that show it are found by `instantsShowing`.
+ */
+export function wallClockAt(timezone: string, instant: number): number {
+  let formatter = clockFormatters.get(timezone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+      second: 'numeric',
+    });
+    clockFormatters.set(timezone, formatter);
+  }
+  const part: Record<string, number> = {};
+  for (const { type, value } of formatter.formatToParts(instant)) part[type] = Number(value);
+  const wholeSecond = Math.floor(instant / 1000) * 1000;
+  // `hour12: false`, used here before, wrote midnight as 24 on some ICU
+  // versions; h23 should not, and the `% 24` costs nothing if one does.
+  return Date.UTC(part.year!, part.month! - 1, part.day!, part.hour! % 24, part.minute!, part.second!)
+    + (instant - wholeSecond);
+}
+
+/**
+ * The instants at which the clock in `timezone` shows `wallClock` (as
+ * `wallClockAt` writes it).
+ *
+ * Usually one. Two, earlier first, in the stretch the clock repeats when it
+ * goes back. None in the stretch it skips when it goes forward, and then
+ * `jump` is the instant it jumped over the reading: the first instant that
+ * shows a later one.
+ *
+ * The offsets a day either side are the ones in force before and after any
+ * change near the reading, since a reading is shown within fourteen hours of
+ * the same reading in UTC. That holds while a zone changes its offset at
+ * most once in two days, which every zone in the time zone database does
+ * from 2026 to 2040.
+ */
+export function instantsShowing(
+  timezone: string,
+  wallClock: number,
+): { instants: number[]; jump: number | null } {
+  const offsetBefore = wallClockAt(timezone, wallClock - DAY_MS) - (wallClock - DAY_MS);
+  const offsetAfter = wallClockAt(timezone, wallClock + DAY_MS) - (wallClock + DAY_MS);
+  const instants = [...new Set([wallClock - offsetBefore, wallClock - offsetAfter])]
+    .filter((instant) => wallClockAt(timezone, instant) === wallClock)
+    .sort((a, b) => a - b);
+  if (instants.length > 0) return { instants, jump: null };
+
+  // Skipped. The clock showed an earlier reading at one of the two guesses
+  // and a later one at the other; the jump is between them, and changes
+  // happen on a whole second.
+  let earlier = Math.min(wallClock - offsetBefore, wallClock - offsetAfter);
+  let later = Math.max(wallClock - offsetBefore, wallClock - offsetAfter);
+  while (later - earlier > 1000) {
+    const middle = earlier + Math.floor((later - earlier) / 2000) * 1000;
+    if (wallClockAt(timezone, middle) < wallClock) earlier = middle;
+    else later = middle;
+  }
+  return { instants: [], jump: later };
+}
 
 export function localTimeIn(timezone: string, instant: Date): LocalTime {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
-    hour: 'numeric',
-    hour12: false,
-    weekday: 'short',
-  }).formatToParts(instant);
-
-  const hourPart = parts.find((part) => part.type === 'hour')?.value ?? '0';
-  const weekdayPart = parts.find((part) => part.type === 'weekday')?.value ?? 'Sun';
-
-  // hour12:false yields 24 for midnight in some ICU versions.
-  const hour = Number(hourPart) % 24;
-  return { hour, dayOfWeek: WEEKDAY_INDEX[weekdayPart] ?? 0 };
+  const shown = new Date(wallClockAt(timezone, instant.getTime()));
+  return { hour: shown.getUTCHours(), dayOfWeek: shown.getUTCDay() };
 }
 
 export interface Window {
@@ -74,26 +140,34 @@ export function isWithin(window: Window, instant: Date): boolean {
   return false;
 }
 
-const HOUR_MS = 3_600_000;
-const SEARCH_HORIZON_HOURS = 24 * 8;
+const QUARTER_HOUR_MS = 900_000;
+const SEARCH_HORIZON_MS = 8 * DAY_MS;
 
 /**
  * The next instant at which the window is open.
  *
- * Stepping hour by hour rather than computing the boundary directly: windows
- * are hour-granular, the horizon is eight days, and the straightforward loop
- * is correct across daylight saving shifts and arbitrary day sets, where
- * closed-form date arithmetic is where these functions usually go wrong.
+ * A window can only open where the clock starts a new hour or jumps. Every
+ * zone's offset is a whole number of quarter hours, and every change in the
+ * time zone database from 2026 to 2040 happens on a quarter hour of UTC, so
+ * stepping by quarter hours meets each of those instants exactly. Stepping
+ * by the hours of UTC, as this did, missed them in every zone that is not a
+ * whole number of hours off UTC -- Kolkata, Kathmandu, Adelaide, Lord Howe in
+ * winter -- and opened each window there half an hour or more late.
+ *
+ * Stepping rather than computing the boundary directly: the horizon is eight
+ * days, and the straightforward loop is correct across daylight saving
+ * changes and arbitrary day sets, where closed-form date arithmetic is where
+ * these functions usually go wrong. A window made only of hours the clock
+ * skips that night does not open that night: the clock never shows them.
  * Returns null when the window never opens within the horizon, which means a
  * misconfigured day set rather than a long wait.
  */
 export function nextOpening(window: Window, from: Date): Date | null {
   if (isWithin(window, from)) return from;
 
-  const cursor = new Date(Math.ceil(from.getTime() / HOUR_MS) * HOUR_MS);
-  for (let step = 0; step < SEARCH_HORIZON_HOURS; step += 1) {
-    const candidate = new Date(cursor.getTime() + step * HOUR_MS);
-    if (isWithin(window, candidate)) return candidate;
+  const first = Math.ceil(from.getTime() / QUARTER_HOUR_MS) * QUARTER_HOUR_MS;
+  for (let candidate = first; candidate < first + SEARCH_HORIZON_MS; candidate += QUARTER_HOUR_MS) {
+    if (isWithin(window, new Date(candidate))) return new Date(candidate);
   }
   return null;
 }

@@ -55,6 +55,12 @@ The first version. What it holds, in the order an owner meets it.
   catch-up window drops an occurrence found too late after downtime. The
   schedules table says which occurrence did not run and why (STATUS 2.59).
 
+- Schedules right on the nights the clock changes: a daily job runs once
+  when the clock goes back and once, at the jump, when it goes forward; an
+  hourly one keeps to real time; and a work window opens on its own zone's
+  hour where that is not an hour of UTC, such as in Kolkata or Adelaide
+  (STATUS 2.60).
+
 ### The owner
 
 - One inbox for what cannot be undone: approvals bound to their action, a

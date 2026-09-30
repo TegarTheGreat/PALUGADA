@@ -154,46 +154,120 @@ export async function assertGoalOpen(tx: TenantClient, goalId: string): Promise<
   { goalId, closedGoalId: closed.id, status: closed.status });
 }
 
+/** What a goal-change proposal's item carries, and what approving it applies. */
+export interface GoalChange {
+  goalId: string;
+  /** The goal as it stood when proposed: approving is refused once it no longer does. */
+  from: { statement: string; status: GoalStatus };
+  to: { statement?: string; status?: GoalStatus };
+}
+
+/** The longest reason a proposal carries; the owner reads it on a phone. */
+const GOAL_REASON_MAX = 4_000;
+const GOAL_STATEMENT_MAX = 1_000;
+
 /**
  * F3.10: an agent that wants the strategy changed asks rather than acts.
  *
  * The database already refuses the write, so this is not the enforcement --
  * it is the path that makes the refusal useful. Without it an agent that
  * believed a mission was wrong would simply be stuck, and being stuck is how a
- * system starts routing around itself.
+ * system starts routing around itself. A run reaches it through
+ * `goal.propose`, and the owner's yes to the item is the change.
  */
 export async function proposeGoalChange(input: {
   companyId: string;
   taskId?: string | undefined;
-  goalId: string;
-  proposedStatement: string;
+  /** The goal, by its id or its slug. */
+  goal: string;
+  proposedStatement?: string | undefined;
+  proposedStatus?: string | undefined;
   rationale: string;
-}): Promise<string> {
-  const current = await withTenant(input.companyId, (tx) => readGoal(tx, input.goalId));
-  if (!current) {
-    throw new PalugadaError('contract.violation', `no goal ${input.goalId} in this company`, {
-      goalId: input.goalId,
-    });
+}): Promise<{ proposed: boolean; inboxItemId: string; note?: string }> {
+  const statement = typeof input.proposedStatement === 'string' ? input.proposedStatement.trim() : '';
+  const status = input.proposedStatus;
+  if (!statement && status === undefined) {
+    throw new PalugadaError('contract.violation',
+      'a goal change proposes a new statement, a new status, or both', { field: 'statement' });
+  }
+  if (statement.length > GOAL_STATEMENT_MAX) {
+    throw new PalugadaError('contract.violation',
+      `a goal's statement is at most ${GOAL_STATEMENT_MAX} characters`, { field: 'statement' });
+  }
+  if (status !== undefined && !(GOAL_STATUSES as readonly string[]).includes(status)) {
+    throw new PalugadaError('contract.violation',
+      `a goal's status is one of ${GOAL_STATUSES.join(', ')}; got ${String(status)}`, { field: 'status' });
+  }
+  const rationale = String(input.rationale ?? '').trim();
+  if (!rationale || rationale.length > GOAL_REASON_MAX) {
+    throw new PalugadaError('contract.violation',
+      `a goal change says why, in at most ${GOAL_REASON_MAX} characters: the evidence and where it came from`,
+      { field: 'why' });
   }
 
-  // An escalation rather than an approval, and the distinction is not
-  // bookkeeping. An approval gates one action and parks the task that proposed
-  // it; a strategy question gates nothing -- the task carries on under the
-  // strategy that exists, which is what `consequenceIfDenied` would have said
-  // anyway. Parking the task would stop work over a question about a different
-  // subject, and would make an agent's opinion cost the company a task.
-  //
-  // Tier 3 is still recorded on the item, because section 8.8 puts structural
-  // change there and the owner's inbox sorts by it.
-  return inbox.raiseEscalation({
-    companyId: input.companyId,
-    taskId: input.taskId,
-    tier: 3,
-    title: `Proposed change to the ${current.kind} "${current.slug}"`,
-    detail:
-      `Currently: ${current.statement}\nProposed: ${input.proposedStatement}\n` +
-      `Reason given: ${input.rationale}\n\n` +
-      'Nothing changes unless you apply it; the task continues under the current strategy.',
+  return withTenant(input.companyId, async (tx) => {
+    // By id or by slug: a run is shown slugs (the weekly brief), not ids. The
+    // id is compared as text so a slug is never cast to a uuid.
+    const { rows } = await tx.query<RawGoal>(`${SELECT_GOAL} WHERE id::text = $1 OR slug = $1`, [input.goal]);
+    const current = rows[0] ? toGoal(rows[0]) : null;
+    if (!current) {
+      // A run is told its goals by their words, so the answer names the
+      // slugs it could have used rather than leaving it to guess again.
+      const { rows: known } = await tx.query<{ slug: string }>(
+        "SELECT slug FROM goals WHERE status = 'active' ORDER BY created_at LIMIT 25");
+      throw new PalugadaError('contract.violation',
+        `no goal ${input.goal} in this company; name one by its slug: ${known.map((one) => one.slug).join(', ') || 'there are none'}`,
+        { goal: input.goal });
+    }
+    const to = {
+      ...(statement && statement !== current.statement ? { statement } : {}),
+      ...(status !== undefined && status !== current.status ? { status: status as GoalStatus } : {}),
+    };
+    if (Object.keys(to).length === 0) {
+      throw new PalugadaError('contract.violation',
+        `that is what the ${current.kind} "${current.slug}" already says`, { goal: current.slug });
+    }
+
+    // One proposal about a goal at a time: two open ones would let the owner
+    // approve both, and the second would change a goal the first had changed.
+    const { rows: open } = await tx.query<{ id: string }>(
+      `SELECT id FROM inbox_items
+        WHERE status = 'open' AND kind = 'escalation' AND payload->'goalChange'->>'goalId' = $1`,
+      [current.id],
+    );
+    if (open[0]) {
+      return {
+        proposed: false,
+        inboxItemId: open[0].id,
+        note: `A change to the ${current.kind} "${current.slug}" is already waiting for the owner; nothing more was proposed.`,
+      };
+    }
+
+    // An escalation rather than an approval, and the distinction is not
+    // bookkeeping. An approval gates one action and parks the task that
+    // proposed it; a strategy question gates nothing -- the task carries on
+    // under the strategy that exists. Not tied to the task either, as a stage
+    // proposal is not: a "no" to the item cancelled a proposer still running,
+    // and an agent's opinion must not cost the company its work.
+    //
+    // Tier 3, because section 8.8 puts structural change there: approving is
+    // what changes the goal (inbox.decide), so it takes the owner's device,
+    // as their own edit of the ladder does.
+    const change: GoalChange = { goalId: current.id, from: { statement: current.statement, status: current.status }, to };
+    const inboxItemId = await inbox.raiseEscalationWithin(tx, {
+      companyId: input.companyId,
+      tier: 3,
+      title: `Proposed change to the ${current.kind} "${current.slug}"`,
+      detail:
+        `Currently: ${current.statement}${current.status === 'active' ? '' : ` (${current.status})`}\n` +
+        (to.statement ? `Proposed: ${to.statement}\n` : '') +
+        (to.status ? `Proposed status: ${to.status}\n` : '') +
+        `Reason given: ${rationale}\n\n` +
+        'Approving it changes the goal; until then the work carries on under the goal as it is.',
+      payload: { goalChange: change, ...(input.taskId ? { proposedByTask: input.taskId } : {}) },
+      consequenceIfDenied: 'The goal stays as it is.',
+    });
+    return { proposed: true, inboxItemId };
   });
 }
 
@@ -212,56 +286,68 @@ export async function applyGoalChange(input: {
   statement?: string;
   status?: GoalStatus;
 }): Promise<{ paused: { schedules: number; triggers: number } }> {
-  return withControlPlane(async (tx) => {
-    const { rows } = await tx.query<RawGoal>(
-      `UPDATE goals
-          SET statement = coalesce($3, statement),
-              status = coalesce($4, status)
-        WHERE id = $1 AND company_id = $2
-        RETURNING id, parent_goal_id, kind, slug, statement, status`,
-      [input.goalId, input.companyId, input.statement ?? null, input.status ?? null],
-    );
-    if (rows.length === 0) {
-      throw new PalugadaError('contract.violation', `no goal ${input.goalId} in this company`, {
-        goalId: input.goalId,
+  return withControlPlane((tx) => applyGoalChangeWithin(tx, input));
+}
+
+/**
+ * The same, inside a control-plane transaction the caller holds: the owner's
+ * yes to a proposal (inbox.decide), so the answer and the change are one fact.
+ */
+export async function applyGoalChangeWithin(
+  tx: TenantClient,
+  input: { companyId: string; goalId: string; statement?: string | undefined; status?: GoalStatus | undefined; inboxItemId?: string },
+): Promise<{ paused: { schedules: number; triggers: number } }> {
+  const { rows } = await tx.query<RawGoal>(
+    `UPDATE goals
+        SET statement = coalesce($3, statement),
+            status = coalesce($4, status)
+      WHERE id = $1 AND company_id = $2
+      RETURNING id, parent_goal_id, kind, slug, statement, status`,
+    [input.goalId, input.companyId, input.statement ?? null, input.status ?? null],
+  );
+  if (rows.length === 0) {
+    throw new PalugadaError('contract.violation', `no goal ${input.goalId} in this company`, {
+      goalId: input.goalId,
+    });
+  }
+  const paused = { schedules: 0, triggers: 0 };
+  if (rows[0]!.status !== 'active') {
+    const under = `WITH RECURSIVE under AS (
+                     SELECT id FROM goals WHERE id = $1 AND company_id = $2
+                     UNION ALL
+                     SELECT g.id FROM goals g JOIN under u ON g.parent_goal_id = u.id)`;
+    const schedules = await tx.query<{ id: string; slug: string }>(
+      `${under} UPDATE schedules SET enabled = false
+                 WHERE company_id = $2 AND enabled AND goal_id IN (SELECT id FROM under) RETURNING id, slug`,
+      [input.goalId, input.companyId]);
+    const triggers = await tx.query<{ id: string; slug: string }>(
+      `${under} UPDATE triggers SET enabled = false
+                 WHERE company_id = $2 AND enabled AND goal_id IN (SELECT id FROM under) RETURNING id, slug`,
+      [input.goalId, input.companyId]);
+    paused.schedules = schedules.rows.length;
+    paused.triggers = triggers.rows.length;
+    if (paused.schedules + paused.triggers > 0) {
+      await appendEvent(tx, {
+        companyId: input.companyId,
+        type: 'goal.work_paused',
+        actor: 'owner',
+        payload: {
+          goalId: input.goalId,
+          status: rows[0]!.status,
+          schedules: schedules.rows.map((row) => row.slug),
+          triggers: triggers.rows.map((row) => row.slug),
+        },
       });
     }
-    const paused = { schedules: 0, triggers: 0 };
-    if (rows[0]!.status !== 'active') {
-      const under = `WITH RECURSIVE under AS (
-                       SELECT id FROM goals WHERE id = $1 AND company_id = $2
-                       UNION ALL
-                       SELECT g.id FROM goals g JOIN under u ON g.parent_goal_id = u.id)`;
-      const schedules = await tx.query<{ id: string; slug: string }>(
-        `${under} UPDATE schedules SET enabled = false
-                   WHERE company_id = $2 AND enabled AND goal_id IN (SELECT id FROM under) RETURNING id, slug`,
-        [input.goalId, input.companyId]);
-      const triggers = await tx.query<{ id: string; slug: string }>(
-        `${under} UPDATE triggers SET enabled = false
-                   WHERE company_id = $2 AND enabled AND goal_id IN (SELECT id FROM under) RETURNING id, slug`,
-        [input.goalId, input.companyId]);
-      paused.schedules = schedules.rows.length;
-      paused.triggers = triggers.rows.length;
-      if (paused.schedules + paused.triggers > 0) {
-        await appendEvent(tx, {
-          companyId: input.companyId,
-          type: 'goal.work_paused',
-          actor: 'owner',
-          payload: {
-            goalId: input.goalId,
-            status: rows[0]!.status,
-            schedules: schedules.rows.map((row) => row.slug),
-            triggers: triggers.rows.map((row) => row.slug),
-          },
-        });
-      }
-    }
-    await appendEvent(tx, {
-      companyId: input.companyId,
-      type: 'goal.changed',
-      actor: 'owner',
-      payload: { goalId: input.goalId, statement: rows[0]!.statement, status: rows[0]!.status },
-    });
-    return { paused };
+  }
+  await appendEvent(tx, {
+    companyId: input.companyId,
+    type: 'goal.changed',
+    actor: 'owner',
+    payload: {
+      goalId: input.goalId, statement: rows[0]!.statement, status: rows[0]!.status,
+      ...(input.inboxItemId ? { inboxItemId: input.inboxItemId } : {}),
+    },
   });
+  return { paused };
 }

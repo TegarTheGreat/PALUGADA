@@ -70,12 +70,16 @@ export async function searchEverywhere(query: string): Promise<SearchHit[]> {
         ORDER BY i.created_at DESC LIMIT $2`,
       [pattern, PER_KIND],
     );
+    // What the companies know, not what they did: an episode is one line of
+    // a finished task, and that task is already a hit above with its goal and
+    // result, so counting it again would spend the memory hits on the work.
     const memories = await tx.query<{
       id: string; company_id: string; company: string; title: string; detail: string; at: Date;
     }>(
       `SELECT m.id, m.company_id, c.name AS company, m.body AS title, m.memory_type AS detail, m.created_at AS at
          FROM memories m JOIN companies c ON c.id = m.company_id
-        WHERE m.superseded_by IS NULL AND m.approval_state = 'active' AND m.body ILIKE $1 ESCAPE '\\'
+        WHERE m.superseded_by IS NULL AND m.approval_state = 'active' AND m.memory_type <> 'episodic'
+          AND m.body ILIKE $1 ESCAPE '\\'
         ORDER BY m.created_at DESC LIMIT $2`,
       [pattern, PER_KIND],
     );

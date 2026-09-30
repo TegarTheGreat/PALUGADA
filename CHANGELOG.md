@@ -36,6 +36,13 @@ The first version. What it holds, in the order an owner meets it.
   (STATUS 2.35).
 - Capabilities from vendor files, MCP servers (Composio, Pipedream, Arcade,
   Smithery and Zapier by name) and the platform's own, each at a tier.
+- The operating kit (`company-os` 1.3.0): a weekly business review handed
+  the week from the company's records -- every goal's numbers and their
+  change, the work finished, the spend against the limit, a stage move
+  waiting -- goal changes a run proposes and the owner's yes applies, a
+  wind-down that puts a reply to a customer to the owner instead of refusing
+  it, past events a run can search, and skills for positioning and market
+  research (STATUS 2.53).
 
 ### The owner
 

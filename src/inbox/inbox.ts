@@ -21,7 +21,7 @@ import { TERMINAL_STATUSES, isTerminal } from '../domain/task.ts';
 import { notifyAfterFor } from '../scheduler/windows.ts';
 import { enqueueWake } from '../scheduler/wake.ts';
 import { escalationPolicyFor } from '../governance/structure.ts';
-import { ancestryForTask } from '../domain/goals.ts';
+import { ancestryForTask, applyGoalChangeWithin, type GoalChange } from '../domain/goals.ts';
 import { approveCandidate, rejectCandidate } from '../memory/store.ts';
 import { setStageWithin, stageOf, type Stage } from '../domain/stage.ts';
 
@@ -1253,12 +1253,13 @@ export async function decide(
   // tier 3 action. The safe default is the one that refuses.
   let assurance: OwnerAssurance = options.assurance ?? 'none';
   // F10.10: read the tier before the update, so a refusal changes nothing.
-  const { tier, stageChange, overdue, standing } = await withTenant(companyId, async (tx) => {
+  const { tier, stageChange, goalChange, overdue, standing } = await withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
-      tier: number | null; stage_change: StageChange | null; overdue: boolean;
+      tier: number | null; stage_change: StageChange | null; goal_change: GoalChange | null; overdue: boolean;
       allow_for: boolean; capability_name: string | null; role_id: string | null;
     }>(
       `SELECT i.tier, i.payload->'stageChange' AS stage_change,
+              CASE WHEN i.kind = 'escalation' THEN i.payload->'goalChange' END AS goal_change,
               (i.expires_at IS NOT NULL AND i.expires_at <= now()) AS overdue,
               (${ALLOW_FOR_SQL}) AS allow_for, i.capability_name, t.role_id
          FROM inbox_items i LEFT JOIN tasks t ON t.id = i.task_id
@@ -1269,6 +1270,7 @@ export async function decide(
     return {
       tier: row?.tier ?? null,
       stageChange: row?.stage_change ?? null,
+      goalChange: row?.goal_change ?? null,
       overdue: row?.overdue ?? false,
       standing: row?.allow_for && row.capability_name && row.role_id
         ? { capabilityName: row.capability_name, roleId: row.role_id }
@@ -1324,11 +1326,14 @@ export async function decide(
   // item was just read inside this company's scope, which is the check row
   // security would have made.
   const moving = stageChange !== null && decision === 'approve';
+  // So is a yes to a goal change (`goal.propose`): the application role reads
+  // goals and never writes them (F3.10), and the owner's answer is the change.
+  const redirecting = goalChange !== null && decision === 'approve';
   // A standing yes is written only on the control plane (0083), in the same
   // transaction as the decision it came with.
   const granting = allowForHours !== undefined;
   const transaction = <T>(fn: (tx: TenantClient) => Promise<T>) =>
-    moving || granting ? withControlPlane(fn) : withTenant(companyId, fn);
+    moving || redirecting || granting ? withControlPlane(fn) : withTenant(companyId, fn);
 
   let factor: VerifiedFactor | null = null;
   if (decision === 'approve' && (tier ?? 0) >= 3) {
@@ -1522,6 +1527,30 @@ export async function decide(
         );
       }
       await setStageWithin(tx, companyId, stageChange!.to, { inboxItemId: itemId, note });
+    }
+
+    // F3.10: a goal change a run proposed is answered by making it, to the
+    // goal as it stood when proposed and to no other. One the owner has
+    // edited since is refused rather than written over their own words.
+    if (redirecting) {
+      const { rows: now } = await tx.query<{ statement: string; status: string }>(
+        'SELECT statement, status FROM goals WHERE id = $1 AND company_id = $2 FOR UPDATE',
+        [goalChange!.goalId, companyId],
+      );
+      if (!now[0] || now[0].statement !== goalChange!.from.statement || now[0].status !== goalChange!.from.status) {
+        throw new PalugadaError(
+          'contract.violation',
+          'the goal has changed since this was proposed; deny it, and ask for a new proposal',
+          { inboxItemId: itemId, goalId: goalChange!.goalId },
+        );
+      }
+      await applyGoalChangeWithin(tx, {
+        companyId,
+        goalId: goalChange!.goalId,
+        statement: goalChange!.to.statement,
+        status: goalChange!.to.status,
+        inboxItemId: itemId,
+      });
     }
 
     // F9.1: an escalation about a schedule is answered by acting on it. Deny

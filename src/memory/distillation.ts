@@ -47,7 +47,7 @@ export const DEFAULT_MIN_OCCURRENCES = 3;
  */
 const HOUSEKEEPING_CAPABILITIES = [
   'memory.search', 'skill.read', 'plan.record', 'metric.record', 'owner.ask', 'task.delegate', 'task.await',
-  'stage.propose', 'ticket.list',
+  'stage.propose', 'goal.propose', 'ticket.list',
 ];
 
 /**

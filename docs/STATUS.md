@@ -4600,6 +4600,111 @@ Read against what Coolify and Dokploy give a container they run, on
   (THREAT-MODEL 2.3). Running agent CLIs as a user of their own, or in the
   container backend, is what closes it.
 
+## 2.53 Found by reading Auto-Company: a review that sees the week, proposals that are real
+
+Read against Auto-Company's source on 2026-09-30, for what it does that
+PALUGADA said it did. Five findings; each claim was checked in the code
+before anything changed, and each change began as a failing test.
+
+- **Past events were offered and never kept (F4.6, F4.8).** `memory.search`
+  offered `episodic` memory as "past events", and nothing wrote a row of
+  that kind -- only 0004's CHECK named it -- so every run that asked what
+  the company had already done was told nothing. And `recall`'s project
+  branch, F4.6's "episodic memory is shared per project", was reached by one
+  test and no caller, because the capability never passed a project. Not
+  offering it would have been fewer lines, and would have left F4.6's half
+  about episodic memory a rule about rows that never exist; every task
+  already has a project and finishes in one transaction, so the row costs
+  one insert. A completed task now leaves one line for its project -- what
+  it was for and what it reported (`keepEpisode`, `src/engine/tasks.ts`) --
+  marked as outside content when the work read any, and not reinforced like
+  a lesson: two runs that reported the same thing are two events.
+  `memory.search` with `memoryType: 'episodic'` searches the project of the
+  work asking, read from its task. `memory-learning.test.ts`: the line, its
+  scope and task, the outside mark; a search that finds it, one from
+  outside handed back as data, and a run in another project finding
+  nothing. The owner's search across companies leaves episodes out of what
+  the companies know: the finished task is already a hit there, with its
+  goal and result, and `search.test.ts` found it listed twice.
+- **Winding down refused what it was for.** `wind-down-starts-nothing`
+  denied every tier 2 action outside finance, while the stage's purpose is
+  "finish what is owed to customers": Support could not answer a customer
+  owed a refund, and a deny is the one effect the owner cannot answer from
+  the inbox. Exempting Support by name would have been a guess -- a tool
+  name cannot tell a reply from new outreach, both are `email.send`, and a
+  division's slug differs between companies. So the rule is two
+  (`company-os` 1.3.0). `wind-down-starts-nothing` denies what is new by
+  what it is: `ads.*` and `*.purchase`, whoever asks, finance now included.
+  `wind-down-asks-first` makes every other action at tier 2 or above outside
+  finance `require_approval`: each reaches the owner, who judges what is
+  still owed, and may allow a role's replies for a while (0083) where the
+  work read nothing from outside. `stages.test.ts`: winding down, a reply
+  becomes a card naming the rule and goes once approved; an ad campaign and
+  a domain purchase are refused and put nothing in the inbox; in grow
+  neither rule reads anything.
+- **The weekly review could not see what it must report.** The
+  weekly-business-review skill asks for every goal metric against its
+  target, the change since last week, and what shipped; the cadence gave its
+  task one sentence. A run sees the measures of its own goal chain, and the
+  review's chain is the mission, so every number set on an objective or a
+  key result was out of its sight, and so was the week's work;
+  `buildWeeklyRetro` had the week, and only the owner's API called it. A
+  cadence may now say `facts: 'week'` (`BundleCadence`, refused at publish
+  for anything else), installed into the schedule's input, and the
+  scheduler hands a schedule that asks the week as it fires
+  (`src/reporting/week.ts`): the retro; every active goal by the slug
+  `goal.propose` takes, with its unretired measures -- the latest value,
+  whether verified, the value a week before and the change; the work the
+  company was given and finished that week, one line each (what it was
+  for, what it reported); the spend this week, this month and the monthly
+  limit; the stage and any stage move waiting for the owner. Read from rows,
+  never written by a model. Bounded: at most 25 goals, 40 measures and 20
+  tasks, each list saying how many it left out, and every line cut to one.
+  A result from work that read outside content is wrapped as data, and the
+  review carries that provenance from its first step (F8.9). The weekly
+  review's cadence asks for it and its skill starts from it.
+  `bundles.test.ts`: a company from the bundle, a measure with values a
+  week apart and a retired one, work finished this week -- once after
+  reading an email -- and last month, spend, and an open stage proposal; the
+  cadence fired, its task's input holds each of them and not the retired
+  measure or the old work, and the review carries outside content; with 22
+  pieces of finished work the list is 20 and says 2 were left out, in under
+  16,000 characters.
+- **Goal proposals had no caller, and approving one changed nothing
+  (F3.10).** `proposeGoalChange` was documented as the agent's path and no
+  agent could take it; the strategist's done criterion said a goal change
+  is "written as a proposal", with nothing to write one with. Two defects
+  under it: the item said "Nothing changes unless you apply it", so an
+  owner who approved then made the same edit again by hand; and the item
+  was tied to the proposing task, so a no cancelled that task if it was
+  still running. `goal.propose` is a tier 0 platform capability now,
+  catalogued, proposing new words, a close (met or abandoned) or a reopen,
+  one open proposal per goal. The owner's yes, at tier 3 with their device
+  as their own edit of the ladder takes, applies it in the same transaction
+  as the answer, and only to the goal as it stood when proposed: one the
+  owner has changed since is refused. The item is not tied to the task, as
+  a stage proposal is not. The strategist holds it in place of
+  `metrics.read`: a role holds at most twelve tools (F2.6), `metrics.read`
+  answers nothing until a vendor is bound, and the review is now handed
+  every measure. `goals.test.ts`.
+- **Premortems nobody watches, and two frameworks missing.** The premortem
+  now names, for each of its three risks, the early warning, the role that
+  watches it, the number or check it reads and the value that means act
+  now, and ends with how sure the company is and what would make it surer.
+  `positioning` (as narrow an audience as the evidence allows, the change
+  in the customer's words, why one would tell another -- and fixing the
+  product before paying for reach -- and reach owned before reach rented)
+  and `market-research` (how customers cope today before competitors; each
+  competitor's pricing page, changelog and worst reviews; every claim
+  confirmed, likely or speculative; what could not be found out and how)
+  are new, each with an eval. `bundles.test.ts` holds every eval's phrases
+  to the skill's text and every skill under sixty lines.
+- **Upgrading.** A company on `company-os` 1.2.0 keeps its rules until the
+  owner installs 1.3.0, which updates the role, the rules, the cadence and
+  the skills in place (the skills as candidates, as always). Installing
+  takes no grant away, so 1.2.0's grant of `metrics.read` stays until the
+  owner revokes it.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

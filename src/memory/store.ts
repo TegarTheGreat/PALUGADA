@@ -2,9 +2,10 @@
  * Memory (PRD section 8.4, F4.1-F4.3, F4.6).
  *
  * Four kinds with different lifetimes: working memory belongs to one agent
- * run, episodic memory is the event log, semantic memory holds distilled
- * facts, and procedural memory holds SOPs. This module owns the semantic and
- * procedural kinds, which are the ones a run retrieves rather than produces.
+ * run, episodic memory is what finished work did -- one line a task, kept for
+ * its project when the task completes (engine/tasks.ts) -- semantic memory
+ * holds distilled facts, and procedural memory holds SOPs. This module stores
+ * and retrieves the last three; a run produces working memory itself.
  *
  * Two rules shape every query here:
  *

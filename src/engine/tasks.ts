@@ -18,7 +18,7 @@ import { isRoleFrozen } from '../governance/role-freeze.ts';
 import { isSpendPaused } from '../governance/spend-guard.ts';
 import { assertGoalOpen } from '../domain/goals.ts';
 import { settleTicketsOf } from './tickets.ts';
-import { learn } from '../memory/store.ts';
+import { learn, remember } from '../memory/store.ts';
 
 /** F6.5: one task may spawn at most this many children unless overridden. */
 export const DEFAULT_FAN_OUT_MAX = 5;
@@ -729,6 +729,45 @@ async function keepLessons(tx: TenantClient, companyId: string, task: TaskRow, o
   }
 }
 
+/** How long an episode's two halves may be: one line, not a report. */
+const EPISODE_GOAL_MAX = 200;
+const EPISODE_RESULT_MAX = 400;
+
+/**
+ * What finished work did, as one line of episodic memory for its project
+ * (F4.6): what it was for, and what it reported.
+ *
+ * `memory.search` offered "past events" and nothing wrote one, so a run that
+ * asked what the company had already done about something was told nothing.
+ * Stopping the offer would have been fewer lines, and would have left F4.6's
+ * episodic memory -- shared across a project, which `recall` already scopes
+ * -- a rule about rows that never exist. Every task has a project, and this
+ * is the transaction that finishes it, so the row costs one insert.
+ *
+ * Not `learn`: an episode is an event, not a belief, and two pieces of work
+ * that reported the same thing are two events rather than one surer fact.
+ * The result is the run's own report, and the line says so by what it is;
+ * work that read outside content leaves an episode marked as such, which a
+ * search hands back as data (F8.9).
+ */
+async function keepEpisode(tx: TenantClient, companyId: string, task: TaskRow, output: unknown): Promise<void> {
+  const line = (text: unknown, max: number): string =>
+    typeof text === 'string' ? text.replace(/\s+/g, ' ').trim().slice(0, max) : '';
+  const goal = line(task.input.goal, EPISODE_GOAL_MAX);
+  const result = line(output && typeof output === 'object' ? (output as { summary?: unknown }).summary : undefined, EPISODE_RESULT_MAX);
+  if (!goal && !result) return;
+  await remember(tx, {
+    companyId,
+    memoryType: 'episodic',
+    scopeType: 'project',
+    scopeId: task.projectId,
+    body: goal && result ? `${goal} — ${result}` : goal || result,
+    source: 'agent',
+    outside: (await outsideContentIn(tx, task.id)) !== null,
+    sourceTaskId: task.id,
+  });
+}
+
 /**
  * The same move, inside a transaction the caller already holds.
  *
@@ -821,6 +860,9 @@ export async function transitionWithin(
         ? { haltReason: options.haltReason, ...(options.detail ? { detail: options.detail.slice(0, 2_000) } : {}) }
         : completed ?? {},
     });
-    if (to === 'completed') await keepLessons(tx, companyId, task, options.output);
+    if (to === 'completed') {
+      await keepLessons(tx, companyId, task, options.output);
+      await keepEpisode(tx, companyId, task, options.output);
+    }
   }
 }

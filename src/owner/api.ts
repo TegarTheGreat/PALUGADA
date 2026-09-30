@@ -3667,9 +3667,10 @@ export class OwnerApi {
 
       {
         // Editing the ladder redirects the company, so it takes the owner's
-        // device. `proposeGoalChange` is the agent's path -- it files an item
-        // and waits; this is the owner acting directly, which is why there is
-        // nothing to wait for and why the factor is the whole check.
+        // device. `goal.propose` is the agent's path (`proposeGoalChange`) --
+        // it files an item, and the owner's yes to it, with the same device,
+        // is the change; this is the owner acting directly, which is why there
+        // is nothing to wait for and why the factor is the whole check.
         method: 'POST',
         pattern: '/api/companies/:companyId/goals/:goalId',
         handle: async ({ params, body }) => {

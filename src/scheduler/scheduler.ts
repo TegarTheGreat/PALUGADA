@@ -27,6 +27,7 @@ import * as budget from '../engine/budget.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { raiseEscalationWithin } from '../inbox/inbox.ts';
 import { assertTimeZone } from './windows.ts';
+import { buildWeekFacts } from '../reporting/week.ts';
 
 const { parseExpression } = cronParser;
 
@@ -252,13 +253,24 @@ export async function runDueSchedules(now = new Date()): Promise<FiredOccurrence
 
     let task: TaskRow;
     try {
+      // A schedule whose input asks for the week -- the weekly business
+      // review's does (bundles/builtin.ts) -- is handed it, read from the
+      // company's records as it fires (reporting/week.ts). Inside the `try`,
+      // so a week that cannot be read is a failed occurrence, recorded and
+      // tried again, like one that cannot be funded.
+      const week = schedule.input.facts === 'week' ? await buildWeekFacts(schedule.company_id, now) : null;
+      const outside = week?.finished.filter((one) => one.outside).map((one) => one.task) ?? [];
       task = await createRootTask({
         companyId: schedule.company_id,
         projectId: schedule.project_id,
         divisionId: schedule.division_id,
         roleId: schedule.role_id,
         budgetAccountId: schedule.budget_account_id,
-        input: schedule.input,
+        input: week ? { ...schedule.input, week } : schedule.input,
+        // What finished work reported after reading outside content is in
+        // the week, as data; the review carries that, as work that read it
+        // itself would (F8.9).
+        ...(outside.length > 0 ? { carriesOutside: { capability: 'the week it was handed', tasks: outside } } : {}),
         createdBy: 'scheduler',
         reserveTokens: Number(schedule.reserve_tokens),
         idempotencyKey: key,

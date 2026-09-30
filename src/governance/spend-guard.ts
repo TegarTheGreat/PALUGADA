@@ -71,7 +71,7 @@ const SPEND_IN_WINDOW = `
          AND e.occurred_at >= $1 AND e.occurred_at < $2), 0)
   )::text AS cents`;
 
-async function spendBetween(tx: TenantClient, from: Date, to: Date): Promise<number> {
+export async function spendBetween(tx: TenantClient, from: Date, to: Date): Promise<number> {
   const { rows } = await tx.query<{ cents: string }>(SPEND_IN_WINDOW, [from, to]);
   return Number(rows[0]?.cents ?? 0);
 }

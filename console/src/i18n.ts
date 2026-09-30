@@ -71,7 +71,8 @@ export function locale(): string {
 export function setLanguage(next: Language): void {
   if (next === current) return;
   current = next;
-  document.documentElement.lang = next;
+  // The locale, not the code: `zh-CN` tells the browser which Han glyphs to draw.
+  document.documentElement.lang = locale();
   for (const listener of listeners) listener();
 }
 

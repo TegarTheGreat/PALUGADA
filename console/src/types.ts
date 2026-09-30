@@ -7,6 +7,8 @@ export interface Company {
   slug: string;
   name: string;
   frozen: boolean;
+  /** When a closing company is erased (0088); null when it is not closing. */
+  eraseAfter: string | null;
   /** What the company produces in; null follows the deployment's default. */
   workLanguage: string | null;
   /** What its agents write to the owner and each other in; null follows the default. */

@@ -258,7 +258,7 @@ perusahaan dari ponsel, di Indonesia.
 | 8 | Penyedia sandbox siap pakai (E2B, Daytona, Modal) | Paperclip (8) | Tinggi | Direncanakan. Butuh akun uji nyata; tidak ditulis dari tebakan |
 | 9 | Agregator MCP (Zapier, Composio, Arcade) | Paperclip, Multica | Tinggi | **Selesai**: preset Composio, Pipedream, Arcade, dan Smithery di samping Zapier, diperiksa ke dokumen vendor dan metadata OAuth-nya tanpa kredensial. Setiap tool agregat tetap dipetakan ke tier satu per satu |
 | 10 | Email untuk agen dan owner | Paperclip (AgentMail), Opifer (IMAP) | Sedang-tinggi | Direncanakan |
-| 11 | Menutup perusahaan: arsip, lalu hapus (UU PDP) | Buzz | Sedang | Direncanakan. Ekspor sudah ada; penghapusan akan butuh faktor kedua dan masa tenggang, bukan persetujuan otomatis seperti Buzz |
+| 11 | Menutup perusahaan: arsip, lalu hapus (UU PDP) | Buzz | Sedang | **Selesai** (STATUS 2.38). Owner menutup dengan faktor kedua dan mengetik nama perusahaan; perusahaan langsung dibekukan, masa tenggang 7–90 hari bisa dibatalkan, lalu worker menghapus setiap barisnya termasuk riwayat append-only. Database sendiri yang memeriksa bahwa perusahaan sudah ditutup dan masa tenggangnya habis (0088), lalu menyisakan satu baris jejak berisi nama dan jumlah yang dihapus |
 | 12 | Iklan (Meta Ads, Google Ads) dengan belanja yang disetujui | Polsia, Runable | Sedang | Direncanakan sebagai konektor vendor dengan tier 3 untuk belanja |
 | 13 | Ekspor trace OTLP | Paperclip, OpenAI, Google | Rendah-sedang | Terbuka. Trace sudah tersimpan per tugas di konsol |
 | 14 | Runtime ACP generik | Paperclip, Multica | Sedang | Terbuka |

@@ -15,7 +15,7 @@ import {
 import { notifications } from '@mantine/notifications';
 import {
   IconApi, IconBell, IconBrain, IconCheck, IconCopy, IconDownload, IconExternalLink, IconKey, IconListSearch, IconMicrophone, IconPlayerStopFilled, IconPlug,
-  IconPlugConnected, IconPlus, IconTerminal2,
+  IconPlugConnected, IconPlus, IconTerminal2, IconTrash,
   IconWorldSearch,
 } from '@tabler/icons-react';
 import { useEffect, useMemo, useState } from 'react';
@@ -75,6 +75,7 @@ const SECTIONS: Array<{ id: DeploymentSection; label: string; hint: string; icon
   { id: 'services', label: N('Services'), hint: N('The services capabilities call: email, DNS, payments, posts, analytics. Connect one here, then give each division that uses it its key on Team.'), icon: IconApi },
   { id: 'mcp', label: N('MCP servers'), hint: N('Tools from other services\' MCP servers: which of them roles may use, and how far each is trusted.'), icon: IconPlug },
   { id: 'agents', label: N('Agent CLIs'), hint: N('Claude Code, Codex, Gemini CLI and others: install them here, sign them in, and let roles run on them.'), icon: IconTerminal2 },
+  { id: 'erasures', label: N('Erased companies'), hint: N('Companies you closed, erased here when their days were over: when, and how much of each went.'), icon: IconTrash },
 ];
 
 const GROUPS: Array<{ id: ProviderEntry['group']; label: string }> = [
@@ -119,9 +120,55 @@ export function DeploymentSettings({ section }: { section: DeploymentSection }) 
           {current.id === 'channels' && <ChannelSettings />}
           {current.id === 'services' && <ServiceSettings />}
           {current.id === 'mcp' && <McpSettings />}
+          {current.id === 'erasures' && <ErasureList />}
         </Grid.Col>
       </Grid>
     </Stack>
+  );
+}
+
+/** The line each erased company leaves (0088), and nothing else of it. */
+function ErasureList() {
+  const view = useLoad(async () => {
+    const answer: {
+      erasures: Array<{ companyId: string; name: string; closedAt: string; erasedAt: string; counts: Record<string, number> }>;
+    } = await api('GET', '/api/erasures');
+    return answer.erasures;
+  }, []);
+  if (view.error) return <LoadFailed message={view.error} retry={view.reload} />;
+  if (!view.data) return <Loading rows={2} />;
+  return (
+    <Section title={t('Erased companies')} description={t('What each one kept is gone, backups aside until they age out; this line is all that is left of it.')}>
+      {view.data.length === 0 ? <Text size="sm" c="dimmed">{t('No company has been erased here.')}</Text> : (
+        <Table verticalSpacing="sm">
+          <Table.Thead>
+            <Table.Tr>
+              <Table.Th>{t('Company')}</Table.Th>
+              <Table.Th>{t('Closed')}</Table.Th>
+              <Table.Th>{t('Erased')}</Table.Th>
+              <Table.Th>{t('What went')}</Table.Th>
+            </Table.Tr>
+          </Table.Thead>
+          <Table.Tbody>
+            {view.data.map((one) => (
+              <Table.Tr key={one.companyId}>
+                <Table.Td><Text size="sm" fw={600}>{one.name}</Text></Table.Td>
+                <Table.Td>{new Date(one.closedAt).toLocaleDateString()}</Table.Td>
+                <Table.Td>{new Date(one.erasedAt).toLocaleDateString()}</Table.Td>
+                <Table.Td>
+                  <Text size="xs" c="dimmed">
+                    {t('{tasks} tasks, {events} events, {memories} memories, {documents} documents', {
+                      tasks: one.counts.tasks ?? 0, events: one.counts.events ?? 0,
+                      memories: one.counts.memories ?? 0, documents: one.counts.documents ?? 0,
+                    })}
+                  </Text>
+                </Table.Td>
+              </Table.Tr>
+            ))}
+          </Table.Tbody>
+        </Table>
+      )}
+    </Section>
   );
 }
 

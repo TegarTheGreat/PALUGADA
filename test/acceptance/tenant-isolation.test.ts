@@ -149,6 +149,10 @@ test('every table holding tenant data is protected', async () => {
     // Which worker processes are alive (0079): the platform's, read by the
     // lease sweep on the control plane and by no agent.
     'worker_heartbeats',
+    // The line an erased company leaves (0088): its name and how much went,
+    // after the company and every row of it are gone. The platform's, read
+    // by the owner on the control plane; the application role has no grant.
+    'company_erasures',
     // A sign-in to an MCP server between the console and the callback (0080):
     // the platform's, like the deployment's settings it ends in.
     'mcp_authorizations',

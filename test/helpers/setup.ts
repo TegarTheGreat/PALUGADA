@@ -82,6 +82,9 @@ export async function resetData(): Promise<void> {
   // running, or a process killed before it could take its word back, would
   // otherwise be a holder every later file's sweep thinks has died.
   await ownerPool().query('TRUNCATE worker_heartbeats, mcp_authorizations, credential_authorizations');
+  // And the lines erased companies left (0088), which name companies no
+  // later file made.
+  await ownerPool().query('TRUNCATE company_erasures');
 
   // TRUNCATE ... CASCADE empties the whole referencing table, not only the
   // rows that pointed at a company -- so it also removes the platform-default

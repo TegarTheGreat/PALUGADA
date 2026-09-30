@@ -20,7 +20,7 @@ import { Bundles } from './Bundles.tsx';
 import { Devices } from './Devices.tsx';
 
 const SECTIONS: Array<{ id: SettingsSection; label: string; hint: string; icon: typeof IconBuilding }> = [
-  { id: 'company', label: N('Company'), hint: N('Hours, retention, alerts, freezing and export.'), icon: IconBuilding },
+  { id: 'company', label: N('Company'), hint: N('Hours, retention, alerts, freezing, export and closing.'), icon: IconBuilding },
   { id: 'language', label: N('Languages'), hint: N('The panel, and what the agents write in.'), icon: IconLanguage },
   { id: 'safeguards', label: N('Safeguards'), hint: N('Frozen roles, reviews waiting, kill switches and who changed what.'), icon: IconShieldCheck },
   { id: 'skills', label: N('Skills'), hint: N('Procedures the agents can read, and who vouched for them.'), icon: IconCertificate },

@@ -293,6 +293,11 @@ below tier 3.
   recorded before checksums were kept is taken as it is on the next run. The
   boot refuses to start behind the schema.
 - Half-configured features are boot notes shown to the owner.
+- Erasing a company deletes its history, and only for a company the owner
+  closed with a factor whose grace (at least seven days, a table constraint)
+  is over: the append-only triggers check a session setting naming the
+  company and its line in `company_erasures`, which cannot be written
+  earlier (0088, `company-closing.test.ts`).
 - A division's credential may not name a sealed secret of the deployment's,
   any reference the deployment's configuration names (the owner's TOTP secret
   as setup writes it included), or anything that resolves to the same value

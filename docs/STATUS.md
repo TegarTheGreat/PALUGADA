@@ -4206,6 +4206,33 @@ the code against it found these, and each is now closed with a test.
   page; a tainted run can still put company data in a tier 0 `web.fetch`;
   the event log is not hash-chained.
 
+## 2.38 Closing a company, and erasing it (UU PDP)
+
+- **A company could be frozen and exported, never erased.** Every table
+  cascades from the company except its history, which refuses deletion,
+  so the one delete that would have erased a company failed on its first
+  event. The people in a company's records have the right to have them
+  erased (UU 27/2022), and an owner ending a business has to be able to.
+- **Closing** takes the owner's device and the company's name typed out,
+  both checked before a code is spent. The company is frozen at once and
+  given a day 7 to 90 days away; until then **Keep this company** takes it
+  back, and it stays frozen until the owner unfreezes it. A closing company
+  cannot be unfrozen.
+- **Erasing** is the worker's, when the day comes: every row of the company
+  in one transaction, the append-only history included, the keys its
+  divisions held in the deployment's sealed store, and a vendor sign-in
+  that was under way. One line is left in `company_erasures`: the name,
+  when it was closed and erased, and how many rows of what went.
+- **The database holds the rule, not the caller (0088).** The history's
+  triggers let a delete through only in a session erasing that very
+  company, after its line exists, and the line cannot be written until the
+  company was closed and its grace is over. At least seven days of grace is
+  a constraint on the table. A delete of a company that was never closed
+  still fails on its first event.
+- **What it cannot reach**, and the guide says so: backups taken before the
+  day, what model providers and vendors were sent, and the owner's own chat
+  history.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

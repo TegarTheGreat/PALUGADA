@@ -77,6 +77,7 @@ import {
 import { advanceSkillCandidates, settleSkillReviews } from './skills/skills.ts';
 import type { LlmClient } from './llm/client.ts';
 import { sleep } from './timers.ts';
+import { eraseDueCompanies } from './governance/closing.ts';
 
 export interface WorkerOptions {
   engine: Engine;
@@ -206,6 +207,8 @@ export interface TickReport {
   leftovers: number;
   /** Passages of the company's documents given their vectors this tick (0087). */
   embedded: number;
+  /** Companies erased this tick, their grace over (0088). */
+  erased: number;
   /** Set when the platform stop is in effect: the tick did nothing else. */
   stopped: boolean;
   errors: Array<{ stage: string; message: string }>;
@@ -270,6 +273,7 @@ function emptyReport(): TickReport {
     escalated: 0,
     leftovers: 0,
     embedded: 0,
+    erased: 0,
     stopped: false, errors: [],
   };
 }
@@ -401,6 +405,20 @@ export class Worker {
         this.#sweptAt = now.getTime();
         report.leftovers += removed.length;
         if (removed.length > 0) this.#options.log?.({ level: 'warn', event: 'leftovers.removed', removed });
+      });
+    }
+
+    // A company whose grace is over is erased (0088), by whichever worker
+    // gets there first: the company's row is locked and checked again under
+    // the lock. Not by a worker kept to one company, which has no business
+    // with another's.
+    if (this.#options.companyId === undefined) {
+      await this.#stage(report, 'erasure', async () => {
+        const erased = await eraseDueCompanies();
+        report.erased += erased.length;
+        for (const one of erased) {
+          this.#options.log?.({ level: 'info', event: 'company.erased', companyId: one.companyId, counts: one.counts });
+        }
       });
     }
 

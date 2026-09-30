@@ -674,7 +674,7 @@ function CompanyMenu({
           <Menu.Item
             key={one.id}
             leftSection={<Avatar size={22} radius="sm" src={companyEmblem(one)} alt="" />}
-            rightSection={openCount[one.id] ? <Badge size="xs" color="red" circle>{openCount[one.id]}</Badge> : one.frozen ? <Badge size="xs" color="gray">{t('frozen')}</Badge> : null}
+            rightSection={openCount[one.id] ? <Badge size="xs" color="red" circle>{openCount[one.id]}</Badge> : one.eraseAfter ? <Badge size="xs" color="red" variant="light">{t('closing')}</Badge> : one.frozen ? <Badge size="xs" color="gray">{t('frozen')}</Badge> : null}
             onClick={() => pick(one.id)}
           >
             {one.name}

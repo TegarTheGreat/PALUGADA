@@ -8,7 +8,7 @@
  */
 import { Alert, Badge, Button, Code, CopyButton, Grid, Group, Select, SimpleGrid, Stack, Table, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconCheck, IconCopy, IconDownload, IconFingerprint, IconKey, IconLanguage, IconShieldCheck, IconSnowflake, IconSnowflakeOff } from '@tabler/icons-react';
+import { IconAlertTriangle, IconCheck, IconCopy, IconDownload, IconFingerprint, IconKey, IconLanguage, IconShieldCheck, IconSnowflake, IconSnowflakeOff } from '@tabler/icons-react';
 import { useState } from 'react';
 import { api, explain } from '../api.ts';
 import { useLoad } from '../hooks.ts';
@@ -140,7 +140,48 @@ export function CompanySettings({ ctx }: { ctx: ConsoleContext }) {
           </Section>
         </Grid.Col>
       </Grid>
+
+      <CloseCompany ctx={ctx} />
     </Stack>
+  );
+}
+
+/**
+ * Closing the company (0088): frozen now, and every row of it erased on a
+ * day 7 to 90 days away. Until then it can be kept; after, nothing of it
+ * comes back, so the form asks for its name typed out and the owner's device.
+ */
+function CloseCompany({ ctx }: { ctx: ConsoleContext }) {
+  const { companyId, company } = ctx;
+  if (company.eraseAfter) {
+    return (
+      <Section title={t('This company is closing')} description={t('It is frozen, and everything of it is erased on {day}: its work, history, memory, documents and the keys its divisions hold. Until then you can keep it.', { day: day(company.eraseAfter) })}>
+        <Alert color="red" variant="light" icon={<IconAlertTriangle size={16} />}>
+          {t('Export it first if you want a copy: nothing erased can be brought back.')}
+        </Alert>
+        <Group mt="md">
+          <ActionButton label={t('Keep this company')} run={() => api('POST', `/api/companies/${companyId}/close/keep`, {})}
+            done={() => { notifications.show({ color: 'teal', message: t('{company} is kept. It is still frozen; unfreeze it when you want it working.', { company: company.name }) }); void ctx.refreshCompanies(); }} />
+        </Group>
+      </Section>
+    );
+  }
+  return (
+    <Section title={t('Close this company')} description={t('It is frozen at once, and every row of it is erased when the days you choose are over: work, history, memory, documents and the keys its divisions hold. Until then you can keep it.')}>
+      <ActionForm
+        columns={2}
+        fields={[
+          { name: 'days', label: t('Erase after, days (7 to 90)'), type: 'number', required: true, initial: 30 },
+          { name: 'name', label: t('Type its name to confirm'), required: true, placeholder: company.name },
+        ]}
+        action={t('Close the company')}
+        color="red"
+        factor={t('Close {company}', { company: company.name })}
+        submit={(values, proof) => api('POST', `/api/companies/${companyId}/close`, { ...values, proof })}
+        success={t('{company} is closing.', { company: company.name })}
+        done={() => void ctx.refreshCompanies()}
+      />
+    </Section>
   );
 }
 

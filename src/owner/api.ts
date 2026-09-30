@@ -64,6 +64,7 @@ import {
 } from '../engine/control.ts';
 import { frozenRoles, pauseRole, unfreezeRole } from '../governance/role-freeze.ts';
 import { cancelTask, giveFeedback, instructTask, rerunTask, type Verdict } from '../engine/owner-control.ts';
+import { assertClosingDays, closeCompany, closingOf, erasures, keepCompany } from '../governance/closing.ts';
 import { transcriptOf } from '../engine/transcript.ts';
 import {
   clearSpendPause,
@@ -1027,10 +1028,62 @@ export class OwnerApi {
       },
 
       {
+        // Closing a company (0088): frozen now, erased on a day 7 to 90 days
+        // away, every row of it. Nothing erased comes back, so it takes the
+        // owner's device and the company's name typed out -- the one
+        // confirmation a slip on the wrong company's page does not pass. Both
+        // are checked before the code is spent.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/close',
+        handle: async ({ params, body }) => {
+          const companyId = params.companyId!;
+          const name = await withControlPlane(async (tx) => {
+            const { rows } = await tx.query<{ name: string }>('SELECT name FROM companies WHERE id = $1', [companyId]);
+            return rows[0]?.name ?? null;
+          });
+          if (name === null) throw new PalugadaError('contract.violation', `no company ${companyId}`, { companyId });
+          if (typeof body.name !== 'string' || body.name.trim() !== name) {
+            throw new PalugadaError('contract.violation',
+              "type the company's name exactly as it is shown, to close it", { field: 'name' });
+          }
+          const days = Number(body.days);
+          assertClosingDays(days);
+          await this.#requireFactor(body.proof, `close ${name}`, companyId);
+          const { eraseAfter } = await closeCompany(companyId, days);
+          return { eraseAfter: eraseAfter.toISOString() };
+        },
+      },
+
+      {
+        // Keeping it is the safe direction, so the session is enough. The
+        // company stays frozen: unfreezing is the owner's other decision.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/close/keep',
+        handle: async ({ params }) => {
+          await keepCompany(params.companyId!);
+          return { ok: true };
+        },
+      },
+
+      {
+        // What was erased here, and when: the one line each erased company leaves.
+        method: 'GET',
+        pattern: '/api/erasures',
+        handle: async () => ({ erasures: await erasures() }),
+      },
+
+      {
         method: 'POST',
         pattern: '/api/control/company/:companyId/freeze',
         handle: async ({ params, body }) => {
           if (body.on === false) {
+            // A closing company is kept first, and unfrozen after: thawing
+            // one that is still to be erased would set it working on a
+            // business the owner has decided to end.
+            if (await closingOf(params.companyId!)) {
+              throw new PalugadaError('contract.violation',
+                'this company is closing; keep it first, then unfreeze it', { companyId: params.companyId });
+            }
             await this.#requireFactor(body.proof, 'unfreeze a company', params.companyId!);
             await unfreezeCompany(params.companyId!);
           } else {
@@ -5798,16 +5851,16 @@ function send(res: ServerResponse, status: number, body: unknown): void {
 
 /** Every company the owner has, newest last, which is how they were made. */
 async function companies(): Promise<Array<{
-  id: string; slug: string; name: string; frozen: boolean; workLanguage: string | null; talkLanguage: string | null;
+  id: string; slug: string; name: string; frozen: boolean; eraseAfter: Date | null; workLanguage: string | null; talkLanguage: string | null;
   stage: Stage | null; headline: Headline | null; ceo: { roleId: string; slug: string; displayName: string | null } | null;
 }>> {
   return withControlPlane(async (tx) => {
     const { rows } = await tx.query<{
-      id: string; slug: string; name: string; frozen: boolean; workLanguage: string | null; talkLanguage: string | null;
+      id: string; slug: string; name: string; frozen: boolean; eraseAfter: Date | null; workLanguage: string | null; talkLanguage: string | null;
       stage: Stage | null; ceo: { roleId: string; slug: string; displayName: string | null } | null;
     }>(
       // Who the owner talks to in each (0068), for the pages that offer the conversation.
-      `SELECT company.id, company.slug, company.name, company.frozen_at IS NOT NULL AS frozen,
+      `SELECT company.id, company.slug, company.name, company.frozen_at IS NOT NULL AS frozen, company.erase_after AS "eraseAfter",
               company.work_language AS "workLanguage", company.talk_language AS "talkLanguage", company.stage,
               CASE WHEN ceo.id IS NULL THEN NULL
                    ELSE jsonb_build_object('roleId', ceo.id, 'slug', ceo.slug, 'displayName', ceo.display_name) END AS ceo

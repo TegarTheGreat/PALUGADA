@@ -1087,6 +1087,30 @@ behind their references, skills from outside come back quarantined, and
 bundle installs, model traces, retention records and devices are not
 restored.
 
+## Close a company
+
+For a business that is over, or whose records the people in them have asked
+you to erase (UU 27/2022 on personal data).
+
+1. Export it first if you want a copy: **Settings**, **Company**, **Export**.
+2. In the same place, under **Close this company**, choose how many days
+   it has before it is erased, from 7 to 90, type its name exactly as it is
+   shown, press **Close the company** and confirm with a code.
+3. It is frozen at once: nothing of it starts, and what is running stops at
+   its next step. The sidebar marks it **closing**, and its settings say the
+   day.
+4. Until that day, **Keep this company** takes the closing back. It stays
+   frozen; unfreeze it when you want it working again.
+5. On the day, the worker erases it: every row of it -- work, history,
+   memory, documents, model traces, conversations -- and the keys its
+   divisions held. **This deployment**, **Erased companies** keeps one line:
+   its name, when it was closed and erased, and how much went.
+
+What erasing cannot reach: backups taken before the day, until they age out
+(see [Backups](operations.md#backups)); what the model provider and the
+vendors were sent while it worked; and your own chat history on Telegram or
+WhatsApp.
+
 ## Search
 
 Press `⌘K` (or `Ctrl+K`), or `/`, anywhere in the console. The same box

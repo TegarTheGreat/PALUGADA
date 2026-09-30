@@ -719,6 +719,8 @@ test('every column of every exported table travels, or is named as deliberately 
     // The destination company is created by the import, with the caller's
     // slug and a fresh id; the archive's own row is read for its name.
     'companies.frozen_at': 'a freeze is a fact about the instance it was pressed on',
+    'companies.closing_at': 'a closing is the owner\'s decision about this copy; a restored one is not closing there',
+    'companies.erase_after': 'the same closing',
     'tasks.lease_holder': 'the worker that held it is on the other instance',
     'tasks.lease_expires_at': 'the same lease',
     'spend_limits.paused_at': 'a pause is spending that has not happened here',

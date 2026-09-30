@@ -184,6 +184,13 @@ passwords from `.env`, so use the same one), restore the dump into it as a
 superuser, keeping the dump's object ownership, and start the platform.
 Practise this on a spare machine before you need it.
 
+A company the owner closed is erased from the database on the day it names,
+and from nothing else: a dump or a base backup taken before that day still
+holds it until it is deleted. Keep backups no longer than you need them,
+and when an erasure must be complete, delete or expire the older ones too.
+Restoring a backup from before an erasure brings the company back; the line
+in **Erased companies** is kept, so check it after a restore.
+
 ### Point-in-time recovery
 
 A nightly dump loses the day, and a mistake -- a company deleted, a bad

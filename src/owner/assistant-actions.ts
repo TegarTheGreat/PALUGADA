@@ -586,6 +586,8 @@ export const NOT_FOR_THE_ASSISTANT: Readonly<Record<string, string>> = {
   '/api/companies/:companyId/divisions/:divisionId/credentials/:alias/oauth/start': 'signing a division in for a key is the owner\'s, with their device and in their own browser',
   '/api/hooks/:publicId': 'other services post here, not a person',
   '/api/control/tour': 'the tour\'s own buttons',
+  '/api/companies/:companyId/close': 'erasing a company is decided on its own settings page, with its name typed out, never on a card a model wrote',
+  '/api/companies/:companyId/close/keep': 'taken back where it was decided, on the company\'s settings page',
   '/api/control/channels/telegram/bot': 'Channels walks through it: the token is pasted there',
   '/api/control/channels/telegram/chats': 'Channels walks through it: the chat is found once the owner presses Start in the bot',
   '/api/control/channels/telegram': 'Channels walks through it, with the token and the chat found there',

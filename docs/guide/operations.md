@@ -484,6 +484,26 @@ the collector is down, nothing is lost: the worker's `telemetry` stage fails
 (and `palugada_worker_stage_failures_total` counts it), and the same runs go
 when it answers again.
 
+## The container backend
+
+A role on the `docker` backend runs its runtime in a container with no
+network, a read-only image, a small scratch space, no capabilities,
+no-new-privileges, 512 MiB, one CPU and user 65534; the runtime reaches its
+tools through the engine over its standard input and output and nothing else.
+Check that your daemon honours all of it before relying on it:
+
+```sh
+npm run container:check
+```
+
+It builds a small image, runs one run whose runtime tries to write its image,
+resolve a name, reach the internet and this machine's database port, and read
+this process's environment, and prints `ok` or `FAIL` for each property. It
+exits 0 when every one holds, 1 when any does not, and 78 when there is no
+daemon. Run it on the machine that will run the containers: podman, rootless
+Docker and a remote `DOCKER_HOST` each decide some of these for themselves.
+Pin the runtime image a role uses by its digest.
+
 ## Running more than one worker
 
 Every `npm start` is a worker and a console. Several can run against one

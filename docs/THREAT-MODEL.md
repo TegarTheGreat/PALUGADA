@@ -201,8 +201,10 @@ refer to `docs/PRD.md`.
   the refusal is the protocol's, not a sandbox.
 - A process that leaves its group with `setsid()` survives (stated in
   `process-tree.ts`).
-- Only the container argv and the sweep are tested; no whole run in a real
-  image. Nothing requires the image pinned by digest.
+- The suite tests the container argv and the sweep; a whole run on a real
+  daemon is checked by `npm run container:check`, in CI and wherever an
+  operator runs it, not by the suite. Nothing requires the image pinned by
+  digest.
 - A cost above the estimate is recorded as overspend, not refused, so one call
   can pass a ceiling.
 

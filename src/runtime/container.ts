@@ -34,9 +34,12 @@
  *
  * **What the suite covers is the argv, the health check and the sweep**,
  * against fake docker clients, since whether a daemon is there is a fact about
- * a machine rather than a property of the code. The sweep of a killed worker's
- * container was also checked once against a real daemon (docs/STATUS.md,
- * 2.34); a whole run inside a real image has not been.
+ * a machine rather than a property of the code. What the flags do is checked
+ * on a real daemon by `npm run container:check` (scripts/container-check.ts),
+ * in CI's docker job and on any machine an operator runs it on: one whole run
+ * whose runtime tries to write its image, resolve a name, reach the internet
+ * and the host's database, and read the orchestrator's environment, and is
+ * refused each (docs/STATUS.md, 2.46).
  */
 import { spawn } from 'node:child_process';
 import type {

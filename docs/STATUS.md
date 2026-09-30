@@ -4402,6 +4402,29 @@ the code against it found these, and each is now closed with a test.
 - **Unverified:** how often a real model doubts a harmless call. The tests
   script the model's answers.
 
+## 2.46 A whole run in a real container
+
+- **Section 3 said it had never happened.** The `docker` backend's flags
+  were tested as an argv, and the sweep once against a daemon; no run had
+  gone through a real container, so that the flags do what they say was a
+  belief.
+- **`npm run container:check`** (scripts/container-check.ts) builds a small
+  image (deploy/container-check) whose runtime tries what a compromised one
+  would, runs one run through `ContainerAdapter` with the same command line
+  every run gets, and checks the runtime's own report. On Docker 29.3.1 here:
+  it ran as 65534:65534; writing its image failed with EROFS and its scratch
+  space took a write; a name did not resolve (EAI_AGAIN); the internet and
+  the host's database port were unreachable (ENETUNREACH); it had no
+  interface but loopback, no capability, no-new-privileges set, and 512 MiB;
+  it saw none of the orchestrator's environment; its one tool call reached
+  the engine over stdio; and no container was left.
+- **The check can fail.** The same image run without the adapter's flags
+  reported root, a writable image, a resolver, the internet, an interface
+  besides loopback, capabilities and no memory limit.
+- **CI's docker job runs it**, and an operator runs it on the machine that
+  will run the containers: podman, rootless Docker and a remote DOCKER_HOST
+  each decide some of these for themselves.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the
@@ -4433,9 +4456,9 @@ well as here.
 `ContainerAdapter` implements F12.9's `docker` backend, and its
 `--network none` is the guarantee the in-process sandbox has never been able to
 make: a runtime started there reaches the engine over stdio and nothing else.
-There is a docker CLI in this environment and no daemon, so what is tested is
-the argv — the flags *are* the security property — and the health check's
-refusal. A real container against a real image has never run here.
+What the suite tests is the argv — the flags *are* the security property —
+and the health check's refusal. A whole run in a real container is checked by
+`npm run container:check` on a real daemon, in CI's docker job (section 2.46).
 `remote_sandbox` is `RemoteSandboxAdapter` over a three-method provider --
 create, exec, destroy -- and its lifecycle runs end to end against a provider
 written for the test, including the sandbox being destroyed on every path out

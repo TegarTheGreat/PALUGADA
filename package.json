@@ -20,6 +20,7 @@
     "smoke": "node --env-file-if-exists=.env scripts/smoke.ts",
     "totp:new": "node scripts/new-totp.ts",
     "company:import": "node --env-file-if-exists=.env scripts/import-company.ts",
+    "container:check": "node scripts/container-check.ts",
     "start": "node --env-file-if-exists=.env src/main.ts",
     "console:install": "npm --prefix console ci",
     "console:build": "npm --prefix console run build"

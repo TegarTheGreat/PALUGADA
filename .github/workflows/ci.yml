@@ -156,6 +156,16 @@ jobs:
           test "$(docker inspect "$(docker compose ps -aq app)" --format '{{.State.ExitCode}}')" = 0
           docker compose logs app | grep -q 'SIGTERM, stopping'
 
+      # F12.9 on a real daemon: one run on the `docker` backend, whose runtime
+      # tries what a compromised one would, and reports what it could do.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: A run on the docker backend is contained
+        run: |
+          npm ci --omit=dev --no-audit --no-fund
+          npm run container:check
+
       - name: What the containers said
         if: failure()
         run: docker compose logs

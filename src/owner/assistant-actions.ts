@@ -586,6 +586,7 @@ export const NOT_FOR_THE_ASSISTANT: Readonly<Record<string, string>> = {
   '/api/control/channels/telegram/bot': 'Channels walks through it: the token is pasted there',
   '/api/control/channels/telegram/chats': 'Channels walks through it: the chat is found once the owner presses Start in the bot',
   '/api/control/channels/telegram': 'Channels walks through it, with the token and the chat found there',
+  '/api/control/agents/:name/accept': 'running a CLI at a version nobody checked is the owner\'s call, made in Agent CLIs with their device',
   '/api/control/agents/:name/login': 'a plan sign-in is a page the owner opens and a code they paste back, in Agent CLIs',
   '/api/control/agents/:name/login/code': 'the code from the sign-in page is pasted in Agent CLIs',
   '/api/control/agents/:name/login/cancel': 'part of the sign-in in Agent CLIs',

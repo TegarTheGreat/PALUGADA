@@ -3975,6 +3975,41 @@ Reproduced by tests first:
 - tier 3, 169 hours, and an insert as the application role were each
   refused.
 
+## 2.29 Agent CLIs held to the versions their containment was checked on
+
+Read against OtoDock, which pins and freezes the Claude Code and Codex it
+runs, and against this platform's own history: what keeps an agent CLI to
+the tool bridge is its own flags and settings, and a Claude Code release
+once offered seventeen tools the old deny list did not name.
+
+- **A CLI at another version ran as if nothing had changed.** The console
+  installed the checked version, but nothing looked again: an update from
+  outside, or the CLI's own updater, left a version nobody had checked
+  running every role on it. The Claude Code on the machine this was written
+  on was 2.1.285, two releases past the checked 2.1.283.
+  - Each known CLI now names the version it was checked on
+    (`src/runtime/checked-versions.ts`, one list the installer uses too).
+  - Its health check reads `--version`. At any other version it answers
+    not healthy with the reason, so its tasks wait on the queue (F13.8).
+  - The owner installs the checked version, or accepts the one installed,
+    from **Agent CLIs** with their device. Updating to the newest from the
+    console accepts that version as it installs it.
+  - An accepted version covers that version and no later one.
+- **Each CLI could update itself between runs.** Each run now turns its
+  updater off, under the names each CLI's own settings use:
+  - Claude Code: `DISABLE_AUTOUPDATER`, which 2.1.285 reads.
+  - Codex: `check_for_update_on_startup = false`, which 0.157.1 accepts
+    under `--strict-config` (that mode refuses a key it does not know).
+  - Gemini CLI: `general.enableAutoUpdate` and
+    `enableAutoUpdateNotification`, from 0.61.0's settings schema.
+  - OpenCode: `autoupdate`, which was already off.
+
+  Codex and Gemini CLI were run with the new settings at their checked
+  versions.
+
+Hermes installs from its own script at no version the console can choose,
+and is held to none; it is on this list's open side.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

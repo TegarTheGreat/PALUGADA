@@ -41,6 +41,7 @@
  *     isolation setting a value with no effect -- worse than a missing
  *     feature, because it reads like a choice somebody made.
  */
+import { uncheckedVersion, versionIn } from './checked-versions.ts';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { spawnTree, TreeKeeper } from './process-tree.ts';
 import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -208,6 +209,14 @@ export interface CliRuntimeSpec {
   models?: Record<string, string>;
   /** How to ask the binary whether it is there (F13.8). Default `--version`. */
   versionArgs?: string[];
+  /**
+   * The version whose containment was checked (`checked-versions.ts`). Set on
+   * the known entries; a CLI at another version gets no work until the owner
+   * accepts it. An entry the operator wrote names none and is held to none.
+   */
+  checkedVersion?: string;
+  /** Another version the owner accepted, from the console (`acceptVersion`). */
+  acceptedVersion?: string;
 }
 
 const BRIDGE_PLACEHOLDERS = ['{mcpConfig}', '{mcpConfigFile}', '{mcpUrl}'] as const;
@@ -322,13 +331,15 @@ export class CliAdapter implements Adapter {
           detail: `${this.#spec.command} is not runnable: ${error.message}`,
         }),
       );
-      child.on('close', (code) =>
-        resolve(
-          code === 0
-            ? { ok: true, detail: out.trim() || this.#spec.command }
-            : { ok: false, detail: `${this.#spec.command} ${args.join(' ')} exited ${code}` },
-        ),
-      );
+      child.on('close', (code) => {
+        if (code !== 0) {
+          resolve({ ok: false, detail: `${this.#spec.command} ${args.join(' ')} exited ${code}` });
+          return;
+        }
+        const unchecked = uncheckedVersion(
+          this.#spec.name, versionIn(out), this.#spec.checkedVersion, this.#spec.acceptedVersion);
+        resolve(unchecked ? { ok: false, detail: unchecked } : { ok: true, detail: out.trim() || this.#spec.command });
+      });
     });
   }
 

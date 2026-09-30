@@ -896,6 +896,8 @@ test('claude-code is handed a token saved in the console, and a home of its own 
   const fake = join(bin, 'claude');
   writeFileSync(fake, [
     `#!${process.execPath}`,
+    // The version whose flags were checked, as the real one says it.
+    "if (process.argv.includes('--version')) { console.log('2.1.283 (Claude Code)'); process.exit(0); }",
     "const { createHash } = require('node:crypto');",
     "const token = process.env.CLAUDE_CODE_OAUTH_TOKEN ?? '';",
     `require('node:fs').writeFileSync(${JSON.stringify(seen)}, JSON.stringify({`,
@@ -919,15 +921,83 @@ test('claude-code is handed a token saved in the console, and a home of its own 
 
   assert.equal(outcome.status, 'completed', outcome.reason);
   const record = JSON.parse(readFileSync(seen, 'utf8')) as { env: string[]; home: string; sha: string };
-  assert.deepEqual(handed(record.env), ['CLAUDE_CODE_OAUTH_TOKEN', 'HOME', 'PATH']);
+  assert.deepEqual(handed(record.env), ['CLAUDE_CODE_OAUTH_TOKEN', 'DISABLE_AUTOUPDATER', 'HOME', 'PATH']);
   assert.equal(record.sha, createHash('sha256').update('sk-ant-oat01-saved-in-the-console').digest('hex'));
   assert.notEqual(record.home, process.env.HOME);
   assert.match(record.home, /palugada-claude-/, 'the run\'s own directory, removed when it ends');
 });
 
+/* ------------------------------------------------- versions checked --- */
+
+/**
+ * What keeps an agent CLI to the bridge is its own flags: `--tools ''`,
+ * `shell_tool = false`, a core tool list. Each was checked against one
+ * version of each CLI, and a later version may read them differently -- the
+ * Claude Code release that grew seventeen tools the old list did not name is
+ * why the list became empty. OtoDock pins and freezes the CLIs it runs for
+ * the same reason. A version nobody checked gets no work until the owner
+ * installs the checked one or accepts it.
+ */
+test('an agent CLI at a version its containment was not checked on gets no work until the owner accepts it', async () => {
+  const printing = (line: string) => ['-e', `console.log(${JSON.stringify(line)})`];
+  const codex = (line: string, extra: Record<string, unknown> = {}) => new CliAdapter(knownCli('codex', {
+    command: process.execPath, versionArgs: printing(line), ...extra,
+  }));
+  assert.equal(knownCli('codex').checkedVersion, '0.157.1');
+  assert.equal((await codex('codex-cli 0.157.1').health()).ok, true);
+
+  const newer = await codex('codex-cli 0.170.0').health();
+  assert.equal(newer.ok, false);
+  assert.match(newer.detail ?? '',
+    /0\.170\.0 is not 0\.157\.1, the version whose containment PALUGADA checked; install 0\.157\.1 from Agent CLIs, or accept 0\.170\.0 there/);
+  assert.equal((await codex('codex-cli 0.170.0', { acceptedVersion: '0.170.0' }).health()).ok, true,
+    'the owner accepted this one');
+  assert.equal((await codex('codex-cli 0.171.0', { acceptedVersion: '0.170.0' }).health()).ok, false,
+    'and only that one');
+
+  // A CLI described by the operator names no checked version, and is not held to one.
+  const { checkedVersion: _checked, ...written } = knownCli('codex');
+  assert.equal((await new CliAdapter({ ...written, name: 'my-cli',
+    command: process.execPath, versionArgs: printing('9.9.9') }).health()).ok, true);
+
+  // Claude Code the same way, through its own adapter.
+  const dir = await mkdtemp(join(tmpdir(), 'palugada-version-'));
+  const claude = (version: string) => {
+    const path = join(dir, `claude-${version}`);
+    writeFileSync(path, `#!/bin/sh\necho "${version} (Claude Code)"\n`, { mode: 0o755 });
+    return path;
+  };
+  assert.equal((await new ClaudeCodeAdapter({ command: claude('2.1.283') }).health()).ok, true);
+  const drifted = await new ClaudeCodeAdapter({ command: claude('2.1.285') }).health();
+  assert.equal(drifted.ok, false);
+  assert.match(drifted.detail ?? '', /2\.1\.285 is not 2\.1\.283/);
+  assert.equal((await new ClaudeCodeAdapter({ command: claude('2.1.285'), acceptedVersion: '2.1.285' }).health()).ok, true);
+});
+
+test('no agent CLI updates itself under a run, and each is checked at the version the console installs', async () => {
+  const { AGENT_CATALOGUE } = await import('../../src/settings/agents.ts');
+  for (const entry of AGENT_CATALOGUE) {
+    if (entry.install.kind !== 'npm') continue;
+    const checked = entry.name === 'claude-code'
+      ? new ClaudeCodeAdapter({}).checkedVersion
+      : knownCli(entry.name as Parameters<typeof knownCli>[0]).checkedVersion;
+    assert.equal(checked, entry.install.tested, `${entry.name}: the console installs the version that was checked`);
+  }
+  // A CLI that replaces itself between runs is running a version nobody
+  // checked, so each is told not to: checked against the binaries.
+  assert.match(knownCli('codex').files!['.codex/config.toml']!, /^check_for_update_on_startup = false$/m);
+  const gemini = JSON.parse(knownCli('gemini-cli').files!['.gemini/settings.json']!.replace(/\{maxTurns\}/, '1')) as {
+    general?: { enableAutoUpdate?: boolean; enableAutoUpdateNotification?: boolean };
+  };
+  assert.deepEqual(gemini.general, { enableAutoUpdate: false, enableAutoUpdateNotification: false });
+  assert.equal(knownCli('opencode').env!.OPENCODE_DISABLE_AUTOUPDATE, '1');
+});
+
 /* ---------------------------------------------------------------- cli --- */
 
 const AGENT_CLI = new URL('../fixtures/runtimes/fake-agent-cli.mjs', import.meta.url).pathname;
+// The stand-in runs as `node`, so `--version` answers with Node's version,
+// which is accepted as a deployment would accept one (`checked-versions.ts`).
 
 /**
  * A spec that would leave the runtime with no tools is refused.
@@ -1284,7 +1354,7 @@ test('a model OpenClaw would sign in to with the machine\'s own identity is refu
   await configureRole(fixture, { runtime: 'openclaw' });
   const pidfile = join(await mkdtemp(join(tmpdir(), 'palugada-host-identity-')), 'started');
   const adapter = new CliAdapter(knownCli('openclaw', {
-    command: process.execPath,
+    command: process.execPath, acceptedVersion: process.versions.node,
     args: [AGENT_CLI, '--dialect', 'text', '--mcp-config-from', '{runDir}/openclaw.json', '--spawn-orphan', pidfile],
     dialect: 'text',
   }));
@@ -1831,7 +1901,7 @@ test('a known spec drives a real run once the binary exists (F13.3)', async () =
   const task = await newTask(fixture, { ask: 'read the zone' });
 
   const spec = knownCli('codex', {
-    command: process.execPath,
+    command: process.execPath, acceptedVersion: process.versions.node,
     args: [AGENT_CLI, '--dialect', 'text', '--mcp-config-file', '{mcpConfigFile}', '--call', 'dns.read'],
     dialect: 'text',
   });
@@ -1869,7 +1939,7 @@ for (const [name, from] of [
 
     const real = knownCli(name);
     const spec = knownCli(name, {
-      command: process.execPath,
+      command: process.execPath, acceptedVersion: process.versions.node,
       args: [AGENT_CLI, '--dialect', real.dialect!, ...from, '--call', 'dns.read', '--dump-env'],
     });
 
@@ -1915,7 +1985,7 @@ test('a tier becomes the model each CLI knows, and one it cannot is refused by n
   await withTenant(fixture.companyId, (tx) => tx.query("UPDATE roles SET model = 'standard' WHERE id = $1", [fixture.roleId]));
 
   const told = knownCli('codex', {
-    command: process.execPath,
+    command: process.execPath, acceptedVersion: process.versions.node,
     args: [AGENT_CLI, '--dialect', 'codex-jsonl', '--mcp-config-from', '{runDir}/.codex/config.toml', '--model', '{model}'],
     models: { standard: 'gpt-something' },
   });
@@ -1924,7 +1994,7 @@ test('a tier becomes the model each CLI knows, and one it cannot is refused by n
   assert.equal((ran.output as { model: string }).model, 'gpt-something');
 
   const untold = knownCli('codex', {
-    command: process.execPath,
+    command: process.execPath, acceptedVersion: process.versions.node,
     args: [AGENT_CLI, '--dialect', 'codex-jsonl', '--mcp-config-from', '{runDir}/.codex/config.toml', '--model', '{model}'],
   });
   const refused = await engineWith(broker, new CliAdapter(untold)).runTask(fixture.companyId, (await newTask(fixture, { ask: 'x' })).id, 'worker');

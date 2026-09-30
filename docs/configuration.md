@@ -200,11 +200,26 @@ by CLI name, each with any of `command` (where the binary is), `models`
 secret reference to fill it from, such as
 `{"CLAUDE_CODE_OAUTH_TOKEN":"db://agent-claude-code"}`) and `env` (anything
 else it reads, never a secret: Hermes is told its provider with
-`HERMES_INFERENCE_PROVIDER`). The console installs into `tools/<name>` in
+`HERMES_INFERENCE_PROVIDER`), and `acceptVersion` (a version other than the
+checked one that the owner accepted). The console installs into `tools/<name>` in
 `PALUGADA_STATE_DIR` with `npm install --prefix`, at the version in the
 table below; that directory belongs to the machine it is on, so a
 deployment with several replicas installs on each, or bakes the CLI into its
 image.
+
+What keeps each CLI to PALUGADA's tools is its own flags and settings, and
+those were checked against one version of each: Claude Code 2.1.283, Codex
+0.157.1, Gemini CLI 0.61.0, OpenCode 1.18.32 and OpenClaw 2026.9.6
+(`src/runtime/checked-versions.ts`). A CLI that answers `--version` with
+another gets no work -- its roles' tasks wait on the queue, and the runtime
+shows as not answering with the reason -- until the owner installs the
+checked version or accepts the one installed, from **Agent CLIs**, with
+their device. By hand, that is `acceptVersion` in its entry. Each run also
+turns the CLI's own updater off, so it is not replaced between runs: Claude
+Code by `DISABLE_AUTOUPDATER`, Codex by `check_for_update_on_startup`,
+Gemini CLI by `general.enableAutoUpdate`, OpenCode by `autoupdate`. Hermes
+installs from its own script at no version the console can choose, and is
+held to none.
 
 A host-wide Claude Code credential outside `HOME` -- a managed settings
 file in `/etc/claude-code`, or a remote session's token in a fixed path --

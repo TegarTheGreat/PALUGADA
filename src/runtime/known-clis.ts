@@ -45,6 +45,7 @@
  *   off.
  */
 import type { CliRuntimeSpec } from './cli.ts';
+import { CHECKED_VERSIONS } from './checked-versions.ts';
 
 /** The names F13.3 lists, in the order it lists them, and OpenCode. */
 export const KNOWN_CLI_NAMES = ['hermes', 'openclaw', 'codex', 'gemini-cli', 'opencode'] as const;
@@ -155,6 +156,7 @@ const SPECS: Record<KnownCliName, CliRuntimeSpec> = {
       }, null, 2),
     },
     versionArgs: ['--version'],
+    checkedVersion: CHECKED_VERSIONS.openclaw,
   },
 
   /**
@@ -191,6 +193,9 @@ const SPECS: Record<KnownCliName, CliRuntimeSpec> = {
     files: {
       '.codex/config.toml': [
         'web_search = "disabled"',
+        // Not replaced under a run by a version nobody checked; accepted by
+        // 0.157.1 under --strict-config, which refuses a key it does not know.
+        'check_for_update_on_startup = false',
         '',
         '[features]',
         'shell_tool = false',
@@ -208,6 +213,7 @@ const SPECS: Record<KnownCliName, CliRuntimeSpec> = {
       ].join('\n'),
     },
     versionArgs: ['--version'],
+    checkedVersion: CHECKED_VERSIONS.codex,
   },
 
   /**
@@ -245,10 +251,13 @@ const SPECS: Record<KnownCliName, CliRuntimeSpec> = {
         tools: { core: ['mcp_palugada_*'] },
         model: { maxSessionTurns: '{maxTurns}' },
         security: { auth: { selectedType: 'gemini-api-key' } },
+        // Its own updater off, under the names 0.61.0's settings schema gives it.
+        general: { enableAutoUpdate: false, enableAutoUpdateNotification: false },
       // A number in Gemini's schema, so the placeholder loses its quotes.
       }, null, 2).replace('"{maxTurns}"', '{maxTurns}'),
     },
     versionArgs: ['--version'],
+    checkedVersion: CHECKED_VERSIONS['gemini-cli'],
   },
 
   /**
@@ -296,6 +305,7 @@ const SPECS: Record<KnownCliName, CliRuntimeSpec> = {
       }).replace('"{maxTurns}"', '{maxTurns}'),
     },
     versionArgs: ['--version'],
+    checkedVersion: CHECKED_VERSIONS.opencode,
   },
 };
 

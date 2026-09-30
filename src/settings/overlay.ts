@@ -40,6 +40,11 @@ export interface AgentSetting {
   models?: Record<string, string>;
   /** What else it reads to choose its provider, such as Hermes's HERMES_INFERENCE_PROVIDER. Never a secret. */
   env?: Record<string, string>;
+  /**
+   * A version other than the checked one that the owner accepted with their
+   * device (`checked-versions.ts`); runs on any other still get no work.
+   */
+  acceptVersion?: string;
 }
 
 /** A tool's provider, as the console sets it: web search, or reading pages. */
@@ -192,6 +197,7 @@ export function withSettings(env: NodeJS.ProcessEnv, settings: Settings): NodeJS
         ...(agent.models && Object.keys(agent.models).length > 0 ? { models: agent.models } : {}),
         ...(agent.credential ? { secretEnv: { [agent.credential.variable]: `db://${agent.credential.secret}` } } : {}),
         ...(agent.env && Object.keys(agent.env).length > 0 ? { env: agent.env } : {}),
+        ...(agent.acceptVersion ? { acceptVersion: agent.acceptVersion } : {}),
       }])));
     }
   }

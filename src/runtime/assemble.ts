@@ -55,6 +55,8 @@ interface AgentTuning {
   models?: Record<string, string>;
   secretEnv?: Record<string, string>;
   env?: Record<string, string>;
+  /** A version other than the checked one that the owner accepted (`checked-versions.ts`). */
+  acceptVersion?: string;
 }
 
 const STRING_MAPS = ['models', 'secretEnv', 'env'] as const;
@@ -86,6 +88,9 @@ function agentSettingsFrom(value: string | undefined): Record<string, AgentTunin
     if (tuning.command !== undefined && (typeof tuning.command !== 'string' || tuning.command === '')) {
       refuse(`gives ${name} a command that is not a path`);
     }
+    if (tuning.acceptVersion !== undefined && (typeof tuning.acceptVersion !== 'string' || tuning.acceptVersion === '')) {
+      refuse(`gives ${name} an acceptVersion that is not a version`);
+    }
     for (const field of STRING_MAPS) {
       const map = tuning[field];
       if (map !== undefined && (typeof map !== 'object' || map === null || Array.isArray(map)
@@ -106,6 +111,7 @@ function tunedCli(name: KnownCliName, tuning: AgentTuning | undefined) {
     ...(tuning.command ? { command: tuning.command } : {}),
     ...(tuning.models ? { models: tuning.models } : {}),
     ...(tuning.secretEnv ? { secretEnv: tuning.secretEnv } : {}),
+    ...(tuning.acceptVersion ? { acceptedVersion: tuning.acceptVersion } : {}),
     env: { ...(known.env ?? {}), ...(tuning.env ?? {}) },
   };
 }
@@ -170,6 +176,7 @@ export function assembleRuntimes(options: RuntimeAssemblyOptions): RuntimeAssemb
       ...(claudeCode?.command ? { command: claudeCode.command } : {}),
       ...(claudeCode?.models ? { models: claudeCode.models } : {}),
       ...(claudeCode?.secretEnv ? { secretEnv: claudeCode.secretEnv, ...secretOptions } : {}),
+      ...(claudeCode?.acceptVersion ? { acceptedVersion: claudeCode.acceptVersion } : {}),
     }));
   }
 

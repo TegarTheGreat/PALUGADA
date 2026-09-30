@@ -537,6 +537,8 @@ interface AgentRow {
   installed: { command: string; managed: boolean; version: string | null } | null;
   cannotInstall: string | null;
   tested: string | null;
+  /** A version other than the tested one the owner accepted. */
+  accepted: string | null;
   enabled: boolean;
   inUse: boolean;
   credential: { kind: string | null; variable: string } | null;
@@ -605,6 +607,19 @@ function AgentCard({ agent, reload }: { agent: AgentRow; reload: () => void }) {
       const answer: { job: AgentJob } = await api('POST', `/api/control/agents/${agent.name}/install`, { version, proof });
       setJob(answer.job);
     });
+  };
+
+  // Which version is installed, and whether roles on it get work: the
+  // server holds the same rule (`checked-versions.ts`) and has the last word.
+  const found = agent.installed?.version ? versionNumber(agent.installed.version) : null;
+  const drifted = found !== null && agent.tested !== null && found !== agent.tested;
+  const accept = async () => {
+    const done = await requireFactor(t('Run {agent} {version}, a version PALUGADA did not check', { agent: agent.title, version: found ?? '' }), (proof) =>
+      api('POST', `/api/control/agents/${agent.name}/accept`, { proof }));
+    if (done) {
+      notifications.show({ color: 'teal', message: t('{agent} {version} accepted. Roles on it get work again.', { agent: agent.title, version: found ?? '' }) });
+      reload();
+    }
   };
 
   const signIn = async () => {
@@ -691,6 +706,22 @@ function AgentCard({ agent, reload }: { agent: AgentRow; reload: () => void }) {
             </Button>
             <Text size="xs" c="dimmed">{t('Version {version}, the one PALUGADA was checked against. It goes in this deployment\'s own directory.', { version: agent.tested ?? '' })}</Text>
           </Group>
+        )}
+        {drifted && found !== agent.accepted && (
+          <Alert color="orange" variant="light" title={t('Not the version PALUGADA checked')}>
+            <Text size="sm">
+              {t('{agent} {found} is installed. What keeps it to PALUGADA\'s tools, and none of its own, was checked on {tested}, and another version may read those settings differently. Roles on it get no work until you install {tested} or accept {found}.', { agent: agent.title, found: found ?? '', tested: agent.tested ?? '' })}
+            </Text>
+            <Group gap="xs" mt="sm">
+              <Button size="xs" leftSection={<IconDownload size={14} />} loading={job?.state === 'running'} onClick={() => void install('tested')}>
+                {t('Install {version}', { version: agent.tested ?? '' })}
+              </Button>
+              <Button size="xs" variant="default" onClick={() => void accept()}>{t('Accept {version}', { version: found ?? '' })}</Button>
+            </Group>
+          </Alert>
+        )}
+        {drifted && found === agent.accepted && (
+          <Text size="xs" c="dimmed">{t('Running {found}, which you accepted; PALUGADA checked {tested}.', { found: found ?? '', tested: agent.tested ?? '' })}</Text>
         )}
         {job?.kind === 'install' && job.state !== 'succeeded' && (
           <div>
@@ -1999,4 +2030,9 @@ function McpServerForm({ saved, presets, callback, onDone, onCancel }: {
       </Stack>
     </Section>
   );
+}
+
+/** The version in what `--version` printed, as the server reads it (`checked-versions.ts`). */
+function versionNumber(output: string): string {
+  return /\d+\.\d+\.\d+/.exec(output)?.[0] ?? output.trim().split('\n')[0]!.trim();
 }

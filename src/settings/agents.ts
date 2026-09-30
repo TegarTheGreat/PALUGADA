@@ -16,6 +16,7 @@
  * loosens a control. The install sees none of this process's environment
  * beyond `PATH`, a home of its own and the proxy settings a download needs.
  */
+import { CHECKED_VERSIONS } from '../runtime/checked-versions.ts';
 import { spawn } from 'node:child_process';
 import { access, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { constants } from 'node:fs';
@@ -74,7 +75,7 @@ export const AGENT_CATALOGUE: readonly AgentEntry[] = [
   {
     name: 'claude-code', title: 'Claude Code', about: 'Anthropic\'s agent, on an API key or a Claude subscription',
     binary: 'claude',
-    install: { kind: 'npm', package: '@anthropic-ai/claude-code', tested: '2.1.283', bin: 'claude' },
+    install: { kind: 'npm', package: '@anthropic-ai/claude-code', tested: CHECKED_VERSIONS['claude-code'], bin: 'claude' },
     credentials: [
       ANTHROPIC_KEY,
       {
@@ -88,20 +89,20 @@ export const AGENT_CATALOGUE: readonly AgentEntry[] = [
   {
     name: 'codex', title: 'Codex', about: 'OpenAI\'s agent',
     binary: 'codex',
-    install: { kind: 'npm', package: '@openai/codex', tested: '0.157.1', bin: 'codex' },
+    install: { kind: 'npm', package: '@openai/codex', tested: CHECKED_VERSIONS.codex, bin: 'codex' },
     // An OpenAI key, which `codex exec` reads from CODEX_API_KEY only.
     credentials: [{ ...OPENAI_KEY, variable: 'CODEX_API_KEY' }],
   },
   {
     name: 'gemini-cli', title: 'Gemini CLI', about: 'Google\'s agent',
     binary: 'gemini',
-    install: { kind: 'npm', package: '@google/gemini-cli', tested: '0.61.0', bin: 'gemini' },
+    install: { kind: 'npm', package: '@google/gemini-cli', tested: CHECKED_VERSIONS['gemini-cli'], bin: 'gemini' },
     credentials: [GEMINI_KEY],
   },
   {
     name: 'opencode', title: 'OpenCode', about: 'An open-source agent for any provider',
     binary: 'opencode',
-    install: { kind: 'npm', package: 'opencode-ai', tested: '1.18.32', bin: 'opencode' },
+    install: { kind: 'npm', package: 'opencode-ai', tested: CHECKED_VERSIONS.opencode, bin: 'opencode' },
     credentials: [ANTHROPIC_KEY, OPENAI_KEY, OPENROUTER_KEY],
   },
   {
@@ -125,7 +126,7 @@ export const AGENT_CATALOGUE: readonly AgentEntry[] = [
   {
     name: 'openclaw', title: 'OpenClaw', about: 'An open-source agent gateway',
     binary: 'openclaw',
-    install: { kind: 'npm', package: 'openclaw', tested: '2026.9.6', bin: 'openclaw', node: 24 },
+    install: { kind: 'npm', package: 'openclaw', tested: CHECKED_VERSIONS.openclaw, bin: 'openclaw', node: 24 },
     credentials: [ANTHROPIC_KEY, OPENAI_KEY, OPENROUTER_KEY],
   },
 ];

@@ -42,6 +42,7 @@
  * cannot set that header, and a browser will not attach it on its own. The
  * cost is that the console has to hold the token itself, which it does.
  */
+import { versionIn } from '../runtime/checked-versions.ts';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -2154,6 +2155,7 @@ export class OwnerApi {
               installed: await findAgent(entry, stateDir),
               cannotInstall: cannotInstall(entry),
               tested: entry.install.kind === 'npm' ? entry.install.tested : null,
+              accepted: setting?.acceptVersion ?? null,
               enabled: setting?.enabled ?? false,
               inUse: inUse.includes(entry.name),
               credential: setting?.credential
@@ -2188,11 +2190,47 @@ export class OwnerApi {
             // changed another CLI in the minutes it took.
             const agents = agentsFrom(await readSettings(), deployment.baseEnv);
             const current = agents[entry.name] ?? { enabled: false };
-            agents[entry.name] = { ...current, command: found.command };
+            // The latest was chosen with the owner's device, knowing it is not
+            // the version checked, so it is accepted; the checked one needs no
+            // acceptance, and a stale one would outlive the install.
+            const { acceptVersion: _stale, ...kept } = current;
+            const installed = found.version ? versionIn(found.version) : null;
+            agents[entry.name] = {
+              ...kept, command: found.command,
+              ...(version === 'latest' && installed ? { acceptVersion: installed } : {}),
+            };
             await writeSetting('agents', agents);
             if (current.enabled) this.#applySettings();
           });
           return { job };
+        },
+      },
+
+      {
+        // A version other than the one whose containment was checked
+        // (`checked-versions.ts`), accepted as it is installed now. It lets a
+        // CLI run whose flags nobody read at that version, so it takes the
+        // owner's device, like installing the latest does.
+        method: 'POST',
+        pattern: '/api/control/agents/:name/accept',
+        handle: async ({ params, body }) => {
+          const deployment = this.#deploymentSettings();
+          const entry = agentNamed(params.name!);
+          const stored = await readSettings();
+          const agents = agentsFrom(stored, deployment.baseEnv);
+          // The same one the page shows as installed.
+          const found = await findAgent(entry, stateDirFrom(deployment.baseEnv));
+          if (!found?.version) {
+            throw new PalugadaError('contract.violation',
+              `${entry.title} is not installed here, or did not say its version; install it first`, { agent: entry.name });
+          }
+          const version = versionIn(found.version);
+          await this.#requireFactor(body.proof, `run ${entry.title} ${version}, a version PALUGADA did not check`);
+          const current = agents[entry.name] ?? { enabled: false };
+          agents[entry.name] = { ...current, acceptVersion: version };
+          await writeSetting('agents', agents);
+          if (current.enabled) this.#applySettings();
+          return { accepted: version };
         },
       },
 

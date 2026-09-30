@@ -496,6 +496,28 @@ test('the owner installs an agent CLI and signs it in from the console; roles ru
     }).PALUGADA_CLAUDE_CODE_KEY_VAR, undefined, 'two credentials, and the CLI would choose which one paid');
     assert.equal(await api.secrets.resolve('db://agent-codex'), 'sk-proj-typed-0123456789');
 
+    // The CLI replaced by a version nobody checked, as an update outside the
+    // console would: its roles get no work until the owner accepts it with
+    // their device, and the next start holds it to that one version.
+    const installedAt = join(state, 'tools', 'codex', 'node_modules', '.bin', 'codex');
+    writeFileSync(installedAt, '#!/bin/sh\necho "codex-cli 0.170.0"\n', { mode: 0o755 });
+    const drifted = assembleRuntimes({ env: withSettings({}, await readSettings()), secrets: api.secrets });
+    const refused = await drifted.adapters.get('codex')!.health!();
+    assert.equal(refused.ok, false);
+    assert.match(refused.detail ?? '', /codex 0\.170\.0 is not 0\.157\.1, the version whose containment PALUGADA checked/);
+    assert.equal((await codexOf()).accepted, null);
+    assert.equal((await api.call('POST', '/api/control/agents/codex/accept', token, {})).status, 403,
+      'running a version nobody checked is the owner\'s call, with their device');
+    const accepted = await api.call('POST', '/api/control/agents/codex/accept', token, { proof: { totp: api.code() } });
+    assert.equal(accepted.status, 200, JSON.stringify(accepted.body));
+    assert.deepEqual(accepted.body, { accepted: '0.170.0' });
+    assert.equal((await codexOf()).accepted, '0.170.0');
+    assert.equal(JSON.parse(withSettings({}, await readSettings()).PALUGADA_AGENT_SETTINGS!).codex.acceptVersion, '0.170.0');
+    const now = assembleRuntimes({ env: withSettings({}, await readSettings()), secrets: api.secrets });
+    assert.equal((await now.adapters.get('codex')!.health!()).ok, true);
+    writeFileSync(installedAt, '#!/bin/sh\necho "codex-cli 0.171.0"\n', { mode: 0o755 });
+    assert.equal((await now.adapters.get('codex')!.health!()).ok, false, 'that version, and no later one');
+
     const out = await api.call('POST', '/api/control/agents/codex/credential/clear', token, { proof: { totp: api.code() } });
     assert.equal(out.status, 200);
     await assert.rejects(api.secrets.resolve('db://agent-codex'), /nothing is stored/);

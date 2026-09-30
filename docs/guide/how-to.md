@@ -721,6 +721,13 @@ in, and whether roles can use it now.
    means to it if you want to, press **Save** and confirm. PALUGADA starts
    itself again, and the CLI is offered to roles.
 
+A CLI at a version other than the one PALUGADA checked shows **Not the
+version PALUGADA checked** on its card, and its roles get no work until you
+press **Install** for the checked version or **Accept** for the one you
+have, with a code. What keeps a CLI to PALUGADA's tools, and none of its
+own, is its flags, and another version may read them differently. Updating
+to the newest from the console accepts that version as it installs it.
+
 A ChatGPT or other subscription login whose tokens rotate is not offered:
 every run would hold a copy, and the first to refresh would sign the rest
 out. Use an API key for those.

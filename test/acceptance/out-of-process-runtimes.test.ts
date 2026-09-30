@@ -1085,6 +1085,8 @@ async function reportFrom(path: string): Promise<{
   permissions: Array<{ outcome: { outcome: string; optionId?: string } }>;
   fsError: { code: number; message: string } | null;
   cancelled: boolean;
+  prompted: boolean;
+  junkPermission: { outcome: { outcome: string; optionId?: string } } | null;
 }> {
   return JSON.parse(await readFile(path, 'utf8'));
 }
@@ -1140,6 +1142,8 @@ test('an ACP agent that cannot take the tools, speaks another version or is not 
     [['--no-http'], /old-acp cannot reach an MCP server over HTTP/],
     [['--version-reply', '2'], /old-acp speaks ACP version 2; PALUGADA speaks 1/],
     [['--auth-required'], /old-acp needs to be signed in.*Authentication required/],
+    // Some agents find out they are not signed in only when they are asked something.
+    [['--auth-on-prompt'], /old-acp needs to be signed in.*Authentication required/],
   ];
   for (const [args, reason] of cases) {
     const task = await newTask(fixture, { ask: args.join(' ') });
@@ -1162,6 +1166,68 @@ test('a withdrawn ACP run is cancelled in the protocol before its process is end
     fixture.companyId, task.id, 'worker');
   assert.notEqual(outcome.status, 'completed');
   assert.equal((await reportFrom(reportPath)).cancelled, true, 'told session/cancel, not only killed');
+});
+
+/**
+ * What the review of 9d4e2d8 found an agent could do to the adapter: fail
+ * after spending and be free, write a line nobody could read and leave the
+ * run waiting, or be withdrawn before its session opened and do the whole
+ * turn anyway.
+ */
+test('an ACP run that fails still costs what it said it cost, in whole cents', async () => {
+  const fixture = await createCompany('acp-failed-cost');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'costly-acp', tools: ['dns.read'] });
+  const task = await newTask(fixture, { ask: 'fail after spending' }, { attemptMax: 1 });
+  const outcome = await engineWith(broker, new CliAdapter(acpSpec('costly-acp', ['--cost', '0.07', '--fail-prompt'])))
+    .runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(outcome.status, 'failed');
+  assert.match(outcome.reason ?? '', /the provider went away/);
+  const settled = await withTenant(fixture.companyId, (tx) => tx.query<{ payload: { actualCents: number } }>(
+    "SELECT payload FROM events WHERE task_id = $1 AND type = 'cost.settled'", [task.id]));
+  // $0.07 is seven cents: 0.07 * 100 is 7.000000000000001 in floating point, which rounded up was eight.
+  assert.deepEqual(settled.rows.map((row) => row.payload.actualCents), [7]);
+});
+
+test('an ACP agent\'s stray lines are skipped, a permission asked by tool call alone is judged by that call, string ids are answered', async () => {
+  const fixture = await createCompany('acp-odd');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'odd-acp', tools: ['dns.read'] });
+  const reportPath = join(await mkdtemp(join(tmpdir(), 'acp-report-')), 'report.json');
+  const task = await newTask(fixture, { ask: 'read the zone' }, { attemptMax: 1 });
+  const outcome = await engineWith(broker, new CliAdapter(acpSpec('odd-acp', [
+    '--call', 'dns__read', '--junk', '--string-ids', '--report', reportPath,
+  ]))).runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(outcome.status, 'completed', outcome.reason);
+  assert.deepEqual((await reportFrom(reportPath)).junkPermission, { outcome: { outcome: 'selected', optionId: 'ok' } },
+    'the role\'s own tool, named by the tool call before it, allowed with the one allowing option offered');
+});
+
+test('an ACP agent whose output cannot be read is stopped at once, and the run says why', async () => {
+  const fixture = await createCompany('acp-unreadable');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'loud-acp', tools: ['dns.read'] });
+  const task = await newTask(fixture, { ask: 'say too much' }, { attemptMax: 1, deadlineAt: new Date(Date.now() + 120_000) });
+  const began = Date.now();
+  const outcome = await engineWith(broker, new CliAdapter(acpSpec('loud-acp', ['--huge-line'])))
+    .runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(outcome.status, 'failed', outcome.reason);
+  assert.match(outcome.reason ?? '', /output could not be read: .*without a line break/);
+  assert.ok(Date.now() - began < 60_000, 'not left waiting for a deadline two minutes away');
+});
+
+test('an ACP run withdrawn before its session opens is never prompted', async () => {
+  const fixture = await createCompany('acp-early-cancel');
+  const broker = await brokerFor(fixture, ['dns.read']);
+  await configureRole(fixture, { runtime: 'late-acp', tools: ['dns.read'] });
+  const reportPath = join(await mkdtemp(join(tmpdir(), 'acp-report-')), 'report.json');
+  const task = await newTask(fixture, { ask: 'wait' }, { deadlineAt: new Date(Date.now() + 500) });
+  const outcome = await engineWith(broker, new CliAdapter(acpSpec('late-acp', ['--slow-session', '1500', '--report', reportPath])))
+    .runTask(fixture.companyId, task.id, 'worker');
+  assert.notEqual(outcome.status, 'completed');
+  const report = await reportFrom(reportPath);
+  assert.ok(report.newSession, 'the session did open');
+  assert.equal(report.prompted, false, 'and the withdrawn turn was not begun in it');
 });
 
 /* ---------------------------------------------------------------- cli --- */

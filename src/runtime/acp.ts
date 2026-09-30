@@ -46,6 +46,13 @@ const ACP_PROTOCOL_VERSION = 1;
 /** How long the agent has to answer before the prompt: starting, and opening a session. */
 const HANDSHAKE_MS = 60_000;
 
+/** How often the session's cost is reported while it runs. */
+const USAGE_EVERY_MS = 5_000;
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 interface JsonRpcMessage {
   jsonrpc?: string;
   id?: number | string | null;
@@ -148,7 +155,18 @@ export function acpSession(run: AcpRun): AcpSession {
     let wake = null as (() => void) | null;
     let nextId = 1;
     let costUsd: number | null = null;
+    let reportedUsd: number | null = null;
+    let usageSaidAt = 0;
     let closed: Error | null = null;
+    /** What the agent said of each tool call as it began it, by id: what a permission request may leave out. */
+    const begun = new Map<string, Record<string, unknown>>();
+    /** The session's cost so far, as the run's total, when it has changed since it was last reported. */
+    const usage = (): RunEvent | null => {
+      if (costUsd === null || costUsd === reportedUsd) return null;
+      reportedUsd = costUsd;
+      usageSaidAt = Date.now();
+      return { type: 'usage', usage: { model: run.model, inputTokens: 0, outputTokens: 0, costCents: costUsd * 100, runTotal: true } };
+    };
 
     const emit = (event: RunEvent) => {
       events.push(event);
@@ -181,13 +199,22 @@ export function acpSession(run: AcpRun): AcpSession {
     const answer = (message: JsonRpcMessage) => {
       if (message.method === 'session/request_permission') {
         const params = message.params ?? {};
-        const call = (params.toolCall ?? {}) as Record<string, unknown>;
-        const choices = (Array.isArray(params.options) ? params.options : []) as Array<{ optionId?: unknown; kind?: unknown }>;
+        const asked = isObject(params.toolCall) ? params.toolCall : {};
+        // The protocol lets a request name only its tool call's id, which
+        // the agent described when it began the call; what the request
+        // leaves out is read from there. A kind of its own in either refuses
+        // it: a request cannot make a shell call it began into another one.
+        const before = typeof asked.toolCallId === 'string' ? begun.get(asked.toolCallId) : undefined;
+        const call = { ...before, ...Object.fromEntries(Object.entries(asked).filter(([, value]) => value !== undefined && value !== null)) };
+        const choices = (Array.isArray(params.options) ? params.options : []).filter(isObject) as Array<{ optionId?: unknown; kind?: unknown }>;
         const stopping = cancelling !== null;
-        const allowed = !stopping && ours(call, shown);
+        const allowed = !stopping && !OWN_KINDS.has(before?.kind) && ours(call, shown);
+        // Once where the agent offers once, since every call still goes
+        // through the broker; always where once is not offered, which the
+        // broker makes no wider. Refused the same way round.
         const choice = stopping ? undefined
           : choices.find((one) => one.kind === (allowed ? 'allow_once' : 'reject_once'))
-            ?? (allowed ? undefined : choices.find((one) => one.kind === 'reject_always'));
+            ?? choices.find((one) => one.kind === (allowed ? 'allow_always' : 'reject_always'));
         if (!allowed && !stopping) {
           emit({ type: 'text', text: `Refused ${run.name} its own tool: ${String(call.title ?? call.name ?? call.toolCallId ?? 'unnamed')}` });
         }
@@ -216,47 +243,90 @@ export function acpSession(run: AcpRun): AcpSession {
         const last = said.at(-1);
         if (last && last.id === id) last.text += content.text;
         else said.push({ id, text: content.text });
-      } else if (update.sessionUpdate === 'tool_call') {
+      } else if (update.sessionUpdate === 'tool_call' || update.sessionUpdate === 'tool_call_update') {
+        if (typeof update.toolCallId === 'string') {
+          const known = begun.get(update.toolCallId) ?? {};
+          for (const field of ['title', 'kind', 'name'] as const) {
+            // A kind of its own, once said, stays said.
+            if (field === 'kind' && OWN_KINDS.has(known.kind)) continue;
+            if (update[field] !== undefined && update[field] !== null) known[field] = update[field];
+          }
+          begun.set(update.toolCallId, known);
+        }
         // A new message starts after a tool call, whether or not it says so.
-        said.push({ id: `after:${String(update.toolCallId ?? said.length)}`, text: '' });
+        if (update.sessionUpdate === 'tool_call') said.push({ id: `after:${String(update.toolCallId ?? said.length)}`, text: '' });
       } else if (update.sessionUpdate === 'usage_update') {
         const cost = update.cost as { amount?: unknown; currency?: unknown } | undefined;
         if (cost && cost.currency === 'USD' && typeof cost.amount === 'number' && Number.isFinite(cost.amount) && cost.amount >= 0) {
           costUsd = cost.amount;
+          // Reported as the run goes, a few seconds apart: a run that is
+          // killed, or whose process dies, has been charged what it said
+          // it had spent by then.
+          if (Date.now() - usageSaidAt >= USAGE_EVERY_MS) {
+            const due = usage();
+            if (due) emit(due);
+          }
         }
+      }
+    };
+
+    const failed = (error: { message?: unknown; code?: unknown }) =>
+      new AcpFailure(`${run.name}: ${String(error.message ?? 'error')} (${String(error.code ?? '?')})`,
+        typeof error.code === 'number' ? error.code : undefined);
+    const take = (message: JsonRpcMessage) => {
+      if (typeof message.method === 'string' && message.id !== undefined && message.id !== null) {
+        try {
+          answer(message);
+        } catch (error) {
+          // A question put oddly is answered with an error, not a stopped run.
+          write({ id: message.id, error: { code: -32603, message: `PALUGADA could not read the request: ${(error as Error).message}` } });
+        }
+      } else if (typeof message.method === 'string') {
+        if (message.method === 'session/update') onUpdate(isObject(message.params?.update) ? message.params.update : undefined);
+      } else if (message.id === null && message.error) {
+        // The agent could not read something PALUGADA sent, and cannot say what.
+        const failure = failed(message.error);
+        for (const waiting of pending.values()) waiting.reject(failure);
+        pending.clear();
+      } else {
+        // PALUGADA's ids are numbers; an agent may echo one as a string.
+        const id = typeof message.id === 'number' ? message.id
+          : typeof message.id === 'string' && /^\d+$/.test(message.id) ? Number(message.id) : null;
+        const waiting = id === null ? undefined : pending.get(id);
+        if (!waiting) return;
+        pending.delete(id!);
+        if (message.error) waiting.reject(failed(message.error));
+        else waiting.resolve(message.result);
       }
     };
 
     // Read until the agent's stdout closes; whatever is still waiting then fails.
     const reading = (async () => {
+      let unreadable: Error | null = null;
       try {
         for await (const line of readLines(run.child.stdout!, run.name)) {
-          let message: JsonRpcMessage;
+          let message: unknown;
           try {
-            message = JSON.parse(line) as JsonRpcMessage;
+            message = JSON.parse(line);
           } catch {
             // The protocol forbids anything else on stdout; a line that is not
             // a message is not one, and is left for stderr's kind of reading.
             continue;
           }
-          if (typeof message.method === 'string' && message.id !== undefined && message.id !== null) {
-            answer(message);
-          } else if (typeof message.method === 'string') {
-            if (message.method === 'session/update') onUpdate(message.params?.update as Record<string, unknown> | undefined);
-          } else if (typeof message.id === 'number') {
-            const waiting = pending.get(message.id);
-            if (!waiting) continue;
-            pending.delete(message.id);
-            if (message.error) {
-            waiting.reject(new AcpFailure(`${run.name}: ${message.error.message ?? 'error'} (${message.error.code ?? '?'})`, message.error.code));
-          }
-            else waiting.resolve(message.result);
-          }
+          if (isObject(message)) take(message as JsonRpcMessage);
         }
+      } catch (error) {
+        // Nothing more of what it writes will be read, so it is stopped:
+        // left running, it waits on a pipe nobody empties and the run waits
+        // on it, until a deadline if it has one and for ever if not.
+        unreadable = error as Error;
+        run.child.kill('SIGKILL');
       } finally {
         const code = await run.exit().catch(() => null);
         const detail = run.stderr().trim().split('\n').slice(-3).join(' ').slice(0, 500);
-        closed = new AcpFailure(`${run.name} exited${code === null ? '' : ` ${code}`} before it answered${detail ? `: ${detail}` : ''}`);
+        closed = unreadable
+          ? new AcpFailure(`${run.name}'s output could not be read: ${unreadable.message}`)
+          : new AcpFailure(`${run.name} exited${code === null ? '' : ` ${code}`} before it answered${detail ? `: ${detail}` : ''}`);
         for (const waiting of pending.values()) waiting.reject(closed);
         pending.clear();
         wake?.();
@@ -265,15 +335,22 @@ export function acpSession(run: AcpRun): AcpSession {
     reading.catch(() => undefined);
 
     try {
-      const started = await within(request('initialize', {
-        protocolVersion: ACP_PROTOCOL_VERSION,
-        clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
-        clientInfo: { name: 'palugada', title: 'PALUGADA', version: VERSION },
-      }), 'initialize') as { protocolVersion?: unknown; agentCapabilities?: { mcpCapabilities?: { http?: unknown } } } | null;
       // What another attempt would meet again halts the task as the runtime
       // being unavailable, so the owner is told once instead of the task
       // spending its attempts on the same answer.
       const unusable = (why: string) => new PalugadaError('model.unavailable', why, { model: run.model });
+      // Not signed in, said to any request: some agents find out only when
+      // they are asked to do something.
+      const signIn = (failure: unknown): unknown => (failure instanceof AcpFailure && failure.code === AUTH_REQUIRED
+        ? unusable(`${run.name} needs to be signed in: give its entry the key it reads (${failure.message})`)
+        : failure);
+      const started = await within(request('initialize', {
+        protocolVersion: ACP_PROTOCOL_VERSION,
+        clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+        clientInfo: { name: 'palugada', title: 'PALUGADA', version: VERSION },
+      }), 'initialize').catch((failure: unknown) => {
+        throw signIn(failure);
+      }) as { protocolVersion?: unknown; agentCapabilities?: { mcpCapabilities?: { http?: unknown } } } | null;
       if (started?.protocolVersion !== ACP_PROTOCOL_VERSION) {
         throw unusable(`${run.name} speaks ACP version ${JSON.stringify(started?.protocolVersion)}; PALUGADA speaks ${ACP_PROTOCOL_VERSION}`);
       }
@@ -286,15 +363,18 @@ export function acpSession(run: AcpRun): AcpSession {
           ? [{ type: 'http', name: 'palugada', url: run.bridge.url, headers: [{ name: 'Authorization', value: `Bearer ${run.bridge.token}` }] }]
           : [],
       }), 'session/new').catch((failure: unknown) => {
-        if (failure instanceof AcpFailure && failure.code === AUTH_REQUIRED) {
-          throw unusable(`${run.name} needs to be signed in: give its entry the key it reads (${failure.message})`);
-        }
-        throw failure;
+        throw signIn(failure);
       }) as { sessionId?: unknown } | null;
       if (typeof opened?.sessionId !== 'string' || !opened.sessionId) throw new AcpFailure(`${run.name} opened no session`);
       sessionId = opened.sessionId;
-      // Withdrawn while the session was opening: it is cancelled as it opens.
-      if (cancelling) sendCancel();
+      // Withdrawn while the session was opening: the turn is never begun.
+      // `session/cancel` is for a turn in progress, and an agent sent the
+      // prompt after it does the whole turn -- spending, and calling tools.
+      if (cancelling) {
+        answered?.();
+        yield { type: 'error', message: `${run.name} stopped: the run was withdrawn before it began`, providerFailure: false };
+        return;
+      }
 
       let finished: { stopReason?: unknown } | null = null;
       let failure: Error | null = null;
@@ -313,13 +393,15 @@ export function acpSession(run: AcpRun): AcpSession {
         await new Promise<void>((resolve) => { wake = resolve; });
         wake = null;
       }
-      if (failure) throw failure;
+      // A run that failed still cost what it cost: reported before the
+      // failure, as `claude-code.ts` does, or a failed run -- and each retry
+      // of it -- was free.
+      const spent = usage();
+      if (spent) yield spent;
+      if (failure) throw signIn(failure);
 
       const messages = said.map((one) => one.text.trim()).filter(Boolean);
       for (const text of messages) yield { type: 'text', text };
-      if (costUsd !== null) {
-        yield { type: 'usage', usage: { model: run.model, inputTokens: 0, outputTokens: 0, costCents: costUsd * 100, runTotal: true } };
-      }
       const reason = (finished as { stopReason?: unknown } | null)?.stopReason;
       switch (reason) {
         case 'end_turn':
@@ -339,6 +421,8 @@ export function acpSession(run: AcpRun): AcpSession {
           yield { type: 'error', message: `${run.name} ended the turn as ${JSON.stringify(reason)}, which ACP version 1 does not name`, providerFailure: false };
       }
     } catch (failure) {
+      const spent = usage();
+      if (spent) yield spent;
       if (failure instanceof PalugadaError) throw failure;
       yield { type: 'error', message: (failure as Error).message, providerFailure: false };
     } finally {

@@ -18,6 +18,13 @@
  *   --auth-required        refuse session/new as the protocol's auth_required
  *   --hang-prompt          wait on the prompt until it is cancelled
  *   --stop <reason>        end the turn with this stop reason
+ *   --fail-prompt          answer the prompt with an internal error, after its cost
+ *   --auth-on-prompt       answer the prompt as the protocol's auth_required
+ *   --junk                 send lines that are not messages, and a permission
+ *                          request that names only its tool call, with an odd option
+ *   --string-ids           answer requests with their id as a string
+ *   --slow-session <ms>    take this long to open the session
+ *   --huge-line            write a line longer than any message may be, then wait
  */
 import { writeFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
@@ -29,13 +36,19 @@ const flag = (name) => {
 };
 const has = (name) => argv.includes(name);
 
-const report = { initialize: null, newSession: null, permissions: [], fsError: null, cancelled: false };
+const report = {
+  initialize: null, newSession: null, permissions: [], fsError: null, cancelled: false, prompted: false, junkPermission: null,
+};
+// A reader that stops reading is not this agent's concern; it goes on as a careless one would.
+process.stdout.on('error', () => undefined);
 const save = () => {
   const path = flag('--report');
   if (path) writeFileSync(path, JSON.stringify(report));
 };
 
-const send = (message) => process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', ...message })}\n`);
+const send = (message) => process.stdout.write(`${JSON.stringify({
+  jsonrpc: '2.0', ...message, ...(has('--string-ids') && message.method === undefined ? { id: String(message.id) } : {}),
+})}\n`);
 let nextId = 1000;
 const waiting = new Map();
 const ask = (method, params) => new Promise((resolve) => {
@@ -72,6 +85,14 @@ createInterface({ input: process.stdin }).on('line', (line) => {
       });
       return;
     case 'session/new':
+      if (flag('--slow-session')) {
+        setTimeout(() => {
+          report.newSession = message.params;
+          save();
+          send({ id: message.id, result: { sessionId } });
+        }, Number(flag('--slow-session')));
+        return;
+      }
       if (has('--auth-required')) {
         send({ id: message.id, error: { code: -32000, message: 'Authentication required' } });
         return;
@@ -95,8 +116,28 @@ createInterface({ input: process.stdin }).on('line', (line) => {
 });
 
 async function prompt(message) {
+  report.prompted = true;
+  save();
   const text = message.params.prompt.map((block) => block.text ?? '').join('');
   const update = (value) => send({ method: 'session/update', params: { sessionId, update: value } });
+  if (has('--auth-on-prompt')) {
+    send({ id: message.id, error: { code: -32000, message: 'Authentication required' } });
+    return;
+  }
+  if (has('--huge-line')) {
+    // More than a reader holds, and no end to the line.
+    process.stdout.write('x'.repeat(17 * 1024 * 1024));
+    await new Promise(() => undefined);
+  }
+  if (has('--junk')) {
+    process.stdout.write('null\n[1, 2]\n"a string"\n');
+    update({ sessionUpdate: 'tool_call', toolCallId: 'mcp-9', title: `mcp__palugada__${flag('--call')}`, kind: 'other', status: 'pending' });
+    const bare = await ask('session/request_permission', {
+      sessionId, toolCall: { toolCallId: 'mcp-9' }, options: [null, { optionId: 'ok', name: 'Allow always', kind: 'allow_always' }],
+    });
+    report.junkPermission = bare.result ?? bare.error;
+    save();
+  }
   update({ sessionUpdate: 'agent_message_chunk', messageId: 'm1', content: { type: 'text', text: 'Reading ' } });
   update({ sessionUpdate: 'agent_message_chunk', messageId: 'm1', content: { type: 'text', text: 'the zone.' } });
 
@@ -147,6 +188,10 @@ async function prompt(message) {
 
   const cost = flag('--cost');
   if (cost) update({ sessionUpdate: 'usage_update', used: 1_200, size: 200_000, cost: { amount: Number(cost), currency: 'USD' } });
+  if (has('--fail-prompt')) {
+    send({ id: message.id, error: { code: -32603, message: 'Internal error: the provider went away' } });
+    return;
+  }
 
   const done = reportOn(text);
   const answer = JSON.stringify({ tool, ...(done ? { done } : {}) });

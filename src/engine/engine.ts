@@ -972,7 +972,7 @@ export class Engine {
       // the monthly pause, the daily alert, the circuit breaker, the reports
       // -- see the bill rather than the estimate it replaced.
       if (usage.runTotal) {
-        const actual = Math.ceil(usage.costCents!);
+        const actual = wholeCents(usage.costCents!);
         const delta = actual - chargedCents;
         await withTenant(companyId, async (tx) => {
           if (delta !== 0) {
@@ -1013,7 +1013,7 @@ export class Engine {
       // on a bigint cast. Up rather than to nearest, because the error is a
       // cent at most per call and a ceiling should be the side that is
       // reached early, not late.
-      const costCents = usage.costCents === null ? estimate!.cents : Math.ceil(usage.costCents);
+      const costCents = usage.costCents === null ? estimate!.cents : wholeCents(usage.costCents);
 
       // Drawn from this task's own reservation, by what is left of it, in the
       // same transaction as the charge. Every call used to hand in the whole
@@ -1846,4 +1846,15 @@ export class Engine {
       );
     });
   }
+}
+
+/**
+ * Cents, rounded up to a whole one. Runtimes report dollars, and dollars
+ * times a hundred are not exact in floating point: $0.07 is
+ * 7.000000000000001 cents, which rounded straight up was charged as eight
+ * (the review of 9d4e2d8 found 573 of 10,000 whole-cent amounts overcharged
+ * so). What lies below a millionth of a cent is that error, not a charge.
+ */
+function wholeCents(cents: number): number {
+  return Math.ceil(Math.round(cents * 1e6) / 1e6);
 }

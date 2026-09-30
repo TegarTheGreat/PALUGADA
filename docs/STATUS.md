@@ -4315,6 +4315,27 @@ the code against it found these, and each is now closed with a test.
   provider's key. The tests run a stand-in written to the version 1
   schema; what they prove is what PALUGADA says and answers.
 
+- **Found in review, and closed.**
+  - *A run that failed cost nothing.* The session's cost was reported only
+    after a successful turn, so an agent that spent and then errored,
+    crashed or was killed was free, and so was every retry. It is reported
+    as the run goes and before any failure.
+  - *A line nobody could read left the run waiting.* A failure while
+    reading was swallowed and the adapter waited on an agent that no
+    longer had a reader; one that survived the broken pipe held the run
+    until its deadline, or for ever. The agent is stopped and the run
+    fails with the reason. A line that is not a message, and an odd
+    option in a permission request, are skipped rather than fatal.
+  - *A run withdrawn before its session opened did its whole turn*, since
+    `session/cancel` is for a turn in progress. The prompt is not sent.
+  - *Not signed in* halts the task from any request, not only
+    `session/new`; an id echoed as a string is answered; a permission
+    request naming only its tool call is judged by what the agent said of
+    that call as it began it, and a kind of its own there still refuses it.
+  - *Dollars to cents overcharged.* $0.07 is 7.000000000000001 cents in
+    floating point, charged as eight; the engine now ignores what lies
+    below a millionth of a cent, for every runtime.
+
 ## 2.43 Calls at once, per capability (F5.7)
 
 - **Half of a P0 requirement was missing.** F5.7 asks for a concurrency

@@ -286,6 +286,13 @@ alone with `docker run`, the image migrates first when it is given
 With more than one process, migrate once, then restart the processes one at
 a time.
 
+`npm run db:migrate` keeps each migration's checksum. If it says a migration
+"is not the migration this database ran", the file was edited after it was
+applied: check out the release you meant to run, or put the file back as it
+was. Nothing is applied until every migration that ran matches. Line
+endings do not count, and a database migrated before checksums were kept
+takes its files as they are the first time.
+
 ### Stopping and restarting
 
 On SIGTERM or SIGINT the console closes first, then the worker. A run in
@@ -321,7 +328,10 @@ with one incident.
 **The health check.** `GET /api/health` needs no session and says nothing
 about any company. It answers 200 when the database answers and the
 worker's loop has finished a tick in the last half hour, and 503 with the
-reason otherwise:
+reason otherwise. A database that does not answer is `"database":
+"unreachable"`; why -- the driver's words, which name hosts and roles -- is
+in the platform's log, as a line with `"stage":"health"`, not on the page
+anyone can fetch:
 
 ```json
 { "ok": true, "database": "ok", "worker": { "lastTickAt": "2026-09-26T08:15:02.114Z" } }

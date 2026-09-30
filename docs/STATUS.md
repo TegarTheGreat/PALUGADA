@@ -4167,6 +4167,45 @@ closed". Signal and email as owner channels are still open.
   server nor saves while the part in braces is still there. Seen in a
   screenshot, the first version asked Arcade for the gateway `{gateway}`.
 
+## 2.37 What the threat model found, and what changed
+
+`docs/THREAT-MODEL.md` names, for each kind of attacker, the defences in the
+order they apply, the file and the test for each, and what is left. Reading
+the code against it found these, and each is now closed with a test.
+
+- **A role's tools were a list only the tool bridge read (F2.4).** An agent
+  CLI saw only its role's tools; a runtime that speaks the wire itself -- a
+  script, an HTTP service, a container -- could name any tool its division
+  holds, and the broker, which checks the division, let it through. The
+  engine now refuses any other name from a runtime in another process,
+  before the broker is asked, and records it as `policy.denied`.
+- **Taint flowed down and not up (F8.9).** A run could hand the reading of
+  an email to a sub-task, take its answer back and send at tier 2 with
+  nobody asked. A read anywhere below a task now counts for it. So does a
+  lesson learned from outside content: found through `memory.search`, or
+  told in the run's briefing, which the engine records as it builds the
+  run's request.
+- **A division's credential could name the deployment's own secrets** that
+  are not sealed in the console: the owner's second factor as setup writes
+  it, `env://PALUGADA_SECRET_OWNER_TOTP`, or an MCP server's token file. An
+  imported archive keeps references as they were. The broker now refuses
+  any reference the deployment's configuration names, and anything that
+  resolves to the same value under another name.
+- **`/api/health` told anyone why the database could not be reached**: a
+  host, a port, a role's name. It says `unreachable` now, and the log keeps
+  the driver's words.
+- **An edited migration was skipped where it had run.** `scripts/migrate.ts`
+  recorded names only. It keeps each migration's checksum now and refuses,
+  by name and before anything runs, one whose file changed; line endings do
+  not count. A database migrated before this takes its files as they are on
+  the next run.
+- **`npm start` held the schema owner's URL**, read from the `.env` setup
+  writes. It drops it before it boots; nothing in the platform used it.
+- **Left as stated in the threat model.** Telegram's update ids are kept in
+  memory; the TOTP lockout can be held by anyone who can reach the sign-in
+  page; a tainted run can still put company data in a tier 0 `web.fetch`;
+  the event log is not hash-chained.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

@@ -4558,6 +4558,48 @@ the code against it found these, and each is now closed with a test.
   will run the containers: podman, rootless Docker and a remote DOCKER_HOST
   each decide some of these for themselves.
 
+## 2.47 The image sets its database up, and PID 1 holds no password
+
+Read against what Coolify and Dokploy give a container they run, on
+2026-09-30.
+
+- **2.27 was true of one variable and not of the container.** It found no
+  process with `PALUGADA_OWNER_URL`. Compose's `app` service also reads
+  `.env` whole (`env_file`), and `npm run setup` writes the superuser's and
+  every role's database password there (`PALUGADA_DB_*_PASSWORD`): tini and
+  the platform were started with all four. Run alone with the owner's URL,
+  tini -- PID 1 -- was started with it, and `env -u` took it from the
+  platform's process only. Agent CLIs run as the platform's user, and a
+  process can read the environment another process of its user was started
+  with in `/proc/<pid>/environ`, so each of these was theirs to read.
+- **The entrypoint (`deploy/docker/entrypoint.sh`)** now provisions, then
+  migrates, then unsets both URLs, `POSTGRES_PASSWORD`, every
+  `PALUGADA_DB_*_PASSWORD` and every `SERVICE_*` variable (Coolify gives
+  every container of a resource all of them), and only then execs tini. The
+  test runs it with all of these set and a program in tini's place: the
+  program saw none of them, and saw the application's and control plane's
+  URLs and a model key. On the real image, with Compose from a clean volume:
+  `migrate` applied 0001 to 0093, `app` came up healthy, `/api/health`
+  answered 200, PID 1 was `/usr/bin/tini -- node src/main.ts`, and no
+  process in the container held a password variable.
+- **A database without the repository.** Compose's `db` service mounts
+  `setup-database.sh` and `initdb.sh` from the checkout; a platform that runs
+  images has no checkout to mount, and runs its setup step on every deploy.
+  `scripts/provision-database.ts` takes a superuser's URL and the three
+  roles' URLs, makes what is missing, corrects a role whose attributes are
+  wrong, sets each password to the one in its URL, and drops nothing; the
+  image runs it when given `PALUGADA_SUPERUSER_URL`. The test provisions a
+  new database, finds only `palugada_admin` bypassing row level security and
+  no superuser, has the owner write a row, runs again and finds nothing
+  changed and the row kept, loosens `palugada_app` by hand and finds it put
+  back, and refuses a URL for the wrong role, one without a password, and a
+  superuser URL that is not a superuser's.
+- **Not closed.** The platform still holds what it needs -- the application
+  and control-plane URLs, and any key given as an `env://` reference -- in
+  its own environment, readable by an agent CLI that escapes its flags
+  (THREAT-MODEL 2.3). Running agent CLIs as a user of their own, or in the
+  container backend, is what closes it.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

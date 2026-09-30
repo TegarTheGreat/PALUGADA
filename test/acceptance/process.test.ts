@@ -24,6 +24,7 @@ import { LocalSecretManager } from '../../src/secrets/local.ts';
 import { isPalugadaError } from '../../src/errors.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { migrate } from '../../scripts/migrate.ts';
+import { provisionDatabase } from '../../scripts/provision-database.ts';
 
 before(ensureSchema);
 beforeEach(resetData);
@@ -290,4 +291,128 @@ test('a file:// secret is read only from inside the secret directories', async (
   await refused(`file://${root}/escape`, /secrets are read only from/);
   await refused(`file://${root}/nothing`, /no such file/);
   await refused('file://relative/path', /absolute path/);
+});
+
+/**
+ * A platform that runs PALUGADA from its image -- Coolify, Dokploy, a compose
+ * file with a stock postgres beside it -- has a superuser and none of
+ * setup-database.sh's bash, psql or repository files, and runs its setup
+ * step on every deploy. `provision-database.ts` makes what is missing,
+ * corrects what is wrong, and drops nothing.
+ */
+test('a database is provisioned from a superuser, a second time changes nothing, and nothing is dropped', async () => {
+  const superuserUrl = process.env.PALUGADA_SUPERUSER_URL ?? 'postgres://postgres:postgres@localhost:5432/postgres';
+  const name = `palugada_provision_${process.pid}`;
+  const inside = (url: string) => {
+    const at = new URL(url);
+    at.pathname = `/${name}`;
+    return at.toString();
+  };
+  const urls = { owner: inside(connectionString('owner')), app: inside(connectionString('app')), admin: inside(connectionString('admin')) };
+  const superuser = new pg.Client({ connectionString: superuserUrl });
+  await superuser.connect();
+  try {
+    await superuser.query(`DROP DATABASE IF EXISTS ${name}`);
+    const first = await provisionDatabase({ superuserUrl, urls });
+    assert.equal(first.database, name);
+    assert.ok(first.changed.includes(`made database ${name}`), first.changed.join('; '));
+    assert.ok(first.changed.includes('installed vector'), first.changed.join('; '));
+
+    const { rows: owned } = await superuser.query<{ owner: string }>(
+      'SELECT pg_get_userbyid(datdba) AS owner FROM pg_database WHERE datname = $1', [name]);
+    assert.equal(owned[0]?.owner, 'palugada_owner');
+    const { rows: roles } = await superuser.query<{ rolname: string; rolbypassrls: boolean; rolsuper: boolean }>(
+      "SELECT rolname, rolbypassrls, rolsuper FROM pg_roles WHERE rolname LIKE 'palugada%' ORDER BY rolname");
+    assert.deepEqual(roles.map((role) => [role.rolname, role.rolbypassrls, role.rolsuper]), [
+      ['palugada_admin', true, false], ['palugada_app', false, false], ['palugada_owner', false, false],
+    ], 'only the control plane bypasses row level security, and nobody is a superuser');
+
+    // The roles can use what was made: the owner migrates it, and the app connects.
+    const owner = new pg.Client({ connectionString: urls.owner });
+    await owner.connect();
+    await owner.query('CREATE TABLE kept (note text)');
+    await owner.query("INSERT INTO kept VALUES ('still here')");
+    await owner.end();
+
+    // Every deploy runs it again: nothing is made, nothing is dropped.
+    const again = await provisionDatabase({ superuserUrl, urls });
+    assert.deepEqual(again.changed, []);
+    const check = new pg.Client({ connectionString: urls.owner });
+    await check.connect();
+    assert.deepEqual((await check.query('SELECT note FROM kept')).rows, [{ note: 'still here' }]);
+    const { rows: extensions } = await check.query<{ extname: string }>(
+      "SELECT extname FROM pg_extension WHERE extname IN ('vector', 'pgcrypto') ORDER BY extname");
+    assert.deepEqual(extensions.map((row) => row.extname), ['pgcrypto', 'vector']);
+    await check.end();
+
+    // A role someone loosened by hand is put back: the boundary is its attributes.
+    await superuser.query('ALTER ROLE palugada_app BYPASSRLS');
+    const corrected = await provisionDatabase({ superuserUrl, urls });
+    assert.deepEqual(corrected.changed, ["corrected palugada_app's attributes"]);
+    const { rows: app } = await superuser.query<{ rolbypassrls: boolean }>(
+      "SELECT rolbypassrls FROM pg_roles WHERE rolname = 'palugada_app'");
+    assert.equal(app[0]?.rolbypassrls, false);
+
+    // A URL for the wrong role, or with no password, is refused by the setting's name before anything runs.
+    await assert.rejects(provisionDatabase({ superuserUrl, urls: { ...urls, app: urls.admin } }),
+      /PALUGADA_APP_URL connects as palugada_admin; it is palugada_app's URL/);
+    await assert.rejects(provisionDatabase({ superuserUrl, urls: { ...urls, admin: inside('postgres://palugada_admin@localhost:5432/x') } }),
+      /PALUGADA_ADMIN_URL names no password/);
+    await assert.rejects(provisionDatabase({ superuserUrl: urls.admin, urls }),
+      /does not connect as a superuser/);
+  } finally {
+    await superuser.query('ALTER ROLE palugada_app NOBYPASSRLS');
+    await superuser.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
+    await superuser.end();
+  }
+});
+
+/**
+ * The container starts in deploy/docker/entrypoint.sh: it provisions the
+ * database when given a superuser, migrates when given the schema owner, and
+ * starts the platform without either -- nor any password a platform like
+ * Coolify or Compose's own .env handed every container. The platform runs
+ * agent CLIs as its own user, and those can read /proc/1/environ: whatever
+ * PID 1 was started with was theirs to read, so the entrypoint unsets first
+ * and execs the init after.
+ */
+test('the container entrypoint sets the database up, then starts the platform without the keys it used', async () => {
+  const superuserUrl = process.env.PALUGADA_SUPERUSER_URL ?? 'postgres://postgres:postgres@localhost:5432/postgres';
+  const entry = new URL('../../deploy/docker/entrypoint.sh', import.meta.url).pathname;
+  const child = spawn('sh', [entry, process.execPath, '-e', 'console.log(JSON.stringify(Object.keys(process.env).sort()))'], {
+    env: {
+      PATH: process.env.PATH ?? '',
+      // What stands in for tini here: `env -- command` runs the command.
+      PALUGADA_INIT: '/usr/bin/env',
+      PALUGADA_SUPERUSER_URL: superuserUrl,
+      PALUGADA_OWNER_URL: connectionString('owner'),
+      PALUGADA_APP_URL: connectionString('app'),
+      PALUGADA_ADMIN_URL: connectionString('admin'),
+      // Compose's .env, and the variables Coolify generates for every container.
+      PALUGADA_DB_SUPERUSER_PASSWORD: 'super', PALUGADA_DB_OWNER_PASSWORD: 'owner',
+      PALUGADA_DB_APP_PASSWORD: 'app', PALUGADA_DB_ADMIN_PASSWORD: 'admin', POSTGRES_PASSWORD: 'super',
+      SERVICE_PASSWORD_POSTGRES: 'super', SERVICE_PASSWORD_OWNER: 'owner', SERVICE_URL_APP_8787: 'https://p.example',
+      ANTHROPIC_API_KEY: 'kept: the platform uses it',
+    },
+  });
+  let out = '';
+  let err = '';
+  child.stdout.on('data', (chunk: Buffer) => { out += chunk.toString(); });
+  child.stderr.on('data', (chunk: Buffer) => { err += chunk.toString(); });
+  const code = await new Promise<number | null>((resolve) => child.on('close', resolve));
+  assert.equal(code, 0, err);
+  const lines = out.trim().split('\n');
+  assert.match(out, /database palugada: already as PALUGADA needs it/, 'provisioned, and nothing to change');
+  assert.match(out, /already up to date/, 'migrated');
+  const seen = JSON.parse(lines.at(-1)!) as string[];
+  for (const gone of [
+    'PALUGADA_SUPERUSER_URL', 'PALUGADA_OWNER_URL', 'PALUGADA_DB_SUPERUSER_PASSWORD', 'PALUGADA_DB_OWNER_PASSWORD',
+    'PALUGADA_DB_APP_PASSWORD', 'PALUGADA_DB_ADMIN_PASSWORD', 'POSTGRES_PASSWORD', 'SERVICE_PASSWORD_POSTGRES',
+    'SERVICE_PASSWORD_OWNER', 'SERVICE_URL_APP_8787', 'PALUGADA_INIT',
+  ]) {
+    assert.ok(!seen.includes(gone), `${gone} reached the platform`);
+  }
+  for (const kept of ['PALUGADA_APP_URL', 'PALUGADA_ADMIN_URL', 'ANTHROPIC_API_KEY', 'PATH']) {
+    assert.ok(seen.includes(kept), `${kept} did not reach the platform`);
+  }
 });

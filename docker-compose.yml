@@ -47,7 +47,8 @@ services:
     image: palugada:local
     environment:
       <<: *owner-url
-    command: ["node", "scripts/migrate.ts"]
+    entrypoint: ["node", "scripts/migrate.ts"]
+    command: []
     restart: "no"
     depends_on:
       db:

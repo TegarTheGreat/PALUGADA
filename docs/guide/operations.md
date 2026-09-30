@@ -49,6 +49,47 @@ the service, and no agent CLI it starts, can read it.
 The platform's boot lines go to standard output and its JSON log lines to
 standard error, so both are in the journal.
 
+## Running the image by itself
+
+The image runs beside any PostgreSQL 16 with pgvector, without the compose
+file and without the repository:
+
+```sh
+docker build -t palugada .
+docker run -d --name palugada -p 127.0.0.1:8787:8787 -v palugada-home:/home/node \
+  -e PALUGADA_SUPERUSER_URL='postgres://postgres:…@db:5432/postgres' \
+  -e PALUGADA_OWNER_URL='postgres://palugada_owner:…@db:5432/palugada' \
+  -e PALUGADA_APP_URL='postgres://palugada_app:…@db:5432/palugada' \
+  -e PALUGADA_ADMIN_URL='postgres://palugada_admin:…@db:5432/palugada' \
+  -e PALUGADA_OWNER_TOTP_REF=env://PALUGADA_SECRET_OWNER_TOTP \
+  -e PALUGADA_SECRET_OWNER_TOTP=… \
+  palugada
+```
+
+Before the platform starts, the image's entrypoint
+(`deploy/docker/entrypoint.sh`):
+
+1. provisions the database when it is given `PALUGADA_SUPERUSER_URL`: the
+   three roles with the passwords in their URLs, the database, and the
+   extensions ([The database roles](#the-database-roles)). Nothing is
+   dropped, and a second start changes nothing;
+2. migrates when it is given `PALUGADA_OWNER_URL`, under a lock, so replicas
+   that start together apply each migration once;
+3. removes both URLs from its environment, with `POSTGRES_PASSWORD`, every
+   `PALUGADA_DB_*_PASSWORD` and every `SERVICE_*` variable, and only then
+   starts tini and the platform.
+
+The third step is why this happens in the entrypoint rather than in the
+platform. Agent CLIs run as the platform's user, and a process can read the
+environment another process of its user was started with
+(`/proc/<pid>/environ`); a variable removed later, or only from a child, is
+still there to read. A step that fails stops the container with its message,
+and the platform does not start on a database that is not ready.
+
+Leave out `PALUGADA_SUPERUSER_URL` once the database exists if you would
+rather the container never hold it; migrations still need
+`PALUGADA_OWNER_URL` at every upgrade.
+
 ## HTTPS in front of it
 
 The console and the API listen on `PALUGADA_HOST` (default `127.0.0.1`) and
@@ -293,8 +334,10 @@ and restart the platform (`npm start` again, or restart the service).
 With Docker Compose, take a backup, then `git pull` and
 `docker compose up -d --build`. The `migrate` service applies pending
 migrations under a database lock and exits, and `app` starts after it. Run
-alone with `docker run`, the image migrates first when it is given
-`PALUGADA_OWNER_URL`, and starts the platform without it.
+alone, with `docker run` or on a platform that runs images (see
+[Running the image by itself](#running-the-image-by-itself)), the image
+migrates first when it is given `PALUGADA_OWNER_URL`, and starts the
+platform without it.
 
 With more than one process, migrate once, then restart the processes one at
 a time.
@@ -586,6 +629,14 @@ letters, digits and `_ . ~ -`. `PALUGADA_DB_NAME` names the database
 `PALUGADA_SUPERUSER_URL` the superuser connection.
 It refuses to run over an existing database; `PALUGADA_RESET_DATABASE=yes`
 drops and recreates it, with everything in it.
+
+`node scripts/provision-database.ts` does the same without the repository's
+shell scripts, and without dropping anything: given `PALUGADA_SUPERUSER_URL`
+and the three URLs, it makes what is missing, corrects a role whose
+attributes are wrong, sets each role's password to the one in its URL, and a
+second run changes nothing. Its passwords may hold any character a URL can
+carry percent-encoded. The image runs it before every start when it is given
+`PALUGADA_SUPERUSER_URL`.
 
 A managed PostgreSQL service works if it offers PostgreSQL 16 with pgvector
 and lets you create a role with `BYPASSRLS`; check both before you choose

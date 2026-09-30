@@ -28,6 +28,7 @@ COPY src ./src
 COPY db ./db
 COPY scripts ./scripts
 COPY config ./config
+COPY deploy/docker/entrypoint.sh ./deploy/docker/entrypoint.sh
 COPY --from=console /app/console/dist ./console/dist
 
 # Not as root: the platform starts agent CLIs on a company's behalf, and a
@@ -40,10 +41,11 @@ EXPOSE 8787
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s \
   CMD node -e "fetch('http://127.0.0.1:8787/api/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
 
-# Migrations first when the schema owner's URL is given, under an advisory
-# lock, so replicas starting together apply each once; then the platform, as
-# the only child of tini, without that URL: it can alter and empty any table,
-# and nothing the platform runs needs it. Docker Compose migrates in a service
-# of its own and gives the platform no such URL at all.
-ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["sh", "-c", "if [ -n \"$PALUGADA_OWNER_URL\" ]; then node scripts/migrate.ts || exit $?; fi; exec env -u PALUGADA_OWNER_URL node src/main.ts"]
+# The database provisioned when a superuser's URL is given, migrations run
+# when the schema owner's is, and then the platform, under tini, without
+# either and without any database password the container was handed
+# (deploy/docker/entrypoint.sh says why PID 1 must not hold them). Docker
+# Compose migrates in a service of its own and gives the platform no such
+# URL at all.
+ENTRYPOINT ["/app/deploy/docker/entrypoint.sh"]
+CMD ["node", "src/main.ts"]

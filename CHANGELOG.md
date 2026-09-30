@@ -61,5 +61,9 @@ The first version. What it holds, in the order an owner meets it.
   documented.
 - Docker Compose, a Docker image and a systemd unit; the running platform
   never holds the schema owner's URL; append-only history refuses TRUNCATE.
+- The image sets its own database up from a superuser's URL and migrates
+  before it starts, so it runs beside a stock pgvector database with nothing
+  from the repository; PID 1 is started without any database password
+  (STATUS 2.47).
 - A threat model ([docs/THREAT-MODEL.md](docs/THREAT-MODEL.md)) naming each
   defence, its test, and what is left.

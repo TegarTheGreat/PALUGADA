@@ -198,7 +198,10 @@ refer to `docs/PRD.md`.
   code and is held to the division's grants, not the role's list.
 - An agent CLI runs as the platform's OS user with the network open. Its
   containment is its own flags; if they fail it reads what that user reads,
-  `.env` in a checkout included.
+  `.env` in a checkout included, and the environment the platform was
+  started with in `/proc/<pid>/environ`: the application and control-plane
+  URLs, and any key given as an `env://` reference. What the platform does
+  not need is gone before it starts (section 2.9); what it needs is not.
 - The version check believes `--version`. Hermes is held to none, and
   neither is an agent run over ACP.
 - An ACP agent is refused its own tools only when it asks: permission
@@ -307,10 +310,15 @@ authority below tier 3.
   unless the session sets `app.allow_truncate` (0082). `events` rows are
   deleted only in a retention purge, outside the window, failing closed with no
   policy (0007).
-- Compose, the image (`env -u`) and the systemd unit (`UnsetEnvironment=`)
-  keep the schema owner URL from the running platform, and `npm start`, which
-  reads a `.env` that setup writes with all three URLs, drops it from its own
-  environment before it boots (`src/main.ts`). None of the four is tested.
+- Compose, the image and the systemd unit (`UnsetEnvironment=`) keep the
+  schema owner URL from the running platform, and `npm start`, which reads a
+  `.env` that setup writes with all three URLs, drops it from its own
+  environment before it boots (`src/main.ts`). The image's entrypoint
+  provisions and migrates, then unsets the superuser's and schema owner's
+  URLs, every database password Compose's `.env` or Coolify's `SERVICE_*`
+  variables handed the container, and only then execs tini, so PID 1 holds
+  none of them (`deploy/docker/entrypoint.sh`, `process.test.ts`). The unit
+  and `npm start` are not tested.
 - Migrations: `scripts/migrate.ts` keeps each one's checksum and refuses, by
   name and before anything runs, one whose file changed after it ran; one
   recorded before checksums were kept is taken as it is on the next run. The
@@ -369,7 +377,7 @@ All under `test/acceptance/` unless named.
 | Signatures, publishers, quarantine | `bundles.test.ts` |
 | TRUNCATE refused | `retention-rotation.test.ts` |
 | Text rendering; token in memory | `test/documents/console-page.test.ts` |
-| Schema owner URL absent at run time | none |
+| Schema owner URL and database passwords absent from PID 1 in the image; provisioning corrects loosened roles | `process.test.ts` (the systemd unit and `npm start`: none) |
 | Migration contents unchanged | `process.test.ts` |
 | A role's tools, for every runtime in another process | `out-of-process-runtimes.test.ts` |
 | The guardian: judged only after outside content, only tightens, fails closed | `guardian.test.ts` |

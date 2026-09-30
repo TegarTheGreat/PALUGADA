@@ -4233,6 +4233,17 @@ the code against it found these, and each is now closed with a test.
   day, what model providers and vendors were sent, and the owner's own chat
   history.
 
+## 2.39 Telegram updates taken in once, whichever process gets them
+
+- **The channel remembered update ids in its own memory.** An update
+  Telegram sent again after a restart, or to another replica behind the same
+  address, was handled again: not a decision, whose item was closed, but the
+  owner's words to the CEO, said and answered twice. The threat model named
+  it (2.37).
+- **Claimed in the database now (0089)**, keyed by the bot and the update
+  id, as WhatsApp's messages are (0085), and kept two weeks: Telegram gives
+  up on an update after a day.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

@@ -378,6 +378,9 @@ test('only the owner, in their own chat, is heard; a retried update is answered 
     const once = typed('Halo');
     assert.deepEqual((await post(api.url, once)).body, { handled: true });
     assert.deepEqual((await post(api.url, once)).body, { handled: false, reason: 'duplicate' });
+    // And after a restart, or at another replica: the same update, remembered
+    // where every process sees it, not in the one that took it.
+    assert.deepEqual(await channelFor(bot).onUpdate(once as never, { secretHeader: SECRET }), { handled: false, reason: 'duplicate' });
     // Sent before the first is answered, and a reply to the CEO's own answer:
     // answered after the first, knowing what it said.
     const reply = typed('Kirim laporannya');

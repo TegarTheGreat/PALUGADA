@@ -256,11 +256,11 @@ reaches a chat only as a link. The assistant applies only cards marked
 `chat: true` there (`src/owner/assistant-actions.ts`). WhatsApp claims each
 message id in the database before acting (0085).
 
-**Residual risk.** Telegram remembers update ids in process memory, so a
-redelivery after a restart or at another replica is processed again. A
-decision is not repeated (the item is closed); the owner's words to the CEO
-can be. Whoever holds the owner's chat account has session-level authority
-below tier 3.
+Telegram claims each update id, with its bot, the same way (0089), so a
+redelivery after a restart or at another replica is taken in once.
+
+**Residual risk.** Whoever holds the owner's chat account has session-level
+authority below tier 3.
 
 ### 2.8 Supply chain
 
@@ -328,7 +328,7 @@ All under `test/acceptance/` unless named.
 | Session is not a factor; tighten with session, loosen with factor | `owner-api.test.ts` |
 | Recovery codes hashed and limited | `recovery-codes.test.ts` |
 | Hook tokens and signatures | `triggers.test.ts` |
-| Telegram and WhatsApp: secret, stranger, duplicate, tier 3 | `owner-channels.test.ts`, `whatsapp.test.ts` |
+| Telegram and WhatsApp: secret, stranger, duplicate (across processes), tier 3 | `owner-channels.test.ts`, `whatsapp.test.ts`, `telegram-conversation.test.ts` |
 | Metrics token | `operability.test.ts` |
 | OAuth state and PKCE | `mcp-oauth.test.ts`, `vendor-oauth.test.ts` |
 | Taint asks at tier 2 | `tool-io.test.ts`, `triggers.test.ts`, `mcp-client.test.ts`, `web-search.test.ts` |

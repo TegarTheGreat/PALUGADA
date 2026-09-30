@@ -153,6 +153,9 @@ test('every table holding tenant data is protected', async () => {
     // after the company and every row of it are gone. The platform's, read
     // by the owner on the control plane; the application role has no grant.
     'company_erasures',
+    // Which Telegram updates were taken in (0089): update ids, nothing of
+    // what they said, and the platform's like WhatsApp's.
+    'telegram_receipts',
     // A sign-in to an MCP server between the console and the callback (0080):
     // the platform's, like the deployment's settings it ends in.
     'mcp_authorizations',

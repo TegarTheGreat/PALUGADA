@@ -78,6 +78,8 @@ export async function resetData(): Promise<void> {
   // And what WhatsApp delivered and was sent (0085): a message id one file
   // claimed would be a duplicate to every later one.
   await ownerPool().query('TRUNCATE whatsapp_receipts, whatsapp_sent');
+  // And Telegram's (0089), for the same reason: each file counts its updates from one.
+  await ownerPool().query('TRUNCATE telegram_receipts');
   // And which workers said they were alive (0079): a worker a test left
   // running, or a process killed before it could take its word back, would
   // otherwise be a holder every later file's sweep thinks has died.

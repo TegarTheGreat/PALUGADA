@@ -170,18 +170,25 @@ for what they do that it does not.
 |---|---|---|---|---|
 | **An irreversible action** | Buzz approves every tool permission itself | "Do not wait for human approval" | Decisions expire after a week; no second factor | The owner, with a second factor; unanswered means cancelled |
 | **Isolation between companies** | Buzz: row-level security specified, not shipped | — | Application code only | Forced row-level security, company-scoped foreign keys |
+| **A spending ceiling** | — | — | Checked after the money is spent, so the call that crosses it runs | Reserved before the work starts, and each capability's estimate charged before it runs; one call costing more than its estimate can still pass it |
 | **Usage an agent did not price** | — | Paused as "unverifiable" | Recorded at 0¢, so the hard stop never trips | Priced from the operator's list or a high fallback |
 | **Agents triggering agents** | Buzz: no hop limit | — | A re-wake throttle, no hop limit | Hop limit and cycle detection |
 | **Past decisions** | Lost as threads scroll | A file the model rewrites each cycle | Kept with the decider's note | Kept with the outcome and your note, and searchable |
-| **Integrations** | Slack: a large app directory | — | A governed MCP gateway | Built-ins, vendor files, allow-listed MCP servers; no connector catalogue or OAuth flow |
-| **Watching it run** | — | — | Tracing | JSON logs and a health check; no tracing or metrics yet |
+| **Integrations** | Slack: a large app directory | — | A governed MCP gateway | Built-ins, vendor files, MCP servers signed in with OAuth, and Composio, Pipedream, Arcade, Smithery and Zapier by name; every tool still at a tier |
+| **Watching it run** | — | — | Tracing | JSON logs, a health check, Prometheus metrics and OpenTelemetry traces |
 | **Installing** | Slack: nothing, it is hosted; Buzz: a container image | A script | A container image | `npm run setup`, then Docker Compose or Node and Postgres; Linux only |
 | **People** | Many | One | Many | One owner, by design |
 
-The first five rows are cited to source code or public documentation in
+The ceiling row is cited to Paperclip's `server/src/services/budgets.ts`
+in [docs/COMPETITIVE-ANALYSIS-2026-09-30.md](docs/COMPETITIVE-ANALYSIS-2026-09-30.md),
+which also found the same among newer projects: AgenticOS says in its own
+documentation that runs going at once can pass its ceiling, and OtoDock
+checks spending already recorded with nothing reserved. The next five rows
+are cited to source code or public documentation in
 [docs/RESEARCH-2026-09.md](docs/RESEARCH-2026-09.md); the last four, and the
 corrections to the Paperclip column, come from the audit recorded in
-[docs/STATUS.md](docs/STATUS.md) section 2.21.
+[docs/STATUS.md](docs/STATUS.md) section 2.21, brought up to date as the
+integrations and observability were built.
 
 ## Architecture
 

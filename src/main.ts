@@ -44,6 +44,7 @@ import { PalugadaError } from './errors.ts';
 import { OwnerApi } from './owner/api.ts';
 import { WebhookPush, ntfyBody } from './owner/push.ts';
 import { TelegramChannel } from './owner/telegram.ts';
+import { WhatsAppChannel } from './owner/whatsapp.ts';
 import { WebhookChatChannel } from './owner/webhook-chat.ts';
 import type { OwnerChannel } from './owner/notify.ts';
 import { AdapterRegistry } from './runtime/protocol.ts';
@@ -294,6 +295,41 @@ export async function channelsFrom(
     notes.push(
       'no message channel: set PALUGADA_TELEGRAM_TOKEN and PALUGADA_TELEGRAM_CHAT (F10.9)',
     );
+  }
+
+  // WhatsApp through Meta's Cloud API: the business number's id, a system
+  // user's token, the app secret that signs deliveries, the verify token the
+  // webhook is subscribed with, and the owner's number. Without the secret
+  // the channel could not tell Meta from anyone, so it is not made at all.
+  const whatsappToken = await read('PALUGADA_WHATSAPP_TOKEN', 'PALUGADA_WHATSAPP_TOKEN_REF');
+  const whatsappSecret = await read('PALUGADA_WHATSAPP_APP_SECRET', 'PALUGADA_WHATSAPP_APP_SECRET_REF');
+  const whatsappVerify = await read('PALUGADA_WHATSAPP_VERIFY_TOKEN', 'PALUGADA_WHATSAPP_VERIFY_TOKEN_REF');
+  if (env.PALUGADA_WHATSAPP_PHONE_ID || whatsappToken) {
+    const owner = (env.PALUGADA_WHATSAPP_OWNER ?? '').replace(/[\s+()-]/g, '');
+    const template = /^([a-z0-9_]{1,512}):([A-Za-z_]{2,8})$/.exec(env.PALUGADA_WHATSAPP_TEMPLATE ?? '');
+    const missing = [
+      ...(env.PALUGADA_WHATSAPP_PHONE_ID ? [] : ['PALUGADA_WHATSAPP_PHONE_ID']),
+      ...(whatsappToken ? [] : ['PALUGADA_WHATSAPP_TOKEN']),
+      ...(whatsappSecret ? [] : ['PALUGADA_WHATSAPP_APP_SECRET']),
+      ...(whatsappVerify ? [] : ['PALUGADA_WHATSAPP_VERIFY_TOKEN']),
+      ...(/^\d{8,15}$/.test(owner) ? [] : ['PALUGADA_WHATSAPP_OWNER (the owner\'s number with its country code, digits only)']),
+    ];
+    if (missing.length > 0) {
+      notes.push(`no WhatsApp channel: set ${missing.join(', ')} (F10.9)`);
+    } else {
+      if (env.PALUGADA_WHATSAPP_TEMPLATE && !template) {
+        notes.push('PALUGADA_WHATSAPP_TEMPLATE is not name:language (palugada_notice:id); WhatsApp can only answer the owner within a day of their last message');
+      }
+      channels.push(new WhatsAppChannel({
+        phoneNumberId: env.PALUGADA_WHATSAPP_PHONE_ID!,
+        token: whatsappToken!,
+        appSecret: whatsappSecret!,
+        verifyToken: whatsappVerify!,
+        owner,
+        ...(template ? { template: { name: template[1]!, language: template[2]! } } : {}),
+        ...(env.PALUGADA_WHATSAPP_API ? { apiBase: env.PALUGADA_WHATSAPP_API } : {}),
+      }));
+    }
   }
 
   for (const kind of ['slack', 'discord'] as const) {
@@ -760,6 +796,8 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   // nothing at all.
   const telegram = channels.find((channel): channel is TelegramChannel =>
     channel instanceof TelegramChannel);
+  const whatsapp = channels.find((channel): channel is WhatsAppChannel =>
+    channel instanceof WhatsAppChannel);
 
   const bindHost = options.host ?? env.PALUGADA_HOST ?? '127.0.0.1';
   // The console is a built page. A deployment started from a fresh checkout
@@ -794,6 +832,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     ...(options.consoleRoot ? { staticRoot: options.consoleRoot } : {}),
     ...(env.PALUGADA_CONSOLE_ORIGIN ? { origin: env.PALUGADA_CONSOLE_ORIGIN } : {}),
     ...(telegram ? { telegram } : {}),
+    ...(whatsapp ? { whatsapp } : {}),
     ...(allowedHosts ? { allowedHosts } : {}),
     ...(env.PALUGADA_BEHIND_PROXY === '1' || env.PALUGADA_BEHIND_PROXY === 'true' ? { behindProxy: true } : {}),
     // The same list the process prints, held by reference: notes added
@@ -868,14 +907,15 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
       // so three upgrades during one long task halted it.
       const graceMs = options.stopGraceMs ?? STOP_GRACE_MS;
       const grace = setTimeout(() => stopping.abort(), graceMs);
-      // An answer the owner is waiting for in Telegram gets the same moment:
+      // An answer the owner is waiting for in a chat gets the same moment:
       // their message is already in the conversation, and stopped halfway
       // they would have asked and heard nothing.
       let answered: NodeJS.Timeout | undefined;
+      const graceOver = new Promise<void>((resolve) => { answered = setTimeout(resolve, graceMs); });
       try {
         await Promise.all([
           running,
-          telegram ? Promise.race([telegram.settled(), new Promise<void>((resolve) => { answered = setTimeout(resolve, graceMs); })]) : undefined,
+          ...[telegram, whatsapp].map((chat) => (chat ? Promise.race([chat.settled(), graceOver]) : undefined)),
         ]);
       } finally {
         clearTimeout(grace);

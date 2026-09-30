@@ -27,7 +27,7 @@ import { renderPersona, type RolePersona } from '../domain/personas.ts';
 import { say } from './say.ts';
 import { ASSISTANT_ACTIONS, ASSISTANT_CHECKS, NOT_FOR_THE_ASSISTANT, UNREADABLE, type AssistantAction } from './assistant-actions.ts';
 
-export type AssistantChannel = 'console' | 'telegram';
+export type AssistantChannel = 'console' | 'telegram' | 'whatsapp';
 
 export interface AssistantProposal {
   id: string;
@@ -214,10 +214,10 @@ export async function chatScope(channel: AssistantChannel): Promise<Scope> {
   return companies.length === 1 ? companies[0]!.companyId : null;
 }
 
-/** Moves Telegram to another conversation, said in that conversation: which is where the choice is kept. */
-export async function moveChat(companyId: Scope): Promise<void> {
+/** Moves a chat to another conversation, said in that conversation: which is where the choice is kept. */
+export async function moveChat(companyId: Scope, channel: Exclude<AssistantChannel, 'console'> = 'telegram'): Promise<void> {
   if (companyId !== null) await speakerFor(companyId);
-  await record('event', 'The owner is talking from Telegram now.', 'telegram', companyId);
+  await record('event', `The owner is talking from ${channel === 'telegram' ? 'Telegram' : 'WhatsApp'} now.`, channel, companyId);
 }
 
 /**
@@ -457,6 +457,10 @@ export async function converse(options: AssistantOptions, text: string, channel:
     // And it is read on a phone.
     ...(channel === 'telegram'
       ? ['', 'The owner is reading this in Telegram, on their phone: keep it short. Bold, lists and links show as Markdown does; HTML does not, so write none. The cards you propose are shown under your answer.']
+      : []),
+    // WhatsApp has its own few marks and no headings, tables or link syntax.
+    ...(channel === 'whatsapp'
+      ? ['', 'The owner is reading this in WhatsApp, on their phone: keep it short. Write *bold* with one asterisk and _italic_ with underscores; there are no headings, tables, link syntax or HTML, so write an address as it is. The cards you propose are listed under your answer.']
       : []),
   ].join('\n');
   let answer = '';

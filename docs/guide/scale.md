@@ -34,9 +34,9 @@ tools; a hosted model's fast or standard tier, or a capable local model.
 
 **Configure.**
 - The monthly ceiling on **Money** for each company. USD 200 is the default.
-- Telegram or push, so the inbox reaches you. Both need the console
+- Telegram, WhatsApp or push, so the inbox reaches you. Each needs the console
   reachable over HTTPS from your phone
-  ([how-to](how-to.md#push-notifications-and-telegram)).
+  ([how-to](how-to.md#push-notifications-telegram-and-whatsapp)).
 - The company's languages, if its customers or you work in something other
   than the default.
 - A price list (`PALUGADA_MODEL_PRICES`) if your model is not priced by

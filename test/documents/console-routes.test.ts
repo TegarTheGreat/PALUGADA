@@ -38,6 +38,10 @@ const API_ONLY: Record<string, string> = {
   // Not a page's at all: Telegram posts button presses here.
   'POST /api/channels/telegram':
     'machine: Telegram posts the owner\'s button presses here, authenticated by the webhook secret',
+  'GET /api/channels/whatsapp':
+    'machine: Meta checks the webhook subscription here, with the verify token',
+  'POST /api/channels/whatsapp':
+    'machine: Meta posts what the owner sends on WhatsApp here, signed with the app secret',
   'POST /api/hooks/:publicId':
     'machine: another service posts its events here, authenticated by the trigger\'s token',
   'GET /api/oauth/callback':

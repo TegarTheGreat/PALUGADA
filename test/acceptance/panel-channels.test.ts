@@ -25,6 +25,7 @@ import { channelsFrom } from '../../src/main.ts';
 import { TelegramChannel } from '../../src/owner/telegram.ts';
 import { WebhookPush } from '../../src/owner/push.ts';
 import { WebhookChatChannel } from '../../src/owner/webhook-chat.ts';
+import { WhatsAppChannel } from '../../src/owner/whatsapp.ts';
 import type { NotifiableItem } from '../../src/owner/notify.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
@@ -175,6 +176,73 @@ test('the owner connects Telegram from the console: the bot checked, their chat 
     assert.deepEqual(telegram.calls.at(-1), { method: 'deleteWebhook', body: { drop_pending_updates: true } });
     await assert.rejects(api.secrets.resolve('db://channel-telegram'), /nothing is stored/);
     await assert.rejects(api.secrets.resolve('db://channel-telegram-webhook'), /nothing is stored/);
+  } finally {
+    await api.close();
+  }
+});
+
+/** Meta's Graph API, as far as looking up a business number goes. */
+async function graphApi() {
+  const asked: Array<{ path: string; authorization: string | null }> = [];
+  const server = createServer((req, res) => {
+    asked.push({ path: req.url ?? '', authorization: req.headers.authorization ?? null });
+    const known = req.headers.authorization === 'Bearer EAAG-system-user-token' && (req.url ?? '').startsWith('/106540352242922?');
+    res.writeHead(known ? 200 : 400, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(known
+      ? { display_phone_number: '+62 21 5555 0100', verified_name: 'Kopi Nusantara', id: '106540352242922' }
+      : { error: { message: 'Invalid OAuth access token - Cannot parse access token', type: 'OAuthException', code: 190 } }));
+  });
+  servers.push(server);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, asked };
+}
+
+test('the owner connects WhatsApp from the console: the number checked with Meta, its secrets sealed, the webhook\'s two values shown', async () => {
+  const graph = await graphApi();
+  const api = await consoleWithSettings({ PALUGADA_WHATSAPP_API: graph.url, PALUGADA_APP_URL_PUBLIC: 'https://palugada.example/' });
+  try {
+    const token = await api.signIn();
+    assert.equal((await api.call('GET', '/api/control/channels', token)).body.whatsapp.source, null);
+    const fields = { phoneNumberId: '106540352242922', owner: '+62 812-3456-7890', template: 'palugada_notice:id', appSecret: '0123456789abcdef0123456789abcdef' };
+
+    const number = await api.call('POST', '/api/control/channels/whatsapp', token, { ...fields, phoneNumberId: '+6221555501' });
+    assert.equal(number.status, 400);
+    assert.match(String(number.body.error), /the phone number ID is the number Meta shows under API Setup/);
+    const refused = await api.call('POST', '/api/control/channels/whatsapp', token, { ...fields, token: 'EAAG-a-wrong-token', proof: { totp: api.code() } });
+    assert.equal(refused.status, 400, 'Meta\'s refusal is the owner\'s to read');
+    assert.match(String(refused.body.error), /WhatsApp did not accept that number id and token: Invalid OAuth access token/);
+    assert.equal((await api.call('POST', '/api/control/channels/whatsapp', token, { ...fields, token: 'EAAG-system-user-token' })).status, 403, 'a factor');
+
+    const saved = await api.call('POST', '/api/control/channels/whatsapp', token, { ...fields, token: 'EAAG-system-user-token', proof: { totp: api.code() } });
+    assert.equal(saved.status, 200, JSON.stringify(saved.body));
+    assert.deepEqual(saved.body.number, { number: '+62 21 5555 0100', name: 'Kopi Nusantara' });
+    assert.equal(await api.secrets.resolve('db://channel-whatsapp'), 'EAAG-system-user-token');
+    assert.equal(await api.secrets.resolve('db://channel-whatsapp-app-secret'), fields.appSecret);
+    const verifyToken = await api.secrets.resolve('db://channel-whatsapp-verify');
+    assert.match(verifyToken, /^[0-9a-f]{48}$/);
+
+    const listed = (await api.call('GET', '/api/control/channels', token)).body;
+    assert.deepEqual(listed.whatsapp, {
+      source: 'console', phoneNumberId: '106540352242922', owner: '6281234567890', template: 'palugada_notice:id',
+      callbackUrl: 'https://palugada.example/api/channels/whatsapp', verifyToken,
+    });
+    assert.ok(!JSON.stringify(listed).includes('EAAG-system-user-token') && !JSON.stringify(listed).includes(fields.appSecret), 'no credential comes back');
+
+    // Saved again without the secrets, as the page does to change the template: the sealed ones are kept, and so is the verify token Meta was given.
+    const again = await api.call('POST', '/api/control/channels/whatsapp', token, { phoneNumberId: fields.phoneNumberId, owner: fields.owner, template: '', proof: { totp: api.code() } });
+    assert.equal(again.status, 200, JSON.stringify(again.body));
+    assert.equal(await api.secrets.resolve('db://channel-whatsapp-verify'), verifyToken);
+
+    const env = withSettings({ PALUGADA_WHATSAPP_API: graph.url }, await readSettings());
+    const built = await channelsFrom(env, (reference) => api.secrets.resolve(reference));
+    assert.ok(built.channels.some((one) => one instanceof WhatsAppChannel), built.notes.join('\n'));
+    assert.ok(!built.notes.some((note) => /WhatsApp/.test(note)), built.notes.join('\n'));
+
+    assert.equal((await api.call('POST', '/api/control/channels/whatsapp/clear', token, { proof: { totp: api.code() } })).status, 200);
+    for (const name of ['channel-whatsapp', 'channel-whatsapp-app-secret', 'channel-whatsapp-verify']) {
+      await assert.rejects(api.secrets.resolve(`db://${name}`), /nothing is stored/);
+    }
+    assert.equal((await api.call('GET', '/api/control/channels', token)).body.whatsapp.source, null);
   } finally {
     await api.close();
   }

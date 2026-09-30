@@ -905,9 +905,9 @@ best kept to what holds for every piece of work.
   **Failure rate, 0 to 1** and **Policy denials a day**. Each fires once per
   condition per day.
 
-## Push notifications and Telegram
+## Push notifications, Telegram and WhatsApp
 
-Open **This deployment**, **Channels**. For Telegram's buttons and the
+Open **This deployment**, **Channels**. For the chat buttons and the
 links in every notification to work, the console must be reachable from your
 phone: set `PALUGADA_APP_URL_PUBLIC` to its HTTPS address first.
 
@@ -967,6 +967,49 @@ taken out before it is sent, and a picture becomes a link you see before
 opening. A local Bot API server too old for rich messages or drafts gets
 plain text and "typing…" instead.
 
+**WhatsApp.** The same as Telegram, on a WhatsApp Business number through
+Meta's Cloud API. It needs a Meta app, which takes longer to set up than a
+Telegram bot, and Meta charges for a conversation the business starts.
+
+1. In Meta for Developers, make an app with the WhatsApp product and add
+   your business number. Under **Business settings**, **System users**,
+   make a system user, give it the app and the number, and generate a
+   token that does not expire, with `whatsapp_business_messaging`.
+2. In the card, fill in the **Phone number ID** (under WhatsApp, **API
+   Setup**; it is not the number), **Your WhatsApp number** with its
+   country code, the **Access token**, and the **App secret** (the app's
+   **Basic** settings). Press **Save** with a code from your
+   authenticator. The number is checked with Meta first, and the three
+   secrets are sealed.
+3. The card then shows a **Callback URL** and a **Verify token**. In the
+   app's WhatsApp **Configuration**, paste both as the webhook and
+   subscribe to `messages`.
+4. Send the number any message from your WhatsApp. That opens the
+   conversation, and your CEO answers.
+
+WhatsApp lets a business write first only within 24 hours of your last
+message. Past that, a message is refused, and PALUGADA can only send an
+approved template in its place. Make a **utility** template with one body
+parameter (for example `PALUGADA: {{1}}. Reply to see the buttons.`),
+and put its name and language in **Template**, as `palugada_notice:id`.
+The item's summary goes in the parameter, and its buttons follow as soon
+as you reply. Without a template, the message is not sent, and the
+company's record says why.
+
+What arrives, and what a press can do, is what Telegram gets: buttons for
+questions, proposed procedures and skills, and approvals up to tier 2; a
+tier 3 approval or an incident is a link. A question with choices is a
+list. **Ask** sends a message you answer by replying to it (swipe it), and
+the task reads your words. Write anything else and your CEO answers;
+`/ceo` lists whom you can talk to, and `/palugada` talks to PALUGADA's
+assistant. A card the chat may apply comes with an **Apply** button.
+WhatsApp reads text here; a voice note is for Telegram or the console.
+
+Only your number is heard. A press from any other number is recorded as a
+security event in the item's company and is not answered. Every delivery
+is checked against Meta's signature, and each message is acted on once,
+even when Meta sends it again after a restart.
+
 **Your phone (push).** Push carries only incidents and tier 3 approvals,
 which is what may interrupt you outside your hours, and the daily digest,
 quietly.
@@ -995,7 +1038,11 @@ Telegram's `setWebhook` as its secret token, with `allowed_updates` of
 the stop button); `PALUGADA_PUSH_URL`, with
 `PALUGADA_PUSH_FORMAT=ntfy` and `PALUGADA_PUSH_TOPIC` for ntfy and
 `PALUGADA_PUSH_TOKEN`; `PALUGADA_SLACK_WEBHOOK` and
-`PALUGADA_DISCORD_WEBHOOK`. Each credential can instead be a secret
+`PALUGADA_DISCORD_WEBHOOK`; `PALUGADA_WHATSAPP_PHONE_ID`,
+`PALUGADA_WHATSAPP_TOKEN`, `PALUGADA_WHATSAPP_APP_SECRET`,
+`PALUGADA_WHATSAPP_VERIFY_TOKEN` (a random string you give Meta as the
+webhook's verify token), `PALUGADA_WHATSAPP_OWNER` and, optionally,
+`PALUGADA_WHATSAPP_TEMPLATE`. Each credential can instead be a secret
 reference in the variable of the same name ending `_REF`. A channel set in
 the console replaces that channel's variables.
 

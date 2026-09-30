@@ -9,12 +9,12 @@
  * which is exactly when an owner needs it.
  */
 import {
-  Accordion, Alert, Anchor, Autocomplete, Avatar, Badge, Button, Code, Grid, Group, NavLink, Paper, PasswordInput, Radio,
+  Accordion, Alert, Anchor, Autocomplete, Avatar, Badge, Button, Code, CopyButton, Grid, Group, NavLink, Paper, PasswordInput, Radio,
   Checkbox, SegmentedControl, Select, SimpleGrid, Stack, Switch, Table, Text, Textarea, TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
-  IconApi, IconBell, IconBrain, IconCheck, IconDownload, IconExternalLink, IconKey, IconListSearch, IconMicrophone, IconPlayerStopFilled, IconPlug,
+  IconApi, IconBell, IconBrain, IconCheck, IconCopy, IconDownload, IconExternalLink, IconKey, IconListSearch, IconMicrophone, IconPlayerStopFilled, IconPlug,
   IconPlugConnected, IconPlus, IconTerminal2,
   IconWorldSearch,
 } from '@tabler/icons-react';
@@ -71,7 +71,7 @@ interface SettingsView {
 const SECTIONS: Array<{ id: DeploymentSection; label: string; hint: string; icon: typeof IconBrain }> = [
   { id: 'model', label: N('Model'), hint: N('What every role thinks with, unless a role is given its own.'), icon: IconBrain },
   { id: 'tools', label: N('Tools'), hint: N('Where roles search the web, read pages, make pictures and speak: the provider, and its key.'), icon: IconWorldSearch },
-  { id: 'channels', label: N('Channels'), hint: N('Where PALUGADA reaches you: Telegram, your phone, Slack or Discord.'), icon: IconBell },
+  { id: 'channels', label: N('Channels'), hint: N('Where PALUGADA reaches you: Telegram, WhatsApp, your phone, Slack or Discord.'), icon: IconBell },
   { id: 'services', label: N('Services'), hint: N('The services capabilities call: email, DNS, payments, posts, analytics. Connect one here, then give each division that uses it its key on Team.'), icon: IconApi },
   { id: 'mcp', label: N('MCP servers'), hint: N('Tools from other services\' MCP servers: which of them roles may use, and how far each is trusted.'), icon: IconPlug },
   { id: 'agents', label: N('Agent CLIs'), hint: N('Claude Code, Codex, Gemini CLI and others: install them here, sign them in, and let roles run on them.'), icon: IconTerminal2 },
@@ -1104,6 +1104,10 @@ interface ChannelsView {
   publicUrl: string | null;
   applies: 'now' | 'next_start';
   telegram: { source: 'console' | 'environment' | null; chatId: string | null; receives: boolean };
+  whatsapp: {
+    source: 'console' | 'environment' | null; phoneNumberId: string | null; owner: string | null; template: string | null;
+    callbackUrl: string | null; verifyToken: string | null;
+  };
   push: { source: 'console' | 'environment' | null; format: 'webhook' | 'ntfy' | null; url: string | null; topic: string | null; tokenSet: boolean };
   slack: { source: 'console' | 'environment' | null };
   discord: { source: 'console' | 'environment' | null };
@@ -1116,6 +1120,7 @@ function ChannelSettings() {
   return (
     <Stack gap="lg">
       <TelegramCard view={view.data} reload={view.reload} />
+      <WhatsAppCard view={view.data} reload={view.reload} />
       <PushCard view={view.data} reload={view.reload} />
       <ChatWebhookCard kind="slack" source={view.data.slack.source} reload={view.reload} />
       <ChatWebhookCard kind="discord" source={view.data.discord.source} reload={view.reload} />
@@ -1243,6 +1248,92 @@ function TelegramCard({ view, reload }: { view: ChannelsView; reload: () => void
         )}
         {connected && (
           <Text size="xs" c="dimmed">{t('With several companies, turn on topics for the bot in @BotFather: each company then has its own topic in your chat, with what it raises and its CEO to talk to.')}</Text>
+        )}
+      </Stack>
+    </Section>
+  );
+}
+
+function WhatsAppCard({ view, reload }: { view: ChannelsView; reload: () => void }) {
+  const requireFactor = useFactor();
+  const [phoneNumberId, setPhoneNumberId] = useState(view.whatsapp.phoneNumberId ?? '');
+  const [owner, setOwner] = useState(view.whatsapp.owner ?? '');
+  const [template, setTemplate] = useState(view.whatsapp.template ?? '');
+  const [token, setToken] = useState('');
+  const [appSecret, setAppSecret] = useState('');
+  const [problem, setProblem] = useState<string | null>(null);
+  const connected = view.whatsapp.source === 'console';
+
+  const save = async () => {
+    setProblem(null);
+    try {
+      const done = await requireFactor(t('Connect WhatsApp'), async (proof) => {
+        const answer: { number: { number: string; name: string | null } } = await api('POST', '/api/control/channels/whatsapp', {
+          phoneNumberId: phoneNumberId.trim(), owner: owner.trim(), template: template.trim(),
+          ...(token.trim() ? { token: token.trim() } : {}), ...(appSecret.trim() ? { appSecret: appSecret.trim() } : {}), proof,
+        });
+        notifications.show({ color: 'teal', message: t('WhatsApp is connected to {number}.', { number: answer.number.name ? `${answer.number.name} (${answer.number.number})` : answer.number.number }) });
+      });
+      if (done) setTimeout(reload, 3_000);
+    } catch (failure) {
+      setProblem(explain(failure));
+    }
+  };
+  const disconnect = async () => {
+    const done = await requireFactor(t('Disconnect WhatsApp'), (proof) => api('POST', '/api/control/channels/whatsapp/clear', { proof }));
+    if (done) setTimeout(reload, 3_000);
+  };
+
+  return (
+    <Section
+      title={t('WhatsApp')}
+      description={t('The same as Telegram, on a WhatsApp Business number through Meta\'s Cloud API: Approve, Deny and Ask buttons, and your CEO answers what you write. An irreversible approval is always a link to the app.')}
+      actions={<SourceBadge source={view.whatsapp.source} />}
+    >
+      <Stack gap="sm">
+        <Text size="sm">
+          {t('1. In Meta for Developers, make an app with WhatsApp, add your business number, and make a system user with a permanent token that may send for it.')}{' '}
+          <Anchor href="https://developers.facebook.com/docs/whatsapp/cloud-api/get-started" target="_blank" rel="noreferrer" size="sm">{t('Cloud API')} <IconExternalLink size={12} /></Anchor>
+        </Text>
+        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+          <TextInput label={t('Phone number ID')} description={t('Under WhatsApp, API Setup. Not the number itself.')} value={phoneNumberId}
+            onChange={(event) => setPhoneNumberId(event.currentTarget.value)} placeholder="106540352242922" />
+          <TextInput label={t('Your WhatsApp number')} description={t('The only number whose messages and presses count.')} value={owner}
+            onChange={(event) => setOwner(event.currentTarget.value)} placeholder="+62 812 3456 7890" />
+          <PasswordInput label={t('Access token')} leftSection={<IconKey size={16} />} value={token} onChange={(event) => setToken(event.currentTarget.value)}
+            placeholder={connected ? t('Saved. Paste a new one to replace it.') : 'EAAG…'} autoComplete="off" />
+          <PasswordInput label={t('App secret')} description={t('App settings, Basic. It proves a delivery is from Meta.')} leftSection={<IconKey size={16} />}
+            value={appSecret} onChange={(event) => setAppSecret(event.currentTarget.value)}
+            placeholder={connected ? t('Saved. Paste a new one to replace it.') : undefined} autoComplete="off" />
+        </SimpleGrid>
+        <TextInput label={t('Template (optional)')} value={template} onChange={(event) => setTemplate(event.currentTarget.value)} placeholder="palugada_notice:id"
+          description={t('WhatsApp lets a business write first only within a day of your last message. Past that, an approved utility template with one parameter carries the news, and the buttons follow when you answer it.')} />
+        {problem && <Alert color="red" variant="light">{problem}</Alert>}
+        <Group justify="space-between">
+          {connected ? <Button variant="subtle" color="gray" size="compact-sm" onClick={() => void disconnect()}>{t('Disconnect')}</Button> : <span />}
+          <Button disabled={!phoneNumberId.trim() || !owner.trim() || (!connected && (!token.trim() || !appSecret.trim()))} onClick={() => void save()}>{t('Save')}</Button>
+        </Group>
+        {connected && view.whatsapp.callbackUrl && view.whatsapp.verifyToken && (
+          <Stack gap={6}>
+            <Text size="sm">{t('2. In the app\'s WhatsApp Configuration, set the webhook to these two, and subscribe to messages:')}</Text>
+            {[{ label: t('Callback URL'), value: view.whatsapp.callbackUrl }, { label: t('Verify token'), value: view.whatsapp.verifyToken }].map((field) => (
+              <Group key={field.label} gap="xs" wrap="nowrap">
+                <Text size="xs" c="dimmed" w={96}>{field.label}</Text>
+                <Code style={{ flex: 1, overflowWrap: 'anywhere' }}>{field.value}</Code>
+                <CopyButton value={field.value}>
+                  {({ copied, copy }) => (
+                    <Button size="compact-xs" variant="subtle" onClick={copy} leftSection={copied ? <IconCheck size={12} /> : <IconCopy size={12} />}>
+                      {copied ? t('Copied') : t('Copy')}
+                    </Button>
+                  )}
+                </CopyButton>
+              </Group>
+            ))}
+            <Text size="sm">{t('3. Send the number any message from your WhatsApp: that opens the conversation, and your CEO answers.')}</Text>
+          </Stack>
+        )}
+        {!view.publicUrl && (
+          <Text size="xs" c="dimmed">{t('This deployment has no public address, so WhatsApp can send but its buttons and your messages cannot reach it. Set PALUGADA_APP_URL_PUBLIC to the HTTPS address the console is reached at.')}</Text>
         )}
       </Stack>
     </Section>

@@ -164,6 +164,7 @@ import { appointCeo } from '../governance/ceo.ts';
 import type { ToolUsingLlmClient } from '../llm/client.ts';
 import type { OwnerMfa, WebAuthnAssertion } from './mfa.ts';
 import { telegramApi, telegramBot, telegramChats, telegramCommands, telegramProfilePhoto, type ChatConversation, type TelegramChannel, type TelegramUpdate } from './telegram.ts';
+import { whatsappNumber, type WhatsAppChannel } from './whatsapp.ts';
 import { WebhookPush, ntfyBody } from './push.ts';
 import { OwnerSessions, type OwnerSession } from './session.ts';
 import { MODEL_TIERS, modelSettingsFrom } from '../llm/models.ts';
@@ -312,6 +313,11 @@ export interface OwnerApiOptions {
    * `/api/channels/telegram` (F10.9). Absent means the route refuses.
    */
   telegram?: TelegramChannel;
+  /**
+   * WhatsApp, whose deliveries arrive at `/api/channels/whatsapp` (F10.9).
+   * Absent means the route refuses.
+   */
+  whatsapp?: WhatsAppChannel;
   /** How that sweep resolves a division's credential. Comes from the broker. */
   credentialFor?: (
     companyId: string,
@@ -473,6 +479,43 @@ export class OwnerApi {
           }
           // Anything else is an answer Telegram should not retry: a press
           // refused, a stale button, an item closed since.
+          return outcome;
+        },
+      },
+
+      {
+        // F10.9 on WhatsApp: Meta's check when the webhook is subscribed. It
+        // is answered with the challenge, as plain text, only for the verify
+        // token this deployment chose (PALUGADA_WHATSAPP_VERIFY_TOKEN).
+        method: 'GET',
+        pattern: '/api/channels/whatsapp',
+        open: true,
+        handle: async ({ query }) => {
+          const challenge = this.#options.whatsapp?.verifySubscription(query) ?? null;
+          if (challenge === null) throw new PalugadaError('owner.unauthenticated', 'that is not this deployment\'s verify token', {});
+          return new PlainText('text/plain; charset=utf-8', challenge);
+        },
+      },
+
+      {
+        // Where Meta posts what the owner sends on WhatsApp. Open, like
+        // Telegram's; what stands in for a session is Meta's signature over
+        // the bytes, so the body is read as those bytes, not parsed first.
+        method: 'POST',
+        pattern: '/api/channels/whatsapp',
+        open: true,
+        raw: true,
+        maxBodyBytes: 256 * 1024,
+        handle: async ({ request, raw }) => {
+          const channel = this.#options.whatsapp;
+          if (!channel) throw new PalugadaError('contract.violation', 'this deployment has no WhatsApp channel', {});
+          const signature = request.headers['x-hub-signature-256'];
+          const outcome = await channel.onDelivery(raw, typeof signature === 'string' ? signature : undefined, {
+            conversation: this.#chatConversation(request, 'whatsapp'),
+          });
+          if (outcome.reason === 'signature') throw new PalugadaError('owner.unauthenticated', 'that delivery is not signed by Meta', {});
+          // Anything else is answered as received, so Meta does not send it
+          // again: a press refused, a stranger, a delivery seen before.
           return outcome;
         },
       },
@@ -1382,6 +1425,19 @@ export class OwnerApi {
               topic: push?.topic ?? env.PALUGADA_PUSH_TOPIC ?? null,
               tokenSet: push ? Boolean(push.tokenSecret) : Boolean(env.PALUGADA_PUSH_TOKEN || env.PALUGADA_PUSH_TOKEN_REF),
             },
+            whatsapp: {
+              source: stored?.whatsapp ? 'console' : env.PALUGADA_WHATSAPP_PHONE_ID ? 'environment' : null,
+              phoneNumberId: stored?.whatsapp?.phoneNumberId ?? env.PALUGADA_WHATSAPP_PHONE_ID ?? null,
+              owner: stored?.whatsapp?.owner ?? env.PALUGADA_WHATSAPP_OWNER ?? null,
+              template: stored?.whatsapp?.template ?? env.PALUGADA_WHATSAPP_TEMPLATE ?? null,
+              // What Meta's webhook settings ask for. The verify token only
+              // answers Meta's subscription check, and the owner pastes it
+              // there, so it is shown to them rather than sealed away.
+              callbackUrl: env.PALUGADA_APP_URL_PUBLIC ? `${env.PALUGADA_APP_URL_PUBLIC.replace(/\/+$/, '')}/api/channels/whatsapp` : null,
+              verifyToken: stored?.whatsapp
+                ? await deployment.secrets.resolve(`db://${stored.whatsapp.verifySecret}`).catch(() => null)
+                : null,
+            },
             slack: { source: stored?.slack ? 'console' : env.PALUGADA_SLACK_WEBHOOK || env.PALUGADA_SLACK_WEBHOOK_REF ? 'environment' : null },
             discord: { source: stored?.discord ? 'console' : env.PALUGADA_DISCORD_WEBHOOK || env.PALUGADA_DISCORD_WEBHOOK_REF ? 'environment' : null },
           };
@@ -1483,6 +1539,54 @@ export class OwnerApi {
       },
 
       {
+        // WhatsApp through Meta's Cloud API: the business number's id, a
+        // system user's token and the app's secret, checked with Meta before
+        // they are sealed. The verify token is made here, for the owner to
+        // paste into the app's webhook settings with the callback address.
+        method: 'POST',
+        pattern: '/api/control/channels/whatsapp',
+        handle: async ({ body }) => {
+          const deployment = this.#deploymentSettings();
+          const stored = ((await readSettings()).channels as ChannelSettings | undefined)?.whatsapp;
+          const phoneNumberId = typeof body.phoneNumberId === 'string' ? body.phoneNumberId.trim() : '';
+          if (!/^\d{5,20}$/.test(phoneNumberId)) {
+            throw new PalugadaError('contract.violation', 'the phone number ID is the number Meta shows under API Setup, digits only; it is not the phone number', { field: 'phoneNumberId' });
+          }
+          const owner = (typeof body.owner === 'string' ? body.owner : '').replace(/[\s+()-]/g, '');
+          if (!/^\d{8,15}$/.test(owner)) {
+            throw new PalugadaError('contract.violation', 'your number is written with its country code, as 62812…', { field: 'owner' });
+          }
+          const template = typeof body.template === 'string' ? body.template.trim() : '';
+          if (template && !/^[a-z0-9_]{1,512}:[A-Za-z_]{2,8}$/.test(template)) {
+            throw new PalugadaError('contract.violation', 'a template is written as its name and language, as palugada_notice:id', { field: 'template' });
+          }
+          const typed = (name: string) => (typeof body[name] === 'string' && (body[name] as string).trim() ? (body[name] as string).trim() : null);
+          const saved = async (secret: string | undefined) => (secret ? deployment.secrets.resolve(`db://${secret}`).catch(() => null) : null);
+          const token = typed('token') ?? await saved(stored?.tokenSecret);
+          const appSecret = typed('appSecret') ?? await saved(stored?.appSecretSecret);
+          if (!token) throw new PalugadaError('contract.violation', 'paste the access token of a system user that may send for this number', { field: 'token' });
+          if (!appSecret || /\s/.test(appSecret)) {
+            throw new PalugadaError('contract.violation', 'paste the app secret, from the app\'s Basic settings: it is how a delivery is known to be from Meta', { field: 'appSecret' });
+          }
+          const number = await outside(whatsappNumber(token, phoneNumberId, this.#whatsappApi()));
+          await this.#requireFactor(body.proof, 'connect WhatsApp');
+          const master = deployment.master(true);
+          if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
+          const verifyToken = (await saved(stored?.verifySecret)) ?? randomBytes(24).toString('hex');
+          await putSecret('channel-whatsapp', token, master);
+          await putSecret('channel-whatsapp-app-secret', appSecret, master);
+          await putSecret('channel-whatsapp-verify', verifyToken, master);
+          const channels = { ...((await readSettings()).channels as ChannelSettings | undefined) };
+          channels.whatsapp = {
+            phoneNumberId, owner, ...(template ? { template } : {}),
+            tokenSecret: 'channel-whatsapp', appSecretSecret: 'channel-whatsapp-app-secret', verifySecret: 'channel-whatsapp-verify',
+          };
+          await writeSetting('channels', channels);
+          return { ...this.#applySettings(), number };
+        },
+      },
+
+      {
         // A push to the owner's phone, in the chosen format, before or after
         // saving: an alert the owner can see arrive.
         method: 'POST',
@@ -1561,8 +1665,8 @@ export class OwnerApi {
         handle: async ({ params, body }) => {
           this.#deploymentSettings();
           const name = params.name!;
-          if (!['telegram', 'push', 'slack', 'discord'].includes(name)) {
-            throw new PalugadaError('contract.violation', `a channel is telegram, push, slack or discord; got ${name}`, { name });
+          if (!['telegram', 'whatsapp', 'push', 'slack', 'discord'].includes(name)) {
+            throw new PalugadaError('contract.violation', `a channel is telegram, whatsapp, push, slack or discord; got ${name}`, { name });
           }
           await this.#requireFactor(body.proof, `disconnect ${name}`);
           const channels = { ...((await readSettings()).channels as ChannelSettings | undefined) };
@@ -1576,7 +1680,10 @@ export class OwnerApi {
           }
           delete channels[name as keyof ChannelSettings];
           await writeSetting('channels', Object.keys(channels).length > 0 ? channels : null);
-          for (const secret of name === 'telegram' ? ['channel-telegram', 'channel-telegram-webhook'] : [`channel-${name}`]) {
+          const sealed = name === 'telegram' ? ['channel-telegram', 'channel-telegram-webhook']
+            : name === 'whatsapp' ? ['channel-whatsapp', 'channel-whatsapp-app-secret', 'channel-whatsapp-verify']
+              : [`channel-${name}`];
+          for (const secret of sealed) {
             await deleteSecret(secret);
           }
           return this.#applySettings();
@@ -4373,6 +4480,12 @@ export class OwnerApi {
   }
 
   /** A local Bot API server, when the deployment names one; Telegram's own otherwise. */
+  /** Where Meta's Graph API is reached: its own address unless a test or a proxy names another. */
+  #whatsappApi(): { apiBase?: string } {
+    const base = this.#deploymentSettings().baseEnv.PALUGADA_WHATSAPP_API;
+    return base ? { apiBase: base } : {};
+  }
+
   #botApi(): { apiBase?: string } {
     const base = this.#deploymentSettings().baseEnv.PALUGADA_TELEGRAM_API;
     return base ? { apiBase: base } : {};
@@ -4446,20 +4559,20 @@ export class OwnerApi {
   }
 
   /**
-   * The owner's conversation as Telegram reaches it: the same conversations
+   * The owner's conversation as a chat reaches it: the same conversations
    * as the console's, with the same model and reads, the owner's authority
    * and no session -- a chat has none, and no route a card from a chat may
    * reach needs one (`chatMayApply`).
    */
-  #chatConversation(request: IncomingMessage): ChatConversation {
+  #chatConversation(request: IncomingMessage, channel: 'telegram' | 'whatsapp' = 'telegram'): ChatConversation {
     const voice = this.#options.assistant?.voice;
     const language = async () => (await deploymentLanguages()).console ?? 'en';
     return {
       hears: Boolean(voice?.listen),
       speaks: Boolean(voice?.speak),
       partners: async () => chatPartners(await language()),
-      current: () => chatScope('telegram'),
-      moveTo: (companyId) => moveChat(companyId),
+      current: () => chatScope(channel),
+      moveTo: (companyId) => moveChat(companyId, channel),
       talk: async (companyId, text, signal) => {
         const said = (await converse({
           llm: this.#options.assistant?.llm ?? null,
@@ -4467,7 +4580,7 @@ export class OwnerApi {
           language,
           ...(companyId ? { companyId } : {}),
           ...(signal ? { signal } : {}),
-        }, text, 'telegram')).at(-1)!;
+        }, text, channel)).at(-1)!;
         // Stopped, the conversation ends on what happened rather than on an answer.
         if (said.role === 'event') return { answer: '', cards: [], stopped: true };
         return {
@@ -4483,7 +4596,7 @@ export class OwnerApi {
         if (!proposal) return { outcome: 'unknown' };
         if (proposal.status !== 'open') return { outcome: 'closed', status: proposal.status };
         if (!chatMayApply(proposal)) return { outcome: 'app' };
-        await this.#applyProposal(proposal, {}, request, null, 'telegram');
+        await this.#applyProposal(proposal, {}, request, null, channel);
         return { outcome: 'applied', summary: proposal.summary };
       },
     };

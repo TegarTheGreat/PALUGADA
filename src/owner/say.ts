@@ -92,6 +92,14 @@ const ID: Readonly<Record<string, string>> = {
   'That card was dismissed.': 'Kartu itu sudah diabaikan.',
   'That card failed when it was applied.': 'Kartu itu gagal saat diterapkan.',
   'That could not be done: {reason}': 'Itu tidak bisa dilakukan: {reason}',
+  'Choose': 'Pilih',
+  'What do you want to ask about "{title}"? Reply to this message with your question.':
+    'Apa yang ingin Anda tanyakan tentang "{title}"? Balas pesan ini dengan pertanyaan Anda.',
+  'Your answer to "{question}"? Reply to this message with your answer.':
+    'Jawaban Anda untuk "{question}"? Balas pesan ini dengan jawaban Anda.',
+  'I read text messages here.': 'Di sini saya membaca pesan teks.',
+  'Apply one of these here:': 'Terapkan salah satunya di sini:',
+  'Apply {number}': 'Terapkan {number}',
 };
 
 /** The sentences each language has, for a test to hold complete. */

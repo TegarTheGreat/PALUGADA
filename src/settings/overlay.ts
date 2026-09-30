@@ -62,6 +62,8 @@ export interface ToolSetting {
 /** How the owner is reached, as the console sets it. Every credential is a sealed secret's name. */
 export interface ChannelSettings {
   telegram?: { chatId: string; tokenSecret: string; webhookSecret?: string };
+  /** The number's id, the owner's number, an approved template as name:language, and three sealed secrets. */
+  whatsapp?: { phoneNumberId: string; owner: string; template?: string; tokenSecret: string; appSecretSecret: string; verifySecret: string };
   push?: { format: 'webhook' | 'ntfy'; url: string; topic?: string; tokenSecret?: string };
   slack?: { urlSecret: string };
   discord?: { urlSecret: string };
@@ -85,6 +87,9 @@ export interface McpServerSetting {
 const CHANNEL_KEYS: Readonly<Record<keyof ChannelSettings, readonly string[]>> = {
   telegram: ['PALUGADA_TELEGRAM_TOKEN', 'PALUGADA_TELEGRAM_TOKEN_REF', 'PALUGADA_TELEGRAM_CHAT',
     'PALUGADA_TELEGRAM_WEBHOOK_SECRET', 'PALUGADA_TELEGRAM_WEBHOOK_SECRET_REF'],
+  whatsapp: ['PALUGADA_WHATSAPP_PHONE_ID', 'PALUGADA_WHATSAPP_OWNER', 'PALUGADA_WHATSAPP_TEMPLATE',
+    'PALUGADA_WHATSAPP_TOKEN', 'PALUGADA_WHATSAPP_TOKEN_REF', 'PALUGADA_WHATSAPP_APP_SECRET', 'PALUGADA_WHATSAPP_APP_SECRET_REF',
+    'PALUGADA_WHATSAPP_VERIFY_TOKEN', 'PALUGADA_WHATSAPP_VERIFY_TOKEN_REF'],
   push: ['PALUGADA_PUSH_URL', 'PALUGADA_PUSH_TOKEN', 'PALUGADA_PUSH_TOKEN_REF', 'PALUGADA_PUSH_FORMAT', 'PALUGADA_PUSH_TOPIC'],
   slack: ['PALUGADA_SLACK_WEBHOOK', 'PALUGADA_SLACK_WEBHOOK_REF'],
   discord: ['PALUGADA_DISCORD_WEBHOOK', 'PALUGADA_DISCORD_WEBHOOK_REF'],
@@ -138,6 +143,13 @@ export function withSettings(env: NodeJS.ProcessEnv, settings: Settings): NodeJS
       out.PALUGADA_TELEGRAM_TOKEN_REF = `db://${channels.telegram.tokenSecret}`;
       out.PALUGADA_TELEGRAM_CHAT = channels.telegram.chatId;
       if (channels.telegram.webhookSecret) out.PALUGADA_TELEGRAM_WEBHOOK_SECRET_REF = `db://${channels.telegram.webhookSecret}`;
+    } else if (name === 'whatsapp' && channels.whatsapp) {
+      out.PALUGADA_WHATSAPP_PHONE_ID = channels.whatsapp.phoneNumberId;
+      out.PALUGADA_WHATSAPP_OWNER = channels.whatsapp.owner;
+      if (channels.whatsapp.template) out.PALUGADA_WHATSAPP_TEMPLATE = channels.whatsapp.template;
+      out.PALUGADA_WHATSAPP_TOKEN_REF = `db://${channels.whatsapp.tokenSecret}`;
+      out.PALUGADA_WHATSAPP_APP_SECRET_REF = `db://${channels.whatsapp.appSecretSecret}`;
+      out.PALUGADA_WHATSAPP_VERIFY_TOKEN_REF = `db://${channels.whatsapp.verifySecret}`;
     } else if (name === 'push' && channels.push) {
       out.PALUGADA_PUSH_URL = channels.push.url;
       out.PALUGADA_PUSH_FORMAT = channels.push.format;

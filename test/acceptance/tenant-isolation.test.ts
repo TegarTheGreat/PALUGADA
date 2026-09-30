@@ -155,6 +155,10 @@ test('every table holding tenant data is protected', async () => {
     // A division's sign-in for a vendor key, the same way (0081). It names the
     // company and division the key is for and holds nothing of theirs.
     'credential_authorizations',
+    // Which WhatsApp messages were taken in and what was sent (0085): the
+    // owner's chat, like the Telegram topics, and no agent's business.
+    'whatsapp_receipts',
+    'whatsapp_sent',
   ]);
 
   const rows = await withControlPlane(async (tx) => {

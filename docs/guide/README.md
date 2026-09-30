@@ -99,8 +99,8 @@ along the bottom and under **More**.
 
 8. **Set up what comes next.** In rough order of value:
    - the monthly ceiling on **Money** (USD 200 a company by default);
-   - push notifications or Telegram, so the inbox reaches your phone
-     ([how-to](how-to.md#push-notifications-and-telegram));
+   - push notifications, Telegram or WhatsApp, so the inbox reaches your phone
+     ([how-to](how-to.md#push-notifications-telegram-and-whatsapp));
    - the company's languages under **Settings**, **Languages**
      ([how-to](how-to.md#set-the-companys-languages));
    - a vendor file for the capabilities that need somebody's account, such as

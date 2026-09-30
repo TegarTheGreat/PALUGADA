@@ -65,7 +65,7 @@ means less than that, the row says so.
 | F7 adversarial review | F7.1–F7.7 | — | — |
 | F8 broker, tiers | F8.1–F8.13 | — | — |
 | F9 scheduler | F9.1–F9.10 | — | — |
-| F10 owner surface | F10.1–F10.4, F10.6–F10.8, F10.10, F10.11 | F10.5, F10.9 (both transports are written and driven end to end against a local server; no push service and no bot account exist here to point them at) | — |
+| F10 owner surface | F10.1–F10.4, F10.6–F10.8, F10.10, F10.11 | F10.5, F10.9 (push, Telegram and WhatsApp are written and driven end to end against a local server; no push service, bot account or WhatsApp Business number exists here to point them at) | — |
 | F11 observability | F11.1–F11.7 | — | — |
 | F12 credentials, gateway | F12.1–F12.10 | — | — |
 | F13 runtime adapters | F13.1, F13.2, F13.4–F13.8 | F13.3 (the machinery, the four named specs and the override path are built and driven end to end; `codex`, `gemini-cli` and `opencode` were run against their binaries, `hermes` and `openclaw` checked against their source; compatibility with Paperclip's adapter packages is not offered, by decision -- section 2.12) | — |
@@ -3585,9 +3585,9 @@ no wall-clock ceiling of its own beyond its deadline and its lease (closed
 in 2.30); documents
 are matched by their words, not their meaning -- pgvector is installed and
 unused -- and a scanned PDF, or any file but Word, PDF and text, reaches them
-only as text the owner pastes. WhatsApp, Signal and email as
-owner channels are not built; Slack and Discord cannot carry buttons, so
-Telegram remains the chat that decides. Subscription
+only as text the owner pastes. Signal and email as owner channels are not
+built (WhatsApp is, in 2.31); Slack and Discord cannot carry buttons, so
+Telegram and WhatsApp are the chats that decide. Subscription
 logins whose tokens rotate (ChatGPT, Hermes' Nous and Codex logins) are not
 offered: every run would hold a copy and the first to refresh would sign
 the rest out. Hermes' entry still gives each run its own `HERMES_HOME`,
@@ -4033,6 +4033,46 @@ and is held to none; it is on this list's open side.
 
 Reproduced first: a role limited to one second, with a run that never
 finished, was halted after about one second rather than at the lease.
+
+## 2.31 WhatsApp as the owner's channel (F10.9)
+
+- **An owner in Indonesia reads WhatsApp, not Telegram.** Meta's own Business
+  AI answers a company's customers there since August 2026, and Manor, the
+  one competitor with a WhatsApp channel, builds it on the Cloud API with
+  receipts that survive a duplicate. The channel is built the same way here,
+  from the design, not the code.
+- **What it carries.** Everything Telegram carries, with the same rules:
+  - Approve, Deny and Ask buttons up to tier 2; a question's choices as a
+    list; a tier 3 approval or an incident as a link (F10.10).
+  - The daily digest and a message when work the owner gave has finished.
+  - The owner's own words go to the CEO, as in the console; `/ceo` and
+    `/palugada` choose whom they talk to, and a card the chat may apply
+    comes with its button.
+- **What stands between a delivery and a decision.**
+  - Meta's signature over the bytes (`X-Hub-Signature-256`), checked in
+    constant time before anything is parsed.
+  - The owner's number: a press from any other is recorded as
+    `security.chat_stranger_refused` in the item's company, and not answered.
+  - Each message id, claimed in the database before it is acted on (0085),
+    so a delivery Meta sends again -- for days, and across a restart -- is
+    acted on once.
+  - `decide` over `chat`, which refuses tier 3 whatever arrives.
+- **WhatsApp's 24-hour window.** A business may write first only within a
+  day of the owner's last message. The send is accepted and reported failed
+  later, in a status delivery. The item then goes as the approved template
+  (`PALUGADA_WHATSAPP_TEMPLATE`), and its buttons follow when the owner
+  replies. Without a template, the company's record says why it was not sent.
+- **A reply names only its message.** The item an "Ask" prompt is about is
+  kept against the prompt's message id, in the database, so the owner's
+  question reaches the task after a restart too.
+- **Set up from the console.** Under **Channels**: the number is checked with
+  Meta, three secrets are sealed with the owner's factor, and the card shows
+  the callback address and verify token to paste into Meta's app.
+
+Not built: a voice note on WhatsApp (it says so, and points to Telegram and
+the console), and retracting a message once its item closes, since the Cloud
+API cannot edit a message; a press on a closed item is answered "Already
+closed". Signal and email as owner channels are still open.
 
 ## 3. Decisions, deviations, and what is unverified
 

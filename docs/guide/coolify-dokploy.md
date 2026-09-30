@@ -61,6 +61,12 @@ A domain added later, or a second domain, needs a redeploy, and a second
 domain also needs `PALUGADA_ALLOWED_HOSTS` listing both: the console refuses
 any name it was not told with `421` and `owner.wrong_host`.
 
+Coolify's notifications can start work in PALUGADA -- a deployment that
+failed, a backup that did not run. Its webhook notification takes only a URL,
+so make a [trigger](how-to.md#let-other-services-start-work-triggers) with
+**A token in the address**, and paste the whole address it shows, token
+included, as the webhook URL under **Notifications**, **Webhook**.
+
 ## Dokploy
 
 1. In a project, **Create Service**, then **Compose**. Keep the type

@@ -4951,6 +4951,23 @@ Dependabot.
 - **Still by tag.** `pgvector/pgvector:pg16` in the compose files and
   `deploy/container-check`'s `node:22-alpine`; THREAT-MODEL 2.8 says so.
 
+## 2.55 A trigger for a sender that can set nothing but a URL
+
+- **Coolify could not start work in PALUGADA.** Its outgoing webhook is an
+  address and nothing else: no header, no signature. Every trigger scheme
+  wanted either an `Authorization` header or a sender's signature, so a
+  failed deployment or a missed backup could not become a task.
+- **`url` (0098).** A trigger like `bearer` -- the platform makes the token
+  and keeps its hash -- whose delivery carries it as `?token=`. The console
+  shows the one address to paste, and says that anyone who sees it can start
+  the work. A `bearer` trigger refuses a token in the address even when it is
+  right, because a bearer token found there has been in a URL.
+- **Tested** (`triggers.test.ts`): no token, a wrong one and a bearer header
+  are refused by a `url` door; the right one starts a task, and the same
+  event again is the same delivery; a bearer door refuses its own token in
+  the address; rotating closes the old address; and the console's route
+  takes the token from the query.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

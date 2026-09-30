@@ -473,7 +473,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     what: 'Let another service start work by posting to an address.',
     fields: {
       slug: 'short id', roleId: 'who does it', goalId: 'the goal', instruction: 'what to do with what arrives',
-      scheme: 'bearer, github, stripe, slack or standard', secretRef: 'a secret reference for the signature', maxPerHour: 'number',
+      scheme: 'bearer, url (token in the address, for a sender that takes only a URL), github, stripe, slack or standard', secretRef: 'a secret reference for the signature', maxPerHour: 'number',
     },
     factor: 'always',
   },

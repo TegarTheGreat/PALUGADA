@@ -2944,8 +2944,12 @@ export class OwnerApi {
         open: true,
         raw: true,
         maxBodyBytes: 256 * 1024,
-        handle: async ({ params, request, raw }) =>
-          receiveHook(params.publicId!, { raw, headers: request.headers }, this.#options.secrets),
+        handle: async ({ params, request, raw, query }) => {
+          // A sender that can set nothing but the address carries the token
+          // there (0098); only a door made for that takes it.
+          const token = query.get('token');
+          return receiveHook(params.publicId!, { raw, headers: request.headers, ...(token ? { token } : {}) }, this.#options.secrets);
+        },
       },
 
       {

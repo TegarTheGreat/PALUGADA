@@ -481,7 +481,7 @@ export interface HandoffRule {
 }
 
 /** How a trigger's caller proves itself (0056). */
-export type TriggerScheme = 'bearer' | 'github' | 'stripe' | 'slack' | 'standard';
+export type TriggerScheme = 'bearer' | 'url' | 'github' | 'stripe' | 'slack' | 'standard';
 
 /** An inbound trigger (0054): a URL another service posts events to. */
 export interface Trigger {

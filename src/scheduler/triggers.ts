@@ -42,8 +42,17 @@ import type { SecretManager } from '../secrets/manager.ts';
 import { enqueueWake } from './wake.ts';
 
 /** How a delivery proves where it came from (0056). */
-export const TRIGGER_SCHEMES = ['bearer', 'github', 'stripe', 'slack', 'standard'] as const;
+export const TRIGGER_SCHEMES = ['bearer', 'url', 'github', 'stripe', 'slack', 'standard'] as const;
 export type TriggerScheme = (typeof TRIGGER_SCHEMES)[number];
+
+/**
+ * The schemes whose token the platform makes and keeps only as a hash: in an
+ * Authorization header, or -- for a sender that can set nothing but a URL,
+ * such as Coolify's outgoing webhook -- in the address (0098).
+ */
+function minted(scheme: TriggerScheme): boolean {
+  return scheme === 'bearer' || scheme === 'url';
+}
 
 export interface TriggerDefinition {
   slug: string;
@@ -87,6 +96,8 @@ export interface HookDelivery {
   /** The body exactly as it arrived. A signature is over these bytes, not over what they parse to. */
   raw: Buffer;
   headers: HookHeaders;
+  /** The token the address carried (`?token=`), for a sender that can set no header. */
+  token?: string;
 }
 
 export type HookAnswer =
@@ -119,6 +130,7 @@ const DELIVERY_ID_HEADERS = ['x-delivery-id', 'idempotency-key', 'x-github-deliv
 
 const SCHEME_NAMES: Record<TriggerScheme, string> = {
   bearer: 'a bearer token',
+  url: 'a token in the address (?token=)',
   github: "GitHub's signature (X-Hub-Signature-256)",
   stripe: "Stripe's signature (Stripe-Signature)",
   slack: "Slack's signature (X-Slack-Signature)",
@@ -156,11 +168,11 @@ function schemeOf(value: unknown): TriggerScheme {
 async function checkedSecretRef(
   scheme: TriggerScheme, secretRef: string | undefined, secrets: SecretManager | undefined,
 ): Promise<string | null> {
-  if (scheme === 'bearer') {
+  if (minted(scheme)) {
     if (secretRef !== undefined && secretRef !== '') {
       throw new PalugadaError(
         'contract.violation',
-        'a bearer trigger takes no secret: the platform makes its token',
+        'a trigger with a token takes no secret: the platform makes its token',
         { field: 'secretRef' },
       );
     }
@@ -222,7 +234,7 @@ export async function createTrigger(
   }
   const scheme = schemeOf(input.scheme);
   const secretRef = await checkedSecretRef(scheme, input.secretRef, secrets);
-  const minted = scheme === 'bearer' ? newToken() : null;
+  const made = minted(scheme) ? newToken() : null;
   return withControlPlane(async (tx) => {
     const role = await tx.query<{ division_id: string }>(
       'SELECT division_id FROM roles WHERE id = $1 AND company_id = $2', [input.roleId, companyId]);
@@ -244,7 +256,7 @@ export async function createTrigger(
       `INSERT INTO triggers (company_id, slug, token_hash, project_id, division_id, role_id, goal_id, instruction,
                              max_per_hour, scheme, secret_ref)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id, public_id`,
-      [companyId, input.slug, minted?.hash ?? '', project, role.rows[0].division_id, input.roleId, input.goalId,
+      [companyId, input.slug, made?.hash ?? '', project, role.rows[0].division_id, input.roleId, input.goalId,
         instruction, maxPerHour, scheme, secretRef],
     );
     await appendEvent(tx, {
@@ -253,7 +265,7 @@ export async function createTrigger(
       actor: 'owner',
       payload: { triggerId: rows[0]!.id, slug: input.slug, roleId: input.roleId, maxPerHour, scheme },
     });
-    return { id: rows[0]!.id, publicId: rows[0]!.public_id, token: minted?.token ?? null };
+    return { id: rows[0]!.id, publicId: rows[0]!.public_id, token: made?.token ?? null };
   });
 }
 
@@ -274,16 +286,16 @@ export async function rotateTriggerToken(
     'SELECT scheme FROM triggers WHERE id = $1 AND company_id = $2', [triggerId, companyId])).rows[0]);
   if (!current) throw new PalugadaError('contract.violation', 'no such trigger in this company', { triggerId });
   const secretRef = await checkedSecretRef(current.scheme, options.secretRef, options.secrets);
-  const minted = current.scheme === 'bearer' ? newToken() : null;
+  const made = minted(current.scheme) ? newToken() : null;
   await withControlPlane(async (tx) => {
     const { rowCount } = await tx.query(
       'UPDATE triggers SET token_hash = $3, secret_ref = $4 WHERE id = $1 AND company_id = $2',
-      [triggerId, companyId, minted?.hash ?? '', secretRef],
+      [triggerId, companyId, made?.hash ?? '', secretRef],
     );
     if (rowCount !== 1) throw new PalugadaError('contract.violation', 'no such trigger in this company', { triggerId });
     await appendEvent(tx, { companyId, type: 'trigger.rotated', actor: 'owner', payload: { triggerId } });
   });
-  return { token: minted?.token ?? null };
+  return { token: made?.token ?? null };
 }
 
 export async function setTriggerEnabled(companyId: string, triggerId: string, enabled: boolean): Promise<void> {
@@ -418,8 +430,13 @@ function verify(scheme: TriggerScheme, secret: string, delivery: HookDelivery): 
     });
     return matched ? { refused: null, deliveryId: id } : { refused: 'wrong signature' };
   }
+  // A token in the address is taken only by a door made for it: a bearer
+  // token that turns up there has been in a URL, where proxies keep them.
+  if (scheme === 'bearer' && delivery.token) return { refused: 'token in the address' };
   const authorization = header(headers, 'authorization') ?? '';
-  const token = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : '';
+  const token = scheme === 'url'
+    ? (delivery.token ?? '').trim()
+    : authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : '';
   if (!token) return { refused: 'no token' };
   if (!same(Buffer.from(hashToken(token), 'hex'), Buffer.from(secret, 'hex'))) return { refused: 'wrong token' };
   return {
@@ -505,10 +522,10 @@ export async function receiveHook(
   });
   // A closed door is not there at all: telling a caller "disabled" would tell
   // them the URL was once good. Nor is one with no key yet.
-  if (!found || (found.scheme === 'bearer' ? !found.token_hash : !found.secret_ref)) throw unknown();
+  if (!found || (minted(found.scheme) ? !found.token_hash : !found.secret_ref)) throw unknown();
 
   let secret = found.token_hash;
-  if (found.scheme !== 'bearer') {
+  if (!minted(found.scheme)) {
     try {
       if (!secrets) throw new Error('this deployment has no secret store');
       secret = await secrets.resolve(found.secret_ref!);

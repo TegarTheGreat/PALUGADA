@@ -76,5 +76,7 @@ The first version. What it holds, in the order an owner meets it.
 - CI's actions pinned by commit and the image's base by digest, moved by
   Dependabot's weekly pull requests; CI fails on a high or critical advisory
   in a production dependency (STATUS 2.54).
+- Triggers that take their token in the address, for senders that can set
+  nothing but a URL, such as Coolify's notifications (STATUS 2.55).
 - A threat model ([docs/THREAT-MODEL.md](docs/THREAT-MODEL.md)) naming each
   defence, its test, and what is left.

@@ -883,8 +883,9 @@ reason.
 1. On **Team**, **Triggers**, press **New trigger**.
 2. Choose the **Role** that does the work, the goal it **Serves**, a
    **Short name**, **At most, per hour**, and **Who calls it**: a token from
-   any service, or Stripe, GitHub, Slack or Standard Webhooks, which sign
-   their deliveries.
+   any service, a token in the address for a service that takes only a URL
+   (Coolify's notifications, many form builders), or Stripe, GitHub, Slack
+   or Standard Webhooks, which sign their deliveries.
 3. For a signing sender, give **Where the signing secret is kept**: a
    secret reference such as `env://PALUGADA_SECRET_STRIPE_HOOK`, never the
    secret itself.
@@ -893,7 +894,11 @@ reason.
 5. **Give these to the other service** shows the URL
    (`/api/hooks/<id>`) and, for a token, the token once. Copy it now; if it is
    lost, make a new one. The dialog says where each sender takes them and,
-   for a token, shows a `curl` line to test with.
+   for a token, shows a `curl` line to test with. For a token in the address
+   it shows one URL ending in `?token=`: anyone who sees that address can
+   start the work, so keep it out of anything shared, and make a new token if
+   it leaks. A trigger that takes a bearer token refuses a token in the
+   address, even the right one.
 
 Each delivery becomes one task, and a retried delivery returns the task the
 first one started. What the event says reaches the role as data, and the

@@ -259,6 +259,7 @@ broker, journalled steps, contained sub-tasks and a way to report cost.
 - [docs/RESEARCH-2026-09.md](docs/RESEARCH-2026-09.md): the comparison with Slack, Buzz, auto-company and Paperclip.
 - [docs/AUDIT-2026-09-28.md](docs/AUDIT-2026-09-28.md): an outside audit's thirty-one items, each verified, and what was fixed or proposed.
 - [docs/COMPETITIVE-ANALYSIS-2026-09-28.md](docs/COMPETITIVE-ANALYSIS-2026-09-28.md): how mature it is, from the suite, a live run on a real model and a code audit, against Paperclip, Buzz, Auto-Company and the wider market (in Indonesian, like the PRD).
+- [docs/MATURITY-RECHECK-2026-09-30.md](docs/MATURITY-RECHECK-2026-09-30.md): the same checks run again two days later -- which of those defects the live run no longer finds, which remain, and what the new code brought (in Indonesian).
 - [brand/](brand/README.md): the logo, the banners and the console's pictures.
 
 ## Contributing

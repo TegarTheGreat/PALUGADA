@@ -332,3 +332,216 @@ Yang **belum** ditutup, dan dicatat sebagai sisa risiko:
 - Anggaran belum bisa menghentikan run ACP di tengah jalan; biaya kini
   tercatat selama run, tetapi yang menghentikannya tetap deadline atau batas
   panjang run.
+
+---
+
+## 10. Tiga kompetitor dibaca dari kodenya, satu per satu
+
+Dikerjakan 30 September 2026 dengan `git clone` dan membaca kode saja: tidak
+ada yang dipasang atau dijalankan, dan tidak ada akun yang dipakai. Revisi
+yang dibaca: Paperclip `25c422b` (30 September), Buzz `0ee6093`
+(30 September), Auto-Company `8becd54` (v2.0.0, 27 September). Setiap klaim
+tentang PALUGADA dari pembacaan itu diperiksa lagi di kode PALUGADA sebelum
+dikerjakan, dan setiap perbaikan ditulis dulu sebagai tes yang gagal.
+
+### 10.1 Paperclip
+
+Skala: sekitar 482 ribu baris TypeScript di server saja dan sekitar 24 ribu
+kasus tes. PALUGADA: sekitar 62 ribu baris dan sekitar 1.160 tes.
+
+**Kelebihan yang nyata**
+
+- Mencatat pid, process group dan waktu mulai proses setiap run, lalu
+  setelah restart membunuh process group yang tertinggal
+  (`heartbeat.ts:8906`, `:18917`).
+- 16 jenis adaptor bawaan dan 8 penyedia sandbox sungguhan (E2B, Daytona,
+  Modal, dan lain-lain), masing-masing dengan tes.
+- 80 definisi aplikasi, kanal Slack, Discord, Teams, Telegram, GitHub,
+  Google Chat dan iMessage.
+- Backup terjadwal harian/mingguan/bulanan dengan peringatan backup basi,
+  image yang ditandatangani, action CI yang dipin dengan SHA, Dependabot.
+
+**Kekurangan yang nyata**
+
+- Mode bawaan `local_trusted`: permintaan dari loopback tanpa token menjadi
+  admin instance, dan pemeriksaan origin dilewati untuknya
+  (`middleware/auth.ts:224-233`). Agen lokal yang punya shell penuh — dan
+  itu bawaannya (`dangerouslySkipPermissions` = true) — bisa memanggil API
+  papan.
+- Anggaran diperiksa terhadap biaya yang sudah tercatat, biaya ditulis
+  sekali di akhir run, pemakaian tanpa harga dan langganan dihitung 0, dan
+  tidak ada anggaran token.
+- Batas run serentak per agen disimpan di memori proses (`Map`, 30 detik),
+  tidak aman antar-instance.
+- Menghapus agen ikut menghapus log aktivitasnya.
+- Tidak ada row level security (0 policy di 290 migrasi), tidak ada TOTP
+  atau passkey, telemetri menyala secara bawaan.
+- Berkas raksasa (`heartbeat.ts` 30 ribu baris, `chat-channels.ts` 38 ribu).
+
+**Yang diambil PALUGADA**
+
+- **Proses CLI yang tertinggal saat worker dibunuh paksa (STATUS 2.52).**
+  Setiap process group yang dimulai sebuah run kini dicatat (tabel
+  `run_processes`, migrasi 0095): pid, process group, waktu mulai dari
+  `/proc`, worker, dan identitas mesin. Worker berikutnya di mesin yang sama
+  mengakhiri grup milik worker yang sudah mati, hanya bila pid-nya masih
+  memiliki waktu mulai yang tercatat (pid yang dipakai ulang tidak pernah
+  disentuh). Tesnya membunuh worker sungguhan dengan SIGKILL di tengah run
+  CLI, lalu memastikan CLI dan anaknya diakhiri pada tick pertama worker
+  berikutnya. Lebih ketat daripada Paperclip: Paperclip tidak memeriksa
+  apakah worker lama masih hidup lewat waktu mulai prosesnya.
+- **Rantai pasok (STATUS 2.54).** Action CI dipin dengan SHA, base image
+  dipin dengan digest, Dependabot untuk npm, action dan docker, dan job
+  audit dependensi produksi yang gagal pada advisori tinggi atau kritis.
+
+**Yang sengaja tidak diambil:** melanjutkan sesi CLI dengan `--resume`
+(sesi yang dilanjutkan membawa konten luar yang mungkin ber-taint; perlu
+aturan F8.9 dulu), dan penyedia sandbox sungguhan (butuh akun; tetap celah
+nomor 8 di bagian 7).
+
+### 10.2 Buzz (Block)
+
+Skala: 33 crate, sekitar 645 ribu baris Rust, sekitar 6.500 tes Rust.
+
+**Kelebihan yang nyata**
+
+- Penghapusan komunitas berjalan bertahap dengan lease yang di-heartbeat,
+  efek luar dibatalkan saat lease hilang, dan manifest tabel yang memblokir
+  penghapusan bila ada tabel tenant baru yang belum didaftarkan.
+- Readiness yang hanya menjawab dari proses, kesehatan dependensi dari
+  sampel 30 detik, dan `lock_timeout` 5 detik di pool penulis dan migrasi.
+- Tes database paralel dari template database, property test, catatan
+  "mutation evidence", `clippy -D warnings`, action dipin dengan SHA.
+- Rantai hash atas log audit dan pembatas laju yang menolak saat Redis tak
+  terjangkau.
+
+**Kekurangan yang nyata**
+
+- Persetujuan di-commit lalu pekerjaan dilanjutkan di `tokio::spawn` yang
+  terlepas: crash di antaranya membuat run terdampar.
+- Entri audit lewat antrean di memori setelah commit: hilang saat crash.
+- Rantai hash audit hanya diverifikasi dari tes, tidak pernah di produksi.
+- Mode izin agen bawaan `bypass-permissions`, `allow_once` disetujui
+  otomatis, persetujuan workflow masih TODO, tidak ada batas hop.
+- Secret webhook disimpan polos dan dibandingkan mentah, tanpa tanda tangan
+  atau stempel waktu.
+- Tidak ada row level security; isolasi tenant di kode aplikasi.
+
+**Yang diambil PALUGADA**
+
+- **Lease dengan batas waktu lokal (STATUS 2.50).** Dulu worker yang
+  terputus dari database terus menjalankan tugas sementara lease-nya habis
+  di database dan worker lain mengambil tugas yang sama. Kini bila tidak
+  ada perpanjangan yang berhasil selama satu masa lease, run dihentikan.
+- **Worker yang tak pernah menyelesaikan tick dianggap sehat selamanya**
+  (bug nyata di `main.ts`). Diperbaiki: keterlambatan dihitung sejak worker
+  mulai.
+- **Migrasi yang menunggu kunci tanpa batas.** Kini `lock_timeout` 10 detik
+  per migrasi, gagal dengan nama migrasinya, dan diulang oleh restart
+  kontainer; antrean antar-replika tetap menunggu.
+- **Penghapusan perusahaan satu per satu (STATUS 2.51).** Satu perusahaan
+  yang gagal dihapus dulu memblokir semua perusahaan sesudahnya, di setiap
+  tick. Kini tiap perusahaan dihapus sendiri, kegagalan dicatat dengan
+  backoff dan terlihat di konsol, berkas perusahaan dan folder piagamnya
+  ikut dihapus, dan sebuah tes membaca katalog database untuk memastikan
+  setiap tabel ber-`company_id` ikut terhapus lewat cascade atau terdaftar
+  dengan alasan (manifest ala Buzz). Tutup dan batalkan-tutup kini satu
+  transaksi dengan event auditnya.
+
+### 10.3 Auto-Company
+
+Skala: 474 berkas, 557 fungsi tes; sebuah loop bash yang memanggil satu
+model headless kira-kira setiap 30 detik, dengan 14 persona sub-agen.
+
+**Kelebihan yang nyata**
+
+- Persona membawa metode, bukan hanya gaya: daftar periksa dan bentuk
+  jawaban tetap; 36 skill.
+- Setiap siklus mulai dari "keadaan perusahaan": proyek aktif dan apa yang
+  sudah dikerjakan.
+- Hasil tes dicatat oleh program, bukan oleh model (kode keluar, jumlah
+  tes, hash), dan laporan dilarang mengarang hasil tes.
+- Waktu mulai beberapa menit di atas login Claude/Codex yang sudah ada.
+
+**Kekurangan yang nyata**
+
+- Mode bawaan `bypassPermissions` / `danger-full-access`; aturan hanya di
+  prompt.
+- Salinan pengaman dan penanda jeda ada di pohon berkas yang bisa ditulis
+  agen; "khusus manusia" hanya variabel lingkungan dan satu kata.
+- Model menulis ulang seluruh keadaan dan diumpankan kembali apa adanya;
+  circuit breaker direset tanpa akhir; batas biaya mati secara bawaan dan
+  diperiksa setelah siklus sampai 30 menit.
+- Tidak ada notifikasi sama sekali; blocker P1 dicek ulang tiap 30 detik
+  dan menulis sekitar 2.880 baris log per hari.
+- Isi prompt tidak diperiksa: statistik tanpa sumber, persona yang saling
+  bertentangan, dan saran "tidak perlu unsubscribe" yang salah menurut
+  PECR/GDPR.
+
+**Yang diambil PALUGADA (STATUS 2.53)**
+
+- **Review mingguan yang melihat minggunya.** Dulu tugas review mingguan
+  hanya menerima satu kalimat dan hanya melihat metrik di rantai goalnya
+  sendiri, padahal skill-nya meminta "setiap metrik terhadap targetnya dan
+  apa yang dikirim". Kini penjadwal menyerahkan fakta minggu itu dari baris
+  database — bukan dari teks model: retro, setiap goal aktif dengan metrik,
+  nilai seminggu lalu dan perubahannya, pekerjaan yang selesai, belanja
+  terhadap batas, dan usulan tahap yang terbuka — dibatasi ukurannya, dan
+  hasil dari pekerjaan yang membaca konten luar tetap dibungkus sebagai
+  data. Ini versi yang diatur dari "keadaan perusahaan" Auto-Company, tanpa
+  kelemahannya (model yang menulis ulang keadaannya sendiri).
+- **`goal.propose`.** Fungsi usulan goal sudah ada tetapi tidak punya
+  pemanggil, dan menyetujui itemnya tidak mengubah apa pun. Kini ada
+  kapabilitas tier 0; persetujuan pemilik (dengan faktor kedua) menerapkan
+  perubahan dalam transaksi yang sama, dan ditolak bila goal sudah berubah.
+- **Memori episodik yang diiklankan tetapi tidak pernah ada.** Tugas yang
+  selesai kini meninggalkan satu baris untuk proyeknya, dan pencarian
+  episodik dibatasi ke proyek tugas yang bertanya.
+- **Tahap wind-down memblokir yang katanya harus diselesaikan.** Balasan ke
+  pelanggan dulu ditolak mutlak; kini iklan dan pembelian tetap ditolak,
+  tindakan keluar lainnya meminta persetujuan pemilik.
+- **Skill:** premortem kini menyebut siapa yang mengawasi setiap tanda
+  bahaya dan angka mana yang dibaca; skill baru `positioning` dan
+  `market-research`, masing-masing dengan kasus uji.
+
+**Yang sengaja tidak diambil:** loop yang memaksa membangun setiap siklus
+("force a choice and build it"), kontrol di pohon berkas yang bisa ditulis
+agen, dan mode izin `bypassPermissions` bawaan.
+
+### 10.4 Setelah perubahan ini
+
+| Aspek | Paperclip | Buzz | Auto-Company | PALUGADA sekarang |
+|---|---|---|---|---|
+| Isolasi tenant | Kode aplikasi | Kode aplikasi | Satu perusahaan | Row level security dipaksa, kunci komposit |
+| Uang | Diperiksa setelah dibelanjakan | Token dihitung setelahnya | Mati secara bawaan | Dicadangkan sebelum kerja, per rantai akun |
+| Izin agen bawaan | Shell penuh | `bypass-permissions` | `bypassPermissions` | Hanya tool perannya; tier 3 butuh faktor kedua |
+| Proses CLI setelah crash | Dibersihkan | Tidak ada | Tidak ada | Dibersihkan, dengan pemeriksaan waktu mulai (2.52) |
+| Lease saat database hilang | Kunci di memori | Lease dengan deadline | Tidak ada | Deadline lokal (2.50) |
+| Penghapusan tenant | Menghapus log audit | Bertahap, manifest | Tidak ada | Per perusahaan, berkas ikut, manifest (2.51) |
+| Keadaan perusahaan untuk agen | Tidak ada | Tidak ada | Ditulis ulang model | Dihitung dari database (2.53) |
+| Rantai pasok CI | SHA, Dependabot, tanda tangan image | SHA, `cargo-deny` | Tidak ada | SHA, Dependabot, audit, digest (2.54) |
+| Pemasangan | Postgres tertanam | Helm | Skrip | Compose, Coolify, Dokploy, klaim pemilik (2.48, 2.49) |
+
+## 11. Coolify dan Dokploy
+
+Keduanya dibaca dari kode sumbernya (Coolify 4.3.23 dan main; Dokploy
+0.30.8 dan canary) untuk mengetahui persis cara masing-masing menjalankan
+berkas compose. Memasang salah satunya di lingkungan ini tidak diizinkan,
+jadi keduanya disimulasikan dengan `docker compose` persis seperti cara
+platform menjalankannya.
+
+| Hal | Coolify | Dokploy | Yang dilakukan PALUGADA |
+|---|---|---|---|
+| Direktori proyek | Root repositori (`--project-directory`) | Folder berkas compose, kecuali ada File Mount | Dua berkas: `deploy/coolify` (`context: .`) dan `deploy/dokploy` (`context: ../..`) |
+| `${VAR:?pesan}` | Pesannya disimpan sebagai nilai | Menghentikan deploy dengan pesan | Tidak dipakai di Coolify; dipakai di Dokploy untuk keempat password |
+| Variabel | Semua variabel ke setiap service lewat `.env`; membuat `SERVICE_PASSWORD_*` dan `SERVICE_HEX_*` | Tab Environment ke `.env`; tidak membuat apa pun | Entrypoint menghapus `SERVICE_*`, `POSTGRES_PASSWORD` dan `PALUGADA_DB_*` sebelum PID 1 |
+| Repositori saat berjalan | Tidak disimpan setelah build | Di-clone ulang tiap deploy | Tidak ada bind mount; database disiapkan oleh image dari URL superuser |
+| Pemilik pertama | Tidak ada terminal | Tidak ada terminal | Tautan klaim di log (STATUS 2.48) |
+| Backup database | Terjadwal hanya untuk database yang dijalankan sebagai database | Terjadwal juga untuk Postgres di dalam compose | Panduan menjelaskan keduanya |
+| Webhook keluar | Tanpa tanda tangan, hanya URL | Tanpa tanda tangan, bisa header kustom | Skema pemicu `url` dengan token di alamat (STATUS 2.55); untuk Dokploy, bearer lewat header kustom |
+| Server MCP | Bawaan di `/mcp`, token Bearer | `@dokploy/mcp`, HTTP tanpa autentikasi | Preset Coolify (`https://{coolify-host}/mcp`, token Bearer, dicek ke Coolify Cloud dengan kunci palsu: 401 dengan realm `mcp`) dan Dokploy (`@dokploy/mcp@0.30.7 --http`, dijalankan sendiri: 604 tool, 119 dengan preset `deploy`; tanpa autentikasi dan mengikat semua antarmuka, jadi panduan menaruhnya di jaringan compose tanpa port terbuka) (STATUS 2.54) |
+
+Yang belum: tidak ada image yang diterbitkan, jadi katalog template sekali
+klik di kedua platform belum bisa mencantumkan PALUGADA (keduanya menerima
+image, bukan build), dan template resmi Coolify mensyaratkan seribu bintang
+GitHub.

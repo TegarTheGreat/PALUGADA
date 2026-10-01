@@ -13,6 +13,7 @@
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { readdirSync } from 'node:fs';
 import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
 import { isPalugadaError } from '../../src/errors.ts';
@@ -241,7 +242,12 @@ test('one language for both says so once', () => {
  * Portugal's in words a customer notices.
  */
 test('a language the console offers is one agents can be told, named precisely', () => {
-  for (const code of ['en', 'id', 'ms', 'zh', 'hi', 'pt-BR', 'ru']) {
+  // Every dictionary the console has, so a language added to the console
+  // without being added here is caught rather than skipped.
+  const offered = readdirSync(new URL('../../console/src/locales/', import.meta.url))
+    .filter((name) => name.endsWith('.ts') && name !== 'types.ts').map((name) => name.replace(/\.ts$/, ''));
+  assert.ok(offered.length >= 20, `only ${offered.length} dictionaries were found; the scan is broken`);
+  for (const code of ['en', ...offered]) {
     assert.equal(languageCode(code, 'work'), code, `${code} is a language a company can choose`);
   }
   assert.match(languageRule({ work: 'zh', talk: 'zh' }), /Simplified Chinese \(简体中文\)/);

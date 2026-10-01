@@ -5792,6 +5792,69 @@ company can choose, Javanese and Sundanese, could not be checked at all.
   mixed with Indonesian as chats are, will mostly read as "not sure", which
   records nothing -- the bias the detector is meant to have.
 
+## 2.65 Twenty-one languages, and no code inside any of them
+
+Asked for on 2026-10-01: a company could tell its agents to write in 22
+languages, and the console was drawn in seven. It is now drawn in every one
+of them but European Portuguese, which reads the Brazilian: Javanese,
+Sundanese, Filipino, Vietnamese, Thai, Japanese, Korean, Arabic, Spanish,
+French, German, Dutch, Italian and Turkish join English, Indonesian, Malay,
+Simplified Chinese, Hindi, Brazilian Portuguese and Russian. What PALUGADA
+sends the owner's phone -- Telegram, WhatsApp, email, push -- is in each of
+them too.
+
+- **Translated whole, in one voice per language.** Seven translators, two
+  languages each, wrote every sentence the console draws (1,899) and every
+  sentence the platform sends (89), each with a glossary in its file's
+  header and a register chosen once: Javanese krama and Sundanese lemes;
+  Spanish "usted", French "vous", German "Sie", Turkish "siz"; Dutch,
+  Italian, Filipino, Vietnamese and Thai the friendly form; Korean 해요체
+  without 당신; Japanese です・ます; Arabic gender-neutral, never an
+  imperative to the owner. The sentences that landed while they worked --
+  a project's own work language (2.63) and the closed-item sentences below
+  -- were written by the same translator in the same terms.
+- **Plural forms as each language has them.** Arabic has six (zero, one,
+  two, few, many, other) and every count sentence names all of them;
+  Japanese, Korean, Thai, Vietnamese, Javanese and Sundanese have only
+  "other", so a sentence shown for one item is worded to read right for one;
+  French counts 0 as "one", Filipino 1, 2, 3, 5 and more. The test that held
+  seven languages to their forms holds twenty-one.
+- **Right to left.** Arabic sets the page's `dir`, and the console's own
+  styles and spacing use logical sides, so the layout mirrors and not only
+  the text (prepared in the commit before the translations).
+- **No status code inside a sentence.** A translator found the owner's
+  phone told "Withdrawn (stage_changed)." and, for a button pressed after
+  its item closed, "Already closed: it was already decided (deny)." -- the
+  English text of the refusal -- in every language; the History page showed
+  "withdrawn · task cancelled", and a task's trace a step's raw state. Every
+  reason an item is withdrawn for is now a sentence of its own on the phone
+  and in the console (`closureText`, `notOpenText`), a press that finds its
+  item closed is told the sentence the retracted message shows, from the
+  refusal's details rather than its message, and a reason nothing writes yet
+  is said without its code. The owner's first authenticator was enrolled as
+  "owner (claimed in the console)" and shown under Owner in every language;
+  the console now names it in the owner's.
+- **Seen, at a phone's width.** Home, the deployment, and a company's
+  overview, team, languages, work and money in every new language at 390
+  pixels, Arabic right to left. Two places widened the page in Javanese and
+  are fixed: a figure that is a word ("Dipunparengaken", allowed) drawn at a
+  number's size, and the chip on the owner's line to the CEO, which had no
+  limit on its width.
+- **Tested.** `console-i18n.test.ts` (twenty dictionaries, each script,
+  KEPT, every plural form); the owner-sentences test in
+  `owner-channels.test.ts` (twenty languages); a test that every withdrawal
+  reason, an unknown one, and a press on a closed or missing item are said
+  without a code; `owner-claim.test.ts` (the authenticator named as the
+  console asks); `languages.test.ts` now reads the languages the console
+  offers from its dictionaries rather than a list that had fallen behind.
+- **Not verified.** Each language was written and read through by one
+  translator against the English and spot-checked against forty random
+  entries; none has been read by a native speaker using the product.
+  Javanese and Sundanese have few software conventions to follow, and some
+  terms were coined ("pangolah" for runtime). Labels such as "Model" or
+  "Status" that a language writes as English does are listed in that
+  dictionary's `KEPT`, under its 3% cap. The documentation is in English.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

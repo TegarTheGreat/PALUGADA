@@ -164,8 +164,10 @@ freeze, raise a ceiling, rewrite what a model call cost, or delete history.
   the owner decides on it.
 
 **The owner's console**
-- A React and Mantine app in **English, Indonesian, Malay, Simplified
-  Chinese, Hindi, Brazilian Portuguese and Russian**, with light and dark
+- A React and Mantine app in **21 languages**: English, Indonesian, Malay,
+  Javanese, Sundanese, Filipino, Vietnamese, Thai, Simplified Chinese,
+  Japanese, Korean, Hindi, Arabic (drawn right to left), Spanish, Brazilian
+  Portuguese, French, German, Dutch, Italian, Turkish and Russian, with light and dark
   themes, that works on a phone. The language is the owner's choice, kept by
   the deployment rather than the browser, so it follows them to every device,
   and it is also the language of every message PALUGADA itself sends them:

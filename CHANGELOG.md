@@ -60,6 +60,13 @@ The first version. What it holds, in the order an owner meets it.
   hourly one keeps to real time; and a work window opens on its own zone's
   hour where that is not an hour of UTC, such as in Kolkata or Adelaide
   (STATUS 2.60).
+- The console, and what PALUGADA sends the owner's phone, in 21 languages:
+  English, Indonesian, Malay, Javanese, Sundanese, Filipino, Vietnamese,
+  Thai, Simplified Chinese, Japanese, Korean, Hindi, Arabic (right to left),
+  Spanish, Brazilian Portuguese, French, German, Dutch, Italian, Turkish and
+  Russian. Why an approval was withdrawn, or a pressed button found its item
+  closed, is said as a sentence in each rather than as a status code
+  (STATUS 2.65).
 - A project may have its own work language, for a company that sells in
   more than one market: runs in a Malaysia project write for customers in
   Malay and drafts there are checked against Malay, while agents still talk
@@ -83,11 +90,10 @@ The first version. What it holds, in the order an owner meets it.
 - Told on Telegram, WhatsApp, a phone push, Slack, Discord or email, and able
   to decide on Telegram and WhatsApp (STATUS 2.31, 2.41).
 - A console set up entirely from the panel -- the model, agent CLIs, tools,
-  channels, services and MCP servers -- in English, Indonesian, Malay,
-  Simplified Chinese, Hindi, Brazilian Portuguese and Russian, with every
-  message PALUGADA sends the owner in the same language, Russian's three
+  channels, services and MCP servers -- in the owner's language, with every
+  message PALUGADA sends the owner in the same language, each language's
   plural forms, and a decision or a task's end said as a sentence rather
-  than a code (STATUS 2.62).
+  than a code (STATUS 2.62, 2.65).
 - Export and import of a whole company, and closing one, which erases every
   row of it after a grace period the owner chooses (STATUS 2.38).
 - **Run now** on a schedule: the task its next occurrence would make, at

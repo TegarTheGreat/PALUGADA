@@ -21,14 +21,14 @@ import { SENTENCES as JA } from './sentences/ja.ts';
 import { SENTENCES as KO } from './sentences/ko.ts';
 import { SENTENCES as HI } from './sentences/hi.ts';
 import { SENTENCES as AR } from './sentences/ar.ts';
+import { SENTENCES as ES } from './sentences/es.ts';
 import { SENTENCES as PT_BR } from './sentences/pt-BR.ts';
+import { SENTENCES as FR } from './sentences/fr.ts';
 import { SENTENCES as DE } from './sentences/de.ts';
 import { SENTENCES as NL } from './sentences/nl.ts';
 import { SENTENCES as IT } from './sentences/it.ts';
 import { SENTENCES as TR } from './sentences/tr.ts';
 import { SENTENCES as RU } from './sentences/ru.ts';
-import { SENTENCES as ES } from './sentences/es.ts';
-import { SENTENCES as FR } from './sentences/fr.ts';
 
 /**
  * The sentences each language has, one file each in `sentences/`. Every
@@ -44,14 +44,14 @@ export const OWNER_SENTENCES: Readonly<Record<string, Readonly<Record<string, st
   ko: KO,
   hi: HI,
   ar: AR,
+  es: ES,
   'pt-BR': PT_BR,
+  fr: FR,
   de: DE,
   nl: NL,
   it: IT,
   tr: TR,
   ru: RU,
-  es: ES,
-  fr: FR,
 };
 
 /** `text` in `language`, with `{name}` filled from `values`; English when there is no translation. */

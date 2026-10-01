@@ -24,15 +24,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Ask': '提问',
   'Approved. Nothing left to press here.': '已批准。这里无需再操作。',
   'Denied. Nothing left to press here.': '已拒绝。这里无需再操作。',
-  'Decided ({decision}). Nothing left to press here.': '已决定（{decision}）。这里无需再操作。',
   'Expired unanswered. Silence is a refusal, so nothing was done.':
     '超时未回应。沉默即视为拒绝，因此未执行任何操作。',
-  'Withdrawn: the task it was asking about is {state}.': '已撤回：所询问的任务已处于 {state} 状态。',
-  'Withdrawn ({reason}).': '已撤回（{reason}）。',
-  'no reason recorded': '未记录原因',
   'This bot only answers to its owner.': '此机器人只回应其所有者。',
   'That one has to be approved in the app.': '此事项必须在控制台中批准。',
-  'Already closed: {reason}.': '已关闭：{reason}。',
   'That could not be recorded.': '无法记录此操作。',
   'That item no longer exists.': '该事项已不存在。',
   'What do you want to ask about "{title}"? Reply to this message.':
@@ -108,4 +103,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   "Withdrawn: the task it was asking about has failed.": "已撤回：所询问的任务已失败。",
   "Withdrawn: the task it was asking about was stopped.": "已撤回：所询问的任务已被停止。",
   "Withdrawn: the task it was asking about was cancelled.": "已撤回：所询问的任务已被取消。",
+  'Decided. Nothing left to press here.': '已决定。这里无需再操作。',
+  'Withdrawn: the agent changed what it proposes and asked again about the new one.': '已撤回：智能体更改了提议，并就新提议重新发起询问。',
+  'Withdrawn: the company is no longer at the stage this proposal would move it from.': '已撤回：公司已不在此提议要变更的阶段。',
+  'Withdrawn: it was already decided in the app.': '已撤回：已在控制台中作出决定。',
+  'Withdrawn. Nothing left to press here.': '已撤回。这里无需再操作。',
 };

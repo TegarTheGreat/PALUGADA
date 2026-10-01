@@ -25,15 +25,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Ask': 'Nachfragen',
   'Approved. Nothing left to press here.': 'Genehmigt. Hier gibt es nichts mehr zu tippen.',
   'Denied. Nothing left to press here.': 'Abgelehnt. Hier gibt es nichts mehr zu tippen.',
-  'Decided ({decision}). Nothing left to press here.': 'Entschieden ({decision}). Hier gibt es nichts mehr zu tippen.',
   'Expired unanswered. Silence is a refusal, so nothing was done.':
     'Unbeantwortet abgelaufen. Schweigen gilt als Ablehnung, also wurde nichts getan.',
-  'Withdrawn: the task it was asking about is {state}.': 'Zurückgezogen: Die betreffende Aufgabe ist jetzt im Zustand {state}.',
-  'Withdrawn ({reason}).': 'Zurückgezogen ({reason}).',
-  'no reason recorded': 'kein Grund erfasst',
   'This bot only answers to its owner.': 'Dieser Bot antwortet nur seinem Inhaber.',
   'That one has to be approved in the app.': 'Das muss in der App genehmigt werden.',
-  'Already closed: {reason}.': 'Bereits geschlossen: {reason}.',
   'That could not be recorded.': 'Das konnte nicht erfasst werden.',
   'That item no longer exists.': 'Diesen Eintrag gibt es nicht mehr.',
   'What do you want to ask about "{title}"? Reply to this message.':
@@ -107,6 +102,11 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Asked. Nothing left to press here.': 'Nachgefragt. Hier gibt es nichts mehr zu tippen.',
   'Withdrawn: the task it was asking about has finished.': 'Zurückgezogen: Die betreffende Aufgabe ist abgeschlossen.',
   'Withdrawn: the task it was asking about has failed.': 'Zurückgezogen: Die betreffende Aufgabe ist fehlgeschlagen.',
-  'Withdrawn: the task it was asking about was stopped.': 'Zurückgezogen: Die betreffende Aufgabe wurde gestoppt.',
+  'Withdrawn: the task it was asking about was stopped.': 'Zurückgezogen: Die betreffende Aufgabe wurde angehalten.',
   'Withdrawn: the task it was asking about was cancelled.': 'Zurückgezogen: Die betreffende Aufgabe wurde abgebrochen.',
+  'Decided. Nothing left to press here.': 'Entschieden. Hier gibt es nichts mehr zu tippen.',
+  'Withdrawn: the agent changed what it proposes and asked again about the new one.': 'Zurückgezogen: Der Agent schlägt jetzt etwas anderes vor und hat dafür erneut gefragt.',
+  'Withdrawn: the company is no longer at the stage this proposal would move it from.': 'Zurückgezogen: Das Unternehmen ist nicht mehr in der Phase, aus der dieser Vorschlag es herausführen würde.',
+  'Withdrawn: it was already decided in the app.': 'Zurückgezogen: Darüber wurde bereits in der App entschieden.',
+  'Withdrawn. Nothing left to press here.': 'Zurückgezogen. Hier gibt es nichts mehr zu tippen.',
 };

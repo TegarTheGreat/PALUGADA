@@ -26,15 +26,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Ask': 'Sor',
   'Approved. Nothing left to press here.': 'Onaylandı. Burada basılacak başka bir şey yok.',
   'Denied. Nothing left to press here.': 'Reddedildi. Burada basılacak başka bir şey yok.',
-  'Decided ({decision}). Nothing left to press here.': 'Karara bağlandı ({decision}). Burada basılacak başka bir şey yok.',
   'Expired unanswered. Silence is a refusal, so nothing was done.':
     'Yanıtlanmadan süresi doldu. Sessizlik ret sayılır; bu yüzden hiçbir şey yapılmadı.',
-  'Withdrawn: the task it was asking about is {state}.': 'Geri çekildi: ilgili görevin durumu artık {state}.',
-  'Withdrawn ({reason}).': 'Geri çekildi ({reason}).',
-  'no reason recorded': 'kayıtlı bir neden yok',
   'This bot only answers to its owner.': 'Bu bot yalnızca sahibine yanıt verir.',
   'That one has to be approved in the app.': 'Bunun uygulamada onaylanması gerekiyor.',
-  'Already closed: {reason}.': 'Zaten kapandı: {reason}.',
   'That could not be recorded.': 'Bu kaydedilemedi.',
   'That item no longer exists.': 'Bu öğe artık yok.',
   'What do you want to ask about "{title}"? Reply to this message.':
@@ -110,4 +105,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Withdrawn: the task it was asking about has failed.': 'Geri çekildi: ilgili görev başarısız oldu.',
   'Withdrawn: the task it was asking about was stopped.': 'Geri çekildi: ilgili görev durduruldu.',
   'Withdrawn: the task it was asking about was cancelled.': 'Geri çekildi: ilgili görev iptal edildi.',
+  'Decided. Nothing left to press here.': 'Karara bağlandı. Burada basılacak başka bir şey yok.',
+  'Withdrawn: the agent changed what it proposes and asked again about the new one.': 'Geri çekildi: ajan önerisini değiştirdi ve yenisi için yeniden sordu.',
+  'Withdrawn: the company is no longer at the stage this proposal would move it from.': 'Geri çekildi: bu öneri şirketi bulunduğu aşamadan taşıyacaktı, ama şirket artık o aşamada değil.',
+  'Withdrawn: it was already decided in the app.': 'Geri çekildi: uygulamada zaten karara bağlanmıştı.',
+  'Withdrawn. Nothing left to press here.': 'Geri çekildi. Burada basılacak başka bir şey yok.',
 };

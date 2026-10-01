@@ -24,15 +24,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Ask': 'Perguntar',
   'Approved. Nothing left to press here.': 'Aprovado. Não há mais nada para tocar aqui.',
   'Denied. Nothing left to press here.': 'Recusado. Não há mais nada para tocar aqui.',
-  'Decided ({decision}). Nothing left to press here.': 'Decidido ({decision}). Não há mais nada para tocar aqui.',
   'Expired unanswered. Silence is a refusal, so nothing was done.':
     'Expirou sem resposta. Silêncio é recusa, então nada foi feito.',
-  'Withdrawn: the task it was asking about is {state}.': 'Retirado: a tarefa a que ele se referia mudou de estado ({state}).',
-  'Withdrawn ({reason}).': 'Retirado ({reason}).',
-  'no reason recorded': 'nenhum motivo registrado',
   'This bot only answers to its owner.': 'Este bot só responde ao proprietário.',
   'That one has to be approved in the app.': 'Este precisa ser aprovado no app.',
-  'Already closed: {reason}.': 'Já encerrado: {reason}.',
   'That could not be recorded.': 'Não foi possível registrar isso.',
   'That item no longer exists.': 'Esse item não existe mais.',
   'What do you want to ask about "{title}"? Reply to this message.':
@@ -108,4 +103,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   "Withdrawn: the task it was asking about has failed.": "Retirado: a tarefa a que ele se referia falhou.",
   "Withdrawn: the task it was asking about was stopped.": "Retirado: a tarefa a que ele se referia foi interrompida.",
   "Withdrawn: the task it was asking about was cancelled.": "Retirado: a tarefa a que ele se referia foi cancelada.",
+  'Decided. Nothing left to press here.': 'Decidido. Não há mais nada para tocar aqui.',
+  'Withdrawn: the agent changed what it proposes and asked again about the new one.': 'Retirado: o agente mudou o que propõe e perguntou de novo sobre a nova proposta.',
+  'Withdrawn: the company is no longer at the stage this proposal would move it from.': 'Retirado: a empresa não está mais na fase de onde esta proposta a tiraria.',
+  'Withdrawn: it was already decided in the app.': 'Retirado: já foi decidido no app.',
+  'Withdrawn. Nothing left to press here.': 'Retirado. Não há mais nada para tocar aqui.',
 };

@@ -25,15 +25,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Ask': 'Chiedi',
   'Approved. Nothing left to press here.': "Approvato. Qui non c'è più niente da premere.",
   'Denied. Nothing left to press here.': "Rifiutato. Qui non c'è più niente da premere.",
-  'Decided ({decision}). Nothing left to press here.': "Deciso ({decision}). Qui non c'è più niente da premere.",
   'Expired unanswered. Silence is a refusal, so nothing was done.':
     'Scaduto senza risposta. Il silenzio vale come rifiuto, quindi non è stato fatto nulla.',
-  'Withdrawn: the task it was asking about is {state}.': "Ritirato: l'attività a cui si riferiva è nello stato {state}.",
-  'Withdrawn ({reason}).': 'Ritirato ({reason}).',
-  'no reason recorded': 'nessun motivo registrato',
   'This bot only answers to its owner.': 'Questo bot risponde solo al suo proprietario.',
   'That one has to be approved in the app.': "Questo va approvato nell'app.",
-  'Already closed: {reason}.': 'Già chiuso: {reason}.',
   'That could not be recorded.': 'Non è stato possibile registrarlo.',
   'That item no longer exists.': 'Questo elemento non esiste più.',
   'What do you want to ask about "{title}"? Reply to this message.':
@@ -109,4 +104,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Withdrawn: the task it was asking about has failed.': "Ritirato: l'attività a cui si riferiva non è riuscita.",
   'Withdrawn: the task it was asking about was stopped.': "Ritirato: l'attività a cui si riferiva è stata fermata.",
   'Withdrawn: the task it was asking about was cancelled.': "Ritirato: l'attività a cui si riferiva è stata annullata.",
+  'Decided. Nothing left to press here.': 'Deciso. Qui non c\'è più niente da premere.',
+  'Withdrawn: the agent changed what it proposes and asked again about the new one.': 'Ritirato: l\'agente ha cambiato la sua proposta e ha chiesto di nuovo per quella nuova.',
+  'Withdrawn: the company is no longer at the stage this proposal would move it from.': 'Ritirato: l\'azienda non è più nella fase da cui questa proposta l\'avrebbe spostata.',
+  'Withdrawn: it was already decided in the app.': 'Ritirato: era già stato deciso nell\'app.',
+  'Withdrawn. Nothing left to press here.': 'Ritirato. Qui non c\'è più niente da premere.',
 };

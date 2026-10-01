@@ -26,14 +26,14 @@ import { DICTIONARY as JA } from './locales/ja.ts';
 import { DICTIONARY as KO } from './locales/ko.ts';
 import { DICTIONARY as HI } from './locales/hi.ts';
 import { DICTIONARY as AR } from './locales/ar.ts';
+import { DICTIONARY as ES } from './locales/es.ts';
 import { DICTIONARY as PT_BR } from './locales/pt-BR.ts';
+import { DICTIONARY as FR } from './locales/fr.ts';
 import { DICTIONARY as DE } from './locales/de.ts';
 import { DICTIONARY as NL } from './locales/nl.ts';
 import { DICTIONARY as IT } from './locales/it.ts';
 import { DICTIONARY as TR } from './locales/tr.ts';
 import { DICTIONARY as RU } from './locales/ru.ts';
-import { DICTIONARY as ES } from './locales/es.ts';
-import { DICTIONARY as FR } from './locales/fr.ts';
 import type { Dictionary, Translation } from './locales/types.ts';
 
 /**
@@ -51,14 +51,14 @@ export const LANGUAGES = [
   { code: 'ko', name: '한국어', locale: 'ko-KR' },
   { code: 'hi', name: 'हिन्दी', locale: 'hi-IN' },
   { code: 'ar', name: 'العربية', locale: 'ar' },
+  { code: 'es', name: 'Español', locale: 'es' },
   { code: 'pt-BR', name: 'Português (Brasil)', locale: 'pt-BR' },
+  { code: 'fr', name: 'Français', locale: 'fr-FR' },
   { code: 'de', name: 'Deutsch', locale: 'de-DE' },
   { code: 'nl', name: 'Nederlands', locale: 'nl-NL' },
   { code: 'it', name: 'Italiano', locale: 'it-IT' },
   { code: 'tr', name: 'Türkçe', locale: 'tr-TR' },
   { code: 'ru', name: 'Русский', locale: 'ru-RU' },
-  { code: 'es', name: 'Español', locale: 'es' },
-  { code: 'fr', name: 'Français', locale: 'fr-FR' },
 ] as const;
 export type Language = (typeof LANGUAGES)[number]['code'];
 
@@ -72,14 +72,14 @@ const DICTIONARIES: Record<Language, Dictionary> = {
   ko: KO,
   hi: HI,
   ar: AR,
+  es: ES,
   'pt-BR': PT_BR,
+  fr: FR,
   de: DE,
   nl: NL,
   it: IT,
   tr: TR,
   ru: RU,
-  es: ES,
-  fr: FR,
 };
 
 export function isLanguage(value: unknown): value is Language {

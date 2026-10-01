@@ -21,15 +21,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Ask': 'Magtanong',
   'Approved. Nothing left to press here.': 'Inaprubahan. Wala nang pipindutin dito.',
   'Denied. Nothing left to press here.': 'Tinanggihan. Wala nang pipindutin dito.',
-  'Decided ({decision}). Nothing left to press here.': 'Napagpasyahan ({decision}). Wala nang pipindutin dito.',
   'Expired unanswered. Silence is a refusal, so nothing was done.':
     'Nag-expire nang walang sagot. Pagtanggi ang pananahimik, kaya walang ginawa.',
-  'Withdrawn: the task it was asking about is {state}.': 'Binawi: {state} na ang gawaing itinatanong nito.',
-  'Withdrawn ({reason}).': 'Binawi ({reason}).',
-  'no reason recorded': 'walang naitalang dahilan',
   'This bot only answers to its owner.': 'Sa may-ari lang nito sumasagot ang bot na ito.',
   'That one has to be approved in the app.': 'Sa app dapat aprubahan ang isang iyan.',
-  'Already closed: {reason}.': 'Sarado na: {reason}.',
   'That could not be recorded.': 'Hindi iyon maitala.',
   'That item no longer exists.': 'Wala na ang item na iyan.',
   'What do you want to ask about "{title}"? Reply to this message.':
@@ -106,4 +101,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Withdrawn: the task it was asking about has failed.': 'Binawi: nabigo ang gawaing itinatanong nito.',
   'Withdrawn: the task it was asking about was stopped.': 'Binawi: inihinto ang gawaing itinatanong nito.',
   'Withdrawn: the task it was asking about was cancelled.': 'Binawi: kinansela ang gawaing itinatanong nito.',
+  'Decided. Nothing left to press here.': 'Napagpasyahan. Wala nang pipindutin dito.',
+  'Withdrawn: the agent changed what it proposes and asked again about the new one.': 'Binawi: binago ng agent ang mungkahi nito at nagtanong ulit tungkol sa bago.',
+  'Withdrawn: the company is no longer at the stage this proposal would move it from.': 'Binawi: wala na ang kumpanya sa yugtong aalisan sana nito ayon sa mungkahing ito.',
+  'Withdrawn: it was already decided in the app.': 'Binawi: napagpasyahan na ito sa app.',
+  'Withdrawn. Nothing left to press here.': 'Binawi. Wala nang pipindutin dito.',
 };

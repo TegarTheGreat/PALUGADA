@@ -21,15 +21,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Ask': 'سؤال',
   'Approved. Nothing left to press here.': 'تمت الموافقة. لم يبق شيء للضغط عليه هنا.',
   'Denied. Nothing left to press here.': 'تم الرفض. لم يبق شيء للضغط عليه هنا.',
-  'Decided ({decision}). Nothing left to press here.': 'حُسم ({decision}). لم يبق شيء للضغط عليه هنا.',
   'Expired unanswered. Silence is a refusal, so nothing was done.':
     'انتهت المهلة دون رد. والصمت رفض، لذا لم يُنفَّذ شيء.',
-  'Withdrawn: the task it was asking about is {state}.': 'سُحب: حالة المهمة التي كان يسأل عنها الآن {state}.',
-  'Withdrawn ({reason}).': 'سُحب ({reason}).',
-  'no reason recorded': 'لم يُسجَّل سبب',
   'This bot only answers to its owner.': 'هذا البوت لا يستجيب إلا لمالكه.',
   'That one has to be approved in the app.': 'هذا العنصر تجب الموافقة عليه داخل التطبيق.',
-  'Already closed: {reason}.': 'مُغلق بالفعل: {reason}.',
   'That could not be recorded.': 'تعذّر تسجيل ذلك.',
   'That item no longer exists.': 'هذا العنصر لم يعد موجودًا.',
   'What do you want to ask about "{title}"? Reply to this message.':
@@ -106,4 +101,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Withdrawn: the task it was asking about has failed.': 'سُحب: فشلت المهمة التي كان يسأل عنها.',
   'Withdrawn: the task it was asking about was stopped.': 'سُحب: أُوقفت المهمة التي كان يسأل عنها.',
   'Withdrawn: the task it was asking about was cancelled.': 'سُحب: أُلغيت المهمة التي كان يسأل عنها.',
+  'Decided. Nothing left to press here.': 'حُسم. لم يبق شيء للضغط عليه هنا.',
+  'Withdrawn: the agent changed what it proposes and asked again about the new one.': 'سُحب: غيّر الوكيل ما يقترحه وأعاد السؤال عن المقترح الجديد.',
+  'Withdrawn: the company is no longer at the stage this proposal would move it from.': 'سُحب: لم تعد الشركة في المرحلة التي كان هذا المقترح سينقلها منها.',
+  'Withdrawn: it was already decided in the app.': 'سُحب: حُسم بالفعل داخل التطبيق.',
+  'Withdrawn. Nothing left to press here.': 'سُحب. لم يبق شيء للضغط عليه هنا.',
 };

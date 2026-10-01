@@ -25,15 +25,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Ask': 'Vraag stellen',
   'Approved. Nothing left to press here.': 'Goedgekeurd. Hier valt niets meer aan te tikken.',
   'Denied. Nothing left to press here.': 'Afgewezen. Hier valt niets meer aan te tikken.',
-  'Decided ({decision}). Nothing left to press here.': 'Beslist ({decision}). Hier valt niets meer aan te tikken.',
   'Expired unanswered. Silence is a refusal, so nothing was done.':
     'Onbeantwoord verlopen. Stilte is een weigering, dus er is niets gedaan.',
-  'Withdrawn: the task it was asking about is {state}.': 'Ingetrokken: de taak waar het om ging, heeft nu de status {state}.',
-  'Withdrawn ({reason}).': 'Ingetrokken ({reason}).',
-  'no reason recorded': 'geen reden vastgelegd',
   'This bot only answers to its owner.': 'Deze bot antwoordt alleen zijn eigenaar.',
   'That one has to be approved in the app.': 'Dit moet in de app worden goedgekeurd.',
-  'Already closed: {reason}.': 'Al gesloten: {reason}.',
   'That could not be recorded.': 'Dat kon niet worden vastgelegd.',
   'That item no longer exists.': 'Dat item bestaat niet meer.',
   'What do you want to ask about "{title}"? Reply to this message.':
@@ -109,4 +104,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Withdrawn: the task it was asking about has failed.': 'Ingetrokken: de taak waar het om ging, is mislukt.',
   'Withdrawn: the task it was asking about was stopped.': 'Ingetrokken: de taak waar het om ging, is stilgezet.',
   'Withdrawn: the task it was asking about was cancelled.': 'Ingetrokken: de taak waar het om ging, is geannuleerd.',
+  'Decided. Nothing left to press here.': 'Beslist. Hier valt niets meer aan te tikken.',
+  'Withdrawn: the agent changed what it proposes and asked again about the new one.': 'Ingetrokken: de agent stelt nu iets anders voor en heeft daar opnieuw om gevraagd.',
+  'Withdrawn: the company is no longer at the stage this proposal would move it from.': 'Ingetrokken: het bedrijf zit niet meer in de fase waaruit dit voorstel het zou verplaatsen.',
+  'Withdrawn: it was already decided in the app.': 'Ingetrokken: hierover is al in de app beslist.',
+  'Withdrawn. Nothing left to press here.': 'Ingetrokken. Hier valt niets meer aan te tikken.',
 };

@@ -25,15 +25,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Ask': 'पूछें',
   'Approved. Nothing left to press here.': 'स्वीकृत। यहाँ अब कुछ दबाना बाकी नहीं है।',
   'Denied. Nothing left to press here.': 'अस्वीकृत। यहाँ अब कुछ दबाना बाकी नहीं है।',
-  'Decided ({decision}). Nothing left to press here.': 'निर्णय हो गया ({decision})। यहाँ अब कुछ दबाना बाकी नहीं है।',
   'Expired unanswered. Silence is a refusal, so nothing was done.':
     'बिना जवाब के समाप्त। चुप रहना इनकार माना जाता है, इसलिए कुछ नहीं किया गया।',
-  'Withdrawn: the task it was asking about is {state}.': 'वापस लिया गया: जिस कार्य के बारे में यह पूछ रहा था, उसकी स्थिति अब {state} है।',
-  'Withdrawn ({reason}).': 'वापस लिया गया ({reason})।',
-  'no reason recorded': 'कोई कारण दर्ज नहीं',
   'This bot only answers to its owner.': 'यह बॉट सिर्फ़ अपने स्वामी को जवाब देता है।',
   'That one has to be approved in the app.': 'इसे ऐप में ही स्वीकृत करना होगा।',
-  'Already closed: {reason}.': 'पहले ही बंद हो चुका है: {reason}।',
   'That could not be recorded.': 'इसे दर्ज नहीं किया जा सका।',
   'That item no longer exists.': 'वह आइटम अब मौजूद नहीं है।',
   'What do you want to ask about "{title}"? Reply to this message.':
@@ -109,4 +104,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   "Withdrawn: the task it was asking about has failed.": "वापस लिया गया: जिस कार्य के बारे में यह पूछ रहा था, वह विफल हो गया है।",
   "Withdrawn: the task it was asking about was stopped.": "वापस लिया गया: जिस कार्य के बारे में यह पूछ रहा था, उसे रोक दिया गया।",
   "Withdrawn: the task it was asking about was cancelled.": "वापस लिया गया: जिस कार्य के बारे में यह पूछ रहा था, उसे रद्द कर दिया गया।",
+  'Decided. Nothing left to press here.': 'निर्णय हो चुका। यहाँ अब कुछ दबाना बाकी नहीं है।',
+  'Withdrawn: the agent changed what it proposes and asked again about the new one.': 'वापस लिया गया: एजेंट ने अपना प्रस्ताव बदल दिया और नए प्रस्ताव के बारे में फिर से पूछा।',
+  'Withdrawn: the company is no longer at the stage this proposal would move it from.': 'वापस लिया गया: कंपनी अब उस चरण में नहीं है जिससे यह प्रस्ताव उसे आगे ले जाता।',
+  'Withdrawn: it was already decided in the app.': 'वापस लिया गया: ऐप में इसका निर्णय पहले ही हो चुका है।',
+  'Withdrawn. Nothing left to press here.': 'वापस लिया गया। यहाँ अब कुछ दबाना बाकी नहीं है।',
 };

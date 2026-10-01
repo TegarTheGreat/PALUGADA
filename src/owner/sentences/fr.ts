@@ -25,19 +25,12 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   "Ask": "Poser une question",
   "Approved. Nothing left to press here.": "Approuvé. Il n’y a plus rien à faire ici.",
   "Denied. Nothing left to press here.": "Refusé. Il n’y a plus rien à faire ici.",
-  "Decided ({decision}). Nothing left to press here.":
-    "Tranché ({decision}). Il n’y a plus rien à faire ici.",
   "Expired unanswered. Silence is a refusal, so nothing was done.":
     "Expiré sans réponse. Le silence vaut refus : rien n’a été fait.",
-  "Withdrawn: the task it was asking about is {state}.":
-    "Retiré : la tâche concernée est dans l’état {state}.",
-  "Withdrawn ({reason}).": "Retiré ({reason}).",
-  "no reason recorded": "aucun motif enregistré",
   "This bot only answers to its owner.": "Ce bot ne répond qu’à son propriétaire.",
   "That one has to be approved in the app.": "Celui-ci doit être approuvé dans l’application.",
-  "Already closed: {reason}.": "Déjà clos : {reason}.",
   "That could not be recorded.": "Impossible d’enregistrer cela.",
-  "That item no longer exists.": "Cet élément n’existe plus.",
+  'That item no longer exists.': 'Cet élément n’existe plus.',
   "What do you want to ask about \"{title}\"? Reply to this message.":
     "Que voulez-vous demander à propos de « {title} » ? Répondez à ce message.",
   "Your question": "Votre question",
@@ -114,4 +107,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   "Withdrawn: the task it was asking about has failed.": "Retiré : la tâche concernée a échoué.",
   "Withdrawn: the task it was asking about was stopped.": "Retiré : la tâche concernée a été arrêtée.",
   "Withdrawn: the task it was asking about was cancelled.": "Retiré : la tâche concernée a été annulée.",
+  'Decided. Nothing left to press here.': 'Tranché. Il n’y a plus rien à faire ici.',
+  'Withdrawn: the agent changed what it proposes and asked again about the new one.': 'Retiré : l’agent a modifié sa proposition et a soumis la nouvelle à votre décision.',
+  'Withdrawn: the company is no longer at the stage this proposal would move it from.': 'Retiré : l’entreprise n’est plus dans la phase dont cette proposition devait la faire sortir.',
+  'Withdrawn: it was already decided in the app.': 'Retiré : c’était déjà tranché dans l’application.',
+  'Withdrawn. Nothing left to press here.': 'Retiré. Il n’y a plus rien à faire ici.',
 };

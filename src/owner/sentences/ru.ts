@@ -25,15 +25,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Ask': 'Спросить',
   'Approved. Nothing left to press here.': 'Одобрено. Здесь больше ничего нажимать не нужно.',
   'Denied. Nothing left to press here.': 'Отклонено. Здесь больше ничего нажимать не нужно.',
-  'Decided ({decision}). Nothing left to press here.': 'Решено ({decision}). Здесь больше ничего нажимать не нужно.',
   'Expired unanswered. Silence is a refusal, so nothing was done.':
     'Срок истёк без ответа. Молчание — это отказ, поэтому ничего не сделано.',
-  'Withdrawn: the task it was asking about is {state}.': 'Отозвано: задача, о которой шла речь, теперь в состоянии {state}.',
-  'Withdrawn ({reason}).': 'Отозвано ({reason}).',
-  'no reason recorded': 'причина не записана',
   'This bot only answers to its owner.': 'Этот бот отвечает только своему владельцу.',
   'That one has to be approved in the app.': 'Это нужно одобрить в приложении.',
-  'Already closed: {reason}.': 'Уже закрыто: {reason}.',
   'That could not be recorded.': 'Не удалось это записать.',
   'That item no longer exists.': 'Этого элемента больше нет.',
   'What do you want to ask about "{title}"? Reply to this message.':
@@ -109,4 +104,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   "Withdrawn: the task it was asking about has failed.": "Отозвано: задача, о которой шла речь, завершилась ошибкой.",
   "Withdrawn: the task it was asking about was stopped.": "Отозвано: задача, о которой шла речь, остановлена.",
   "Withdrawn: the task it was asking about was cancelled.": "Отозвано: задача, о которой шла речь, отменена.",
+  'Decided. Nothing left to press here.': 'Решено. Здесь больше ничего нажимать не нужно.',
+  'Withdrawn: the agent changed what it proposes and asked again about the new one.': 'Отозвано: агент изменил своё предложение и снова спросил о новом.',
+  'Withdrawn: the company is no longer at the stage this proposal would move it from.': 'Отозвано: компания уже не на том этапе, с которого её переводило это предложение.',
+  'Withdrawn: it was already decided in the app.': 'Отозвано: решение уже принято в приложении.',
+  'Withdrawn. Nothing left to press here.': 'Отозвано. Здесь больше ничего нажимать не нужно.',
 };

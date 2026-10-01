@@ -24,15 +24,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Ask': 'Tanya',
   'Approved. Nothing left to press here.': 'Diluluskan. Tiada apa-apa lagi untuk ditekan di sini.',
   'Denied. Nothing left to press here.': 'Ditolak. Tiada apa-apa lagi untuk ditekan di sini.',
-  'Decided ({decision}). Nothing left to press here.': 'Diputuskan ({decision}). Tiada apa-apa lagi untuk ditekan di sini.',
   'Expired unanswered. Silence is a refusal, so nothing was done.':
     'Tamat tempoh tanpa jawapan. Berdiam diri bermaksud menolak, jadi tiada apa-apa yang dilakukan.',
-  'Withdrawn: the task it was asking about is {state}.': 'Ditarik balik: tugasan yang ditanyakannya kini {state}.',
-  'Withdrawn ({reason}).': 'Ditarik balik ({reason}).',
-  'no reason recorded': 'tiada sebab direkodkan',
   'This bot only answers to its owner.': 'Bot ini hanya menjawab pemiliknya.',
   'That one has to be approved in the app.': 'Yang itu mesti diluluskan dalam apl.',
-  'Already closed: {reason}.': 'Sudah ditutup: {reason}.',
   'That could not be recorded.': 'Itu tidak dapat direkodkan.',
   'That item no longer exists.': 'Item itu tidak wujud lagi.',
   'What do you want to ask about "{title}"? Reply to this message.':
@@ -108,4 +103,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   "Withdrawn: the task it was asking about has failed.": "Ditarik balik: tugasan yang ditanyakannya telah gagal.",
   "Withdrawn: the task it was asking about was stopped.": "Ditarik balik: tugasan yang ditanyakannya telah dihentikan.",
   "Withdrawn: the task it was asking about was cancelled.": "Ditarik balik: tugasan yang ditanyakannya telah dibatalkan.",
+  'Decided. Nothing left to press here.': 'Sudah diputuskan. Tiada apa-apa lagi untuk ditekan di sini.',
+  'Withdrawn: the agent changed what it proposes and asked again about the new one.': 'Ditarik balik: ejen mengubah cadangannya dan bertanya semula tentang cadangan yang baharu.',
+  'Withdrawn: the company is no longer at the stage this proposal would move it from.': 'Ditarik balik: syarikat tidak lagi berada di peringkat yang hendak diubah oleh cadangan ini.',
+  'Withdrawn: it was already decided in the app.': 'Ditarik balik: sudah diputuskan dalam apl.',
+  'Withdrawn. Nothing left to press here.': 'Ditarik balik. Tiada apa-apa lagi untuk ditekan di sini.',
 };

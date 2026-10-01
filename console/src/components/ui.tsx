@@ -67,6 +67,15 @@ export function LiveIndicator({ at }: { at: Date | null }) {
  * Figures that belong together, in one strip with dividers rather than four
  * cards competing for the eye.
  */
+/**
+ * Whether a figure's value is a word ("Allowed", "Paused") rather than a
+ * number: drawn at a number's size, one long word in a long language --
+ * Javanese "Dipunparengaken" -- is wider than a phone's half-width card.
+ */
+function wordy(value: ReactNode): boolean {
+  return typeof value === 'string' && !/\d/.test(value);
+}
+
 export function KpiStrip({ items }: { items: Array<{ label: string; value: ReactNode; hint?: ReactNode; alert?: boolean; onClick?: () => void }> }) {
   return (
     <Paper withBorder radius="lg" shadow="xs">
@@ -80,7 +89,7 @@ export function KpiStrip({ items }: { items: Array<{ label: string; value: React
             data-first={index === 0 || undefined}
           >
             <Text size="xs" c="dimmed" fw={600}>{item.label}</Text>
-            <Text fz={28} fw={750} lh={1.25} mt={4} c={item.alert ? 'red' : undefined} className="tabular">{item.value}</Text>
+            <Text fz={wordy(item.value) ? 16 : 28} fw={750} lh={1.25} mt={4} c={item.alert ? 'red' : undefined} className="tabular kpi-value">{item.value}</Text>
             {item.hint && <Text size="xs" c="dimmed" mt={2}>{item.hint}</Text>}
           </UnstyledButton>
         ))}
@@ -129,7 +138,7 @@ export function StatCard({
       <Group justify="space-between" align="flex-start" wrap="nowrap">
         <div>
           <Text size="xs" c="dimmed" tt="uppercase" fw={700}>{label}</Text>
-          <Text fw={800} fz={26} lh={1.2} mt={6} c={alert ? 'red' : undefined}>{value}</Text>
+          <Text fw={800} fz={wordy(value) ? 16 : 26} lh={1.2} mt={6} c={alert ? 'red' : undefined} className="kpi-value">{value}</Text>
         </div>
         {icon && <ThemeIcon variant="light" color={color} size={38} radius="md">{icon}</ThemeIcon>}
       </Group>

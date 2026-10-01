@@ -295,7 +295,7 @@ function OrgChart({
           </Group>
         </Paper>
         <div className="org-stem org-stem--talk">
-          <Badge size="xs" variant="white" color="gray" className="org-stem-label" leftSection={<IconMessageCircle size={10} />}>{t('talks with you')}</Badge>
+          <Badge size="xs" variant="white" color="gray" tt="none" className="org-stem-label" leftSection={<IconMessageCircle size={10} />}>{t('talks with you')}</Badge>
         </div>
         {ceo ? (
           <Paper radius="lg" p="md" shadow="sm" className="org-ceo" onClick={() => openRole(ceo)}>

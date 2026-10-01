@@ -57,7 +57,10 @@
 .org-owner { max-width: 100%; }
 .org-stem { width: 2px; height: 26px; background: var(--org-line); position: relative; }
 .org-stem--talk { height: 34px; }
-.org-stem-label { position: absolute; inset-inline-start: 10px; top: 50%; transform: translateY(-50%); width: max-content; max-width: none; box-shadow: var(--mantine-shadow-xs); }
+/* The label starts at the stem, the middle of the canvas, so it has half the
+   screen at most: in Javanese it ran past a phone's edge. Cut short there
+   (the badge ends in an ellipsis) rather than widen the page. */
+.org-stem-label { position: absolute; inset-inline-start: 10px; top: 50%; transform: translateY(-50%); width: max-content; max-width: 40vw; box-shadow: var(--mantine-shadow-xs); }
 
 .org-ceo {
   width: min(460px, 100%);
@@ -131,7 +134,14 @@ body { background: var(--mantine-color-body); }
   text-align: start;
 }
 .kpi[data-first] { border-inline-start: 0; }
+/* A figure is a number, but some are words; a word longer than its card is
+   broken rather than allowed to widen the page. */
+.kpi-value { overflow-wrap: anywhere; }
 .kpi:not(:disabled):hover { background: var(--mantine-color-default-hover); }
+/* Two figures share a phone's width: the room goes to the figure, not the padding. */
+@media (max-width: 36em) {
+  .kpi { padding: 14px 16px; }
+}
 @media (max-width: 62em) {
   .kpi:nth-child(odd) { border-inline-start: 0; }
   .kpi:nth-child(n + 3) { border-top: 1px solid var(--mantine-color-default-border); }

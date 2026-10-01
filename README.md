@@ -260,6 +260,9 @@ broker, journalled steps, contained sub-tasks and a way to report cost.
 - [docs/AUDIT-2026-09-28.md](docs/AUDIT-2026-09-28.md): an outside audit's thirty-one items, each verified, and what was fixed or proposed.
 - [docs/COMPETITIVE-ANALYSIS-2026-09-28.md](docs/COMPETITIVE-ANALYSIS-2026-09-28.md): how mature it is, from the suite, a live run on a real model and a code audit, against Paperclip, Buzz, Auto-Company and the wider market (in Indonesian, like the PRD).
 - [docs/MATURITY-RECHECK-2026-09-30.md](docs/MATURITY-RECHECK-2026-09-30.md): the same checks run again two days later -- which of those defects the live run no longer finds, which remain, and what the new code brought (in Indonesian).
+- [docs/FEATURE-COMPARISON-2026-09-30.md](docs/FEATURE-COMPARISON-2026-09-30.md): sixteen areas scored from each project's code, and what a task really costs on DeepSeek (in Indonesian).
+- [docs/NEEDS-VS-FEATURES-2026-09-30.md](docs/NEEDS-VS-FEATURES-2026-09-30.md): what owners running a business on agents actually need, from surveys, competitors' users and Indonesian small businesses, matched against the code (in Indonesian).
+- [docs/MATURE-COMPETITORS-2026-10-01.md](docs/MATURE-COMPETITORS-2026-10-01.md): why people use the mature competitors, whether each is overrated or underrated, and which of their lessons PALUGADA already meets (in Indonesian).
 - [brand/](brand/README.md): the logo, the banners and the console's pictures.
 
 ## Contributing

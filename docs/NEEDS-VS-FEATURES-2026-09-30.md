@@ -150,7 +150,62 @@ Konteksnya:
 
 ## 5. Suara pengguna kompetitor
 
-*Diisi setelah riset issue tracker dan ulasan selesai diverifikasi.*
+Sumber: issue Paperclip dan Multica diurutkan menurut reaksi terbanyak
+(fitur urut "most reactions" GitHub, diambil 30 September–1 Oktober 2026).
+Jumlah reaksinya tidak bisa diambil dari sesi ini, jadi yang dipakai hanya
+urutannya. Ulasan Trustpilot dan G2 untuk produk hosted dibahas per produk di
+[MATURE-COMPETITORS-2026-10-01.md](MATURE-COMPETITORS-2026-10-01.md).
+
+### Permintaan teratas pengguna Paperclip, dicek ke PALUGADA
+
+| Urutan | Issue Paperclip | PALUGADA |
+|---|---|---|
+| 1 | #187 LLM lokal lewat Ollama | ✔ Preset `ollama` (`src/llm/providers.ts`) |
+| 2 | #2092 Adapter GitHub Copilot CLI | ◐ Lewat ACP atau runtime spec (`src/runtime/acp.ts`); bukan preset bawaan |
+| 3 | #49 "Chat dengan agen" | ◐ Chat dengan asisten owner dan CEO; belum dengan setiap agen |
+| 4 | #1068 OpenRouter | ✔ Preset `openrouter` |
+| 5 | #6559 Antigravity CLI | ◐ Bisa lewat runtime spec; bukan preset |
+| 6 | #2004 Bicara dengan CEO lewat Telegram/WhatsApp | ✔ Kanal owner Telegram dan WhatsApp (`src/owner/whatsapp.ts`) |
+| 7 | #2979 Adapter Ollama native | ✔ Sama dengan #187 |
+| 8 | #1858 Lapisan pengetahuan tingkat perusahaan | ✔ `src/knowledge/`: dokumen disimpan utuh dan dicari per passage |
+| 9 | #7 Chat lewat Slack | ◐ Hanya keluar (notifikasi); belum percakapan dua arah |
+| 10 | #188 Mengganti agen dengan manusia | ✘ Belum ada |
+| 11 | #339 Estimasi biaya untuk agen berlangganan | ✔ Biaya dicatat dari ACP; agen CLI tanpa laporan biaya diestimasi |
+
+**Dari 11 permintaan teratas pengguna Paperclip, 6 sudah ada di PALUGADA,
+4 sebagian, dan 1 belum.** Yang paling relevan untuk pemilik usaha adalah #6:
+PALUGADA sudah menjawabnya lewat Telegram dan WhatsApp untuk owner.
+
+### Permintaan teratas pengguna Multica
+
+Pengguna Multica, setelah papan tugasnya berjalan, meminta:
+
+- orkestrasi workflow (#1943);
+- tanggapan atas keluhan bahwa Multica "masih mengelola AI seperti mengelola
+  manusia" (#815);
+- OIDC/SSO (#1014, #711);
+- sistem plugin (#4490);
+- penghematan token (#3292).
+
+PALUGADA sudah punya mesin status tugas, jurnal, trigger webhook
+(`src/scheduler/triggers.ts`), dan anggaran yang dicadangkan, tetapi juga
+belum punya ukuran overhead token per run. SSO memang di luar desain satu
+owner.
+
+### Keluhan berulang di produk hosted
+
+Keluhan berulangnya, dengan contoh produk:
+
+- kredit habis dalam loop gagal: Lindy, Manus, Genspark;
+- approval hanya kalimat di prompt: Zapier Agents;
+- agen melewati batas yang dipasang di memorinya sendiri: Polsia;
+- klaim "selesai" tanpa bukti: Manus;
+- data hilang bersama vendor: Manus.
+
+PALUGADA sudah menjawab sebagian besar keluhan ini lewat broker, tier,
+*read-back*, dan self-host. Yang belum terjawab adalah biaya yang bisa
+dibaca dalam rupiah. Rinciannya ada di
+[MATURE-COMPETITORS §5](MATURE-COMPETITORS-2026-10-01.md).
 
 ---
 

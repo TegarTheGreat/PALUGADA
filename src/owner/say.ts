@@ -20,6 +20,7 @@ import { SENTENCES as HI } from './sentences/hi.ts';
 import { SENTENCES as PT_BR } from './sentences/pt-BR.ts';
 import { SENTENCES as RU } from './sentences/ru.ts';
 import { SENTENCES as JV } from './sentences/jv.ts';
+import { SENTENCES as SU } from './sentences/su.ts';
 
 /**
  * The sentences each language has, one file each in `sentences/`. Every
@@ -34,6 +35,7 @@ export const OWNER_SENTENCES: Readonly<Record<string, Readonly<Record<string, st
   'pt-BR': PT_BR,
   ru: RU,
   jv: JV,
+  su: SU,
 };
 
 /** `text` in `language`, with `{name}` filled from `values`; English when there is no translation. */

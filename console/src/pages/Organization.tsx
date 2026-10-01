@@ -283,7 +283,7 @@ function OrgChart({
               <Text fw={700} size="sm">{t('You, the owner')}</Text>
               <Text size="xs" c="dimmed" truncate>{t('You decide what cannot be undone')}</Text>
             </div>
-            <Avatar radius="md" size={32} src={companyEmblem(company)} alt="" ml="xs" />
+            <Avatar radius="md" size={32} src={companyEmblem(company)} alt="" ms="xs" />
           </Group>
         </Paper>
         <div className="org-stem org-stem--talk">
@@ -1145,7 +1145,7 @@ function GoalLadder({ companyId, goals, changed }: { companyId: string; goals: G
   const childrenOf = (id: string) => goals.filter((goal) => goal.parentId === id);
 
   const renderGoal = (goal: Goal, depth: number): React.ReactNode => (
-    <Box key={goal.id} pl={depth * 28}>
+    <Box key={goal.id} ps={depth * 28}>
       <Paper withBorder radius="md" p="sm" mb="xs" className="org-node" onClick={() => setEditing(goal)}>
         <Group justify="space-between" wrap="nowrap">
           <Group gap="sm" wrap="nowrap" style={{ minWidth: 0 }}>

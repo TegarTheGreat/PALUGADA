@@ -591,7 +591,7 @@ function Detail({
                 statements side by side ran off a phone's screen. */}
             <Stack gap={4}>
               {item.goalChain.map((goal, index) => (
-                <Text key={goal.statement} size="sm" pl={index * 14} style={{ overflowWrap: 'anywhere' }}>
+                <Text key={goal.statement} size="sm" ps={index * 14} style={{ overflowWrap: 'anywhere' }}>
                   {index > 0 && <Text span c="dimmed">↳ </Text>}
                   <Text span c="dimmed" size="xs">{goalKind(goal.kind)}: </Text>{goal.statement}
                 </Text>

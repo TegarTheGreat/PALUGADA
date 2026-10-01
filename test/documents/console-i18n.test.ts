@@ -98,6 +98,10 @@ const SCRIPT: Record<string, RegExp> = {
   zh: /\p{Script=Han}/u,
   ru: /\p{Script=Cyrillic}/u,
   hi: /\p{Script=Devanagari}/u,
+  ja: /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u,
+  ko: /\p{Script=Hangul}/u,
+  th: /\p{Script=Thai}/u,
+  ar: /\p{Script=Arabic}/u,
 };
 
 /**

@@ -135,7 +135,7 @@ export function Home({
                   {tp('This deployment has {count} thing switched off until it is configured.', 'This deployment has {count} things switched off until they are configured.', setup.todo.length)}
                 </Text>
                 <Text size="sm" c="dimmed" visibleFrom="sm">{t('The checklist is at the foot of the sidebar.')}</Text>
-                <Button size="compact-sm" variant="light" color="yellow" ml="auto" style={{ flexShrink: 0 }} onClick={() => go({ kind: 'deployment', section: 'model' })}>
+                <Button size="compact-sm" variant="light" color="yellow" ms="auto" style={{ flexShrink: 0 }} onClick={() => go({ kind: 'deployment', section: 'model' })}>
                   {t('Set the model')}
                 </Button>
               </Group>

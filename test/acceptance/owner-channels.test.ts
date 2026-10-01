@@ -1389,7 +1389,11 @@ test('every sentence the platform says to the owner has its translation (src/own
   const placeholders = (text: string) => [...text.matchAll(/\{(\w+)\}/g)].map((match) => match[1]!).sort();
   // A translation into a language with a script of its own that has none of
   // it is English that nobody translated.
-  const script: Record<string, RegExp> = { zh: /\p{Script=Han}/u, ru: /\p{Script=Cyrillic}/u, hi: /\p{Script=Devanagari}/u };
+  const script: Record<string, RegExp> = {
+    zh: /\p{Script=Han}/u, ru: /\p{Script=Cyrillic}/u, hi: /\p{Script=Devanagari}/u,
+    ja: /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u, ko: /\p{Script=Hangul}/u,
+    th: /\p{Script=Thai}/u, ar: /\p{Script=Arabic}/u,
+  };
   for (const [language, sentences] of Object.entries(OWNER_SENTENCES)) {
     assert.deepEqual([...said].filter((sentence) => !(sentence in sentences)), [], `${language} is missing sentences`);
     assert.deepEqual(Object.keys(sentences).filter((sentence) => !said.has(sentence)), [], `${language} keeps sentences nothing says`);

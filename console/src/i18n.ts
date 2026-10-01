@@ -81,6 +81,18 @@ export function language(): Language {
   return current;
 }
 
+/**
+ * The languages written right to left. The page's `dir` follows the language,
+ * and Mantine mirrors its components from it; the console's own styles use
+ * logical sides (`inline-start`, not `left`) so they mirror too.
+ */
+const RIGHT_TO_LEFT: ReadonlySet<string> = new Set(['ar']);
+
+/** Which way the owner's language is written. */
+export function direction(): 'ltr' | 'rtl' {
+  return RIGHT_TO_LEFT.has(current) ? 'rtl' : 'ltr';
+}
+
 /** The BCP 47 locale dates and numbers are written in. */
 export function locale(): string {
   return LANGUAGES.find((one) => one.code === current)!.locale;
@@ -91,6 +103,7 @@ export function setLanguage(next: Language): void {
   current = next;
   // The locale, not the code: `zh-CN` tells the browser which Han glyphs to draw.
   document.documentElement.lang = locale();
+  document.documentElement.dir = direction();
   for (const listener of listeners) listener();
 }
 

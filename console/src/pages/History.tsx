@@ -12,12 +12,25 @@ import { IconSearch } from '@tabler/icons-react';
 import { api } from '../api.ts';
 import { useLoad } from '../hooks.ts';
 import type { ClosedDecision } from '../types.ts';
-import { dateTime, humanize } from '../format.ts';
+import { dateTime } from '../format.ts';
 import type { PageProps } from '../App.tsx';
 import { N, t } from '../i18n.ts';
 import { EmptyState, KindBadge, LoadFailed, Loading, PageHeader, TierBadge } from '../components/ui.tsx';
 
 const DECISIONS: Record<string, string> = { approve: N('Approved'), deny: N('Denied'), ask: N('Asked a question') };
+
+// Why an item was withdrawn, one label per reason the platform writes: the
+// reason's code made readable ("task cancelled") was English in every
+// language. A reason not here yet reads as plain "withdrawn".
+const WITHDRAWN: Record<string, string> = {
+  task_completed: N('withdrawn · its task finished'),
+  task_failed: N('withdrawn · its task failed'),
+  task_halted: N('withdrawn · its task was stopped'),
+  task_cancelled: N('withdrawn · its task was cancelled'),
+  superseded: N('withdrawn · the agent changed its proposal'),
+  stage_changed: N('withdrawn · the company changed stage'),
+  decided_elsewhere: N('withdrawn · decided elsewhere in the app'),
+};
 
 function outcome(item: ClosedDecision): { label: string; color: string } {
   if (item.status === 'decided') {
@@ -26,7 +39,8 @@ function outcome(item: ClosedDecision): { label: string; color: string } {
     return { label: label ? t(label) : t('Decided'), color: decision === 'approve' ? 'teal' : decision === 'deny' ? 'gray' : 'blue' };
   }
   if (item.status === 'expired') return { label: t('expired unanswered'), color: 'orange' };
-  return { label: item.closedReason ? t('withdrawn · {reason}', { reason: humanize(item.closedReason) }) : t('withdrawn'), color: 'gray' };
+  const reason = item.closedReason ? WITHDRAWN[item.closedReason] : undefined;
+  return { label: reason ? t(reason) : t('withdrawn'), color: 'gray' };
 }
 
 export function History({ ctx }: PageProps) {

@@ -11,7 +11,7 @@ import {
 import { api } from '../api.ts';
 import { useLoad } from '../hooks.ts';
 import type { RunBriefing, Trace, TraceRun, TraceStep } from '../types.ts';
-import { count, dateTime, haltReason, humanize, money } from '../format.ts';
+import { count, dateTime, goalKind, haltReason, humanize, money } from '../format.ts';
 import { t } from '../i18n.ts';
 import { LoadFailed, Loading, StatusBadge } from './ui.tsx';
 
@@ -47,7 +47,11 @@ function describe(step: TraceStep): {
     if (asked !== undefined) parts.push({ label: t('What it was asked'), value: asked });
     if (detail.output !== undefined) parts.push({ label: t('What came back'), value: detail.output });
     return {
-      title: detail.status === 'committed' ? t('{capability} done', { capability: name }) : t('{capability}: {status}', { capability: name, status: humanize(String(detail.status ?? '')) }),
+      // A step is started, committed or failed (src/engine/journal.ts); each
+      // is a sentence, since a status code filled into one stays English.
+      title: detail.status === 'committed' ? t('{capability} done', { capability: name })
+        : detail.status === 'failed' ? t('{capability} failed', { capability: name })
+          : t('{capability} started', { capability: name }),
       badges, parts, error, failed: detail.status === 'failed', outside: false,
     };
   }
@@ -190,7 +194,7 @@ function Briefing({ companyId, run }: { companyId: string; run: TraceRun }) {
         {pack?.goalAncestry.length ? (
           <Accordion.Item value="goals">
             <Accordion.Control>{t('Goals: {count}', { count: pack.goalAncestry.length })}</Accordion.Control>
-            <Accordion.Panel><Stack gap={4}>{pack.goalAncestry.map((goal, index) => <Text key={index} size="sm"><b>{humanize(goal.kind)}</b> · {goal.statement}</Text>)}</Stack></Accordion.Panel>
+            <Accordion.Panel><Stack gap={4}>{pack.goalAncestry.map((goal, index) => <Text key={index} size="sm"><b>{goalKind(goal.kind)}</b> · {goal.statement}</Text>)}</Stack></Accordion.Panel>
           </Accordion.Item>
         ) : null}
         {pack?.notes.map((note, index) => (

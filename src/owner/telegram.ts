@@ -43,7 +43,7 @@ import { appendEvent } from '../audit/event-log.ts';
 import { redactor } from '../secrets/manager.ts';
 import { PalugadaError } from '../errors.ts';
 import * as inbox from '../inbox/inbox.ts';
-import { closureText, recordedText } from './notify.ts';
+import { closureText, notOpenText, recordedText } from './notify.ts';
 import { say } from './say.ts';
 import { deploymentLanguages } from '../domain/language.ts';
 import type { Heard } from '../capabilities/listen.ts';
@@ -547,9 +547,7 @@ export class TelegramChannel implements OwnerChannel {
         error instanceof PalugadaError && error.code === 'approval.channel_forbidden'
           ? say(language, 'That one has to be approved in the app.')
           : error instanceof PalugadaError && error.code === 'inbox.not_open'
-            ? say(language, 'Already closed: {reason}.', {
-              reason: String(error.message).replace(/^inbox item \S+ is closed: /, ''),
-            })
+            ? notOpenText(language, error)
             : say(language, 'That could not be recorded.');
       await this.#answer(query.id, refusal);
       return {
@@ -664,9 +662,7 @@ export class TelegramChannel implements OwnerChannel {
     } catch (error) {
       await this.#tell(
         error instanceof PalugadaError && error.code === 'inbox.not_open'
-          ? say(language, 'Already closed: {reason}.', {
-            reason: String(error.message).replace(/^inbox item \S+ is closed: /, ''),
-          })
+          ? notOpenText(language, error)
           : say(language, 'That could not be recorded.'),
         topicOf(message),
       );
@@ -1031,7 +1027,7 @@ export class TelegramChannel implements OwnerChannel {
       return { handled: true };
     } catch (error) {
       await this.#answer(callbackQueryId, error instanceof PalugadaError && error.code === 'inbox.not_open'
-        ? say(language, 'Already closed: {reason}.', { reason: String(error.message).replace(/^inbox item \S+ is closed: /, '') })
+        ? notOpenText(language, error)
         : say(language, 'That could not be recorded.'));
       return { handled: false, reason: error instanceof PalugadaError ? error.code : 'failed' };
     }
@@ -1056,12 +1052,12 @@ export class TelegramChannel implements OwnerChannel {
   ): Promise<{ handled: boolean; reason?: string }> {
     const language = await ownerLanguage();
     const { rows } = await withTenant(companyId, (tx) =>
-      tx.query<{ title: string; status: string; closed_reason: string | null; question: string | null }>(
-        "SELECT title, status, closed_reason, payload->>'question' AS question FROM inbox_items WHERE id = $1", [itemId]));
+      tx.query<{ title: string; status: string; decision: string | null; closed_reason: string | null; question: string | null }>(
+        "SELECT title, status, decision, closed_reason, payload->>'question' AS question FROM inbox_items WHERE id = $1", [itemId]));
     const item = rows[0];
     if (!item || item.status !== 'open') {
-      await this.#answer(callbackQueryId, say(language, 'Already closed: {reason}.', {
-        reason: item?.closed_reason ?? item?.status ?? say(language, 'no reason recorded'),
+      await this.#answer(callbackQueryId, closureText({
+        status: item?.status ?? null, decision: item?.decision ?? null, closedReason: item?.closed_reason ?? null, language,
       }));
       return { handled: false, reason: 'inbox.not_open' };
     }

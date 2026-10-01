@@ -28,6 +28,8 @@ import { DICTIONARY as PT_BR } from './locales/pt-BR.ts';
 import { DICTIONARY as DE } from './locales/de.ts';
 import { DICTIONARY as NL } from './locales/nl.ts';
 import { DICTIONARY as RU } from './locales/ru.ts';
+import { DICTIONARY as IT } from './locales/it.ts';
+import { DICTIONARY as TR } from './locales/tr.ts';
 import type { Dictionary, Translation } from './locales/types.ts';
 
 /**
@@ -47,6 +49,8 @@ export const LANGUAGES = [
   { code: 'de', name: 'Deutsch', locale: 'de-DE' },
   { code: 'nl', name: 'Nederlands', locale: 'nl-NL' },
   { code: 'ru', name: 'Русский', locale: 'ru-RU' },
+  { code: 'it', name: 'Italiano', locale: 'it-IT' },
+  { code: 'tr', name: 'Türkçe', locale: 'tr-TR' },
 ] as const;
 export type Language = (typeof LANGUAGES)[number]['code'];
 
@@ -62,6 +66,8 @@ const DICTIONARIES: Record<Language, Dictionary> = {
   de: DE,
   nl: NL,
   ru: RU,
+  it: IT,
+  tr: TR,
 };
 
 export function isLanguage(value: unknown): value is Language {

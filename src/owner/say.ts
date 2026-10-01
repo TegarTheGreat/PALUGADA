@@ -15,16 +15,18 @@
  */
 import { SENTENCES as ID } from './sentences/id.ts';
 import { SENTENCES as MS } from './sentences/ms.ts';
+import { SENTENCES as TL } from './sentences/tl.ts';
 import { SENTENCES as ZH } from './sentences/zh.ts';
 import { SENTENCES as JA } from './sentences/ja.ts';
 import { SENTENCES as KO } from './sentences/ko.ts';
 import { SENTENCES as HI } from './sentences/hi.ts';
+import { SENTENCES as AR } from './sentences/ar.ts';
 import { SENTENCES as PT_BR } from './sentences/pt-BR.ts';
 import { SENTENCES as DE } from './sentences/de.ts';
 import { SENTENCES as NL } from './sentences/nl.ts';
-import { SENTENCES as RU } from './sentences/ru.ts';
 import { SENTENCES as IT } from './sentences/it.ts';
 import { SENTENCES as TR } from './sentences/tr.ts';
+import { SENTENCES as RU } from './sentences/ru.ts';
 
 /**
  * The sentences each language has, one file each in `sentences/`. Every
@@ -34,16 +36,18 @@ import { SENTENCES as TR } from './sentences/tr.ts';
 export const OWNER_SENTENCES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   id: ID,
   ms: MS,
+  tl: TL,
   zh: ZH,
   ja: JA,
   ko: KO,
   hi: HI,
+  ar: AR,
   'pt-BR': PT_BR,
   de: DE,
   nl: NL,
-  ru: RU,
   it: IT,
   tr: TR,
+  ru: RU,
 };
 
 /** `text` in `language`, with `{name}` filled from `values`; English when there is no translation. */

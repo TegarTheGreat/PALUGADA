@@ -20,16 +20,18 @@
 import { useSyncExternalStore } from 'react';
 import { DICTIONARY as ID } from './locales/id.ts';
 import { DICTIONARY as MS } from './locales/ms.ts';
+import { DICTIONARY as TL } from './locales/tl.ts';
 import { DICTIONARY as ZH } from './locales/zh.ts';
 import { DICTIONARY as JA } from './locales/ja.ts';
 import { DICTIONARY as KO } from './locales/ko.ts';
 import { DICTIONARY as HI } from './locales/hi.ts';
+import { DICTIONARY as AR } from './locales/ar.ts';
 import { DICTIONARY as PT_BR } from './locales/pt-BR.ts';
 import { DICTIONARY as DE } from './locales/de.ts';
 import { DICTIONARY as NL } from './locales/nl.ts';
-import { DICTIONARY as RU } from './locales/ru.ts';
 import { DICTIONARY as IT } from './locales/it.ts';
 import { DICTIONARY as TR } from './locales/tr.ts';
+import { DICTIONARY as RU } from './locales/ru.ts';
 import type { Dictionary, Translation } from './locales/types.ts';
 
 /**
@@ -41,16 +43,18 @@ export const LANGUAGES = [
   { code: 'en', name: 'English', locale: 'en-US' },
   { code: 'id', name: 'Bahasa Indonesia', locale: 'id-ID' },
   { code: 'ms', name: 'Bahasa Melayu', locale: 'ms-MY' },
+  { code: 'tl', name: 'Filipino', locale: 'fil-PH' },
   { code: 'zh', name: '简体中文', locale: 'zh-CN' },
   { code: 'ja', name: '日本語', locale: 'ja-JP' },
   { code: 'ko', name: '한국어', locale: 'ko-KR' },
   { code: 'hi', name: 'हिन्दी', locale: 'hi-IN' },
+  { code: 'ar', name: 'العربية', locale: 'ar' },
   { code: 'pt-BR', name: 'Português (Brasil)', locale: 'pt-BR' },
   { code: 'de', name: 'Deutsch', locale: 'de-DE' },
   { code: 'nl', name: 'Nederlands', locale: 'nl-NL' },
-  { code: 'ru', name: 'Русский', locale: 'ru-RU' },
   { code: 'it', name: 'Italiano', locale: 'it-IT' },
   { code: 'tr', name: 'Türkçe', locale: 'tr-TR' },
+  { code: 'ru', name: 'Русский', locale: 'ru-RU' },
 ] as const;
 export type Language = (typeof LANGUAGES)[number]['code'];
 
@@ -58,16 +62,18 @@ const DICTIONARIES: Record<Language, Dictionary> = {
   en: {},
   id: ID,
   ms: MS,
+  tl: TL,
   zh: ZH,
   ja: JA,
   ko: KO,
   hi: HI,
+  ar: AR,
   'pt-BR': PT_BR,
   de: DE,
   nl: NL,
-  ru: RU,
   it: IT,
   tr: TR,
+  ru: RU,
 };
 
 export function isLanguage(value: unknown): value is Language {

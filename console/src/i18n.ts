@@ -25,6 +25,7 @@ import { DICTIONARY as HI } from './locales/hi.ts';
 import { DICTIONARY as PT_BR } from './locales/pt-BR.ts';
 import { DICTIONARY as RU } from './locales/ru.ts';
 import { DICTIONARY as ES } from './locales/es.ts';
+import { DICTIONARY as FR } from './locales/fr.ts';
 import type { Dictionary, Translation } from './locales/types.ts';
 
 /**
@@ -41,6 +42,7 @@ export const LANGUAGES = [
   { code: 'pt-BR', name: 'Português (Brasil)', locale: 'pt-BR' },
   { code: 'ru', name: 'Русский', locale: 'ru-RU' },
   { code: 'es', name: 'Español', locale: 'es' },
+  { code: 'fr', name: 'Français', locale: 'fr-FR' },
 ] as const;
 export type Language = (typeof LANGUAGES)[number]['code'];
 
@@ -53,6 +55,7 @@ const DICTIONARIES: Record<Language, Dictionary> = {
   'pt-BR': PT_BR,
   ru: RU,
   es: ES,
+  fr: FR,
 };
 
 export function isLanguage(value: unknown): value is Language {

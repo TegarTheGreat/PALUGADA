@@ -1,0 +1,110 @@
+/**
+ * Basa Jawa: what the platform itself says to the owner outside the console
+ * (src/owner/say.ts), keyed by its English.
+ *
+ * Krama, the owner addressed as "panjenengan", with the terms of the
+ * console's glossary (console/src/locales/jv.ts), so a button on the phone
+ * says what the same button says in the panel: Setujoni, Tolak, Taken.
+ */
+export const SENTENCES: Readonly<Record<string, string>> = {
+  'Incident: {title}': 'Insiden: {title}',
+  'Done: {goal}': 'Rampung: {goal}',
+  'Stopped before finishing: {goal}': 'Kendel saderengipun rampung: {goal}',
+  'Why: {reason}': 'Sababipun: {reason}',
+  'a task': 'setunggal tugas',
+  'Approval needed: {title}': 'Mbetahaken persetujuan: {title}',
+  '{summary} — if denied: {consequence}': '{summary} — menawi dipuntolak: {consequence}',
+  'If denied:': 'Menawi dipuntolak:',
+  'Expires:': 'Kadaluwarsa:',
+  'This one is decided in the app.': 'Ingkang punika dipunputusaken wonten ing aplikasi.',
+  'Open in PALUGADA': 'Bikak ing PALUGADA',
+  'Approve': 'Setujoni',
+  'Deny': 'Tolak',
+  'Ask': 'Taken',
+  'Approved. Nothing left to press here.': 'Dipunsetujoni. Mboten wonten ingkang kedah dipunpencet malih wonten ing ngriki.',
+  'Denied. Nothing left to press here.': 'Dipuntolak. Mboten wonten ingkang kedah dipunpencet malih wonten ing ngriki.',
+  'Decided ({decision}). Nothing left to press here.': 'Dipunputusaken ({decision}). Mboten wonten ingkang kedah dipunpencet malih wonten ing ngriki.',
+  'Expired unanswered. Silence is a refusal, so nothing was done.':
+    'Kadaluwarsa tanpa wangsulan. Mboten mangsuli ateges nolak, pramila mboten wonten ingkang dipunlampahaken.',
+  'Withdrawn: the task it was asking about is {state}.': 'Dipuntarik: tugas ingkang dipuntakenaken sampun {state}.',
+  'Withdrawn ({reason}).': 'Dipuntarik ({reason}).',
+  'no reason recorded': 'mboten wonten alesan ingkang kacathet',
+  'This bot only answers to its owner.': 'Bot punika namung mangsuli pamilikipun.',
+  'That one has to be approved in the app.': 'Ingkang punika kedah dipunsetujoni wonten ing aplikasi.',
+  'Already closed: {reason}.': 'Sampun katutup: {reason}.',
+  'That could not be recorded.': 'Punika mboten saged dipuncathet.',
+  'That item no longer exists.': 'Item punika sampun mboten wonten.',
+  'What do you want to ask about "{title}"? Reply to this message.':
+    'Punapa ingkang badhe panjenengan takenaken bab "{title}"? Bales pesen punika.',
+  'Your question': 'Pitakenan panjenengan',
+  'Type your question as a reply.': 'Ketik pitakenan panjenengan minangka balesan.',
+  'Asked. The answer will be on the item in the app.': 'Sampun dipuntakenaken. Wangsulanipun badhe wonten ing item punika ing aplikasi.',
+  'Answer': 'Wangsuli',
+  'Answer in words': 'Wangsuli mawi tembung',
+  'That choice is not on this question.': 'Pilihan punika mboten wonten ing pitakenan punika.',
+  'Chosen: {choice}.': 'Dipunpilih: {choice}.',
+  'Stop the task': 'Kendelaken tugas',
+  'Your answer to "{question}"? Reply to this message.': 'Wangsulan panjenengan kangge "{question}"? Bales pesen punika.',
+  'Your answer': 'Wangsulan panjenengan',
+  'Type your answer as a reply.': 'Ketik wangsulan panjenengan minangka balesan.',
+  'Answered. The task carries on with it.': 'Sampun dipunwangsuli. Tugas lajeng mlampah mawi wangsulan punika.',
+  'That is too long for one question; keep it under {max} characters.':
+    'Punika kepanjangen kangge setunggal pitakenan; damel kirang saking {max} aksara.',
+  '[a key, not kept]': '[setunggal kunci, mboten dipunsimpen]',
+  'That looks like a key, so I did not keep it or send it anywhere. Keys go in the sealed field on a card, or on their page in This deployment: tell me what it is for and I will put the card in front of you.':
+    'Punika katingalipun kunci, pramila mboten kula simpen lan mboten kula kintun dhateng pundi kemawon. Kunci dipunisi ing kolom kasegel ing kertu, utawi ing kacanipun ing Pamasangan punika: ngendikakaken kangge punapa, lajeng kertunipun kula aturaken ing ngarsa panjenengan.',
+  'No model is set up yet, so I cannot think. Choose one under This deployment, Model; then I can help with everything else.':
+    'Dereng wonten model ingkang dipunsetel, pramila kula dereng saged mikir. Pilih setunggal ing Pamasangan punika, Model AI; sasampunipun punika kula saged mbiyantu sedaya ingkang sanes.',
+  'The model did not answer: {reason}': 'Model mboten mangsuli: {reason}',
+  'Here is what I propose.': 'Punika usul kula.',
+  'I have nothing to add.': 'Mboten wonten ingkang perlu kula tambahaken.',
+  '{name}, CEO of {company}': '{name}, CEO {company}',
+  'That could not be answered: {reason}': 'Punika mboten saged dipunwangsuli: {reason}',
+  'I read text and voice notes.': 'Kula maos teks lan pesen swanten.',
+  'Now talking to {name}.': 'Sapunika ngendikan kaliyan {name}.',
+  'Choose whom to talk to.': 'Pilih kanca wicanten panjenengan.',
+  'Choose whom to talk to': 'Pilih kanca wicanten panjenengan',
+  'Talk to PALUGADA about the whole deployment': 'Ngendikan kaliyan PALUGADA bab pamasangan sawetahipun',
+  'Who you are talking to, and how': 'Sinten kanca wicanten panjenengan, lan caranipun',
+  'Stopped.': 'Sampun kendel.',
+  'Write here to talk to {name}.': 'Serat wonten ing ngriki kangge ngendikan kaliyan {name}.',
+  'You are talking to {name}. Write, or send a voice note. /ceo chooses whom you talk to; /palugada talks to PALUGADA about the whole deployment.':
+    'Panjenengan saweg ngendikan kaliyan {name}. Serat, utawi kintun pesen swanten. /ceo kangge milih kanca wicanten; /palugada kangge ngendikan kaliyan PALUGADA bab pamasangan sawetahipun.',
+  'You said: "{words}"': 'Panjenengan ngendika: "{words}"',
+  'in the app': 'ing aplikasi',
+  'Apply: {summary}': 'Trapaken: {summary}',
+  'Nothing hears speech yet: choose a provider in the app, under This deployment, Tools, Listening.':
+    'Dereng wonten ingkang saged mireng swanten: pilih panyedhiya ing aplikasi, ing Pamasangan punika, Alat, Mirengaken.',
+  'That recording is too long; keep a voice note under {max} MB.': 'Rekaman punika kepanjangen; damel pesen swanten kirang saking {max} MB.',
+  'I could not make out any words in that.': 'Kula mboten saged nangkep tembung punapa-punapa ing ngriku.',
+  'Done: {summary}': 'Rampung: {summary}',
+  'That one is applied in the app.': 'Ingkang punika dipuntrapaken wonten ing aplikasi.',
+  'That card no longer exists.': 'Kertu punika sampun mboten wonten.',
+  'That card was already applied.': 'Kertu punika sampun dipuntrapaken.',
+  'That card was dismissed.': 'Kertu punika sampun dipunsingkiraken.',
+  'That card failed when it was applied.': 'Kertu punika gagal nalika dipuntrapaken.',
+  'That could not be done: {reason}': 'Punika mboten saged dipuntindakaken: {reason}',
+  'Choose': 'Pilih',
+  'What do you want to ask about "{title}"? Reply to this message with your question.':
+    'Punapa ingkang badhe panjenengan takenaken bab "{title}"? Bales pesen punika mawi pitakenan panjenengan.',
+  'Your answer to "{question}"? Reply to this message with your answer.':
+    'Wangsulan panjenengan kangge "{question}"? Bales pesen punika mawi wangsulan panjenengan.',
+  'I read text messages here.': 'Wonten ing ngriki kula maos pesen teks.',
+  'Apply one of these here:': 'Trapaken salah satunggal saking punika wonten ing ngriki:',
+  'Apply {number}': 'Trapaken {number}',
+  'Signed in to {provider} for the {alias} key': 'Sampun mlebet dhateng {provider} kangge kunci {alias}',
+  'Go back to PALUGADA: the division holds this key now, and it is renewed before it runs out. This tab can be closed.':
+    'Wangsul dhateng PALUGADA: divisi punika sapunika nyepeng kunci punika, lan kunci dipunenggalaken saderengipun telas. Tab punika saged dipuntutup.',
+  'Signed in to {name}': 'Sampun mlebet dhateng {name}',
+  'Go back to PALUGADA to choose which of its tools roles may use. This tab can be closed.':
+    'Wangsul dhateng PALUGADA kangge milih alat pundi ingkang angsal dipunginakaken peran. Tab punika saged dipuntutup.',
+  'Not signed in': 'Dereng mlebet',
+  'Recorded: approved.': 'Kacathet: dipunsetujoni.',
+  'Recorded: denied.': 'Kacathet: dipuntolak.',
+  'Recorded: asked.': 'Kacathet: dipuntakenaken.',
+  'Asked. Nothing left to press here.': 'Sampun dipuntakenaken. Mboten wonten ingkang kedah dipunpencet malih wonten ing ngriki.',
+  'Withdrawn: the task it was asking about has finished.': 'Dipuntarik: tugas ingkang dipuntakenaken sampun rampung.',
+  'Withdrawn: the task it was asking about has failed.': 'Dipuntarik: tugas ingkang dipuntakenaken gagal.',
+  'Withdrawn: the task it was asking about was stopped.': 'Dipuntarik: tugas ingkang dipuntakenaken sampun dipunkendelaken.',
+  'Withdrawn: the task it was asking about was cancelled.': 'Dipuntarik: tugas ingkang dipuntakenaken sampun dipunbatalaken.',
+};

@@ -36,6 +36,8 @@ import { DICTIONARY as NL } from './locales/nl.ts';
 import { DICTIONARY as IT } from './locales/it.ts';
 import { DICTIONARY as TR } from './locales/tr.ts';
 import { DICTIONARY as RU } from './locales/ru.ts';
+import { DICTIONARY as JV } from './locales/jv.ts';
+import { DICTIONARY as SU } from './locales/su.ts';
 import type { Dictionary, Translation } from './locales/types.ts';
 
 /**
@@ -63,6 +65,8 @@ export const LANGUAGES = [
   { code: 'it', name: 'Italiano', locale: 'it-IT' },
   { code: 'tr', name: 'Türkçe', locale: 'tr-TR' },
   { code: 'ru', name: 'Русский', locale: 'ru-RU' },
+  { code: 'jv', name: 'Basa Jawa', locale: 'jv-ID' },
+  { code: 'su', name: 'Basa Sunda', locale: 'su-ID' },
 ] as const;
 export type Language = (typeof LANGUAGES)[number]['code'];
 
@@ -86,6 +90,8 @@ const DICTIONARIES: Record<Language, Dictionary> = {
   it: IT,
   tr: TR,
   ru: RU,
+  jv: JV,
+  su: SU,
 };
 
 export function isLanguage(value: unknown): value is Language {

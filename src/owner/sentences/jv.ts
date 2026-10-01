@@ -23,15 +23,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Ask': 'Taken',
   'Approved. Nothing left to press here.': 'Dipunsetujoni. Mboten wonten ingkang kedah dipunpencet malih wonten ing ngriki.',
   'Denied. Nothing left to press here.': 'Dipuntolak. Mboten wonten ingkang kedah dipunpencet malih wonten ing ngriki.',
-  'Decided ({decision}). Nothing left to press here.': 'Dipunputusaken ({decision}). Mboten wonten ingkang kedah dipunpencet malih wonten ing ngriki.',
   'Expired unanswered. Silence is a refusal, so nothing was done.':
     'Kadaluwarsa tanpa wangsulan. Mboten mangsuli ateges nolak, pramila mboten wonten ingkang dipunlampahaken.',
-  'Withdrawn: the task it was asking about is {state}.': 'Dipuntarik: tugas ingkang dipuntakenaken sampun {state}.',
-  'Withdrawn ({reason}).': 'Dipuntarik ({reason}).',
-  'no reason recorded': 'mboten wonten alesan ingkang kacathet',
   'This bot only answers to its owner.': 'Bot punika namung mangsuli pamilikipun.',
   'That one has to be approved in the app.': 'Ingkang punika kedah dipunsetujoni wonten ing aplikasi.',
-  'Already closed: {reason}.': 'Sampun katutup: {reason}.',
   'That could not be recorded.': 'Punika mboten saged dipuncathet.',
   'That item no longer exists.': 'Item punika sampun mboten wonten.',
   'What do you want to ask about "{title}"? Reply to this message.':
@@ -107,4 +102,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Withdrawn: the task it was asking about has failed.': 'Dipuntarik: tugas ingkang dipuntakenaken gagal.',
   'Withdrawn: the task it was asking about was stopped.': 'Dipuntarik: tugas ingkang dipuntakenaken sampun dipunkendelaken.',
   'Withdrawn: the task it was asking about was cancelled.': 'Dipuntarik: tugas ingkang dipuntakenaken sampun dipunbatalaken.',
+  'Decided. Nothing left to press here.': 'Dipunputusaken. Mboten wonten ingkang kedah dipunpencet malih wonten ing ngriki.',
+  'Withdrawn: the agent changed what it proposes and asked again about the new one.': 'Dipuntarik: agen ngewahi usulipun lan nyuwun persetujuan malih kangge usul ingkang enggal.',
+  'Withdrawn: the company is no longer at the stage this proposal would move it from.': 'Dipuntarik: perusahaan sampun mboten wonten ing tataran ingkang badhe dipuntilar miturut usul punika.',
+  'Withdrawn: it was already decided in the app.': 'Dipuntarik: sampun dipunputusaken wonten ing aplikasi.',
+  'Withdrawn. Nothing left to press here.': 'Dipuntarik. Mboten wonten ingkang kedah dipunpencet malih wonten ing ngriki.',
 };

@@ -23,15 +23,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Ask': 'Naros',
   'Approved. Nothing left to press here.': 'Disatujuan. Henteu aya deui anu kedah dipencét di dieu.',
   'Denied. Nothing left to press here.': 'Ditolak. Henteu aya deui anu kedah dipencét di dieu.',
-  'Decided ({decision}). Nothing left to press here.': 'Diputuskeun ({decision}). Henteu aya deui anu kedah dipencét di dieu.',
   'Expired unanswered. Silence is a refusal, so nothing was done.':
     'Kadaluwarsa tanpa waleran. Henteu ngawaler hartosna nolak, janten henteu aya anu dilaksanakeun.',
-  'Withdrawn: the task it was asking about is {state}.': 'Ditarik: tugas anu ditaroskeun parantos {state}.',
-  'Withdrawn ({reason}).': 'Ditarik ({reason}).',
-  'no reason recorded': 'henteu aya alesan anu kacatet',
   'This bot only answers to its owner.': 'Bot ieu mung ngawaler pamilikna.',
   'That one has to be approved in the app.': 'Anu éta kedah disatujuan dina aplikasi.',
-  'Already closed: {reason}.': 'Parantos ditutup: {reason}.',
   'That could not be recorded.': 'Éta henteu tiasa dicatet.',
   'That item no longer exists.': 'Item éta parantos henteu aya.',
   'What do you want to ask about "{title}"? Reply to this message.':
@@ -107,4 +102,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Withdrawn: the task it was asking about has failed.': 'Ditarik: tugas anu ditaroskeun gagal.',
   'Withdrawn: the task it was asking about was stopped.': 'Ditarik: tugas anu ditaroskeun parantos dieureunkeun.',
   'Withdrawn: the task it was asking about was cancelled.': 'Ditarik: tugas anu ditaroskeun parantos dibolaykeun.',
+  'Decided. Nothing left to press here.': 'Diputuskeun. Henteu aya deui anu kedah dipencét di dieu.',
+  'Withdrawn: the agent changed what it proposes and asked again about the new one.': 'Ditarik: agén ngarobih usulna sareng nyuhunkeun persetujuan deui kanggo usul énggal éta.',
+  'Withdrawn: the company is no longer at the stage this proposal would move it from.': 'Ditarik: pausahaan parantos henteu aya dina tahapan anu badé ditinggalkeun numutkeun usul ieu.',
+  'Withdrawn: it was already decided in the app.': 'Ditarik: parantos diputuskeun dina aplikasi.',
+  'Withdrawn. Nothing left to press here.': 'Ditarik. Henteu aya deui anu kedah dipencét di dieu.',
 };

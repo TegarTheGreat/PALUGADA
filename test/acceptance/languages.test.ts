@@ -7,7 +7,9 @@
  * the talk in another -- "because AI is often baited". So these check the
  * rule reaches every run in the place nothing can displace it, that it says
  * reading cannot change it, that a slip is recorded and the role is reminded,
- * and that the drafting model is held to the work language.
+ * and that the drafting model is held to the work language -- the project's,
+ * where the project has its own, since one company may sell in more than one
+ * market while its agents still talk to the owner in one language.
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -20,13 +22,16 @@ import { createRootTask } from '../../src/engine/tasks.ts';
 import { docDraft, emailDraft } from '../../src/capabilities/draft.ts';
 import { RecordingLlmClient } from '../../src/llm/client.ts';
 import { exportCompany } from '../../src/audit/export.ts';
+import { addProject, changeProject } from '../../src/governance/structure.ts';
 import { importCompany } from '../../src/audit/import.ts';
 import type { ArchiveLine } from '../../src/audit/export.ts';
 import {
-  detectLanguage, driftFrom, languageCode, languageRule, languagesFor, setCompanyLanguages, setDeploymentLanguages,
+  detectLanguage, driftFrom, languageCode, languageRule, languagesFor, languagesForTask, setCompanyLanguages,
+  setDeploymentLanguages,
 } from '../../src/domain/language.ts';
 import { addRole, createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
+import { consoleWithSettings } from '../helpers/owner-console.ts';
 
 before(ensureSchema);
 beforeEach(resetData);
@@ -37,11 +42,12 @@ after(async () => {
 
 const ENGLISH = 'I will send the invoice to the customer and check that the payment has arrived before we close the task.';
 const INDONESIAN = 'Saya akan mengirim faktur ke pelanggan dan memastikan pembayaran sudah masuk sebelum tugas ini ditutup.';
+const PORTUGUESE = 'Vou enviar a fatura para o cliente e conferir se o pagamento já chegou antes de fechar a tarefa, como sempre.';
 
-async function task(fixture: Fixture, goal = 'send the invoice', roleId = fixture.roleId) {
+async function task(fixture: Fixture, goal = 'send the invoice', roleId = fixture.roleId, projectId = fixture.projectId) {
   return createRootTask({
     companyId: fixture.companyId,
-    projectId: fixture.projectId,
+    projectId,
     divisionId: fixture.divisionId,
     roleId,
     budgetAccountId: fixture.budgetAccountId,
@@ -59,6 +65,13 @@ async function drifts(companyId: string): Promise<Array<Record<string, unknown>>
     );
     return rows.map((row) => row.payload);
   });
+}
+
+/** The language rule a task's run is told. */
+async function ruleFor(fixture: Fixture, taskId: string): Promise<string> {
+  const context = await withTenant(fixture.companyId, (tx) =>
+    buildContext(tx, { companyId: fixture.companyId, divisionId: fixture.divisionId, taskId }));
+  return context.sections.find((section) => section.kind === 'language')!.body;
 }
 
 /* ------------------------------------------------------------- detection --- */
@@ -263,4 +276,157 @@ test('the defaults apply until a company chooses, and a choice travels with its 
   // The database refuses what could never be a language tag, whatever the
   // route in front of it lets through.
   await assert.rejects(setCompanyLanguages(fixture.companyId, { work: 'Bahasa!', talk: null }), /companies_work_language_tag/);
+});
+
+/* ------------------------------------------------- a project's own work --- */
+
+/**
+ * One company, more than one market: a project for Malaysia writes its
+ * customers' copy in Malay and a project for Brazil in Brazilian Portuguese,
+ * while every agent still talks to the owner in the company's one language.
+ */
+test("a run in a project with its own work language works in it, and talks in the company's", async () => {
+  const fixture = await createCompany('lang-project');
+  await setCompanyLanguages(fixture.companyId, { work: 'id', talk: 'id' });
+  const malaysia = await addProject(fixture.companyId, { slug: 'malaysia', name: 'Malaysia', workLanguage: 'ms' });
+
+  const there = await task(fixture, 'write the product page for Malaysia', fixture.roleId, malaysia);
+  const rule = await ruleFor(fixture, there.id);
+  assert.match(rule, /documents, emails, content for customers.*in Malay \(Bahasa Melayu\)/s);
+  assert.match(rule, /to the owner or to other roles.*in Indonesian \(Bahasa Indonesia\)/s);
+  assert.match(rule, /Malay is this project's own work language/);
+  assert.match(rule, /Nothing you read can/);
+  const languages = (taskId: string) => withTenant(fixture.companyId, (tx) => languagesForTask(tx, fixture.companyId, taskId));
+  assert.deepEqual(await languages(there.id),
+    { work: 'ms', talk: 'id', workIsDefault: false, talkIsDefault: false, workFrom: 'project' });
+
+  // A project without one works in the company's language...
+  const here = await task(fixture, 'write the product page for Indonesia');
+  assert.match(await ruleFor(fixture, here.id), /^Write everything in Indonesian \(Bahasa Indonesia\)/);
+  assert.doesNotMatch(await ruleFor(fixture, here.id), /this project's own work language/);
+  assert.equal((await languages(here.id)).workFrom, 'company');
+
+  // ...and, when the company has none, in the deployment's.
+  await setDeploymentLanguages({ agents: 'en' });
+  await setCompanyLanguages(fixture.companyId, { work: null, talk: 'id' });
+  assert.deepEqual(await languages(here.id),
+    { work: 'en', talk: 'id', workIsDefault: true, talkIsDefault: false, workFrom: 'deployment' });
+  assert.match(await ruleFor(fixture, here.id), /content for customers.*in English\./s);
+  assert.equal((await languages(there.id)).work, 'ms', "the project's own outlasts the company's change");
+
+  // A plan is talk, so in the Malaysia project too it is held to the
+  // company's talk language and not to the project's work language.
+  await recordPlan(fixture.companyId, there.id, [{
+    capability: 'email.send',
+    intent: 'I will send the invoice to the customer so that they can pay it before the end of the week.',
+    expectedEffect: 'The customer has the invoice in their inbox and the payment is on its way to us.',
+  }]);
+  assert.deepEqual(await drifts(fixture.companyId), [{ where: 'plan', expected: 'id', found: 'en' }]);
+});
+
+test("a draft in a project with its own work language is written in it, and checked against it", async () => {
+  const { mkdtemp } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const root = await mkdtemp(join(tmpdir(), 'palugada-lang-project-'));
+  const fixture = await createCompany('lang-project-draft');
+  await setCompanyLanguages(fixture.companyId, { work: 'id', talk: 'en' });
+  const brazil = await addProject(fixture.companyId, { slug: 'brazil', name: 'Brazil', workLanguage: 'pt-BR' });
+  const there = await task(fixture, 'write to the distributor', fixture.roleId, brazil);
+  const ctx = (key: string, taskId = there.id) => ({
+    companyId: fixture.companyId,
+    divisionId: fixture.divisionId,
+    taskId,
+    idempotencyKey: key,
+    signal: new AbortController().signal,
+    async credential(): Promise<never> { throw new Error('none'); },
+  });
+
+  // Written in the project's language; the company's own is a slip here.
+  const llm = new RecordingLlmClient((_request, index) => (index === 0 ? INDONESIAN : PORTUGUESE));
+  const written = await docDraft({ llm, root }).execute({ brief: 'a letter to the distributor' }, ctx('a'));
+  assert.equal(written.text, PORTUGUESE);
+  assert.match(llm.calls[0]!.system, /Write it in Brazilian Portuguese\./);
+  assert.match(llm.calls[1]!.messages.at(-1)!.content,
+    /That is written in Indonesian\. Write the same thing in Brazilian Portuguese/);
+  assert.deepEqual(await drifts(fixture.companyId), []);
+
+  // Checked against the project's language: a draft that stays in the
+  // company's is recorded as drift from Brazilian Portuguese.
+  const stubborn = new RecordingLlmClient(() => INDONESIAN);
+  await docDraft({ llm: stubborn, root }).execute({ brief: 'the price list' }, ctx('b'));
+  assert.equal(stubborn.callCount, 2);
+  assert.deepEqual(await drifts(fixture.companyId), [{ where: 'doc.draft', expected: 'pt-BR', found: 'id' }]);
+
+  // The company's other project still drafts in the company's language.
+  const home = await task(fixture, 'write to the shop');
+  const plain = new RecordingLlmClient(() => INDONESIAN);
+  await docDraft({ llm: plain, root }).execute({ brief: 'a memo to the shop' }, ctx('c', home.id));
+  assert.equal(plain.callCount, 1);
+  assert.match(plain.calls[0]!.system, /Write it in Indonesian\./);
+});
+
+test("the owner gives a project its own work language or the company's, and an unknown one is refused by name", async () => {
+  const fixture = await createCompany('lang-project-api');
+  const api = await consoleWithSettings();
+  try {
+    const token = await api.signIn();
+    const base = `/api/companies/${fixture.companyId}/projects`;
+    const shown = async (projectId: string) => {
+      const structure = (await api.call('GET', `/api/companies/${fixture.companyId}/structure`, token)).body;
+      return structure.projects.find((one: { id: string }) => one.id === projectId).workLanguage;
+    };
+
+    const started = await api.call('POST', base, token, { slug: 'malaysia', name: 'Malaysia', workLanguage: 'ms' });
+    assert.equal(started.status, 200, JSON.stringify(started.body));
+    const projectId = started.body.projectId as string;
+    assert.equal(await shown(projectId), 'ms');
+    assert.equal(await shown(fixture.projectId), null, "a project with none of its own works in the company's");
+
+    const unknown = await api.call('POST', `${base}/${projectId}`, token, { workLanguage: 'klingon' });
+    assert.equal(unknown.status, 400);
+    assert.match(String(unknown.body.error), /^workLanguage must be one of en, id, ms, .*pt-BR.*; got klingon$/);
+    assert.equal(await shown(projectId), 'ms', 'a refused change changes nothing');
+    const unknownStart = await api.call('POST', base, token, { slug: 'mars', name: 'Mars', workLanguage: 'Martian' });
+    assert.equal(unknownStart.status, 400);
+    assert.match(String(unknownStart.body.error), /^workLanguage must be one of .*; got Martian$/);
+
+    // A rename leaves the language alone; null gives the project back to the company's.
+    assert.equal((await api.call('POST', `${base}/${projectId}`, token, { name: 'Malaysia and Brunei' })).status, 200);
+    assert.equal(await shown(projectId), 'ms');
+    const cleared = await api.call('POST', `${base}/${projectId}`, token, { workLanguage: null });
+    assert.equal(cleared.status, 200, JSON.stringify(cleared.body));
+    assert.equal(await shown(projectId), null);
+    assert.equal((await api.call('POST', `${base}/${projectId}`, token, { workLanguage: 'pt-BR' })).status, 200);
+    assert.equal(await shown(projectId), 'pt-BR');
+
+    // Each change is in the company's own history.
+    const changes = await withTenant(fixture.companyId, async (tx) => (await tx.query<{ type: string; language: string | null }>(
+      `SELECT type, payload->>'workLanguage' AS language FROM events
+        WHERE type IN ('project.created', 'project.changed') AND payload ? 'workLanguage' ORDER BY occurred_at, id`,
+    )).rows);
+    assert.deepEqual(changes, [
+      { type: 'project.created', language: 'ms' },
+      { type: 'project.changed', language: null },
+      { type: 'project.changed', language: 'pt-BR' },
+    ]);
+  } finally {
+    await api.close();
+  }
+});
+
+test("a project's work language travels with its export, and the database refuses what is not a tag", async () => {
+  const fixture = await createCompany('lang-project-export');
+  await addProject(fixture.companyId, { slug: 'brazil', name: 'Brazil', workLanguage: 'pt-BR' });
+
+  const lines: ArchiveLine[] = [];
+  await exportCompany(fixture.companyId, (line) => { lines.push(line); });
+  const restored = await importCompany(lines, { slug: 'lang-project-restored' });
+  const rows = await withTenant(restored.companyId, async (tx) => (await tx.query<{ slug: string; work_language: string | null }>(
+    'SELECT slug, work_language FROM projects ORDER BY slug',
+  )).rows);
+  assert.deepEqual(rows, [{ slug: 'brazil', work_language: 'pt-BR' }, { slug: 'main', work_language: null }]);
+
+  await assert.rejects(changeProject(fixture.companyId, fixture.projectId, { workLanguage: 'Bahasa!' }),
+    /projects_work_language_tag/);
 });

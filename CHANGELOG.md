@@ -60,6 +60,11 @@ The first version. What it holds, in the order an owner meets it.
   hourly one keeps to real time; and a work window opens on its own zone's
   hour where that is not an hour of UTC, such as in Kolkata or Adelaide
   (STATUS 2.60).
+- A project may have its own work language, for a company that sells in
+  more than one market: runs in a Malaysia project write for customers in
+  Malay and drafts there are checked against Malay, while agents still talk
+  to the owner in the company's language. Set it when starting or editing a
+  project; left unset, the project works in the company's (STATUS 2.63).
 
 ### The owner
 

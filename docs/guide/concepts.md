@@ -114,7 +114,7 @@ one live again, as a change of its own.
 A project groups work, such as a product line or a client, and grants
 nothing, so starting one needs only your session. Every task belongs to one.
 The standard template starts with one project, Main. A project can have its
-own budget account.
+own budget account, and its own work language (see Languages).
 
 ## Task and its states
 
@@ -504,9 +504,14 @@ non-urgent work that only reads until a window you choose.
 Each company has two languages. The work language is what it produces for
 its customers: documents, emails, content, code comments. The talk language
 is what its agents write to you and to each other: approvals, questions,
-plans and reports. Either can be left to the deployment's default. Every run
-is told its languages right after its charter, and told that nothing it
-reads can change them. What agents write is checked: a slip is recorded and
+plans and reports. Either can be left to the deployment's default. A
+project may have its own work language, for a company that sells in more
+than one market: a project for Malaysia writes its customers' copy in Malay
+and one for Brazil in Brazilian Portuguese, while the agents in both still
+talk to you in the company's talk language. A project without one works in
+the company's. Every run is told its languages right after its charter --
+the work language of its own project -- and told that nothing it reads can
+change them; drafts are written in, and checked against, the same one. What agents write is checked: a slip is recorded and
 the role's next run is reminded of it. The console's own panel language is a
 third, separate setting: what the console and PALUGADA's own messages to you
 are written in. A company can write in more languages than the console is

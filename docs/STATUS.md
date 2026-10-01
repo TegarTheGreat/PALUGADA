@@ -5625,6 +5625,75 @@ showed, seven did:
   owner using the product. Chinese is simplified only; a reader of
   traditional Chinese gets simplified. The documentation is in English.
 
+## 2.63 A project's own work language
+
+Asked for on 2026-10-01: a company had two languages, work and talk (0052),
+and one company often sells in more than one market. A project for Malaysia
+has to write its customers' copy in Malay and a project for Brazil in
+Brazilian Portuguese, while the company's agents still talk to its one owner
+in one language.
+
+- **One work language for every market.** Migration 0100 adds
+  `projects.work_language`, nullable, with the check `companies` has on the
+  shape of a language tag (`projects_work_language_tag`). NULL, the case for
+  every existing project, means the company's work language. Talk has no
+  per-project setting: there is one owner to talk to. No grant was needed:
+  the application role writes `projects` with the table's own SELECT, INSERT
+  and UPDATE (`enable_tenant_rls`), which 0047 left alone and which cover a
+  new column.
+- **Which language a run works in.** `languagesForTask`
+  (`src/domain/language.ts`) reads the task's project with its company:
+  work is the project's, else the company's, else the deployment's default,
+  and `workFrom` says which (`project`, `company` or `deployment`;
+  `workIsDefault` keeps its meaning, the last alone). Talk is the company's,
+  else the deployment's. `languagesFor` reads the same statement without a
+  task and keeps its shape, so the company's languages route answers as
+  before. The two places that decide a run's work language use it: the
+  language rule every run is told (`src/context/builder.ts`), which also
+  says when the language is the project's own, because the company's
+  memories, skills and earlier work are shared across its projects and may
+  be in another; and `doc.draft` and `email.draft`
+  (`src/capabilities/draft.ts`), which tell the drafting model the
+  project's language, ask again once when the draft comes back in another,
+  and record drift against it -- so in the Brazil project a draft in the
+  company's own Indonesian is a slip like any other. A plan is talk, and is
+  still held to the company's talk language (`src/engine/plan.ts`
+  unchanged).
+- **The owner sets it.** `POST /api/companies/:companyId/projects` and
+  `POST /api/companies/:companyId/projects/:projectId` take `workLanguage`:
+  a code from `LANGUAGES`, refused otherwise by `languageCode` with every
+  accepted code named, or null for the company's; left out on an edit, it
+  is left as it was. The project's `project.created` and `project.changed`
+  events carry it, and the structure read model lists it for every project.
+  On **Team**, both **New project** forms and **Edit** on **Projects** have
+  a **Work language** select of the languages agents can be told, first
+  among them "The company's (…)" with the language that is, and a project
+  with its own shows it on its card. The owner's assistant may propose it
+  on either route; its description of the company's languages route, which
+  called talk "a list of language codes it talks to customers in", now says
+  what the route takes: a code or null for each.
+- **Export and import** carry `projects.work_language`; the generic
+  importer restores it, and an archive from before 0100 restores its
+  projects without one.
+- **Tested.** `languages.test.ts`, against the database: a run in a project
+  with its own work language is told it for work, the company's for talk,
+  and that it is the project's own; a project without one falls back to
+  the company's and then the deployment's, and a project's own outlasts a
+  change to the company's; a plan in that project is still held to the
+  company's talk language; a draft there is asked for in Brazilian
+  Portuguese, asked again when it comes back in Indonesian, and recorded as
+  drift from Brazilian Portuguese when it stays there, while the company's
+  other project drafts in Indonesian; the API starts a project with one,
+  refuses an unknown code by name on starting and on an edit, changes
+  nothing on a refusal, leaves it alone on a rename, takes null, and
+  records each change; export and import round-trip it; the database
+  refuses what is not a tag. `audit-export.test.ts` failed on the new
+  column until the export carried it.
+- **Not done.** The console's new sentences are in English and Indonesian
+  only; the other dictionaries name them as missing until they are
+  translated. A schedule, trigger or ticket has no language of its own: its
+  work is in its project's.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

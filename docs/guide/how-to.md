@@ -343,7 +343,8 @@ All three are on **Team**, **Divisions & roles**.
   sits **Inside** (two levels deep at most), and **Runs at once, at most**.
   Press **Open it** and confirm with a code. A new division can read its own
   memory and skills and nothing else until you grant it more.
-- **New project**: a **Name** and **Short name**, then **Start it**.
+- **New project**: a **Name** and **Short name**, optionally its own
+  **Work language** (see "Set the company's languages"), then **Start it**.
 
 To grant a capability, open the division and use **Change a grant**: the
 **Capability** name and its **Tier**, then **Apply** with a code. The tier
@@ -1005,6 +1006,14 @@ Under **Settings**, **Languages**:
   customers and **Talk language** is what its agents write to you and to
   each other. Empty means the default. Press **Save**; agents follow it from
   their next run.
+
+A project that sells in another market can work in its own language. On
+**Team**, **Projects**, press **Edit** on the project (or start one with
+**New project**) and choose its **Work language**; **The company's** keeps
+it on the company's. Runs in that project write for customers in its
+language, and their drafts are checked against it, while every agent still
+writes to you in the company's talk language. A project with its own shows
+it on its card.
 
 ## Rewrite a charter
 

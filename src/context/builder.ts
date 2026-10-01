@@ -16,7 +16,7 @@ import { skillSummariesFor } from '../skills/skills.ts';
 import { recall, type MemoryItem } from '../memory/store.ts';
 import { ancestryForTask, renderAncestry } from '../domain/goals.ts';
 import { answersFor, openQuestionsFor } from '../inbox/inbox.ts';
-import { languageName, languageRule, languagesFor } from '../domain/language.ts';
+import { languageName, languageRule, languagesFor, languagesForTask } from '../domain/language.ts';
 import { metricsIn, renderMetrics } from '../domain/metrics.ts';
 import { earlierAttempts, instructionsFor } from '../engine/owner-control.ts';
 import { STAGE_PURPOSE, stageOf } from '../domain/stage.ts';
@@ -317,7 +317,9 @@ async function roleSections(
 }
 
 /**
- * The company's languages, right after the charters (src/domain/language.ts).
+ * The company's languages, right after the charters (src/domain/language.ts):
+ * for a task's run, the work language of the task's project where the project
+ * has its own (0100), and the company's talk language either way.
  *
  * Second only to the charters because it is a rule of the same kind: it
  * governs everything after it, and a model reads the pack in order. Placed
@@ -334,7 +336,7 @@ async function languageSections(
   companyId: string,
   taskId: string | undefined,
 ): Promise<ContextSection[]> {
-  const languages = await languagesFor(tx, companyId);
+  const languages = taskId ? await languagesForTask(tx, companyId, taskId) : await languagesFor(tx, companyId);
   let body = languageRule(languages);
   if (taskId) {
     const { rows } = await tx.query<{ found: string; n: number }>(

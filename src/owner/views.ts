@@ -31,11 +31,12 @@ import type { OverlapPolicy } from '../scheduler/scheduler.ts';
 export interface StructureView {
   /**
    * With what each is for, whether it is closed, and how much work it holds
-   * and has cost (0074).
+   * and has cost (0074); and its own work language (0100), null where its
+   * work is in the company's.
    */
   projects: Array<{
     id: string; slug: string; name: string; description: string | null; archivedAt: Date | null;
-    openTasks: number; doneTasks: number; costCents: number;
+    workLanguage: string | null; openTasks: number; doneTasks: number; costCents: number;
   }>;
   goals: Array<{
     id: string;
@@ -96,9 +97,9 @@ export async function structureOf(companyId: string): Promise<StructureView> {
     // runs one query at a time (pg queues a second and will refuse it).
     const projects = await tx.query<{
       id: string; slug: string; name: string; description: string | null; archived_at: Date | null;
-      open_tasks: number; done_tasks: number; cost_cents: string;
+      work_language: string | null; open_tasks: number; done_tasks: number; cost_cents: string;
     }>(
-      `SELECT p.id, p.slug, p.name, p.description, p.archived_at,
+      `SELECT p.id, p.slug, p.name, p.description, p.archived_at, p.work_language,
               (SELECT count(*)::int FROM tasks t WHERE t.project_id = p.id
                  AND t.status NOT IN ('completed', 'failed', 'halted', 'cancelled')) AS open_tasks,
               (SELECT count(*)::int FROM tasks t WHERE t.project_id = p.id AND t.status = 'completed') AS done_tasks,
@@ -198,7 +199,7 @@ export async function structureOf(companyId: string): Promise<StructureView> {
     return {
       projects: projects.rows.map((row) => ({
         id: row.id, slug: row.slug, name: row.name, description: row.description, archivedAt: row.archived_at,
-        openTasks: row.open_tasks, doneTasks: row.done_tasks, costCents: Number(row.cost_cents),
+        workLanguage: row.work_language, openTasks: row.open_tasks, doneTasks: row.done_tasks, costCents: Number(row.cost_cents),
       })),
       goals: goals.rows.map((goal) => ({
         id: goal.id,

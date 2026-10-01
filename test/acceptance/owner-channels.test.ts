@@ -1216,7 +1216,7 @@ test('a press on a closed item says what happened to it (F10.9)', async () => {
     );
     assert.deepEqual(outcome, { handled: false, reason: 'inbox.not_open' });
     const answer = vendor.calls.find((call) => call.path.endsWith('/answerCallbackQuery'))!;
-    assert.equal(answer.body.text, 'Already closed: it was already decided (deny).');
+    assert.equal(answer.body.text, 'Denied. Nothing left to press here.');
   } finally {
     await vendor.close();
   }
@@ -1362,6 +1362,31 @@ test('what the owner decided, and why an item closed, are said in their language
   }
   assert.equal(closureText({ ...closed, status: 'decided', decision: 'ask', closedReason: null, language: 'en' }),
     'Asked. Nothing left to press here.');
+  // Every other reason an item is withdrawn for, and the ones nothing writes
+  // yet, said without the code: "Withdrawn (stage_changed)." was English in
+  // every language.
+  for (const [reason, english] of [
+    ['superseded', 'Withdrawn: the agent changed what it proposes and asked again about the new one.'],
+    ['stage_changed', 'Withdrawn: the company is no longer at the stage this proposal would move it from.'],
+    ['decided_elsewhere', 'Withdrawn: it was already decided in the app.'],
+    ['something_new', 'Withdrawn. Nothing left to press here.'],
+    ['task_waiting', 'Withdrawn. Nothing left to press here.'],
+  ] as const) {
+    assert.equal(closureText({ ...closed, status: 'withdrawn', closedReason: reason, language: 'en' }), english);
+    assert.doesNotMatch(closureText({ ...closed, status: 'withdrawn', closedReason: reason, language: 'id' }), new RegExp(reason));
+  }
+  assert.equal(closureText({ ...closed, status: 'decided', decision: 'revise', closedReason: null, language: 'en' }),
+    'Decided. Nothing left to press here.');
+  // A press that finds its item closed is told the same, from the refusal
+  // that said so; one whose item is gone is told that, not "is closed: null".
+  const { notOpenText } = await import('../../src/owner/notify.ts');
+  const { PalugadaError } = await import('../../src/errors.ts');
+  const refused = (details: Record<string, unknown>) => new PalugadaError('inbox.not_open', 'inbox item x is closed', details);
+  assert.equal(notOpenText('en', refused({ status: 'decided', decision: 'deny', closedReason: null })), 'Denied. Nothing left to press here.');
+  assert.equal(notOpenText('en', refused({ status: 'open', decision: null, closedReason: null })),
+    'Expired unanswered. Silence is a refusal, so nothing was done.');
+  assert.equal(notOpenText('en', refused({ status: null })), 'That item no longer exists.');
+  assert.equal(notOpenText('id', refused({ status: 'withdrawn', decision: null, closedReason: 'superseded' })).includes('superseded'), false);
 });
 
 test('every sentence the platform says to the owner has its translation (src/owner/say.ts)', async () => {

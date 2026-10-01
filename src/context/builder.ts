@@ -16,7 +16,7 @@ import { skillSummariesFor } from '../skills/skills.ts';
 import { recall, type MemoryItem } from '../memory/store.ts';
 import { ancestryForTask, renderAncestry } from '../domain/goals.ts';
 import { answersFor, openQuestionsFor } from '../inbox/inbox.ts';
-import { languageName, languageRule, languagesFor, languagesForTask } from '../domain/language.ts';
+import { languageRule, languagesFor, languagesForTask, slipReminder } from '../domain/language.ts';
 import { metricsIn, renderMetrics } from '../domain/metrics.ts';
 import { earlierAttempts, instructionsFor } from '../engine/owner-control.ts';
 import { STAGE_PURPOSE, stageOf } from '../domain/stage.ts';
@@ -327,8 +327,9 @@ async function roleSections(
  * is exactly the material that pulls a model into another language.
  *
  * When this role has drifted lately -- an agent of it wrote to the owner in
- * a language that was not the company's -- the rule says so. A reminder about
- * this role's own slip is what changes the next run; a general instruction it
+ * a language that was not the company's -- the rule says so, and says in
+ * what: a plan, a question, the summary of its work. A reminder about this
+ * role's own slip is what changes the next run; a general instruction it
  * already had did not.
  */
 async function languageSections(
@@ -339,8 +340,9 @@ async function languageSections(
   const languages = taskId ? await languagesForTask(tx, companyId, taskId) : await languagesFor(tx, companyId);
   let body = languageRule(languages);
   if (taskId) {
-    const { rows } = await tx.query<{ found: string; n: number }>(
-      `SELECT e.payload->>'found' AS found, count(*)::int AS n
+    const { rows } = await tx.query<{ found: string; n: number; wheres: string[] }>(
+      `SELECT e.payload->>'found' AS found, count(*)::int AS n,
+              array_agg(DISTINCT e.payload->>'where') AS wheres
          FROM events e
          JOIN tasks drifted ON drifted.id = e.task_id
          JOIN tasks current ON current.id = $1 AND current.role_id = drifted.role_id
@@ -351,12 +353,7 @@ async function languageSections(
       [taskId],
     );
     const slip = rows[0];
-    if (slip) {
-      body +=
-        `\n\nA reminder: in the last week this role wrote ${slip.n === 1 ? 'once' : `${slip.n} times`} ` +
-        `in ${languageName(slip.found)} where the rule above asked for another. Check the language ` +
-        'of what you write before you send it.';
-    }
+    if (slip) body += `\n\n${slipReminder({ found: slip.found, times: slip.n, where: slip.wheres })}`;
   }
   return [{ kind: 'language', title: 'Language', body }];
 }

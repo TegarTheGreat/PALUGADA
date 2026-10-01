@@ -1221,7 +1221,7 @@ export class Engine {
         return { status: settled.status as RunOutcome['status'], reason: settled.haltReason ?? 'already settled' };
       }
 
-      await transition(companyId, taskId, 'completed', { output });
+      await transition(companyId, taskId, 'completed', { output, writtenByModel: writtenBy !== 'code' });
       return { status: 'completed', output };
     } catch (error) {
       await this.#finishAgentRun(companyId, agentRunId, 'failed');

@@ -15,12 +15,21 @@ import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
+import { isPalugadaError } from '../../src/errors.ts';
 import { publishCharter } from '../../src/governance/store.ts';
 import { buildContext } from '../../src/context/builder.ts';
 import { recordPlan } from '../../src/engine/plan.ts';
-import { createRootTask } from '../../src/engine/tasks.ts';
+import { createRootTask, transition } from '../../src/engine/tasks.ts';
+import { Engine } from '../../src/engine/engine.ts';
+import { CapabilityBroker } from '../../src/broker/broker.ts';
+import { CapabilityRegistry } from '../../src/broker/registry.ts';
+import {
+  goalProposeCapability, ownerAskCapability, stageProposeCapability, taskDelegateCapability, ticketCreateCapability,
+} from '../../src/broker/platform-capabilities.ts';
+import { fingerprintAction, openReview, settleCompletedReviews } from '../../src/review/review.ts';
+import { setStage } from '../../src/domain/stage.ts';
 import { docDraft, emailDraft } from '../../src/capabilities/draft.ts';
-import { RecordingLlmClient } from '../../src/llm/client.ts';
+import { RecordingLlmClient, type LlmTurn, type LlmTurnRequest, type ToolUsingLlmClient } from '../../src/llm/client.ts';
 import { exportCompany } from '../../src/audit/export.ts';
 import { addProject, changeProject } from '../../src/governance/structure.ts';
 import { importCompany } from '../../src/audit/import.ts';
@@ -111,7 +120,84 @@ test('quoting what somebody else wrote is not drifting into their language', () 
   // ...and a Malay company is still held to its language.
   assert.equal(driftFrom(ENGLISH, 'ms'), 'en');
   // A language this cannot recognise is never claimed to have been left.
-  assert.equal(driftFrom(ENGLISH, 'jv'), null);
+  // Every language a company can choose is one it recognises now, so the
+  // case is a code from outside the list.
+  assert.equal(driftFrom(ENGLISH, 'sw'), null);
+});
+
+/*
+ * Javanese and Sundanese, as an agent of a shop in Yogyakarta or Bandung
+ * would write to its owner: the same report in Javanese's everyday (ngoko)
+ * and polite (krama) registers, Sundanese's everyday (loma) and polite
+ * (lemes) ones, Indonesian and Malay. The polite registers borrow from each
+ * other -- kedah, sareng, nanging, manawi are Sundanese and Javanese both --
+ * which is why the words that tell them apart are chosen with care.
+ */
+const JAVANESE = 'Aku wis ngirim tagihan menyang pelanggan, nanging dheweke durung mbayar. Yen sesuk isih ' +
+  'durung ana pembayaran, aku arep ngirim pangeling maneh lan nelpon dheweke.';
+const JAVANESE_KRAMA = 'Kula sampun ngintunaken tagihan dhateng pelanggan, nanging piyambakipun dereng mbayar. ' +
+  'Menawi benjing taksih dereng wonten pembayaran, kula badhe ngintun pangeling kaliyan nelpon piyambakipun.';
+const SUNDANESE = 'Urang geus ngirim tagihan ka palanggan, tapi manéhna can mayar. Lamun isukan teu aya ' +
+  'pamayaran kénéh, urang rék ngirim deui panginget jeung nelepon manéhna.';
+const SUNDANESE_LEMES = 'Abdi parantos ngintunkeun tagihan ka palanggan, nanging anjeunna teu acan mayar. Upami ' +
+  'énjing teu acan aya pamayaran, abdi badé ngintunkeun deui panginget sareng nelepon anjeunna.';
+const MALAY = 'Saya telah menghantar invois kepada pelanggan, tetapi mereka belum membuat bayaran. Jika esok ' +
+  'masih tiada bayaran, saya akan menghantar peringatan dan menelefon mereka.';
+
+test('Javanese and Sundanese are told apart from Indonesian and Malay, and from each other', () => {
+  for (const [text, code] of [
+    [JAVANESE, 'jv'], [JAVANESE_KRAMA, 'jv'], [SUNDANESE, 'su'], [SUNDANESE_LEMES, 'su'],
+    [INDONESIAN, 'id'], [MALAY, 'id'],
+  ] as const) {
+    assert.equal(detectLanguage(text)?.code, code, text);
+  }
+
+  // A company that talks in Javanese or Sundanese is held to it now.
+  assert.equal(driftFrom(INDONESIAN, 'jv'), 'id');
+  assert.equal(driftFrom(INDONESIAN, 'su'), 'id');
+  assert.equal(driftFrom(MALAY, 'jv'), 'id');
+  assert.equal(driftFrom(ENGLISH, 'su'), 'en');
+  assert.equal(driftFrom(SUNDANESE_LEMES, 'jv'), 'su');
+  assert.equal(driftFrom(JAVANESE_KRAMA, 'su'), 'jv');
+  assert.equal(driftFrom(JAVANESE, 'jv'), null);
+  assert.equal(driftFrom(SUNDANESE_LEMES, 'su'), null);
+  // ...and so is one that talks in Indonesian or Malay.
+  assert.equal(driftFrom(JAVANESE, 'id'), 'jv');
+  assert.equal(driftFrom(SUNDANESE, 'ms'), 'su');
+  assert.equal(driftFrom(MALAY, 'id'), null, 'Malay is still Indonesian\'s family');
+
+  // Indonesian that an Indonesian company actually writes is never taken for
+  // either: a tea shop's "teh", logistics' "ETA", a Javanese name.
+  for (const indonesian of [
+    'Stok teh hijau sudah habis dan ETA pengiriman dari pemasok adalah hari Jumat, jadi saya akan memberi tahu ' +
+      'pelanggan yang sudah memesan teh itu.',
+    'Pak Slamet dari Sleman sudah setuju dengan harga baru, tetapi dia ingin pengiriman dilakukan setiap hari ' +
+      'Senin agar tokonya tidak kehabisan stok.',
+    'Kami sudah mengirim tagihan ke pelanggan, tetapi pembayarannya belum masuk. Jika besok masih belum ada ' +
+      'pembayaran, saya akan mengirim pengingat dan menelepon mereka.',
+  ]) {
+    assert.equal(detectLanguage(indonesian)?.code, 'id', indonesian);
+    assert.equal(driftFrom(indonesian, 'id'), null, indonesian);
+  }
+
+  // Short, or a mixture, is "not sure" -- in either direction.
+  assert.equal(detectLanguage('Kula sampun ngintun tagihan.'), null);
+  assert.equal(detectLanguage('Abdi teu acan nampi pamayaran.'), null);
+  const mixed = [
+    // Javanese and Indonesian, as people in Surabaya write a chat.
+    'Aku wis kirim tagihan ke pelanggan, tapi dia belum bayar, dadi sesuk aku arep cek lagi lan telpon, ' +
+      'karena saya harus tahu kapan uangnya masuk.',
+    // Sundanese and Indonesian.
+    'Abdi parantos kirim tagihan ke pelanggan, tapi anjeunna belum bayar, jadi abdi teu acan tiasa menutup ' +
+      'tugas ini sampai uangnya masuk.',
+    // Javanese and Sundanese.
+    'Kula sampun ngintun tagihan, abdi teu acan nampi pamayaran, menawi benjing dereng wonten, urang badé ' +
+      'nelepon deui.',
+  ];
+  for (const text of mixed) {
+    assert.equal(detectLanguage(text), null, text);
+    for (const expected of ['id', 'jv', 'su']) assert.equal(driftFrom(text, expected), null, `${expected}: ${text}`);
+  }
 });
 
 /* ---------------------------------------------------------- the context --- */
@@ -199,6 +285,252 @@ test("a plan written in the wrong language is recorded, and the role's next run 
     expectedEffect: 'Pelanggan sudah menerima pengingat dan tahu batas waktu pembayarannya.',
   }]);
   assert.equal((await drifts(fixture.companyId)).length, 1);
+});
+
+/* ------------------------------------------- everything else it writes --- */
+
+/*
+ * The plan was one thing an agent writes to the owner. These are the rest:
+ * each, written in English for a company that talks in Indonesian, is one
+ * slip that names where it was; the same written in Indonesian is none; and
+ * the same text met twice -- a run resumed, replaying its call -- is still
+ * one.
+ */
+
+async function talkingIndonesian(slug: string): Promise<Fixture> {
+  const fixture = await createCompany(slug);
+  await setCompanyLanguages(fixture.companyId, { work: null, talk: 'id' });
+  return fixture;
+}
+
+async function running(fixture: Fixture, goal = 'look after the invoices', roleId = fixture.roleId) {
+  const started = await task(fixture, goal, roleId);
+  await transition(fixture.companyId, started.id, 'running');
+  return started;
+}
+
+function capabilityContext(fixture: Fixture, taskId: string, key = 'k1') {
+  return {
+    companyId: fixture.companyId,
+    projectId: fixture.projectId,
+    divisionId: fixture.divisionId,
+    roleId: fixture.roleId,
+    taskId,
+    idempotencyKey: key,
+    signal: new AbortController().signal,
+    async credential(): Promise<never> { throw new Error('none'); },
+  } as never;
+}
+
+const asked = (error: unknown) => isPalugadaError(error, 'owner.asked');
+const slip = (where: string) => ({ where, expected: 'id', found: 'en' });
+
+test('a question to the owner is checked once, with what depends on it', async () => {
+  const fixture = await talkingIndonesian('lang-ask');
+  const ask = ownerAskCapability();
+  const first = await running(fixture);
+  const question = {
+    question: 'Should I send the invoice to the customer now, or wait until they have confirmed the order?',
+    why: 'The customer has not answered our last email and the order is still open.',
+  };
+  await assert.rejects(ask.execute(question, capabilityContext(fixture, first.id)), asked);
+  assert.deepEqual(await drifts(fixture.companyId), [slip('question')]);
+  // Asked again by the run that resumes: the same question, the same slip.
+  await assert.rejects(ask.execute(question, capabilityContext(fixture, first.id, 'k2')), asked);
+  assert.equal((await drifts(fixture.companyId)).length, 1);
+
+  const second = await running(fixture, 'the next invoice');
+  await assert.rejects(ask.execute({
+    question: 'Apakah saya kirim tagihan ini ke pelanggan sekarang, atau saya tunggu sampai pesanan mereka sudah dikonfirmasi?',
+    options: ['Kirim sekarang', 'Tunggu konfirmasi'],
+  }, capabilityContext(fixture, second.id)), asked);
+  assert.equal((await drifts(fixture.companyId)).length, 1);
+});
+
+/** A model that answers each turn from a list, as a run of the role would. */
+class ScriptedModel implements ToolUsingLlmClient {
+  readonly #answers: Array<Record<string, unknown>>;
+  #turns = 0;
+
+  constructor(answers: Array<Record<string, unknown>>) {
+    this.#answers = answers;
+  }
+
+  async turn(_request: LlmTurnRequest): Promise<LlmTurn> {
+    const answer = this.#answers[this.#turns++];
+    if (!answer) throw new Error(`the script has no answer ${this.#turns}`);
+    return {
+      content: [{ type: 'text', text: `\`\`\`json\n${JSON.stringify(answer)}\n\`\`\`` }],
+      stopReason: 'end_turn', inputTokens: 100, outputTokens: 50, costCents: 1, model: 'scripted-1',
+    };
+  }
+
+  async complete(): Promise<never> {
+    throw new Error('not used');
+  }
+}
+
+test('the summary finished work reports is checked once, when a model wrote it', async () => {
+  const fixture = await talkingIndonesian('lang-summary');
+  const done = [{ criterion: 'the run returns an output matching its schema', met: true, evidence: 'the output is an object' }];
+  const engine = (llm: ToolUsingLlmClient, handlers = new Map()) =>
+    new Engine({ broker: new CapabilityBroker(new CapabilityRegistry()), workerId: 'lang-worker', llm, handlers });
+
+  const english = await task(fixture, 'close the order');
+  const ran = await engine(new ScriptedModel([{
+    summary: 'The invoice was sent to the customer and the payment has arrived, so the order is closed.', done,
+  }])).runTask(fixture.companyId, english.id, 'worker');
+  assert.equal(ran.status, 'completed', ran.reason);
+  assert.deepEqual(await drifts(fixture.companyId), [slip('summary')]);
+
+  const indonesian = await task(fixture, 'close the next order');
+  const right = await engine(new ScriptedModel([{
+    summary: 'Tagihan sudah dikirim ke pelanggan dan pembayarannya sudah masuk, jadi pesanan ini sudah ditutup.', done,
+  }])).runTask(fixture.companyId, indonesian.id, 'worker');
+  assert.equal(right.status, 'completed', right.reason);
+  assert.equal((await drifts(fixture.companyId)).length, 1);
+
+  // A handler the deployment registered writes its author's words, checked by
+  // its tests: there is no model to remind.
+  const byCode = await task(fixture, 'close a third order');
+  const handlers = new Map([['worker', async () => ({
+    summary: 'The invoice was sent to the customer and the payment has arrived, so the order is closed.',
+  })]]);
+  assert.equal((await engine(new ScriptedModel([]), handlers).runTask(fixture.companyId, byCode.id, 'worker')).status, 'completed');
+  assert.equal((await drifts(fixture.companyId)).length, 1);
+});
+
+test('a brief handed to another role is checked once', async () => {
+  const fixture = await talkingIndonesian('lang-handoff');
+  await addRole(fixture, 'bookkeeper');
+  const delegate = taskDelegateCapability();
+  const parent = await running(fixture);
+  const english = {
+    role: 'bookkeeper',
+    brief: 'Reconcile the payments that arrived this week with the invoices we sent, and tell me which of them are still open.',
+  };
+  const child = await delegate.execute(english, capabilityContext(fixture, parent.id));
+  assert.deepEqual(await drifts(fixture.companyId), [slip('handoff')]);
+  // The same delegation replayed is the child it already started, and no second slip.
+  assert.equal((await delegate.execute(english, capabilityContext(fixture, parent.id, 'k2'))).childId, child.childId);
+  assert.equal((await drifts(fixture.companyId)).length, 1);
+
+  await delegate.execute({
+    role: 'bookkeeper',
+    brief: 'Cocokkan pembayaran yang masuk minggu ini dengan tagihan yang sudah kami kirim, lalu laporkan mana yang belum lunas.',
+  }, capabilityContext(fixture, parent.id, 'k3'));
+  assert.equal((await drifts(fixture.companyId)).length, 1);
+});
+
+test('a ticket a run files is checked once', async () => {
+  const fixture = await talkingIndonesian('lang-ticket');
+  const file = ticketCreateCapability();
+  const filer = await running(fixture);
+  const english = {
+    title: 'Ask the supplier why the last two shipments were late',
+    body: 'The coffee from the supplier arrived late twice this month, and we have to know whether it will happen again.',
+  };
+  const opened = await file.execute(english, capabilityContext(fixture, filer.id));
+  assert.deepEqual(await drifts(fixture.companyId), [slip('ticket')]);
+  // Filed again, it is the ticket already open.
+  assert.equal((await file.execute(english, capabilityContext(fixture, filer.id, 'k2'))).ticketId, opened.ticketId);
+  assert.equal((await drifts(fixture.companyId)).length, 1);
+
+  await file.execute({
+    title: 'Tanyakan ke pemasok kenapa dua pengiriman terakhir terlambat',
+    body: 'Kopi dari pemasok datang terlambat dua kali bulan ini, dan kami perlu tahu apakah itu akan terjadi lagi.',
+  }, capabilityContext(fixture, filer.id, 'k3'));
+  assert.equal((await drifts(fixture.companyId)).length, 1);
+});
+
+test('a proposal to change a goal, and one to move the stage, are checked once each', async () => {
+  const fixture = await talkingIndonesian('lang-proposals');
+  await setStage(fixture.companyId, 'validate');
+  const strategist = await running(fixture, 'review the month');
+  const goal = goalProposeCapability();
+  const stage = stageProposeCapability();
+
+  const goalCase = {
+    goal: fixture.goalId, status: 'met' as const,
+    why: 'Every customer has paid for their order this month, and the target we set for the quarter has already been reached.',
+  };
+  await goal.execute(goalCase, capabilityContext(fixture, strategist.id));
+  // While the owner has not answered, a second proposal is not made, and not checked.
+  assert.equal((await goal.execute(goalCase, capabilityContext(fixture, strategist.id, 'k2'))).proposed, false);
+  const stageCase = {
+    to: 'build',
+    evidence: 'Twelve customers have paid for the first batch, and nine of them have ordered again this month.',
+  };
+  await stage.execute(stageCase, capabilityContext(fixture, strategist.id, 'k3'));
+  assert.equal((await stage.execute(stageCase, capabilityContext(fixture, strategist.id, 'k4'))).proposed, false);
+  assert.deepEqual(await drifts(fixture.companyId), [slip('goal_proposal'), slip('stage_proposal')]);
+
+  const other = await talkingIndonesian('lang-proposals-id');
+  await setStage(other.companyId, 'validate');
+  const theirs = await running(other, 'review the month');
+  await goal.execute({
+    goal: other.goalId, status: 'met',
+    why: 'Semua pelanggan sudah membayar pesanan mereka bulan ini, dan target yang kami tetapkan untuk kuartal ini sudah tercapai.',
+  }, capabilityContext(other, theirs.id));
+  await stage.execute({
+    to: 'build',
+    evidence: 'Dua belas pelanggan sudah membayar untuk batch pertama, dan sembilan dari mereka sudah memesan lagi bulan ini.',
+  }, capabilityContext(other, theirs.id, 'k2'));
+  assert.deepEqual(await drifts(other.companyId), []);
+});
+
+test("a reviewer's reasons are checked, and the slip is the reviewer's", async () => {
+  const fixture = await talkingIndonesian('lang-review');
+  const reviewerRoleId = await addRole(fixture, 'critic', {
+    output: { type: 'object', required: ['decision', 'reason'], properties: { decision: {}, reason: { type: 'string' } } },
+  });
+  const proposer = await running(fixture, 'answer the customer');
+  const proposal = { capability: 'email.send', input: { to: 'buyer@example.com', body: 'Refund approved.' } };
+  const review = async (reason: string) => {
+    const opened = await openReview({
+      companyId: fixture.companyId, projectId: fixture.projectId, proposerTaskId: proposer.id,
+      proposerRoleId: fixture.roleId, reviewerRoleSlug: 'critic', capabilityName: 'email.send',
+      actionFingerprint: fingerprintAction('email.send', proposal.input), proposal,
+      criteria: 'Is this message accurate and allowed by the refund policy?',
+    });
+    assert.equal(opened.outcome, 'pending');
+    const reviewTaskId = (opened as { reviewTaskId: string }).reviewTaskId;
+    await transition(fixture.companyId, reviewTaskId, 'running');
+    await transition(fixture.companyId, reviewTaskId, 'completed', { output: { decision: 'revise', reason } });
+    await settleCompletedReviews(fixture.companyId);
+    return reviewTaskId;
+  };
+
+  const english = await review('The email promises a refund that the policy does not allow, so it should not be sent as it is.');
+  const recorded = await withTenant(fixture.companyId, (tx) => tx.query<{ task_id: string; payload: unknown }>(
+    "SELECT task_id, payload FROM events WHERE type = 'language.drifted'"));
+  assert.deepEqual(recorded.rows, [{ task_id: english, payload: slip('review') }], 'on the reviewer\'s task, so its role is reminded');
+  const roleOf = await withTenant(fixture.companyId, (tx) => tx.query<{ role_id: string }>(
+    'SELECT role_id FROM tasks WHERE id = $1', [english]));
+  assert.equal(roleOf.rows[0]!.role_id, reviewerRoleId);
+
+  await review('Email ini menjanjikan pengembalian dana yang tidak diizinkan oleh kebijakan, jadi jangan dikirim seperti itu.');
+  assert.equal((await drifts(fixture.companyId)).length, 1);
+});
+
+test('the reminder names what the slip was in, so the run knows what to write differently', async () => {
+  const fixture = await talkingIndonesian('lang-where');
+  const planned = await running(fixture);
+  await recordPlan(fixture.companyId, planned.id, [{
+    capability: 'email.send',
+    intent: 'I will send the invoice to the customer so that they can pay it before the end of the week.',
+    expectedEffect: 'The customer has the invoice in their inbox and the payment is on its way to us.',
+  }]);
+  const asking = await running(fixture, 'the next invoice');
+  await assert.rejects(ownerAskCapability().execute({
+    question: 'Should I send the invoice to the customer now, or wait until they have confirmed the order?',
+  }, capabilityContext(fixture, asking.id)), asked);
+
+  const next = await task(fixture, 'follow up');
+  const context = await withTenant(fixture.companyId, (tx) =>
+    buildContext(tx, { companyId: fixture.companyId, divisionId: fixture.divisionId, taskId: next.id }));
+  const rule = context.sections.find((section) => section.kind === 'language')!.body;
+  assert.match(rule, /in the last week this role wrote 2 times in English where the rule above asked for another: in a plan and in a question to the owner\./);
 });
 
 /* ------------------------------------------------------------ the drafts --- */

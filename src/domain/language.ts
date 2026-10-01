@@ -42,8 +42,10 @@ export interface Language {
 
 /**
  * The languages a company can choose. Any language a model writes well could
- * be here; these are the ones this platform can also *check* (below), plus
- * the regional languages its first owners work in.
+ * be here; these are the ones this platform can also *check* (below), the
+ * regional languages its first owners work in -- Javanese, Sundanese --
+ * among them. One added without a way to check it is never claimed to have
+ * been left (`detectable`).
  */
 export const LANGUAGES: readonly Language[] = [
   { code: 'en', name: 'English', native: 'English' },
@@ -196,6 +198,27 @@ export function languageRule(languages: { work: string; talk: string; workFrom?:
 const STOPWORDS: Record<string, readonly string[]> = {
   en: ['the', 'and', 'is', 'are', 'was', 'of', 'to', 'in', 'that', 'this', 'it', 'for', 'with', 'you', 'will', 'be', 'not', 'have', 'has', 'we', 'on', 'as', 'at', 'by', 'from', 'or', 'which', 'would', 'should', 'there', 'their', 'what', 'about'],
   id: ['yang', 'dan', 'di', 'ke', 'dari', 'ini', 'itu', 'untuk', 'dengan', 'tidak', 'akan', 'ada', 'adalah', 'kami', 'kita', 'saya', 'anda', 'juga', 'sudah', 'belum', 'bisa', 'dalam', 'pada', 'atau', 'karena', 'jika', 'agar', 'harus', 'tugas', 'lalu', 'oleh', 'sebagai', 'lebih', 'masih', 'hanya', 'kalau', 'supaya', 'perlu'],
+  // Javanese and Sundanese are written beside Indonesian, by people who mix
+  // the three, and each has an everyday and a polite register -- which
+  // borrowed from each other. So these lists leave out every word two of the
+  // three share: Indonesian's (bisa, jadi), the polite words Javanese and
+  // Sundanese both use (kedah, sareng, nanging, kanggo, manawi, sanes,
+  // langkung, teras, upami, mangga), and the everyday ones they share or
+  // spell alike (kudu, wae, kabeh, yen and yén, maneh and manéh). And words
+  // Indonesian uses for something else: aku and banget are Indonesian too,
+  // teh is its tea and saking its "so much", and rek is East Java's "mate".
+  // Javanese, everyday (ngoko) then polite (krama and madya).
+  jv: [
+    'iki', 'iku', 'kuwi', 'ora', 'wis', 'durung', 'karo', 'lan', 'sing', 'arep', 'isih', 'banjur', 'amarga', 'merga', 'menyang', 'marang', 'saka', 'dheweke', 'mung', 'ana', 'uga', 'dadi', 'ing', 'kowe',
+    'kula', 'panjenengan', 'sampeyan', 'piyambakipun', 'menika', 'punika', 'niki', 'mboten', 'boten', 'sampun', 'dereng', 'kaliyan', 'dhateng', 'ingkang', 'wonten', 'badhe', 'taksih', 'ugi', 'lajeng', 'amargi', 'menawi', 'saged', 'inggih', 'nggih', 'sedaya', 'sanget', 'kemawon', 'mawon', 'dados', 'kangge',
+  ],
+  // Sundanese, everyday (loma) and polite (lemes) together: most of its
+  // function words are the same in both. With and without the accents, which
+  // are often left off.
+  su: [
+    'abdi', 'anjeun', 'anjeunna', 'manéhna', 'urang', 'ieu', 'éta', 'eta', 'teu', 'henteu', 'geus', 'parantos', 'tos', 'acan', 'jeung', 'ka', 'ti', 'nu', 'dina', 'kana', 'tina', 'aya', 'kénéh', 'keneh', 'ogé', 'oge',
+    'sabab', 'tiasa', 'sadayana', 'pisan', 'deui', 'mah', 'téh', 'atuh', 'kitu', 'kieu', 'kumaha', 'naon', 'pikeun', 'sangkan', 'hoyong', 'hayang', 'hiji', 'janten', 'rék', 'muhun', 'ngeunaan',
+  ],
   es: ['el', 'la', 'los', 'las', 'que', 'de', 'y', 'en', 'un', 'una', 'es', 'por', 'para', 'con', 'no', 'se', 'lo', 'del', 'al', 'como', 'pero', 'su', 'más', 'este', 'esta', 'está'],
   pt: ['o', 'a', 'os', 'as', 'que', 'de', 'e', 'em', 'um', 'uma', 'é', 'para', 'com', 'não', 'se', 'do', 'da', 'no', 'na', 'por', 'mais', 'mas', 'como', 'seu', 'sua', 'está', 'são'],
   fr: ['le', 'la', 'les', 'des', 'et', 'est', 'un', 'une', 'que', 'qui', 'dans', 'pour', 'pas', 'sur', 'avec', 'ce', 'cette', 'il', 'elle', 'nous', 'vous', 'au', 'aux', 'du', 'sont', 'mais', 'plus'],
@@ -251,7 +274,9 @@ function ownWords(text: string): string {
  * cannot judge.
  */
 export function detectLanguage(text: string): { code: string; confidence: number } | null {
-  const own = ownWords(text);
+  // Composed, so a letter written as two code points -- Sundanese é as e and
+  // a combining accent -- is one letter of one word, and the word is found.
+  const own = ownWords(text).normalize('NFC');
 
   const letters = (own.match(/\p{L}/gu) ?? []).length;
   if (letters < 20) return null;
@@ -312,6 +337,54 @@ export async function noteDrift(
     payload: { where: input.where, expected: input.expected, found },
   });
   return found;
+}
+
+/**
+ * Everything an agent writes to the owner or to another role, by the `where`
+ * its slip is recorded under, and what the reminder calls it. Drafts are not
+ * here: they are the drafting model's words, held to the work language
+ * (capabilities/draft.ts), and not the role's.
+ */
+const TALK = {
+  plan: 'a plan',
+  question: 'a question to the owner',
+  summary: 'the summary of finished work',
+  handoff: 'a brief handed to another role',
+  ticket: 'a ticket',
+  goal_proposal: 'a proposal to change a goal',
+  stage_proposal: 'a proposal to move the company to another stage',
+  review: "a review of another role's proposal",
+} as const;
+
+/**
+ * `noteDrift` against the company's talk language, for something an agent
+ * wrote to the owner or to another role. Each caller checks a text where it
+ * is first kept -- the item opened, the ticket filed, the task completed --
+ * so a resumed run asking the same question again, or filing the same
+ * ticket, is not a second slip.
+ */
+export async function noteTalkDrift(
+  tx: TenantClient,
+  input: { companyId: string; taskId?: string | undefined; where: keyof typeof TALK; text: string },
+): Promise<string | null> {
+  const { talk } = await languagesFor(tx, input.companyId);
+  return noteDrift(tx, { ...input, expected: talk });
+}
+
+/**
+ * What a role's next run is told after its own slips (the context builder):
+ * how often, into which language, and in what -- a plan, a question to the
+ * owner. "You wrote in English" alone left a run to guess which of the many
+ * things it writes to look at; the one it slipped in is the one to check.
+ */
+export function slipReminder(slips: { found: string; times: number; where: readonly string[] }): string {
+  const places = (Object.keys(TALK) as Array<keyof typeof TALK>)
+    .filter((place) => slips.where.includes(place))
+    .map((place) => `in ${TALK[place]}`);
+  const listed = places.length > 1 ? `${places.slice(0, -1).join(', ')} and ${places.at(-1)}` : places.join('');
+  return `A reminder: in the last week this role wrote ${slips.times === 1 ? 'once' : `${slips.times} times`} ` +
+    `in ${languageName(slips.found)} where the rule above asked for another${listed ? `: ${listed}` : ''}. ` +
+    'Check the language of what you write before you send it.';
 }
 
 /* ------------------------------------------------------------- settings --- */

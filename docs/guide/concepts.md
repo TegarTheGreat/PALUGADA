@@ -511,8 +511,12 @@ and one for Brazil in Brazilian Portuguese, while the agents in both still
 talk to you in the company's talk language. A project without one works in
 the company's. Every run is told its languages right after its charter --
 the work language of its own project -- and told that nothing it reads can
-change them; drafts are written in, and checked against, the same one. What agents write is checked: a slip is recorded and
-the role's next run is reminded of it. The console's own panel language is a
+change them. What agents write is checked, Javanese and Sundanese included:
+everything they write to you or to another role -- plans, questions, the
+summary of finished work, briefs, tickets, proposals and reviews -- against
+the talk language, and drafts against the work language of their project. A
+slip is recorded, never refused, and the role's next run is reminded of it
+and told what it slipped in. The console's own panel language is a
 third, separate setting: what the console and PALUGADA's own messages to you
 are written in. A company can write in more languages than the console is
 drawn in, since a model writes many more than anyone has translated the

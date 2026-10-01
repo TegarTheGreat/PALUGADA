@@ -65,6 +65,12 @@ The first version. What it holds, in the order an owner meets it.
   Malay and drafts there are checked against Malay, while agents still talk
   to the owner in the company's language. Set it when starting or editing a
   project; left unset, the project works in the company's (STATUS 2.63).
+- Everything an agent writes to the owner or to another role -- a question,
+  the summary of finished work, a brief it hands on, a ticket, a goal or
+  stage proposal, a reviewer's reasons -- checked against the company's talk
+  language as plans were, Javanese and Sundanese included; a slip is recorded,
+  never refused, and the role's next run is told what it slipped in
+  (STATUS 2.64).
 
 ### The owner
 

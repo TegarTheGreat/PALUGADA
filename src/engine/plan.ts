@@ -29,7 +29,7 @@
 import { appendEvent } from '../audit/event-log.ts';
 import { withTenant, type TenantClient } from '../db/tenant.ts';
 import { PalugadaError } from '../errors.ts';
-import { languagesFor, noteDrift } from '../domain/language.ts';
+import { noteTalkDrift } from '../domain/language.ts';
 
 export interface PlanStep {
   /** The capability this step intends to use. */
@@ -119,13 +119,11 @@ export async function recordPlan(
     // The plan is the agent writing to its reviewer and to the owner -- it is
     // what an approval shows under "what will happen" -- so it is held to the
     // company's talk language.
-    const languages = await languagesFor(tx, companyId);
-    await noteDrift(tx, {
+    await noteTalkDrift(tx, {
       companyId,
       taskId,
       where: 'plan',
       text: steps.map((step) => `${step.intent}\n${step.expectedEffect}`).join('\n'),
-      expected: languages.talk,
     });
 
     return plan;

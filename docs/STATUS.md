@@ -5625,6 +5625,105 @@ showed, seven did:
   owner using the product. Chinese is simplified only; a reader of
   traditional Chinese gets simplified. The documentation is in English.
 
+## 2.64 Everything an agent writes to the owner, checked for its language
+
+A company talks in one language and works in another (`src/domain/language.ts`),
+and what its agents write was checked in two places: the plan, against the
+talk language, and a draft, against the work language. Everything else went
+unchecked, so an agent that read an English web page and then asked the
+owner a question in English was never noticed. And two of the languages a
+company can choose, Javanese and Sundanese, could not be checked at all.
+
+- **Every text, once, where it is first kept.** `noteTalkDrift` checks a text
+  against the talk language and records a slip as `language.drifted` with
+  its `where`; it is recorded and never refused, as the plan's always was.
+  Each caller checks where the text is first kept, so a run that resumes and
+  makes the same call again is not a second slip:
+  - `question`: what `owner.ask` puts on the owner's card -- the question,
+    what depends on it, the answers it offers -- when the item opens
+    (`askOwner`), and not when the resumed run asks it again to read the
+    answer.
+  - `summary`: the summary of finished work, which the done notice and the
+    Work page show the owner, when the task completes (`transitionWithin`).
+    Only a model's: a handler the deployment registered writes its author's
+    words and has no next run to remind, so the engine says which wrote it
+    (`writtenByModel`), as it already did for done criteria.
+  - `handoff`: the brief `task.delegate` hands another role, when the child
+    is new; a delegation replayed returns its child and is not checked again.
+    Its context is not checked: it is where material goes -- the customer's
+    email, the page that was read -- and material is in whatever language it
+    came.
+  - `ticket`: the title and body of a ticket a run files, when it is new; the
+    same title still open is the ticket already there, with its own words.
+  - `goal_proposal` and `stage_proposal`: the new words and the reason of
+    `goal.propose`, the evidence and the why of `stage.propose`, when the
+    item opens. A second proposal while one waits opens nothing, and is not
+    checked. Neither item is tied to the proposing task, but the slip is, so
+    the proposing role is the one reminded.
+  - `review`: a reviewer's reasons, which the proposing role reads and, on a
+    stage proposal's card, the owner; on the review's own task, so it is the
+    reviewer's role that is reminded.
+
+  Drafts stay held to the work language, and their slips stay the drafting
+  model's rather than the role's. What the agent quotes -- code, links,
+  anything in quotation marks or after `>` -- is still left out of every
+  check (`ownWords`).
+- **Escalations and incidents.** An agent raises an escalation only through
+  `owner.ask`, `goal.propose` and `stage.propose`, all checked. Every other
+  escalation and every incident is a sentence of the platform's (a halted
+  task, a write that did not read back, a schedule that repeats itself),
+  not an agent's. The account a division's role adds to an escalation it was
+  handed is that role's summary, checked when its task completed.
+- **Javanese and Sundanese.** Both now have words the detector counts,
+  chosen as the others were: frequent function words, rare in the other
+  languages. Each has an everyday and a polite register (ngoko and krama;
+  loma and lemes), and the polite ones borrowed from each other, so the lists
+  leave out every word two of Javanese, Sundanese and Indonesian share --
+  kedah, sareng, nanging, kanggo, manawi, sanes, teras, upami, kudu, wae,
+  kabeh, and yen, which is Sundanese's "that" written without its accent --
+  and words Indonesian uses for something else: aku, banget, teh (tea),
+  saking. Malay stays Indonesian's family. Text is composed (NFC) before its
+  words are read, so an é written as two code points is still found. Every
+  language a company can choose can now be checked; the detector still
+  answers "not sure" rather than guess, for short text and for a mixture.
+- **The reminder says where.** The next run of a role that slipped was told
+  "this role wrote once in English where the rule above asked for another",
+  and left to guess which of the many things it writes to look at. It is now
+  told what in, too: "... asked for another: in a plan and in a question to
+  the owner." (`slipReminder`, read by the context builder).
+- **The console.** `language.drifted` is drawn as "Wrote in the wrong
+  language" without its `where`, so no new sentence was needed.
+- **Tested.** `languages.test.ts`: realistic sentences in Javanese (ngoko and
+  krama), Sundanese (loma and lemes), Indonesian and Malay each read as their
+  own language, a company that talks in any of them held to it, Indonesian
+  that writes "teh", "ETA" or a Javanese town never taken for either, and
+  short text and three mixtures (Javanese and Indonesian, Sundanese and
+  Indonesian, Javanese and Sundanese) "not sure" for every expected
+  language; for the question, the summary (a model's, and a handler's that
+  is not checked), the brief, the ticket, both proposals and a reviewer's
+  reasons, English for a company that talks in Indonesian is one slip naming
+  where, the same call again is still one, and Indonesian is none; the
+  reviewer's slip is on the reviewer's task; and the reminder after a plan
+  and a question names both.
+- **Not checked, on purpose.** A run's narration (`run_notes`): it is many
+  short lines, and checking each would fill the activity with one run's
+  thinking aloud. The guardian's one-sentence reason: it is a platform
+  model's, not a role's, and there is no role to remind. The owner's
+  conversation with the CEO on the console and in chat: it answers in the
+  console's language, which is the owner's own setting, and is not a role's
+  run. An output that reports in a field other than `summary` (`answer`,
+  `result`) is not checked: `summary` is what every template asks for and
+  what the done notice reads. The sentence `metric.record` keeps beside a
+  number says where it came from, mostly the source's own name, and is too
+  short to judge; the lessons a run leaves (`learned`) are memory, read by
+  later runs as material rather than said to anybody.
+- **Not verified.** The word lists were chosen from the languages' grammar
+  and tried on the sentences in the test and a few dozen more, not on a
+  corpus, and no native speaker of Javanese or Sundanese has read them.
+  Javanese and Sundanese written in a dialect (Surabaya's, Banyumas'), or
+  mixed with Indonesian as chats are, will mostly read as "not sure", which
+  records nothing -- the bias the detector is meant to have.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

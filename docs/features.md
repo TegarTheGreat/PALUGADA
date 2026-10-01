@@ -211,9 +211,12 @@ freeze, raise a ceiling, rewrite what a model call cost, or delete history.
   dropped, and told that nothing it reads can change them: not an email, not a
   web page, not a message asking it to switch. A task may still ask for a
   deliverable in another language on purpose.
-- What agents write is checked. A plan in the wrong language is recorded and
-  the role's next run is reminded of its own slip; a draft in the wrong
-  language is asked for again before it is kept.
+- What agents write is checked, Javanese and Sundanese included. A plan, a
+  question to the owner, the summary of finished work, a brief to another
+  role, a ticket, a proposal or a reviewer's reasons in the wrong language is
+  recorded, and the role's next run is reminded of its own slip and told what
+  it was in; a draft in the wrong language is asked for again before it is
+  kept.
 
 **Running a company well, not only safely**
 - Goals are measured by numbers with targets, and an agent's number counts as

@@ -39,6 +39,8 @@ import { enqueueWake } from '../scheduler/wake.ts';
 import { isTerminal, type TaskStatus } from '../domain/task.ts';
 import { PalugadaError, isPalugadaError } from '../errors.ts';
 import { appendEvent } from '../audit/event-log.ts';
+import { hashInput } from '../engine/hash.ts';
+import { noteTalkDrift } from '../domain/language.ts';
 import type { Capability } from './registry.ts';
 
 export interface MemorySearchInput {
@@ -354,6 +356,15 @@ export function ticketCreateCapability(): Capability<TicketCreateInput, { ticket
           openedBy: 'agent',
           openedByTaskId: ctx.taskId,
         });
+        // Read by the owner on the board and by whichever role takes it on.
+        // A ticket already open under the same title keeps the words it had,
+        // so only a new one is checked.
+        if (!opened.existing) {
+          await noteTalkDrift(tx, {
+            companyId: ctx.companyId, taskId: ctx.taskId, where: 'ticket',
+            text: `${opened.ticket.title}\n${opened.ticket.body}`,
+          });
+        }
         return { ticketId: opened.ticket.id, existing: opened.existing };
       });
     },
@@ -514,6 +525,11 @@ export function stageProposeCapability(): Capability<StageProposeInput, { propos
           consequenceIfDenied: from
             ? `The company stays in the ${from} stage.`
             : 'The company stays without a stage.',
+        });
+        // The proposer's case is its own words to the owner; the reviewer's,
+        // beside it, was checked when the review was recorded.
+        await noteTalkDrift(tx, {
+          companyId: ctx.companyId, taskId: ctx.taskId, where: 'stage_proposal', text: `${evidence}${why}`,
         });
         return { proposed: true, inboxItemId };
       });
@@ -752,6 +768,7 @@ export function taskDelegateCapability(): Capability<TaskDelegateInput, { childI
       if (!Number.isInteger(minutes) || minutes < 1 || minutes > 1_440) {
         throw new PalugadaError('contract.violation', 'timeoutMinutes is a whole number from 1 to 1440', { field: 'timeoutMinutes' });
       }
+      const childInput = { goal: brief, ...(typeof input.context === 'string' ? { context: input.context } : {}) };
       const found = await withTenant(ctx.companyId, async (tx) => {
         const role = await tx.query<{ id: string; division_id: string }>(
           'SELECT id, division_id FROM roles WHERE slug = $1', [String(input.role ?? '')]);
@@ -761,7 +778,13 @@ export function taskDelegateCapability(): Capability<TaskDelegateInput, { childI
         const ours = ticket?.workingTaskId
           ? (await tx.query('SELECT 1 FROM tasks WHERE id = $1 AND parent_task_id = $2', [ticket.workingTaskId, ctx.taskId])).rowCount === 1
           : false;
-        return { role: role.rows[0], parent, ticket, ours };
+        // The same brief to the same role from this task, already started:
+        // the child `createSubTask` will hand back rather than make again.
+        const again = role.rows[0]
+          ? (await tx.query('SELECT 1 FROM tasks WHERE parent_task_id = $1 AND role_id = $2 AND input_hash = $3',
+            [ctx.taskId, role.rows[0].id, hashInput(childInput)])).rowCount === 1
+          : false;
+        return { role: role.rows[0], parent, ticket, ours, again };
       });
       if (typeof input.ticketId === 'string') {
         // Checked before the child exists, so a ticket that cannot be handed
@@ -785,7 +808,7 @@ export function taskDelegateCapability(): Capability<TaskDelegateInput, { childI
         projectId: found.parent.projectId,
         divisionId: found.role.division_id,
         roleId: found.role.id,
-        input: { goal: brief, ...(typeof input.context === 'string' ? { context: input.context } : {}) },
+        input: childInput,
         createdBy: 'agent_run',
         deadlineAt,
       });
@@ -793,6 +816,12 @@ export function taskDelegateCapability(): Capability<TaskDelegateInput, { childI
         await tx.query('UPDATE roles SET dormant_until = NULL WHERE id = $1', [found.role!.id]);
         // A replayed delegation finds its child already working the ticket.
         if (found.ticket && found.ticket.workingTaskId !== child.id) await startTicket(tx, ctx.companyId, found.ticket.id, child.id);
+        // The brief is this role's words to another. The context is not
+        // checked: it is where material goes -- the customer's email, the
+        // page that was read -- and material is in whatever language it came.
+        if (!found.again) {
+          await noteTalkDrift(tx, { companyId: ctx.companyId, taskId: ctx.taskId, where: 'handoff', text: brief });
+        }
       });
       await enqueueWake({
         companyId: ctx.companyId,

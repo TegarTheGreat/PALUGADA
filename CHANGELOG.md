@@ -60,6 +60,12 @@ The first version. What it holds, in the order an owner meets it.
   hourly one keeps to real time; and a work window opens on its own zone's
   hour where that is not an hour of UTC, such as in Kolkata or Adelaide
   (STATUS 2.60).
+- Everything an agent writes to the owner or to another role -- a question,
+  the summary of finished work, a brief it hands on, a ticket, a goal or
+  stage proposal, a reviewer's reasons -- checked against the company's talk
+  language as plans were, Javanese and Sundanese included; a slip is recorded,
+  never refused, and the role's next run is told what it slipped in
+  (STATUS 2.64).
 
 ### The owner
 

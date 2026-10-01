@@ -506,8 +506,12 @@ its customers: documents, emails, content, code comments. The talk language
 is what its agents write to you and to each other: approvals, questions,
 plans and reports. Either can be left to the deployment's default. Every run
 is told its languages right after its charter, and told that nothing it
-reads can change them. What agents write is checked: a slip is recorded and
-the role's next run is reminded of it. The console's own panel language is a
+reads can change them. What agents write is checked, Javanese and Sundanese
+included: everything they write to you or to another role -- plans,
+questions, the summary of finished work, briefs, tickets, proposals and
+reviews -- against the talk language, and drafts against the work language.
+A slip is recorded, never refused, and the role's next run is reminded of it
+and told what it slipped in. The console's own panel language is a
 third, separate setting: what the console and PALUGADA's own messages to you
 are written in. A company can write in more languages than the console is
 drawn in, since a model writes many more than anyone has translated the

@@ -1,0 +1,111 @@
+/**
+ * Español: what the platform itself says to the owner outside the console
+ * (src/owner/say.ts), keyed by its English.
+ *
+ * The words are the console's (console/src/locales/es.ts): the owner is
+ * «usted»; Aprobar, Rechazar and Preguntar on the buttons; «Esta instancia,
+ * Herramientas, Escucha» for the screens it points at. WhatsApp cuts a reply
+ * button's title at 20 characters and a list row's at 24, so those stay short.
+ */
+export const SENTENCES: Readonly<Record<string, string>> = {
+  'Incident: {title}': 'Incidente: {title}',
+  'Done: {goal}': 'Terminada: {goal}',
+  'Stopped before finishing: {goal}': 'Detenida antes de terminar: {goal}',
+  'Why: {reason}': 'Motivo: {reason}',
+  'a task': 'una tarea',
+  'Approval needed: {title}': 'Se necesita su aprobación: {title}',
+  '{summary} — if denied: {consequence}': '{summary} — si se rechaza: {consequence}',
+  'If denied:': 'Si se rechaza:',
+  'Expires:': 'Caduca:',
+  'This one is decided in the app.': 'Esta decisión se toma en la app.',
+  'Open in PALUGADA': 'Abrir en PALUGADA',
+  'Approve': 'Aprobar',
+  'Deny': 'Rechazar',
+  'Ask': 'Preguntar',
+  'Approved. Nothing left to press here.': 'Aprobado. Aquí ya no queda nada que pulsar.',
+  'Denied. Nothing left to press here.': 'Rechazado. Aquí ya no queda nada que pulsar.',
+  'Decided ({decision}). Nothing left to press here.': 'Decidido ({decision}). Aquí ya no queda nada que pulsar.',
+  'Expired unanswered. Silence is a refusal, so nothing was done.':
+    'Caducó sin respuesta. El silencio equivale a un rechazo, así que no se hizo nada.',
+  'Withdrawn: the task it was asking about is {state}.': 'Retirado: la tarea sobre la que preguntaba está en estado {state}.',
+  'Withdrawn ({reason}).': 'Retirado ({reason}).',
+  'no reason recorded': 'sin motivo registrado',
+  'This bot only answers to its owner.': 'Este bot solo responde a su propietario.',
+  'That one has to be approved in the app.': 'Eso hay que aprobarlo en la app.',
+  'Already closed: {reason}.': 'Ya está cerrado: {reason}.',
+  'That could not be recorded.': 'No se pudo registrar.',
+  'That item no longer exists.': 'Ese elemento ya no existe.',
+  'What do you want to ask about "{title}"? Reply to this message.':
+    '¿Qué quiere preguntar sobre «{title}»? Responda a este mensaje.',
+  'Your question': 'Su pregunta',
+  'Type your question as a reply.': 'Escriba su pregunta respondiendo a este mensaje.',
+  'Asked. The answer will be on the item in the app.': 'Pregunta enviada. La respuesta aparecerá en el elemento, en la app.',
+  'Answer': 'Responder',
+  'Answer in words': 'Responder por escrito',
+  'That choice is not on this question.': 'Esa opción no forma parte de esta pregunta.',
+  'Chosen: {choice}.': 'Elegido: {choice}.',
+  'Stop the task': 'Detener la tarea',
+  'Your answer to "{question}"? Reply to this message.': '¿Su respuesta a «{question}»? Responda a este mensaje.',
+  'Your answer': 'Su respuesta',
+  'Type your answer as a reply.': 'Escriba su respuesta respondiendo a este mensaje.',
+  'Answered. The task carries on with it.': 'Respondido. La tarea continúa con su respuesta.',
+  'That is too long for one question; keep it under {max} characters.':
+    'Es demasiado largo para una pregunta; no pase de {max} caracteres.',
+  '[a key, not kept]': '[una clave, no guardada]',
+  'That looks like a key, so I did not keep it or send it anywhere. Keys go in the sealed field on a card, or on their page in This deployment: tell me what it is for and I will put the card in front of you.':
+    'Eso parece una clave, así que no la he guardado ni enviado a ningún sitio. Las claves van en el campo sellado de una tarjeta, o en su página dentro de Esta instancia: dígame para qué es y le presentaré la tarjeta.',
+  'No model is set up yet, so I cannot think. Choose one under This deployment, Model; then I can help with everything else.':
+    'Aún no hay ningún modelo configurado, así que no puedo pensar. Elija uno en Esta instancia, Modelo; después podré ayudarle con todo lo demás.',
+  'The model did not answer: {reason}': 'El modelo no respondió: {reason}',
+  'Here is what I propose.': 'Esto es lo que propongo.',
+  'I have nothing to add.': 'No tengo nada que añadir.',
+  '{name}, CEO of {company}': '{name}, CEO de {company}',
+  'That could not be answered: {reason}': 'No se pudo responder: {reason}',
+  'I read text and voice notes.': 'Leo texto y notas de voz.',
+  'Now talking to {name}.': 'Ahora habla con {name}.',
+  'Choose whom to talk to.': 'Elija con quién hablar.',
+  'Choose whom to talk to': 'Elegir con quién hablar',
+  'Talk to PALUGADA about the whole deployment': 'Hablar con PALUGADA sobre toda la instancia',
+  'Who you are talking to, and how': 'Con quién habla y cómo',
+  'Stopped.': 'Detenido.',
+  'Write here to talk to {name}.': 'Escriba aquí para hablar con {name}.',
+  'You are talking to {name}. Write, or send a voice note. /ceo chooses whom you talk to; /palugada talks to PALUGADA about the whole deployment.':
+    'Está hablando con {name}. Escriba o envíe una nota de voz. /ceo elige con quién habla; /palugada habla con PALUGADA sobre toda la instancia.',
+  'You said: "{words}"': 'Usted dijo: «{words}»',
+  'in the app': 'en la app',
+  'Apply: {summary}': 'Aplicar: {summary}',
+  'Nothing hears speech yet: choose a provider in the app, under This deployment, Tools, Listening.':
+    'Todavía nada puede oír la voz: elija un proveedor en la app, en Esta instancia, Herramientas, Escucha.',
+  'That recording is too long; keep a voice note under {max} MB.': 'Esa grabación es demasiado larga; una nota de voz debe ocupar menos de {max} MB.',
+  'I could not make out any words in that.': 'No he podido distinguir ninguna palabra.',
+  'Done: {summary}': 'Hecho: {summary}',
+  'That one is applied in the app.': 'Esa se aplica en la app.',
+  'That card no longer exists.': 'Esa tarjeta ya no existe.',
+  'That card was already applied.': 'Esa tarjeta ya se aplicó.',
+  'That card was dismissed.': 'Esa tarjeta se descartó.',
+  'That card failed when it was applied.': 'Esa tarjeta falló al aplicarse.',
+  'That could not be done: {reason}': 'No se pudo hacer: {reason}',
+  'Choose': 'Elegir',
+  'What do you want to ask about "{title}"? Reply to this message with your question.':
+    '¿Qué quiere preguntar sobre «{title}»? Responda a este mensaje con su pregunta.',
+  'Your answer to "{question}"? Reply to this message with your answer.':
+    '¿Su respuesta a «{question}»? Responda a este mensaje con su respuesta.',
+  'I read text messages here.': 'Aquí leo mensajes de texto.',
+  'Apply one of these here:': 'Aplique aquí una de estas:',
+  'Apply {number}': 'Aplicar {number}',
+  'Signed in to {provider} for the {alias} key': 'Sesión iniciada en {provider} para la clave {alias}',
+  'Go back to PALUGADA: the division holds this key now, and it is renewed before it runs out. This tab can be closed.':
+    'Vuelva a PALUGADA: la división ya tiene esta clave, y se renueva antes de que caduque. Puede cerrar esta pestaña.',
+  'Signed in to {name}': 'Sesión iniciada en {name}',
+  'Go back to PALUGADA to choose which of its tools roles may use. This tab can be closed.':
+    'Vuelva a PALUGADA para elegir cuáles de sus herramientas pueden usar los roles. Puede cerrar esta pestaña.',
+  'Not signed in': 'Sin sesión iniciada',
+  'Recorded: approved.': 'Registrado: aprobado.',
+  'Recorded: denied.': 'Registrado: rechazado.',
+  'Recorded: asked.': 'Registrado: pregunta enviada.',
+  'Asked. Nothing left to press here.': 'Pregunta enviada. Aquí ya no queda nada que pulsar.',
+  'Withdrawn: the task it was asking about has finished.': 'Retirado: la tarea sobre la que preguntaba ha terminado.',
+  'Withdrawn: the task it was asking about has failed.': 'Retirado: la tarea sobre la que preguntaba ha fallado.',
+  'Withdrawn: the task it was asking about was stopped.': 'Retirado: la tarea sobre la que preguntaba se detuvo.',
+  'Withdrawn: the task it was asking about was cancelled.': 'Retirado: la tarea sobre la que preguntaba se canceló.',
+};

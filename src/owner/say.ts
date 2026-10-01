@@ -16,6 +16,8 @@
 import { SENTENCES as ID } from './sentences/id.ts';
 import { SENTENCES as MS } from './sentences/ms.ts';
 import { SENTENCES as TL } from './sentences/tl.ts';
+import { SENTENCES as VI } from './sentences/vi.ts';
+import { SENTENCES as TH } from './sentences/th.ts';
 import { SENTENCES as ZH } from './sentences/zh.ts';
 import { SENTENCES as JA } from './sentences/ja.ts';
 import { SENTENCES as KO } from './sentences/ko.ts';
@@ -29,8 +31,6 @@ import { SENTENCES as NL } from './sentences/nl.ts';
 import { SENTENCES as IT } from './sentences/it.ts';
 import { SENTENCES as TR } from './sentences/tr.ts';
 import { SENTENCES as RU } from './sentences/ru.ts';
-import { SENTENCES as TH } from './sentences/th.ts';
-import { SENTENCES as VI } from './sentences/vi.ts';
 
 /**
  * The sentences each language has, one file each in `sentences/`. Every
@@ -41,6 +41,8 @@ export const OWNER_SENTENCES: Readonly<Record<string, Readonly<Record<string, st
   id: ID,
   ms: MS,
   tl: TL,
+  vi: VI,
+  th: TH,
   zh: ZH,
   ja: JA,
   ko: KO,
@@ -54,8 +56,6 @@ export const OWNER_SENTENCES: Readonly<Record<string, Readonly<Record<string, st
   it: IT,
   tr: TR,
   ru: RU,
-  th: TH,
-  vi: VI,
 };
 
 /** `text` in `language`, with `{name}` filled from `values`; English when there is no translation. */

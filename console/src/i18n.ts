@@ -21,6 +21,8 @@ import { useSyncExternalStore } from 'react';
 import { DICTIONARY as ID } from './locales/id.ts';
 import { DICTIONARY as MS } from './locales/ms.ts';
 import { DICTIONARY as TL } from './locales/tl.ts';
+import { DICTIONARY as VI } from './locales/vi.ts';
+import { DICTIONARY as TH } from './locales/th.ts';
 import { DICTIONARY as ZH } from './locales/zh.ts';
 import { DICTIONARY as JA } from './locales/ja.ts';
 import { DICTIONARY as KO } from './locales/ko.ts';
@@ -34,8 +36,6 @@ import { DICTIONARY as NL } from './locales/nl.ts';
 import { DICTIONARY as IT } from './locales/it.ts';
 import { DICTIONARY as TR } from './locales/tr.ts';
 import { DICTIONARY as RU } from './locales/ru.ts';
-import { DICTIONARY as TH } from './locales/th.ts';
-import { DICTIONARY as VI } from './locales/vi.ts';
 import type { Dictionary, Translation } from './locales/types.ts';
 
 /**
@@ -48,6 +48,8 @@ export const LANGUAGES = [
   { code: 'id', name: 'Bahasa Indonesia', locale: 'id-ID' },
   { code: 'ms', name: 'Bahasa Melayu', locale: 'ms-MY' },
   { code: 'tl', name: 'Filipino', locale: 'fil-PH' },
+  { code: 'vi', name: 'Tiếng Việt', locale: 'vi-VN' },
+  { code: 'th', name: 'ไทย', locale: 'th-TH' },
   { code: 'zh', name: '简体中文', locale: 'zh-CN' },
   { code: 'ja', name: '日本語', locale: 'ja-JP' },
   { code: 'ko', name: '한국어', locale: 'ko-KR' },
@@ -61,8 +63,6 @@ export const LANGUAGES = [
   { code: 'it', name: 'Italiano', locale: 'it-IT' },
   { code: 'tr', name: 'Türkçe', locale: 'tr-TR' },
   { code: 'ru', name: 'Русский', locale: 'ru-RU' },
-  { code: 'th', name: 'ไทย', locale: 'th-TH' },
-  { code: 'vi', name: 'Tiếng Việt', locale: 'vi-VN' },
 ] as const;
 export type Language = (typeof LANGUAGES)[number]['code'];
 
@@ -71,6 +71,8 @@ const DICTIONARIES: Record<Language, Dictionary> = {
   id: ID,
   ms: MS,
   tl: TL,
+  vi: VI,
+  th: TH,
   zh: ZH,
   ja: JA,
   ko: KO,
@@ -84,8 +86,6 @@ const DICTIONARIES: Record<Language, Dictionary> = {
   it: IT,
   tr: TR,
   ru: RU,
-  th: TH,
-  vi: VI,
 };
 
 export function isLanguage(value: unknown): value is Language {

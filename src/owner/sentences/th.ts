@@ -27,15 +27,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Ask': 'ถาม',
   'Approved. Nothing left to press here.': 'อนุมัติแล้ว ไม่ต้องกดอะไรที่นี่อีก',
   'Denied. Nothing left to press here.': 'ปฏิเสธแล้ว ไม่ต้องกดอะไรที่นี่อีก',
-  'Decided ({decision}). Nothing left to press here.': 'ตัดสินแล้ว ({decision}) ไม่ต้องกดอะไรที่นี่อีก',
   'Expired unanswered. Silence is a refusal, so nothing was done.':
     'หมดเวลาโดยไม่มีคำตอบ การเงียบถือเป็นการปฏิเสธ จึงไม่มีการดำเนินการใด',
-  'Withdrawn: the task it was asking about is {state}.': 'ถอนแล้ว: งานที่รายการนี้ถามถึงอยู่ในสถานะ {state}',
-  'Withdrawn ({reason}).': 'ถอนแล้ว ({reason})',
-  'no reason recorded': 'ไม่มีการบันทึกเหตุผล',
   'This bot only answers to its owner.': 'บอตนี้ตอบเฉพาะเจ้าของเท่านั้น',
   'That one has to be approved in the app.': 'รายการนี้ต้องอนุมัติในแอป',
-  'Already closed: {reason}.': 'ปิดไปแล้ว: {reason}',
   'That could not be recorded.': 'บันทึกไม่สำเร็จ',
   'That item no longer exists.': 'รายการนี้ไม่มีอยู่แล้ว',
   'What do you want to ask about "{title}"? Reply to this message.':
@@ -112,4 +107,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Withdrawn: the task it was asking about has failed.': 'ถอนแล้ว: งานที่รายการนี้ถามถึงล้มเหลว',
   'Withdrawn: the task it was asking about was stopped.': 'ถอนแล้ว: งานที่รายการนี้ถามถึงถูกหยุด',
   'Withdrawn: the task it was asking about was cancelled.': 'ถอนแล้ว: งานที่รายการนี้ถามถึงถูกยกเลิก',
+  'Decided. Nothing left to press here.': 'ตัดสินแล้ว ไม่ต้องกดอะไรที่นี่อีก',
+  'Withdrawn: the agent changed what it proposes and asked again about the new one.': 'ถอนแล้ว: เอเจนต์เปลี่ยนสิ่งที่เสนอ และส่งคำขอใหม่สำหรับข้อเสนอใหม่แล้ว',
+  'Withdrawn: the company is no longer at the stage this proposal would move it from.': 'ถอนแล้ว: บริษัทไม่ได้อยู่ในระยะที่ข้อเสนอนี้จะย้ายออกไปแล้ว',
+  'Withdrawn: it was already decided in the app.': 'ถอนแล้ว: รายการนี้ถูกตัดสินในแอปไปแล้ว',
+  'Withdrawn. Nothing left to press here.': 'ถอนแล้ว ไม่ต้องกดอะไรที่นี่อีก',
 };

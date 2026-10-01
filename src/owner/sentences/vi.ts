@@ -26,15 +26,10 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Ask': 'Hỏi',
   'Approved. Nothing left to press here.': 'Đã phê duyệt. Không cần nhấn gì thêm ở đây.',
   'Denied. Nothing left to press here.': 'Đã từ chối. Không cần nhấn gì thêm ở đây.',
-  'Decided ({decision}). Nothing left to press here.': 'Đã quyết định ({decision}). Không cần nhấn gì thêm ở đây.',
   'Expired unanswered. Silence is a refusal, so nothing was done.':
     'Đã hết hạn mà không có trả lời. Im lặng được coi là từ chối, nên không có gì được thực hiện.',
-  'Withdrawn: the task it was asking about is {state}.': 'Đã rút lại: nhiệm vụ liên quan đang ở trạng thái {state}.',
-  'Withdrawn ({reason}).': 'Đã rút lại ({reason}).',
-  'no reason recorded': 'không ghi lý do',
   'This bot only answers to its owner.': 'Bot này chỉ phản hồi chủ sở hữu.',
   'That one has to be approved in the app.': 'Mục này phải được phê duyệt trong ứng dụng.',
-  'Already closed: {reason}.': 'Đã đóng: {reason}.',
   'That could not be recorded.': 'Không ghi nhận được.',
   'That item no longer exists.': 'Mục này không còn tồn tại.',
   'What do you want to ask about "{title}"? Reply to this message.':
@@ -113,4 +108,9 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Withdrawn: the task it was asking about has failed.': 'Đã rút lại: nhiệm vụ liên quan đã thất bại.',
   'Withdrawn: the task it was asking about was stopped.': 'Đã rút lại: nhiệm vụ liên quan đã bị dừng.',
   'Withdrawn: the task it was asking about was cancelled.': 'Đã rút lại: nhiệm vụ liên quan đã bị hủy.',
+  'Decided. Nothing left to press here.': 'Đã quyết định. Không cần nhấn gì thêm ở đây.',
+  'Withdrawn: the agent changed what it proposes and asked again about the new one.': 'Đã rút lại: agent đã thay đổi đề xuất và hỏi lại về đề xuất mới.',
+  'Withdrawn: the company is no longer at the stage this proposal would move it from.': 'Đã rút lại: công ty không còn ở giai đoạn mà đề xuất này định chuyển đi.',
+  'Withdrawn: it was already decided in the app.': 'Đã rút lại: mục này đã được quyết định trong ứng dụng.',
+  'Withdrawn. Nothing left to press here.': 'Đã rút lại. Không cần nhấn gì thêm ở đây.',
 };

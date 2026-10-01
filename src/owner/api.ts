@@ -568,7 +568,8 @@ export class OwnerApi {
           this.#signInThrottle.check(address);
           let session: OwnerSession;
           try {
-            session = await this.#claims.confirm(String(body.code ?? ''), String(body.totp ?? ''));
+            const label = typeof body.label === 'string' && body.label.trim() ? body.label.trim().slice(0, 120) : undefined;
+            session = await this.#claims.confirm(String(body.code ?? ''), String(body.totp ?? ''), label);
           } catch (failure) {
             this.#signInThrottle.failed(address, failure);
             throw failure;

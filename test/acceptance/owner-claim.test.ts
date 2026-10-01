@@ -102,12 +102,15 @@ test('a deployment with no owner makes a link; whoever opens it adds the one aut
     assert.equal((await owner.mfa.enrolled()).length, 0, 'nothing is enrolled on a wrong code');
 
     // The code the phone shows: the authenticator is the owner's, and they are in.
-    const confirmed = await call(owner.url, 'POST', '/api/auth/claim/confirm', { body: { code, totp: owner.code(secret) } });
+    // The console names the authenticator in the owner's language; the
+    // server's English default would show under "Owner" in every language.
+    const confirmed = await call(owner.url, 'POST', '/api/auth/claim/confirm', { body: { code, totp: owner.code(secret), label: ' Aplikasi autentikator ' } });
     assert.equal(confirmed.status, 200, JSON.stringify(confirmed.body));
+    assert.equal(confirmed.body.device, 'Aplikasi autentikator');
     const token = String(confirmed.body.token);
     assert.equal((await call(owner.url, 'GET', '/api/companies', { token })).status, 200, 'a session like any other');
     const enrolled = await owner.mfa.enrolled();
-    assert.deepEqual(enrolled.map((factor) => [factor.kind, factor.secretRef?.startsWith('db://')]), [['totp', true]]);
+    assert.deepEqual(enrolled.map((factor) => [factor.kind, factor.secretRef?.startsWith('db://'), factor.label]), [['totp', true, 'Aplikasi autentikator']]);
     // Sealed, as every secret the owner saves: nothing in the database reads as the secret.
     const sealed = await sealedNow();
     assert.equal(sealed.length, 1);

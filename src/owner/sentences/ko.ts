@@ -1,0 +1,110 @@
+/**
+ * 한국어: what the platform itself says to the owner outside the console
+ * (src/owner/say.ts), keyed by its English.
+ *
+ * The terms are the console's (console/src/locales/ko.ts): an approval is
+ * 승인 and a denial 거절, an incident 인시던트, an item the platform takes
+ * back 회수됨, a card is applied (적용), and "the app" is the console (콘솔).
+ * Screens are named as the console draws them: '이 인스턴스 > 모델'.
+ * Sentences are polite 해요체; buttons are short labels, within WhatsApp's
+ * twenty characters.
+ */
+export const SENTENCES: Readonly<Record<string, string>> = {
+  'Incident: {title}': '인시던트: {title}',
+  'Done: {goal}': '완료: {goal}',
+  'Stopped before finishing: {goal}': '완료 전에 중지됨: {goal}',
+  'Why: {reason}': '이유: {reason}',
+  'a task': '작업',
+  'Approval needed: {title}': '승인 필요: {title}',
+  '{summary} — if denied: {consequence}': '{summary} — 거절하면: {consequence}',
+  'If denied:': '거절하면:',
+  'Expires:': '만료:',
+  'This one is decided in the app.': '이 항목은 콘솔에서 결정해요.',
+  'Open in PALUGADA': 'PALUGADA에서 열기',
+  'Approve': '승인',
+  'Deny': '거절',
+  'Ask': '질문',
+  'Approved. Nothing left to press here.': '승인했어요. 여기서 더 누를 것은 없어요.',
+  'Denied. Nothing left to press here.': '거절했어요. 여기서 더 누를 것은 없어요.',
+  'Decided ({decision}). Nothing left to press here.': '결정됨({decision}). 여기서 더 누를 것은 없어요.',
+  'Expired unanswered. Silence is a refusal, so nothing was done.': '응답 없이 만료됐어요. 응답이 없으면 거절로 보므로 아무것도 실행하지 않았어요.',
+  'Withdrawn: the task it was asking about is {state}.': '회수됨: 질문 대상 작업이 \'{state}\' 상태예요.',
+  'Withdrawn ({reason}).': '회수됨({reason}).',
+  'no reason recorded': '기록된 이유 없음',
+  'This bot only answers to its owner.': '이 봇은 소유자에게만 응답해요.',
+  'That one has to be approved in the app.': '이 항목은 콘솔에서 승인해야 해요.',
+  'Already closed: {reason}.': '이미 닫혔어요: {reason}.',
+  'That could not be recorded.': '기록하지 못했어요.',
+  'That item no longer exists.': '그 항목은 더 이상 없어요.',
+  'What do you want to ask about "{title}"? Reply to this message.': '\'{title}\'에 대해 무엇을 묻고 싶나요? 이 메시지에 답장하세요.',
+  'Your question': '내 질문',
+  'Type your question as a reply.': '답장으로 질문을 입력하세요.',
+  'Asked. The answer will be on the item in the app.': '질문했어요. 답변은 콘솔의 해당 항목에 표시돼요.',
+  'Answer': '답변',
+  'Answer in words': '글로 답변',
+  'That choice is not on this question.': '이 질문에 없는 선택지예요.',
+  'Chosen: {choice}.': '선택함: {choice}.',
+  'Stop the task': '작업 중지',
+  'Your answer to "{question}"? Reply to this message.': '\'{question}\'에 대한 답변은요? 이 메시지에 답장하세요.',
+  'Your answer': '내 답변',
+  'Type your answer as a reply.': '답장으로 답변을 입력하세요.',
+  'Answered. The task carries on with it.': '답변했어요. 작업은 이 답변으로 계속 진행돼요.',
+  'That is too long for one question; keep it under {max} characters.': '질문 하나로는 너무 길어요. {max}자 이내로 써 주세요.',
+  '[a key, not kept]': '[키라서 보관하지 않음]',
+  'That looks like a key, so I did not keep it or send it anywhere. Keys go in the sealed field on a card, or on their page in This deployment: tell me what it is for and I will put the card in front of you.':
+    '키처럼 보여서 보관하지도, 어디에도 보내지도 않았어요. 키는 카드의 암호화 필드나 \'이 인스턴스\'의 해당 페이지에 넣어야 해요. 어디에 쓰는 키인지 알려 주면 카드를 보여 드릴게요.',
+  'No model is set up yet, so I cannot think. Choose one under This deployment, Model; then I can help with everything else.':
+    '아직 모델이 설정되지 않아서 생각할 수 없어요. \'이 인스턴스 > 모델\'에서 하나 고르세요. 그러면 나머지는 모두 도와 드릴 수 있어요.',
+  'The model did not answer: {reason}': '모델이 응답하지 않았어요: {reason}',
+  'Here is what I propose.': '이렇게 제안해요.',
+  'I have nothing to add.': '더 덧붙일 말은 없어요.',
+  '{name}, CEO of {company}': '{company}의 CEO {name}',
+  'That could not be answered: {reason}': '답변할 수 없었어요: {reason}',
+  'I read text and voice notes.': '글과 음성 메시지를 읽을 수 있어요.',
+  'Now talking to {name}.': '이제 {name}와(과) 대화해요.',
+  'Choose whom to talk to.': '대화할 상대를 고르세요.',
+  'Choose whom to talk to': '대화 상대 고르기',
+  'Talk to PALUGADA about the whole deployment': '인스턴스 전체에 대해 PALUGADA와 대화',
+  'Who you are talking to, and how': '지금 대화 상대와 사용 방법',
+  'Stopped.': '중지했어요.',
+  'Write here to talk to {name}.': '여기에 쓰면 {name}와(과) 대화할 수 있어요.',
+  'You are talking to {name}. Write, or send a voice note. /ceo chooses whom you talk to; /palugada talks to PALUGADA about the whole deployment.':
+    '지금 {name}와(과) 대화하고 있어요. 글을 쓰거나 음성 메시지를 보내세요. /ceo로 대화 상대를 고르고, /palugada로 인스턴스 전체에 대해 PALUGADA와 대화해요.',
+  'You said: "{words}"': '내가 한 말: \'{words}\'',
+  'in the app': '콘솔에서',
+  'Apply: {summary}': '적용: {summary}',
+  'Nothing hears speech yet: choose a provider in the app, under This deployment, Tools, Listening.':
+    '아직 음성을 듣는 서비스가 없어요. 콘솔의 \'이 인스턴스 > 도구 > 음성 인식\'에서 제공업체를 고르세요.',
+  'That recording is too long; keep a voice note under {max} MB.': '녹음이 너무 길어요. 음성 메시지는 {max}MB 이내로 보내 주세요.',
+  'I could not make out any words in that.': '알아들을 수 있는 말이 없었어요.',
+  'Done: {summary}': '완료: {summary}',
+  'That one is applied in the app.': '이 카드는 콘솔에서 적용해요.',
+  'That card no longer exists.': '그 카드는 더 이상 없어요.',
+  'That card was already applied.': '그 카드는 이미 적용됐어요.',
+  'That card was dismissed.': '그 카드는 적용하지 않기로 했어요.',
+  'That card failed when it was applied.': '그 카드는 적용할 때 실패했어요.',
+  'That could not be done: {reason}': '할 수 없었어요: {reason}',
+  'Choose': '선택',
+  'What do you want to ask about "{title}"? Reply to this message with your question.':
+    '\'{title}\'에 대해 무엇을 묻고 싶나요? 이 메시지에 답장으로 질문을 쓰세요.',
+  'Your answer to "{question}"? Reply to this message with your answer.':
+    '\'{question}\'에 대한 답변은요? 이 메시지에 답장으로 답변을 쓰세요.',
+  'I read text messages here.': '여기서는 글 메시지를 읽어요.',
+  'Apply one of these here:': '여기서 다음 중 하나를 적용하세요:',
+  'Apply {number}': '{number}번 적용',
+  'Signed in to {provider} for the {alias} key': '{alias} 키를 위해 {provider}에 로그인했어요',
+  'Go back to PALUGADA: the division holds this key now, and it is renewed before it runs out. This tab can be closed.':
+    'PALUGADA로 돌아가세요. 이제 부서가 이 키를 가지고 있으며, 만료되기 전에 갱신돼요. 이 탭은 닫아도 돼요.',
+  'Signed in to {name}': '{name}에 로그인했어요',
+  'Go back to PALUGADA to choose which of its tools roles may use. This tab can be closed.':
+    'PALUGADA로 돌아가 역할이 쓸 수 있는 도구를 고르세요. 이 탭은 닫아도 돼요.',
+  'Not signed in': '로그인되지 않음',
+  'Recorded: approved.': '기록함: 승인.',
+  'Recorded: denied.': '기록함: 거절.',
+  'Recorded: asked.': '기록함: 질문.',
+  'Asked. Nothing left to press here.': '질문했어요. 여기서 더 누를 것은 없어요.',
+  'Withdrawn: the task it was asking about has finished.': '회수됨: 질문 대상 작업이 완료됐어요.',
+  'Withdrawn: the task it was asking about has failed.': '회수됨: 질문 대상 작업이 실패했어요.',
+  'Withdrawn: the task it was asking about was stopped.': '회수됨: 질문 대상 작업이 중지됐어요.',
+  'Withdrawn: the task it was asking about was cancelled.': '회수됨: 질문 대상 작업이 취소됐어요.',
+};

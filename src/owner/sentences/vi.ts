@@ -1,0 +1,116 @@
+/**
+ * Tiếng Việt: what the platform itself says to the owner outside the console
+ * (src/owner/say.ts), keyed by its English.
+ *
+ * The terms are the console's (console/src/locales/vi.ts, whose header holds
+ * the glossary): phê duyệt and từ chối, hộp thư đến, mục for an item, thẻ for
+ * a card (a browser tab is "tab"), and Hệ thống này for the This deployment
+ * page, with its sections joined by " > " as the console writes them. The
+ * owner is "bạn"; the assistant says "tôi". Telegram and WhatsApp buttons
+ * stay short: WhatsApp cuts a button at 20 characters and a list row at 24.
+ */
+export const SENTENCES: Readonly<Record<string, string>> = {
+  'Incident: {title}': 'Sự cố: {title}',
+  'Done: {goal}': 'Đã xong: {goal}',
+  'Stopped before finishing: {goal}': 'Đã dừng trước khi xong: {goal}',
+  'Why: {reason}': 'Lý do: {reason}',
+  'a task': 'một nhiệm vụ',
+  'Approval needed: {title}': 'Cần phê duyệt: {title}',
+  '{summary} — if denied: {consequence}': '{summary} — nếu từ chối: {consequence}',
+  'If denied:': 'Nếu từ chối:',
+  'Expires:': 'Hết hạn:',
+  'This one is decided in the app.': 'Mục này cần quyết định trong ứng dụng.',
+  'Open in PALUGADA': 'Mở trong PALUGADA',
+  'Approve': 'Phê duyệt',
+  'Deny': 'Từ chối',
+  'Ask': 'Hỏi',
+  'Approved. Nothing left to press here.': 'Đã phê duyệt. Không cần nhấn gì thêm ở đây.',
+  'Denied. Nothing left to press here.': 'Đã từ chối. Không cần nhấn gì thêm ở đây.',
+  'Decided ({decision}). Nothing left to press here.': 'Đã quyết định ({decision}). Không cần nhấn gì thêm ở đây.',
+  'Expired unanswered. Silence is a refusal, so nothing was done.':
+    'Đã hết hạn mà không có trả lời. Im lặng được coi là từ chối, nên không có gì được thực hiện.',
+  'Withdrawn: the task it was asking about is {state}.': 'Đã rút lại: nhiệm vụ liên quan đang ở trạng thái {state}.',
+  'Withdrawn ({reason}).': 'Đã rút lại ({reason}).',
+  'no reason recorded': 'không ghi lý do',
+  'This bot only answers to its owner.': 'Bot này chỉ phản hồi chủ sở hữu.',
+  'That one has to be approved in the app.': 'Mục này phải được phê duyệt trong ứng dụng.',
+  'Already closed: {reason}.': 'Đã đóng: {reason}.',
+  'That could not be recorded.': 'Không ghi nhận được.',
+  'That item no longer exists.': 'Mục này không còn tồn tại.',
+  'What do you want to ask about "{title}"? Reply to this message.':
+    'Bạn muốn hỏi gì về “{title}”? Hãy trả lời tin nhắn này.',
+  'Your question': 'Câu hỏi của bạn',
+  'Type your question as a reply.': 'Nhập câu hỏi của bạn bằng cách trả lời tin nhắn.',
+  'Asked. The answer will be on the item in the app.':
+    'Đã gửi câu hỏi. Câu trả lời sẽ hiển thị ở mục này trong ứng dụng.',
+  'Answer': 'Trả lời',
+  'Answer in words': 'Trả lời bằng lời',
+  'That choice is not on this question.': 'Câu hỏi này không có lựa chọn đó.',
+  'Chosen: {choice}.': 'Đã chọn: {choice}.',
+  'Stop the task': 'Dừng nhiệm vụ',
+  'Your answer to "{question}"? Reply to this message.':
+    'Câu trả lời của bạn cho “{question}”? Hãy trả lời tin nhắn này.',
+  'Your answer': 'Câu trả lời của bạn',
+  'Type your answer as a reply.': 'Nhập câu trả lời của bạn bằng cách trả lời tin nhắn.',
+  'Answered. The task carries on with it.': 'Đã trả lời. Nhiệm vụ tiếp tục với câu trả lời đó.',
+  'That is too long for one question; keep it under {max} characters.':
+    'Quá dài cho một câu hỏi; hãy giữ dưới {max} ký tự.',
+  '[a key, not kept]': '[một khóa, không được lưu]',
+  'That looks like a key, so I did not keep it or send it anywhere. Keys go in the sealed field on a card, or on their page in This deployment: tell me what it is for and I will put the card in front of you.':
+    'Đây có vẻ là một khóa, nên tôi không lưu và không gửi đi đâu cả. Khóa phải nhập vào ô niêm phong trên thẻ, hoặc trên trang riêng của nó trong Hệ thống này: hãy cho tôi biết khóa dùng để làm gì và tôi sẽ đưa thẻ cho bạn.',
+  'No model is set up yet, so I cannot think. Choose one under This deployment, Model; then I can help with everything else.':
+    'Chưa thiết lập mô hình nào nên tôi chưa thể suy nghĩ. Hãy chọn một mô hình tại Hệ thống này > Mô hình; sau đó tôi có thể giúp mọi việc khác.',
+  'The model did not answer: {reason}': 'Mô hình không trả lời: {reason}',
+  'Here is what I propose.': 'Đây là đề xuất của tôi.',
+  'I have nothing to add.': 'Tôi không có gì để bổ sung.',
+  '{name}, CEO of {company}': '{name}, CEO của {company}',
+  'That could not be answered: {reason}': 'Không thể trả lời: {reason}',
+  'I read text and voice notes.': 'Tôi chỉ đọc được tin nhắn văn bản và tin nhắn thoại.',
+  'Now talking to {name}.': 'Bạn đang trò chuyện với {name}.',
+  'Choose whom to talk to.': 'Chọn người bạn muốn trò chuyện.',
+  'Choose whom to talk to': 'Chọn người để trò chuyện',
+  'Talk to PALUGADA about the whole deployment': 'Trò chuyện với PALUGADA về toàn hệ thống',
+  'Who you are talking to, and how': 'Bạn đang trò chuyện với ai, và cách trò chuyện',
+  'Stopped.': 'Đã dừng.',
+  'Write here to talk to {name}.': 'Nhắn ở đây để trò chuyện với {name}.',
+  'You are talking to {name}. Write, or send a voice note. /ceo chooses whom you talk to; /palugada talks to PALUGADA about the whole deployment.':
+    'Bạn đang trò chuyện với {name}. Hãy nhắn tin hoặc gửi tin nhắn thoại. /ceo để chọn người trò chuyện; /palugada để trò chuyện với PALUGADA về toàn hệ thống.',
+  'You said: "{words}"': 'Bạn đã nói: “{words}”',
+  'in the app': 'trong ứng dụng',
+  'Apply: {summary}': 'Áp dụng: {summary}',
+  'Nothing hears speech yet: choose a provider in the app, under This deployment, Tools, Listening.':
+    'Chưa có dịch vụ nghe giọng nói: hãy chọn nhà cung cấp trong ứng dụng, tại Hệ thống này > Công cụ > Nghe.',
+  'That recording is too long; keep a voice note under {max} MB.':
+    'Bản ghi âm quá dài; tin nhắn thoại phải dưới {max} MB.',
+  'I could not make out any words in that.': 'Tôi không nghe ra được từ nào.',
+  'Done: {summary}': 'Đã xong: {summary}',
+  'That one is applied in the app.': 'Mục này cần áp dụng trong ứng dụng.',
+  'That card no longer exists.': 'Thẻ này không còn tồn tại.',
+  'That card was already applied.': 'Thẻ này đã được áp dụng.',
+  'That card was dismissed.': 'Thẻ này đã bị bỏ qua.',
+  'That card failed when it was applied.': 'Thẻ này đã thất bại khi áp dụng.',
+  'That could not be done: {reason}': 'Không thể thực hiện: {reason}',
+  'Choose': 'Chọn',
+  'What do you want to ask about "{title}"? Reply to this message with your question.':
+    'Bạn muốn hỏi gì về “{title}”? Hãy trả lời tin nhắn này bằng câu hỏi của bạn.',
+  'Your answer to "{question}"? Reply to this message with your answer.':
+    'Câu trả lời của bạn cho “{question}”? Hãy trả lời tin nhắn này bằng câu trả lời của bạn.',
+  'I read text messages here.': 'Ở đây tôi chỉ đọc tin nhắn văn bản.',
+  'Apply one of these here:': 'Áp dụng một trong các thẻ sau tại đây:',
+  'Apply {number}': 'Áp dụng {number}',
+  'Signed in to {provider} for the {alias} key': 'Đã đăng nhập {provider} để lấy khóa {alias}',
+  'Go back to PALUGADA: the division holds this key now, and it is renewed before it runs out. This tab can be closed.':
+    'Hãy quay lại PALUGADA: bộ phận giờ đã giữ khóa này, và khóa sẽ được gia hạn trước khi hết hạn. Bạn có thể đóng tab này.',
+  'Signed in to {name}': 'Đã đăng nhập {name}',
+  'Go back to PALUGADA to choose which of its tools roles may use. This tab can be closed.':
+    'Hãy quay lại PALUGADA để chọn những công cụ mà vai trò được dùng. Bạn có thể đóng tab này.',
+  'Not signed in': 'Chưa đăng nhập',
+  'Recorded: approved.': 'Đã ghi nhận: phê duyệt.',
+  'Recorded: denied.': 'Đã ghi nhận: từ chối.',
+  'Recorded: asked.': 'Đã ghi nhận: đã hỏi.',
+  'Asked. Nothing left to press here.': 'Đã gửi câu hỏi. Không cần nhấn gì thêm ở đây.',
+  'Withdrawn: the task it was asking about has finished.': 'Đã rút lại: nhiệm vụ liên quan đã hoàn thành.',
+  'Withdrawn: the task it was asking about has failed.': 'Đã rút lại: nhiệm vụ liên quan đã thất bại.',
+  'Withdrawn: the task it was asking about was stopped.': 'Đã rút lại: nhiệm vụ liên quan đã bị dừng.',
+  'Withdrawn: the task it was asking about was cancelled.': 'Đã rút lại: nhiệm vụ liên quan đã bị hủy.',
+};

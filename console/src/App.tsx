@@ -341,16 +341,21 @@ function Console({ device, recovered, signOut }: { device: string; recovered: bo
   const languageMenu = (
     <>
       <Menu.Label>{t('Panel language')}</Menu.Label>
-      {LANGUAGES.map((one) => (
-        <Menu.Item
-          key={one.code}
-          leftSection={<IconLanguage size={16} />}
-          rightSection={one.code === language() ? <IconCheck size={14} /> : null}
-          onClick={() => void pickLanguage(one.code)}
-        >
-          {one.name}
-        </Menu.Item>
-      ))}
+      {/* Twenty-one languages are taller than a screen: the menu opens upward
+          from the foot of the sidebar, and the first languages were above
+          the top of the window, out of reach. They scroll in a box instead. */}
+      <ScrollArea.Autosize mah={232} type="auto" offsetScrollbars>
+        {LANGUAGES.map((one) => (
+          <Menu.Item
+            key={one.code}
+            leftSection={<IconLanguage size={16} />}
+            rightSection={one.code === language() ? <IconCheck size={14} /> : null}
+            onClick={() => void pickLanguage(one.code)}
+          >
+            {one.name}
+          </Menu.Item>
+        ))}
+      </ScrollArea.Autosize>
     </>
   );
 

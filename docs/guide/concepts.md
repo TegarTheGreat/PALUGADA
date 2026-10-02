@@ -30,9 +30,12 @@ database: row-level security is forced on every tenant table, and a row
 cannot even refer to another company's row. Many companies can share one
 deployment safely.
 
-A company is never deleted. It can be frozen (under **Settings**,
-**Company**: nothing of its starts, and work in progress stops at its next
-step), exported, or kept under its retention policy. **Stop everything**, at
+A company is never deleted piece by piece. It can be frozen (under
+**Settings**, **Company**: nothing of its starts, and work in progress stops
+at its next step), exported, or kept under its retention policy; or it can be
+closed, which freezes it at once and erases every row of it when the grace
+period you chose, from 7 to 90 days, ends (see Close a company in the
+how-to). **Stop everything**, at
 the foot of the sidebar, halts every company at once and can be resumed;
 **Cancel every task…**, in the menu under **Owner**, ends every task outright
 and cannot be undone.

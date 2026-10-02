@@ -5395,6 +5395,93 @@ Read against the source of Block's Buzz, on 2026-09-30.
   occurrence is comes from `nextOccurrence`, so across a daylight-saving
   change it is exactly as right as that function is.
 
+## 2.60 Schedules and work windows on the nights the clock changes (F9.1, F9.2)
+
+Found by running cron-parser 4.9 across the 2026 changes, on 2026-09-30.
+Nothing tested a schedule or a window at a daylight saving change.
+
+- **A daily job in the hour the clock repeats ran twice.**
+  `runDueSchedules` works out the next run from the time of the pass, not
+  from the run that fired, and cron-parser, asked from inside a repeated
+  hour, answers with a time it has already given. A `30 1 * * *` schedule in
+  America/New_York whose 01:30 EDT (05:30Z on 2026-11-01) was fired by a
+  pass at 01:05 EST (06:05Z) -- a worker that had been down, a busy queue --
+  was given 01:30 EST (06:30Z) as its next run and made a second task that
+  night, and one saved during that hour was given the same double. London,
+  Sydney and Santiago did the same on their nights back; at Lord Howe, which
+  goes back half an hour, cron-parser gave both 01:45s even to a pass on
+  time.
+- **A job in the hour the clock skips could be lost.** Asked from just after
+  New York's jump (03:00 to 03:29 EDT on 2026-03-08), cron-parser gave the
+  next day for a `30 2` schedule, so a pass that fired the previous day's
+  run late there dropped that day's run, neither run nor counted. At
+  Santiago, whose clock skips from midnight to 01:00, and at Lord Howe's
+  half-hour jump, it dropped the day's run even when asked days ahead.
+- **What changed.** One rule, Vixie cron's, written above `nextOccurrence`
+  (`src/scheduler/scheduler.ts`). A schedule with fixed hours runs once for
+  each time the clock shows it: at the first pass of a repeated time, and at
+  the instant of the jump for a skipped one -- 02:30 in New York runs at
+  03:00 EDT, every time inside the jump is that one run, and a day's runs
+  keep their order. A schedule whose hour field is every hour runs by real
+  time: at both 01:00s, with nothing owed for an hour that did not pass.
+  cron-parser is now asked only in UTC, where it lists wall-clock readings
+  with no change to get wrong, and `instantsShowing`
+  (`src/scheduler/windows.ts`) places each reading in the zone: the one or
+  two instants that show it, or the instant the clock jumped over it. The
+  rule names a fixed set of instants, so the next run no longer depends on
+  where the search starts, and `runDueSchedules` and `upsertSchedule` go on
+  asking from `now`. `countOccurrences`, the `skippedOccurrences` of
+  `schedule.fired`, walks the same runs, so a run a late pass folded in is
+  counted once, not twice or not at all. Checked outside the suite against a
+  minute-by-minute walk of real time around each of the 260 changes in the
+  130 zones that change in 2026, for twelve schedules each: no difference.
+  A daily schedule's next run now takes about 0.4 ms here, where cron-parser
+  asked in the zone took 1.4 ms.
+- **A work window opened late wherever its hour is not an hour of UTC.**
+  `nextOpening` looked for the opening on the hours of UTC, so in a zone
+  half an hour or three quarters off UTC -- Kolkata, Kathmandu, Adelaide,
+  Newfoundland, Lord Howe in winter -- every window opened thirty or
+  forty-five minutes late, and a window from 02:00 at Lord Howe opened at
+  03:00 on the night its clock jumps from 02:00 to 02:30. It now steps by
+  quarter hours: every offset is a whole number of them, and every change
+  from 2026 to 2040, in every zone, falls on one. Windows on the nights the
+  clock changes were otherwise right, and are now pinned: open while the
+  clock shows their hours (three real hours for 01:00-03:00 on the night
+  back), opening at the jump when their start is skipped, and, wrapping
+  midnight, belonging to the day that opened them through either change.
+  Reading the clock reuses one formatter per zone instead of building one
+  each time.
+- **Tests.** In `test/acceptance/scheduling-windows.test.ts`, with fixed
+  instants: `a daily time in the hour the clock repeats runs once, on its
+  first pass (F9.1)` and `a daily time in the hour the clock skips runs
+  once, when the clock jumps (F9.1)`, each in New York, London, Sydney,
+  Santiago and Lord Howe; `a schedule that runs every hour keeps to real
+  time through both changes (F9.1)`; `a zone without daylight saving is
+  unaffected (F9.1)` (Jakarta); `where the search starts never changes the
+  next run (F9.1)`, from every twenty minutes around each change and a
+  second either side of every run. Through `runDueSchedules` and the
+  database: `a daily run in the hour the clock repeats fires once, even from
+  a pass that runs late (F9.1)` -- passes at 06:05Z, 06:30Z and 06:31Z make
+  one task, the next run is 2026-11-02T06:30Z, and a save at 06:10Z says the
+  same -- `a daily run in the hour the clock skips fires once, when the clock
+  jumps (F9.1)`, and `a pass that runs late across a change counts the run
+  it folded in (F9.1)`. For windows: `a window opens on its own zone's hour
+  where that is not an hour of UTC (F9.2)`, `a window on the night the clock
+  goes back is open while the clock shows its hours (F9.2)`, `a window whose
+  start the clock skips opens when the clock jumps (F9.2)` and `a window
+  that wraps midnight holds across a change (F9.2)`.
+- **Not done.** A job at a skipped time now runs at the jump, 03:00, where
+  cron-parser asked ahead of time put it as long after the jump as it was
+  after the skipped hour began, 03:30; such a run comes earlier, by less than
+  the length of the jump, once a year. `instantsShowing` assumes a zone changes its offset at
+  most once in two days (the closest two changes from 2026 to 2040 are
+  Casablanca's, 35 days apart), and `nextOpening` that changes fall on a
+  quarter hour of UTC; a zone that broke either would be wrong near that
+  change, not everywhere. A window made only of hours the clock skips does
+  not open that night -- 02:00-03:00 in New York on 2026-03-08 -- which is
+  what its hours say, and may not be what an owner who put cheap hours there
+  expects. cron-parser stays at 4.9: it is asked nothing it gets wrong.
+
 ## 2.61 Run a schedule now (F9.1)
 
 Asked for on 2026-09-30: a schedule could be created, changed, and turned on
@@ -5469,6 +5556,304 @@ occurrence -- for the weekly business review, a week.
 - **Not done.** The console learns that a run is live only by pressing: the
   schedules list does not say so, and the button is not greyed out while one
   is.
+
+## 2.62 Seven languages, each held whole
+
+The console and everything PALUGADA says to the owner outside it were in
+English and Indonesian. They are now also in Malay (Malaysia), Simplified
+Chinese, Hindi, Brazilian Portuguese and Russian. What two languages never
+showed, seven did:
+
+- **Plural forms.** `tp` knew "one" and "other"; Russian has one, few and
+  many ("1 задача, 2 задачи, 5 задач"), and a language's "one" is not the
+  number 1 -- Russian says it for 21, Hindi and Portuguese for 0. A
+  translation of a plural sentence can now name each CLDR form, `tp` picks
+  the form `Intl.PluralRules` answers for the locale, and a test requires
+  every form a language's whole counts fall in and a `{count}` in every
+  "one" sentence (the skipped-run sentence said "the run" for 21 runs, and
+  now says one run apart through `t`).
+- **Completeness in every language.** The test that held the Indonesian
+  dictionary complete now holds every dictionary in `console/src/locales/`
+  to every sentence and the same placeholders; for Chinese, Hindi and
+  Russian every translation must be in its own script; and a translation
+  equal to its English must be a name listed in the dictionary's `KEPT`, at
+  most 3% of it. The server's sentences moved to one file per language in
+  `src/owner/sentences/`, held to the same placeholders and scripts, and a
+  language the console offers without them fails.
+- **Codes inside sentences.** "Recorded: {decision}." and "the task it was
+  asking about is {state}" were filled with `deny` and `cancelled`, English
+  inside every translation. Each decision and each way a task ends is its own
+  sentence now (`recordedText`, `closureText`).
+- **One English word, two meanings.** Translators found labels that one
+  language cannot translate once for all their uses: "To" for an email's
+  recipient and an hours window's end, "Open" for a status and a button,
+  "Now" for a memory's current text and un-snoozing an item, "Next" and
+  "Done" for the tour and a column or status. Each use has its own sentence.
+- **Around the words.** The browser's `pt-PT` or `zh-TW` now finds a
+  language by its first part; the sign-in page lists languages by name
+  rather than seven codes that did not fit a phone; the page's `lang` is the
+  locale (`zh-CN`), and the console names Han and Devanagari fonts after
+  Inter, so Chinese is not drawn with Japanese glyphs; the OAuth result page
+  is said through `say`; speech providers are sent `pt`, not `pt-BR`, which
+  Whisper refuses; agents are told "Simplified Chinese" rather than
+  "Chinese", and Brazilian Portuguese is a language a company can write in.
+- **Seen, at a phone's width.** Home, the deployment, and a company's
+  overview, team, languages, work and money, in each language at 390 pixels,
+  with no page wider than the screen. Looking found what no test had: the
+  date was capitalised word by word ("Quarta-Feira, 30 De Setembro",
+  "Среда, 30 Сентября"), now only its first letter; the setup banner's button
+  lost its label to a long sentence, and now wraps below it; the
+  second-factor dialog opened beneath the dialog that asked for it, so
+  starting a company from the console did nothing the owner could see, and
+  it now stacks above every dialog; and a short name another company had
+  came back as the database's "duplicate key value violates unique
+  constraint", in English, where it is now refused as
+  `company.slug_taken` (409) and explained in the owner's language, whether
+  the company is started or restored from an export.
+- **Tested.** `console-i18n.test.ts` (every dictionary, script, KEPT, plural
+  forms, a `{count}` in every "one"); the owner-sentences test in
+  `owner-channels.test.ts` (every language the console offers, placeholders,
+  scripts) and one for decisions and task ends said as sentences;
+  `languages.test.ts` (the languages agents are told, precisely named, and
+  Brazilian Portuguese not drift from Portuguese); `listen.test.ts` (every
+  speech provider sent the language without its region); `owner-api.test.ts`
+  and `audit-export.test.ts` (a taken short name refused by name, starting
+  and restoring).
+- **Not verified.** Each translation was written and read through by one
+  translator per language against the English with a glossary kept in its
+  file's header, and spot-checked; none has been read by a native-speaking
+  owner using the product. Chinese is simplified only; a reader of
+  traditional Chinese gets simplified. The documentation is in English.
+
+## 2.63 A project's own work language
+
+Asked for on 2026-10-01: a company had two languages, work and talk (0052),
+and one company often sells in more than one market. A project for Malaysia
+has to write its customers' copy in Malay and a project for Brazil in
+Brazilian Portuguese, while the company's agents still talk to its one owner
+in one language.
+
+- **One work language for every market.** Migration 0100 adds
+  `projects.work_language`, nullable, with the check `companies` has on the
+  shape of a language tag (`projects_work_language_tag`). NULL, the case for
+  every existing project, means the company's work language. Talk has no
+  per-project setting: there is one owner to talk to. No grant was needed:
+  the application role writes `projects` with the table's own SELECT, INSERT
+  and UPDATE (`enable_tenant_rls`), which 0047 left alone and which cover a
+  new column.
+- **Which language a run works in.** `languagesForTask`
+  (`src/domain/language.ts`) reads the task's project with its company:
+  work is the project's, else the company's, else the deployment's default,
+  and `workFrom` says which (`project`, `company` or `deployment`;
+  `workIsDefault` keeps its meaning, the last alone). Talk is the company's,
+  else the deployment's. `languagesFor` reads the same statement without a
+  task and keeps its shape, so the company's languages route answers as
+  before. The two places that decide a run's work language use it: the
+  language rule every run is told (`src/context/builder.ts`), which also
+  says when the language is the project's own, because the company's
+  memories, skills and earlier work are shared across its projects and may
+  be in another; and `doc.draft` and `email.draft`
+  (`src/capabilities/draft.ts`), which tell the drafting model the
+  project's language, ask again once when the draft comes back in another,
+  and record drift against it -- so in the Brazil project a draft in the
+  company's own Indonesian is a slip like any other. A plan is talk, and is
+  still held to the company's talk language (`src/engine/plan.ts`
+  unchanged).
+- **The owner sets it.** `POST /api/companies/:companyId/projects` and
+  `POST /api/companies/:companyId/projects/:projectId` take `workLanguage`:
+  a code from `LANGUAGES`, refused otherwise by `languageCode` with every
+  accepted code named, or null for the company's; left out on an edit, it
+  is left as it was. The project's `project.created` and `project.changed`
+  events carry it, and the structure read model lists it for every project.
+  On **Team**, both **New project** forms and **Edit** on **Projects** have
+  a **Work language** select of the languages agents can be told, first
+  among them "The company's (…)" with the language that is, and a project
+  with its own shows it on its card. The owner's assistant may propose it
+  on either route; its description of the company's languages route, which
+  called talk "a list of language codes it talks to customers in", now says
+  what the route takes: a code or null for each.
+- **Export and import** carry `projects.work_language`; the generic
+  importer restores it, and an archive from before 0100 restores its
+  projects without one.
+- **Tested.** `languages.test.ts`, against the database: a run in a project
+  with its own work language is told it for work, the company's for talk,
+  and that it is the project's own; a project without one falls back to
+  the company's and then the deployment's, and a project's own outlasts a
+  change to the company's; a plan in that project is still held to the
+  company's talk language; a draft there is asked for in Brazilian
+  Portuguese, asked again when it comes back in Indonesian, and recorded as
+  drift from Brazilian Portuguese when it stays there, while the company's
+  other project drafts in Indonesian; the API starts a project with one,
+  refuses an unknown code by name on starting and on an edit, changes
+  nothing on a refusal, leaves it alone on a rename, takes null, and
+  records each change; export and import round-trip it; the database
+  refuses what is not a tag. `audit-export.test.ts` failed on the new
+  column until the export carried it.
+- **Not done.** A schedule, trigger or ticket has no language of its own:
+  its work is in its project's. The console's three new sentences are in
+  every dictionary the console has.
+
+## 2.64 Everything an agent writes to the owner, checked for its language
+
+A company talks in one language and works in another (`src/domain/language.ts`),
+and what its agents write was checked in two places: the plan, against the
+talk language, and a draft, against the work language. Everything else went
+unchecked, so an agent that read an English web page and then asked the
+owner a question in English was never noticed. And two of the languages a
+company can choose, Javanese and Sundanese, could not be checked at all.
+
+- **Every text, once, where it is first kept.** `noteTalkDrift` checks a text
+  against the talk language and records a slip as `language.drifted` with
+  its `where`; it is recorded and never refused, as the plan's always was.
+  Each caller checks where the text is first kept, so a run that resumes and
+  makes the same call again is not a second slip:
+  - `question`: what `owner.ask` puts on the owner's card -- the question,
+    what depends on it, the answers it offers -- when the item opens
+    (`askOwner`), and not when the resumed run asks it again to read the
+    answer.
+  - `summary`: the summary of finished work, which the done notice and the
+    Work page show the owner, when the task completes (`transitionWithin`).
+    Only a model's: a handler the deployment registered writes its author's
+    words and has no next run to remind, so the engine says which wrote it
+    (`writtenByModel`), as it already did for done criteria.
+  - `handoff`: the brief `task.delegate` hands another role, when the child
+    is new; a delegation replayed returns its child and is not checked again.
+    Its context is not checked: it is where material goes -- the customer's
+    email, the page that was read -- and material is in whatever language it
+    came.
+  - `ticket`: the title and body of a ticket a run files, when it is new; the
+    same title still open is the ticket already there, with its own words.
+  - `goal_proposal` and `stage_proposal`: the new words and the reason of
+    `goal.propose`, the evidence and the why of `stage.propose`, when the
+    item opens. A second proposal while one waits opens nothing, and is not
+    checked. Neither item is tied to the proposing task, but the slip is, so
+    the proposing role is the one reminded.
+  - `review`: a reviewer's reasons, which the proposing role reads and, on a
+    stage proposal's card, the owner; on the review's own task, so it is the
+    reviewer's role that is reminded.
+
+  Drafts stay held to the work language, and their slips stay the drafting
+  model's rather than the role's. What the agent quotes -- code, links,
+  anything in quotation marks or after `>` -- is still left out of every
+  check (`ownWords`).
+- **Escalations and incidents.** An agent raises an escalation only through
+  `owner.ask`, `goal.propose` and `stage.propose`, all checked. Every other
+  escalation and every incident is a sentence of the platform's (a halted
+  task, a write that did not read back, a schedule that repeats itself),
+  not an agent's. The account a division's role adds to an escalation it was
+  handed is that role's summary, checked when its task completed.
+- **Javanese and Sundanese.** Both now have words the detector counts,
+  chosen as the others were: frequent function words, rare in the other
+  languages. Each has an everyday and a polite register (ngoko and krama;
+  loma and lemes), and the polite ones borrowed from each other, so the lists
+  leave out every word two of Javanese, Sundanese and Indonesian share --
+  kedah, sareng, nanging, kanggo, manawi, sanes, teras, upami, kudu, wae,
+  kabeh, and yen, which is Sundanese's "that" written without its accent --
+  and words Indonesian uses for something else: aku, banget, teh (tea),
+  saking. Malay stays Indonesian's family. Text is composed (NFC) before its
+  words are read, so an é written as two code points is still found. Every
+  language a company can choose can now be checked; the detector still
+  answers "not sure" rather than guess, for short text and for a mixture.
+- **The reminder says where.** The next run of a role that slipped was told
+  "this role wrote once in English where the rule above asked for another",
+  and left to guess which of the many things it writes to look at. It is now
+  told what in, too: "... asked for another: in a plan and in a question to
+  the owner." (`slipReminder`, read by the context builder).
+- **The console.** `language.drifted` is drawn as "Wrote in the wrong
+  language" without its `where`, so no new sentence was needed.
+- **Tested.** `languages.test.ts`: realistic sentences in Javanese (ngoko and
+  krama), Sundanese (loma and lemes), Indonesian and Malay each read as their
+  own language, a company that talks in any of them held to it, Indonesian
+  that writes "teh", "ETA" or a Javanese town never taken for either, and
+  short text and three mixtures (Javanese and Indonesian, Sundanese and
+  Indonesian, Javanese and Sundanese) "not sure" for every expected
+  language; for the question, the summary (a model's, and a handler's that
+  is not checked), the brief, the ticket, both proposals and a reviewer's
+  reasons, English for a company that talks in Indonesian is one slip naming
+  where, the same call again is still one, and Indonesian is none; the
+  reviewer's slip is on the reviewer's task; and the reminder after a plan
+  and a question names both.
+- **Not checked, on purpose.** A run's narration (`run_notes`): it is many
+  short lines, and checking each would fill the activity with one run's
+  thinking aloud. The guardian's one-sentence reason: it is a platform
+  model's, not a role's, and there is no role to remind. The owner's
+  conversation with the CEO on the console and in chat: it answers in the
+  console's language, which is the owner's own setting, and is not a role's
+  run. An output that reports in a field other than `summary` (`answer`,
+  `result`) is not checked: `summary` is what every template asks for and
+  what the done notice reads. The sentence `metric.record` keeps beside a
+  number says where it came from, mostly the source's own name, and is too
+  short to judge; the lessons a run leaves (`learned`) are memory, read by
+  later runs as material rather than said to anybody.
+- **Not verified.** The word lists were chosen from the languages' grammar
+  and tried on the sentences in the test and a few dozen more, not on a
+  corpus, and no native speaker of Javanese or Sundanese has read them.
+  Javanese and Sundanese written in a dialect (Surabaya's, Banyumas'), or
+  mixed with Indonesian as chats are, will mostly read as "not sure", which
+  records nothing -- the bias the detector is meant to have.
+
+## 2.65 Twenty-one languages, and no code inside any of them
+
+Asked for on 2026-10-01: a company could tell its agents to write in 22
+languages, and the console was drawn in seven. It is now drawn in every one
+of them but European Portuguese, which reads the Brazilian: Javanese,
+Sundanese, Filipino, Vietnamese, Thai, Japanese, Korean, Arabic, Spanish,
+French, German, Dutch, Italian and Turkish join English, Indonesian, Malay,
+Simplified Chinese, Hindi, Brazilian Portuguese and Russian. What PALUGADA
+sends the owner's phone -- Telegram, WhatsApp, email, push -- is in each of
+them too.
+
+- **Translated whole, in one voice per language.** Seven translators, two
+  languages each, wrote every sentence the console draws (1,899) and every
+  sentence the platform sends (89), each with a glossary in its file's
+  header and a register chosen once: Javanese krama and Sundanese lemes;
+  Spanish "usted", French "vous", German "Sie", Turkish "siz"; Dutch,
+  Italian, Filipino, Vietnamese and Thai the friendly form; Korean 해요체
+  without 당신; Japanese です・ます; Arabic gender-neutral, never an
+  imperative to the owner. The sentences that landed while they worked --
+  a project's own work language (2.63) and the closed-item sentences below
+  -- were written by the same translator in the same terms.
+- **Plural forms as each language has them.** Arabic has six (zero, one,
+  two, few, many, other) and every count sentence names all of them;
+  Japanese, Korean, Thai, Vietnamese, Javanese and Sundanese have only
+  "other", so a sentence shown for one item is worded to read right for one;
+  French counts 0 as "one", Filipino 1, 2, 3, 5 and more. The test that held
+  seven languages to their forms holds twenty-one.
+- **Right to left.** Arabic sets the page's `dir`, and the console's own
+  styles and spacing use logical sides, so the layout mirrors and not only
+  the text (prepared in the commit before the translations).
+- **No status code inside a sentence.** A translator found the owner's
+  phone told "Withdrawn (stage_changed)." and, for a button pressed after
+  its item closed, "Already closed: it was already decided (deny)." -- the
+  English text of the refusal -- in every language; the History page showed
+  "withdrawn · task cancelled", and a task's trace a step's raw state. Every
+  reason an item is withdrawn for is now a sentence of its own on the phone
+  and in the console (`closureText`, `notOpenText`), a press that finds its
+  item closed is told the sentence the retracted message shows, from the
+  refusal's details rather than its message, and a reason nothing writes yet
+  is said without its code. The owner's first authenticator was enrolled as
+  "owner (claimed in the console)" and shown under Owner in every language;
+  the console now names it in the owner's.
+- **Seen, at a phone's width.** Home, the deployment, and a company's
+  overview, team, languages, work and money in every new language at 390
+  pixels, Arabic right to left. Two places widened the page in Javanese and
+  are fixed: a figure that is a word ("Dipunparengaken", allowed) drawn at a
+  number's size, and the chip on the owner's line to the CEO, which had no
+  limit on its width.
+- **Tested.** `console-i18n.test.ts` (twenty dictionaries, each script,
+  KEPT, every plural form); the owner-sentences test in
+  `owner-channels.test.ts` (twenty languages); a test that every withdrawal
+  reason, an unknown one, and a press on a closed or missing item are said
+  without a code; `owner-claim.test.ts` (the authenticator named as the
+  console asks); `languages.test.ts` now reads the languages the console
+  offers from its dictionaries rather than a list that had fallen behind.
+- **Not verified.** Each language was written and read through by one
+  translator against the English and spot-checked against forty random
+  entries; none has been read by a native speaker using the product.
+  Javanese and Sundanese have few software conventions to follow, and some
+  terms were coined ("pangolah" for runtime). Labels such as "Model" or
+  "Status" that a language writes as English does are listed in that
+  dictionary's `KEPT`, under its 3% cap. The documentation is in English.
 
 ## 3. Decisions, deviations, and what is unverified
 

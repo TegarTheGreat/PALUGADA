@@ -24,6 +24,7 @@ import { escalationPolicyFor } from '../governance/structure.ts';
 import { ancestryForTask, applyGoalChangeWithin, type GoalChange } from '../domain/goals.ts';
 import { approveCandidate, rejectCandidate } from '../memory/store.ts';
 import { setStageWithin, stageOf, type Stage } from '../domain/stage.ts';
+import { noteTalkDrift } from '../domain/language.ts';
 
 /** What a stage proposal's item carries (`stage.propose`). */
 interface StageChange {
@@ -739,6 +740,16 @@ export async function askOwner(input: {
       detail: input.why?.trim() || 'The run did not say more than the question.',
       consequenceIfDenied: 'The task is stopped, and nothing it was going to do happens.',
       payload: { askedBy: 'agent', question, role: task.rows[0]!.role, ...(options ? { options } : {}) },
+    });
+    // Everything on the card is the run's own words to the owner: the
+    // question, what depends on it and the answers it offers. Checked here,
+    // where the item is opened, and not when the same question is asked
+    // again by the run that resumes.
+    await noteTalkDrift(tx, {
+      companyId: input.companyId,
+      taskId: input.taskId,
+      where: 'question',
+      text: [question, input.why?.trim() ?? '', ...(options ?? [])].filter(Boolean).join('\n'),
     });
     await park();
     return { state: 'waiting', inboxItemId: id };

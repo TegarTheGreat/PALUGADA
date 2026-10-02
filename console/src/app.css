@@ -16,11 +16,11 @@
 .queue-row {
   display: block;
   width: 100%;
-  text-align: left;
+  text-align: start;
   padding: 12px 14px;
   border-radius: var(--mantine-radius-md);
   border: 1px solid transparent;
-  border-left: 3px solid var(--kind-color, var(--mantine-color-gray-4));
+  border-inline-start: 3px solid var(--kind-color, var(--mantine-color-gray-4));
   background: transparent;
   color: inherit;
   cursor: pointer;
@@ -29,7 +29,7 @@
 .queue-row[data-active] {
   background: var(--mantine-color-brand-light);
   border-color: var(--mantine-color-brand-light);
-  border-left-color: var(--kind-color, var(--mantine-color-brand-6));
+  border-inline-start-color: var(--kind-color, var(--mantine-color-brand-6));
 }
 
 .org-node {
@@ -57,7 +57,10 @@
 .org-owner { max-width: 100%; }
 .org-stem { width: 2px; height: 26px; background: var(--org-line); position: relative; }
 .org-stem--talk { height: 34px; }
-.org-stem-label { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: max-content; max-width: none; box-shadow: var(--mantine-shadow-xs); }
+/* The label starts at the stem, the middle of the canvas, so it has half the
+   screen at most: in Javanese it ran past a phone's edge. Cut short there
+   (the badge ends in an ellipsis) rather than widen the page. */
+.org-stem-label { position: absolute; inset-inline-start: 10px; top: 50%; transform: translateY(-50%); width: max-content; max-width: 40vw; box-shadow: var(--mantine-shadow-xs); }
 
 .org-ceo {
   width: min(460px, 100%);
@@ -86,8 +89,8 @@
 
 .org-division { overflow: visible; }
 .org-sub { position: relative; padding: 16px 0 0 26px; }
-.org-sub::before { content: ''; position: absolute; left: 12px; top: 0; height: 51px; width: 2px; background: var(--org-line); }
-.org-sub::after { content: ''; position: absolute; left: 12px; top: 49px; width: 14px; height: 2px; background: var(--org-line); }
+.org-sub::before { content: ''; position: absolute; inset-inline-start: 12px; top: 0; height: 51px; width: 2px; background: var(--org-line); }
+.org-sub::after { content: ''; position: absolute; inset-inline-start: 12px; top: 49px; width: 14px; height: 2px; background: var(--org-line); }
 
 .clickable-row { cursor: pointer; }
 
@@ -127,13 +130,20 @@ body { background: var(--mantine-color-body); }
 .kpi {
   display: block;
   padding: 18px 22px;
-  border-left: 1px solid var(--mantine-color-default-border);
-  text-align: left;
+  border-inline-start: 1px solid var(--mantine-color-default-border);
+  text-align: start;
 }
-.kpi[data-first] { border-left: 0; }
+.kpi[data-first] { border-inline-start: 0; }
+/* A figure is a number, but some are words; a word longer than its card is
+   broken rather than allowed to widen the page. */
+.kpi-value { overflow-wrap: anywhere; }
 .kpi:not(:disabled):hover { background: var(--mantine-color-default-hover); }
+/* Two figures share a phone's width: the room goes to the figure, not the padding. */
+@media (max-width: 36em) {
+  .kpi { padding: 14px 16px; }
+}
 @media (max-width: 62em) {
-  .kpi:nth-child(odd) { border-left: 0; }
+  .kpi:nth-child(odd) { border-inline-start: 0; }
   .kpi:nth-child(n + 3) { border-top: 1px solid var(--mantine-color-default-border); }
 }
 
@@ -152,7 +162,7 @@ body { background: var(--mantine-color-body); }
   border-radius: var(--mantine-radius-md);
   border: 1px solid var(--mantine-color-default-border);
   background: var(--mantine-color-body);
-  text-align: left;
+  text-align: start;
   width: 100%;
   cursor: pointer;
   border-top: 3px solid var(--stage-color);
@@ -178,7 +188,7 @@ body { background: var(--mantine-color-body); }
   width: 100%;
   padding: 12px var(--mantine-spacing-lg);
   border-top: 1px solid var(--mantine-color-default-border);
-  text-align: left;
+  text-align: start;
 }
 .list-row:hover { background: var(--mantine-color-default-hover); }
 
@@ -190,7 +200,7 @@ body { background: var(--mantine-color-body); }
   padding: 8px 10px;
   border-radius: var(--mantine-radius-md);
   background: var(--mantine-color-default-hover);
-  text-align: left;
+  text-align: start;
 }
 .figure:hover { background: var(--mantine-color-brand-light); }
 
@@ -207,3 +217,26 @@ body { background: var(--mantine-color-body); }
   50% { box-shadow: 0 0 0 6px rgba(92, 95, 230, 0); }
 }
 @media (prefers-reduced-motion: reduce) { .tour-spot { animation: none; } }
+
+/*
+ * Each script's own faces first, chosen by the page's `lang` (the locale):
+ * one shared list would draw Japanese kanji with a Chinese font's shapes, or
+ * Chinese with a Japanese one, whichever came first. Inter stays first, for
+ * the Latin letters, digits and names these languages write among their own.
+ */
+:root:lang(ja) {
+  --mantine-font-family: 'Inter Variable', 'Hiragino Sans', 'Yu Gothic UI', 'Meiryo', 'Noto Sans JP', 'Noto Sans CJK JP', system-ui, sans-serif;
+  --mantine-font-family-headings: var(--mantine-font-family);
+}
+:root:lang(ko) {
+  --mantine-font-family: 'Inter Variable', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', 'Noto Sans CJK KR', system-ui, sans-serif;
+  --mantine-font-family-headings: var(--mantine-font-family);
+}
+:root:lang(th) {
+  --mantine-font-family: 'Inter Variable', 'Thonburi', 'Leelawadee UI', 'Noto Sans Thai', system-ui, sans-serif;
+  --mantine-font-family-headings: var(--mantine-font-family);
+}
+:root:lang(ar) {
+  --mantine-font-family: 'Inter Variable', 'Geeza Pro', 'Segoe UI', 'Noto Sans Arabic', 'Noto Naskh Arabic', system-ui, sans-serif;
+  --mantine-font-family-headings: var(--mantine-font-family);
+}

@@ -22,6 +22,7 @@ import { appendEvent } from '../audit/event-log.ts';
 import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
 import * as inbox from '../inbox/inbox.ts';
 import { PalugadaError } from '../errors.ts';
+import { noteTalkDrift } from './language.ts';
 
 export type GoalKind = 'mission' | 'objective' | 'key_result';
 export const GOAL_STATUSES = ['active', 'met', 'abandoned'] as const;
@@ -266,6 +267,15 @@ export async function proposeGoalChange(input: {
         'Approving it changes the goal; until then the work carries on under the goal as it is.',
       payload: { goalChange: change, ...(input.taskId ? { proposedByTask: input.taskId } : {}) },
       consequenceIfDenied: 'The goal stays as it is.',
+    });
+    // The reason and the new words are the run's, to the owner. The slip is
+    // the proposing task's, so its role is reminded, though the item is not
+    // tied to it.
+    await noteTalkDrift(tx, {
+      companyId: input.companyId,
+      taskId: input.taskId,
+      where: 'goal_proposal',
+      text: [to.statement ?? '', rationale].filter(Boolean).join('\n'),
     });
     return { proposed: true, inboxItemId };
   });

@@ -1,7 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
-  MantineProvider, createTheme, type MantineColorScheme, type MantineColorSchemeManager, type MantineColorsTuple,
+  DirectionProvider, MantineProvider, createTheme, type MantineColorScheme, type MantineColorSchemeManager, type MantineColorsTuple,
 } from '@mantine/core';
 import { Notifications } from '@mantine/notifications';
 import '@fontsource-variable/inter';
@@ -11,7 +11,7 @@ import '@mantine/spotlight/styles.css';
 import './app.css';
 import { App } from './App.tsx';
 import { FactorProvider } from './factor.tsx';
-import { locale } from './i18n.ts';
+import { direction, locale } from './i18n.ts';
 
 /** One colour for the product, an indigo: calm enough for money, distinct from every status colour. */
 const brand: MantineColorsTuple = [
@@ -60,14 +60,17 @@ function memoryColorSchemeManager(): MantineColorSchemeManager {
 }
 
 document.documentElement.lang = locale();
+document.documentElement.dir = direction();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <MantineProvider theme={theme} defaultColorScheme="auto" colorSchemeManager={memoryColorSchemeManager()}>
-      <Notifications position="top-right" />
-      <FactorProvider>
-        <App />
-      </FactorProvider>
-    </MantineProvider>
+    <DirectionProvider initialDirection={direction()} detectDirection={false}>
+      <MantineProvider theme={theme} defaultColorScheme="auto" colorSchemeManager={memoryColorSchemeManager()}>
+        <Notifications position="top-right" />
+        <FactorProvider>
+          <App />
+        </FactorProvider>
+      </MantineProvider>
+    </DirectionProvider>
   </StrictMode>,
 );

@@ -19,6 +19,25 @@
  */
 import { useSyncExternalStore } from 'react';
 import { DICTIONARY as ID } from './locales/id.ts';
+import { DICTIONARY as MS } from './locales/ms.ts';
+import { DICTIONARY as JV } from './locales/jv.ts';
+import { DICTIONARY as SU } from './locales/su.ts';
+import { DICTIONARY as TL } from './locales/tl.ts';
+import { DICTIONARY as VI } from './locales/vi.ts';
+import { DICTIONARY as TH } from './locales/th.ts';
+import { DICTIONARY as ZH } from './locales/zh.ts';
+import { DICTIONARY as JA } from './locales/ja.ts';
+import { DICTIONARY as KO } from './locales/ko.ts';
+import { DICTIONARY as HI } from './locales/hi.ts';
+import { DICTIONARY as AR } from './locales/ar.ts';
+import { DICTIONARY as ES } from './locales/es.ts';
+import { DICTIONARY as PT_BR } from './locales/pt-BR.ts';
+import { DICTIONARY as FR } from './locales/fr.ts';
+import { DICTIONARY as DE } from './locales/de.ts';
+import { DICTIONARY as NL } from './locales/nl.ts';
+import { DICTIONARY as IT } from './locales/it.ts';
+import { DICTIONARY as TR } from './locales/tr.ts';
+import { DICTIONARY as RU } from './locales/ru.ts';
 import type { Dictionary, Translation } from './locales/types.ts';
 
 /**
@@ -29,10 +48,51 @@ import type { Dictionary, Translation } from './locales/types.ts';
 export const LANGUAGES = [
   { code: 'en', name: 'English', locale: 'en-US' },
   { code: 'id', name: 'Bahasa Indonesia', locale: 'id-ID' },
+  { code: 'ms', name: 'Bahasa Melayu', locale: 'ms-MY' },
+  { code: 'jv', name: 'Basa Jawa', locale: 'jv-ID' },
+  { code: 'su', name: 'Basa Sunda', locale: 'su-ID' },
+  { code: 'tl', name: 'Filipino', locale: 'fil-PH' },
+  { code: 'vi', name: 'Tiếng Việt', locale: 'vi-VN' },
+  { code: 'th', name: 'ไทย', locale: 'th-TH' },
+  { code: 'zh', name: '简体中文', locale: 'zh-CN' },
+  { code: 'ja', name: '日本語', locale: 'ja-JP' },
+  { code: 'ko', name: '한국어', locale: 'ko-KR' },
+  { code: 'hi', name: 'हिन्दी', locale: 'hi-IN' },
+  { code: 'ar', name: 'العربية', locale: 'ar' },
+  { code: 'es', name: 'Español', locale: 'es' },
+  { code: 'pt-BR', name: 'Português (Brasil)', locale: 'pt-BR' },
+  { code: 'fr', name: 'Français', locale: 'fr-FR' },
+  { code: 'de', name: 'Deutsch', locale: 'de-DE' },
+  { code: 'nl', name: 'Nederlands', locale: 'nl-NL' },
+  { code: 'it', name: 'Italiano', locale: 'it-IT' },
+  { code: 'tr', name: 'Türkçe', locale: 'tr-TR' },
+  { code: 'ru', name: 'Русский', locale: 'ru-RU' },
 ] as const;
 export type Language = (typeof LANGUAGES)[number]['code'];
 
-const DICTIONARIES: Record<Language, Dictionary> = { en: {}, id: ID };
+const DICTIONARIES: Record<Language, Dictionary> = {
+  en: {},
+  id: ID,
+  ms: MS,
+  jv: JV,
+  su: SU,
+  tl: TL,
+  vi: VI,
+  th: TH,
+  zh: ZH,
+  ja: JA,
+  ko: KO,
+  hi: HI,
+  ar: AR,
+  es: ES,
+  'pt-BR': PT_BR,
+  fr: FR,
+  de: DE,
+  nl: NL,
+  it: IT,
+  tr: TR,
+  ru: RU,
+};
 
 export function isLanguage(value: unknown): value is Language {
   return typeof value === 'string' && LANGUAGES.some((language) => language.code === value);
@@ -63,6 +123,18 @@ export function language(): Language {
   return current;
 }
 
+/**
+ * The languages written right to left. The page's `dir` follows the language,
+ * and Mantine mirrors its components from it; the console's own styles use
+ * logical sides (`inline-start`, not `left`) so they mirror too.
+ */
+const RIGHT_TO_LEFT: ReadonlySet<string> = new Set(['ar']);
+
+/** Which way the owner's language is written. */
+export function direction(): 'ltr' | 'rtl' {
+  return RIGHT_TO_LEFT.has(current) ? 'rtl' : 'ltr';
+}
+
 /** The BCP 47 locale dates and numbers are written in. */
 export function locale(): string {
   return LANGUAGES.find((one) => one.code === current)!.locale;
@@ -73,6 +145,7 @@ export function setLanguage(next: Language): void {
   current = next;
   // The locale, not the code: `zh-CN` tells the browser which Han glyphs to draw.
   document.documentElement.lang = locale();
+  document.documentElement.dir = direction();
   for (const listener of listeners) listener();
 }
 

@@ -571,34 +571,49 @@ export async function addDivision(
 /**
  * Starts a project. Not structural in F2.9's sense -- a project groups work
  * and grants nothing -- so it needs the owner's session and not their device.
+ *
+ * `workLanguage` is the project's own work language (0100), for a project
+ * that sells in another market than the rest of the company; left out or
+ * null, its work is in the company's. The route checks it is a language
+ * agents can be told (`languageCode`); the table refuses anything that is
+ * not a tag.
  */
-export async function addProject(companyId: string, project: { slug: string; name: string }): Promise<string> {
+export async function addProject(
+  companyId: string,
+  project: { slug: string; name: string; workLanguage?: string | null },
+): Promise<string> {
   const slug = slugOf(project.slug, 'project');
   const name = String(project.name ?? '').trim();
   if (!name) throw new PalugadaError('contract.violation', 'a project needs a name', { field: 'name' });
+  const workLanguage = project.workLanguage ?? null;
   return withTenant(companyId, async (tx) => {
     if ((await tx.query('SELECT 1 FROM projects WHERE slug = $1', [slug])).rowCount) {
       throw new PalugadaError('contract.violation', `there is already a project named ${slug}`, { field: 'slug' });
     }
     const { rows } = await tx.query<{ id: string }>(
-      'INSERT INTO projects (company_id, slug, name) VALUES ($1, $2, $3) RETURNING id', [companyId, slug, name]);
+      'INSERT INTO projects (company_id, slug, name, work_language) VALUES ($1, $2, $3, $4) RETURNING id',
+      [companyId, slug, name, workLanguage]);
     await appendEvent(tx, {
-      companyId, type: 'project.created', actor: 'owner', payload: { projectId: rows[0]!.id, slug },
+      companyId, type: 'project.created', actor: 'owner',
+      payload: { projectId: rows[0]!.id, slug, ...(workLanguage ? { workLanguage } : {}) },
     });
     return rows[0]!.id;
   });
 }
 
 /**
- * The owner renames a project, says what it is for, or closes it (0074). A
- * closed project takes no new work and keeps its history; what is already
- * under way in it finishes. A company always has one open, since work given
- * without a project goes to one.
+ * The owner renames a project, says what it is for, closes it (0074), or
+ * gives it a work language of its own (0100). A closed project takes no new
+ * work and keeps its history; what is already under way in it finishes. A
+ * company always has one open, since work given without a project goes to
+ * one. A field left out is left as it is, and `workLanguage: null` gives the
+ * project back to the company's work language.
  */
 export async function changeProject(companyId: string, projectId: string, change: {
   name?: string;
   description?: string | null;
   archived?: boolean;
+  workLanguage?: string | null;
 }): Promise<void> {
   const name = change.name === undefined ? undefined : String(change.name).trim();
   if (name !== undefined && (!name || name.length > 120)) {
@@ -626,12 +641,19 @@ export async function changeProject(companyId: string, projectId: string, change
           SET name = coalesce($2, name),
               description = CASE WHEN $3 THEN $4 ELSE description END,
               archived_at = CASE WHEN $5::boolean IS NULL THEN archived_at
-                                 WHEN $5 THEN coalesce(archived_at, now()) ELSE NULL END
+                                 WHEN $5 THEN coalesce(archived_at, now()) ELSE NULL END,
+              work_language = CASE WHEN $6 THEN $7 ELSE work_language END
         WHERE id = $1`,
-      [projectId, name ?? null, description !== undefined, description ?? null, change.archived ?? null]);
+      [projectId, name ?? null, description !== undefined, description ?? null, change.archived ?? null,
+        change.workLanguage !== undefined, change.workLanguage ?? null]);
     await appendEvent(tx, {
       companyId, type: 'project.changed', actor: 'owner',
-      payload: { projectId, ...(name ? { name } : {}), ...(change.archived === undefined ? {} : { archived: change.archived }) },
+      payload: {
+        projectId,
+        ...(name ? { name } : {}),
+        ...(change.archived === undefined ? {} : { archived: change.archived }),
+        ...(change.workLanguage === undefined ? {} : { workLanguage: change.workLanguage }),
+      },
     });
   });
 }

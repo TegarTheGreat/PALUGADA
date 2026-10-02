@@ -1,0 +1,112 @@
+/**
+ * Русский: what the platform itself says to the owner outside the console
+ * (src/owner/say.ts), keyed by its English.
+ *
+ * The terms are the console's (console/src/locales/ru.ts, whose header holds
+ * the glossary): одобрить and отклонить, входящие, установка, «Эта установка»
+ * for the page. A name in a placeholder sits where its case does not matter
+ * («Ваш собеседник — {name}»). Telegram and WhatsApp buttons stay short:
+ * WhatsApp cuts a button at 20 characters and a list row at 24.
+ */
+export const SENTENCES: Readonly<Record<string, string>> = {
+  'Incident: {title}': 'Инцидент: {title}',
+  'Done: {goal}': 'Готово: {goal}',
+  'Stopped before finishing: {goal}': 'Остановлено до завершения: {goal}',
+  'Why: {reason}': 'Причина: {reason}',
+  'a task': 'задача',
+  'Approval needed: {title}': 'Нужно одобрение: {title}',
+  '{summary} — if denied: {consequence}': '{summary} — если отклонить: {consequence}',
+  'If denied:': 'Если отклонить:',
+  'Expires:': 'Истекает:',
+  'This one is decided in the app.': 'Это решается в приложении.',
+  'Open in PALUGADA': 'Открыть в PALUGADA',
+  'Approve': 'Одобрить',
+  'Deny': 'Отклонить',
+  'Ask': 'Спросить',
+  'Approved. Nothing left to press here.': 'Одобрено. Здесь больше ничего нажимать не нужно.',
+  'Denied. Nothing left to press here.': 'Отклонено. Здесь больше ничего нажимать не нужно.',
+  'Expired unanswered. Silence is a refusal, so nothing was done.':
+    'Срок истёк без ответа. Молчание — это отказ, поэтому ничего не сделано.',
+  'This bot only answers to its owner.': 'Этот бот отвечает только своему владельцу.',
+  'That one has to be approved in the app.': 'Это нужно одобрить в приложении.',
+  'That could not be recorded.': 'Не удалось это записать.',
+  'That item no longer exists.': 'Этого элемента больше нет.',
+  'What do you want to ask about "{title}"? Reply to this message.':
+    'Что вы хотите спросить о «{title}»? Ответьте на это сообщение.',
+  'Your question': 'Ваш вопрос',
+  'Type your question as a reply.': 'Напишите вопрос, ответив на это сообщение.',
+  'Asked. The answer will be on the item in the app.': 'Вопрос задан. Ответ появится у этого элемента в приложении.',
+  'Answer': 'Ответить',
+  'Answer in words': 'Ответить словами',
+  'That choice is not on this question.': 'Такого варианта в этом вопросе нет.',
+  'Chosen: {choice}.': 'Выбрано: {choice}.',
+  'Stop the task': 'Остановить задачу',
+  'Your answer to "{question}"? Reply to this message.': 'Ваш ответ на «{question}»? Ответьте на это сообщение.',
+  'Your answer': 'Ваш ответ',
+  'Type your answer as a reply.': 'Напишите ответ, ответив на это сообщение.',
+  'Answered. The task carries on with it.': 'Ответ принят. Задача продолжится с его учётом.',
+  'That is too long for one question; keep it under {max} characters.':
+    'Слишком длинно для одного вопроса: уложитесь в {max} символов.',
+  '[a key, not kept]': '[ключ, не сохранён]',
+  'That looks like a key, so I did not keep it or send it anywhere. Keys go in the sealed field on a card, or on their page in This deployment: tell me what it is for and I will put the card in front of you.':
+    'Похоже на ключ, поэтому он не сохранён и никуда не отправлен. Ключи вводятся в защищённое поле на карточке или на своей странице в разделе «Эта установка»: скажите, для чего этот ключ, и я покажу вам карточку.',
+  'No model is set up yet, so I cannot think. Choose one under This deployment, Model; then I can help with everything else.':
+    'Модель ещё не настроена, поэтому я не могу думать. Выберите её в разделе «Эта установка» → «Модель»; после этого я смогу помочь со всем остальным.',
+  'The model did not answer: {reason}': 'Модель не ответила: {reason}',
+  'Here is what I propose.': 'Вот что я предлагаю.',
+  'I have nothing to add.': 'Мне нечего добавить.',
+  '{name}, CEO of {company}': '{name}, CEO компании {company}',
+  'That could not be answered: {reason}': 'Не удалось ответить: {reason}',
+  'I read text and voice notes.': 'Я читаю текст и голосовые сообщения.',
+  'Now talking to {name}.': 'Теперь ваш собеседник — {name}.',
+  'Choose whom to talk to.': 'Выберите собеседника.',
+  'Choose whom to talk to': 'Выбрать собеседника',
+  'Talk to PALUGADA about the whole deployment': 'Поговорить с PALUGADA обо всей установке',
+  'Who you are talking to, and how': 'С кем вы говорите и как',
+  'Stopped.': 'Остановлено.',
+  'Write here to talk to {name}.': 'Пишите здесь — вам ответит {name}.',
+  'You are talking to {name}. Write, or send a voice note. /ceo chooses whom you talk to; /palugada talks to PALUGADA about the whole deployment.':
+    'Ваш собеседник — {name}. Пишите или отправьте голосовое сообщение. /ceo — выбрать собеседника; /palugada — поговорить с PALUGADA обо всей установке.',
+  'You said: "{words}"': 'Вы сказали: «{words}»',
+  'in the app': 'в приложении',
+  'Apply: {summary}': 'Применить: {summary}',
+  'Nothing hears speech yet: choose a provider in the app, under This deployment, Tools, Listening.':
+    'Распознавание речи ещё не настроено: выберите провайдера в приложении, в разделе «Эта установка» → «Инструменты» → «Распознавание речи».',
+  'That recording is too long; keep a voice note under {max} MB.': 'Запись слишком длинная: голосовое сообщение должно быть меньше {max} МБ.',
+  'I could not make out any words in that.': 'Не удалось разобрать ни одного слова.',
+  'Done: {summary}': 'Готово: {summary}',
+  'That one is applied in the app.': 'Это применяется в приложении.',
+  'That card no longer exists.': 'Этой карточки больше нет.',
+  'That card was already applied.': 'Эта карточка уже применена.',
+  'That card was dismissed.': 'Эта карточка отклонена.',
+  'That card failed when it was applied.': 'При применении этой карточки произошла ошибка.',
+  'That could not be done: {reason}': 'Не удалось это сделать: {reason}',
+  'Choose': 'Выбрать',
+  'What do you want to ask about "{title}"? Reply to this message with your question.':
+    'Что вы хотите спросить о «{title}»? Напишите вопрос в ответ на это сообщение.',
+  'Your answer to "{question}"? Reply to this message with your answer.':
+    'Ваш ответ на «{question}»? Напишите его в ответ на это сообщение.',
+  'I read text messages here.': 'Здесь я читаю текстовые сообщения.',
+  'Apply one of these here:': 'Здесь можно применить одну из них:',
+  'Apply {number}': 'Применить {number}',
+  'Signed in to {provider} for the {alias} key': 'Вход в {provider} для ключа {alias} выполнен',
+  'Go back to PALUGADA: the division holds this key now, and it is renewed before it runs out. This tab can be closed.':
+    'Вернитесь в PALUGADA: теперь этот ключ хранится у отдела и будет обновляться до истечения срока. Эту вкладку можно закрыть.',
+  'Signed in to {name}': 'Вход в {name} выполнен',
+  'Go back to PALUGADA to choose which of its tools roles may use. This tab can be closed.':
+    'Вернитесь в PALUGADA, чтобы выбрать, какие из его инструментов могут использовать роли. Эту вкладку можно закрыть.',
+  'Not signed in': 'Вход не выполнен',
+  "Recorded: approved.": "Записано: одобрено.",
+  "Recorded: denied.": "Записано: отклонено.",
+  "Recorded: asked.": "Записано: вопрос задан.",
+  "Asked. Nothing left to press here.": "Вопрос задан. Здесь больше ничего нажимать не нужно.",
+  "Withdrawn: the task it was asking about has finished.": "Отозвано: задача, о которой шла речь, выполнена.",
+  "Withdrawn: the task it was asking about has failed.": "Отозвано: задача, о которой шла речь, завершилась ошибкой.",
+  "Withdrawn: the task it was asking about was stopped.": "Отозвано: задача, о которой шла речь, остановлена.",
+  "Withdrawn: the task it was asking about was cancelled.": "Отозвано: задача, о которой шла речь, отменена.",
+  'Decided. Nothing left to press here.': 'Решено. Здесь больше ничего нажимать не нужно.',
+  'Withdrawn: the agent changed what it proposes and asked again about the new one.': 'Отозвано: агент изменил своё предложение и снова спросил о новом.',
+  'Withdrawn: the company is no longer at the stage this proposal would move it from.': 'Отозвано: компания уже не на том этапе, с которого её переводило это предложение.',
+  'Withdrawn: it was already decided in the app.': 'Отозвано: решение уже принято в приложении.',
+  'Withdrawn. Nothing left to press here.': 'Отозвано. Здесь больше ничего нажимать не нужно.',
+};

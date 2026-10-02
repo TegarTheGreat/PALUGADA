@@ -55,6 +55,30 @@ The first version. What it holds, in the order an owner meets it.
   catch-up window drops an occurrence found too late after downtime. The
   schedules table says which occurrence did not run and why (STATUS 2.59).
 
+- Schedules right on the nights the clock changes: a daily job runs once
+  when the clock goes back and once, at the jump, when it goes forward; an
+  hourly one keeps to real time; and a work window opens on its own zone's
+  hour where that is not an hour of UTC, such as in Kolkata or Adelaide
+  (STATUS 2.60).
+- The console, and what PALUGADA sends the owner's phone, in 21 languages:
+  English, Indonesian, Malay, Javanese, Sundanese, Filipino, Vietnamese,
+  Thai, Simplified Chinese, Japanese, Korean, Hindi, Arabic (right to left),
+  Spanish, Brazilian Portuguese, French, German, Dutch, Italian, Turkish and
+  Russian. Why an approval was withdrawn, or a pressed button found its item
+  closed, is said as a sentence in each rather than as a status code
+  (STATUS 2.65).
+- A project may have its own work language, for a company that sells in
+  more than one market: runs in a Malaysia project write for customers in
+  Malay and drafts there are checked against Malay, while agents still talk
+  to the owner in the company's language. Set it when starting or editing a
+  project; left unset, the project works in the company's (STATUS 2.63).
+- Everything an agent writes to the owner or to another role -- a question,
+  the summary of finished work, a brief it hands on, a ticket, a goal or
+  stage proposal, a reviewer's reasons -- checked against the company's talk
+  language as plans were, Javanese and Sundanese included; a slip is recorded,
+  never refused, and the role's next run is told what it slipped in
+  (STATUS 2.64).
+
 ### The owner
 
 - One inbox for what cannot be undone: approvals bound to their action, a
@@ -65,8 +89,11 @@ The first version. What it holds, in the order an owner meets it.
   never let one through (STATUS 2.45).
 - Told on Telegram, WhatsApp, a phone push, Slack, Discord or email, and able
   to decide on Telegram and WhatsApp (STATUS 2.31, 2.41).
-- A console in English and Indonesian, set up entirely from the panel: the
-  model, agent CLIs, tools, channels, services and MCP servers.
+- A console set up entirely from the panel -- the model, agent CLIs, tools,
+  channels, services and MCP servers -- in the owner's language, with every
+  message PALUGADA sends the owner in the same language, each language's
+  plural forms, and a decision or a task's end said as a sentence rather
+  than a code (STATUS 2.62, 2.65).
 - Export and import of a whole company, and closing one, which erases every
   row of it after a grace period the owner chooses (STATUS 2.38).
 - **Run now** on a schedule: the task its next occurrence would make, at

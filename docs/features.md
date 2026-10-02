@@ -164,9 +164,16 @@ freeze, raise a ceiling, rewrite what a model call cost, or delete history.
   the owner decides on it.
 
 **The owner's console**
-- A React and Mantine app in **English and Indonesian**, with light and dark
+- A React and Mantine app in **21 languages**: English, Indonesian, Malay,
+  Javanese, Sundanese, Filipino, Vietnamese, Thai, Simplified Chinese,
+  Japanese, Korean, Hindi, Arabic (drawn right to left), Spanish, Brazilian
+  Portuguese, French, German, Dutch, Italian, Turkish and Russian, with light and dark
   themes, that works on a phone. The language is the owner's choice, kept by
-  the deployment rather than the browser, so it follows them to every device.
+  the deployment rather than the browser, so it follows them to every device,
+  and it is also the language of every message PALUGADA itself sends them:
+  Telegram, WhatsApp, email and push. Each dictionary is held complete by a
+  test, with every plural form its language has (Russian's three) and nothing
+  left in English but names.
 - **Home** shows every company at once: what needs the owner across all of
   them, what is running with how far it has got, and each company's budget.
   Pages refresh themselves while open and say when they last did.
@@ -206,9 +213,12 @@ freeze, raise a ceiling, rewrite what a model call cost, or delete history.
   dropped, and told that nothing it reads can change them: not an email, not a
   web page, not a message asking it to switch. A task may still ask for a
   deliverable in another language on purpose.
-- What agents write is checked. A plan in the wrong language is recorded and
-  the role's next run is reminded of its own slip; a draft in the wrong
-  language is asked for again before it is kept.
+- What agents write is checked, Javanese and Sundanese included. A plan, a
+  question to the owner, the summary of finished work, a brief to another
+  role, a ticket, a proposal or a reviewer's reasons in the wrong language is
+  recorded, and the role's next run is reminded of its own slip and told what
+  it was in; a draft in the wrong language is asked for again before it is
+  kept.
 
 **Running a company well, not only safely**
 - Goals are measured by numbers with targets, and an agent's number counts as

@@ -40,7 +40,7 @@ import { channelDelivery } from '../inbox/inbox.ts';
 import { deploymentLanguages } from '../domain/language.ts';
 import { say } from './say.ts';
 import { decodeAction, encodeAction, type ChatConversation } from './telegram.ts';
-import type { DeliveryResult, DoneNotice, NotifiableItem, OwnerChannel } from './notify.ts';
+import { closureText, notOpenText, recordedText, type DeliveryResult, type DoneNotice, type NotifiableItem, type OwnerChannel } from './notify.ts';
 
 export interface WhatsAppOptions {
   /** The business number's id in the Cloud API (not the number itself). */
@@ -360,7 +360,7 @@ export class WhatsAppChannel implements OwnerChannel {
     }
     try {
       await inbox.decide(companyId, action.itemId, action.decision, 'via chat', { channel: 'chat' });
-      await this.#tell(say(language, 'Recorded: {decision}.', { decision: action.decision }));
+      await this.#tell(recordedText(language, action.decision));
       return { handled: true };
     } catch (error) {
       await this.#tell(refusal(error, language));
@@ -392,12 +392,12 @@ export class WhatsAppChannel implements OwnerChannel {
   async #prompt(companyId: string, itemId: string, mode: 'ask' | 'answer'): Promise<Result> {
     const language = await ownerLanguage();
     const { rows } = await withTenant(companyId, (tx) =>
-      tx.query<{ title: string; status: string; closed_reason: string | null; question: string | null }>(
-        "SELECT title, status, closed_reason, payload->>'question' AS question FROM inbox_items WHERE id = $1", [itemId]));
+      tx.query<{ title: string; status: string; decision: string | null; closed_reason: string | null; question: string | null }>(
+        "SELECT title, status, decision, closed_reason, payload->>'question' AS question FROM inbox_items WHERE id = $1", [itemId]));
     const item = rows[0];
     if (!item || item.status !== 'open') {
-      await this.#tell(say(language, 'Already closed: {reason}.', {
-        reason: item?.closed_reason ?? item?.status ?? say(language, 'no reason recorded'),
+      await this.#tell(closureText({
+        status: item?.status ?? null, decision: item?.decision ?? null, closedReason: item?.closed_reason ?? null, language,
       }));
       return { handled: false, reason: 'inbox.not_open' };
     }
@@ -734,7 +734,7 @@ function buttons(body: { text: string }, pairs: Array<[string, string]>): Record
 function refusal(error: unknown, language: string): string {
   if (error instanceof PalugadaError && error.code === 'approval.channel_forbidden') return say(language, 'That one has to be approved in the app.');
   if (error instanceof PalugadaError && error.code === 'inbox.not_open') {
-    return say(language, 'Already closed: {reason}.', { reason: String(error.message).replace(/^inbox item \S+ is closed: /, '') });
+    return notOpenText(language, error);
   }
   return say(language, 'That could not be recorded.');
 }

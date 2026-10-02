@@ -146,6 +146,12 @@ export type ErrorCode =
    * ended. Carries that task, so the owner can open it instead.
    */
   | 'schedule.still_running'
+  /**
+   * A company is being made, or restored, under a short name another company
+   * already has. The name is the company's handle in links and exports, so
+   * the owner chooses another rather than being told the database refused.
+   */
+  | 'company.slug_taken'
   | 'company.frozen'
   | 'role.frozen'
   | 'platform.stopped'

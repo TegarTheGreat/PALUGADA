@@ -206,7 +206,9 @@ authenticator app. Type it and press **Sign in**. A few things to know:
   lost phone off. A code approves nothing.
 - The first time you sign in, the console offers a tour of itself. You can
   skip it and take it later from the menu under **Owner**.
-- The language switch on the sign-in page (EN or ID) applies to this visit.
+- The language list on the sign-in page applies to this visit; each of the
+  21 languages is named in itself (Bahasa Indonesia, Basa Jawa, 日本語,
+  العربية, ...). Until you choose, the console follows your browser's language.
   Once you are in, choose the panel language from the menu under **Owner**
   at the foot of the sidebar; it is kept by the deployment and follows you
   to every device.

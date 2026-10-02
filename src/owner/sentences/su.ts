@@ -1,0 +1,110 @@
+/**
+ * Basa Sunda: what the platform itself says to the owner outside the console
+ * (src/owner/say.ts), keyed by its English.
+ *
+ * Lemes, the owner addressed as "anjeun", with the terms of the console's
+ * glossary (console/src/locales/su.ts), so a button on the phone says what
+ * the same button says in the panel: Satujuan, Tolak, Naros.
+ */
+export const SENTENCES: Readonly<Record<string, string>> = {
+  'Incident: {title}': 'Insidén: {title}',
+  'Done: {goal}': 'Réngsé: {goal}',
+  'Stopped before finishing: {goal}': 'Eureun sateuacan réngsé: {goal}',
+  'Why: {reason}': 'Alesanana: {reason}',
+  'a task': 'hiji tugas',
+  'Approval needed: {title}': 'Meryogikeun persetujuan: {title}',
+  '{summary} — if denied: {consequence}': '{summary} — upami ditolak: {consequence}',
+  'If denied:': 'Upami ditolak:',
+  'Expires:': 'Kadaluwarsa:',
+  'This one is decided in the app.': 'Anu ieu diputuskeun dina aplikasi.',
+  'Open in PALUGADA': 'Buka di PALUGADA',
+  'Approve': 'Satujuan',
+  'Deny': 'Tolak',
+  'Ask': 'Naros',
+  'Approved. Nothing left to press here.': 'Disatujuan. Henteu aya deui anu kedah dipencét di dieu.',
+  'Denied. Nothing left to press here.': 'Ditolak. Henteu aya deui anu kedah dipencét di dieu.',
+  'Expired unanswered. Silence is a refusal, so nothing was done.':
+    'Kadaluwarsa tanpa waleran. Henteu ngawaler hartosna nolak, janten henteu aya anu dilaksanakeun.',
+  'This bot only answers to its owner.': 'Bot ieu mung ngawaler pamilikna.',
+  'That one has to be approved in the app.': 'Anu éta kedah disatujuan dina aplikasi.',
+  'That could not be recorded.': 'Éta henteu tiasa dicatet.',
+  'That item no longer exists.': 'Item éta parantos henteu aya.',
+  'What do you want to ask about "{title}"? Reply to this message.':
+    'Naon anu badé ditaroskeun ku anjeun ngeunaan "{title}"? Bales pesen ieu.',
+  'Your question': 'Patarosan anjeun',
+  'Type your question as a reply.': 'Ketik patarosan anjeun minangka balesan.',
+  'Asked. The answer will be on the item in the app.': 'Parantos ditaroskeun. Waleranana bakal aya dina item éta di aplikasi.',
+  'Answer': 'Waler',
+  'Answer in words': 'Waler ku kecap',
+  'That choice is not on this question.': 'Pilihan éta henteu aya dina patarosan ieu.',
+  'Chosen: {choice}.': 'Dipilih: {choice}.',
+  'Stop the task': 'Eureunkeun tugas',
+  'Your answer to "{question}"? Reply to this message.': 'Waleran anjeun kanggo "{question}"? Bales pesen ieu.',
+  'Your answer': 'Waleran anjeun',
+  'Type your answer as a reply.': 'Ketik waleran anjeun minangka balesan.',
+  'Answered. The task carries on with it.': 'Parantos diwaler. Tugas diteraskeun nganggo waleran éta.',
+  'That is too long for one question; keep it under {max} characters.':
+    'Éta kapanjangan kanggo hiji patarosan; damel kirang ti {max} aksara.',
+  '[a key, not kept]': '[hiji konci, henteu disimpen]',
+  'That looks like a key, so I did not keep it or send it anywhere. Keys go in the sealed field on a card, or on their page in This deployment: tell me what it is for and I will put the card in front of you.':
+    'Éta katingalna konci, janten ku abdi henteu disimpen sareng henteu dikintun ka mana waé. Konci dieusian dina kolom anu disegel dina kartu, atanapi dina kacana di Pamasangan ieu: sebatkeun kanggo naon, teras kartuna ku abdi dihaturkeun ka payuneun anjeun.',
+  'No model is set up yet, so I cannot think. Choose one under This deployment, Model; then I can help with everything else.':
+    'Teu acan aya modél anu disetél, janten abdi teu acan tiasa mikir. Pilih hiji di Pamasangan ieu, Modél AI; saparantos éta abdi tiasa ngabantos sadaya anu sanés.',
+  'The model did not answer: {reason}': 'Modél henteu ngawaler: {reason}',
+  'Here is what I propose.': 'Ieu usul abdi.',
+  'I have nothing to add.': 'Henteu aya anu kedah ditambihkeun ku abdi.',
+  '{name}, CEO of {company}': '{name}, CEO {company}',
+  'That could not be answered: {reason}': 'Éta henteu tiasa diwaler: {reason}',
+  'I read text and voice notes.': 'Abdi maos téks sareng pesen soanten.',
+  'Now talking to {name}.': 'Ayeuna nyarios sareng {name}.',
+  'Choose whom to talk to.': 'Pilih batur nyarios anjeun.',
+  'Choose whom to talk to': 'Pilih batur nyarios anjeun',
+  'Talk to PALUGADA about the whole deployment': 'Nyarios sareng PALUGADA ngeunaan sakumna pamasangan',
+  'Who you are talking to, and how': 'Saha batur nyarios anjeun, sareng carana',
+  'Stopped.': 'Parantos eureun.',
+  'Write here to talk to {name}.': 'Serat di dieu kanggo nyarios sareng {name}.',
+  'You are talking to {name}. Write, or send a voice note. /ceo chooses whom you talk to; /palugada talks to PALUGADA about the whole deployment.':
+    'Anjeun nuju nyarios sareng {name}. Serat, atanapi kintun pesen soanten. /ceo kanggo milih batur nyarios; /palugada kanggo nyarios sareng PALUGADA ngeunaan sakumna pamasangan.',
+  'You said: "{words}"': 'Anjeun nyarios: "{words}"',
+  'in the app': 'dina aplikasi',
+  'Apply: {summary}': 'Terapkeun: {summary}',
+  'Nothing hears speech yet: choose a provider in the app, under This deployment, Tools, Listening.':
+    'Teu acan aya anu tiasa ngadangu soanten: pilih panyadia dina aplikasi, di Pamasangan ieu, Pakakas, Ngadangukeun.',
+  'That recording is too long; keep a voice note under {max} MB.': 'Rékaman éta kapanjangan; damel pesen soanten kirang ti {max} MB.',
+  'I could not make out any words in that.': 'Abdi henteu tiasa nangkep kecap naon waé dina éta.',
+  'Done: {summary}': 'Réngsé: {summary}',
+  'That one is applied in the app.': 'Anu éta diterapkeun dina aplikasi.',
+  'That card no longer exists.': 'Kartu éta parantos henteu aya.',
+  'That card was already applied.': 'Kartu éta parantos diterapkeun.',
+  'That card was dismissed.': 'Kartu éta parantos disisihkeun.',
+  'That card failed when it was applied.': 'Kartu éta gagal nalika diterapkeun.',
+  'That could not be done: {reason}': 'Éta henteu tiasa dilaksanakeun: {reason}',
+  'Choose': 'Pilih',
+  'What do you want to ask about "{title}"? Reply to this message with your question.':
+    'Naon anu badé ditaroskeun ku anjeun ngeunaan "{title}"? Bales pesen ieu nganggo patarosan anjeun.',
+  'Your answer to "{question}"? Reply to this message with your answer.':
+    'Waleran anjeun kanggo "{question}"? Bales pesen ieu nganggo waleran anjeun.',
+  'I read text messages here.': 'Di dieu abdi maos pesen téks.',
+  'Apply one of these here:': 'Terapkeun salah sahiji tina ieu di dieu:',
+  'Apply {number}': 'Terapkeun {number}',
+  'Signed in to {provider} for the {alias} key': 'Parantos lebet ka {provider} kanggo konci {alias}',
+  'Go back to PALUGADA: the division holds this key now, and it is renewed before it runs out. This tab can be closed.':
+    'Wangsul ka PALUGADA: divisi éta ayeuna nyepeng konci ieu, sareng konci diénggalkeun sateuacan séép. Tab ieu tiasa ditutup.',
+  'Signed in to {name}': 'Parantos lebet ka {name}',
+  'Go back to PALUGADA to choose which of its tools roles may use. This tab can be closed.':
+    'Wangsul ka PALUGADA kanggo milih pakakas mana anu kénging dianggé ku peran. Tab ieu tiasa ditutup.',
+  'Not signed in': 'Teu acan lebet',
+  'Recorded: approved.': 'Kacatet: disatujuan.',
+  'Recorded: denied.': 'Kacatet: ditolak.',
+  'Recorded: asked.': 'Kacatet: ditaroskeun.',
+  'Asked. Nothing left to press here.': 'Parantos ditaroskeun. Henteu aya deui anu kedah dipencét di dieu.',
+  'Withdrawn: the task it was asking about has finished.': 'Ditarik: tugas anu ditaroskeun parantos réngsé.',
+  'Withdrawn: the task it was asking about has failed.': 'Ditarik: tugas anu ditaroskeun gagal.',
+  'Withdrawn: the task it was asking about was stopped.': 'Ditarik: tugas anu ditaroskeun parantos dieureunkeun.',
+  'Withdrawn: the task it was asking about was cancelled.': 'Ditarik: tugas anu ditaroskeun parantos dibolaykeun.',
+  'Decided. Nothing left to press here.': 'Diputuskeun. Henteu aya deui anu kedah dipencét di dieu.',
+  'Withdrawn: the agent changed what it proposes and asked again about the new one.': 'Ditarik: agén ngarobih usulna sareng nyuhunkeun persetujuan deui kanggo usul énggal éta.',
+  'Withdrawn: the company is no longer at the stage this proposal would move it from.': 'Ditarik: pausahaan parantos henteu aya dina tahapan anu badé ditinggalkeun numutkeun usul ieu.',
+  'Withdrawn: it was already decided in the app.': 'Ditarik: parantos diputuskeun dina aplikasi.',
+  'Withdrawn. Nothing left to press here.': 'Ditarik. Henteu aya deui anu kedah dipencét di dieu.',
+};

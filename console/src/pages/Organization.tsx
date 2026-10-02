@@ -20,7 +20,7 @@ import { useMediaQuery } from '@mantine/hooks';
 import { api, ApiError, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { useLoad } from '../hooks.ts';
-import type { Division, Goal, PersonaPreset, PolicyRow, Role, Schedule, Structure } from '../types.ts';
+import type { Company, Division, Goal, PersonaPreset, PolicyRow, Role, Schedule, Structure } from '../types.ts';
 import { count, dateTime, goalKind, money, relative } from '../format.ts';
 import type { PageProps } from '../App.tsx';
 import { N, t, tp } from '../i18n.ts';
@@ -30,7 +30,7 @@ import { AssignWork } from '../components/AssignWork.tsx';
 import { GoalMetrics } from '../components/Metrics.tsx';
 import { Triggers } from '../components/Triggers.tsx';
 import { Handoffs } from '../components/Handoffs.tsx';
-import { Projects } from '../components/Projects.tsx';
+import { Projects, useWorkLanguage } from '../components/Projects.tsx';
 import { ConfigHistory } from '../components/ConfigHistory.tsx';
 import { Charters } from '../components/Charters.tsx';
 import { companyEmblem, OWNER_PICTURE, rolePicture } from '../images.ts';
@@ -80,14 +80,14 @@ export function Organization({ ctx }: PageProps) {
         </Tabs.List>
 
         <Tabs.Panel value="chart">
-          <Grow companyId={companyId} structure={structure} changed={view.reload} />
+          <Grow companyId={companyId} company={ctx.company} structure={structure} changed={view.reload} />
           <OrgChart structure={structure} company={ctx.company} openRole={setRole} openDivision={setDivision} talk={ctx.talk} giveWork={ctx.giveWork} />
         </Tabs.Panel>
         <Tabs.Panel value="goals">
           <GoalLadder companyId={companyId} goals={structure.goals} changed={view.reload} />
         </Tabs.Panel>
         <Tabs.Panel value="projects">
-          <Projects companyId={companyId} structure={structure} changed={view.reload} />
+          <Projects companyId={companyId} company={ctx.company} structure={structure} changed={view.reload} />
         </Tabs.Panel>
         <Tabs.Panel value="schedules">
           <Schedules companyId={companyId} structure={structure} schedules={schedules} changed={view.reload}
@@ -123,8 +123,11 @@ export function Organization({ ctx }: PageProps) {
  * the owner is told which ones, rather than refused: granting them is the
  * next thing they will do, from the division.
  */
-function Grow({ companyId, structure, changed }: { companyId: string; structure: Structure; changed: () => void }) {
+function Grow({ companyId, company, structure, changed }: {
+  companyId: string; company: Company; structure: Structure; changed: () => void;
+}) {
   const [open, setOpen] = useState<'role' | 'division' | 'project' | null>(null);
+  const language = useWorkLanguage(company);
   const list = (value: string | number | undefined, separator: RegExp) =>
     String(value ?? '').split(separator).map((part) => part.trim()).filter(Boolean);
   const done = (message: string) => () => {
@@ -195,16 +198,21 @@ function Grow({ companyId, structure, changed }: { companyId: string; structure:
       </Modal>
 
       <Modal opened={open === 'project'} onClose={() => setOpen(null)} title={t('New project')} centered>
-        <ActionForm
-          columns={1}
-          fields={[
-            { name: 'name', label: t('Name'), required: true, placeholder: t('e.g. Wholesale') },
-            { name: 'slug', label: t('Short name'), required: true, placeholder: 'wholesale-2026' },
-          ]}
-          submit={(values) => api('POST', `/api/companies/${companyId}/projects`, values)}
-          action={t('Start it')}
-          done={done(t('The project is started. Work given to the company can be put in it.'))}
-        />
+        {!language.ready ? <Loading rows={2} /> : (
+          <ActionForm
+            columns={1}
+            fields={[
+              { name: 'name', label: t('Name'), required: true, placeholder: t('e.g. Wholesale') },
+              { name: 'slug', label: t('Short name'), required: true, placeholder: 'wholesale-2026' },
+              ...language.fields(null),
+            ]}
+            submit={(values) => api('POST', `/api/companies/${companyId}/projects`, {
+              name: values.name, slug: values.slug, ...language.chosen(values),
+            })}
+            action={t('Start it')}
+            done={done(t('The project is started. Work given to the company can be put in it.'))}
+          />
+        )}
       </Modal>
     </>
   );
@@ -283,11 +291,11 @@ function OrgChart({
               <Text fw={700} size="sm">{t('You, the owner')}</Text>
               <Text size="xs" c="dimmed" truncate>{t('You decide what cannot be undone')}</Text>
             </div>
-            <Avatar radius="md" size={32} src={companyEmblem(company)} alt="" ml="xs" />
+            <Avatar radius="md" size={32} src={companyEmblem(company)} alt="" ms="xs" />
           </Group>
         </Paper>
         <div className="org-stem org-stem--talk">
-          <Badge size="xs" variant="white" color="gray" className="org-stem-label" leftSection={<IconMessageCircle size={10} />}>{t('talks with you')}</Badge>
+          <Badge size="xs" variant="white" color="gray" tt="none" className="org-stem-label" leftSection={<IconMessageCircle size={10} />}>{t('talks with you')}</Badge>
         </div>
         {ceo ? (
           <Paper radius="lg" p="md" shadow="sm" className="org-ceo" onClick={() => openRole(ceo)}>
@@ -1145,7 +1153,7 @@ function GoalLadder({ companyId, goals, changed }: { companyId: string; goals: G
   const childrenOf = (id: string) => goals.filter((goal) => goal.parentId === id);
 
   const renderGoal = (goal: Goal, depth: number): React.ReactNode => (
-    <Box key={goal.id} pl={depth * 28}>
+    <Box key={goal.id} ps={depth * 28}>
       <Paper withBorder radius="md" p="sm" mb="xs" className="org-node" onClick={() => setEditing(goal)}>
         <Group justify="space-between" wrap="nowrap">
           <Group gap="sm" wrap="nowrap" style={{ minWidth: 0 }}>
@@ -1280,9 +1288,16 @@ function catchUpSaid(minutes: number | null): string {
 /** Why the last run that did not happen did not, so a quiet night is explained rather than guessed at. */
 function skippedSaid(skipped: NonNullable<Schedule['lastSkipped']>): string {
   const values = { when: dateTime(skipped.occurrence) };
+  // One run is "the run"; any other number goes through `tp`, whose "one"
+  // form some languages use for 21 as well, so that form names the count.
+  if (skipped.occurrences === 1) {
+    return skipped.because === 'overlap'
+      ? t('Skipped the run at {when}: the last one was still going', values)
+      : t('Missed the run at {when}: too late to be worth running', values);
+  }
   return skipped.because === 'overlap'
-    ? tp('Skipped the run at {when}: the last one was still going', 'Skipped {count} runs from {when}: the last one was still going', skipped.occurrences, values)
-    : tp('Missed the run at {when}: too late to be worth running', 'Missed {count} runs from {when}: too late to be worth running', skipped.occurrences, values);
+    ? tp('Skipped {count} run from {when}: the last one was still going', 'Skipped {count} runs from {when}: the last one was still going', skipped.occurrences, values)
+    : tp('Missed {count} run from {when}: too late to be worth running', 'Missed {count} runs from {when}: too late to be worth running', skipped.occurrences, values);
 }
 
 function Schedules({
@@ -1335,7 +1350,7 @@ function Schedules({
         <Table.ScrollContainer minWidth={640}>
           <Table verticalSpacing="sm" highlightOnHover>
             <Table.Thead>
-              <Table.Tr><Table.Th>{t('Schedule')}</Table.Th><Table.Th>{t('When')}</Table.Th><Table.Th>{t('Role')}</Table.Th><Table.Th>{t('Next')}</Table.Th><Table.Th>{t('State')}</Table.Th><Table.Th /></Table.Tr>
+              <Table.Tr><Table.Th>{t('Schedule')}</Table.Th><Table.Th>{t('When')}</Table.Th><Table.Th>{t('Role')}</Table.Th><Table.Th>{t('Next run')}</Table.Th><Table.Th>{t('State')}</Table.Th><Table.Th /></Table.Tr>
             </Table.Thead>
             <Table.Tbody>
               {schedules.map((schedule) => (

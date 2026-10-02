@@ -58,7 +58,7 @@ export function Claim({ code, onSignedIn }: {
     setBusy(true);
     setError(null);
     try {
-      const session: { token: string; device: string; factor: string } = await api('POST', '/api/auth/claim/confirm', { code, totp: value });
+      const session: { token: string; device: string; factor: string } = await api('POST', '/api/auth/claim/confirm', { code, totp: value, label: t('Authenticator app') });
       // Spent: out of the address bar, and out of the back button's reach.
       window.history.replaceState(null, '', '#/home');
       onSignedIn(session);

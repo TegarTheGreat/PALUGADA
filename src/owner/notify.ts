@@ -30,10 +30,11 @@
  * the item alone would have let whichever ran first silence the other.
  */
 import { say } from './say.ts';
+import type { PalugadaError } from '../errors.ts';
 import { withTenant } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { redactor } from '../secrets/manager.ts';
-import { channelDelivery, type ChannelDelivery } from '../inbox/inbox.ts';
+import { channelDelivery, type ChannelDelivery, type Decision } from '../inbox/inbox.ts';
 import { buildDailyDigest, renderDailyDigest } from '../reporting/digest.ts';
 import { notifyAfterFor } from '../scheduler/windows.ts';
 
@@ -933,27 +934,75 @@ export async function retractClosed(
 }
 
 /**
+ * What is known about an item a press found closed: its status (null when
+ * there is no such item), how it was decided, and why it was withdrawn.
+ */
+export interface ClosedState {
+  status: string | null;
+  decision: string | null;
+  closedReason: string | null;
+  language?: string | null | undefined;
+}
+
+/**
  * What a closed item says in place of its buttons.
  *
- * Shared by every transport that implements `retract`, so "why is this
- * greyed out" has one answer however the owner reads it.
+ * Shared by every transport that implements `retract`, and by every press or
+ * reply that finds its item already closed, so "why is this greyed out" has
+ * one answer however the owner reads it. Each reason is a sentence of its
+ * own: a code filled into one sentence -- "Withdrawn (stage_changed)." --
+ * stays English inside every translation of it, and a reason nothing writes
+ * yet is said without its code rather than with it.
  */
-export function closureText(closed: ClosedItem): string {
+export function closureText(closed: ClosedItem | ClosedState): string {
   const language = closed.language;
   if (closed.status === 'decided') {
-    return closed.decision === 'approve' ? say(language, 'Approved. Nothing left to press here.')
-      : closed.decision === 'deny' ? say(language, 'Denied. Nothing left to press here.')
-        : say(language, 'Decided ({decision}). Nothing left to press here.', { decision: closed.decision ?? 'unknown' });
+    if (closed.decision === 'approve') return say(language, 'Approved. Nothing left to press here.');
+    if (closed.decision === 'deny') return say(language, 'Denied. Nothing left to press here.');
+    if (closed.decision === 'ask') return say(language, 'Asked. Nothing left to press here.');
+    return say(language, 'Decided. Nothing left to press here.');
   }
-  if (closed.status === 'expired') {
+  // Still open but past its expiry is how a refusal finds an item the expiry
+  // sweep has not reached yet: to the owner it has expired.
+  if (closed.status === 'expired' || closed.status === 'open') {
     return say(language, 'Expired unanswered. Silence is a refusal, so nothing was done.');
   }
-  const task = closed.closedReason?.startsWith('task_')
-    ? closed.closedReason.slice('task_'.length)
-    : null;
-  return task
-    ? say(language, 'Withdrawn: the task it was asking about is {state}.', { state: task })
-    : say(language, 'Withdrawn ({reason}).', { reason: closed.closedReason ?? say(language, 'no reason recorded') });
+  if (closed.status === null) return say(language, 'That item no longer exists.');
+  switch (closed.closedReason) {
+    case 'task_completed': return say(language, 'Withdrawn: the task it was asking about has finished.');
+    case 'task_failed': return say(language, 'Withdrawn: the task it was asking about has failed.');
+    case 'task_halted': return say(language, 'Withdrawn: the task it was asking about was stopped.');
+    case 'task_cancelled': return say(language, 'Withdrawn: the task it was asking about was cancelled.');
+    case 'superseded': return say(language, 'Withdrawn: the agent changed what it proposes and asked again about the new one.');
+    case 'stage_changed': return say(language, 'Withdrawn: the company is no longer at the stage this proposal would move it from.');
+    case 'decided_elsewhere': return say(language, 'Withdrawn: it was already decided in the app.');
+    default: return say(language, 'Withdrawn. Nothing left to press here.');
+  }
+}
+
+/**
+ * What a press or a reply is told when its item turned out to be closed,
+ * from the refusal that said so (`inbox.not_open` carries the item's status,
+ * decision and reason; the message is for logs and is English).
+ */
+export function notOpenText(language: string | null, error: PalugadaError): string {
+  const details = error.details as { status?: string | null; decision?: string | null; closedReason?: string | null };
+  return closureText({
+    status: details.status ?? null,
+    decision: details.decision ?? null,
+    closedReason: details.closedReason ?? null,
+    language,
+  });
+}
+
+/**
+ * What a chat says once the owner's press is recorded: the decision as a
+ * word of the owner's language, not the code the button carried.
+ */
+export function recordedText(language: string | null, decision: Decision): string {
+  if (decision === 'approve') return say(language, 'Recorded: approved.');
+  if (decision === 'deny') return say(language, 'Recorded: denied.');
+  return say(language, 'Recorded: asked.');
 }
 
 /**

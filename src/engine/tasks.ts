@@ -17,6 +17,7 @@ import * as budget from './budget.ts';
 import { isRoleFrozen } from '../governance/role-freeze.ts';
 import { isSpendPaused } from '../governance/spend-guard.ts';
 import { assertGoalOpen } from '../domain/goals.ts';
+import { noteTalkDrift } from '../domain/language.ts';
 import { settleTicketsOf } from './tickets.ts';
 import { learn, remember } from '../memory/store.ts';
 
@@ -660,6 +661,13 @@ export interface TransitionOptions {
    */
   detail?: string;
   output?: Record<string, unknown>;
+  /**
+   * The output is a model's words rather than a registered handler's, so the
+   * summary it reports to the owner is held to the company's talk language.
+   * A handler writes its author's words, checked by its tests, and has no
+   * next run a reminder would reach.
+   */
+  writtenByModel?: boolean;
   /** When a task parked on a closed window may be picked up again (F9.2). */
   waitUntil?: Date | null;
 }
@@ -861,6 +869,12 @@ export async function transitionWithin(
         : completed ?? {},
     });
     if (to === 'completed') {
+      // The summary is what the done notice and the Work page show the owner
+      // of finished work: the run's own report to them. Checked once, here,
+      // where the task completes and the summary is kept.
+      if (options.writtenByModel && completed?.summary) {
+        await noteTalkDrift(tx, { companyId, taskId, where: 'summary', text: completed.summary });
+      }
       await keepLessons(tx, companyId, task, options.output);
       await keepEpisode(tx, companyId, task, options.output);
     }

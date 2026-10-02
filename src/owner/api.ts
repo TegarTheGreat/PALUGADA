@@ -568,7 +568,8 @@ export class OwnerApi {
           this.#signInThrottle.check(address);
           let session: OwnerSession;
           try {
-            session = await this.#claims.confirm(String(body.code ?? ''), String(body.totp ?? ''));
+            const label = typeof body.label === 'string' && body.label.trim() ? body.label.trim().slice(0, 120) : undefined;
+            session = await this.#claims.confirm(String(body.code ?? ''), String(body.totp ?? ''), label);
           } catch (failure) {
             this.#signInThrottle.failed(address, failure);
             throw failure;
@@ -3923,11 +3924,14 @@ export class OwnerApi {
 
       {
         // A project groups work and grants nothing, so the session is enough.
+        // Its work language (0100) is optional: left out or null, the
+        // company's.
         method: 'POST',
         pattern: '/api/companies/:companyId/projects',
         handle: async ({ params, body }) => ({
           projectId: await addProject(params.companyId!, {
             slug: requireText(body.slug, 'slug'), name: requireText(body.name, 'name'),
+            workLanguage: projectWorkLanguage(body.workLanguage) ?? null,
           }),
         }),
       },
@@ -3977,18 +3981,22 @@ export class OwnerApi {
       },
 
       {
-        // Renaming, describing or closing a project (0074). It grants nothing
-        // and spends nothing, so the session is enough -- like starting one.
+        // Renaming, describing or closing a project (0074), or giving it a
+        // work language of its own (0100). It grants nothing and spends
+        // nothing, so the session is enough -- like starting one, and like
+        // the company's own languages.
         method: 'POST',
         pattern: '/api/companies/:companyId/projects/:projectId',
         handle: async ({ params, body }) => {
           if (body.archived !== undefined && typeof body.archived !== 'boolean') {
             throw new PalugadaError('contract.violation', 'archived is true or false', { field: 'archived' });
           }
+          const workLanguage = projectWorkLanguage(body.workLanguage);
           await changeProject(params.companyId!, params.projectId!, {
             ...(body.name === undefined ? {} : { name: String(body.name) }),
             ...(body.description === undefined ? {} : { description: body.description === null ? null : String(body.description) }),
             ...(body.archived === undefined ? {} : { archived: body.archived as boolean }),
+            ...(workLanguage === undefined ? {} : { workLanguage }),
           });
           return { ok: true };
         },
@@ -5552,6 +5560,7 @@ function statusFor(code: string): number {
   if (code === 'owner.throttled') return 429;
   if (code === 'owner.claimed') return 409;
   if (code === 'schedule.still_running') return 409;
+  if (code === 'company.slug_taken') return 409;
   if (code === 'mfa.locked_out') return 429;
   if (code.startsWith('mfa.')) return 401;
   if (code === 'approval.channel_forbidden' || code === 'policy.denied') return 403;
@@ -6021,6 +6030,16 @@ function oneOf<T extends string>(value: unknown, allowed: readonly T[], field: s
     );
   }
   return text as T;
+}
+
+/**
+ * A project's work language from a request (0100): undefined when it was
+ * left out, which leaves it as it is; null for the company's; otherwise a
+ * code agents can be told, or the refusal naming every code accepted.
+ */
+function projectWorkLanguage(value: unknown): string | null | undefined {
+  if (value === undefined || value === null) return value;
+  return languageCode(value, 'workLanguage');
 }
 
 /** A string that has to be there. `String(undefined)` is "undefined", and it fits. */

@@ -1216,7 +1216,7 @@ test('a press on a closed item says what happened to it (F10.9)', async () => {
     );
     assert.deepEqual(outcome, { handled: false, reason: 'inbox.not_open' });
     const answer = vendor.calls.find((call) => call.path.endsWith('/answerCallbackQuery'))!;
-    assert.equal(answer.body.text, 'Already closed: it was already decided (deny).');
+    assert.equal(answer.body.text, 'Denied. Nothing left to press here.');
   } finally {
     await vendor.close();
   }
@@ -1339,6 +1339,56 @@ test("notifications speak the owner's language, and an agent's words are left as
   assert.equal(new WebhookPush({ url: 'http://127.0.0.1:1' }).message(english!).title, 'Approval needed: Pay the supplier');
 });
 
+/**
+ * A decision and a task's end reached the owner as the codes the platform
+ * keeps them by -- "Recorded: deny.", "the task it was asking about is
+ * cancelled" -- which a translation can only leave in English inside its
+ * own sentence. Each is a sentence of its own now.
+ */
+test('what the owner decided, and why an item closed, are said in their language rather than as codes', async () => {
+  const { closureText, recordedText } = await import('../../src/owner/notify.ts');
+  assert.equal(recordedText('en', 'approve'), 'Recorded: approved.');
+  assert.equal(recordedText('en', 'deny'), 'Recorded: denied.');
+  assert.equal(recordedText('id', 'deny'), 'Tercatat: ditolak.');
+  const closed = { id: 'x', companyId: 'c', kind: 'approval', title: 't', decision: null } as const;
+  for (const [state, english] of [
+    ['completed', 'Withdrawn: the task it was asking about has finished.'],
+    ['failed', 'Withdrawn: the task it was asking about has failed.'],
+    ['halted', 'Withdrawn: the task it was asking about was stopped.'],
+    ['cancelled', 'Withdrawn: the task it was asking about was cancelled.'],
+  ] as const) {
+    assert.equal(closureText({ ...closed, status: 'withdrawn', closedReason: `task_${state}`, language: 'en' }), english);
+    assert.doesNotMatch(closureText({ ...closed, status: 'withdrawn', closedReason: `task_${state}`, language: 'id' }), new RegExp(state));
+  }
+  assert.equal(closureText({ ...closed, status: 'decided', decision: 'ask', closedReason: null, language: 'en' }),
+    'Asked. Nothing left to press here.');
+  // Every other reason an item is withdrawn for, and the ones nothing writes
+  // yet, said without the code: "Withdrawn (stage_changed)." was English in
+  // every language.
+  for (const [reason, english] of [
+    ['superseded', 'Withdrawn: the agent changed what it proposes and asked again about the new one.'],
+    ['stage_changed', 'Withdrawn: the company is no longer at the stage this proposal would move it from.'],
+    ['decided_elsewhere', 'Withdrawn: it was already decided in the app.'],
+    ['something_new', 'Withdrawn. Nothing left to press here.'],
+    ['task_waiting', 'Withdrawn. Nothing left to press here.'],
+  ] as const) {
+    assert.equal(closureText({ ...closed, status: 'withdrawn', closedReason: reason, language: 'en' }), english);
+    assert.doesNotMatch(closureText({ ...closed, status: 'withdrawn', closedReason: reason, language: 'id' }), new RegExp(reason));
+  }
+  assert.equal(closureText({ ...closed, status: 'decided', decision: 'revise', closedReason: null, language: 'en' }),
+    'Decided. Nothing left to press here.');
+  // A press that finds its item closed is told the same, from the refusal
+  // that said so; one whose item is gone is told that, not "is closed: null".
+  const { notOpenText } = await import('../../src/owner/notify.ts');
+  const { PalugadaError } = await import('../../src/errors.ts');
+  const refused = (details: Record<string, unknown>) => new PalugadaError('inbox.not_open', 'inbox item x is closed', details);
+  assert.equal(notOpenText('en', refused({ status: 'decided', decision: 'deny', closedReason: null })), 'Denied. Nothing left to press here.');
+  assert.equal(notOpenText('en', refused({ status: 'open', decision: null, closedReason: null })),
+    'Expired unanswered. Silence is a refusal, so nothing was done.');
+  assert.equal(notOpenText('en', refused({ status: null })), 'That item no longer exists.');
+  assert.equal(notOpenText('id', refused({ status: 'withdrawn', decision: null, closedReason: 'superseded' })).includes('superseded'), false);
+});
+
 test('every sentence the platform says to the owner has its translation (src/owner/say.ts)', async () => {
   const { readdir, readFile } = await import('node:fs/promises');
   const { OWNER_SENTENCES } = await import('../../src/owner/say.ts');
@@ -1364,7 +1414,11 @@ test('every sentence the platform says to the owner has its translation (src/own
   const placeholders = (text: string) => [...text.matchAll(/\{(\w+)\}/g)].map((match) => match[1]!).sort();
   // A translation into a language with a script of its own that has none of
   // it is English that nobody translated.
-  const script: Record<string, RegExp> = { zh: /\p{Script=Han}/u, ru: /\p{Script=Cyrillic}/u, hi: /\p{Script=Devanagari}/u };
+  const script: Record<string, RegExp> = {
+    zh: /\p{Script=Han}/u, ru: /\p{Script=Cyrillic}/u, hi: /\p{Script=Devanagari}/u,
+    ja: /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u, ko: /\p{Script=Hangul}/u,
+    th: /\p{Script=Thai}/u, ar: /\p{Script=Arabic}/u,
+  };
   for (const [language, sentences] of Object.entries(OWNER_SENTENCES)) {
     assert.deepEqual([...said].filter((sentence) => !(sentence in sentences)), [], `${language} is missing sentences`);
     assert.deepEqual(Object.keys(sentences).filter((sentence) => !said.has(sentence)), [], `${language} keeps sentences nothing says`);

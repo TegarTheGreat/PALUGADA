@@ -14,7 +14,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react
 import {
   ActionIcon, Alert, AppShell, Avatar, Badge, Box, Button, Center, Divider, Drawer, FileInput, Group, Loader, Menu, Modal,
   NavLink, Paper, Progress, ScrollArea, SimpleGrid, Stack, Switch, Text, TextInput, Tooltip, UnstyledButton,
-  useComputedColorScheme, useMantineColorScheme,
+  useComputedColorScheme, useDirection, useMantineColorScheme,
 } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
@@ -27,7 +27,7 @@ import {
 import { api, explain, setToken, whenSignedOut } from './api.ts';
 import { useFactor } from './factor.tsx';
 import { useLoad } from './hooks.ts';
-import { LANGUAGES, N, isLanguage, language, setLanguage, t, useLanguage, type Language } from './i18n.ts';
+import { LANGUAGES, N, direction, isLanguage, language, setLanguage, t, useLanguage, type Language } from './i18n.ts';
 import { go, takeLinkedRoute, takeLinkedTalk, useRoute, type CompanyPage, type Route, type SettingsSection } from './router.ts';
 import type { Company, SearchHit, Structure } from './types.ts';
 import { companyEmblem, OWNER_PICTURE, rolePicture } from './images.ts';
@@ -67,6 +67,10 @@ export function App() {
   // Which kind of factor signed in: after a recovery code, the console asks for a new device.
   const [factor, setFactor] = useState<string | null>(null);
   const lang = useLanguage();
+  // Mantine mirrors its components from its own direction, set here as the
+  // language changes; the page's `dir` is set with the language (i18n.ts).
+  const { setDirection } = useDirection();
+  useEffect(() => { setDirection(direction()); }, [lang, setDirection]);
   useEffect(() => { takeLinkedRoute(); }, []);
   useEffect(() => whenSignedOut(() => setDevice(null)), []);
 
@@ -337,16 +341,21 @@ function Console({ device, recovered, signOut }: { device: string; recovered: bo
   const languageMenu = (
     <>
       <Menu.Label>{t('Panel language')}</Menu.Label>
-      {LANGUAGES.map((one) => (
-        <Menu.Item
-          key={one.code}
-          leftSection={<IconLanguage size={16} />}
-          rightSection={one.code === language() ? <IconCheck size={14} /> : null}
-          onClick={() => void pickLanguage(one.code)}
-        >
-          {one.name}
-        </Menu.Item>
-      ))}
+      {/* Twenty-one languages are taller than a screen: the menu opens upward
+          from the foot of the sidebar, and the first languages were above
+          the top of the window, out of reach. They scroll in a box instead. */}
+      <ScrollArea.Autosize mah={232} type="auto" offsetScrollbars>
+        {LANGUAGES.map((one) => (
+          <Menu.Item
+            key={one.code}
+            leftSection={<IconLanguage size={16} />}
+            rightSection={one.code === language() ? <IconCheck size={14} /> : null}
+            onClick={() => void pickLanguage(one.code)}
+          >
+            {one.name}
+          </Menu.Item>
+        ))}
+      </ScrollArea.Autosize>
     </>
   );
 
@@ -446,7 +455,7 @@ function Console({ device, recovered, signOut }: { device: string; recovered: bo
               <Group gap="xs" wrap="nowrap">
                 <IconChecklist size={18} color="var(--mantine-color-yellow-7)" />
                 <Text size="sm" fw={600}>{t('Finish setting up')}</Text>
-                <Text size="xs" c="dimmed" ml="auto" className="tabular">{setup.notes.length - setup.todo.length}/{setup.notes.length}</Text>
+                <Text size="xs" c="dimmed" ms="auto" className="tabular">{setup.notes.length - setup.todo.length}/{setup.notes.length}</Text>
               </Group>
               <Progress value={((setup.notes.length - setup.todo.length) / Math.max(1, setup.notes.length)) * 100} size="sm" mt={8} color="yellow" radius="xl" />
             </Paper>

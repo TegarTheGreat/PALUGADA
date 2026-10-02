@@ -98,6 +98,10 @@ const SCRIPT: Record<string, RegExp> = {
   zh: /\p{Script=Han}/u,
   ru: /\p{Script=Cyrillic}/u,
   hi: /\p{Script=Devanagari}/u,
+  ja: /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u,
+  ko: /\p{Script=Hangul}/u,
+  th: /\p{Script=Thai}/u,
+  ar: /\p{Script=Arabic}/u,
 };
 
 /**
@@ -155,6 +159,17 @@ test('a sentence that depends on a count has every form its language needs', asy
   const pairs = new Map<string, string>();
   for (const source of files.values()) for (const [one, other] of pluralsIn(source)) pairs.set(other, one);
   assert.ok(pairs.size >= 10, `only ${pairs.size} plural sentences were found; the scan is broken`);
+
+  // A language's "one" is not always the number 1: Russian says it for 21
+  // and 101, Hindi and Portuguese for 0. So the "one" sentence of a pair
+  // names the count wherever the other does -- "the run" for 21 runs is
+  // wrong in every language whose "one" covers 21. A sentence for exactly
+  // one goes through `t` on its own.
+  for (const [other, one] of pairs) {
+    if (placeholders(other).includes('count')) {
+      assert.ok(placeholders(one).includes('count'), `tp("${one}", "${other}"): the first names no {count}, and some languages say it for more than one`);
+    }
+  }
 
   const languages = offered(files.get('i18n.ts') ?? '');
   for (const [code, { dictionary }] of await dictionaries()) {

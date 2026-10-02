@@ -300,8 +300,11 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   { pattern: '/api/companies/:companyId/tasks/:taskId/replay', what: 'Replay a task\'s handler against its journal, to see a failure again.', factor: 'never' },
   {
     pattern: '/api/companies/:companyId/languages',
-    what: 'The languages a company works and talks in.',
-    fields: { work: 'a language code', talk: 'list of language codes it talks to customers in' },
+    what: 'The languages a company works in (what it produces for customers) and talks in (what its agents write to the owner and to each other). Both are sent every time. A project with customers in another market sets its own work language on the project instead.',
+    fields: {
+      work: 'a language code, or null for the deployment\'s default',
+      talk: 'a language code, or null for the deployment\'s default',
+    },
     factor: 'never',
   },
   {
@@ -391,7 +394,16 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     fields: { name: 'its name', slug: 'short id', parentDivisionId: 'optional', maxConcurrency: 'optional number' },
     factor: 'always',
   },
-  { pattern: '/api/companies/:companyId/projects', what: 'Start a project.', fields: { name: 'its name', slug: 'short id' }, factor: 'never' },
+  {
+    pattern: '/api/companies/:companyId/projects',
+    what: 'Start a project.',
+    fields: {
+      name: 'its name',
+      slug: 'short id',
+      workLanguage: 'optional: a language code from GET /api/control/languages (supported[].code) for a project that sells in another market than the company; left out, the company\'s work language',
+    },
+    factor: 'never',
+  },
   {
     pattern: '/api/companies/:companyId/documents',
     what: 'Give the company a document as text -- a price list, a policy, a contract -- which runs find with memory.search.',
@@ -405,8 +417,13 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   },
   {
     pattern: '/api/companies/:companyId/projects/:projectId',
-    what: 'Rename a project, say what it is for (every run in it is told), or close it to new work (archived: true) or open it again.',
-    fields: { name: 'optional new name', description: 'optional: what the project is for', archived: 'optional true or false' },
+    what: 'Rename a project, say what it is for (every run in it is told), close it to new work (archived: true) or open it again, or give it its own work language -- what its work for customers is written in, while agents still talk to the owner in the company\'s talk language.',
+    fields: {
+      name: 'optional new name',
+      description: 'optional: what the project is for',
+      archived: 'optional true or false',
+      workLanguage: 'optional: a language code from GET /api/control/languages (supported[].code), or null for the company\'s work language',
+    },
     factor: 'never',
   },
   {

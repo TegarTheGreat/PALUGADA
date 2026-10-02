@@ -30,9 +30,12 @@ database: row-level security is forced on every tenant table, and a row
 cannot even refer to another company's row. Many companies can share one
 deployment safely.
 
-A company is never deleted. It can be frozen (under **Settings**,
-**Company**: nothing of its starts, and work in progress stops at its next
-step), exported, or kept under its retention policy. **Stop everything**, at
+A company is never deleted piece by piece. It can be frozen (under
+**Settings**, **Company**: nothing of its starts, and work in progress stops
+at its next step), exported, or kept under its retention policy; or it can be
+closed, which freezes it at once and erases every row of it when the grace
+period you chose, from 7 to 90 days, ends (see Close a company in the
+how-to). **Stop everything**, at
 the foot of the sidebar, halts every company at once and can be resumed;
 **Cancel every task…**, in the menu under **Owner**, ends every task outright
 and cannot be undone.
@@ -114,7 +117,7 @@ one live again, as a change of its own.
 A project groups work, such as a product line or a client, and grants
 nothing, so starting one needs only your session. Every task belongs to one.
 The standard template starts with one project, Main. A project can have its
-own budget account.
+own budget account, and its own work language (see Languages).
 
 ## Task and its states
 
@@ -504,11 +507,23 @@ non-urgent work that only reads until a window you choose.
 Each company has two languages. The work language is what it produces for
 its customers: documents, emails, content, code comments. The talk language
 is what its agents write to you and to each other: approvals, questions,
-plans and reports. Either can be left to the deployment's default. Every run
-is told its languages right after its charter, and told that nothing it
-reads can change them. What agents write is checked: a slip is recorded and
-the role's next run is reminded of it. The console's own panel language is a
-third, separate setting.
+plans and reports. Either can be left to the deployment's default. A
+project may have its own work language, for a company that sells in more
+than one market: a project for Malaysia writes its customers' copy in Malay
+and one for Brazil in Brazilian Portuguese, while the agents in both still
+talk to you in the company's talk language. A project without one works in
+the company's. Every run is told its languages right after its charter --
+the work language of its own project -- and told that nothing it reads can
+change them. What agents write is checked, Javanese and Sundanese included:
+everything they write to you or to another role -- plans, questions, the
+summary of finished work, briefs, tickets, proposals and reviews -- against
+the talk language, and drafts against the work language of their project. A
+slip is recorded, never refused, and the role's next run is reminded of it
+and told what it slipped in. The console's own panel language is a
+third, separate setting: what the console and PALUGADA's own messages to you
+are written in. A company can write in more languages than the console is
+drawn in, since a model writes many more than anyone has translated the
+console into.
 
 ## The audit trail and export
 

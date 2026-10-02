@@ -435,11 +435,31 @@ async function assertCapabilitiesExist(
 }
 
 async function insertCompany(tx: TenantClient, input: CreateFromTemplateInput): Promise<string> {
-  const { rows } = await tx.query<{ id: string }>(
-    'INSERT INTO companies (slug, name, timezone) VALUES ($1, $2, $3) RETURNING id',
-    [input.companySlug, input.name, input.timezone ?? 'UTC'],
+  try {
+    const { rows } = await tx.query<{ id: string }>(
+      'INSERT INTO companies (slug, name, timezone) VALUES ($1, $2, $3) RETURNING id',
+      [input.companySlug, input.name, input.timezone ?? 'UTC'],
+    );
+    return rows[0]!.id;
+  } catch (error) {
+    throw slugTaken(error, input.companySlug);
+  }
+}
+
+/**
+ * The owner's words for the database refusing a second company under a short
+ * name: the unique constraint on `companies.slug` is how the refusal arrives,
+ * and its text -- "duplicate key value violates unique constraint" -- reached
+ * the console word for word. Anything else is passed on as it was.
+ */
+export function slugTaken(error: unknown, slug: string): unknown {
+  const refusal = error as { code?: string; constraint?: string };
+  if (refusal.code !== '23505' || refusal.constraint !== 'companies_slug_key') return error;
+  return new PalugadaError(
+    'company.slug_taken',
+    `a company already has the short name ${slug}; choose another short name`,
+    { slug },
   );
-  return rows[0]!.id;
 }
 
 async function insertProjects(

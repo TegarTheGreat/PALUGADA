@@ -343,7 +343,8 @@ All three are on **Team**, **Divisions & roles**.
   sits **Inside** (two levels deep at most), and **Runs at once, at most**.
   Press **Open it** and confirm with a code. A new division can read its own
   memory and skills and nothing else until you grant it more.
-- **New project**: a **Name** and **Short name**, then **Start it**.
+- **New project**: a **Name** and **Short name**, optionally its own
+  **Work language** (see "Set the company's languages"), then **Start it**.
 
 To grant a capability, open the division and use **Change a grant**: the
 **Capability** name and its **Tier**, then **Apply** with a code. The tier
@@ -876,10 +877,13 @@ On **Team**, **Schedules**, press **New schedule**, choose the **Role** and
 **Project**, the goal it **Serves**, **What each run is asked to do**, a
 **Short name**, the **Cron** expression (minute, hour, day, month,
 weekday), the **Time zone** and the **Priority**, and press **Schedule it**.
-Each occurrence creates one task, in the schedule's own time zone. A
-schedule whose last five runs said the same thing asks you whether it is
-still worth running, and one that cannot fire shows **Cannot fire** with the
-reason.
+Each occurrence creates one task, in the schedule's own time zone. On the
+nights the clock changes, a schedule at fixed hours still runs once: at the
+first 01:30 when the clock goes back and shows 01:30 twice, and at the moment
+the clock jumps (03:00) for a time it skips, such as 02:30. One that runs
+every hour keeps to real time, so it runs at both 01:00s. A schedule whose
+last five runs said the same thing asks you whether it is still worth
+running, and one that cannot fire shows **Cannot fire** with the reason.
 
 Two more choices say what happens when a run cannot go at its time:
 
@@ -992,13 +996,26 @@ and you to approve.
 
 Under **Settings**, **Languages**:
 
-- **Panel language** is what the console is drawn in, on every device.
+- **Panel language** is what the console is drawn in, on every device, and
+  what PALUGADA's own messages to you are written in: Telegram, WhatsApp,
+  email and push. Any of 21: English, Indonesian, Malay, Javanese,
+  Sundanese, Filipino, Vietnamese, Thai, Simplified Chinese, Japanese,
+  Korean, Hindi, Arabic (the console turns right to left), Spanish,
+  Brazilian Portuguese, French, German, Dutch, Italian, Turkish or Russian.
 - **Agents, by default** is the language every company's agents use unless
   the company sets its own. Press **Save**.
 - Under the company's own section, **Work language** is what it produces for
   customers and **Talk language** is what its agents write to you and to
   each other. Empty means the default. Press **Save**; agents follow it from
   their next run.
+
+A project that sells in another market can work in its own language. On
+**Team**, **Projects**, press **Edit** on the project (or start one with
+**New project**) and choose its **Work language**; **The company's** keeps
+it on the company's. Runs in that project write for customers in its
+language, and their drafts are checked against it, while every agent still
+writes to you in the company's talk language. A project with its own shows
+it on its card.
 
 ## Rewrite a charter
 

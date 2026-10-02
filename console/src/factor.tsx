@@ -21,7 +21,7 @@
  */
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react';
 import { api, explain } from './api.ts';
-import { Alert, Anchor, Button, Divider, Group, Modal, PinInput, Stack, Text, TextInput, ThemeIcon } from '@mantine/core';
+import { Alert, Anchor, Button, Divider, Group, Modal, PinInput, Stack, Text, TextInput, ThemeIcon, getDefaultZIndex } from '@mantine/core';
 import { IconFingerprint, IconShieldLock } from '@tabler/icons-react';
 import type { Proof } from './api.ts';
 import { t } from './i18n.ts';
@@ -130,9 +130,14 @@ export function FactorProvider({ children }: { children: ReactNode }) {
   return (
     <FactorContext.Provider value={requireFactor}>
       {children}
+      {/* Above every other dialog: the action it confirms is often pressed
+          inside one (starting a company, from its own dialog), and on the
+          same layer that dialog stayed on top of this one, so the owner
+          pressed and saw nothing happen. */}
       <Modal
         opened={pending !== null}
         onClose={() => close(false)}
+        zIndex={getDefaultZIndex('modal') + 10}
         centered
         radius="md"
         withCloseButton={false}

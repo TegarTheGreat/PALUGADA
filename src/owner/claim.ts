@@ -108,7 +108,7 @@ export class OwnerClaims {
    * one authenticator, every claim is spent, and the owner is signed in with
    * the same code.
    */
-  async confirm(code: string, totp: string): Promise<OwnerSession> {
+  async confirm(code: string, totp: string, label?: string): Promise<OwnerSession> {
     const claim = await this.#live(code);
     const secret = this.#secretFor(claim);
     if (!this.#options.mfa.fits(decodeBase32(secret), totp)) {
@@ -119,7 +119,9 @@ export class OwnerClaims {
     const reference = `db://${name}`;
     await putSecret(name, secret, this.#master());
     try {
-      await this.#options.mfa.enrolTotp({ label: 'owner (claimed in the console)', secretRef: reference, first: true });
+      // The console names the authenticator in the owner's language; the
+      // English default is for a claim made without it.
+      await this.#options.mfa.enrolTotp({ label: label ?? 'owner (claimed in the console)', secretRef: reference, first: true });
     } catch (failure) {
       // Sealed for nothing, unless the same claim confirmed at the same
       // moment enrolled it -- then it is that authenticator's secret.

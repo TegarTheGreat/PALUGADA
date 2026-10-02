@@ -198,6 +198,8 @@ export interface PersonaPreset {
 export interface Structure {
   projects: Array<{
     id: string; slug: string; name: string; description: string | null; archivedAt: string | null;
+    /** Its own work language (0100); null where its work is in the company's. */
+    workLanguage: string | null;
     openTasks: number; doneTasks: number; costCents: number;
   }>;
   goals: Goal[];

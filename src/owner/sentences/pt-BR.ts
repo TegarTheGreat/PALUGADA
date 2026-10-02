@@ -1,0 +1,111 @@
+/**
+ * Português (Brasil): what the platform itself says to the owner outside the
+ * console (src/owner/say.ts), keyed by its English.
+ *
+ * The words are the console's (console/src/locales/pt-BR.ts): Aprovar,
+ * Recusar and Perguntar on the buttons, "Esta instância, Ferramentas, Escuta"
+ * for the screens it points at. WhatsApp cuts a reply button's title at 20
+ * characters and a list row's at 24, so those stay short.
+ */
+export const SENTENCES: Readonly<Record<string, string>> = {
+  'Incident: {title}': 'Incidente: {title}',
+  'Done: {goal}': 'Concluído: {goal}',
+  'Stopped before finishing: {goal}': 'Parou antes de concluir: {goal}',
+  'Why: {reason}': 'Motivo: {reason}',
+  'a task': 'uma tarefa',
+  'Approval needed: {title}': 'Aprovação necessária: {title}',
+  '{summary} — if denied: {consequence}': '{summary} — se recusado: {consequence}',
+  'If denied:': 'Se recusado:',
+  'Expires:': 'Expira:',
+  'This one is decided in the app.': 'Este item é decidido no app.',
+  'Open in PALUGADA': 'Abrir no PALUGADA',
+  'Approve': 'Aprovar',
+  'Deny': 'Recusar',
+  'Ask': 'Perguntar',
+  'Approved. Nothing left to press here.': 'Aprovado. Não há mais nada para tocar aqui.',
+  'Denied. Nothing left to press here.': 'Recusado. Não há mais nada para tocar aqui.',
+  'Expired unanswered. Silence is a refusal, so nothing was done.':
+    'Expirou sem resposta. Silêncio é recusa, então nada foi feito.',
+  'This bot only answers to its owner.': 'Este bot só responde ao proprietário.',
+  'That one has to be approved in the app.': 'Este precisa ser aprovado no app.',
+  'That could not be recorded.': 'Não foi possível registrar isso.',
+  'That item no longer exists.': 'Esse item não existe mais.',
+  'What do you want to ask about "{title}"? Reply to this message.':
+    'O que você quer perguntar sobre “{title}”? Responda a esta mensagem.',
+  'Your question': 'Sua pergunta',
+  'Type your question as a reply.': 'Responda a esta mensagem com a sua pergunta.',
+  'Asked. The answer will be on the item in the app.': 'Pergunta enviada. A resposta vai aparecer no item, no app.',
+  'Answer': 'Responder',
+  'Answer in words': 'Responder por escrito',
+  'That choice is not on this question.': 'Essa opção não faz parte desta pergunta.',
+  'Chosen: {choice}.': 'Escolhido: {choice}.',
+  'Stop the task': 'Parar a tarefa',
+  'Your answer to "{question}"? Reply to this message.': 'Qual é a sua resposta para “{question}”? Responda a esta mensagem.',
+  'Your answer': 'Sua resposta',
+  'Type your answer as a reply.': 'Responda a esta mensagem com a sua resposta.',
+  'Answered. The task carries on with it.': 'Respondido. A tarefa segue com a sua resposta.',
+  'That is too long for one question; keep it under {max} characters.':
+    'Longo demais para uma pergunta; use menos de {max} caracteres.',
+  '[a key, not kept]': '[uma chave, não guardada]',
+  'That looks like a key, so I did not keep it or send it anywhere. Keys go in the sealed field on a card, or on their page in This deployment: tell me what it is for and I will put the card in front of you.':
+    'Isso parece uma chave, então não guardei nem enviei para lugar nenhum. As chaves vão no campo selado de um cartão, ou na página delas em Esta instância: diga para que ela serve e eu coloco o cartão diante de você.',
+  'No model is set up yet, so I cannot think. Choose one under This deployment, Model; then I can help with everything else.':
+    'Nenhum modelo foi configurado ainda, então não consigo pensar. Escolha um em Esta instância, Modelo; depois posso ajudar com todo o resto.',
+  'The model did not answer: {reason}': 'O modelo não respondeu: {reason}',
+  'Here is what I propose.': 'Esta é a minha proposta.',
+  'I have nothing to add.': 'Não tenho nada a acrescentar.',
+  '{name}, CEO of {company}': '{name}, CEO de {company}',
+  'That could not be answered: {reason}': 'Não foi possível responder: {reason}',
+  'I read text and voice notes.': 'Eu leio textos e mensagens de voz.',
+  'Now talking to {name}.': 'Agora você está falando com {name}.',
+  'Choose whom to talk to.': 'Escolha com quem falar.',
+  'Choose whom to talk to': 'Escolher com quem falar',
+  'Talk to PALUGADA about the whole deployment': 'Falar com o PALUGADA sobre a instância inteira',
+  'Who you are talking to, and how': 'Com quem você está falando, e como',
+  'Stopped.': 'Interrompido.',
+  'Write here to talk to {name}.': 'Escreva aqui para falar com {name}.',
+  'You are talking to {name}. Write, or send a voice note. /ceo chooses whom you talk to; /palugada talks to PALUGADA about the whole deployment.':
+    'Você está falando com {name}. Escreva ou mande uma mensagem de voz. /ceo escolhe com quem você fala; /palugada fala com o PALUGADA sobre a instância inteira.',
+  'You said: "{words}"': 'Você disse: “{words}”',
+  'in the app': 'no app',
+  'Apply: {summary}': 'Aplicar: {summary}',
+  'Nothing hears speech yet: choose a provider in the app, under This deployment, Tools, Listening.':
+    'Ainda não há nada que ouça voz: escolha um provedor no app, em Esta instância, Ferramentas, Escuta.',
+  'That recording is too long; keep a voice note under {max} MB.': 'Essa gravação é longa demais; mantenha a mensagem de voz abaixo de {max} MB.',
+  'I could not make out any words in that.': 'Não consegui entender nenhuma palavra nisso.',
+  'Done: {summary}': 'Feito: {summary}',
+  'That one is applied in the app.': 'Esse cartão é aplicado no app.',
+  'That card no longer exists.': 'Esse cartão não existe mais.',
+  'That card was already applied.': 'Esse cartão já foi aplicado.',
+  'That card was dismissed.': 'Esse cartão foi descartado.',
+  'That card failed when it was applied.': 'Esse cartão falhou ao ser aplicado.',
+  'That could not be done: {reason}': 'Não foi possível fazer isso: {reason}',
+  'Choose': 'Escolher',
+  'What do you want to ask about "{title}"? Reply to this message with your question.':
+    'O que você quer perguntar sobre “{title}”? Responda a esta mensagem com a sua pergunta.',
+  'Your answer to "{question}"? Reply to this message with your answer.':
+    'Qual é a sua resposta para “{question}”? Responda a esta mensagem com a sua resposta.',
+  'I read text messages here.': 'Aqui eu leio mensagens de texto.',
+  'Apply one of these here:': 'Aplique um destes aqui:',
+  'Apply {number}': 'Aplicar {number}',
+  'Signed in to {provider} for the {alias} key': 'Conectado a {provider} para a chave {alias}',
+  'Go back to PALUGADA: the division holds this key now, and it is renewed before it runs out. This tab can be closed.':
+    'Volte ao PALUGADA: a divisão agora guarda esta chave, e ela é renovada antes de expirar. Você pode fechar esta aba.',
+  'Signed in to {name}': 'Conectado a {name}',
+  'Go back to PALUGADA to choose which of its tools roles may use. This tab can be closed.':
+    'Volte ao PALUGADA para escolher quais ferramentas dele os cargos podem usar. Você pode fechar esta aba.',
+  'Not signed in': 'Não conectado',
+  "Recorded: approved.": "Registrado: aprovado.",
+  "Recorded: denied.": "Registrado: recusado.",
+  "Recorded: asked.": "Registrado: pergunta enviada.",
+  "Asked. Nothing left to press here.": "Pergunta enviada. Não há mais nada para tocar aqui.",
+  "Withdrawn: the task it was asking about has finished.": "Retirado: a tarefa a que ele se referia foi concluída.",
+  "Withdrawn: the task it was asking about has failed.": "Retirado: a tarefa a que ele se referia falhou.",
+  "Withdrawn: the task it was asking about was stopped.": "Retirado: a tarefa a que ele se referia foi interrompida.",
+  "Withdrawn: the task it was asking about was cancelled.": "Retirado: a tarefa a que ele se referia foi cancelada.",
+  'Decided. Nothing left to press here.': 'Decidido. Não há mais nada para tocar aqui.',
+  'Withdrawn: the agent changed what it proposes and asked again about the new one.': 'Retirado: o agente mudou o que propõe e perguntou de novo sobre a nova proposta.',
+  'Withdrawn: the company is no longer at the stage this proposal would move it from.': 'Retirado: a empresa não está mais na fase de onde esta proposta a tiraria.',
+  'Withdrawn: it was already decided in the app.': 'Retirado: já foi decidido no app.',
+  'Withdrawn. Nothing left to press here.': 'Retirado. Não há mais nada para tocar aqui.',
+};

@@ -33,7 +33,7 @@ import type { Capability, CapabilityContext } from '../broker/registry.ts';
 import { companyRoot } from './files.ts';
 import type { LlmClient } from '../llm/client.ts';
 import { withTenant } from '../db/tenant.ts';
-import { driftFrom, languageCode, languageName, languagesFor, noteDrift } from '../domain/language.ts';
+import { driftFrom, languageCode, languageName, languagesForTask, noteDrift } from '../domain/language.ts';
 
 export interface DraftOptions {
   llm: LlmClient;
@@ -58,8 +58,8 @@ export interface DocDraftInput {
   kind?: string;
   /**
    * The language to write in, when the task asks for one on purpose -- a
-   * translation, a reply in a customer's language. Omitted, the company's
-   * work language applies.
+   * translation, a reply in a customer's language. Omitted, the work
+   * language applies: the task's project's, or the company's.
    */
   language?: string;
 }
@@ -266,7 +266,11 @@ export function emailDraft(options: DraftOptions): Capability<EmailDraftInput, E
 }
 
 /**
- * Composes in the company's work language, and holds the model to it.
+ * Composes in the work language, and holds the model to it: the language of
+ * the project the task is in when the project has its own (0100), the
+ * company's otherwise -- so a draft for the Brazil project is written in, and
+ * checked against, Brazilian Portuguese, and the company's own language is a
+ * slip there like any other.
  *
  * The drafting model is told the language in its instructions, because the
  * brief it is handed may be in another -- an agent summarising an English
@@ -285,7 +289,7 @@ async function composeIn(
   where: string,
 ): Promise<{ content: string; costCents: number }> {
   const language = requested === undefined || requested === ''
-    ? (await withTenant(ctx.companyId, (tx) => languagesFor(tx, ctx.companyId))).work
+    ? (await withTenant(ctx.companyId, (tx) => languagesForTask(tx, ctx.companyId, ctx.taskId))).work
     : languageCode(requested, 'language');
   const system =
     `${request.system}\n\nWrite it in ${languageName(language)}. The brief and the context may be ` +

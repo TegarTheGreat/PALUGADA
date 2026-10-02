@@ -23,6 +23,7 @@ import { LEARNED_CONFIDENCE, remember } from '../memory/store.ts';
 import * as inbox from '../inbox/inbox.ts';
 import { stageOf } from '../domain/stage.ts';
 import { PalugadaError } from '../errors.ts';
+import { noteTalkDrift } from '../domain/language.ts';
 
 /** F7.2. Round 1 is the first review; two revisions take it to round 3. */
 export const MAX_REVISIONS = 2;
@@ -317,6 +318,7 @@ export async function recordVerdict(
       proposer_task_id: string;
       proposer_role_id: string;
       reviewer_role_id: string;
+      review_task_id: string | null;
       division_id: string;
       capability_name: string;
       proposal: Record<string, unknown>;
@@ -325,7 +327,7 @@ export async function recordVerdict(
       status: ReviewStatus;
     }>(
       `SELECT r.id, r.project_id, r.proposer_task_id, r.proposer_role_id,
-              r.reviewer_role_id, r.capability_name, r.proposal, r.criteria,
+              r.reviewer_role_id, r.review_task_id, r.capability_name, r.proposal, r.criteria,
               r.round, r.status, t.division_id
          FROM review_requests r
          JOIN tasks t ON t.id = r.proposer_task_id
@@ -351,6 +353,12 @@ export async function recordVerdict(
         WHERE id = $1`,
       [reviewRequestId, nextStatus, verdict.decision, verdict.reason],
     );
+    // The reviewer's reasons go to the proposing role, and to the owner on a
+    // stage proposal's card: the reviewer writing to them. The slip is on
+    // the review's own task, so the reviewer's role is the one reminded.
+    await noteTalkDrift(tx, {
+      companyId, taskId: review.review_task_id ?? undefined, where: 'review', text: verdict.reason,
+    });
 
     const eventId = await appendEvent(tx, {
       companyId,

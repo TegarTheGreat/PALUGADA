@@ -147,7 +147,7 @@ export function Tour({ opened, hasCompany, finish, show, point, start }: {
         </Group>
         <Text>{t(stop.body)}</Text>
         {(() => {
-          const skip = <Button variant="subtle" color="gray" onClick={close} fullWidth={phone}>{last ? t('Done') : t('Skip the tour')}</Button>;
+          const skip = <Button variant="subtle" color="gray" onClick={close} fullWidth={phone}>{last ? t('Finish') : t('Skip the tour')}</Button>;
           const back = at > 0 ? <Button variant="default" onClick={() => setAt(at - 1)} fullWidth={phone}>{t('Back')}</Button> : null;
           const onward = last
             ? <Button onClick={() => { close(); start(); }} fullWidth={phone}>{t('Start a company')}</Button>

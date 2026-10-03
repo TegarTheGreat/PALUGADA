@@ -2359,6 +2359,8 @@ export const DICTIONARY: Dictionary = {
   "Ollama, llama.cpp or vLLM, OpenAI-compatible": "Ollama、llama.cpp、vLLM（OpenAI 互換）",
   "Describe a picture": "画像を説明する",
   "Llama 4, very fast and cheap": "Llama 4。非常に高速で安価",
+  "Give the {alias} key": "{alias} のキーを渡す",
+  "It is sealed as you save it; the role is told it is there, never what it is.": "保存した時点で封印されます。ロールに伝わるのはキーがあることだけで、中身は決して伝わりません。",
 };
 
 /** Sentences written as they are in English on purpose: names only. */

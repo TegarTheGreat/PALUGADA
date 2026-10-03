@@ -2390,6 +2390,8 @@ export const DICTIONARY: Dictionary = {
   "Ollama, llama.cpp or vLLM, OpenAI-compatible": "Ollama, llama.cpp veya vLLM, OpenAI uyumlu",
   "Describe a picture": "Bir görseli betimle",
   "Llama 4, very fast and cheap": "Llama 4, çok hızlı ve ucuz",
+  "Give the {alias} key": "{alias} anahtarını ver",
+  "It is sealed as you save it; the role is told it is there, never what it is.": "Kaydettiğiniz anda mühürlenir; role yalnızca orada olduğu söylenir, ne olduğu asla söylenmez.",
 };
 
 /**

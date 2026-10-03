@@ -2381,6 +2381,8 @@ export const DICTIONARY: Dictionary = {
   "Ollama, llama.cpp or vLLM, OpenAI-compatible": "Ollama, llama.cpp, utawi vLLM, cocog kaliyan OpenAI",
   "Describe a picture": "Njlentrehaken gambar",
   "Llama 4, very fast and cheap": "Llama 4, cepet sanget lan mirah",
+  "Give the {alias} key": "Paringaken kunci {alias}",
+  "It is sealed as you save it; the role is told it is there, never what it is.": "Kunci dipunsegel nalika panjenengan simpen; peran namung dipunparingi pirsa bilih kunci punika wonten, boten naté isinipun.",
 };
 
 /**

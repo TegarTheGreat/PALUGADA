@@ -43,6 +43,7 @@ import { appendEvent } from '../audit/event-log.ts';
 import { hashInput } from '../engine/hash.ts';
 import { noteTalkDrift } from '../domain/language.ts';
 import type { Capability } from './registry.ts';
+import { keysAskedFor } from './keys.ts';
 
 export interface MemorySearchInput {
   query: string;
@@ -410,13 +411,16 @@ export function ticketListCapability(): Capability<{ status?: string; limit?: nu
 
 export function registerPlatformCapabilities(registry: {
   register(capability: Capability<never, never>): void;
-  get?(name: string): unknown;
+  get?(name: string): Capability<never, never> | undefined;
 }): void {
   registry.register(memorySearchCapability() as unknown as Capability<never, never>);
   registry.register(skillReadCapability() as unknown as Capability<never, never>);
   registry.register(planRecordCapability() as unknown as Capability<never, never>);
   registry.register(metricRecordCapability() as unknown as Capability<never, never>);
-  registry.register(ownerAskCapability(registry.get ? (name) => Boolean(registry.get!(name)) : undefined) as unknown as Capability<never, never>);
+  registry.register(ownerAskCapability(
+    registry.get ? (name) => Boolean(registry.get!(name)) : undefined,
+    registry.get ? { get: (name) => registry.get!(name) } : undefined,
+  ) as unknown as Capability<never, never>);
   registry.register(taskDelegateCapability() as unknown as Capability<never, never>);
   registry.register(taskAwaitCapability() as unknown as Capability<never, never>);
   registry.register(stageProposeCapability() as unknown as Capability<never, never>);
@@ -595,6 +599,12 @@ export interface OwnerAskInput {
   why?: string;
   /** Two to six answers to choose from, when there are that few: the owner presses one. */
   options?: string[];
+  /**
+   * The key one of the division's capabilities signs in with, when that is
+   * what is asked for: the owner gives it where keys are given, and the run
+   * is told it is there, never what it is.
+   */
+  key?: string;
 }
 
 export interface OwnerAskResult {
@@ -663,14 +673,51 @@ async function setupAsked(
 }
 
 /**
+ * The key a run asks for, held to what its division's capabilities sign in
+ * with (the tools research, recommendation 7): a key nothing in the division
+ * uses is refused before the owner sees anything, so a run talked into
+ * asking for "the AWS key" asks nobody; a key the division holds is not
+ * asked for again.
+ */
+async function keyAsked(
+  ctx: { companyId: string; divisionId: string },
+  alias: string,
+  registry: { get(name: string): Capability<never, never> | undefined },
+): Promise<{ held: true; capabilities: string[] } | { held: false; capabilities: string[] }> {
+  if (!/^[a-z][a-z0-9_-]{0,39}$/.test(alias)) {
+    throw new PalugadaError('contract.violation', 'key is the name a capability gives the key it signs in with, such as crm or mailbox', { field: 'key' });
+  }
+  const { granted, held } = await withTenant(ctx.companyId, async (tx) => {
+    const grants = await tx.query<{ capability_name: string }>(
+      'SELECT capability_name FROM capability_grants WHERE division_id = $1', [ctx.divisionId]);
+    const keys = await tx.query<{ alias: string }>('SELECT alias FROM credentials WHERE division_id = $1', [ctx.divisionId]);
+    return { granted: grants.rows.map((row) => row.capability_name), held: new Set(keys.rows.map((row) => row.alias)) };
+  });
+  const asked = keysAskedFor(registry, granted);
+  const need = asked.get(alias);
+  if (!need) {
+    throw new PalugadaError('contract.violation',
+      `no capability this division may use signs in with a key named ${alias}`
+        + (asked.size > 0 ? `; the keys its capabilities ask for: ${[...asked.keys()].join(', ')}` : '; none of them asks for a key'),
+      { field: 'key' });
+  }
+  return { held: held.has(alias), capabilities: need.capabilities };
+}
+
+/**
  * `bound` says whether a capability is bound in this deployment. Given, a
  * question about setting up a tool nothing is bound to -- "which CRM vendor
  * should I bind?" -- is answered here rather than put to the owner (L7):
  * the owner connects a service on This deployment, Services, and an answer
  * typed into an inbox item connects nothing. The run is told so and carries
  * on; the owner is asked only what they can answer.
+ *
+ * `registry` lets a run ask for a key by name (`key`): see `keyAsked`.
  */
-export function ownerAskCapability(bound?: (name: string) => boolean): Capability<OwnerAskInput, OwnerAskResult> {
+export function ownerAskCapability(
+  bound?: (name: string) => boolean,
+  registry?: { get(name: string): Capability<never, never> | undefined },
+): Capability<OwnerAskInput, OwnerAskResult> {
   return {
     name: 'owner.ask',
     inputSchema: {
@@ -680,6 +727,7 @@ export function ownerAskCapability(bound?: (name: string) => boolean): Capabilit
         question: { type: 'string', minLength: 1, description: 'One question only the owner can answer.' },
         why: { type: 'string', description: 'What depends on the answer.' },
         options: { type: 'array', minItems: 2, maxItems: 6, items: { type: 'string', minLength: 1 }, description: 'Two to six answers the owner can press.' },
+        key: { type: 'string', maxLength: 40, description: 'When a capability says this division holds no key it signs in with: that key\'s name. The owner gives it; you are told when it is there, never what it is.' },
       },
     },
     adapter: 'platform',
@@ -693,7 +741,21 @@ export function ownerAskCapability(bound?: (name: string) => boolean): Capabilit
       if (question.length > QUESTION_MAX) {
         throw new PalugadaError('contract.violation', `a question is at most ${QUESTION_MAX} characters`, { field: 'question' });
       }
-      const unbound = bound ? await setupAsked(ctx, question, input.options, bound) : [];
+      let key: { alias: string; divisionId: string; capabilities: string[] } | null = null;
+      if (input.key !== undefined) {
+        if (!registry) throw new PalugadaError('contract.violation', 'this deployment cannot say which keys a division needs', { field: 'key' });
+        const alias = String(input.key).trim();
+        const asked = await keyAsked(ctx, alias, registry);
+        if (asked.held) {
+          return {
+            answered: true,
+            answer: `This division holds the ${alias} key: call ${asked.capabilities.join(' or ')} again. If it is refused, `
+              + 'say so: the owner may need to give it again.',
+          };
+        }
+        key = { alias, divisionId: ctx.divisionId, capabilities: asked.capabilities };
+      }
+      const unbound = bound && !key ? await setupAsked(ctx, question, input.options, bound) : [];
       if (unbound.length > 0) {
         await withTenant(ctx.companyId, (tx) => appendEvent(tx, {
           companyId: ctx.companyId, taskId: ctx.taskId, type: 'task.question_answered_by_platform', actor: 'system',
@@ -713,6 +775,7 @@ export function ownerAskCapability(bound?: (name: string) => boolean): Capabilit
         question,
         why: typeof input.why === 'string' ? input.why : null,
         options: Array.isArray(input.options) ? input.options.map(String) : null,
+        ...(key ? { key } : {}),
       });
       if (asked.state === 'answered') return { answered: true, answer: asked.answer };
       if (asked.state === 'unanswered') {

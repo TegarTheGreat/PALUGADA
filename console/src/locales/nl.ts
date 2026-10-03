@@ -2365,6 +2365,8 @@ export const DICTIONARY: Dictionary = {
   "Ollama, llama.cpp or vLLM, OpenAI-compatible": "Ollama, llama.cpp of vLLM, OpenAI-compatibel",
   "Describe a picture": "Een afbeelding beschrijven",
   "Llama 4, very fast and cheap": "Llama 4, erg snel en goedkoop",
+  "Give the {alias} key": "De {alias}-sleutel geven",
+  "It is sealed as you save it; the role is told it is there, never what it is.": "Hij wordt verzegeld zodra u hem opslaat; de rol hoort dat hij er is, nooit wat hij is.",
 };
 
 /** Sentences written as they are in English on purpose: names, and words Dutch writes the same way. */

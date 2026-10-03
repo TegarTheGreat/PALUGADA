@@ -2368,6 +2368,8 @@ export const DICTIONARY: Dictionary = {
   "Ollama, llama.cpp or vLLM, OpenAI-compatible": "Ollama, llama.cpp или vLLM, совместимые с OpenAI",
   "Describe a picture": "Описать изображение",
   "Llama 4, very fast and cheap": "Llama 4, очень быстро и дёшево",
+  "Give the {alias} key": "Дать ключ {alias}",
+  "It is sealed as you save it; the role is told it is there, never what it is.": "Ключ запечатывается при сохранении; роли сообщают, что он есть, но никогда — какой он.",
 };
 
 /** Sentences written as they are in English on purpose: names only. */

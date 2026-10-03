@@ -158,7 +158,8 @@ import {
   requestRoleChange,
   type RoleChange,
 } from '../eval/role-eval.ts';
-import { CapabilityRegistry, type Capability } from '../broker/registry.ts';
+import { CapabilityRegistry } from '../broker/registry.ts';
+import { keysAskedFor } from '../broker/keys.ts';
 import { McpUnauthorized, accessFor, assertPlainHttpIsLocal, bindMcpServers, currentPins, offeredTools, type TokenIn } from '../capabilities/mcp.ts';
 import { beginSignIn, discoverSignIn, finishSignIn, forgetSignIn, mcpSecretName, oauthGrantsIn } from '../capabilities/mcp-oauth.ts';
 import { MCP_PRESETS } from '../capabilities/mcp-presets.ts';
@@ -5772,6 +5773,17 @@ export class OwnerApi {
       throw failure;
     }
     if (previous?.startsWith(`db://${CREDENTIAL_SECRETS}`)) await deleteSecret(previous.slice('db://'.length));
+    // Every role that asked for this key (`owner.ask` with `key`) is told it
+    // is there -- that it is, never what it is -- and its work goes on.
+    const { rows: asked } = await withTenant(companyId, (tx) => tx.query<{ id: string }>(
+      `SELECT id FROM inbox_items
+        WHERE kind = 'escalation' AND status = 'open' AND payload->>'askedBy' = 'agent'
+          AND payload->'key'->>'alias' = $1 AND payload->'key'->>'divisionId' = $2
+        ORDER BY created_at`, [alias, divisionId]));
+    for (const item of asked) {
+      await inbox.answerEscalation(companyId, item.id,
+        `The owner gave the ${alias} key. Call the capability that needed it again: it signs in with it now.`, { channel: 'app' });
+    }
     return { alias, version };
   }
 
@@ -6502,37 +6514,6 @@ function outcomeOf(result: unknown): string {
 /** The services the owner connected in the console. */
 function vendorsIn(settings: Record<string, unknown>): VendorSpec[] {
   return ((settings.vendors as { capabilities?: VendorSpec[] } | undefined)?.capabilities) ?? [];
-}
-
-/**
- * The keys a division's granted capabilities ask for, by alias: which
- * capabilities use each, and the scopes they need of it (F12.6).
- */
-type KeyAsked = { capabilities: string[]; scopes: string[]; signIn?: CredentialSignIn; form?: NonNullable<Capability['credentialForm']> };
-
-function keysAskedFor(
-  registry: CapabilityRegistry | undefined,
-  granted: readonly string[],
-): Map<string, KeyAsked> {
-  const asked = new Map<string, KeyAsked>();
-  for (const name of [...granted].sort()) {
-    const capability = registry?.get(name);
-    if (!capability?.credentialAlias) continue;
-    const entry: KeyAsked = asked.get(capability.credentialAlias) ?? { capabilities: [], scopes: [] };
-    // A key given in a form is given in the first form asked for it.
-    if (capability.credentialForm && !entry.form) entry.form = capability.credentialForm;
-    entry.capabilities.push(name);
-    for (const scope of capability.requiredScopes ?? []) if (!entry.scopes.includes(scope)) entry.scopes.push(scope);
-    // One sign-in for the key, asking for every scope its capabilities need
-    // of the same provider.
-    if (capability.signIn && (!entry.signIn || entry.signIn.provider === capability.signIn.provider)) {
-      entry.signIn = entry.signIn
-        ? { ...entry.signIn, scopes: [...new Set([...entry.signIn.scopes, ...capability.signIn.scopes])] }
-        : capability.signIn;
-    }
-    asked.set(capability.credentialAlias, entry);
-  }
-  return asked;
 }
 
 /** Where a credential's value lives, said without saying the value. */

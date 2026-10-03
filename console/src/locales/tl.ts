@@ -2344,6 +2344,8 @@ export const DICTIONARY: Dictionary = {
   "Ollama, llama.cpp or vLLM, OpenAI-compatible": "Ollama, llama.cpp o vLLM, compatible sa OpenAI",
   "Describe a picture": "Ilarawan ang isang larawan",
   "Llama 4, very fast and cheap": "Llama 4, napakabilis at mura",
+  "Give the {alias} key": "Ibigay ang {alias} key",
+  "It is sealed as you save it; the role is told it is there, never what it is.": "Sine-seal ito sa pag-save mo; sinasabihan lang ang role na naroon na ito, hindi kailanman kung ano ito.",
 };
 
 /** Sentences written as they are in English on purpose: names only. */

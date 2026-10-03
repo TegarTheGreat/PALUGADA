@@ -2371,6 +2371,8 @@ export const DICTIONARY: Dictionary = {
   "Ollama, llama.cpp or vLLM, OpenAI-compatible": "Ollama, llama.cpp ou vLLM, compatible OpenAI",
   "Describe a picture": "Décrire une image",
   "Llama 4, very fast and cheap": "Llama 4, très rapide et bon marché",
+  "Give the {alias} key": "Donner la clé {alias}",
+  "It is sealed as you save it; the role is told it is there, never what it is.": "Elle est scellée à l’enregistrement ; le rôle apprend qu’elle est là, jamais ce qu’elle est.",
 };
 
 /**

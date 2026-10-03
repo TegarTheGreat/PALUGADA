@@ -339,6 +339,10 @@ The first version. What it holds, in the order an owner meets it.
   picture** reads a receipt, an invoice or a screenshot in the company's
   files and copies its words, through OpenAI, Gemini, Claude, OpenRouter,
   Groq, Mistral or a vision model of your own (STATUS 2.130).
+- A role that needs a key its division does not hold asks you for it: the
+  card's **Give the … key** opens the division's keys on **Team**, and
+  saving it there answers the role, which is never shown the key. A role
+  can ask only for a key its own division's capabilities use (STATUS 2.131).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

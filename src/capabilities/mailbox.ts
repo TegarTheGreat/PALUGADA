@@ -103,7 +103,7 @@ async function accountOf(ctx: Pick<CapabilityContext, 'credential'>): Promise<Ma
   } catch (failure) {
     if (isPalugadaError(failure, 'capability.not_granted')) {
       throw new PalugadaError('capability.not_granted',
-        'this division has no mailbox yet: the owner gives it one under Team, in the division\'s keys', { alias: MAILBOX_ALIAS });
+        'this division has no mailbox yet: ask the owner for it with owner.ask, naming key "mailbox"', { alias: MAILBOX_ALIAS });
     }
     throw failure;
   }

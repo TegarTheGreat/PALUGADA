@@ -37,7 +37,7 @@ import { EMPTY_MAILBOX, MailboxFields, mailboxFilled, mailboxSent, type Mailbox 
 import { companyEmblem, OWNER_PICTURE, rolePicture } from '../images.ts';
 import { openGoals } from '../goals.ts';
 
-export function Organization({ ctx }: PageProps) {
+export function Organization({ ctx, route }: PageProps) {
   const { companyId } = ctx;
   const view = useLoad(async () => {
     const [structure, schedules]: [Structure, { schedules: Schedule[] }] = await Promise.all([
@@ -48,6 +48,12 @@ export function Organization({ ctx }: PageProps) {
   }, [companyId], { every: 30_000 });
   const [role, setRole] = useState<Role | null>(null);
   const [division, setDivision] = useState<Division | null>(null);
+  // A division named in the address -- a card asking for one of its keys
+  // sends the owner here -- opens with the page.
+  const named = view.data && route.item ? view.data.structure.divisions.find((one) => one.id === route.item) ?? null : null;
+  useEffect(() => {
+    if (named) setDivision(named);
+  }, [named?.id]);
 
   const header = (
     <PageHeader

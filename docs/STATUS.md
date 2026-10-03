@@ -8440,6 +8440,50 @@ What changed:
   each call reserves a cent before it runs, and nothing for a model of the
   owner's own.
 
+## 2.131 A role asks the owner for a key, and never sees it (tools research, recommendation 7)
+
+A capability whose key the division did not hold failed with "division
+<id> has no credential aliased crm", and the run could only tell the owner
+so in words, which the owner then had to act on somewhere else. The
+research proposed `credential.request`, after OpenClaw's `secrets`: a
+masked field in the inbox, and an alias for the role.
+
+What changed:
+
+- **`owner.ask` takes a `key`** (`src/broker/platform-capabilities.ts`)
+  rather than a capability of its own: every role has `owner.ask`, and a new
+  tool would have cost each role one of the twelve F2.4 allows. The
+  research's "masked field" is the one the console already has: the card
+  leads to it.
+- **Only a key the division needs.** The name is checked against what its
+  granted capabilities sign in with -- the same answer the console gives
+  under the division's keys (`keysAskedFor`, moved to `src/broker/keys.ts`
+  for both) -- so a run talked into asking for "the AWS key" is refused
+  before the owner sees a card, and told which keys its capabilities do
+  ask for. A key the division holds is not asked for again.
+- **The card leads to where keys are given.** It says **Give the crm key**
+  and opens the division on **Team** with its keys showing (the page now
+  opens a division named in its address); the value is sealed as any key
+  is, declared with what its capabilities need. Saving it -- pasted or
+  signed in -- answers every open question that asked for that key in that
+  division, and the work goes on. The role is told it is there, never what
+  it is.
+- **The failure says how to ask.** A capability with no key now says
+  `this division holds no crm key: ask the owner for it with owner.ask,
+  naming key "crm"`, and so does a mailbox not yet given (2.127).
+- **Tested.** `key-request.test.ts`: the capability's failure says how to
+  ask; the card opened with the key, its division and the capabilities
+  that need it; the key given through the console's route answering the
+  question without its value; the run told it is there and the capability
+  signing in with it; a held key not asked for; a key nothing in the
+  division uses, and a name that is not one, refused with nothing reaching
+  the owner; and in a browser at a phone's width, the card's button
+  opening the division's keys, the key given with the device, and the
+  question answered.
+- **Not done.** A key whose capability signs in with OAuth is signed in
+  for from the same place, which the card leads to, but the card does not
+  start the sign-in itself.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

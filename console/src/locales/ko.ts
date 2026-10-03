@@ -2361,6 +2361,8 @@ export const DICTIONARY: Dictionary = {
   "Ollama, llama.cpp or vLLM, OpenAI-compatible": "Ollama, llama.cpp, vLLM 등 OpenAI 호환 서버",
   "Describe a picture": "이미지 설명하기",
   "Llama 4, very fast and cheap": "Llama 4, 매우 빠르고 저렴",
+  "Give the {alias} key": "{alias} 키 주기",
+  "It is sealed as you save it; the role is told it is there, never what it is.": "저장하는 즉시 봉인돼요. 역할에는 키가 있다는 것만 알려지고, 내용은 절대 알려지지 않아요.",
 };
 
 /** Sentences written as they are in English on purpose: names only. */

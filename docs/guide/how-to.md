@@ -286,6 +286,14 @@ For an escalation that is not a question, such as a stuck division,
 **Answer the agent instead** sends your reply and puts the task back on the
 queue without deciding the item.
 
+A role whose capability needs a key its division does not hold -- a
+mailbox, a CRM's key -- asks for it the same way, naming the key. The item
+then shows **Give the … key**: it opens the division on **Team**, at
+**Keys for services**, where you give it as any key is given, with a code.
+Saving it answers the question and the task goes on; the role is told the
+key is there, never what it is. A role can ask only for a key one of its
+own division's capabilities signs in with.
+
 ## Steer, stop or rerun a task
 
 Open the task from **Work** (or **Open the task** on an inbox item).

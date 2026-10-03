@@ -2388,6 +2388,8 @@ export const DICTIONARY: Dictionary = {
   "Ollama, llama.cpp or vLLM, OpenAI-compatible": "Ollama, llama.cpp hoặc vLLM, tương thích OpenAI",
   "Describe a picture": "Mô tả một hình ảnh",
   "Llama 4, very fast and cheap": "Llama 4, rất nhanh và rẻ",
+  "Give the {alias} key": "Cấp khóa {alias}",
+  "It is sealed as you save it; the role is told it is there, never what it is.": "Khóa được niêm phong ngay khi bạn lưu; vai trò chỉ được biết là đã có khóa, không bao giờ biết khóa là gì.",
 };
 
 /** Sentences written as they are in English on purpose: names only. */

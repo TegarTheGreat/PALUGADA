@@ -54,6 +54,8 @@ export interface InboxItem {
   options: string[] | null;
   /** A question answered at the company's browser: the card opens it, and giving the browser back answers it. */
   browser?: boolean;
+  /** A key a role asked for (owner.ask with key): its card opens the division's keys, and giving it answers this. */
+  key?: { alias: string; divisionId: string; capabilities: string[] };
   goalChain: Array<{ kind: string; statement: string }>;
   /** When an item the owner put off comes back (0060). */
   snoozedUntil: string | null;

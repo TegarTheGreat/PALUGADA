@@ -2383,6 +2383,8 @@ export const DICTIONARY: Dictionary = {
   "Ollama, llama.cpp or vLLM, OpenAI-compatible": "Ollama, llama.cpp หรือ vLLM ที่รองรับ OpenAI",
   "Describe a picture": "อธิบายภาพ",
   "Llama 4, very fast and cheap": "Llama 4 เร็วมากและถูก",
+  "Give the {alias} key": "ให้คีย์ {alias}",
+  "It is sealed as you save it; the role is told it is there, never what it is.": "คีย์จะถูกปิดผนึกทันทีที่บันทึก บทบาทจะรู้เพียงว่ามีคีย์แล้ว ไม่มีวันรู้ว่าคีย์คืออะไร",
 };
 
 /** Sentences written as they are in English on purpose: names only. */

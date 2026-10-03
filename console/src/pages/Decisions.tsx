@@ -27,7 +27,7 @@ import {
 import { useHotkeys, useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import {
-  IconArrowLeft, IconCheck, IconClock, IconClockPause, IconHourglass, IconMessageQuestion, IconRoute, IconTarget, IconWorldWww, IconX,
+  IconArrowLeft, IconCheck, IconClock, IconClockPause, IconHourglass, IconKey, IconMessageQuestion, IconRoute, IconTarget, IconWorldWww, IconX,
 } from '@tabler/icons-react';
 import { api, ApiError, explain, type Proof } from '../api.ts';
 import { useFactor } from '../factor.tsx';
@@ -688,6 +688,16 @@ function Detail({
                   {t('Open the browser')}
                 </Button>
                 <Text size="xs" c="dimmed">{t('Take it over there, do what it asks, and give it back: that answers this.')}</Text>
+              </Stack>
+            )}
+            {/* Asked for a key (owner.ask with key): given in the division's keys, and saving it answers this. */}
+            {item.key && !seat && (
+              <Stack gap={4} mb="sm" align="flex-start">
+                <Button leftSection={<IconKey size={16} />}
+                  onClick={() => go({ kind: 'company', companyId, page: 'team', section: 'company', item: item.key!.divisionId })}>
+                  {t('Give the {alias} key', { alias: item.key.alias })}
+                </Button>
+                <Text size="xs" c="dimmed">{t('It is sealed as you save it; the role is told it is there, never what it is.')}</Text>
               </Stack>
             )}
             {item.options && item.options.length > 0 && (

@@ -111,6 +111,8 @@ export interface InboxItem {
   options: string[] | null;
   /** A question answered at the company's browser (`browser.handover`): its card opens the browser. */
   browser?: boolean;
+  /** A question answered by giving a division a key (`owner.ask` with `key`): its card opens the division's keys. */
+  key?: AskedKey;
   /**
    * What an approval's action was called with, redacted as the payload keeps
    * it: the card lists it, so the owner approves the arguments and not only
@@ -738,6 +740,13 @@ export type AgentQuestion =
  * says so, and the run decides with what it has. Past `QUESTIONS_PER_TASK`
  * a task is being run by the owner a question at a time, and is refused.
  */
+/** The key a role asked for: by its alias, for which division, and the capabilities that sign in with it. */
+export interface AskedKey {
+  alias: string;
+  divisionId: string;
+  capabilities: string[];
+}
+
 export async function askOwner(input: {
   companyId: string;
   taskId: string;
@@ -754,6 +763,11 @@ export async function askOwner(input: {
    * browser back answers it.
    */
   browser?: boolean;
+  /**
+   * A question the owner answers by giving a division a key: the card opens
+   * the division's keys, and saving the key answers it.
+   */
+  key?: AskedKey;
 }): Promise<AgentQuestion> {
   const question = input.question.trim();
   const options = input.options ? input.options.map((option) => String(option ?? '').trim()) : null;
@@ -824,6 +838,7 @@ export async function askOwner(input: {
       consequenceIfDenied: card.consequence,
       payload: {
         askedBy: 'agent', question, role: task.rows[0]!.role, ...(options ? { options } : {}), ...(input.browser ? { browser: true } : {}),
+        ...(input.key ? { key: input.key } : {}),
       },
     });
     // Everything on the card is the run's own words to the owner: the
@@ -1119,6 +1134,7 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
       capability_name: string | null; role_slug: string | null; role_name: string | null; division_name: string | null;
       question: string | null; options: string[] | null; snoozed_until: Date | null; input: unknown;
       allow_for: boolean; asked: Exchange[] | null; asking: string | null; skill_count: number | null; browser: boolean;
+      key: AskedKey | null;
     }>(
       `SELECT i.id, i.kind, i.status, i.title, i.action_summary, i.rationale, i.tier, i.snoozed_until,
               (${ALLOW_FOR_SQL}) AS allow_for,
@@ -1127,6 +1143,7 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->>'question' END AS question,
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'options' END AS options,
               coalesce(i.payload->>'askedBy' = 'agent' AND i.payload->>'browser' = 'true', false) AS browser,
+              CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'key' END AS key,
               CASE WHEN i.kind = 'approval' THEN i.payload->'input' END AS input,
               i.payload->'asked' AS asked,
               CASE WHEN i.decision = 'ask' THEN coalesce(i.owner_note, '') END AS asking,
@@ -1155,6 +1172,7 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
         question: r.question,
         options: r.options,
         ...(r.browser ? { browser: true } : {}),
+        ...(r.key ? { key: r.key } : {}),
         input: r.input ?? null,
         goalChain: chain.map((goal) => ({ kind: goal.kind, statement: goal.statement })),
         snoozedUntil: r.snoozed_until,

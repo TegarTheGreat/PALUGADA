@@ -201,6 +201,12 @@ refer to `docs/PRD.md`.
 - A company's browser holds its sign-ins. A role with `browser.read` can open
   any page those sign-ins reach, at tier 0; what it may change there is
   `browser.act`, at tier 2.
+- A role may ask the owner for a key (`owner.ask` with `key`), and the card
+  leads to where keys are given. It may name only a key one of its own
+  division's capabilities signs in with, and is told when it is there,
+  never its value; a run persuaded to ask for anything else is refused
+  before the owner sees a card. What remains is the owner trusting a
+  convincing card: it says which capabilities the key is for.
 - A division's mailbox key reaches every message in the mailbox, and
   `mailbox.read` is tier 0: a role granted it can read any of them, codes
   a site sent included. What it may send is `email.send`, at tier 2.

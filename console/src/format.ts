@@ -412,6 +412,56 @@ export function haltReason(code: string): string {
   return sentence ? t(sentence) : humanize(code);
 }
 
+/**
+ * What a halt means, and what the owner can do about it (§2.3 item 7). A
+ * task's "Why it stopped" was the platform's own record of it -- "shared
+ * budget exhausted" -- in English whatever the console's language. Work its
+ * run did not do is not here: the run said why, in its own words (N9).
+ */
+const HALT_EXPLAINED: Record<string, string> = {
+  contract_violation: N('What it was given is not in the form its role accepts, so it did not start, and nothing was done or spent.'),
+  policy_denied: N('A policy or a check refused a step it needed. If that step should be allowed, change the policy under Team, Policies, then do it again.'),
+  budget_exhausted: N('Its budget account had nothing left for it to spend.'),
+  hop_limit: N('It was handed from role to role more times than one piece of work may be, so it stopped rather than go on passing it along. Do it again, saying in your note who should do it.'),
+  deadline_passed: N('It did not finish before its deadline. Do it again if it is still wanted.'),
+  verification_failed: N('It wrote something outside and read it back, and what it read did not match. Look at the place it wrote to before you do it again: the write may have happened.'),
+  capability_unhealthy: N('A service it needs failed its check, usually because a credential expired or a quota ran out. Fix it under the division\'s Capability health on Team, then do it again.'),
+  runtime_unavailable: N('Nothing that does this role\'s work could take it. Open the role on Team and read Who does its work, put that right, then do it again.'),
+  cycle_detected: N('It handed work to a role that was already doing the same work above it, which would never end. Do it again, saying in your note what it should do itself.'),
+  fan_out_limit: N('It tried to split its work into more sub-tasks than one task may have. Do it again as a smaller piece of work.'),
+  run_limit: N('One run wrote more than its role allows a run, which is what a run caught in a loop looks like. Do it again as a smaller piece of work.'),
+  approval_expired: N('Your approval was not given in time, so it did not go ahead. Do it again if it is still wanted.'),
+  owner_stop: N('You stopped it.'),
+  owner_cancel: N('You cancelled it, or the work it was started for.'),
+  company_frozen: N('The company was frozen while it worked. Unfreeze it under Settings, then do it again.'),
+  journal_divergence: N('Run again from its record, one of its steps did not match what was recorded, so it stopped rather than guess. Do it again as a new task.'),
+  crash_loop: N('The worker running it stopped three times before it finished, so it was halted rather than take another worker down. What it did is kept. Find out what stopped the worker, then do it again.'),
+};
+
+/**
+ * Why a task stopped: what the owner is told, and the platform's record of
+ * it, kept apart for whoever needs the specifics.
+ */
+export function whyStopped(reason: string | null, detail: unknown): { said: string | null; record: string | null } {
+  const record = typeof detail === 'string' && detail.trim() !== '' ? detail : null;
+  if (reason === 'not_done') return { said: record, record: null };
+  const explained = reason ? HALT_EXPLAINED[reason] : undefined;
+  if (explained) return { said: t(explained), record };
+  return { said: reason ? haltReason(reason) : record, record: reason ? record : null };
+}
+
+/**
+ * The line under an event on a task's timeline. A halt is said by its reason;
+ * what a service or a check said is shown as it said it, since it is the
+ * next thing to fix and cannot be translated.
+ */
+export function eventDetail(payload: Record<string, unknown>): string | null {
+  const reason = payload.haltReason;
+  if (typeof reason === 'string' && reason !== 'not_done') return haltReason(reason);
+  const said = payload.detail ?? payload.error;
+  return typeof said === 'string' ? said : null;
+}
+
 /** Why a task waits, as the owner would say it (`WaitReason` in src/engine/tasks.ts). */
 const WAIT_REASONS: Record<string, string> = {
   child: N('Waiting for work it handed on'),

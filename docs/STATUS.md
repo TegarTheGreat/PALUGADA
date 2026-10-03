@@ -7187,6 +7187,38 @@ What changed:
   is charged to it. Before the change it gave the other account on some
   runs.
 
+## 2.103 Why a task stopped is said in the owner's language, with what to do (§2.3 item 7)
+
+Found by the live run of the analysis of 3 October (§2.3, item 7): a task
+its budget stopped said, under **Why it stopped**, "shared budget exhausted"
+-- the platform's own record of the halt, in English whatever the console's
+language -- and the timeline printed it again, in red, under the event. Every
+halt did the same: "delegation depth 4 exceeds hop_max 3", "an ancestor task
+already runs this role with this input".
+
+What changed:
+
+- **What it means first** (`whyStopped`, `console/src/format.ts`). Every
+  reason a task can stop has a sentence that says what happened and, where
+  the owner can do something, what: "A service it needs failed its check,
+  usually because a credential expired or a quota ran out. Fix it under the
+  division's Capability health on Team, then do it again." The screens and
+  buttons are named as each dictionary already names them. The platform's
+  record is kept under **What the platform recorded**, closed. Work its run
+  did not do still says the run's own reason (N9), and a task stopped by its
+  budget keeps the card that says how to continue it rather than a second
+  box saying the same.
+- **A cancelled task says why too**: your approval not given in time, or the
+  work it was started for cancelled.
+- **The timeline** says a halt by its reason ("Out of budget") and keeps
+  what a service or a check refused with as it put it, since that is the
+  next thing to fix and cannot be translated (`eventDetail`).
+- **Tested.** `console-halts.test.ts` reads every `HaltReason` in
+  `src/domain/task.ts` and refuses one without an explanation, runs the
+  console's formatting in Indonesian to see the record kept apart from what
+  is said, and refuses a timeline that prints the record; every sentence is
+  in the 20 dictionaries (`console-i18n.test.ts`).
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

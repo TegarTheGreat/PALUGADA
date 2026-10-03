@@ -22,7 +22,9 @@ import { api, explain } from '../api.ts';
 import { useLoad, useNow } from '../hooks.ts';
 import { go } from '../router.ts';
 import type { Deliverable, DoneReportEntry, Structure, TaskDetail, Trace, WorkGroup, WorkItem } from '../types.ts';
-import { actorSaid, capabilitySaid, dateTime, eventSentence, haltReason, money, relative, stepSaid, time, waitingFor } from '../format.ts';
+import {
+  actorSaid, capabilitySaid, dateTime, eventDetail, eventSentence, haltReason, money, relative, stepSaid, time, waitingFor, whyStopped,
+} from '../format.ts';
 import { t } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
 import { EmptyState, LoadFailed, Loading, PageHeader, StatusBadge } from '../components/ui.tsx';
@@ -313,10 +315,16 @@ export function TaskDrawer({ companyId, task, close, changed, openTask }: {
 
   // Why it stopped, or -- for work its run said it did not do (N9) -- the
   // run's own reason, which is what the owner needs to decide what next.
+  // What it means comes first, in the owner's language; the platform's record
+  // of it is kept below, closed, for whoever needs the specifics (§2.3 item 7).
   const notDone = task?.status === 'failed' && task.haltReason === 'not_done';
-  const ending = task?.status === 'halted' ? 'task.halted' : notDone ? 'task.failed' : null;
+  const ending = task?.status === 'halted' ? 'task.halted'
+    : task?.status === 'cancelled' && task.haltReason ? 'task.cancelled'
+      : notDone ? 'task.failed' : null;
   const halted = ending ? events.data?.findLast((event) => event.type === ending) : undefined;
-  const haltDetail = typeof halted?.payload.detail === 'string' ? halted.payload.detail : null;
+  const why = ending ? whyStopped(task!.haltReason ?? null, halted?.payload.detail) : null;
+  // Out of budget has its own card below, which says what to do and does it.
+  const outOfBudget = task?.status === 'halted' && task.haltReason === 'budget_exhausted';
 
   return (
     <Drawer opened={task !== null} onClose={() => { setReplay(null); close(); }} position="right" size="lg" title={<Text fw={700}>{t('Task')}</Text>}>
@@ -324,9 +332,15 @@ export function TaskDrawer({ companyId, task, close, changed, openTask }: {
         <Stack gap="lg">
           <div>
             <Group gap="xs" mb={6}><StatusBadge status={task.status} />{task.haltReason && <Badge color="red" variant="light">{haltReason(task.haltReason)}</Badge>}</Group>
-            {haltDetail && (
+            {why?.said && !outOfBudget && (
               <Alert color={notDone ? 'orange' : 'red'} variant="light" mb="sm" title={notDone ? t('Why it was not done') : t('Why it stopped')}>
-                {haltDetail}
+                {why.said}
+                {why.record && (
+                  <details style={{ marginTop: 8 }}>
+                    <summary><Text span size="xs" c="dimmed">{t('What the platform recorded')}</Text></summary>
+                    <Text size="xs" c="dimmed" mt={4} style={{ whiteSpace: 'pre-wrap' }}>{why.record}</Text>
+                  </details>
+                )}
               </Alert>
             )}
             <Text fw={700} size="lg">{task.summary}</Text>
@@ -370,9 +384,9 @@ export function TaskDrawer({ companyId, task, close, changed, openTask }: {
                     </Group>}
                     color={/refused|denied|failed|halt/.test(event.type) ? 'red' : 'blue'}>
                     <Text size="xs" c="dimmed">{actorSaid(event.actor)} · {dateTime(event.occurredAt)}</Text>
-                    {/* Why it halted or failed, as whatever refused put it: the next thing to change. */}
-                    {typeof (event.payload.detail ?? event.payload.error) === 'string' && (
-                      <Text size="xs" c="red.7" mt={2} style={{ whiteSpace: 'pre-wrap' }}>{String(event.payload.detail ?? event.payload.error)}</Text>
+                    {/* Why it halted, by its reason; what a service or a check refused with, as it put it. */}
+                    {eventDetail(event.payload) && (
+                      <Text size="xs" c="red.7" mt={2} style={{ whiteSpace: 'pre-wrap' }}>{eventDetail(event.payload)}</Text>
                     )}
                   </Timeline.Item>
                 ))}

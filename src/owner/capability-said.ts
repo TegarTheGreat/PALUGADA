@@ -14,6 +14,8 @@ import { say } from './say.ts';
 export function capabilitySaid(language: string | null | undefined, name: string): string {
   const said: Record<string, () => string> = {
     'ads.campaign.start': () => say(language, 'Start an ad campaign'),
+    'browser.act': () => say(language, 'Fill in a page in the browser'),
+    'browser.read': () => say(language, 'Read a page in the browser'),
     'calendar.hold': () => say(language, 'Block time on the calendar'),
     'calendar.read': () => say(language, 'Read the calendar'),
     'chat.read': () => say(language, 'Read a customer conversation'),

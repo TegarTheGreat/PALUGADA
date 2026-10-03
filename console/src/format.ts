@@ -352,6 +352,8 @@ export function stepSaid(name: string): string {
  */
 const CAPABILITY_NAMES: Record<string, string> = {
   'ads.campaign.start': N('Start an ad campaign'),
+  'browser.act': N('Fill in a page in the browser'),
+  'browser.read': N('Read a page in the browser'),
   'calendar.hold': N('Block time on the calendar'),
   'calendar.read': N('Read the calendar'),
   'chat.read': N('Read a customer conversation'),

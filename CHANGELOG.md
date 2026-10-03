@@ -300,6 +300,13 @@ The first version. What it holds, in the order an owner meets it.
   servers and password: new mail is read about once a minute, auto-replies,
   bounces and lists start nothing, and a reply goes out from the same
   address in the customer's thread after your yes (STATUS 2.119).
+- Each company has a browser of its own, for the sites with no API: a
+  role granted **Read a page in the browser** reads pages as a person sees
+  them, and **Fill in a page in the browser** fills in a form after your
+  yes, with each field, choice and button on the card. Sign-ins are kept
+  sealed for later work, every request goes through PALUGADA's own checks,
+  and a role never types a password. It needs a Chromium on the machine
+  (STATUS 2.121).
 - **Replay against the journal** is shown only for a task this deployment
   can replay. It was offered on every task and refused on every task a
   model or an agent CLI ran (STATUS 2.87).

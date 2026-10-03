@@ -34,6 +34,7 @@ import { PalugadaError } from '../errors.ts';
 import { CREDENTIAL_SECRETS } from '../secrets/manager.ts';
 import { removeCompanyFiles } from '../capabilities/files.ts';
 import type { CharterRepository } from './charter-repository.ts';
+import { browserSecretName } from '../browser/cookies.ts';
 
 /** How long a closing company waits, in days: at least a week to notice a mistake, at most a quarter. */
 export const CLOSING_GRACE_DAYS = { least: 7, most: 90 } as const;
@@ -229,6 +230,9 @@ async function eraseCompany(companyId: string): Promise<Erasure | null> {
     const sealed = held.map((row) => row.secret_ref)
       .filter((reference) => reference.startsWith(`db://${CREDENTIAL_SECRETS}`) || reference.startsWith('db://chat-'))
       .map((reference) => reference.slice('db://'.length));
+    // And its browser's cookies, sealed under a name made from its id: a
+    // sign-in to every site its work used (src/browser/cookies.ts).
+    sealed.push(browserSecretName(companyId));
 
     const { rows: line } = await tx.query<{ erased_at: Date }>(
       `INSERT INTO company_erasures (company_id, slug, name, closed_at, counts)

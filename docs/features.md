@@ -241,6 +241,11 @@ freeze, raise a ceiling, rewrite what a model call cost, or delete history.
   they chose (a second, written before anyone picked the first up, joins
   it), what the customer wrote is data, and every reply is a tier 2 card
   the owner -- or an approver -- answers with the conversation beside it.
+- Each company has a browser of its own, for sites with no API: a role reads
+  pages as a person sees them and fills in a form only after the owner's
+  yes, with every field and button on the card; sign-ins are sealed between
+  uses, and every request the browser makes goes through the platform's own
+  address checks.
 - A company has a stage -- explore, validate, build, launch, grow, wind down
   -- that the owner sets and policies read: no paid reach before launch is a
   rule, not a hope. The strategist proposes a move with the evidence; the
@@ -294,6 +299,7 @@ src/
   owner/        console API, sign-in, second factor, push, Telegram
   inbox/        approvals, incidents, escalations
   chats/        customers' conversations, and the Telegram, WhatsApp and mailbox transports
+  browser/      each company's browser: Chromium on a pipe, its proxy, its sealed cookies
   scheduler/    cron, windows, wake queue
   memory/       scoped memory and distillation
   skills/  eval/  bundles/  gateway/  governance/  policy/  review/

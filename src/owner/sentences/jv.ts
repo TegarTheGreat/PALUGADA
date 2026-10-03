@@ -305,4 +305,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'I am {ceo}, and I run {company} for you. Three things before we start: what does {company} sell, and to whom? How much may it spend in a month? And what should its first piece of work be -- or shall I suggest one?': 'Kula {ceo}, ingkang nglampahaken {company} kagem panjenengan. Tigang prekawis rumiyin saderengipun kita wiwit: {company} sade punapa, saha dhateng sinten? Pinten wragad ingkang kenging dipunginakaken ing sawulan? Lan punapa pakaryanipun ingkang sepisanan — utawi kula ingkang ngaturaken usul?',
   'Read a customer conversation': 'Waos obrolan pelanggan',
   'Reply to a customer': 'Wangsuli pelanggan',
+  'Read a page in the browser': 'Maca kaca ing browser',
+  'Fill in a page in the browser': 'Ngisi kaca ing browser',
 };

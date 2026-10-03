@@ -7907,6 +7907,92 @@ What changed:
   release workflow has not run on GitHub, so the first tag is also its
   first test.
 
+## 2.121 Each company has a browser of its own (§9 P2)
+
+Recommended by the analysis of 3 October (§9 P2 item 20, "a live browser
+that can be taken over, for marketplace seller centres and government
+portals") and the tools research of the same day (§6 item 2:
+`browser.read` at tier 0 and `browser.act` at tier 2, on Chromium); the
+owner chose it with releases. A small company in Indonesia runs on sites
+with no API it can get -- Shopee's and Tokopedia's seller centres, Coretax,
+OSS -- and a role could reach a browser only through an MCP server whose
+every click was tier 3, set by hand. This is the first half: the browser
+and what a role does with it. Watching it live and taking it over is the
+next.
+
+What changed:
+
+- **`browser.read`** (tier 0, outside content) opens a page, or follows a
+  link from the last reading in the same tab, and returns it as a person
+  sees it: its text without what is hidden (cut at 12,000 characters, and
+  saying so), and up to 150 links, buttons, fields, lists and boxes, each
+  with a ref, its kind, its name as a screen reader would give it, a
+  field's value (never a password's), a list's options, a box's state.
+- **`browser.act`** (tier 2, calibrated like `email.send`) does steps on
+  that page -- type, choose, tick, untick, click, press -- and reads it
+  again. Each act is a card: the work read a page, so F8.9 asks the owner,
+  and the card says each step in symbols that read the same in every
+  language, `Nama: "Sari"; Kota → Bandung; ☑ Setuju; ▸ Kirim`, from a new
+  `summarize()` a capability may give the broker where its arguments
+  listed one by one would not say it. Before anything is done, the tab
+  must still be on the page the steps were written for and each element
+  must be the one the step names; a step refused after others were done
+  stops there and the read-back counts the act as not done (F8.4). A
+  dialog is answered no unless the card said yes (`✓ OK`), a page's window
+  is closed, nothing is downloaded or uploaded, and a role never types a
+  password.
+- **One Chromium, on a pipe** (`src/browser/cdp.ts`): started when a role
+  first needs it and closed after ten minutes unused, driven over
+  `--remote-debugging-pipe` so no other process on the machine can reach
+  it, with Chromium's background calls switched off -- updates, Google's
+  suggestions, Chromium 141's check of its AI search mode, each seen
+  through the proxy until it was. Its sandbox is on unless the deployment
+  says `PALUGADA_BROWSER_SANDBOX=off`, which every boot repeats.
+- **Every request through the platform's proxy** (`egress.ts`), under the
+  rules `web.fetch` is held to (F12.9): a page's pictures, scripts,
+  fetches and redirects, not only the address a role named, with no
+  exception for loopback and with Chromium resolving no name itself, so a
+  name is checked where it is resolved and connected to as checked. A page
+  refused is said with its reason, not Chromium's error.
+- **One context per company** -- cookies, storage and cache of its own --
+  with a tab for each piece of work, four companies open at once and the
+  least lately used closed for a fifth; a page's script runs in a world of
+  its own, so the page cannot change what it reads.
+- **Sign-ins kept sealed** (`cookies.ts`): a company's cookies are sealed
+  under the master key after each use, as `browser-<company>`, which no
+  division's credential may name; they come back for the next task, after
+  a restart, on any replica, session cookies included. Not handed to the
+  redactor, which would hold every version for the life of the process;
+  written only while the company is there and not closing, so a browser
+  closing after an erasure cannot seal them again; and erased with the
+  company.
+- **The company's language and time zone** are what sites are told:
+  `Accept-Language`, the locale and the clock.
+- **Tested.** `browser.test.ts`, against a real Chromium and a seller centre
+  written for the test on 127.0.0.1 beside a secret on 127.0.0.2: a page is
+  read with its links and refs and without its hidden text, and the read
+  taints the work; a link that asks for a new tab is followed in the same
+  one, and a ref from an earlier page is refused; the page's picture and
+  fetch to the secret, the metadata address, `file:` and a redirect inside
+  are all refused, and the secret is never reached (the test fails with
+  loopback left to Chromium's own exception); a long page is cut and says
+  so. A form's act asks the owner with its steps on the card, sends
+  nothing before the yes, then types over what was in the field, chooses,
+  ticks and submits, reads the answer and is verified; acting again on the
+  answer page, on another page, with a name that is not the element's or
+  an option it does not have is refused with nothing sent; a confirm is
+  answered no, and yes when the act said so. A sign-in survives the
+  browser closing, is another company's in no way, is sealed without its
+  value in the clear, comes back after its company's browser was closed
+  for another's, and is not kept for a company that is closing.
+  `company-closing.test.ts`: an erasure deletes the company's cookies and
+  no other's (it fails without that line).
+- **Not done**: the owner watching the browser and taking it over to sign
+  in, which is the next section; frames, and lists a page draws itself
+  rather than as a `<select>` (clicked open instead); a page's local
+  storage, which a few sites keep a sign-in in; a browser shared between
+  replicas, which each have their own Chromium and the same sealed cookies.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the
@@ -7949,12 +8035,13 @@ is a real Daytona or Modal machine answering; the `http` runtime also reports
 this backend, because "somewhere else, not ours" is what it means in F13.5's
 vocabulary, and it cannot verify the claim.
 
-**Thirty-four of the forty-six catalogued capabilities are unbound on a bare
-boot, and that is the design rather than a gap.** The boot names every one.
-Eight need configuration, not an account: `files.list`, `doc.draft` and
-`email.draft` a files root and a model, and `web.search`, `web.extract`,
-`image.generate`, `speech.synthesize` and `speech.transcribe` a provider chosen
-under **Tools**. The other twenty-six need a deployment's own vendor entry,
+**Thirty-eight of the fifty-one catalogued capabilities are unbound on a bare
+boot -- thirty-six on a machine with a Chromium -- and that is the design
+rather than a gap.** The boot names every one. Ten need configuration, not an
+account: `files.list`, `doc.draft` and `email.draft` a files root and a model;
+`web.search`, `web.extract`, `image.generate`, `speech.synthesize` and
+`speech.transcribe` a provider chosen under **Tools**; and `browser.read` and
+`browser.act` a Chromium. The other twenty-eight need a deployment's own vendor entry,
 six of which `config/vendors.example.json` shows. `dns.read`, `email.send`,
 `invoice.pay` and the rest are *names* in the catalogue: a tier, a schema, the
 scopes a credential must declare, and a `verify()` contract. What executes them

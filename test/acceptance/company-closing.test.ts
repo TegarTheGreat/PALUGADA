@@ -43,6 +43,7 @@ import { Engine } from '../../src/engine/engine.ts';
 import { Worker } from '../../src/worker.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { CapabilityRegistry } from '../../src/broker/registry.ts';
+import { browserSecretName } from '../../src/browser/cookies.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
@@ -61,8 +62,8 @@ function chatSecretOf(secret: string, which: 'token' | 'app' = 'token'): string 
 
 /**
  * Some of everything a company keeps: work, history, a memory, a key its
- * division holds, a sign-in under way, and a customer's conversation on a bot
- * whose token is sealed.
+ * division holds, a sign-in under way, a customer's conversation on a bot
+ * whose token is sealed, and its browser's sealed cookies.
  */
 async function lived(fixture: Fixture, secret: string): Promise<void> {
   await createRootTask({
@@ -83,7 +84,8 @@ async function lived(fixture: Fixture, secret: string): Promise<void> {
       [fixture.companyId, fixture.divisionId, `db://${secret}`]);
   });
   await withControlPlane(async (tx) => {
-    for (const name of [secret, chatSecretOf(secret), chatSecretOf(secret, 'app')]) {
+    // Its browser's cookies too, sealed under a name made from its id.
+    for (const name of [secret, chatSecretOf(secret), chatSecretOf(secret, 'app'), browserSecretName(fixture.companyId)]) {
       await tx.query(
         "INSERT INTO deployment_secrets (name, nonce, ciphertext, tag, key_id) VALUES ($1, decode(repeat('00', 12), 'hex'), '\\x00', decode(repeat('00', 16), 'hex'), 'test')",
         [name]);
@@ -222,6 +224,10 @@ test('a closed company is frozen at once, and every row of it is erased when its
     "SELECT name FROM deployment_secrets WHERE name LIKE 'chat-%' ORDER BY name"));
   assert.deepEqual(bots.rows.map((row) => row.name),
     [chatSecretOf('credential-crm-staying'), chatSecretOf('credential-crm-staying', 'app')].sort(), 'and its channel\'s keys, and only its');
+  const signedIn = await withControlPlane((tx) => tx.query<{ name: string }>(
+    "SELECT name FROM deployment_secrets WHERE name LIKE 'browser-%' ORDER BY name"));
+  assert.deepEqual(signedIn.rows.map((row) => row.name), [browserSecretName(staying.companyId)],
+    'and its browser\'s sign-ins, and only its');
 
   // What is kept: that it was, when it closed and went, and how much went.
   const kept = await withControlPlane((tx) => tx.query<{ name: string; counts: Record<string, number> }>(

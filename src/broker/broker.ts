@@ -154,7 +154,11 @@ const SUMMARY_LIMIT = 240;
  * allows -- a long text cut, a list joined -- and the whole input travels
  * with the item for the console to list.
  */
-function describeAction(name: string, input: unknown, limit: number): string {
+function describeAction(name: string, input: unknown, limit: number, summarize?: (input: never) => string): string {
+  if (summarize && input && typeof input === 'object') {
+    const line = `${name}: ${summarize(input as never).replace(/\s+/g, ' ').trim()}`;
+    return line.length > limit ? `${line.slice(0, limit - 1).trimEnd()}\u2026` : line;
+  }
   if (!input || typeof input !== 'object' || Array.isArray(input)) return name;
   let line = `${name}:`;
   let first = true;
@@ -653,7 +657,7 @@ export class CapabilityBroker {
         const shown = redactor.redactDeep(input) as unknown;
         const verdict = await holding(() => this.#guardian!.judge({
           companyId: ctx.companyId, projectId: ctx.projectId, taskId: ctx.taskId,
-          capability: name, tier, summary: describeAction(name, shown, SUMMARY_LIMIT), input: shown,
+          capability: name, tier, summary: describeAction(name, shown, SUMMARY_LIMIT, capability.summarize), input: shown,
         }));
         if (verdict.ask) guardianAsks = verdict.reason;
         // Stopped while the guardian was looking: the call is not made on
@@ -707,8 +711,8 @@ export class CapabilityBroker {
         taskId: ctx.taskId,
         capabilityName: name,
         tier,
-        title: describeAction(name, shown, TITLE_LIMIT),
-        actionSummary: describeAction(name, shown, SUMMARY_LIMIT),
+        title: describeAction(name, shown, TITLE_LIMIT, capability.summarize),
+        actionSummary: describeAction(name, shown, SUMMARY_LIMIT, capability.summarize),
         rationale: said.rationale,
         consequenceIfDenied: said.consequence,
         estimatedCostCents: capability.estimatedCostCents ?? 0,

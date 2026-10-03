@@ -306,4 +306,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'I am {ceo}, and I run {company} for you. Three things before we start: what does {company} sell, and to whom? How much may it spend in a month? And what should its first piece of work be -- or shall I suggest one?': '我是 {ceo}，替您打理 {company}。开始之前有三件事：{company} 卖什么、卖给谁？每个月可以花多少钱？第一项工作应该是什么——还是由我来建议一项？',
   'Read a customer conversation': '阅读与客户的对话',
   'Reply to a customer': '回复客户',
+  'Read a page in the browser': '在浏览器中读取网页',
+  'Fill in a page in the browser': '在浏览器中填写网页',
 };

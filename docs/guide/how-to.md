@@ -611,8 +611,45 @@ that used it asks you before its next tier 2 action.
 
 ## Give roles a browser
 
-A role that must use a website -- sign in to a supplier's portal, fill a
-form -- needs a browser, not a page reader. It comes from an MCP server:
+A role that must use a website with no API you can get -- a marketplace's
+seller centre, a tax or licensing portal, a supplier's ordering page --
+needs a browser, not a page reader. Each company has one of its own.
+
+1. **A Chromium on the machine.** PALUGADA finds one where a package
+   manager puts it (`apt install chromium` on Debian and Ubuntu), or uses
+   the one `PALUGADA_CHROMIUM` names. The boot says which, or that there
+   is none ([configuration](../configuration.md)).
+2. **Grant it.** On **Team**, **Divisions & roles**, open the division and
+   use **Change a grant**: `browser.read` at tier 0, and `browser.act` at
+   tier 2 if its roles should fill in forms. Add both to the role's
+   **Tools**.
+3. **Give it work** that names the site: "Check today's orders on the
+   seller centre at https://seller.example.co.id and list the unpaid ones".
+
+What the role does, you can follow:
+
+- **Reading a page** (*Read a page in the browser*) opens it, or follows a
+  link from the last page, and reads its text and every link, button,
+  field, list and box on it. Nothing it reads is acted on without you: a
+  page is somebody else's words.
+- **Filling in a page** (*Fill in a page in the browser*) is a card in your
+  inbox for every form, with each step on it: `Nama: "Sari"` is what goes
+  in the field called Nama, `Kota → Bandung` a choice, `☑ Setuju` a box
+  ticked, `▸ Kirim` the button pressed, and `✓ OK` that the page's "Are you
+  sure?" is answered yes. Approve, and the steps are done on the page the
+  role read -- if it has changed, or an element is not the one named,
+  nothing is done.
+- **Signing in** is yours: a role never types a password. The company's
+  browser keeps what a site sets when someone signs in (its cookies),
+  sealed like any secret, for every later task, across restarts.
+  Closing the company deletes them.
+
+Every request the browser makes goes through PALUGADA, under the same rules
+as `web.fetch`: nothing on this machine's network or the cloud's metadata
+service is reached, whatever a page links to or a role names. An internal
+site you want reachable is named in `PALUGADA_ALLOW_PRIVATE_HOSTS`.
+
+**Or a browser from an MCP server**, where the platform's is not wanted:
 
 - **Playwright**, on a machine of yours. Run
   `npx @playwright/mcp@0.0.82 --port 8931 --headless` where this deployment
@@ -626,12 +663,9 @@ form -- needs a browser, not a page reader. It comes from an MCP server:
 Each of a task's calls to the server share one session, so the page a role
 opened is still open for its next step, and for the read-back that checks
 it. The session ends when the task has been quiet for five minutes.
-
 Playwright says that navigating, clicking and typing are destructive, so
 each is tier 3 and asks you every time; reading the page
-(`browser_snapshot`) only reads, and can be tier 0. That is the price of a
-browser that can do anything a person can. To read pages without asking,
-use **Reading pages** under **Tools** instead.
+(`browser_snapshot`) only reads, and can be tier 0.
 
 ## Let roles search the web
 

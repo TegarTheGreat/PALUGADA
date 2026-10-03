@@ -114,6 +114,9 @@ import { fileURLToPath } from 'node:url';
 import { consoleLinkFor, consoleTaskLinkFor } from './owner/notify.ts';
 import { metricsText } from './reporting/metrics.ts';
 import { guardProcess } from './process-guard.ts';
+import { Browsers } from './browser/browsers.ts';
+import { findChromium } from './browser/chromium.ts';
+import { sealedCookies } from './browser/cookies.ts';
 
 export interface DeploymentOptions {
   /**
@@ -742,12 +745,30 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   // will have.
   // A mail server with a private certificate, which a company's mailbox may be on.
   const mailCa = env.PALUGADA_MAIL_CA ? await readFile(env.PALUGADA_MAIL_CA, 'utf8') : undefined;
+  const reachable = env.PALUGADA_ALLOW_PRIVATE_HOSTS
+    ? { allowPrivateHosts: env.PALUGADA_ALLOW_PRIVATE_HOSTS.split(',').map((h) => h.trim()) }
+    : {};
+  // The companies' browsers (§9 P2 item 20), with the Chromium this machine
+  // has or PALUGADA_CHROMIUM names; PALUGADA_BROWSER=off leaves them unbound.
+  // Started only when a role first opens a page.
+  const chromium = env.PALUGADA_BROWSER === 'off' ? null : findChromium(env);
+  const browsers = chromium
+    ? new Browsers({
+      executable: chromium,
+      sandbox: env.PALUGADA_BROWSER_SANDBOX !== 'off',
+      reachable,
+      cookies: sealedCookies({ master: () => master(true), previous: () => previousKeys }),
+    })
+    : null;
+  if (!browsers) {
+    notes.push(env.PALUGADA_BROWSER === 'off'
+      ? 'browser.read and browser.act are unbound: PALUGADA_BROWSER is off'
+      : 'browser.read and browser.act are unbound: no Chromium was found; install it, or set PALUGADA_CHROMIUM to one (F8)');
+  } else if (env.PALUGADA_BROWSER_SANDBOX === 'off') {
+    notes.push(`the browser at ${chromium} runs without its sandbox (PALUGADA_BROWSER_SANDBOX=off): a page that breaks out of Chromium's renderer reaches this process's user`);
+  }
   const bound = await registerPlatformCapabilities(registry, {
-    web: {
-      ...(env.PALUGADA_ALLOW_PRIVATE_HOSTS
-        ? { allowPrivateHosts: env.PALUGADA_ALLOW_PRIVATE_HOSTS.split(',').map((h) => h.trim()) }
-        : {}),
-    },
+    web: reachable,
     // Parenthesised: `??` binds tighter than `?:` here only by accident of
     // reading, and a root that silently did not reach the capability would
     // leave `files.list` unbound while the note said otherwise.
@@ -767,6 +788,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
       ...(env.PALUGADA_WHATSAPP_API ? { whatsapp: { apiBase: env.PALUGADA_WHATSAPP_API } } : {}),
       ...(mailCa ? { mail: { ca: mailCa } } : {}),
     },
+    ...(browsers ? { browser: browsers } : {}),
   });
   notes.push(...toolBindings.notes);
   // A search for a role's documents reaches the provider through this: the
@@ -1167,8 +1189,10 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
         clearTimeout(answered);
       }
       // Last, once no run can open another: a server holding a session for
-      // a task -- a browser, say -- is told it is over.
+      // a task -- a browser, say -- is told it is over, and the companies'
+      // own browsers seal their cookies and close.
       await closeMcpSessions();
+      await browsers?.close();
     },
   };
 }

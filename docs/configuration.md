@@ -140,7 +140,9 @@ A secret the owner saved is named like any other, as a reference:
 | `PALUGADA_ALLOWED_HOSTS` | The host names the console answers to, comma-separated. Defaults to the hosts of the public URL and origins. Loopback is always allowed |
 | `PALUGADA_BEHIND_PROXY` | `1` when the console is reached through a reverse proxy: the caller's address, which the sign-in throttle counts by, is then the last one the proxy added to `X-Forwarded-For`. Leave it unset otherwise, since without a proxy that header is whatever the caller wrote |
 | `PALUGADA_RP_ID`, `PALUGADA_ORIGIN` | Where passkeys are made and used: the relying party a device signs for, and the address the console is opened at. Each defaults to `PALUGADA_APP_URL_PUBLIC` (its host name, and its origin); set one only when it differs, such as `PALUGADA_RP_ID=example.com` for a passkey that works across a domain. Without either and without a public URL, passkeys cannot be made, and the owner signs in and approves with an authenticator code. A browser offers passkeys only over HTTPS, or on `localhost` |
-| `PALUGADA_ALLOW_PRIVATE_HOSTS` | An internal host that `web.fetch` may reach |
+| `PALUGADA_ALLOW_PRIVATE_HOSTS` | An internal host that `web.fetch` and the companies' browsers may reach |
+| `PALUGADA_CHROMIUM` | The Chromium (or Chrome) the companies' browsers run on, for `browser.read` and `browser.act`. Without it, one is looked for where a package manager or Playwright puts it; with none, both are unbound and the boot says so. `PALUGADA_BROWSER=off` leaves them unbound however one is found |
+| `PALUGADA_BROWSER_SANDBOX` | `off` runs Chromium without its own sandbox, which needs user namespaces: as root, or in a container that is not given them, it will not start otherwise. Off, a page that breaks out of Chromium's renderer reaches this process's user, so it is said at every boot |
 
 **Runtimes.** A role's work is done by the runtime it names. With a model
 key, the in-process runtime runs every role that has no handler of its own:

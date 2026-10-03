@@ -111,8 +111,9 @@ refer to `docs/PRD.md`.
 
 **Reach.** What a `readsOutside` capability returns (`src/broker/catalogue.ts`:
 `web.fetch`, `web.search`, `web.extract`, `repo.read`, `mailbox.read`,
-`calendar.read`, `crm.read`, `speech.transcribe`; every MCP tool,
-`src/capabilities/mcp.ts`; `ticket.list`), and any task a hook starts.
+`calendar.read`, `crm.read`, `speech.transcribe`, `chat.read`,
+`browser.read`, `browser.act`; every MCP tool, `src/capabilities/mcp.ts`;
+`ticket.list`), and any task a hook starts.
 
 **Defences, in order.**
 
@@ -152,7 +153,15 @@ refer to `docs/PRD.md`.
    (0071, `keepLessons` in `src/engine/tasks.ts`).
 7. `web.fetch`, vendor and MCP calls refuse private and metadata addresses,
    re-check redirects, and connect to the address they checked
-   (`src/capabilities/reachable.ts`).
+   (`src/capabilities/reachable.ts`). A company's browser does the same for
+   every request a page makes -- pictures, scripts, redirects -- through the
+   platform's proxy (`src/browser/egress.ts`), with Chromium resolving no
+   name itself and no exception for loopback.
+7a. A browser act does only what its card shows: on the page the role read,
+   to the elements it named, each checked by its name before anything is
+   done; a dialog is answered no unless the card said yes; a role never
+   types a password (`src/browser/browsers.ts`). The page script runs in a
+   world of its own, so a page's scripts cannot change what it reads.
 8. The console renders agent text as text. The owner's assistant only proposes
    cards the owner applies (`src/owner/assistant.ts`).
 
@@ -170,6 +179,11 @@ refer to `docs/PRD.md`.
   yet, so a parent asks a little more often than it strictly must.
 - Tier 1 actions can combine into a larger effect; the PRD names this, and the
   per-effect tier is the only answer.
+- A page can label its own buttons as it likes: a button that says "Batal"
+  and submits is clicked as "Batal". The card shows the page's own words.
+- A company's browser holds its sign-ins. A role with `browser.read` can open
+  any page those sign-ins reach, at tier 0; what it may change there is
+  `browser.act`, at tier 2.
 
 ### 2.3 A compromised or misbehaving runtime
 
@@ -262,6 +276,10 @@ refer to `docs/PRD.md`.
 3. The application role holds only the grants its code uses (0047).
 4. References between tenant tables are keys on `(company_id, id)` (0048).
 5. A factor enrolled for one company answers only there (`OwnerMfa.enrolled`).
+6. Each company's browser is a context of its own in Chromium -- its own
+   cookies, storage and cache -- and its cookies are sealed under a name made
+   from its id (`src/browser/`). One company's work never has a tab in
+   another's.
 
 **Residual risk.** The company is a setting the application role can set for
 itself: row level security stops a wrong query in platform code, not someone
@@ -384,6 +402,11 @@ authority below tier 3.
 
 ## 3. Out of scope, or not defended
 
+- Chromium itself. Its sandbox is on unless the operator turns it off
+  (`PALUGADA_BROWSER_SANDBOX=off`, said at every boot); with it off, a page
+  that breaks out of the renderer runs as the platform's user, with what
+  that user can read.
+
 - A compromised host, kernel, container runtime or Node process.
 - An operator with the database superuser or schema owner: they can drop the
   triggers, and the event log is not hash-chained, so a rewrite leaves no mark.
@@ -432,4 +455,5 @@ All under `test/acceptance/` unless named.
 | The guardian: judged only after outside content, only tightens, fails closed | `guardian.test.ts` |
 | Taint through sub-tasks, searches and briefings | `tool-io.test.ts` |
 | A division's credential is not the deployment's secret | `credentials.test.ts` |
+| The browser: every request through the proxy, one context per company, cookies sealed and erased, acts only as approved | `browser.test.ts`, `company-closing.test.ts` |
 | Health page says whether, not why | `operability.test.ts` |

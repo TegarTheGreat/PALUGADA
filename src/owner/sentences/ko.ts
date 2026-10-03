@@ -305,4 +305,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'I am {ceo}, and I run {company} for you. Three things before we start: what does {company} sell, and to whom? How much may it spend in a month? And what should its first piece of work be -- or shall I suggest one?': '저는 {ceo}(이)에요. 제가 {company}을(를) 맡아 운영할게요. 시작하기 전에 세 가지만 여쭤볼게요. {company}은(는) 무엇을 누구에게 파나요? 한 달에 얼마까지 쓸 수 있나요? 그리고 첫 번째 일은 무엇으로 할까요? 아니면 제가 하나 제안할까요?',
   'Read a customer conversation': '고객 대화 읽기',
   'Reply to a customer': '고객에게 답장하기',
+  'Read a page in the browser': '브라우저에서 페이지 읽기',
+  'Fill in a page in the browser': '브라우저에서 페이지 작성하기',
 };

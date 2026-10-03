@@ -303,4 +303,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'I am {ceo}, and I run {company} for you. Three things before we start: what does {company} sell, and to whom? How much may it spend in a month? And what should its first piece of work be -- or shall I suggest one?': '{ceo} です。あなたに代わって {company} を運営します。始める前に 3 つ教えてください。{company} は何を誰に売りますか？ひと月にいくらまで使ってよいですか？そして、最初の仕事は何にしますか？それとも私から提案しましょうか？',
   'Read a customer conversation': '顧客との会話を読む',
   'Reply to a customer': '顧客に返信する',
+  'Read a page in the browser': 'ブラウザでページを読む',
+  'Fill in a page in the browser': 'ブラウザでページに入力する',
 };

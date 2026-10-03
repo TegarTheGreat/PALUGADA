@@ -142,6 +142,44 @@ export async function putSecret(
   redactor.register(value);
 }
 
+/**
+ * Seals what a company's own machinery keeps between uses -- its browser's
+ * cookies (`src/browser/cookies.ts`) -- under the same key as every secret,
+ * with two differences. It is written only while the company is there and
+ * not closing, looked at in the same transaction, so a browser closing
+ * after the company was erased does not seal its cookies again under a name
+ * nothing would delete. And it is not handed to the redactor: it changes on
+ * almost every page, and every value registered there is held, and looked
+ * for in every line logged, for the life of the process. It goes from the
+ * browser to the seal and back, through nothing that is logged.
+ *
+ * Answers whether it was kept.
+ */
+export async function sealForCompany(name: string, value: string, master: MasterKey, companyId: string): Promise<boolean> {
+  assertSecretName(name);
+  const { nonce, ciphertext, tag } = seal(name, value, master);
+  return withControlPlane(async (tx) => {
+    const { rows } = await tx.query('SELECT 1 FROM companies WHERE id = $1 AND closing_at IS NULL FOR SHARE', [companyId]);
+    if (rows.length === 0) return false;
+    await tx.query(
+      `INSERT INTO deployment_secrets (name, nonce, ciphertext, tag, key_id)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (name) DO UPDATE
+         SET nonce = EXCLUDED.nonce, ciphertext = EXCLUDED.ciphertext, tag = EXCLUDED.tag, key_id = EXCLUDED.key_id`,
+      [name, nonce, ciphertext, tag, master.id],
+    );
+    return true;
+  });
+}
+
+/** What `sealForCompany` kept, or null when nothing is; not handed to the redactor either. */
+export async function openForCompany(name: string, master: MasterKey | null, previous: readonly MasterKey[] = []): Promise<string | null> {
+  assertSecretName(name);
+  const { rows } = await withControlPlane((tx) => tx.query('SELECT 1 FROM deployment_secrets WHERE name = $1', [name]));
+  if (rows.length === 0) return null;
+  return openSecret(name, master, previous);
+}
+
 export async function deleteSecret(name: string): Promise<void> {
   await withControlPlane((tx) => tx.query('DELETE FROM deployment_secrets WHERE name = $1', [name]));
 }

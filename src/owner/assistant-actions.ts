@@ -271,12 +271,18 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     fields: {
       decision: 'approve, deny or ask', note: 'why, or the question',
       allowForHours: 'optional, with approve: allow the same capability to the same role for this many hours (1 to 168), only where the item says allowFor',
+      forSchedule: 'optional, true with approve: allow exactly this action every time the item\'s schedule does it, for ninety days, only where the item names forSchedule; never with allowForHours',
     },
     factor: 'sometimes',
   },
   {
     pattern: '/api/companies/:companyId/standing-approvals/:standingId/revoke',
     what: 'Take back a yes the owner gave for a while (GET /api/companies/:companyId/standing-approvals), so the next such action asks again.',
+    factor: 'never', chat: true,
+  },
+  {
+    pattern: '/api/companies/:companyId/schedule-approvals/:approvalId/revoke',
+    what: 'Take back a yes the owner gave a schedule for one exact action (the schedules list of GET /api/companies/:companyId/standing-approvals), so the next time it does it asks again.',
     factor: 'never', chat: true,
   },
   {

@@ -311,6 +311,11 @@ are counted per calendar month in UTC: on the first of each month the count
 starts again, and raising a ceiling is how an account that ran out gets more
 before then.
 
+Money is in US dollars everywhere: providers price their models in dollars,
+and every amount the console shows, and every ceiling you type, is in
+dollars, written the way your language writes them ("US$1.234,50" in
+Indonesian).
+
 On top of the accounts, each company has a monthly ceiling, USD 200 unless
 you change it, counted per calendar month in UTC. It counts every model call
 the company makes, not only its tasks': your conversations with its CEO and

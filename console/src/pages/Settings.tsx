@@ -113,11 +113,15 @@ export function CompanySettings({ ctx }: { ctx: ConsoleContext }) {
         <ActionForm
           columns={3}
           fields={[
-            { name: 'dailyCostCents', label: t('Daily cost, cents'), type: 'number' },
+            { name: 'dailyCost', label: t('Daily cost'), type: 'money' },
             { name: 'taskFailureRate', label: t('Failure rate, 0 to 1'), type: 'number' },
             { name: 'policyDenialsPerDay', label: t('Policy denials a day'), type: 'number' },
           ]}
-          submit={(values) => api('POST', `/api/companies/${companyId}/alert-thresholds`, values)}
+          submit={({ dailyCost, ...values }) => api('POST', `/api/companies/${companyId}/alert-thresholds`, {
+            ...values,
+            // Typed in dollars; kept, like every amount, in cents.
+            ...(dailyCost === undefined || dailyCost === '' ? {} : { dailyCostCents: Math.round(Number(dailyCost) * 100) }),
+          })}
         />
       </Section>
 

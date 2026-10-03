@@ -1083,7 +1083,7 @@ the reason.
   under **Or override until** and press **Override**. Both take a code.
 - **Open an account** adds a budget account for a project, a division or a
   role: a **Name**, a **Token ceiling**, optionally a
-  **Money ceiling (cents)**, what it is **For**, **Which one**, and
+  **Money ceiling** in US dollars, what it is **For**, **Which one**, and
   **The account above it**. It takes a code.
 - An account's ceilings are for its whole life: tokens spent stay spent.
   When one runs out -- its bar turns red and work is refused with "raise its
@@ -1091,7 +1091,7 @@ the reason.
   **Token ceiling** or the **Money ceiling**. Raising takes a code; lowering
   does not.
 - Under **Settings**, **Company**, **Alert thresholds** sets when you are
-  told something is going wrong: **Daily cost, cents**,
+  told something is going wrong: **Daily cost** in US dollars,
   **Failure rate, 0 to 1** and **Policy denials a day**. Each fires once per
   condition per day.
 

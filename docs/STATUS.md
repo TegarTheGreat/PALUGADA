@@ -7046,6 +7046,34 @@ What changed:
   reviewed; the owner can run a review of an empty week; and a schedule
   reports its role's ceiling for a run beside its reservation.
 
+## 2.98 Money says its currency (F11.3, §2.3 item 3)
+
+Found by the live run of the analysis of 3 October (§2.3, item 3). Every
+amount PALUGADA keeps is in US cents -- providers price models in dollars per
+million tokens, runtimes report dollars, the catalogue estimates in cents --
+and the console printed amounts with no currency: an Indonesian owner read
+"Batas 200,00" and "Terpakai 0,75" as rupiah. The cost chart beside them wrote
+"0.20" the English way, and an account's ceiling and the daily-cost alert
+were typed in cents.
+
+What changed:
+
+- **Every amount is written as US dollars**, the way the console's language
+  writes them (`money`, `console/src/format.ts`): "$0.75" in English,
+  "US$0,75" in Indonesian, "0,75 $" in German.
+- **The chart writes them the same way**, not with `toFixed`.
+- **Typed in dollars.** Opening an account takes its **Money ceiling** in
+  dollars, as the existing ceiling dialogs did, and the daily-cost alert its
+  **Daily cost**; each money input shows the currency where the language puts
+  it (`currencyAffix`, and a `money` field in `ActionForm`). They are kept in
+  cents, as before.
+- **Tested.** `test/documents/console-money.test.ts`: the console's own
+  formatting, in English, Indonesian and German; and the Money page writes no
+  figure with `toFixed` and asks for nothing in cents.
+- **Still open:** showing amounts in the owner's own currency too, at a rate
+  they set, and the daily digest in the chats, which is in English and writes
+  its spend without a currency.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

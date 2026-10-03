@@ -204,6 +204,10 @@ The first version. What it holds, in the order an owner meets it.
   name capabilities the same way, in your language, instead of
   "record.delete". An approval's reason no longer starts with the task's id
   (STATUS 2.96).
+- Money says its currency: every amount is US dollars, written the way your
+  language writes them ("US$0,75"), the cost chart included, and ceilings
+  and the daily-cost alert are typed in dollars rather than cents
+  (STATUS 2.98).
 - **Replay against the journal** is shown only for a task this deployment
   can replay. It was offered on every task and refused on every task a
   model or an agent CLI ran (STATUS 2.87).

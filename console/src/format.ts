@@ -1,15 +1,27 @@
 import { N, locale, t } from './i18n.ts';
 
 /**
- * An amount, with no currency symbol.
+ * An amount, in US dollars, the way the owner's language writes them.
  *
- * The platform stores cents and does not know which currency they are: a
- * company's ledger decides that, and this console serves every company at
- * once. Printing a symbol would be inventing one, and a figure labelled in the
- * wrong currency is worse than a figure labelled in none.
+ * Every amount the platform keeps is in US cents: providers price their
+ * models in dollars per million tokens, runtimes report dollars, and the
+ * catalogue estimates in cents. Printed without its currency, "0,75" in an
+ * Indonesian console read as rupiah (the analysis of 3 October, §2.3 item 3).
  */
 export function money(cents: number): string {
-  return (cents / 100).toLocaleString(locale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return (cents / 100).toLocaleString(locale(), { style: 'currency', currency: 'USD' });
+}
+
+/**
+ * Where the dollar sign goes around a typed amount, as `money` writes it:
+ * "US$" before it in Indonesian, "$" after it in German.
+ */
+export function currencyAffix(): { prefix?: string; suffix?: string } {
+  const parts = new Intl.NumberFormat(locale(), { style: 'currency', currency: 'USD' }).formatToParts(1);
+  const at = parts.findIndex((part) => part.type === 'currency');
+  const sign = parts[at]!.value;
+  const number = parts.findIndex((part) => part.type === 'integer');
+  return at < number ? { prefix: `${sign} ` } : { suffix: ` ${sign}` };
 }
 
 export function count(n: number): string {

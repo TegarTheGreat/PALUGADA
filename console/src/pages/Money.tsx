@@ -17,7 +17,7 @@ import { api, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { useLoad } from '../hooks.ts';
 import type { Account, CostPeriod, Spend, Structure } from '../types.ts';
-import { count, dateTime, day, money } from '../format.ts';
+import { count, currencyAffix, dateTime, day, money } from '../format.ts';
 import type { PageProps } from '../App.tsx';
 import { N, t } from '../i18n.ts';
 import { KpiStrip, LoadFailed, Loading, PageHeader, Section } from '../components/ui.tsx';
@@ -93,7 +93,7 @@ export function Money({ ctx }: PageProps) {
                 data={cost.timeline.map((row) => ({ day: day(row.period), cost: row.costCents / 100, tokens: row.tokens }))}
                 dataKey="day"
                 series={[{ name: 'cost', label: t('Cost'), color: 'brand.6' }]}
-                valueFormatter={(value) => value.toFixed(2)}
+                valueFormatter={(value) => money(Math.round(value * 100))}
                 gridAxis="y"
                 barProps={{ radius: 4 }}
               />
@@ -177,7 +177,7 @@ export function Money({ ctx }: PageProps) {
           fields={[
             { name: 'label', label: t('Name'), required: true, placeholder: t('Growth experiments') },
             { name: 'tokensMax', label: t('Token ceiling'), type: 'number', required: true },
-            { name: 'moneyMaxCents', label: t('Money ceiling (cents)'), type: 'number' },
+            { name: 'moneyMax', label: t('Money ceiling'), type: 'money' },
             { name: 'scopeType', label: t('For'), type: 'select', description: t('Blank for the whole company'), options: [
               { value: 'project', label: t('A project') }, { value: 'division', label: t('A division') }, { value: 'role', label: t('A role') },
             ] },
@@ -188,7 +188,12 @@ export function Money({ ctx }: PageProps) {
             ] },
             { name: 'parentAccountId', label: t('The account above it'), type: 'select', options: accounts.map((one) => ({ value: one.id, label: one.label })) },
           ]}
-          submit={(values, proof) => api('POST', `/api/companies/${companyId}/budget-accounts`, { ...values, proof })}
+          submit={({ moneyMax, ...values }, proof) => api('POST', `/api/companies/${companyId}/budget-accounts`, {
+            ...values,
+            // Typed in dollars; kept, like every amount, in cents.
+            ...(moneyMax === undefined || moneyMax === '' ? {} : { moneyMaxCents: Math.round(Number(moneyMax) * 100) }),
+            proof,
+          })}
           factor={t('Open a budget account')}
           action={t('Open it')}
           success={t('Account opened.')}
@@ -240,7 +245,7 @@ function CeilingForm({ companyId, spend, changed }: { companyId: string; spend: 
   return (
     <Stack gap="xs">
       <Group align="flex-end" gap="xs" wrap="nowrap">
-        <NumberInput label={t('Monthly ceiling')} value={value} onChange={setValue} min={0} decimalScale={2} thousandSeparator style={{ flex: 1 }} />
+        <NumberInput label={t('Monthly ceiling')} {...currencyAffix()} value={value} onChange={setValue} min={0} decimalScale={2} thousandSeparator style={{ flex: 1 }} />
         <Button loading={busy} onClick={() => void save()}>{t('Set')}</Button>
       </Group>
       <Text size="xs" c="dimmed">{t('Raising it asks for your authenticator; lowering it does not.')}</Text>
@@ -287,7 +292,7 @@ function AccountCeilings({ companyId, account, changed }: { companyId: string; a
         {t('{spent} tokens spent this month and {held} held. The count starts again on the first of each month (UTC); raise the ceiling to give the account more before then.', { spent: count(account.tokensSpent), held: count(account.tokensReserved) })}
       </Text>
       <NumberInput label={t('Token ceiling')} value={tokens} onChange={setTokens} min={0} thousandSeparator />
-      <NumberInput label={t('Money ceiling')} value={ceiling} onChange={setCeiling} min={0} decimalScale={2} thousandSeparator />
+      <NumberInput label={t('Money ceiling')} {...currencyAffix()} value={ceiling} onChange={setCeiling} min={0} decimalScale={2} thousandSeparator />
       <Text size="xs" c="dimmed">{t('Raising either asks for your authenticator; lowering does not.')}</Text>
       {error && <Alert color="red" variant="light">{error}</Alert>}
       <Group justify="flex-end">

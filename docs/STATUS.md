@@ -7579,6 +7579,42 @@ What changed:
   spoken to first by the owner, is told what it asked, interviews while
   the first hour lasts and stops once it is closed.
 
+## 2.115 PALUGADA installs, and updates, in one command (§9 P2)
+
+Recommended by the analysis of 3 October (§5.2 item 1, §9 P2; the owner
+chose it first among P2 on 3 October). Installing took git, Node,
+`npm install`, an interactive `npm run setup` and Docker; Paperclip installs
+with one command, with update and rollback, and Buzz offers a hosted one.
+
+What changed:
+
+- **`install.sh`**, run as `curl -fsSL …/install.sh | sh`, needs Docker
+  alone. It fetches PALUGADA into `~/palugada`, writes `.env` once with a
+  new password for each database role (readable by its user alone), runs
+  `docker compose up -d --build`, waits until `/api/health` answers, and
+  prints the claim link the platform prints while it has no owner, on the
+  port published here. The owner adds the authenticator app there and
+  chooses the model in the console, which `npm run setup` would have asked.
+- **Run again, it updates**: the same `.env`, the same volumes, and a copy
+  of the database in `backups/` before anything changes; if the copy
+  fails, nothing is updated.
+- **Safe under a pipe**: the script is one function called on its last line,
+  so the shell has read all of it before anything runs, and a command that
+  reads standard input cannot read the rest of the script.
+- **Tested.** `install.test.ts`, with Docker and curl as stand-ins that
+  record what they were asked: a first run writes four 36-character
+  passwords to a file of mode 600, builds, waits for the console and
+  prints the claim link on the published port; a second keeps the
+  passwords and copies the database before it builds; fed through a pipe
+  slowly, as a download arrives, it still runs to the end (the same test
+  fails against the script before it was one function); with a Docker
+  that does not answer it says so and writes nothing. The containers it
+  starts are what `npm run container:check` runs in CI.
+- **Not done**: a `doctor` that repairs, release channels and a rollback
+  command. A failed update is rolled back by hand from the copy
+  (`gzip -dc backups/… | docker compose exec -T db psql -U postgres palugada`
+  on an emptied database), which [operations](guide/operations.md) covers.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

@@ -28,6 +28,37 @@ use an agent CLI instead. The platform's own loop offers each role its
 capabilities as tools; a model that cannot call them can only answer in
 words. See [Choose or change the model](how-to.md#choose-or-change-the-model).
 
+## Install in one command
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/TegarTheGreat/PALUGADA/main/install.sh | sh
+```
+
+This needs Docker with Compose and nothing else: no git, no Node. The script
+(`install.sh` at the top of the repository) does what the next section does
+by hand, without asking anything:
+
+- it downloads PALUGADA into `~/palugada` (`PALUGADA_DIR` changes where);
+- the first time, it writes `.env` with a new password for each of the
+  database's roles, readable by you alone;
+- it runs `docker compose up -d --build`, which builds the image, starts the
+  database, applies the migrations and starts the platform;
+- it waits until `http://127.0.0.1:8787/api/health` answers
+  (`PALUGADA_PORT` publishes another port);
+- it prints the link the platform prints while it has no owner. Open it
+  within a day: it asks you to add PALUGADA to your authenticator app, and
+  you are the owner. Then choose the model under **This deployment**,
+  **Model**, which the step-by-step setup would have asked.
+
+Run the same command again to update. It keeps `.env` and the data, copies
+the database to `~/palugada/backups/` before anything changes, then fetches
+the newest PALUGADA and rebuilds; the migrations run as it starts. If the
+copy fails, nothing is updated. The copy holds the database only: the key
+that seals what you type into the console's secret fields is the file
+`master.key` in the `home` volume, which an update leaves as it is. Keep a
+copy of it apart from the backups
+([operations](operations.md#rotating-the-master-key)).
+
 ## Install with Docker Compose
 
 ```sh

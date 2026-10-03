@@ -62,7 +62,20 @@ It is **not** for you if you need many people working in it (there is one owner,
 
 ## Quickstart
 
-**With Docker** (Docker Compose, and Node 22.18+ for the setup):
+**In one command**, with nothing on the machine but Docker:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/TegarTheGreat/PALUGADA/main/install.sh | sh
+```
+
+It fetches PALUGADA into `~/palugada`, writes the database's passwords to
+its `.env`, starts it with Docker Compose, waits until the console answers,
+and prints a link: whoever opens it first becomes the owner, adds PALUGADA to
+their authenticator app there, and chooses the model in the console. Run the
+same command again to update; the passwords and the data stay, and the
+database is copied to `~/palugada/backups` first.
+
+**With Docker, step by step** (Docker Compose, and Node 22.18+ for the setup):
 
 ```sh
 git clone https://github.com/TegarTheGreat/PALUGADA.git && cd PALUGADA

@@ -275,6 +275,10 @@ The first version. What it holds, in the order an owner meets it.
   mission, the ceiling and that work as cards; the Overview lists four
   steps to a first result and ticks each off as you do it. The company's
   schedules run on your time zone (STATUS 2.114).
+- PALUGADA installs with one command and nothing but Docker:
+  `curl -fsSL https://raw.githubusercontent.com/TegarTheGreat/PALUGADA/main/install.sh | sh`.
+  It prints the link that makes you the owner. Run it again to update; the
+  database is copied to `~/palugada/backups` first (STATUS 2.115).
 - **Replay against the journal** is shown only for a task this deployment
   can replay. It was offered on every task and refused on every task a
   model or an agent CLI ran (STATUS 2.87).

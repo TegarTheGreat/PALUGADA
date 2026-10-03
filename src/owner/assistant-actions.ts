@@ -203,6 +203,13 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     fields: { console: 'a language code such as id or en', agents: 'a language code' },
     factor: 'never',
   },
+  {
+    // How amounts are read, as the panel's language is: nothing is charged in it (0106).
+    pattern: '/api/control/money-display',
+    what: 'The currency the owner reads money in, and the rate to read it at. PALUGADA still counts in US dollars.',
+    fields: { currency: 'a three-letter code such as IDR, or null to read US dollars', rate: 'how many of it one US dollar buys' },
+    factor: 'never',
+  },
   { pattern: '/api/control/stop-all', what: 'Stop, or resume, all work in every company.', fields: { on: 'true to stop, false to resume' }, factor: 'always' },
   { pattern: '/api/control/cancel-everything', what: 'Cancel every task that is not finished, in every company.', factor: 'always' },
   {

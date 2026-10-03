@@ -7313,6 +7313,8 @@ What changed:
 - **Nothing is charged or stored in it**, and no rate is fetched: what the
   owner reads depends on no service the platform does not run, and keeping
   the rate current is the owner's.
+- **The owner's assistant may propose it**, as it proposes the panel's
+  language, for the owner to apply; no factor, since nothing is loosened.
 - **Tested.** `money-display.test.ts`: the choice is stored and read back,
   an unknown currency, the dollar and a rate that is not above zero are
   refused and leave the choice as it was, and the digest says rupiah and

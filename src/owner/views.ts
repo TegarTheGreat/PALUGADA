@@ -502,9 +502,30 @@ export interface TaskDetail {
   /** The run's report on its done criteria, weighed against the journal; null when it made none. */
   done: DoneReportEntry[] | null;
   deliverables: Deliverable[];
+  /**
+   * The work this task handed to other roles, oldest first, with what each
+   * piece came to: a plan a sub-task wrote is reached from the task the
+   * owner asked for, not only by finding the sub-task in the list.
+   */
+  handedOn: HandedPiece[];
+  /** The task that handed this one on, or null when the owner, a schedule or a trigger gave it. */
+  handedBy: { id: string; role: string; roleName: string | null } | null;
   /** The owner's last word on it (`giveFeedback`), or null. */
   feedback: { verdict: 'good' | 'needs_work'; note: string | null; at: Date } | null;
 }
+
+/** One piece of work a task handed on, as its parent shows it. */
+export interface HandedPiece {
+  id: string;
+  role: string;
+  roleName: string | null;
+  status: TaskStatus;
+  /** What it came to, in a line, once it has an output. */
+  result: string | null;
+}
+
+/** More pieces than this are not listed on the parent; the work list has them all. */
+const HANDED_ON_LIMIT = 50;
 
 /** A document's first heading, which is what a person would call it. */
 function headingOf(text: string | null): string | null {
@@ -543,6 +564,22 @@ export async function taskDetailOf(companyId: string, taskId: string): Promise<T
         ORDER BY step_index`,
       [taskId],
     );
+    const { rows: pieces } = await tx.query<{
+      id: string; role: string; role_name: string | null; status: TaskStatus; output: unknown;
+    }>(
+      `SELECT t.id, r.slug AS role, r.display_name AS role_name, t.status, t.output
+         FROM tasks t JOIN roles r ON r.id = t.role_id
+        WHERE t.parent_task_id = $1
+        ORDER BY t.created_at, t.id
+        LIMIT ${HANDED_ON_LIMIT}`,
+      [taskId],
+    );
+    const { rows: by } = await tx.query<{ id: string; role: string; role_name: string | null }>(
+      `SELECT p.id, r.slug AS role, r.display_name AS role_name
+         FROM tasks t JOIN tasks p ON p.id = t.parent_task_id JOIN roles r ON r.id = p.role_id
+        WHERE t.id = $1`,
+      [taskId],
+    );
     // The owner's last word on it, if they gave one.
     const { rows: said } = await tx.query<{ payload: { verdict: 'good' | 'needs_work'; note: string }; occurred_at: Date }>(
       `SELECT payload, occurred_at FROM events WHERE task_id = $1 AND type = 'owner.feedback'
@@ -574,6 +611,15 @@ export async function taskDetailOf(companyId: string, taskId: string): Promise<T
       input: redactor.redactDeep(task.input),
       output: redactor.redactDeep(task.output),
       done: done.length > 0 ? done : null,
+      handedOn: pieces.map((piece) => ({
+        id: piece.id,
+        role: piece.role,
+        roleName: piece.role_name,
+        status: piece.status,
+        result: piece.output === null || piece.output === undefined
+          ? null : redactor.redact(summarise(piece.output, 200, RESULT_FIELDS)),
+      })),
+      handedBy: by[0] ? { id: by[0].id, role: by[0].role, roleName: by[0].role_name } : null,
       deliverables: steps.map((step) => ({
         step: step.step_index,
         capability: step.name.replace(/^capability:/, ''),

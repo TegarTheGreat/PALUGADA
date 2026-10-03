@@ -86,7 +86,9 @@ The first version. What it holds, in the order an owner meets it.
 - Work a role hands back is no longer refused for being long. A finished
   plan or report over what a sub-agent may hand back reaches the role that
   asked for it cut short, with each cut saying where the whole is kept; the
-  whole stays on the task that did it (STATUS 2.67).
+  whole stays on the task that did it. A task shows the work it handed on,
+  with what each piece came to and a button to open it, so the plan asked of
+  the CEO is one press from the CEO's task (STATUS 2.67).
 
 ### The owner
 

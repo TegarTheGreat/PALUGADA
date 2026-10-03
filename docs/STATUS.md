@@ -5942,6 +5942,19 @@ The CEO could not report it, the rerun the CEO proposed could not read it
     plan is read by its parent through `task.await` as `completed`, under the
     limit, with the note naming the child. The child still holds the whole
     plan.
+- **The owner reaches it from the task they asked for.** The CEO's task was
+  the one the owner opened, and it said "nothing yet" while the plan sat on a
+  sub-task found only by scrolling the work list. The task detail
+  (`taskDetailOf`, `src/owner/views.ts`) now carries:
+  - `handedOn`: the work the task handed to other roles, oldest first, up to
+    fifty, each with its role, the role's name, its status and what it came
+    to in a line, redacted;
+  - `handedBy`: the task that handed this one on.
+  The console's task drawer shows them as "Work it handed on", each with an
+  "Open the task" button, and "Handed on by …" with the same button. Tested
+  in `deliverables.test.ts`: a parent lists a finished piece with its result
+  and an unfinished one without; the piece names its parent; a task the
+  owner gave names none.
 
 ## 3. Decisions, deviations, and what is unverified
 

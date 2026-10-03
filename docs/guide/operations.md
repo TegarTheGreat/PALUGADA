@@ -391,7 +391,11 @@ worker writes to `worker_heartbeats` every fifteen seconds; when a worker
 has been quiet for a minute, the next sweep by any other worker -- or by the
 same process restarted -- returns its tasks to the queue, and they resume
 from the last committed step. Each counts as a lost worker towards the
-crash-loop limit of three. The lease of fifteen minutes stays the backstop
+crash-loop limit of three. Only a worker that has itself been writing there
+without a break for a minute judges another quiet: after the database was
+away, or a worker's own loop stalled, every worker's last word is old, and
+the others are given the minute to write again before their running tasks
+are taken. The lease of fifteen minutes stays the backstop
 for a holder that never wrote there. A write that was in flight when the
 process died is sent again under the key it first had, so a vendor that
 honours the key makes it once.
@@ -631,7 +635,9 @@ database:
   for a minute (`worker_heartbeats`), or when their leases run out if it
   never wrote there; the next worker resumes from the last committed step
   and repeats no action. The heartbeat is compared on the database's clock,
-  so machines whose clocks disagree cannot make a live worker look dead. A task that loses its worker three times is halted
+  so machines whose clocks disagree cannot make a live worker look dead, and
+  a worker that was away itself judges nobody until it has been back for a
+  minute, so a database outage cannot either. A task that loses its worker three times is halted
   as a crash loop and raised to you as an incident, rather than taking a
   third worker down.
 - A schedule's occurrence creates one task however many workers see it, and

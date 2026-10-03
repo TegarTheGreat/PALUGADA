@@ -397,12 +397,20 @@ async function haltIfCrashLooping(tx: TenantClient, companyId: string, taskId: s
  * the table is the platform's, and no agent has any business with it.
  */
 export async function beat(workerId: string): Promise<void> {
+  // A gap longer than two intervals is the worker having been away, and its
+  // unbroken run of beats starts again (0103).
   await withControlPlane((tx) => tx.query(
     `INSERT INTO worker_heartbeats (worker_id) VALUES ($1)
-     ON CONFLICT (worker_id) DO UPDATE SET beat_at = now()`,
-    [workerId],
+     ON CONFLICT (worker_id) DO UPDATE
+       SET beating_since = CASE WHEN worker_heartbeats.beat_at < now() - make_interval(secs => $2)
+                                THEN now() ELSE worker_heartbeats.beating_since END,
+           beat_at = now()`,
+    [workerId, AWAY_AFTER_SECONDS],
   ));
 }
+
+/** A worker silent for longer than two of its intervals was away (0103). */
+const AWAY_AFTER_SECONDS = (2 * HEARTBEAT_EVERY_MS) / 1000;
 
 /**
  * Takes a worker's word back as it stops cleanly, so a worker that shut down
@@ -413,10 +421,15 @@ export async function stopBeating(workerId: string): Promise<void> {
 }
 
 /**
- * The workers that have gone quiet, other than the one asking: it is alive,
- * whatever its last beat says -- after the database was away, its own beat
- * is as old as everyone's, and taking back its own running tasks would stop
- * work that is going on. Rows quiet for a day are cleared as they are read.
+ * The workers that have gone quiet, never the one asking: taking back its
+ * own running tasks would stop work that is going on. Rows quiet for a day
+ * are cleared as they are read.
+ *
+ * Asked only of a worker whose own word is fresh and has been, without a
+ * break, for as long as a holder may be quiet (B5, 0103). One that was away
+ * itself -- the database gone, its loop stalled -- finds every other word as
+ * old as its own, and the others have not yet had the time to speak again
+ * that it is about to hold against them: it judges nobody until they have.
  */
 export async function silentHolders(self: string): Promise<string[]> {
   return withControlPlane(async (tx) => {
@@ -424,8 +437,12 @@ export async function silentHolders(self: string): Promise<string[]> {
     const { rows } = await tx.query<{ worker_id: string }>(
       `SELECT worker_id FROM worker_heartbeats
         WHERE worker_id <> $1 AND beat_at < now() - make_interval(secs => $2)
+          AND EXISTS (SELECT 1 FROM worker_heartbeats me
+                       WHERE me.worker_id = $1
+                         AND me.beat_at >= now() - make_interval(secs => $3)
+                         AND me.beating_since <= now() - make_interval(secs => $2))
         ORDER BY worker_id`,
-      [self, SILENT_AFTER_SECONDS],
+      [self, SILENT_AFTER_SECONDS, AWAY_AFTER_SECONDS],
     );
     return rows.map((row) => row.worker_id);
   });

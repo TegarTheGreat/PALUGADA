@@ -6461,6 +6461,42 @@ What changed:
   written; a pause of this month survives the next look; the owner's lift
   withdraws its card.
 
+## 2.81 A worker that was away judges nobody quiet (F5.12, B5)
+
+Found by the audit of 30 September and still open on 2 October (B5). A
+worker takes back the running tasks of one that has stopped saying it is
+alive (0079): quiet for a minute, on the database's clock. The asker left
+itself out, "it is alive, whatever its last beat says" -- and that was the
+defect. A worker that had been away itself, the database gone for a minute
+or its own loop stalled (the language check of section 2.73 stalled one for
+a minute and a half), came back to find every other worker's last word as
+old as its own, and took back their running tasks. Each live run lost its
+lease and stopped, and each loss counted towards the three that halt a task
+as a crash loop: one outage, three times over, could halt work that was
+never in danger.
+
+What changed:
+
+- **Since when, without a break** (0103). A heartbeat row keeps when its
+  worker began beating without a gap longer than two intervals. A gap that
+  long is the worker having been away, and the run starts again.
+- **Only an unbroken worker judges.** `silentHolders` answers only for a
+  worker whose own word is fresh and has been unbroken for as long as a
+  holder may be quiet. Back from an outage, every worker waits that minute,
+  in which the live ones write again; then only the one that never came
+  back is quiet. A worker that never wrote, or whose own word is stale,
+  judges nobody.
+- **Not changed:** a loss to a holder that really went quiet still counts
+  towards the crash loop, since a task that takes its worker down with it
+  is what the limit is for. A worker that dies is still found within about
+  a minute of its last word, and the lease stays the backstop.
+- **Tested.** `checkout-lease-lane.test.ts`: after five minutes with the
+  database away, the first worker back judges nobody and reclaims nothing;
+  a minute on, with the live worker having written again, only the dead one
+  is quiet; a worker with a stale word, or none, judges nobody. The test of
+  a quiet holder's tasks returned at once now has the asker unbroken, where
+  it had it five minutes stale -- the very state it should not judge from.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

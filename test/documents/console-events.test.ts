@@ -24,6 +24,9 @@ const CONSOLE = fileURLToPath(new URL('../../console/src', import.meta.url));
 /** The hook points whose refusals are written as `hook.<point>` (`src/engine/hooks.ts`). */
 const HOOK_POINTS = ['pre_run', 'pre_tool', 'post_tool', 'post_run'];
 
+/** What the governance log mirrors as `<subject>.<action>` (`record`, `src/governance/store.ts`). */
+const GOVERNED = ['charter', 'policy'].flatMap((subject) => ['created', 'updated', 'deleted'].map((action) => `${subject}.${action}`));
+
 async function files(directory: string, pattern: RegExp): Promise<Map<string, string>> {
   const found = new Map<string, string>();
   const walk = async (at: string): Promise<void> => {
@@ -63,10 +66,11 @@ function enclosing(text: string, at: number): string {
 
 /**
  * The event types the server writes: every `word.word` literal given as a
- * `type:` or an `event:`, and the two families written from a template -- a
- * task's move to each status, and a hook's refusal at each point. An object
- * with a `level:` is a line of the operator's log, which the owner never
- * reads, and is left out.
+ * `type:` or an `event:`, every one in a statement that inserts into
+ * `events` itself, and the families written from a template -- a task's move
+ * to each status, a hook's refusal at each point, and the governance log's
+ * mirror. An object with a `level:` is a line of the operator's log, which
+ * the owner never reads, and is left out.
  */
 async function eventTypes(): Promise<Set<string>> {
   const types = new Set<string>();
@@ -79,8 +83,14 @@ async function eventTypes(): Promise<Set<string>> {
       }
     }
   }
+  for (const text of (await files(SERVER, /\.ts$/)).values()) {
+    for (const insert of text.matchAll(/INSERT INTO events\b[^`]*/g)) {
+      for (const match of insert[0].matchAll(/'([a-z][a-z_]*\.[a-z][a-z_]*)'/g)) types.add(match[1]!);
+    }
+  }
   for (const status of TASK_STATUSES) types.add(`task.${status}`);
   for (const point of HOOK_POINTS) types.add(`hook.${point}`);
+  for (const governed of GOVERNED) types.add(governed);
   return types;
 }
 
@@ -97,7 +107,8 @@ test('every event the server writes has a sentence for the owner', async () => {
 
 test('the timelines say who acted in words, not as the code that wrote it', async () => {
   for (const [path, text] of await files(join(CONSOLE, 'pages'), /\.tsx$/)) {
-    assert.doesNotMatch(text, /\{event\.actor\}/, `${path} shows an event's actor as its code`);
+    assert.doesNotMatch(text, /(?<!\$)\{(event|row)\.actor\}/, `${path} shows who acted as their code`);
+    assert.doesNotMatch(text, /(?<!\$)\{row\.action\}/, `${path} shows what was done as its code`);
   }
 });
 

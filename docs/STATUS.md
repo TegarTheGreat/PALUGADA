@@ -7102,6 +7102,35 @@ What changed:
   `budget-halt.test.ts`: a halt on the whole company's account says
   "perusahaan" in Indonesian.
 
+## 2.100 The change log and the retention log say what happened, in the owner's language (§2.3 item 7)
+
+Found by the live run of the analysis of 3 October (§2.3, item 7), after
+2.94 put every event in words. Two lists were left that print codes. The
+change log on **Health** headed each entry with its subject -- "charter",
+"policy" -- badged it "updated", and said "by template" or "by owner" in
+English whatever the console's language. The retention log under a
+company's settings named each pass by its code: "prompts_scrubbed",
+"journal_scrubbed", "bookkeeping_purged". The events the governance log
+mirrors -- `charter.created`, `policy.deleted` and the rest, written from a
+template in `record` -- and the `company.created` a template writes by a
+raw insert were not found by the event scan, so the timeline showed them as
+their codes too.
+
+What changed:
+
+- **The change log in words.** An entry is headed by the sentence its event
+  has on the timeline -- "Charter changed", "Policy removed" -- and says who
+  did it as the timelines do: "You", "The company template", "The charter
+  repository" (`actorSaid`, `console/src/format.ts`).
+- **The retention log in words** (`retentionSaid`): "Old prompts cleared",
+  "Old model replies cleared from finished work", "Old finished work
+  removed". "Cleared" and "removed" are different words in every dictionary:
+  a cleared row is kept with its text blanked.
+- **Tested.** `console-events.test.ts` now finds the event types a statement
+  inserts into `events` itself and the governance log's mirror, and refuses
+  a page that shows `row.action` as its code; every new sentence is in the
+  20 dictionaries (`console-i18n.test.ts`).
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

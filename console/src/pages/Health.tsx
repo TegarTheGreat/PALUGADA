@@ -6,12 +6,12 @@
  */
 import { useState } from 'react';
 import {
-  Alert, Avatar, Badge, Grid, Group, Paper, Stack, Table, Text, TextInput, Timeline,
+  Alert, Avatar, Grid, Group, Paper, Stack, Table, Text, TextInput, Timeline,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { api } from '../api.ts';
 import { useLoad } from '../hooks.ts';
-import { dateTime } from '../format.ts';
+import { actorSaid, dateTime, eventSentence } from '../format.ts';
 import type { PageProps } from '../App.tsx';
 import { t } from '../i18n.ts';
 import { LoadFailed, Loading, Section } from '../components/ui.tsx';
@@ -109,8 +109,8 @@ export function Health({ ctx }: PageProps) {
         {log.length === 0 ? <Text size="sm" c="dimmed">{t('Nothing has changed yet.')}</Text> : (
           <Timeline bulletSize={12} lineWidth={2} active={log.length}>
             {log.slice(-30).reverse().map((row, index) => (
-              <Timeline.Item key={`${row.subject}-${index}`} title={<Text size="sm" fw={600}>{row.subject}</Text>}>
-                <Group gap={6}><Badge size="xs" variant="light">{row.action}</Badge><Text size="xs" c="dimmed">by {row.actor}</Text></Group>
+              <Timeline.Item key={`${row.subject}-${index}`} title={<Text size="sm" fw={600}>{eventSentence(`${row.subject}.${row.action}`)}</Text>}>
+                <Text size="xs" c="dimmed">{actorSaid(row.actor)}</Text>
               </Timeline.Item>
             ))}
           </Timeline>

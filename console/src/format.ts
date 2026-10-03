@@ -237,6 +237,13 @@ const EVENT_SENTENCES: Record<string, string> = {
   'tool.verify_failed': N('Read back, and it did not match'),
   'trigger.secret_unavailable': N('A trigger could not read its secret, so events are not arriving'),
   'wake.coalesced': N('Woken once for several reasons'),
+  'company.created': N('Company created'),
+  'charter.created': N('Charter written'),
+  'charter.updated': N('Charter changed'),
+  'charter.deleted': N('Charter removed'),
+  'policy.created': N('Policy added'),
+  'policy.updated': N('Policy changed'),
+  'policy.deleted': N('Policy removed'),
 };
 
 export function eventSentence(type: string): string {
@@ -325,10 +332,28 @@ const ACTORS: Record<string, string> = {
   owner: N('You'),
   agent_run: N('The agent'),
   scheduler: N('A schedule'),
+  // Who wrote a charter, in the governance log (`CharterAuthor`).
+  template: N('The company template'),
+  repository: N('The charter repository'),
 };
 
 export function actorSaid(actor: string): string {
   return t(ACTORS[actor] ?? N('The platform'));
+}
+
+/** What a retention pass did (`retention_action_known`, migrations 0046 and 0105), as the owner says it. */
+const RETENTION_ACTIONS: Record<string, string> = {
+  events_purged: N('Old events removed'),
+  traces_purged: N('Old records of model calls removed'),
+  prompts_scrubbed: N('Old prompts cleared'),
+  journal_scrubbed: N('Old model replies cleared from finished work'),
+  bookkeeping_purged: N('Old bookkeeping removed'),
+  work_purged: N('Old finished work removed'),
+};
+
+export function retentionSaid(action: string): string {
+  const said = RETENTION_ACTIONS[action];
+  return said ? t(said) : humanize(action);
 }
 
 /** A task's status as a person says it, rather than as the state machine does. */

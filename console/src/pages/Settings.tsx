@@ -12,7 +12,7 @@ import { IconAlertTriangle, IconCheck, IconCopy, IconDownload, IconFingerprint, 
 import { useState } from 'react';
 import { api, explain } from '../api.ts';
 import { useLoad } from '../hooks.ts';
-import { day } from '../format.ts';
+import { day, retentionSaid } from '../format.ts';
 import { LANGUAGES, isLanguage, language, t } from '../i18n.ts';
 import { chooseLanguage, type ConsoleContext, type Languages } from '../App.tsx';
 import { LoadFailed, Loading, Section } from '../components/ui.tsx';
@@ -99,7 +99,7 @@ export function CompanySettings({ ctx }: { ctx: ConsoleContext }) {
             <Table.Tbody>
               {retention.log.map((row, index) => (
                 <Table.Tr key={index}>
-                  <Table.Td>{row.action}</Table.Td>
+                  <Table.Td>{retentionSaid(row.action)}</Table.Td>
                   <Table.Td>{t('{count} rows', { count: row.rowsAffected })}</Table.Td>
                   <Table.Td>{t('through {day}', { day: day(row.throughAt) })}</Table.Td>
                 </Table.Tr>

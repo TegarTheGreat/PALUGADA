@@ -212,6 +212,10 @@ The first version. What it holds, in the order an owner meets it.
   name you gave one, or the whole company in your language -- instead of
   "company" and "ops"; a role's budget says what it rolls up through by
   name rather than by account ids (STATUS 2.99).
+- The change log on **Health** and the retention log in a company's
+  settings say what happened in your language -- "Charter changed" by "The
+  company template", "Old prompts cleared" -- instead of "charter",
+  "updated", "by template" and "prompts_scrubbed" (STATUS 2.100).
 - **Replay against the journal** is shown only for a task this deployment
   can replay. It was offered on every task and refused on every task a
   model or an agent CLI ran (STATUS 2.87).

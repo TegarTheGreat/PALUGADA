@@ -2351,6 +2351,20 @@ export const DICTIONARY: Dictionary = {
   "{step} of {total}": "{step} van {total}",
   "{tasks} tasks, {events} events, {memories} memories, {documents} documents": "Taken: {tasks}, gebeurtenissen: {events}, herinneringen: {memories}, documenten: {documents}",
   "{words} words": "Woorden: {words}",
+  "Reading pictures": "Afbeeldingen lezen",
+  "Lets a role read a picture in the company's files -- a receipt, a screenshot, a product photo -- and copy its words. The picture goes to the provider you choose.": "Laat een rol een afbeelding in de bestanden van het bedrijf lezen -- een bon, een schermafbeelding, een productfoto -- en de woorden ervan overnemen. De afbeelding gaat naar de aanbieder die u kiest.",
+  "Ask about it": "Vraag ernaar",
+  "What is the total on this receipt?": "Wat is het totaal op deze bon?",
+  "Picture": "Afbeelding",
+  "The pictures it reads are each company's files, and this deployment has none: set PALUGADA_FILES_ROOT and start it again.": "De afbeeldingen die het leest zijn de bestanden van elk bedrijf, en deze installatie heeft er geen: stel PALUGADA_FILES_ROOT in en start haar opnieuw.",
+  "GPT, reads most scripts and handwriting": "GPT, leest de meeste schriften en handschrift",
+  "A generous free tier": "Een royale gratis laag",
+  "Careful with documents and tables": "Zorgvuldig met documenten en tabellen",
+  "Vision models from several labs, one key": "Visiemodellen van meerdere labs, één sleutel",
+  "Mistral Small, reads documents well": "Mistral Small, leest documenten goed",
+  "Ollama, llama.cpp or vLLM, OpenAI-compatible": "Ollama, llama.cpp of vLLM, OpenAI-compatibel",
+  "Describe a picture": "Een afbeelding beschrijven",
+  "Llama 4, very fast and cheap": "Llama 4, erg snel en goedkoop",
 };
 
 /** Sentences written as they are in English on purpose: names, and words Dutch writes the same way. */

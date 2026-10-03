@@ -2369,6 +2369,20 @@ export const DICTIONARY: Dictionary = {
   "{step} of {total}": "{step} จาก {total}",
   "{tasks} tasks, {events} events, {memories} memories, {documents} documents": "งาน {tasks} รายการ เหตุการณ์ {events} รายการ ความจำ {memories} รายการ เอกสาร {documents} รายการ",
   "{words} words": "{words} คำ",
+  "Reading pictures": "อ่านภาพ",
+  "Lets a role read a picture in the company's files -- a receipt, a screenshot, a product photo -- and copy its words. The picture goes to the provider you choose.": "ให้บทบาทอ่านภาพในไฟล์ของบริษัท เช่น ใบเสร็จ ภาพหน้าจอ หรือภาพสินค้า และคัดลอกข้อความในภาพ ภาพจะถูกส่งไปยังผู้ให้บริการที่คุณเลือก",
+  "Ask about it": "ถามเกี่ยวกับภาพ",
+  "What is the total on this receipt?": "ใบเสร็จนี้ยอดรวมเท่าไร",
+  "Picture": "ภาพ",
+  "The pictures it reads are each company's files, and this deployment has none: set PALUGADA_FILES_ROOT and start it again.": "ภาพที่อ่านคือไฟล์ของแต่ละบริษัท และระบบนี้ไม่มีไฟล์: ตั้งค่า PALUGADA_FILES_ROOT แล้วเริ่มระบบใหม่",
+  "GPT, reads most scripts and handwriting": "GPT อ่านอักษรได้เกือบทุกระบบและลายมือ",
+  "A generous free tier": "มีโควตาฟรีมาก",
+  "Careful with documents and tables": "อ่านเอกสารและตารางได้ละเอียด",
+  "Vision models from several labs, one key": "โมเดลด้านภาพจากหลายแล็บ ใช้คีย์เดียว",
+  "Mistral Small, reads documents well": "Mistral Small อ่านเอกสารได้ดี",
+  "Ollama, llama.cpp or vLLM, OpenAI-compatible": "Ollama, llama.cpp หรือ vLLM ที่รองรับ OpenAI",
+  "Describe a picture": "อธิบายภาพ",
+  "Llama 4, very fast and cheap": "Llama 4 เร็วมากและถูก",
 };
 
 /** Sentences written as they are in English on purpose: names only. */

@@ -2320,6 +2320,20 @@ export const DICTIONARY: Dictionary = {
   "{step} of {total}": "{total} में से {step}",
   "{tasks} tasks, {events} events, {memories} memories, {documents} documents": "{tasks} कार्य, {events} इवेंट, {memories} मेमोरी, {documents} दस्तावेज़",
   "{words} words": "{words} शब्द",
+  "Reading pictures": "चित्र पढ़ना",
+  "Lets a role read a picture in the company's files -- a receipt, a screenshot, a product photo -- and copy its words. The picture goes to the provider you choose.": "भूमिका को कंपनी की फ़ाइलों में कोई चित्र पढ़ने देता है -- रसीद, स्क्रीनशॉट, उत्पाद की फ़ोटो -- और उसके शब्द ज्यों के त्यों लिखने देता है। चित्र आपके चुने प्रदाता को भेजा जाता है।",
+  "Ask about it": "इसके बारे में पूछें",
+  "What is the total on this receipt?": "इस रसीद का कुल कितना है?",
+  "Picture": "चित्र",
+  "The pictures it reads are each company's files, and this deployment has none: set PALUGADA_FILES_ROOT and start it again.": "यह जो चित्र पढ़ता है वे हर कंपनी की फ़ाइलें हैं, और इस डिप्लॉयमेंट में कोई नहीं है: PALUGADA_FILES_ROOT सेट करें और इसे फिर से शुरू करें।",
+  "GPT, reads most scripts and handwriting": "GPT, ज़्यादातर लिपियाँ और हस्तलेख पढ़ता है",
+  "A generous free tier": "उदार मुफ़्त स्तर",
+  "Careful with documents and tables": "दस्तावेज़ों और तालिकाओं में सावधान",
+  "Vision models from several labs, one key": "कई लैब के विज़न मॉडल, एक ही कुंजी",
+  "Mistral Small, reads documents well": "Mistral Small, दस्तावेज़ अच्छी तरह पढ़ता है",
+  "Ollama, llama.cpp or vLLM, OpenAI-compatible": "Ollama, llama.cpp या vLLM, OpenAI-संगत",
+  "Describe a picture": "किसी चित्र का वर्णन करें",
+  "Llama 4, very fast and cheap": "Llama 4, बहुत तेज़ और सस्ता",
 };
 
 /**

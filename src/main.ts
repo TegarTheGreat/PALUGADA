@@ -781,6 +781,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     ...(toolBindings.image ? { image: toolBindings.image } : {}),
     ...(toolBindings.speech ? { speech: toolBindings.speech } : {}),
     ...(toolBindings.listen ? { listen: toolBindings.listen } : {}),
+    ...(toolBindings.vision ? { vision: toolBindings.vision } : {}),
     // Each customer channel's keys are sealed in the deployment's store, and
     // the Bot API and the Graph API are wherever the owner's own channels
     // find them.

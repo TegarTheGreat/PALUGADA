@@ -8386,6 +8386,60 @@ What changed:
   (recommendation 5); a workbook's formulas are read as the values Excel
   last saved, and one never saved by Excel has none.
 
+## 2.130 A role reads a picture, through a vision model the owner chooses (tools research, recommendation 5)
+
+A receipt a customer photographed, a supplier's invoice sent as a picture,
+a screenshot, a scan: none could be read, and 2.129 had to say that a scan
+has no text to give. The research put `image.describe` fifth: both
+projects it studied ship one, and it can run on a local model.
+
+What changed:
+
+- **`image.describe`, catalogued** at tier 0 and as a read of outside
+  content (F8.9), and named "Describe a picture" for the owner in every
+  language.
+- **A Tools kind of its own, Reading pictures** (`src/capabilities/vision.ts`,
+  `PALUGADA_VISION_*`), like Listening: OpenAI, Google Gemini, Anthropic,
+  OpenRouter, Groq, Mistral, and a vision model of the owner's own behind
+  OpenAI's interface -- Ollama, llama.cpp, vLLM -- so a picture need not
+  leave the owner's machine. Each request is its reference's, checked in
+  October 2026 (the docs read for Groq's and Mistral's, whose picture is a
+  string where the others' is an object; OpenRouter's list of models read
+  for the default), the key where the reference puts it. The picture goes
+  inside the request as a `data:` address, never as a link a provider would
+  fetch.
+- **Read as `files.read` reads a file.** The containment moved into one
+  function both use (`readCompanyFile`), so they cannot drift apart; a
+  PNG, JPEG, WebP or GIF is told by its bytes, whatever it is called; up
+  to 5 MB, Anthropic's limit for one picture; nothing is sent for a path
+  outside the company's files or a file that is not a picture.
+- **Asked nothing, it is asked for what a business needs**: what the
+  picture shows, and every word and number in it, laid out as on the
+  receipt or the table. A role may ask its own question, in any language.
+- **The console's card** has a model, and a try on a picture the owner
+  chooses with a question, sent once and kept nowhere; without a files
+  root it says the pictures are the company's files. Saving a model is now
+  read from which kinds have one, so a new kind cannot be left out of it
+  again, as this one first was.
+- **The template grants it to Finance and Support**, unbound until a
+  provider is chosen.
+- **Tested.** `vision.test.ts`: every provider sent the picture, its kind,
+  the question and its model where its reference says, with the key where
+  it reads it and never in the address, over HTTPS or to the owner's own
+  server; Mistral's picture a string; a JPEG, a WebP and a GIF told by
+  their bytes; a link to another company's file, a parent directory and a
+  climb out refused as outside, a text file as not a picture, 6 MB as too
+  large, and nothing sent for any of them; the catalogue's tier and
+  `readsOutside`; the boot's notes without a provider, without a key and
+  without files; and the owner trying a server of their own on a picture,
+  a file that is not a picture refused, and the choice saved with the
+  device and bound.
+- **Not done.** A picture inside a PDF or a Word document is not read; a
+  scanned PDF is still said to have no text (2.129), and is read by saving
+  its pages as pictures. The provider is paid per picture at its own price;
+  each call reserves a cent before it runs, and nothing for a model of the
+  owner's own.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the
@@ -8428,12 +8482,12 @@ is a real Daytona or Modal machine answering; the `http` runtime also reports
 this backend, because "somewhere else, not ours" is what it means in F13.5's
 vocabulary, and it cannot verify the claim.
 
-**Thirty-six of the fifty-three catalogued capabilities are unbound on a bare
-boot -- thirty-two on a machine with a Chromium -- and that is the design
-rather than a gap.** The boot names every one. Twelve need configuration, not
+**Thirty-seven of the fifty-four catalogued capabilities are unbound on a bare
+boot -- thirty-three on a machine with a Chromium -- and that is the design
+rather than a gap.** The boot names every one. Thirteen need configuration, not
 an account: `files.list` and `files.read` a files root, `doc.draft` and
-`email.draft` a files root and a model; `web.search`, `image.generate`, `speech.synthesize` and
-`speech.transcribe` a provider chosen under **Tools**; `web.extract` one of
+`email.draft` a files root and a model; `web.search`, `image.generate`, `speech.synthesize`,
+`speech.transcribe` and `image.describe` a provider chosen under **Tools**; `web.extract` one of
 those or a Chromium; and `browser.read`, `browser.act` and
 `browser.handover` a Chromium. The other twenty-four need a deployment's own vendor entry,
 six of which `config/vendors.example.json` shows. `dns.read`, `invoice.pay`
@@ -8445,7 +8499,7 @@ uses this platform is not a decision a control plane gets to make.
 `mailbox.read` and `email.send` are the exception that proves it: a mailbox
 is one protocol whoever runs it, so the platform binds them to each
 division's own (2.127), and a vendor entry for either still takes the name.
-These counts were read from a boot when 2.128 was written; until 2.127 the
+These counts were read from a boot when 2.130 was written; until 2.127 the
 paragraph said thirty-nine, still counting `chat.read` and `chat.send`, which
 the platform has bound since 2.117.
 

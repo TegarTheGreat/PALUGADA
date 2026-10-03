@@ -335,6 +335,10 @@ The first version. What it holds, in the order an owner meets it.
   at a time, and nothing outside them. Documents are read in the
   deployment's own sandboxed browser, never by the server itself
   (STATUS 2.128, 2.129).
+- **Reading pictures**, under **Tools**: a role granted **Describe a
+  picture** reads a receipt, an invoice or a screenshot in the company's
+  files and copies its words, through OpenAI, Gemini, Claude, OpenRouter,
+  Groq, Mistral or a vision model of your own (STATUS 2.130).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

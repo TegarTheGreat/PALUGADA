@@ -2330,6 +2330,20 @@ export const DICTIONARY: Dictionary = {
   "{step} of {total}": "{step} sa {total}",
   "{tasks} tasks, {events} events, {memories} memories, {documents} documents": "{tasks} gawain, {events} event, {memories} memorya, {documents} dokumento",
   "{words} words": "{words} salita",
+  "Reading pictures": "Pagbasa ng larawan",
+  "Lets a role read a picture in the company's files -- a receipt, a screenshot, a product photo -- and copy its words. The picture goes to the provider you choose.": "Hinahayaan ang isang role na basahin ang isang larawan sa mga file ng kumpanya -- resibo, screenshot, larawan ng produkto -- at kopyahin ang mga salita nito. Ipinapadala ang larawan sa provider na pipiliin mo.",
+  "Ask about it": "Magtanong tungkol dito",
+  "What is the total on this receipt?": "Magkano ang kabuuan sa resibong ito?",
+  "Picture": "Larawan",
+  "The pictures it reads are each company's files, and this deployment has none: set PALUGADA_FILES_ROOT and start it again.": "Ang mga larawang binabasa nito ay ang mga file ng bawat kumpanya, at walang ganito ang deployment na ito: itakda ang PALUGADA_FILES_ROOT at simulan itong muli.",
+  "GPT, reads most scripts and handwriting": "GPT, nababasa ang karamihan ng sulat at sulat-kamay",
+  "A generous free tier": "Maluwag na libreng tier",
+  "Careful with documents and tables": "Maingat sa mga dokumento at talahanayan",
+  "Vision models from several labs, one key": "Mga vision model mula sa ilang lab, iisang key",
+  "Mistral Small, reads documents well": "Mistral Small, mahusay magbasa ng dokumento",
+  "Ollama, llama.cpp or vLLM, OpenAI-compatible": "Ollama, llama.cpp o vLLM, compatible sa OpenAI",
+  "Describe a picture": "Ilarawan ang isang larawan",
+  "Llama 4, very fast and cheap": "Llama 4, napakabilis at mura",
 };
 
 /** Sentences written as they are in English on purpose: names only. */

@@ -2350,6 +2350,20 @@ export const DICTIONARY: Dictionary = {
   "{step} of {total}": "{step} von {total}",
   "{tasks} tasks, {events} events, {memories} memories, {documents} documents": "Aufgaben: {tasks}, Ereignisse: {events}, Erinnerungen: {memories}, Dokumente: {documents}",
   "{words} words": "Wörter: {words}",
+  "Reading pictures": "Bilder lesen",
+  "Lets a role read a picture in the company's files -- a receipt, a screenshot, a product photo -- and copy its words. The picture goes to the provider you choose.": "Lässt eine Rolle ein Bild in den Dateien des Unternehmens lesen -- einen Beleg, einen Screenshot, ein Produktfoto -- und seine Wörter abschreiben. Das Bild geht an den Anbieter, den Sie wählen.",
+  "Ask about it": "Danach fragen",
+  "What is the total on this receipt?": "Wie hoch ist die Summe auf diesem Beleg?",
+  "Picture": "Bild",
+  "The pictures it reads are each company's files, and this deployment has none: set PALUGADA_FILES_ROOT and start it again.": "Die Bilder, die es liest, sind die Dateien jedes Unternehmens, und diese Instanz hat keine: Setzen Sie PALUGADA_FILES_ROOT und starten Sie sie neu.",
+  "GPT, reads most scripts and handwriting": "GPT, liest die meisten Schriften und Handschrift",
+  "A generous free tier": "Ein großzügiges kostenloses Kontingent",
+  "Careful with documents and tables": "Sorgfältig bei Dokumenten und Tabellen",
+  "Vision models from several labs, one key": "Bildverständnis-Modelle mehrerer Labore, ein Schlüssel",
+  "Mistral Small, reads documents well": "Mistral Small, liest Dokumente gut",
+  "Ollama, llama.cpp or vLLM, OpenAI-compatible": "Ollama, llama.cpp oder vLLM, OpenAI-kompatibel",
+  "Describe a picture": "Ein Bild beschreiben",
+  "Llama 4, very fast and cheap": "Llama 4, sehr schnell und günstig",
 };
 
 /** Sentences written as they are in English on purpose: names, and words German writes the same way. */

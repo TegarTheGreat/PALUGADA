@@ -2375,6 +2375,20 @@ export const DICTIONARY: Dictionary = {
   "{step} of {total}": "{step} ti {total}",
   "{tasks} tasks, {events} events, {memories} memories, {documents} documents": "{tasks} tugas, {events} kajadian, {memories} mémori, {documents} dokumén",
   "{words} words": "{words} kecap",
+  "Reading pictures": "Maca gambar",
+  "Lets a role read a picture in the company's files -- a receipt, a screenshot, a product photo -- and copy its words. The picture goes to the provider you choose.": "Ngajantenkeun peran tiasa maca gambar dina file perusahaan -- struk, layar, poto produk -- sareng nyalin kecap-kecapna. Gambarna dikintunkeun ka panyadia anu dipilih ku anjeun.",
+  "Ask about it": "Taroskeun",
+  "What is the total on this receipt?": "Sabaraha totalna dina struk ieu?",
+  "Picture": "Gambar",
+  "The pictures it reads are each company's files, and this deployment has none: set PALUGADA_FILES_ROOT and start it again.": "Gambar anu dibacana nyaéta file unggal perusahaan, sareng pamasangan ieu teu gaduh: setél PALUGADA_FILES_ROOT teras mimitian deui.",
+  "GPT, reads most scripts and handwriting": "GPT, tiasa maca seueur aksara sareng serat leungeun",
+  "A generous free tier": "Pakét gratis anu lega",
+  "Careful with documents and tables": "Taliti kana dokumén sareng tabél",
+  "Vision models from several labs, one key": "Modél paningal ti sababaraha lab, hiji konci",
+  "Mistral Small, reads documents well": "Mistral Small, saé maca dokumén",
+  "Ollama, llama.cpp or vLLM, OpenAI-compatible": "Ollama, llama.cpp, atanapi vLLM, cocog sareng OpenAI",
+  "Describe a picture": "Ngajelaskeun gambar",
+  "Llama 4, very fast and cheap": "Llama 4, gancang pisan sareng mirah",
 };
 
 /**

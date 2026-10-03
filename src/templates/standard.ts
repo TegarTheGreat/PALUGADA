@@ -276,12 +276,16 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     // should not hand any division a standing grant for one.
     { division: 'finance', capability: 'ledger.read' },
     { division: 'finance', capability: 'doc.draft' },
+    // A receipt or a supplier's invoice as a picture, read once a vision
+    // provider is chosen under Tools; until then the grant waits unbound.
+    { division: 'finance', capability: 'image.describe' },
     { division: 'finance', capability: 'invoice.issue', rateLimitPerHour: 10 },
     { division: 'finance', capability: 'invoice.pay', rateLimitPerHour: 5 },
 
     // Support answers people who are already customers, so its send limit is
     // higher than Growth's and its reach is narrower.
     { division: 'support', capability: 'mailbox.read' },
+    { division: 'support', capability: 'image.describe' },
     { division: 'support', capability: 'crm.read' },
     { division: 'support', capability: 'crm.note' },
     { division: 'support', capability: 'ticket.create' },

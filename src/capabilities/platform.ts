@@ -26,6 +26,7 @@ import { uptimeCheck, webFetch, type WebOptions } from './web.ts';
 import { webExtract, webSearch, type ExtractProvider, type SearchProvider, type ToolBinding } from './search.ts';
 import { imageGenerate, speechSynthesize, type ImageProvider, type MediaBinding, type SpeechProvider } from './media.ts';
 import { speechTranscribe, type ListenBinding } from './listen.ts';
+import { imageDescribe, type VisionBinding } from './vision.ts';
 import { filesList, filesRead, type FilesOptions } from './files.ts';
 import { docDraft, emailDraft, type DraftOptions } from './draft.ts';
 import { chatCapabilities, type ChatOptions } from './chat.ts';
@@ -60,6 +61,8 @@ export interface PlatformCapabilityOptions {
   speech?: MediaBinding<SpeechProvider>;
   /** Recordings in the company's files, written down. */
   listen?: ListenBinding & { root: string };
+  /** Pictures in the company's files, described. */
+  vision?: VisionBinding & { root: string };
   /**
    * Customers' conversations (0111): where each channel's token is sealed.
    * Omitted, `chat.read` and `chat.send` stay unbound.
@@ -107,6 +110,7 @@ export function platformCapabilities(
   if (options.image) built.push(imageGenerate(options.image) as unknown as Capability<never, never>);
   if (options.speech) built.push(speechSynthesize(options.speech) as unknown as Capability<never, never>);
   if (options.listen) built.push(speechTranscribe(options.listen) as unknown as Capability<never, never>);
+  if (options.vision) built.push(imageDescribe(options.vision) as unknown as Capability<never, never>);
   if (options.chat) built.push(...chatCapabilities(options.chat));
   if (options.browser) built.push(...browserCapabilities(options.browser));
   // A division's own mailbox; a service bound for either name replaces it.

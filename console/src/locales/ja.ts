@@ -2345,6 +2345,20 @@ export const DICTIONARY: Dictionary = {
   "{step} of {total}": "ステップ {step} / {total}",
   "{tasks} tasks, {events} events, {memories} memories, {documents} documents": "タスク {tasks} 件、イベント {events} 件、記憶 {memories} 件、ドキュメント {documents} 件",
   "{words} words": "{words} 語",
+  "Reading pictures": "画像の読み取り",
+  "Lets a role read a picture in the company's files -- a receipt, a screenshot, a product photo -- and copy its words. The picture goes to the provider you choose.": "ロールが会社のファイルにある画像（レシート、スクリーンショット、商品写真など）を読み、そこに書かれた文字を書き写せるようにします。画像は選んだプロバイダーに送られます。",
+  "Ask about it": "質問する",
+  "What is the total on this receipt?": "このレシートの合計はいくらですか？",
+  "Picture": "画像",
+  "The pictures it reads are each company's files, and this deployment has none: set PALUGADA_FILES_ROOT and start it again.": "読み取る画像は各会社のファイルですが、このインスタンスにはファイルがありません。PALUGADA_FILES_ROOT を設定して再起動してください。",
+  "GPT, reads most scripts and handwriting": "GPT。ほとんどの文字体系と手書きを読めます",
+  "A generous free tier": "無料枠が大きい",
+  "Careful with documents and tables": "文書や表の読み取りが丁寧",
+  "Vision models from several labs, one key": "複数のラボの画像理解モデルを、1 つのキーで",
+  "Mistral Small, reads documents well": "Mistral Small。文書の読み取りが得意",
+  "Ollama, llama.cpp or vLLM, OpenAI-compatible": "Ollama、llama.cpp、vLLM（OpenAI 互換）",
+  "Describe a picture": "画像を説明する",
+  "Llama 4, very fast and cheap": "Llama 4。非常に高速で安価",
 };
 
 /** Sentences written as they are in English on purpose: names only. */

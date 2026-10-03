@@ -2336,6 +2336,20 @@ export const DICTIONARY: Dictionary = {
   "{step} of {total}": "第 {step} 步，共 {total} 步",
   "{tasks} tasks, {events} events, {memories} memories, {documents} documents": "{tasks} 个任务、{events} 个事件、{memories} 条记忆、{documents} 份文档",
   "{words} words": "{words} 个词",
+  "Reading pictures": "图片识别",
+  "Lets a role read a picture in the company's files -- a receipt, a screenshot, a product photo -- and copy its words. The picture goes to the provider you choose.": "让角色读取公司文件中的图片（收据、截图、产品照片），并照录其中的文字。图片会发送给你选择的提供商。",
+  "Ask about it": "提个问题",
+  "What is the total on this receipt?": "这张收据的总额是多少？",
+  "Picture": "图片",
+  "The pictures it reads are each company's files, and this deployment has none: set PALUGADA_FILES_ROOT and start it again.": "它读取的图片是各公司的文件，而本部署没有文件：请设置 PALUGADA_FILES_ROOT 并重新启动。",
+  "GPT, reads most scripts and handwriting": "GPT，能读大多数文字和手写体",
+  "A generous free tier": "免费额度充足",
+  "Careful with documents and tables": "处理文档和表格很细致",
+  "Vision models from several labs, one key": "多家实验室的视觉模型，一个密钥",
+  "Mistral Small, reads documents well": "Mistral Small，擅长读文档",
+  "Ollama, llama.cpp or vLLM, OpenAI-compatible": "Ollama、llama.cpp 或 vLLM，兼容 OpenAI",
+  "Describe a picture": "描述图片",
+  "Llama 4, very fast and cheap": "Llama 4，非常快且便宜",
 };
 
 /** Sentences written as they are in English on purpose: names only. */

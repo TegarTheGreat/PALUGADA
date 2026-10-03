@@ -2347,6 +2347,20 @@ export const DICTIONARY: Dictionary = {
   "{step} of {total}": "{total}단계 중 {step}단계",
   "{tasks} tasks, {events} events, {memories} memories, {documents} documents": "작업 {tasks}개, 이벤트 {events}개, 기억 {memories}개, 문서 {documents}개",
   "{words} words": "{words}단어",
+  "Reading pictures": "이미지 읽기",
+  "Lets a role read a picture in the company's files -- a receipt, a screenshot, a product photo -- and copy its words. The picture goes to the provider you choose.": "역할이 회사 파일에 있는 이미지(영수증, 스크린샷, 제품 사진)를 읽고 거기 적힌 글자를 그대로 옮겨 적게 해요. 이미지는 선택한 제공업체로 보내져요.",
+  "Ask about it": "질문하기",
+  "What is the total on this receipt?": "이 영수증의 합계는 얼마인가요?",
+  "Picture": "이미지",
+  "The pictures it reads are each company's files, and this deployment has none: set PALUGADA_FILES_ROOT and start it again.": "읽는 이미지는 각 회사의 파일인데, 이 인스턴스에는 파일이 없어요. PALUGADA_FILES_ROOT를 설정하고 다시 시작하세요.",
+  "GPT, reads most scripts and handwriting": "GPT, 대부분의 문자와 손글씨를 읽어요",
+  "A generous free tier": "넉넉한 무료 사용량",
+  "Careful with documents and tables": "문서와 표를 꼼꼼하게 읽어요",
+  "Vision models from several labs, one key": "여러 연구소의 비전 모델을 키 하나로",
+  "Mistral Small, reads documents well": "Mistral Small, 문서를 잘 읽어요",
+  "Ollama, llama.cpp or vLLM, OpenAI-compatible": "Ollama, llama.cpp, vLLM 등 OpenAI 호환 서버",
+  "Describe a picture": "이미지 설명하기",
+  "Llama 4, very fast and cheap": "Llama 4, 매우 빠르고 저렴",
 };
 
 /** Sentences written as they are in English on purpose: names only. */

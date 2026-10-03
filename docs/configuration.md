@@ -361,6 +361,10 @@ make is a file, written under the company's own directory in
 | `PALUGADA_LISTEN_URL` | Your own server's address, for `speaches` and `whisper-cpp` (start whisper.cpp's server with `--convert`, so it takes the browser's WebM) |
 | `PALUGADA_LISTEN_KEY_REF` | Its key; `speaches` takes one only if yours asks, `whisper-cpp` none |
 | `PALUGADA_LISTEN_MODEL` | A model other than the one each suggests |
+| `PALUGADA_VISION_PROVIDER` | What reads a picture for `image.describe`: `openai`, `gemini`, `anthropic`, `openrouter`, `groq`, `mistral`, or your own `openai-compatible` server (Ollama, llama.cpp, vLLM). The pictures are the company's files, so it needs `PALUGADA_FILES_ROOT` |
+| `PALUGADA_VISION_URL` | Your own server's address, for `openai-compatible`, such as `http://localhost:11434/v1` |
+| `PALUGADA_VISION_KEY_REF` | Its key; your own server takes one only if it asks |
+| `PALUGADA_VISION_MODEL` | A model other than the one each suggests; for your own server, the one it serves (`qwen2.5vl` unless given) |
 | `PALUGADA_EMBED_PROVIDER` | What finds the company's documents by meaning as well as by words: `openai`, `gemini`, `mistral`, `voyage`, `jina`, or your own `ollama` or `openai-compatible` server |
 | `PALUGADA_EMBED_URL` | Your own server's address, for `ollama` (`http://localhost:11434/v1`) and `openai-compatible` |
 | `PALUGADA_EMBED_KEY_REF` | Its key; `ollama` takes none |

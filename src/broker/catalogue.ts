@@ -387,6 +387,18 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
       'company, like a page read from the web.',
   },
   {
+    name: 'image.describe',
+    adapter: 'vision',
+    tier: TIER.READ_ONLY,
+    readsOutside: true,
+    summary: 'Says what a picture in the company\'s files shows, and copies its words.',
+    calibration:
+      'A read: it changes nothing, and the picture stays where it was. What ' +
+      'it shows -- a receipt, a screenshot, a customer\'s photo -- was made ' +
+      'outside the company, so its words are content from outside, like a ' +
+      'recording\'s.',
+  },
+  {
     name: 'dns.update',
     adapter: 'dns',
     tier: TIER.REVERSIBLE_WRITE,

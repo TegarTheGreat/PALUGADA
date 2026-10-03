@@ -2374,6 +2374,20 @@ export const DICTIONARY: Dictionary = {
   "{step} of {total}": "{step} trên {total}",
   "{tasks} tasks, {events} events, {memories} memories, {documents} documents": "{tasks} nhiệm vụ, {events} sự kiện, {memories} mục bộ nhớ, {documents} tài liệu",
   "{words} words": "{words} từ",
+  "Reading pictures": "Đọc hình ảnh",
+  "Lets a role read a picture in the company's files -- a receipt, a screenshot, a product photo -- and copy its words. The picture goes to the provider you choose.": "Cho phép vai trò đọc một hình ảnh trong tệp của công ty -- hóa đơn, ảnh chụp màn hình, ảnh sản phẩm -- và chép lại chữ trong đó. Hình ảnh được gửi tới nhà cung cấp bạn chọn.",
+  "Ask about it": "Hỏi về hình",
+  "What is the total on this receipt?": "Tổng tiền trên hóa đơn này là bao nhiêu?",
+  "Picture": "Hình ảnh",
+  "The pictures it reads are each company's files, and this deployment has none: set PALUGADA_FILES_ROOT and start it again.": "Hình ảnh nó đọc là tệp của từng công ty, và hệ thống này không có: hãy đặt PALUGADA_FILES_ROOT rồi khởi động lại.",
+  "GPT, reads most scripts and handwriting": "GPT, đọc được hầu hết chữ viết và chữ viết tay",
+  "A generous free tier": "Gói miễn phí rộng rãi",
+  "Careful with documents and tables": "Cẩn thận với tài liệu và bảng",
+  "Vision models from several labs, one key": "Mô hình thị giác từ nhiều phòng lab, một khóa",
+  "Mistral Small, reads documents well": "Mistral Small, đọc tài liệu tốt",
+  "Ollama, llama.cpp or vLLM, OpenAI-compatible": "Ollama, llama.cpp hoặc vLLM, tương thích OpenAI",
+  "Describe a picture": "Mô tả một hình ảnh",
+  "Llama 4, very fast and cheap": "Llama 4, rất nhanh và rẻ",
 };
 
 /** Sentences written as they are in English on purpose: names only. */

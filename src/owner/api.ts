@@ -166,6 +166,7 @@ import { DEFAULT_PRICE_TABLE, parsePriceTable, rateFor, withConsolePrices, type 
 import { MODELS_DEV_URL, lookupPrices } from '../engine/models-dev.ts';
 import { beginCredentialSignIn, finishCredentialSignIn, hasClient, OAUTH_CREDENTIALS, type CredentialSignIn } from '../capabilities/vendor-oauth.ts';
 import { LISTEN_PROVIDERS, listenProvider, transcribe, type Heard, type ListenBinding, type ListenProvider } from '../capabilities/listen.ts';
+import { DEFAULT_QUESTION, describePicture, pictureKind, VISION_PROVIDERS, visionProvider, type Picture, type VisionProvider } from '../capabilities/vision.ts';
 import { EMBED_PROVIDERS, embed, embedProvider, type EmbedBinding, type EmbedProvider } from '../capabilities/embed.ts';
 import {
   ceoOpensConversation, chatMayApply, chatPartners, chatScope, closeProposal, conversation, converse, forgetConversation, moveChat, patternFor, proposalById,
@@ -2248,7 +2249,7 @@ export class OwnerApi {
             kinds,
             providers: {
               search: SEARCH_PROVIDERS, extract: EXTRACT_PROVIDERS, image: IMAGE_PROVIDERS, speech: SPEECH_PROVIDERS, listen: LISTEN_PROVIDERS,
-              embed: EMBED_PROVIDERS,
+              embed: EMBED_PROVIDERS, vision: VISION_PROVIDERS,
             },
             filesRoot: Boolean(deployment.baseEnv.PALUGADA_FILES_ROOT),
             applies: deployment.restart ? 'now' : 'next_start',
@@ -2261,12 +2262,13 @@ export class OwnerApi {
         // used for this call and saved nowhere.
         method: 'POST',
         pattern: '/api/control/tools/:kind/test',
-        // A recording to try Listening with is larger than a search.
+        // A recording to try Listening with, or a picture to try Seeing
+        // with, is larger than a search.
         maxBodyBytes: 16 * 1024 * 1024,
         handle: async ({ params, body }) => {
           const { kind, binding } = await this.#toolCandidate(params.kind!, body);
           try {
-            const signal = AbortSignal.timeout(kind === 'image' || kind === 'speech' || kind === 'listen' ? 120_000 : 30_000);
+            const signal = AbortSignal.timeout(kind === 'image' || kind === 'speech' || kind === 'listen' || kind === 'vision' ? 120_000 : 30_000);
             if (kind === 'embed') {
               // One sentence, to show the provider answers and how long its vectors are.
               const model = typeof body.model === 'string' && body.model.trim() ? body.model.trim() : null;
@@ -2277,6 +2279,12 @@ export class OwnerApi {
               // A clip the owner recorded on the page, heard once and kept nowhere.
               const text = await transcribe({ ...binding as ToolBinding<ListenProvider>, model: typeof body.model === 'string' && body.model.trim() ? body.model.trim() : null },
                 audioFrom(body), typeof body.language === 'string' ? body.language : null, signal);
+              return { problem: null, text };
+            }
+            if (kind === 'vision') {
+              // A picture the owner chose on the page, looked at once and kept nowhere.
+              const text = await describePicture({ ...binding as ToolBinding<VisionProvider>, model: typeof body.model === 'string' && body.model.trim() ? body.model.trim() : null },
+                pictureFrom(body), typeof body.question === 'string' && body.question.trim() ? body.question.trim().slice(0, 1_000) : DEFAULT_QUESTION, signal);
               return { problem: null, text };
             }
             if (kind === 'image' || kind === 'speech') {
@@ -2321,8 +2329,9 @@ export class OwnerApi {
           }
           const tools = { ...((await readSettings()).tools as Partial<Record<ToolKind, ToolSetting>> | undefined) };
           const text = (field: string) => (typeof body[field] === 'string' && (body[field] as string).trim() ? (body[field] as string).trim().slice(0, 120) : null);
-          const model = kind === 'image' || kind === 'speech' || kind === 'listen' || kind === 'embed' ? text('model') : null;
-          const voice = kind === 'speech' ? text('voice') : null;
+          // A model and a voice for the kinds that have one, as TOOL_KINDS says.
+          const model = 'model' in TOOL_KINDS[kind] ? text('model') : null;
+          const voice = 'voice' in TOOL_KINDS[kind] ? text('voice') : null;
           tools[kind] = {
             provider: provider.id, ...(url ? { url } : {}), ...(typed || keep ? { keySecret: secret } : {}),
             ...(model ? { model } : {}), ...(voice ? { voice } : {}),
@@ -5910,11 +5919,11 @@ export class OwnerApi {
     const id = typeof body.provider === 'string' ? body.provider : '';
     const lists = {
       search: SEARCH_PROVIDERS, extract: EXTRACT_PROVIDERS, image: IMAGE_PROVIDERS, speech: SPEECH_PROVIDERS, listen: LISTEN_PROVIDERS,
-      embed: EMBED_PROVIDERS,
+      embed: EMBED_PROVIDERS, vision: VISION_PROVIDERS,
     } as const;
     const provider = kind === 'search' ? searchProvider(id) : kind === 'extract' ? extractProvider(id)
       : kind === 'image' ? imageProvider(id) : kind === 'speech' ? speechProvider(id)
-        : kind === 'embed' ? embedProvider(id) : listenProvider(id);
+        : kind === 'embed' ? embedProvider(id) : kind === 'vision' ? visionProvider(id) : listenProvider(id);
     if (!provider) {
       const known = lists[kind].map((one) => one.id);
       throw new PalugadaError('contract.violation', `provider is one of ${known.join(', ')}; got ${id || 'nothing'}`, { field: 'provider' });
@@ -5935,7 +5944,7 @@ export class OwnerApi {
     if (provider.key === 'required' && !typed && !keep) {
       throw new PalugadaError('contract.violation', `${provider.name} needs a key`, { field: 'key' });
     }
-    const binding: ToolBinding<SearchProvider | ExtractProvider | ImageProvider | SpeechProvider | ListenProvider | EmbedProvider> = {
+    const binding: ToolBinding<SearchProvider | ExtractProvider | ImageProvider | SpeechProvider | ListenProvider | EmbedProvider | VisionProvider> = {
       provider,
       url,
       key: async () => (typed ?? (keep ? deployment.secrets.resolve(`db://tool-${kind}`) : null)),
@@ -6471,6 +6480,16 @@ function audioFrom(body: Record<string, unknown>): Heard {
   const audio = typeof body.audio === 'string' ? body.audio.replace(/^data:[^;]+;base64,/, '') : '';
   if (!audio) throw new PalugadaError('contract.violation', 'send the recording, as base64', { field: 'audio' });
   return { bytes: Buffer.from(audio, 'base64'), mime };
+}
+
+/** A picture the owner chose to try Seeing with: a `data:` address, held to being one of the kinds a provider takes. */
+function pictureFrom(body: Record<string, unknown>): Picture {
+  const image = typeof body.image === 'string' ? body.image.replace(/^data:[^;]*;base64,/, '') : '';
+  if (!image) throw new PalugadaError('contract.violation', 'choose a picture to try it with', { field: 'image' });
+  const bytes = Buffer.from(image, 'base64');
+  const mime = pictureKind(bytes);
+  if (!mime) throw new PalugadaError('contract.violation', 'that is not a picture: a PNG, JPEG, WebP or GIF is', { field: 'image' });
+  return { bytes, mime };
 }
 
 /** What a route answered, in a sentence the conversation keeps: short, and never a secret, which no route returns. */

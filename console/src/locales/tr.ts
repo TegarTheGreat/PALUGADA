@@ -2376,6 +2376,20 @@ export const DICTIONARY: Dictionary = {
   "{step} of {total}": "{step} / {total}",
   "{tasks} tasks, {events} events, {memories} memories, {documents} documents": "{tasks} görev, {events} olay, {memories} bellek kaydı, {documents} belge",
   "{words} words": "{words} kelime",
+  "Reading pictures": "Görsel okuma",
+  "Lets a role read a picture in the company's files -- a receipt, a screenshot, a product photo -- and copy its words. The picture goes to the provider you choose.": "Bir rolün şirketin dosyalarındaki bir görseli -- fiş, ekran görüntüsü, ürün fotoğrafı -- okumasını ve içindeki yazıları aynen aktarmasını sağlar. Görsel seçtiğiniz sağlayıcıya gönderilir.",
+  "Ask about it": "Hakkında sorun",
+  "What is the total on this receipt?": "Bu fişin toplamı ne kadar?",
+  "Picture": "Görsel",
+  "The pictures it reads are each company's files, and this deployment has none: set PALUGADA_FILES_ROOT and start it again.": "Okuduğu görseller her şirketin dosyalarıdır ve bu kurulumda hiç yok: PALUGADA_FILES_ROOT değerini ayarlayın ve yeniden başlatın.",
+  "GPT, reads most scripts and handwriting": "GPT, çoğu yazıyı ve el yazısını okur",
+  "A generous free tier": "Cömert bir ücretsiz katman",
+  "Careful with documents and tables": "Belgelerde ve tablolarda titiz",
+  "Vision models from several labs, one key": "Birkaç laboratuvarın görüntü modelleri, tek anahtar",
+  "Mistral Small, reads documents well": "Mistral Small, belgeleri iyi okur",
+  "Ollama, llama.cpp or vLLM, OpenAI-compatible": "Ollama, llama.cpp veya vLLM, OpenAI uyumlu",
+  "Describe a picture": "Bir görseli betimle",
+  "Llama 4, very fast and cheap": "Llama 4, çok hızlı ve ucuz",
 };
 
 /**

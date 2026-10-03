@@ -781,6 +781,16 @@ are full, so add `image.generate` or `speech.synthesize` to a role on
 **Team** in place of one it uses less. Each call reserves the provider's
 price for one picture or one clip before it runs.
 
+**Reading pictures** lets a role granted `image.describe` read a picture in
+the company's files -- a receipt a customer photographed, a supplier's
+invoice, a screenshot -- and copy its words. Choose a provider the same way:
+Google Gemini has a generous free tier, and a vision model of your own
+(Ollama with `qwen2.5vl`, llama.cpp, vLLM) keeps the pictures on your
+machine. **Picture** and **Ask about it** try it on a picture you choose,
+kept nowhere. The standard template grants it to Finance and Support; add
+it to a role's tools on **Team**. A picture is sent whole to the provider,
+up to 5 MB, and what it says is treated as written outside the company.
+
 ## Choose or change the model
 
 In the console, open **This deployment** at the foot of the sidebar (on a

@@ -2270,6 +2270,20 @@ export const DICTIONARY: Dictionary = {
   "{step} of {total}": "{step} dari {total}",
   "{tasks} tasks, {events} events, {memories} memories, {documents} documents": "{tasks} tugas, {events} peristiwa, {memories} memori, {documents} dokumen",
   "{words} words": "{words} kata",
+  "Reading pictures": "Membaca gambar",
+  "Lets a role read a picture in the company's files -- a receipt, a screenshot, a product photo -- and copy its words. The picture goes to the provider you choose.": "Memungkinkan peran membaca gambar di file perusahaan -- struk, tangkapan layar, foto produk -- dan menyalin kata-katanya. Gambarnya dikirim ke penyedia yang Anda pilih.",
+  "Ask about it": "Tanyakan tentang gambar ini",
+  "What is the total on this receipt?": "Berapa total di struk ini?",
+  "Picture": "Gambar",
+  "The pictures it reads are each company's files, and this deployment has none: set PALUGADA_FILES_ROOT and start it again.": "Gambar yang dibacanya adalah file tiap perusahaan, dan deployment ini tidak punya: atur PALUGADA_FILES_ROOT lalu mulai ulang.",
+  "GPT, reads most scripts and handwriting": "GPT, membaca sebagian besar aksara dan tulisan tangan",
+  "A generous free tier": "Paket gratis yang longgar",
+  "Careful with documents and tables": "Teliti dengan dokumen dan tabel",
+  "Vision models from several labs, one key": "Model penglihatan dari beberapa lab, satu kunci",
+  "Mistral Small, reads documents well": "Mistral Small, pandai membaca dokumen",
+  "Ollama, llama.cpp or vLLM, OpenAI-compatible": "Ollama, llama.cpp, atau vLLM, kompatibel dengan OpenAI",
+  "Describe a picture": "Jelaskan gambar",
+  "Llama 4, very fast and cheap": "Llama 4, sangat cepat dan murah",
 };
 
 /**

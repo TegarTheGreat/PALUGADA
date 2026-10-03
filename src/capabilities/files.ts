@@ -215,6 +215,52 @@ export interface ReadOutput {
   next: number | null;
 }
 
+/**
+ * A file under one company's files, read as `files.read` and
+ * `image.describe` read one: the path resolved, and refused when it ends
+ * outside the company's directory -- `..`, a link to another company's file
+ * or to `/etc` -- as `files.list` refuses a folder; then opened without
+ * following a link and checked as opened, so a link put where the file was
+ * after the path was resolved is not read through. At most `maxBytes`, and
+ * `limit` says so when it is more.
+ */
+export async function readCompanyFile(
+  root: string, companyId: string, path: unknown, maxBytes: number, limit: string,
+): Promise<{ path: string; real: string; bytes: Buffer; size: number; mtimeMs: number }> {
+  const { open, realpath } = await import('node:fs/promises');
+  const { constants } = await import('node:fs');
+  const { join, resolve, sep, normalize, relative } = await import('node:path');
+  const base = await companyRoot(root, companyId);
+  const wanted = normalize(String(path ?? '')).replace(/^(\.\/)+/, '');
+  if (!wanted || wanted === '.') throw new PalugadaError('contract.violation', 'path is a file under the company\'s files, as files.list names it', { field: 'path' });
+  const target = resolve(join(base, wanted));
+  let real: string | null = null;
+  try {
+    real = await realpath(target);
+  } catch {
+    // Not there -- unless the path leads outside, which is said as that.
+  }
+  const inside = (where: string) => where === base || where.startsWith(base + sep);
+  if (!inside(target) || (real !== null && !inside(real))) {
+    throw new PalugadaError('capability.unreachable', `${wanted} is outside the company's files`, { path: wanted });
+  }
+  if (real === null) throw new PalugadaError('contract.violation', `there is no file ${wanted}: files.list says what there is`, { path: wanted });
+  const handle = await open(real, constants.O_RDONLY | constants.O_NOFOLLOW).catch(() => {
+    throw new PalugadaError('capability.unreachable', `${wanted} is outside the company's files`, { path: wanted });
+  });
+  try {
+    const info = await handle.stat();
+    if (info.isDirectory()) throw new PalugadaError('contract.violation', `${wanted} is a folder: files.list lists it`, { path: wanted });
+    if (!info.isFile()) throw new PalugadaError('contract.violation', `${wanted} is not a file`, { path: wanted });
+    if (info.size > maxBytes) {
+      throw new PalugadaError('contract.violation', `${wanted} is ${Math.round(info.size / 1_048_576)} MB; ${limit}`, { path: wanted });
+    }
+    return { path: relative(base, real), real, bytes: await handle.readFile(), size: info.size, mtimeMs: info.mtimeMs };
+  } finally {
+    await handle.close();
+  }
+}
+
 /** The most text one reading returns, as with a page read from the web. */
 const READ_CHARS = 60_000;
 /** The largest file read at all: a reading pages through it, but reads it whole each time. */
@@ -273,49 +319,15 @@ export function filesRead(options: FilesOptions, browser?: Browsers): Capability
     defaultTier: 0,
     describe: () => ({ moneyCents: 0 }),
     async execute(input, ctx) {
-      const { open, realpath } = await import('node:fs/promises');
-      const { constants } = await import('node:fs');
-      const { join, resolve, sep, normalize, relative } = await import('node:path');
-      const base = await companyRoot(options.root, ctx.companyId);
-      const wanted = normalize(String(input.path ?? '')).replace(/^(\.\/)+/, '');
-      if (!wanted || wanted === '.') throw new PalugadaError('contract.violation', 'path is a file under the company\'s files, as files.list names it', { field: 'path' });
-      const target = resolve(join(base, wanted));
-      let real: string | null = null;
-      try {
-        real = await realpath(target);
-      } catch {
-        // Not there -- unless the path leads outside, which is said as that.
-      }
-      const inside = (path: string) => path === base || path.startsWith(base + sep);
-      if (!inside(target) || (real !== null && !inside(real))) {
-        throw new PalugadaError('capability.unreachable', `${wanted} is outside the company's files`, { path: wanted });
-      }
-      if (real === null) throw new PalugadaError('contract.violation', `there is no file ${wanted}: files.list says what there is`, { path: wanted });
-      // Opened without following a link, and checked as opened: a link put
-      // where the file was, after `realpath` looked, is not read through.
-      const handle = await open(real, constants.O_RDONLY | constants.O_NOFOLLOW).catch(() => {
-        throw new PalugadaError('capability.unreachable', `${wanted} is outside the company's files`, { path: wanted });
-      });
-      let info;
-      let bytes: Buffer;
-      try {
-        info = await handle.stat();
-        if (info.isDirectory()) throw new PalugadaError('contract.violation', `${wanted} is a folder: files.list lists it`, { path: wanted });
-        if (!info.isFile()) throw new PalugadaError('contract.violation', `${wanted} is not a file`, { path: wanted });
-        if (info.size > READ_MAX_BYTES) {
-          throw new PalugadaError('contract.violation', `${wanted} is ${Math.round(info.size / 1_048_576)} MB; files.read reads files up to 10 MB`, { path: wanted });
-        }
-        bytes = await handle.readFile();
-      } finally {
-        await handle.close();
-      }
+      const opened = await readCompanyFile(options.root, ctx.companyId, input.path, READ_MAX_BYTES, 'files.read reads files up to 10 MB');
+      const { path: wanted, real, bytes } = opened;
       async function convertedText(document: DocumentKind): Promise<string> {
         const said = DOCUMENT_SAID[document];
         if (!browser) {
           throw new PalugadaError('capability.unreachable',
             `${wanted} is ${said}: this deployment reads them in its browser, and has none (install Chromium, or set PALUGADA_CHROMIUM)`, { path: wanted });
         }
-        const key = `${real}:${info!.size}:${info!.mtimeMs}`;
+        const key = `${real}:${opened.size}:${opened.mtimeMs}`;
         const kept = converted.get(key);
         if (kept && Date.now() - kept.at < CONVERTED_MS) return kept.text;
         const answer = await browser.convert(document, bytes, ctx.signal);
@@ -357,9 +369,9 @@ export function filesRead(options: FilesOptions, browser?: Browsers): Capability
       const end = Math.min(whole.length, from + READ_CHARS);
 
       return {
-        path: relative(base, real),
+        path: wanted,
         kind,
-        bytes: info.size,
+        bytes: opened.size,
         text: whole.slice(from, end),
         from,
         next: end < whole.length ? end : null,

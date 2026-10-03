@@ -377,6 +377,7 @@ const CAPABILITY_NAMES: Record<string, string> = {
   'email.send': N('Send an email'),
   'files.list': N('List files'),
   'files.read': N('Read a file'),
+  'image.describe': N('Describe a picture'),
   'funds.transfer': N('Transfer money'),
   'goal.propose': N('Propose a goal change'),
   'image.generate': N('Make a picture'),

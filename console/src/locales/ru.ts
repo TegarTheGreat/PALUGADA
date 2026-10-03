@@ -2354,6 +2354,20 @@ export const DICTIONARY: Dictionary = {
   "{step} of {total}": "{step} из {total}",
   "{tasks} tasks, {events} events, {memories} memories, {documents} documents": "Задач: {tasks}, событий: {events}, записей памяти: {memories}, документов: {documents}",
   "{words} words": "слов: {words}",
+  "Reading pictures": "Чтение изображений",
+  "Lets a role read a picture in the company's files -- a receipt, a screenshot, a product photo -- and copy its words. The picture goes to the provider you choose.": "Позволяет роли прочитать изображение в файлах компании -- чек, снимок экрана, фото товара -- и переписать его слова. Изображение отправляется выбранному вами провайдеру.",
+  "Ask about it": "Спросите о нём",
+  "What is the total on this receipt?": "Какая сумма в этом чеке?",
+  "Picture": "Изображение",
+  "The pictures it reads are each company's files, and this deployment has none: set PALUGADA_FILES_ROOT and start it again.": "Изображения, которые он читает, — это файлы каждой компании, а в этой установке их нет: задайте PALUGADA_FILES_ROOT и перезапустите её.",
+  "GPT, reads most scripts and handwriting": "GPT, читает большинство письменностей и рукописный текст",
+  "A generous free tier": "Щедрый бесплатный тариф",
+  "Careful with documents and tables": "Аккуратен с документами и таблицами",
+  "Vision models from several labs, one key": "Модели зрения от нескольких лабораторий, один ключ",
+  "Mistral Small, reads documents well": "Mistral Small, хорошо читает документы",
+  "Ollama, llama.cpp or vLLM, OpenAI-compatible": "Ollama, llama.cpp или vLLM, совместимые с OpenAI",
+  "Describe a picture": "Описать изображение",
+  "Llama 4, very fast and cheap": "Llama 4, очень быстро и дёшево",
 };
 
 /** Sentences written as they are in English on purpose: names only. */

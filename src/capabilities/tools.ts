@@ -12,6 +12,7 @@ import {
 import { imageProvider, speechProvider, type ImageProvider, type MediaBinding, type SpeechProvider } from './media.ts';
 import { listenProvider, type ListenBinding } from './listen.ts';
 import { embedProvider, type EmbedBinding } from './embed.ts';
+import { visionProvider, type VisionBinding } from './vision.ts';
 
 /** Each kind of tool, the capability it binds, and the variables it is configured by. */
 export const TOOL_KINDS = {
@@ -28,6 +29,10 @@ export const TOOL_KINDS = {
   listen: {
     capability: 'speech.transcribe', provider: 'PALUGADA_LISTEN_PROVIDER', url: 'PALUGADA_LISTEN_URL', key: 'PALUGADA_LISTEN_KEY_REF',
     model: 'PALUGADA_LISTEN_MODEL',
+  },
+  vision: {
+    capability: 'image.describe', provider: 'PALUGADA_VISION_PROVIDER', url: 'PALUGADA_VISION_URL', key: 'PALUGADA_VISION_KEY_REF',
+    model: 'PALUGADA_VISION_MODEL',
   },
   // Not a capability a role calls: what `memory.search` finds documents by,
   // besides their words.
@@ -51,6 +56,8 @@ export interface ToolBindings {
   speech?: MediaBinding<SpeechProvider>;
   /** A role's `speech.transcribe`, which reads the company's files. */
   listen?: ListenBinding & { root: string };
+  /** A role's `image.describe`, which reads pictures in the company's files. */
+  vision?: VisionBinding & { root: string };
   /**
    * The owner's own voice with the assistant: what hears them and what
    * answers aloud. Neither needs the company's files, so each is bound
@@ -118,6 +125,10 @@ export function toolBindingsFrom(
   const image = media('image', imageProvider);
   const speech = media('speech', speechProvider);
   const heard = bind('listen', listenProvider);
+  const seeing = bind('vision', visionProvider);
+  if (seeing && !filesRoot) {
+    notes.push('image.describe is unbound: the pictures it reads are the company\'s files, and PALUGADA_FILES_ROOT is not set');
+  }
   const meaning = bind('embed', embedProvider);
   const listening = heard ? { ...heard, model: env[TOOL_KINDS.listen.model]?.trim() || null } : undefined;
   if (listening && !filesRoot) {
@@ -139,6 +150,7 @@ export function toolBindingsFrom(
   return {
     ...(search ? { search } : {}), ...(extract ? { extract } : {}), ...(image ? { image } : {}), ...(speech ? { speech } : {}),
     ...(listening && filesRoot ? { listen: { ...listening, root: filesRoot } } : {}),
+    ...(seeing && filesRoot ? { vision: { ...seeing, root: filesRoot, model: env[TOOL_KINDS.vision.model]?.trim() || null } } : {}),
     voice: { ...(listening ? { listen: listening } : {}), ...(speaking ? { speak: speaking } : {}) },
     ...(meaning ? { embed: { ...meaning, model: env[TOOL_KINDS.embed.model]?.trim() || null } } : {}),
     notes,

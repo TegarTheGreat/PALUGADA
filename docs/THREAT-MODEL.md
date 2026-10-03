@@ -111,7 +111,7 @@ refer to `docs/PRD.md`.
 
 **Reach.** What a `readsOutside` capability returns (`src/broker/catalogue.ts`:
 `web.fetch`, `web.search`, `web.extract`, `repo.read`, `mailbox.read`,
-`calendar.read`, `crm.read`, `speech.transcribe`, `chat.read`,
+`calendar.read`, `crm.read`, `speech.transcribe`, `image.describe`, `chat.read`,
 `browser.read`, `browser.act`; every MCP tool, `src/capabilities/mcp.ts`;
 `ticket.list`), and any task a hook starts.
 

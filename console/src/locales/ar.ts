@@ -2347,6 +2347,20 @@ export const DICTIONARY: Dictionary = {
   "{step} of {total}": "{step} من {total}",
   "{tasks} tasks, {events} events, {memories} memories, {documents} documents": "المهام: {tasks}، الأحداث: {events}، عناصر الذاكرة: {memories}، المستندات: {documents}",
   "{words} words": "الكلمات: {words}",
+  "Reading pictures": "قراءة الصور",
+  "Lets a role read a picture in the company's files -- a receipt, a screenshot, a product photo -- and copy its words. The picture goes to the provider you choose.": "يتيح للدور قراءة صورة في ملفات الشركة -- إيصال، لقطة شاشة، صورة منتج -- ونسخ كلماتها. تُرسل الصورة إلى المزوّد الذي تختاره.",
+  "Ask about it": "اسأل عنها",
+  "What is the total on this receipt?": "كم إجمالي هذا الإيصال؟",
+  "Picture": "الصورة",
+  "The pictures it reads are each company's files, and this deployment has none: set PALUGADA_FILES_ROOT and start it again.": "الصور التي يقرؤها هي ملفات كل شركة، وهذه المنصة ليس لديها ملفات: اضبط PALUGADA_FILES_ROOT وأعد تشغيلها.",
+  "GPT, reads most scripts and handwriting": "GPT، يقرأ معظم أنظمة الكتابة وخط اليد",
+  "A generous free tier": "مستوى مجاني سخي",
+  "Careful with documents and tables": "دقيق مع المستندات والجداول",
+  "Vision models from several labs, one key": "نماذج رؤية من عدة مختبرات، بمفتاح واحد",
+  "Mistral Small, reads documents well": "Mistral Small، يقرأ المستندات جيدًا",
+  "Ollama, llama.cpp or vLLM, OpenAI-compatible": "Ollama أو llama.cpp أو vLLM، متوافق مع OpenAI",
+  "Describe a picture": "وصف صورة",
+  "Llama 4, very fast and cheap": "Llama 4، سريع جدًا ورخيص",
 };
 
 /** Sentences written as they are in English on purpose: names only. */

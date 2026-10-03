@@ -6431,6 +6431,36 @@ What changed:
   the refusals for a server that does not say who it is still come before
   any code.
 
+## 2.80 A month's pause ends with its month (F1.7, M6)
+
+Found by the audit of 30 September and still open on 2 October (M6). The
+spend guard pauses a company when a month's spending reaches its ceiling
+(`evaluateSpendLimit`, `src/governance/spend-guard.ts`), and nothing lifted
+the pause when the month ended: in the new month the guard found spending
+under the ceiling and returned without touching `paused_at`. A company that
+ran out in October was still paused in November, every task it was given
+refused as `spend.paused`, until the owner found **Money** and lifted it by
+hand with a code. Its card, "Monthly budget reached; the company is
+paused", stayed open after any lift.
+
+What changed:
+
+- **The pause is the month's.** At the first look in a new month -- the
+  worker's watch stage, every tick -- a pause set in an earlier month is
+  lifted with any override it had, and `budget.period_resumed` says when it
+  was set and which month began. Spending already at the new month's
+  ceiling pauses the company again, for this month.
+- **Its card goes with it.** The pause's card now carries what it is about
+  (`spendPause`), and is withdrawn when the pause ends: `period_started` at
+  a new month, `spend_resumed` when the owner lifts it. One raised before
+  the payload was kept is found by its title.
+- **Not changed:** tasks the pause stopped stay stopped, as section 6.3
+  asks; each is continued from its page (section 2.69).
+- **Tested.** `spend-guard.test.ts`: paused last month, the company takes
+  work again at the first look this month, its card withdrawn and the event
+  written; a pause of this month survives the next look; the owner's lift
+  withdraws its card.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

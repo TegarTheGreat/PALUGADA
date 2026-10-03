@@ -166,7 +166,7 @@ export async function overrideSpendPause(companyId: string, until: Date): Promis
   });
 }
 
-/** Clears a pause outright, for the start of a new period or an owner reset. */
+/** Clears a pause outright: the owner's reset, with their device. */
 export async function clearSpendPause(companyId: string): Promise<void> {
   await withControlPlane(async (tx) => {
     await tx.query(
@@ -174,8 +174,31 @@ export async function clearSpendPause(companyId: string): Promise<void> {
         WHERE company_id = $1`,
       [companyId],
     );
+    await withdrawPauseCard(tx, companyId, 'spend_resumed');
   });
 }
+
+/**
+ * The card that said the company is paused, withdrawn once it is not: left
+ * open, it asked the owner to lift a pause that had already gone.
+ */
+async function withdrawPauseCard(tx: TenantClient, companyId: string, reason: 'spend_resumed' | 'period_started'): Promise<void> {
+  const { rows } = await tx.query<{ id: string }>(
+    `UPDATE inbox_items SET status = 'withdrawn', closed_reason = $2
+      WHERE company_id = $1 AND kind = 'budget_alert' AND status = 'open' AND task_id IS NULL
+        AND (payload ? 'spendPause' OR title = $3)
+      RETURNING id`,
+    [companyId, reason, PAUSED_TITLE],
+  );
+  for (const item of rows) {
+    await appendEvent(tx, {
+      companyId, type: 'inbox.withdrawn', actor: 'system', payload: { inboxItemId: item.id, closedReason: reason },
+    });
+  }
+}
+
+/** The pause card's title; matched as well as its payload, for one raised before the payload was kept. */
+const PAUSED_TITLE = 'Monthly budget reached; the company is paused';
 
 /** Records that this alert has been raised for this period. False if already. */
 async function claimSlot(companyId: string, kind: string, day: Date): Promise<boolean> {
@@ -207,7 +230,30 @@ export async function evaluateSpendLimit(
   now = new Date(),
 ): Promise<SpendOutcome> {
   const spend = await periodSpend(companyId, now);
-  const already = await limitFor(companyId);
+  let already = await limitFor(companyId);
+
+  // The ceiling is a month's, and so is its pause (M6). One set in a month
+  // that has ended is lifted at the first look in the new one, with its
+  // override, and the card that said so withdrawn; spending already at the
+  // new month's ceiling pauses again below, for this month.
+  if (already.pausedAt && already.pausedAt < spend.periodStart) {
+    const pausedAt = already.pausedAt;
+    await withControlPlane(async (tx) => {
+      await tx.query(
+        `UPDATE spend_limits SET paused_at = NULL, pause_reason = NULL, override_until = NULL
+          WHERE company_id = $1 AND paused_at = $2`,
+        [companyId, pausedAt],
+      );
+      await appendEvent(tx, {
+        companyId,
+        type: 'budget.period_resumed',
+        actor: 'system',
+        payload: { pausedAt: pausedAt.toISOString(), periodStart: spend.periodStart.toISOString() },
+      });
+      await withdrawPauseCard(tx, companyId, 'period_started');
+    });
+    already = await limitFor(companyId);
+  }
 
   if (spend.fraction >= 1) {
     if (!already.pausedAt) {
@@ -232,7 +278,8 @@ export async function evaluateSpendLimit(
 
       await inbox.raiseBudgetAlert({
         companyId,
-        title: 'Monthly budget reached; the company is paused',
+        title: PAUSED_TITLE,
+        payload: { spendPause: { periodStart: spend.periodStart.toISOString() } },
         detail:
           `${reason}. No new task will start and no external action will run until you ` +
           'raise the ceiling or grant a temporary override.',

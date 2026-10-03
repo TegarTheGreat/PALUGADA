@@ -320,7 +320,9 @@ on **Money**.
 
 - At 80% you are told once: "Monthly budget is 80% spent".
 - At 100% the company pauses: no new task starts and no external action runs
-  until you raise the ceiling or override the pause until a time you choose.
+  until you raise the ceiling or override the pause until a time you choose,
+  or the month ends. The pause is the month's: the first check of the next
+  month lifts it, and its card is withdrawn.
 - A role that spends more than three times its seven-day hourly average in
   one hour is paused while there is still money left, and you get an
   incident.

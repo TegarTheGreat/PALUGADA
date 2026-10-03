@@ -267,8 +267,10 @@ task is cancelled with **Your approval was not given in time**.
 no external action runs.
 
 **Fix.** On **Money**, raise the **Monthly ceiling**, **Lift the pause**, or
-**Override** it until a time. Each takes a code. If spending was not
-expected, look at **Cost per day** and **Accounts** first.
+**Override** it until a time. Each takes a code. Or wait: the pause is the
+month's, and it lifts by itself at the start of the next one (UTC). If
+spending was not expected, look at **Cost per day** and **Accounts** first.
+Tasks it stopped stay stopped; open each and press **Continue**.
 
 If the spending is far above your provider's bill, the model has no price
 and is charged at the high fallback. Under **This deployment**, **Model**,

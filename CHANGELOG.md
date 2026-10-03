@@ -125,6 +125,10 @@ The first version. What it holds, in the order an owner meets it.
   counted in its spending and its monthly ceiling; PALUGADA's own
   assistant's cost is shown under **Every company** on **Money**
   (STATUS 2.78).
+- A company paused at its monthly ceiling takes work again when the month
+  ends, and the card that said it was paused is withdrawn. The pause used
+  to last until you lifted it by hand, into the next month and beyond
+  (STATUS 2.80).
 
 ### The owner
 

@@ -893,6 +893,8 @@ export async function raiseBudgetAlert(input: {
   companyId: string;
   title: string;
   detail: string;
+  /** What the alert is about, for whatever closes it: `spendPause` for the month's pause (M6). */
+  payload?: Record<string, unknown>;
 }): Promise<string> {
   const notifyAfter = await notifyAfterFor('budget_alert', {});
 
@@ -900,10 +902,10 @@ export async function raiseBudgetAlert(input: {
     const { rows } = await tx.query<{ id: string }>(
       `INSERT INTO inbox_items
          (company_id, kind, title, action_summary, rationale, consequence_if_denied,
-          notify_after)
-       VALUES ($1,'budget_alert',$2,$2,$3,'',$4)
+          notify_after, payload)
+       VALUES ($1,'budget_alert',$2,$2,$3,'',$4,$5)
        RETURNING id`,
-      [input.companyId, input.title, input.detail, notifyAfter],
+      [input.companyId, input.title, input.detail, notifyAfter, JSON.stringify(input.payload ?? {})],
     );
     return rows[0]!.id;
   });

@@ -2857,6 +2857,65 @@ test('a runtime asks the owner, waits, and carries on with the answer (owner.ask
   assert.equal(asked.rowCount, 1, 'the same question is not asked twice');
 });
 
+/**
+ * N14, the analysis of 3 October (H4 of 30 September): a runtime in another
+ * process was replayed by the position of its steps. An agent CLI resumed
+ * after the owner's answer, or after a restart, starts again from its
+ * context, and goes on in its own order and its own words -- and the first
+ * call that did not match the step recorded at its place halted the task
+ * with `journal_divergence`. Its calls are now matched to the journal by what
+ * they are: one it already made is answered from the record, wherever it
+ * comes, and one it never made runs.
+ */
+test('an agent resumed in its own order and words carries on, and does not do again what it did (N14)', async () => {
+  const fixture = await createCompany('script-resume');
+  let written = 0;
+  let read = 0;
+  const registry = new CapabilityRegistry();
+  registry.register<{ zone: string }, { ok: boolean }>({
+    name: 'dns.write', adapter: 'test:dns', defaultTier: 2,
+    async execute() { written += 1; return { ok: true }; },
+    async verify() { return true; },
+  });
+  registry.register<{ zone: string }, { records: string[] }>({
+    name: 'dns.read', adapter: 'test:dns', defaultTier: 0,
+    async execute() { read += 1; return { records: ['192.0.2.10'] }; },
+  });
+  registerPlatformCapabilities(registry);
+  await registry.sync();
+  for (const name of ['dns.write', 'dns.read', 'plan.record', 'owner.ask']) await grantCapability(fixture, name);
+  await configureRole(fixture, { runtime: 'script', tools: ['plan.record', 'dns.write', 'dns.read', 'owner.ask'] });
+  const task = await newTask(fixture, { script: 'resume_reworded' });
+  const engine = engineWith(new CapabilityBroker(registry), scriptAdapter());
+
+  const first = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(first.status, 'waiting_approval', first.reason);
+  assert.equal(written, 1);
+  const { rows: items } = await withTenant(fixture.companyId, (tx) => tx.query<{ id: string }>(
+    "SELECT id FROM inbox_items WHERE task_id = $1 AND kind = 'escalation'", [task.id]));
+  await inbox.decide(fixture.companyId, items[0]!.id, 'approve', 'The new host, 192.0.2.10.', { channel: 'app' });
+
+  // Resumed, it asks again first, writes again, and reads a zone it names
+  // differently: none of it at the place the first run's step holds.
+  const second = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(second.status, 'completed', second.reason);
+  const output = second.output as { answer: { output?: { answer: string } }; write: { output?: unknown } };
+  assert.equal(output.answer.output?.answer, 'The new host, 192.0.2.10.', JSON.stringify(second.output));
+  assert.deepEqual(output.write.output, { ok: true }, 'the write is answered from the record');
+  assert.equal(written, 1, 'and not made again');
+  assert.equal(read, 1, 'a call it never made runs');
+
+  const { rows: steps } = await withTenant(fixture.companyId, (tx) => tx.query<{ step_index: number; name: string; status: string }>(
+    'SELECT step_index, name, status FROM task_steps WHERE task_id = $1 ORDER BY step_index', [task.id]));
+  assert.deepEqual(steps.map((step) => [step.step_index, step.name, step.status]), [
+    [0, 'capability:plan.record', 'committed'],
+    [1, 'capability:dns.write', 'committed'],
+    [2, 'capability:owner.ask', 'committed'],
+    [3, 'capability:dns.read', 'committed'],
+  ], 'each call once, where it was first made');
+  assert.ok(!(await eventTypes(fixture.companyId, task.id)).includes('task.halted'));
+});
+
 test('a task asks the owner three things at most, and an unanswered question is said to be one', async () => {
   const fixture = await createCompany('ask-bounds');
   const task = await newTask(fixture, { script: 'done' });

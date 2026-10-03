@@ -30,8 +30,11 @@
  * "the adapter round-trip", so a resumed run re-enters the runtime and its
  * internal reasoning happens again. What stops that from being wasteful is
  * session continuity (F4.7): the committed steps travel in the context pack,
- * so the runtime can see what it already did. That is a weaker guarantee than
- * deterministic replay and it is the price of not being the runtime.
+ * so the runtime can see what it already did. And a call it makes again is
+ * answered from the journal wherever it comes in the run: its steps are
+ * found by what they are, not by their place (N14). That is a weaker
+ * guarantee than deterministic replay -- a call worded differently is a
+ * different call -- and it is the price of not being the runtime.
  */
 import type { StepKind } from '../engine/journal.ts';
 import type { Goal } from '../domain/goals.ts';

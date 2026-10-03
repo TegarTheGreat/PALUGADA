@@ -181,6 +181,11 @@ The first version. What it holds, in the order an owner meets it.
   task is told what the stopped one wrote or sent, and a write it repeats
   word for word is answered from the record instead of being sent twice
   (STATUS 2.91).
+- An agent CLI or another runtime outside the process, resumed after your
+  answer or a restart, carries on in its own order and words. Its first call
+  out of the old order was refused, and a later one could overwrite an
+  unanswered question, so a task could finish without reading your answer
+  (STATUS 2.92).
 - **Replay against the journal** is shown only for a task this deployment
   can replay. It was offered on every task and refused on every task a
   model or an agent CLI ran (STATUS 2.87).

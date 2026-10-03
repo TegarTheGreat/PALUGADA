@@ -6825,6 +6825,48 @@ What changed:
   second goes to the vendor under its first key. Done again once more after
   finishing, the same note is written again under a key of its own.
 
+## 2.92 An agent resumed in its own order and words carries on (F5.1, N14)
+
+Found by the audit of 30 September (H4) and still open on 3 October (N14),
+from the code; the test written for it found it worse than described. A
+runtime in another process -- an agent CLI, an ACP agent, a container, an
+HTTP service, a script -- was replayed by the place of its steps, as a
+handler in this process is. But such a runtime is not replayed: resumed
+after the owner's answer or an approval, or after a restart, it starts
+again from what it is told and goes on in its own order and its own words.
+Its first call that did not match the step recorded at its place was
+refused as `journal.divergence` -- told to the agent as a failed tool call,
+which it worked around -- and a call that landed on the place of an
+unfinished step was written over it. In the test, the agent asked its
+question again first, was refused, wrote its answer over the question's
+step and finished: the task was shown as done, and the owner's answer was
+never read.
+
+What changed:
+
+- **Its steps are found by what they are** (`place`, in the engine's run).
+  For a runtime that is not `in-process`, each call is matched to the
+  journal as it stood when the run began: a call with the same name and
+  input as a step there is given that step -- a finished one first, each
+  step to one call -- and is answered from it if it finished, or made again
+  under its own key if it did not. Anything else goes after the last step,
+  and nothing is written over. A fallback to another model starts the
+  matching again, with what the failed attempt journalled.
+- **Unchanged for code in this process and the model loop.** A handler and
+  the model loop, which journals its own turns, make the same steps in the
+  same order when they run again; their steps are still their places, and a
+  handler that takes other steps still halts as `journal_divergence`.
+- **Not changed:** a call worded differently is a different call. A read
+  worded differently is read again; the same write worded differently would
+  be made again, which is why a resumed run is told what it already did
+  (F4.7) and, after a stop, what the attempt before it wrote (2.91).
+- **Tested.** `out-of-process-runtimes.test.ts`: a script runtime records a
+  plan, makes a tier 2 write and asks the owner; answered, it runs again,
+  asking first, writing again and reading a zone it names differently. It
+  is given the answer, the write is answered from the record and not made
+  again, the read runs, the task completes, and the journal holds each call
+  once, where it was first made.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

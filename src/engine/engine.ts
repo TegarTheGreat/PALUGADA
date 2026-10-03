@@ -25,6 +25,7 @@ import { isTerminal } from '../domain/task.ts';
 import { DEFAULT_PRICE_TABLE, estimateCents, wholeCents, type PriceTable } from './pricing.ts';
 import { checkUsage } from '../runtime/wire.ts';
 import { journalOf, reopenFinalTurns, runStep, writtenBefore, type StepKind } from './journal.ts';
+import { hashInput } from './hash.ts';
 import { unfinishedAttempts } from './owner-control.ts';
 import { keepBriefing } from './briefing.ts';
 import { LeaseKeeper } from './lease-keeper.ts';
@@ -764,6 +765,40 @@ export class Engine {
     let parked: PalugadaError | null = null;
     let ended: PalugadaError | null = null;
 
+    // N14: where a step goes in the journal. A handler in this process, and
+    // the model loop, which journals its own turns, make the same steps in
+    // the same order when they run again, so a step is its place. A runtime
+    // in another process does not: an agent CLI resumed after the owner's
+    // answer, or after a restart, starts again from what it was told, and
+    // goes on in its own order and its own words. Replayed by place, its
+    // first call that did not match the step recorded there was refused as
+    // a divergence -- and one that did not match an unfinished step was
+    // written over it. Its steps are found by what they are instead: a call
+    // it made before, with the same input, is given that step (one each,
+    // a finished one first), and anything else goes after the last.
+    const byContent = runtime.runtime !== 'in-process';
+    let recorded: Promise<Array<{ index: number; name: string; inputHash: string; committed: boolean }>> | null = null;
+    let taken = new Set<number>();
+    let nextIndex = 0;
+    const place = async (name: string, input: unknown): Promise<number> => {
+      if (!byContent) return stepIndex++;
+      recorded ??= withTenant(companyId, async (tx) => {
+        const { rows } = await tx.query<{ step_index: number; name: string; input_hash: string; status: string }>(
+          'SELECT step_index, name, input_hash, status FROM task_steps WHERE task_id = $1 ORDER BY step_index',
+          [taskId]);
+        nextIndex = rows.length === 0 ? 0 : rows[rows.length - 1]!.step_index + 1;
+        return rows.map((row) => ({
+          index: row.step_index, name: row.name, inputHash: row.input_hash, committed: row.status === 'committed',
+        }));
+      });
+      const steps = await recorded;
+      const hash = hashInput(input);
+      const free = steps.filter((one) => !taken.has(one.index) && one.name === name && one.inputHash === hash);
+      const index = (free.find((one) => one.committed) ?? free[0])?.index ?? nextIndex++;
+      taken.add(index);
+      return index;
+    };
+
     // `placed` is told the index the step is journalled at, as soon as it has
     // one: a tool call's caller hands it on to the run, which cites it.
     const step = async <T,>(
@@ -778,7 +813,7 @@ export class Engine {
         // Before the side effect, not only after it: a worker that has lost
         // the task must not send the email and then find out.
         await lease.confirm();
-        const index = stepIndex++;
+        const index = await place(name, input);
         placed?.(index);
         const { value } = await runStep(
           { companyId, taskId, keyTaskId: lineage.at(-1) },
@@ -1206,6 +1241,8 @@ export class Engine {
           companyId, task, roleSlug, runtime, agentRunId,
           startAttempt: () => {
             stepIndex = 0;
+            recorded = null;
+            taken = new Set();
             chargedCents = 0;
           },
         },

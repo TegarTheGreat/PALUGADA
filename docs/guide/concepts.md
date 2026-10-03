@@ -157,7 +157,8 @@ A halted task is never retried silently. Its reason is one of: a contract
 violation, a policy denial, the budget, the hop limit, the deadline, a failed
 read-back, an unhealthy capability, no runtime to run it, a cycle between
 roles, splitting into more sub-tasks than it may have, one run writing more
-tokens than its role allows a run, a journal that no longer matches, or a
+tokens than its role allows a run, a journal that no longer matches (a role
+run as code in this process that took other steps when it ran again), or a
 crash loop (it lost its worker three times). To try again, use **Do it
 again**, which starts a new task. What the stopped task already wrote or
 sent is not done a second time: the new task is told it, and a write it

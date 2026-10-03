@@ -107,4 +107,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Withdrawn: the company is no longer at the stage this proposal would move it from.': '회수됨: 회사가 더 이상 이 제안의 출발점인 사업 단계에 있지 않아요.',
   'Withdrawn: it was already decided in the app.': '회수됨: 이미 콘솔에서 결정됐어요.',
   'Withdrawn. Nothing left to press here.': '회수됐어요. 여기서 더 누를 것은 없어요.',
+  'Work stopped: the {account} account is out of tokens': '작업이 멈췄습니다: {account} 계정의 토큰이 모두 소진되었습니다',
+  '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': '“{work}”이(가) 멈췄습니다. {account} 계정이 {max} 토큰 중 {spent}을(를) 사용했기 때문입니다. 금액에서 한도를 올린 다음, 작업을 열고 계속을 누르세요. 멈춘 곳부터 이어서 진행합니다.',
+  'Withdrawn: you continued the task it was about.': '철회됨: 관련 작업을 계속 진행했습니다.',
 };

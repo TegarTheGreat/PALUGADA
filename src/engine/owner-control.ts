@@ -20,7 +20,9 @@ import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts
 import { TERMINAL_STATUSES, isTerminal, type TaskStatus } from '../domain/task.ts';
 import { PalugadaError } from '../errors.ts';
 import { assignTask } from '../scheduler/wake.ts';
-import { getTask, outsideContentIn } from './tasks.ts';
+import { DEFAULT_TASK_RESERVE_TOKENS, getTask, outsideContentIn } from './tasks.ts';
+import { isSpendPaused } from '../governance/spend-guard.ts';
+import { enqueueWake } from '../scheduler/wake.ts';
 import { remember, supersede } from '../memory/store.ts';
 
 /** The longest instruction or note, the same bound as a question from the owner. */
@@ -209,6 +211,104 @@ export async function rerunTask(companyId: string, taskId: string, note?: string
     });
   });
   return task.id;
+}
+
+/**
+ * Goes on with a task its budget stopped, from where it stopped.
+ *
+ * Section 6.3 says such a task is never resumed *automatically*; it goes to
+ * the owner. The owner may go on with it, and until now the only way was
+ * `rerunTask`: the same work as a new task from nothing. On a live run that
+ * threw away a CEO's 292k tokens of routing for want of a few thousand more.
+ * Going on is the same task, so its journal is its own: committed steps are
+ * answered from the record (F5.1) and nothing that already happened happens
+ * again, as after a crash. The history stays true -- the halt and the
+ * continuation are both events on it.
+ *
+ * Only a budget halt. A hop limit, a deadline or a failed read-back are
+ * answers about the work, not about money, and going on would meet them
+ * again; those are done again or let go. Refused, with what to do, while the
+ * account still cannot fund the task's reservation, while the company's month
+ * is paused, and while its role is frozen. The `transition` path does not
+ * reach this: `halted` has no way out in the state machine, and this is the
+ * one door, opened by the owner.
+ */
+export async function continueHalted(companyId: string, taskId: string): Promise<void> {
+  const task = await taskHere(companyId, taskId);
+  const refuse = (status: string, reason: string | null) => new PalugadaError(
+    'task.not_continuable',
+    `task ${taskId} is ${status}${reason ? ` (${reason})` : ''}; only work its budget stopped is continued where it `
+      + 'stopped, and anything else is done again',
+    { taskId, status, haltReason: reason },
+  );
+  if (task.status !== 'halted' || task.haltReason !== 'budget_exhausted') throw refuse(task.status, task.haltReason);
+  if (await isSpendPaused(companyId)) {
+    throw new PalugadaError('spend.paused',
+      'the company has reached its monthly spending ceiling; raise it or grant an override before going on', { companyId });
+  }
+  await withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ status: TaskStatus; halt_reason: string | null; budget_account_id: string; frozen: boolean }>(
+      `SELECT t.status, t.halt_reason, t.budget_account_id, r.frozen_at IS NOT NULL AS frozen
+         FROM tasks t JOIN roles r ON r.id = t.role_id
+        WHERE t.id = $1 AND t.company_id = $2
+        FOR NO KEY UPDATE OF t`,
+      [taskId, companyId],
+    );
+    const row = rows[0]!;
+    // A second press, or one racing the first: the task has moved on.
+    if (row.status !== 'halted' || row.halt_reason !== 'budget_exhausted') throw refuse(row.status, row.halt_reason);
+    if (row.frozen) {
+      throw new PalugadaError('role.frozen', 'its role is frozen; unfreeze the role before going on with its work', { taskId });
+    }
+    const funded = await tx.query<{ ok: boolean }>(
+      'SELECT app.budget_reserve($1, $2) AS ok', [row.budget_account_id, DEFAULT_TASK_RESERVE_TOKENS]);
+    if (!funded.rows[0]!.ok) {
+      throw new PalugadaError('budget.reservation_refused',
+        'its budget account still cannot fund it: its tokens are spent or held up to its ceiling. '
+          + 'Raise the ceiling under Money first',
+        { budgetAccountId: row.budget_account_id, reserveTokens: DEFAULT_TASK_RESERVE_TOKENS });
+    }
+    await tx.query(
+      `UPDATE tasks
+          SET status = 'pending', halt_reason = NULL, finished_at = NULL, wait_until = NULL,
+              tokens_reserved = $2
+        WHERE id = $1`,
+      [taskId, DEFAULT_TASK_RESERVE_TOKENS],
+    );
+    await appendEvent(tx, {
+      companyId, projectId: task.projectId, taskId, type: 'task.continued', actor: 'owner',
+      payload: { reservedTokens: DEFAULT_TASK_RESERVE_TOKENS },
+    });
+    // The card that said it stopped has been answered by going on.
+    const { rows: withdrawn } = await tx.query<{ id: string }>(
+      `UPDATE inbox_items SET status = 'withdrawn', closed_reason = 'task_continued'
+        WHERE task_id = $1 AND company_id = $2 AND kind = 'budget_alert' AND status = 'open'
+        RETURNING id`,
+      [taskId, companyId],
+    );
+    for (const item of withdrawn) {
+      await appendEvent(tx, {
+        companyId, projectId: task.projectId, taskId, type: 'inbox.withdrawn', actor: 'system',
+        payload: { inboxItemId: item.id, closedReason: 'task_continued' },
+      });
+    }
+    // A ticket the halt put back on the board, and nobody has taken since,
+    // is this task's again (0070).
+    const { rows: tickets } = await tx.query<{ id: string }>(
+      `UPDATE tickets SET status = 'in_progress', working_task_id = $1, closed_reason = NULL, updated_at = now()
+        WHERE company_id = $2 AND status = 'open' AND working_task_id IS NULL
+          AND id IN (SELECT (payload->>'ticketId')::uuid FROM events
+                      WHERE task_id = $1 AND company_id = $2 AND type = 'ticket.reopened')
+        RETURNING id`,
+      [taskId, companyId],
+    );
+    for (const ticket of tickets) {
+      await appendEvent(tx, {
+        companyId, projectId: task.projectId, taskId, type: 'ticket.started', actor: 'system', payload: { ticketId: ticket.id },
+      });
+    }
+  });
+  await enqueueWake({ companyId, roleId: task.roleId, reason: 'event', detail: `the owner continued task ${taskId}` });
 }
 
 /**

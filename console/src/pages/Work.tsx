@@ -375,6 +375,9 @@ function TaskControls({ companyId, task, changed, openTask }: {
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const ended = ['completed', 'failed', 'halted', 'cancelled'].includes(task.status);
+  // Stopped by its budget: the one halt that goes on from where it stopped,
+  // once the owner has raised the ceiling (section 6.3).
+  const outOfBudget = task.status === 'halted' && task.haltReason === 'budget_exhausted';
 
   const act = async (what: string, run: () => Promise<void>) => {
     setBusy(what);
@@ -386,6 +389,11 @@ function TaskControls({ companyId, task, changed, openTask }: {
       setBusy(null);
     }
   };
+  const goOn = () => act('continue', async () => {
+    await api('POST', `/api/companies/${companyId}/tasks/${task.id}/continue`, {});
+    notifications.show({ color: 'teal', message: t('Continued. It carries on from where it stopped.') });
+    changed();
+  });
   const again = () => act('again', async () => {
     const answer: { taskId: string } = await api('POST', `/api/companies/${companyId}/tasks/${task.id}/rerun`, { note });
     notifications.show({ color: 'teal', message: t('Started again as a new task.') });
@@ -413,6 +421,16 @@ function TaskControls({ companyId, task, changed, openTask }: {
 
   return (
     <Paper withBorder radius="md" p="md">
+      {outOfBudget && (
+        <Alert color="orange" variant="light" mb="sm">
+          <Text size="sm">
+            {t('Its budget ran out. Raise the ceiling under Money, then continue: it carries on from where it stopped, and nothing it already did is done again.')}
+          </Text>
+          <Button size="xs" mt="xs" leftSection={<IconPlayerPlay size={14} />} loading={busy === 'continue'} onClick={() => void goOn()}>
+            {t('Continue')}
+          </Button>
+        </Alert>
+      )}
       <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb="xs">{ended ? t('Do it again') : t('Steer it')}</Text>
       <Textarea
         autosize

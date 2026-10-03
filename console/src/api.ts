@@ -102,6 +102,8 @@ const EXPLAINED: Record<string, string> = {
   'role.frozen': N('This role is frozen until you resume it.'),
   'spend.paused': N('Spending is paused for this company.'),
   'budget.exceeded': N('That would go over the budget.'),
+  'budget.reservation_refused': N('The budget account cannot fund this work yet: its tokens are spent or held. Raise its ceiling under Money, then try again.'),
+  'task.not_continuable': N('Only work its budget stopped can be continued. Do anything else again.'),
   'gateway.key_mismatch': N('That fingerprint is not the key this device holds.'),
   'gateway.not_pairable': N('This device cannot be paired in its current state.'),
   'bundle.bad_signature': N('The bundle signature does not check out.'),

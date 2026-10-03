@@ -1575,6 +1575,12 @@ export class Engine {
           detail: (error as Error).message,
         });
       }
+      // Section 6.3: a task its budget stopped goes to the owner. A month's
+      // money running out halts the same way and has its own item, raised by
+      // the spend guard for the whole company, so it is not raised again here.
+      if (haltReason === 'budget_exhausted' && code !== 'spend.paused') {
+        await inbox.raiseBudgetHalt(companyId, taskId);
+      }
       return { status: 'halted', reason: haltReason };
     }
 

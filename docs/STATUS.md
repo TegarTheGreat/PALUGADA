@@ -5997,6 +5997,90 @@ What changed (`setupAsked`, `src/broker/platform-capabilities.ts`):
     choose from.
   - The new test failed against the old list.
 
+## 2.69 Work its budget stopped reaches the owner, and goes on where it stopped (section 6.3, F5.4)
+
+Found on the same live run (B1 of the recheck of 30 September, still open).
+Two of the CEO's tasks halted `budget_exhausted` ("shared budget
+exhausted"). Section 6.3 sends such a task to the inbox, and nothing did: no
+item, no incident, no message, only a red bar on Money. The owner raised the
+ceiling, with their factor, and still could not go on. The only way on was
+**Do it again**, a new task from nothing, which would have thrown away the
+CEO's 292,000 tokens of work for want of a few thousand more. The code's own
+comment said a halted task "becomes an owner inbox item instead".
+
+- **An item, in the owner's language.** When the engine halts a task because
+  an account cannot pay (`budget.exceeded`, `budget.reservation_refused`),
+  `raiseBudgetHalt` (`src/inbox/inbox.ts`) puts a `budget_alert` in the inbox,
+  tied to the task.
+  - It names the work and the account with no room left: the one in the
+    task's chain nearest its ceiling, which is not always the task's own.
+  - It says how many tokens that account used of how many, and what to do:
+    raise its ceiling on Money, then open the task and press Continue.
+  - It is written in the panel's language (`budgetHaltWords`,
+    `src/owner/budget-halt.ts`, in all twenty dictionaries), because the
+    platform is speaking. An agent's words stay in the company's language.
+  - It is raised once per task.
+  - A month's money running out (`spend.paused`) halts the same way and
+    already has the spend guard's own item, so it is not raised twice.
+- **Carried to the chat as news.** `channelDelivery` answered `none` for every
+  `budget_alert`, so neither this item nor the month's 80% and 100% items
+  reached an owner who was not looking at the app.
+  - A budget alert is now `link_only`, within the owner's window: Telegram
+    and WhatsApp carry it with a link and nothing to press. Raising a ceiling
+    loosens a control and takes the owner's device.
+  - The chat shows the item's rationale under its title (`CHANNEL_SUMMARY`,
+    `src/owner/notify.ts`), since its summary only repeats the title.
+  - Push is unchanged. F10.5 keeps push for incidents and tier 3 approvals.
+  - This reverses a decision that kept every kind F10.9 does not name off the
+    chat. A budget alert is read the way an incident already was: news, not
+    something to act on from the chat.
+- **Continue, from where it stopped.** `continueHalted`
+  (`src/engine/owner-control.ts`), at
+  `POST /api/companies/:companyId/tasks/:taskId/continue` and as **Continue**
+  on the task, takes a task its budget stopped back to `pending`:
+  - It is the same task with the same journal, so committed steps are
+    answered from the record and nothing that happened happens again (F5.1),
+    as after a crash.
+  - It reserves the default allowance again. It is refused, saying what to
+    do, while the account still cannot fund that, while the month is paused,
+    or while the role is frozen.
+  - It closes the item as `task_continued`, with a sentence for chats in
+    every language.
+  - A ticket the halt put back on the board, if nobody took it since, is the
+    task's again.
+  - A second press, a live task, and any other halt reason are refused with
+    `task.not_continuable` (409). A hop limit, a deadline or a failed
+    read-back are answers about the work, not about money, and going on would
+    meet them again.
+  - `halted` still has no way out through `transition`. This is the one door,
+    opened by the owner.
+- **How this reads section 6.3.** "Tidak pernah dilanjutkan otomatis": never
+  resumed *automatically*. The platform still never does; the owner may. The
+  history stays true, with `task.halted` then `task.continued` on the task.
+- **The console.** The task drawer of a budget halt says what to do and
+  offers **Continue**. Two refusals are explained as sentences:
+  `budget.reservation_refused`, which other routes also answer, and
+  `task.not_continuable`.
+- **Tested.**
+  - `budget-halt.test.ts`:
+    - A run whose model call the account cannot pay halts and raises one
+      item, in Indonesian, naming the work and the account, and no second
+      one on a second look. Without the engine change there was none.
+    - A paused month raises nothing beside its own item.
+    - Continuing is refused while the account is spent, and the card stays.
+      Once raised, the task is pending with a reservation and its card is
+      withdrawn as `task_continued`. It then completes without repeating its
+      journalled draft, and its events read halted, continued, completed.
+      A second press is refused.
+    - A deadline halt and a live task are refused.
+  - `owner-channels.test.ts`: a budget alert is queued for the chat,
+    `link_only`, with its rationale as the body, and an uncarried kind is
+    still not queued. `owner-inbox.test.ts` reads `budget_alert` as
+    `link_only`.
+- **Not done.** The token ceiling is still lifetime (L11), and a
+  reasoning model's retries are not yet bounded by what is left (B1). Both
+  come next.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

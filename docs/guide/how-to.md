@@ -292,6 +292,9 @@ Open the task from **Work** (or **Open the task** on an inbox item).
 - **Stop and redo with this note** cancels it and starts it again with the
   note.
 - **Cancel this task** cancels it and everything it started.
+- Stopped because its budget ran out, it shows **Continue**: raise the
+  account's ceiling on **Money** first, and the same task goes on from where
+  it stopped, without doing again what it already did.
 - Once it has ended, **Do it again** starts a new task with the same work
   and your optional note. A halted task is never retried by itself; this is
   how you retry it. The new task is told everything you said to the tasks

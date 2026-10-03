@@ -449,9 +449,12 @@ test('the message channel rule is settled before the channel exists (F10.9, F10.
   // quotation and docs/STATUS.md says so.
   assert.equal(inbox.channelDelivery({ kind: 'incident', tier: null }), 'link_only');
 
-  // Anything the requirement does not name is not a channel surface. The
-  // default is "not this one", which is the direction to be wrong in.
-  assert.equal(inbox.channelDelivery({ kind: 'budget_alert', tier: null }), 'none');
+  // A budget alert is news, with a link and nothing to press: section 6.3
+  // sends work its budget stopped to the owner, and a ceiling is raised in
+  // the app with the owner's device. Read like the incident above.
+  assert.equal(inbox.channelDelivery({ kind: 'budget_alert', tier: null }), 'link_only');
+  // Anything else the requirement does not name is not a channel surface.
+  // The default is "not this one", which is the direction to be wrong in.
   // A fact is not a procedure and F10.9 does not name it, so it stays off the
   // channel until somebody decides it belongs there.
   assert.equal(inbox.channelDelivery({ kind: 'fact_candidate', tier: null }), 'none');

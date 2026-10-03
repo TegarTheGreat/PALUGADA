@@ -153,6 +153,12 @@ export type ErrorCode =
    */
   | 'company.slug_taken'
   | 'company.frozen'
+  /**
+   * Section 6.3: the owner asked to go on with a task that its budget did not
+   * stop, or that is no longer halted. Only a budget halt is continued where
+   * it stopped; anything else is done again.
+   */
+  | 'task.not_continuable'
   | 'role.frozen'
   | 'platform.stopped'
   | 'task.invalid_transition'

@@ -94,6 +94,11 @@ The first version. What it holds, in the order an owner meets it.
   that offers answers to choose from, is yours. Before, "whom should I
   email?" in Indonesian, and a decision to delete a customer's record, were
   answered by the platform instead of you (STATUS 2.68).
+- Work its budget stopped reaches you. An item in your language says which
+  work stopped and which account has no tokens left, and it comes to your
+  chat as news with a link; budget alerts reach the chat now too. Raise the
+  ceiling on Money, then press **Continue** on the task: the same task goes
+  on from where it stopped instead of starting again (STATUS 2.69).
 
 ### The owner
 

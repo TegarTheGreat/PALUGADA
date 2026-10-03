@@ -24,7 +24,8 @@ import { escalationPolicyFor } from '../governance/structure.ts';
 import { ancestryForTask, applyGoalChangeWithin, type GoalChange } from '../domain/goals.ts';
 import { approveCandidate, rejectCandidate } from '../memory/store.ts';
 import { setStageWithin, stageOf, type Stage } from '../domain/stage.ts';
-import { noteTalkDrift } from '../domain/language.ts';
+import { deploymentLanguages, noteTalkDrift } from '../domain/language.ts';
+import { budgetHaltWords } from '../owner/budget-halt.ts';
 
 /** What a stage proposal's item carries (`stage.propose`). */
 interface StageChange {
@@ -909,6 +910,72 @@ export async function raiseBudgetAlert(input: {
 }
 
 /**
+ * Puts a task its budget stopped in front of the owner (PRD section 6.3:
+ * halted, to the inbox, never resumed automatically).
+ *
+ * Nothing did: on a live run two tasks halted "budget_exhausted" and the
+ * owner's only sign was a red bar on the Money page. The item names the work
+ * and the account with no room left -- the one in the task's chain closest
+ * to its ceiling, which is not always the task's own: a division can stop
+ * for its company -- and says how to go on: raise the ceiling, then continue
+ * the task (`continueHalted`). In the owner's panel language, because the
+ * platform is speaking, not an agent.
+ *
+ * Once per task: a task halts once, but a second look at the same halt must
+ * not stack a second card on the first.
+ */
+export async function raiseBudgetHalt(companyId: string, taskId: string): Promise<string | null> {
+  const notifyAfter = await notifyAfterFor('budget_alert', {});
+  const language = (await deploymentLanguages()).console;
+  return withTenant(companyId, async (tx) => {
+    const raised = await tx.query(
+      "SELECT 1 FROM inbox_items WHERE task_id = $1 AND kind = 'budget_alert' AND status = 'open'", [taskId]);
+    if (raised.rows.length > 0) return null;
+    const task = await getTask(tx, taskId);
+    if (!task?.budgetAccountId) return null;
+    const { rows: accounts } = await tx.query<{ id: string; label: string; tokens_spent: string; tokens_max: string }>(
+      `SELECT id, label, tokens_spent, tokens_max FROM budget_accounts
+        WHERE id = ANY(app.budget_chain($1))
+        ORDER BY tokens_max - tokens_spent - tokens_reserved, id
+        LIMIT 1`,
+      [task.budgetAccountId],
+    );
+    const account = accounts[0];
+    if (!account) return null;
+    const words = budgetHaltWords(language, {
+      account: account.label,
+      work: workOf(task.input),
+      spent: Number(account.tokens_spent),
+      max: Number(account.tokens_max),
+    });
+    const { rows } = await tx.query<{ id: string }>(
+      `INSERT INTO inbox_items
+         (company_id, task_id, kind, title, action_summary, rationale, consequence_if_denied,
+          notify_after, payload)
+       VALUES ($1, $2, 'budget_alert', $3, $3, $4, '', $5, $6)
+       RETURNING id`,
+      [companyId, taskId, words.title, words.rationale, notifyAfter,
+        JSON.stringify({ budgetHalt: { budgetAccountId: account.id } })],
+    );
+    const id = rows[0]!.id;
+    await appendEvent(tx, {
+      companyId, projectId: task.projectId, taskId, type: 'budget.halt_raised', actor: 'system',
+      payload: { inboxItemId: id, budgetAccountId: account.id },
+    });
+    return id;
+  });
+}
+
+/** What a task is for, as one line: its goal, or the first thing its input says. */
+function workOf(input: Record<string, unknown>): string {
+  const first = typeof input.goal === 'string' && input.goal.trim()
+    ? input.goal
+    : Object.values(input).find((value): value is string => typeof value === 'string' && value.trim() !== '') ?? '';
+  const line = first.trim().replace(/\s+/g, ' ');
+  return line.length <= 140 ? line : `${line.slice(0, 139)}…`;
+}
+
+/**
  * The open items: the queue by default, or the ones the owner put off (0060).
  *
  * Put off means out of the queue and its count until then, which is the
@@ -1203,6 +1270,12 @@ export function channelDelivery(item: { kind: string; tier: number | null }): Ch
     case 'sop_candidate':
       return 'actionable';
     case 'incident':
+    // Section 6.3: work its budget stopped goes to the owner, and an owner who
+    // is not looking at the app is reached where they are. Told, with a link,
+    // and nothing to press: raising a ceiling loosens a control and takes the
+    // owner's device, so it is done in the app. A month's ceiling reached or
+    // nearly reached is the same kind and the same news.
+    case 'budget_alert':
       return 'link_only';
     default:
       return 'none';

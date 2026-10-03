@@ -386,6 +386,14 @@ and the compose file wait before they kill. The task's timeline says it was
 handed back; no attempt is charged, it does not count as a lost worker, and
 the next worker to come up resumes it at the step it reached.
 
+A failure nothing in the code handled is answered in two ways. A promise
+nothing awaited is written to standard error as `palugada: a failure nothing
+handled, and the process goes on: …`, and the process goes on. An exception
+nothing caught is written as `palugada: an exception nothing caught, so the
+process stops: …`; the process then stops as it does on SIGTERM, runs handed
+back, and exits 1 for the supervisor to start it again. Either line is a bug
+worth reporting. Secrets the process knows are redacted from both.
+
 A process killed outright loses no work either, but it is slower. Every
 worker writes to `worker_heartbeats` every fifteen seconds; when a worker
 has been quiet for a minute, the next sweep by any other worker -- or by the

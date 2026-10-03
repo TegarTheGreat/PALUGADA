@@ -180,6 +180,10 @@ The first version. What it holds, in the order an owner meets it.
 - A task the worker could not start -- the database refusing a write as it
   began -- goes back on the queue at once with the reason, instead of
   sitting as running for fifteen minutes with none (STATUS 2.84).
+- A stray failure nothing handled no longer kills the process outright: a
+  promise nothing awaited is written down and the process goes on, and an
+  exception nothing caught stops it as a signal would, handing runs back,
+  before it exits for the supervisor (STATUS 2.85).
 - Tenants separated by forced row-level security, composite keys between
   tenant tables, and an application role with only the grants its code uses.
 - Health, Prometheus metrics with their own token, and traces to an

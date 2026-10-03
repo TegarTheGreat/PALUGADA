@@ -113,6 +113,7 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { consoleLinkFor, consoleTaskLinkFor } from './owner/notify.ts';
 import { metricsText } from './reporting/metrics.ts';
+import { guardProcess } from './process-guard.ts';
 
 export interface DeploymentOptions {
   /**
@@ -1264,6 +1265,18 @@ export async function runFromCommandLine(env: NodeJS.ProcessEnv = process.env): 
     return configuration ? EXIT_CONFIG : 1;
   }
   announce(deployment);
+  // A failure nothing handled (L2): a stray rejection is said and the process
+  // goes on; an exception nothing caught stops the deployment as a signal
+  // does, then ends the process for the supervisor to start a clean one.
+  guardProcess({
+    write: (line) => { process.stderr.write(line); },
+    stop: async () => {
+      stopping = true;
+      await restarting;
+      await deployment.stop();
+    },
+    exit: (code) => { void closePools().catch(() => undefined).finally(() => process.exit(code)); },
+  });
 
   return new Promise<number>((resolveExit) => {
     const stop = (signal: NodeJS.Signals) => {

@@ -6597,6 +6597,35 @@ What changed:
   reason on the event; it runs once the engine can; one that can never
   start halts with `crash_loop` after three ticks.
 
+## 2.85 A failure nothing handled is said, not fatal by accident (L2)
+
+Found by the audit of 30 September and still open on 2 October (L2).
+Nothing in `src/` or `scripts/` listened for `unhandledRejection` or
+`uncaughtException`, so Node's default applied to both and the process died
+where it stood. One promise nobody awaited -- a notice to a chat, a sweep
+that lost the database for a moment -- took the console and the worker down
+together: every run cut off rather than handed back, each to come back only
+when its lease ran out, counted as a lost worker, and the only trace a
+stack on standard error.
+
+What changed (`src/process-guard.ts`, installed by `runFromCommandLine`):
+
+- **A rejection nothing awaited is said, and the process goes on.** It is
+  work whose failure nobody was waiting to hear; the rest of the process is
+  as sound as it was. The line names it as a bug, with its stack.
+- **An exception nothing caught stops the process the way a signal does**:
+  readiness says no, the console closes, the worker hands its runs back
+  (section 2.22), and the process exits 1 for the supervisor to start a
+  clean one. A throw that unwound a stack nobody expected leaves state
+  nobody can vouch for. A stop that does not finish in thirty seconds, or a
+  second exception while stopping, ends the process anyway.
+- **Redacted**: a failure's message can carry a credential, and every secret
+  the process has registered is masked in what is written.
+- **Tested.** `process-guard.test.ts`, in a process of its own: a rejection
+  is written, redacted, and the process carries on; a later exception stops
+  it, the stop runs, and it exits 1; a stop that never finishes still ends
+  the process.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

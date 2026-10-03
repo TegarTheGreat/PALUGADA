@@ -2148,6 +2148,7 @@ export const DICTIONARY: Dictionary = {
   "Your own metasearch server": "Kendi metaarama sunucunuz",
   "Your own server": "Kendi sunucunuz",
   "Your own speech server, free, in forty languages": "Kendi ses sunucunuz, ücretsiz, kırk dilde",
+  "Your own GPU, any checkpoint you have": "Kendi GPU’nuz, elinizdeki herhangi bir checkpoint ile",
   "Your own tab": "Kendi sekmeniz",
   "Your own webhook": "Kendi webhook'unuz",
   "Your phone": "Telefonunuz",

@@ -945,6 +945,7 @@ const TOOL_ABOUT: Record<string, string> = {
   'image:fal': N('FLUX and other open models, fast and cheap'),
   'image:openrouter': N('Image models from several labs, one key'),
   'image:deepinfra': N('FLUX schnell, a fraction of a cent'),
+  'image:comfyui': N('Your own GPU, any checkpoint you have'),
   'speech:openai': N('Thirteen voices, in most languages'),
   'speech:elevenlabs': N('The most natural voices'),
   'speech:xai': N('Grok\'s voices'),

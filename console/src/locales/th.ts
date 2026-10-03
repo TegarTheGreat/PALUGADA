@@ -2141,6 +2141,7 @@ export const DICTIONARY: Dictionary = {
   "Your own metasearch server": "เซิร์ฟเวอร์ metasearch ของคุณเอง",
   "Your own server": "เซิร์ฟเวอร์ของคุณเอง",
   "Your own speech server, free, in forty languages": "เซิร์ฟเวอร์เสียงพูดของคุณเอง ฟรี รองรับสี่สิบภาษา",
+  "Your own GPU, any checkpoint you have": "GPU ของคุณเอง ใช้ checkpoint ใดก็ได้ที่คุณมี",
   "Your own tab": "แท็บของคุณเอง",
   "Your own webhook": "webhook ของคุณเอง",
   "Your phone": "โทรศัพท์ของคุณ",

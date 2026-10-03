@@ -55,6 +55,8 @@ const IMAGE_ANSWERS: Record<string, { answer: unknown; key: (call: Seen) => stri
   deepinfra: { answer: { data: [{ b64_json: b64(PNG) }] }, key: bearerOf },
   xai: { answer: { data: [{ b64_json: b64(PNG), mime_type: 'image/png' }] }, key: bearerOf },
   gemini: { answer: { steps: [{ type: 'model_output', content: [{ type: 'text', text: 'Here' }, { type: 'image', mime_type: 'image/png', data: b64(PNG) }] }] }, key: (call) => call.headers['x-goog-api-key'] ?? null },
+  // A server of the owner's own: its own test below.
+  comfyui: { answer: null, key: () => null },
 };
 
 /** Each speech provider's documented answer: the body itself, or base64 inside JSON. */
@@ -95,7 +97,7 @@ const root = () => mkdtempSync(join(tmpdir(), 'palugada-files-'));
 
 test('every image provider is asked the way it documents, and its picture is found where it puts it', async () => {
   assert.deepEqual(IMAGE_PROVIDERS.map((one) => one.id).sort(), Object.keys(IMAGE_ANSWERS).sort(), 'every provider has a documented answer here');
-  for (const provider of IMAGE_PROVIDERS) {
+  for (const provider of IMAGE_PROVIDERS.filter((one) => !one.urlExample)) {
     const { answer, key } = IMAGE_ANSWERS[provider.id]!;
     const { fetch, seen } = providerFetch(answer, null, 'application/json');
     const files = root();
@@ -112,6 +114,90 @@ test('every image provider is asked the way it documents, and its picture is fou
     writeFileSync(join(files, companyId, made.path), Buffer.from('something else'));
     assert.equal(await capability.verify!({ prompt: 'x' }, made, { companyId } as never), false, `${provider.id}: the read-back reads the bytes`);
   }
+});
+
+/**
+ * ComfyUI, on the owner's own GPU (the tools research, gap #10): a workflow
+ * posted to /prompt, the history polled until the picture is there, and the
+ * picture fetched from /view -- as its server.py routes say, read in October
+ * 2026. PreviewImage rather than SaveImage, so nothing piles up in the
+ * owner's output folder: the picture is kept in the company's files.
+ */
+function comfyFetch(options: { fails?: 'validation' | 'run' } = {}) {
+  const asked: Array<{ url: string; body: Record<string, unknown> | null }> = [];
+  let polled = 0;
+  const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+  const fetch = (async (url: string, init?: RequestInit) => {
+    const address = new URL(String(url));
+    asked.push({ url: String(url), body: init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : null });
+    if (address.pathname === '/prompt') {
+      if (options.fails === 'validation') {
+        return reply({
+          error: { type: 'prompt_outputs_failed_validation', message: 'Prompt outputs failed validation', details: '', extra_info: {} },
+          node_errors: { 1: { errors: [{ type: 'value_not_in_list', message: 'Value not in list', details: "ckpt_name: 'sd_xl_base_1.0.safetensors' not in ['flux1-schnell.safetensors']", extra_info: {} }], dependent_outputs: ['7'], class_type: 'CheckpointLoaderSimple' } },
+        }, 400);
+      }
+      return reply({ prompt_id: 'p-123', number: 1, node_errors: {} });
+    }
+    if (address.pathname === '/history/p-123') {
+      polled += 1;
+      if (polled === 1) return reply({});
+      if (options.fails === 'run') {
+        return reply({ 'p-123': { outputs: {}, status: { status_str: 'error', completed: false, messages: [['execution_error', { exception_message: 'CUDA out of memory' }]] } } });
+      }
+      return reply({ 'p-123': {
+        prompt: [], outputs: { 7: { images: [{ filename: 'ComfyUI_temp_abcde_00001_.png', subfolder: '', type: 'temp' }] } },
+        status: { status_str: 'success', completed: true, messages: [] },
+      } });
+    }
+    if (address.pathname === '/view') return new Response(PNG, { status: 200, headers: { 'content-type': 'image/png' } });
+    return new Response('not found', { status: 404 });
+  }) as unknown as typeof globalThis.fetch;
+  return { fetch, asked };
+}
+
+test('ComfyUI on the owner\'s own GPU is sent a workflow, polled until the picture is made, and the picture kept', async () => {
+  const comfy = IMAGE_PROVIDERS.find((one) => one.id === 'comfyui')!;
+  assert.equal(comfy.key, 'none');
+  assert.equal(comfy.urlExample, 'http://127.0.0.1:8188');
+  const { fetch, asked } = comfyFetch();
+  const files = root();
+  const companyId = randomUUID();
+  const capability = imageGenerate({ provider: comfy, url: 'http://gpu.internal:8188/', model: null, voice: null, key: async () => null, root: files, fetch, pollMs: 10 });
+  const made = await capability.execute({ prompt: 'mercusuar saat fajar', shape: 'landscape', name: 'Spanduk' }, { companyId, signal: AbortSignal.timeout(5_000) } as never);
+  assert.deepEqual(readFileSync(join(files, companyId, made.path)), PNG);
+  assert.equal(made.provider, 'ComfyUI');
+
+  const posted = asked[0]!;
+  assert.equal(posted.url, 'http://gpu.internal:8188/prompt');
+  const graph = posted.body!.prompt as Record<string, { class_type: string; inputs: Record<string, unknown> }>;
+  const node = (type: string) => Object.values(graph).find((one) => one.class_type === type)!;
+  assert.equal(node('CheckpointLoaderSimple').inputs.ckpt_name, comfy.defaultModel, 'the checkpoint is the model');
+  assert.ok(Object.values(graph).some((one) => one.class_type === 'CLIPTextEncode' && one.inputs.text === 'mercusuar saat fajar'));
+  assert.deepEqual([node('EmptyLatentImage').inputs.width, node('EmptyLatentImage').inputs.height], [1344, 768]);
+  assert.ok(Number.isInteger(node('KSampler').inputs.seed));
+  assert.ok(node('PreviewImage'), 'previewed, not saved in the owner\'s output folder');
+  assert.ok(!Object.values(graph).some((one) => one.class_type === 'SaveImage'));
+  // Polled until there, then the picture where the history says it is.
+  assert.deepEqual(asked.slice(1).map((one) => new URL(one.url).pathname), ['/history/p-123', '/history/p-123', '/view']);
+  const view = new URL(asked.at(-1)!.url).searchParams;
+  assert.deepEqual([view.get('filename'), view.get('subfolder'), view.get('type')], ['ComfyUI_temp_abcde_00001_.png', '', 'temp']);
+
+  // The owner's checkpoint, when they name one.
+  const named = comfyFetch();
+  await imageGenerate({ provider: comfy, url: 'http://gpu.internal:8188', model: 'flux1-schnell.safetensors', voice: null, key: async () => null, root: files, fetch: named.fetch, pollMs: 10 })
+    .execute({ prompt: 'x' }, { companyId, signal: AbortSignal.timeout(5_000) } as never);
+  assert.equal(Object.values(named.asked[0]!.body!.prompt as Record<string, { class_type: string; inputs: Record<string, unknown> }>)
+    .find((one) => one.class_type === 'CheckpointLoaderSimple')!.inputs.ckpt_name, 'flux1-schnell.safetensors');
+});
+
+test('what ComfyUI refuses or fails at is said in words the owner can act on', async () => {
+  const comfy = IMAGE_PROVIDERS.find((one) => one.id === 'comfyui')!;
+  const run = (fails: 'validation' | 'run') => imageGenerate({
+    provider: comfy, url: 'http://gpu.internal:8188', model: null, voice: null, key: async () => null, root: root(), fetch: comfyFetch({ fails }).fetch, pollMs: 10,
+  }).execute({ prompt: 'x' }, { companyId: randomUUID(), signal: AbortSignal.timeout(5_000) } as never);
+  await assert.rejects(run('validation'), (error: Error) => /ComfyUI refused the workflow: ckpt_name: 'sd_xl_base_1\.0\.safetensors' not in \['flux1-schnell\.safetensors'\]; under Tools, set the model to a checkpoint this ComfyUI has/.test(error.message));
+  await assert.rejects(run('run'), /ComfyUI could not make the picture: CUDA out of memory/);
 });
 
 test('every speech provider is asked the way it documents, and its audio is kept whatever shape it came back in', async () => {

@@ -2119,6 +2119,7 @@ export const DICTIONARY: Dictionary = {
   "Your own metasearch server": "خادم بحث تجميعي (metasearch) خاص بك",
   "Your own server": "خادمك الخاص",
   "Your own speech server, free, in forty languages": "خادم الكلام الخاص بك، مجاني، بأربعين لغة",
+  "Your own GPU, any checkpoint you have": "وحدة GPU الخاصة بك، بأي نقطة تحقق (checkpoint) لديك",
   "Your own tab": "علامة تبويبك الخاصة",
   "Your own webhook": "webhook خاص بك",
   "Your phone": "هاتفك",

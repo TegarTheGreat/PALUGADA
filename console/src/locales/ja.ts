@@ -2117,6 +2117,7 @@ export const DICTIONARY: Dictionary = {
   "Your own metasearch server": "自前のメタ検索サーバー",
   "Your own server": "自前のサーバー",
   "Your own speech server, free, in forty languages": "自前の音声サーバー。無料、40 言語に対応",
+  "Your own GPU, any checkpoint you have": "自前の GPU。お持ちのどのチェックポイントでも使えます",
   "Your own tab": "あなたのタブ",
   "Your own webhook": "自前の webhook",
   "Your phone": "あなたのスマートフォン",

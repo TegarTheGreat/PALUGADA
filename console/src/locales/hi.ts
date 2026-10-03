@@ -2092,6 +2092,7 @@ export const DICTIONARY: Dictionary = {
   "Your own metasearch server": "आपका अपना मेटासर्च सर्वर",
   "Your own server": "आपका अपना सर्वर",
   "Your own speech server, free, in forty languages": "आपका अपना स्पीच सर्वर, मुफ़्त, चालीस भाषाओं में",
+  "Your own GPU, any checkpoint you have": "आपका अपना GPU, आपके पास मौजूद किसी भी checkpoint के साथ",
   "Your own tab": "आपका अपना टैब",
   "Your own webhook": "आपका अपना वेबहुक",
   "Your phone": "आपका फ़ोन",

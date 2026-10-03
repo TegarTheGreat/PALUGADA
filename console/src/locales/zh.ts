@@ -2108,6 +2108,7 @@ export const DICTIONARY: Dictionary = {
   "Your own metasearch server": "您自己的元搜索服务器",
   "Your own server": "您自己的服务器",
   "Your own speech server, free, in forty languages": "您自己的语音服务器，免费，支持四十种语言",
+  "Your own GPU, any checkpoint you have": "您自己的 GPU，可使用您拥有的任何 checkpoint",
   "Your own tab": "你自己的标签页",
   "Your own webhook": "您自己的 webhook",
   "Your phone": "您的手机",

@@ -2123,6 +2123,7 @@ export const DICTIONARY: Dictionary = {
   "Your own metasearch server": "Je eigen metazoekserver",
   "Your own server": "Je eigen server",
   "Your own speech server, free, in forty languages": "Je eigen spraakserver, gratis, in veertig talen",
+  "Your own GPU, any checkpoint you have": "Je eigen GPU, met elk checkpoint dat je hebt",
   "Your own tab": "Je eigen tabblad",
   "Your own webhook": "Je eigen webhook",
   "Your phone": "Je telefoon",

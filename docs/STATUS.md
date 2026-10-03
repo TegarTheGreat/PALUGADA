@@ -8625,6 +8625,41 @@ to the model framed as data and without the tokens a mail carried.
 before the owner reads it, which OpenClaw also does; what reaches the owner
 here is the run's structured output, not its raw text.
 
+## 2.134 Pictures on the owner's own GPU, through ComfyUI (tools research, gap #10)
+
+Every `image.generate` provider was a hosted one, paid per picture and sent
+every prompt. The research named ComfyUI, which OpenClaw drives locally,
+as the one to add for a company with a GPU of its own.
+
+- **`comfyui`, under Tools, in "Your own server"**: an address and,
+  optionally, a checkpoint as the model (`sd_xl_base_1.0.safetensors`
+  unless given). No key: ComfyUI has none, so it belongs on a private
+  network. Nothing is reserved for a picture.
+- **Spoken to as its own server says** (`server.py`, read in October 2026):
+  ComfyUI's default workflow posted to `/prompt` in the API's form -- the
+  checkpoint, the prompt and a negative, a canvas of the shape asked for
+  sized for SDXL, twenty steps of Euler, a random seed -- then
+  `/history/<id>` looked at each second until the picture is there, then
+  the picture fetched from `/view` and kept in the company's files, read
+  back like any other. The workflow ends in `PreviewImage`, not
+  `SaveImage`, so nothing piles up in the owner's output folder. A provider
+  can now wait for a picture made later, ending early when the run is
+  stopped and after three minutes in any case.
+- **Its refusals in words**: a workflow refused before it ran says what
+  ComfyUI said -- most often a checkpoint it does not have, and then to set
+  the model under Tools to one it has -- and a run that failed says its
+  exception, such as running out of GPU memory.
+- **Licence.** ComfyUI is GPL-3.0, which the research had not checked;
+  PALUGADA only speaks to it over HTTP and ships none of it.
+- **Tested** in `media.test.ts`, against a ComfyUI that answers as its routes
+  do: the workflow's checkpoint, prompt, size, seed and preview, the history
+  polled until the picture, the picture fetched where the history says and
+  kept, the owner's own checkpoint used when named, a missing checkpoint and
+  a failed run said in words.
+- **Not done.** A workflow of the owner's own (FLUX's needs other nodes and
+  settings) is not taken; the default one serves SD 1.5 and SDXL
+  checkpoints, which are most of what is shared.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

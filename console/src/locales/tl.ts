@@ -2102,6 +2102,7 @@ export const DICTIONARY: Dictionary = {
   "Your own metasearch server": "Ang sarili mong metasearch server",
   "Your own server": "Ang sarili mong server",
   "Your own speech server, free, in forty languages": "Ang sarili mong speech server, libre, sa apatnapung wika",
+  "Your own GPU, any checkpoint you have": "Ang sarili mong GPU, sa anumang checkpoint na mayroon ka",
   "Your own tab": "Sarili mong tab",
   "Your own webhook": "Ang sarili mong webhook",
   "Your phone": "Ang iyong phone",

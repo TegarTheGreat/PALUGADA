@@ -356,6 +356,10 @@ The first version. What it holds, in the order an owner meets it.
   chat-template tokens such as `<|im_start|>`, nor close the untrusted
   envelope with a look-alike of its fence: both are removed before any
   model reads it (STATUS 2.133).
+- **ComfyUI** is a picture provider under **Tools**, for a company with a
+  GPU of its own: its address, and a checkpoint it has as the model. No key,
+  nothing paid per picture, and nothing left in ComfyUI's output folder
+  (STATUS 2.134).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

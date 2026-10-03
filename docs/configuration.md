@@ -351,9 +351,10 @@ make is a file, written under the company's own directory in
 
 | Variable | What it is |
 |---|---|
-| `PALUGADA_IMAGE_PROVIDER` | Where `image.generate` goes: `openai`, `fal`, `openrouter`, `deepinfra`, `xai` or `gemini` |
-| `PALUGADA_IMAGE_KEY_REF` | Its key, as a secret reference; each of them needs one |
-| `PALUGADA_IMAGE_MODEL` | A model other than the one each suggests, such as `fal-ai/flux-2/klein/9b` for `fal` |
+| `PALUGADA_IMAGE_PROVIDER` | Where `image.generate` goes: `openai`, `fal`, `openrouter`, `deepinfra`, `xai`, `gemini`, or your own `comfyui` |
+| `PALUGADA_IMAGE_URL` | Your ComfyUI's address, such as `http://127.0.0.1:8188`. It takes no key, so keep it on a private network |
+| `PALUGADA_IMAGE_KEY_REF` | Its key, as a secret reference; each of the hosted ones needs one |
+| `PALUGADA_IMAGE_MODEL` | A model other than the one each suggests, such as `fal-ai/flux-2/klein/9b` for `fal`; for `comfyui`, a checkpoint it has (`sd_xl_base_1.0.safetensors` unless given). ComfyUI is sent its own default workflow, sized for SDXL, and the picture is previewed there rather than saved in its output folder |
 | `PALUGADA_SPEECH_PROVIDER` | Where `speech.synthesize` goes: `openai`, `elevenlabs`, `xai`, `gemini`, `deepinfra`, or your own `piper` |
 | `PALUGADA_SPEECH_URL` | Your Piper server's address (`python3 -m piper.http_server`) |
 | `PALUGADA_SPEECH_KEY_REF` | Its key; `piper` takes none |

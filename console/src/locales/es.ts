@@ -2122,6 +2122,7 @@ export const DICTIONARY: Dictionary = {
   "Your own metasearch server": "Su propio servidor de metabúsqueda",
   "Your own server": "Su propio servidor",
   "Your own speech server, free, in forty languages": "Su propio servidor de voz, gratis, en cuarenta idiomas",
+  "Your own GPU, any checkpoint you have": "Su propia GPU, con cualquier checkpoint que tenga",
   "Your own tab": "Su propia pestaña",
   "Your own webhook": "Su propio webhook",
   "Your phone": "Su teléfono",

@@ -132,6 +132,7 @@ export const DICTIONARY: Dictionary = {
   "A process left running by this task's run was ended": "已结束此任务运行时遗留的进程",
   "A project": "某个项目",
   "A proposed skill failed its checks": "一项提议的技能未通过检查",
+  "A question from {role}": "来自 {role} 的问题",
   "A ratio": "比率",
   "A real browser, on a machine of yours": "真实浏览器，运行在您自己的机器上",
   "A restricted key tagged for agents: from 31 October 2026 Stripe refuses a secret key here.": "带有智能体标记的受限密钥（restricted key）：自 2026 年 10 月 31 日起，Stripe 不再接受在此填写私密密钥（secret key）。",

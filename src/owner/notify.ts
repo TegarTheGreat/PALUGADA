@@ -72,6 +72,18 @@ export function consoleTaskLinkFor(publicUrl: string, task: { companyId: string;
  */
 const CHANNEL_SUMMARY = "CASE WHEN i.kind = 'budget_alert' AND i.rationale <> '' THEN i.rationale ELSE i.action_summary END";
 
+/**
+ * Who asks a run's question (`owner.ask`), by the name the owner gave the
+ * role, for a heading in the owner's language. The title said "bookkeeper
+ * asks: ...", the role's short name and English whatever the owner reads
+ * (the analysis of 3 October, §2.3 item 7). Null for anything else.
+ */
+export function askerOf(item: string): string {
+  return `CASE WHEN ${item}.payload->>'askedBy' = 'agent' THEN (
+            SELECT coalesce(r.display_name, r.slug) FROM tasks t JOIN roles r ON r.id = t.role_id
+             WHERE t.id = ${item}.task_id) END`;
+}
+
 export interface NotifiableItem {
   id: string;
   companyId: string;
@@ -88,6 +100,8 @@ export interface NotifiableItem {
   language?: string;
   /** A question a run asked with `owner.ask`: the owner answers it rather than approving it. */
   question?: string | null;
+  /** Who asked it, by name (`askerOf`). */
+  asker?: string | null;
   /** The answers it offered to choose from, if any. */
   options?: string[] | null;
   /** When silence refuses it, for an item that waits only so long. */
@@ -230,12 +244,14 @@ export async function undelivered(
       language: string | null;
       question: string | null;
       options: string[] | null;
+      asker: string | null;
       expires_at: Date | null;
     }>(
       `SELECT i.id, i.kind, i.tier, i.title, ${CHANNEL_SUMMARY} AS action_summary, i.consequence_if_denied, i.expires_at,
               (SELECT console_language FROM platform_control) AS language,
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->>'question' END AS question,
-              CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'options' END AS options
+              CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'options' END AS options,
+              ${askerOf('i')} AS asker
          FROM inbox_items i
     LEFT JOIN owner_notifications n
            ON n.inbox_item_id = i.id AND n.channel = $2 AND n.company_id = $1
@@ -267,6 +283,7 @@ export async function undelivered(
         url: null,
         language: row.language ?? 'en',
         question: row.question,
+        asker: row.asker,
         options: row.options,
         expiresAt: row.expires_at,
       }];
@@ -751,12 +768,14 @@ export async function retryFailed(
     const { rows } = await tx.query<{
       id: string; kind: string; tier: number | null; title: string;
       action_summary: string; consequence_if_denied: string | null; delivery: string;
-      language: string | null; question: string | null; options: string[] | null; expires_at: Date | null;
+      language: string | null; question: string | null; options: string[] | null; asker: string | null;
+      expires_at: Date | null;
     }>(
       `SELECT i.id, i.kind, i.tier, i.title, ${CHANNEL_SUMMARY} AS action_summary, i.consequence_if_denied, i.expires_at,
               n.delivery, (SELECT console_language FROM platform_control) AS language,
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->>'question' END AS question,
-              CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'options' END AS options
+              CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'options' END AS options,
+              ${askerOf('i')} AS asker
          FROM owner_notifications n
          JOIN inbox_items i ON i.id = n.inbox_item_id
         WHERE n.company_id = $1
@@ -798,6 +817,7 @@ export async function retryFailed(
       url: null,
       language: row.language ?? 'en',
       question: row.question,
+      asker: row.asker,
       options: row.options,
       expiresAt: row.expires_at,
     };

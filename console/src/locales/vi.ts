@@ -170,6 +170,7 @@ export const DICTIONARY: Dictionary = {
   "A process left running by this task's run was ended": "Đã dừng một tiến trình do lượt chạy của nhiệm vụ này để lại",
   "A project": "Một dự án",
   "A proposed skill failed its checks": "Một kỹ năng được đề xuất không qua được các phép kiểm tra",
+  "A question from {role}": "Câu hỏi từ {role}",
   "A ratio": "Tỷ số",
   "A real browser, on a machine of yours": "Trình duyệt thật, trên máy của bạn",
   "A restricted key tagged for agents: from 31 October 2026 Stripe refuses a secret key here.": "Khóa hạn chế (restricted key) được gắn thẻ dành cho agent: từ ngày 31 tháng 10 năm 2026, Stripe từ chối secret key ở đây.",

@@ -440,6 +440,40 @@ test('an escalation reaches the chat with buttons on it (F10.9)', async () => {
 });
 
 /**
+ * The analysis of 3 October, section 2.3 item 7: a run's question reached the
+ * owner as "bookkeeper asks: ..." -- the role's short name, and English in
+ * every language -- and the chat said the question twice, as the title and
+ * again as the summary. It is headed by who asks, by the name the owner gave
+ * the role, in the owner's language, and the question is said once.
+ */
+test('a run\'s question is headed by who asks, by name and in the owner\'s language, and says the question once (§2.3)', async () => {
+  const fixture = await createCompany('chat-asker');
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    "UPDATE roles SET display_name = 'Sari' WHERE id = $1", [fixture.roleId]));
+  const { createRootTask, transition } = await import('../../src/engine/tasks.ts');
+  const task = await createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    roleId: fixture.roleId, budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId,
+    input: { goal: 'chase the unpaid invoices' }, createdBy: 'owner', reserveTokens: 1_000,
+  });
+  await transition(fixture.companyId, task.id, 'running');
+  await inbox.askOwner({ companyId: fixture.companyId, taskId: task.id, question: 'Which invoices may I chase today?' });
+
+  const [open] = await inbox.listOpen(fixture.companyId);
+  assert.equal(open!.roleName, 'Sari', 'the console names the role as the owner named it');
+  assert.equal(open!.title, 'Sari asks: Which invoices may I chase today?', 'and so does the record');
+
+  const [item] = await undelivered(fixture.companyId, 'chat:telegram', tomorrow());
+  assert.equal(item!.asker, 'Sari');
+  const english = telegram().render(item!).text;
+  assert.match(english, /^\*Sari asks:\*\n\nWhich invoices may I chase today\?/);
+  assert.equal(english.split('Which invoices may I chase today?').length, 2, 'the question is said once');
+  const indonesian = telegram().render({ ...item!, language: 'id' }).text;
+  assert.match(indonesian, /^\*Sari bertanya:\*\n\nWhich invoices may I chase today\?/);
+  assert.doesNotMatch(indonesian, /asks/);
+});
+
+/**
  * What a phone shows at a glance: which button says yes and which says no,
  * and how long the item waits before silence refuses it.
  *

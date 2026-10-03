@@ -66,6 +66,7 @@ export const DICTIONARY: Dictionary = {
   "A process left running by this task's run was ended": "Proses yang ditinggalkan berjalan oleh run tugas ini telah dihentikan",
   "A project": "Satu proyek",
   "A proposed skill failed its checks": "Skill yang diusulkan tidak lolos pemeriksaan",
+  "A question from {role}": "Pertanyaan dari {role}",
   "A ratio": "Rasio",
   "A real browser, on a machine of yours": "Browser sungguhan, di mesin milik Anda",
   "A restricted key tagged for agents: from 31 October 2026 Stripe refuses a secret key here.": "Restricted key yang ditandai untuk agent: mulai 31 Oktober 2026 Stripe menolak secret key di sini.",

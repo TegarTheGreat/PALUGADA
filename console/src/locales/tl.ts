@@ -126,6 +126,7 @@ export const DICTIONARY: Dictionary = {
   "A process left running by this task's run was ended": "Tinapos ang prosesong naiwang tumatakbo ng takbo ng gawaing ito",
   "A project": "Isang proyekto",
   "A proposed skill failed its checks": "Hindi pumasa sa mga check ang isang iminungkahing kasanayan",
+  "A question from {role}": "Isang tanong mula kay {role}",
   "A ratio": "Ratio",
   "A real browser, on a machine of yours": "Totoong browser, sa isang makina mo",
   "A restricted key tagged for agents: from 31 October 2026 Stripe refuses a secret key here.": "Restricted key na naka-tag para sa mga agent: simula 31 Oktubre 2026, tatanggihan ng Stripe ang secret key dito.",

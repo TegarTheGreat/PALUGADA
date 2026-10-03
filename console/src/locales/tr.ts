@@ -172,6 +172,7 @@ export const DICTIONARY: Dictionary = {
   "A process left running by this task's run was ended": "Bu görevin çalıştırmasının açık bıraktığı bir süreç sonlandırıldı",
   "A project": "Bir proje",
   "A proposed skill failed its checks": "Önerilen bir beceri kontrollerden geçemedi",
+  "A question from {role}": "{role} bir soru soruyor",
   "A ratio": "Oran",
   "A real browser, on a machine of yours": "Kendi makinenizde gerçek bir tarayıcı",
   "A restricted key tagged for agents: from 31 October 2026 Stripe refuses a secret key here.": "Ajanlar için etiketlenmiş kısıtlı bir anahtar: 31 Ekim 2026'dan itibaren Stripe burada gizli anahtarı reddediyor.",

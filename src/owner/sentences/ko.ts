@@ -18,6 +18,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'a task': '작업',
   'Approval needed: {title}': '승인 필요: {title}',
   '{summary} — if denied: {consequence}': '{summary} — 거절하면: {consequence}',
+  '{role} asks:': '{role}의 질문:',
   'If denied:': '거절하면:',
   'Expires:': '만료:',
   'This one is decided in the app.': '이 항목은 콘솔에서 결정해요.',

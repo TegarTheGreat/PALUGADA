@@ -52,6 +52,16 @@ const KIND_COLOR: Record<string, string> = {
 /** Whether a batch may approve it: the server holds the same rule and has the last word. */
 const batchApprovable = (item: InboxItem) => item.tier !== 3 && !item.question && item.kind !== 'incident';
 
+/**
+ * What a card is about, in a line. A run's question is its question: the
+ * title made from it said "bookkeeper asks: ..." in English, whatever the
+ * owner reads (the analysis of 3 October, §2.3 item 7).
+ */
+const headline = (item: InboxItem) => item.question ?? item.title;
+
+/** Who is asking, by the name the owner gave the role; its short name is the platform's. */
+const whoAsks = (item: InboxItem) => item.roleName ?? item.roleSlug;
+
 /** Tier 3 first, then incidents, then oldest: what costs most to leave waiting. */
 function urgency(item: InboxItem): number {
   return item.tier === 3 ? 0 : item.kind === 'incident' ? 1 : 2;
@@ -241,7 +251,7 @@ export function Decisions({ ctx, route }: PageProps) {
                             <Checkbox checked={chosen.has(item.id)} readOnly tabIndex={-1} mt={2} style={{ pointerEvents: 'none' }} />
                           )}
                           <Box style={{ flex: 1, minWidth: 0 }}>
-                            <Text fw={600} size="sm" lineClamp={2}>{item.title}</Text>
+                            <Text fw={600} size="sm" lineClamp={2}>{headline(item)}</Text>
                             <Group gap={6} mt={6}>
                               <TierBadge tier={item.tier} />
                               <KindBadge kind={item.kind} />
@@ -262,7 +272,7 @@ export function Decisions({ ctx, route }: PageProps) {
                       {queue.data.later.map((item) => (
                         <Group key={item.id} justify="space-between" wrap="nowrap" gap="xs">
                           <Box style={{ minWidth: 0 }}>
-                            <Text size="sm" lineClamp={1}>{item.title}</Text>
+                            <Text size="sm" lineClamp={1}>{headline(item)}</Text>
                             <Text size="xs" c="dimmed">{t('Back {when}', { when: relative(item.snoozedUntil!) })}</Text>
                           </Box>
                           <Button size="compact-xs" variant="subtle" onClick={() => {
@@ -375,7 +385,7 @@ function BatchConfirm({ companyId, decision, items, close, done }: {
           <Stack gap={6}>
             {targets.map((item) => (
               <Group key={item.id} justify="space-between" wrap="nowrap" gap="sm">
-                <Text size="sm" lineClamp={1}>{item.title}</Text>
+                <Text size="sm" lineClamp={1}>{headline(item)}</Text>
                 <TierBadge tier={item.tier} />
               </Group>
             ))}
@@ -433,7 +443,7 @@ function Detail({
     setError(null);
     try {
       const done = await requireFactor(
-        t('{capability} for {role}, {period}', { capability: item.capabilityName ?? '', role: item.roleSlug ?? '', period: label }),
+        t('{capability} for {role}, {period}', { capability: item.capabilityName ?? '', role: whoAsks(item) ?? '', period: label }),
         (proof) => send('approve', proof, hours),
       );
       if (!done) return;
@@ -526,8 +536,9 @@ function Detail({
 
   const expires = item.expiresAt ? new Date(item.expiresAt) : null;
   const soon = expires !== null && expires.getTime() - Date.now() < 6 * 3_600_000;
-  const asker = item.roleSlug
-    ? item.divisionName ? t('Asked by {role} in {division}', { role: item.roleSlug, division: item.divisionName }) : t('Asked by {role}', { role: item.roleSlug })
+  const who = whoAsks(item);
+  const asker = who
+    ? item.divisionName ? t('Asked by {role} in {division}', { role: who, division: item.divisionName }) : t('Asked by {role}', { role: who })
     : t('Raised by the platform');
 
   return (
@@ -555,7 +566,7 @@ function Detail({
             </Tooltip>
           )}
         </Group>
-        <Title order={3} fz={20} lh={1.3}>{item.title}</Title>
+        <Title order={3} fz={20} lh={1.3}>{item.question && who ? t('A question from {role}', { role: who }) : item.title}</Title>
         <Group gap={8} mt={8} wrap="nowrap">
           <Avatar size={26} radius="xl" src={item.roleSlug ? rolePicture(item.roleSlug) : '/brand/palugada-app-icon.svg'} alt="" />
           <Text size="sm" c="dimmed">{asker} · {relative(item.createdAt)}</Text>
@@ -719,7 +730,7 @@ function Detail({
                   </Button>
                 </Menu.Target>
                 <Menu.Dropdown>
-                  <Menu.Label>{t('Approve, and allow {capability} to {role} without asking for', { capability: item.capabilityName ?? '', role: item.roleSlug ?? '' })}</Menu.Label>
+                  <Menu.Label>{t('Approve, and allow {capability} to {role} without asking for', { capability: item.capabilityName ?? '', role: whoAsks(item) ?? '' })}</Menu.Label>
                   {ALLOW_FOR.map((choice) => (
                     <Menu.Item key={choice.hours} onClick={() => void approveFor(choice.hours, choice.label())}>{choice.label()}</Menu.Item>
                   ))}

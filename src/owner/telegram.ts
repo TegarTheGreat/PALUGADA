@@ -301,11 +301,11 @@ export class TelegramChannel implements OwnerChannel {
    * to answer.
    */
   render(item: NotifiableItem): { text: string; reply_markup?: unknown } {
-    const lines = [
-      `*${escapeMarkdown(item.title)}*`,
-      '',
-      escapeMarkdown(item.actionSummary),
-    ];
+    // A run's question is headed by who asks, in the owner's language, and
+    // said once: its title and its summary are both the question (§2.3).
+    const lines = item.question && item.asker
+      ? [`*${escapeMarkdown(say(item.language, '{role} asks:', { role: item.asker }))}*`, '', escapeMarkdown(item.question)]
+      : [`*${escapeMarkdown(item.title)}*`, '', escapeMarkdown(item.actionSummary)];
     if (item.consequenceIfDenied) {
       lines.push('', `_${escapeMarkdown(say(item.language, 'If denied:'))}_ ${escapeMarkdown(item.consequenceIfDenied)}`);
     }

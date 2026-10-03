@@ -17,6 +17,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'a task': 'एक कार्य',
   'Approval needed: {title}': 'स्वीकृति चाहिए: {title}',
   '{summary} — if denied: {consequence}': '{summary} — अस्वीकार करने पर: {consequence}',
+  '{role} asks:': '{role} का सवाल:',
   'If denied:': 'अस्वीकार करने पर:',
   'Expires:': 'समाप्ति:',
   'This one is decided in the app.': 'इस पर निर्णय ऐप में होता है।',

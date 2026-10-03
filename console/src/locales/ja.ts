@@ -141,6 +141,7 @@ export const DICTIONARY: Dictionary = {
   "A process left running by this task's run was ended": "このタスクの実行で残っていたプロセスを終了しました",
   "A project": "プロジェクト",
   "A proposed skill failed its checks": "提案されたスキルがチェック項目を満たしませんでした",
+  "A question from {role}": "{role} からの質問",
   "A ratio": "比率",
   "A real browser, on a machine of yours": "自分のマシンで動く本物のブラウザー",
   "A restricted key tagged for agents: from 31 October 2026 Stripe refuses a secret key here.": "エージェント用のタグを付けた制限付きキー（restricted key）。2026年10月31日以降、Stripe はここでのシークレットキーを受け付けません。",

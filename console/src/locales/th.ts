@@ -165,6 +165,7 @@ export const DICTIONARY: Dictionary = {
   "A process left running by this task's run was ended": "ปิดโปรเซสที่รอบการทำงานของงานนี้ทิ้งค้างไว้แล้ว",
   "A project": "โปรเจกต์หนึ่ง",
   "A proposed skill failed its checks": "ทักษะที่เสนอไม่ผ่านการตรวจสอบ",
+  "A question from {role}": "คำถามจาก {role}",
   "A ratio": "อัตราส่วน",
   "A real browser, on a machine of yours": "เบราว์เซอร์จริงบนเครื่องของคุณ",
   "A restricted key tagged for agents: from 31 October 2026 Stripe refuses a secret key here.": "คีย์แบบจำกัดสิทธิ์ (restricted key) ที่ติดแท็กสำหรับเอเจนต์ ตั้งแต่ 31 ตุลาคม 2026 Stripe จะไม่รับ secret key ที่นี่",

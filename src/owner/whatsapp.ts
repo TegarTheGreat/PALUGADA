@@ -40,7 +40,7 @@ import { channelDelivery } from '../inbox/inbox.ts';
 import { deploymentLanguages } from '../domain/language.ts';
 import { say } from './say.ts';
 import { decodeAction, encodeAction, type ChatConversation } from './telegram.ts';
-import { closureText, notOpenText, recordedText, type DeliveryResult, type DoneNotice, type NotifiableItem, type OwnerChannel } from './notify.ts';
+import { askerOf, closureText, notOpenText, recordedText, type DeliveryResult, type DoneNotice, type NotifiableItem, type OwnerChannel } from './notify.ts';
 
 export interface WhatsAppOptions {
   /** The business number's id in the Cloud API (not the number itself). */
@@ -162,7 +162,11 @@ export class WhatsAppChannel implements OwnerChannel {
    * without a network, as telegram.ts does.
    */
   render(item: NotifiableItem, timeZone = 'UTC'): Record<string, unknown> {
-    const lines = [`*${item.title}*`, '', item.actionSummary];
+    // A run's question is headed by who asks, in the owner's language, and
+    // said once: its title and its summary are both the question (§2.3).
+    const lines = item.question && item.asker
+      ? [`*${say(item.language, '{role} asks:', { role: item.asker })}*`, '', item.question]
+      : [`*${item.title}*`, '', item.actionSummary];
     if (item.consequenceIfDenied) lines.push('', `_${say(item.language, 'If denied:')}_ ${item.consequenceIfDenied}`);
     if (item.expiresAt) lines.push('', `_${say(item.language, 'Expires:')}_ ${written(item.expiresAt, item.language, timeZone)}`);
 
@@ -750,13 +754,14 @@ async function isQuestion(companyId: string, itemId: string): Promise<boolean> {
 async function openItem(companyId: string, itemId: string): Promise<NotifiableItem | null> {
   const { rows } = await withTenant(companyId, (tx) => tx.query<{
     kind: string; tier: number | null; title: string; action_summary: string; consequence_if_denied: string | null;
-    language: string | null; question: string | null; options: string[] | null; expires_at: Date | null;
+    language: string | null; question: string | null; options: string[] | null; asker: string | null; expires_at: Date | null;
   }>(
-    `SELECT kind, tier, title, action_summary, consequence_if_denied, expires_at,
+    `SELECT i.kind, i.tier, i.title, i.action_summary, i.consequence_if_denied, i.expires_at,
             (SELECT console_language FROM platform_control) AS language,
-            CASE WHEN payload->>'askedBy' = 'agent' THEN payload->>'question' END AS question,
-            CASE WHEN payload->>'askedBy' = 'agent' THEN payload->'options' END AS options
-       FROM inbox_items WHERE id = $1 AND status = 'open'`, [itemId]));
+            CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->>'question' END AS question,
+            CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'options' END AS options,
+            ${askerOf('i')} AS asker
+       FROM inbox_items i WHERE i.id = $1 AND i.status = 'open'`, [itemId]));
   const row = rows[0];
   if (!row) return null;
   const delivery = channelDelivery(row);
@@ -764,7 +769,7 @@ async function openItem(companyId: string, itemId: string): Promise<NotifiableIt
   return {
     id: itemId, companyId, kind: row.kind, tier: row.tier, title: row.title, actionSummary: row.action_summary,
     consequenceIfDenied: row.consequence_if_denied, delivery, url: null, language: row.language ?? 'en',
-    question: row.question, options: row.options, expiresAt: row.expires_at,
+    question: row.question, asker: row.asker, options: row.options, expiresAt: row.expires_at,
   };
 }
 

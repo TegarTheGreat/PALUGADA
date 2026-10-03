@@ -98,6 +98,8 @@ export interface InboxItem {
   capabilityName: string | null;
   /** Who is asking: the role and division of the task behind the item. */
   roleSlug: string | null;
+  /** The name the owner gave that role, which is what the owner calls it (§2.3 item 7). */
+  roleName: string | null;
   divisionName: string | null;
   /** A question a run put to the owner with `owner.ask`, which the owner answers rather than approves. */
   question: string | null;
@@ -746,8 +748,8 @@ export async function askOwner(input: {
   }
   return withTenant(input.companyId, async (tx) => {
     // The task before the item, the order every other writer takes them in.
-    const task = await tx.query<{ status: string; role: string }>(
-      `SELECT t.status, r.slug AS role FROM tasks t JOIN roles r ON r.id = t.role_id
+    const task = await tx.query<{ status: string; role: string; role_name: string | null }>(
+      `SELECT t.status, r.slug AS role, r.display_name AS role_name FROM tasks t JOIN roles r ON r.id = t.role_id
         WHERE t.id = $1 FOR NO KEY UPDATE OF t`, [input.taskId]);
     if (!task.rows[0]) {
       throw new PalugadaError('contract.violation', 'no such task in this company', { taskId: input.taskId });
@@ -789,7 +791,9 @@ export async function askOwner(input: {
     const id = await raiseEscalationWithin(tx, {
       companyId: input.companyId,
       taskId: input.taskId,
-      title: `${task.rows[0]!.role} asks: ${question.length > 140 ? `${question.slice(0, 139)}…` : question}`,
+      // By the name the owner gave the role, which is what they call it; the
+      // short name is the platform's (§2.3 item 7).
+      title: `${task.rows[0]!.role_name ?? task.rows[0]!.role} asks: ${question.length > 140 ? `${question.slice(0, 139)}…` : question}`,
       // The question is the title and the item's own field; the detail is
       // only what the run said depends on it, so the card does not say the
       // question twice.
@@ -1054,14 +1058,14 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
       title: string; action_summary: string; rationale: string; tier: number | null;
       estimated_cost_cents: number; consequence_if_denied: string;
       task_id: string | null; expires_at: Date | null; created_at: Date;
-      capability_name: string | null; role_slug: string | null; division_name: string | null;
+      capability_name: string | null; role_slug: string | null; role_name: string | null; division_name: string | null;
       question: string | null; options: string[] | null; snoozed_until: Date | null; input: unknown;
       allow_for: boolean; asked: Exchange[] | null; asking: string | null;
     }>(
       `SELECT i.id, i.kind, i.status, i.title, i.action_summary, i.rationale, i.tier, i.snoozed_until,
               (${ALLOW_FOR_SQL}) AS allow_for,
               i.estimated_cost_cents, i.consequence_if_denied, i.task_id, i.expires_at,
-              i.created_at, i.capability_name, r.slug AS role_slug, d.name AS division_name,
+              i.created_at, i.capability_name, r.slug AS role_slug, r.display_name AS role_name, d.name AS division_name,
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->>'question' END AS question,
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'options' END AS options,
               CASE WHEN i.kind = 'approval' THEN i.payload->'input' END AS input,
@@ -1086,7 +1090,7 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
         estimatedCostCents: r.estimated_cost_cents,
         consequenceIfDenied: r.consequence_if_denied,
         taskId: r.task_id, expiresAt: r.expires_at, createdAt: r.created_at,
-        capabilityName: r.capability_name, roleSlug: r.role_slug, divisionName: r.division_name,
+        capabilityName: r.capability_name, roleSlug: r.role_slug, roleName: r.role_name, divisionName: r.division_name,
         question: r.question,
         options: r.options,
         input: r.input ?? null,

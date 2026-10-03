@@ -16,6 +16,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'a task': 'satu tugasan',
   'Approval needed: {title}': 'Kelulusan diperlukan: {title}',
   '{summary} — if denied: {consequence}': '{summary} — jika ditolak: {consequence}',
+  '{role} asks:': '{role} bertanya:',
   'If denied:': 'Jika ditolak:',
   'Expires:': 'Tamat tempoh:',
   'This one is decided in the app.': 'Yang ini diputuskan dalam apl.',

@@ -45,6 +45,8 @@ export interface InboxItem {
   createdAt: string;
   capabilityName: string | null;
   roleSlug: string | null;
+  /** The name the owner gave that role. */
+  roleName: string | null;
   divisionName: string | null;
   /** A question an agent asked with `owner.ask`: answered, not approved. */
   question: string | null;

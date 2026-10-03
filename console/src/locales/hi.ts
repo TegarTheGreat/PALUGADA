@@ -116,6 +116,7 @@ export const DICTIONARY: Dictionary = {
   "A process left running by this task's run was ended": "इस कार्य के रन की चलती छोड़ी गई एक प्रोसेस बंद कर दी गई",
   "A project": "एक प्रोजेक्ट",
   "A proposed skill failed its checks": "प्रस्तावित स्किल अपनी जाँचों में विफल रही",
+  "A question from {role}": "{role} का एक सवाल",
   "A ratio": "अनुपात",
   "A real browser, on a machine of yours": "असली ब्राउज़र, आपकी अपनी मशीन पर",
   "A restricted key tagged for agents: from 31 October 2026 Stripe refuses a secret key here.": "एजेंटों के लिए टैग की गई restricted key: 31 अक्टूबर 2026 से Stripe यहाँ secret key स्वीकार नहीं करता।",

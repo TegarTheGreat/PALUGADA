@@ -143,6 +143,7 @@ export const DICTIONARY: Dictionary = {
   "A process left running by this task's run was ended": "이 작업의 실행이 남긴 프로세스를 종료함",
   "A project": "프로젝트",
   "A proposed skill failed its checks": "제안된 스킬이 검사를 통과하지 못함",
+  "A question from {role}": "{role}의 질문",
   "A ratio": "비율",
   "A real browser, on a machine of yours": "내 머신에서 실행하는 실제 브라우저",
   "A restricted key tagged for agents: from 31 October 2026 Stripe refuses a secret key here.": "에이전트용 태그가 붙은 제한 키(restricted key). 2026년 10월 31일부터 Stripe는 여기에 시크릿 키를 받지 않아요.",

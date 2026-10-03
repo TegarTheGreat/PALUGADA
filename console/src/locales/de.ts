@@ -146,6 +146,7 @@ export const DICTIONARY: Dictionary = {
   "A process left running by this task's run was ended": "Ein vom Lauf dieser Aufgabe zurückgelassener Prozess wurde beendet",
   "A project": "Ein Projekt",
   "A proposed skill failed its checks": "Ein vorgeschlagener Skill hat seine Prüfungen nicht bestanden",
+  "A question from {role}": "Eine Frage von {role}",
   "A ratio": "Verhältnis",
   "A real browser, on a machine of yours": "Ein echter Browser auf einem Ihrer Rechner",
   "A restricted key tagged for agents: from 31 October 2026 Stripe refuses a secret key here.": "Ein eingeschränkter Schlüssel, für Agenten gekennzeichnet: Ab dem 31. Oktober 2026 lehnt Stripe hier einen geheimen Schlüssel ab.",

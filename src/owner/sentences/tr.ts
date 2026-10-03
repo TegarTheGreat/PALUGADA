@@ -18,6 +18,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'a task': 'bir görev',
   'Approval needed: {title}': 'Onay gerekiyor: {title}',
   '{summary} — if denied: {consequence}': '{summary} — reddedilirse: {consequence}',
+  '{role} asks:': '{role} soruyor:',
   'If denied:': 'Reddedilirse:',
   'Expires:': 'Sona erme:',
   'This one is decided in the app.': 'Bu, uygulamada karara bağlanır.',

@@ -19,6 +19,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'a task': 'งานหนึ่ง',
   'Approval needed: {title}': 'รอการอนุมัติ: {title}',
   '{summary} — if denied: {consequence}': '{summary} — หากปฏิเสธ: {consequence}',
+  '{role} asks:': '{role} ถามว่า:',
   'If denied:': 'หากปฏิเสธ:',
   'Expires:': 'หมดอายุ:',
   'This one is decided in the app.': 'รายการนี้ต้องตัดสินในแอป',

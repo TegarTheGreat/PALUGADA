@@ -6950,6 +6950,35 @@ What changed:
   ("record.delete") and the account its path ("ops/growth"), and a halt's
   detail is the engine's English. Each is its own change.
 
+## 2.95 A run's question is headed by who asks, by name, in the owner's language (F10.3, §2.3 item 7)
+
+Found by the live run of the analysis of 3 October (§2.3, item 7). A run's
+question (`owner.ask`) reached the owner as "bookkeeper asks: ...": the
+role's short name, which is the platform's, and English whatever the owner
+reads. The inbox named the asker by the same short name ("Asked by
+bookkeeper"), and a chat said the question twice, as the card's title and
+again as its summary.
+
+What changed:
+
+- **By the name the owner gave the role** (`roleName` on an inbox item; the
+  stored title, in `askOwner`), wherever the inbox names who asks, including
+  the "allow for a while" choices; the short name only where a role has no
+  name.
+- **The question is the card.** The inbox lists a run's question by the
+  question itself, and its card is headed "A question from Sari", in the
+  console's language.
+- **In the chats, in the owner's language** (`askerOf`, `src/owner/notify.ts`;
+  Telegram and WhatsApp): "*Sari bertanya:*" over the question, said once.
+  "{role} asks:" is in every dictionary in `src/owner/sentences/`.
+- **Tested.** `owner-channels.test.ts`: a role named Sari asks; the inbox
+  item names Sari, its record is titled by her name, and the Telegram card
+  is headed "Sari asks:" in English and "Sari bertanya:" in Indonesian, with
+  the question once and no English in the Indonesian.
+- **Still open in this item:** capability names ("record.delete") and the
+  account's path ("ops/growth"), and a role's short name elsewhere in the
+  console (Home, the schedule list, standing approvals).
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

@@ -191,6 +191,10 @@ The first version. What it holds, in the order an owner meets it.
   platform". Most events were shown as their codes in English -- "Content
   read outside", "Task running" -- beside "engine" or "broker", and a step
   as "Model:turn 2" (STATUS 2.94).
+- An agent's question reaches you headed by the name you gave its role --
+  "A question from Sari", and in a chat "Sari bertanya:" -- instead of
+  "bookkeeper asks:" in English, and a chat says the question once
+  (STATUS 2.95).
 - **Replay against the journal** is shown only for a task this deployment
   can replay. It was offered on every task and refused on every task a
   model or an agent CLI ran (STATUS 2.87).

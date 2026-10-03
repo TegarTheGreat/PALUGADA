@@ -49,6 +49,7 @@ const SettingsHub = lazy(() => import('./pages/SettingsHub.tsx').then((module) =
 import { AssignWork } from './components/AssignWork.tsx';
 import { Assistant } from './components/Assistant.tsx';
 import { Tour, type TourSpot } from './components/Tour.tsx';
+import { setMoneyDisplay, useMoneyDisplay } from './format.ts';
 
 /** The pages of one company, as the sidebar offers them. */
 const PAGES: Array<{ id: CompanyPage; label: string; icon: typeof IconInbox; group: 'decide' | 'company' | 'setup' }> = [
@@ -67,6 +68,7 @@ export function App() {
   // Which kind of factor signed in: after a recovery code, the console asks for a new device.
   const [factor, setFactor] = useState<string | null>(null);
   const lang = useLanguage();
+  const reading = useMoneyDisplay();
   // Mantine mirrors its components from its own direction, set here as the
   // language changes; the page's `dir` is set with the language (i18n.ts).
   const { setDirection } = useDirection();
@@ -79,7 +81,7 @@ export function App() {
   }
   return (
     <Console
-      key={lang}
+      key={`${lang}:${reading}`}
       device={device}
       recovered={factor === 'recovery'}
       signOut={async () => {
@@ -151,15 +153,17 @@ function Console({ device, recovered, signOut }: { device: string; recovered: bo
   const spotted = (name: TourSpot) => (spot === name ? ' tour-spot' : '');
 
   const base = useLoad(async () => {
-    const [{ companies }, control, setup, languages]: [
+    const [{ companies }, control, setup, languages, money]: [
       { companies: Company[] }, { stopAll: boolean }, { notes: string[]; todo: string[]; version?: string }, Languages,
+      { currency: string | null; rate: number | null },
     ] = await Promise.all([
       api('GET', '/api/companies'),
       api('GET', '/api/control'),
       api('GET', '/api/control/setup'),
       api('GET', '/api/control/languages'),
+      api('GET', '/api/control/money-display'),
     ]);
-    return { companies, stopAll: control.stopAll, setup, languages };
+    return { companies, stopAll: control.stopAll, setup, languages, money };
   }, [], { every: 30_000 });
 
   // The tour, once: asked for at sign-in rather than every thirty seconds,
@@ -180,6 +184,10 @@ function Console({ device, recovered, signOut }: { device: string; recovered: bo
   useEffect(() => {
     const chosen = base.data?.languages.console;
     if (isLanguage(chosen) && chosen !== language()) setLanguage(chosen);
+    // And the currency the owner reads money in (0106), which redraws the
+    // console as a language does when it changes.
+    const money = base.data?.money;
+    if (money) setMoneyDisplay(money.currency && money.rate ? { currency: money.currency, rate: money.rate } : null);
   }, [base.data]);
 
   const companies = base.data?.companies ?? [];

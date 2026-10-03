@@ -7286,6 +7286,40 @@ What changed:
   Indonesian owner, with no `record.delete` in it, and one for a
   capability with no name keeps its code.
 
+## 2.106 The owner reads money in their own currency, at a rate they set (F11.3, §2.3 item 3, §9 P1 item 13)
+
+Recommended by the analysis of 3 October (§9, P1 item 13: "USD, with an
+option to show rupiah"). 2.98 made every amount say it is in US dollars,
+which ended the misreading of "0,75" as rupiah; but an owner who thinks in
+rupiah still converted every amount in their head, and typed every ceiling
+in a currency they do not think in.
+
+What changed:
+
+- **A currency to read money in** (0106, `src/domain/money-display.ts`): the
+  owner chooses a currency and the rate to read it at, under **Settings**,
+  **Languages**, **How you read money**. It is kept on `platform_control`
+  beside the panel's language and follows them to every device. Both or
+  neither; the currency must be one the platform knows and not the dollar,
+  the rate a positive number. `GET` and `POST /api/control/money-display`.
+- **Shown and typed in it.** Every amount the console writes is in that
+  currency at that rate (`money`, `console/src/format.ts`), whole units once
+  there are a hundred of them ("Rp12.375"); a ceiling and the daily-cost
+  alert are typed in it and kept in cents (`centsFrom`, `typedFrom`); the
+  cost chart is drawn in it. The **Money** page says which currency and
+  rate it is reading, and that PALUGADA counts in dollars.
+- **The chat's digest gives both**: "Terpakai: Rp35.475 (US$2,15)", since
+  the rate is only the owner's.
+- **Nothing is charged or stored in it**, and no rate is fetched: what the
+  owner reads depends on no service the platform does not run, and keeping
+  the rate current is the owner's.
+- **Tested.** `money-display.test.ts`: the choice is stored and read back,
+  an unknown currency, the dollar and a rate that is not above zero are
+  refused and leave the choice as it was, and the digest says rupiah and
+  dollars; `console-money.test.ts`: an amount is shown and typed in rupiah
+  at the rate and kept in cents, and the money and settings pages turn what
+  is typed into cents only through the rate.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

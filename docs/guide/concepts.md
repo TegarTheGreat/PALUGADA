@@ -314,7 +314,11 @@ before then.
 Money is in US dollars everywhere: providers price their models in dollars,
 and every amount the console shows, and every ceiling you type, is in
 dollars, written the way your language writes them ("US$1.234,50" in
-Indonesian).
+Indonesian). If you think in another currency, choose it under **Settings**,
+**Languages**, **How you read money**, with the rate to read amounts at:
+every amount is then shown and typed in it, and the daily digest in your
+chat gives both. PALUGADA still counts in dollars, and never fetches a rate:
+it is yours to keep up to date.
 
 On top of the accounts, each company has a monthly ceiling, USD 200 unless
 you change it, counted per calendar month in UTC. It counts every model call

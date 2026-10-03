@@ -10,12 +10,22 @@
  * plural forms and "1 of them incidents" is wrong in most languages.
  */
 import type { DailyDigest } from '../reporting/digest.ts';
+import type { MoneyDisplay } from '../domain/money-display.ts';
 import { haltSaid } from './halt-said.ts';
 import { say } from './say.ts';
 
-/** Renders the digest as the one screen F10.6 asks for, in `language`. */
-export function renderDailyDigest(digest: DailyDigest, language: string | null | undefined): string {
-  const amount = (digest.moneySpentCents / 100).toLocaleString(language ?? 'en', { style: 'currency', currency: 'USD' });
+/**
+ * Renders the digest as the one screen F10.6 asks for, in `language`. With a
+ * currency the owner reads money in (0106), the spend is said in it first and
+ * in the dollars it was counted in after, since the rate is only theirs.
+ */
+export function renderDailyDigest(
+  digest: DailyDigest,
+  language: string | null | undefined,
+  display: MoneyDisplay | null = null,
+): string {
+  const dollars = (digest.moneySpentCents / 100).toLocaleString(language ?? 'en', { style: 'currency', currency: 'USD' });
+  const amount = display ? `${converted(digest.moneySpentCents, language, display)} (${dollars})` : dollars;
   const lines = [
     say(language, 'Digest for {day}', { day: digest.day }),
     say(language, 'Spent: {amount}', { amount }),
@@ -30,4 +40,12 @@ export function renderDailyDigest(digest: DailyDigest, language: string | null |
     })),
   ];
   return lines.join('\n');
+}
+
+/** An amount in the owner's currency: whole units once it is a hundred of them or more. */
+function converted(cents: number, language: string | null | undefined, display: MoneyDisplay): string {
+  const value = (cents / 100) * display.rate;
+  return value.toLocaleString(language ?? 'en', {
+    style: 'currency', currency: display.currency, minimumFractionDigits: 0, maximumFractionDigits: value >= 100 ? 0 : 2,
+  });
 }

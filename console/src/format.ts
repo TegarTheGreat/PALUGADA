@@ -1,23 +1,83 @@
+import { useSyncExternalStore } from 'react';
 import { N, locale, t } from './i18n.ts';
 
 /**
- * An amount, in US dollars, the way the owner's language writes them.
+ * The currency the owner reads money in, and the rate (0106); null is US
+ * dollars. Kept by the owner API and set here when the console loads, like
+ * the panel's language, which redraws the console when it changes.
+ */
+export interface MoneyDisplay {
+  currency: string;
+  rate: number;
+}
+
+let display: MoneyDisplay | null = null;
+const displayListeners = new Set<() => void>();
+
+export function setMoneyDisplay(next: MoneyDisplay | null): void {
+  if (next?.currency === display?.currency && next?.rate === display?.rate) return;
+  display = next ? { currency: next.currency, rate: next.rate } : null;
+  for (const listener of displayListeners) listener();
+}
+
+export function moneyDisplay(): MoneyDisplay | null {
+  return display;
+}
+
+/** A key that changes when the currency or the rate does, for the console to redraw on. */
+export function useMoneyDisplay(): string {
+  return useSyncExternalStore(
+    (listener) => {
+      displayListeners.add(listener);
+      return () => displayListeners.delete(listener);
+    },
+    () => (display ? `${display.currency}@${display.rate}` : 'USD'),
+  );
+}
+
+/**
+ * An amount, the way the owner's language writes it: in US dollars, or in
+ * the currency the owner reads money in at their rate.
  *
  * Every amount the platform keeps is in US cents: providers price their
  * models in dollars per million tokens, runtimes report dollars, and the
  * catalogue estimates in cents. Printed without its currency, "0,75" in an
- * Indonesian console read as rupiah (the analysis of 3 October, §2.3 item 3).
+ * Indonesian console read as rupiah (the analysis of 3 October, §2.3 item 3);
+ * an owner who thinks in rupiah may read it in rupiah (§9 P1 item 13).
  */
 export function money(cents: number): string {
-  return (cents / 100).toLocaleString(locale(), { style: 'currency', currency: 'USD' });
+  if (!display) return (cents / 100).toLocaleString(locale(), { style: 'currency', currency: 'USD' });
+  const value = (cents / 100) * display.rate;
+  // Whole units once there are a hundred of them: "Rp12.375", not "Rp12.375,00".
+  return value.toLocaleString(locale(), {
+    style: 'currency', currency: display.currency, minimumFractionDigits: 0, maximumFractionDigits: value >= 100 ? 0 : 2,
+  });
+}
+
+/** A currency by its name in the owner's language: "Rupiah Indonesia". */
+export function currencyName(code: string): string {
+  return new Intl.DisplayNames(locale(), { type: 'currency' }).of(code) ?? code;
+}
+
+/** What the owner typed, in the currency they read money in, as US cents. */
+export function centsFrom(typed: string | number): number {
+  const amount = Number(typed);
+  return Math.round((display ? amount / display.rate : amount) * 100);
+}
+
+/** US cents as the owner would type them, in the currency they read money in. */
+export function typedFrom(cents: number): number {
+  const dollars = cents / 100;
+  return display ? Math.round(dollars * display.rate * 100) / 100 : dollars;
 }
 
 /**
- * Where the dollar sign goes around a typed amount, as `money` writes it:
- * "US$" before it in Indonesian, "$" after it in German.
+ * Where the currency's sign goes around a typed amount, as `money` writes it:
+ * "US$" before it in Indonesian, "$" after it in German, "Rp" before it for
+ * an owner who reads rupiah.
  */
 export function currencyAffix(): { prefix?: string; suffix?: string } {
-  const parts = new Intl.NumberFormat(locale(), { style: 'currency', currency: 'USD' }).formatToParts(1);
+  const parts = new Intl.NumberFormat(locale(), { style: 'currency', currency: display?.currency ?? 'USD' }).formatToParts(1);
   const at = parts.findIndex((part) => part.type === 'currency');
   const sign = parts[at]!.value;
   const number = parts.findIndex((part) => part.type === 'integer');

@@ -17,7 +17,7 @@ import { api, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { useLoad } from '../hooks.ts';
 import type { Account, CostPeriod, Spend, Structure } from '../types.ts';
-import { count, currencyAffix, dateTime, day, money, roleLabel } from '../format.ts';
+import { centsFrom, count, currencyAffix, currencyName, dateTime, day, money, moneyDisplay, roleLabel, typedFrom } from '../format.ts';
 import type { PageProps } from '../App.tsx';
 import { N, t } from '../i18n.ts';
 import { KpiStrip, LoadFailed, Loading, PageHeader, Section } from '../components/ui.tsx';
@@ -58,9 +58,20 @@ export function Money({ ctx }: PageProps) {
   const tone = used >= 100 ? 'red' : used >= 80 ? 'orange' : 'brand';
   const topCompany = Math.max(1, ...platform.companies.map((row) => row.costCents), platform.assistant.costCents);
 
+  // Read in the owner's currency (0106): said once, so a rupiah figure is
+  // never taken for what was charged.
+  const display = moneyDisplay();
+
   return (
     <Stack gap="lg">
       {header}
+      {display && (
+        <Text size="sm" c="dimmed">
+          {t('Amounts are in {currency}, at {rate} for one US dollar: the rate you set in your settings. PALUGADA counts in US dollars.', {
+            currency: currencyName(display.currency), rate: money(100),
+          })}
+        </Text>
+      )}
 
       <KpiStrip items={[
         { label: t('Spent this period'), value: money(spend.spentCents), hint: `${day(spend.periodStart)} – ${day(spend.periodEnd)}` },
@@ -90,10 +101,10 @@ export function Money({ ctx }: PageProps) {
             {cost.timeline.length === 0 ? <Text size="sm" c="dimmed">{t('Nothing spent yet.')}</Text> : (
               <BarChart
                 h={300}
-                data={cost.timeline.map((row) => ({ day: day(row.period), cost: row.costCents / 100, tokens: row.tokens }))}
+                data={cost.timeline.map((row) => ({ day: day(row.period), cost: row.costCents, tokens: row.tokens }))}
                 dataKey="day"
                 series={[{ name: 'cost', label: t('Cost'), color: 'brand.6' }]}
-                valueFormatter={(value) => money(Math.round(value * 100))}
+                valueFormatter={(value) => money(value)}
                 gridAxis="y"
                 barProps={{ radius: 4 }}
               />
@@ -191,7 +202,7 @@ export function Money({ ctx }: PageProps) {
           submit={({ moneyMax, ...values }, proof) => api('POST', `/api/companies/${companyId}/budget-accounts`, {
             ...values,
             // Typed in dollars; kept, like every amount, in cents.
-            ...(moneyMax === undefined || moneyMax === '' ? {} : { moneyMaxCents: Math.round(Number(moneyMax) * 100) }),
+            ...(moneyMax === undefined || moneyMax === '' ? {} : { moneyMaxCents: centsFrom(moneyMax) }),
             proof,
           })}
           factor={t('Open a budget account')}
@@ -228,11 +239,11 @@ function scopeLabel(scope: string): string {
  */
 function CeilingForm({ companyId, spend, changed }: { companyId: string; spend: Spend; changed: () => void }) {
   const requireFactor = useFactor();
-  const [value, setValue] = useState<number | string>(spend.limitCents / 100);
+  const [value, setValue] = useState<number | string>(typedFrom(spend.limitCents));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const save = async () => {
-    const moneyMaxCents = Math.round(Number(value) * 100);
+    const moneyMaxCents = centsFrom(value);
     setError(null);
     setBusy(true);
     try {
@@ -271,12 +282,12 @@ function CeilingForm({ companyId, spend, changed }: { companyId: string; spend: 
 function AccountCeilings({ companyId, account, changed }: { companyId: string; account: Account; changed: () => void }) {
   const requireFactor = useFactor();
   const [tokens, setTokens] = useState<number | string>(account.tokensMax);
-  const [ceiling, setCeiling] = useState<number | string>(account.moneyMaxCents / 100);
+  const [ceiling, setCeiling] = useState<number | string>(typedFrom(account.moneyMaxCents));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const save = async () => {
     const tokensMax = Math.round(Number(tokens));
-    const moneyMaxCents = Math.round(Number(ceiling) * 100);
+    const moneyMaxCents = centsFrom(ceiling);
     setError(null);
     setBusy(true);
     try {

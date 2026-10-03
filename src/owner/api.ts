@@ -97,6 +97,7 @@ import { changeMetric, defineMetric, headlines, recordObservation, type Headline
 import {
   LANGUAGES, deploymentLanguages, isLanguageCode, languageCode, languagesFor, setCompanyLanguages, setDeploymentLanguages,
 } from '../domain/language.ts';
+import { moneyDisplay, setMoneyDisplay } from '../domain/money-display.ts';
 import { getTask } from '../engine/tasks.ts';
 import type { TaskHandler } from '../runtime/in-process.ts';
 import type { AdapterRegistry } from '../runtime/protocol.ts';
@@ -1476,6 +1477,27 @@ export class OwnerApi {
           ...(await deploymentLanguages()),
           supported: LANGUAGES.map((language) => ({ ...language })),
         }),
+      },
+
+      /* --------------------------------------------------- money display --- */
+
+      {
+        // The currency the owner reads money in, and the rate (0106). Kept
+        // here rather than in the browser, like the panel's language, so it
+        // follows the owner to every device. PALUGADA counts in US dollars.
+        method: 'GET',
+        pattern: '/api/control/money-display',
+        handle: async () => (await moneyDisplay()) ?? { currency: null, rate: null },
+      },
+
+      {
+        // How amounts are read, not what anything costs: no factor, since
+        // nothing is loosened. `currency: null` goes back to US dollars.
+        method: 'POST',
+        pattern: '/api/control/money-display',
+        handle: async ({ body }) => (await setMoneyDisplay(
+          body.currency === null ? null : { currency: body.currency, rate: body.rate },
+        )) ?? { currency: null, rate: null },
       },
 
       /* ------------------------------------------- the deployment's settings --- */

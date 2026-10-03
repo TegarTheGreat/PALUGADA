@@ -37,6 +37,7 @@ import { redactor } from '../secrets/manager.ts';
 import { channelDelivery, type ChannelDelivery, type Decision } from '../inbox/inbox.ts';
 import { buildDailyDigest } from '../reporting/digest.ts';
 import { renderDailyDigest } from './digest-said.ts';
+import { moneyDisplay } from '../domain/money-display.ts';
 import { haltSaid } from './halt-said.ts';
 import { actionSaid } from './capability-said.ts';
 import { notifyAfterFor } from '../scheduler/windows.ts';
@@ -728,7 +729,7 @@ export async function retryDigests(
       await channel.deliverDigest({
         companyId,
         day: row.digest_day,
-        text: redactor.redact(renderDailyDigest(digest, row.language)),
+        text: redactor.redact(renderDailyDigest(digest, row.language, await moneyDisplay())),
       });
       await withTenant(companyId, async (tx) => {
         await tx.query(

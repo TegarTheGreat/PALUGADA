@@ -6,13 +6,13 @@
  * Each is a section of the settings page (SettingsHub), not a page of its
  * own: an owner changes these rarely and should find them all in one place.
  */
-import { Alert, Badge, Button, Code, CopyButton, Grid, Group, Select, SimpleGrid, Stack, Table, Text, TextInput } from '@mantine/core';
+import { Alert, Badge, Button, Code, CopyButton, Grid, Group, NumberInput, Select, SimpleGrid, Stack, Table, Text, TextInput } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconAlertTriangle, IconCheck, IconCopy, IconDownload, IconFingerprint, IconKey, IconLanguage, IconShieldCheck, IconSnowflake, IconSnowflakeOff } from '@tabler/icons-react';
 import { useState } from 'react';
 import { api, explain } from '../api.ts';
 import { useLoad } from '../hooks.ts';
-import { day, retentionSaid } from '../format.ts';
+import { centsFrom, currencyName, day, retentionSaid, setMoneyDisplay, type MoneyDisplay } from '../format.ts';
 import { LANGUAGES, isLanguage, language, t } from '../i18n.ts';
 import { chooseLanguage, type ConsoleContext, type Languages } from '../App.tsx';
 import { LoadFailed, Loading, Section } from '../components/ui.tsx';
@@ -120,7 +120,7 @@ export function CompanySettings({ ctx }: { ctx: ConsoleContext }) {
           submit={({ dailyCost, ...values }) => api('POST', `/api/companies/${companyId}/alert-thresholds`, {
             ...values,
             // Typed in dollars; kept, like every amount, in cents.
-            ...(dailyCost === undefined || dailyCost === '' ? {} : { dailyCostCents: Math.round(Number(dailyCost) * 100) }),
+            ...(dailyCost === undefined || dailyCost === '' ? {} : { dailyCostCents: centsFrom(dailyCost) }),
           })}
         />
       </Section>
@@ -435,6 +435,10 @@ export function LanguageSettings({ ctx }: { ctx: ConsoleContext }) {
         </Group>
       </Section>
 
+      <Section title={t('How you read money')} description={t('PALUGADA counts in US dollars, as providers price in them. You may read every amount in your own currency, at a rate you set; nothing is charged in it.')}>
+        <MoneyDisplayForm />
+      </Section>
+
       <Section title={t('Agents, by default')} description={t('The language every company’s agents use unless the company sets its own below.')}>
         <Group align="flex-end" gap="sm">
           <Select data={supported} value={fallback} onChange={setAgents} searchable w={320} allowDeselect={false} />
@@ -490,5 +494,58 @@ export function LanguageSettings({ ctx }: { ctx: ConsoleContext }) {
         <Text size="xs" c="dimmed">{t('The panel follows your browser until you choose a language.')}</Text>
       )}
     </Stack>
+  );
+}
+
+/**
+ * The currency the owner reads money in, and the rate (0106). US dollars
+ * are what PALUGADA counts in; any other is only how amounts are shown and
+ * typed, at the owner's own rate, which the platform never fetches.
+ */
+function MoneyDisplayForm() {
+  const view = useLoad(async (): Promise<{ currency: string | null; rate: number | null }> =>
+    api('GET', '/api/control/money-display'), []);
+  const [currency, setCurrency] = useState<string | null>(null);
+  const [rate, setRate] = useState<number | string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  if (view.error) return <LoadFailed message={view.error} retry={view.reload} />;
+  if (!view.data) return <Loading rows={1} />;
+  const chosen = currency ?? view.data.currency ?? 'USD';
+  const typed = rate ?? view.data.rate ?? '';
+  const options = [
+    { value: 'USD', label: t('US dollars, as PALUGADA counts') },
+    ...Intl.supportedValuesOf('currency').filter((code) => code !== 'USD')
+      .map((code) => ({ value: code, label: `${currencyName(code)} (${code})` })),
+  ];
+  const unchanged = chosen === (view.data.currency ?? 'USD') && (chosen === 'USD' || Number(typed) === view.data.rate);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      const saved: { currency: string | null; rate: number | null } = await api('POST', '/api/control/money-display',
+        chosen === 'USD' ? { currency: null } : { currency: chosen, rate: Number(typed) });
+      setMoneyDisplay(saved.currency && saved.rate ? { currency: saved.currency, rate: saved.rate } as MoneyDisplay : null);
+      notifications.show({ color: 'teal', message: t('Saved. Every amount is shown this way now.') });
+      view.reload();
+    } catch (failure) {
+      notifications.show({ color: 'red', message: explain(failure) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Group align="flex-end" gap="sm" wrap="wrap">
+      <Select label={t('Show amounts in')} data={options} value={chosen} onChange={(next) => { setCurrency(next ?? 'USD'); setRate(null); }}
+        searchable allowDeselect={false} w={{ base: '100%', sm: 320 }} />
+      {chosen !== 'USD' && (
+        <NumberInput label={t('{currency} for one US dollar', { currency: chosen })} value={typed} onChange={setRate}
+          min={0} decimalScale={6} thousandSeparator w={{ base: '100%', sm: 220 }} />
+      )}
+      <Button loading={busy} disabled={unchanged || (chosen !== 'USD' && !(Number(typed) > 0))} onClick={() => void save()}>
+        {t('Save')}
+      </Button>
+    </Group>
   );
 }

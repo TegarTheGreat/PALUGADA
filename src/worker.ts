@@ -74,6 +74,7 @@ import {
 import { buildDailyDigest } from './reporting/digest.ts';
 import { renderDailyDigest } from './owner/digest-said.ts';
 import { deploymentLanguages } from './domain/language.ts';
+import { moneyDisplay } from './domain/money-display.ts';
 import {
   distillEpisodicToSemantic,
   distillSemanticToProcedural,
@@ -1038,7 +1039,7 @@ export class Worker {
           const digest = await buildDailyDigest(company, yesterday);
           const sent = await dispatchDigest(company, owed, {
             day: digest.day,
-            text: renderDailyDigest(digest, (await deploymentLanguages()).console),
+            text: renderDailyDigest(digest, (await deploymentLanguages()).console, await moneyDisplay()),
           });
           report.digests += sent.delivered;
         }

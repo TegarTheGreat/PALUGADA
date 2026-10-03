@@ -13,7 +13,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActionIcon, Alert, AppShell, Avatar, Badge, Box, Button, Center, Divider, Drawer, FileInput, Group, Loader, Menu, Modal,
-  NavLink, Paper, Progress, ScrollArea, SimpleGrid, Stack, Switch, Text, TextInput, Tooltip, UnstyledButton,
+  NavLink, Paper, Progress, ScrollArea, Select, SimpleGrid, Stack, Switch, Text, TextInput, Tooltip, UnstyledButton,
   useComputedColorScheme, useDirection, useMantineColorScheme,
 } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
@@ -588,7 +588,8 @@ function Console({ device, recovered, signOut }: { device: string; recovered: bo
         </Stack>
       </Drawer>
 
-      <StartCompany opened={starting} close={() => setStarting(false)} started={(id) => { base.reload(); open('overview', { companyId: id }); }} />
+      <StartCompany opened={starting} close={() => setStarting(false)} languages={base.data?.languages ?? null}
+        started={(id) => { base.reload(); open('overview', { companyId: id }); }} />
       <RestoreCompany opened={restoring} close={() => setRestoring(false)} restored={(id) => { base.reload(); open('overview', { companyId: id }); }} />
 
       <GiveWork companyId={company?.id ?? null} opened={giving} close={() => setGiving(false)} />
@@ -805,12 +806,30 @@ function RestoreCompany({ opened, close, restored }: { opened: boolean; close: (
   );
 }
 
-function StartCompany({ opened, close, started }: { opened: boolean; close: () => void; started: (id: string) => void }) {
+/**
+ * A company is asked its languages as it starts (N7). Left alone, it took the
+ * deployment's default, which is English until the owner finds Settings: an
+ * owner who wrote to the panel in Indonesian got a company whose agents
+ * answered in English. Both start in the language the panel is in now.
+ */
+function StartCompany({ opened, close, started, languages }: {
+  opened: boolean; close: () => void; started: (id: string) => void; languages: Languages | null;
+}) {
   const requireFactor = useFactor();
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
   const [runsItself, setRunsItself] = useState(true);
+  // Null until chosen: the panel's language, which the owner may change while
+  // the form is open.
+  const [work, setWork] = useState<string | null>(null);
+  const [talk, setTalk] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const supported = (languages?.supported ?? []).map((one) => ({
+    value: one.code, label: one.native === one.name ? one.name : `${one.native} · ${one.name}`,
+  }));
+  const panel = supported.some((one) => one.value === language()) ? language() : null;
+  const workLanguage = work ?? panel;
+  const talkLanguage = talk ?? panel;
 
   const submit = async () => {
     setError(null);
@@ -819,6 +838,8 @@ function StartCompany({ opened, close, started }: { opened: boolean; close: () =
       const done = await requireFactor(t('Start {company}', { company: name }), async (proof) => {
         created = await api('POST', '/api/companies', {
           templateSlug: 'standard-company', companySlug: slug, name, proof,
+          ...(workLanguage ? { workLanguage } : {}),
+          ...(talkLanguage ? { talkLanguage } : {}),
           // company-os: a strategist, a weekly review and the operating skills.
           ...(runsItself ? { bundles: ['company-os'] } : {}),
         });
@@ -828,6 +849,8 @@ function StartCompany({ opened, close, started }: { opened: boolean; close: () =
       close();
       setName('');
       setSlug('');
+      setWork(null);
+      setTalk(null);
       if (created.companyId) started(created.companyId);
     } catch (failure) {
       setError(explain(failure));
@@ -846,6 +869,28 @@ function StartCompany({ opened, close, started }: { opened: boolean; close: () =
           setSlug(value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''));
         }} required />
         <TextInput label={t('Short name')} description={t('Used in links and exports')} value={slug} onChange={(e) => setSlug(e.currentTarget.value)} required />
+        {supported.length > 0 && (
+          <>
+            <Select
+              label={t('Work language')}
+              description={t('What it produces: documents, emails, content for customers, code comments.')}
+              data={supported}
+              value={workLanguage}
+              onChange={setWork}
+              searchable
+              allowDeselect={false}
+            />
+            <Select
+              label={t('Talk language')}
+              description={t('What its agents write to you and to each other: approvals, questions, reports, handoffs.')}
+              data={supported}
+              value={talkLanguage}
+              onChange={setTalk}
+              searchable
+              allowDeselect={false}
+            />
+          </>
+        )}
         <Switch
           checked={runsItself}
           onChange={(e) => setRunsItself(e.currentTarget.checked)}

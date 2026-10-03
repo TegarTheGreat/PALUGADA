@@ -95,7 +95,7 @@ import { accountFor, chainFor, createAccount, setCeilings, snapshot } from '../e
 import { remember, retract, supersede } from '../memory/store.ts';
 import { changeMetric, defineMetric, headlines, recordObservation, type Headline, type MetricChange, type MetricUnit } from '../domain/metrics.ts';
 import {
-  LANGUAGES, deploymentLanguages, languageCode, languagesFor, setCompanyLanguages, setDeploymentLanguages,
+  LANGUAGES, deploymentLanguages, isLanguageCode, languageCode, languagesFor, setCompanyLanguages, setDeploymentLanguages,
 } from '../domain/language.ts';
 import { getTask } from '../engine/tasks.ts';
 import type { TaskHandler } from '../runtime/in-process.ts';
@@ -718,6 +718,13 @@ export class OwnerApi {
             if (!version) throw new PalugadaError('contract.violation', `no bundle named ${slug} is published here`, { slug });
             bundles.push({ slug, version });
           }
+          // The languages it works and talks in, checked before the factor
+          // is spent like the bundles. Unsaid, both are the language the
+          // owner reads the panel in: on a live run (N7) a company started
+          // from an Indonesian console worked in English, because creation
+          // left them unset and the deployment's agent language was English.
+          const workLanguage = body.workLanguage === undefined ? undefined : languageCode(body.workLanguage, 'workLanguage');
+          const talkLanguage = body.talkLanguage === undefined ? undefined : languageCode(body.talkLanguage, 'talkLanguage');
           await this.#requireFactor(body.proof, 'start a company');
           const templateSlug = requireText(body.templateSlug, 'templateSlug');
           // Checked here so the refusal names the template rather than
@@ -735,6 +742,11 @@ export class OwnerApi {
               ? {}
               : { timezone: requireText(body.timezone, 'timezone') }),
           });
+          const panel = (await deploymentLanguages()).console;
+          const owners = panel && isLanguageCode(panel) ? panel : null;
+          const work = workLanguage ?? owners;
+          const talk = talkLanguage ?? owners;
+          if (work || talk) await setCompanyLanguages(created.companyId, { work, talk });
           // One factor covers the company and what it starts with: installing
           // a bundle is the same structural change F2.9 already approved here.
           for (const bundle of bundles) {

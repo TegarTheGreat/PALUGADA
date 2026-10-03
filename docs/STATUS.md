@@ -6248,6 +6248,34 @@ What changed:
     second. The first took 6,424 ms before the change.
   - An Indonesian sentence around an address still reads as Indonesian.
 
+## 2.74 A company starts in its owner's language (N7)
+
+Found on the live run of 2 October (N7). The owner read the console in
+Indonesian and started a company; its CEO and every agent wrote English.
+Creation left the company's work and talk languages unset, so they followed
+the deployment's agent language, which was English, and nothing on the way
+asked. The only place to change them was **Settings**, **Languages**, which
+an owner finds after the first English reply rather than before it.
+
+What changed:
+
+- **Asked on the form.** **Start a company** shows **Work language** and
+  **Talk language**, both set to the language the console is in, and sends
+  them. An owner who changes nothing gets a company in the language they are
+  reading; one who sells in English and wants reports in Indonesian picks
+  each.
+- **Defaulted on the server too.** `POST /api/companies` takes
+  `workLanguage` and `talkLanguage`, checked like every other language
+  before the second factor is spent, so a wrong one costs no code and makes
+  nothing. Left out, each is the panel language the owner chose in
+  **Settings**. A panel that still follows the browser has no language on
+  the server, and then the deployment's default stands, as before: the
+  server does not guess a language it was never told.
+- **Tested.** `owner-api.test.ts`: a company started with nothing said takes
+  the panel's language; one started with two different languages keeps
+  each; an unknown language is refused by name with no company made; with no
+  panel language, both stay unset.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

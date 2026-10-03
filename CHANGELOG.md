@@ -67,6 +67,11 @@ The first version. What it holds, in the order an owner meets it.
   Russian. Why an approval was withdrawn, or a pressed button found its item
   closed, is said as a sentence in each rather than as a status code
   (STATUS 2.65).
+- A new company is asked its languages as it starts: its work and talk
+  languages begin in the language the console is in, and either can be
+  changed on the form. It used to start in the deployment's default, so a
+  company started from an Indonesian console answered in English
+  (STATUS 2.74).
 - A project may have its own work language, for a company that sells in
   more than one market: runs in a Malaysia project write for customers in
   Malay and drafts there are checked against Malay, while agents still talk

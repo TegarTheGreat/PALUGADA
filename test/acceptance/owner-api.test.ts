@@ -23,7 +23,7 @@ import { OwnerApi, type OwnerApiOptions } from '../../src/owner/api.ts';
 import { CharterRepository } from '../../src/governance/charter-repository.ts';
 import { AdapterRegistry, type Adapter } from '../../src/runtime/protocol.ts';
 import { rollBack } from '../../src/governance/rollback.ts';
-import { withTenant as withTenantTx } from '../../src/db/tenant.ts';
+import { withControlPlane, withTenant as withTenantTx } from '../../src/db/tenant.ts';
 import {
   OwnerMfa,
   TOTP_STEP_SECONDS,
@@ -3916,6 +3916,71 @@ test('the owner can start a company from a template (section 5, F2)', async () =
     assert.equal(again.body.code, 'company.slug_taken');
     assert.match(String(again.body.error), /a company already has the short name acme/);
     assert.doesNotMatch(String(again.body.error), /duplicate key|constraint/);
+  } finally {
+    await owner.close();
+  }
+});
+
+/**
+ * N7, the live run of 2 October: the owner read the console in Indonesian and
+ * started a company, and its CEO and every agent wrote English -- creation
+ * left the company's languages unset, the deployment's agent language was
+ * English, and nothing asked. A company now starts in the languages the owner
+ * chose for it, and in the owner's own language when they said nothing.
+ */
+test('a company starts in the languages its owner chose, and in the owner\'s own when they chose none (N7)', async () => {
+  const { saveTemplate } = await import('../../src/templates/company.ts');
+  const { CapabilityRegistry } = await import('../../src/broker/registry.ts');
+  const { registerPlatformCapabilities: registerTools } = await import('../../src/broker/platform-capabilities.ts');
+  const registry = new CapabilityRegistry();
+  registerTools(registry);
+  await registry.sync();
+  await saveTemplate({
+    slug: 'starter', name: 'Starter', description: 'One division.',
+    body: {
+      goals: [{ slug: 'mission', kind: 'mission', statement: 'Be useful.' }],
+      divisions: [{ slug: 'ops', name: 'Operations' }],
+      roles: [{
+        slug: 'coordinator', division: 'ops', systemPrompt: 'You coordinate.', model: 'test-model',
+        tools: ['memory.search'], outputSchema: { type: 'object' },
+        doneCriteria: ['the run returns an output matching its schema'],
+      }],
+      grants: [{ division: 'ops', capability: 'memory.search' }],
+      budget: { tokensMax: 100_000 },
+    },
+  });
+  const languagesOf = async (companyId: string) => (await withControlPlane((tx) => tx.query<{ work: string | null; talk: string | null }>(
+    'SELECT work_language AS work, talk_language AS talk FROM companies WHERE id = $1', [companyId]))).rows[0];
+
+  const owner = await console_();
+  try {
+    const token = await signIn(owner.url, owner.code());
+    const start = (slug: string, more: Record<string, unknown> = {}) => call(owner.url, 'POST', '/api/companies', {
+      token, body: { templateSlug: 'starter', companySlug: slug, name: slug, proof: { totp: owner.code() }, ...more },
+    });
+
+    // The owner reads the panel in Indonesian and says nothing more.
+    await withControlPlane((tx) => tx.query("UPDATE platform_control SET console_language = 'id'"));
+    const quiet = await start('kopi-senja');
+    assert.equal(quiet.status, 200, JSON.stringify(quiet.body));
+    assert.deepEqual(await languagesOf(quiet.body.companyId as string), { work: 'id', talk: 'id' });
+
+    // Chosen: a company that sells in English and talks to its owner in Indonesian.
+    const chosen = await start('export-desk', { workLanguage: 'en', talkLanguage: 'id' });
+    assert.equal(chosen.status, 200, JSON.stringify(chosen.body));
+    assert.deepEqual(await languagesOf(chosen.body.companyId as string), { work: 'en', talk: 'id' });
+
+    // A language the console does not offer is named as such, before anything is made.
+    const wrong = await start('nowhere', { workLanguage: 'klingon' });
+    assert.equal(wrong.status, 400, JSON.stringify(wrong.body));
+    assert.match(String(wrong.body.error), /workLanguage must be one of/);
+    assert.equal((await withControlPlane((tx) => tx.query("SELECT 1 FROM companies WHERE slug = 'nowhere'"))).rows.length, 0);
+
+    // A panel that follows the browser has no language to give: the
+    // deployment's default stands, as before.
+    await withControlPlane((tx) => tx.query('UPDATE platform_control SET console_language = NULL'));
+    const unset = await start('no-panel-language');
+    assert.deepEqual(await languagesOf(unset.body.companyId as string), { work: null, talk: null });
   } finally {
     await owner.close();
   }

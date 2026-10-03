@@ -222,7 +222,12 @@ deployment ([how-to](how-to.md#export-and-import-a-company)).
 
 1. Type a **Name**. The **Short name** fills itself in from it; it is used in
    links and exports, and is lower-case letters, digits and hyphens.
-2. Decide on **Let it run itself** (on by default). It installs the
+2. Check its two languages. **Work language** is what it produces for
+   customers: documents, emails, posts. **Talk language** is what its agents
+   write to you and to each other. Both start in the language the console is
+   in; change either, for a company that sells in English and reports to you
+   in Indonesian, say. **Settings**, **Languages** changes them later.
+3. Decide on **Let it run itself** (on by default). It installs the
    `company-os` bundle: a Strategy division with a strategist who reviews the
    week every Monday morning in the company's time zone, proposes at most
    three bets, and never applies them; a Strategy review division with a
@@ -232,7 +237,7 @@ deployment ([how-to](how-to.md#export-and-import-a-company)).
    stage gates, the weekly review); and three company policies: every stage
    proposal goes to the critic first, no paid advertising before the launch
    stage, and nothing new started while winding down.
-3. Press **Start it**, then type a code in
+4. Press **Start it**, then type a code in
    **Confirm with your authenticator** and press **Confirm**.
 
 `company-os` arrives with the strategist's grants and its weekly review

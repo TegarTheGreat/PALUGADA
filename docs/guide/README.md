@@ -52,7 +52,9 @@ along the bottom and under **More**.
 
 3. **Start a company.** On **Home**, press **Start a company**. Give it a
    **Name**; the **Short name** fills itself in and is used in links and
-   exports. Leave **Let it run itself** on if you want a strategist that
+   exports. Its **Work language** and **Talk language** start in the
+   language the console is in; change them if it should sell or report in
+   another. Leave **Let it run itself** on if you want a strategist that
    reviews the week every Monday and proposes what to do next. Press
    **Start it** and confirm with a code, because creating a company writes
    divisions, roles, grants and budgets. You land on the company's

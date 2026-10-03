@@ -124,7 +124,10 @@ export async function runAgentLoop(
 
   for (let turn = 0; turn < MAX_TURNS; turn += 1) {
     if (services.signal.aborted) throw services.signal.reason ?? new Error('the run was stopped');
+    // Whether the model wrote this turn now, or the journal replayed it.
+    let fresh = false;
     const recorded = await services.step<RecordedTurn>(`model:turn ${turn + 1}`, 'llm', { turn }, async () => {
+      fresh = true;
       // Asked here, inside the step, so a turn replayed from the journal --
       // which calls nothing -- is never refused for want of money: a task the
       // owner continued after raising its ceiling replays its turns for free.
@@ -190,7 +193,11 @@ export async function runAgentLoop(
 
     messages.push({ role: 'assistant', content: recorded.content });
     const said = recorded.content.flatMap((block) => (block.type === 'text' ? [block.text] : [])).join('\n').trim();
-    if (said && services.narrate) await services.narrate(said).catch(() => undefined);
+    // Said once, when it was said (N13). A turn replayed from the journal was
+    // narrated again, with a new time, at every resume: the transcript showed
+    // the same lines over and over, until a CEO wrote that it had "repeated
+    // its orientation eight times".
+    if (said && fresh && services.narrate) await services.narrate(said).catch(() => undefined);
 
     const calls = recorded.content.filter((block): block is Extract<LlmBlock, { type: 'tool_use' }> =>
       block.type === 'tool_use');

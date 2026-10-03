@@ -6689,6 +6689,27 @@ What changed:
   replayable and replays; one whose role it does not run is not, and its
   replay is refused with why.
 
+## 2.88 What a run said is in its transcript once (N13)
+
+Found on the live run of 2 October (N13). "What it said" repeated the same
+lines with new times at every resume -- after an approval, a window, a
+handed-back run -- until the CEO itself wrote that it had "repeated its
+orientation eight times". The agent loop narrated every turn it went
+through, and a resumed run goes through its earlier turns again, replayed
+from the journal rather than asked of the model.
+
+What changed:
+
+- **Said once.** A turn is narrated only when the model wrote it now; one
+  the journal replays is not said again (`src/runtime/agent-loop.ts`).
+- **Not changed:** a tool call that failed is not committed, so a resumed
+  run makes it again, and a refused hand-off is refused again. It has no
+  effect beyond its own refusal, and section 2.66 removed the cause of the
+  twenty refusals on the live run; a call journalled as its refusal is a
+  change to what the journal promises, and is left for its own decision.
+- **Tested.** `model-runtime.test.ts`: a run stopped after its first turn
+  and resumed has that turn's words in its transcript once.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

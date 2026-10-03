@@ -164,6 +164,12 @@ test('a run stopped half-way resumes at the turn it reached, and asks neither th
   const conversation = resumed.requests[0]!.messages;
   assert.equal(conversation.length, 3);
   assert.equal((conversation[1]!.content as LlmBlock[])[1]!.type, 'tool_use');
+  // N13: what the first turn said is in the transcript once. A turn replayed
+  // from the journal was said again, with a new time, at every resume, until
+  // a CEO wrote that it had "repeated its orientation eight times".
+  const { transcriptOf } = await import('../../src/engine/transcript.ts');
+  const said = (await transcriptOf(fixture.companyId, task.id)).map((note) => note.body);
+  assert.deepEqual(said.filter((line) => line === 'Looking.'), ['Looking.']);
 });
 
 test('a refused tool is an answer the model works around; a wait for the owner ends the run (F8.1, F8.4)', async () => {

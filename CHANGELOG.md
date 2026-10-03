@@ -133,6 +133,9 @@ The first version. What it holds, in the order an owner meets it.
   work that needs it for a quarter of an hour: the task waits, looking
   again, and stops with one incident only if the service stays down for
   about half an hour (STATUS 2.83).
+- What a run said is in its transcript once. A run resumed after an
+  approval or a wait said its earlier lines again, with new times, each
+  time it resumed (STATUS 2.88).
 
 ### The owner
 

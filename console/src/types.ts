@@ -269,6 +269,8 @@ export interface ActivityItem {
 export interface Account {
   id: string;
   label: string;
+  /** What the owner calls it: its division's name, the owner's own label, or null for the whole company. */
+  name: string | null;
   scopeType: string;
   scopeId: string | null;
   scopeName: string | null;

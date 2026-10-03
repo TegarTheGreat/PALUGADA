@@ -727,7 +727,7 @@ function RoleBudget({ companyId, role }: { companyId: string; role: Role }) {
   // F1.6. A budget is a tree: a task draws on the narrowest account that
   // covers it, and a spend counts against every account above.
   const budget = useLoad(async () => {
-    const answer: { accountId: string; snapshot: { tokensSpent: number; tokensMax: number; moneySpentCents?: number; moneyMaxCents?: number }; chain: string[] } =
+    const answer: { accountId: string; snapshot: { tokensSpent: number; tokensMax: number; moneySpentCents?: number; moneyMaxCents?: number }; chain: string[]; chainNames: Array<string | null> } =
       await api('GET', `/api/companies/${companyId}/divisions/${role.divisionId}/roles/${role.id}/budget`);
     return answer;
   }, [companyId, role.id]);
@@ -741,7 +741,8 @@ function RoleBudget({ companyId, role }: { companyId: string; role: Role }) {
       )}
       <Paper withBorder radius="md" p="sm" style={{ gridColumn: '1 / -1' }}>
         <Text size="xs" c="dimmed">{t('Rolls up through')}</Text>
-        <Text size="sm" ff="monospace">{budget.data.chain.map((id) => id.slice(0, 8)).join(' → ')}</Text>
+        {/* By name: it was each account's id cut to eight characters (§2.3 item 7). */}
+        <Text size="sm">{budget.data.chainNames.map((name) => name ?? t('The whole company')).join(' → ')}</Text>
       </Paper>
     </SimpleGrid>
   );

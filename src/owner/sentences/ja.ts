@@ -107,6 +107,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Withdrawn: the company is no longer at the stage this proposal would move it from.': '取り下げ：会社はすでに、この提案が想定していた移行元のステージにはありません。',
   'Withdrawn: it was already decided in the app.': '取り下げ：すでにコンソールで決定されています。',
   'Withdrawn. Nothing left to press here.': '取り下げられました。ここで操作することはもうありません。',
+  'company': '会社',
   'Work stopped: the {account} account is out of tokens': '作業が止まりました：{account} アカウントのトークンが尽きました',
   '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': '「{work}」は、{account} アカウントが {max} トークンのうち {spent} を使い切ったため止まりました。「お金」で上限を引き上げ、タスクを開いて「続ける」を押してください。止まったところから再開します。',
   'Withdrawn: you continued the task it was about.': '取り下げ済み：対象のタスクはあなたが続行しました。',

@@ -109,6 +109,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Withdrawn: the company is no longer at the stage this proposal would move it from.': 'Ditarik: pausahaan parantos henteu aya dina tahapan anu badé ditinggalkeun numutkeun usul ieu.',
   'Withdrawn: it was already decided in the app.': 'Ditarik: parantos diputuskeun dina aplikasi.',
   'Withdrawn. Nothing left to press here.': 'Ditarik. Henteu aya deui anu kedah dipencét di dieu.',
+  'company': 'perusahaan',
   'Work stopped: the {account} account is out of tokens': 'Padamelan eureun: token akun {account} parantos seep',
   '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': '“{work}” eureun margi akun {account} parantos nganggo {spent} tina {max} token. Naékkeun watesna di Artos, teras buka tugasna sareng pencét Teraskeun: tugas neraskeun ti tempat eureunna.',
   'Withdrawn: you continued the task it was about.': 'Ditarik: anjeun parantos neraskeun tugas anu dimaksud.',

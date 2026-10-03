@@ -27,6 +27,7 @@ import { approveCandidate, rejectCandidate } from '../memory/store.ts';
 import { setStageWithin, stageOf, type Stage } from '../domain/stage.ts';
 import { deploymentLanguages, noteTalkDrift } from '../domain/language.ts';
 import { budgetHaltWords } from '../owner/budget-halt.ts';
+import { ACCOUNT_NAME } from '../engine/budget.ts';
 
 /** What a stage proposal's item carries (`stage.propose`). */
 interface StageChange {
@@ -994,17 +995,17 @@ export async function raiseBudgetHalt(companyId: string, taskId: string): Promis
     if (raised.rows.length > 0) return null;
     const task = await getTask(tx, taskId);
     if (!task?.budgetAccountId) return null;
-    const { rows: accounts } = await tx.query<{ id: string; label: string; tokens_spent: string; tokens_max: string }>(
-      `SELECT id, label, tokens_spent, tokens_max FROM budget_accounts
-        WHERE id = ANY(app.budget_chain($1))
-        ORDER BY tokens_max - tokens_spent - tokens_reserved, id
+    const { rows: accounts } = await tx.query<{ id: string; name: string | null; tokens_spent: string; tokens_max: string }>(
+      `SELECT a.id, ${ACCOUNT_NAME} AS name, a.tokens_spent, a.tokens_max FROM budget_accounts a
+        WHERE a.id = ANY(app.budget_chain($1))
+        ORDER BY a.tokens_max - a.tokens_spent - a.tokens_reserved, a.id
         LIMIT 1`,
       [task.budgetAccountId],
     );
     const account = accounts[0];
     if (!account) return null;
     const words = budgetHaltWords(language, {
-      account: account.label,
+      account: account.name,
       work: workOf(task.input),
       spent: Number(account.tokens_spent),
       max: Number(account.tokens_max),

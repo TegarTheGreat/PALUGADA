@@ -24,6 +24,7 @@ import { TASK_COST_SQL } from '../reporting/cost.ts';
 import { readCursor, writeCursor } from '../inbox/inbox.ts';
 import { weighEvidence, type Weighed } from '../engine/done.ts';
 import { journalOf } from '../engine/journal.ts';
+import { ACCOUNT_NAME } from '../engine/budget.ts';
 import type { WaitReason } from '../engine/tasks.ts';
 import type { OverlapPolicy } from '../scheduler/scheduler.ts';
 
@@ -774,6 +775,8 @@ export async function activityOf(
 export interface AccountView {
   id: string;
   label: string;
+  /** What the owner calls it (`ACCOUNT_NAME`): null for the whole company. */
+  name: string | null;
   scopeType: string;
   scopeId: string | null;
   /** The division, project or role the account is scoped to, by name. */
@@ -786,15 +789,16 @@ export interface AccountView {
   moneySpentCents: number;
 }
 
+
 export async function accountsOf(companyId: string): Promise<AccountView[]> {
   return withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
-      id: string; label: string; scope_type: string; scope_id: string | null;
+      id: string; label: string; name: string | null; scope_type: string; scope_id: string | null;
       scope_name: string | null; parent_account_id: string | null;
       tokens_max: string; tokens_spent: string; tokens_reserved: string;
       money_max_cents: string; money_spent_cents: string;
     }>(
-      `SELECT a.id, a.label, a.scope_type, a.scope_id, a.parent_account_id,
+      `SELECT a.id, a.label, ${ACCOUNT_NAME} AS name, a.scope_type, a.scope_id, a.parent_account_id,
               a.tokens_max, a.tokens_spent, a.tokens_reserved,
               a.money_max_cents, a.money_spent_cents,
               coalesce(d.name, p.name, r.slug) AS scope_name
@@ -807,6 +811,7 @@ export async function accountsOf(companyId: string): Promise<AccountView[]> {
     return rows.map((row) => ({
       id: row.id,
       label: row.label,
+      name: row.name,
       scopeType: row.scope_type,
       scopeId: row.scope_id,
       scopeName: row.scope_name,

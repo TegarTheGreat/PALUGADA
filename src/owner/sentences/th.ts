@@ -114,6 +114,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Withdrawn: the company is no longer at the stage this proposal would move it from.': 'ถอนแล้ว: บริษัทไม่ได้อยู่ในระยะที่ข้อเสนอนี้จะย้ายออกไปแล้ว',
   'Withdrawn: it was already decided in the app.': 'ถอนแล้ว: รายการนี้ถูกตัดสินในแอปไปแล้ว',
   'Withdrawn. Nothing left to press here.': 'ถอนแล้ว ไม่ต้องกดอะไรที่นี่อีก',
+  'company': 'บริษัท',
   'Work stopped: the {account} account is out of tokens': 'งานหยุดแล้ว: บัญชี {account} ใช้โทเคนหมดแล้ว',
   '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': '“{work}” หยุดเพราะบัญชี {account} ใช้ไป {spent} จาก {max} โทเคนแล้ว เพิ่มเพดานที่หน้าการเงิน แล้วเปิดงานและกดทำต่อ: งานจะทำต่อจากจุดที่หยุด',
   'Withdrawn: you continued the task it was about.': 'ถอนออกแล้ว: คุณทำงานที่เกี่ยวข้องต่อแล้ว',

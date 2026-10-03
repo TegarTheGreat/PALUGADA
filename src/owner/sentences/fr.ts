@@ -114,6 +114,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Withdrawn: the company is no longer at the stage this proposal would move it from.': 'Retiré : l’entreprise n’est plus dans la phase dont cette proposition devait la faire sortir.',
   'Withdrawn: it was already decided in the app.': 'Retiré : c’était déjà tranché dans l’application.',
   'Withdrawn. Nothing left to press here.': 'Retiré. Il n’y a plus rien à faire ici.',
+  'company': 'entreprise',
   'Work stopped: the {account} account is out of tokens': 'Le travail s’est arrêté : le compte {account} n’a plus de jetons',
   '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': '« {work} » s’est arrêté parce que le compte {account} a utilisé {spent} de ses {max} jetons. Relevez son plafond dans Argent, puis ouvrez la tâche et appuyez sur Continuer : elle reprend là où elle s’était arrêtée.',
   'Withdrawn: you continued the task it was about.': 'Retiré : vous avez poursuivi la tâche qu’il concernait.',

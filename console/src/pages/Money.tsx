@@ -116,7 +116,7 @@ export function Money({ ctx }: PageProps) {
                 return (
                   <Table.Tr key={account.id}>
                     <Table.Td>
-                      <Text size="sm" fw={600}>{account.label}</Text>
+                      <Text size="sm" fw={600}>{accountName(account)}</Text>
                       <Text size="xs" c="dimmed">{scopeLabel(account.scopeType)}{account.scopeName ? ` · ${account.scopeName}` : ''}</Text>
                     </Table.Td>
                     <Table.Td w="32%">
@@ -166,7 +166,7 @@ export function Money({ ctx }: PageProps) {
         </Stack>
       </Section>
 
-      <Modal opened={adjusting !== null} onClose={() => setAdjusting(null)} title={t('Ceilings of {account}', { account: adjusting?.label ?? '' })} centered>
+      <Modal opened={adjusting !== null} onClose={() => setAdjusting(null)} title={t('Ceilings of {account}', { account: adjusting ? accountName(adjusting) : '' })} centered>
         {adjusting && (
           <AccountCeilings companyId={companyId} account={adjusting} changed={() => { setAdjusting(null); view.reload(); }} />
         )}
@@ -186,7 +186,7 @@ export function Money({ ctx }: PageProps) {
               ...structure.divisions.map((one) => ({ value: one.id, label: `${t('Division')} · ${one.name}` })),
               ...structure.roles.map((one) => ({ value: one.id, label: `${t('Role')} · ${one.slug}` })),
             ] },
-            { name: 'parentAccountId', label: t('The account above it'), type: 'select', options: accounts.map((one) => ({ value: one.id, label: one.label })) },
+            { name: 'parentAccountId', label: t('The account above it'), type: 'select', options: accounts.map((one) => ({ value: one.id, label: accountName(one) })) },
           ]}
           submit={({ moneyMax, ...values }, proof) => api('POST', `/api/companies/${companyId}/budget-accounts`, {
             ...values,
@@ -207,6 +207,15 @@ export function Money({ ctx }: PageProps) {
 const SCOPES: Record<string, string> = {
   company: N('Whole company'), project: N('Project'), division: N('Division'), role: N('Role'),
 };
+
+/**
+ * An account by what it covers: the name the owner gave it, its division's
+ * name, or the whole company (§2.3 item 7). A template labels accounts with
+ * the platform's codes, "company" and a division's short name.
+ */
+function accountName(account: Account): string {
+  return account.name ?? t('The whole company');
+}
 
 function scopeLabel(scope: string): string {
   const label = SCOPES[scope];
@@ -272,7 +281,7 @@ function AccountCeilings({ companyId, account, changed }: { companyId: string; a
     setBusy(true);
     try {
       if (tokensMax > account.tokensMax || moneyMaxCents > account.moneyMaxCents) {
-        const done = await requireFactor(t('Raise the ceilings of {account}', { account: account.label }), (proof) =>
+        const done = await requireFactor(t('Raise the ceilings of {account}', { account: accountName(account) }), (proof) =>
           api('POST', `/api/companies/${companyId}/budget-accounts/${account.id}/limit`, { tokensMax, moneyMaxCents, proof }));
         if (!done) return;
       } else {

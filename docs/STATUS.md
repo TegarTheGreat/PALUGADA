@@ -7074,6 +7074,34 @@ What changed:
   they set, and the daily digest in the chats, which is in English and writes
   its spend without a currency.
 
+## 2.99 A budget account is named for what it covers (F1.6, §2.3 item 7)
+
+Found by the live run of the analysis of 3 October (§2.3, item 7). The
+accounts a template makes are labelled with the platform's codes -- the
+company's "company", each division's by its short name, "ops" -- and the
+**Money** page used those labels as the accounts' names. A role's budget
+said what it rolls up through as the first eight characters of each
+account's id, in a fixed-width font; and a budget halt told the owner "token
+akun company habis", an English code inside an Indonesian sentence.
+
+What changed:
+
+- **Named for what it covers** (`ACCOUNT_NAME`, `src/engine/budget.ts`): an
+  account a template labelled with a division's short name is called by the
+  division's name, the whole company's by nothing the platform writes -- the
+  reader says "The whole company" in their own language -- and one the owner
+  labelled keeps its label. Budget accounts carry it as `name`.
+- **The chain by name.** A role's budget returns `chainNames` beside `chain`,
+  and the console shows "Ramadan promotion → Operations → The whole company".
+- **The halt card in one language** (`budgetHaltWords`): "token akun
+  perusahaan habis". "company" is in every dictionary in
+  `src/owner/sentences/`.
+- **Tested.** `budget-names.test.ts`: on a company made from the standard
+  template, the company's account is unnamed, a division's is its division's
+  name, the owner's keeps its label, and a role's chain is named in order;
+  `budget-halt.test.ts`: a halt on the whole company's account says
+  "perusahaan" in Indonesian.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

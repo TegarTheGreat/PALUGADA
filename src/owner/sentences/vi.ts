@@ -115,6 +115,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Withdrawn: the company is no longer at the stage this proposal would move it from.': 'Đã rút lại: công ty không còn ở giai đoạn mà đề xuất này định chuyển đi.',
   'Withdrawn: it was already decided in the app.': 'Đã rút lại: mục này đã được quyết định trong ứng dụng.',
   'Withdrawn. Nothing left to press here.': 'Đã rút lại. Không cần nhấn gì thêm ở đây.',
+  'company': 'công ty',
   'Work stopped: the {account} account is out of tokens': 'Công việc dừng lại: tài khoản {account} đã hết token',
   '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': '“{work}” dừng lại vì tài khoản {account} đã dùng {spent} trên {max} token. Hãy nâng trần của nó trong mục Tài chính, rồi mở nhiệm vụ và nhấn Tiếp tục: nhiệm vụ sẽ tiếp tục từ chỗ đã dừng.',
   'Withdrawn: you continued the task it was about.': 'Đã rút lại: bạn đã tiếp tục nhiệm vụ mà nó nói đến.',

@@ -110,6 +110,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Withdrawn: the company is no longer at the stage this proposal would move it from.': '已撤回：公司已不在此提议要变更的阶段。',
   'Withdrawn: it was already decided in the app.': '已撤回：已在控制台中作出决定。',
   'Withdrawn. Nothing left to press here.': '已撤回。这里无需再操作。',
+  'company': '公司',
   'Work stopped: the {account} account is out of tokens': '工作已停止：{account} 账户的令牌已用完',
   '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': '“{work}”已停止，因为 {account} 账户已用掉 {max} 个令牌中的 {spent} 个。请在“资金”中提高其上限，然后打开该任务并点击“继续”：它会从停止的地方继续。',
   'Withdrawn: you continued the task it was about.': '已撤回：你已继续了它所涉及的任务。',

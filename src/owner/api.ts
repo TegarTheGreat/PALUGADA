@@ -91,7 +91,7 @@ import { describeReplay, replayTask } from '../engine/replay.ts';
 import { assignTask } from '../scheduler/wake.ts';
 import { TICKET_STATUSES, listTickets, openTicket, readTicket, setTicketStatus, startTicket } from '../engine/tickets.ts';
 import { createCompanyFromTemplate, readTemplate } from '../templates/company.ts';
-import { accountFor, chainFor, createAccount, setCeilings, snapshot } from '../engine/budget.ts';
+import { ACCOUNT_NAME, accountFor, chainFor, createAccount, setCeilings, snapshot } from '../engine/budget.ts';
 import { remember, retract, supersede } from '../memory/store.ts';
 import { changeMetric, defineMetric, headlines, recordObservation, type Headline, type MetricChange, type MetricUnit } from '../domain/metrics.ts';
 import {
@@ -3316,9 +3316,16 @@ export class OwnerApi {
               'contract.violation', 'no account covers that role', {},
             );
           }
+          const chain = await chainFor(tx, accountId);
+          // The chain by name, for the owner, in the same order (§2.3 item 7):
+          // it was shown as each account's id cut to eight characters.
+          const { rows: named } = await tx.query<{ id: string; name: string | null }>(
+            `SELECT a.id, ${ACCOUNT_NAME} AS name FROM budget_accounts a WHERE a.id = ANY($1::uuid[])`, [chain]);
+          const names = new Map(named.map((row) => [row.id, row.name]));
           return {
             accountId,
-            chain: await chainFor(tx, accountId),
+            chain,
+            chainNames: chain.map((id) => names.get(id) ?? null),
             snapshot: await snapshot(tx, accountId),
           };
         }),

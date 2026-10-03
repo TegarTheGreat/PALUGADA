@@ -87,6 +87,22 @@ test('a task its budget cannot pay for halts and puts an item in front of the ow
   assert.equal((await inbox.listOpen(fixture.companyId)).length, 1);
 });
 
+/**
+ * The account a template makes for the whole company is labelled with the
+ * platform's code, "company", and the card said "token akun company habis"
+ * -- an English word in an Indonesian sentence (§2.3 item 7). It is the
+ * company's account, said in the owner's language.
+ */
+test('a halt on the whole company\'s account says so in the owner\'s language, not with the account\'s code', async () => {
+  const fixture = await createCompany('budget-halt-company', { tokensMax: 5_000 });
+  await withControlPlane((tx) => tx.query("UPDATE platform_control SET console_language = 'id'"));
+  await withControlPlane((tx) => tx.query("UPDATE budget_accounts SET label = 'company' WHERE id = $1", [fixture.budgetAccountId]));
+  const task = await poorTask(fixture, 'Buat rencana konten Instagram tujuh hari');
+  await (await engineFor(9_000)).runTask(fixture.companyId, task.id, 'worker');
+  const [item] = await inbox.listOpen(fixture.companyId);
+  assert.equal(item!.title, 'Pekerjaan berhenti: token akun perusahaan habis');
+});
+
 test('a month\'s money running out does not raise a second item beside the monthly one', async () => {
   // spend.paused halts as budget_exhausted too; it has its own item, the one
   // the spend guard raises when the month's ceiling is reached.

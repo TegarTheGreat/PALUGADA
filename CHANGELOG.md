@@ -208,6 +208,10 @@ The first version. What it holds, in the order an owner meets it.
   language writes them ("US$0,75"), the cost chart included, and ceilings
   and the daily-cost alert are typed in dollars rather than cents
   (STATUS 2.98).
+- Budget accounts are named for what they cover -- a division's name, the
+  name you gave one, or the whole company in your language -- instead of
+  "company" and "ops"; a role's budget says what it rolls up through by
+  name rather than by account ids (STATUS 2.99).
 - **Replay against the journal** is shown only for a task this deployment
   can replay. It was offered on every task and refused on every task a
   model or an agent CLI ran (STATUS 2.87).

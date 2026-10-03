@@ -176,6 +176,20 @@ export async function startNewPeriods(companyId: string): Promise<number> {
   });
 }
 
+/**
+ * What an account is called, for the owner (§2.3 item 7). An account a
+ * template made is labelled with the platform's codes -- "company", a
+ * division's short name -- and is named for what it covers instead: its
+ * division's name, or null for the whole company, which the reader says in
+ * their own language. One the owner labelled keeps its label. `a` is the
+ * account; the division it covers is looked up by its id.
+ */
+export const ACCOUNT_NAME = `CASE
+  WHEN a.scope_type = 'company' AND a.label = 'company' THEN NULL
+  WHEN a.scope_type = 'division' THEN coalesce(
+    (SELECT CASE WHEN dv.slug = a.label THEN dv.name END FROM divisions dv WHERE dv.id = a.scope_id), a.label)
+  ELSE a.label END`;
+
 export async function chainFor(tx: TenantClient, accountId: string): Promise<string[]> {
   const { rows } = await tx.query<{ chain: string[] | null }>(
     'SELECT app.budget_chain($1) AS chain',

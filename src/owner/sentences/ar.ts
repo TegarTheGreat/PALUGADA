@@ -108,6 +108,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Withdrawn: the company is no longer at the stage this proposal would move it from.': 'سُحب: لم تعد الشركة في المرحلة التي كان هذا المقترح سينقلها منها.',
   'Withdrawn: it was already decided in the app.': 'سُحب: حُسم بالفعل داخل التطبيق.',
   'Withdrawn. Nothing left to press here.': 'سُحب. لم يبق شيء للضغط عليه هنا.',
+  'company': 'الشركة',
   'Work stopped: the {account} account is out of tokens': 'توقف العمل: نفدت رموز الحساب {account}',
   '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': 'توقف «{work}» لأن الحساب {account} استهلك {spent} من أصل {max} رمزًا. ارفع سقفه من صفحة «المال»، ثم افتح المهمة واضغط «متابعة»: ستكمل من حيث توقفت.',
   'Withdrawn: you continued the task it was about.': 'سُحب: لقد تابعتَ المهمة التي يخصها.',

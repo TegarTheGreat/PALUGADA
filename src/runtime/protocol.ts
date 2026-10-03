@@ -178,6 +178,15 @@ export interface RunServices {
    */
   narrate?(text: string): Promise<void>;
   /**
+   * How many tokens the run could still be charged before its budget refuses
+   * a call: its task's own reservation and what every account in its chain
+   * has free. Asked before a model call, because the provider bills a call
+   * the budget then refuses to record; finding out after the call is finding
+   * out after paying. Optional: a runtime that makes no calls of its own, or
+   * cannot ask before one, goes without.
+   */
+  tokensLeft?(): Promise<number>;
+  /**
    * Where the process groups a run starts are written down (0095), so that
    * a worker killed outright leaves a record the next worker on its machine
    * can act on (`TreeLedger`). Optional: a runtime that starts no process

@@ -110,4 +110,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Withdrawn: the company is no longer at the stage this proposal would move it from.': 'Geri çekildi: bu öneri şirketi bulunduğu aşamadan taşıyacaktı, ama şirket artık o aşamada değil.',
   'Withdrawn: it was already decided in the app.': 'Geri çekildi: uygulamada zaten karara bağlanmıştı.',
   'Withdrawn. Nothing left to press here.': 'Geri çekildi. Burada basılacak başka bir şey yok.',
+  'Work stopped: the {account} account is out of tokens': 'İş durdu: {account} hesabının token’ları bitti',
+  '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': '“{work}” durdu çünkü {account} hesabı {max} token’ının {spent} tanesini kullandı. Para bölümünde tavanını yükseltin, sonra görevi açıp Devam et’e basın: kaldığı yerden sürer.',
+  'Withdrawn: you continued the task it was about.': 'Geri çekildi: ilgili görevi sürdürdünüz.',
 };

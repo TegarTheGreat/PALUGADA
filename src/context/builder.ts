@@ -29,6 +29,7 @@ export interface ContextSection {
     | 'platform_charter'
     | 'company_charter'
     | 'role_charter'
+    | 'team'
     | 'language'
     | 'contract'
     | 'stage'
@@ -316,6 +317,66 @@ async function roleSections(
   return { charter: [charter], contract };
 }
 
+/** More roles than this are counted rather than listed: the list is for choosing, not an org chart. */
+const TEAM_LIMIT = 60;
+
+/**
+ * The roles a run can hand work to, for a role that holds `task.delegate`.
+ *
+ * The coordinator's charter says "decide which role's job it is" and nothing
+ * told it which roles there are. On a live run it guessed nineteen names --
+ * "marketing", "cmo", "barista" -- each refused as "no role X", and created
+ * probe tasks to ask whether a role existed, until its division's tokens
+ * were gone and the owner's request had produced nothing. A role is named by
+ * its slug, so the list leads with the slug, then who the role is and its
+ * first sentence of charter, which says what its job is. A frozen role is
+ * listed as one, because delegating to it is refused until the owner
+ * unfreezes it. Not dropped to fit: without it the role cannot do the one
+ * thing it is for.
+ */
+async function teamSections(tx: TenantClient, taskId: string): Promise<ContextSection[]> {
+  const { rows } = await tx.query<{
+    slug: string; display_name: string | null; title: string | null; system_prompt: string; division: string; frozen: boolean;
+  }>(
+    `SELECT r.slug, r.display_name, r.title, r.system_prompt, d.name AS division, r.frozen_at IS NOT NULL AS frozen
+       FROM tasks t
+       JOIN roles me ON me.id = t.role_id
+       JOIN roles r ON r.company_id = t.company_id AND r.id <> me.id
+       JOIN divisions d ON d.id = r.division_id
+      WHERE t.id = $1 AND 'task.delegate' = ANY(me.tools)
+      ORDER BY r.slug`,
+    [taskId],
+  );
+  if (rows.length === 0) return [];
+  const lines = rows.slice(0, TEAM_LIMIT).map((role) => {
+    const who = [role.display_name, role.title].filter(Boolean).join(', ');
+    const where = who ? `${who}, in ${role.division}.` : `In ${role.division}.`;
+    const job = firstSentence(role.system_prompt);
+    const frozen = role.frozen ? ' (Frozen by the owner: it takes no work until they unfreeze it, so hand this to another role or say so.)' : '';
+    return `- ${role.slug}: ${where}${job ? ` ${job}` : ''}${frozen}`;
+  });
+  const more = rows.length - lines.length;
+  return [{
+    kind: 'team',
+    title: 'The roles you can hand work to',
+    body:
+      'Hand work to one of these with task.delegate, naming it by the slug before the colon. ' +
+      (more === 0
+        ? 'These are all the other roles the company has; there is no role that is not on this list.'
+        : `These are ${lines.length} of the company's ${rows.length} other roles; ` +
+          'task.delegate names the rest when asked for one it does not know.') +
+      `\n\n${lines.join('\n')}`,
+  }];
+}
+
+/** The first sentence of a charter, which in every template says what the role does. */
+function firstSentence(text: string): string {
+  const trimmed = text.trim().replace(/\s+/g, ' ');
+  const end = trimmed.search(/[.!?](\s|$)/);
+  const sentence = end === -1 ? trimmed : trimmed.slice(0, end + 1);
+  return sentence.length <= 200 ? sentence : `${sentence.slice(0, 199)}…`;
+}
+
 /**
  * The company's languages, right after the charters (src/domain/language.ts):
  * for a task's run, the work language of the task's project where the project
@@ -408,6 +469,7 @@ export async function buildContext(
   sections.push(...await stageSections(tx, options.companyId));
   if (options.taskId) sections.push(...await projectSections(tx, options.taskId));
   sections.push(...role.contract);
+  if (options.taskId) sections.push(...await teamSections(tx, options.taskId));
   const granted = await grantedHere(tx, options.divisionId, ['skill.read', 'memory.search']);
   // Which documents the company keeps (0075), so a run knows there is a
   // contract to look in before it guesses the payment terms. Their text is

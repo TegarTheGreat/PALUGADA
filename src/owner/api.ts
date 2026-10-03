@@ -63,7 +63,7 @@ import {
   unfreezeCompany,
 } from '../engine/control.ts';
 import { frozenRoles, pauseRole, unfreezeRole } from '../governance/role-freeze.ts';
-import { cancelTask, giveFeedback, instructTask, rerunTask, type Verdict } from '../engine/owner-control.ts';
+import { cancelTask, continueHalted, giveFeedback, instructTask, rerunTask, type Verdict } from '../engine/owner-control.ts';
 import { assertClosingDays, closeCompany, closingOf, erasures, failingErasures, keepCompany } from '../governance/closing.ts';
 import { EMAIL_PROVIDERS, EmailChannel, emailAddress, emailProvider, type EmailProviderId } from './email.ts';
 import { VERSION } from '../version.ts';
@@ -2979,9 +2979,21 @@ export class OwnerApi {
       },
 
       {
+        // A task its budget stopped, going on from where it stopped: the same
+        // task and journal, after the owner raised the ceiling. Never done by
+        // the platform on its own (section 6.3). Spends from a ceiling the
+        // owner raised with a factor, and loosens nothing itself: the session.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/tasks/:taskId/continue',
+        handle: async ({ params }) => {
+          await continueHalted(params.companyId!, params.taskId!);
+          return { continued: true };
+        },
+      },
+
+      {
         // The same work again, as a new task, with the owner's note in front
-        // of the run. The only way on from a halted task, which is never
-        // resumed (section 6.3).
+        // of the run. The way on from a halt that is not about the budget.
         method: 'POST',
         pattern: '/api/companies/:companyId/tasks/:taskId/rerun',
         handle: async ({ params, body }) => ({
@@ -5560,6 +5572,7 @@ function statusFor(code: string): number {
   if (code === 'owner.throttled') return 429;
   if (code === 'owner.claimed') return 409;
   if (code === 'schedule.still_running') return 409;
+  if (code === 'task.not_continuable') return 409;
   if (code === 'company.slug_taken') return 409;
   if (code === 'mfa.locked_out') return 429;
   if (code.startsWith('mfa.')) return 401;

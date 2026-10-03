@@ -109,4 +109,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Withdrawn: the company is no longer at the stage this proposal would move it from.': 'वापस लिया गया: कंपनी अब उस चरण में नहीं है जिससे यह प्रस्ताव उसे आगे ले जाता।',
   'Withdrawn: it was already decided in the app.': 'वापस लिया गया: ऐप में इसका निर्णय पहले ही हो चुका है।',
   'Withdrawn. Nothing left to press here.': 'वापस लिया गया। यहाँ अब कुछ दबाना बाकी नहीं है।',
+  'Work stopped: the {account} account is out of tokens': 'काम रुक गया: {account} खाते के टोकन खत्म हो गए',
+  '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': '“{work}” रुक गया क्योंकि {account} खाता अपने {max} टोकन में से {spent} इस्तेमाल कर चुका है। पैसा पेज पर इसकी सीमा बढ़ाएँ, फिर कार्य खोलकर जारी रखें दबाएँ: यह वहीं से आगे बढ़ेगा जहाँ रुका था।',
+  'Withdrawn: you continued the task it was about.': 'वापस लिया गया: आपने इससे जुड़ा कार्य जारी रखा।',
 };

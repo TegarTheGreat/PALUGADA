@@ -78,6 +78,34 @@ The first version. What it holds, in the order an owner meets it.
   language as plans were, Javanese and Sundanese included; a slip is recorded,
   never refused, and the role's next run is told what it slipped in
   (STATUS 2.64).
+- The CEO, and any role that hands work on, is told which roles the company
+  has. It may name one by title or name ("the CMO", "Laras") as well as by
+  slug. A name that fits no role is answered with the roles there are and
+  the nearest one, so routing no longer ends in guesses and probe tasks
+  (STATUS 2.66).
+- Work a role hands back is no longer refused for being long. A finished
+  plan or report over what a sub-agent may hand back reaches the role that
+  asked for it cut short, with each cut saying where the whole is kept; the
+  whole stays on the task that did it. A task shows the work it handed on,
+  with what each piece came to and a button to open it, so the plan asked of
+  the CEO is one press from the CEO's task (STATUS 2.67).
+- An agent's question reaches you unless it plainly asks how to wire in a
+  tool nobody connected. A question that only mentions such a tool, or
+  that offers answers to choose from, is yours. Before, "whom should I
+  email?" in Indonesian, and a decision to delete a customer's record, were
+  answered by the platform instead of you (STATUS 2.68).
+- Work its budget stopped reaches you. An item in your language says which
+  work stopped and which account has no tokens left, and it comes to your
+  chat as news with a link; budget alerts reach the chat now too. Raise the
+  ceiling on Money, then press **Continue** on the task: the same task goes
+  on from where it stopped instead of starting again (STATUS 2.69).
+- A model turn the budget cannot pay for is not asked. Each turn is given no
+  more room to write than the budget has left, so a reasoning model that
+  keeps thinking stops at the ceiling instead of past it (STATUS 2.70).
+- A budget account's tokens and money are counted per calendar month (UTC),
+  as F1.9 asks: an account that ran out has its allowance again on the
+  first, and raising its ceiling gives it more before then. Before, spent
+  tokens stayed spent for the account's whole life (STATUS 2.71).
 
 ### The owner
 
@@ -103,6 +131,13 @@ The first version. What it holds, in the order an owner meets it.
 
 ### Operating it
 
+- A refreshed OAuth token, for a vendor key or an MCP server, no longer
+  restarts the deployment. Each refresh moved the settings version that
+  every replica watches, so a division signed in to Google restarted all of
+  them about once an hour (STATUS 2.72).
+- The language check on what agents write no longer freezes the worker on
+  text full of `@`, such as a list of Instagram handles; four thousand
+  characters of it took 6.5 seconds (STATUS 2.73).
 - Tenants separated by forced row-level security, composite keys between
   tenant tables, and an application role with only the grants its code uses.
 - Health, Prometheus metrics with their own token, and traces to an

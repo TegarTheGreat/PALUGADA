@@ -119,7 +119,7 @@ export function Money({ ctx }: PageProps) {
                       <Text size="xs" c="dimmed">{scopeLabel(account.scopeType)}{account.scopeName ? ` · ${account.scopeName}` : ''}</Text>
                     </Table.Td>
                     <Table.Td w="32%">
-                      <Group justify="space-between" mb={4}><Text size="xs">{t('{spent} spent · {held} held', { spent: count(account.tokensSpent), held: count(account.tokensReserved) })}</Text><Text size="xs" c="dimmed">{count(account.tokensMax)}</Text></Group>
+                      <Group justify="space-between" mb={4}><Text size="xs">{t('{spent} spent this month · {held} held', { spent: count(account.tokensSpent), held: count(account.tokensReserved) })}</Text><Text size="xs" c="dimmed">{count(account.tokensMax)}</Text></Group>
                       <Progress value={Math.min(100, tokenShare)} color={tokenShare > 90 ? 'red' : 'brand'} size="sm" radius="xl" />
                     </Table.Td>
                     <Table.Td w="32%">
@@ -239,8 +239,8 @@ function CeilingForm({ companyId, spend, changed }: { companyId: string; spend: 
 }
 
 /**
- * An account's two ceilings. Tokens spent stay spent -- the ceiling is for
- * the account's life -- so this is how an account that ran out gets more.
+ * An account's two ceilings. What it spent counts until the month ends
+ * (0101), so this is how an account that ran out gets more before then.
  * Raising either asks for the authenticator; lowering does not.
  */
 function AccountCeilings({ companyId, account, changed }: { companyId: string; account: Account; changed: () => void }) {
@@ -273,7 +273,7 @@ function AccountCeilings({ companyId, account, changed }: { companyId: string; a
   return (
     <Stack gap="sm">
       <Text size="sm" c="dimmed">
-        {t('{spent} tokens spent and {held} held so far. Spent tokens stay spent: raise the ceiling to give the account more.', { spent: count(account.tokensSpent), held: count(account.tokensReserved) })}
+        {t('{spent} tokens spent this month and {held} held. The count starts again on the first of each month (UTC); raise the ceiling to give the account more before then.', { spent: count(account.tokensSpent), held: count(account.tokensReserved) })}
       </Text>
       <NumberInput label={t('Token ceiling')} value={tokens} onChange={setTokens} min={0} thousandSeparator />
       <NumberInput label={t('Money ceiling')} value={ceiling} onChange={setCeiling} min={0} decimalScale={2} thousandSeparator />

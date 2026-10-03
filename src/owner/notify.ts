@@ -64,6 +64,14 @@ export function consoleTaskLinkFor(publicUrl: string, task: { companyId: string;
   return link.toString();
 }
 
+/**
+ * What a channel shows under an item's title. An item whose summary only
+ * repeats its title -- a budget alert says what happened in its title and
+ * what to do in its rationale -- is carried with the rationale instead, or
+ * the owner's phone would show the title twice and never say what to do.
+ */
+const CHANNEL_SUMMARY = "CASE WHEN i.kind = 'budget_alert' AND i.rationale <> '' THEN i.rationale ELSE i.action_summary END";
+
 export interface NotifiableItem {
   id: string;
   companyId: string;
@@ -224,7 +232,7 @@ export async function undelivered(
       options: string[] | null;
       expires_at: Date | null;
     }>(
-      `SELECT i.id, i.kind, i.tier, i.title, i.action_summary, i.consequence_if_denied, i.expires_at,
+      `SELECT i.id, i.kind, i.tier, i.title, ${CHANNEL_SUMMARY} AS action_summary, i.consequence_if_denied, i.expires_at,
               (SELECT console_language FROM platform_control) AS language,
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->>'question' END AS question,
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'options' END AS options
@@ -736,7 +744,7 @@ export async function retryFailed(
       action_summary: string; consequence_if_denied: string | null; delivery: string;
       language: string | null; question: string | null; options: string[] | null; expires_at: Date | null;
     }>(
-      `SELECT i.id, i.kind, i.tier, i.title, i.action_summary, i.consequence_if_denied, i.expires_at,
+      `SELECT i.id, i.kind, i.tier, i.title, ${CHANNEL_SUMMARY} AS action_summary, i.consequence_if_denied, i.expires_at,
               n.delivery, (SELECT console_language FROM platform_control) AS language,
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->>'question' END AS question,
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'options' END AS options
@@ -973,6 +981,7 @@ export function closureText(closed: ClosedItem | ClosedState): string {
     case 'task_failed': return say(language, 'Withdrawn: the task it was asking about has failed.');
     case 'task_halted': return say(language, 'Withdrawn: the task it was asking about was stopped.');
     case 'task_cancelled': return say(language, 'Withdrawn: the task it was asking about was cancelled.');
+    case 'task_continued': return say(language, 'Withdrawn: you continued the task it was about.');
     case 'superseded': return say(language, 'Withdrawn: the agent changed what it proposes and asked again about the new one.');
     case 'stage_changed': return say(language, 'Withdrawn: the company is no longer at the stage this proposal would move it from.');
     case 'decided_elsewhere': return say(language, 'Withdrawn: it was already decided in the app.');

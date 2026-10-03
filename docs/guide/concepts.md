@@ -149,6 +149,14 @@ tokens than its role allows a run, a journal that no longer matches, or a
 crash loop (it lost its worker three times). To try again, use **Do it
 again**, which starts a new task.
 
+A task its budget stopped is the exception. It puts an item in your inbox
+naming the work and the account that has no tokens left, and it reaches your
+chat as news with a link (never a push, which is kept for incidents and tier 3
+approvals). Raise that account's ceiling on **Money**, then open the task and
+press **Continue**. It goes on from where it stopped, as the same task: what
+it already did is answered from its journal and not done again. It is never
+continued by itself.
+
 A task past its deadline is halted even if no worker ever picked it up. A
 write whose read-back fails ends the run there: the run cannot write again,
 you get an incident, and nothing is retried, because a second attempt could
@@ -283,7 +291,10 @@ Tokens and money are reserved before a task starts and charged on every call.
 Budgets are a tree of accounts: the company's at the root, and accounts for
 projects, divisions and roles under it. A task draws on the narrowest account
 that covers it, and a spend counts against every account above it, so raising
-a division's ceiling cannot raise the company's.
+a division's ceiling cannot raise the company's. An account's tokens and money
+are counted per calendar month in UTC: on the first of each month the count
+starts again, and raising a ceiling is how an account that ran out gets more
+before then.
 
 On top of the accounts, each company has a monthly ceiling, USD 200 unless
 you change it, counted per calendar month in UTC.
@@ -316,6 +327,7 @@ cost, and opens the step-by-step trace behind it.
 | incident | Something went wrong: a failed read-back, a crash loop, a broken capability, a role spending too fast | Deal with the cause; deciding the item closes it, with your note |
 | procedure, skill | Something the company learned, waiting for your yes before any agent uses it | Approve or deny |
 | budget | 80% or 100% of the month's ceiling | Raise the ceiling or override the pause on **Money**, or leave it paused |
+| budget | A task stopped because an account has no tokens left | Raise that account's ceiling on **Money**, then open the task and press **Continue** |
 
 Items can be put off with **Later** (never past their expiry), and several
 drafts can be decided at once with **Choose several**; tier 3 actions,

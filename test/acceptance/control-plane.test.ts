@@ -53,7 +53,7 @@ import {
   assertWithinQuarantine,
 } from '../../src/gateway/gateway.ts';
 import { chooseReviewerModel } from '../../src/review/review.ts';
-import { containChildResult, CHILD_OUTPUT_TOKEN_LIMIT } from '../../src/engine/containment.ts';
+import { containChildResult, estimateTokens, CHILD_OUTPUT_TOKEN_LIMIT, CHILD_SUMMARY_TOKEN_LIMIT } from '../../src/engine/containment.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { createCompany, addRole, grantCapability, type Fixture } from '../helpers/fixtures.ts';
 import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
@@ -272,22 +272,37 @@ test('a P0 task is claimed before older P2 work (F5.10)', async () => {
 
 /* ------------------------------------------------------------------ F6.7 --- */
 
-test('a sub-agent returns an answer and a bounded summary, never a report (F6.7)', () => {
+test('a sub-agent hands back a bounded answer and summary, cut short and saying so where it is long (F6.7, N2)', () => {
   const contained = containChildResult('researcher', { finding: 'the zone is stale' }, {
     status: 'completed',
     steps: 3,
     costCents: 12,
+    taskId: 'child-0',
   });
   assert.match(contained.summary, /^researcher completed in 3 steps, 12c\./);
   assert.match(contained.summary, /Returned finding\./);
 
-  // An output over the ceiling is a contract violation rather than something to
-  // truncate: half a JSON document that still parses is the worst failure here.
-  const huge = { transcript: 'x'.repeat(CHILD_OUTPUT_TOKEN_LIMIT * 4 + 10) };
-  assert.throws(
-    () => containChildResult('researcher', huge, { status: 'completed', steps: 1, costCents: 0 }),
-    (error: unknown) => isPalugadaError(error, 'contract.violation'),
-  );
+  // An output over the ceiling is handed back cut short, and says so where it
+  // was cut: refused, the work was lost to the parent and the owner never got
+  // it (N2). A cut nobody can mistake for the whole is not half a document.
+  const huge = { verdict: 'stale', transcript: 'x'.repeat(CHILD_OUTPUT_TOKEN_LIMIT * 4 + 10) };
+  const cut = containChildResult('researcher', huge, { status: 'completed', steps: 1, costCents: 0, taskId: 'child-1' });
+  assert.ok(estimateTokens(JSON.stringify(cut.output)) <= CHILD_OUTPUT_TOKEN_LIMIT, 'the ceiling still holds (F6.7)');
+  assert.equal(cut.output.verdict, 'stale', 'a short field comes through whole');
+  assert.match(String(cut.output.transcript), /^x+ … \[cut here: \d+ of 8010 characters\. The whole is kept on task child-1, where the owner reads it\.\]$/);
+  assert.deepEqual(cut.abbreviated, { taskId: 'child-1', characters: JSON.stringify(huge).length });
+  assert.match(cut.summary, /over the 2000 tokens a sub-agent may hand back \(F6\.7\), so it is cut short here; the whole is kept on task child-1/);
+  assert.ok(estimateTokens(cut.summary) <= CHILD_SUMMARY_TOKEN_LIMIT);
+
+  // So many small items that no string is long: the list is cut, and says so.
+  const many = { rows: Array.from({ length: 3_000 }, (_, n) => `row ${n}`) };
+  const fewer = containChildResult('researcher', many, { status: 'completed', steps: 1, costCents: 0, taskId: 'child-2' });
+  assert.ok(estimateTokens(JSON.stringify(fewer.output)) <= CHILD_OUTPUT_TOKEN_LIMIT);
+  const rows = fewer.output.rows as string[];
+  assert.equal(rows[0], 'row 0');
+  assert.match(rows.at(-1)!, /^\[cut here: \d+ of 3000 items\. The whole is kept on task child-2, where the owner reads it\.\]$/);
+  assert.equal(containChildResult('researcher', { finding: 'x' }, { status: 'completed', steps: 1, costCents: 0, taskId: 'c' }).abbreviated, null,
+    'nothing is marked cut that was not');
 });
 
 /* ------------------------------------------------------------------ F7.7 --- */
@@ -507,6 +522,73 @@ test('a question about connecting a tool nobody bound is answered by the platfor
   await assert.rejects(ask.execute({ question: 'Which customers should the CRM note be about?' }, ctx),
     (error: unknown) => isPalugadaError(error) && error.code === 'owner.asked');
   assert.equal((await inbox.listOpen(fixture.companyId)).length, 1);
+
+  // Setting it up, in Indonesian, and naming the tool by its full name.
+  for (const question of [
+    'Layanan CRM mana yang harus saya hubungkan supaya bisa menambah catatan?',
+    'Which API key should I configure for crm.note?',
+  ]) {
+    assert.equal((await ask.execute({ question }, { ...ctx, idempotencyKey: question })).answered, true, question);
+  }
+  assert.equal((await inbox.listOpen(fixture.companyId)).length, 1, 'still nothing more was put to the owner');
+});
+
+/**
+ * The live run of 2 October (N3, B2): the platform answered for the owner
+ * questions that only the owner could answer. "Siapa pelanggan yang harus
+ * saya hubungi lewat email?" -- whom to contact -- matched "hubung…" and
+ * "email"; a responder's "Should I delete cust-042's record now?", offered
+ * with four answers, matched because it said three other tools "are not
+ * connected". The customer was never written to, and the record the owner
+ * asked to be deleted was not, with the task shown as done. Mentioning a
+ * tool is not asking how to set it up, and a question with answers to
+ * choose from is a decision.
+ */
+test('a question that only mentions a tool nobody bound, or offers answers to choose from, is put to the owner (N3)', async () => {
+  const fixture = await createCompany('owner-ask-mentions');
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    "UPDATE roles SET tools = ARRAY['owner.ask', 'email.draft', 'email.send', 'social.publish', 'mailbox.read', 'crm.read', 'crm.note', 'record.delete'] WHERE id = $1",
+    [fixture.roleId]));
+  const registry = new CapabilityRegistry();
+  registerPlatformCapabilities(registry);
+  const ask = registry.get('owner.ask')! as unknown as {
+    execute(input: unknown, ctx: unknown): Promise<{ answered: boolean; answer?: string }>;
+  };
+  // A task each: a task may ask the owner only so many questions.
+  const tasks: string[] = [];
+  const asked = async (input: { question: string; options?: string[] }) => {
+    const task = await newTask(fixture);
+    await transition(fixture.companyId, task.id, 'running');
+    tasks.push(task.id);
+    try {
+      await ask.execute(input, {
+        companyId: fixture.companyId, divisionId: fixture.divisionId, taskId: task.id,
+        idempotencyKey: input.question, signal: new AbortController().signal, credential: async () => '',
+      });
+      return false;
+    } catch (error) {
+      if (isPalugadaError(error) && error.code === 'owner.asked') return true;
+      throw error;
+    }
+  };
+
+  assert.equal(await asked({ question: 'Siapa pelanggan yang harus saya hubungi lewat email?' }), true, 'whom to contact');
+  assert.equal(await asked({ question: 'Berapa harga yang harus saya pasang di postingan social media?' }), true, 'what price to put');
+  assert.equal(await asked({ question: 'Should I set up a call with the supplier by email instead?' }), true, 'a call is not a tool');
+  assert.equal(await asked({
+    question: 'Should I delete cust-042\'s record now? mailbox.read, crm.read and crm.note are not connected, so I cannot read the record first.',
+    options: ['Delete it now', 'Wait until the CRM is connected', 'Do not delete', 'I do not know of any retention duty'],
+  }), true, 'a decision, whatever else it mentions');
+  assert.equal(await asked({
+    question: 'Which CRM vendor should I bind for crm.note?',
+    options: ['HubSpot', 'Pipedrive'],
+  }), true, 'answers to choose from are the owner\'s to choose between');
+
+  const open = await inbox.listOpen(fixture.companyId);
+  assert.equal(open.length, 5);
+  const events = await withTenant(fixture.companyId, (tx) => tx.query(
+    "SELECT 1 FROM events WHERE task_id = ANY($1::uuid[]) AND type = 'task.question_answered_by_platform'", [tasks]));
+  assert.equal(events.rows.length, 0, 'none of them was answered for the owner');
 });
 
 test('the owner can ask a question inside the same task (F10.3)', async () => {

@@ -106,4 +106,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Withdrawn: the company is no longer at the stage this proposal would move it from.': 'Binawi: wala na ang kumpanya sa yugtong aalisan sana nito ayon sa mungkahing ito.',
   'Withdrawn: it was already decided in the app.': 'Binawi: napagpasyahan na ito sa app.',
   'Withdrawn. Nothing left to press here.': 'Binawi. Wala nang pipindutin dito.',
+  'Work stopped: the {account} account is out of tokens': 'Huminto ang trabaho: ubos na ang token ng account na {account}',
+  '"{work}" stopped because the {account} account has used {spent} of its {max} tokens. Raise its ceiling under Money, then open the task and press Continue: it carries on from where it stopped.': 'Huminto ang “{work}” dahil nagamit na ng account na {account} ang {spent} sa {max} nitong token. Itaas ang limit nito sa Pera, pagkatapos ay buksan ang gawain at pindutin ang Ituloy: magpapatuloy ito mula sa kung saan ito huminto.',
+  'Withdrawn: you continued the task it was about.': 'Binawi: itinuloy mo na ang gawaing tinutukoy nito.',
 };

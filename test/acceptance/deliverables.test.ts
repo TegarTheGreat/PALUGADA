@@ -15,9 +15,9 @@ import assert from 'node:assert/strict';
 import { withTenant } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
 import { redactor } from '../../src/secrets/manager.ts';
-import { createRootTask, transition } from '../../src/engine/tasks.ts';
+import { createRootTask, createSubTask, transition } from '../../src/engine/tasks.ts';
 import { taskDetailOf, workOf } from '../../src/owner/views.ts';
-import { createCompany, type Fixture } from '../helpers/fixtures.ts';
+import { addRole, createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 
 before(ensureSchema);
@@ -124,4 +124,39 @@ test('a result is read from the fields that describe one, and never left empty',
   assert.equal(await shaped({ note: 'checked twice', answer: 'Supplier B is cheaper.' }), 'Supplier B is cheaper.');
   assert.equal(await shaped({ ok: 'yes', result: 'Renewed the domain.' }), 'Renewed the domain.');
   assert.match((await shaped({ total: 3 }))!, /"total":3/);
+});
+
+test('a task shows the work it handed on and what each piece came to, and a piece shows who handed it on (N2)', async () => {
+  // The live run of 2 October: the marketer's seven-day plan sat on a sub-task
+  // of the CEO's, and the CEO's task -- the one the owner opened, because it
+  // was the one they had asked -- said "nothing yet" and pointed nowhere.
+  const fixture = await createCompany('handed-on');
+  const writerId = await addRole(fixture, 'writer');
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    "UPDATE roles SET display_name = 'Laras', title = 'CMO' WHERE id = $1", [writerId]));
+  const parent = await task(fixture, 'make the Instagram plan');
+  await transition(fixture.companyId, parent.id, 'running');
+  const hand = (goal: string) => createSubTask(parent.id, {
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    roleId: writerId, input: { goal }, createdBy: 'agent_run',
+  });
+  const plan = await hand('Write the seven-day plan');
+  await transition(fixture.companyId, plan.id, 'running');
+  await transition(fixture.companyId, plan.id, 'completed', {
+    output: { summary: 'The seven-day plan, one post a day.', plan: 'Day 1: the iced palm-sugar coffee.' },
+  });
+  const captions = await hand('Write the captions');
+
+  const detail = (await taskDetailOf(fixture.companyId, parent.id))!;
+  assert.deepEqual(detail.handedOn, [
+    { id: plan.id, role: 'writer', roleName: 'Laras', status: 'completed', result: 'The seven-day plan, one post a day.' },
+    { id: captions.id, role: 'writer', roleName: 'Laras', status: 'pending', result: null },
+  ]);
+  assert.equal(detail.handedBy, null, 'the owner gave this one');
+
+  const piece = (await taskDetailOf(fixture.companyId, plan.id))!;
+  const parentSlug = (await withTenant(fixture.companyId, (tx) => tx.query<{ slug: string }>(
+    'SELECT slug FROM roles WHERE id = $1', [fixture.roleId]))).rows[0]!.slug;
+  assert.deepEqual(piece.handedBy, { id: parent.id, role: parentSlug, roleName: null });
+  assert.deepEqual(piece.handedOn, []);
 });

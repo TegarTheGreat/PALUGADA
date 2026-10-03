@@ -185,7 +185,7 @@ export interface RunOutcome {
  * structured goal chain, each of which travels in a field of its own.
  */
 const NOTE_KINDS: ReadonlySet<ContextSection['kind']> = new Set([
-  'language', 'stage', 'project', 'documents', 'contract', 'goal_measure', 'owner_question', 'owner_note', 'earlier_attempts',
+  'language', 'stage', 'project', 'documents', 'contract', 'team', 'goal_measure', 'owner_question', 'owner_note', 'earlier_attempts',
 ]);
 
 // A place or a vendor's "not now" parks the task like the rest: handed to an
@@ -946,6 +946,7 @@ export class Engine {
                 status: outcome.status,
                 steps,
                 costCents,
+                taskId: child.id,
               });
             } catch (error) {
               // Only the deadline this parent enforces halts the child, and
@@ -1141,11 +1142,23 @@ export class Engine {
     // Undefined where there is no /proc to name a process by, and then a
     // group is only as safe as the exit hook in process-tree.ts.
     const processes = processLedger(companyId, agentRunId, this.#workerId);
+    // The task's own reservation, which its calls draw on first, and the
+    // least any account above it has free: what `budget_spend` would allow.
+    const tokensLeft = async (): Promise<number> => withTenant(companyId, async (tx) => {
+      const { rows } = await tx.query<{ left: string | null }>(
+        `SELECT (SELECT tokens_reserved FROM tasks WHERE id = $2)
+              + (SELECT min(tokens_max - tokens_spent - tokens_reserved) FROM budget_accounts
+                  WHERE id = ANY(app.budget_chain($1))) AS left`,
+        [task.budgetAccountId, taskId],
+      );
+      return Math.max(0, Number(rows[0]?.left ?? 0));
+    });
     const services: RunServices = {
       step,
       callTool,
       awaitChild,
       reportUsage,
+      tokensLeft,
       narrate: narrator(companyId, taskId, agentRunId),
       ...(processes ? { processes } : {}),
       signal: controller.signal,
@@ -1573,6 +1586,12 @@ export class Engine {
           title: 'External write failed verification',
           detail: (error as Error).message,
         });
+      }
+      // Section 6.3: a task its budget stopped goes to the owner. A month's
+      // money running out halts the same way and has its own item, raised by
+      // the spend guard for the whole company, so it is not raised again here.
+      if (haltReason === 'budget_exhausted' && code !== 'spend.paused') {
+        await inbox.raiseBudgetHalt(companyId, taskId);
       }
       return { status: 'halted', reason: haltReason };
     }

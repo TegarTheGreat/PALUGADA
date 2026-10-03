@@ -291,6 +291,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   { pattern: '/api/companies/:companyId/tasks/:taskId/instruct', what: 'Tell a running task something.', fields: { text: 'the instruction' }, factor: 'never', chat: true },
   { pattern: '/api/companies/:companyId/tasks/:taskId/cancel', what: 'Cancel a task.', fields: { reason: 'why' }, factor: 'never', chat: true },
   { pattern: '/api/companies/:companyId/tasks/:taskId/rerun', what: 'Run a finished or failed task again.', fields: { note: 'what to do differently' }, factor: 'never', chat: true },
+  { pattern: '/api/companies/:companyId/tasks/:taskId/continue', what: 'Go on with a task its budget stopped, from where it stopped, once the owner has raised the ceiling of its account.', fields: {}, factor: 'never', chat: true },
   {
     pattern: '/api/companies/:companyId/tasks/:taskId/feedback',
     what: 'Tell a company what the owner thought of delivered work; it becomes what the division remembers.',

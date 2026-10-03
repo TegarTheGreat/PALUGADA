@@ -122,7 +122,7 @@ const SECTIONS: Section[] = [
     name: 'budget_accounts',
     sql: `SELECT id, label, tokens_max, tokens_spent, tokens_reserved,
                  money_max_cents, money_spent_cents, scope_type, scope_id,
-                 parent_account_id, created_at
+                 parent_account_id, period_start, created_at
             FROM budget_accounts ORDER BY created_at`,
   },
   {

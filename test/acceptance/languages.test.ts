@@ -86,6 +86,34 @@ async function ruleFor(fixture: Fixture, taskId: string): Promise<string> {
 
 /* ------------------------------------------------------------- detection --- */
 
+/**
+ * N5, from the code audit of 2 October: the detector took out e-mail
+ * addresses with /\S+@\S+\.\S+/, which backtracks in cubic time on text
+ * with many @ and no dot. Four thousand characters of "a@" took 6.5 seconds
+ * and ten thousand took 99, with the worker's heartbeat stalled the whole
+ * time. Ticket bodies, briefs and drafts all pass through it.
+ */
+test('text built to make the detector backtrack is judged in no time, and addresses are still left out (N5)', () => {
+  const timed = (text: string) => {
+    const started = performance.now();
+    detectLanguage(text);
+    return performance.now() - started;
+  };
+  for (const [what, text] of [
+    ['a@a@a… four thousand characters', 'a@'.repeat(2_000)],
+    ['six hundred handles, commas, no spaces', Array.from({ length: 600 }, (_, n) => `@toko_kopi_${n}`).join(',')],
+    ['one long word with an @ and no dot', `a@${'b'.repeat(50_000)}`],
+  ] as const) {
+    const ms = timed(text);
+    assert.ok(ms < 1_000, `${what}: ${Math.round(ms)} ms`);
+  }
+  // An address is still not taken for the writer's own words: an
+  // Indonesian sentence around an English-looking address reads Indonesian.
+  assert.equal(detectLanguage(
+    'Tolong kirim penawaran harga ke sales@roastery.example dan pastikan mereka tahu bahwa kami butuh barang ini minggu depan untuk toko kami.',
+  )?.code, 'id');
+});
+
 test('a language is told apart from another only when the text says so clearly', () => {
   assert.equal(detectLanguage(ENGLISH)?.code, 'en');
   assert.equal(detectLanguage(INDONESIAN)?.code, 'id');

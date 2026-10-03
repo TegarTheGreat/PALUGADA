@@ -851,18 +851,34 @@ test('one item can reach two surfaces without either suppressing the other', asy
  */
 test('an item no channel carries is not queued for one (F10.9)', async () => {
   const fixture = await createCompany('chat-uncarried');
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    `INSERT INTO inbox_items (company_id, kind, title, action_summary, rationale, consequence_if_denied, notify_after)
+     VALUES ($1, 'fact_candidate', 'Our roaster delivers on Tuesdays', 'Remember it', 'Seen in three orders.', '', now())`,
+    [fixture.companyId]));
+
+  // A `fact_candidate` is real, open, and past its window -- and F10.9 does
+  // not name it, so `channelDelivery` answers `none` and no chat carries it.
+  // It must not sit in the undelivered list looking like a backlog for ever.
+  const waiting = await undelivered(fixture.companyId, 'chat:telegram', new Date(Date.now() + 86_400_000));
+  assert.equal(waiting.some((item) => item.kind === 'fact_candidate'), false);
+  assert.equal((await inbox.listOpen(fixture.companyId)).length, 1, 'it is still in the inbox');
+});
+
+test('a budget alert is carried to the chat as news with a link, saying what to do (section 6.3)', async () => {
+  // It was a kind no channel carried, so work its budget stopped, and a
+  // month's ceiling reached, reached nobody who was not looking at the app.
+  const fixture = await createCompany('chat-budget');
   await inbox.raiseBudgetAlert({
     companyId: fixture.companyId,
     title: 'Ops has spent 80% of its month',
     detail: 'At the current rate it runs out on the 24th.',
   });
-
-  // `budget_alert` is real, open, and past its window -- and F10.9 does not
-  // name it, so `channelDelivery` answers `none` and no chat carries it. It
-  // must not sit in the undelivered list looking like a backlog for ever.
-  const waiting = await undelivered(fixture.companyId, 'chat:telegram');
-  assert.equal(waiting.some((item) => item.kind === 'budget_alert'), false);
-  assert.equal((await inbox.listOpen(fixture.companyId)).length, 1, 'it is still in the inbox');
+  // It waits for the owner's window like an escalation (F10.5), so looked for a day on.
+  const waiting = await undelivered(fixture.companyId, 'chat:telegram', new Date(Date.now() + 86_400_000));
+  const alert = waiting.find((item) => item.kind === 'budget_alert');
+  assert.ok(alert, 'queued for the chat');
+  assert.equal(alert.delivery, 'link_only', 'with nothing to press: a ceiling is raised in the app');
+  assert.equal(alert.actionSummary, 'At the current rate it runs out on the 24th.', 'and the body says what the title does not');
 });
 
 /** `n` retry-base intervals from now, for testing the backoff without waiting. */

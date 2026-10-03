@@ -321,7 +321,7 @@ export function TaskDrawer({ companyId, task, close, changed, openTask }: {
             <Fact label={t('Created')} value={dateTime(task.createdAt)} />
             <Fact label={t('Finished')} value={dateTime(task.finishedAt)} />
           </SimpleGrid>
-          <TaskOutput companyId={companyId} task={task} />
+          <TaskOutput companyId={companyId} task={task} openTask={openTask} />
           {['completed', 'failed', 'halted'].includes(task.status) && <TaskFeedback companyId={companyId} task={task} />}
           <TaskControls companyId={companyId} task={task} changed={changed} openTask={openTask} />
           <Transcript companyId={companyId} task={task} />
@@ -375,6 +375,9 @@ function TaskControls({ companyId, task, changed, openTask }: {
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const ended = ['completed', 'failed', 'halted', 'cancelled'].includes(task.status);
+  // Stopped by its budget: the one halt that goes on from where it stopped,
+  // once the owner has raised the ceiling (section 6.3).
+  const outOfBudget = task.status === 'halted' && task.haltReason === 'budget_exhausted';
 
   const act = async (what: string, run: () => Promise<void>) => {
     setBusy(what);
@@ -386,6 +389,11 @@ function TaskControls({ companyId, task, changed, openTask }: {
       setBusy(null);
     }
   };
+  const goOn = () => act('continue', async () => {
+    await api('POST', `/api/companies/${companyId}/tasks/${task.id}/continue`, {});
+    notifications.show({ color: 'teal', message: t('Continued. It carries on from where it stopped.') });
+    changed();
+  });
   const again = () => act('again', async () => {
     const answer: { taskId: string } = await api('POST', `/api/companies/${companyId}/tasks/${task.id}/rerun`, { note });
     notifications.show({ color: 'teal', message: t('Started again as a new task.') });
@@ -413,6 +421,16 @@ function TaskControls({ companyId, task, changed, openTask }: {
 
   return (
     <Paper withBorder radius="md" p="md">
+      {outOfBudget && (
+        <Alert color="orange" variant="light" mb="sm">
+          <Text size="sm">
+            {t('Its budget ran out. Raise the ceiling under Money, then continue: it carries on from where it stopped, and nothing it already did is done again.')}
+          </Text>
+          <Button size="xs" mt="xs" leftSection={<IconPlayerPlay size={14} />} loading={busy === 'continue'} onClick={() => void goOn()}>
+            {t('Continue')}
+          </Button>
+        </Alert>
+      )}
       <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb="xs">{ended ? t('Do it again') : t('Steer it')}</Text>
       <Textarea
         autosize
@@ -643,7 +661,7 @@ function TaskFeedback({ companyId, task }: { companyId: string; task: WorkItem }
  * every draft it wrote, each readable in full. The thing the work was for,
  * which used to be nowhere the owner could see it.
  */
-function TaskOutput({ companyId, task }: { companyId: string; task: WorkItem }) {
+function TaskOutput({ companyId, task, openTask }: { companyId: string; task: WorkItem; openTask: (id: string) => void }) {
   const detail = useLoad(async () => {
     const answer: { task: TaskDetail } = await api('GET', `/api/companies/${companyId}/tasks/${task.id}`);
     return answer.task;
@@ -652,11 +670,19 @@ function TaskOutput({ companyId, task }: { companyId: string; task: WorkItem }) 
 
   if (detail.error) return <Text c="red" size="sm">{detail.error}</Text>;
   if (!detail.data) return <Loading rows={2} />;
-  const { output, deliverables, done: report } = detail.data;
+  const { output, deliverables, done: report, handedOn, handedBy } = detail.data;
   const answer = resultText(output);
-  if (output === null && deliverables.length === 0) {
+  // Who handed this on, so a piece of work leads back to the task it is for.
+  const from = handedBy && (
+    <Group gap={6} mb="sm" wrap="nowrap">
+      <Text size="sm" c="dimmed">{t('Handed on by {who}', { who: handedBy.roleName ?? handedBy.role })}</Text>
+      <Button size="compact-xs" variant="subtle" onClick={() => openTask(handedBy.id)}>{t('Open the task')}</Button>
+    </Group>
+  );
+  if (output === null && deliverables.length === 0 && handedOn.length === 0) {
     return (
       <div>
+        {from}
         <Text fw={700} mb={4}>{t('What it produced')}</Text>
         <Text size="sm" c="dimmed">{t('Nothing yet. What the task produces appears here when it has something.')}</Text>
       </div>
@@ -664,6 +690,7 @@ function TaskOutput({ companyId, task }: { companyId: string; task: WorkItem }) 
   }
   return (
     <div>
+      {from}
       <Text fw={700} mb="sm">{t('What it produced')}</Text>
       <Stack gap="sm">
         {answer && (
@@ -712,6 +739,26 @@ function TaskOutput({ companyId, task }: { companyId: string; task: WorkItem }) 
             </Group>
           </Paper>
         ))}
+        {handedOn.length > 0 && (
+          <Paper withBorder radius="md" p="sm">
+            <Text size="sm" fw={600} mb={6}>{t('Work it handed on')}</Text>
+            <Stack gap={8}>
+              {handedOn.map((piece) => (
+                <Group key={piece.id} gap="sm" wrap="nowrap" align="flex-start">
+                  <Avatar size={28} radius="xl" src={rolePicture(piece.role)} alt="" />
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <Group gap={6} wrap="wrap">
+                      <Text size="sm" fw={600}>{piece.roleName ?? piece.role}</Text>
+                      <StatusBadge status={piece.status} />
+                    </Group>
+                    {piece.result && <Text size="xs" c="dimmed" lineClamp={2}>{piece.result}</Text>}
+                  </div>
+                  <Button size="compact-sm" variant="light" onClick={() => openTask(piece.id)}>{t('Open the task')}</Button>
+                </Group>
+              ))}
+            </Stack>
+          </Paper>
+        )}
         {output !== null && (
           <Spoiler maxHeight={0} showLabel={t('Everything it returned')} hideLabel={t('Hide')}>
             <Code block style={{ maxHeight: 280, overflow: 'auto' }}>{JSON.stringify(output, null, 2)}</Code>

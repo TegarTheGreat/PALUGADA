@@ -431,9 +431,21 @@ async function tokenRequest(
   };
 }
 
-async function keepTokens(name: string, tokens: Tokens, grant: Omit<OAuthGrant, 'refreshedAt' | 'expiresAt'>, master: MasterKey): Promise<void> {
-  await putSecret(mcpSecretName(name), tokens.accessToken, master);
-  if (tokens.refreshToken) await putSecret(mcpSecretName(name, 'refresh'), tokens.refreshToken, master);
+/**
+ * The server's tokens and what the grant says of them. A sign-in is the
+ * owner's change -- a replica binds the server's tools when it starts -- and
+ * moves the settings version; a refresh renews what is there and moves
+ * nothing, or every replica restarted each time a token ran out (N4).
+ */
+async function keepTokens(
+  name: string,
+  tokens: Tokens,
+  grant: Omit<OAuthGrant, 'refreshedAt' | 'expiresAt'>,
+  master: MasterKey,
+  renewal = false,
+): Promise<void> {
+  await putSecret(mcpSecretName(name), tokens.accessToken, master, { renewal });
+  if (tokens.refreshToken) await putSecret(mcpSecretName(name, 'refresh'), tokens.refreshToken, master, { renewal });
   const settings = await readSettings();
   const kept: OAuthGrant = {
     ...grant,
@@ -441,7 +453,7 @@ async function keepTokens(name: string, tokens: Tokens, grant: Omit<OAuthGrant, 
     ...(tokens.expiresIn ? { expiresAt: new Date(Date.now() + tokens.expiresIn * 1000).toISOString() } : {}),
     refreshedAt: new Date().toISOString(),
   };
-  await writeSetting('mcp_oauth', { ...oauthGrantsIn(settings), [name]: kept });
+  await writeSetting('mcp_oauth', { ...oauthGrantsIn(settings), [name]: kept }, { renewal });
 }
 
 /**
@@ -543,7 +555,7 @@ export async function refreshMcpAccess(
       throw ended((failure as Error).message);
     }
     const { refreshedAt: _refreshedAt, expiresAt: _expiresAt, ...kept } = grant;
-    await keepTokens(name, tokens, kept, master);
+    await keepTokens(name, tokens, kept, master, true);
     return true;
   });
 }

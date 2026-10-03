@@ -22,7 +22,7 @@ import { closePools } from '../../src/db/pool.ts';
 import { CapabilityRegistry } from '../../src/broker/registry.ts';
 import { bindMcpServers, closeMcpSessions } from '../../src/capabilities/mcp.ts';
 import { refreshMcpAccess } from '../../src/capabilities/mcp-oauth.ts';
-import { readSettings } from '../../src/settings/store.ts';
+import { readSettings, settingsVersion } from '../../src/settings/store.ts';
 import { withSettings } from '../../src/settings/overlay.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
@@ -129,8 +129,12 @@ test('a token that has run out is refreshed when the server says so, and the cal
   const api = await consoleWithSettings();
   try {
     const token = await api.signIn();
+    const beforeSignIn = await settingsVersion();
     const started = await api.call('POST', '/api/control/mcp/oauth/start', token, { name: 'tracker', url: provider.mcpUrl });
     await followSignIn(started.body.authorizeUrl as string);
+    // Signing in is the owner's change: a replica binds the server's tools at
+    // start, so the version moves and replicas start again to take it.
+    assert.notEqual(await settingsVersion(), beforeSignIn, 'a sign-in is a change of settings');
     assert.equal((await api.call('POST', '/api/control/mcp/servers', token, {
       name: 'tracker', url: provider.mcpUrl, tools: { lookup: { tier: 0 } }, proof: { totp: api.code() },
     })).status, 200);
@@ -146,6 +150,7 @@ test('a token that has run out is refreshed when the server says so, and the cal
 
     // The provider ends the first token; the next call is refused with 401,
     // the token refreshed with the resource, and the call made again.
+    const bound = await settingsVersion();
     provider.expire('access-1');
     const answer = await lookup.execute({ q: 'kopi' }, context());
     assert.deepEqual(answer, { found: 'kopi' });
@@ -156,6 +161,9 @@ test('a token that has run out is refreshed when the server says so, and the cal
     assert.equal(provider.bearers.at(-1), 'Bearer access-2');
     // The new refresh token replaces the old, which the provider has spent.
     assert.equal(await api.secrets.resolve('db://mcp-tracker-refresh'), 'refresh-2');
+    // N4: and the refresh is not a change of settings, or every replica would
+    // restart each time a token runs out.
+    assert.equal(await settingsVersion(), bound, 'the refresh restarts nothing');
 
     // A sign-in the provider has ended cannot be refreshed: said as such.
     provider.expire('access-2');

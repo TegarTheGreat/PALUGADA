@@ -2933,9 +2933,56 @@ test('a task waits only on work it delegated, and delegates only to a role that 
     companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
     roleId: fixture.roleId, taskId, idempotencyKey: key,
   });
-  await assert.rejects(broker.invoke(ctx(one.id, 'd1'), 'task.delegate', { role: 'nobody', brief: 'x' }), /no role nobody/);
+  await assert.rejects(broker.invoke(ctx(one.id, 'd1'), 'task.delegate', { role: 'nobody', brief: 'x' }), /no role "nobody" in this company/);
   await assert.rejects(broker.invoke(ctx(one.id, 'd2'), 'task.await', { childId: other.id }), /not one this task delegated/);
   await assert.rejects(broker.invoke(ctx(one.id, 'd3'), 'task.delegate', { role: 'x', brief: '  ' }), /needs a brief/);
+});
+
+test('a finished deliverable longer than a sub-agent may hand back reaches its parent cut short, saying where the whole is (N2, F6.7)', async () => {
+  // The live run of 2 October: the marketer finished the seven-day plan the
+  // owner had asked the CEO for, and task.await refused it -- "returned about
+  // 2597 tokens, over the 2000 a sub-agent may hand back" -- so the CEO could
+  // not report it, its rerun could not read it either, and the owner never
+  // got what they asked for.
+  const fixture = await createCompany('delegate-long-plan');
+  const registry = new CapabilityRegistry();
+  registerPlatformCapabilities(registry);
+  await registry.sync();
+  for (const name of ['task.delegate', 'task.await']) await grantCapability(fixture, name);
+  const broker = new CapabilityBroker(registry);
+  const slug = (await withTenant(fixture.companyId, (tx) => tx.query<{ slug: string }>(
+    'SELECT slug FROM roles WHERE id = $1', [fixture.roleId]))).rows[0]!.slug;
+  const parent = await newTask(fixture, { script: 'done' });
+  await transition(fixture.companyId, parent.id, 'running');
+  const ctx = (key: string) => ({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    roleId: fixture.roleId, taskId: parent.id, idempotencyKey: key,
+  });
+  const { output: delegated } = await broker.invoke<unknown, { childId: string }>(ctx('plan'), 'task.delegate',
+    { role: slug, brief: 'Write the seven-day Instagram plan for the new menu.' });
+
+  const plan = Array.from({ length: 7 }, (_, day) =>
+    `Day ${day + 1}: ${'Post a photo of the iced palm-sugar coffee at the window seat, with the price. '.repeat(22)}`).join('\n');
+  await transition(fixture.companyId, delegated.childId, 'running');
+  await transition(fixture.companyId, delegated.childId, 'completed', {
+    output: { summary: 'The seven-day plan is ready.', plan },
+  });
+
+  const { output: answer } = await broker.invoke<unknown, {
+    status: string; output: Record<string, unknown>; summary: string; abbreviated: { taskId: string; characters: number } | null;
+  }>(ctx('read'), 'task.await', { childId: delegated.childId });
+  assert.equal(answer.status, 'completed', 'the work is handed back, not refused');
+  assert.ok(JSON.stringify(answer.output).length <= 8_000, 'within what a sub-agent may hand back (F6.7)');
+  assert.equal(answer.output.summary, 'The seven-day plan is ready.');
+  assert.match(String(answer.output.plan), /^Day 1: Post a photo/);
+  assert.ok(String(answer.output.plan).endsWith(
+    `of ${plan.length} characters. The whole is kept on task ${delegated.childId}, where the owner reads it.]`));
+  assert.deepEqual(answer.abbreviated, { taskId: delegated.childId, characters: JSON.stringify({ summary: 'The seven-day plan is ready.', plan }).length });
+  assert.match(answer.summary, /cut short here; the whole is kept on task/);
+
+  // The whole plan is still the child's, where the owner reads it.
+  const child = (await withTenant(fixture.companyId, (tx) => getTask(tx, delegated.childId)))!;
+  assert.equal((child.output as { plan: string }).plan, plan);
 });
 
 /**

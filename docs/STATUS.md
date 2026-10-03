@@ -5855,6 +5855,399 @@ them too.
   "Status" that a language writes as English does are listed in that
   dictionary's `KEPT`, under its 3% cap. The documentation is in English.
 
+## 2.66 A role that hands work on is told which roles there are (F6.4)
+
+Found on a live run on 2026-10-02 (the gap analysis of 3 October, N1). The
+owner asked the CEO of a standard company for a seven-day Instagram plan. The
+coordinator's charter says "decide which role's job it is, hand it over with
+task.delegate", and no run was ever told which roles the company has. It
+guessed nineteen names -- "marketing", "cmo", "barista" -- each refused as
+"no role X in this company", created four sub-tasks asking whether a role
+existed, and spent 96% of its division's tokens before anything was handed
+to the marketer.
+
+- **The roles, in every run of a role that can hand work on.** A role whose
+  tools include `task.delegate` gets a section, "The roles you can hand work
+  to" (`teamSections`, `src/context/builder.ts`). It lists every other role
+  of the company by slug, then its name, title and division, then the first
+  sentence of its charter, which in every template says what the role does.
+  A frozen role is marked as frozen and taking no work, which is what
+  delegating to it meets: `createSubTask` refuses it. The list
+  stops at sixty roles and says how many more there are. It follows the
+  role's contract and is never dropped to fit: without it the role cannot do
+  the one thing it is for. A runtime is handed it among its notes
+  (`NOTE_KINDS`, `src/engine/engine.ts`). A run is given sections by kind, so
+  a kind missing from that set would have been built and never reached the
+  model.
+- **A role named the way people name it.** `task.delegate` takes a slug, and
+  now also a title or a name that is one role's alone, in any case: "cmo"
+  and "Laras" both reach the marketer, and the answer says which slug that
+  was (`resolveRole`, `src/broker/platform-capabilities.ts`). A title or name
+  that two roles share is refused, with both slugs, rather than guessed
+  between. Any other name is refused with the list of the company's roles,
+  leaving out the asking one, and with the nearest one when it is within a
+  few edits or shares its first five letters: "no role "marketing" in this
+  company; did you mean marketer (Laras, CMO)?". The old answer said only
+  what was wrong, never what would be accepted.
+- **Tested.** `org-automation.test.ts`:
+  - The coordinator's pack lists every other role and not itself.
+  - The marketer, which cannot hand work on, gets no list.
+  - A frozen role is marked, and delegating to it is refused, as the mark
+    says.
+  - A runtime running the coordinator is handed the list among its notes.
+    This assertion failed until `team` was added to `NOTE_KINDS`.
+  - A delegation by title and by name reaches the marketer.
+  - "marketing" is answered with the suggestion and the roles.
+  - "barista" gets the roles and no guess.
+  - A shared title is refused with both slugs.
+- **Not done.** The owner's assistant, which proposes work by role from its
+  own reading of the company, is unchanged.
+
+## 2.67 A finished deliverable is handed back, cut short where it is long (F6.7)
+
+Found on the same live run (N2). The marketer finished the seven-day plan the
+owner had asked the CEO for. `task.await` refused it: "child marketer
+returned about 2597 tokens, over the 2000 a sub-agent may hand back (F6.7)".
+The CEO could not report it, the rerun the CEO proposed could not read it
+("not one this task delegated"), and the owner never received the work.
+
+- **Cut short, never refused.** `containChildResult`
+  (`src/engine/containment.ts`) still holds what enters the parent's context
+  to `CHILD_OUTPUT_TOKEN_LIMIT`. It now meets the limit by cutting instead of
+  refusing:
+  - It halves, pass by pass, how long a string and how many items a list may
+    keep. Short fields such as a verdict, a status or a summary line come
+    through whole; only the long ones are cut.
+  - Every cut says so where it was made: "… [cut here: 2000 of 12250
+    characters. The whole is kept on task X, where the owner reads it.]". A
+    list ends with the same note, counted in items.
+  - The result carries `abbreviated` with the task that keeps the whole and
+    how long it was. The summary says the same, and tells the parent to point
+    to it rather than retype it.
+  - What nothing makes fit is replaced by its keys and where the whole is.
+- **Why the decision changed.** Refusing rested on the view that half a JSON
+  document that still parses looks like an answer and is not one. On a live
+  run the refusal lost the work outright. A finished deliverable is the work,
+  not a transcript, and a cut that names itself cannot be taken for the
+  whole. The child's own record keeps its output whole, as before.
+- **Both paths.** `task.await` (`src/broker/platform-capabilities.ts`), for
+  runtimes in another process, returns `abbreviated` beside the output. The
+  in-process `awaitChild` (`src/engine/engine.ts`) uses the same function.
+- **Tested.**
+  - `control-plane.test.ts`: an output over the limit fits under it; its short
+    field is whole; the long one carries the note; `abbreviated` is set and
+    the summary says so; a list of 3,000 short items is cut by items; an
+    output under the limit is not marked.
+  - `out-of-process-runtimes.test.ts`: a child finishing a 12,000-character
+    plan is read by its parent through `task.await` as `completed`, under the
+    limit, with the note naming the child. The child still holds the whole
+    plan.
+- **The owner reaches it from the task they asked for.** The CEO's task was
+  the one the owner opened, and it said "nothing yet" while the plan sat on a
+  sub-task found only by scrolling the work list. The task detail
+  (`taskDetailOf`, `src/owner/views.ts`) now carries:
+  - `handedOn`: the work the task handed to other roles, oldest first, up to
+    fifty, each with its role, the role's name, its status and what it came
+    to in a line, redacted;
+  - `handedBy`: the task that handed this one on.
+  The console's task drawer shows them as "Work it handed on", each with an
+  "Open the task" button, and "Handed on by …" with the same button. Tested
+  in `deliverables.test.ts`: a parent lists a finished piece with its result
+  and an unfinished one without; the piece names its parent; a task the
+  owner gave names none.
+
+## 2.68 Only a plain question about wiring a tool in is answered for the owner (F10.3)
+
+Found on the same live run (N3, and B2 of the recheck of 30 September).
+`owner.ask` answers some questions itself (L7, 2.26): one about setting up a
+tool nothing is bound to, which the owner cannot answer from the inbox. The
+test for "about setting it up" was a list of words, and it caught two
+questions only the owner could answer:
+
+- "Siapa pelanggan yang harus saya hubungi lewat email?", whom to contact,
+  matched "hubung…" and "email". The customer was never written to.
+- A responder's "Should I delete cust-042's record now?", offered with four
+  answers, matched because it said three other tools "are not connected".
+  The record the owner had asked to be deleted was not, and the task showed
+  as done.
+
+What changed (`setupAsked`, `src/broker/platform-capabilities.ts`):
+
+- **Only words that mean wiring a service in.** Kept: bind, configure,
+  integrate, install, API key, credential, and in Indonesian hubungkan,
+  sambungkan, konfigurasi, integrasi, kredensial, kunci API.
+  - Dropped: states ("connected", "bound"), which a question about something
+    else mentions in passing.
+  - Also dropped: everyday words, because each has a work meaning. "hubungi"
+    is to contact, "pasang" to put a price on a post, "set up" a call, and a
+    "vendor" sells coffee beans. "provider" and "connect" went with them.
+- **Never a question with answers to choose from.** Offering choices is
+  asking the owner to decide, whatever else the question mentions.
+- **Why the balance moved.** A setup question that reaches the owner costs
+  them a card they cannot answer from the inbox. A decision answered for
+  them costs the work, and on a live run it cost a deletion the owner asked
+  for. So anything short of a plain question about wiring a tool in is now
+  put to the owner.
+- **Tested.** `control-plane.test.ts`:
+  - L7's own question is still answered. So are an Indonesian setup question
+    and one naming the tool by its full name.
+  - Five questions reach the owner, none recorded as answered by the
+    platform: the two from the live run, word for word; a price to put on a
+    post; a call to set up; and a setup question offered with answers to
+    choose from.
+  - The new test failed against the old list.
+
+## 2.69 Work its budget stopped reaches the owner, and goes on where it stopped (section 6.3, F5.4)
+
+Found on the same live run (B1 of the recheck of 30 September, still open).
+Two of the CEO's tasks halted `budget_exhausted` ("shared budget
+exhausted"). Section 6.3 sends such a task to the inbox, and nothing did: no
+item, no incident, no message, only a red bar on Money. The owner raised the
+ceiling, with their factor, and still could not go on. The only way on was
+**Do it again**, a new task from nothing, which would have thrown away the
+CEO's 292,000 tokens of work for want of a few thousand more. The code's own
+comment said a halted task "becomes an owner inbox item instead".
+
+- **An item, in the owner's language.** When the engine halts a task because
+  an account cannot pay (`budget.exceeded`, `budget.reservation_refused`),
+  `raiseBudgetHalt` (`src/inbox/inbox.ts`) puts a `budget_alert` in the inbox,
+  tied to the task.
+  - It names the work and the account with no room left: the one in the
+    task's chain nearest its ceiling, which is not always the task's own.
+  - It says how many tokens that account used of how many, and what to do:
+    raise its ceiling on Money, then open the task and press Continue.
+  - It is written in the panel's language (`budgetHaltWords`,
+    `src/owner/budget-halt.ts`, in all twenty dictionaries), because the
+    platform is speaking. An agent's words stay in the company's language.
+  - It is raised once per task.
+  - A month's money running out (`spend.paused`) halts the same way and
+    already has the spend guard's own item, so it is not raised twice.
+- **Carried to the chat as news.** `channelDelivery` answered `none` for every
+  `budget_alert`, so neither this item nor the month's 80% and 100% items
+  reached an owner who was not looking at the app.
+  - A budget alert is now `link_only`, within the owner's window: Telegram
+    and WhatsApp carry it with a link and nothing to press. Raising a ceiling
+    loosens a control and takes the owner's device.
+  - The chat shows the item's rationale under its title (`CHANNEL_SUMMARY`,
+    `src/owner/notify.ts`), since its summary only repeats the title.
+  - Push is unchanged. F10.5 keeps push for incidents and tier 3 approvals.
+  - This reverses a decision that kept every kind F10.9 does not name off the
+    chat. A budget alert is read the way an incident already was: news, not
+    something to act on from the chat.
+- **Continue, from where it stopped.** `continueHalted`
+  (`src/engine/owner-control.ts`), at
+  `POST /api/companies/:companyId/tasks/:taskId/continue` and as **Continue**
+  on the task, takes a task its budget stopped back to `pending`:
+  - It is the same task with the same journal, so committed steps are
+    answered from the record and nothing that happened happens again (F5.1),
+    as after a crash.
+  - It reserves the default allowance again. It is refused, saying what to
+    do, while the account still cannot fund that, while the month is paused,
+    or while the role is frozen.
+  - It closes the item as `task_continued`, with a sentence for chats in
+    every language.
+  - A ticket the halt put back on the board, if nobody took it since, is the
+    task's again.
+  - A second press, a live task, and any other halt reason are refused with
+    `task.not_continuable` (409). A hop limit, a deadline or a failed
+    read-back are answers about the work, not about money, and going on would
+    meet them again.
+  - `halted` still has no way out through `transition`. This is the one door,
+    opened by the owner.
+- **How this reads section 6.3.** "Tidak pernah dilanjutkan otomatis": never
+  resumed *automatically*. The platform still never does; the owner may. The
+  history stays true, with `task.halted` then `task.continued` on the task.
+- **The console.** The task drawer of a budget halt says what to do and
+  offers **Continue**. Two refusals are explained as sentences:
+  `budget.reservation_refused`, which other routes also answer, and
+  `task.not_continuable`.
+- **Tested.**
+  - `budget-halt.test.ts`:
+    - A run whose model call the account cannot pay halts and raises one
+      item, in Indonesian, naming the work and the account, and no second
+      one on a second look. Without the engine change there was none.
+    - A paused month raises nothing beside its own item.
+    - Continuing is refused while the account is spent, and the card stays.
+      Once raised, the task is pending with a reservation and its card is
+      withdrawn as `task_continued`. It then completes without repeating its
+      journalled draft, and its events read halted, continued, completed.
+      A second press is refused.
+    - A deadline halt and a live task are refused.
+  - `owner-channels.test.ts`: a budget alert is queued for the chat,
+    `link_only`, with its rationale as the body, and an uncarried kind is
+    still not queued. `owner-inbox.test.ts` reads `budget_alert` as
+    `link_only`.
+- **Not done.** The token ceiling is still lifetime (L11), and a
+  reasoning model's retries are not yet bounded by what is left (B1). Both
+  come next; the second is 2.70.
+
+## 2.70 A model turn is asked only when the budget can pay for it (F5.4, B1)
+
+Found on the live run of 30 September (B1) and seen again on 2 October.
+Each empty turn of a reasoning model was asked again with twice the room:
+8,192, then 16,384, then about 20,000. Every turn sent the whole
+conversation again, about 20,000 tokens of input. One marketing task counted
+325,000 tokens and spent a division's lifetime allowance. The budget found
+out only after each call, when the engine charged it. The provider bills a
+call whether or not the budget then refuses to record it, so finding out
+after the call was finding out after paying.
+
+- **Asked first.** A runtime may now ask `tokensLeft()` (`RunServices`,
+  `src/runtime/protocol.ts`). The engine answers with the task's own
+  reservation plus the least that any account in its chain has free, which is
+  what `budget_spend` would allow.
+- **Before every turn** (`runAgentLoop`, `src/runtime/agent-loop.ts`), the
+  in-process loop estimates what the turn sends, at four characters a token
+  of its system prompt, messages and tools.
+  - If what is left, less that, is under 512 tokens, the turn is not asked.
+    The run ends `budget.exceeded`, so the task halts `budget_exhausted` and
+    reaches the owner (2.69).
+  - Otherwise the turn may write no more than what is left. The doubling for
+    an empty turn still applies, but never past the budget.
+- **Only when it calls.** The check runs inside the journalled step, so a
+  turn replayed from the journal, which calls nothing, is never refused. A
+  task the owner continued after raising its ceiling replays its earlier
+  turns for free.
+- **The silence check names the room the turn had.** It now names the room
+  the turn was actually given. Before, it named the allowance, which the
+  budget may since have cut.
+- **Tested.** `budget-halt.test.ts`, with a model that only thinks:
+  - A task whose first turn would send about ten thousand tokens, with six
+    thousand left, halts without the model being asked once, and the owner
+    is told.
+  - With fifteen thousand left, the first turn may write less than its usual
+    8,192 and at least 512.
+  - Both failed before: the model was asked, and given 8,192.
+- **Not done.** Agent CLIs and other runtimes in another process call their
+  models themselves and cannot be asked first; for them the charge after the
+  call is still the limit.
+
+## 2.71 An account's tokens and money are counted per month (F1.9, L11)
+
+Found on the live run of 2026-09-28 (L11), partly fixed by 2.26, and still
+open on 2 October. An account's counts were for its whole life: spent once,
+spent for ever. F1.9 sets a budget per period, monthly, beside the per-task
+one, and a division that used its allowance in October was still out in
+December until the owner raised it. On 2 October one request spent 96% of a
+division's allowance, which would never have come back on its own. The
+ceiling dialog said so: "Spent tokens stay spent".
+
+- **Per calendar month, in UTC** (`0101_budget_periods.sql`), like the
+  company's monthly ceiling.
+  - `budget_accounts.period_start` is the month the counts belong to.
+  - `app.budget_new_period(chain)` starts a passed month again: tokens and
+    money spent go back to zero. What is reserved is not touched, because
+    work still running holds it and will release it or spend it.
+  - `budget_reserve` and `budget_spend` call it right after taking the
+    chain's locks, before they check anything, so admission counts this
+    month exactly. Both are 0024's functions with that one line added.
+- **Started again for the owner, too.** On the first of the month, before
+  anything has run, the Money page would show last month's total as this
+  one's. The worker's watch stage calls `startNewPeriods`
+  (`src/engine/budget.ts`) for each company.
+  - It locks the accounts in id order, the order every budget function uses
+    (0040), so it cannot deadlock against a charge.
+  - It locks nothing in a month with no passed period, which is most ticks.
+- **Existing accounts** are counted from this month: what they spent stays
+  spent until it ends.
+- **The application role** may move `period_start`, a running total like the
+  ones 0047 lets it move.
+- **Exported.** The column is in the audit export, and an archive from before
+  this migration is restored with this month as its period.
+- **What the owner reads.**
+  - The Money page says "spent this month".
+  - The ceiling dialog says the count starts again on the first of each
+    month in UTC, and that raising is how an account gets more before then.
+  - The guide's budget section says the same.
+- **Also monthly now.** The Prometheus gauge of tokens spent per company
+  (`src/reporting/metrics.ts`), which sums the accounts' counts, counts this
+  month.
+- **Tested.** `budget-period.test.ts`:
+  - A division and the company above it, both spent to their ceilings last
+    month, take a reservation this month, and both count from zero.
+  - Spent to the ceiling this month, an account refuses.
+  - A charge on an account last spent last month counts from zero.
+  - `startNewPeriods` starts the passed month once and then finds nothing.
+  - All three failed before the migration.
+
+## 2.72 A token refresh restarts nothing (N4)
+
+Found by the code audit of 2 October (N4), read in the code and not yet run
+against a live sign-in. Every replica polls `settingsVersion()` every 30
+seconds and starts again when it moves (`src/main.ts`). The version is the
+latest `updated_at` of the deployment's settings and of its secrets.
+
+The automatic token refreshes wrote both:
+
+- A vendor's OAuth grant renewed before it runs out (`vendor-oauth.ts`) was
+  sealed again with `putSecret`, which set `updated_at = now()`.
+- An MCP server's token renewed on a 401 (`mcp-oauth.ts`) did the same, and
+  also rewrote the `mcp_oauth` setting with its new `refreshedAt`.
+
+So one division signed in to Google restarted the whole deployment about
+once an hour. Each restart stopped the console and handed back runs in
+flight. A run on a CLI role risks a `journal_divergence` halt when it comes
+back.
+
+- **A renewal is not a change of settings.** `putSecret` and `writeSetting`
+  (`src/settings/store.ts`) take `{ renewal: true }`.
+  - A renewal replaces the value and leaves `updated_at` as the owner last
+    set it, so the version does not move.
+  - A renewal of something that is not there yet is written as new, and
+    does move the version.
+- **Who renews.** Vendor grant refreshes, and MCP refreshes (`keepTokens`
+  from `refreshMcpAccess`), renew. An MCP *sign-in* is still the owner's
+  change, because a replica binds the server's tools when it starts.
+- **Why nothing goes stale.** Both readers resolve the token at each use:
+  - MCP through the deployment's secret manager, which reads the database
+    every time.
+  - Vendor credentials through a cache of 60 seconds, while a grant is
+    renewed 5 minutes before it runs out, so a replica's cached old token is
+    still good until it is next read.
+  The restart used to flush those caches by accident; nothing relied on it.
+- **Tested.**
+  - `vendor-oauth.test.ts`: the settings version is the same before and after
+    the refresh two calls share.
+  - `mcp-oauth.test.ts`: the version moves on the sign-in and stays put
+    across a refresh on a 401.
+  - Both refresh assertions failed before.
+- **Not done.** Pasting or rotating a division's key in the console is the
+  owner's change and still moves the version, so replicas start again,
+  though division keys are read at each use too. That is rare and the
+  owner's own doing; the restart on every refresh was neither.
+
+## 2.73 The language check reads a bounded sample, with a pattern that cannot backtrack (N5)
+
+Found by the code audit of 2 October (N5) and measured.
+- **The pattern.** The detector takes e-mail addresses out of what it judges
+  (`ownWords`, `src/domain/language.ts`) with `\S+@\S+\.\S+`. On text with
+  many `@` and no dot that backtracks in cubic time:
+
+  | Input | Time |
+  |---|---|
+  | 4,000 characters of `a@a@` | 6.5 s |
+  | 10,000 characters of `a@a@` | 99 s |
+  | 600 Instagram handles joined by commas | 8.1 s |
+- **What passes through it.** Since 2.64, ticket bodies of up to 8 KB, briefs
+  handed on, stage evidence, reviewers' reasons and plans all do; drafts did
+  already, at any length.
+- **What it cost.** While it ran, the worker's heartbeat stalled, and another
+  replica could take its runs as dead (B5).
+
+What changed:
+
+- **A pattern that cannot backtrack.** An address is now a run without `@`
+  or space, an `@`, and a run with a dot in it: `[^\s@]+@[^\s@]+\.[^\s@]+`.
+- **A bounded sample.** The detector reads the first 6,000 characters. A
+  language shows itself well within that, and every pattern is cheaper on a
+  bounded text. A single 50,000-character word with an `@` and no dot was
+  still quadratic under the new pattern alone (1.8 s); with the sample it
+  takes milliseconds.
+- **Tested.** `languages.test.ts`:
+  - The three inputs above, and that long word, each judged in under a
+    second. The first took 6,424 ms before the change.
+  - An Indonesian sentence around an address still reads as Indonesian.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

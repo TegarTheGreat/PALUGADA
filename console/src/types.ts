@@ -479,8 +479,21 @@ export interface TaskDetail {
   /** The run's report on its done criteria, weighed against its journal; null when it made none. */
   done: DoneReportEntry[] | null;
   deliverables: Deliverable[];
+  /** The work it handed to other roles, oldest first, with what each piece came to. */
+  handedOn: HandedPiece[];
+  /** The task that handed this one on, or null when the owner, a schedule or a trigger gave it. */
+  handedBy: { id: string; role: string; roleName: string | null } | null;
   /** The owner's last word on it, or null. */
   feedback: { verdict: 'good' | 'needs_work'; note: string | null; at: string } | null;
+}
+
+/** One piece of work a task handed on. */
+export interface HandedPiece {
+  id: string;
+  role: string;
+  roleName: string | null;
+  status: string;
+  result: string | null;
 }
 
 /** One thing the search found, in any company (`GET /api/search`). */

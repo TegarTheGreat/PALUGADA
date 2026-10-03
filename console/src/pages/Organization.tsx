@@ -406,7 +406,7 @@ function DivisionCard({
                     <Text size="sm" fw={600} truncate>{role.displayName ?? role.slug}</Text>
                     {role.persona?.preset && <Tooltip label={t('Has a persona')}><IconSparkles size={12} color="var(--mantine-color-grape-5)" style={{ flexShrink: 0 }} /></Tooltip>}
                   </Group>
-                  <Text size="xs" c="dimmed" truncate>{[role.title, role.displayName ? role.slug : null].filter(Boolean).join(' · ') || role.model}</Text>
+                  {role.title && <Text size="xs" c="dimmed" truncate>{role.title}</Text>}
                 </div>
                 <Tooltip label={role.frozenReason ?? t('{open} open · {done} done this week', { open: role.openTasks, done: role.doneLastWeek })}>
                   <Badge size="sm" variant="dot" color={state.color} style={{ flexShrink: 0 }}>{state.label}</Badge>
@@ -481,7 +481,7 @@ function RoleDrawer({
         {role && <Avatar size={40} radius="xl" src={rolePicture(role.slug, role.title)} alt="" />}
         <div>
           <Text fw={700}>{role?.displayName ?? role?.slug}</Text>
-          {role && (role.displayName || role.title) && <Text size="xs" c="dimmed">{[role.title, role.displayName ? role.slug : null].filter(Boolean).join(' · ')}</Text>}
+          {role?.title && <Text size="xs" c="dimmed">{role.title}</Text>}
         </div>
       </Group>
     }>

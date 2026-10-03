@@ -7378,6 +7378,14 @@ What changed:
   points with a comma, English the other way, and no page or component
   groups a number by itself.
 
+## 2.109 The team page gives a role its title, not its code beside it (§2.3 item 7)
+
+Found by the phone check of 2.107, after 2.104. A role on **Team**, and its
+drawer, was subtitled with its title and its code -- "Head of Quality ·
+reviewer" -- and a role with no title by its model's tier. The subtitle is
+the title, and nothing when there is none. `console-role-names.test.ts`
+now also refuses a role's code put beside its name.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

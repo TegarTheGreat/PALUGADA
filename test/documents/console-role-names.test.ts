@@ -24,6 +24,7 @@ const SHOWN_AS_CODE: Array<[RegExp, string]> = [
   [/\{(role|ceo)\??\.slug\}/, 'a role code as text'],
   [/\brole: role\??\.slug\b/, 'a role code in a sentence'],
   [/\blabel: [^\n]*\b(role|one)\.slug\b/, 'a role code in a picker'],
+  [/\.displayName \? role\??\.slug\b/, 'a role code beside its name'],
 ];
 
 test('the console shows no role by its code', async () => {

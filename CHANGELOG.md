@@ -230,12 +230,13 @@ The first version. What it holds, in the order an owner meets it.
   record, "shared budget exhausted", which is kept closed beneath it; the
   timeline says a halt by its reason (STATUS 2.103).
 - Roles are shown by the name and title they have -- "Bayu · Chief Strategy
-  Officer" -- on the work list, a task, schedules, triggers, handoffs,
-  reviews, standing approvals, frozen roles, the trace and every picker,
-  instead of "coordinator" or "strategist"; the built-in bundles' roles now
+  Officer" -- on the work list, a task, the team page, schedules,
+  triggers, handoffs, reviews, standing approvals, frozen roles, the trace
+  and every picker, instead of "coordinator" or "strategist"; the built-in
+  bundles' roles now
   arrive with names and titles, and a name you gave one stays when its
   bundle is installed again. The money page lists companies by name
-  (STATUS 2.104).
+  (STATUS 2.104, 2.109).
 - An approval in a chat, a push or an e-mail names its action as the
   console does -- "Hapus data: recordId cust-042" -- in your language,
   instead of "record.delete: recordId cust-042" (STATUS 2.105).

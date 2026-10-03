@@ -1295,6 +1295,7 @@ export const DICTIONARY: Dictionary = {
   "Sign in": "Mlebet",
   "Sign in again": "Mlebet malih",
   "Sign in and approve with your fingerprint, face or screen lock instead of typing a code. The passkey stays on your device; only its public half is kept here.": "Mlebet lan setujoni mawi sidik driji, pasuryan, utawi kunci layar, tanpa ngetik kode. Kunci sandhi tetep wonten ing piranti panjenengan; ingkang dipunsimpen wonten ing ngriki namung perangan publikipun.",
+  "Sign in to {name}": "Mlebet dhateng {name}",
   "Sign in to {name} for the {alias} key": "Mlebet dhateng {name} kangge kunci {alias}",
   "Sign in with a passkey": "Mlebet mawi kunci sandhi",
   "Sign in with a recovery code": "Mlebet mawi kode pamulihan",

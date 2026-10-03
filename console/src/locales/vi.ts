@@ -1302,6 +1302,7 @@ export const DICTIONARY: Dictionary = {
   "Sign in": "Đăng nhập",
   "Sign in again": "Đăng nhập lại",
   "Sign in and approve with your fingerprint, face or screen lock instead of typing a code. The passkey stays on your device; only its public half is kept here.": "Đăng nhập và phê duyệt bằng vân tay, khuôn mặt hoặc khóa màn hình thay vì nhập mã. Khóa truy cập nằm trên thiết bị của bạn; tại đây chỉ lưu phần công khai.",
+  "Sign in to {name}": "Đăng nhập {name}",
   "Sign in to {name} for the {alias} key": "Đăng nhập {name} để lấy khóa {alias}",
   "Sign in with a passkey": "Đăng nhập bằng khóa truy cập",
   "Sign in with a recovery code": "Đăng nhập bằng mã khôi phục",

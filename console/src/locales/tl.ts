@@ -1258,6 +1258,7 @@ export const DICTIONARY: Dictionary = {
   "Sign in": "Mag-sign in",
   "Sign in again": "Mag-sign in ulit",
   "Sign in and approve with your fingerprint, face or screen lock instead of typing a code. The passkey stays on your device; only its public half is kept here.": "Mag-sign in at mag-apruba gamit ang iyong fingerprint, mukha o screen lock sa halip na mag-type ng code. Nananatili sa iyong device ang passkey; ang public na bahagi lang nito ang itinatago rito.",
+  "Sign in to {name}": "Mag-sign in sa {name}",
   "Sign in to {name} for the {alias} key": "Mag-sign in sa {name} para sa key na {alias}",
   "Sign in with a passkey": "Mag-sign in gamit ang passkey",
   "Sign in with a recovery code": "Mag-sign in gamit ang recovery code",

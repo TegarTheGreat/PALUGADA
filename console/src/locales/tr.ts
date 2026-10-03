@@ -1304,6 +1304,7 @@ export const DICTIONARY: Dictionary = {
   "Sign in": "Giriş yap",
   "Sign in again": "Yeniden giriş yap",
   "Sign in and approve with your fingerprint, face or screen lock instead of typing a code. The passkey stays on your device; only its public half is kept here.": "Kod yazmak yerine parmak iziniz, yüzünüz ya da ekran kilidinizle giriş yapın ve onay verin. Geçiş anahtarı cihazınızda kalır; burada yalnızca açık yarısı saklanır.",
+  "Sign in to {name}": "{name} hizmetinde oturum aç",
   "Sign in to {name} for the {alias} key": "{alias} anahtarı için {name} hizmetinde oturum aç",
   "Sign in with a passkey": "Geçiş anahtarıyla giriş yap",
   "Sign in with a recovery code": "Kurtarma koduyla giriş yap",

@@ -1279,6 +1279,7 @@ export const DICTIONARY: Dictionary = {
   "Sign in": "Inloggen",
   "Sign in again": "Opnieuw inloggen",
   "Sign in and approve with your fingerprint, face or screen lock instead of typing a code. The passkey stays on your device; only its public half is kept here.": "Log in en keur goed met je vingerafdruk, gezicht of schermvergrendeling in plaats van een code te typen. De toegangssleutel blijft op je apparaat; hier wordt alleen de publieke helft bewaard.",
+  "Sign in to {name}": "Inloggen bij {name}",
   "Sign in to {name} for the {alias} key": "Inloggen bij {name} voor de sleutel {alias}",
   "Sign in with a passkey": "Inloggen met een toegangssleutel",
   "Sign in with a recovery code": "Inloggen met een herstelcode",

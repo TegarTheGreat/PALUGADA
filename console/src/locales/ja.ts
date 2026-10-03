@@ -1273,6 +1273,7 @@ export const DICTIONARY: Dictionary = {
   "Sign in": "サインイン",
   "Sign in again": "もう一度サインイン",
   "Sign in and approve with your fingerprint, face or screen lock instead of typing a code. The passkey stays on your device; only its public half is kept here.": "コードを入力する代わりに、指紋、顔、画面ロックでサインインと承認ができます。パスキーはあなたのデバイスに保存され、ここには公開鍵の部分だけが保存されます。",
+  "Sign in to {name}": "{name} にサインイン",
   "Sign in to {name} for the {alias} key": "{alias} キーを取得するために {name} にサインイン",
   "Sign in with a passkey": "パスキーでサインイン",
   "Sign in with a recovery code": "リカバリーコードでサインイン",

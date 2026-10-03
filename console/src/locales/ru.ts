@@ -1282,6 +1282,7 @@ export const DICTIONARY: Dictionary = {
   "Sign in": "Войти",
   "Sign in again": "Войти снова",
   "Sign in and approve with your fingerprint, face or screen lock instead of typing a code. The passkey stays on your device; only its public half is kept here.": "Входите и одобряйте с помощью отпечатка пальца, лица или блокировки экрана вместо ввода кода. Ключ доступа остаётся на вашем устройстве; здесь хранится только его открытая часть.",
+  "Sign in to {name}": "Войти в {name}",
   "Sign in to {name} for the {alias} key": "Войти в {name} для ключа {alias}",
   "Sign in with a passkey": "Войти с ключом доступа",
   "Sign in with a recovery code": "Войти с кодом восстановления",

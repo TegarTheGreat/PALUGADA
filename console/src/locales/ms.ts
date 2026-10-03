@@ -1297,6 +1297,7 @@ export const DICTIONARY: Dictionary = {
   "Sign in": "Log masuk",
   "Sign in again": "Log masuk semula",
   "Sign in and approve with your fingerprint, face or screen lock instead of typing a code. The passkey stays on your device; only its public half is kept here.": "Log masuk dan luluskan dengan cap jari, wajah atau kunci skrin anda dan bukannya menaip kod. Kunci laluan kekal pada peranti anda; hanya separuh awamnya disimpan di sini.",
+  "Sign in to {name}": "Log masuk ke {name}",
   "Sign in to {name} for the {alias} key": "Log masuk ke {name} untuk kunci {alias}",
   "Sign in with a passkey": "Log masuk dengan kunci laluan",
   "Sign in with a recovery code": "Log masuk dengan kod pemulihan",

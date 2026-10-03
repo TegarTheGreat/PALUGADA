@@ -533,9 +533,13 @@ only the ones you allow, at the tier you choose.
 
    A server that signs in with OAuth says **It asks you to sign in**
    instead.
-   Give it a **Name**, press **Sign in**, then **Open the sign-in page**, and
-   sign in there in the new tab; the tab says when it is done, and the
-   console lists the server's tools with what the sign-in gave. PALUGADA
+   Give it a **Name**, press **Sign in**, confirm with a code, then **Open
+   the sign-in page**, and sign in there in the new tab; the tab says when it
+   is done, and the
+   console lists the server's tools with what the sign-in gave. The code is
+   asked because a saved server of that name signs in with what this sign-in
+   gives from then on; a server that cannot be signed in to says so first,
+   and no code is spent on it. PALUGADA
    registers itself with the server's authorization server when it allows
    that. One that does not, such as GitHub's, asks for the **Client ID** (and
    **Client secret**) of an app you register with it, coming back to the

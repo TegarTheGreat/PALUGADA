@@ -1264,6 +1264,7 @@ export const DICTIONARY: Dictionary = {
   "Sign in": "登录",
   "Sign in again": "重新登录",
   "Sign in and approve with your fingerprint, face or screen lock instead of typing a code. The passkey stays on your device; only its public half is kept here.": "用指纹、面容或屏幕锁登录和批准，无需输入验证码。通行密钥保存在您的设备上；这里只保存其公钥部分。",
+  "Sign in to {name}": "登录 {name}",
   "Sign in to {name} for the {alias} key": "登录 {name} 以获取 {alias} 密钥",
   "Sign in with a passkey": "使用通行密钥登录",
   "Sign in with a recovery code": "使用恢复码登录",

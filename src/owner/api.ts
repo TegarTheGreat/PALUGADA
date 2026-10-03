@@ -2180,9 +2180,17 @@ export class OwnerApi {
 
       {
         // Begins a sign-in to a server that asks for OAuth, and answers with
-        // the page the owner's browser opens to sign in. Nothing is bound by
-        // it: the tokens the sign-in leaves are the server's once it is saved,
-        // with the owner's device, as a pasted token is.
+        // the page the owner's browser opens to sign in.
+        //
+        // With the owner's device, as a division's sign-in is (B4). The
+        // tokens it leaves are kept under the server's name when the browser
+        // comes back, and a saved server of that name signs in with them from
+        // then on: without the device, anyone holding the owner's session
+        // could sign a saved server in as an account of their own. Asked after
+        // the server is found and a client is registered, so one that cannot
+        // be signed in to is refused without spending a code; the sign-in
+        // that began is then unusable, its state never handed over, and
+        // expires in minutes.
         method: 'POST',
         pattern: '/api/control/mcp/oauth/start',
         handle: async ({ body, request }) => {
@@ -2198,6 +2206,7 @@ export class OwnerApi {
             redirectUri: this.#callbackAddress(request),
             client: clientId ? { clientId, ...(clientSecret ? { clientSecret } : {}) } : null,
           });
+          await this.#requireFactor(body.proof, `sign in to the MCP server ${name}`);
           return { authorizeUrl, issuer };
         },
       },

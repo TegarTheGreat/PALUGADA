@@ -1275,6 +1275,7 @@ export const DICTIONARY: Dictionary = {
   "Sign in": "로그인",
   "Sign in again": "다시 로그인",
   "Sign in and approve with your fingerprint, face or screen lock instead of typing a code. The passkey stays on your device; only its public half is kept here.": "코드를 입력하는 대신 지문, 얼굴, 화면 잠금으로 로그인하고 승인하세요. 패스키는 내 기기에 남고, 여기에는 공개 키 부분만 보관돼요.",
+  "Sign in to {name}": "{name}에 로그인",
   "Sign in to {name} for the {alias} key": "{alias} 키를 위해 {name}에 로그인",
   "Sign in with a passkey": "패스키로 로그인",
   "Sign in with a recovery code": "복구 코드로 로그인",

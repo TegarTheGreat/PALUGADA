@@ -1248,6 +1248,7 @@ export const DICTIONARY: Dictionary = {
   "Sign in": "साइन इन करें",
   "Sign in again": "फिर से साइन इन करें",
   "Sign in and approve with your fingerprint, face or screen lock instead of typing a code. The passkey stays on your device; only its public half is kept here.": "कोड टाइप करने की जगह अपने फ़िंगरप्रिंट, चेहरे या स्क्रीन लॉक से साइन इन करें और स्वीकृति दें। पासकी आपके डिवाइस पर ही रहती है; यहाँ सिर्फ़ उसका पब्लिक हिस्सा रखा जाता है।",
+  "Sign in to {name}": "{name} में साइन इन करें",
   "Sign in to {name} for the {alias} key": "{alias} कुंजी के लिए {name} में साइन इन करें",
   "Sign in with a passkey": "पासकी से साइन इन करें",
   "Sign in with a recovery code": "रिकवरी कोड से साइन इन करें",

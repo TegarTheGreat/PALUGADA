@@ -6397,6 +6397,40 @@ What changed:
   in the deployment's figure. Distillation's calls are traced. A paused
   company's worker distils nothing until resumed.
 
+## 2.79 Signing in to an MCP server takes the owner's device (B4)
+
+Found by the audit of 30 September and still open on 2 October (B4).
+`POST /api/control/mcp/oauth/start` asked for no second factor, while the
+same sign-in for a division's key does (section 2.25). The tokens a sign-in
+leaves are kept under the server's name when the owner's browser comes back
+(`keepTokens`, `src/capabilities/mcp-oauth.ts`), and a saved server of that
+name signs in with them from then on, replacing what it had. Anyone holding
+the owner's session -- a console left open, a stolen session token -- could
+sign a saved server in as an account of their own, and every role using its
+tools would then read and write there, with no code asked and nothing in
+the inbox.
+
+What changed:
+
+- **The device says yes.** The start asks for the owner's factor, after the
+  server is found and a client is registered and before the page to sign in
+  on is handed over. A server that cannot be signed in to -- one that names
+  another resource, offers no PKCE, calls itself something else, or
+  registers no client -- is refused first, so no code is spent on it. A
+  refused start leaves a sign-in no one holds the state of, which expires
+  in minutes.
+- **The console asks** with the dialog it uses everywhere else, titled
+  "Sign in to tracker"; what a server needs, a client ID for one, is still
+  shown on the form rather than in the dialog.
+- **The assistant** still cannot propose it, and now says why in the same
+  words as the division's sign-in: the owner's, with their device and in
+  their own browser.
+- **Tested.** `mcp-oauth.test.ts`: with the server signed in as the owner,
+  a start with no code and one with a wrong code are refused with no page
+  to sign in on, the saved grant is unchanged and nothing more is redeemed;
+  the refusals for a server that does not say who it is still come before
+  any code.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

@@ -1297,6 +1297,7 @@ export const DICTIONARY: Dictionary = {
   "Sign in": "ลงชื่อเข้าใช้",
   "Sign in again": "ลงชื่อเข้าใช้อีกครั้ง",
   "Sign in and approve with your fingerprint, face or screen lock instead of typing a code. The passkey stays on your device; only its public half is kept here.": "ลงชื่อเข้าใช้และอนุมัติด้วยลายนิ้วมือ ใบหน้า หรือการล็อกหน้าจอแทนการพิมพ์รหัส พาสคีย์จะอยู่บนอุปกรณ์ของคุณ ที่นี่เก็บไว้เพียงส่วนสาธารณะ",
+  "Sign in to {name}": "ลงชื่อเข้าใช้ {name}",
   "Sign in to {name} for the {alias} key": "ลงชื่อเข้าใช้ {name} เพื่อรับคีย์ {alias}",
   "Sign in with a passkey": "ลงชื่อเข้าใช้ด้วยพาสคีย์",
   "Sign in with a recovery code": "ลงชื่อเข้าใช้ด้วยรหัสกู้คืน",

@@ -1285,6 +1285,7 @@ export const DICTIONARY: Dictionary = {
   "Sign in": "Se connecter",
   "Sign in again": "Se reconnecter",
   "Sign in and approve with your fingerprint, face or screen lock instead of typing a code. The passkey stays on your device; only its public half is kept here.": "Connectez-vous et approuvez avec votre empreinte digitale, votre visage ou le verrouillage de l’écran au lieu de saisir un code. La clé d’accès reste sur votre appareil ; seule sa partie publique est conservée ici.",
+  "Sign in to {name}": "Se connecter à {name}",
   "Sign in to {name} for the {alias} key": "Se connecter à {name} pour la clé {alias}",
   "Sign in with a passkey": "Se connecter avec une clé d’accès",
   "Sign in with a recovery code": "Se connecter avec un code de récupération",

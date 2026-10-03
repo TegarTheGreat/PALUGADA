@@ -14,10 +14,13 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
 // The console's own formatting, run as the browser runs it. Choosing a
-// language writes to the document, which a test does not have.
+// language writes to the document, which a test does not have. Loaded by
+// address rather than by name: the console is typed for a browser, and the
+// server's type check has no document to give it.
 (globalThis as { document?: unknown }).document = { documentElement: {} };
-const { money } = await import('../../console/src/format.ts');
-const { setLanguage } = await import('../../console/src/i18n.ts');
+const console_ = (path: string) => new URL(`../../console/src/${path}`, import.meta.url).href;
+const { money } = await import(console_('format.ts')) as { money: (cents: number) => string };
+const { setLanguage } = await import(console_('i18n.ts')) as { setLanguage: (language: string) => void };
 
 test('an amount is written as US dollars, the way the owner\'s language writes them', () => {
   setLanguage('en');

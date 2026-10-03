@@ -331,6 +331,7 @@ export const DICTIONARY: Dictionary = {
   "Cancel every task…": "I-cancel ang bawat gawain…",
   "Cancel everything": "I-cancel ang lahat",
   "Cancel this task": "I-cancel ang gawaing ito",
+  "Cancel this task and everything it started?": "I-cancel ang gawaing ito, kasama ang lahat ng sinimulan nito?",
   "Cancelled": "Kinansela",
   "Cancelled by you": "Kinansela mo",
   "Cancelled, with everything it started.": "Kinansela, kasama ang lahat ng sinimulan nito.",

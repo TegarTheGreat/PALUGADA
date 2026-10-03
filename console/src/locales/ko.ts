@@ -348,6 +348,7 @@ export const DICTIONARY: Dictionary = {
   "Cancel every task…": "모든 작업 취소…",
   "Cancel everything": "모두 취소",
   "Cancel this task": "이 작업 취소",
+  "Cancel this task and everything it started?": "이 작업과 이 작업이 시작한 일을 모두 취소할까요?",
   "Cancelled": "취소됨",
   "Cancelled by you": "직접 취소함",
   "Cancelled, with everything it started.": "취소했어요. 이 작업이 시작한 일도 모두 취소돼요.",

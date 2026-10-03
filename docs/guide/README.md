@@ -79,8 +79,10 @@ along the bottom and under **More**.
    progress from its own journal, the step it is on, when its worker last
    checked in, **What it did** (its events) and **What it said** (what its
    runs wrote as they worked). To steer it while it runs, write a note under
-   **Steer it** and press **Tell it**; its next run reads it. **Home** shows
-   the same thing across every company under **Happening now**.
+   **Steer it** and press **Tell it**; its next run reads it. The page moves
+   as the work does, the moment it does. **Home** shows the same thing
+   across every company under **Happening now**, and each task under
+   **Running now** on a company's **Overview** has a stop button.
 
 6. **Answer the inbox.** When something needs you, it appears in the
    company's **Inbox** and in **Needs you** on **Home**, and on your phone if

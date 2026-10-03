@@ -375,6 +375,7 @@ export const DICTIONARY: Dictionary = {
   "Cancel every task…": "Hủy mọi nhiệm vụ…",
   "Cancel everything": "Hủy tất cả",
   "Cancel this task": "Hủy nhiệm vụ này",
+  "Cancel this task and everything it started?": "Hủy nhiệm vụ này cùng mọi thứ nó đã khởi động?",
   "Cancelled": "Đã hủy",
   "Cancelled by you": "Bạn đã hủy",
   "Cancelled, with everything it started.": "Đã hủy, cùng mọi thứ nó đã khởi động.",

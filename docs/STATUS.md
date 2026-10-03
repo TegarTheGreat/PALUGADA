@@ -7416,6 +7416,41 @@ What changed:
   with no document and another company's work are not in it; it pages from
   the last one shown; and a page marker it did not issue is refused.
 
+## 2.111 The owner watches the work as it happens, and stops it where they see it (§9 P1 item 11)
+
+Recommended by the analysis of 3 October (§9, P1 item 11; Paperclip and
+Buzz both show work live). The console asked again every five to fifteen
+seconds: a task finished, or waiting on the owner, sat as it was for as long
+before the screen said so, and what was running had no way to stop it
+except from inside its task.
+
+What changed:
+
+- **A live stream per company** (`GET /api/companies/:companyId/live`,
+  `text/event-stream`): from the moment the owner looks, each event of the
+  company is sent as it is written -- what happened and to which task,
+  never what it carried, which is read the ordinary way and redacted. Each
+  look reads a while back again and skips what it sent, since a transaction
+  that began earlier can commit its events after later ones; a quiet stream
+  says it is still there inside a proxy's idle limit; the API ends every
+  stream when it closes rather than waiting for them.
+- **The console reads it** with fetch, since an EventSource cannot carry the
+  session's token (`live`, `console/src/api.ts`): one stream per company,
+  shared by every panel, opened again after a drop, a little later each
+  time. A panel reloads what an event touches (`useLivePulse`,
+  `console/src/hooks.ts`), once for a burst: the overview, the work list,
+  the inbox, and a task's timeline, transcript and output for its own
+  events. The polling stays underneath, for a stream a proxy will not carry.
+- **Stop on what is running now**: each task under **Running now** on the
+  overview has a stop button that asks once -- "Cancel this task and
+  everything it started?" -- and cancels it.
+- **Tested.** `live.test.ts`: the stream refuses an owner not signed in,
+  sends a task's moves as they happen and each once, sends nothing of
+  another company and nothing an event carried, and ends when the API
+  closes. `console-live.test.ts`: in Chromium, a task finished in the
+  database moves under **Done** on the work list within four seconds,
+  sooner than the list asks again; with the stream turned off it does not.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

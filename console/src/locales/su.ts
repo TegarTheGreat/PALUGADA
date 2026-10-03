@@ -376,6 +376,7 @@ export const DICTIONARY: Dictionary = {
   "Cancel every task…": "Bolaykeun sadaya tugas…",
   "Cancel everything": "Bolaykeun sadayana",
   "Cancel this task": "Bolaykeun tugas ieu",
+  "Cancel this task and everything it started?": "Bolaykeun tugas ieu sareng sadaya anu dimimitianana?",
   "Cancelled": "Dibolaykeun",
   "Cancelled by you": "Dibolaykeun ku anjeun",
   "Cancelled, with everything it started.": "Dibolaykeun, sareng sadaya anu dimimitianana.",

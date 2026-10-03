@@ -213,6 +213,8 @@ import {
   taskDetailOf,
   workOf,
   galleryOf,
+  eventsAfter,
+  databaseNow,
 } from './views.ts';
 
 export interface OwnerApiOptions {
@@ -395,6 +397,27 @@ class HtmlPage {
   }
 }
 
+/**
+ * An answer that goes on: server-sent events, written as they come, until
+ * the owner goes or the API closes. `run` writes each one with `send` and
+ * returns when `signal` aborts.
+ */
+class EventStream {
+  readonly run: (send: (data: unknown, id?: string) => void, signal: AbortSignal) => Promise<void>;
+
+  constructor(run: EventStream['run']) {
+    this.run = run;
+  }
+}
+
+/** How often a live stream looks for new events. */
+const LIVE_POLL_MS = 1_000;
+/** How far back each look reads again, for a transaction that committed late. */
+const LIVE_LOOKBACK_MS = 30_000;
+
+/** How long a quiet stream waits before saying it is still there, inside any proxy's idle limit. */
+const STREAM_HEARTBEAT_MS = 15_000;
+
 interface Route {
   method: string;
   /** Path with `:name` segments. Matched segment by segment, never by regex. */
@@ -420,6 +443,8 @@ export class OwnerApi {
   readonly #signInThrottle = new SignInThrottle();
   readonly #agentJobs = new AgentJobs();
   #server: Server | null = null;
+  /** The live streams open now (`EventStream`), ended when the API closes rather than waited for. */
+  readonly #streams = new Set<AbortController>();
   #allowedHosts: ReadonlySet<string> | null = null;
   /** The answers being written, so that a closing listener finishes them rather than cutting them off. */
   readonly #answering = new Set<ServerResponse>();
@@ -496,6 +521,8 @@ export class OwnerApi {
     if (!server) return;
     this.#server = null;
     this.#letConnectionsGo();
+    // A stream never finishes by itself: it is told to end, not given time.
+    for (const stream of this.#streams) stream.abort();
     // Before anything is awaited, so no connection is accepted after this line.
     const closed = new Promise<void>((resolve) => server.close(() => resolve()));
     server.closeIdleConnections();
@@ -835,6 +862,45 @@ export class OwnerApi {
       },
 
 
+
+      {
+        // The company's events as they are written (the analysis of 3 October,
+        // §9 P1 item 11): the console reloads what each touches, rather than
+        // asking again every few seconds. From the moment the owner looks;
+        // what came before is read the ordinary way.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/live',
+        handle: async ({ params }) => {
+          const companyId = params.companyId!;
+          return new EventStream(async (send, signal) => {
+            const looked = await databaseNow(companyId);
+            let newest = looked;
+            // Sent, by when it happened. Read again a while back on every
+            // look: a transaction that began earlier can commit its events
+            // after later ones, stamped with its own start.
+            const sent = new Map<string, number>();
+            while (!signal.aborted) {
+              try {
+                const from = new Date(Math.max(looked.getTime(), newest.getTime() - LIVE_LOOKBACK_MS));
+                for (const event of await eventsAfter(companyId, from)) {
+                  if (sent.has(event.id)) continue;
+                  sent.set(event.id, event.at.getTime());
+                  if (event.at > newest) newest = event.at;
+                  send({ id: event.id, type: event.type, taskId: event.taskId, actor: event.actor, at: event.at }, event.id);
+                }
+                for (const [id, at] of sent) if (at < newest.getTime() - 2 * LIVE_LOOKBACK_MS) sent.delete(id);
+              } catch {
+                // The database's moment: the next look tries again, and the
+                // console still has its own reloads to fall back on.
+              }
+              await new Promise<void>((resolve) => {
+                const wake = setTimeout(resolve, LIVE_POLL_MS);
+                signal.addEventListener('abort', () => { clearTimeout(wake); resolve(); }, { once: true });
+              });
+            }
+          });
+        },
+      },
 
       {
         // Everything the company produced for a person to read, newest first
@@ -5500,6 +5566,7 @@ export class OwnerApi {
         query: url.searchParams,
       });
       if (answer instanceof WithStatus) send(res, answer.status, answer.body);
+      else if (answer instanceof EventStream) await this.#stream(req, res, answer);
       else if (answer instanceof HtmlPage) sendPage(res, answer);
       else if (answer instanceof PlainText) {
         res.writeHead(200, { 'content-type': answer.contentType, 'cache-control': 'no-store' });
@@ -5538,6 +5605,35 @@ export class OwnerApi {
         return;
       }
       send(res, 500, { error: 'internal error' });
+    }
+  }
+
+  /**
+   * Writes an event stream until the owner goes or the API closes. A comment
+   * line now and then keeps a quiet stream from being cut by a proxy that
+   * closes what it thinks is idle; `X-Accel-Buffering` asks one that buffers
+   * answers not to hold these back.
+   */
+  async #stream(req: IncomingMessage, res: ServerResponse, stream: EventStream): Promise<void> {
+    const stop = new AbortController();
+    this.#streams.add(stop);
+    req.once('close', () => stop.abort());
+    res.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-store',
+      connection: 'keep-alive',
+      'x-accel-buffering': 'no',
+    });
+    res.write(': listening\n\n');
+    const beat = setInterval(() => res.write(': still here\n\n'), STREAM_HEARTBEAT_MS);
+    try {
+      await stream.run((data, id) => {
+        res.write(`${id ? `id: ${id}\n` : ''}data: ${JSON.stringify(data)}\n\n`);
+      }, stop.signal);
+    } finally {
+      clearInterval(beat);
+      this.#streams.delete(stop);
+      res.end();
     }
   }
 

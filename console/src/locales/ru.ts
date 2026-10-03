@@ -355,6 +355,7 @@ export const DICTIONARY: Dictionary = {
   "Cancel every task…": "Отменить все задачи…",
   "Cancel everything": "Отменить всё",
   "Cancel this task": "Отменить эту задачу",
+  "Cancel this task and everything it started?": "Отменить эту задачу вместе со всем, что она запустила?",
   "Cancelled": "Отменена",
   "Cancelled by you": "Отменена вами",
   "Cancelled, with everything it started.": "Отменена вместе со всем, что она запустила.",

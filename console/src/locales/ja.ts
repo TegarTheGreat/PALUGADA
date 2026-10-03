@@ -346,6 +346,7 @@ export const DICTIONARY: Dictionary = {
   "Cancel every task…": "すべてのタスクをキャンセル…",
   "Cancel everything": "すべてキャンセル",
   "Cancel this task": "このタスクをキャンセル",
+  "Cancel this task and everything it started?": "このタスクと、これが開始したものをすべてキャンセルしますか？",
   "Cancelled": "キャンセル済み",
   "Cancelled by you": "あなたがキャンセル",
   "Cancelled, with everything it started.": "キャンセルしました。これが開始したものもすべてキャンセルされます。",

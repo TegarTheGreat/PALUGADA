@@ -254,6 +254,10 @@ The first version. What it holds, in the order an owner meets it.
   newest first, with who wrote it, each a press away from its whole text
   and its task. They could be found only on the task that made them
   (STATUS 2.110).
+- The console shows work moving the moment it moves -- the overview, the
+  work list, the inbox and a task's timeline -- from a live stream instead
+  of asking again every few seconds, and each task under **Running now**
+  has a button to stop it (STATUS 2.111).
 - **Replay against the journal** is shown only for a task this deployment
   can replay. It was offered on every task and refused on every task a
   model or an agent CLI ran (STATUS 2.87).

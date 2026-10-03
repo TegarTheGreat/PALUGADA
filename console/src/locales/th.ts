@@ -370,6 +370,7 @@ export const DICTIONARY: Dictionary = {
   "Cancel every task…": "ยกเลิกทุกงาน…",
   "Cancel everything": "ยกเลิกทั้งหมด",
   "Cancel this task": "ยกเลิกงานนี้",
+  "Cancel this task and everything it started?": "ยกเลิกงานนี้และทุกอย่างที่งานนี้เริ่มไว้ไหม",
   "Cancelled": "ยกเลิกแล้ว",
   "Cancelled by you": "คุณยกเลิก",
   "Cancelled, with everything it started.": "ยกเลิกแล้ว รวมถึงทุกอย่างที่งานนี้เริ่มไว้",

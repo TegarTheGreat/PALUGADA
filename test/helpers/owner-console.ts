@@ -66,6 +66,6 @@ export async function consoleWithSettings(options: {
       });
       return String(((await response.json()) as { token: string }).token);
     },
-    close: () => api.close(),
+    close: (finishMs?: number) => api.close(finishMs),
   };
 }

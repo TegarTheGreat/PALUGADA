@@ -370,6 +370,7 @@ export const DICTIONARY: Dictionary = {
   "Cancel every task…": "Batalkan setiap tugasan…",
   "Cancel everything": "Batalkan semuanya",
   "Cancel this task": "Batalkan tugasan ini",
+  "Cancel this task and everything it started?": "Batalkan tugasan ini bersama semua yang dimulakannya?",
   "Cancelled": "Dibatalkan",
   "Cancelled by you": "Dibatalkan oleh anda",
   "Cancelled, with everything it started.": "Dibatalkan, bersama semua yang dimulakannya.",

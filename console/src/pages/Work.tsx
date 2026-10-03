@@ -19,7 +19,7 @@ import {
   IconCircleCheck, IconCircleX, IconListCheck, IconRefresh, IconThumbDown, IconThumbUp, IconTicket,
 } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
-import { useLoad, useNow } from '../hooks.ts';
+import { useLivePulse, useLoad, useNow } from '../hooks.ts';
 import { go } from '../router.ts';
 import type { Deliverable, DoneReportEntry, Structure, TaskDetail, Trace, WorkGroup, WorkItem } from '../types.ts';
 import {
@@ -57,11 +57,13 @@ export function Work({ ctx, route }: PageProps) {
     if (before) params.set('before', before);
     return params.toString();
   };
+  // Every event of the company can move a task on the list: it is read again when one is written.
+  const pulse = useLivePulse(companyId);
   const work = useLoad(async () => {
     const answer: { items: WorkItem[]; counts: Record<WorkGroup, number>; next: string | null } =
       await api('GET', `/api/companies/${companyId}/work?${query()}`);
     return answer;
-  }, [companyId, filter, project, role, goal], { every: 10_000 });
+  }, [companyId, filter, project, role, goal], { every: 10_000, pulse });
   const structure = useLoad(async (): Promise<Structure> => api('GET', `/api/companies/${companyId}/structure`), [companyId]);
   // The first page reloads itself every ten seconds; what was paged in after
   // it is dropped when the filters change, and its marker taken from the
@@ -324,12 +326,14 @@ export function TaskProgress({ item, wide = false }: { item: WorkItem; wide?: bo
 export function TaskDrawer({ companyId, task, close, changed, openTask }: {
   companyId: string; task: WorkItem | null; close: () => void; changed: () => void; openTask: (id: string) => void;
 }) {
+  // This task's own events, as they are written.
+  const pulse = useLivePulse(companyId, (event) => event.taskId === task?.id);
   const events = useLoad(async () => {
     if (!task) return [];
     const answer: { events: Array<{ type: string; actor: string; payload: Record<string, unknown>; occurredAt: string }> } =
       await api('GET', `/api/companies/${companyId}/tasks/${task.id}/events`);
     return answer.events;
-  }, [companyId, task?.id], { every: task && LIVE.includes(task.status) ? 10_000 : undefined });
+  }, [companyId, task?.id], { every: task && LIVE.includes(task.status) ? 10_000 : undefined, pulse });
   const [replay, setReplay] = useState<string | null>(null);
   const [replaying, setReplaying] = useState(false);
   const replayable = useLoad(async () => {
@@ -612,11 +616,12 @@ function capabilityOf(event: { payload: Record<string, unknown> }): string | nul
 }
 
 function Transcript({ companyId, task }: { companyId: string; task: WorkItem }) {
+  const pulse = useLivePulse(companyId, (event) => event.taskId === task.id);
   const notes = useLoad(async () => {
     const answer: { notes: Array<{ seq: number; body: string; saidAt: string; attempt: number }> } =
       await api('GET', `/api/companies/${companyId}/tasks/${task.id}/transcript?limit=200`);
     return answer.notes;
-  }, [companyId, task.id], { every: LIVE.includes(task.status) ? 5_000 : undefined });
+  }, [companyId, task.id], { every: LIVE.includes(task.status) ? 5_000 : undefined, pulse });
 
   if (notes.error) return <Text c="red" size="sm">{notes.error}</Text>;
   if (!notes.data || notes.data.length === 0) return null;
@@ -749,10 +754,11 @@ function TaskFeedback({ companyId, task }: { companyId: string; task: WorkItem }
  * which used to be nowhere the owner could see it.
  */
 function TaskOutput({ companyId, task, openTask }: { companyId: string; task: WorkItem; openTask: (id: string) => void }) {
+  const pulse = useLivePulse(companyId, (event) => event.taskId === task.id);
   const detail = useLoad(async () => {
     const answer: { task: TaskDetail } = await api('GET', `/api/companies/${companyId}/tasks/${task.id}`);
     return answer.task;
-  }, [companyId, task.id, task.status], { every: LIVE.includes(task.status) ? 15_000 : undefined });
+  }, [companyId, task.id, task.status], { every: LIVE.includes(task.status) ? 15_000 : undefined, pulse });
   const [reading, setReading] = useState<Deliverable | null>(null);
 
   if (detail.error) return <Text c="red" size="sm">{detail.error}</Text>;

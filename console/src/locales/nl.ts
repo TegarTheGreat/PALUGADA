@@ -352,6 +352,7 @@ export const DICTIONARY: Dictionary = {
   "Cancel every task…": "Alle taken annuleren…",
   "Cancel everything": "Alles annuleren",
   "Cancel this task": "Deze taak annuleren",
+  "Cancel this task and everything it started?": "Deze taak annuleren, met alles wat ze heeft gestart?",
   "Cancelled": "Geannuleerd",
   "Cancelled by you": "Door jou geannuleerd",
   "Cancelled, with everything it started.": "Geannuleerd, met alles wat ze had gestart.",

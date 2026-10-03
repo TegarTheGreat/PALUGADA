@@ -377,6 +377,7 @@ export const DICTIONARY: Dictionary = {
   "Cancel every task…": "Tüm görevleri iptal et…",
   "Cancel everything": "Her şeyi iptal et",
   "Cancel this task": "Bu görevi iptal et",
+  "Cancel this task and everything it started?": "Bu görev, başlattığı her şeyle birlikte iptal edilsin mi?",
   "Cancelled": "İptal edildi",
   "Cancelled by you": "Sizin tarafınızdan iptal edildi",
   "Cancelled, with everything it started.": "Başlattığı her şeyle birlikte iptal edildi.",

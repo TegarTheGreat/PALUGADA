@@ -337,6 +337,7 @@ export const DICTIONARY: Dictionary = {
   "Cancel every task…": "取消所有任务…",
   "Cancel everything": "全部取消",
   "Cancel this task": "取消此任务",
+  "Cancel this task and everything it started?": "取消此任务及其启动的所有工作？",
   "Cancelled": "已取消",
   "Cancelled by you": "已被您取消",
   "Cancelled, with everything it started.": "已取消，它启动的所有工作也一并取消。",

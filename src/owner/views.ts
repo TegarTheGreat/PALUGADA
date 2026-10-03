@@ -831,6 +831,40 @@ export async function galleryOf(
   });
 }
 
+/* ---------------------------------------------------------------- live --- */
+
+/**
+ * One event as the live stream sends it: what happened and to which task,
+ * never what it carried -- that is read the ordinary way, redacted, by the
+ * view the event touches (the analysis of 3 October, §9 P1 item 11).
+ */
+export interface LiveEvent {
+  id: string;
+  type: string;
+  taskId: string | null;
+  actor: string;
+  at: Date;
+}
+
+/** The company's events after `after`, oldest first. */
+export async function eventsAfter(companyId: string, after: Date, limit = 500): Promise<LiveEvent[]> {
+  return withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<{ id: string; type: string; task_id: string | null; actor: string; occurred_at: Date }>(
+      `SELECT id, type, task_id, actor, occurred_at FROM events
+        WHERE company_id = $1 AND occurred_at > $2
+        ORDER BY occurred_at, id
+        LIMIT $3`,
+      [companyId, after, limit],
+    );
+    return rows.map((row) => ({ id: row.id, type: row.type, taskId: row.task_id, actor: row.actor, at: row.occurred_at }));
+  });
+}
+
+/** The database's clock, which stamps every event, rather than this process's. */
+export async function databaseNow(companyId: string): Promise<Date> {
+  return withTenant(companyId, async (tx) => (await tx.query<{ now: Date }>('SELECT clock_timestamp() AS now')).rows[0]!.now);
+}
+
 /* --------------------------------------------------------------- activity --- */
 
 export interface ActivityItem {

@@ -17,7 +17,8 @@ import {
 import { AreaChart } from '@mantine/charts';
 import { IconArrowRight, IconTarget } from '@tabler/icons-react';
 import { api } from '../api.ts';
-import { useLoad } from '../hooks.ts';
+import { useLivePulse, useLoad } from '../hooks.ts';
+import { StopTask } from '../components/StopTask.tsx';
 import type {
   ActivityItem, CostPeriod, InboxItem, Retro, Spend, Structure, WorkGroup, WorkItem,
 } from '../types.ts';
@@ -40,6 +41,8 @@ const STAGES: Array<{ id: string; label: string; statuses: string[]; color: stri
 
 export function Overview({ ctx }: PageProps) {
   const { companyId } = ctx;
+  // Every event moves something on this page: it is drawn again when one is written.
+  const pulse = useLivePulse(companyId);
   const view = useLoad(async () => {
     const [work, activity, spend, cost, inbox, retro, structure]: [
       { items: WorkItem[]; counts: Record<WorkGroup, number> }, { items: ActivityItem[] }, Spend,
@@ -54,7 +57,7 @@ export function Overview({ ctx }: PageProps) {
       api('GET', `/api/companies/${companyId}/structure`),
     ]);
     return { work, activity, spend, cost, inbox, retro, structure };
-  }, [companyId], { every: 15_000 });
+  }, [companyId], { every: 15_000, pulse });
 
   const header = (
     <PageHeader
@@ -136,6 +139,7 @@ export function Overview({ ctx }: PageProps) {
                         </Group>
                       </Table.Td>
                       <Table.Td w={200} visibleFrom="sm"><TaskProgress item={item} /></Table.Td>
+                      <Table.Td w={44} ta="right"><StopTask companyId={companyId} taskId={item.id} stopped={view.reload} /></Table.Td>
                     </Table.Tr>
                   ))}
                 </Table.Tbody>

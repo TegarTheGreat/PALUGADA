@@ -31,7 +31,7 @@ import {
 } from '@tabler/icons-react';
 import { api, ApiError, explain, type Proof } from '../api.ts';
 import { useFactor } from '../factor.tsx';
-import { useLoad } from '../hooks.ts';
+import { useLivePulse, useLoad } from '../hooks.ts';
 import { go } from '../router.ts';
 import type { Digest, InboxItem, StandingApproval, Trace } from '../types.ts';
 import { capabilitySaid, dateTime, goalKind, money, relative } from '../format.ts';
@@ -85,6 +85,8 @@ function urgency(item: InboxItem): number {
 
 export function Decisions({ ctx, route }: PageProps) {
   const { companyId } = ctx;
+  // An item asked or withdrawn shows the moment it is.
+  const pulse = useLivePulse(companyId);
   const queue = useLoad(async () => {
     const [{ items }, digest, later, { standing }]: [
       { items: InboxItem[] }, Digest, { items: InboxItem[] }, { standing: StandingApproval[] },
@@ -95,7 +97,7 @@ export function Decisions({ ctx, route }: PageProps) {
       api('GET', `/api/companies/${companyId}/standing-approvals`),
     ]);
     return { items, digest, later: later.items, standing };
-  }, [companyId], { every: 15_000 });
+  }, [companyId], { every: 15_000, pulse });
   const [filter, setFilter] = useState<Filter>('all');
   const [missingLink, setMissingLink] = useState(false);
   const [choosing, setChoosing] = useState(false);

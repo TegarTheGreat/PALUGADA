@@ -59,7 +59,8 @@ const PATTERN = /method: '([A-Z]+)',\s*\n\s*pattern: '([^']+)'/g;
 /**
  * What the page fetches, as route patterns.
  *
- * Read from every `api('METHOD', '/api/...')` call in `console/src`. The
+ * Read from every `api('METHOD', '/api/...')` call in `console/src`, and
+ * every `live('GET', '/api/...')` that listens to a stream. The
  * console writes each path out in full at the call, never in a variable, so
  * that this reading is complete (see `console/src/api.ts`).
  */
@@ -77,7 +78,8 @@ async function pathsThePageFetches(): Promise<Set<string>> {
   // The method travels with the path. Without it a `POST /goals/:id` makes a
   // `GET /goals/:id` look pressed, and the guard reports a button that is not
   // there -- which is the one way this test could be worse than nothing.
-  for (const match of expanded.matchAll(/api\(\s*'([A-Z]+)'\s*,\s*['`](\/api\/[^'`]*)['`]/g)) {
+  // `live(...)` is the same call for a stream of events (console/src/api.ts).
+  for (const match of expanded.matchAll(/\b(?:api|live)\(\s*'([A-Z]+)'\s*,\s*['`](\/api\/[^'`]*)['`]/g)) {
     found.add(`${match[1]!} ${normalise(match[2]!)}`);
   }
   return found;

@@ -8329,6 +8329,63 @@ What changed:
   sandboxed Chromium instead (2.123), so the platform's process still
   parses no untrusted binary.
 
+## 2.129 A role reads a PDF, a Word document or a workbook, in the sandboxed browser
+
+What 2.128 left: the documents a small company keeps -- a supplier's
+invoice as a PDF, an offer in Word, the month's orders in Excel. The
+research would parse them in the `--network none` container; that needs
+Docker inside the deployment, and the deployment already has a better
+boundary for a hostile file: Chromium's sandbox (2.123), which renders
+strangers' pages all day.
+
+What changed:
+
+- **`Browsers.convert`** reads one document in a page of a context made
+  for it, set offline as well as behind the proxy, and disposed of after;
+  two at a time, a minute each (`src/browser/browsers.ts`). The parsing is
+  `src/browser/documents.ts`, which runs only in that page: a document
+  that breaks it has broken into a sandboxed renderer with no files, no
+  network and nothing of the platform's.
+- **A PDF** is read with pdf.js -- the console's own dependency, copied by
+  its build into `console/dist/reader` (`console/vite.config.ts`), so the
+  server adds none; the build config reading the files from disk gave the
+  console `@types/node` as a dev dependency, which the image's console
+  stage, with no repository root above it, did not otherwise have --
+  imported into the page as `data:` modules and run on
+  the page's own thread, so nothing is fetched; lines as lines, pages as
+  paragraphs, as the console reads one. A locked one and a scan say so.
+- **A Word document** is its paragraphs, tabs and breaks kept, deleted text
+  and field codes left out, and its tables row by row with cells by tabs.
+  **A workbook** is each sheet under its name, its cells by tabs where they
+  stand, shared and inline strings, booleans, and dates as dates: Excel's
+  own date formats and any of the workbook's whose code has a day, month,
+  year or hour, in the 1900 or the 1904 system.
+- **A ZIP is read with what the browser has**: the central directory by
+  hand and each entry inflated with `DecompressionStream`, counted as it
+  comes, so a file that claims or turns out to unpack past 32 MB is refused
+  rather than believed; an encrypted entry is said to be locked. At most 5
+  million characters of text, and 2,000 pages.
+- **`files.read`** tells a document by its bytes before it reads anything
+  as text -- a PDF may be ASCII throughout -- and Word from Excel by the
+  name; it keeps a document's text ten minutes, so its next page is not
+  another conversion, and says `kind`. Without a browser a document is
+  said to need one.
+- **The image's check reads a PDF** (`scripts/browser-check.ts`, which CI's
+  docker job and `install.sh doctor` run), so a build that left out the
+  reader, or a sandbox that stops pdf.js, fails there.
+- **Tested.** `files-read.test.ts`, with documents written byte by byte
+  (`test/helpers/documents.ts`): a two-page PDF with an accented word read
+  line by line; a Word document's paragraphs, a tab and a table; a
+  workbook's two sheets with dates, numbers, a blank and a name with an
+  ampersand; the second reading not converted again; a ZIP that unpacks to
+  64 MB, a broken PDF, a page with no text and a ZIP that is not a
+  workbook each refused with what it was; a PDF with no browser said to
+  need one.
+- **Not done.** PowerPoint, OpenDocument and the old binary `.doc` and
+  `.xls`; text in a picture or a scanned page, which is `image.describe`'s
+  (recommendation 5); a workbook's formulas are read as the values Excel
+  last saved, and one never saved by Excel has none.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

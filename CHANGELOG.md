@@ -330,9 +330,11 @@ The first version. What it holds, in the order an owner meets it.
   sending is tier 2, so a reply to mail a role read waits for your yes. A
   service bound for `email.send`, such as Resend, is still the one used
   (STATUS 2.127).
-- A role granted **Read a file** reads a text file in the company's files
-  -- a draft, a price list, a CSV -- a page at a time, and nothing outside
-  them (STATUS 2.128).
+- A role granted **Read a file** reads a file in the company's files -- a
+  draft, a CSV, a PDF, a Word document, an Excel workbook -- as text, a page
+  at a time, and nothing outside them. Documents are read in the
+  deployment's own sandboxed browser, never by the server itself
+  (STATUS 2.128, 2.129).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

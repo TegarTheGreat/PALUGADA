@@ -757,6 +757,8 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
       executable: chromium,
       sandbox: env.PALUGADA_BROWSER_SANDBOX !== 'off',
       reachable,
+      // pdf.js, which the console's build copies beside it, for a company's PDFs.
+      reader: fileURLToPath(new URL('../console/dist/reader', import.meta.url)),
       cookies: sealedCookies({ master: () => master(true), previous: () => previousKeys }),
     })
     : null;

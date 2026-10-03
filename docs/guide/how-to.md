@@ -400,8 +400,11 @@ What a file says is treated as written outside the company, since nothing
 records where it came from, so work that read one asks you before its next
 action at tier 2 or above. The standard template grants both to Operations
 and Delivery; give them to another division on **Team**. A file that is not
-text -- a picture, a recording, a PDF -- is not read yet; give a document to
-the company on **Documents** instead.
+text is read as it is; a PDF, a Word document or an Excel workbook is read
+as text in the deployment's own browser, sheet by sheet with dates as dates,
+when it has one (the image does). A picture or a recording is not read. A
+scan is a picture of a page and has no text to read: give its text to the
+company on **Documents** instead.
 
 ## Give a division its mailbox
 

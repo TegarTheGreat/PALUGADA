@@ -29,6 +29,7 @@ import { Cdp } from './cdp.ts';
 import { keepable, type CookieStore, type StoredCookie } from './cookies.ts';
 import { startEgress, type Egress } from './egress.ts';
 import { ELEMENTS_MAX, KEYS, PAGE_SCRIPT, TEXT_MAX, WORLD } from './page.ts';
+import { CONVERT_SCRIPT, type ConversionFailure } from './documents.ts';
 
 export interface BrowserSettings {
   /** Chromium, or Chrome. */
@@ -42,6 +43,12 @@ export interface BrowserSettings {
   maxCompanies?: number;
   /** A tab, a company's browser and Chromium itself are closed after this long unused. */
   idleMs?: number;
+  /**
+   * The folder holding pdf.js (`pdf.min.mjs` and `pdf.worker.min.mjs`), which
+   * the console's build puts in `console/dist/reader`; without it, a PDF is
+   * not read (`convert`).
+   */
+  reader?: string;
   viewport?: { width: number; height: number };
 }
 
@@ -146,6 +153,13 @@ const OWNER_TAB = 'owner';
 /** Pages `extract` reads at once; each is a context of its own while it does. */
 const EXTRACTS_AT_ONCE = 4;
 
+/** Documents `convert` reads at once, and how long one may take. */
+const CONVERSIONS_AT_ONCE = 2;
+const CONVERT_MS = 60_000;
+
+/** What `convert` reads: a PDF, a Word document, an Excel workbook. */
+export type DocumentKind = 'pdf' | 'word' | 'excel';
+
 export const MAX_STEPS = 20;
 const TABS_PER_COMPANY = 8;
 const NAVIGATE_MS = 30_000;
@@ -240,6 +254,9 @@ export class Browsers {
   /** The contexts `extract` made, each for one reading. */
   readonly #readers = new Set<string>();
   #extracting = 0;
+  #converting = 0;
+  /** pdf.js, read once from `reader`, as the page imports it; null when it is not there. */
+  #pdfjs: Promise<{ lib: string; worker: string } | null> | null = null;
   readonly #reaper: NodeJS.Timeout;
   #lastUsed = Date.now();
   #closed = false;
@@ -357,6 +374,80 @@ export class Browsers {
       this.#extracting -= 1;
       this.#lastUsed = Date.now();
     }
+  }
+
+  /**
+   * A document's text, read in a page of a context made for it, set offline
+   * and disposed of after (`documents.ts` says why it is read there and not
+   * here). The answer is the text, or why there is none, which the caller
+   * says with the file's name.
+   */
+  async convert(kind: DocumentKind, bytes: Buffer, signal?: AbortSignal): Promise<{ text: string } | { failure: ConversionFailure | 'no-reader' }> {
+    if (this.#closed) throw new PalugadaError('capability.unreachable', 'the browser is shutting down', {});
+    const libraries = kind === 'pdf' ? await this.#pdfLibraries() : null;
+    if (kind === 'pdf' && !libraries) return { failure: 'no-reader' };
+    if (this.#converting >= CONVERSIONS_AT_ONCE) {
+      throw new PalugadaError('capability.busy', `the browser is reading ${CONVERSIONS_AT_ONCE} documents already; this waits for one of them`,
+        { capability: 'files.read', limit: CONVERSIONS_AT_ONCE, notBefore: new Date(Date.now() + 30_000).toISOString() });
+    }
+    if (signal?.aborted) throw signal.reason ?? new Error('the work was stopped');
+    this.#converting += 1;
+    this.#lastUsed = Date.now();
+    let contextId: string | null = null;
+    const dispose = async () => {
+      if (!contextId) return;
+      const id = contextId;
+      contextId = null;
+      this.#readers.delete(id);
+      await this.#cdp?.send('Target.disposeBrowserContext', { browserContextId: id }).catch(() => undefined);
+    };
+    const stop = () => { void dispose(); };
+    signal?.addEventListener('abort', stop, { once: true });
+    try {
+      const cdp = await this.#ready();
+      ({ browserContextId: contextId } = await cdp.send<{ browserContextId: string }>('Target.createBrowserContext', {
+        proxyServer: this.#egress!.server, proxyBypassList: '<-loopback>', disposeOnDetach: false,
+      }));
+      this.#readers.add(contextId!);
+      await cdp.send('Browser.setDownloadBehavior', { behavior: 'deny', browserContextId: contextId });
+      const { targetId } = await cdp.send<{ targetId: string }>('Target.createTarget', { url: 'about:blank', browserContextId: contextId });
+      const { sessionId } = await cdp.send<{ sessionId: string }>('Target.attachToTarget', { targetId, flatten: true });
+      // Offline as well as behind the proxy: a document has nothing to fetch.
+      await cdp.send('Network.enable', {}, sessionId);
+      await cdp.send('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 }, sessionId);
+      const expression = `(${CONVERT_SCRIPT})(${JSON.stringify(kind)}, ${JSON.stringify(bytes.toString('base64'))}, ${JSON.stringify(libraries)})`;
+      let answer: { result: { value?: unknown } };
+      try {
+        answer = await cdp.send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }, sessionId, CONVERT_MS);
+      } catch (failure) {
+        if (signal?.aborted) throw signal.reason ?? failure;
+        if (/did not answer/.test((failure as Error).message)) return { failure: 'too-slow' };
+        throw failure;
+      }
+      const value = answer.result.value as { text?: unknown; failure?: unknown } | undefined;
+      if (typeof value?.text === 'string') return { text: value.text };
+      return { failure: (typeof value?.failure === 'string' ? value.failure : 'unreadable') as ConversionFailure };
+    } finally {
+      signal?.removeEventListener('abort', stop);
+      await dispose();
+      this.#converting -= 1;
+      this.#lastUsed = Date.now();
+    }
+  }
+
+  async #pdfLibraries(): Promise<{ lib: string; worker: string } | null> {
+    this.#pdfjs ??= (async () => {
+      if (!this.#settings.reader) return null;
+      const { readFile } = await import('node:fs/promises');
+      const { join } = await import('node:path');
+      try {
+        const [lib, worker] = await Promise.all(['pdf.min.mjs', 'pdf.worker.min.mjs'].map((name) => readFile(join(this.#settings.reader!, name))));
+        return { lib: lib!.toString('base64'), worker: worker!.toString('base64') };
+      } catch {
+        return null;
+      }
+    })();
+    return this.#pdfjs;
   }
 
   /* ------------------------------------------------------------- acting --- */
@@ -906,7 +997,8 @@ export class Browsers {
       }
       if (context.busy === 0 && context.tabs.size === 0 && now - context.lastUsed > this.#idleMs) await this.#closeContext(context);
     }
-    if (this.#cdp && this.#contexts.size === 0 && this.#opening.size === 0 && this.#extracting === 0 && now - this.#lastUsed > this.#idleMs) {
+    if (this.#cdp && this.#contexts.size === 0 && this.#opening.size === 0 && this.#extracting === 0 && this.#converting === 0
+      && now - this.#lastUsed > this.#idleMs) {
       const cdp = this.#cdp;
       this.#cdp = null;
       await cdp.close();

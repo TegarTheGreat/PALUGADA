@@ -96,7 +96,8 @@ export function platformCapabilities(
 
   if (options.files) {
     built.push(filesList(options.files) as unknown as Capability<never, never>);
-    built.push(filesRead(options.files) as unknown as Capability<never, never>);
+    // A PDF, a Word document or a workbook is read in the browser, when there is one.
+    built.push(filesRead(options.files, options.browser) as unknown as Capability<never, never>);
   }
   if (options.search) built.push(webSearch(options.search) as unknown as Capability<never, never>);
   // A page is read by the provider the owner chose; with none, by this

@@ -7,10 +7,14 @@
  * sandbox starts too. So this passes only when a page has rendered in a
  * process in a user namespace other than this one's, which is the sandbox
  * Chromium puts its renderers in, and fails, saying what it saw, otherwise.
+ * Then it reads a PDF the way `files.read` does (`Browsers.convert`), which
+ * needs pdf.js where the console's build put it.
  *
  *   node scripts/browser-check.ts
  */
 import { readdirSync, readFileSync, readlinkSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { Browsers } from '../src/browser/browsers.ts';
 import { Cdp } from '../src/browser/cdp.ts';
 import { findChromium } from '../src/browser/chromium.ts';
 
@@ -53,4 +57,37 @@ try {
   if (title !== 'sandboxed' || apart.length === 0) process.exitCode = 1;
 } finally {
   await cdp.close();
+}
+
+/** One page saying PALUGADA, its offsets counted. */
+function onePagePdf(): Buffer {
+  const stream = 'BT /F1 18 Tf 20 150 Td (PALUGADA) Tj ET';
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+    `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  ];
+  let pdf = '%PDF-1.4\n';
+  const offsets = objects.map((body, i) => {
+    const at = pdf.length;
+    pdf += `${i + 1} 0 obj\n${body}\nendobj\n`;
+    return at;
+  });
+  const xref = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map((at) => `${String(at).padStart(10, '0')} 00000 n \n`).join('')}`;
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(pdf, 'latin1');
+}
+
+const reader = fileURLToPath(new URL('../console/dist/reader', import.meta.url));
+const browsers = new Browsers({ executable, sandbox: true, reader, cookies: { load: async () => [], save: async () => false } });
+try {
+  const read = await browsers.convert('pdf', onePagePdf());
+  const said = 'text' in read ? read.text : read.failure;
+  console.log(`a PDF read in it: ${said === 'PALUGADA' ? 'yes' : `no (${said})`}`);
+  if (said !== 'PALUGADA') process.exitCode = 1;
+} finally {
+  await browsers.close();
 }

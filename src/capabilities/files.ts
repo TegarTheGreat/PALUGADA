@@ -30,6 +30,8 @@
  */
 import { PalugadaError } from '../errors.ts';
 import type { Capability } from '../broker/registry.ts';
+import type { Browsers, DocumentKind } from '../browser/browsers.ts';
+import { UNPACKED_MAX } from '../browser/documents.ts';
 
 export interface FilesOptions {
   /**
@@ -204,6 +206,8 @@ export interface ReadInput {
 
 export interface ReadOutput {
   path: string;
+  /** What the file was: text as it is, or a document read as text. */
+  kind: 'text' | DocumentKind;
   bytes: number;
   text: string;
   from: number;
@@ -216,6 +220,26 @@ const READ_CHARS = 60_000;
 /** The largest file read at all: a reading pages through it, but reads it whole each time. */
 const READ_MAX_BYTES = 10 * 1024 * 1024;
 
+/** A document read in the browser is kept a while, so its next page is not another reading. */
+const CONVERTED_KEPT = 16;
+const CONVERTED_MS = 10 * 60_000;
+
+const DOCUMENT_SAID: Record<DocumentKind, string> = { pdf: 'a PDF', word: 'a Word document', excel: 'an Excel workbook' };
+
+/**
+ * A document by what its bytes say, before anything reads them as text: a
+ * PDF may be ASCII from end to end. Word and Excel are ZIP files, told apart
+ * by the name they are saved under.
+ */
+function documentKind(bytes: Buffer, name: string): DocumentKind | null {
+  if (bytes.subarray(0, 1024).includes('%PDF-')) return 'pdf';
+  if (bytes.length >= 4 && bytes.readUInt32LE(0) === 0x04034b50) {
+    if (/\.(docx|docm)$/i.test(name)) return 'word';
+    if (/\.(xlsx|xlsm)$/i.test(name)) return 'excel';
+  }
+  return null;
+}
+
 /**
  * `files.read` -- a file in the company's files, as text (the tools research,
  * recommendation 3).
@@ -226,8 +250,14 @@ const READ_MAX_BYTES = 10 * 1024 * 1024;
  * file of another company is. Text is UTF-8, read strictly: a file that is
  * not -- a picture, a recording -- is said to be not text rather than
  * returned as noise. A long one is read a page at a time.
+ *
+ * A PDF, a Word document and an Excel workbook are read as text in the
+ * deployment's browser (`Browsers.convert`), never in this process: they are
+ * untrusted binaries, and the browser reads each in a sandboxed page with no
+ * network. Without a browser they are said to need one.
  */
-export function filesRead(options: FilesOptions): Capability<ReadInput, ReadOutput> {
+export function filesRead(options: FilesOptions, browser?: Browsers): Capability<ReadInput, ReadOutput> {
+  const converted = new Map<string, { kind: DocumentKind; text: string; at: number }>();
   return {
     name: 'files.read',
     inputSchema: {
@@ -279,20 +309,56 @@ export function filesRead(options: FilesOptions): Capability<ReadInput, ReadOutp
       } finally {
         await handle.close();
       }
+      async function convertedText(document: DocumentKind): Promise<string> {
+        const said = DOCUMENT_SAID[document];
+        if (!browser) {
+          throw new PalugadaError('capability.unreachable',
+            `${wanted} is ${said}: this deployment reads them in its browser, and has none (install Chromium, or set PALUGADA_CHROMIUM)`, { path: wanted });
+        }
+        const key = `${real}:${info!.size}:${info!.mtimeMs}`;
+        const kept = converted.get(key);
+        if (kept && Date.now() - kept.at < CONVERTED_MS) return kept.text;
+        const answer = await browser.convert(document, bytes, ctx.signal);
+        if ('failure' in answer) {
+          const why = {
+            'no-reader': `${wanted} is a PDF, and this deployment's console was built without its PDF reader: build it again (npm run console:build)`,
+            'too-large': `${wanted} is too large once unpacked: files.read unpacks up to ${UNPACKED_MAX / 1_048_576} MB of a document, and reads up to 5 million characters`,
+            unreadable: `${wanted} is not ${said} that can be read`,
+            encrypted: `${wanted} is locked with a password`,
+            'no-text': `${wanted} has no text in it -- it may be a scan`,
+            'too-slow': `${wanted} took over a minute to read, and was left`,
+          }[answer.failure];
+          throw new PalugadaError(answer.failure === 'no-reader' ? 'capability.unreachable' : 'contract.violation', why, { path: wanted });
+        }
+        for (const [old, entry] of converted) if (Date.now() - entry.at >= CONVERTED_MS) converted.delete(old);
+        while (converted.size >= CONVERTED_KEPT) converted.delete(converted.keys().next().value!);
+        converted.set(key, { kind: document, text: answer.text, at: Date.now() });
+        return answer.text;
+      }
+
       let whole: string;
-      try {
-        whole = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes);
-        if (whole.includes('\u0000')) throw new Error('a NUL');
-      } catch {
-        throw new PalugadaError('contract.violation', `${wanted} is not text: files.read reads text in UTF-8`, { path: wanted });
+      let kind: ReadOutput['kind'] = 'text';
+      const document = documentKind(bytes, wanted);
+      if (document) {
+        kind = document;
+        whole = await convertedText(document);
+      } else {
+        try {
+          whole = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes);
+          if (whole.includes('\u0000')) throw new Error('a NUL');
+        } catch {
+          throw new PalugadaError('contract.violation', `${wanted} is not text, nor a PDF, Word or Excel file: files.read reads those`, { path: wanted });
+        }
       }
       const from = Math.floor(Number(input.from ?? 0));
       if (!Number.isFinite(from) || from < 0 || (from > 0 && from >= whole.length)) {
         throw new PalugadaError('contract.violation', `from is past the end: ${wanted} is ${whole.length} characters`, { field: 'from' });
       }
       const end = Math.min(whole.length, from + READ_CHARS);
+
       return {
         path: relative(base, real),
+        kind,
         bytes: info.size,
         text: whole.slice(from, end),
         from,

@@ -160,6 +160,10 @@ refer to `docs/PRD.md`.
    provider chosen reads in that browser too, under the same proxy, in a
    context made for the one reading and thrown away after it: no company's
    sign-ins go with it, and nothing a page leaves reaches the next.
+   A PDF, a Word document or a workbook `files.read` reads is parsed in
+   that browser too, in a page of a context of its own set offline, never
+   in the platform's process (`src/browser/documents.ts`); a ZIP is
+   unpacked there counting what comes out, and refused past 32 MB.
    A division's mailbox (`src/capabilities/mailbox.ts`) connects only to
    the servers the owner gave in its key; a role chooses folders and words
    to search for, never a host. Those words reach the server quoted or as

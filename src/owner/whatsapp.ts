@@ -39,6 +39,7 @@ import * as inbox from '../inbox/inbox.ts';
 import { channelDelivery } from '../inbox/inbox.ts';
 import { deploymentLanguages } from '../domain/language.ts';
 import { say } from './say.ts';
+import { actionSaid } from './capability-said.ts';
 import { decodeAction, encodeAction, type ChatConversation } from './telegram.ts';
 import { askerOf, closureText, notOpenText, recordedText, type DeliveryResult, type DoneNotice, type NotifiableItem, type OwnerChannel } from './notify.ts';
 
@@ -396,8 +397,12 @@ export class WhatsAppChannel implements OwnerChannel {
   async #prompt(companyId: string, itemId: string, mode: 'ask' | 'answer'): Promise<Result> {
     const language = await ownerLanguage();
     const { rows } = await withTenant(companyId, (tx) =>
-      tx.query<{ title: string; status: string; decision: string | null; closed_reason: string | null; question: string | null }>(
-        "SELECT title, status, decision, closed_reason, payload->>'question' AS question FROM inbox_items WHERE id = $1", [itemId]));
+      tx.query<{
+        title: string; status: string; decision: string | null; closed_reason: string | null; question: string | null;
+        capability_name: string | null;
+      }>(
+        `SELECT title, status, decision, closed_reason, payload->>'question' AS question, capability_name
+           FROM inbox_items WHERE id = $1`, [itemId]));
     const item = rows[0];
     if (!item || item.status !== 'open') {
       await this.#tell(closureText({
@@ -406,8 +411,8 @@ export class WhatsAppChannel implements OwnerChannel {
       return { handled: false, reason: 'inbox.not_open' };
     }
     const body = mode === 'answer'
-      ? say(language, 'Your answer to "{question}"? Reply to this message with your answer.', { question: item.question ?? item.title })
-      : say(language, 'What do you want to ask about "{title}"? Reply to this message with your question.', { title: item.title });
+      ? say(language, 'Your answer to "{question}"? Reply to this message with your answer.', { question: item.question ?? actionSaid(language, item.title, item.capability_name) })
+      : say(language, 'What do you want to ask about "{title}"? Reply to this message with your question.', { title: actionSaid(language, item.title, item.capability_name) });
     const sent = await this.#send({ type: 'text', text: { body: clip(body, TEXT_MAX) } });
     await this.#keep(sent, { companyId, itemId, purpose: mode, summary: '' });
     return { handled: true };

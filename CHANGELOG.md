@@ -236,6 +236,9 @@ The first version. What it holds, in the order an owner meets it.
   arrive with names and titles, and a name you gave one stays when its
   bundle is installed again. The money page lists companies by name
   (STATUS 2.104).
+- An approval in a chat, a push or an e-mail names its action as the
+  console does -- "Hapus data: recordId cust-042" -- in your language,
+  instead of "record.delete: recordId cust-042" (STATUS 2.105).
 - **Replay against the journal** is shown only for a task this deployment
   can replay. It was offered on every task and refused on every task a
   model or an agent CLI ran (STATUS 2.87).

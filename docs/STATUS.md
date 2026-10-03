@@ -7255,6 +7255,37 @@ What changed:
   reads the console for a role's code put on the screen, in text, in a
   sentence or in a picker.
 
+## 2.105 An approval in a chat names its action for what it does (§2.3 item 7)
+
+Found by the live run of the analysis of 3 October (§2.3, item 7), after
+2.96 named every capability in the console. An action the broker asks the
+owner about is titled with the capability's code and its arguments --
+"record.delete: recordId cust-042" -- and the console says "Delete a record:
+recordId cust-042" in the owner's language; but Telegram, WhatsApp, push,
+e-mail and the webhook chat sent the title as it was stored, so the phone
+said the code, in English, and the reply prompt asked "What do you want to
+ask about "record.delete: …"?".
+
+What changed:
+
+- **Named as the console names it** (`actionSaid`,
+  `src/owner/capability-said.ts`). Where the platform builds a card for any
+  channel -- a first delivery, a retry, the edit when an item closes -- a
+  title or summary written as `capability: arguments` has its capability
+  named in words in the owner's language; the arguments are the agent's
+  and stay as they are. The Telegram and WhatsApp prompts for a question or
+  an answer name it the same way. A capability the platform has no name for
+  keeps its code: nothing is guessed.
+- **One set of names.** The names are the console's, and
+  `console-events.test.ts` holds the two the same; each dictionary in
+  `src/owner/sentences/` has them as its console dictionary does. The test
+  that reads `say(...)` calls now reads a literal as JavaScript does, so
+  "a domain\'s records" is the sentence it names.
+- **Tested.** `owner-channels.test.ts`: an approval to delete a record
+  reaches Telegram and push as "Hapus data: recordId cust-042" for an
+  Indonesian owner, with no `record.delete` in it, and one for a
+  capability with no name keeps its code.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

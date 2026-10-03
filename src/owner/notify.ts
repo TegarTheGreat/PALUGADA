@@ -38,6 +38,7 @@ import { channelDelivery, type ChannelDelivery, type Decision } from '../inbox/i
 import { buildDailyDigest } from '../reporting/digest.ts';
 import { renderDailyDigest } from './digest-said.ts';
 import { haltSaid } from './halt-said.ts';
+import { actionSaid } from './capability-said.ts';
 import { notifyAfterFor } from '../scheduler/windows.ts';
 
 /** One item, as a transport needs to see it. */
@@ -248,9 +249,10 @@ export async function undelivered(
       options: string[] | null;
       asker: string | null;
       expires_at: Date | null;
+      capability_name: string | null;
     }>(
       `SELECT i.id, i.kind, i.tier, i.title, ${CHANNEL_SUMMARY} AS action_summary, i.consequence_if_denied, i.expires_at,
-              (SELECT console_language FROM platform_control) AS language,
+              i.capability_name, (SELECT console_language FROM platform_control) AS language,
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->>'question' END AS question,
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'options' END AS options,
               ${askerOf('i')} AS asker
@@ -278,8 +280,9 @@ export async function undelivered(
         companyId,
         kind: row.kind,
         tier: row.tier,
-        title: row.title,
-        actionSummary: row.action_summary,
+        // An action the broker asks about, named for what it does (§2.3 item 7).
+        title: actionSaid(row.language, row.title, row.capability_name),
+        actionSummary: actionSaid(row.language, row.action_summary, row.capability_name),
         consequenceIfDenied: row.consequence_if_denied,
         delivery,
         url: null,
@@ -773,10 +776,10 @@ export async function retryFailed(
       id: string; kind: string; tier: number | null; title: string;
       action_summary: string; consequence_if_denied: string | null; delivery: string;
       language: string | null; question: string | null; options: string[] | null; asker: string | null;
-      expires_at: Date | null;
+      expires_at: Date | null; capability_name: string | null;
     }>(
       `SELECT i.id, i.kind, i.tier, i.title, ${CHANNEL_SUMMARY} AS action_summary, i.consequence_if_denied, i.expires_at,
-              n.delivery, (SELECT console_language FROM platform_control) AS language,
+              i.capability_name, n.delivery, (SELECT console_language FROM platform_control) AS language,
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->>'question' END AS question,
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'options' END AS options,
               ${askerOf('i')} AS asker
@@ -814,8 +817,8 @@ export async function retryFailed(
       companyId,
       kind: row.kind,
       tier: row.tier,
-      title: row.title,
-      actionSummary: row.action_summary,
+      title: actionSaid(row.language, row.title, row.capability_name),
+      actionSummary: actionSaid(row.language, row.action_summary, row.capability_name),
       consequenceIfDenied: row.consequence_if_denied,
       delivery: row.delivery as Exclude<ChannelDelivery, 'none'>,
       url: null,
@@ -900,9 +903,9 @@ export async function retractClosed(
     const { rows } = await tx.query<{
       id: string; kind: string; title: string; status: ClosedItem['status'];
       decision: string | null; closed_reason: string | null;
-      external_ref: string | null; retract_attempts: number; language: string | null;
+      external_ref: string | null; retract_attempts: number; language: string | null; capability_name: string | null;
     }>(
-      `SELECT i.id, i.kind, i.title, i.status, i.decision, i.closed_reason,
+      `SELECT i.id, i.kind, i.title, i.status, i.decision, i.closed_reason, i.capability_name,
               n.external_ref, n.retract_attempts,
               (SELECT console_language FROM platform_control) AS language
          FROM owner_notifications n
@@ -942,7 +945,7 @@ export async function retractClosed(
       id: row.id,
       companyId,
       kind: row.kind,
-      title: row.title,
+      title: actionSaid(row.language, row.title, row.capability_name),
       status: row.status,
       decision: row.decision,
       closedReason: row.closed_reason,

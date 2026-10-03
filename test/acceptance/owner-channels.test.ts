@@ -1449,9 +1449,11 @@ test('every sentence the platform says to the owner has its translation (src/own
     const source = await readFile(new URL(name, directory), 'utf8');
     // One line at a time: a ternary's question mark is on the call's own line,
     // and one further down the file belongs to something else.
+    // A literal as JavaScript reads it: "a domain\'s records" is the key.
+    const literal = (text: string) => text.replace(/\\(.)/g, '$1');
     for (const match of source.matchAll(/\bsay\([^,\n]+,\s*(?:[^?\n]+\?\s*)?'((?:[^'\\]|\\.)*)'(?:\s*:\s*'((?:[^'\\]|\\.)*)')?/g)) {
-      said.add(match[1]!);
-      if (match[2]) said.add(match[2]);
+      said.add(literal(match[1]!));
+      if (match[2]) said.add(literal(match[2]));
     }
   }
   assert.ok(said.size >= 15, `only ${said.size} sentences were found; the scan is broken`);
@@ -1477,6 +1479,41 @@ test('every sentence the platform says to the owner has its translation (src/own
       assert.notEqual(translated.trim(), '', `${language}: "${english}" is translated as nothing`);
       if (script[language]) assert.match(translated, script[language]!, `${language}: "${english}" is not written in its script`);
     }
+  }
+});
+
+/**
+ * An action the broker asks about is named for what it does, on the phone as
+ * in the console (the analysis of 3 October, §2.3 item 7): a chat card said
+ * "record.delete: recordId cust-042", the capability's code, in English
+ * whatever the owner reads. Its arguments are the agent's and stay as they are.
+ */
+test("an approval in a chat names its action for what it does, in the owner's language", async () => {
+  const fixture = await createCompany('owner-language-action');
+  const { setDeploymentLanguages } = await import('../../src/domain/language.ts');
+  await setDeploymentLanguages({ console: 'id' });
+  try {
+    await inbox.requestApproval({
+      companyId: fixture.companyId, capabilityName: 'record.delete', tier: 3,
+      title: 'record.delete: recordId cust-042', actionSummary: 'record.delete: recordId cust-042; reason duplicate',
+      rationale: 'A duplicate of cust-041.', consequenceIfDenied: 'The duplicate stays.',
+    });
+    const [item] = await undelivered(fixture.companyId, 'chat:telegram', new Date(Date.now() + 86_400_000));
+    assert.equal(item!.title, 'Hapus data: recordId cust-042');
+    assert.equal(item!.actionSummary, 'Hapus data: recordId cust-042; reason duplicate');
+    assert.doesNotMatch(telegram({ url: 'http://127.0.0.1:1' }).render(item!).text, /record\.delete/);
+    assert.equal(new WebhookPush({ url: 'http://127.0.0.1:1' }).message(item!).title, 'Perlu persetujuan: Hapus data: recordId cust-042');
+
+    // An action the platform has no name for keeps its code: nothing is guessed.
+    await inbox.requestApproval({
+      companyId: fixture.companyId, capabilityName: 'payment.send', tier: 2,
+      title: 'payment.send: amount 120', actionSummary: 'payment.send: amount 120', rationale: 'Invoice 7.',
+      consequenceIfDenied: 'The supplier waits.',
+    });
+    const all = await undelivered(fixture.companyId, 'chat:telegram', new Date(Date.now() + 86_400_000));
+    assert.ok(all.some((one) => one.title === 'payment.send: amount 120'));
+  } finally {
+    await setDeploymentLanguages({ console: null });
   }
 });
 

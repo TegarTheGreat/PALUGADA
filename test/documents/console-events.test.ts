@@ -129,3 +129,21 @@ test('every capability in the catalogue has a name the owner reads', async () =>
   const missing = names.filter((name) => !named.has(name)).sort();
   assert.deepEqual(missing, [], `capabilities shown to the owner by their code: ${missing.join(', ')}`);
 });
+
+/**
+ * The platform names a capability on the owner's phone with the console's
+ * words (§2.3 item 7), so an approval reads the same in a chat as on the
+ * card: `src/owner/capability-said.ts` keeps the same names, and the
+ * dictionaries in `src/owner/sentences/` translate them.
+ */
+test('the chats name every capability as the console does', async () => {
+  const entries = (text: string, pattern: RegExp) => new Map([...text.matchAll(pattern)].map((match) => [match[1]!, match[3]!]));
+  const format = await readFile(join(CONSOLE, 'format.ts'), 'utf8');
+  const console_ = entries(format.slice(format.indexOf('const CAPABILITY_NAMES'), format.indexOf('export function capabilitySaid')),
+    /^ {2}'([a-z_.]+)': N\((['"])(.*)\2\),$/gm);
+  const server = await readFile(join(SERVER, 'owner', 'capability-said.ts'), 'utf8');
+  const chats = new Map([...entries(server, /^ {4}'([a-z_.]+)': \(\) => say\(language, (['"])(.*)\2\),$/gm)]
+    .map(([name, said]) => [name, said.replace(/\\(.)/g, '$1')]));
+  assert.ok(console_.size >= 40, `found only ${console_.size} names in the console`);
+  assert.deepEqual([...chats].sort(), [...console_].sort());
+});

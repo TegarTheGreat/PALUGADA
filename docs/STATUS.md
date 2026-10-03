@@ -8183,6 +8183,23 @@ What changed:
   makes unnecessary where there is a Chromium. A deployment with neither a
   Chromium nor a provider still has no `web.extract`, and says so at boot.
 
+## 2.126 A mail server's private authority is trusted besides the system's
+
+`PALUGADA_MAIL_CA` (2.119) is documented as an authority to trust
+"besides the system's", for a company's mailbox on a server with a private
+certificate. It was trusted instead of them: Node's `tls.connect` replaces
+its own authorities with a `ca` it is given, so with the setting made, every
+mailbox on a public certificate -- Gmail, a hosting provider's -- failed to
+connect with "self-signed certificate" or "unable to get local issuer".
+Found while reading the transport for 2.127.
+
+What changed: `secureSocket` (`src/chats/imap.ts`) names Node's default
+authorities (`getCACertificates('default')`, which also holds any the
+machine adds with `NODE_EXTRA_CA_CERTS`) together with the private one.
+Tested in `customer-mail.test.ts` in a child process, where one authority
+is the machine's and another is given as the private one: the server the
+machine's authority signed was refused before and is reached now.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

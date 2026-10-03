@@ -14,7 +14,7 @@
  * in the owner's own mail client, and only their first 256 KB: enough for
  * any text a person writes, and a bound on what one message can cost.
  */
-import { connect, type ConnectionOptions, type TLSSocket } from 'node:tls';
+import { connect, getCACertificates, type ConnectionOptions, type TLSSocket } from 'node:tls';
 import { PalugadaError } from '../errors.ts';
 import { redactor } from '../secrets/manager.ts';
 
@@ -100,7 +100,10 @@ export async function secureSocket(host: string, port: number, options: { ca?: s
       // A name to check the certificate against; an address is checked as itself.
       ...(/^[\d.]+$|:/.test(host) ? {} : { servername: host }),
       ...(options.socket ? { socket: options.socket } : {}),
-      ...(options.ca ? { ca: options.ca } : {}),
+      // Given a `ca`, Node trusts it *instead of* its own authorities; a
+      // private one is meant besides them, so they are named as well --
+      // the system's, and any the machine adds with NODE_EXTRA_CA_CERTS.
+      ...(options.ca ? { ca: [...getCACertificates('default'), options.ca] } : {}),
     };
     const socket = connect(settings);
     socket.setTimeout(options.timeoutMs ?? 20_000, () => socket.destroy(new Error(`no answer in ${Math.round((options.timeoutMs ?? 20_000) / 1000)} seconds`)));

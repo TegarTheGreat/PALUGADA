@@ -515,8 +515,12 @@ test('a role holding a tier 2 tool waits for its own model and never falls back;
   const task = await newTask(fixture, {});
   const engine = engineWith(broker, adapter);
   const outcomes: string[] = [];
+  const { workOf } = await import('../../src/owner/views.ts');
   for (let run = 0; run <= MODEL_OUTAGE_WAITS_MS.length; run += 1) {
     outcomes.push((await engine.runTask(fixture.companyId, task.id, 'worker')).status);
+    if (run === 0) {
+      assert.equal((await workOf(fixture.companyId, { taskId: task.id })).items[0]!.waiting?.reason, 'model', 'it says it waits for the model (N9)');
+    }
   }
 
   assert.deepEqual(outcomes, [...MODEL_OUTAGE_WAITS_MS.map(() => 'waiting_window'), 'halted']);
@@ -1269,6 +1273,8 @@ test('an out-of-process run whose call finds every place taken parks, spending n
   const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ attempt: number }>(
     'SELECT attempt FROM tasks WHERE id = $1', [task.id]));
   assert.equal(rows[0]!.attempt, 0, 'waiting is not failing');
+  const { workOf } = await import('../../src/owner/views.ts');
+  assert.equal((await workOf(fixture.companyId, { taskId: task.id })).items[0]!.waiting?.reason, 'slot', 'and says it waits its turn (N9)');
 });
 
 test('an out-of-process run whose call the budget cannot pay for halts, as an in-process one does', async () => {
@@ -2899,6 +2905,10 @@ test('a runtime hands work to another role and carries on with its result', asyn
     'SELECT id, status, deadline_at FROM tasks WHERE parent_task_id = $1', [parent.id]));
   assert.equal(children.length, 1);
   assert.ok(children[0]!.deadline_at, 'a delegated task has a deadline (F6.4)');
+  // And the owner reads what it waits for, not "Scheduled" (N9).
+  const { workOf } = await import('../../src/owner/views.ts');
+  const waiting = (await workOf(fixture.companyId, { taskId: parent.id })).items[0]!.waiting;
+  assert.deepEqual([waiting?.reason, waiting?.on?.taskId], ['child', children[0]!.id]);
 
   // The child runs as any task does, and the parent resumes to read it --
   // at once, not when its two-minute look comes round: a company whose

@@ -13,8 +13,9 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { withTenant } from '../../src/db/tenant.ts';
+import { appendEvent } from '../../src/audit/event-log.ts';
 import { closePools } from '../../src/db/pool.ts';
-import { createRootTask, transition } from '../../src/engine/tasks.ts';
+import { createRootTask, createSubTask, transition } from '../../src/engine/tasks.ts';
 import { recordPlan } from '../../src/engine/plan.ts';
 import { workOf } from '../../src/owner/views.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
@@ -101,4 +102,61 @@ test('a task\'s progress is the actions of its plan it has taken, not every step
   // No plan, nothing to count against.
   const unplanned = await give(fixture, 'Think about pricing');
   assert.deepEqual([(await progressOf(fixture, unplanned.id)).planDone, (await progressOf(fixture, unplanned.id)).planSteps], [null, null]);
+});
+
+test('a waiting task says what it waits for: the work it handed on, and the owner when something below waits on them (N9)', async () => {
+  const fixture = await createCompany('waiting-why');
+  const slug = (await withTenant(fixture.companyId, (tx) => tx.query<{ slug: string }>(
+    'SELECT slug FROM roles WHERE id = $1', [fixture.roleId]))).rows[0]!.slug;
+  const hand = async (parentId: string, goal: string) => {
+    const child = await createSubTask(parentId, {
+      companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+      roleId: fixture.roleId, input: { goal }, reserveTokens: 1_000,
+    });
+    await transition(fixture.companyId, child.id, 'running');
+    return child;
+  };
+  const waitingOf = async (taskId: string) => (await workOf(fixture.companyId, { taskId })).items[0]!.waiting;
+
+  // The live run: the CEO handed a plan to a planner, the planner handed a
+  // part to a marketer, and the marketer asked the owner something.
+  const ceo = await give(fixture, 'A week of Instagram content');
+  await transition(fixture.companyId, ceo.id, 'running');
+  const earlier = await hand(ceo.id, 'An earlier part, finished');
+  await transition(fixture.companyId, earlier.id, 'completed', { output: { summary: 'done' } });
+  const planner = await hand(ceo.id, 'Plan the week');
+  const marketer = await hand(planner.id, 'Draft the posts');
+  await transition(fixture.companyId, marketer.id, 'waiting_approval');
+  await transition(fixture.companyId, planner.id, 'waiting_window', { waitUntil: new Date(Date.now() + 120_000), waitReason: 'child' });
+  await transition(fixture.companyId, ceo.id, 'waiting_window', { waitUntil: new Date(Date.now() + 120_000), waitReason: 'child' });
+
+  const waiting = await waitingOf(ceo.id);
+  assert.equal(waiting?.reason, 'child');
+  assert.ok(waiting?.until && waiting.until.getTime() > Date.now());
+  assert.deepEqual(waiting?.on, { taskId: planner.id, role: slug, roleName: null }, 'the open piece, not the finished one');
+  assert.deepEqual(waiting?.needsYou, { taskId: marketer.id, role: slug, roleName: null }, 'two levels down');
+  assert.equal((await waitingOf(planner.id))?.needsYou?.taskId, marketer.id);
+
+  // Answered, nothing below waits on the owner any more.
+  await transition(fixture.companyId, marketer.id, 'running');
+  assert.equal((await waitingOf(ceo.id))?.needsYou, null);
+
+  // Other waits say which they are, and nothing about work below.
+  const windowed = await give(fixture, 'Send the newsletter');
+  await transition(fixture.companyId, windowed.id, 'running');
+  await transition(fixture.companyId, windowed.id, 'waiting_window', { waitUntil: new Date(Date.now() + 3_600_000), waitReason: 'window' });
+  assert.deepEqual(await waitingOf(windowed.id), { reason: 'window', until: (await waitingOf(windowed.id))!.until, on: null, needsYou: null });
+
+  // A task that parked before the reason was kept waits for no reason given.
+  const old = await give(fixture, 'An old wait');
+  await transition(fixture.companyId, old.id, 'running');
+  await transition(fixture.companyId, old.id, 'waiting_window', { waitUntil: new Date(Date.now() + 60_000) });
+  assert.equal((await waitingOf(old.id))?.reason, null);
+  await withTenant(fixture.companyId, (tx) => appendEvent(tx, {
+    companyId: fixture.companyId, taskId: old.id, type: 'task.note', actor: 'system', payload: { reason: 'not a wait' },
+  }));
+  assert.equal((await waitingOf(old.id))?.reason, null, 'only the event that parked it is read');
+
+  // A task that is not waiting says nothing about waiting.
+  assert.equal(await waitingOf(marketer.id), null);
 });

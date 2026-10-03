@@ -22,7 +22,7 @@ import { api, explain } from '../api.ts';
 import { useLoad, useNow } from '../hooks.ts';
 import { go } from '../router.ts';
 import type { Deliverable, DoneReportEntry, Structure, TaskDetail, Trace, WorkGroup, WorkItem } from '../types.ts';
-import { dateTime, eventSentence, haltReason, humanize, money, relative, time } from '../format.ts';
+import { dateTime, eventSentence, haltReason, humanize, money, relative, time, waitingFor } from '../format.ts';
 import { t } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
 import { EmptyState, LoadFailed, Loading, PageHeader, StatusBadge } from '../components/ui.tsx';
@@ -227,6 +227,7 @@ export function TaskProgress({ item, wide = false }: { item: WorkItem; wide?: bo
   const percent = finished ? 100 : planned ? (taken / planned) * 100 : null;
   const quiet = progress.heartbeatAt ? (now - new Date(progress.heartbeatAt).getTime()) / 1000 : null;
   const stale = live && quiet !== null && quiet > 120;
+  const waiting = waitingFor(item.waiting);
 
   return (
     <Stack gap={4}>
@@ -251,6 +252,11 @@ export function TaskProgress({ item, wide = false }: { item: WorkItem; wide?: bo
       ) : (
         <Text size="xs" c="dimmed">
           {progress.stepsDone > 0 ? t('{count} steps done', { count: progress.stepsDone }) : live ? t('Starting') : '—'}
+        </Text>
+      )}
+      {waiting && (
+        <Text size="xs" c={waiting.onYou ? 'orange' : 'dimmed'} fw={waiting.onYou ? 600 : undefined} lineClamp={2}>
+          {waiting.text}
         </Text>
       )}
       {live && progress.currentStep && (

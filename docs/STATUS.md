@@ -6300,6 +6300,36 @@ What changed:
   running and halted; one capability called three times for a plan that
   names it once reads 1/1; no plan, no count.
 
+## 2.76 A waiting task says what it waits for (N9)
+
+Found on the live run of 2 October (N9). The CEO's task, whose sub-task had
+a sub-task of its own waiting on the owner's answer, read "Scheduled" with a
+full bar. `waiting_window` is seven different waits -- work handed on, the
+hours a role may work, the cheaper hours batchable work waits for, a
+vendor's "not now", a turn at a busy capability, a model that did not
+answer, the next attempt -- and the console called them all one word, the
+one that suggests a plan rather than a wait.
+
+What changed:
+
+- **The reason is kept.** The engine records which wait it is on the
+  `task.waiting_window` event that parks the task (`WaitReason`,
+  `src/engine/tasks.ts`).
+- **And what is open below it.** The work view sends, for a waiting task,
+  the oldest work it handed on that is still open, and the nearest work at
+  any depth that waits on the owner: a question or an approval two levels
+  down is what the whole chain is waiting for.
+- **The console says so.** The status reads "Waiting", and under the
+  progress, on Work, Overview and Home: "Waiting until you answer Nadia" in
+  orange when the chain waits on the owner, "Waiting for Nadia" when it
+  waits on a role, or the kind of wait. The Overview's bucket is "Waiting"
+  too.
+- **Tested.** `work-status.test.ts` holds the three-level chain from the
+  live run, the answer clearing it, a window wait, and a wait recorded
+  before the reason was kept. `out-of-process-runtimes.test.ts` holds that
+  the engine records `child` for a real hand-off, `model` for a model that
+  did not answer and `slot` for a busy capability.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

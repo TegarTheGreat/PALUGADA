@@ -35,7 +35,7 @@ const STAGES: Array<{ id: string; label: string; statuses: string[]; color: stri
   { id: 'running', label: N('Running'), statuses: ['checked_out', 'running'], color: 'var(--mantine-color-brand-6)', page: 'work' },
   { id: 'you', label: N('Needs you'), statuses: ['waiting_approval'], color: 'var(--mantine-color-orange-6)', page: 'inbox' },
   { id: 'review', label: N('In review'), statuses: ['waiting_review'], color: 'var(--mantine-color-grape-6)', page: 'work' },
-  { id: 'window', label: N('Scheduled'), statuses: ['waiting_window'], color: 'var(--mantine-color-cyan-6)', page: 'work' },
+  { id: 'window', label: N('Waiting'), statuses: ['waiting_window'], color: 'var(--mantine-color-cyan-6)', page: 'work' },
 ];
 
 export function Overview({ ctx }: PageProps) {

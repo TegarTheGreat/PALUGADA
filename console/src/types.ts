@@ -241,6 +241,13 @@ export interface WorkItem {
     heartbeatAt: string | null;
     deadlineAt: string | null;
   };
+  /** What a task in `waiting_window` waits for; null in any other status (N9). */
+  waiting: {
+    reason: 'child' | 'window' | 'cheap_hours' | 'vendor' | 'slot' | 'model' | 'retry' | null;
+    until: string | null;
+    on: WaitingRole | null;
+    needsYou: WaitingRole | null;
+  } | null;
 }
 
 export interface ActivityItem {
@@ -599,4 +606,11 @@ export interface Ticket {
   createdAt: string;
   updatedAt: string;
   closedAt: string | null;
+}
+
+/** A piece of work a waiting task is held up by, and whose it is. */
+export interface WaitingRole {
+  taskId: string;
+  role: string;
+  roleName: string | null;
 }

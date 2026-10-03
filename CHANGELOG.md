@@ -114,6 +114,10 @@ The first version. What it holds, in the order an owner meets it.
 - A task's bar counts the actions of its plan it has taken. It counted
   every step, model turns included, so a task that halted early could
   read "5/5" (STATUS 2.75).
+- A waiting task says what it waits for: the role it handed work to, its
+  work hours, a model, a vendor, or the next attempt, and in orange when
+  something below it waits on your answer. The word "Scheduled" is gone
+  (STATUS 2.76).
 
 ### The owner
 

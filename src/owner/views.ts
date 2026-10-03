@@ -24,6 +24,7 @@ import { TASK_COST_SQL } from '../reporting/cost.ts';
 import { readCursor, writeCursor } from '../inbox/inbox.ts';
 import { weighEvidence, type Weighed } from '../engine/done.ts';
 import { journalOf } from '../engine/journal.ts';
+import type { WaitReason } from '../engine/tasks.ts';
 import type { OverlapPolicy } from '../scheduler/scheduler.ts';
 
 /* -------------------------------------------------------------- structure --- */
@@ -318,6 +319,31 @@ export interface WorkItem {
     heartbeatAt: Date | null;
     deadlineAt: Date | null;
   };
+  /**
+   * What a task in `waiting_window` waits for (N9); null in any other
+   * status. "Scheduled" said nothing: a CEO waiting on a sub-task that was
+   * waiting on the owner two levels down read as scheduled on the live run
+   * of 2 October.
+   */
+  waiting: {
+    /** `WaitReason` (engine/tasks.ts), or null for a task that parked before the reason was kept. */
+    reason: WaitReason | null;
+    until: Date | null;
+    /** The oldest work it handed on that is still open. */
+    on: WaitingRole | null;
+    /**
+     * Work below it, at any depth, that is waiting on the owner -- a question
+     * or an approval: what the whole chain is really waiting for.
+     */
+    needsYou: WaitingRole | null;
+  } | null;
+}
+
+/** A piece of work a waiting task is held up by, and whose it is. */
+export interface WaitingRole {
+  taskId: string;
+  role: string;
+  roleName: string | null;
 }
 
 export interface WorkView {
@@ -354,7 +380,8 @@ export async function workOf(
       current_step_status: string | null; plan_steps: number | null; plan_done: number | null;
       lease_holder: string | null;
       heartbeat_at: Date | null; deadline_at: Date | null; project_id: string; project_name: string;
-      created_micros: string;
+      created_micros: string; wait_until: Date | null; wait_reason: WaitReason | null;
+      waiting_on: WaitingRole | null; needs_you: WaitingRole | null;
     }>(
       `SELECT t.id, t.status, t.halt_reason, t.input, r.slug AS role_slug,
               d.name AS division_name, g.statement AS goal, s.slug AS schedule,
@@ -379,7 +406,8 @@ export async function workOf(
                           FROM jsonb_array_elements(t.plan -> 'steps') step
                          GROUP BY 1) planned
               ) END AS plan_done,
-              (SELECT max(a.last_heartbeat_at) FROM agent_runs a WHERE a.task_id = t.id) AS heartbeat_at
+              (SELECT max(a.last_heartbeat_at) FROM agent_runs a WHERE a.task_id = t.id) AS heartbeat_at,
+              t.wait_until, waited.reason AS wait_reason, below.waiting_on, below.needs_you
          FROM tasks t
          JOIN roles r ON r.id = t.role_id
          JOIN divisions d ON d.id = t.division_id
@@ -390,6 +418,33 @@ export async function workOf(
            SELECT j.name, j.status FROM task_steps j
             WHERE j.task_id = t.id ORDER BY j.step_index DESC LIMIT 1
          ) last ON true
+         -- Why a waiting task waits: the event that parked it says.
+         LEFT JOIN LATERAL (
+           SELECT e.payload ->> 'reason' AS reason FROM events e
+            WHERE t.status = 'waiting_window' AND e.task_id = t.id AND e.type = 'task.waiting_window'
+            ORDER BY e.occurred_at DESC LIMIT 1
+         ) waited ON true
+         -- And what is open below it: the oldest work it handed on, and the
+         -- nearest work at any depth that waits on the owner.
+         LEFT JOIN LATERAL (
+           WITH RECURSIVE open_below AS (
+             SELECT c.id, c.status, c.role_id, c.created_at, 1 AS depth
+               FROM tasks c
+              WHERE t.status = 'waiting_window' AND c.parent_task_id = t.id
+                AND c.status NOT IN ('completed', 'failed', 'halted', 'cancelled')
+             UNION ALL
+             SELECT c.id, c.status, c.role_id, c.created_at, b.depth + 1
+               FROM tasks c JOIN open_below b ON c.parent_task_id = b.id
+              WHERE c.status NOT IN ('completed', 'failed', 'halted', 'cancelled') AND b.depth < 8
+           )
+           SELECT
+             (SELECT jsonb_build_object('taskId', b.id, 'role', r.slug, 'roleName', r.display_name)
+                FROM open_below b JOIN roles r ON r.id = b.role_id
+               WHERE b.depth = 1 ORDER BY b.created_at, b.id LIMIT 1) AS waiting_on,
+             (SELECT jsonb_build_object('taskId', b.id, 'role', r.slug, 'roleName', r.display_name)
+                FROM open_below b JOIN roles r ON r.id = b.role_id
+               WHERE b.status = 'waiting_approval' ORDER BY b.depth, b.created_at, b.id LIMIT 1) AS needs_you
+         ) below ON true
         WHERE ($1::text[] IS NULL OR t.status = ANY ($1))
           AND ($3::uuid IS NULL OR t.project_id = $3)
           AND ($4::uuid IS NULL OR t.role_id = $4)
@@ -448,6 +503,9 @@ export async function workOf(
           heartbeatAt: row.heartbeat_at,
           deadlineAt: row.deadline_at,
         },
+        waiting: row.status === 'waiting_window'
+          ? { reason: row.wait_reason, until: row.wait_until, on: row.waiting_on, needsYou: row.needs_you }
+          : null,
       })),
     };
   });

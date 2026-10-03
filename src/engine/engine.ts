@@ -566,7 +566,7 @@ export class Engine {
             payload: { opensAt: opensAt.toISOString() },
           });
         });
-        await transition(companyId, taskId, 'waiting_window', { waitUntil: opensAt });
+        await transition(companyId, taskId, 'waiting_window', { waitUntil: opensAt, waitReason: 'cheap_hours' });
         return { status: 'waiting_window', reason: 'waiting for cheap hours', waitUntil: opensAt };
       }
     }
@@ -1391,7 +1391,9 @@ export class Engine {
         },
       });
     });
-    await transition(companyId, taskId, 'waiting_window', { waitUntil });
+    await transition(companyId, taskId, 'waiting_window', {
+      waitUntil, waitReason: how.event === 'task.waiting_slot' ? 'slot' : 'vendor',
+    });
     return { status: 'waiting_window', reason: error.code, waitUntil };
   }
 
@@ -1425,7 +1427,7 @@ export class Engine {
           payload: { model, error: error.message, waitUntil: waitUntil.toISOString(), wait: waits + 1 },
         });
       });
-      await transition(companyId, taskId, 'waiting_window', { waitUntil });
+      await transition(companyId, taskId, 'waiting_window', { waitUntil, waitReason: 'model' });
       return { status: 'waiting_window', reason: 'model.unavailable', waitUntil };
     }
     const minutes = Math.round(MODEL_OUTAGE_WAITS_MS.reduce((sum, wait) => sum + wait, 0) / 60_000);
@@ -1486,7 +1488,7 @@ export class Engine {
     if (code === 'window.closed') {
       const reopensAt = (error as PalugadaError).details.reopensAt;
       const waitUntil = typeof reopensAt === 'string' ? new Date(reopensAt) : null;
-      await transition(companyId, taskId, 'waiting_window', { waitUntil });
+      await transition(companyId, taskId, 'waiting_window', { waitUntil, waitReason: 'window' });
       return { status: 'waiting_window', reason: code, waitUntil };
     }
 
@@ -1497,7 +1499,7 @@ export class Engine {
     if (code === 'task.waiting_child') {
       const at = (error as PalugadaError).details.reopensAt;
       const waitUntil = typeof at === 'string' ? new Date(at) : new Date(Date.now() + 60_000);
-      await transition(companyId, taskId, 'waiting_window', { waitUntil });
+      await transition(companyId, taskId, 'waiting_window', { waitUntil, waitReason: 'child' });
       return { status: 'waiting_window', reason: code, waitUntil };
     }
 
@@ -1624,7 +1626,7 @@ export class Engine {
     // every attempt before it passed (`RETRY_WAITS_MS`). Parked as every
     // other wait is, with the time it wakes at, which the queue keeps to.
     const wait = RETRY_WAITS_MS[Math.min(task?.attempt ?? 0, RETRY_WAITS_MS.length - 1)]!;
-    await transition(companyId, taskId, 'waiting_window', { waitUntil: new Date(Date.now() + wait) });
+    await transition(companyId, taskId, 'waiting_window', { waitUntil: new Date(Date.now() + wait), waitReason: 'retry' });
     await clearLease(companyId, taskId, this.#workerId);
     return { status: 'failed', reason: 'retryable' };
   }

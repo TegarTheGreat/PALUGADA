@@ -139,7 +139,8 @@ export const STATUS_LABELS: Record<string, string> = {
   running: N('Running'),
   waiting_approval: N('Needs you'),
   waiting_review: N('In review'),
-  waiting_window: N('Scheduled'),
+  // Seven kinds of wait, not one schedule: `waitingFor` says which (N9).
+  waiting_window: N('Waiting'),
   completed: N('Done'),
   failed: N('Failed'),
   halted: N('Halted'),
@@ -183,6 +184,45 @@ const HALT_REASONS: Record<string, string> = {
 export function haltReason(code: string): string {
   const sentence = HALT_REASONS[code];
   return sentence ? t(sentence) : humanize(code);
+}
+
+/** Why a task waits, as the owner would say it (`WaitReason` in src/engine/tasks.ts). */
+const WAIT_REASONS: Record<string, string> = {
+  child: N('Waiting for work it handed on'),
+  window: N('Waiting for its work hours'),
+  cheap_hours: N('Waiting for cheaper hours'),
+  vendor: N('A service asked it to wait'),
+  slot: N('Waiting its turn at a tool'),
+  model: N('Waiting for the model to answer'),
+  retry: N('Trying again shortly'),
+};
+
+/** A role a waiting task is held up by, as the work view sends it. */
+interface HeldBy {
+  role: string;
+  roleName: string | null;
+}
+
+/**
+ * What a waiting task waits for, in a line, and whether it is the owner
+ * (N9); null when it is not waiting or did not say. The owner first, when
+ * something below waits on them: that is what the whole chain waits for.
+ */
+export function waitingFor(
+  waiting: { reason: string | null; on: HeldBy | null; needsYou: HeldBy | null } | null,
+): { text: string; onYou: boolean } | null {
+  if (!waiting) return null;
+  const who = (held: HeldBy) => held.roleName ?? held.role;
+  // Work below matters only to a task waiting on it; one parked for its
+  // model has children that are not what it waits for. A wait from before
+  // the reason was kept may be either.
+  const onWork = waiting.reason === 'child' || waiting.reason === null;
+  if (onWork && waiting.needsYou) {
+    return { text: t('Waiting until you answer {role}', { role: who(waiting.needsYou) }), onYou: true };
+  }
+  if (onWork && waiting.on) return { text: t('Waiting for {role}', { role: who(waiting.on) }), onYou: false };
+  const sentence = waiting.reason ? WAIT_REASONS[waiting.reason] : undefined;
+  return sentence ? { text: t(sentence), onYou: false } : null;
 }
 
 export function statusLabel(status: string): string {

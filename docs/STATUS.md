@@ -6122,6 +6122,54 @@ after the call was finding out after paying.
   models themselves and cannot be asked first; for them the charge after the
   call is still the limit.
 
+## 2.71 An account's tokens and money are counted per month (F1.9, L11)
+
+Found on the live run of 2026-09-28 (L11), partly fixed by 2.26, and still
+open on 2 October. An account's counts were for its whole life: spent once,
+spent for ever. F1.9 sets a budget per period, monthly, beside the per-task
+one, and a division that used its allowance in October was still out in
+December until the owner raised it. On 2 October one request spent 96% of a
+division's allowance, which would never have come back on its own. The
+ceiling dialog said so: "Spent tokens stay spent".
+
+- **Per calendar month, in UTC** (`0101_budget_periods.sql`), like the
+  company's monthly ceiling.
+  - `budget_accounts.period_start` is the month the counts belong to.
+  - `app.budget_new_period(chain)` starts a passed month again: tokens and
+    money spent go back to zero. What is reserved is not touched, because
+    work still running holds it and will release it or spend it.
+  - `budget_reserve` and `budget_spend` call it right after taking the
+    chain's locks, before they check anything, so admission counts this
+    month exactly. Both are 0024's functions with that one line added.
+- **Started again for the owner, too.** On the first of the month, before
+  anything has run, the Money page would show last month's total as this
+  one's. The worker's watch stage calls `startNewPeriods`
+  (`src/engine/budget.ts`) for each company.
+  - It locks the accounts in id order, the order every budget function uses
+    (0040), so it cannot deadlock against a charge.
+  - It locks nothing in a month with no passed period, which is most ticks.
+- **Existing accounts** are counted from this month: what they spent stays
+  spent until it ends.
+- **The application role** may move `period_start`, a running total like the
+  ones 0047 lets it move.
+- **Exported.** The column is in the audit export, and an archive from before
+  this migration is restored with this month as its period.
+- **What the owner reads.**
+  - The Money page says "spent this month".
+  - The ceiling dialog says the count starts again on the first of each
+    month in UTC, and that raising is how an account gets more before then.
+  - The guide's budget section says the same.
+- **Also monthly now.** The Prometheus gauge of tokens spent per company
+  (`src/reporting/metrics.ts`), which sums the accounts' counts, counts this
+  month.
+- **Tested.** `budget-period.test.ts`:
+  - A division and the company above it, both spent to their ceilings last
+    month, take a reservation this month, and both count from zero.
+  - Spent to the ceiling this month, an account refuses.
+  - A charge on an account last spent last month counts from zero.
+  - `startNewPeriods` starts the passed month once and then finds nothing.
+  - All three failed before the migration.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

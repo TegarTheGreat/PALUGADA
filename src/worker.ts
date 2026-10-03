@@ -53,6 +53,7 @@ import { drainWakes, scheduleHeartbeats } from './scheduler/wake.ts';
 import { settleCompletedReviews } from './review/review.ts';
 import { evaluateAlerts } from './reporting/alerts.ts';
 import { evaluateCircuitBreakers, evaluateSpendLimit } from './governance/spend-guard.ts';
+import { startNewPeriods } from './engine/budget.ts';
 import * as inbox from './inbox/inbox.ts';
 import { runRetention } from './retention/retention.ts';
 import { embedBacklog } from './knowledge/meaning.ts';
@@ -587,6 +588,8 @@ export class Worker {
       });
 
       await this.#stage(report, 'watch', async () => {
+        // A passed month's counts start again before anything reads them (0101).
+        await startNewPeriods(company);
         await evaluateSpendLimit(company, now);
         await evaluateCircuitBreakers(company, now);
         report.alerts += (await evaluateAlerts(company, now)).length;

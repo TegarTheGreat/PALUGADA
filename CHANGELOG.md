@@ -102,6 +102,10 @@ The first version. What it holds, in the order an owner meets it.
 - A model turn the budget cannot pay for is not asked. Each turn is given no
   more room to write than the budget has left, so a reasoning model that
   keeps thinking stops at the ceiling instead of past it (STATUS 2.70).
+- A budget account's tokens and money are counted per calendar month (UTC),
+  as F1.9 asks: an account that ran out has its allowance again on the
+  first, and raising its ceiling gives it more before then. Before, spent
+  tokens stayed spent for the account's whole life (STATUS 2.71).
 
 ### The owner
 

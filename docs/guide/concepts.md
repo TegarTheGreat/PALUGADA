@@ -291,7 +291,10 @@ Tokens and money are reserved before a task starts and charged on every call.
 Budgets are a tree of accounts: the company's at the root, and accounts for
 projects, divisions and roles under it. A task draws on the narrowest account
 that covers it, and a spend counts against every account above it, so raising
-a division's ceiling cannot raise the company's.
+a division's ceiling cannot raise the company's. An account's tokens and money
+are counted per calendar month in UTC: on the first of each month the count
+starts again, and raising a ceiling is how an account that ran out gets more
+before then.
 
 On top of the accounts, each company has a monthly ceiling, USD 200 unless
 you change it, counted per calendar month in UTC.

@@ -7667,6 +7667,78 @@ What changed:
 - **Not done**: a seat in the Telegram or WhatsApp chats, a passkey for a
   seat, and a seat over several companies.
 
+## 2.117 Customers write to the company on Telegram, and every reply waits for the owner (§9 P2)
+
+Recommended by the analysis of 3 October (§9 P2 item 19: "a mailbox and the
+customers' WhatsApp/Telegram, with a reply as a tier 2 action"), and chosen
+by the owner on 3 October. A company could answer its owner on Telegram and
+WhatsApp and could not answer a customer anywhere: `email.send` waited for
+a vendor, `mailbox.read` had no adapter, and nothing heard what a customer
+wrote.
+
+What changed:
+
+- **A conversation, whatever carries it** (0111, `src/chats/`): a
+  channel, one customer's chat on it, and what was said both ways. Telegram
+  is the first transport; WhatsApp and a mailbox are further kinds of the
+  same channel.
+- **The owner connects a bot of the company's own**, with their device, on
+  **Customers** (`POST /api/companies/:companyId/chat-channels`). The token
+  is checked with Telegram's `getMe` before anything is kept, then sealed
+  under a name of its own (`db://chat-…`, which a division's credential may
+  not name), and the secret Telegram is given with `setWebhook` is kept only
+  as its SHA-256. A bot answers for one company at a time; connecting it
+  again reopens the same channel at a new address with a new secret, and
+  the token it replaces is deleted. The role that answers gets `chat.read`
+  and `chat.send`, as grants on its division and as tools, each recorded as
+  a structural change the owner made.
+- **Only Telegram, and only a customer, is heard**
+  (`/api/chat-hooks/:publicId`): a delivery without the secret is refused
+  and recorded as `security.chat_refused`; a group the bot was added to and
+  another bot start nothing. A message is claimed by its id before anything
+  else, so Telegram sending it again starts nothing more; one written while
+  the conversation's work is still waiting for a worker joins that work;
+  past the channel's hour a message is kept and starts no work
+  (`chat.rate_limited`).
+- **What a customer writes is data, and every reply is the owner's.** The
+  message reaches the run in the untrusted envelope and the work is begun
+  from outside (F8.9), so `chat.send` (tier 2) asks the owner -- or an
+  approver seat -- each time, and a standing yes does not cover it. The run
+  is told to read the whole conversation with `chat.read` first and to
+  answer in the language the customer writes in, the company's when it
+  cannot tell. Both capabilities name the conversation the work began with
+  by themselves, and answer only a conversation a customer started.
+- **A reply is sent once.** `chat.send` keeps the reply under the broker's
+  key before it is sent, so a step resumed after its worker stopped finds
+  the reply it already sent (the owner is asked again, as for any yes a
+  stopped step spent, and nothing is sent twice). It is read back as
+  Telegram answered it, since a bot cannot fetch what it sent.
+- **The console**: **Customers** lists the conversations, latest first, with
+  those waiting for an answer marked, and each one whole; the channels,
+  with **Connect a Telegram bot** and **Close**. A card asking to send a
+  reply shows the conversation beside it. A seat reads both pages.
+- **Closing** takes the webhook off, deletes the token and leaves the
+  conversations. A closed company's erasure deletes its bots' tokens with
+  its divisions' keys. An export carries channels without their address,
+  secret or token, and their conversations whole; a restored channel waits
+  closed for the owner to connect the bot again.
+- **Tested.** `customer-chats.test.ts`, against a stub of the Bot API: a
+  connection needs the device and seals the token; a customer's message
+  starts work begun from outside, a resent one starts nothing, a second
+  joins the waiting work, a forged one is refused and recorded, a group is
+  ignored; the run reads the conversation, its reply waits for the owner
+  and is sent once, also when the step is done again; the owner reads it
+  all; closing lets the bot go; a token Telegram does not know, a role of
+  another company and a second company for the same bot are refused with
+  nothing kept; past the hour a message is kept without work; without a
+  public address the owner is told; a restore is closed, at a new address,
+  with its conversations. `company-closing.test.ts`: erasing a company
+  deletes its bot's token and only its.
+- **Not done**: WhatsApp and a mailbox (the next transports), pictures and
+  voice notes read by the run (they are kept as what they were, and the run
+  is told it cannot read them), and retention for conversations, which are
+  kept as long as the company is.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

@@ -304,4 +304,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Approve to switch them all on, or deny to turn them all down. To decide one at a time, open the Skills page.': 'Luluskan untuk menghidupkan kesemuanya, atau Tolak untuk menolak kesemuanya. Untuk membuat keputusan satu demi satu, buka halaman Kemahiran.',
   'Nothing changes; none of these skills is switched on.': 'Tiada apa-apa yang berubah; tiada satu pun kemahiran ini dihidupkan.',
   'I am {ceo}, and I run {company} for you. Three things before we start: what does {company} sell, and to whom? How much may it spend in a month? And what should its first piece of work be -- or shall I suggest one?': 'Saya {ceo}, dan saya menguruskan {company} untuk anda. Tiga perkara sebelum kita mula: apakah yang dijual oleh {company}, dan kepada siapa? Berapakah yang boleh dibelanjakannya dalam sebulan? Dan apakah kerja pertamanya — atau patutkah saya cadangkan satu?',
+  'Read a customer conversation': 'Baca perbualan pelanggan',
+  'Reply to a customer': 'Balas pelanggan',
 };

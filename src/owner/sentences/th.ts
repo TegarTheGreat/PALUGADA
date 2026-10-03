@@ -308,4 +308,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Approve to switch them all on, or deny to turn them all down. To decide one at a time, open the Skills page.': 'อนุมัติเพื่อเปิดใช้ทั้งหมด หรือปฏิเสธเพื่อตีกลับทั้งหมด หากต้องการตัดสินใจทีละรายการ ให้เปิดหน้าทักษะ',
   'Nothing changes; none of these skills is switched on.': 'ไม่มีอะไรเปลี่ยน ไม่มีทักษะใดในนี้ถูกเปิดใช้',
   'I am {ceo}, and I run {company} for you. Three things before we start: what does {company} sell, and to whom? How much may it spend in a month? And what should its first piece of work be -- or shall I suggest one?': 'ฉันคือ {ceo} ผู้ดูแล {company} ให้คุณ ก่อนเริ่มงาน มี 3 เรื่องที่อยากถาม {company} ขายอะไร และขายให้ใคร ใช้จ่ายได้เดือนละเท่าไร และงานชิ้นแรกควรเป็นอะไร หรือจะให้ฉันเสนอสักงานไหม',
+  'Read a customer conversation': 'อ่านบทสนทนากับลูกค้า',
+  'Reply to a customer': 'ตอบกลับลูกค้า',
 };

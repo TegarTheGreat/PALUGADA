@@ -979,6 +979,46 @@ work takes no tier 2 or higher action without you. **Close** refuses further
 events; opening it again takes a code. The trigger URL must be reachable by
 the sender, so it needs the HTTPS set-up in [operations](operations.md).
 
+## Let customers write to the company: Telegram
+
+A company can have a Telegram bot of its own that customers write to. Each
+message starts work for the role you choose, and every reply waits for your
+yes.
+
+1. In Telegram, open @BotFather, send `/newbot`, choose the bot's name and
+   username, and copy the token it gives you.
+2. On **Customers**, under **Connect a Telegram bot**, paste **The bot's
+   token**, choose **Who answers** and the goal it **Serves**, write **What
+   to do with each message**, and set **New conversations, at most, per
+   hour**.
+3. Press **Connect** and confirm with a code. The token is checked with
+   Telegram, sealed, and never shown again. The role is given what it needs
+   to read a conversation and reply: `chat.read` and `chat.send` on its
+   division, and both among its tools.
+4. Share the bot's link, `t.me/<username>`, with your customers.
+
+Telegram sends what customers write to `/api/chat-hooks/<id>` at this
+deployment's public address (`PALUGADA_APP_URL_PUBLIC`, with the HTTPS
+set-up in [operations](operations.md)), with a secret only it was given.
+Without a public address the bot is kept and cannot hear; set one and connect
+the bot again. Only a customer in their own chat with the bot is heard: a
+group the bot was added to, and other bots, start nothing.
+
+A message starts one piece of work, however often Telegram sends it, and a
+message written before anyone picked that work up joins it, so a customer
+who says hello and then asks in a second message gets one answer. Past the
+hour's limit a message is kept, shown with **Past the hour's limit**, and
+starts no work. What a customer writes reaches the role as data. The work
+began with a stranger's words, so each `chat.send` is a card in your inbox
+showing the conversation beside the reply; an approver seat can decide it
+too. A standing yes does not cover it.
+
+**Customers** lists the conversations, latest first, marked **Waiting for an
+answer** when the customer spoke last; open one to read it. **Close** takes
+the bot's webhook off and forgets its token, and what was said stays.
+Connecting the same bot again opens the same channel at a new address. A
+bot answers for one company at a time.
+
 ## Install a bundle
 
 1. Under **Settings**, **Bundles**, **Install a bundle**, type the

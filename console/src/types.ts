@@ -573,6 +573,52 @@ export interface HandoffRule {
 /** How a trigger's caller proves itself (0056). */
 export type TriggerScheme = 'bearer' | 'url' | 'github' | 'stripe' | 'slack' | 'standard';
 
+/** A customer channel (0111): a bot of the company's own, answered by one role. */
+export interface ChatChannel {
+  id: string;
+  kind: 'telegram';
+  /** The bot's username, as customers find it. */
+  account: string;
+  roleId: string;
+  roleName: string;
+  goalId: string;
+  instruction: string;
+  maxPerHour: number;
+  enabled: boolean;
+  chats: number;
+  lastMessageAt: string | null;
+  createdAt: string;
+}
+
+/** One customer's conversation on a channel. */
+export interface Chat {
+  id: string;
+  channelId: string;
+  kind: 'telegram';
+  account: string;
+  /** Whether a reply can still be sent on it. */
+  open: boolean;
+  customerName: string | null;
+  customerHandle: string | null;
+  lastMessageAt: string;
+  lastMessage: { direction: 'in' | 'out'; body: string; attachment: string | null } | null;
+  /** The customer spoke last. */
+  unanswered: boolean;
+}
+
+export interface ChatMessage {
+  id: string;
+  direction: 'in' | 'out';
+  body: string;
+  /** What arrived that is not text, by Telegram's word for it: photo, voice, document… */
+  attachment: string | null;
+  outcome: 'started' | 'joined' | 'limited' | null;
+  taskId: string | null;
+  /** A reply the transport took; false for one whose send failed. */
+  sent: boolean;
+  at: string;
+}
+
 /** An inbound trigger (0054): a URL another service posts events to. */
 export interface Trigger {
   id: string;

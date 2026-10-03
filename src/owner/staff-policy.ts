@@ -55,6 +55,9 @@ export const STAFF_READS: readonly string[] = [
   '/api/companies/:companyId/skills/:skillId',
   '/api/companies/:companyId/roles/:roleId/evals',
   '/api/companies/:companyId/reviews',
+  '/api/companies/:companyId/chat-channels',
+  '/api/companies/:companyId/chats',
+  '/api/companies/:companyId/chats/:chatId',
 ];
 
 /** Reads left off, and why: each is the owner's, or the deployment's. */

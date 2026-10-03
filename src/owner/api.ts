@@ -106,6 +106,10 @@ import { archiveLines, importCompany, previewArchive } from '../audit/import.ts'
 import {
   createTrigger, receiveHook, rotateTriggerToken, setTriggerEnabled, triggersOf, type TriggerScheme,
 } from '../scheduler/triggers.ts';
+import {
+  assertAccountFree, channelsOf, chatWith, chatsOf, checkChannel, closeChannel, hashSecret, openChannel,
+} from '../chats/chats.ts';
+import { receiveChatHook } from '../chats/hook.ts';
 import { GOAL_STATUSES, applyGoalChange, createGoal, readGoal } from '../domain/goals.ts';
 import {
   addDivision,
@@ -3307,6 +3311,131 @@ export class OwnerApi {
       },
 
       {
+        // A customer channel (0111): where Telegram posts what a customer
+        // writes to the company's own bot. Open, like a trigger's address;
+        // the secret Telegram was given stands in for a session and is
+        // checked before the body is read for anything (src/chats/hook.ts).
+        method: 'POST',
+        pattern: '/api/chat-hooks/:publicId',
+        open: true,
+        raw: true,
+        maxBodyBytes: 256 * 1024,
+        handle: async ({ params, request, raw }) => receiveChatHook(params.publicId!, { raw, headers: request.headers }),
+      },
+
+      {
+        // The company's customer channels: never a token, nor where it is sealed.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/chat-channels',
+        handle: async ({ params }) => ({ channels: await channelsOf(params.companyId!) }),
+      },
+
+      {
+        // A bot of the company's own, answered by the role the owner names.
+        // With the device: it seals a key, lets strangers start work, and
+        // gives the role two capabilities it may not have had (F2.9). The
+        // token is checked with Telegram before anything is kept, and the
+        // webhook is set when this deployment has a public address; without
+        // one the channel is kept and cannot hear, and the owner is told.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/chat-channels',
+        handle: async ({ params, body }) => {
+          const companyId = params.companyId!;
+          if (body.kind !== 'telegram') {
+            throw new PalugadaError('contract.violation', `a customer channel is telegram for now; got ${String(body.kind)}`, { field: 'kind' });
+          }
+          const token = typeof body.token === 'string' ? body.token.trim() : '';
+          if (!/^\d{3,20}:[A-Za-z0-9_-]{20,}$/.test(token)) {
+            throw new PalugadaError('contract.violation',
+              'paste the token @BotFather gave the bot: digits, a colon, then letters and digits', { field: 'token' });
+          }
+          const where = await checkChannel(companyId, {
+            roleId: body.roleId, goalId: body.goalId, instruction: body.instruction, maxPerHour: body.maxPerHour,
+          });
+          const bot = await outside(telegramBot(token, this.#botApi()));
+          if (!bot.username) throw new PalugadaError('contract.violation', 'that token is not a bot\'s', { field: 'token' });
+          await assertAccountFree(companyId, 'telegram', bot.username);
+          await this.#requireFactor(body.proof, 'let customers write to the company', companyId);
+          const deployment = this.#deploymentSettings();
+          const master = deployment.master(true);
+          if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
+          const sealed = `chat-${randomBytes(8).toString('hex')}`;
+          const webhookSecret = randomBytes(24).toString('hex');
+          await putSecret(sealed, token, master);
+          let opened: Awaited<ReturnType<typeof openChannel>>;
+          try {
+            opened = await openChannel(companyId, {
+              kind: 'telegram', account: bot.username, ...where, tokenRef: `db://${sealed}`, webhookHash: hashSecret(webhookSecret),
+            });
+          } catch (failure) {
+            await deleteSecret(sealed).catch(() => undefined);
+            throw failure;
+          }
+          if (opened.replacedTokenRef) await deleteSecret(opened.replacedTokenRef.slice('db://'.length));
+          await this.#answerCustomers(companyId, where.divisionId, where.roleId, bot.username);
+          let webhook = 'no_public_address';
+          const publicUrl = deployment.baseEnv.PALUGADA_APP_URL_PUBLIC;
+          if (publicUrl) {
+            try {
+              await telegramApi(token, 'setWebhook', {
+                url: `${publicUrl.replace(/\/+$/, '')}/api/chat-hooks/${opened.publicId}`,
+                secret_token: webhookSecret,
+                allowed_updates: ['message'],
+              }, this.#botApi());
+              webhook = 'set';
+            } catch (failure) {
+              webhook = (failure as Error).message;
+            }
+          }
+          return { channel: (await channelsOf(companyId)).find((one) => one.id === opened.id), webhook };
+        },
+      },
+
+      {
+        // Closing lets the bot go: its webhook taken off, its token deleted
+        // and its address answering nothing. It loosens nothing, so the
+        // session; what was said stays, and connecting the same bot again
+        // opens the same channel at a new address.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/chat-channels/:channelId/close',
+        handle: async ({ params }) => {
+          const companyId = params.companyId!;
+          const held = await withControlPlane(async (tx) => (await tx.query<{ token_ref: string | null }>(
+            'SELECT token_ref FROM chat_channels WHERE id::text = $1 AND company_id = $2', [params.channelId!, companyId])).rows[0]);
+          // Read before it is deleted: taking the webhook off needs the token.
+          const token = held?.token_ref
+            ? await this.#deploymentSettings().secrets.resolve(held.token_ref).catch(() => null)
+            : null;
+          const closed = await closeChannel(companyId, params.channelId!);
+          if (token) await telegramApi(token, 'deleteWebhook', { drop_pending_updates: true }, this.#botApi()).catch(() => undefined);
+          if (closed.tokenRef) await deleteSecret(closed.tokenRef.slice('db://'.length));
+          return { closed: true };
+        },
+      },
+
+      {
+        // The company's conversations with customers, the latest first; with
+        // `?task=`, the one a piece of work answers, which a card asking for
+        // a reply shows beside the reply.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/chats',
+        handle: async ({ params, query }) => {
+          const task = query.get('task');
+          return { chats: await chatsOf(params.companyId!, task ? { taskId: task } : {}) };
+        },
+      },
+
+      {
+        method: 'GET',
+        pattern: '/api/companies/:companyId/chats/:chatId',
+        handle: async ({ params }) => {
+          const found = await withTenant(params.companyId!, (tx) => chatWith(tx, params.chatId!));
+          if (!found) throw new PalugadaError('contract.violation', 'no such conversation in this company', { chatId: params.chatId });
+          return found;
+        },
+      },
+
+      {
         method: 'GET',
         pattern: '/api/companies/:companyId/handoffs',
         handle: async ({ params }) => ({ handoffs: await handoffRulesOf(params.companyId!) }),
@@ -5137,6 +5266,31 @@ export class OwnerApi {
     return base ? { apiBase: base } : {};
   }
 
+  /**
+   * Lets the role that answers a channel read a chat and answer it: the two
+   * grants on its division and the two tools on the role, each recorded as a
+   * structural change the owner made (F2.9, F3.9) -- with the device the
+   * channel was connected with. What it has already is left as it is.
+   */
+  async #answerCustomers(companyId: string, divisionId: string, roleId: string, account: string): Promise<void> {
+    const wanted = ['chat.read', 'chat.send'];
+    const { granted, tools } = await withTenant(companyId, async (tx) => ({
+      granted: (await tx.query<{ capability_name: string }>(
+        'SELECT capability_name FROM capability_grants WHERE division_id = $1 AND capability_name = ANY($2::text[])',
+        [divisionId, wanted])).rows.map((row) => row.capability_name),
+      tools: (await tx.query<{ tools: string[] }>('SELECT tools FROM roles WHERE id = $1', [roleId])).rows[0]?.tools ?? [],
+    }));
+    for (const capabilityName of wanted.filter((name) => !granted.includes(name))) {
+      await applyGrantChange(companyId, { kind: 'change_grant', divisionId, capabilityName, tierOverride: null }, { ownerApproved: true });
+    }
+    const missing = wanted.filter((name) => !tools.includes(name));
+    if (missing.length > 0) {
+      await applyRoleChange(companyId, roleId, { tools: [...tools, ...missing] }, {
+        ownerApproved: true, summary: `Before it answered customers on @${account}`,
+      });
+    }
+  }
+
   #botApi(): { apiBase?: string } {
     const base = this.#deploymentSettings().baseEnv.PALUGADA_TELEGRAM_API;
     return base ? { apiBase: base } : {};
@@ -5895,6 +6049,11 @@ const CONTENT_TYPES: Record<string, string> = {
   '.json': 'application/json; charset=utf-8',
 };
 
+/** What the console is told about a staff seat signed in: who, and what it may do. */
+function staffOf(session: StaffSession): { name: string; kind: string; companyId: string } {
+  return { name: session.seat.name, kind: session.seat.kind, companyId: session.seat.companyId };
+}
+
 /**
  * The status a refusal deserves.
  *
@@ -5902,11 +6061,6 @@ const CONTENT_TYPES: Record<string, string> = {
  * thing for each: "sign in" is not "you may not", and neither is "that code is
  * wrong". An owner who cannot tell them apart cannot act on any of them.
  */
-/** What the console is told about a staff seat signed in: who, and what it may do. */
-function staffOf(session: StaffSession): { name: string; kind: string; companyId: string } {
-  return { name: session.seat.name, kind: session.seat.kind, companyId: session.seat.companyId };
-}
-
 function statusFor(code: string): number {
   if (code === 'owner.unauthenticated') return 401;
   if (code === 'owner.throttled') return 429;

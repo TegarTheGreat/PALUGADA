@@ -305,4 +305,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Approve to switch them all on, or deny to turn them all down. To decide one at a time, open the Skills page.': '«Одобрить» — включить их все; «Отклонить» — отклонить их все. Чтобы решить по каждому отдельно, откройте раздел «Навыки».',
   'Nothing changes; none of these skills is switched on.': 'Ничего не изменится; ни один из этих навыков не будет включён.',
   'I am {ceo}, and I run {company} for you. Three things before we start: what does {company} sell, and to whom? How much may it spend in a month? And what should its first piece of work be -- or shall I suggest one?': 'Я {ceo}, и я веду компанию {company} для вас. Три вопроса, прежде чем начнём: что продаёт компания {company} и кому? Сколько она может тратить в месяц? И какой должна быть её первая задача — или мне предложить свою?',
+  'Read a customer conversation': 'Прочитать переписку с клиентом',
+  'Reply to a customer': 'Ответить клиенту',
 };

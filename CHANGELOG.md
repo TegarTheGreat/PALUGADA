@@ -285,6 +285,12 @@ The first version. What it holds, in the order an owner meets it.
   app, never yours; tier 3, settings, keys and devices stay yours, the
   record names who decided, and ending a seat signs them out at once
   (STATUS 2.116).
+- Customers can write to a company on a Telegram bot of its own, connected
+  on **Customers** with your device. Each message starts work for the role
+  you chose; every reply is a card showing the conversation beside it,
+  which you or an approver say yes to; and **Customers** lists every
+  conversation. Closing a channel forgets the bot's token and keeps what
+  was said (STATUS 2.117).
 - **Replay against the journal** is shown only for a task this deployment
   can replay. It was offered on every task and refused on every task a
   model or an agent CLI ran (STATUS 2.87).

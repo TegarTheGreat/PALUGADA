@@ -16,6 +16,8 @@ export function capabilitySaid(language: string | null | undefined, name: string
     'ads.campaign.start': () => say(language, 'Start an ad campaign'),
     'calendar.hold': () => say(language, 'Block time on the calendar'),
     'calendar.read': () => say(language, 'Read the calendar'),
+    'chat.read': () => say(language, 'Read a customer conversation'),
+    'chat.send': () => say(language, 'Reply to a customer'),
     'code.execute': () => say(language, 'Run code'),
     'crm.note': () => say(language, 'Add a note to a customer'),
     'crm.read': () => say(language, 'Read customer records'),

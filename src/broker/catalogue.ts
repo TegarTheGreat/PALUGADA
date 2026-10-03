@@ -276,6 +276,17 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
     needsCredential: true,
   },
   {
+    name: 'chat.read',
+    adapter: 'platform',
+    tier: TIER.READ_ONLY,
+    summary: 'Reads a conversation a customer started on one of the company\'s channels.',
+    readsOutside: true,
+    calibration:
+      'Reading changes nothing, and what it returns is a customer\'s own words, ' +
+      'so outside content (F8.9): the work that reads it asks the owner before ' +
+      'anything at tier 2.',
+  },
+  {
     name: 'crm.read',
     adapter: 'crm',
     tier: TIER.READ_ONLY,
@@ -433,6 +444,16 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
       'A named tier 2 example in the PRD section 8.8 table. Nothing unsends ' +
       'a message that has been read.',
     needsCredential: true,
+  },
+  {
+    name: 'chat.send',
+    adapter: 'platform',
+    tier: TIER.COSTLY,
+    summary: 'Replies to a customer in a conversation they started.',
+    calibration:
+      'The same as `email.send`: nothing unsends a message a customer has read. ' +
+      'It answers only a conversation a customer began, and the work it answers ' +
+      'began with a stranger\'s words, so the owner says yes to each reply.',
   },
   {
     name: 'deploy.production',

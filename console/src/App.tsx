@@ -21,7 +21,7 @@ import { notifications } from '@mantine/notifications';
 import { Spotlight, spotlight, type SpotlightActionData } from '@mantine/spotlight';
 import {
   IconActivity, IconAlertOctagon, IconBrain, IconBuildingStore, IconCheck, IconChecklist, IconChevronDown,
-  IconCoin, IconDots, IconHistory, IconHome, IconInbox, IconKey, IconLanguage, IconLayoutDashboard, IconLogout, IconMap,
+  IconCoin, IconDots, IconHistory, IconHome, IconInbox, IconKey, IconLanguage, IconLayoutDashboard, IconLogout, IconMap, IconMessages,
   IconMoon, IconPlayerPlay, IconPlayerStop, IconPlus, IconSearch, IconSparkles, IconServer2, IconSettings, IconSitemap, IconSun,
 } from '@tabler/icons-react';
 import { api, explain, setToken, whenSignedOut } from './api.ts';
@@ -41,6 +41,7 @@ const DeploymentSettings = lazy(() => import('./pages/Deployment.tsx').then((mod
 const Decisions = lazy(() => import('./pages/Decisions.tsx').then((module) => ({ default: module.Decisions })));
 const Overview = lazy(() => import('./pages/Overview.tsx').then((module) => ({ default: module.Overview })));
 const Work = lazy(() => import('./pages/Work.tsx').then((module) => ({ default: module.Work })));
+const Customers = lazy(() => import('./pages/Customers.tsx').then((module) => ({ default: module.Customers })));
 const Organization = lazy(() => import('./pages/Organization.tsx').then((module) => ({ default: module.Organization })));
 const Memory = lazy(() => import('./pages/Memory.tsx').then((module) => ({ default: module.Memory })));
 const Money = lazy(() => import('./pages/Money.tsx').then((module) => ({ default: module.Money })));
@@ -56,6 +57,7 @@ const PAGES: Array<{ id: CompanyPage; label: string; icon: typeof IconInbox; gro
   { id: 'inbox', label: N('Inbox'), icon: IconInbox, group: 'decide' },
   { id: 'overview', label: N('Overview'), icon: IconLayoutDashboard, group: 'company' },
   { id: 'work', label: N('Work'), icon: IconActivity, group: 'company' },
+  { id: 'customers', label: N('Customers'), icon: IconMessages, group: 'company' },
   { id: 'team', label: N('Team'), icon: IconSitemap, group: 'company' },
   { id: 'memory', label: N('Memory'), icon: IconBrain, group: 'company' },
   { id: 'money', label: N('Money'), icon: IconCoin, group: 'company' },
@@ -688,6 +690,7 @@ function CompanyPageView({ ctx, route }: PageProps) {
     case 'inbox': return <Decisions ctx={ctx} route={route} />;
     case 'overview': return <Overview ctx={ctx} route={route} />;
     case 'work': return <Work ctx={ctx} route={route} />;
+    case 'customers': return <Customers ctx={ctx} route={route} />;
     case 'team': return <Organization ctx={ctx} route={route} />;
     case 'memory': return <Memory ctx={ctx} route={route} />;
     case 'money': return <Money ctx={ctx} route={route} />;

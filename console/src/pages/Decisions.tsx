@@ -38,6 +38,7 @@ import { capabilitySaid, dateTime, goalKind, money, relative } from '../format.t
 import { t, tp } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
 import { EmptyState, KindBadge, KpiStrip, LoadFailed, Loading, PageHeader, TierBadge } from '../components/ui.tsx';
+import { ConversationOfTask } from '../components/ChatThread.tsx';
 import { rolePicture } from '../images.ts';
 import { TraceView } from '../components/Trace.tsx';
 
@@ -603,6 +604,8 @@ function Detail({
           && !(item.capabilityName && item.actionSummary.startsWith(`${item.capabilityName}:`) && argumentsOf(item.input).length > 0) && (
           <Block label={t('What will happen')}>{item.actionSummary}</Block>
         )}
+        {/* A reply to a customer, beside what the customer wrote (0111). */}
+        {item.capabilityName === 'chat.send' && item.taskId && <ConversationOfTask companyId={companyId} taskId={item.taskId} />}
         {/* Every argument, whole: the line above is cut to fit, and what is
             approved is what the action is given, not its name. */}
         {argumentsOf(item.input).length > 0 && (

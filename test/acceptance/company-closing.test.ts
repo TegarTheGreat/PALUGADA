@@ -21,6 +21,7 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -53,7 +54,16 @@ after(async () => {
   await closeSetup();
 });
 
-/** Some of everything a company keeps: work, history, a memory, a key its division holds, a sign-in under way. */
+/** Where the bot token of the customer channel `lived` gives a company is sealed (0111). */
+function chatSecretOf(secret: string): string {
+  return `chat-${createHash('sha256').update(secret).digest('hex').slice(0, 16)}`;
+}
+
+/**
+ * Some of everything a company keeps: work, history, a memory, a key its
+ * division holds, a sign-in under way, and a customer's conversation on a bot
+ * whose token is sealed.
+ */
 async function lived(fixture: Fixture, secret: string): Promise<void> {
   await createRootTask({
     companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
@@ -73,9 +83,23 @@ async function lived(fixture: Fixture, secret: string): Promise<void> {
       [fixture.companyId, fixture.divisionId, `db://${secret}`]);
   });
   await withControlPlane(async (tx) => {
+    for (const name of [secret, chatSecretOf(secret)]) {
+      await tx.query(
+        "INSERT INTO deployment_secrets (name, nonce, ciphertext, tag, key_id) VALUES ($1, decode(repeat('00', 12), 'hex'), '\\x00', decode(repeat('00', 16), 'hex'), 'test')",
+        [name]);
+    }
+    const { rows: [channel] } = await tx.query<{ id: string }>(
+      `INSERT INTO chat_channels (company_id, kind, account, project_id, division_id, role_id, goal_id, instruction,
+                                  token_ref, webhook_hash)
+       VALUES ($1, 'telegram', $2, $3, $4, $5, $6, 'Answer Budi.', $7, $8) RETURNING id`,
+      [fixture.companyId, `${secret.replace(/^credential-crm-/, '')}_bot`, fixture.projectId, fixture.divisionId,
+        fixture.roleId, fixture.goalId, `db://${chatSecretOf(secret)}`, createHash('sha256').update('hook').digest('hex')]);
+    const { rows: [chat] } = await tx.query<{ id: string }>(
+      "INSERT INTO chats (company_id, channel_id, external_id, customer_name) VALUES ($1, $2, '4242', 'Budi Santoso') RETURNING id",
+      [fixture.companyId, channel!.id]);
     await tx.query(
-      "INSERT INTO deployment_secrets (name, nonce, ciphertext, tag, key_id) VALUES ($1, decode(repeat('00', 12), 'hex'), '\\x00', decode(repeat('00', 16), 'hex'), 'test')",
-      [secret]);
+      "INSERT INTO chat_messages (company_id, chat_id, direction, external_id, body, outcome) VALUES ($1, $2, 'in', '1', 'Invoice saya mana?', 'started')",
+      [fixture.companyId, chat!.id]);
     await tx.query(
       `INSERT INTO governance_log (subject, subject_id, company_id, action, before, after, actor)
        VALUES ('charter', gen_random_uuid(), $1, 'created', '{}', '{"body":"Serve Budi first."}', 'owner')`,
@@ -193,6 +217,9 @@ test('a closed company is frozen at once, and every row of it is erased when its
   const secrets = await withControlPlane((tx) => tx.query<{ name: string }>(
     "SELECT name FROM deployment_secrets WHERE name LIKE 'credential-crm-%' ORDER BY name"));
   assert.deepEqual(secrets.rows.map((row) => row.name), ['credential-crm-staying'], 'its keys went with it, and only its');
+  const bots = await withControlPlane((tx) => tx.query<{ name: string }>(
+    "SELECT name FROM deployment_secrets WHERE name LIKE 'chat-%' ORDER BY name"));
+  assert.deepEqual(bots.rows.map((row) => row.name), [chatSecretOf('credential-crm-staying')], 'and its bot\'s token, and only its');
 
   // What is kept: that it was, when it closed and went, and how much went.
   const kept = await withControlPlane((tx) => tx.query<{ name: string; counts: Record<string, number> }>(

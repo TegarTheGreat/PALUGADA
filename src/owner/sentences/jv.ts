@@ -303,4 +303,6 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Approve to switch them all on, or deny to turn them all down. To decide one at a time, open the Skills page.': 'Setujoni kangge ngurupaken sedaya, utawi Tolak kangge nampik sedaya. Kangge mutusaken setunggal-setunggal, bikak kaca Kaprigelan.',
   'Nothing changes; none of these skills is switched on.': 'Mboten wonten ingkang ewah; mboten wonten kaprigelan punika ingkang dipunurupaken.',
   'I am {ceo}, and I run {company} for you. Three things before we start: what does {company} sell, and to whom? How much may it spend in a month? And what should its first piece of work be -- or shall I suggest one?': 'Kula {ceo}, ingkang nglampahaken {company} kagem panjenengan. Tigang prekawis rumiyin saderengipun kita wiwit: {company} sade punapa, saha dhateng sinten? Pinten wragad ingkang kenging dipunginakaken ing sawulan? Lan punapa pakaryanipun ingkang sepisanan — utawi kula ingkang ngaturaken usul?',
+  'Read a customer conversation': 'Waos obrolan pelanggan',
+  'Reply to a customer': 'Wangsuli pelanggan',
 };

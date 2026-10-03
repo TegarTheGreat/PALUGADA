@@ -218,10 +218,13 @@ async function eraseCompany(companyId: string): Promise<Erasure | null> {
     }
     // The keys its divisions held are sealed in the deployment's store, under
     // names only a division's credential uses; the company's rows name them.
+    // So are its customer channels' bot tokens, under names of their own (0111).
     const { rows: held } = await tx.query<{ secret_ref: string }>(
-      'SELECT secret_ref FROM credentials WHERE company_id = $1', [companyId]);
+      `SELECT secret_ref FROM credentials WHERE company_id = $1
+       UNION ALL
+       SELECT token_ref FROM chat_channels WHERE company_id = $1 AND token_ref IS NOT NULL`, [companyId]);
     const sealed = held.map((row) => row.secret_ref)
-      .filter((reference) => reference.startsWith(`db://${CREDENTIAL_SECRETS}`))
+      .filter((reference) => reference.startsWith(`db://${CREDENTIAL_SECRETS}`) || reference.startsWith('db://chat-'))
       .map((reference) => reference.slice('db://'.length));
 
     const { rows: line } = await tx.query<{ erased_at: Date }>(

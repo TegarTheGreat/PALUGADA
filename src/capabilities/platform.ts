@@ -27,6 +27,7 @@ import { imageGenerate, speechSynthesize, type ImageProvider, type MediaBinding,
 import { speechTranscribe, type ListenBinding } from './listen.ts';
 import { filesList, type FilesOptions } from './files.ts';
 import { docDraft, emailDraft, type DraftOptions } from './draft.ts';
+import { chatCapabilities, type ChatOptions } from './chat.ts';
 
 export interface PlatformCapabilityOptions {
   /** Reachability rules for the two that make requests. */
@@ -51,6 +52,11 @@ export interface PlatformCapabilityOptions {
   speech?: MediaBinding<SpeechProvider>;
   /** Recordings in the company's files, written down. */
   listen?: ListenBinding & { root: string };
+  /**
+   * Customers' conversations (0111): where each channel's token is sealed.
+   * Omitted, `chat.read` and `chat.send` stay unbound.
+   */
+  chat?: ChatOptions;
 }
 
 /**
@@ -76,6 +82,7 @@ export function platformCapabilities(
   if (options.image) built.push(imageGenerate(options.image) as unknown as Capability<never, never>);
   if (options.speech) built.push(speechSynthesize(options.speech) as unknown as Capability<never, never>);
   if (options.listen) built.push(speechTranscribe(options.listen) as unknown as Capability<never, never>);
+  if (options.chat) built.push(...chatCapabilities(options.chat));
 
   // The drafting pair needs both: a model to compose with and a place to put
   // the result. §8.8 calibrates them at tier 1 because a draft is a write, and

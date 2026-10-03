@@ -530,6 +530,11 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   },
   { pattern: '/api/companies/:companyId/triggers/:triggerId', what: 'Switch a trigger on or off.', fields: { enabled: 'true or false' }, factor: 'always' },
   {
+    pattern: '/api/companies/:companyId/chat-channels/:channelId/close',
+    what: 'Close a customer channel: the bot is no longer heard and its token is forgotten. What was said stays, and connecting the same bot again opens it.',
+    factor: 'never',
+  },
+  {
     pattern: '/api/companies/:companyId/budget-accounts/:accountId/limit',
     what: 'Change a budget account\'s ceilings; raising one takes the owner\'s device.',
     fields: { tokensMax: 'whole tokens', moneyMaxCents: 'optional, in cents' },
@@ -652,6 +657,7 @@ export const NOT_FOR_THE_ASSISTANT: Readonly<Record<string, string>> = {
   '/api/control/mcp/oauth/start': 'signing in to a service is the owner\'s, with their device and in their own browser',
   '/api/companies/:companyId/divisions/:divisionId/credentials/:alias/oauth/start': 'signing a division in for a key is the owner\'s, with their device and in their own browser',
   '/api/hooks/:publicId': 'other services post here, not a person',
+  '/api/chat-hooks/:publicId': 'Telegram posts what customers write here, not a person',
   '/api/control/tour': 'the tour\'s own buttons',
   '/api/companies/:companyId/close': 'erasing a company is decided on its own settings page, with its name typed out, never on a card a model wrote',
   '/api/companies/:companyId/close/keep': 'taken back where it was decided, on the company\'s settings page',
@@ -660,6 +666,7 @@ export const NOT_FOR_THE_ASSISTANT: Readonly<Record<string, string>> = {
   '/api/control/channels/telegram/chats': 'Channels walks through it: the chat is found once the owner presses Start in the bot',
   '/api/control/channels/telegram': 'Channels walks through it, with the token and the chat found there',
   '/api/control/channels/whatsapp': 'Channels walks through it: the token and the app secret are pasted there, from Meta\'s own pages',
+  '/api/companies/:companyId/chat-channels': 'Customers walks through it: the bot\'s token is pasted there, from @BotFather',
   '/api/control/agents/:name/accept': 'running a CLI at a version nobody checked is the owner\'s call, made in Agent CLIs with their device',
   '/api/control/agents/:name/login': 'a plan sign-in is a page the owner opens and a code they paste back, in Agent CLIs',
   '/api/control/agents/:name/login/code': 'the code from the sign-in page is pasted in Agent CLIs',

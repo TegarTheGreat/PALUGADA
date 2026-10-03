@@ -83,6 +83,10 @@ The first version. What it holds, in the order an owner meets it.
   slug. A name that fits no role is answered with the roles there are and
   the nearest one, so routing no longer ends in guesses and probe tasks
   (STATUS 2.66).
+- Work a role hands back is no longer refused for being long. A finished
+  plan or report over what a sub-agent may hand back reaches the role that
+  asked for it cut short, with each cut saying where the whole is kept; the
+  whole stays on the task that did it (STATUS 2.67).
 
 ### The owner
 

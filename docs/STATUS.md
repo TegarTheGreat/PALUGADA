@@ -5901,6 +5901,46 @@ to the marketer.
 - **Not done.** The owner's assistant, which proposes work by role from its
   own reading of the company, is unchanged.
 
+## 2.67 A finished deliverable is handed back, cut short where it is long (F6.7)
+
+Found on the same live run (N2). The marketer finished the seven-day plan the
+owner had asked the CEO for. `task.await` refused it: "child marketer
+returned about 2597 tokens, over the 2000 a sub-agent may hand back (F6.7)".
+The CEO could not report it, the rerun the CEO proposed could not read it
+("not one this task delegated"), and the owner never received the work.
+
+- **Cut short, never refused.** `containChildResult`
+  (`src/engine/containment.ts`) still holds what enters the parent's context
+  to `CHILD_OUTPUT_TOKEN_LIMIT`. It now meets the limit by cutting instead of
+  refusing:
+  - It halves, pass by pass, how long a string and how many items a list may
+    keep. Short fields such as a verdict, a status or a summary line come
+    through whole; only the long ones are cut.
+  - Every cut says so where it was made: "… [cut here: 2000 of 12250
+    characters. The whole is kept on task X, where the owner reads it.]". A
+    list ends with the same note, counted in items.
+  - The result carries `abbreviated` with the task that keeps the whole and
+    how long it was. The summary says the same, and tells the parent to point
+    to it rather than retype it.
+  - What nothing makes fit is replaced by its keys and where the whole is.
+- **Why the decision changed.** Refusing rested on the view that half a JSON
+  document that still parses looks like an answer and is not one. On a live
+  run the refusal lost the work outright. A finished deliverable is the work,
+  not a transcript, and a cut that names itself cannot be taken for the
+  whole. The child's own record keeps its output whole, as before.
+- **Both paths.** `task.await` (`src/broker/platform-capabilities.ts`), for
+  runtimes in another process, returns `abbreviated` beside the output. The
+  in-process `awaitChild` (`src/engine/engine.ts`) uses the same function.
+- **Tested.**
+  - `control-plane.test.ts`: an output over the limit fits under it; its short
+    field is whole; the long one carries the note; `abbreviated` is set and
+    the summary says so; a list of 3,000 short items is cut by items; an
+    output under the limit is not marked.
+  - `out-of-process-runtimes.test.ts`: a child finishing a 12,000-character
+    plan is read by its parent through `task.await` as `completed`, under the
+    limit, with the note naming the child. The child still holds the whole
+    plan.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

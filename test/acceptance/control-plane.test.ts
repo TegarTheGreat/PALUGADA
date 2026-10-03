@@ -53,7 +53,7 @@ import {
   assertWithinQuarantine,
 } from '../../src/gateway/gateway.ts';
 import { chooseReviewerModel } from '../../src/review/review.ts';
-import { containChildResult, CHILD_OUTPUT_TOKEN_LIMIT } from '../../src/engine/containment.ts';
+import { containChildResult, estimateTokens, CHILD_OUTPUT_TOKEN_LIMIT, CHILD_SUMMARY_TOKEN_LIMIT } from '../../src/engine/containment.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { createCompany, addRole, grantCapability, type Fixture } from '../helpers/fixtures.ts';
 import { registerStandardCatalogue } from '../helpers/catalogue-stubs.ts';
@@ -272,22 +272,37 @@ test('a P0 task is claimed before older P2 work (F5.10)', async () => {
 
 /* ------------------------------------------------------------------ F6.7 --- */
 
-test('a sub-agent returns an answer and a bounded summary, never a report (F6.7)', () => {
+test('a sub-agent hands back a bounded answer and summary, cut short and saying so where it is long (F6.7, N2)', () => {
   const contained = containChildResult('researcher', { finding: 'the zone is stale' }, {
     status: 'completed',
     steps: 3,
     costCents: 12,
+    taskId: 'child-0',
   });
   assert.match(contained.summary, /^researcher completed in 3 steps, 12c\./);
   assert.match(contained.summary, /Returned finding\./);
 
-  // An output over the ceiling is a contract violation rather than something to
-  // truncate: half a JSON document that still parses is the worst failure here.
-  const huge = { transcript: 'x'.repeat(CHILD_OUTPUT_TOKEN_LIMIT * 4 + 10) };
-  assert.throws(
-    () => containChildResult('researcher', huge, { status: 'completed', steps: 1, costCents: 0 }),
-    (error: unknown) => isPalugadaError(error, 'contract.violation'),
-  );
+  // An output over the ceiling is handed back cut short, and says so where it
+  // was cut: refused, the work was lost to the parent and the owner never got
+  // it (N2). A cut nobody can mistake for the whole is not half a document.
+  const huge = { verdict: 'stale', transcript: 'x'.repeat(CHILD_OUTPUT_TOKEN_LIMIT * 4 + 10) };
+  const cut = containChildResult('researcher', huge, { status: 'completed', steps: 1, costCents: 0, taskId: 'child-1' });
+  assert.ok(estimateTokens(JSON.stringify(cut.output)) <= CHILD_OUTPUT_TOKEN_LIMIT, 'the ceiling still holds (F6.7)');
+  assert.equal(cut.output.verdict, 'stale', 'a short field comes through whole');
+  assert.match(String(cut.output.transcript), /^x+ … \[cut here: \d+ of 8010 characters\. The whole is kept on task child-1, where the owner reads it\.\]$/);
+  assert.deepEqual(cut.abbreviated, { taskId: 'child-1', characters: JSON.stringify(huge).length });
+  assert.match(cut.summary, /over the 2000 tokens a sub-agent may hand back \(F6\.7\), so it is cut short here; the whole is kept on task child-1/);
+  assert.ok(estimateTokens(cut.summary) <= CHILD_SUMMARY_TOKEN_LIMIT);
+
+  // So many small items that no string is long: the list is cut, and says so.
+  const many = { rows: Array.from({ length: 3_000 }, (_, n) => `row ${n}`) };
+  const fewer = containChildResult('researcher', many, { status: 'completed', steps: 1, costCents: 0, taskId: 'child-2' });
+  assert.ok(estimateTokens(JSON.stringify(fewer.output)) <= CHILD_OUTPUT_TOKEN_LIMIT);
+  const rows = fewer.output.rows as string[];
+  assert.equal(rows[0], 'row 0');
+  assert.match(rows.at(-1)!, /^\[cut here: \d+ of 3000 items\. The whole is kept on task child-2, where the owner reads it\.\]$/);
+  assert.equal(containChildResult('researcher', { finding: 'x' }, { status: 'completed', steps: 1, costCents: 0, taskId: 'c' }).abbreviated, null,
+    'nothing is marked cut that was not');
 });
 
 /* ------------------------------------------------------------------ F7.7 --- */

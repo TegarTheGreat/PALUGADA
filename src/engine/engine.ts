@@ -946,6 +946,7 @@ export class Engine {
                 status: outcome.status,
                 steps,
                 costCents,
+                taskId: child.id,
               });
             } catch (error) {
               // Only the deadline this parent enforces halts the child, and

@@ -908,6 +908,8 @@ export interface TaskAwaitResult {
   /** The child's output, contained to what a parent may be handed (F6.7); null unless it completed. */
   output: Record<string, unknown> | null;
   summary: string;
+  /** Set when the output was cut to fit: the child keeps it whole, for the owner and for anyone pointing to it. */
+  abbreviated: { taskId: string; characters: number } | null;
 }
 
 /**
@@ -954,9 +956,9 @@ export function taskAwaitCapability(): Capability<{ childId: string }, TaskAwait
       if (found.status === 'completed') {
         const costCents = await withTenant(ctx.companyId, (tx) => taskCostCents(tx, String(input.childId)));
         const contained = containChildResult(found.role, found.output ?? {}, {
-          status: found.status, steps: found.steps, costCents,
+          status: found.status, steps: found.steps, costCents, taskId: String(input.childId),
         });
-        return { status: found.status, output: contained.output, summary: contained.summary };
+        return { status: found.status, output: contained.output, summary: contained.summary, abbreviated: contained.abbreviated };
       }
       // Past its deadline and nobody running it: halted here, as the worker's
       // sweep would halt it, and answered. Parking again would reopen at a
@@ -977,6 +979,7 @@ export function taskAwaitCapability(): Capability<{ childId: string }, TaskAwait
           status: found.status,
           output: null,
           summary: `${found.role} ${found.status}${found.halt_reason ? ` (${found.halt_reason})` : ''} without a result`,
+          abbreviated: null,
         };
       }
       const next = Date.now() + AWAIT_POLL_MS;

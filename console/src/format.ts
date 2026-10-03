@@ -54,6 +54,18 @@ export function money(cents: number): string {
   });
 }
 
+/**
+ * How the owner's language groups thousands and marks a decimal, for a
+ * number being typed: "3.300.000,50" in Indonesian, "3,300,000.50" in English.
+ */
+export function numberSeparators(): { thousandSeparator: string; decimalSeparator: string } {
+  const parts = new Intl.NumberFormat(locale()).formatToParts(12_345.6);
+  return {
+    thousandSeparator: parts.find((part) => part.type === 'group')?.value ?? ',',
+    decimalSeparator: parts.find((part) => part.type === 'decimal')?.value ?? '.',
+  };
+}
+
 /** A currency by its name in the owner's language: "Rupiah Indonesia". */
 export function currencyName(code: string): string {
   return new Intl.DisplayNames(locale(), { type: 'currency' }).of(code) ?? code;

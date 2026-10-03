@@ -12,7 +12,7 @@ import { IconAlertTriangle, IconCheck, IconCopy, IconDownload, IconFingerprint, 
 import { useState } from 'react';
 import { api, explain } from '../api.ts';
 import { useLoad } from '../hooks.ts';
-import { centsFrom, currencyName, day, retentionSaid, setMoneyDisplay, type MoneyDisplay } from '../format.ts';
+import { centsFrom, currencyName, day, type MoneyDisplay, numberSeparators, retentionSaid, setMoneyDisplay } from '../format.ts';
 import { LANGUAGES, isLanguage, language, t } from '../i18n.ts';
 import { chooseLanguage, type ConsoleContext, type Languages } from '../App.tsx';
 import { LoadFailed, Loading, Section } from '../components/ui.tsx';
@@ -541,7 +541,7 @@ function MoneyDisplayForm() {
         searchable allowDeselect={false} w={{ base: '100%', sm: 320 }} />
       {chosen !== 'USD' && (
         <NumberInput label={t('{currency} for one US dollar', { currency: chosen })} value={typed} onChange={setRate}
-          min={0} decimalScale={6} thousandSeparator w={{ base: '100%', sm: 220 }} />
+          min={0} decimalScale={6} {...numberSeparators()} w={{ base: '100%', sm: 220 }} />
       )}
       <Button loading={busy} disabled={unchanged || (chosen !== 'USD' && !(Number(typed) > 0))} onClick={() => void save()}>
         {t('Save')}

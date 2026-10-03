@@ -7359,6 +7359,25 @@ What changed:
   test skips where no Chromium is installed, and `PALUGADA_CHROMIUM` names
   one.
 
+## 2.108 A number being typed is written the way the owner's language writes one (§2.3 item 3)
+
+Found by the phone check of 2.107. Every figure on the money page was
+written the owner's way -- "Rp 3.300.000" -- but the ceiling being typed
+beside it read "Rp 3,300,000": every number input grouped thousands with a
+comma and pointed decimals with a full stop, the English way, whatever the
+owner reads. An Indonesian owner reads "3,300" as three and three tenths.
+
+What changed:
+
+- **Grouped and pointed as the language does** (`numberSeparators`,
+  `console/src/format.ts`): every number input that groups thousands -- the
+  monthly ceiling, an account's ceilings, the daily-cost alert, the rate of
+  the currency the owner reads money in, a measure's start, target and
+  value -- takes the language's own separators.
+- **Tested.** `console-money.test.ts`: Indonesian groups with a full stop and
+  points with a comma, English the other way, and no page or component
+  groups a number by itself.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

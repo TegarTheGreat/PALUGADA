@@ -19,7 +19,8 @@ import { fileURLToPath } from 'node:url';
 // server's type check has no document to give it.
 (globalThis as { document?: unknown }).document = { documentElement: {} };
 const console_ = (path: string) => new URL(`../../console/src/${path}`, import.meta.url).href;
-const { money, centsFrom, typedFrom, setMoneyDisplay } = await import(console_('format.ts')) as {
+const { money, centsFrom, typedFrom, setMoneyDisplay, numberSeparators } = await import(console_('format.ts')) as {
+  numberSeparators: () => { thousandSeparator: string; decimalSeparator: string };
   money: (cents: number) => string;
   centsFrom: (typed: string | number) => number;
   typedFrom: (cents: number) => number;
@@ -67,5 +68,27 @@ test("amounts are shown and typed in the owner's currency when they chose one", 
     const page = await readFile(fileURLToPath(new URL(`../../console/src/pages/${name}`, import.meta.url)), 'utf8');
     assert.doesNotMatch(page, /\* 100\)/, `${name} turns what was typed into cents as dollars, whatever the owner reads`);
     assert.doesNotMatch(page, /Cents \/ 100\)/, `${name} shows a ceiling to edit as dollars`);
+  }
+});
+
+/**
+ * What the owner types is grouped the way their language writes it: an
+ * Indonesian owner typing a ceiling in rupiah saw "Rp 3,300,000", the English
+ * way, beside "Rp 3.300.000" in every figure on the page.
+ */
+test("a number being typed is grouped and pointed the way the owner's language writes one", async () => {
+  setLanguage('id');
+  assert.deepEqual(numberSeparators(), { thousandSeparator: '.', decimalSeparator: ',' });
+  setLanguage('en');
+  assert.deepEqual(numberSeparators(), { thousandSeparator: ',', decimalSeparator: '.' });
+
+  const { readdir } = await import('node:fs/promises');
+  const pages = fileURLToPath(new URL('../../console/src/', import.meta.url));
+  for (const folder of ['pages', 'components']) {
+    for (const name of await readdir(`${pages}${folder}`)) {
+      if (!name.endsWith('.tsx')) continue;
+      const source = await readFile(`${pages}${folder}/${name}`, 'utf8');
+      assert.doesNotMatch(source, /thousandSeparator/, `${folder}/${name} groups a number the English way; spread numberSeparators()`);
+    }
   }
 });

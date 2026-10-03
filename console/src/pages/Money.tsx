@@ -17,7 +17,7 @@ import { api, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { useLoad } from '../hooks.ts';
 import type { Account, CostPeriod, Spend, Structure } from '../types.ts';
-import { centsFrom, count, currencyAffix, currencyName, dateTime, day, money, moneyDisplay, roleLabel, typedFrom } from '../format.ts';
+import { centsFrom, count, currencyAffix, currencyName, dateTime, day, money, moneyDisplay, numberSeparators, roleLabel, typedFrom } from '../format.ts';
 import type { PageProps } from '../App.tsx';
 import { N, t } from '../i18n.ts';
 import { KpiStrip, LoadFailed, Loading, PageHeader, Section } from '../components/ui.tsx';
@@ -277,7 +277,7 @@ function CeilingForm({ companyId, spend, changed }: { companyId: string; spend: 
   return (
     <Stack gap="xs">
       <Group align="flex-end" gap="xs" wrap="nowrap">
-        <NumberInput label={t('Monthly ceiling')} {...currencyAffix()} value={value} onChange={setValue} min={0} decimalScale={2} thousandSeparator style={{ flex: 1 }} />
+        <NumberInput label={t('Monthly ceiling')} {...currencyAffix()} value={value} onChange={setValue} min={0} decimalScale={2} {...numberSeparators()} style={{ flex: 1 }} />
         <Button loading={busy} onClick={() => void save()}>{t('Set')}</Button>
       </Group>
       <Text size="xs" c="dimmed">{t('Raising it asks for your authenticator; lowering it does not.')}</Text>
@@ -323,8 +323,8 @@ function AccountCeilings({ companyId, account, changed }: { companyId: string; a
       <Text size="sm" c="dimmed">
         {t('{spent} tokens spent this month and {held} held. The count starts again on the first of each month (UTC); raise the ceiling to give the account more before then.', { spent: count(account.tokensSpent), held: count(account.tokensReserved) })}
       </Text>
-      <NumberInput label={t('Token ceiling')} value={tokens} onChange={setTokens} min={0} thousandSeparator />
-      <NumberInput label={t('Money ceiling')} {...currencyAffix()} value={ceiling} onChange={setCeiling} min={0} decimalScale={2} thousandSeparator />
+      <NumberInput label={t('Token ceiling')} value={tokens} onChange={setTokens} min={0} {...numberSeparators()} />
+      <NumberInput label={t('Money ceiling')} {...currencyAffix()} value={ceiling} onChange={setCeiling} min={0} decimalScale={2} {...numberSeparators()} />
       <Text size="xs" c="dimmed">{t('Raising either asks for your authenticator; lowering does not.')}</Text>
       {error && <Alert color="red" variant="light">{error}</Alert>}
       <Group justify="flex-end">

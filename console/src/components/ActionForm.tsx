@@ -16,7 +16,7 @@ import { notifications } from '@mantine/notifications';
 import type { Proof } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { t } from '../i18n.ts';
-import { currencyAffix } from '../format.ts';
+import { currencyAffix, numberSeparators } from '../format.ts';
 
 export interface Field {
   name: string;
@@ -111,7 +111,7 @@ export function ActionForm({
               case 'number':
                 return <NumberInput {...common} value={value === '' ? '' : Number(value)} onChange={(v) => set(field.name, v === '' ? '' : String(v))} allowDecimal />;
               case 'money':
-                return <NumberInput {...common} {...currencyAffix()} value={value === '' ? '' : Number(value)} onChange={(v) => set(field.name, v === '' ? '' : String(v))} min={0} decimalScale={2} thousandSeparator />;
+                return <NumberInput {...common} {...currencyAffix()} value={value === '' ? '' : Number(value)} onChange={(v) => set(field.name, v === '' ? '' : String(v))} min={0} decimalScale={2} {...numberSeparators()} />;
               case 'select':
                 return <Select {...common} data={field.options ?? []} value={value || null} onChange={(v) => set(field.name, v ?? '')} searchable clearable={!field.required} />;
               case 'datetime':

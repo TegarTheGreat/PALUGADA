@@ -36,8 +36,12 @@ test('an account is named for what it covers, unless the owner named it, and so 
   const api = await consoleWithSettings();
   try {
     const token = await api.signIn();
+    const { rows: [role] } = await withTenant(company.companyId, (tx) => tx.query<{ id: string; division_id: string }>(
+      "SELECT r.id, r.division_id FROM roles r JOIN divisions d ON d.id = r.division_id WHERE d.slug = 'ops' LIMIT 1"));
+    // On one role, the narrowest scope there is: an account beside the
+    // division's own, on the same division, would be a tie for which covers it.
     const opened = await api.call('POST', `/api/companies/${company.companyId}/budget-accounts`, token, {
-      label: 'Ramadan promotion', tokensMax: 50_000, scopeType: 'division', scopeId: company.divisionIds.ops,
+      label: 'Ramadan promotion', tokensMax: 50_000, scopeType: 'role', scopeId: role!.id,
       parentAccountId: (await accountOf(company.companyId, 'ops')), proof: { totp: api.code() },
     });
     assert.equal(opened.status, 200, JSON.stringify(opened.body));
@@ -49,8 +53,6 @@ test('an account is named for what it covers, unless the owner named it, and so 
     assert.equal(names.get('ops'), 'Operations', 'a division\'s, by the division\'s name');
     assert.equal(names.get('Ramadan promotion'), 'Ramadan promotion', 'and the owner\'s own, by the name they gave it');
 
-    const { rows: [role] } = await withTenant(company.companyId, (tx) => tx.query<{ id: string; division_id: string }>(
-      "SELECT r.id, r.division_id FROM roles r JOIN divisions d ON d.id = r.division_id WHERE d.slug = 'ops' LIMIT 1"));
     const budget = await api.call('GET', `/api/companies/${company.companyId}/divisions/${role!.division_id}/roles/${role!.id}/budget`, token);
     assert.equal(budget.status, 200, JSON.stringify(budget.body));
     // The narrowest account covering the role is the one opened above.

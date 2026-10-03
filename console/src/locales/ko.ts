@@ -1277,6 +1277,7 @@ export const DICTIONARY: Dictionary = {
   "Restore from an export": "내보낸 파일에서 복원",
   "Restore it": "복원하기",
   "Restore {company}": "{company} 복원",
+  "Results": "결과물",
   "Resume": "재개",
   "Resume everything": "모두 재개",
   "Resume this role": "이 역할 재개",

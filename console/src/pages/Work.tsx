@@ -30,6 +30,7 @@ import type { PageProps } from '../App.tsx';
 import { EmptyState, LoadFailed, Loading, PageHeader, StatusBadge } from '../components/ui.tsx';
 import { rolePicture } from '../images.ts';
 import { Tickets } from '../components/Tickets.tsx';
+import { Gallery } from '../components/Gallery.tsx';
 import { TraceView } from '../components/Trace.tsx';
 
 type Filter = WorkGroup | 'all';
@@ -39,7 +40,7 @@ const LIVE = ['pending', 'checked_out', 'running'];
 export function Work({ ctx, route }: PageProps) {
   const { companyId } = ctx;
   const [filter, setFilter] = useState<Filter>('all');
-  const [view, setView] = useState<'tasks' | 'tickets'>('tasks');
+  const [view, setView] = useState<'tasks' | 'tickets' | 'results'>('tasks');
   // Narrowing to one project, role or goal (0074), and the older pages
   // fetched on request, kept until the filters change.
   const [project, setProject] = useState<string | null>(null);
@@ -107,14 +108,18 @@ export function Work({ ctx, route }: PageProps) {
         actions={<Button leftSection={<IconPlus size={16} />} onClick={ctx.giveWork}>{t('Give work')}</Button>}
       />
 
-      <Tabs value={view} onChange={(value) => setView(value === 'tickets' ? 'tickets' : 'tasks')}>
+      <Tabs value={view} onChange={(value) => setView(value === 'tickets' || value === 'results' ? value : 'tasks')}>
         <Tabs.List>
           <Tabs.Tab value="tasks" leftSection={<IconListCheck size={16} />}>{t('Tasks')}</Tabs.Tab>
           <Tabs.Tab value="tickets" leftSection={<IconTicket size={16} />}>{t('Tickets')}</Tabs.Tab>
+          {/* Everything the company produced, across its tasks (§9 P1 item 12). */}
+          <Tabs.Tab value="results" leftSection={<IconFileText size={16} />}>{t('Results')}</Tabs.Tab>
         </Tabs.List>
       </Tabs>
 
-      {view === 'tickets' ? <Tickets companyId={companyId} openTask={(id) => { setView('tasks'); openTask(id); }} /> : (<>
+      {view === 'results' && <Gallery companyId={companyId} openTask={(id) => { setView('tasks'); openTask(id); }} />}
+
+      {view === 'results' ? null : view === 'tickets' ? <Tickets companyId={companyId} openTask={(id) => { setView('tasks'); openTask(id); }} /> : (<>
       {/* The same choice as a list on a phone, where five segments ran off
           the screen and "Stopped" was the one out of sight (§2.3 item 8). */}
       <SegmentedControl

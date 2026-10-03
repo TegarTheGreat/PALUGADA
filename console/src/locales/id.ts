@@ -1200,6 +1200,7 @@ export const DICTIONARY: Dictionary = {
   "Restore from an export": "Pulihkan dari ekspor",
   "Restore it": "Pulihkan",
   "Restore {company}": "Pulihkan {company}",
+  "Results": "Hasil kerja",
   "Resume": "Lanjutkan",
   "Resume everything": "Lanjutkan semuanya",
   "Resume this role": "Lanjutkan peran ini",

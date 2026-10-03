@@ -1266,6 +1266,7 @@ export const DICTIONARY: Dictionary = {
   "Restore from an export": "从导出文件恢复",
   "Restore it": "恢复",
   "Restore {company}": "恢复 {company}",
+  "Results": "成果",
   "Resume": "恢复",
   "Resume everything": "全部恢复",
   "Resume this role": "恢复此角色",

@@ -212,6 +212,7 @@ import {
   structureOf,
   taskDetailOf,
   workOf,
+  galleryOf,
 } from './views.ts';
 
 export interface OwnerApiOptions {
@@ -834,6 +835,19 @@ export class OwnerApi {
       },
 
 
+
+      {
+        // Everything the company produced for a person to read, newest first
+        // (the analysis of 3 October, §9 P1 item 12): each task's
+        // deliverables, across every task.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/gallery',
+        handle: async ({ params, query }) => galleryOf(params.companyId!, {
+          ...(query.get('limit') === null ? {} : { limit: wholeNumber(query.get('limit'), 'limit') }),
+          // The `next` of the page before: read, not trusted (views.ts galleryCursor).
+          ...(query.get('before') ? { before: query.get('before')! } : {}),
+        }),
+      },
 
       {
         method: 'GET',

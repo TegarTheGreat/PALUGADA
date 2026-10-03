@@ -1306,6 +1306,7 @@ export const DICTIONARY: Dictionary = {
   "Restore from an export": "Dışa aktarmadan geri yükle",
   "Restore it": "Geri yükle",
   "Restore {company}": "Geri yükle: {company}",
+  "Results": "Çıktılar",
   "Resume": "Sürdür",
   "Resume everything": "Her şeyi sürdür",
   "Resume this role": "Bu rolü sürdür",

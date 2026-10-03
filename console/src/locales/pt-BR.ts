@@ -1264,6 +1264,7 @@ export const DICTIONARY: Dictionary = {
   "Restore from an export": "Restaurar de uma exportação",
   "Restore it": "Restaurar",
   "Restore {company}": "Restaurar {company}",
+  "Results": "Resultados",
   "Resume": "Retomar",
   "Resume everything": "Retomar tudo",
   "Resume this role": "Retomar este cargo",

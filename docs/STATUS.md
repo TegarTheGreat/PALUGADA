@@ -7388,6 +7388,34 @@ reviewer" -- and a role with no title by its model's tier. The subtitle is
 the title, and nothing when there is none. `console-role-names.test.ts`
 now also refuses a role's code put beside its name.
 
+## 2.110 A gallery of everything the company produced (§9 P1 item 12)
+
+Recommended by the analysis of 3 October (§9, P1 item 12; Paperclip keeps
+every artifact in one gallery). A document a role wrote or an email it sent
+was kept -- in the journal, as the step that committed it -- and shown on the
+task that made it, but nowhere else: finding last week's newsletter meant
+knowing which task wrote it.
+
+What changed:
+
+- **The gallery** (`galleryOf`, `src/owner/views.ts`; `GET
+  /api/companies/:companyId/gallery`): every draft and email the company's
+  tasks committed, newest first and thirty to a page, each with its title,
+  the start of what it says without its heading, its words or its
+  recipient, who wrote it by name, and what its task was asked. It is what a
+  task's deliverables are, read across every task, redacted on the way out.
+  The page marker is the owner's input on the way back, so it is read, not
+  trusted.
+- **Its own index** (0107): the steps a gallery shows, in its order, so a
+  page of it does not walk every step the company ever took.
+- **Results on Work**: a tab beside **Tasks** and **Tickets**, a card to a
+  piece, one to a row on a phone; pressing one reads the whole of it, with
+  **Copy the text** and **Open the task**.
+- **Tested.** `gallery.test.ts`: what two tasks committed comes back newest
+  first with who wrote it and its task; a draft that did not commit, a step
+  with no document and another company's work are not in it; it pages from
+  the last one shown; and a page marker it did not issue is refused.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

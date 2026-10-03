@@ -1275,6 +1275,7 @@ export const DICTIONARY: Dictionary = {
   "Restore from an export": "エクスポートから復元",
   "Restore it": "復元する",
   "Restore {company}": "{company} を復元",
+  "Results": "成果物",
   "Resume": "再開",
   "Resume everything": "すべて再開",
   "Resume this role": "このロールを再開",

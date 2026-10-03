@@ -250,6 +250,10 @@ The first version. What it holds, in the order an owner meets it.
   the number (STATUS 2.107).
 - A number you type is grouped and pointed the way your language writes
   one -- "Rp 3.300.000" in Indonesian, not "Rp 3,300,000" (STATUS 2.108).
+- **Work**, **Results** shows every draft and email the company produced,
+  newest first, with who wrote it, each a press away from its whole text
+  and its task. They could be found only on the task that made them
+  (STATUS 2.110).
 - **Replay against the journal** is shown only for a task this deployment
   can replay. It was offered on every task and refused on every task a
   model or an agent CLI ran (STATUS 2.87).

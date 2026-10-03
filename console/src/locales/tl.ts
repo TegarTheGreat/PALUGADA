@@ -1260,6 +1260,7 @@ export const DICTIONARY: Dictionary = {
   "Restore from an export": "Ibalik mula sa isang export",
   "Restore it": "Ibalik",
   "Restore {company}": "Ibalik ang {company}",
+  "Results": "Mga nagawa",
   "Resume": "Ituloy",
   "Resume everything": "Ituloy ang lahat",
   "Resume this role": "Ituloy ang role na ito",

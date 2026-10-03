@@ -95,7 +95,9 @@ along the bottom and under **More**.
 7. **See what it delivered.** Finished tasks move to **Done** on the
    **Work** page and to **Just delivered** on **Home**. Open one to read
    **What it produced**: its summary, drafts and emails, each readable in
-   full. Under **Your word on it**, press **Good** or **Needs work** and say
+   full. **Work**, **Results** shows every draft and email the company
+   produced, newest first, with who wrote it, each a press away from its
+   whole text and its task. Under **Your word on it**, press **Good** or **Needs work** and say
    why; the division reads your note on its next run, and it is placed first
    in what the company knows. Your decisions, with your notes, are kept in
    **History**, and what the company has learned is in **Memory**.

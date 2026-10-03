@@ -474,6 +474,23 @@ export interface MemoryItem {
 }
 
 /** Something a task wrote down for a person to read: a document, an email. */
+/** One thing the company produced for a person to read, across every task (the gallery). */
+export interface GalleryItem {
+  taskId: string;
+  step: number;
+  capability: string;
+  title: string;
+  path: string;
+  excerpt: string;
+  words: number | null;
+  to: string | null;
+  at: string;
+  roleSlug: string;
+  roleName: string | null;
+  /** What the task that made it was asked to do. */
+  task: string;
+}
+
 export interface Deliverable {
   step: number;
   capability: string;

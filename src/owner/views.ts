@@ -17,6 +17,7 @@ import { metricsIn, type MetricView } from '../domain/metrics.ts';
 import { withTenant } from '../db/tenant.ts';
 import { likePattern } from './search.ts';
 import { redactor } from '../secrets/manager.ts';
+import { PalugadaError } from '../errors.ts';
 import { fingerprint } from '../gateway/gateway.ts';
 import { TERMINAL_STATUSES, type TaskStatus } from '../domain/task.ts';
 import { LOW_CONFIDENCE } from '../context/builder.ts';
@@ -716,6 +717,116 @@ export async function taskDetailOf(companyId: string, taskId: string): Promise<T
         to: text(step.output.to),
         at: step.committed_at,
       })),
+    };
+  });
+}
+
+/* ------------------------------------------------------------- gallery --- */
+
+/** One thing the company produced for a person to read: a document, an email. */
+export interface GalleryItem {
+  taskId: string;
+  step: number;
+  /** The capability that wrote it, without the journal's `capability:` prefix. */
+  capability: string;
+  /** The email's subject, the document's title or first heading, or its file's name. */
+  title: string;
+  path: string;
+  /** The start of what it says, without its heading, for a card. The whole is on its task. */
+  excerpt: string;
+  words: number | null;
+  to: string | null;
+  at: Date;
+  roleSlug: string;
+  /** The name the owner gave the role, shown in place of its code. */
+  roleName: string | null;
+  /** What the task that made it was asked to do. */
+  task: string;
+}
+
+/** How long an excerpt is: two or three lines of a card. */
+const EXCERPT = 280;
+
+function galleryCursor(raw: string): { micros: string; taskId: string; step: number } {
+  const [micros, taskId, step] = Buffer.from(raw, 'base64url').toString('utf8').split('|');
+  if (!micros || !/^\d{1,18}$/.test(micros) || !taskId || !/^[0-9a-f-]{36}$/.test(taskId) || !step || !/^\d{1,9}$/.test(step)) {
+    throw new PalugadaError('contract.violation', 'that page marker is not one this list issued', {});
+  }
+  return { micros, taskId, step: Number(step) };
+}
+
+/** A text's opening words, without a leading heading, cut at a word. */
+function excerptOf(text: string): string {
+  const lines = text.split('\n');
+  const body = (/^#{1,3}\s+\S/.test(lines[0] ?? '') ? lines.slice(1) : lines).join(' ').replace(/\s+/g, ' ').trim();
+  if (body.length <= EXCERPT) return body;
+  const space = body.lastIndexOf(' ', EXCERPT);
+  return `${body.slice(0, space > EXCERPT * 0.7 ? space : EXCERPT).trimEnd()}\u2026`;
+}
+
+/**
+ * Everything the company's tasks produced for a person to read, newest first
+ * (the analysis of 3 October, §9 P1 item 12): what `taskDetailOf` calls a
+ * task's deliverables, across every task, a page at a time. Read from the
+ * journal as a task's are, by the index made for it (0107), and redacted on
+ * the way out.
+ */
+export async function galleryOf(
+  companyId: string,
+  options: { limit?: number; before?: string } = {},
+): Promise<{ items: GalleryItem[]; next: string | null }> {
+  const limit = Math.min(Math.max(options.limit ?? 30, 1), 100);
+  const cursor = options.before ? galleryCursor(options.before) : null;
+  return withTenant(companyId, async (tx) => {
+    const { rows: fetched } = await tx.query<{
+      task_id: string; step_index: number; name: string; committed_at: Date; output: Record<string, unknown>;
+      micros: string; role_slug: string; role_name: string | null; input: unknown;
+    }>(
+      `SELECT s.task_id, s.step_index, s.name, s.committed_at, s.output,
+              (extract(epoch FROM s.committed_at) * 1000000)::bigint::text AS micros,
+              r.slug AS role_slug, r.display_name AS role_name, t.input
+         FROM task_steps s
+         JOIN tasks t ON t.id = s.task_id
+         JOIN roles r ON r.id = t.role_id
+        WHERE s.company_id = $1
+          -- The index's own condition (0107), and the one a task's
+          -- deliverables are read by.
+          AND s.status = 'committed' AND s.name LIKE 'capability:%'
+          AND jsonb_typeof(s.output -> 'path') = 'string'
+          AND (jsonb_typeof(s.output -> 'text') = 'string' OR jsonb_typeof(s.output -> 'body') = 'string')
+          -- The next page: after the last one shown, in the order shown.
+          AND ($3::bigint IS NULL
+               OR (s.committed_at, s.task_id, s.step_index)
+                  < (timestamptz 'epoch' + $3::bigint * interval '1 microsecond', $4::uuid, $5::int))
+        ORDER BY s.committed_at DESC, s.task_id DESC, s.step_index DESC
+        LIMIT $2 + 1`,
+      [companyId, limit, cursor?.micros ?? null, cursor?.taskId ?? null, cursor?.step ?? null],
+    );
+    const rows = fetched.slice(0, limit);
+    const last = rows[rows.length - 1];
+    const text = (value: unknown) => (typeof value === 'string' ? redactor.redact(value) : null);
+    return {
+      next: fetched.length > limit && last
+        ? Buffer.from(`${last.micros}|${last.task_id}|${last.step_index}`, 'utf8').toString('base64url')
+        : null,
+      items: rows.map((row) => {
+        const body = text(row.output.text) ?? text(row.output.body) ?? '';
+        const path = text(row.output.path)!;
+        return {
+          taskId: row.task_id,
+          step: row.step_index,
+          capability: row.name.replace(/^capability:/, ''),
+          title: text(row.output.subject) ?? text(row.output.title) ?? headingOf(body) ?? path.split('/').pop()!,
+          path,
+          excerpt: excerptOf(body),
+          words: typeof row.output.words === 'number' ? row.output.words : null,
+          to: text(row.output.to),
+          at: row.committed_at,
+          roleSlug: row.role_slug,
+          roleName: row.role_name,
+          task: redactor.redact(summarise(row.input)),
+        };
+      }),
     };
   });
 }

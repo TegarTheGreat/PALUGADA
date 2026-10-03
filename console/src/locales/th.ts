@@ -1299,6 +1299,7 @@ export const DICTIONARY: Dictionary = {
   "Restore from an export": "กู้คืนจากไฟล์ส่งออก",
   "Restore it": "กู้คืน",
   "Restore {company}": "กู้คืน {company}",
+  "Results": "ผลงาน",
   "Resume": "ทำต่อ",
   "Resume everything": "กลับมาทำงานทั้งหมด",
   "Resume this role": "ให้บทบาทนี้ทำงานต่อ",

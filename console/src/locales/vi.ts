@@ -1304,6 +1304,7 @@ export const DICTIONARY: Dictionary = {
   "Restore from an export": "Khôi phục từ tệp xuất",
   "Restore it": "Khôi phục",
   "Restore {company}": "Khôi phục {company}",
+  "Results": "Kết quả",
   "Resume": "Tiếp tục",
   "Resume everything": "Tiếp tục tất cả",
   "Resume this role": "Tiếp tục vai trò này",

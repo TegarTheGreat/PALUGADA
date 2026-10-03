@@ -448,7 +448,8 @@ test('the digest and the retro are one call each (F10.6, F9.4)', async () => {
     assert.equal(digest.body.companyId, fixture.companyId);
     // F10.6's one-screen limit is a property of the data, so the API cannot
     // hand back something a screen could not hold.
-    assert.ok((digest.body.highlights as unknown[]).length <= 5);
+    // What stopped is data, said in the owner's language by whoever shows it (2.101).
+    assert.ok((digest.body.stopped as unknown[]).length <= 5);
 
     const retro = await call(
       owner.url, 'GET', `/api/companies/${fixture.companyId}/retro`, { token },

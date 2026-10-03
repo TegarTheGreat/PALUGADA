@@ -78,6 +78,11 @@ The first version. What it holds, in the order an owner meets it.
   language as plans were, Javanese and Sundanese included; a slip is recorded,
   never refused, and the role's next run is told what it slipped in
   (STATUS 2.64).
+- The CEO, and any role that hands work on, is told which roles the company
+  has. It may name one by title or name ("the CMO", "Laras") as well as by
+  slug. A name that fits no role is answered with the roles there are and
+  the nearest one, so routing no longer ends in guesses and probe tasks
+  (STATUS 2.66).
 
 ### The owner
 

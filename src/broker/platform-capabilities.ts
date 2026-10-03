@@ -770,9 +770,10 @@ export function taskDelegateCapability(): Capability<TaskDelegateInput, { childI
       }
       const childInput = { goal: brief, ...(typeof input.context === 'string' ? { context: input.context } : {}) };
       const found = await withTenant(ctx.companyId, async (tx) => {
-        const role = await tx.query<{ id: string; division_id: string }>(
-          'SELECT id, division_id FROM roles WHERE slug = $1', [String(input.role ?? '')]);
         const parent = await getTask(tx, ctx.taskId);
+        const roles = await tx.query<NamedRole>(
+          'SELECT id, slug, division_id, display_name, title FROM roles ORDER BY slug');
+        const role = resolveRole(roles.rows, String(input.role ?? ''), parent?.roleId ?? null);
         const ticket = typeof input.ticketId === 'string' ? await readTicket(tx, input.ticketId) : null;
         // Worked already by a child of this very task: the delegation being replayed.
         const ours = ticket?.workingTaskId
@@ -780,11 +781,9 @@ export function taskDelegateCapability(): Capability<TaskDelegateInput, { childI
           : false;
         // The same brief to the same role from this task, already started:
         // the child `createSubTask` will hand back rather than make again.
-        const again = role.rows[0]
-          ? (await tx.query('SELECT 1 FROM tasks WHERE parent_task_id = $1 AND role_id = $2 AND input_hash = $3',
-            [ctx.taskId, role.rows[0].id, hashInput(childInput)])).rowCount === 1
-          : false;
-        return { role: role.rows[0], parent, ticket, ours, again };
+        const again = (await tx.query('SELECT 1 FROM tasks WHERE parent_task_id = $1 AND role_id = $2 AND input_hash = $3',
+          [ctx.taskId, role.id, hashInput(childInput)])).rowCount === 1;
+        return { role, parent, ticket, ours, again };
       });
       if (typeof input.ticketId === 'string') {
         // Checked before the child exists, so a ticket that cannot be handed
@@ -798,9 +797,6 @@ export function taskDelegateCapability(): Capability<TaskDelegateInput, { childI
             { field: 'ticketId' });
         }
       }
-      if (!found.role) {
-        throw new PalugadaError('contract.violation', `no role ${input.role} in this company`, { field: 'role' });
-      }
       if (!found.parent) throw new PalugadaError('contract.violation', 'no such task', { taskId: ctx.taskId });
       const deadlineAt = new Date(Date.now() + minutes * 60_000);
       const child = await createSubTask(ctx.taskId, {
@@ -813,7 +809,7 @@ export function taskDelegateCapability(): Capability<TaskDelegateInput, { childI
         deadlineAt,
       });
       await withTenant(ctx.companyId, async (tx) => {
-        await tx.query('UPDATE roles SET dormant_until = NULL WHERE id = $1', [found.role!.id]);
+        await tx.query('UPDATE roles SET dormant_until = NULL WHERE id = $1', [found.role.id]);
         // A replayed delegation finds its child already working the ticket.
         if (found.ticket && found.ticket.workingTaskId !== child.id) await startTicket(tx, ctx.companyId, found.ticket.id, child.id);
         // The brief is this role's words to another. The context is not
@@ -829,9 +825,82 @@ export function taskDelegateCapability(): Capability<TaskDelegateInput, { childI
         reason: 'event',
         detail: `task ${ctx.taskId} delegated task ${child.id}`,
       });
-      return { childId: child.id, role: String(input.role), deadlineAt: (child.deadlineAt ?? deadlineAt).toISOString() };
+      return { childId: child.id, role: found.role.slug, deadlineAt: (child.deadlineAt ?? deadlineAt).toISOString() };
     },
   };
+}
+
+interface NamedRole {
+  id: string;
+  slug: string;
+  division_id: string;
+  display_name: string | null;
+  title: string | null;
+}
+
+/**
+ * The role a delegation names: by its slug, or by a title or name that is one
+ * role's alone.
+ *
+ * Models name a colleague the way people do -- "the CMO", "Laras" -- and a
+ * slug-only lookup refused every one of those on a live run, nineteen times
+ * in a row, with an answer that said nothing about what would have been
+ * accepted. A title or name shared by two roles is refused rather than
+ * guessed between: handing a payment to the wrong "Head of Finance" is worse
+ * than asking again. Every refusal lists the roles there are, and the
+ * nearest slug when one is close, so the next call can be right.
+ */
+function resolveRole(roles: readonly NamedRole[], asked: string, asking: string | null): NamedRole {
+  const wanted = asked.trim().toLowerCase();
+  const bySlug = roles.find((role) => role.slug === wanted);
+  if (bySlug) return bySlug;
+  const named = roles.filter((role) =>
+    [role.title, role.display_name].some((label) => label !== null && label.trim().toLowerCase() === wanted));
+  if (named.length === 1) return named[0]!;
+  if (named.length > 1) {
+    throw new PalugadaError('contract.violation',
+      `"${asked}" is the title or name of more than one role (${named.map((role) => role.slug).join(', ')}); name one by its slug`,
+      { field: 'role' });
+  }
+  const offered = roles.filter((role) => role.id !== asking);
+  const describe = (role: NamedRole) => {
+    const who = [role.display_name, role.title].filter(Boolean).join(', ');
+    return who ? `${role.slug} (${who})` : role.slug;
+  };
+  const near = nearestRole(offered, wanted);
+  throw new PalugadaError('contract.violation',
+    `no role "${asked}" in this company${near ? `; did you mean ${describe(near)}?` : '.'} ` +
+    `The roles are: ${offered.map(describe).join(', ')}. Name one by its slug.`,
+    { field: 'role' });
+}
+
+/** The role whose slug, title or name is within a few edits of what was asked, or that shares its first five letters. */
+function nearestRole(roles: readonly NamedRole[], wanted: string): NamedRole | null {
+  let best: { role: NamedRole; distance: number } | null = null;
+  for (const role of roles) {
+    for (const label of [role.slug, role.title, role.display_name]) {
+      if (!label) continue;
+      const candidate = label.trim().toLowerCase();
+      const distance = editDistance(wanted, candidate);
+      const close = distance <= Math.max(2, Math.floor(wanted.length * 0.4))
+        || (wanted.length >= 5 && candidate.startsWith(wanted.slice(0, 5)));
+      if (close && (!best || distance < best.distance)) best = { role, distance };
+    }
+  }
+  return best?.role ?? null;
+}
+
+/** Levenshtein distance; names are short, so the quadratic table is a few hundred cells. */
+function editDistance(a: string, b: string): number {
+  let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i += 1) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j += 1) {
+      current[j] = Math.min(previous[j]! + 1, current[j - 1]! + 1, previous[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    previous = current;
+  }
+  return previous[b.length]!;
 }
 
 export interface TaskAwaitResult {

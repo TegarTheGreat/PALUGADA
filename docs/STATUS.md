@@ -5855,6 +5855,52 @@ them too.
   "Status" that a language writes as English does are listed in that
   dictionary's `KEPT`, under its 3% cap. The documentation is in English.
 
+## 2.66 A role that hands work on is told which roles there are (F6.4)
+
+Found on a live run on 2026-10-02 (the gap analysis of 3 October, N1). The
+owner asked the CEO of a standard company for a seven-day Instagram plan. The
+coordinator's charter says "decide which role's job it is, hand it over with
+task.delegate", and no run was ever told which roles the company has. It
+guessed nineteen names -- "marketing", "cmo", "barista" -- each refused as
+"no role X in this company", created four sub-tasks asking whether a role
+existed, and spent 96% of its division's tokens before anything was handed
+to the marketer.
+
+- **The roles, in every run of a role that can hand work on.** A role whose
+  tools include `task.delegate` gets a section, "The roles you can hand work
+  to" (`teamSections`, `src/context/builder.ts`). It lists every other role
+  of the company by slug, then its name, title and division, then the first
+  sentence of its charter, which in every template says what the role does.
+  A frozen role is marked as one whose work waits for the owner. The list
+  stops at sixty roles and says how many more there are. It follows the
+  role's contract and is never dropped to fit: without it the role cannot do
+  the one thing it is for. A runtime is handed it among its notes
+  (`NOTE_KINDS`, `src/engine/engine.ts`). A run is given sections by kind, so
+  a kind missing from that set would have been built and never reached the
+  model.
+- **A role named the way people name it.** `task.delegate` takes a slug, and
+  now also a title or a name that is one role's alone, in any case: "cmo"
+  and "Laras" both reach the marketer, and the answer says which slug that
+  was (`resolveRole`, `src/broker/platform-capabilities.ts`). A title or name
+  that two roles share is refused, with both slugs, rather than guessed
+  between. Any other name is refused with the list of the company's roles,
+  leaving out the asking one, and with the nearest one when it is within a
+  few edits or shares its first five letters: "no role "marketing" in this
+  company; did you mean marketer (Laras, CMO)?". The old answer said only
+  what was wrong, never what would be accepted.
+- **Tested.** `org-automation.test.ts`:
+  - The coordinator's pack lists every other role and not itself.
+  - The marketer, which cannot hand work on, gets no list.
+  - A frozen role is marked.
+  - A runtime running the coordinator is handed the list among its notes.
+    This assertion failed until `team` was added to `NOTE_KINDS`.
+  - A delegation by title and by name reaches the marketer.
+  - "marketing" is answered with the suggestion and the roles.
+  - "barista" gets the roles and no guess.
+  - A shared title is refused with both slugs.
+- **Not done.** The owner's assistant, which proposes work by role from its
+  own reading of the company, is unchanged.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

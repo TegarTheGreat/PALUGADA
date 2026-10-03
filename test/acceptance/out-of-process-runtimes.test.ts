@@ -2933,7 +2933,7 @@ test('a task waits only on work it delegated, and delegates only to a role that 
     companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
     roleId: fixture.roleId, taskId, idempotencyKey: key,
   });
-  await assert.rejects(broker.invoke(ctx(one.id, 'd1'), 'task.delegate', { role: 'nobody', brief: 'x' }), /no role nobody/);
+  await assert.rejects(broker.invoke(ctx(one.id, 'd1'), 'task.delegate', { role: 'nobody', brief: 'x' }), /no role "nobody" in this company/);
   await assert.rejects(broker.invoke(ctx(one.id, 'd2'), 'task.await', { childId: other.id }), /not one this task delegated/);
   await assert.rejects(broker.invoke(ctx(one.id, 'd3'), 'task.delegate', { role: 'x', brief: '  ' }), /needs a brief/);
 });

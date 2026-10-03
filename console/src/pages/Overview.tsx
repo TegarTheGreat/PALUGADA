@@ -21,7 +21,7 @@ import { useLoad } from '../hooks.ts';
 import type {
   ActivityItem, CostPeriod, InboxItem, Retro, Spend, Structure, WorkGroup, WorkItem,
 } from '../types.ts';
-import { day, eventSentence, goalKind, money, relative } from '../format.ts';
+import { actorSaid, day, eventSentence, goalKind, money, relative } from '../format.ts';
 import { N, t } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
 import { KpiStrip, LoadFailed, Loading, PageHeader, Section, StatusBadge } from '../components/ui.tsx';
@@ -260,7 +260,7 @@ export function Overview({ ctx }: PageProps) {
                     color={/refused|denied|failed|incident|halt/.test(event.type) ? 'red' : event.actor === 'owner' ? 'teal' : 'brand'}
                     title={<Text size="sm" fw={600}>{eventSentence(event.type)}</Text>}
                   >
-                    <Text size="xs" c="dimmed">{event.actor} · {relative(event.occurredAt)}</Text>
+                    <Text size="xs" c="dimmed">{actorSaid(event.actor)} · {relative(event.occurredAt)}</Text>
                   </Timeline.Item>
                 ))}
               </Timeline>

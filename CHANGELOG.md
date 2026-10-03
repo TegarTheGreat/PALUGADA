@@ -186,6 +186,11 @@ The first version. What it holds, in the order an owner meets it.
   out of the old order was refused, and a later one could overwrite an
   unanswered question, so a task could finish without reading your answer
   (STATUS 2.92).
+- Everything on a task's timeline and under **Lately** is said in your
+  language, and who did it is "You", "The agent", "A schedule" or "The
+  platform". Most events were shown as their codes in English -- "Content
+  read outside", "Task running" -- beside "engine" or "broker", and a step
+  as "Model:turn 2" (STATUS 2.94).
 - **Replay against the journal** is shown only for a task this deployment
   can replay. It was offered on every task and refused on every task a
   model or an agent CLI ran (STATUS 2.87).

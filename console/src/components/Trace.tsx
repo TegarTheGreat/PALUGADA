@@ -11,7 +11,7 @@ import {
 import { api } from '../api.ts';
 import { useLoad } from '../hooks.ts';
 import type { RunBriefing, Trace, TraceRun, TraceStep } from '../types.ts';
-import { count, dateTime, goalKind, haltReason, humanize, money } from '../format.ts';
+import { count, dateTime, goalKind, haltReason, money, stepSaid } from '../format.ts';
 import { t } from '../i18n.ts';
 import { LoadFailed, Loading, StatusBadge } from './ui.tsx';
 
@@ -69,7 +69,7 @@ function describe(step: TraceStep): {
   }
   const rest = Object.fromEntries(Object.entries(detail).filter(([key]) => !['actor', 'idempotencyKey', 'observedPolicies'].includes(key)));
   if (Object.keys(rest).length > 0) parts.push({ label: t('Details'), value: rest });
-  return { title: humanize(step.name), badges, parts, error, failed: step.kind === 'denial', outside: false };
+  return { title: stepSaid(step.name), badges, parts, error, failed: step.kind === 'denial', outside: false };
 }
 
 export function TraceView({ trace, companyId }: { trace: Trace; companyId: string }) {

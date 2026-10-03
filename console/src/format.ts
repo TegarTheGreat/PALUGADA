@@ -55,7 +55,10 @@ export function humanize(code: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
-/** Sentences for the events an owner reads most, and a readable fallback for the rest. */
+/**
+ * A sentence for every event the server writes (`test/documents/console-events.test.ts`):
+ * an event shown as its code was English in every language, and read as a log.
+ */
 const EVENT_SENTENCES: Record<string, string> = {
   'task.created': N('Task created'),
   'task.checked_out': N('Task picked up by a worker'),
@@ -126,11 +129,131 @@ const EVENT_SENTENCES: Record<string, string> = {
   'trigger.opened': N('Trigger opened again'),
   'trigger.closed': N('Trigger closed'),
   'security.hook_refused': N('A trigger refused a caller without its token'),
+  'agent_run.orphaned': N('A run was left behind by a worker that stopped'),
+  'alert.raised': N('An alert was raised'),
+  'approval.answered': N('The agent answered your question on an approval'),
+  'approval.expired': N('An approval expired unanswered'),
+  'approval.returned': N('Your yes was kept for another try: the action failed'),
+  'budget.halt_raised': N('Stopped by its budget, and put to you'),
+  'budget.override_granted': N('You allowed spending past the limit for a while'),
+  'budget.period_resumed': N('A new month began, and spending resumed'),
+  'bundle.installed': N('Bundle installed'),
+  'capability.healthy': N('A capability passed its check'),
+  'capability.unhealthy': N('A capability failed its check'),
+  'capability.window_closed': N('Put off: outside the hours it may run'),
+  'company.closing': N('The company is being closed'),
+  'company.kept': N('The company was kept, not closed'),
+  'company.stage_changed': N('The company moved to another stage'),
+  'config.restored': N('An earlier setting was restored'),
+  'content.read_outside': N('Read content from outside the company'),
+  'cost.drift': N('A capability cost more than estimated'),
+  'cost.estimated': N('Cost estimated'),
+  'credential.added': N('A key was added'),
+  'credential.removed': N('A key was removed'),
+  'division.escalation_set': N("A division's escalation rule was set"),
+  'document.added': N('Document added'),
+  'document.archived': N('Document archived'),
+  'document.restored': N('Document restored'),
+  'eval.negative_candidate': N('A run was kept as an example of what not to do'),
+  'goal.work_paused': N('Work for a closed goal was paused'),
+  'guardian.judged': N('The guardian checked an action'),
+  'handoff.refused': N('A handoff was refused'),
+  'handoff_rule.closed': N('A handoff rule was turned off'),
+  'handoff_rule.created': N('Handoff rule added'),
+  'handoff_rule.opened': N('A handoff rule was turned on'),
+  'hook.post_run': N("A check refused the run's result"),
+  'hook.post_tool': N("A check refused a tool's answer"),
+  'hook.pre_run': N('A check refused to start the run'),
+  'hook.pre_tool': N('A check refused a tool call'),
+  'inbox.withdrawn': N('An inbox item was withdrawn'),
+  'memory.distillation_failed': N('Learning from recent work failed'),
+  'memory.retracted': N('You took back something the company knew'),
+  'metric.changed': N('Measure changed'),
+  'metric.retired': N('Measure retired'),
+  'model.fallback_refused': N('Did not switch to another model'),
+  'owner.decided_batch': N('You decided several at once'),
+  'owner.decision_moot': N('Your decision came after the work had moved on'),
+  'owner.feedback': N('You gave your word on the result'),
+  'owner.notification_failed': N('A message to you could not be sent'),
+  'owner.snoozed': N('You put an item off'),
+  'owner.woke': N('You brought an item back'),
+  'project.changed': N('Project changed'),
+  'project.created': N('Project created'),
+  'review.same_model': N('Reviewed by the same model that did the work'),
+  'role.appointed_ceo': N('A role was made CEO'),
+  'role.changed': N('Role changed'),
+  'role.freeze_check_failed': N('The check that freezes a role failed'),
+  'schedule.disabled': N('Schedule turned off'),
+  'schedule.kept': N('Schedule kept'),
+  'schedule.paused': N('Schedule paused: its goal is closed'),
+  'schedule.removed': N('Schedule removed'),
+  'schedule.repetition_noticed': N('A schedule keeps giving the same result'),
+  'schedule.turned': N('Schedule turned on or off'),
+  'security.chat_stranger_refused': N('A message from a stranger in chat was refused'),
+  'security.gateway_bad_signature': N('A device message with a bad signature was refused'),
+  'security.rls_denied': N("An attempt to read another company's data was refused"),
+  'skill.candidate_rejected': N('A proposed skill failed its checks'),
+  'skill.imported': N('Skill imported'),
+  'skill.proposed': N('Skill proposed'),
+  'skill.quarantine_lifted': N('You let a skill be used again'),
+  'skill.rejected': N('Skill rejected'),
+  'skill.review_rejected': N('A skill was turned down in review'),
+  'skill.review_requested': N('A skill was sent for review'),
+  'skill.scope_changed': N("A skill's reach was changed"),
+  'sop.approved': N('Procedure approved'),
+  'sop.proposed': N('Procedure proposed'),
+  'sop.rejected': N('Procedure rejected'),
+  'task.batched': N('Waiting for its batch window'),
+  'task.cancelled': N('Task cancelled'),
+  'task.capability_waited': N('Parked: a service did not answer; it is tried again shortly'),
+  'task.completed': N('Task done'),
+  'task.continued': N('Went on after its budget was raised'),
+  'task.failed': N('Task failed'),
+  'task.halted': N('Task stopped'),
+  'task.pending': N('Back in the queue'),
+  'task.running': N('Working on it'),
+  'task.waiting_approval': N('Waiting for you'),
+  'task.waiting_review': N('Waiting for review'),
+  'task.waiting_window': N('Waiting for its hours'),
+  'ticket.closed': N('Ticket closed'),
+  'ticket.done': N('Ticket done'),
+  'ticket.opened': N('Ticket opened'),
+  'ticket.reopened': N('Ticket reopened'),
+  'ticket.started': N('Work on a ticket started'),
+  'tool.verified': N('Read back, and it matched'),
+  'tool.verify_failed': N('Read back, and it did not match'),
+  'trigger.secret_unavailable': N('A trigger could not read its secret, so events are not arriving'),
+  'wake.coalesced': N('Woken once for several reasons'),
 };
 
 export function eventSentence(type: string): string {
   const sentence = EVENT_SENTENCES[type];
   return sentence ? t(sentence) : humanize(type);
+}
+
+/**
+ * A step of a task's journal, or an event in its trace, as the owner says it.
+ * The journal names its steps for the engine (`src/engine/journal.ts`), and
+ * "model:turn 2" was shown as "Model:turn 2".
+ */
+export function stepSaid(name: string): string {
+  const turn = /^model:turn (\d+)$/.exec(name);
+  if (turn) return t('Thinking, turn {n}', { n: Number(turn[1]) });
+  if (name === 'llm') return t('Thinking');
+  if (name.startsWith('capability:')) return t('Using {capability}', { capability: name.slice('capability:'.length) });
+  if (name.startsWith('await:')) return t('Waiting for {role}', { role: name.slice('await:'.length) });
+  return eventSentence(name);
+}
+
+/** Who wrote an event, as the owner says it: never the part of the platform that did. */
+const ACTORS: Record<string, string> = {
+  owner: N('You'),
+  agent_run: N('The agent'),
+  scheduler: N('A schedule'),
+};
+
+export function actorSaid(actor: string): string {
+  return t(ACTORS[actor] ?? N('The platform'));
 }
 
 /** A task's status as a person says it, rather than as the state machine does. */

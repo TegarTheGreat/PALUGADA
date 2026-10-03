@@ -6914,6 +6914,42 @@ What changed:
   on since all stay; an old closed card with no task goes, and an old open
   one stays; the purge is in the retention log.
 
+## 2.94 Every event and step on the owner's timelines is said in words (F11.2, §2.3 item 7)
+
+Found by the live run of the analysis of 3 October (§2.3, item 7: internal
+words shown to the owner). The task timeline (**What it did**) and
+**Lately** show the company's events, and 95 of the event types the server
+writes had no sentence: each was shown as its code made readable --
+"Content read outside", "Task running", "Budget halt raised" -- in English
+whatever the console's language. Beside each stood the code of whoever
+wrote it: "engine", "broker", "agent_run". The progress line and the trace
+named a task's steps the way the journal does: "Model:turn 2".
+
+What changed:
+
+- **A sentence for every event** (`EVENT_SENTENCES`,
+  `console/src/format.ts`), in all twenty languages: a task's moves ("Working
+  on it", "Back in the queue", "Task stopped"), the owner's own actions ("You
+  put an item off", "You gave your word on the result"), what the platform
+  checked ("Read back, and it matched", "The guardian checked an action"),
+  and what it refused ("An attempt to read another company's data was
+  refused"). A hook's refusal is said as a check's ("A check refused a tool
+  call"): the console never names hooks to the owner.
+- **Held by a test** (`test/documents/console-events.test.ts`): the server is
+  read for every event type it writes -- each `type:` or `event:` it gives,
+  a task's move to each status and a hook's refusal at each point, leaving
+  out the operator's log -- and each must have a sentence.
+- **Who acted, in words** (`actorSaid`): "You", "The agent", "A schedule" or
+  "The platform", on both timelines; the test refuses an actor shown as its
+  code.
+- **A step, in words** (`stepSaid`): "Thinking, turn 2", "Using crm.note",
+  "Waiting for writer", or the event's sentence, on the progress line and
+  in the trace.
+- **Still open in this item:** a card's title for a run's question uses the
+  role's short name ("bookkeeper asks:"), an approval names the capability
+  ("record.delete") and the account its path ("ops/growth"), and a halt's
+  detail is the engine's English. Each is its own change.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

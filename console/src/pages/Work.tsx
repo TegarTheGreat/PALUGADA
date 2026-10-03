@@ -22,7 +22,7 @@ import { api, explain } from '../api.ts';
 import { useLoad, useNow } from '../hooks.ts';
 import { go } from '../router.ts';
 import type { Deliverable, DoneReportEntry, Structure, TaskDetail, Trace, WorkGroup, WorkItem } from '../types.ts';
-import { dateTime, eventSentence, haltReason, humanize, money, relative, time, waitingFor } from '../format.ts';
+import { actorSaid, dateTime, eventSentence, haltReason, money, relative, stepSaid, time, waitingFor } from '../format.ts';
 import { t } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
 import { EmptyState, LoadFailed, Loading, PageHeader, StatusBadge } from '../components/ui.tsx';
@@ -261,7 +261,7 @@ export function TaskProgress({ item, wide = false }: { item: WorkItem; wide?: bo
       )}
       {live && progress.currentStep && (
         <Text size="xs" lineClamp={1}>
-          {progress.currentStepStatus === 'committed' ? t('Last: {step}', { step: humanize(progress.currentStep) }) : t('Now: {step}', { step: humanize(progress.currentStep) })}
+          {progress.currentStepStatus === 'committed' ? t('Last: {step}', { step: stepSaid(progress.currentStep) }) : t('Now: {step}', { step: stepSaid(progress.currentStep) })}
         </Text>
       )}
       {live && progress.heartbeatAt && (
@@ -369,7 +369,7 @@ export function TaskDrawer({ companyId, task, close, changed, openTask }: {
                       {typeof event.payload.approvedBy === 'string' && <Badge size="sm" variant="light" color="teal" tt="none">{t('approved by {who}', { who: event.payload.approvedBy })}</Badge>}
                     </Group>}
                     color={/refused|denied|failed|halt/.test(event.type) ? 'red' : 'blue'}>
-                    <Text size="xs" c="dimmed">{event.actor} · {dateTime(event.occurredAt)}</Text>
+                    <Text size="xs" c="dimmed">{actorSaid(event.actor)} · {dateTime(event.occurredAt)}</Text>
                     {/* Why it halted or failed, as whatever refused put it: the next thing to change. */}
                     {typeof (event.payload.detail ?? event.payload.error) === 'string' && (
                       <Text size="xs" c="red.7" mt={2} style={{ whiteSpace: 'pre-wrap' }}>{String(event.payload.detail ?? event.payload.error)}</Text>

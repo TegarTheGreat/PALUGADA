@@ -137,15 +137,6 @@ refer to `docs/PRD.md`.
 5. A standing approval (0083) never covers tainted work, tier 3, another role
    or another capability: the broker requires no taint, and `decide` accepts
    one only on a card a policy raised.
-5b. A yes for a schedule (0116) does cover tainted work, and only because it
-   is narrower than the taint: one schedule as it was defined when the yes
-   was given (a digest of its role, division, project, goal, account,
-   instruction and timing), one capability, and one action to the byte (the
-   same fingerprint as 4). What was read cannot have shaped an action every
-   byte of which the owner already approved; change one byte -- a recipient,
-   a word, an amount -- or the schedule, and the owner is asked. Never tier
-   3, never past ninety days, only with the owner's device, and only the
-   owner's console writes one (the application role counts uses).
 5a. A company that turns the guardian on (0092, `src/broker/guardian.ts`) has
    each tier 0 or 1 call in tainted work judged by a model first, which may
    send it to the owner and cannot let anything through. It is shown the
@@ -158,6 +149,35 @@ refer to `docs/PRD.md`.
    parent's, including what the parent's other sub-tasks read, and a task
    the owner makes from a ticket a run filed carries the ticket's words. A
    yes for a while never covers a call in tainted work, at any tier.
+5c. A yes for a schedule (0116) does cover tainted work, and only because it
+   is narrower than the taint: one schedule as it was defined when the yes
+   was given (a digest of its role, division, project, goal, account,
+   instruction and timing), one capability, and one action to the byte (the
+   same fingerprint as 4). What was read cannot have shaped an action every
+   byte of which the owner already approved; change one byte -- a recipient,
+   a word, an amount -- or the schedule, and the owner is asked. Never tier
+   3, never past ninety days, only with the owner's device, and only the
+   owner's console writes one (the application role counts uses).
+5d. A reply to a customer may go without the owner although the work began
+   with the customer's words (0117, `chat.send`'s `clearsOutside`), inside
+   bounds the capability checks before any model is asked: the owner turned
+   the channel on with their device; the reply goes to the conversation the
+   work began with; it names passages of documents the owner marked for
+   customers, read again from the company's records (the application role
+   cannot set the mark, nor the channel's switch); every figure, address and
+   link in it is in those passages or in what the customer wrote; six an hour
+   per conversation at most. Then a model shown the passages, the customer's
+   words fenced as data and the reply must say "send" with the one category
+   that sends; a refund, a price of its own, a complaint, the law, personal
+   data or a promise is the owner's card, and a model that cannot answer is
+   a no. The broker asks only at tier 2 and only where nothing else asks --
+   no policy, no guardian, no tier 3 -- so a policy the owner wrote is still
+   asked. What an injection in a customer's message can still do is choose
+   among what the owner published, and word it: it cannot add a figure, an
+   address or a link, nor reach anyone but that customer. A false statement
+   in plain words that the model misses goes out; each reply on its own is
+   marked in the conversation with what it answered from, and the owner
+   turns the channel off with their session.
 6. A lesson from tainted work is stored `outside` and shown later as data
    (0071, `keepLessons` in `src/engine/tasks.ts`).
 7. `web.fetch`, vendor and MCP calls refuse private and metadata addresses,
@@ -493,6 +513,7 @@ All under `test/acceptance/` unless named.
 | Migration contents unchanged | `process.test.ts` |
 | A role's tools, for every runtime in another process | `out-of-process-runtimes.test.ts` |
 | The guardian: judged only after outside content, only tightens, fails closed | `guardian.test.ts` |
+| A reply on its own: the owner's device, its own conversation, marked passages, no new figure or address, six an hour, a check that fails closed | `answers-alone.test.ts` |
 | Taint through sub-tasks, searches and briefings | `tool-io.test.ts` |
 | A division's credential is not the deployment's secret | `credentials.test.ts` |
 | The browser: every request through the proxy, one context per company, cookies sealed and erased, acts only as approved | `browser.test.ts`, `company-closing.test.ts` |

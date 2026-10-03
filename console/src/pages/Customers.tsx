@@ -9,12 +9,14 @@
  * its Meta app, so connecting one shows the address and a verify token to
  * paste there, once. What a customer writes is data to that work, and every reply
  * waits for the owner's yes, because the work began with a stranger's words
- * (F8.9). The conversations are read here, the latest first.
+ * (F8.9) -- unless the owner, with their device, lets a channel answer on its
+ * own from the documents they marked for customers (STATUS 2.137). The
+ * conversations are read here, the latest first.
  */
 import { useState } from 'react';
 import {
   Alert, Anchor, Badge, Button, Code, CopyButton, Drawer, Group, NumberInput, Paper, PasswordInput, SegmentedControl, Select,
-  Stack, Table, Text, Textarea, TextInput, ThemeIcon, UnstyledButton,
+  Stack, Switch, Table, Text, Textarea, TextInput, ThemeIcon, UnstyledButton,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconAlertTriangle, IconBrandTelegram, IconBrandWhatsapp, IconExternalLink, IconMail, IconMessageCircle, IconUser } from '@tabler/icons-react';
@@ -60,7 +62,7 @@ export function Customers({ ctx, route }: PageProps) {
     <PageHeader
       crumbs={[ctx.company.name]}
       title={t('Customers')}
-      description={t('What customers write to the company, and what it answered. Each message starts work for the role you chose; every reply waits for your yes.')}
+      description={t('What customers write to the company, and what it answered. Each message starts work for the role you chose; a reply waits for your yes unless its channel answers on its own.')}
       live={view.updatedAt}
     />
   );
@@ -180,6 +182,29 @@ function Channels({ companyId, channels, owner, changed }: {
     }
   };
 
+  // On loosens a control, so the device; off tightens one, so the session.
+  const answersAlone = async (channel: ChatChannel, on: boolean) => {
+    const name = channelSaid(channel.kind, channel.account);
+    try {
+      if (on) {
+        const done = await requireFactor(t('Let a channel answer customers on its own'), async (proof) => {
+          await api('POST', `/api/companies/${companyId}/chat-channels/${channel.id}/answers-alone`, { on: true, proof });
+        });
+        if (!done) return;
+      } else {
+        await api('POST', `/api/companies/${companyId}/chat-channels/${channel.id}/answers-alone`, { on: false });
+      }
+      notifications.show({
+        message: on
+          ? t('{channel} answers on its own from documents marked for customers.', { channel: name })
+          : t('Every reply on {channel} waits for your yes again.', { channel: name }),
+      });
+      changed();
+    } catch (failure) {
+      notifications.show({ color: 'red', message: explain(failure) });
+    }
+  };
+
   const close = async (channel: ChatChannel) => {
     try {
       await api('POST', `/api/companies/${companyId}/chat-channels/${channel.id}/close`, {});
@@ -210,6 +235,18 @@ function Channels({ companyId, channels, owner, changed }: {
                       <Text size="sm" fw={600}>{channelSaid(channel.kind, channel.account)}</Text>
                     </Group>
                     <Text size="xs" c="dimmed" lineClamp={2}>{channel.instruction}</Text>
+                    {owner && channel.enabled ? (
+                      <Switch
+                        mt={6}
+                        size="xs"
+                        checked={channel.answersAlone}
+                        onChange={(event) => void answersAlone(channel, event.currentTarget.checked)}
+                        label={t('Answers on its own')}
+                        description={t('From documents marked for customers, checked before it goes. Refunds, prices of its own, complaints and the law still come to you.')}
+                      />
+                    ) : channel.answersAlone && (
+                      <Badge mt={6} size="xs" variant="light" color="teal">{t('Answers on its own')}</Badge>
+                    )}
                     {channel.enabled && channel.failure && (
                       <Group gap={4} wrap="nowrap" mt={4}>
                         <IconAlertTriangle size={14} color="var(--mantine-color-red-6)" style={{ flexShrink: 0 }} />

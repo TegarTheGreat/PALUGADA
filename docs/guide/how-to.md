@@ -166,7 +166,9 @@ every role already has -- returns the passages its question points at, so a
 run quoting a cafe reads the payment terms rather than guessing them. What
 it reads there is shown to it as data, never as instructions. **Archive**
 takes a document out of every search and keeps its text; **Put it back**
-returns it.
+returns it. **Customers may be told this** marks a document a customer
+channel may answer from on its own
+([Let a channel answer on its own](#let-a-channel-answer-on-its-own)).
 
 **Found by meaning, too.** By default a passage is found by the words it
 shares with the question: "refund policy" does not find a document that
@@ -1095,7 +1097,8 @@ the sender, so it needs the HTTPS set-up in [operations](operations.md).
 
 A company can have a Telegram bot of its own that customers write to. Each
 message starts work for the role you choose, and every reply waits for your
-yes.
+yes -- unless you let the channel answer on its own from the documents you
+publish for customers ([below](#let-a-channel-answer-on-its-own)).
 
 1. In Telegram, open @BotFather, send `/newbot`, choose the bot's name and
    username, and copy the token it gives you.
@@ -1189,6 +1192,44 @@ app. When the mailbox cannot be read -- the password changed, the server is
 down -- **Customers** says why under the channel, and the mail waits on the
 server until it can be. A server with a private certificate is trusted with
 `PALUGADA_MAIL_CA`.
+
+## Let a channel answer on its own
+
+A shop answers the same questions all day: what a coffee costs, when it
+opens, whether it delivers. A channel can answer those without you, from
+documents you mark for customers, while everything else still waits for
+your yes.
+
+1. On **Memory**, **Documents**, open the menu, the price list, the opening
+   hours, and press **Customers may be told this**. Leave the margins, the
+   supplier's terms and anything internal unmarked: a reply on its own
+   answers only from marked documents. **Keep it from customers** takes the
+   mark off.
+2. On **Customers**, under the channel, turn on **Answers on its own** and
+   confirm with a code. The role that answers is given `memory.search`, and
+   each message's work is told to find the passages and name them.
+
+A reply then goes without a card only when all of this holds, and otherwise
+it is your card as before, saying why it did not go on its own:
+
+- it answers the customer whose message started the work;
+- it names passages of documents marked for customers, which are read again
+  from the company's own records;
+- every figure, address and link in it is in those passages or in what the
+  customer wrote -- a price of its own is refused before any model is asked;
+- that conversation has had fewer than six answers on its own in the hour;
+- a model shown the passages, the customer's words and the reply finds every
+  statement in the passages, and nothing that is yours to decide: money
+  back, a price or terms of its own, a serious complaint, the law, anyone's
+  personal data, a promise. A model that cannot answer is a no, and without
+  a model nothing goes on its own.
+
+A policy that asks you about `chat.send` is still asked, however well a reply
+is grounded. Each check is a model call charged to the work's budget, on
+the work's timeline as **A reply to a customer was checked against documents
+for customers**. In the conversation, a reply that went on its own says
+**Sent on its own, from** and the documents. Turning **Answers on its own**
+off needs no code.
 
 ## Install a bundle
 

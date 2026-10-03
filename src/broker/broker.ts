@@ -676,6 +676,9 @@ export class CapabilityBroker {
         inbox.findGrantedApproval(tx, ctx.taskId, name, fingerprint!)));
     }
 
+    // Why the capability's own check did not let the call go (STATUS 2.137),
+    // said on the card the owner is then asked with.
+    let checked: { why: string; detail?: string } | null = null;
     const askOwner = async (): Promise<never> => {
       // Asked, the call is not made now: its place is someone else's.
       await giveBack();
@@ -698,7 +701,7 @@ export class CapabilityBroker {
       // capability's code were the platform's words (§2.3 item 7), and the
       // card names the action and links the work.
       const said = approvalReasonSaid(reading, {
-        tier, interrupted, chain,
+        tier, interrupted, chain, ...(checked ? { checked } : {}),
         asked: policy.effect === 'require_approval' ? { by: 'policy', policies: policy.matched.map((m) => m.slug) }
           : outside && !requiresOwnerApproval(tier) ? { by: 'outside', begun: outside === 'begun' }
             : guardianAsks !== null
@@ -725,6 +728,7 @@ export class CapabilityBroker {
           // Why the owner is asked, which decides whether they may answer for
           // a while (0083): the tier itself, content from outside, or a policy.
           reason: requiresOwnerApproval(tier) ? 'tier' : outside !== null ? 'outside' : guardianAsks !== null ? 'guardian' : 'policy',
+          ...(checked ? { checked } : {}),
         },
       });
       throw new PalugadaError(
@@ -782,7 +786,34 @@ export class CapabilityBroker {
         return found;
       }));
     }
-    if (needsOwner && !grantedApproval && !standing && !forSchedule) await askOwner();
+    // The capability's own check (STATUS 2.137): at tier 2, where only the
+    // work's reading from outside asks -- no policy, no guardian -- and no
+    // yes the owner gave covers the call. It may let the call go, bounded by
+    // what the capability knows of its effect; it is recorded either way.
+    let cleared: { record: unknown } | null = null;
+    if (needsOwner && !grantedApproval && !standing && !forSchedule && capability.clearsOutside && tier === 2
+        && policy.effect !== 'require_approval' && guardianAsks === null && outside !== null) {
+      const verdict = await holding(() => capability.clearsOutside!(input as never, {
+        companyId: ctx.companyId, divisionId: ctx.divisionId, taskId: ctx.taskId, idempotencyKey: ctx.idempotencyKey,
+        signal: ctx.signal ?? new AbortController().signal,
+        credential: (alias: string) => this.#credential(ctx.companyId, ctx.divisionId, alias, name),
+      }));
+      // Stopped while the reply was checked: not sent on an answer nobody waits for.
+      if (ctx.signal?.aborted) {
+        await giveBack();
+        throw ctx.signal.reason ?? new Error('the call was withdrawn while it was checked');
+      }
+      if (verdict.cleared) {
+        cleared = { record: verdict.record };
+        await withTenant(ctx.companyId, (tx) => appendEvent(tx, {
+          companyId: ctx.companyId, projectId: ctx.projectId, taskId: ctx.taskId,
+          type: 'approval.cleared_by_check', actor: 'broker', payload: { capability: name, record: verdict.record },
+        }));
+      } else if (verdict.why !== 'off') {
+        checked = { why: verdict.why, ...(verdict.detail ? { detail: verdict.detail } : {}) };
+      }
+    }
+    if (needsOwner && !grantedApproval && !standing && !forSchedule && !cleared) await askOwner();
 
     const controller = new AbortController();
     const signal = ctx.signal ?? controller.signal;
@@ -808,6 +839,7 @@ export class CapabilityBroker {
           ...(grantedApproval ? { approvedBy: grantedApproval } : {}),
           ...(standing ? { approvedBy: standing.grantedByItem, standingApprovalId: standing.id } : {}),
           ...(forSchedule ? { approvedBy: forSchedule.grantedByItem, scheduleApprovalId: forSchedule.id } : {}),
+          ...(cleared ? { clearedByCheck: true } : {}),
         },
       });
     }).catch(async (error: unknown) => {
@@ -822,6 +854,7 @@ export class CapabilityBroker {
       idempotencyKey: ctx.idempotencyKey,
       signal,
       credential: (alias: string) => this.#credential(ctx.companyId, ctx.divisionId, alias, name),
+      ...(cleared ? { clearance: cleared.record } : {}),
     };
 
     // Section 8.8 treats tier 2 as "check the budget, then policy". The check

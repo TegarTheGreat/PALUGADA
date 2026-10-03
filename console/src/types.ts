@@ -612,6 +612,8 @@ export interface ChatChannel {
   /** A mailbox: when it was last read, and why the last reading failed. */
   checkedAt: string | null;
   failure: string | null;
+  /** Whether a reply grounded in documents for customers goes without the owner (0117). */
+  answersAlone: boolean;
 }
 
 /** One customer's conversation on a channel. */
@@ -643,6 +645,8 @@ export interface ChatMessage {
   /** A reply the transport took; false for one whose send failed. */
   sent: boolean;
   at: string;
+  /** A reply that went without the owner (0117): the documents it answered from, by title. */
+  answeredAlone?: { from: string[] };
 }
 
 /** An inbound trigger (0054): a URL another service posts events to. */

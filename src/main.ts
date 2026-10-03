@@ -795,6 +795,9 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
       ...(env.PALUGADA_TELEGRAM_API ? { telegram: { apiBase: env.PALUGADA_TELEGRAM_API } } : {}),
       ...(env.PALUGADA_WHATSAPP_API ? { whatsapp: { apiBase: env.PALUGADA_WHATSAPP_API } } : {}),
       ...(mailCa ? { mail: { ca: mailCa } } : {}),
+      // A channel the owner lets answer on its own has each such reply
+      // checked by a model (STATUS 2.137); with none, nothing goes on its own.
+      ...(llm ? { answers: { llm } } : {}),
     },
     ...(browsers ? { browser: browsers } : {}),
     ...(mailCa ? { mail: { ca: mailCa } } : {}),

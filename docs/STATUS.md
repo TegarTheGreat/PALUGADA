@@ -8685,7 +8685,7 @@ What changed:
   which the owner approved was not shaped by what was read; another
   recipient, another word, an edited schedule, or work no schedule made, and
   the owner is asked. Put back as it was, a schedule is the one the yes was
-  for again. The threat model says so (5b).
+  for again. The threat model says so (5c).
 - **Bounded.** Never tier 3 (F10.10). Ninety days at most, then the owner
   is asked again; the database refuses longer. Only the owner's console
   writes one, on the control plane; the application role reads it and
@@ -8754,6 +8754,83 @@ proposal like `goal.propose`.
   making nothing; a name taken since refusing the yes without touching the
   owner's schedule, and the yes going through once it is free; a seat's
   yes refused; the catalogue and the template.
+
+## 2.137 A customer channel answers on its own, from what the owner published for customers
+
+Chosen by the owner on 3 October, as the first step to a company that does
+an office's work ("support first, then the business records"), with
+"answers from approved knowledge" as the bound. Until now every reply to a
+customer waited for the owner (2.117): the work began with a stranger's
+words, so `chat.send` in it asked whatever policy said (F8.9). A shop that
+is asked the price of a coffee forty times a day had to say yes forty
+times.
+
+- **Two marks, both the owner's** (0117). A channel's `answers_alone`, off
+  until the owner turns it on with their device on **Customers** (off again
+  with the session), written on the control plane as the rest of a channel
+  is. A document's `for_customers`, set on **Documents** with the session --
+  what a marked document lets go, the session could already approve card
+  by card -- and, like the switch, not writable by the application role:
+  migration 0117 takes its `UPDATE` on `documents` back to `archived_at`.
+  Turning a channel on gives its role `memory.search`, granted and among its
+  tools, so it can find what to answer from.
+- **A capability's own check, asked by the broker** (`clearsOutside` in
+  `src/broker/registry.ts`). Only at tier 2, only where the work's reading
+  from outside is all that asks -- no policy, no guardian, no tier 3 -- and
+  only after every yes the owner gave has been looked for. Cleared, the call
+  goes without a card, recorded as `approval.cleared_by_check` and on its
+  `tool.called`; not cleared, the owner's card says why
+  ("Not sent on its own: ..."), in their language.
+- **`chat.send`'s check** (`src/capabilities/chat.ts`), in order, each a no
+  that names itself on the card: the channel answers on its own; the reply
+  goes to the conversation the work began with; it names (new `sources`,
+  at most five) passages of documents marked for customers, read again
+  here, unarchived and the division's, every one found; each figure in it
+  -- digits alone, so "Rp 18.000" and "18000" are one -- and each mail
+  address and link, a bare `bit.ly/...` among them, is in those passages or
+  in the customer's last ten messages; fewer than six replies on their own in that conversation in
+  the hour. Then the model.
+- **The model's check** (`src/chats/answer-check.ts`, the standard tier). It
+  is shown the passages as the company keeps them, the customer's words and
+  the reply, both fenced as data, and answers with a verdict: send only with
+  `supported`; `refund`, `price`, `complaint`, `legal`, `personal_data`,
+  `commitment` and `unsupported` are the owner's. No answer in thirty
+  seconds, a provider error, or an answer that is not a verdict is a no;
+  with no model configured nothing goes on its own. Each check is charged
+  to the work's budget account, traced in `llm_traces`, and recorded as
+  `chat.answer_checked` with its category and reason.
+- **The owner sees what went alone.** A reply that went on its own keeps its
+  grounds (`chat_messages.grounds`: each document, its title and the
+  passage), and the conversation shows "Sent on its own, from" and the
+  documents. `memory.search`'s document results now carry the document,
+  its place and whether it is for customers, which is what `sources`
+  names. The run is told how a reply goes on its own where it reads its
+  work, only when its channel does.
+- **The owner's assistant** may propose both: marking a document, and
+  turning a channel on, which takes the device when applied.
+- **Export**: a document's mark and a message's grounds travel; whether a
+  channel answers on its own does not -- a restored channel arrives closed
+  and waits for the owner.
+- **The threat model** says what this lets through and what it cannot (5d):
+  an injection in a customer's message can choose among, and word, what the
+  owner published, and cannot add a figure, an address or a link, or reach
+  anyone else. A false statement in plain words that the model misses goes
+  out; that is the bound the owner accepts by turning a channel on, and
+  why it is per channel and off by default. Its duplicated 5b is now 5b and
+  5c.
+- **Tested** in `answers-alone.test.ts`, against a fake Bot API: the switch
+  refused without the device and taken with it; the role given
+  `memory.search`; the marks listed; the run told; `memory.search` giving
+  what to cite; a grounded reply sent without a card, the check shown the
+  published passage and the customer's words fenced and nothing of an
+  unmarked document, `chat.answer_checked` then `approval.cleared_by_check`,
+  and the thread marking it with the document's title; off again with the
+  session and an ordinary card. Then each bound, each a card with its
+  reason: no sources, an unmarked document, a figure of its own (15.000), an
+  address and a bare link of its own, a refund found by the check, a check that answered
+  with no verdict, another conversation, the seventh in an hour, and a
+  policy that asks; six sent in all. And no model: nothing on its own.
+  `tenant-isolation.test.ts` holds the application role from both marks.
 
 ## 3. Decisions, deviations, and what is unverified
 

@@ -51,7 +51,7 @@ import { PalugadaError } from '../errors.ts';
 import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
 import * as inbox from '../inbox/inbox.ts';
 import { briefingOf, traceFromInboxItem, traceOfTask } from '../reporting/trace.ts';
-import { addDocument, archiveDocument, listDocuments, readDocument } from '../knowledge/documents.ts';
+import { addDocument, archiveDocument, listDocuments, readDocument, setForCustomers } from '../knowledge/documents.ts';
 import { buildDailyDigest, buildWeeklyRetro } from '../reporting/digest.ts';
 import {
   clearStopAll,
@@ -107,7 +107,7 @@ import {
   createTrigger, receiveHook, rotateTriggerToken, setTriggerEnabled, triggersOf, type TriggerScheme,
 } from '../scheduler/triggers.ts';
 import {
-  assertAccountFree, channelsOf, chatWith, chatsOf, checkChannel, closeChannel, hashSecret, openChannel,
+  assertAccountFree, channelsOf, chatWith, chatsOf, checkChannel, closeChannel, hashSecret, openChannel, setAnswersAlone,
 } from '../chats/chats.ts';
 import { receiveChatHook, verifyChatHook } from '../chats/hook.ts';
 import { checkMailbox, mailSettings, type MailOptions } from '../chats/mail.ts';
@@ -3470,6 +3470,31 @@ export class OwnerApi {
       },
 
       {
+        // A channel answering on its own (0117): a reply grounded in the
+        // documents the owner marked for customers goes without a card when
+        // chat.send's check finds it so. Turning it on loosens a control, so
+        // the device; turning it off tightens one, so the session. On, the
+        // role that answers is given memory.search first, without which it
+        // could find no passage to answer from.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/chat-channels/:channelId/answers-alone',
+        handle: async ({ params, body }) => {
+          const companyId = params.companyId!;
+          if (typeof body.on !== 'boolean') throw new PalugadaError('contract.violation', 'on is true or false', { field: 'on' });
+          if (body.on) {
+            const channel = (await channelsOf(companyId)).find((one) => one.id === params.channelId);
+            if (!channel) throw new PalugadaError('contract.violation', 'no such channel in this company', { channelId: params.channelId });
+            await this.#requireFactor(body.proof, 'let a channel answer customers on its own', companyId);
+            const divisionId = await withTenant(companyId, async (tx) => (await tx.query<{ division_id: string }>(
+              'SELECT division_id FROM roles WHERE id = $1', [channel.roleId])).rows[0]!.division_id);
+            await this.#answerCustomers(companyId, divisionId, channel.roleId, channel.account, ['chat.read', 'chat.send', 'memory.search']);
+          }
+          await setAnswersAlone(companyId, params.channelId!, body.on);
+          return { answersAlone: body.on };
+        },
+      },
+
+      {
         // The company's conversations with customers, the latest first; with
         // `?task=`, the one a piece of work answers, which a card asking for
         // a reply shows beside the reply.
@@ -4540,6 +4565,20 @@ export class OwnerApi {
       },
 
       {
+        // Which documents customers may be told (0117): a channel that
+        // answers on its own answers only from these. The session is enough:
+        // what a marked document lets go alone, the session could already
+        // approve card by card, and the channel's switch is the device's.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/documents/:documentId/for-customers',
+        handle: async ({ params, body }) => {
+          if (typeof body.on !== 'boolean') throw new PalugadaError('contract.violation', 'on is true or false', { field: 'on' });
+          await setForCustomers(params.companyId!, params.documentId!, body.on);
+          return { forCustomers: body.on };
+        },
+      },
+
+      {
         method: 'POST',
         pattern: '/api/companies/:companyId/documents/:documentId/archive',
         handle: async ({ params, body }) => {
@@ -5433,12 +5472,13 @@ export class OwnerApi {
    * structural change the owner made (F2.9, F3.9) -- with the device the
    * channel was connected with. What it has already is left as it is.
    */
-  async #answerCustomers(companyId: string, divisionId: string, roleId: string, channel: string): Promise<void> {
-    const wanted = ['chat.read', 'chat.send'];
+  async #answerCustomers(
+    companyId: string, divisionId: string, roleId: string, channel: string, wanted: readonly string[] = ['chat.read', 'chat.send'],
+  ): Promise<void> {
     const { granted, tools } = await withTenant(companyId, async (tx) => ({
       granted: (await tx.query<{ capability_name: string }>(
         'SELECT capability_name FROM capability_grants WHERE division_id = $1 AND capability_name = ANY($2::text[])',
-        [divisionId, wanted])).rows.map((row) => row.capability_name),
+        [divisionId, [...wanted]])).rows.map((row) => row.capability_name),
       tools: (await tx.query<{ tools: string[] }>('SELECT tools FROM roles WHERE id = $1', [roleId])).rows[0]?.tools ?? [],
     }));
     for (const capabilityName of wanted.filter((name) => !granted.includes(name))) {

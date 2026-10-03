@@ -430,6 +430,11 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     fields: { archived: 'true or false' }, factor: 'never',
   },
   {
+    pattern: '/api/companies/:companyId/documents/:documentId/for-customers',
+    what: 'Mark a document as one customers may be told (on: true) -- a menu, a price list, opening hours, a returns policy -- or take the mark off (false). A channel that answers on its own answers only from marked documents; margins, suppliers and anything internal stay unmarked.',
+    fields: { on: 'true or false' }, factor: 'never',
+  },
+  {
     pattern: '/api/companies/:companyId/projects/:projectId',
     what: 'Rename a project, say what it is for (every run in it is told), close it to new work (archived: true) or open it again, or give it its own work language -- what its work for customers is written in, while agents still talk to the owner in the company\'s talk language.',
     fields: {
@@ -535,6 +540,12 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     what: 'Point a trigger at a new signing secret.', fields: { secretRef: 'the new reference' }, factor: 'never',
   },
   { pattern: '/api/companies/:companyId/triggers/:triggerId', what: 'Switch a trigger on or off.', fields: { enabled: 'true or false' }, factor: 'always' },
+  {
+    pattern: '/api/companies/:companyId/chat-channels/:channelId/answers-alone',
+    what: 'Let a customer channel answer on its own (on: true), or stop it (false). On, a reply that answers from passages of documents marked for customers, says no figure or address they do not, and passes a model\'s check goes without a card, six an hour per conversation at most; refunds, prices of its own, complaints, the law, personal data and promises still come to the owner. Turning it on takes the owner\'s device.',
+    fields: { on: 'true or false' },
+    factor: 'sometimes',
+  },
   {
     pattern: '/api/companies/:companyId/chat-channels/:channelId/close',
     what: 'Close a customer channel: the bot is no longer heard and its token is forgotten. What was said stays, and connecting the same bot again opens it.',

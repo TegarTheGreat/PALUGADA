@@ -42,7 +42,19 @@ export interface CapabilityContext {
    * token.
    */
   credential(alias: string): Promise<string>;
+  /**
+   * What the capability's own check (`clearsOutside`) found when it let this
+   * call go without the owner; absent when the owner, a policy or nothing at
+   * all let it through. The capability defines its shape.
+   */
+  clearance?: unknown;
 }
+
+/** What a capability's own check says about a call the owner would otherwise be asked about (F8.9). */
+export type Clearance =
+  | { cleared: true; record: unknown }
+  /** `why` is a code the owner's card words; `off` means the check was not asked for at all and adds nothing to the card. */
+  | { cleared: false; why: string; detail?: string };
 
 export interface Capability<I = unknown, O = unknown> {
   name: string;
@@ -177,6 +189,18 @@ export interface Capability<I = unknown, O = unknown> {
    * apart rather than reporting an unmeasured call as free.
    */
   actualCostCents?(input: I, result: O, ctx: CapabilityContext): Promise<number | null>;
+  /**
+   * Whether this call may go without the owner although the work read
+   * content from outside (F8.9), by a check of the capability's own.
+   *
+   * Asked only at tier 2, only where nothing else asks -- no policy, no tier
+   * 3, no guardian -- and only after every yes the owner gave has been looked
+   * for. The check is the capability's because only it knows what bounds its
+   * effect: `chat.send` answers the customer who wrote, from passages the
+   * owner published for customers (STATUS 2.137). A capability that does not
+   * declare one is asked about as before.
+   */
+  clearsOutside?(input: I, ctx: CapabilityContext): Promise<Clearance>;
   /**
    * Whether the capability runs code supplied at call time (F8.10).
    *

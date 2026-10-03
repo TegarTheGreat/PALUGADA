@@ -60,7 +60,13 @@ export interface MemorySearchInput {
 export interface MemorySearchResult {
   facts: Array<{ body: string; confidence: number; source: string; unverified: boolean; outside?: boolean }>;
   /** Passages of the company's documents the query's words point at (0075). */
-  documents: Array<{ title: string; heading: string | null; passage: string }>;
+  documents: Array<{
+    title: string; heading: string | null; passage: string;
+    /** The document and the passage's place in it, by which a reply to a customer names what it answers from. */
+    document: string; place: number;
+    /** Whether customers may be told it (0117). */
+    forCustomers: boolean;
+  }>;
   /** True when the limit cut the answer short, so the caller can ask again. */
   truncated: boolean;
 }
@@ -146,6 +152,11 @@ export function memorySearchCapability(): Capability<MemorySearchInput, MemorySe
         documents: passages.map((found) => ({
           title: found.title,
           heading: found.heading,
+          // Where it is, so a reply to a customer can name what it answers
+          // from; and whether customers may be told it (0117).
+          document: found.documentId,
+          place: found.passage,
+          forCustomers: found.forCustomers === true,
           passage: wrapUntrusted(`document:${found.title}`, found.body),
         })),
         facts: facts.slice(0, limit).map((memory) => ({

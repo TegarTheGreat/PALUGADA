@@ -66,6 +66,8 @@ export interface OpenChannel {
   goalId: string;
   instruction: string;
   maxPerHour: number;
+  /** Whether a reply from documents for customers may go without the owner (0117). */
+  answersAlone: boolean;
   /**
    * The hash of what the transport proves itself with: Telegram's secret
    * header, or WhatsApp's verify token when the webhook is subscribed.
@@ -100,6 +102,8 @@ export interface ChannelView {
   /** A mailbox: when it was last read, and why the last reading failed. */
   checkedAt: Date | null;
   failure: string | null;
+  /** Whether a reply from documents for customers may go without the owner (0117). */
+  answersAlone: boolean;
 }
 
 export interface ChatView {
@@ -130,6 +134,8 @@ export interface MessageView {
   /** Out: whether the transport took it. A reply whose send failed stays unsent. */
   sent: boolean;
   at: Date;
+  /** Out: sent on its own, and the documents it answered from (0117). */
+  answeredAlone?: { from: string[] };
 }
 
 /** The most of a conversation shown or read at once. */
@@ -146,10 +152,10 @@ export async function channelAt(publicId: string): Promise<OpenChannel | null> {
     const { rows } = await tx.query<{
       id: string; company_id: string; kind: ChatKind; account: string; project_id: string; division_id: string;
       role_id: string; goal_id: string; instruction: string; max_per_hour: number; webhook_hash: string;
-      account_id: string | null; secret_ref: string | null;
+      account_id: string | null; secret_ref: string | null; answers_alone: boolean;
     }>(
       `SELECT id, company_id, kind, account, project_id, division_id, role_id, goal_id, instruction, max_per_hour,
-              webhook_hash, account_id, secret_ref
+              webhook_hash, account_id, secret_ref, answers_alone
          FROM chat_channels WHERE public_id = $1 AND enabled`,
       [publicId],
     );
@@ -159,6 +165,7 @@ export async function channelAt(publicId: string): Promise<OpenChannel | null> {
       id: row.id, companyId: row.company_id, kind: row.kind, account: row.account, projectId: row.project_id,
       divisionId: row.division_id, roleId: row.role_id, goalId: row.goal_id, instruction: row.instruction,
       maxPerHour: row.max_per_hour, webhookHash: row.webhook_hash, accountId: row.account_id, secretRef: row.secret_ref,
+      answersAlone: row.answers_alone,
     };
   });
 }
@@ -268,7 +275,14 @@ export async function receiveMessage(channel: OpenChannel, message: InboundMessa
       event: wrapUntrusted(`${channel.kind}:${channel.account}`, said),
       reply: 'Read the whole conversation with chat.read before you answer: the customer may have written again '
         + 'since this message. Answer with chat.send, in the language the customer writes in -- '
-        + `${languageName(languages.work)} when you cannot tell. The owner says yes to every answer before it is sent.`,
+        + `${languageName(languages.work)} when you cannot tell. `
+        + (channel.answersAlone
+          // 0117: what lets an answer go on its own, said where the run reads its work.
+          ? 'This channel answers on its own from the documents marked for customers: find them with memory.search, '
+            + 'answer only from what they say, and name the passages you answer from in chat.send\'s sources. Such an '
+            + 'answer is sent without waiting for the owner; anything else -- a refund, a price or a promise they do not '
+            + 'give, a complaint, the law, anyone\'s data -- waits for the owner\'s yes.'
+          : 'The owner says yes to every answer before it is sent.'),
     },
     createdBy: 'webhook',
     // The message's own row, so a retry after a crash finds the same work.
@@ -427,10 +441,10 @@ export async function channelsOf(companyId: string): Promise<ChannelView[]> {
     const { rows } = await tx.query<{
       id: string; kind: ChatKind; account: string; role_id: string; role_name: string; goal_id: string; instruction: string;
       max_per_hour: number; enabled: boolean; chats: number; last_at: Date | null; created_at: Date;
-      polled_at: Date | null; poll_failure: string | null;
+      polled_at: Date | null; poll_failure: string | null; answers_alone: boolean;
     }>(
       `SELECT c.id, c.kind, c.account, c.role_id, coalesce(r.display_name, r.title, r.slug) AS role_name, c.goal_id,
-              c.instruction, c.max_per_hour, c.enabled, c.created_at, c.polled_at, c.poll_failure,
+              c.instruction, c.max_per_hour, c.enabled, c.created_at, c.polled_at, c.poll_failure, c.answers_alone,
               (SELECT count(*)::int FROM chats h WHERE h.channel_id = c.id) AS chats,
               (SELECT max(h.last_message_at) FROM chats h WHERE h.channel_id = c.id) AS last_at
          FROM chat_channels c JOIN roles r ON r.id = c.role_id
@@ -440,7 +454,23 @@ export async function channelsOf(companyId: string): Promise<ChannelView[]> {
       id: row.id, kind: row.kind, account: row.account, roleId: row.role_id, roleName: row.role_name, goalId: row.goal_id,
       instruction: row.instruction, maxPerHour: row.max_per_hour, enabled: row.enabled, chats: row.chats,
       lastMessageAt: row.last_at, createdAt: row.created_at, checkedAt: row.polled_at, failure: row.poll_failure,
+      answersAlone: row.answers_alone,
     }));
+  });
+}
+
+/**
+ * Lets a channel answer on its own from the documents marked for customers,
+ * or stops it (0117). On the control plane, as the rest of a channel is
+ * written; the route asks for the owner's device to turn it on.
+ */
+export async function setAnswersAlone(companyId: string, channelId: string, on: boolean): Promise<void> {
+  await withControlPlane(async (tx) => {
+    const { rowCount } = await tx.query('UPDATE chat_channels SET answers_alone = $3 WHERE id::text = $1 AND company_id = $2', [channelId, companyId, on]);
+    if (rowCount !== 1) throw new PalugadaError('contract.violation', 'no such channel in this company', { channelId });
+    await appendEvent(tx, {
+      companyId, type: on ? 'chat.answers_alone_on' : 'chat.answers_alone_off', actor: 'owner', payload: { channelId },
+    });
   });
 }
 
@@ -518,9 +548,10 @@ export async function chatWith(tx: TenantClient, chatId: string, limit = MESSAGE
   const { rows: messages } = await tx.query<{
     id: string; direction: 'in' | 'out'; body: string; attachment: string | null; outcome: MessageView['outcome'];
     task_id: string | null; external_id: string | null; created_at: Date; subject: string | null;
+    grounds: Array<{ title: string }> | null;
   }>(
     `SELECT * FROM (
-       SELECT id, direction, body, attachment, outcome, task_id, external_id, created_at, subject
+       SELECT id, direction, body, attachment, outcome, task_id, external_id, created_at, subject, grounds
          FROM chat_messages WHERE chat_id = $1 ORDER BY created_at DESC LIMIT $2
      ) recent ORDER BY created_at`,
     [chatId, limit],
@@ -530,6 +561,7 @@ export async function chatWith(tx: TenantClient, chatId: string, limit = MESSAGE
     messages: messages.map((row) => ({
       id: row.id, direction: row.direction, body: row.body, attachment: row.attachment, subject: row.subject, outcome: row.outcome,
       taskId: row.task_id, sent: row.direction === 'in' || row.external_id !== null, at: row.created_at,
+      ...(row.grounds ? { answeredAlone: { from: [...new Set(row.grounds.map((ground) => ground.title))] } } : {}),
     })),
   };
 }

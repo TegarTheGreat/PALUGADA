@@ -369,6 +369,15 @@ The first version. What it holds, in the order an owner meets it.
   schedule**: what each run does, which role, when, and why, with the next
   runs in your time. Your yes makes it and starts it; nothing more often than
   hourly. The CEO of a new company has it (STATUS 2.136).
+- A customer channel can **answer on its own** from the documents you mark
+  **for customers** -- a menu, prices, opening hours -- once you turn it on
+  with your device. A reply goes without a card only to the customer who
+  wrote, naming the passages it answers from, with no figure, address or
+  link they do not give, six an hour per conversation at most, and after a
+  model finds every statement in them and nothing that is yours: a refund,
+  a price of its own, a complaint, the law, personal data, a promise.
+  Anything else is your card, saying why it did not go; the conversation
+  marks what went on its own and from what (STATUS 2.137).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

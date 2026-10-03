@@ -575,7 +575,11 @@ console into.
   side effect answered from the record, so nothing leaves.
 - Retention is the only thing that deletes, and it records what it removed.
   Events are kept at least a year and prompts at least ninety days
-  (**Settings**, **Company**, **Retention**).
+  (**Settings**, **Company**, **Retention**). Finished work goes once both
+  the event and the trace windows have passed it, with its steps, runs and
+  cards; work that is still talked about, has a card still open in your
+  inbox, or that later work was done again in place of or handed on from,
+  stays.
 - **Download as JSON** under **Settings**, **Company**, **Export** writes
   the whole company to one file that can be restored on another deployment,
   with every reference remapped. Credentials travel as references only.

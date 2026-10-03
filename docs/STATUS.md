@@ -6867,6 +6867,53 @@ What changed:
   again, the read runs, the task completes, and the journal holds each call
   once, where it was first made.
 
+## 2.93 Retention reaches the work itself (F11.5, M10)
+
+Found by the audit of 30 September (M10) and still open on 3 October.
+Retention scrubbed prompts and replies at the prompt window and purged
+events, traces and the platform's bookkeeping at the company's windows
+(migrations 0007 and 0046). The work those records were about was never removed: every
+task, every journal step with what it was given and what it returned,
+every run and every card stayed for ever, past the windows that had removed
+everything said about them.
+
+What changed:
+
+- **Finished work goes past both windows** (`purgeExpiredWork`,
+  `src/retention/retention.ts`, run by every retention pass): a task
+  finished before the later of the event and trace windows, with what hangs
+  from it -- its steps, runs, cards, notes and the events and traces still
+  about it, which the database removes with it. The later window, because a
+  task takes its events and traces with it. A card that belonged to no task
+  goes at the event window once it is closed; an open one stays.
+- **Work something still points at stays,** however old, and what it points
+  at in turn:
+  - anything said about it since the cutoff, such as the owner's word on it
+    or a rerun asked for;
+  - a card about it still open in the owner's inbox;
+  - a parent of work that stays, since removing a task removes the tasks
+    under it;
+  - work that a task that stays was asked for again in place of, whose
+    answers and notes that task still reads (L6);
+  - work that handed on to a task that stays.
+- **Checked by the database too.** The purge runs under the same flag as an
+  event purge, and the database refuses to remove any event inside the
+  window, so a mistake in what is kept fails the pass rather than removing
+  recent history. What a memory, a measure, a ticket or a schedule
+  remembered of a task is kept, without the link.
+- **On the record** as `work_purged` (migration 0105).
+- **Indexes for the removal** (0105): removing a task makes the database
+  find every row that points at it, and nine tables that grow with the work
+  -- among them `inbox_items`, `llm_traces` by run, `owner_notifications`,
+  `task_handoffs` by successor and `memories` by source -- had no index on
+  the column it searches.
+- **Tested.** `retention-rotation.test.ts`: of twelve tasks finished 500 or
+  3 days ago, the three old ones nothing points at go with their steps,
+  runs, cards and events, and a parent of live work, work talked about
+  since, work with an open card, work done again since and work that handed
+  on since all stay; an old closed card with no task goes, and an old open
+  one stays; the purge is in the retention log.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

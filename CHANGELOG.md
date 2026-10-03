@@ -210,6 +210,11 @@ The first version. What it holds, in the order an owner meets it.
   promise nothing awaited is written down and the process goes on, and an
   exception nothing caught stops it as a signal would, handing runs back,
   before it exits for the supervisor (STATUS 2.85).
+- Retention now removes finished work too, once both the event and trace
+  windows have passed it: the task with its journal, runs and cards. Work
+  that is still talked about, has a card open in your inbox, or that later
+  work came from stays. Until now every task, step and card was kept for
+  ever (STATUS 2.93).
 - Tenants separated by forced row-level security, composite keys between
   tenant tables, and an application role with only the grants its code uses.
 - Health, Prometheus metrics with their own token, and traces to an

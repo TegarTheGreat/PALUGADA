@@ -679,8 +679,10 @@ shipped runs one app container on one published port.
   application role and ten as the control plane, and migrations open one
   more. Size PostgreSQL's connection limit for about twenty a process.
 - **Database size.** The event log grows with the work and is kept at least
-  a year; prompts at least ninety days. Set the windows under **Settings**,
-  **Company**, **Retention**.
+  a year; prompts at least ninety days. Finished work -- tasks, their
+  journals, runs and cards -- goes once both the event and trace windows
+  have passed it. Set the windows under **Settings**, **Company**,
+  **Retention**.
 - **Agent CLIs.** Each run is a separate process tree with a directory of
   its own on the machine that runs it. Size that machine's memory for the
   number of runs it may have at once.

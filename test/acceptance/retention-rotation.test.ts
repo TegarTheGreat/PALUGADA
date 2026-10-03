@@ -492,3 +492,105 @@ test('bookkeeping past the event window is purged, and folded wakes go with thei
     'the old wake a recent one was folded into stays, so nothing looks due that is not');
 });
 
+
+/**
+ * M10, the audit of 30 September, still open on 3 October: retention scrubbed
+ * prompts and purged events, traces and bookkeeping, and the work itself --
+ * `tasks`, and with them `task_steps`, `agent_runs` and `inbox_items` -- was
+ * never removed. Every task, every step of it with its input and output, and
+ * every card stayed for ever, past the windows that removed everything said
+ * about them. Finished work now goes once both windows have passed it, with
+ * what hangs from it; work something still points at stays.
+ */
+test('finished work past the windows goes with what hangs from it, and work something still points at stays (M10)', async () => {
+  const fixture = await createCompany('retention-work');
+  const work = async (label: string, finishedDaysAgo: number | null, parent: string | null = null) => {
+    const id = await withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ id: string }>(
+      `INSERT INTO tasks (company_id, project_id, division_id, role_id, budget_account_id, parent_task_id,
+                          status, input, idempotency_key, input_hash, created_by, created_at, finished_at)
+       VALUES ($1, $2, $3, $4, $5, $6, CASE WHEN $8::int IS NULL THEN 'running' ELSE 'completed' END,
+               jsonb_build_object('goal', $7::text), $7, $7, 'owner',
+               now() - make_interval(days => coalesce($8::int, 0) + 1),
+               CASE WHEN $8::int IS NULL THEN NULL ELSE now() - make_interval(days => $8::int) END)
+       RETURNING id`,
+      [fixture.companyId, fixture.projectId, fixture.divisionId, fixture.roleId, fixture.budgetAccountId,
+        parent, label, finishedDaysAgo]);
+    const id = rows[0]!.id;
+    const ago = finishedDaysAgo ?? 0;
+    await tx.query(
+      `INSERT INTO task_steps (company_id, task_id, step_index, name, kind, status, idempotency_key, input_hash, output, committed_at)
+       VALUES ($1, $2, 0, 'capability:crm.note', 'tool', 'committed', $3, 'h', '{"id":"note-1"}', now() - make_interval(days => $4))`,
+      [fixture.companyId, id, `${label}:0`, ago]);
+    await tx.query(
+      `INSERT INTO agent_runs (company_id, task_id, role_id, attempt, started_at)
+       VALUES ($1, $2, $3, 1, now() - make_interval(days => $4))`, [fixture.companyId, id, fixture.roleId, ago]);
+    await tx.query(
+      `INSERT INTO inbox_items (company_id, task_id, kind, status, title, action_summary, rationale, decision, decided_at, created_at)
+       VALUES ($1, $2, 'escalation', 'decided', $3, $3, 'x', 'approve', now() - make_interval(days => $4), now() - make_interval(days => $4))`,
+      [fixture.companyId, id, `About ${label}`, ago]);
+    return id;
+    });
+    await said(id, 'task.completed', finishedDaysAgo ?? 0);
+    return id;
+  };
+  const said = (taskId: string, type: string, daysAgo: number, payload: Record<string, unknown> = {}) => withControlPlane((tx) => tx.query(
+    `INSERT INTO events (company_id, project_id, task_id, type, actor, payload, occurred_at)
+     VALUES ($1, $2, $3, $4, 'owner', $5::jsonb, now() - make_interval(days => $6))`,
+    [fixture.companyId, fixture.projectId, taskId, type, JSON.stringify(payload), daysAgo]));
+  const card = (title: string, status: string, daysAgo: number) => withControlPlane((tx) => tx.query(
+    `INSERT INTO inbox_items (company_id, kind, status, title, action_summary, rationale, decision, decided_at, created_at)
+     VALUES ($1, 'incident', $2, $3, $3, 'x', CASE WHEN $2 = 'decided' THEN 'approve' END,
+             CASE WHEN $2 = 'decided' THEN now() - make_interval(days => $4) END, now() - make_interval(days => $4))`,
+    [fixture.companyId, status, title, daysAgo]));
+
+  const old = await work('old', 500);
+  const oldParent = await work('old parent', 500);
+  const oldChild = await work('old child', 500, oldParent);
+  const heldParent = await work('parent of live work', 500);
+  await work('live child', null, heldParent);
+  const talkedAbout = await work('talked about since', 500);
+  await said(talkedAbout, 'owner.feedback', 3);
+  await work('recent', 3);
+  const stillOpen = await work('with a card still open', 500);
+  await withControlPlane((tx) => tx.query(
+    `INSERT INTO inbox_items (company_id, task_id, kind, status, title, action_summary, rationale, created_at)
+     VALUES ($1, $2, 'incident', 'open', 'It went wrong', 'It went wrong', 'x', now() - interval '500 days')`,
+    [fixture.companyId, stillOpen]));
+  const rerunOf = await work('done again since', 500);
+  const again = await work('the attempt after it', 3);
+  await said(again, 'owner.instructed', 3, { text: '', rerunOf });
+  const handedFrom = await work('handed on since', 500);
+  const handedTo = await work('what it was handed to', 3);
+  await withControlPlane((tx) => tx.query(
+    `INSERT INTO task_handoffs (company_id, from_task_id, to_task_id, to_role_slug, outcome)
+     VALUES ($1, $2, $3, 'writer', 'created')`, [fixture.companyId, handedFrom, handedTo]));
+  await card('An old incident, closed', 'decided', 500);
+  await card('An old incident, still open', 'open', 500);
+  await card('A recent incident, closed', 'decided', 3);
+
+  const outcome = await runRetention(fixture.companyId);
+  assert.equal(outcome.workPurged, 4, 'three tasks and a card');
+
+  const left = await withControlPlane(async (tx) => {
+    const tasks = await tx.query<{ goal: string }>(
+      "SELECT input->>'goal' AS goal FROM tasks WHERE company_id = $1 ORDER BY 1", [fixture.companyId]);
+    const hanging = await tx.query<{ steps: number; runs: number; items: number; events: number }>(
+      `SELECT (SELECT count(*)::int FROM task_steps WHERE task_id = ANY($1::uuid[])) AS steps,
+              (SELECT count(*)::int FROM agent_runs WHERE task_id = ANY($1::uuid[])) AS runs,
+              (SELECT count(*)::int FROM inbox_items WHERE task_id = ANY($1::uuid[])) AS items,
+              (SELECT count(*)::int FROM events WHERE task_id = ANY($1::uuid[])) AS events`,
+      [[old, oldParent, oldChild]]);
+    const cards = await tx.query<{ title: string }>(
+      'SELECT title FROM inbox_items WHERE company_id = $1 AND task_id IS NULL ORDER BY 1', [fixture.companyId]);
+    return { tasks: tasks.rows.map((row) => row.goal), hanging: hanging.rows[0], cards: cards.rows.map((row) => row.title) };
+  });
+  assert.deepEqual(left.tasks, [
+    'done again since', 'handed on since', 'live child', 'parent of live work', 'recent', 'talked about since',
+    'the attempt after it', 'what it was handed to', 'with a card still open',
+  ]);
+  assert.deepEqual(left.hanging, { steps: 0, runs: 0, items: 0, events: 0 }, 'what hung from the work went with it');
+  assert.deepEqual(left.cards, ['A recent incident, closed', 'An old incident, still open']);
+  assert.ok((await readRetentionLog(fixture.companyId)).some((entry) => entry.action === 'work_purged' && entry.rowsAffected === 4),
+    'and the purge is on the record');
+});

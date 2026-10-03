@@ -370,6 +370,11 @@ without you merging it.
 - [docs/PRD.md](docs/PRD.md): the specification (v2, in Indonesian); `F5.4` in the code refers to it.
 - [docs/RESEARCH-2026-09.md](docs/RESEARCH-2026-09.md) and [docs/COMPETITIVE-ANALYSIS-2026-09-30.md](docs/COMPETITIVE-ANALYSIS-2026-09-30.md): the comparisons with Slack, Buzz, auto-company, Paperclip and newer projects.
 - [docs/AUDIT-2026-09-28.md](docs/AUDIT-2026-09-28.md): an outside audit's thirty-one items, each verified, and what was fixed or proposed.
+- [docs/MATURITY-RECHECK-2026-09-30.md](docs/MATURITY-RECHECK-2026-09-30.md): the same checks run again two days later -- which of those defects the live run no longer finds, which remain, and what the new code brought (in Indonesian).
+- [docs/FEATURE-COMPARISON-2026-09-30.md](docs/FEATURE-COMPARISON-2026-09-30.md): sixteen areas scored from each project's code, and what a task really costs on DeepSeek (in Indonesian).
+- [docs/NEEDS-VS-FEATURES-2026-09-30.md](docs/NEEDS-VS-FEATURES-2026-09-30.md): what owners running a business on agents actually need, from surveys, competitors' users and Indonesian small businesses, matched against the code (in Indonesian).
+- [docs/MATURE-COMPETITORS-2026-10-01.md](docs/MATURE-COMPETITORS-2026-10-01.md): why people use the mature competitors, whether each is overrated or underrated, and which of their lessons PALUGADA already meets (in Indonesian).
+- [docs/GAPS-VS-PAPERCLIP-BUZZ-2026-10-03.md](docs/GAPS-VS-PAPERCLIP-BUZZ-2026-10-03.md): what is not yet reliable or mature next to Paperclip and Buzz, from a live run of the owner's flows on a real model, a code audit and both competitors' code (in Indonesian).
 - [brand/](brand/README.md): the logo, the banners and the console's pictures.
 
 ## Contributing

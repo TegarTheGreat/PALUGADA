@@ -24,6 +24,8 @@
 export interface Mail {
   from: { name: string | null; address: string } | null;
   subject: string;
+  /** When its sender says it was written (its Date), as an ISO instant; null when it says nothing readable. */
+  date: string | null;
   /** With its angle brackets, as a reply's In-Reply-To names it. */
   messageId: string | null;
   references: string[];
@@ -226,6 +228,13 @@ function fromPerson(headers: Map<string, string>, from: Mail['from']): boolean {
   return !/^(mailer-daemon|postmaster|no-?reply|do-?not-?reply)@/i.test(from.address);
 }
 
+/** A Date header as an instant: RFC 5322's form, which `Date.parse` reads, comments and all left aside. */
+function dateOf(value: string | undefined): string | null {
+  if (!value) return null;
+  const at = Date.parse(value.replace(/\([^)]*\)/g, ' ').trim());
+  return Number.isFinite(at) ? new Date(at).toISOString() : null;
+}
+
 export function readMail(raw: Buffer): Mail {
   const top = split(raw);
   const found = { plain: [] as string[], html: [] as string[], attachments: [] as string[] };
@@ -236,6 +245,7 @@ export function readMail(raw: Buffer): Mail {
   return {
     from,
     subject: decodeHeader(top.headers.get('subject') ?? '').replace(/\s+/g, ' ').trim().slice(0, 998),
+    date: dateOf(top.headers.get('date')),
     messageId: ids(top.headers.get('message-id'))[0] ?? null,
     references: [...ids(top.headers.get('references')), ...ids(top.headers.get('in-reply-to'))],
     text: withoutHistory(text).slice(0, TEXT_MAX),

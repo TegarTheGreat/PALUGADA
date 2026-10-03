@@ -556,9 +556,11 @@ test('an email draft survives a model that ignored the format (F8.2)', () => {
  * could use to list the platform's own source.
  */
 test('the platform binds what it can and leaves the rest unbound (F8)', () => {
+  // The mailbox pair needs nothing of the deployment: the mailbox is each
+  // division's key (`mailbox.ts`).
   assert.deepEqual(
     platformCapabilities().map((capability) => capability.name).sort(),
-    ['uptime.check', 'web.fetch'],
+    ['email.send', 'mailbox.read', 'uptime.check', 'web.fetch'],
   );
 
   // A model with nowhere to write is not enough: §8.8 makes a draft a tier 1
@@ -567,7 +569,7 @@ test('the platform binds what it can and leaves the rest unbound (F8)', () => {
   assert.deepEqual(
     platformCapabilities({ llm: new RecordingLlmClient() })
       .map((capability) => capability.name).sort(),
-    ['uptime.check', 'web.fetch'],
+    ['email.send', 'mailbox.read', 'uptime.check', 'web.fetch'],
   );
 
   const full = platformCapabilities({
@@ -576,7 +578,7 @@ test('the platform binds what it can and leaves the rest unbound (F8)', () => {
   });
   assert.deepEqual(
     full.map((capability) => capability.name).sort(),
-    ['doc.draft', 'email.draft', 'files.list', 'uptime.check', 'web.fetch'],
+    ['doc.draft', 'email.draft', 'email.send', 'files.list', 'mailbox.read', 'uptime.check', 'web.fetch'],
   );
 
   // Every one of them declares the adapter it belongs to, which is what the

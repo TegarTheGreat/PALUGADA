@@ -33,6 +33,7 @@ import { Handoffs } from '../components/Handoffs.tsx';
 import { Projects, useWorkLanguage } from '../components/Projects.tsx';
 import { ConfigHistory } from '../components/ConfigHistory.tsx';
 import { Charters } from '../components/Charters.tsx';
+import { EMPTY_MAILBOX, MailboxFields, mailboxFilled, mailboxSent, type Mailbox } from '../components/MailboxFields.tsx';
 import { companyEmblem, OWNER_PICTURE, rolePicture } from '../images.ts';
 import { openGoals } from '../goals.ts';
 
@@ -821,8 +822,10 @@ interface DivisionKeysView {
   credentials: Array<{
     alias: string; version: number; stored: 'console' | 'environment' | 'file' | 'elsewhere'; signedIn: boolean;
     scopes: string[]; createdAt: string; rotatedAt: string | null; signIn?: KeySignIn;
+    /** Given in a form rather than pasted. */
+    form?: 'mailbox';
   }>;
-  needs: Array<{ alias: string; capabilities: string[]; scopes: string[]; signIn?: KeySignIn }>;
+  needs: Array<{ alias: string; capabilities: string[]; scopes: string[]; signIn?: KeySignIn; form?: 'mailbox' }>;
   /** Where a sign-in comes back to, for the app the owner registers. */
   callback: string | null;
 }
@@ -932,6 +935,9 @@ function DivisionKeys({ companyId, divisionId }: { companyId: string; divisionId
     api('GET', `/api/companies/${companyId}/divisions/${divisionId}/credentials`), [companyId, divisionId]);
   const [alias, setAlias] = useState('');
   const [value, setValue] = useState('');
+  // A mailbox is a form, not a key: the one being given, and the held one being changed.
+  const [mailbox, setMailbox] = useState<Mailbox>(EMPTY_MAILBOX);
+  const [changing, setChanging] = useState<string | null>(null);
   const save = async (name: string, key: string) => {
     const done = await requireFactor(t('Save the {alias} key', { alias: name }), (proof) =>
       api('POST', `/api/companies/${companyId}/divisions/${divisionId}/credentials`, { alias: name, value: key, proof }));
@@ -939,9 +945,17 @@ function DivisionKeys({ companyId, divisionId }: { companyId: string; divisionId
       notifications.show({ color: 'teal', message: t('The {alias} key is sealed. Calls use it from the next one.', { alias: name }) });
       setAlias('');
       setValue('');
+      setMailbox(EMPTY_MAILBOX);
+      setChanging(null);
       view.reload();
     }
   };
+  const mailboxForm = (name: string) => (
+    <Stack gap="xs">
+      <MailboxFields value={mailbox} onChange={setMailbox} />
+      <Group><Button disabled={!mailboxFilled(mailbox)} onClick={() => void save(name, JSON.stringify(mailboxSent(mailbox)))}>{t('Save')}</Button></Group>
+    </Stack>
+  );
   const remove = async (name: string) => {
     const done = await requireFactor(t('Remove the {alias} key', { alias: name }), (proof) =>
       api('POST', `/api/companies/${companyId}/divisions/${divisionId}/credentials/${name}/remove`, { proof }));
@@ -956,10 +970,10 @@ function DivisionKeys({ companyId, divisionId }: { companyId: string; divisionId
           {view.data.needs.map((need) => (
             <Alert key={need.alias} variant="light" color="yellow" icon={<IconKey size={18} />}
               title={t('{capabilities} needs the {alias} key', { capabilities: need.capabilities.join(', '), alias: need.alias })}>
-              {need.scopes.length > 0 && (
+              {need.scopes.length > 0 && !need.form && (
                 <Text size="xs" mb={6}>{t('Issue it with {scopes}, and nothing wider.', { scopes: need.scopes.join(', ') })}</Text>
               )}
-              {need.signIn
+              {need.form === 'mailbox' ? mailboxForm(need.alias) : need.signIn
                 ? <SignInKey companyId={companyId} divisionId={divisionId} alias={need.alias} signIn={need.signIn} callback={view.data!.callback} again={false} done={view.reload} />
                 : (
                   <Group gap="xs" align="flex-end" wrap="nowrap">
@@ -984,6 +998,9 @@ function DivisionKeys({ companyId, divisionId }: { companyId: string; divisionId
                       {row.signIn && (
                         <SignInKey companyId={companyId} divisionId={divisionId} alias={row.alias} signIn={row.signIn} callback={view.data!.callback} again done={view.reload} />
                       )}
+                      {row.form === 'mailbox' && (changing === row.alias
+                        ? <Box mt="xs">{mailboxForm(row.alias)}</Box>
+                        : <Button variant="subtle" size="compact-xs" mt={4} onClick={() => { setMailbox(EMPTY_MAILBOX); setChanging(row.alias); }}>{t('Change the mailbox')}</Button>)}
                     </Table.Td>
                     <Table.Td><Text size="xs" c="dimmed">{relative(row.rotatedAt ?? row.createdAt)}</Text></Table.Td>
                     <Table.Td ta="right"><Button variant="subtle" color="red" size="compact-xs" onClick={() => void remove(row.alias)}>{t('Remove')}</Button></Table.Td>

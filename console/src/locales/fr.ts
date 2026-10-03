@@ -396,6 +396,7 @@ export const DICTIONARY: Dictionary = {
   "Chained. The next finished task is handed on.": "Enchaînés. La prochaine tâche terminée sera transmise.",
   "Challenge": "Envoyer un défi",
   "Change": "Modifier",
+  "Change the mailbox": "Changer de boîte mail",
   "Change a DNS record.": "Modifier un enregistrement DNS.",
   "Change a domain's nameservers": "Modifier les serveurs DNS d’un domaine",
   "Change a domain's record": "Modifier un enregistrement d’un domaine",

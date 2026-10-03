@@ -452,7 +452,7 @@ function describer(rules: DescribeRules) {
  * `recipient_domain in [ours]` does not match it, so a mixed batch is never
  * quietly waved through on the strength of its first recipient.
  */
-function recipientDomainOf(value: unknown): string | null {
+export function recipientDomainOf(value: unknown): string | null {
   if (typeof value === 'string') return domainOf(value);
   if (Array.isArray(value)) {
     const domains = new Set<string | null>(
@@ -664,7 +664,7 @@ export async function registerVendorCapabilities(
     // context pack instructs a run to call that tool, so the consequence is
     // the whole platform quietly talking to somebody else's server.
     const existing = registry.get(spec.name);
-    if (existing) {
+    if (existing && !existing.fallback) {
       throw new PalugadaError(
         'config.invalid',
         `${path} binds ${spec.name}, which this deployment already binds `
@@ -728,7 +728,7 @@ export function checkVendorEntry(entry: unknown, bound: CapabilityRegistry | und
       { field: 'entry', name });
   }
   const existing = bound?.get(spec.name);
-  if (existing && !saved.includes(spec.name)) {
+  if (existing && !existing.fallback && !saved.includes(spec.name)) {
     throw new PalugadaError('config.invalid',
       `${spec.name} is bound already, by ${existing.adapter}; a capability has one binding`,
       { field: 'entry', name: spec.name, adapter: existing.adapter });
@@ -759,7 +759,7 @@ export function bindVendorSettings(registry: CapabilityRegistry, text: string | 
     try {
       const [spec] = parseVendors({ capabilities: [entry] }, `the service ${name} set in the console`) as [HttpCapabilitySpec];
       const existing = registry.get(spec.name);
-      if (existing) {
+      if (existing && !existing.fallback) {
         throw new PalugadaError('config.invalid', `${spec.name} is bound already, by ${existing.adapter}`, { name: spec.name });
       }
       registry.register(httpCapability(spec));

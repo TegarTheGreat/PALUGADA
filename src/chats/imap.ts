@@ -1,7 +1,9 @@
 /**
  * Just enough IMAP (RFC 9051, and RFC 3501 which most servers still speak)
- * to read a mailbox's new mail: sign in, open the inbox, ask which messages
- * came after the last one read, fetch each, sign out.
+ * to read a mailbox's new mail -- sign in, open the inbox, ask which messages
+ * came after the last one read, fetch each, sign out -- and to look through
+ * one for a role (`capabilities/mailbox.ts`): a folder opened read-only, a
+ * search, a message with whether it was read.
  *
  * Over TLS only, on the port the provider gives for it (993 almost
  * everywhere): a password sent in the clear is a password given away, and
@@ -158,12 +160,33 @@ export class ImapSession {
     return new PalugadaError('capability.unreachable', `the mail server at ${this.#where} stopped answering: ${(failure as Error).message}`, {});
   }
 
-  /** Runs one command; the untagged lines it answered with, and each literal they carried. */
-  async #command(text: string, options: { continuation?: string } = {}): Promise<Array<{ line: string; literal: Buffer | null }>> {
+  /**
+   * Runs one command; the untagged lines it answered with, and each literal
+   * they carried. A command given in pieces sends each Buffer among them as
+   * a literal of its own -- `{n}`, the server's go-ahead, then the bytes --
+   * which is how IMAP takes text that is not ASCII.
+   */
+  async #command(text: string | Array<string | Buffer>, options: { continuation?: string } = {}): Promise<Array<{ line: string; literal: Buffer | null }>> {
     this.#tag += 1;
     const tag = `P${this.#tag}`;
-    this.#socket.write(`${tag} ${text}\r\n`);
     const untagged: Array<{ line: string; literal: Buffer | null }> = [];
+    const pieces = typeof text === 'string' ? [text] : text;
+    this.#socket.write(`${tag} `);
+    for (const piece of pieces) {
+      if (typeof piece === 'string') {
+        this.#socket.write(piece);
+        continue;
+      }
+      this.#socket.write(`{${piece.length}}\r\n`);
+      for (;;) {
+        const line = await this.#reader.line();
+        if (line.startsWith('+')) break;
+        if (line.startsWith(`${tag} `)) throw new MailRefused(redactor.redact(line.slice(tag.length + 1).replace(/^(NO|BAD)\s*/i, '').slice(0, 300)));
+        untagged.push({ line, literal: null });
+      }
+      this.#socket.write(piece);
+    }
+    this.#socket.write('\r\n');
     for (;;) {
       let line = await this.#reader.line();
       if (line.startsWith('+') && options.continuation !== undefined) {
@@ -193,6 +216,58 @@ export class ImapSession {
       const uidValidity = number('UIDVALIDITY');
       if (!Number.isFinite(uidValidity)) throw new MailRefused('the inbox has no UIDVALIDITY, so new mail cannot be told from old');
       return { uidValidity, uidNext: Number.isFinite(number('UIDNEXT')) ? number('UIDNEXT') : 1 };
+    } catch (failure) {
+      throw this.#said(failure);
+    }
+  }
+
+  /**
+   * Opens a folder read-only (EXAMINE): nothing done in it can mark a
+   * message read or move it, whatever a later command asks.
+   */
+  async examine(folder: string): Promise<{ uidValidity: number; exists: number }> {
+    try {
+      const lines = await this.#command(`EXAMINE ${quoted(folder)}`);
+      const exists = Number(lines.map((one) => /^\* (\d+) EXISTS\b/i.exec(one.line)?.[1]).find(Boolean) ?? 0);
+      const uidValidity = Number(lines.map((one) => /\[UIDVALIDITY (\d+)\]/i.exec(one.line)?.[1]).find(Boolean) ?? NaN);
+      return { uidValidity, exists };
+    } catch (failure) {
+      throw this.#said(failure);
+    }
+  }
+
+  /**
+   * The UIDs of the messages a search finds, oldest first. Each key is an
+   * atom (`UNSEEN`, `SINCE 2-Oct-2026`) or, as `{ text }`, what a FROM or a
+   * SUBJECT is to contain: quoted when it is plain ASCII, else sent as a
+   * literal in UTF-8, which the search then says it is in.
+   */
+  async search(keys: Array<string | { text: string }>): Promise<number[]> {
+    try {
+      const plain = (value: string) => /^[\x20-\x7e]*$/.test(value);
+      const wide = keys.some((key) => typeof key !== 'string' && !plain(key.text));
+      const pieces: Array<string | Buffer> = [wide ? 'UID SEARCH CHARSET UTF-8' : 'UID SEARCH'];
+      for (const key of keys.length > 0 ? keys : ['ALL']) {
+        if (typeof key === 'string') pieces.push(` ${key}`);
+        else if (plain(key.text)) pieces.push(` ${quoted(key.text)}`);
+        else pieces.push(' ', Buffer.from(key.text, 'utf8'));
+      }
+      const lines = await this.#command(pieces);
+      const uids = lines.flatMap((one) => /^\* SEARCH\b(.*)$/i.exec(one.line)?.[1]?.trim().split(/\s+/).filter(Boolean).map(Number) ?? []);
+      return [...new Set(uids)].filter((uid) => Number.isInteger(uid) && uid > 0).sort((a, b) => a - b);
+    } catch (failure) {
+      throw this.#said(failure);
+    }
+  }
+
+  /** The start of one message and whether it has been read, without marking it read; null when it is gone. */
+  async peek(uid: number, maxBytes = FETCH_MAX_BYTES): Promise<{ raw: Buffer; seen: boolean } | null> {
+    try {
+      const lines = await this.#command(`UID FETCH ${uid} (UID FLAGS BODY.PEEK[]<0.${maxBytes}>)`);
+      const found = lines.find((one) => one.literal !== null && /\bFETCH\b/i.test(one.line));
+      if (!found?.literal) return null;
+      const flags = /\bFLAGS \(([^)]*)\)/i.exec(found.line)?.[1] ?? '';
+      return { raw: found.literal, seen: /(^|\s)\\Seen\b/i.test(flags) };
     } catch (failure) {
       throw this.#said(failure);
     }

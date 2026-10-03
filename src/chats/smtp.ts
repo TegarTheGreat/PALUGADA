@@ -46,21 +46,31 @@ export function replySubject(subject: string | null): string {
   return bare ? `Re: ${bare}` : 'Re:';
 }
 
+/** A name beside an address in From, quoted, or as encoded words when it is not ASCII. */
+function named(name: string, address: string): string {
+  const clean = name.replace(/[\r\n"\\]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!clean) return address;
+  return /^[\x20-\x7e]*$/.test(clean) ? `"${clean}" <${address}>` : `${encodedHeader(clean)} <${address}>`;
+}
+
 /**
- * A reply in plain text, in the customer's thread: In-Reply-To and
- * References name the message it answers. Base64, so no line of it is too
- * long for a server and no character is lost to an 8-bit relay.
+ * A letter in plain text. Base64, so no line of it is too long for a server
+ * and no character is lost to an 8-bit relay. Nothing here checks the
+ * addresses or the subject for a line break: the caller has, since what it
+ * refuses it must say to whoever asked.
  */
-export function composeReply(input: {
-  from: string; to: string; subject: string; text: string; inReplyTo: string | null; now?: Date;
+export function composeMail(input: {
+  from: string; fromName?: string | null; to: string[]; cc?: string[]; subject: string; text: string;
+  inReplyTo?: string | null; messageId?: string; now?: Date;
 }): Composed {
   const domain = input.from.split('@')[1] ?? 'palugada.invalid';
-  const messageId = `<${randomUUID()}@${domain}>`;
+  const messageId = input.messageId ?? `<${randomUUID()}@${domain}>`;
   const date = (input.now ?? new Date()).toUTCString().replace(/GMT$/, '+0000');
   const body = Buffer.from(`${input.text.replace(/\r?\n/g, '\r\n')}\r\n`, 'utf8').toString('base64').replace(/.{1,76}/g, '$&\r\n');
   const headers = [
-    `From: ${input.from}`,
-    `To: ${input.to}`,
+    `From: ${input.fromName ? named(input.fromName, input.from) : input.from}`,
+    `To: ${input.to.join(', ')}`,
+    ...(input.cc && input.cc.length > 0 ? [`Cc: ${input.cc.join(', ')}`] : []),
     `Subject: ${encodedHeader(input.subject)}`,
     `Date: ${date}`,
     `Message-ID: ${messageId}`,
@@ -70,6 +80,16 @@ export function composeReply(input: {
     'Content-Transfer-Encoding: base64',
   ];
   return { raw: Buffer.from(`${headers.join('\r\n')}\r\n\r\n${body}`, 'utf8'), messageId };
+}
+
+/**
+ * A reply in plain text, in the customer's thread: In-Reply-To and
+ * References name the message it answers.
+ */
+export function composeReply(input: {
+  from: string; to: string; subject: string; text: string; inReplyTo: string | null; now?: Date;
+}): Composed {
+  return composeMail({ ...input, to: [input.to] });
 }
 
 /** One conversation with a server: its replies read whole, a refusal named. */
@@ -131,10 +151,12 @@ async function plainSocket(host: string, port: number, timeoutMs: number): Promi
 }
 
 /**
- * Signs in to the server, and sends `message` from `from` to `to` when one is
- * given: without one, a check that the server takes the password.
+ * Signs in to the server, and sends `message` from `from` to each of `to`
+ * when one is given: without one, a check that the server takes the
+ * password. Answers with what the server said when it took the message --
+ * `250 2.0.0 OK queued as …` -- the one read-back SMTP has.
  */
-export async function smtpSession(login: MailLogin, message?: { from: string; to: string; raw: Buffer }): Promise<void> {
+export async function smtpSession(login: MailLogin, message?: { from: string; to: string | string[]; raw: Buffer }): Promise<string | null> {
   redactor.register(login.password);
   const timeoutMs = login.timeoutMs ?? 20_000;
   const where = `${login.host}:${login.port}`;
@@ -164,14 +186,17 @@ export async function smtpSession(login: MailLogin, message?: { from: string; to
       await talk.send(Buffer.from(login.username, 'utf8').toString('base64'), [334], 'AUTH LOGIN');
       await talk.send(Buffer.from(login.password, 'utf8').toString('base64'), [235], 'AUTH LOGIN');
     }
+    let taken: string | null = null;
     if (message) {
       await talk.send(`MAIL FROM:<${message.from}>`, [250]);
-      await talk.send(`RCPT TO:<${message.to}>`, [250, 251]);
+      for (const to of Array.isArray(message.to) ? message.to : [message.to]) await talk.send(`RCPT TO:<${to}>`, [250, 251]);
       await talk.send('DATA', [354]);
       talk.write(stuffed(message.raw));
-      await talk.send('.', [250], 'DATA');
+      const answer = await talk.send('.', [250], 'DATA');
+      taken = `${answer.code} ${answer.lines.join(' ')}`.slice(0, 300);
     }
     await talk.send('QUIT', [221]).catch(() => undefined);
+    return taken;
   } catch (failure) {
     if (failure instanceof PalugadaError || failure instanceof MailRefused) throw failure;
     throw new PalugadaError('capability.unreachable', `the mail server at ${where} stopped answering: ${(failure as Error).message}`, {});

@@ -413,6 +413,7 @@ export const DICTIONARY: Dictionary = {
   "Chained. The next finished task is handed on.": "Đã nối chuỗi. Nhiệm vụ hoàn thành tiếp theo sẽ được bàn giao.",
   "Challenge": "Kiểm tra thiết bị",
   "Change": "Thay đổi",
+  "Change the mailbox": "Đổi hộp thư",
   "Change a DNS record.": "Thay đổi một bản ghi DNS.",
   "Change a domain's nameservers": "Thay đổi máy chủ DNS của tên miền",
   "Change a domain's record": "Thay đổi bản ghi của tên miền",

@@ -406,6 +406,7 @@ export const DICTIONARY: Dictionary = {
   "Chained. The next finished task is handed on.": "Sampun dipunruntutaken. Tugas salajengipun ingkang rampung badhe dipunpasrahaken.",
   "Challenge": "Uji kunci",
   "Change": "Ewahi",
+  "Change the mailbox": "Gantos kothak serat",
   "Change a DNS record.": "Ngewahi cathetan DNS.",
   "Change a domain's nameservers": "Ewahi nameserver domain",
   "Change a domain's record": "Ewahi cathetan DNS domain",

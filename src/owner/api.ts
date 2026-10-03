@@ -158,7 +158,7 @@ import {
   requestRoleChange,
   type RoleChange,
 } from '../eval/role-eval.ts';
-import { CapabilityRegistry } from '../broker/registry.ts';
+import { CapabilityRegistry, type Capability } from '../broker/registry.ts';
 import { McpUnauthorized, accessFor, assertPlainHttpIsLocal, bindMcpServers, currentPins, offeredTools, type TokenIn } from '../capabilities/mcp.ts';
 import { beginSignIn, discoverSignIn, finishSignIn, forgetSignIn, mcpSecretName, oauthGrantsIn } from '../capabilities/mcp-oauth.ts';
 import { MCP_PRESETS } from '../capabilities/mcp-presets.ts';
@@ -2591,8 +2591,9 @@ export class OwnerApi {
           const presets = await vendorPresets();
           const taken: Record<string, string> = {};
           for (const preset of presets) {
+            // A binding that gives way to a service is not one that takes its name.
             const bound = this.#options.registry?.get(preset.name);
-            if (bound && !saved.some((one) => one.name === preset.name)) taken[preset.name] = bound.adapter;
+            if (bound && !bound.fallback && !saved.some((one) => one.name === preset.name)) taken[preset.name] = bound.adapter;
           }
           return { presets, saved, taken };
         },
@@ -4156,10 +4157,12 @@ export class OwnerApi {
               createdAt: row.created_at.toISOString(),
               rotatedAt: row.rotated_at?.toISOString() ?? null,
               ...(signIns.has(row.alias) ? { signIn: signIns.get(row.alias) } : {}),
+              ...(asked.get(row.alias)?.form ? { form: asked.get(row.alias)!.form!.kind } : {}),
             })),
             needs: [...asked].filter(([alias]) => !have.has(alias)).map(([alias, need]) => ({
               alias, capabilities: need.capabilities, scopes: need.scopes,
               ...(signIns.has(alias) ? { signIn: signIns.get(alias) } : {}),
+              ...(need.form ? { form: need.form.kind } : {}),
             })),
             callback,
           };
@@ -4183,7 +4186,7 @@ export class OwnerApi {
               'an alias is lower-case letters, digits, - and _, starting with a letter: the name the service asks for, such as email or crm',
               { field: 'alias' });
           }
-          const value = typeof body.value === 'string' ? body.value.trim() : '';
+          let value = typeof body.value === 'string' ? body.value.trim() : '';
           if (value.length < 8 || value.length > 8_192) {
             throw new PalugadaError('contract.violation', 'paste the whole key the service gave you', { field: 'value' });
           }
@@ -4192,9 +4195,19 @@ export class OwnerApi {
           if (value.startsWith('{"oauth2"')) {
             throw new PalugadaError('contract.violation', 'a key that is signed in for is made by signing in, not pasted', { field: 'value' });
           }
-          await withControlPlane((tx) => assertDivisionOf(tx, companyId, divisionId));
+          const granted = await withControlPlane(async (tx) => {
+            await assertDivisionOf(tx, companyId, divisionId);
+            const { rows } = await tx.query<{ capability_name: string }>(
+              'SELECT capability_name FROM capability_grants WHERE company_id = $1 AND division_id = $2', [companyId, divisionId]);
+            return rows.map((row) => row.capability_name);
+          });
+          // A key asked for in a form -- a mailbox -- is held to its shape
+          // before the device, and taken by its service before it is sealed.
+          const form = keysAskedFor(this.#options.registry, granted).get(alias)?.form;
+          if (form) value = form.parse(value);
           await this.#requireFactor(body.proof, `save the ${alias} key`, companyId);
           if (!deployment.master(true)) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
+          if (form) await form.check(value);
           return this.#keepDivisionKey({ companyId, divisionId, alias, value, prefix: CREDENTIAL_SECRETS });
         },
       },
@@ -6476,15 +6489,19 @@ function vendorsIn(settings: Record<string, unknown>): VendorSpec[] {
  * The keys a division's granted capabilities ask for, by alias: which
  * capabilities use each, and the scopes they need of it (F12.6).
  */
+type KeyAsked = { capabilities: string[]; scopes: string[]; signIn?: CredentialSignIn; form?: NonNullable<Capability['credentialForm']> };
+
 function keysAskedFor(
   registry: CapabilityRegistry | undefined,
   granted: readonly string[],
-): Map<string, { capabilities: string[]; scopes: string[]; signIn?: CredentialSignIn }> {
-  const asked = new Map<string, { capabilities: string[]; scopes: string[]; signIn?: CredentialSignIn }>();
+): Map<string, KeyAsked> {
+  const asked = new Map<string, KeyAsked>();
   for (const name of [...granted].sort()) {
     const capability = registry?.get(name);
     if (!capability?.credentialAlias) continue;
-    const entry: { capabilities: string[]; scopes: string[]; signIn?: CredentialSignIn } = asked.get(capability.credentialAlias) ?? { capabilities: [], scopes: [] };
+    const entry: KeyAsked = asked.get(capability.credentialAlias) ?? { capabilities: [], scopes: [] };
+    // A key given in a form is given in the first form asked for it.
+    if (capability.credentialForm && !entry.form) entry.form = capability.credentialForm;
     entry.capabilities.push(name);
     for (const scope of capability.requiredScopes ?? []) if (!entry.scopes.includes(scope)) entry.scopes.push(scope);
     // One sign-in for the key, asking for every scope its capabilities need

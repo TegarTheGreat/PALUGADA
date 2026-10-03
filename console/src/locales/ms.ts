@@ -408,6 +408,7 @@ export const DICTIONARY: Dictionary = {
   "Chained. The next finished task is handed on.": "Dirangkaikan. Tugasan seterusnya yang selesai akan diserahkan.",
   "Challenge": "Cabar",
   "Change": "Tukar",
+  "Change the mailbox": "Tukar peti mel",
   "Change a DNS record.": "Tukar rekod DNS.",
   "Change a domain's nameservers": "Tukar pelayan nama domain",
   "Change a domain's record": "Tukar rekod domain",

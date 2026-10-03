@@ -386,6 +386,7 @@ export const DICTIONARY: Dictionary = {
   "Chained. The next finished task is handed on.": "인계를 설정했어요. 다음에 완료되는 작업부터 넘겨져요.",
   "Challenge": "챌린지 보내기",
   "Change": "변경",
+  "Change the mailbox": "메일함 바꾸기",
   "Change a DNS record.": "DNS 레코드를 변경해요.",
   "Change a domain's nameservers": "도메인 네임서버 변경",
   "Change a domain's record": "도메인 DNS 레코드 변경",

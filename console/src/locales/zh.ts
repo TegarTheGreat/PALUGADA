@@ -375,6 +375,7 @@ export const DICTIONARY: Dictionary = {
   "Chained. The next finished task is handed on.": "已串联。下一个完成的任务会被交接出去。",
   "Challenge": "质询",
   "Change": "更改",
+  "Change the mailbox": "更换邮箱",
   "Change a DNS record.": "修改 DNS 记录。",
   "Change a domain's nameservers": "修改域名的 DNS 服务器",
   "Change a domain's record": "修改域名解析记录",

@@ -238,7 +238,8 @@ and fixes each one's tier, with the reason it is not the tier above or below.
   and nothing at all without them.
 - The platform implements the ones that need nobody's account: `web.fetch`,
   `uptime.check`, `files.list`, `doc.draft`, `email.draft`, `memory.search`
-  and `skill.read`; `web.search` and `web.extract` through the search
+  and `skill.read`; `mailbox.read` and `email.send` with a division's own
+  mailbox; `web.search` and `web.extract` through the search
   provider you choose, and `web.extract` in the deployment's own browser
   until you choose one; `image.generate` and `speech.synthesize` through the
   picture and voice providers you choose, kept as files; `speech.transcribe`,

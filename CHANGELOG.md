@@ -324,6 +324,15 @@ The first version. What it holds, in the order an owner meets it.
   reads a page in the deployment's own browser, without any company's
   sign-ins, and the address goes to nobody else; a Firecrawl you run can
   be chosen there too (STATUS 2.125).
+- A division reads and sends mail from its own mailbox -- Gmail with an app
+  password, a hosting provider's, your own server -- given on **Team** in
+  the division's keys. Reading leaves mail unread in your own mail app;
+  sending is tier 2, so a reply to mail a role read waits for your yes. A
+  service bound for `email.send`, such as Resend, is still the one used
+  (STATUS 2.127).
+- `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
+  documented: set, it had stopped mailboxes on public certificates from
+  connecting (STATUS 2.126).
 - **Replay against the journal** is shown only for a task this deployment
   can replay. It was offered on every task and refused on every task a
   model or an agent CLI ran (STATUS 2.87).

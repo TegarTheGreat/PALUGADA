@@ -408,6 +408,7 @@ export const DICTIONARY: Dictionary = {
   "Chained. The next finished task is handed on.": "เชื่อมแล้ว งานถัดไปที่เสร็จจะถูกส่งต่อ",
   "Challenge": "ทดสอบอุปกรณ์",
   "Change": "เปลี่ยน",
+  "Change the mailbox": "เปลี่ยนกล่องจดหมาย",
   "Change a DNS record.": "เปลี่ยนเรคคอร์ด DNS",
   "Change a domain's nameservers": "เปลี่ยนเนมเซิร์ฟเวอร์ของโดเมน",
   "Change a domain's record": "เปลี่ยนเรคคอร์ดของโดเมน",

@@ -8200,6 +8200,98 @@ Tested in `customer-mail.test.ts` in a child process, where one authority
 is the machine's and another is given as the private one: the server the
 machine's authority signed was refused before and is reached now.
 
+## 2.127 A division reads and sends mail from its own mailbox (tools research, recommendation 1)
+
+The research ranked mail first: every company does it, and two of the
+three mail capabilities had nothing behind them while the third needed a
+sending service's account and a domain set up with it. `mailbox.read` had
+been catalogued without an adapter since the start (2.119 said so), and
+`email.send` waited for a vendor entry.
+
+What changed:
+
+- **`mailbox.read` and `email.send` are bound by the platform**
+  (`src/capabilities/mailbox.ts`), over IMAP and SMTP, signed in with the
+  division's `mailbox` key -- so Sales can hold sales@ and Support support@.
+  The key is sealed and rotated like any (F12.3), declared with the scopes
+  `mail:read` and `mail:send` its capabilities need (F12.6), and resolved
+  at each call, so a password changed in the console is used at the next.
+- **The key is a form, not a paste.** A capability may now say its key is
+  given in a form (`credentialForm`): the console shows the mailbox's
+  address, password and two servers -- the same form, moved into
+  `MailboxFields.tsx`, that connects a customers' mailbox -- and the owner
+  API holds the value to its shape before the device is asked for, then
+  signs in to both servers before anything is sealed. A wrong password is
+  said there and then, and nothing is kept. A held mailbox is changed in
+  the same form.
+- **Reading leaves the mailbox as it was.** A folder is opened with
+  EXAMINE, read-only, and each message fetched with BODY.PEEK and its
+  flags, so a role can list the newest mail -- sender, subject, date,
+  unread or not, how it begins, what is attached -- search it by sender,
+  subject, day and unread, and read one whole, and the owner's own mail
+  app still shows it unread. No command a role can cause moves, flags or
+  deletes anything. A word to search for goes quoted when it is ASCII and
+  as a counted UTF-8 literal when it is not, so a subject in Indonesian is
+  found; a line break in one is refused, since it would end the search and
+  start a command of the role's choosing. What it reads is from outside
+  (F8.9).
+- **Sending is tier 2.** The letter is plain text from the mailbox's own
+  address, named for the company, to at most ten people and ten more on
+  Cc, as a reply in a thread when it names the message it answers. Work
+  that read the mailbox asks the owner first, with a card that says who it
+  is to and what it is about; recipients count as a batch (F8.13); a policy
+  can match the recipients' domain. Its read-back is the one SMTP has, the
+  server's `250` for those recipients. Its Message-ID is made from the
+  call's idempotency key, so a call made again after a crash is the same
+  letter to a mail client.
+- **A preflight that does not hold up work.** With a key, each checks
+  that its server takes it (F8.12), so a password the provider stopped
+  taking halts work with a reason the owner can act on, and a server not
+  answering waits rather than halts (H2). Without one it passes: the
+  standard Support and Growth roles carry these tools, and their other
+  work is not stopped for a mailbox nobody has given yet; the call says
+  the division has none.
+- **A binding that gives way.** A capability may now be bound only until
+  something else binds its name (`fallback`). A vendor file, a service
+  connected in the console and the console's check before saving one all
+  refused a second binding of a name, so a deployment whose vendor file
+  binds `email.send` to Resend would no longer have started; it starts,
+  and Resend is used. The browser's `web.extract` (2.125) is the same, and
+  had the same flaw in its unpushed form. **Services** no longer says
+  either name is bound by something else, and the boot's "bound by the
+  platform" is written after the services, naming only what the platform
+  still binds.
+- **`readMail` reads a message's date** as an instant, and the SMTP client
+  takes several recipients and returns the server's acceptance.
+- **Tested.** `mailbox.test.ts`, against the IMAP and SMTP test servers
+  (which learned EXAMINE, search keys, UTF-8 literals and flags): the key
+  asked for as a form by both capabilities with both scopes; a pasted
+  string and a bad host refused before the device; a refused password
+  sealing nothing; the sealed shape; the preflight passing, failing on a
+  refused password and not on its own, and passing a division with none.
+  Reading: newest first with sender, subject, date, unread and attachment;
+  a limit with how many more; by sender, by a subject outside ASCII, by
+  day and unread; one message whole; an unknown uid and folder said in the
+  server's words; nothing marked read; no SELECT, STORE, EXPUNGE, COPY or
+  MOVE sent; the task marked as having read from outside; a line break in a
+  search word or a folder refused before the server is asked anything.
+  Sending, after reading a customer's order: a header injection, an
+  address with a name, eleven recipients refused before any card; the card
+  naming recipients and subject; nothing sent before the owner's yes; the
+  letter's From, To, Cc, In-Reply-To, Message-ID, subject and text as
+  asked, and no Bcc. And a vendor file, a console service and the
+  console's check each taking `email.send` and `web.extract` from the
+  platform, while `web.fetch` stays its own. `console-mailbox.test.ts`
+  gives a division its mailbox on **Team** in a browser at a phone's
+  width, with the device, and finds it sealed with its scopes.
+- **Not done.** `email.draft` still writes a draft into the company's
+  files with a model (2.15); a draft in the mailbox's own Drafts folder
+  (IMAP APPEND) would be a second meaning for one name, and is left until
+  it is decided which the name means. Attachments are named, not read or
+  sent. A folder name outside ASCII (IMAP's modified UTF-7) cannot be
+  opened yet. OAuth sign-in to Gmail and Microsoft 365, rather than an app
+  password, is the customers' mailbox's gap too.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the
@@ -8242,20 +8334,26 @@ is a real Daytona or Modal machine answering; the `http` runtime also reports
 this backend, because "somewhere else, not ours" is what it means in F13.5's
 vocabulary, and it cannot verify the claim.
 
-**Thirty-nine of the fifty-two catalogued capabilities are unbound on a bare
-boot -- thirty-five on a machine with a Chromium -- and that is the design
+**Thirty-five of the fifty-two catalogued capabilities are unbound on a bare
+boot -- thirty-one on a machine with a Chromium -- and that is the design
 rather than a gap.** The boot names every one. Eleven need configuration, not
 an account: `files.list`, `doc.draft` and `email.draft` a files root and a
 model; `web.search`, `image.generate`, `speech.synthesize` and
 `speech.transcribe` a provider chosen under **Tools**; `web.extract` one of
 those or a Chromium; and `browser.read`, `browser.act` and
-`browser.handover` a Chromium. The other twenty-eight need a deployment's own vendor entry,
-six of which `config/vendors.example.json` shows. `dns.read`, `email.send`,
-`invoice.pay` and the rest are *names* in the catalogue: a tier, a schema, the
-scopes a credential must declare, and a `verify()` contract. What executes them
-is a deployment's own adapter, because `email.send` against Resend and against
-SES are different programs and choosing one for every company that ever uses
-this platform is not a decision a control plane gets to make.
+`browser.handover` a Chromium. The other twenty-four need a deployment's own vendor entry,
+six of which `config/vendors.example.json` shows. `dns.read`, `invoice.pay`
+and the rest are *names* in the catalogue: a tier, a schema, the scopes a
+credential must declare, and a `verify()` contract. What executes them is a
+deployment's own adapter, because `invoice.pay` against one bank and against
+another are different programs and choosing one for every company that ever
+uses this platform is not a decision a control plane gets to make.
+`mailbox.read` and `email.send` are the exception that proves it: a mailbox
+is one protocol whoever runs it, so the platform binds them to each
+division's own (2.127), and a vendor entry for either still takes the name.
+These counts were read from a boot when 2.127 was written; until then the
+paragraph said thirty-nine, still counting `chat.read` and `chat.send`, which
+the platform has bound since 2.117.
 
 It was twenty-five, and five of those were unbound for the wrong reason -- the
 same one this repository already got wrong about MFA. `web.fetch`,

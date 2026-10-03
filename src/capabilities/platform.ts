@@ -11,7 +11,8 @@
  * be defaulted: `files.list` needs to be told which directory is the company's
  * (the default would be this process's working directory, which is the
  * repository), and the drafting pair needs a model client. A deployment that
- * passes neither gets the two web capabilities, which need nothing.
+ * passes neither gets the two web capabilities, which need nothing, and
+ * `mailbox.read` and `email.send`, whose mailbox is each division's key.
  *
  * `unbound()` is the other half and is what `scripts/smoke.ts` prints: the
  * names a template grants that nothing implements. A company granted a
@@ -29,6 +30,8 @@ import { filesList, type FilesOptions } from './files.ts';
 import { docDraft, emailDraft, type DraftOptions } from './draft.ts';
 import { chatCapabilities, type ChatOptions } from './chat.ts';
 import { browserCapabilities, webExtractByBrowser } from './browser.ts';
+import { mailboxCapabilities } from './mailbox.ts';
+import type { MailOptions } from '../chats/mail.ts';
 import type { Browsers } from '../browser/browsers.ts';
 
 export interface PlatformCapabilityOptions {
@@ -68,6 +71,12 @@ export interface PlatformCapabilityOptions {
    * Given, it also reads pages for `web.extract` when no provider is chosen.
    */
   browser?: Browsers;
+  /**
+   * Where to trust a mail server with a private certificate, for
+   * `mailbox.read` and `email.send` on a division's own mailbox. They are
+   * bound either way: the mailbox is each division's key.
+   */
+  mail?: MailOptions;
 }
 
 /**
@@ -98,6 +107,8 @@ export function platformCapabilities(
   if (options.listen) built.push(speechTranscribe(options.listen) as unknown as Capability<never, never>);
   if (options.chat) built.push(...chatCapabilities(options.chat));
   if (options.browser) built.push(...browserCapabilities(options.browser));
+  // A division's own mailbox; a service bound for either name replaces it.
+  built.push(...mailboxCapabilities(options.mail ?? {}));
 
   // The drafting pair needs both: a model to compose with and a place to put
   // the result. §8.8 calibrates them at tier 1 because a draft is a write, and

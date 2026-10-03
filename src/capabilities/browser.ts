@@ -191,6 +191,8 @@ export function webExtractByBrowser(browsers: Browsers): Capability<ExtractInput
     adapter: 'extract:browser',
     defaultTier: 0,
     readsOutside: true,
+    // A reader the owner binds as a service is used instead.
+    fallback: true,
     describe: extractDescribed,
     async execute(input, ctx) {
       const url = String(input.url ?? '');

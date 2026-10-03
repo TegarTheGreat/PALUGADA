@@ -136,7 +136,7 @@ A secret the owner saved is named like any other, as a reference:
 | `PALUGADA_SLACK_WEBHOOK`, `PALUGADA_DISCORD_WEBHOOK` | A Slack or Discord incoming webhook the owner is told things on, or a reference to one in `_WEBHOOK_REF` |
 | `PALUGADA_EMAIL_PROVIDER`, `PALUGADA_EMAIL_KEY`, `PALUGADA_EMAIL_FROM`, `PALUGADA_EMAIL_TO` | Email to the owner through `resend`, `postmark` or `sendgrid`: its API key (or a reference in `PALUGADA_EMAIL_KEY_REF`), an address the service lets the account send from, and the owner's |
 | `PALUGADA_APP_URL_PUBLIC` | Where the console is reached from the owner's phone. Notifications link there, and a sign-in to an MCP server that uses OAuth comes back to `<PALUGADA_APP_URL_PUBLIC>/api/oauth/callback`; without it, the sign-in works only from a console opened on this machine at `localhost`. A company's customer bot is told to send what customers write to `<PALUGADA_APP_URL_PUBLIC>/api/chat-hooks/<id>`; without it the bot is kept and cannot hear |
-| `PALUGADA_MAIL_CA` | A PEM file of a certificate authority to trust, besides the system's, for a company's mailbox on a server with a private certificate. A mailbox is read and answered only over TLS |
+| `PALUGADA_MAIL_CA` | A PEM file of a certificate authority to trust, besides the system's, for a mailbox on a server with a private certificate: the one customers write to, and the ones divisions read and send from. A mailbox is read and answered only over TLS |
 | `PALUGADA_ALLOWED_HOSTS` | The host names the console answers to, comma-separated. Defaults to the hosts of the public URL and origins. Loopback is always allowed |
 | `PALUGADA_BEHIND_PROXY` | `1` when the console is reached through a reverse proxy: the caller's address, which the sign-in throttle counts by, is then the last one the proxy added to `X-Forwarded-For`. Leave it unset otherwise, since without a proxy that header is whatever the caller wrote |
 | `PALUGADA_RP_ID`, `PALUGADA_ORIGIN` | Where passkeys are made and used: the relying party a device signs for, and the address the console is opened at. Each defaults to `PALUGADA_APP_URL_PUBLIC` (its host name, and its origin); set one only when it differs, such as `PALUGADA_RP_ID=example.com` for a passkey that works across a domain. Without either and without a public URL, passkeys cannot be made, and the owner signs in and approves with an authenticator code. A browser offers passkeys only over HTTPS, or on `localhost` |
@@ -328,7 +328,9 @@ note rather than stopping the start.
 
 **Capabilities.** PALUGADA implements the ones that need no vendor account:
 `web.fetch`, `uptime.check`, `files.list`, `doc.draft`, `email.draft`,
-`memory.search` and `skill.read`. `web.search` and `web.extract` go to the
+`memory.search` and `skill.read`, and `mailbox.read` and `email.send` with
+the mailbox each division is given on **Team** (a vendor entry for either
+is used instead). `web.search` and `web.extract` go to the
 provider the owner chooses in the console (**This deployment**, **Tools**),
 or the one these name:
 

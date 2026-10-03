@@ -69,7 +69,7 @@ export function mailSettings(body: Record<string, unknown>, address: string): Ma
  * A refusal said for the owner: the mailbox's own words -- at sign-in, that
  * it did not take the password -- or that it could not be reached.
  */
-function failureSaid(failure: unknown, settings: MailSettings, side: 'IMAP' | 'SMTP', signingIn = true): PalugadaError {
+export function failureSaid(failure: unknown, settings: MailSettings, side: 'IMAP' | 'SMTP', signingIn = true): PalugadaError {
   if (failure instanceof PalugadaError) return failure;
   const server = `${side} at ${side === 'IMAP' ? settings.imapHost : settings.smtpHost}`;
   if (failure instanceof MailRefused) {
@@ -110,10 +110,10 @@ export async function checkMailbox(settings: MailSettings, password: string, opt
 
 /** Sends one message from the mailbox. */
 export async function sendFromMailbox(
-  settings: MailSettings, password: string, message: { from: string; to: string; raw: Buffer }, options: MailOptions = {},
-): Promise<void> {
+  settings: MailSettings, password: string, message: { from: string; to: string | string[]; raw: Buffer }, options: MailOptions = {},
+): Promise<string | null> {
   try {
-    await smtpSession({ host: settings.smtpHost, port: settings.smtpPort, username: settings.username, password, ...options }, message);
+    return await smtpSession({ host: settings.smtpHost, port: settings.smtpPort, username: settings.username, password, ...options }, message);
   } catch (failure) {
     if (failure instanceof MailRefused) {
       throw new PalugadaError('contract.violation', `the mail server refused the reply: ${failure.message}`, { transport: 'email' });

@@ -160,6 +160,11 @@ refer to `docs/PRD.md`.
    provider chosen reads in that browser too, under the same proxy, in a
    context made for the one reading and thrown away after it: no company's
    sign-ins go with it, and nothing a page leaves reaches the next.
+   A division's mailbox (`src/capabilities/mailbox.ts`) connects only to
+   the servers the owner gave in its key; a role chooses folders and words
+   to search for, never a host. Those words reach the server quoted or as
+   counted literals, and a line break in one is refused, so a role cannot
+   add an IMAP command; the folder is opened read-only.
 7b. The owner's own hand in the browser takes their device, holds the
    company's work off the browser while it lasts, and lapses when left; what
    they type goes to the page and to no event, journal or log
@@ -192,6 +197,9 @@ refer to `docs/PRD.md`.
 - A company's browser holds its sign-ins. A role with `browser.read` can open
   any page those sign-ins reach, at tier 0; what it may change there is
   `browser.act`, at tier 2.
+- A division's mailbox key reaches every message in the mailbox, and
+  `mailbox.read` is tier 0: a role granted it can read any of them, codes
+  a site sent included. What it may send is `email.send`, at tier 2.
 
 ### 2.3 A compromised or misbehaving runtime
 

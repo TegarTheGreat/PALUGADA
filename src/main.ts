@@ -789,6 +789,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
       ...(mailCa ? { mail: { ca: mailCa } } : {}),
     },
     ...(browsers ? { browser: browsers } : {}),
+    ...(mailCa ? { mail: { ca: mailCa } } : {}),
   });
   // With no page reader bound, the browser reads pages: say so where the
   // note would have said they cannot be read.
@@ -815,7 +816,10 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // with nowhere to write is not the capability the catalogue calibrated.
     notes.push('doc.draft and email.draft are unbound: they need PALUGADA_FILES_ROOT too (F8)');
   }
-  notes.push(`bound by the platform: ${[...PLATFORM_CAPABILITIES, ...bound].join(', ')}`);
+  // What the platform bound, to compare with what is bound once the services
+  // are: a name it binds only until a service does (`fallback`) may be
+  // taken from it below.
+  const platformBound = new Map(bound.map((name) => [name, registry.get(name)]));
 
   // The twenty, from the operator's file.
   //
@@ -869,6 +873,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     }
   }
   if (fromConsole.length > 0) notes.push(`bound from the console: ${fromConsole.join(', ')}`);
+  notes.push(`bound by the platform: ${[...PLATFORM_CAPABILITIES, ...bound.filter((name) => registry.get(name) === platformBound.get(name))].join(', ')}`);
 
   // Once, after everything is registered.
   //

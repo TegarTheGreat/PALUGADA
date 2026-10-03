@@ -70,6 +70,28 @@ export interface Capability<I = unknown, O = unknown> {
    */
   signIn?: CredentialSignIn;
   /**
+   * A key that is more than one string to paste: the form the console shows
+   * for it, and what the value must pass before it is sealed. A mailbox is
+   * an address, a password and two servers, and a password the servers
+   * refuse is said when the owner gives it, not at the first call.
+   */
+  credentialForm?: {
+    kind: 'mailbox';
+    /** The value in its one shape, or a refusal saying what is wrong: before the owner's device is asked for. */
+    parse(value: string): string;
+    /** That the service takes it, or a refusal in its words: after the device, before anything is sealed. */
+    check(value: string): Promise<void>;
+  };
+  /**
+   * Bound only until something else binds the name: a vendor file, a
+   * service the owner connects in the console. The platform binds
+   * `email.send` to a division's own mailbox and `web.extract` to its own
+   * browser so that they work with nothing else set up, and gives way to a
+   * service the owner chose for them rather than refusing it as a second
+   * binding.
+   */
+  fallback?: boolean;
+  /**
    * Whether what it returns was written outside the company (F8.9), for a
    * capability the catalogue does not know -- a tool from an MCP server --
    * or, asked of what it returned, for one whose answer only sometimes is:

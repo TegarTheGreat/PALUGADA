@@ -369,6 +369,7 @@ export const DICTIONARY: Dictionary = {
   "Chained. The next finished task is handed on.": "Nadugtong na. Ipapasa ang susunod na matatapos na gawain.",
   "Challenge": "Subukin",
   "Change": "Baguhin",
+  "Change the mailbox": "Palitan ang mailbox",
   "Change a DNS record.": "Baguhin ang isang DNS record.",
   "Change a domain's nameservers": "Baguhin ang mga nameserver ng domain",
   "Change a domain's record": "Baguhin ang isang record ng domain",

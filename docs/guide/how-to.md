@@ -388,10 +388,36 @@ what counts when that vendor is not connected: a run is told which of its
 role's tools are not connected, and cannot meet a criterion that only one of
 them could.
 
+## Give a division its mailbox
+
+A division reads its mail with `mailbox.read` and sends with `email.send`
+from a mailbox it is given: Gmail, Google Workspace, Microsoft 365, the one
+that came with a website, or your own server. Each division has its own, so
+Growth can send from sales@ and Support read support@.
+
+1. Where the provider asks for one, make an app password: in Gmail, turn
+   on 2-Step Verification, then Security, App passwords.
+2. Open the division on **Team**. Under **Keys for services**, the
+   capabilities that need it say they need the `mailbox` key.
+3. Give **The mailbox's address**, **The mailbox's password**, the **IMAP
+   server** and the **SMTP server** with their ports (Gmail:
+   `imap.gmail.com` 993 and `smtp.gmail.com` 587), press **Save** and
+   confirm with a code. Both servers are signed in to first, so a wrong
+   password is said there and then; nothing is kept until they take it.
+   **Change the mailbox** gives it another, the same way.
+
+Reading a message does not mark it read in your own mail app, and nothing
+a role does can move, flag or delete one. A letter is sent from the
+mailbox's address, named for the company; one that answers mail a role read
+waits for your yes, with who it is to and what it is about on the card. A
+copy in Sent is the provider's to keep: Gmail keeps one, many hosts do not.
+The standard template grants both to Support, and `email.send` to Growth.
+A vendor entry for `email.send`, below, is used instead of the mailbox.
+
 ## Connect a vendor
 
-Capabilities that need somebody's account, such as `email.send`,
-`invoice.issue` or `dns.update`, are bound to a vendor by an entry: a
+Capabilities that need somebody's account, such as `email.send` on a
+sending service, `invoice.issue` or `dns.update`, are bound to a vendor by an entry: a
 method, a URL, headers and a body template, where the result is found, how
 to read it back, and which credential it uses. No code. The entries in
 [config/vendors.example.json](../../config/vendors.example.json) are offered

@@ -415,6 +415,7 @@ export const DICTIONARY: Dictionary = {
   "Chained. The next finished task is handed on.": "Zincirlendi. Tamamlanan bir sonraki görev devredilecek.",
   "Challenge": "Doğrulama iste",
   "Change": "Değiştir",
+  "Change the mailbox": "Posta kutusunu değiştir",
   "Change a DNS record.": "Bir DNS kaydını değiştirir.",
   "Change a domain's nameservers": "Alan adının ad sunucularını değiştir",
   "Change a domain's record": "Alan adının kaydını değiştir",

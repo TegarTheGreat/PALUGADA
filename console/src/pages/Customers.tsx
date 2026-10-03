@@ -28,6 +28,7 @@ import type { PageProps } from '../App.tsx';
 import type { Chat, ChatChannel, ChatMessage, Structure } from '../types.ts';
 import { EmptyState, LoadFailed, Loading, PageHeader, Section } from '../components/ui.tsx';
 import { ChatThread, attachmentSaid, channelSaid, customerSaid, handleSaid } from '../components/ChatThread.tsx';
+import { EMPTY_MAILBOX, MailboxFields, mailboxFilled, mailboxSent, type Mailbox } from '../components/MailboxFields.tsx';
 
 /** A transport by its mark, never by a picture drawn from a name. */
 function KindIcon({ kind, size }: { kind: Chat['kind']; size: number }) {
@@ -143,8 +144,7 @@ function Channels({ companyId, channels, owner, changed }: {
   const [token, setToken] = useState('');
   const [phoneNumberId, setPhoneNumberId] = useState('');
   const [appSecret, setAppSecret] = useState('');
-  const [mailbox, setMailbox] = useState({ address: '', imapHost: '', imapPort: 993, smtpHost: '', smtpPort: 587 });
-  const [password, setPassword] = useState('');
+  const [mailbox, setMailbox] = useState<Mailbox>(EMPTY_MAILBOX);
   const [roleId, setRoleId] = useState<string | null>(null);
   const [goalId, setGoalId] = useState<string | null>(null);
   const [instruction, setInstruction] = useState('');
@@ -164,14 +164,14 @@ function Channels({ companyId, channels, owner, changed }: {
         made = await api('POST', `/api/companies/${companyId}/chat-channels`, {
           kind, token: token.trim(), roleId, goalId, instruction: instruction.trim(), maxPerHour, proof,
           ...(kind === 'whatsapp' ? { phoneNumberId: phoneNumberId.trim(), appSecret: appSecret.trim() } : {}),
-          ...(kind === 'email' ? { ...mailbox, address: mailbox.address.trim(), password } : {}),
+          ...(kind === 'email' ? mailboxSent(mailbox) : {}),
         });
       });
       if (!done || !made) return;
       setOutcome(made);
       setToken('');
       setAppSecret('');
-      setPassword('');
+      setMailbox((was) => ({ ...was, password: '' }));
       changed();
     } catch (failure) {
       setError(explain(failure));
@@ -266,26 +266,7 @@ function Channels({ companyId, channels, owner, changed }: {
                 />
               </>
             ) : kind === 'email' ? (
-              <>
-                <TextInput label={t('The mailbox\'s address')} type="email" autoComplete="off" value={mailbox.address}
-                  onChange={(event) => { const address = event.currentTarget.value; setMailbox((was) => ({ ...was, address })); }} />
-                <PasswordInput label={t('The mailbox\'s password')} autoComplete="new-password" value={password}
-                  description={t('An app password where the provider asks for one, as Gmail does. It is checked with the mail servers, then kept sealed; nobody sees it again.')}
-                  onChange={(event) => setPassword(event.currentTarget.value)} />
-                <Group grow align="flex-start" wrap="wrap">
-                  <TextInput label={t('IMAP server')} placeholder="imap.gmail.com" value={mailbox.imapHost} style={{ minWidth: 180 }}
-                    onChange={(event) => { const imapHost = event.currentTarget.value; setMailbox((was) => ({ ...was, imapHost })); }} />
-                  <NumberInput label={t('Port')} min={1} max={65535} value={mailbox.imapPort} maw={110}
-                    onChange={(value) => setMailbox((was) => ({ ...was, imapPort: typeof value === 'number' ? value : 993 }))} />
-                </Group>
-                <Group grow align="flex-start" wrap="wrap">
-                  <TextInput label={t('SMTP server')} placeholder="smtp.gmail.com" value={mailbox.smtpHost} style={{ minWidth: 180 }}
-                    onChange={(event) => { const smtpHost = event.currentTarget.value; setMailbox((was) => ({ ...was, smtpHost })); }} />
-                  <NumberInput label={t('Port')} min={1} max={65535} value={mailbox.smtpPort} maw={110}
-                    onChange={(value) => setMailbox((was) => ({ ...was, smtpPort: typeof value === 'number' ? value : 587 }))} />
-                </Group>
-                <Text size="xs" c="dimmed">{t('For Gmail: imap.gmail.com, port 993, and smtp.gmail.com, port 587.')}</Text>
-              </>
+              <MailboxFields value={mailbox} onChange={setMailbox} />
             ) : (
               <>
                 <Text size="sm" c="dimmed">
@@ -367,7 +348,7 @@ function Channels({ companyId, channels, owner, changed }: {
                 loading={busy}
                 disabled={!roleId || !goalId || !instruction.trim()
                   || (kind === 'email'
-                    ? !mailbox.address.trim() || !password || !mailbox.imapHost.trim() || !mailbox.smtpHost.trim()
+                    ? !mailboxFilled(mailbox)
                     : !token.trim() || (kind === 'whatsapp' && (!phoneNumberId.trim() || !appSecret.trim())))}
                 onClick={() => void connect()}
               >

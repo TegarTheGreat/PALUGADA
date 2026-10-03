@@ -384,6 +384,7 @@ export const DICTIONARY: Dictionary = {
   "Chained. The next finished task is handed on.": "つなげました。次に完了したタスクから引き継がれます。",
   "Challenge": "チャレンジを送信",
   "Change": "変更",
+  "Change the mailbox": "メールボックスを変更",
   "Change a DNS record.": "DNS レコードを変更します。",
   "Change a domain's nameservers": "ドメインのネームサーバーを変更",
   "Change a domain's record": "ドメインの DNS レコードを変更",

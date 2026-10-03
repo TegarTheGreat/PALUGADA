@@ -7013,6 +7013,39 @@ What changed:
   which names the capability by its code -- the chats' dictionaries do not
   name capabilities yet -- and an account by its path ("ops/growth").
 
+## 2.97 No weekly review of an empty week, and "Run now" says what a run may spend (F9.1, N10)
+
+Found by the live run of the analysis of 3 October (N10). **Let it run
+itself**, on by default when a company is created, adds a strategist who
+reviews the week every Monday. On a company that had done nothing yet, the
+review read an empty week, went looking for something to say, and spent
+770 thousand tokens in three and a half minutes; the dialog in front of
+**Run now** had said it "reserves 1,000 tokens", which the owner read as
+what it would cost.
+
+What changed:
+
+- **An empty week is passed over** (`weekHadWork`, `src/reporting/week.ts`;
+  `passOver`, `src/scheduler/scheduler.ts`). When the clock fires a schedule
+  that asks for the week and nothing happened in it but the schedule's own
+  runs -- no task started or finished other than one of them or work under
+  one, no measure recorded -- no task is made, the schedule moves to its
+  next occurrence, and `schedule.nothing_to_review` says so once ("Schedule
+  skipped a run: nothing happened that week to review"). The owner's **Run
+  now** is not asked: it runs whatever the week holds.
+- **The dialog says the ceiling** (`runCeilingTokens` on a schedule; the
+  console's **Run now**): beside what a run reserves to start, the most one
+  run may spend -- its role's ceiling for a run -- and that work it hands to
+  other roles spends more.
+- **Unchanged:** **Let it run itself** stays on by default; on a company
+  with nothing done yet it now costs nothing until there is a week to
+  review.
+- **Tested.** `schedule-quiet-week.test.ts`: an empty week is passed over,
+  said once, and the schedule moves on; the schedule's own finished run
+  does not make a week worth reviewing; a week with finished work is
+  reviewed; the owner can run a review of an empty week; and a schedule
+  reports its role's ceiling for a run beside its reservation.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

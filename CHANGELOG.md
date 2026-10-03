@@ -163,6 +163,10 @@ The first version. What it holds, in the order an owner meets it.
   weekday at 07:00 WIB, rather than as cron in UTC. Saving one again no
   longer turns it back on, and a new one cannot overwrite another under the
   same short name (STATUS 2.86).
+- The weekly business review no longer runs on a week with nothing in it,
+  such as the first week of a new company; the history says it was passed
+  over. **Run now** still runs it, and its dialog says the most one run may
+  spend, not only the 1,000 tokens it reserves (STATUS 2.97).
 - Signing in to an MCP server takes your code, as signing a division in for
   a key does: what the sign-in gives is what a saved server of that name
   uses from then on, and a session alone could change whose account that

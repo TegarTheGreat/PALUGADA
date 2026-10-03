@@ -29,7 +29,7 @@ import { appendEvent } from '../audit/event-log.ts';
 import { raiseEscalationWithin } from '../inbox/inbox.ts';
 import { TERMINAL_STATUSES, type TaskStatus } from '../domain/task.ts';
 import { assertTimeZone, instantsShowing, wallClockAt } from './windows.ts';
-import { buildWeekFacts } from '../reporting/week.ts';
+import { buildWeekFacts, weekHadWork } from '../reporting/week.ts';
 
 const { parseExpression } = cronParser;
 
@@ -525,6 +525,13 @@ export async function runDueSchedules(now = new Date()): Promise<FiredOccurrence
 
     let task: TaskRow;
     try {
+      // N10: a review of a week with nothing in it is passed over, said,
+      // and the schedule goes on to its next occurrence. The owner's "Run
+      // now" is not asked: they asked for it.
+      if (schedule.input.facts === 'week' && !(await weekHadWork(schedule.company_id, schedule.id, now))) {
+        await passOver(schedule, occurrence, now);
+        continue;
+      }
       // Inside the `try`, so a week that cannot be read is a failed
       // occurrence, recorded and tried again, like one that cannot be funded.
       task = await createScheduledTask(schedule, { createdBy: 'scheduler', idempotencyKey: key, now });
@@ -748,6 +755,33 @@ async function giveWay(schedule: DueSchedule, key: string, now: Date): Promise<b
         });
     }
     return true;
+  });
+}
+
+/**
+ * An occurrence with nothing to do (N10): the schedule moves on to its next,
+ * and says why it did not run, once. Guarded as an advance after a run is,
+ * so two workers passing over the same occurrence say it once between them.
+ */
+async function passOver(schedule: DueSchedule, occurrence: Date, now: Date): Promise<void> {
+  await withTenant(schedule.company_id, async (tx) => {
+    const next = nextOccurrence(schedule.cron_expression, schedule.timezone, now);
+    const { rowCount } = await tx.query(
+      `UPDATE schedules SET next_run_at = $3, fire_failed_for = NULL, fire_failure = NULL
+        WHERE id = $1 AND date_trunc('milliseconds', next_run_at) = $2`,
+      [schedule.id, occurrence, next],
+    );
+    if (rowCount !== 1) return;
+    await appendEvent(tx, {
+      companyId: schedule.company_id,
+      projectId: schedule.project_id,
+      type: 'schedule.nothing_to_review',
+      actor: 'scheduler',
+      payload: {
+        scheduleId: schedule.id, slug: schedule.slug,
+        occurrence: occurrence.toISOString(), nextRunAt: next.toISOString(),
+      },
+    });
   });
 }
 

@@ -291,6 +291,8 @@ export interface Schedule {
   priority: number;
   /** What each run reserves from its budget account. */
   reserveTokens: number;
+  /** The most one run may spend: its role's ceiling for a run (N10). */
+  runCeilingTokens: number;
   nextRunAt: string | null;
   lastRunAt: string | null;
   failure: string | null;

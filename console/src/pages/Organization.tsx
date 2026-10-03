@@ -1494,6 +1494,12 @@ function Schedules({
             <Text size="sm">
               {t('It starts now, as its next occurrence would, and reserves {tokens} tokens from its budget account. Its next run does not move.', { tokens: count(running.reserveTokens) })}
             </Text>
+            {/* What it may spend, not only what it sets aside to start: an
+                owner read "reserves 1,000 tokens" as the cost of a run that
+                spent 770 thousand (N10). */}
+            <Text size="sm" fw={600}>
+              {t('One run may spend up to {tokens} tokens, the most its role allows a run, and more for work it hands to other roles.', { tokens: count(running.runCeilingTokens) })}
+            </Text>
             {!running.enabled && <Text size="sm" c="dimmed">{t('It is off: this runs it once and leaves it off.')}</Text>}
             <Group justify="flex-end">
               <Button variant="default" disabled={busy} onClick={() => setRunning(null)}>{t('Cancel')}</Button>

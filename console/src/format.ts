@@ -98,6 +98,7 @@ const EVENT_SENTENCES: Record<string, string> = {
   'schedule.fired': N('Schedule fired'),
   'schedule.fire_failed': N('Schedule could not fire'),
   'schedule.skipped': N('Schedule skipped a run: the last one was still going'),
+  'schedule.nothing_to_review': N('Schedule skipped a run: nothing happened that week to review'),
   'schedule.held': N('Schedule waiting for its last run to finish'),
   'schedule.missed': N('Schedule missed a run: too late to be worth running'),
   'schedule.run_by_owner': N('You ran the schedule now'),

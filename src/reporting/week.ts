@@ -70,6 +70,38 @@ export interface WeekFacts {
 }
 
 /** Text as one line, cut to a length. */
+/**
+ * Whether anything happened in the week a schedule's review would read,
+ * besides that schedule's own runs (N10): work started or finished, by any
+ * task not under one of them, or a measure recorded. A review of a week with
+ * none of it has nothing to read, and on a new company it went looking for
+ * something to say and spent 770 thousand tokens.
+ */
+export async function weekHadWork(companyId: string, scheduleId: string, to = new Date()): Promise<boolean> {
+  const from = new Date(to.getTime() - WEEK_MS);
+  return withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<{ worked: boolean }>(
+      `WITH RECURSIVE week AS (
+         SELECT id, parent_task_id, schedule_id FROM tasks
+          WHERE (created_at >= $1 AND created_at < $2) OR (finished_at >= $1 AND finished_at < $2)
+       ),
+       -- Each of them, and every task above it: one under a run of this
+       -- schedule is the review's own work.
+       above AS (
+         SELECT w.id AS task, w.parent_task_id, w.schedule_id FROM week w
+         UNION ALL
+         SELECT a.task, p.parent_task_id, p.schedule_id FROM above a JOIN tasks p ON p.id = a.parent_task_id
+       )
+       SELECT EXISTS (
+                SELECT 1 FROM week w
+                 WHERE NOT EXISTS (SELECT 1 FROM above a WHERE a.task = w.id AND a.schedule_id = $3))
+           OR EXISTS (SELECT 1 FROM metric_observations WHERE observed_at >= $1 AND observed_at < $2) AS worked`,
+      [from, to, scheduleId],
+    );
+    return rows[0]!.worked;
+  });
+}
+
 function oneLine(text: string | null, max: number): string {
   return (text ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
 }

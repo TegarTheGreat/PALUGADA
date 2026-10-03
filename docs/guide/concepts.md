@@ -482,6 +482,9 @@ the company's time zone. That review is handed the week from the company's
 records, not from a model: every active goal with its numbers -- the latest,
 whether it was verified, and the change over the week -- the work finished,
 the spend against the monthly limit, and any stage move waiting for you.
+A week with nothing in it -- no work started or finished other than the
+review's own, no measure recorded -- is not reviewed: the clock passes it
+over and the company's history says so. **Run now** runs it anyway.
 
 A bundle signed by a publisher you trust installs as written, and so does a built-in
 one that is exactly what this version ships. Any other unsigned bundle,

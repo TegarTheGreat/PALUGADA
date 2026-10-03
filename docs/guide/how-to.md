@@ -940,7 +940,8 @@ already made stays, as work you can open.
 
 To see what a schedule does without waiting for its next occurrence, press
 **Run now** on its row. The dialog says how many tokens the run reserves from
-the schedule's budget account; **Run it now** makes the same task an
+the schedule's budget account, and the most one run may spend -- its role's
+ceiling for a run, and more for work it hands to other roles; **Run it now** makes the same task an
 occurrence would -- the same role, project, goal, brief, priority and budget
 account, and for the weekly business review the week read from the company's
 records -- and the notification links to it. The schedule's **Next** does not

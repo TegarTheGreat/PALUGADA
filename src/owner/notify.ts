@@ -35,7 +35,9 @@ import { withTenant } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { redactor } from '../secrets/manager.ts';
 import { channelDelivery, type ChannelDelivery, type Decision } from '../inbox/inbox.ts';
-import { buildDailyDigest, renderDailyDigest } from '../reporting/digest.ts';
+import { buildDailyDigest } from '../reporting/digest.ts';
+import { renderDailyDigest } from './digest-said.ts';
+import { haltSaid } from './halt-said.ts';
 import { notifyAfterFor } from '../scheduler/windows.ts';
 
 /** One item, as a transport needs to see it. */
@@ -500,8 +502,9 @@ export async function dispatchDoneNotices(
         ? (task.summary ?? '').slice(0, 500)
         : notDone
           ? (task.not_done ?? '').slice(0, 500)
-          // A halt reason is a code; `budget_exhausted` read aloud is "budget exhausted".
-          : say(language, 'Why: {reason}', { reason: (task.halt_reason ?? task.status).replace(/_/g, ' ') });
+          // Why, as the task says it in the console: the halt's code read
+          // aloud ("budget exhausted") was English in every language.
+          : say(language, 'Why: {reason}', { reason: haltSaid(language, task.halt_reason) });
       const text = redactor.redact([headline, detail, `— ${task.role}`].filter(Boolean).join('\n'));
       try {
         const sent = await channel.deliverNotice!({
@@ -693,8 +696,9 @@ export async function retryDigests(
   let delivered = 0;
 
   const due = await withTenant(companyId, async (tx) => {
-    const { rows } = await tx.query<{ channel: string; digest_day: string }>(
-      `SELECT channel, to_char(digest_day, 'YYYY-MM-DD') AS digest_day
+    const { rows } = await tx.query<{ channel: string; digest_day: string; language: string | null }>(
+      `SELECT channel, to_char(digest_day, 'YYYY-MM-DD') AS digest_day,
+              (SELECT console_language FROM platform_control) AS language
          FROM owner_notifications
         WHERE company_id = $1
           AND digest_day IS NOT NULL
@@ -721,7 +725,7 @@ export async function retryDigests(
       await channel.deliverDigest({
         companyId,
         day: row.digest_day,
-        text: redactor.redact(renderDailyDigest(digest)),
+        text: redactor.redact(renderDailyDigest(digest, row.language)),
       });
       await withTenant(companyId, async (tx) => {
         await tx.query(

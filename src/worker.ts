@@ -71,7 +71,9 @@ import {
   type OwnerChannel,
   type NotifiableItem,
 } from './owner/notify.ts';
-import { buildDailyDigest, renderDailyDigest } from './reporting/digest.ts';
+import { buildDailyDigest } from './reporting/digest.ts';
+import { renderDailyDigest } from './owner/digest-said.ts';
+import { deploymentLanguages } from './domain/language.ts';
 import {
   distillEpisodicToSemantic,
   distillSemanticToProcedural,
@@ -1036,7 +1038,7 @@ export class Worker {
           const digest = await buildDailyDigest(company, yesterday);
           const sent = await dispatchDigest(company, owed, {
             day: digest.day,
-            text: renderDailyDigest(digest),
+            text: renderDailyDigest(digest, (await deploymentLanguages()).console),
           });
           report.digests += sent.delivered;
         }

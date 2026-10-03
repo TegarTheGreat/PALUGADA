@@ -24,8 +24,12 @@ export interface DailyDigest {
   tasksHalted: number;
   openInboxItems: number;
   openIncidents: number;
-  /** At most a few lines. Anything longer belongs in the inbox. */
-  highlights: string[];
+  /**
+   * What stopped, by why, most first: at most a few. Data, so whoever says it
+   * says it in the reader's language (`renderDailyDigest`,
+   * src/owner/digest-said.ts); it was English text with the halt's code in it.
+   */
+  stopped: Array<{ reason: string; count: number }>;
 }
 
 /** Kept small on purpose: F10.6's one-screen limit is the requirement. */
@@ -87,21 +91,9 @@ export async function buildDailyDigest(companyId: string, day = new Date()): Pro
       tasksHalted: Number(row.halted),
       openInboxItems: Number(row.open_items),
       openIncidents: Number(row.open_incidents),
-      highlights: haltRows.map((halt) => `${halt.count} task(s) stopped: ${halt.halt_reason}`),
+      stopped: haltRows.map((halt) => ({ reason: halt.halt_reason, count: Number(halt.count) })),
     };
   });
-}
-
-/** Renders the digest as the one screen F10.6 asks for. */
-export function renderDailyDigest(digest: DailyDigest): string {
-  const lines = [
-    `Digest for ${digest.day}`,
-    `Spend: ${(digest.moneySpentCents / 100).toFixed(2)}`,
-    `Tasks: ${digest.tasksCompleted} done, ${digest.tasksFailed} failed, ${digest.tasksHalted} halted`,
-    `Inbox: ${digest.openInboxItems} open (${digest.openIncidents} incident${digest.openIncidents === 1 ? '' : 's'})`,
-    ...digest.highlights,
-  ];
-  return lines.join('\n');
 }
 
 export interface WeeklyRetro {

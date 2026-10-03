@@ -216,6 +216,10 @@ The first version. What it holds, in the order an owner meets it.
   settings say what happened in your language -- "Charter changed" by "The
   company template", "Old prompts cleared" -- instead of "charter",
   "updated", "by template" and "prompts_scrubbed" (STATUS 2.100).
+- The daily digest in a chat is in your language, its spend in US dollars
+  the way your language writes them, and what stopped is said by what it
+  means -- "Kehabisan anggaran" -- instead of "budget_exhausted"; a notice
+  that work stopped says why the same way (STATUS 2.101).
 - **Replay against the journal** is shown only for a task this deployment
   can replay. It was offered on every task and refused on every task a
   model or an agent CLI ran (STATUS 2.87).

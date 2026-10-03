@@ -1641,7 +1641,9 @@ test('the owner hears in the chat that work they gave has finished, once, in the
     const texts = vendor.calls.map((call) => String(call.body.text));
     assert.equal(texts.length, 2, 'not for the routine check, nor for work an agent started');
     assert.ok(texts.some((text) => /Selesai: Write the October newsletter/.test(text) && /Drafted, 140 words/.test(text)));
-    assert.ok(texts.some((text) => /Berhenti sebelum selesai: Renew the domain/.test(text) && /budget exhausted/.test(text)));
+    // Why, in the owner's language: it was the halt's code read aloud, "budget exhausted" (§2.3 item 7).
+    assert.ok(texts.some((text) => /Berhenti sebelum selesai: Renew the domain/.test(text) && /Kehabisan anggaran/.test(text)));
+    assert.ok(texts.every((text) => !/budget.exhausted/.test(text)));
     assert.ok(vendor.calls.every((call) => JSON.stringify(call.body).includes('https://app.palugada.test/t/')));
     assert.ok(vendor.calls.every((call) => call.body.reply_markup === undefined
       || !JSON.stringify(call.body.reply_markup).includes('callback_data')), 'nothing to press');

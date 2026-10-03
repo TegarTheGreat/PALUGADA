@@ -7131,6 +7131,38 @@ What changed:
   a page that shows `row.action` as its code; every new sentence is in the
   20 dictionaries (`console-i18n.test.ts`).
 
+## 2.101 The chats' daily digest and why work stopped, in the owner's language (F10.6, §2.3 items 3 and 7)
+
+Found by the live run of the analysis of 3 October (§2.3, items 3 and 7).
+What PALUGADA says in a chat is in the owner's language (`say`,
+`src/owner/say.ts`), except two things it said every day. The daily digest
+was English whatever the owner read -- "Digest for", "Spend: 0.75", "Tasks:
+... halted" -- its money a bare figure an Indonesian owner reads as rupiah,
+and what stopped was the halt's code: "1 task(s) stopped: budget_exhausted".
+The notice that work the owner gave has stopped said why as the code read
+aloud: "Sebabnya: budget exhausted".
+
+What changed:
+
+- **Why, in words** (`haltSaid`, `src/owner/halt-said.ts`): every halt reason
+  has the sentence the console gives it on the task ("Out of budget",
+  "Kehabisan anggaran"), held as a record of every `HaltReason`, so a new
+  reason does not compile without one. A failure with no reason is "Task
+  failed".
+- **The digest in the owner's language** (`renderDailyDigest`,
+  `src/owner/digest-said.ts`). `buildDailyDigest` returns what stopped as
+  data (`stopped`, by reason and count) rather than English lines, and the
+  owner module says it: the spend in US dollars written the way the
+  language writes them ("US$2,15"), as the console does since 2.98, and
+  each halt by its sentence. A count stands after a label, because `say`
+  has no plural forms. The worker's digest and its retry both use the
+  panel's language.
+- **Tested.** `reporting.test.ts`: the digest says "Spent: $2.15" and
+  "Stopped (1): Out of budget" in English, and in Indonesian "US$2,15" and
+  "Kehabisan anggaran" with no English and no code; `owner-channels.test.ts`:
+  the stopped notice says "Kehabisan anggaran", not "budget exhausted"; every
+  new sentence is in the 20 dictionaries in `src/owner/sentences/`.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

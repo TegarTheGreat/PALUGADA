@@ -324,6 +324,9 @@ palugada: configuration refused: the database is 2 migrations behind this code (
 What each version changed is in `CHANGELOG.md`; which version is running
 is on `/api/health` (`"version"`), in the metrics as `palugada_build_info`,
 and at the foot of the owner's menu.
+A released version is a tag (`v0.2.0`): `git fetch --tags && git checkout v0.2.0`
+in place of `git pull` below runs it, and its image is
+`ghcr.io/tegarthegreat/palugada:0.2.0` ([releasing](../RELEASING.md)).
 
 On this machine, take a backup, then:
 

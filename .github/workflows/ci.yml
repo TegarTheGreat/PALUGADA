@@ -6,8 +6,19 @@ name: CI
 
 on:
   push:
-    branches: ['**']
+    # Not the merge queue's own branches: those are tested as merge_group
+    # below, and as pushes too every candidate would run twice.
+    branches: ['**', '!gh-readonly-queue/**']
   pull_request:
+  # A merge queue tests each pull request on top of what main is about to
+  # become, with the ones ahead of it, before it lands: two pull requests that
+  # were each green against an older main can still break it together, and
+  # that has happened to other projects (Buzz #8036). Enabled in the
+  # repository's settings (docs/RELEASING.md); this is the half CI owns.
+  merge_group:
+  # The release workflow runs the whole of this before it builds anything
+  # from a tag (.github/workflows/release.yml).
+  workflow_call:
   # F5.11's acceptance criterion is a thousand claim races, which takes about
   # seventy seconds. Run nightly rather than on every push: the property is
   # structural, so a broken one fails in the first few rounds, and the stated

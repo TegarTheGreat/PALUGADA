@@ -24,7 +24,7 @@ const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const SHELL = existsSync('/usr/bin/dash') ? '/usr/bin/dash' : '/bin/sh';
 
 /** A place to install into, a tarball of this checkout to install from, and stand-ins for docker and curl. */
-function bench(options: { dockerAnswers?: boolean } = {}) {
+function bench(options: { dockerAnswers?: boolean; version?: string } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'palugada-install-'));
   const bin = join(home, 'bin');
   execFileSync('mkdir', ['-p', bin]);
@@ -43,12 +43,18 @@ case "$*" in
 esac
 exit 0
 `);
-  writeFileSync(join(bin, 'curl'), `#!/bin/sh\necho "curl $*" >> "${log}"\nexit 0\n`);
+  // A download is the checkout's tarball, wherever it is asked for.
+  writeFileSync(join(bin, 'curl'), `#!/bin/sh
+echo "curl $*" >> "${log}"
+while [ $# -gt 0 ]; do [ "$1" = "-o" ] && cp "${tarball}" "$2"; shift; done
+exit 0
+`);
   chmodSync(join(bin, 'docker'), 0o755);
   chmodSync(join(bin, 'curl'), 0o755);
   const dir = join(home, 'palugada');
-  const env = {
-    PATH: `${bin}:/usr/bin:/bin`, HOME: home, PALUGADA_DIR: dir, PALUGADA_SOURCE: tarball,
+  const env: Record<string, string> = {
+    PATH: `${bin}:/usr/bin:/bin`, HOME: home, PALUGADA_DIR: dir,
+    ...(options.version === undefined ? { PALUGADA_SOURCE: tarball } : { PALUGADA_VERSION: options.version }),
     PALUGADA_PORT: '8788', PALUGADA_WAIT_SECONDS: '10',
   };
   const run = () => spawnSync(SHELL, [join(ROOT, 'install.sh')], { encoding: 'utf8', env });
@@ -134,4 +140,18 @@ test('without a Docker that answers, it says what to do and changes nothing', ()
   assert.notEqual(refused.status, 0);
   assert.match(refused.stderr, /Docker is installed but not answering: start Docker/);
   assert.equal(existsSync(place.dir), false, 'nothing was written');
+});
+
+test('PALUGADA_VERSION installs that release instead of the main branch, and a version that is not a tag is refused', () => {
+  const place = bench({ version: 'v0.2.0' });
+  const pinned = place.run();
+  assert.equal(pinned.status, 0, pinned.stderr);
+  assert.match(place.calls(), /^curl -fsSL https:\/\/codeload\.github\.com\/TegarTheGreat\/PALUGADA\/tar\.gz\/refs\/tags\/v0\.2\.0 -o /m);
+  assert.ok(existsSync(join(place.dir, 'docker-compose.yml')));
+
+  const odd = bench({ version: 'main; touch pwned' });
+  const refusedRun = odd.run();
+  assert.notEqual(refusedRun.status, 0);
+  assert.match(refusedRun.stderr, /PALUGADA_VERSION is a release's tag, as v0\.2\.0/);
+  assert.doesNotMatch(odd.calls(), /^curl/m, 'nothing is downloaded');
 });

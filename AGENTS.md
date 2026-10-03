@@ -124,6 +124,11 @@ Each of these is a test, and each exists because the mistake was made once.
 - **Every column of an exported table is exported**, or listed with a reason
   in `test/acceptance/audit-export.test.ts`.
 - **Every requirement in the PRD appears in `docs/STATUS.md`.**
+- **A version is one number everywhere**: `package.json`, its lockfile and
+  the newest section of `CHANGELOG.md`. A change an owner or an operator
+  would notice adds its line to that section; releasing it is
+  `node scripts/release.ts`, as `docs/RELEASING.md` says.
+  `test/documents/release.test.ts`.
 - **Nothing in `src/` is exported and reachable only from tests.**
   `test/documents/reachability.test.ts` keeps an inventory.
 - **Tests run one file at a time** (`--test-concurrency=1`): they share one

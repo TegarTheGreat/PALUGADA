@@ -1,0 +1,81 @@
+# A release, from a tag (the analysis of 3 October, §9 P2 item 21): the tag,
+# package.json and the CHANGELOG agree, the tag is on main, the whole of CI
+# passes on it, and only then is the image published and the release made,
+# with the CHANGELOG's section for that version as its notes.
+#
+# A release's commit is made by `node scripts/release.ts prepare <version>`
+# and merged like any change; its tag is made on main by
+# `node scripts/release.ts tag <version>` and pushed by hand
+# (docs/RELEASING.md). Nothing here pushes to a branch.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  agree:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - name: The tag, package.json, the lockfile and the CHANGELOG name one version
+        run: node scripts/release.ts check "$GITHUB_REF_NAME"
+
+      # A release is of what main holds, never of a branch nobody merged.
+      # HEAD rather than GITHUB_SHA: it is the commit checked out, whatever
+      # an annotated tag's own object is called.
+      - name: The tag is on main
+        run: |
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor HEAD origin/main
+
+  ci:
+    needs: agree
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The image the Dockerfile builds, at ghcr.io/<owner>/palugada:<version>
+      # and :latest. With the docker CLI rather than another action, so the
+      # only code holding this job's token is GitHub's own and this file.
+      - name: Publish the image
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/palugada"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker build --label "org.opencontainers.image.version=$version" \
+            --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            -t "$image:$version" -t "$image:latest" .
+          docker push "$image:$version"
+          docker push "$image:latest"
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - name: Make the release, with the CHANGELOG's section as its notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          node scripts/release.ts notes "$version" > notes.md
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "PALUGADA $version" --notes-file notes.md

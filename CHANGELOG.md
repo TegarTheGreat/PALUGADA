@@ -357,3 +357,9 @@ The first version. What it holds, in the order an owner meets it.
   nothing but a URL, such as Coolify's notifications (STATUS 2.55).
 - A threat model ([docs/THREAT-MODEL.md](docs/THREAT-MODEL.md)) naming each
   defence, its test, and what is left.
+- Releases: `node scripts/release.ts` prepares one as a commit and tags it
+  on main, and a pushed tag becomes, once CI passes on it, an image at
+  `ghcr.io/<owner>/palugada` and a GitHub release with this file's section
+  as its notes. `PALUGADA_VERSION=v0.2.0` makes the installer install,
+  update to or go back to that release, and CI runs for a merge queue
+  ([docs/RELEASING.md](docs/RELEASING.md), STATUS 2.120).

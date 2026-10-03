@@ -7851,6 +7851,62 @@ What changed:
 - **Not done**: OAuth sign-in for Gmail and Microsoft 365 (an app password
   for now), an attachment's contents, and IMAP IDLE (a minute's delay).
 
+## 2.120 Releases are tagged, and a merge queue keeps main green (§9 P2)
+
+Recommended by the analysis of 3 October (§9 P2 item 21, "tagged releases
+and a merge queue"; the owner chose releases with the live browser). There
+had never been a release: `0.1.0 (not yet released)` since the first
+commit, an install that could only follow main, and no image anyone could
+pull. And nothing stopped two pull requests that each passed against an
+older main from breaking it together, which is how Buzz's main went red
+(#8036).
+
+What changed:
+
+- **A version is one number in three places**: `package.json` (with the
+  lockfile), which a running deployment reports; the newest CHANGELOG
+  section; and the tag. `release.test.ts` fails the suite when the first
+  two disagree, when a section other than the newest is undated, or when
+  the sections are out of order.
+- **`scripts/release.ts`** moves them together. `prepare <version>` dates the
+  unreleased section, sets both files and commits `Release <version>`, to be
+  merged like any change; `tag <version>`, on main afterwards, makes the
+  annotated tag, refusing a working tree with changes or a commit that does
+  not agree. Two steps because a pull request merged through a queue lands
+  as another commit, and a tag made before would name one main never held.
+- **A pushed tag is a release** (`.github/workflows/release.yml`): the tag,
+  both files and a dated section agree and the commit is on main; the whole
+  of CI runs on it, as a called workflow; then the image is pushed to
+  `ghcr.io/<owner>/palugada:<version>` and `:latest` with the docker CLI,
+  and the GitHub release is made with the CHANGELOG section as its notes.
+  Its only write permissions are in that last job, and every action is
+  pinned to a commit.
+- **The merge queue**: CI runs for `merge_group`, the candidate main would
+  become, and no longer twice for the queue's own branches. Turning the
+  queue on is a repository setting, which
+  [docs/RELEASING.md](RELEASING.md) gives with the required checks.
+- **The installer installs a release**: `PALUGADA_VERSION=v0.2.0` fetches
+  that tag instead of main, to update to it or to go back to it, and
+  anything that is not a tag's shape is refused before a download, since it
+  becomes part of a URL. Going back works because the platform starts on a
+  database a later version migrated (migrations only add).
+- **Tested.** `release.test.ts`: the repository's own version and sections
+  agree; `prepare` on a copy dates the section and moves both files, and
+  refuses a version that is not three numbers, one not after the last
+  release and a CHANGELOG with nothing unreleased; `check` refuses an
+  unreleased section and a tag that names another version; the notes are
+  the section; in a real git repository, `prepare` commits and tags nothing
+  (the test fails against a `prepare` that tagged), `tag` refuses a
+  changed tree and a version the commit does not hold, and makes an
+  annotated tag on the commit checked out; the workflows hold the triggers,
+  the checks and the pins. `install.test.ts`: a version fetches its tag's
+  tarball, and `main; touch pwned` is refused with nothing downloaded. Both workflows pass actionlint 1.7.12; neither has run on
+  GitHub yet.
+- **Not done**: the first release itself, which is the owner's to cut, and
+  the queue's repository setting, which is the owner's to turn on. The
+  release workflow has not run on GitHub, so the first tag is also its
+  first test.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

@@ -13,8 +13,9 @@
 # with a copy of the database taken first into backups/. Nothing here asks a
 # question, so it runs the same under a pipe.
 #
-# PALUGADA_SOURCE is where the code comes from: a tarball's URL (the main
-# branch by default), a local tarball, or a directory. PALUGADA_PORT is the
+# PALUGADA_VERSION installs a release, by its tag (v0.2.0); without it, the
+# main branch. PALUGADA_SOURCE, when set, is used instead of either: a
+# tarball's URL, a local tarball, or a directory. PALUGADA_PORT is the
 # console's port on this machine's loopback address (8787).
 
 set -eu
@@ -25,12 +26,22 @@ set -eu
 # rest of the script.
 main() {
   DIR=${PALUGADA_DIR:-$HOME/palugada}
-  SOURCE=${PALUGADA_SOURCE:-https://codeload.github.com/TegarTheGreat/PALUGADA/tar.gz/refs/heads/main}
   PORT=${PALUGADA_PORT:-8787}
   WAIT_SECONDS=${PALUGADA_WAIT_SECONDS:-600}
 
   say() { printf 'palugada: %s\n' "$*"; }
   fail() { printf 'palugada: %s\n' "$*" >&2; exit 1; }
+
+  REF=refs/heads/main
+  if [ -n "${PALUGADA_VERSION:-}" ]; then
+    # Only a tag's shape, v and three numbers: it goes into a URL.
+    case "$PALUGADA_VERSION" in
+      *[!v0-9.]*) fail "PALUGADA_VERSION is a release's tag, as v0.2.0; got $PALUGADA_VERSION" ;;
+      v[0-9]*.[0-9]*.[0-9]*) REF="refs/tags/$PALUGADA_VERSION" ;;
+      *) fail "PALUGADA_VERSION is a release's tag, as v0.2.0; got $PALUGADA_VERSION" ;;
+    esac
+  fi
+  SOURCE=${PALUGADA_SOURCE:-https://codeload.github.com/TegarTheGreat/PALUGADA/tar.gz/$REF}
 
   # Docker, with Compose v2 or the older standalone command.
   command -v docker >/dev/null 2>&1 || fail "Docker is needed and was not found: install Docker (https://docs.docker.com/get-docker/), then run this again"

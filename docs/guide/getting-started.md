@@ -59,6 +59,14 @@ that seals what you type into the console's secret fields is the file
 copy of it apart from the backups
 ([operations](operations.md#rotating-the-master-key)).
 
+To install a release rather than the newest code, name its tag; the same
+command with another tag updates to it, or goes back to it
+([releases](../RELEASING.md#installing-a-release)):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/TegarTheGreat/PALUGADA/main/install.sh | PALUGADA_VERSION=v0.2.0 sh
+```
+
 ## Install with Docker Compose
 
 ```sh

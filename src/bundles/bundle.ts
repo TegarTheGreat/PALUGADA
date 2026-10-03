@@ -46,6 +46,7 @@ import { assertValidCondition, type Condition } from '../policy/condition.ts';
 import { POLICY_EFFECTS, type PolicyEffect } from '../policy/engine.ts';
 import { putPolicy } from '../governance/store.ts';
 import { ensureCeo } from '../governance/ceo.ts';
+import { titleFrom } from '../domain/personas.ts';
 import { MAX_IN_FLIGHT } from '../broker/in-flight.ts';
 
 export interface BundleSkill {
@@ -413,18 +414,22 @@ export async function installBundle(input: {
         );
       }
       const heartbeat = body.schedules.find((schedule) => schedule.roleSlug === role.slug);
+      // Who the role is arrives with it, as a template's roles do; a name or a
+      // title the owner gave stays when the bundle is installed again.
       await tx.query(
         `INSERT INTO roles
            (company_id, division_id, slug, system_prompt, model, tools,
             input_schema, output_schema, max_tokens_per_run, done_criteria,
-            heartbeat_minutes)
-         VALUES ($1,$2,$3,$4,$5,$6::text[],$7,$8,$9,$10::text[],$11)
+            heartbeat_minutes, display_name, title)
+         VALUES ($1,$2,$3,$4,$5,$6::text[],$7,$8,$9,$10::text[],$11,$12,$13)
          ON CONFLICT (company_id, slug) DO UPDATE
            SET system_prompt = EXCLUDED.system_prompt,
                model = EXCLUDED.model,
                tools = EXCLUDED.tools,
                done_criteria = EXCLUDED.done_criteria,
-               heartbeat_minutes = EXCLUDED.heartbeat_minutes`,
+               heartbeat_minutes = EXCLUDED.heartbeat_minutes,
+               display_name = COALESCE(roles.display_name, EXCLUDED.display_name),
+               title = COALESCE(roles.title, EXCLUDED.title)`,
         [
           input.companyId,
           divisionId,
@@ -437,6 +442,8 @@ export async function installBundle(input: {
           role.maxTokensPerRun ?? 40_000,
           role.doneCriteria ?? ['the run returns an output matching its schema'],
           heartbeat?.heartbeatMinutes ?? 240,
+          role.displayName?.trim() || null,
+          role.title?.trim() ? titleFrom(role.title) : null,
         ],
       );
       roleSlugs.push(role.slug);

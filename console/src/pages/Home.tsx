@@ -186,7 +186,7 @@ export function Home({
                             <Text size="sm" fw={600} lineClamp={1}>{item.summary}</Text>
                             <Group gap={6} mt={2} mb={6}>
                               <StatusBadge status={item.status} />
-                              <Text size="xs" c="dimmed">{company.name} · {item.roleSlug}</Text>
+                              <Text size="xs" c="dimmed">{company.name} · {item.roleName ?? item.roleSlug}</Text>
                             </Group>
                             <TaskProgress item={item} />
                           </div>
@@ -207,7 +207,7 @@ export function Home({
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <Text size="sm" fw={600} lineClamp={1}>{item.summary}</Text>
                             {item.result && <Text size="xs" c="teal.8" lineClamp={2} mt={2}>{item.result}</Text>}
-                            <Text size="xs" c="dimmed" mt={4}>{company.name} · {item.roleSlug} · {relative(item.finishedAt ?? item.createdAt)}</Text>
+                            <Text size="xs" c="dimmed" mt={4}>{company.name} · {item.roleName ?? item.roleSlug} · {relative(item.finishedAt ?? item.createdAt)}</Text>
                           </div>
                         </Group>
                       </UnstyledButton>

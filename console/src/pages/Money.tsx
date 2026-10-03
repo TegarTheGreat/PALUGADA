@@ -17,7 +17,7 @@ import { api, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { useLoad } from '../hooks.ts';
 import type { Account, CostPeriod, Spend, Structure } from '../types.ts';
-import { count, currencyAffix, dateTime, day, money } from '../format.ts';
+import { count, currencyAffix, dateTime, day, money, roleLabel } from '../format.ts';
 import type { PageProps } from '../App.tsx';
 import { N, t } from '../i18n.ts';
 import { KpiStrip, LoadFailed, Loading, PageHeader, Section } from '../components/ui.tsx';
@@ -28,7 +28,7 @@ export function Money({ ctx }: PageProps) {
   const view = useLoad(async () => {
     const [spend, cost, platform, accounts, structure]: [
       Spend, { timeline: CostPeriod[] },
-      { companies: Array<{ slug: string; costCents: number; tokens: number }>; assistant: { costCents: number; tokens: number } },
+      { companies: Array<{ slug: string; name: string; costCents: number; tokens: number }>; assistant: { costCents: number; tokens: number } },
       { accounts: Account[] }, Structure,
     ] = await Promise.all([
       api('GET', `/api/companies/${companyId}/spend`),
@@ -149,7 +149,7 @@ export function Money({ ctx }: PageProps) {
         <Stack gap="sm">
           {platform.companies.map((row) => (
             <div key={row.slug}>
-              <Group justify="space-between"><Text size="sm" fw={600}>{row.slug}</Text><Text size="sm">{money(row.costCents)} <Text span c="dimmed" size="xs">· {t('{count} tokens', { count: count(row.tokens) })}</Text></Text></Group>
+              <Group justify="space-between"><Text size="sm" fw={600}>{row.name}</Text><Text size="sm">{money(row.costCents)} <Text span c="dimmed" size="xs">· {t('{count} tokens', { count: count(row.tokens) })}</Text></Text></Group>
               <Progress value={(row.costCents / topCompany) * 100} size="md" mt={4} radius="xl" />
             </div>
           ))}
@@ -184,7 +184,7 @@ export function Money({ ctx }: PageProps) {
             { name: 'scopeId', label: t('Which one'), type: 'select', options: [
               ...structure.projects.map((one) => ({ value: one.id, label: `${t('Project')} · ${one.name}` })),
               ...structure.divisions.map((one) => ({ value: one.id, label: `${t('Division')} · ${one.name}` })),
-              ...structure.roles.map((one) => ({ value: one.id, label: `${t('Role')} · ${one.slug}` })),
+              ...structure.roles.map((one) => ({ value: one.id, label: `${t('Role')} · ${roleLabel(one)}` })),
             ] },
             { name: 'parentAccountId', label: t('The account above it'), type: 'select', options: accounts.map((one) => ({ value: one.id, label: accountName(one) })) },
           ]}

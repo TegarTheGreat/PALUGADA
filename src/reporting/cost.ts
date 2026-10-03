@@ -187,6 +187,7 @@ export async function costTimeline(
 export interface CompanyCost {
   companyId: string;
   slug: string;
+  name: string;
   costCents: number;
   tokens: number;
 }
@@ -204,21 +205,24 @@ export async function platformCost(window: CostWindow): Promise<CompanyCost[]> {
     const { rows } = await tx.query<{
       company_id: string;
       slug: string;
+      name: string;
       cost_cents: string;
       tokens: string;
     }>(
-      `SELECT c.id AS company_id, c.slug,
+      `SELECT c.id AS company_id, c.slug, c.name,
               coalesce(sum(tr.cost_cents), 0)::text AS cost_cents,
               coalesce(sum(tr.input_tokens + tr.output_tokens), 0)::text AS tokens
          FROM companies c
          LEFT JOIN llm_traces tr
            ON tr.company_id = c.id AND tr.occurred_at >= $1 AND tr.occurred_at < $2
-        GROUP BY 1, 2 ORDER BY 3 DESC`,
+        GROUP BY 1, 2, 3 ORDER BY 4 DESC`,
       [window.from, window.to],
     );
     return rows.map((row) => ({
       companyId: row.company_id,
       slug: row.slug,
+      // What the owner called it, for the money page to list it by.
+      name: row.name,
       costCents: Number(row.cost_cents),
       tokens: Number(row.tokens),
     }));

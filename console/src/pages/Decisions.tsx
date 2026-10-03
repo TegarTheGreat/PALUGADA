@@ -787,7 +787,7 @@ function Standing({ companyId, standing, changed }: {
     setBusy(entry.id);
     try {
       await api('POST', `/api/companies/${companyId}/standing-approvals/${entry.id}/revoke`);
-      notifications.show({ message: t('Taken back. The next {capability} by {role} asks you again.', { capability: capabilitySaid(entry.capabilityName), role: entry.roleSlug }) });
+      notifications.show({ message: t('Taken back. The next {capability} by {role} asks you again.', { capability: capabilitySaid(entry.capabilityName), role: entry.roleName ?? entry.roleSlug }) });
       changed();
     } catch (failure) {
       notifications.show({ color: 'red', message: explain(failure) });
@@ -809,7 +809,7 @@ function Standing({ companyId, standing, changed }: {
           <Group key={entry.id} justify="space-between" wrap="nowrap" gap="sm">
             <Box style={{ minWidth: 0 }}>
               <Text size="sm" truncate>
-                <Text span fw={600}>{capabilitySaid(entry.capabilityName)}</Text>{' · '}{entry.roleSlug}
+                <Text span fw={600}>{capabilitySaid(entry.capabilityName)}</Text>{' · '}{entry.roleName ?? entry.roleSlug}
               </Text>
               <Text size="xs" c="dimmed">
                 {t('Until {when}', { when: dateTime(entry.expiresAt) })}{' · '}{tp('used {count} time', 'used {count} times', entry.uses)}

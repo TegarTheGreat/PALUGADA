@@ -23,7 +23,7 @@ import { useLoad, useNow } from '../hooks.ts';
 import { go } from '../router.ts';
 import type { Deliverable, DoneReportEntry, Structure, TaskDetail, Trace, WorkGroup, WorkItem } from '../types.ts';
 import {
-  actorSaid, capabilitySaid, dateTime, eventDetail, eventSentence, haltReason, money, relative, stepSaid, time, waitingFor, whyStopped,
+  actorSaid, capabilitySaid, dateTime, eventDetail, eventSentence, haltReason, money, relative, roleLabel, stepSaid, time, waitingFor, whyStopped,
 } from '../format.ts';
 import { t } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
@@ -126,7 +126,7 @@ export function Work({ ctx, route }: PageProps) {
             data={structure.data.projects.map((one) => ({ value: one.id, label: one.name }))} />
           <Select size="xs" w={200} placeholder={t('Every role')} clearable searchable value={role} onChange={setRole}
             data={structure.data.roles.map((one) => ({
-              value: one.id, label: one.displayName ? `${one.displayName} (${one.slug})` : one.slug,
+              value: one.id, label: roleLabel(one),
             }))} />
           <Select size="xs" w={240} placeholder={t('Every goal')} clearable searchable value={goal} onChange={setGoal}
             data={structure.data.goals.map((one) => ({ value: one.id, label: one.statement }))} />
@@ -168,7 +168,7 @@ export function Work({ ctx, route }: PageProps) {
                           </Group>
                         )}
                         <Group gap={6}>
-                          <Text size="xs" c="dimmed">{item.roleSlug} · {item.divisionName} · {item.projectName} · {relative(item.startedAt ?? item.createdAt)}</Text>
+                          <Text size="xs" c="dimmed">{item.roleName ?? item.roleSlug} · {item.divisionName} · {item.projectName} · {relative(item.startedAt ?? item.createdAt)}</Text>
                           {item.schedule && <Badge size="xs" variant="outline" color="gray">{item.schedule}</Badge>}
                           {item.parentTaskId && <Badge size="xs" variant="outline" color="gray">{t('sub-task')}</Badge>}
                         </Group>
@@ -346,7 +346,7 @@ export function TaskDrawer({ companyId, task, close, changed, openTask }: {
             <Text fw={700} size="lg">{task.summary}</Text>
             <Group gap="xs" mt={4} wrap="nowrap">
               <Avatar size={28} radius="xl" src={rolePicture(task.roleSlug)} alt="" />
-              <Text size="sm" c="dimmed">{task.roleSlug} · {task.divisionName}</Text>
+              <Text size="sm" c="dimmed">{task.roleName ?? task.roleSlug} · {task.divisionName}</Text>
             </Group>
           </div>
           <Paper withBorder radius="md" p="md">

@@ -1384,6 +1384,8 @@ export interface StandingApproval {
   id: string;
   roleId: string;
   roleSlug: string;
+  /** The name the owner gave the role, shown in place of its code. */
+  roleName: string | null;
   capabilityName: string;
   grantedByItem: string;
   createdAt: Date;
@@ -2165,17 +2167,17 @@ export async function stopEverything(): Promise<number> {
 export async function standingApprovals(companyId: string): Promise<StandingApproval[]> {
   return withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
-      id: string; role_id: string; role_slug: string; capability_name: string; granted_by_item: string;
+      id: string; role_id: string; role_slug: string; role_name: string | null; capability_name: string; granted_by_item: string;
       created_at: Date; expires_at: Date; uses: number; last_used_at: Date | null;
     }>(
-      `SELECT s.id, s.role_id, r.slug AS role_slug, s.capability_name, s.granted_by_item,
+      `SELECT s.id, s.role_id, r.slug AS role_slug, r.display_name AS role_name, s.capability_name, s.granted_by_item,
               s.created_at, s.expires_at, s.uses, s.last_used_at
          FROM standing_approvals s JOIN roles r ON r.id = s.role_id
         WHERE s.revoked_at IS NULL AND s.expires_at > now()
         ORDER BY s.expires_at, s.id`,
     );
     return rows.map((row) => ({
-      id: row.id, roleId: row.role_id, roleSlug: row.role_slug, capabilityName: row.capability_name,
+      id: row.id, roleId: row.role_id, roleSlug: row.role_slug, roleName: row.role_name, capabilityName: row.capability_name,
       grantedByItem: row.granted_by_item, createdAt: row.created_at, expiresAt: row.expires_at,
       uses: row.uses, lastUsedAt: row.last_used_at,
     }));

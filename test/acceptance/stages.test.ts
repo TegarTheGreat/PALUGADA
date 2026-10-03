@@ -416,7 +416,8 @@ test('a move the critic opposes never reaches the owner as a proposal, and its r
   // The owner is told what was proposed and why it was stopped.
   const told = (await inbox.listOpen(companyId)).filter((item) => item.rationale.includes(verdict.reason));
   assert.equal(told.length, 1, 'the critic\'s reasons are on an item in the owner\'s inbox');
-  assert.equal(told[0]!.title, 'critic stopped a proposal to move the company from validate to build');
+  // By the name the kit gives the critic, not its code (§2.3 item 10).
+  assert.equal(told[0]!.title, 'Citra stopped a proposal to move the company from validate to build');
   assert.match(told[0]!.rationale, /Twelve pre-orders at \$29/, 'with the evidence it was stopped on');
   assert.match(told[0]!.consequenceIfDenied, /stays in the validate stage/);
 

@@ -603,15 +603,16 @@ function readVerdict(
 
 /** Reviews still waiting on a reviewer, for a worker to pick up. */
 export async function pendingReviews(companyId: string): Promise<
-  Array<{ reviewRequestId: string; reviewTaskId: string; reviewerRoleSlug: string }>
+  Array<{ reviewRequestId: string; reviewTaskId: string; reviewerRoleSlug: string; reviewerRoleName: string | null }>
 > {
   return withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
       id: string;
       review_task_id: string;
       slug: string;
+      display_name: string | null;
     }>(
-      `SELECT r.id, r.review_task_id, ro.slug
+      `SELECT r.id, r.review_task_id, ro.slug, ro.display_name
          FROM review_requests r
          JOIN roles ro ON ro.id = r.reviewer_role_id
         WHERE r.status = 'pending' AND r.review_task_id IS NOT NULL
@@ -621,6 +622,8 @@ export async function pendingReviews(companyId: string): Promise<
       reviewRequestId: row.id,
       reviewTaskId: row.review_task_id,
       reviewerRoleSlug: row.slug,
+      // The name the owner gave the reviewer, shown in place of its code.
+      reviewerRoleName: row.display_name,
     }));
   });
 }

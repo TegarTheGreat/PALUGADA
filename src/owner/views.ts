@@ -282,6 +282,8 @@ export interface WorkItem {
    */
   result: string | null;
   roleSlug: string;
+  /** The name the owner gave the role, or null when it has none: shown in place of its code. */
+  roleName: string | null;
   divisionName: string;
   projectId: string;
   projectName: string;
@@ -374,7 +376,7 @@ export async function workOf(
   return withTenant(companyId, async (tx) => {
     const { rows: fetched } = await tx.query<{
       id: string; status: TaskStatus; halt_reason: string | null; input: unknown;
-      role_slug: string; division_name: string; goal: string | null; schedule: string | null;
+      role_slug: string; role_name: string | null; division_name: string; goal: string | null; schedule: string | null;
       priority: number; attempt: number; attempt_max: number; created_at: Date;
       started_at: Date | null; finished_at: Date | null; cost_cents: string;
       parent_task_id: string | null; output: unknown; steps_done: number; current_step: string | null;
@@ -384,7 +386,7 @@ export async function workOf(
       created_micros: string; wait_until: Date | null; wait_reason: WaitReason | null;
       waiting_on: WaitingRole | null; needs_you: WaitingRole | null;
     }>(
-      `SELECT t.id, t.status, t.halt_reason, t.input, r.slug AS role_slug,
+      `SELECT t.id, t.status, t.halt_reason, t.input, r.slug AS role_slug, r.display_name AS role_name,
               d.name AS division_name, g.statement AS goal, s.slug AS schedule,
               t.priority, t.attempt, t.attempt_max, t.created_at, t.started_at,
               t.finished_at, t.parent_task_id, t.lease_holder, t.deadline_at, t.output,
@@ -481,6 +483,7 @@ export async function workOf(
         summary: summarise(row.input),
         result: row.output === null || row.output === undefined ? null : summarise(row.output, 200, RESULT_FIELDS),
         roleSlug: row.role_slug,
+        roleName: row.role_name,
         divisionName: row.division_name,
         projectId: row.project_id,
         projectName: row.project_name,
@@ -834,6 +837,7 @@ export interface ScheduleView {
   timezone: string;
   enabled: boolean;
   roleSlug: string;
+  roleName: string | null;
   divisionName: string;
   priority: number;
   /** What each run reserves from its budget account, so running one now can say so first. */
@@ -872,13 +876,13 @@ export async function schedulesOf(companyId: string): Promise<ScheduleView[]> {
   return withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
       id: string; slug: string; cron_expression: string; timezone: string; enabled: boolean;
-      role_slug: string; division_name: string; priority: number; reserve_tokens: string; run_ceiling: string;
+      role_slug: string; role_name: string | null; division_name: string; priority: number; reserve_tokens: string; run_ceiling: string;
       next_run_at: Date | null; last_run_at: Date | null; fire_failure: string | null;
       overlap: OverlapPolicy; catch_up_minutes: number | null; held_by_task_id: string | null;
       skipped_for: Date | null; skipped_because: 'overlap' | 'late' | null;
       skipped_count: number | null; skipped_task_id: string | null;
     }>(
-      `SELECT s.id, s.slug, s.cron_expression, s.timezone, s.enabled, r.slug AS role_slug,
+      `SELECT s.id, s.slug, s.cron_expression, s.timezone, s.enabled, r.slug AS role_slug, r.display_name AS role_name,
               d.name AS division_name, s.priority, s.reserve_tokens, r.max_tokens_per_run AS run_ceiling,
               s.next_run_at, s.last_run_at, s.fire_failure,
               s.overlap, s.catch_up_minutes, s.held_by_task_id,
@@ -895,6 +899,7 @@ export async function schedulesOf(companyId: string): Promise<ScheduleView[]> {
       timezone: row.timezone,
       enabled: row.enabled,
       roleSlug: row.role_slug,
+      roleName: row.role_name,
       divisionName: row.division_name,
       priority: row.priority,
       reserveTokens: Number(row.reserve_tokens),

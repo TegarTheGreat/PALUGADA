@@ -71,6 +71,8 @@ export interface StandingApproval {
   id: string;
   roleId: string;
   roleSlug: string;
+  /** The name the owner gave the role; the console shows it in place of the code. */
+  roleName: string | null;
   capabilityName: string;
   grantedByItem: string;
   createdAt: string;
@@ -224,6 +226,8 @@ export interface WorkItem {
   /** What it produced, in one line, once it has; null before. */
   result: string | null;
   roleSlug: string;
+  /** The name the owner gave the role; the console shows it in place of the code. */
+  roleName: string | null;
   divisionName: string;
   projectId: string;
   projectName: string;
@@ -289,6 +293,8 @@ export interface Schedule {
   timezone: string;
   enabled: boolean;
   roleSlug: string;
+  /** The name the owner gave the role; the console shows it in place of the code. */
+  roleName: string | null;
   divisionName: string;
   priority: number;
   /** What each run reserves from its budget account. */
@@ -347,6 +353,8 @@ export interface TraceRun {
   agentRunId: string;
   taskId: string;
   roleSlug: string;
+  /** The name the owner gave the role; the console shows it in place of the code. */
+  roleName: string | null;
   status: string;
   attempt: number;
   startedAt: string;
@@ -535,6 +543,9 @@ export interface HandoffRule {
   fromRoleSlug: string;
   toRoleId: string;
   toRoleSlug: string;
+  /** The names the owner gave the two roles; shown in place of their codes. */
+  fromRoleName: string | null;
+  toRoleName: string | null;
   brief: string;
   enabled: boolean;
   createdAt: string;
@@ -550,6 +561,8 @@ export interface Trigger {
   publicId: string;
   roleId: string;
   roleSlug: string;
+  /** The name the owner gave the role; the console shows it in place of the code. */
+  roleName: string | null;
   goalId: string;
   instruction: string;
   maxPerHour: number;

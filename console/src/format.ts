@@ -337,6 +337,15 @@ const ACTORS: Record<string, string> = {
   repository: N('The charter repository'),
 };
 
+/**
+ * A role as the owner knows it, for a list to choose from: its name and its
+ * title, "Bayu · Chief Strategy Officer". Its short name is the platform's
+ * code for it, shown only when it has neither (§2.3 item 10).
+ */
+export function roleLabel(role: { slug: string; displayName?: string | null; title?: string | null }): string {
+  return [role.displayName?.trim(), role.title?.trim()].filter(Boolean).join(' · ') || role.slug;
+}
+
 export function actorSaid(actor: string): string {
   return t(ACTORS[actor] ?? N('The platform'));
 }

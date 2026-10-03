@@ -75,6 +75,8 @@ export interface TriggerView {
   publicId: string;
   roleId: string;
   roleSlug: string;
+  /** The name the owner gave the role, shown in place of its code. */
+  roleName: string | null;
   goalId: string;
   instruction: string;
   maxPerHour: number;
@@ -313,11 +315,11 @@ export async function setTriggerEnabled(companyId: string, triggerId: string, en
 export async function triggersOf(companyId: string): Promise<TriggerView[]> {
   return withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
-      id: string; slug: string; public_id: string; role_id: string; role_slug: string; goal_id: string;
+      id: string; slug: string; public_id: string; role_id: string; role_slug: string; role_name: string | null; goal_id: string;
       instruction: string; max_per_hour: number; enabled: boolean; scheme: TriggerScheme; secret_ref: string | null;
       has_token: boolean; last_hour: number; last_at: Date | null; created_at: Date;
     }>(
-      `SELECT t.id, t.slug, t.public_id, t.role_id, r.slug AS role_slug, t.goal_id, t.instruction,
+      `SELECT t.id, t.slug, t.public_id, t.role_id, r.slug AS role_slug, r.display_name AS role_name, t.goal_id, t.instruction,
               t.max_per_hour, t.enabled, t.scheme, t.secret_ref,
               (t.token_hash <> '' OR t.secret_ref IS NOT NULL) AS has_token, t.created_at,
               (SELECT count(*)::int FROM trigger_deliveries d
@@ -333,6 +335,7 @@ export async function triggersOf(companyId: string): Promise<TriggerView[]> {
       publicId: row.public_id,
       roleId: row.role_id,
       roleSlug: row.role_slug,
+      roleName: row.role_name,
       goalId: row.goal_id,
       instruction: row.instruction,
       maxPerHour: row.max_per_hour,

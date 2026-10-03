@@ -127,7 +127,7 @@ export function Overview({ ctx }: PageProps) {
                             <Text size="sm" fw={600} lineClamp={1}>{item.summary}</Text>
                             <Group gap={6}>
                               <StatusBadge status={item.status} />
-                              <Text size="xs" c="dimmed">{item.roleSlug} · {relative(item.startedAt ?? item.createdAt)}</Text>
+                              <Text size="xs" c="dimmed">{item.roleName ?? item.roleSlug} · {relative(item.startedAt ?? item.createdAt)}</Text>
                             </Group>
                           </div>
                         </Group>

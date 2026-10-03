@@ -7219,6 +7219,42 @@ What changed:
   is said, and refuses a timeline that prints the record; every sentence is
   in the 20 dictionaries (`console-i18n.test.ts`).
 
+## 2.104 A role is shown by its name and title, never by its code (§2.3 items 7 and 10)
+
+Found by the live run of the analysis of 3 October (§2.3, items 7 and 10).
+The template's roles are people -- "Arka, CEO", "Sari, Head of Data" -- but
+the console showed the platform's short name for a role wherever a view
+carried nothing else: "coordinator" on the work list, a task and **Lately**,
+"strategist" on a schedule, the role's code on triggers, handoffs, frozen
+roles, reviews waiting, standing approvals and the trace. The pickers the
+owner chose a role from -- a schedule's, a trigger's, a handoff's, an
+account's, a division's escalation, the work filter -- listed codes too, and
+the kit's strategist and critic had nothing else: a bundle's roles were
+installed with no name and no title. The money page listed every company by
+its short name.
+
+What changed:
+
+- **A bundle's roles arrive as people** (`src/bundles/bundle.ts`): a bundle
+  role's name and title are installed with it, as a template's are, and one
+  the owner gave stays when the bundle is installed again. Every built-in
+  role has both -- Bayu, Chief Strategy Officer; Citra, Strategy Critic;
+  Putri, Researcher; and the rest -- so the built-in bundles move to new
+  versions (company-os 1.5.0, content-ops 1.3.0, web-ops 1.3.0, qa-review
+  1.2.0, palugada-dev 1.3.0), which a deployment publishes when it starts.
+- **Every view names the role**: the work, schedules, triggers, handoffs,
+  reviews waiting, standing approvals, frozen roles and a task's trace carry
+  the name the owner gave the role beside its code, and the console shows
+  the name. A picker lists "name · title" (`roleLabel`,
+  `console/src/format.ts`), and a role's code only when it has neither.
+- **A company by its name** on the money page.
+- **Tested.** `role-names.test.ts` names a role and reads it back from each
+  of those views over the owner API; `bundles.test.ts` holds that every
+  built-in role has a name and a title, that installing the kit gives them,
+  and that installing it again keeps the owner's; `console-role-names.test.ts`
+  reads the console for a role's code put on the screen, in text, in a
+  sentence or in a picker.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

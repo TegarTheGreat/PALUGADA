@@ -82,7 +82,7 @@ export function TraceView({ trace, companyId }: { trace: Trace; companyId: strin
         <Paper key={run.agentRunId} withBorder radius="md" p="md">
           <Group justify="space-between" mb="sm" wrap="wrap" gap="xs">
             <Group gap="xs">
-              <Text fw={700}>{run.roleSlug}</Text>
+              <Text fw={700}>{run.roleName ?? run.roleSlug}</Text>
               <Text size="sm" c="dimmed">{t('attempt {attempt}', { attempt: run.attempt + 1 })}</Text>
               <StatusBadge status={run.status} />
             </Group>
@@ -128,7 +128,7 @@ export function TraceView({ trace, companyId }: { trace: Trace; companyId: strin
         </Paper>
       ))}
       <Modal opened={told !== null} onClose={() => setTold(null)} size="xl"
-        title={<Text fw={700}>{told ? t('What {role} was told, attempt {attempt}', { role: told.roleSlug, attempt: told.attempt + 1 }) : ''}</Text>}>
+        title={<Text fw={700}>{told ? t('What {role} was told, attempt {attempt}', { role: told.roleName ?? told.roleSlug, attempt: told.attempt + 1 }) : ''}</Text>}>
         {told && <Briefing companyId={companyId} run={told} />}
       </Modal>
       {trace.calls.length > 0 && (

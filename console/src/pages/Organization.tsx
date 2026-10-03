@@ -21,7 +21,7 @@ import { api, ApiError, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { useLoad } from '../hooks.ts';
 import type { Company, Division, Goal, PersonaPreset, PolicyRow, Role, Schedule, Structure } from '../types.ts';
-import { count, dateTime, goalKind, money, relative } from '../format.ts';
+import { count, dateTime, goalKind, money, relative, roleLabel } from '../format.ts';
 import type { PageProps } from '../App.tsx';
 import { N, locale, t, tp } from '../i18n.ts';
 import { LoadFailed, Loading, PageHeader, Section } from '../components/ui.tsx';
@@ -461,7 +461,7 @@ function RoleRuntime({ companyId, role, changed }: { companyId: string; role: Ro
             })),
           }]}
           submit={(values, proof) => api('POST', `/api/companies/${companyId}/roles/${role.id}`, { ...values, proof })}
-          factor={t('Move {role} to another runtime', { role: role.slug })}
+          factor={t('Move {role} to another runtime', { role: role.displayName ?? role.slug })}
           action={t('Move it')}
           success={t('Role moved.')}
           done={changed}
@@ -520,7 +520,7 @@ function RoleDrawer({
                 label={t('Pause this role')}
                 run={() => api('POST', `/api/control/company/${companyId}/role/${role.id}/pause`, {})}
                 done={() => {
-                  notifications.show({ color: 'orange', message: t('{role} paused. Nothing new starts for it until you resume it.', { role: role.slug }) });
+                  notifications.show({ color: 'orange', message: t('{role} paused. Nothing new starts for it until you resume it.', { role: role.displayName ?? role.slug }) });
                   changed();
                   close();
                 }}
@@ -535,9 +535,9 @@ function RoleDrawer({
                   label={t('Resume this role')}
                   color="red"
                   variant="light"
-                  factor={t('Resume {role}', { role: role.slug })}
+                  factor={t('Resume {role}', { role: role.displayName ?? role.slug })}
                   run={(proof) => api('POST', `/api/control/company/${companyId}/role/${role.id}/resume`, { proof })}
-                  done={() => { notifications.show({ color: 'teal', message: t('{role} resumed.', { role: role.slug }) }); changed(); close(); }}
+                  done={() => { notifications.show({ color: 'teal', message: t('{role} resumed.', { role: role.displayName ?? role.slug }) }); changed(); close(); }}
                 />
               </Group>
             </Alert>
@@ -619,7 +619,7 @@ function RoleDrawer({
                       ...(changedLength ? { maxRunMinutes } : {}), proof,
                     });
                   }}
-                  factor={t('Change {role}', { role: role.slug })}
+                  factor={t('Change {role}', { role: role.displayName ?? role.slug })}
                   action={t('Change it')}
                   success={t('Role changed.')}
                   done={changed}
@@ -1084,7 +1084,7 @@ function DivisionDrawer({
                 <ActionForm
                   fields={[
                     { name: 'roleSlug', label: t('Escalate to'), type: 'select', description: t('Blank sends it straight to you'),
-                      options: roles.map((role) => ({ value: role.slug, label: role.slug })), initial: division.escalationRole },
+                      options: roles.map((role) => ({ value: role.slug, label: roleLabel(role) })), initial: division.escalationRole },
                     { name: 'afterMinutes', label: t('Then you, after (minutes)'), type: 'number', initial: division.escalateAfterMinutes },
                   ]}
                   submit={(values) => api('POST', `/api/companies/${companyId}/divisions/${division.id}/escalation`, {
@@ -1455,7 +1455,7 @@ function Schedules({
                       : <Text size="sm" ff="monospace">{schedule.cron}</Text>}
                     <Text size="xs" c="dimmed">{zoneLabel(schedule.timezone)}</Text>
                   </Table.Td>
-                  <Table.Td><Text size="sm">{schedule.roleSlug}</Text><Text size="xs" c="dimmed">{schedule.divisionName}</Text></Table.Td>
+                  <Table.Td><Text size="sm">{schedule.roleName ?? schedule.roleSlug}</Text><Text size="xs" c="dimmed">{schedule.divisionName}</Text></Table.Td>
                   <Table.Td>
                     <Text size="sm">{relative(schedule.nextRunAt)}</Text>
                     {schedule.lastSkipped && <Text size="xs" c="dimmed">{skippedSaid(schedule.lastSkipped)}</Text>}
@@ -1524,7 +1524,7 @@ function Schedules({
         <ActionForm
           fields={[
             { name: 'roleId', label: t('Role'), type: 'select', required: true, options: structure.roles.map((role) => ({
-              value: role.id, label: `${role.slug} · ${structure.divisions.find((d) => d.id === role.divisionId)?.name ?? ''}`,
+              value: role.id, label: `${roleLabel(role)} · ${structure.divisions.find((d) => d.id === role.divisionId)?.name ?? ''}`,
             })) },
             { name: 'projectId', label: t('Project'), type: 'select', required: true, initial: structure.projects[0]?.id ?? null,
               options: structure.projects.map((project) => ({ value: project.id, label: project.name })) },

@@ -51,19 +51,22 @@ export async function isRoleFrozen(tx: TenantClient, roleId: string): Promise<bo
 
 export async function frozenRoles(
   companyId: string,
-): Promise<Array<{ roleId: string; slug: string; frozenAt: Date; reason: string | null }>> {
+): Promise<Array<{ roleId: string; slug: string; displayName: string | null; frozenAt: Date; reason: string | null }>> {
   return withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
       id: string;
       slug: string;
+      display_name: string | null;
       frozen_at: Date;
       frozen_reason: string | null;
     }>(
-      'SELECT id, slug, frozen_at, frozen_reason FROM roles WHERE frozen_at IS NOT NULL ORDER BY frozen_at',
+      'SELECT id, slug, display_name, frozen_at, frozen_reason FROM roles WHERE frozen_at IS NOT NULL ORDER BY frozen_at',
     );
     return rows.map((row) => ({
       roleId: row.id,
       slug: row.slug,
+      // The name the owner gave it, shown in place of its code.
+      displayName: row.display_name,
       frozenAt: row.frozen_at,
       reason: row.frozen_reason,
     }));

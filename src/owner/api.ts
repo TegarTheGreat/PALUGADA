@@ -569,7 +569,7 @@ export class OwnerApi {
           let session: OwnerSession;
           try {
             const label = typeof body.label === 'string' && body.label.trim() ? body.label.trim().slice(0, 120) : undefined;
-            session = await this.#claims.confirm(String(body.code ?? ''), String(body.totp ?? ''), label);
+            session = await this.#claims.confirm(String(body.code ?? ''), String(body.offer ?? ''), String(body.totp ?? ''), label);
           } catch (failure) {
             this.#signInThrottle.failed(address, failure);
             throw failure;

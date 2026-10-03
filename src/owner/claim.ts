@@ -21,10 +21,15 @@
  *   - Nothing is claimed while the owner has any live authenticator, checked
  *     under a lock in the transaction that enrols one, so a claim finished
  *     after the operator enrolled a phone from the environment adds nothing.
- *   - The secret offered is derived from the master key and the claim, not
- *     kept: opening the link twice, on a laptop and then a phone, shows the
- *     same one, and the code alone -- which stays in the log -- does not
- *     give it. It is sealed like any other secret once it is enrolled.
+ *   - Each opening of the link is shown a secret of its own, derived from
+ *     the master key, the claim and a random value the page is given with
+ *     it, and kept nowhere: the page confirms with that value, so only the
+ *     opening whose secret the app holds can make it the owner's, and the
+ *     code alone -- which stays in the log -- gives no secret at all. It was
+ *     one secret per claim, the same at every opening so a laptop and then
+ *     a phone would agree, and whoever opened the link before the owner
+ *     kept a copy of the owner's one authenticator (B3). It is sealed like
+ *     any other secret once it is enrolled.
  */
 import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { PalugadaError } from '../errors.ts';
@@ -34,6 +39,9 @@ import { deleteSecret, putSecret, type MasterKey } from '../settings/store.ts';
 import { decodeBase32, encodeBase32, totpUri, type OwnerMfa } from './mfa.ts';
 import { qrMatrix } from './qr.ts';
 import type { OwnerSession, OwnerSessions } from './session.ts';
+
+/** An opening of the link: 128 random bits, as the page carries them. */
+const OFFER = /^[A-Za-z0-9_-]{22}$/;
 
 /** A day: long enough to deploy, read the log and find the phone. */
 export const CLAIM_TTL_MS = 24 * 60 * 60 * 1000;
@@ -75,6 +83,8 @@ export interface ClaimOptions {
 }
 
 export interface ClaimOffer {
+  /** Which opening this is: the page sends it back with the code its app shows. */
+  offer: string;
   /** The secret, in base32, for an app that cannot scan. */
   secret: string;
   /** The `otpauth://` link the QR code holds. */
@@ -95,12 +105,13 @@ export class OwnerClaims {
     return !(await withControlPlane(owned));
   }
 
-  /** The link opened: the secret to add to the authenticator app. */
+  /** The link opened: a secret of this opening's own, to add to the authenticator app. */
   async open(code: string, label: string): Promise<ClaimOffer> {
     const claim = await this.#live(code);
-    const secret = this.#secretFor(claim);
+    const offer = randomBytes(16).toString('base64url');
+    const secret = this.#secretFor(claim, offer);
     const uri = totpUri(secret, label);
-    return { secret, uri, qr: qrMatrix(uri).map((row) => row.map((on) => (on ? '1' : '0')).join('')) };
+    return { offer, secret, uri, qr: qrMatrix(uri).map((row) => row.map((on) => (on ? '1' : '0')).join('')) };
   }
 
   /**
@@ -108,9 +119,13 @@ export class OwnerClaims {
    * one authenticator, every claim is spent, and the owner is signed in with
    * the same code.
    */
-  async confirm(code: string, totp: string, label?: string): Promise<OwnerSession> {
+  async confirm(code: string, offer: string, totp: string, label?: string): Promise<OwnerSession> {
     const claim = await this.#live(code);
-    const secret = this.#secretFor(claim);
+    if (!OFFER.test(offer)) {
+      throw new PalugadaError('mfa.claim_invalid',
+        'this page does not say which code it showed: open the link again, scan the code it shows, then enter the six digits', {});
+    }
+    const secret = this.#secretFor(claim, offer);
     if (!this.#options.mfa.fits(decodeBase32(secret), totp)) {
       throw new PalugadaError('mfa.code_invalid',
         'that is not the code your app shows for this deployment: scan the code on this page, then enter the six digits it shows', {});
@@ -156,8 +171,8 @@ export class OwnerClaims {
     });
   }
 
-  #secretFor(claim: { id: string }): string {
-    const bytes = createHmac('sha256', this.#master().key).update(`palugada owner claim ${claim.id}`).digest().subarray(0, 20);
+  #secretFor(claim: { id: string }, offer: string): string {
+    const bytes = createHmac('sha256', this.#master().key).update(`palugada owner claim ${claim.id} ${offer}`).digest().subarray(0, 20);
     const secret = encodeBase32(bytes);
     redactor.register(secret);
     return secret;

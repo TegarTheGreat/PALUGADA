@@ -20,6 +20,8 @@ export function claimCode(): string | null {
 }
 
 interface Offer {
+  /** Which opening of the link this is, sent back with the code. */
+  offer: string;
   secret: string;
   uri: string;
   qr: string[];
@@ -58,7 +60,10 @@ export function Claim({ code, onSignedIn }: {
     setBusy(true);
     setError(null);
     try {
-      const session: { token: string; device: string; factor: string } = await api('POST', '/api/auth/claim/confirm', { code, totp: value, label: t('Authenticator app') });
+      // Which opening's secret the app holds: only that one can be confirmed (B3).
+      const session: { token: string; device: string; factor: string } = await api('POST', '/api/auth/claim/confirm', {
+        code, offer: offer?.offer, totp: value, label: t('Authenticator app'),
+      });
       // Spent: out of the address bar, and out of the back button's reach.
       window.history.replaceState(null, '', '#/home');
       onSignedIn(session);

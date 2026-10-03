@@ -172,7 +172,10 @@ palugada: no owner yet: open https://palugada.example.com/#/claim/QMJW… within
 
 Open it. The page shows a new secret as a QR code and as a key; add it to
 your authenticator app, type the six-digit code the app then shows, and you
-are signed in as the owner. The link works once, for a day, and only while
+are signed in as the owner. Type the code on the same page that showed you
+the QR code: each opening of the link shows a secret of its own, so a
+reload, or someone else who opened the link, is shown a different one, and
+nobody who saw the link keeps a copy of yours. The link works once, for a day, and only while
 the deployment has no owner; each start prints a new one until then. Anyone
 who can read the log holds the machine already, but open it straight away
 all the same, since whoever opens it first becomes the owner. The code is

@@ -155,6 +155,10 @@ The first version. What it holds, in the order an owner meets it.
   a key does: what the sign-in gives is what a saved server of that name
   uses from then on, and a session alone could change whose account that
   was (STATUS 2.79).
+- Each opening of a deployment's claim link is shown a secret of its own,
+  and only the page that showed it can make it yours. Everyone who opened
+  the link used to be shown the same one, so whoever saw it first kept a
+  copy of your authenticator (STATUS 2.82).
 
 ### Operating it
 

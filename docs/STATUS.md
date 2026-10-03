@@ -6497,6 +6497,38 @@ What changed:
   a quiet holder's tasks returned at once now has the asker unbroken, where
   it had it five minutes stale -- the very state it should not judge from.
 
+## 2.82 Each opening of a claim link is shown its own secret (F12.5, B3)
+
+Found by the audit of 30 September and still open on 2 October (B3); a
+change to the label of the authenticator (f71d508) had not touched it. A
+deployment with no owner prints a claim link, and opening it shows the
+secret the owner adds to an authenticator app (section 2.48, 0094). The
+secret was derived from the master key and the claim alone, so that a
+laptop and then a phone would be shown the same one -- and so was everyone
+else who opened the link. Whoever saw it before the owner did, in a log
+shipped to a third party or over a shoulder, and opened it, kept a copy of
+what became the owner's one authenticator: they could sign in and approve
+tier 3 actions as the owner for as long as it stood, and nothing would show
+that anyone had.
+
+What changed:
+
+- **An opening's own secret.** Each opening is given a random value, 128
+  bits, and its secret is derived from the master key, the claim and that
+  value; nothing new is kept. The page sends the value back with the code
+  its app shows, and only the opening whose secret the app holds can make it
+  the owner's. A reload, or anyone else, is shown another.
+- **What does not change:** the claim is still whoever confirms first, as
+  the log's reader already holds the machine; what they can no longer do is
+  keep a copy of the owner's factor. The code in the log still gives no
+  secret by itself. A page from before this change sends no value and is
+  told to open the link again.
+- **Tested.** `owner-claim.test.ts`: two openings are shown different
+  secrets; a code from one does not confirm the other's, nor does a page
+  naming no opening or one made up; once the owner confirms theirs, the
+  earlier opener's secret signs nobody in. `process.test.ts` claims a
+  deployment started by `npm start` the same way.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

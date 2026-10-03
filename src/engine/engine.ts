@@ -52,6 +52,7 @@ import {
 } from './checkout.ts';
 import * as budget from './budget.ts';
 import * as inbox from '../inbox/inbox.ts';
+import { modelFailedCard, ownerReadingWithin, serviceUnreachableCard, writeUnverifiedCard } from '../owner/platform-cards.ts';
 import type { CapabilityBroker } from '../broker/broker.ts';
 import type { LlmClient } from '../llm/client.ts';
 
@@ -1524,15 +1525,8 @@ export class Engine {
       return { status: 'waiting_window', reason: 'capability.unhealthy', waitUntil };
     }
     const minutes = Math.round(CAPABILITY_OUTAGE_WAITS_MS.reduce((sum, wait) => sum + wait, 0) / 60_000);
-    const named = failures.map((failure) => failure.capability).join(', ');
-    await inbox.raiseIncident({
-      companyId,
-      taskId,
-      title: `${named} stayed unreachable, and the work that needs it stopped`,
-      detail:
-        `${failures.map((failure) => `${failure.capability}: ${failure.detail}`).join('; ')}. The task waited about ` +
-        `${minutes} minutes, looking again each time, and has stopped. Once the service answers, run it again.`,
-    });
+    const card = serviceUnreachableCard(await withTenant(companyId, ownerReadingWithin), { failures, minutes });
+    await inbox.raiseIncident({ companyId, taskId, title: card.title, detail: card.detail });
     return null;
   }
 
@@ -1570,15 +1564,10 @@ export class Engine {
       return { status: 'waiting_window', reason: 'model.unavailable', waitUntil };
     }
     const minutes = Math.round(MODEL_OUTAGE_WAITS_MS.reduce((sum, wait) => sum + wait, 0) / 60_000);
-    await inbox.raiseIncident({
-      companyId,
-      taskId,
-      title: `Model ${model} failed and the run was not moved`,
-      detail: `${error.message} It was tried ${waits + 1} times over about ${minutes} minutes. ` + (
-        error.details.reason === 'tier_2_or_above'
-          ? 'This role can take actions that cannot be undone, so the run was not silently moved to a different model.'
-          : 'No fallback model is left for this role.'),
+    const card = modelFailedCard(await withTenant(companyId, ownerReadingWithin), {
+      model, tries: waits + 1, minutes, irreversible: error.details.reason === 'tier_2_or_above', record: error.message,
     });
+    await inbox.raiseIncident({ companyId, taskId, title: card.title, detail: card.detail });
     return null;
   }
 
@@ -1722,11 +1711,8 @@ export class Engine {
       if (haltReason === 'verification_failed') {
         // F8.4: a write that reports success but reads back differently is an
         // incident, not a retry.
-        await inbox.raiseIncident({
-          companyId, taskId,
-          title: 'External write failed verification',
-          detail: (error as Error).message,
-        });
+        const card = writeUnverifiedCard(await withTenant(companyId, ownerReadingWithin), { record: (error as Error).message });
+        await inbox.raiseIncident({ companyId, taskId, title: card.title, detail: card.detail });
       }
       // Section 6.3: a task its budget stopped goes to the owner. A month's
       // money running out halts the same way and has its own item, raised by

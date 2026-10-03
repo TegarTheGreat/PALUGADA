@@ -30,6 +30,7 @@
 import { appendEvent } from '../audit/event-log.ts';
 import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
 import * as inbox from '../inbox/inbox.ts';
+import { capabilityFailedCard, ownerReadingWithin } from '../owner/platform-cards.ts';
 import type { CapabilityRegistry } from './registry.ts';
 
 /** How long a passing check stands before it is taken again. */
@@ -241,16 +242,11 @@ export async function checkCapability(
   // vendor says will pass (H2): the work waits for it, and the engine raises
   // one if it does not pass. One that turns into a lasting failure is new.
   if (!result.ok && !transient && (previous?.status !== 'unhealthy' || previous.transient)) {
-    await inbox.raiseIncident({
-      companyId: ctx.companyId,
-      title: `Capability ${capabilityName} failed preflight`,
-      detail:
-        // Said as it is: the work is stopped, not waiting, and has to be run
-        // again once the cause is fixed (H2).
-        `${result.detail || 'no detail given'}. Work that needs it is stopped rather than ` +
-        'started: fix the cause, then run that work again. The usual causes are an expired or ' +
-        'misscoped credential, a quota used up, or an address that is wrong.',
-    });
+    // Said as it is: the work is stopped, not waiting, and has to be run
+    // again once the cause is fixed (H2).
+    const card = capabilityFailedCard(await withTenant(ctx.companyId, ownerReadingWithin),
+      { capability: capabilityName, record: result.detail ?? '' });
+    await inbox.raiseIncident({ companyId: ctx.companyId, title: card.title, detail: card.detail });
   }
 
   return { ok: result.ok, detail: result.detail ?? '', reused: false, unregistered: false, transient };

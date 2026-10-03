@@ -124,7 +124,7 @@ test('a task whose capability fails preflight does not start (F8.12)', async () 
   const open = await inbox.listOpen(fixture.companyId);
   const incidents = open.filter((item) => item.kind === 'incident');
   assert.equal(incidents.length, 1);
-  assert.match(incidents[0]!.title, /dns\.read failed preflight/);
+  assert.match(incidents[0]!.title, /Read a domain's records failed preflight/);
   assert.match(incidents[0]!.rationale, /API token was rejected/);
   assert.match(incidents[0]!.rationale, /Work that needs it is stopped rather than started/);
 });
@@ -193,7 +193,7 @@ test('a vendor down for a moment parks the task and it looks again; one that sta
   assert.equal(rows[0]!.halt_reason, 'capability_unhealthy');
   const incidents = (await inbox.listOpen(fixture.companyId)).filter((item) => item.kind === 'incident');
   assert.equal(incidents.length, 1);
-  assert.match(incidents[0]!.title, /dns\.read/);
+  assert.match(incidents[0]!.title, /Read a domain's records/, 'the capability by what it does, not its code');
   assert.match(incidents[0]!.rationale, /answered 503/);
 });
 

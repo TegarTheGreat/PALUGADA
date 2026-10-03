@@ -25,6 +25,7 @@ import { appendEvent } from '../audit/event-log.ts';
 import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
 import { thresholdsFor } from '../reporting/alerts.ts';
 import * as inbox from '../inbox/inbox.ts';
+import { ownerReadingWithin, roleCalledWithin, roleFrozenCard } from '../owner/platform-cards.ts';
 import { PalugadaError } from '../errors.ts';
 
 export interface DenialContext {
@@ -226,16 +227,11 @@ export async function evaluateRoleFreeze(ctx: DenialContext): Promise<FreezeOutc
   // An incident rather than an escalation: something is already wrong and no
   // more work of this kind will happen until somebody looks, so it does not
   // wait for the owner's window (F9.3).
-  await inbox.raiseIncident({
-    companyId: ctx.companyId,
-    taskId: ctx.taskId,
-    title: `Role ${outcome.slug} is frozen after repeated denials`,
-    detail:
-      `${reason}. No task will run as this role until you lift the freeze. ` +
-      'The usual causes are a missing capability grant, a policy the role\'s ' +
-      'prompt does not account for, or a prompt asking for work the role was ' +
-      'never equipped to do.',
-  });
+  const card = await withTenant(ctx.companyId, async (tx) => roleFrozenCard(await ownerReadingWithin(tx), {
+    role: await roleCalledWithin(tx, { id: ctx.roleId }), denials: outcome.denialsToday, limit: outcome.threshold,
+    capabilities: outcome.capabilities,
+  }));
+  await inbox.raiseIncident({ companyId: ctx.companyId, taskId: ctx.taskId, title: card.title, detail: card.detail });
 
   return { denialsToday: outcome.denialsToday, threshold: outcome.threshold, frozen: true };
 }

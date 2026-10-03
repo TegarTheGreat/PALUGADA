@@ -1450,8 +1450,10 @@ test('every sentence the platform says to the owner has its translation (src/own
     // One line at a time: a ternary's question mark is on the call's own line,
     // and one further down the file belongs to something else.
     // A literal as JavaScript reads it: "a domain\'s records" is the key.
+    // The ternary is tried only when a literal is not next, or a sentence
+    // ending in a question mark would read as the ternary's condition.
     const literal = (text: string) => text.replace(/\\(.)/g, '$1');
-    for (const match of source.matchAll(/\bsay\([^,\n]+,\s*(?:[^?\n]+\?\s*)?'((?:[^'\\]|\\.)*)'(?:\s*:\s*'((?:[^'\\]|\\.)*)')?/g)) {
+    for (const match of source.matchAll(/\bsay\([^,\n]+,\s*(?:[^?\n]+\?\s*)??'((?:[^'\\]|\\.)*)'(?:\s*:\s*'((?:[^'\\]|\\.)*)')?/g)) {
       said.add(literal(match[1]!));
       if (match[2]) said.add(literal(match[2]));
     }

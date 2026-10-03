@@ -258,6 +258,13 @@ The first version. What it holds, in the order an owner meets it.
   work list, the inbox and a task's timeline -- from a live stream instead
   of asking again every few seconds, and each task under **Running now**
   has a button to stop it (STATUS 2.111).
+- The cards PALUGADA raises itself -- the month's budget pause, a role
+  spending too fast or frozen, a task waiting on nothing, a service or a
+  model that stayed down, a review that deadlocked, a stage or goal
+  proposal, a run's question, why an approval was asked -- are in your
+  language, name roles, tasks and capabilities as you know them, give money
+  in your currency and times on your clock. They were in English with the
+  platform's codes, cents and UTC (STATUS 2.112).
 - **Replay against the journal** is shown only for a task this deployment
   can replay. It was offered on every task and refused on every task a
   model or an agent CLI ran (STATUS 2.87).

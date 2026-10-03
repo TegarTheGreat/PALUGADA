@@ -27,6 +27,7 @@ import { approveCandidate, rejectCandidate } from '../memory/store.ts';
 import { setStageWithin, stageOf, type Stage } from '../domain/stage.ts';
 import { deploymentLanguages, noteTalkDrift } from '../domain/language.ts';
 import { budgetHaltWords } from '../owner/budget-halt.ts';
+import { askedFirstSaid, handledSaid, handoffFailedSaid, ownerReadingWithin, roleCalledWithin, runQuestionCard } from '../owner/platform-cards.ts';
 import { ACCOUNT_NAME } from '../engine/budget.ts';
 
 /** What a stage proposal's item carries (`stage.propose`). */
@@ -494,6 +495,9 @@ export async function raiseEscalationWithin(tx: TenantClient, input: EscalationI
   // simply waits. Without a named role the escalation has no home, and F2.1's
   // own default for that case is the owner, now.
   const handledBy = policy?.roleSlug ? policy : null;
+  const askedFirst = handledBy?.roleSlug
+    ? askedFirstSaid(await ownerReadingWithin(tx), { role: await roleCalledWithin(tx, { slug: handledBy.roleSlug }), minutes: handledBy.afterMinutes })
+    : null;
   const divisionHasUntil = handledBy
     ? new Date(Date.now() + handledBy.afterMinutes * 60_000)
     : windowOpens;
@@ -509,10 +513,7 @@ export async function raiseEscalationWithin(tx: TenantClient, input: EscalationI
       input.companyId, input.taskId ?? null, input.title,
       // The owner is told who was supposed to handle it. An escalation that
       // reaches them without saying whose it was is one they have to trace.
-      handledBy
-        ? `${input.detail}\n\n${handledBy.roleSlug} was asked first and has had ` +
-          `${handledBy.afterMinutes} minutes.`
-        : input.detail,
+      askedFirst ? `${input.detail}\n\n${askedFirst}` : input.detail,
       input.tier ?? null, notifyAfter,
       // The recorded grace period is the one that was actually granted, so
       // an item whose division names nobody does not read as though four
@@ -523,6 +524,9 @@ export async function raiseEscalationWithin(tx: TenantClient, input: EscalationI
               divisionId: input.divisionId,
               escalationRole: handledBy.roleSlug,
               afterMinutes: handledBy.afterMinutes,
+              // As the owner read it, so it can be taken off again if the
+              // role cannot be given the escalation after all.
+              askedFirst,
             }
           : input.divisionId
             ? { divisionId: input.divisionId, escalationRole: null }
@@ -576,7 +580,7 @@ export async function handEscalations(companyId: string): Promise<number> {
   // still being worked on filled it, and fifty of those hid every new one.
   const { rows: waiting } = await withTenant(companyId, (tx) => tx.query<{
     id: string; task_id: string | null; title: string; rationale: string; notify_after: Date;
-    payload: { escalationRole: string; afterMinutes?: number };
+    payload: { escalationRole: string; afterMinutes?: number; askedFirst?: string | null };
   }>(
     `SELECT id, task_id, title, rationale, notify_after, payload FROM inbox_items
       WHERE kind = 'escalation' AND status = 'open'
@@ -608,7 +612,7 @@ export async function handEscalations(companyId: string): Promise<number> {
 
 async function handOver(companyId: string, item: {
   id: string; task_id: string | null; title: string; rationale: string; notify_after: Date;
-  payload: { escalationRole: string; afterMinutes?: number };
+  payload: { escalationRole: string; afterMinutes?: number; askedFirst?: string | null };
 }): Promise<boolean> {
   const role = item.payload.escalationRole;
   const found = await withTenant(companyId, async (tx) => {
@@ -629,8 +633,12 @@ async function handOver(companyId: string, item: {
     };
   });
 
-  const toOwnerNow = async (why: string) => {
-    const said = `\n\n${role} was asked first and has had ${item.payload.afterMinutes ?? 0} minutes.`;
+  const toOwnerNow = async (failed: Parameters<typeof handoffFailedSaid>[1]['why']) => {
+    const why = await withTenant(companyId, async (tx) => handoffFailedSaid(await ownerReadingWithin(tx),
+      { role: await roleCalledWithin(tx, { slug: role }), why: failed }));
+    // The note said when the item was raised; one raised before it was kept
+    // said it in English.
+    const said = `\n\n${item.payload.askedFirst ?? `${role} was asked first and has had ${item.payload.afterMinutes ?? 0} minutes.`}`;
     const rationale = `${item.rationale.endsWith(said) ? item.rationale.slice(0, -said.length) : item.rationale}\n\n${why}`;
     await withTenant(companyId, (tx) => tx.query(
       `UPDATE inbox_items SET rationale = $2, notify_after = least(notify_after, now()),
@@ -641,10 +649,8 @@ async function handOver(companyId: string, item: {
     return false;
   };
 
-  if (!found.role) return toOwnerNow(`${role} is not a role in this company, so this came to you at once.`);
-  if (!found.goalId || !found.projectId) {
-    return toOwnerNow(`${role} could not be given this: the company has no active goal or project to hang it from.`);
-  }
+  if (!found.role) return toOwnerNow({ kind: 'no_role' });
+  if (!found.goalId || !found.projectId) return toOwnerNow({ kind: 'nowhere' });
 
   const until = item.notify_after.toISOString();
   let taskId: string;
@@ -664,7 +670,7 @@ async function handOver(companyId: string, item: {
   } catch (error) {
     // A frozen role, a paused company, a role that cannot be given work: each
     // is a reason nobody will handle it, which is a reason to tell the owner.
-    return toOwnerNow(`${role} could not be given this (${(error as Error).message}), so this came to you at once.`);
+    return toOwnerNow({ kind: 'refused', record: (error as Error).message });
   }
 
   await withTenant(companyId, (tx) => tx.query(
@@ -682,9 +688,12 @@ async function noteHandling(companyId: string, item: {
     // Only finished tasks are asked about, and a finished task stays finished.
     const task = await getTask(tx, item.payload.handedTaskId!);
     if (!task) return;
-    const said = typeof task.output?.summary === 'string' && task.output.summary.trim()
-      ? task.output.summary.trim().slice(0, HANDLED_NOTE_LIMIT)
-      : `the task ended ${task.status}${task.haltReason ? ` (${task.haltReason})` : ''} without an account of itself.`;
+    const said = handledSaid(await ownerReadingWithin(tx), {
+      role: await roleCalledWithin(tx, { slug: item.payload.escalationRole }),
+      summary: typeof task.output?.summary === 'string' && task.output.summary.trim()
+        ? task.output.summary.trim().slice(0, HANDLED_NOTE_LIMIT) : null,
+      status: task.status, haltReason: task.haltReason ?? null,
+    });
     // Guarded on the marker, so a second pass -- or a second worker -- adds
     // the note once.
     await tx.query(
@@ -692,7 +701,7 @@ async function noteHandling(companyId: string, item: {
           SET rationale = rationale || $2,
               payload = payload || jsonb_build_object('handledOutcome', $3::text)
         WHERE id = $1 AND NOT payload ? 'handledOutcome'`,
-      [item.id, `\n\n${item.payload.escalationRole}: ${said}`, task.status],
+      [item.id, `\n\n${said}`, task.status],
     );
   });
 }
@@ -789,17 +798,18 @@ export async function askOwner(input: {
       );
     }
 
+    // By the name the owner gave the role, which is what they call it; the
+    // short name is the platform's (§2.3 item 7). The question is the title
+    // and the item's own field; the detail is only what the run said depends
+    // on it, so the card does not say the question twice.
+    const card = runQuestionCard(await ownerReadingWithin(tx),
+      { role: task.rows[0]!.role_name ?? task.rows[0]!.role, question, why: input.why?.trim() || null });
     const id = await raiseEscalationWithin(tx, {
       companyId: input.companyId,
       taskId: input.taskId,
-      // By the name the owner gave the role, which is what they call it; the
-      // short name is the platform's (§2.3 item 7).
-      title: `${task.rows[0]!.role_name ?? task.rows[0]!.role} asks: ${question.length > 140 ? `${question.slice(0, 139)}…` : question}`,
-      // The question is the title and the item's own field; the detail is
-      // only what the run said depends on it, so the card does not say the
-      // question twice.
-      detail: input.why?.trim() || 'The run did not say more than the question.',
-      consequenceIfDenied: 'The task is stopped, and nothing it was going to do happens.',
+      title: card.title,
+      detail: card.detail,
+      consequenceIfDenied: card.consequence,
       payload: { askedBy: 'agent', question, role: task.rows[0]!.role, ...(options ? { options } : {}) },
     });
     // Everything on the card is the run's own words to the owner: the

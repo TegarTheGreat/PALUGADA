@@ -3,7 +3,9 @@
 Symptoms, their causes, and what to do, for the messages PALUGADA actually
 prints. Messages from the server are quoted as the code writes them;
 `…` stands for the part that names your particular setting or value.
-Messages in the console are its English sentences.
+Messages in the console are its English sentences, and so are the cards
+PALUGADA raises in your inbox itself ("A task is waiting on nothing"): in
+another language the card says the same in your language.
 
 Two places to look first: the lines the platform prints when it starts,
 each beginning `palugada:` (the same list is the **Finish setting up** card

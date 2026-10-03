@@ -21,6 +21,7 @@ import { hashInput } from '../engine/hash.ts';
 import { createSubTask, getTask, transition } from '../engine/tasks.ts';
 import { LEARNED_CONFIDENCE, remember } from '../memory/store.ts';
 import * as inbox from '../inbox/inbox.ts';
+import { ownerReadingWithin, reviewDeadlockedCard, reviewUnreadableCard, stageMoveStoppedCard } from '../owner/platform-cards.ts';
 import { stageOf } from '../domain/stage.ts';
 import { PalugadaError } from '../errors.ts';
 import { noteTalkDrift } from '../domain/language.ts';
@@ -175,15 +176,10 @@ export async function openReview(input: OpenReviewInput): Promise<OpenReviewResu
       return rows[0]!.id;
     });
 
-    await inbox.raiseEscalation({
-      companyId: input.companyId,
-      taskId: input.proposerTaskId,
-      title: `Review deadlocked after ${MAX_REVISIONS} revisions: ${input.capabilityName}`,
-      detail:
-        `Proposer and reviewer did not converge on ${input.capabilityName}. ` +
-        `Last reviewer note: ${existing?.reason ?? 'none recorded'}. ` +
-        `Criteria: ${input.criteria}`,
+    const card = reviewDeadlockedCard(await withTenant(input.companyId, ownerReadingWithin), {
+      capability: input.capabilityName, rounds: MAX_REVISIONS, note: existing?.reason ?? null, criteria: input.criteria,
     });
+    await inbox.raiseEscalation({ companyId: input.companyId, taskId: input.proposerTaskId, title: card.title, detail: card.detail });
 
     return { outcome: 'escalated', reviewRequestId: escalatedId };
   }
@@ -454,7 +450,7 @@ export async function recordVerdict(
 /** The reviewing role, by the name the owner knows it by and by its slug. */
 async function reviewerOf(tx: TenantClient, roleId: string): Promise<{ slug: string; name: string }> {
   const { rows } = await tx.query<{ slug: string; name: string }>(
-    'SELECT slug, coalesce(display_name, slug) AS name FROM roles WHERE id = $1', [roleId]);
+    'SELECT slug, coalesce(display_name, title, slug) AS name FROM roles WHERE id = $1', [roleId]);
   return rows[0] ?? { slug: 'reviewer', name: 'the reviewer' };
 }
 
@@ -475,28 +471,22 @@ async function tellOwnerOfStoppedStageMove(
   const proposed = (review.proposal.input ?? {}) as Record<string, unknown>;
   const said = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
   const from = await stageOf(tx, companyId);
-  const to = said(proposed.to) || 'another stage';
+  const to = said(proposed.to) || null;
   const reviewer = await reviewerOf(tx, review.reviewer_role_id);
+  const card = stageMoveStoppedCard(await ownerReadingWithin(tx), {
+    reviewer: reviewer.name, from, to, reason: said(reason), evidence: said(proposed.evidence), why: said(proposed.why),
+  });
   await inbox.raiseEscalationWithin(tx, {
     companyId,
-    title: `${reviewer.name} stopped a proposal to move the company from ${from ?? 'no stage'} to ${to}`,
-    detail: [
-      `${reviewer.name} reviewed it before you and stopped it:`,
-      said(reason) || 'No reason was given.',
-      '',
-      'What was proposed:',
-      said(proposed.evidence),
-      ...(said(proposed.why) ? ['', said(proposed.why)] : []),
-    ].join('\n'),
+    title: card.title,
+    detail: card.detail,
     payload: {
-      stoppedStageChange: { from, to },
+      stoppedStageChange: { from, to: to ?? 'another stage' },
       reviewRequestId: review.id,
       reviewer: reviewer.slug,
       proposedByTask: review.proposer_task_id,
     },
-    consequenceIfDenied:
-      `Either answer only closes this: the company stays ${from ? `in the ${from} stage` : 'without a stage'}. ` +
-      'To move it anyway, set the stage on the Overview.',
+    consequenceIfDenied: card.consequence,
   });
 }
 
@@ -571,14 +561,8 @@ export async function settleCompletedReviews(companyId: string): Promise<
           [row.id],
         );
       });
-      await inbox.raiseEscalation({
-        companyId,
-        taskId: row.proposer_task_id,
-        title: `Review produced no usable verdict: ${row.capability_name}`,
-        detail:
-          `The reviewer task ended as ${row.task_status} without a readable decision. ` +
-          'The proposed action is still blocked and needs your judgement.',
-      });
+      const card = reviewUnreadableCard(await withTenant(companyId, ownerReadingWithin), { capability: row.capability_name });
+      await inbox.raiseEscalation({ companyId, taskId: row.proposer_task_id, title: card.title, detail: card.detail });
       settled.push({ reviewRequestId: row.id, decision: 'unreadable' });
       continue;
     }

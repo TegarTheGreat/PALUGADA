@@ -12,6 +12,7 @@
 import type { DailyDigest } from '../reporting/digest.ts';
 import type { MoneyDisplay } from '../domain/money-display.ts';
 import { haltSaid } from './halt-said.ts';
+import { moneySaid } from './money-said.ts';
 import { say } from './say.ts';
 
 /**
@@ -24,8 +25,7 @@ export function renderDailyDigest(
   language: string | null | undefined,
   display: MoneyDisplay | null = null,
 ): string {
-  const dollars = (digest.moneySpentCents / 100).toLocaleString(language ?? 'en', { style: 'currency', currency: 'USD' });
-  const amount = display ? `${converted(digest.moneySpentCents, language, display)} (${dollars})` : dollars;
+  const amount = moneySaid(language, digest.moneySpentCents, display);
   const lines = [
     say(language, 'Digest for {day}', { day: digest.day }),
     say(language, 'Spent: {amount}', { amount }),
@@ -42,10 +42,3 @@ export function renderDailyDigest(
   return lines.join('\n');
 }
 
-/** An amount in the owner's currency: whole units once it is a hundred of them or more. */
-function converted(cents: number, language: string | null | undefined, display: MoneyDisplay): string {
-  const value = (cents / 100) * display.rate;
-  return value.toLocaleString(language ?? 'en', {
-    style: 'currency', currency: display.currency, minimumFractionDigits: 0, maximumFractionDigits: value >= 100 ? 0 : 2,
-  });
-}

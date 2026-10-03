@@ -26,6 +26,7 @@ import { TIER } from '../domain/tier.ts';
 import { recordPlan, type PlanStep } from '../engine/plan.ts';
 import { recordObservation } from '../domain/metrics.ts';
 import { askOwner, raiseEscalationWithin } from '../inbox/inbox.ts';
+import { ownerReadingWithin, stageMoveCard } from '../owner/platform-cards.ts';
 import { STAGES, assertStage, loosens, stageOf, type Stage } from '../domain/stage.ts';
 import { GOAL_STATUSES, proposeGoalChange, type GoalStatus } from '../domain/goals.ts';
 import { approvedReviewOf, fingerprintAction } from '../review/review.ts';
@@ -498,17 +499,19 @@ export function stageProposeCapability(): Capability<StageProposeInput, { propos
           };
         }
         const tier = loosens(from, to) ? 3 : 2;
-        const why = typeof input.why === 'string' && input.why.trim() ? `\n\n${input.why.trim()}` : '';
+        const why = typeof input.why === 'string' ? input.why.trim() : '';
         // A policy may have had another role review this first -- company-os
         // has its critic read every one. What it said goes on the card the
         // owner answers, beside the proposer's case, not only back to the
         // proposer. Found by this exact action, as the broker's grant was.
         const review = await approvedReviewOf(tx, ctx.taskId, fingerprintAction('stage.propose', input));
-        const reviewed = review ? `\n\nReviewed by ${review.reviewer.name} before you:\n${review.reason}` : '';
+        const card = stageMoveCard(await ownerReadingWithin(tx), {
+          from, to, evidence, why, reviewed: review ? { reviewer: review.reviewer.name, reason: review.reason } : null,
+        });
         const inboxItemId = await raiseEscalationWithin(tx, {
           companyId: ctx.companyId,
-          title: `Move the company from ${from ?? 'no stage'} to ${to}?`,
-          detail: `${evidence}${why}${reviewed}`,
+          title: card.title,
+          detail: card.detail,
           tier,
           payload: {
             stageChange: { from, to },
@@ -522,14 +525,12 @@ export function stageProposeCapability(): Capability<StageProposeInput, { propos
                 }
               : {}),
           },
-          consequenceIfDenied: from
-            ? `The company stays in the ${from} stage.`
-            : 'The company stays without a stage.',
+          consequenceIfDenied: card.consequence,
         });
         // The proposer's case is its own words to the owner; the reviewer's,
         // beside it, was checked when the review was recorded.
         await noteTalkDrift(tx, {
-          companyId: ctx.companyId, taskId: ctx.taskId, where: 'stage_proposal', text: `${evidence}${why}`,
+          companyId: ctx.companyId, taskId: ctx.taskId, where: 'stage_proposal', text: why ? `${evidence}\n\n${why}` : evidence,
         });
         return { proposed: true, inboxItemId };
       });

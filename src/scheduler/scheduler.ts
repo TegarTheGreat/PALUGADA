@@ -27,6 +27,7 @@ import { createRootTask, type TaskRow } from '../engine/tasks.ts';
 import * as budget from '../engine/budget.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { raiseEscalationWithin } from '../inbox/inbox.ts';
+import { ownerReadingWithin, scheduleRepeatsCard } from '../owner/platform-cards.ts';
 import { TERMINAL_STATUSES, type TaskStatus } from '../domain/task.ts';
 import { assertTimeZone, instantsShowing, wallClockAt } from './windows.ts';
 import { buildWeekFacts, weekHadWork } from '../reporting/week.ts';
@@ -966,15 +967,7 @@ async function askAboutRepetition(schedule: DueSchedule, justFired: string): Pro
       payload: { scheduleId: schedule.id, slug: schedule.slug, outputDigest: digest, runs: REPETITION_RUNS },
     });
     // With the record, so "noticed" never stands without the question.
-    await raiseEscalationWithin(tx, {
-      companyId: schedule.company_id,
-      scheduleId: schedule.id,
-      title: `Schedule ${schedule.slug} keeps producing the same result`,
-      detail:
-        `Its last ${REPETITION_RUNS} runs all completed with identical output. That is sometimes `
-        + 'exactly right -- a report that has nothing new to say -- and often a schedule that '
-        + 'stopped doing anything useful while still being paid for. Deny to turn it off; '
-        + 'approve to keep it running and not be asked about this result again.',
-    });
+    const card = scheduleRepeatsCard(await ownerReadingWithin(tx), { schedule: schedule.slug, runs: REPETITION_RUNS });
+    await raiseEscalationWithin(tx, { companyId: schedule.company_id, scheduleId: schedule.id, title: card.title, detail: card.detail });
   });
 }

@@ -156,7 +156,7 @@ test('a hundred percent pauses the company, and nothing new starts (F1.7)', asyn
   );
   assert.equal(alerts.length, 1);
   assert.match(alerts[0]!.title, /paused/);
-  assert.match(alerts[0]!.rationale, /raise the ceiling or grant a temporary override/);
+  assert.match(alerts[0]!.rationale, /raise the ceiling or allow spending past it for a while/);
 });
 
 test("the owner's override has a deadline it cannot outlive (F1.7)", async () => {

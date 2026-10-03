@@ -7451,6 +7451,55 @@ What changed:
   database moves under **Done** on the work list within four seconds,
   sooner than the list asks again; with the stream turned off it does not.
 
+## 2.112 The platform's own inbox cards are said in the owner's language (§2.3 item 7)
+
+Recommended by the analysis of 3 October (§2.3, item 7). The cards the
+platform raises itself -- incidents, escalations, alerts, its approvals --
+were literals in English at each place they were raised, with the
+platform's codes inside them: "Role ops-coordinator is paused for spending
+too fast", "spent 3120 of 20000 cents in the period beginning 2026-10-01",
+"Task 9f3c... has been waiting_approval since 2026-10-02T03:14:00.000Z",
+"Move the company from validate to build?". An owner reading the console in
+Indonesian got English on the cards that matter most.
+
+What changed:
+
+- **Composed when raised, in the owner's language** (`src/owner/platform-cards.ts`):
+  the month's pause and its 80% warning, a role spending too fast or frozen
+  after refusals, a task waiting on nothing or taking its worker down, a
+  service or a model that stayed down, a write that read back differently,
+  a review that deadlocked or gave no verdict, a stage move proposed or
+  stopped by a reviewer, a goal change, a schedule repeating itself, a
+  capability failing its check, the batch guard, a run's question, and the
+  reason on the broker's and the role eval's approvals. Each reads the
+  owner's language, currency and clock from `platform_control` in the
+  transaction that raises it.
+- **Names, not codes**: a role by the name the owner gave it, a task by what
+  it was asked, a capability as the console names it, a stage as the
+  console names it, money in the owner's currency with the dollars after
+  it, a moment on the owner's clock and the month's first day as the
+  ceiling counts it. What a vendor, a check or another agent wrote -- an
+  error, a reviewer's note, the evidence of a proposal -- stays as written,
+  after the platform's own sentences.
+- **An escalation's notes too**: who was asked first and for how long, why
+  the role it was meant for could not be given it, and what that role did,
+  said by the role's name. The note is kept on the item as the owner read
+  it, so it can be taken off again in any language.
+- **The push digest** is headed by the digest's own first line, which is in
+  the owner's language, rather than "Digest for".
+- **Tested.** `platform-cards.test.ts` (acceptance): with the console in
+  Indonesian, rupiah at 16,500 and Jakarta's clock, the pause says "Rp
+  3.300.000 (US$200,00)" and no cents or ISO date; the rate card names the
+  role "Sari" and never its code; a stranded task is named by its goal at
+  10.14 Jakarta time, without its id or status code; a run's question and a
+  goal change are headed in Indonesian. `platform-cards.test.ts`
+  (documents): every call in `src/` that raises a card passes no literal
+  title, detail, rationale or consequence -- it named all twenty sites
+  before the change -- except `proposeStructuralChange`, which nothing
+  outside the tests reaches. The sentence scan in `owner-channels.test.ts`
+  now reads a sentence ending in a question mark as a sentence, not as a
+  ternary's condition.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

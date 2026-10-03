@@ -28,6 +28,7 @@
 import { appendEvent } from '../audit/event-log.ts';
 import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
 import * as inbox from '../inbox/inbox.ts';
+import { ownerReadingWithin, roleCalledWithin, roleSpendingFastCard, spendPausedCard, spendWarnedCard } from '../owner/platform-cards.ts';
 import { thresholdsFor } from '../reporting/alerts.ts';
 
 const HOUR_MS = 3_600_000;
@@ -197,7 +198,10 @@ async function withdrawPauseCard(tx: TenantClient, companyId: string, reason: 's
   }
 }
 
-/** The pause card's title; matched as well as its payload, for one raised before the payload was kept. */
+/**
+ * The pause card's English title, matched as well as its payload for a card
+ * raised before the payload was kept -- all of which were in English.
+ */
 const PAUSED_TITLE = 'Monthly budget reached; the company is paused';
 
 /** Records that this alert has been raised for this period. False if already. */
@@ -276,13 +280,13 @@ export async function evaluateSpendLimit(
         });
       });
 
+      const card = spendPausedCard(await withTenant(companyId, ownerReadingWithin),
+        { spentCents: spend.cents, limitCents: spend.limitCents, since: spend.periodStart });
       await inbox.raiseBudgetAlert({
         companyId,
-        title: PAUSED_TITLE,
+        title: card.title,
         payload: { spendPause: { periodStart: spend.periodStart.toISOString() } },
-        detail:
-          `${reason}. No new task will start and no external action will run until you ` +
-          'raise the ceiling or grant a temporary override.',
+        detail: card.detail,
       });
     }
     return { state: 'paused', spend };
@@ -290,13 +294,9 @@ export async function evaluateSpendLimit(
 
   if (spend.fraction >= 0.8) {
     if (await claimSlot(companyId, 'spend_period_warning', spend.periodStart)) {
-      await inbox.raiseBudgetAlert({
-        companyId,
-        title: 'Monthly budget is 80% spent',
-        detail:
-          `${spend.cents} of ${spend.limitCents} cents used in the period beginning ` +
-          `${spend.periodStart.toISOString().slice(0, 10)}. At 100% the company pauses.`,
-      });
+      const card = spendWarnedCard(await withTenant(companyId, ownerReadingWithin),
+        { spentCents: spend.cents, limitCents: spend.limitCents, since: spend.periodStart });
+      await inbox.raiseBudgetAlert({ companyId, title: card.title, detail: card.detail });
     }
     return { state: 'warned', spend };
   }
@@ -413,13 +413,11 @@ export async function evaluateCircuitBreakers(
       });
     });
 
-    await inbox.raiseIncident({
-      companyId,
-      title: `Role ${rate.slug} is paused for spending too fast`,
-      detail:
-        `${reason}. It is stopped before the monthly ceiling is reached, so there is money ` +
-        'left to work with once you have found out why. Lift the pause when you have.',
-    });
+    const card = await withTenant(companyId, async (tx) => roleSpendingFastCard(await ownerReadingWithin(tx), {
+      role: await roleCalledWithin(tx, { id: rate.roleId }), lastHourCents: rate.lastHourCents,
+      usualCents: rate.baselineHourlyCents, multiple: rate.multiple!,
+    }));
+    await inbox.raiseIncident({ companyId, title: card.title, detail: card.detail });
 
     tripped.push(rate);
   }

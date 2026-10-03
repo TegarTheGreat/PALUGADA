@@ -36,6 +36,7 @@ import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts
 import { transition, transitionWithin } from './tasks.ts';
 import { isPalugadaError } from '../errors.ts';
 import { raiseIncidentWithin } from '../inbox/inbox.ts';
+import { crashLoopCard, ownerReadingWithin, taskCalledWithin } from '../owner/platform-cards.ts';
 
 /** F5.12. Long enough for a slow run, short enough that a crash is not a day. */
 export const DEFAULT_LEASE_MS = 15 * 60_000;
@@ -380,15 +381,8 @@ async function haltIfCrashLooping(tx: TenantClient, companyId: string, taskId: s
   const { rows: live } = await tx.query<{ status: string }>('SELECT status FROM tasks WHERE id = $1', [taskId]);
   if (live[0]?.status !== 'pending') return false;
   await transitionWithin(tx, companyId, taskId, 'halted', { haltReason: 'crash_loop' });
-  await raiseIncidentWithin(tx, {
-    companyId,
-    taskId,
-    title: 'A task keeps stopping the worker running it',
-    detail:
-      `Task ${taskId} lost its worker ${lost} times: each time the worker running it stopped ` +
-      'answering before the work finished. What it had done is kept. It is halted so it cannot take ' +
-      'another worker down; rerun it once the cause is found, or cancel it.',
-  });
+  const card = crashLoopCard(await ownerReadingWithin(tx), { task: await taskCalledWithin(tx, taskId), lost });
+  await raiseIncidentWithin(tx, { companyId, taskId, title: card.title, detail: card.detail });
   return true;
 }
 

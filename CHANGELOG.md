@@ -365,6 +365,10 @@ The first version. What it holds, in the order an owner meets it.
   action to the byte, from the same schedule unchanged, runs without a card,
   even when the work read outside mail. Listed under **Allowed for a
   schedule**, and taken back with one press (STATUS 2.135).
+- A role that sees the same work owed again and again **proposes a
+  schedule**: what each run does, which role, when, and why, with the next
+  runs in your time. Your yes makes it and starts it; nothing more often than
+  hourly. The CEO of a new company has it (STATUS 2.136).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

@@ -42,6 +42,7 @@ import { PalugadaError, isPalugadaError } from '../errors.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { hashInput } from '../engine/hash.ts';
 import { noteTalkDrift } from '../domain/language.ts';
+import { proposeSchedule } from '../scheduler/proposals.ts';
 import type { Capability } from './registry.ts';
 import { keysAskedFor } from './keys.ts';
 
@@ -425,6 +426,7 @@ export function registerPlatformCapabilities(registry: {
   registry.register(taskAwaitCapability() as unknown as Capability<never, never>);
   registry.register(stageProposeCapability() as unknown as Capability<never, never>);
   registry.register(goalProposeCapability() as unknown as Capability<never, never>);
+  registry.register(scheduleProposeCapability() as unknown as Capability<never, never>);
   registry.register(ticketCreateCapability() as unknown as Capability<never, never>);
   registry.register(ticketListCapability() as unknown as Capability<never, never>);
 }
@@ -587,6 +589,54 @@ export function goalProposeCapability(): Capability<GoalProposeInput, { proposed
         proposedStatement: input.statement,
         proposedStatus: input.status,
         rationale: input.why,
+      });
+    },
+  };
+}
+
+export interface ScheduleProposeInput {
+  /** A short name for it: lower-case letters, digits and dashes. */
+  name: string;
+  /** When, as a five-field cron expression. */
+  cron: string;
+  /** The zone the cron is read in; the owner's when not given. */
+  timezone?: string;
+  /** Another role of this company that should do it, by its slug; this one when not given. */
+  role?: string;
+  /** What each run does: the instruction each run is given. */
+  instruction: string;
+  /** The evidence that the work recurs, for the owner. */
+  why: string;
+}
+
+/**
+ * `schedule.propose`: ask the owner to make some work recur (the tools
+ * research, gap #12). Tier 0 for the reason `goal.propose` is: it opens one
+ * item and changes nothing, and the schedule exists when the owner says yes.
+ */
+export function scheduleProposeCapability(): Capability<ScheduleProposeInput, { proposed: boolean; inboxItemId: string; note?: string }> {
+  return {
+    name: 'schedule.propose',
+    inputSchema: {
+      type: 'object',
+      required: ['name', 'cron', 'instruction', 'why'],
+      properties: {
+        name: { type: 'string', minLength: 1, maxLength: 63, description: 'A short name: lower-case letters, digits and dashes, such as weekly-sales.' },
+        cron: { type: 'string', minLength: 9, maxLength: 120, description: 'When, as five cron fields: "0 9 * * 1" is Mondays at nine. At most once an hour.' },
+        timezone: { type: 'string', maxLength: 64, description: 'An IANA zone such as Asia/Jakarta; the owner\'s when not given.' },
+        role: { type: 'string', maxLength: 64, description: 'Another role that should do it, by its slug; you, when not given.' },
+        instruction: { type: 'string', minLength: 1, maxLength: 2_000, description: 'What each run does, as the instruction it is given.' },
+        why: { type: 'string', minLength: 1, maxLength: 1_000, description: 'The evidence that this work recurs, for the owner, with where it came from.' },
+      },
+      additionalProperties: false,
+    },
+    adapter: 'platform',
+    defaultTier: TIER.READ_ONLY,
+    describe: () => ({ moneyCents: 0 }),
+    async execute(input, ctx) {
+      return proposeSchedule({
+        companyId: ctx.companyId, taskId: ctx.taskId,
+        name: input.name, cron: input.cron, timezone: input.timezone, role: input.role, instruction: input.instruction, why: input.why,
       });
     },
   };
@@ -1077,5 +1127,5 @@ export function taskAwaitCapability(): Capability<{ childId: string }, TaskAwait
 /** The names this module implements, for a caller that needs to know. */
 export const PLATFORM_CAPABILITIES = [
   'memory.search', 'skill.read', 'plan.record', 'metric.record', 'owner.ask', 'task.delegate', 'task.await',
-  'stage.propose', 'goal.propose',
+  'stage.propose', 'goal.propose', 'schedule.propose',
 ] as const;

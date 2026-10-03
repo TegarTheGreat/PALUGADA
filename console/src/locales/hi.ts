@@ -179,6 +179,8 @@ export const DICTIONARY: Dictionary = {
   "Allowed by the owner every time its schedule does it": "स्वामी ने अनुमति दी, हर बार जब इसका शेड्यूल इसे करे",
   "Ran on a yes the owner gave its schedule": "स्वामी द्वारा इसके शेड्यूल को दी गई स्वीकृति पर चला",
   "A yes for a schedule taken back": "शेड्यूल की स्वीकृति वापस ली गई",
+  "Propose a schedule": "शेड्यूल का प्रस्ताव दें",
+  "Schedule made on the owner's yes to a proposal": "प्रस्ताव पर स्वामी की स्वीकृति से शेड्यूल बना",
   "API key": "API कुंजी",
   "API key (left empty, the saved one)": "API कुंजी (खाली छोड़ें तो सहेजी हुई)",
   "Abandoned": "छोड़ दिया गया",

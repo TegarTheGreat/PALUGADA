@@ -206,6 +206,8 @@ export const DICTIONARY: Dictionary = {
   "Allowed by the owner every time its schedule does it": "سمح به المالك في كل مرة ينفّذه جدوله",
   "Ran on a yes the owner gave its schedule": "نُفّذ بموافقة منحها المالك لجدوله",
   "A yes for a schedule taken back": "سُحبت موافقة لجدول",
+  "Propose a schedule": "اقتراح جدول زمني",
+  "Schedule made on the owner's yes to a proposal": "أُنشئ جدول زمني بموافقة المالك على اقتراح",
   "API key": "مفتاح API",
   "API key (left empty, the saved one)": "مفتاح API (يُستخدم المحفوظ إن تُرك فارغًا)",
   "Abandoned": "متروك",

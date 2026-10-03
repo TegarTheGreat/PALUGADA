@@ -41,6 +41,7 @@ export function capabilitySaid(language: string | null | undefined, name: string
     'code.compute': () => say(language, 'Calculate in Python'),
     'funds.transfer': () => say(language, 'Transfer money'),
     'goal.propose': () => say(language, 'Propose a goal change'),
+    'schedule.propose': () => say(language, 'Propose a schedule'),
     'image.generate': () => say(language, 'Make a picture'),
     'invoice.issue': () => say(language, 'Issue an invoice'),
     'invoice.pay': () => say(language, 'Pay an invoice'),

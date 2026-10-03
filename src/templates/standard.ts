@@ -221,6 +221,9 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     { division: 'ops', capability: 'ticket.create' },
     // The backlog the CEO hands on: tickets the planner and support file.
     { division: 'ops', capability: 'ticket.list' },
+    // Work owed again and again, proposed as a schedule the owner says yes
+    // to rather than asked for by hand each time.
+    { division: 'ops', capability: 'schedule.propose' },
     ...HAND_ON.map((capability) => ({ division: 'ops', capability })),
 
     // Delivery plans; it does not deploy. The separation is what makes the
@@ -327,15 +330,20 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
         'with task.await, and report what came back. The other roles file what is owed and not yet ' +
         'anyone\'s as tickets: read them with ticket.list, and hand one on with task.delegate and its ' +
         'ticketId, so it closes when the work is done. Do the work yourself only when it is ' +
-        'operations: checking that services are up, reading the metrics, reading the calendar ' +
-        'and writing things down. When a division escalates something to you, fix the cause ' +
+        'operations: checking that services are up and writing things down. When the same work ' +
+        'is owed again and again, propose a schedule for it with schedule.propose -- which role, ' +
+        'when, what each run does, and the evidence -- rather than waiting to be asked each time; ' +
+        'the owner\'s yes makes it. When a division escalates something to you, fix the cause ' +
         'or hand it to the role that can; you cannot decide for the owner. You do not contact ' +
         'anyone outside the company and you do not ship anything.',
       tools: [
         ...PLATFORM_TOOLS,
         ...HAND_ON,
         'uptime.check',
-        'metrics.read',
+        // `metrics.read` made way for `schedule.propose`, as it did for the
+        // strategist's `goal.propose`: it answers nothing until a vendor is
+        // bound, and the division still holds it to trade back on Team.
+        'schedule.propose',
         // Not `web.fetch`, `files.list`, `calendar.read` or `calendar.hold`:
         // F2.4's twelve is a budget, and routing work is worth more places
         // than those -- the backlog the other roles file first of all. The

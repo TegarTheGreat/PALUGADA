@@ -206,6 +206,8 @@ export const DICTIONARY: Dictionary = {
   "Allowed by the owner every time its schedule does it": "일정이 실행할 때마다 소유자가 허용함",
   "Ran on a yes the owner gave its schedule": "소유자가 일정에 준 승인으로 실행됨",
   "A yes for a schedule taken back": "일정에 준 승인 철회됨",
+  "Propose a schedule": "일정 제안",
+  "Schedule made on the owner's yes to a proposal": "제안에 대한 소유자의 승인으로 일정 생성",
   "API key": "API 키",
   "API key (left empty, the saved one)": "API 키(비워 두면 저장된 키)",
   "Abandoned": "포기",

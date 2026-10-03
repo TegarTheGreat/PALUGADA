@@ -228,6 +228,8 @@ export const DICTIONARY: Dictionary = {
   "Allowed by the owner every time its schedule does it": "Dibenarkan oleh pemilik setiap kali jadualnya melakukannya",
   "Ran on a yes the owner gave its schedule": "Berjalan atas kelulusan yang diberikan pemilik kepada jadualnya",
   "A yes for a schedule taken back": "Kelulusan untuk jadual ditarik balik",
+  "Propose a schedule": "Cadangkan jadual",
+  "Schedule made on the owner's yes to a proposal": "Jadual dibuat atas kelulusan pemilik terhadap cadangan",
   "API key": "Kunci API",
   "API key (left empty, the saved one)": "Kunci API (biarkan kosong untuk menggunakan yang disimpan)",
   "Abandoned": "Ditinggalkan",

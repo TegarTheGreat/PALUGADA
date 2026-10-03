@@ -274,9 +274,21 @@ export async function upsertSchedule(input: ScheduleInput, now = new Date()): Pr
   const timezone = input.timezone ?? 'UTC';
   assertValidCron(input.cronExpression, timezone);
   assertScheduleTiming(input);
-  const next = nextOccurrence(input.cronExpression, timezone, now);
+  return withTenant(input.companyId, (tx) => upsertScheduleWithin(tx, input, now));
+}
 
-  return withTenant(input.companyId, async (tx) => {
+/**
+ * `upsertSchedule` inside a transaction the caller holds: the owner's yes to
+ * a proposed schedule (`schedule.propose`) makes it in the same transaction
+ * as the decision, so a crash between them cannot leave one without the
+ * other.
+ */
+export async function upsertScheduleWithin(tx: TenantClient, input: ScheduleInput, now = new Date()): Promise<string> {
+  const timezone = input.timezone ?? 'UTC';
+  assertValidCron(input.cronExpression, timezone);
+  assertScheduleTiming(input);
+  const next = nextOccurrence(input.cronExpression, timezone, now);
+  {
     const budgetAccountId = input.budgetAccountId
       ?? await budget.accountFor(tx, {
         companyId: input.companyId,
@@ -344,7 +356,7 @@ export async function upsertSchedule(input: ScheduleInput, now = new Date()): Pr
       ],
     );
     return rows[0]!.id;
-  });
+  }
 }
 
 /**

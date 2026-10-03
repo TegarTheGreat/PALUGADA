@@ -8707,6 +8707,54 @@ What changed:
 - **Not done.** Mining the history of the owner's answers for rules to
   propose (§5 idea 4) is not built.
 
+## 2.136 A role proposes a schedule, and the owner's yes makes it (tools research, gap #12)
+
+A role that saw the same work owed again and again -- Monday's sales asked
+for three Mondays running -- could only say so in prose, which the owner
+then turned into a schedule by hand on Team. Hermes has `cronjob_manage`
+and OpenClaw `cron`; the research put the agent's half of that here, as a
+proposal like `goal.propose`.
+
+- **`schedule.propose`, tier 0** (`src/scheduler/proposals.ts`): a short
+  name, a cron, a zone (the owner's when not given), the role that does it
+  (the proposer when not named), what each run does, and why. Named
+  "Propose a schedule" for the owner in every language.
+- **Checked as the owner's own schedule would be, before the owner sees
+  it**: a cron that parses in a zone that exists, a role of this company
+  (the refusal names the slugs), a name of lower-case letters, digits and
+  dashes that no schedule has, an instruction and a reason. And from a run,
+  nothing more often than hourly: a schedule spends on its own, and a
+  minute's is the owner's to make. One card per name; asked again, the run
+  is told it is waiting.
+- **The card, in the owner's language**: who proposes it, what each run
+  does, who does it, the cron as written with its zone, the next three runs
+  in the owner's own time, and the reason given. Not tied to the task, as a
+  goal proposal is not: a no costs the company none of the work that
+  proposed it.
+- **The owner's yes is the schedule**, made in the same transaction as the
+  decision -- on, its first run its next time -- under the proposing task's
+  goal and project and the named role's division. A name taken since, by
+  the owner or another proposal, refuses the yes and leaves the card to
+  deny or to approve once the name is free; the owner's schedule is never
+  overwritten. A no makes nothing. A seat beside the owner, which reads
+  schedules and makes none, may say no and not yes.
+- **The coordinator holds it** in the standard company, in place of
+  `metrics.read`, as the strategist's `goal.propose` replaced it: it answers
+  nothing until a vendor is bound, and Operations still holds the grant to
+  trade back on Team. Its charter says when to use it.
+- **Translations made consistent**: the Dutch and Chinese words for
+  "schedule" in 2.135's menu and list are now the console's own.
+- **Tested** in `schedule-proposals.test.ts`: proposing makes nothing; the
+  card in Indonesian with the times in the owner's zone; one card per name;
+  the yes makes the schedule with the role, goal, cron, zone and
+  instruction, on and next in the future, recorded, and the proposer still
+  running; an invalid cron, every fifteen minutes, an unknown zone, a bad
+  name, an unknown role, a blank instruction or reason, and a taken name,
+  each refused with nothing reaching the owner; another role named; a no
+  making nothing; a name taken since refusing the yes without touching the
+  owner's schedule, and the yes going through once it is free; a seat's
+  yes refused; the catalogue and the template.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the
@@ -8749,7 +8797,7 @@ is a real Daytona or Modal machine answering; the `http` runtime also reports
 this backend, because "somewhere else, not ours" is what it means in F13.5's
 vocabulary, and it cannot verify the claim.
 
-**Thirty-eight of the fifty-five catalogued capabilities are unbound on a bare
+**Thirty-eight of the fifty-six catalogued capabilities are unbound on a bare
 boot -- thirty-four on a machine with a Chromium -- and that is the design
 rather than a gap.** The boot names every one. Fourteen need configuration, not
 an account: `files.list` and `files.read` a files root, `doc.draft` and
@@ -8767,7 +8815,7 @@ uses this platform is not a decision a control plane gets to make.
 `mailbox.read` and `email.send` are the exception that proves it: a mailbox
 is one protocol whoever runs it, so the platform binds them to each
 division's own (2.127), and a vendor entry for either still takes the name.
-These counts were read from a boot when 2.132 was written; until 2.127 the
+These counts were read from a boot when 2.136 was written; until 2.127 the
 paragraph said thirty-nine, still counting `chat.read` and `chat.send`, which
 the platform has bound since 2.117.
 

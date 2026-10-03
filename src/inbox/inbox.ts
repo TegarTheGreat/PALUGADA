@@ -1516,17 +1516,18 @@ export async function decide(
   // tier 3 action. The safe default is the one that refuses.
   let assurance: OwnerAssurance = options.assurance ?? 'none';
   // F10.10: read the tier before the update, so a refusal changes nothing.
-  const { tier, stageChange, goalChange, overdue, standing, scheduled } = await withTenant(companyId, async (tx) => {
+  const { tier, stageChange, goalChange, overdue, standing, scheduled, proposesSchedule } = await withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
       tier: number | null; stage_change: StageChange | null; goal_change: GoalChange | null; overdue: boolean;
       allow_for: boolean; capability_name: string | null; role_id: string | null;
-      schedule_id: string | null; action_fingerprint: string | null;
+      schedule_id: string | null; action_fingerprint: string | null; proposes_schedule: boolean;
     }>(
       `SELECT i.tier, i.payload->'stageChange' AS stage_change,
               CASE WHEN i.kind = 'escalation' THEN i.payload->'goalChange' END AS goal_change,
               (i.expires_at IS NOT NULL AND i.expires_at <= now()) AS overdue,
               (${ALLOW_FOR_SQL}) AS allow_for, i.capability_name, t.role_id,
-              CASE WHEN ${FOR_SCHEDULE_SQL} THEN app.task_schedule(i.task_id) END AS schedule_id, i.action_fingerprint
+              CASE WHEN ${FOR_SCHEDULE_SQL} THEN app.task_schedule(i.task_id) END AS schedule_id, i.action_fingerprint,
+              (i.kind = 'escalation' AND i.payload ? 'scheduleProposal') AS proposes_schedule
          FROM inbox_items i LEFT JOIN tasks t ON t.id = i.task_id
         WHERE i.id = $1 AND i.status = 'open'`,
       [itemId],
@@ -1544,6 +1545,7 @@ export async function decide(
       scheduled: schedule && row?.capability_name && row.action_fingerprint
         ? { ...schedule, capabilityName: row.capability_name, fingerprint: row.action_fingerprint }
         : null,
+      proposesSchedule: row?.proposes_schedule ?? false,
     };
   });
   // A seat beside the owner (0110): tier 3 is the owner's whichever way it
@@ -1560,6 +1562,12 @@ export async function decide(
     if (options.forSchedule) {
       throw new PalugadaError('staff.forbidden',
         'allowing an action every time a schedule does it loosens a control, which is the owner\'s to do', { inboxItemId: itemId });
+    }
+    // A seat reads schedules and makes none (staff-policy.ts); the yes to a
+    // proposed one makes it.
+    if (proposesSchedule && decision === 'approve') {
+      throw new PalugadaError('staff.forbidden',
+        'making a schedule is the owner\'s to do: it stays in their inbox', { inboxItemId: itemId });
     }
   }
   // Past its deadline, the owner's silence has already answered: the sweep
@@ -1916,6 +1924,36 @@ export async function decide(
         type: decision === 'deny' ? 'schedule.disabled' : 'schedule.kept',
         actor: 'owner',
         payload: { scheduleId, inboxItemId: itemId },
+      });
+    }
+
+    // A run's proposal that work recur (`schedule.propose`): the owner's yes
+    // is the schedule, made in this transaction. Not over one made since --
+    // by the owner, or by another proposal -- which the yes is refused for,
+    // leaving the card open to deny or to answer once the name is free.
+    const proposal = row.kind === 'escalation' && decision === 'approve'
+      ? row.payload.scheduleProposal as import('../scheduler/proposals.ts').ScheduleProposal | undefined
+      : undefined;
+    if (proposal) {
+      const { rows: taken } = await tx.query('SELECT 1 FROM schedules WHERE slug = $1', [proposal.slug]);
+      if (taken.length > 0) {
+        throw new PalugadaError('schedule.slug_taken',
+          `a schedule named ${proposal.slug} was made since this was proposed: deny this, or rename that one and approve again`,
+          { slug: proposal.slug, inboxItemId: itemId });
+      }
+      // Imported here: the scheduler raises items through this module.
+      const { upsertScheduleWithin } = await import('../scheduler/scheduler.ts');
+      const scheduleId = await upsertScheduleWithin(tx, {
+        companyId, projectId: proposal.projectId, divisionId: proposal.divisionId, roleId: proposal.roleId,
+        slug: proposal.slug, cronExpression: proposal.cron, timezone: proposal.timezone,
+        input: { goal: proposal.instruction }, enabled: true, create: true,
+        ...(proposal.goalId ? { goalId: proposal.goalId } : {}),
+      });
+      await appendEvent(tx, {
+        companyId,
+        type: 'schedule.proposal_approved',
+        actor: 'owner',
+        payload: { scheduleId, schedule: proposal.slug, inboxItemId: itemId },
       });
     }
 

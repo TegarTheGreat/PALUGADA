@@ -189,6 +189,8 @@ export const DICTIONARY: Dictionary = {
   "Allowed by the owner every time its schedule does it": "Pinayagan ng may-ari tuwing gagawin ito ng iskedyul nito",
   "Ran on a yes the owner gave its schedule": "Tumakbo dahil sa pag-oo na ibinigay ng may-ari sa iskedyul nito",
   "A yes for a schedule taken back": "Binawi ang pag-oo para sa iskedyul",
+  "Propose a schedule": "Magmungkahi ng iskedyul",
+  "Schedule made on the owner's yes to a proposal": "Ginawa ang iskedyul sa pag-oo ng may-ari sa isang mungkahi",
   "API key": "API key",
   "API key (left empty, the saved one)": "API key (kapag blangko, ang naka-save)",
   "Abandoned": "Iniwan",

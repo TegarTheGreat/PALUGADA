@@ -213,6 +213,8 @@ export const DICTIONARY: Dictionary = {
   "Allowed by the owner every time its schedule does it": "Разрешено владельцем каждый раз, когда это делает его расписание",
   "Ran on a yes the owner gave its schedule": "Выполнено по разрешению, данному владельцем расписанию",
   "A yes for a schedule taken back": "Разрешение для расписания отозвано",
+  "Propose a schedule": "Предложить расписание",
+  "Schedule made on the owner's yes to a proposal": "Расписание создано по согласию владельца на предложение",
   "API key": "API-ключ",
   "API key (left empty, the saved one)": "API-ключ (если пусто — сохранённый)",
   "Abandoned": "Снята",

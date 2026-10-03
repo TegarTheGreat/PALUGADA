@@ -366,6 +366,7 @@ const TALK = {
   ticket: 'a ticket',
   goal_proposal: 'a proposal to change a goal',
   stage_proposal: 'a proposal to move the company to another stage',
+  schedule_proposal: 'a proposal to run work on a schedule',
   review: "a review of another role's proposal",
   not_done: 'why work was not done',
 } as const;

@@ -430,6 +430,32 @@ export function goalChangeCard(reading: OwnerReading, facts: {
   };
 }
 
+/**
+ * A run's proposal that some work recur (`schedule.propose`): what, who,
+ * when -- the expression as written and the next runs in the owner's own
+ * time, which say it in any language -- and why.
+ */
+export function scheduleProposalCard(reading: OwnerReading, facts: {
+  name: string; role: string; proposer: string; instruction: string; cron: string; timezone: string; next: Date[]; reason: string;
+}): Card & { consequence: string } {
+  const { language } = reading;
+  const runs = facts.next.map((at) => at.toLocaleString(language ?? 'en', {
+    weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: reading.timezone,
+  })).join('; ');
+  return {
+    title: say(language, '{role} proposes the schedule {name}', { role: facts.proposer, name: facts.name }),
+    detail: [
+      say(language, 'Each run: {instruction}', { instruction: facts.instruction }),
+      say(language, 'Done by: {role}', { role: facts.role }),
+      say(language, 'When: {cron} ({timezone}); the next runs are {runs}', { cron: facts.cron, timezone: facts.timezone, runs }),
+      say(language, 'Reason given: {reason}', { reason: facts.reason }),
+      '',
+      say(language, 'Approving it makes the schedule and starts it; it can be turned off or changed under Team, Schedules.'),
+    ].join('\n'),
+    consequence: say(language, 'No schedule is made.'),
+  };
+}
+
 /* ---------------------------------------------------------------- goals --- */
 
 function goalKindSaid(language: string | null, kind: string): string {

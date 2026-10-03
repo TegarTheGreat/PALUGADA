@@ -193,6 +193,8 @@ export const DICTIONARY: Dictionary = {
   "Allowed by the owner every time its schedule does it": "Autorizado pelo proprietário toda vez que o agendamento fizer isso",
   "Ran on a yes the owner gave its schedule": "Executado com uma autorização que o proprietário deu ao agendamento",
   "A yes for a schedule taken back": "Autorização para um agendamento revogada",
+  "Propose a schedule": "Propor um agendamento",
+  "Schedule made on the owner's yes to a proposal": "Agendamento criado com o sim do proprietário a uma proposta",
   "API key": "Chave de API",
   "API key (left empty, the saved one)": "Chave de API (em branco, usa a salva)",
   "Abandoned": "Abandonada",

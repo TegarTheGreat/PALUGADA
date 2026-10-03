@@ -228,6 +228,8 @@ export const DICTIONARY: Dictionary = {
   "Allowed by the owner every time its schedule does it": "เจ้าของอนุญาตทุกครั้งที่กำหนดการทำ",
   "Ran on a yes the owner gave its schedule": "ทำงานตามการอนุมัติที่เจ้าของให้กับกำหนดการ",
   "A yes for a schedule taken back": "ถอนการอนุมัติสำหรับกำหนดการแล้ว",
+  "Propose a schedule": "เสนอกำหนดการ",
+  "Schedule made on the owner's yes to a proposal": "สร้างกำหนดการตามที่เจ้าของอนุมัติข้อเสนอ",
   "API key": "คีย์ API",
   "API key (left empty, the saved one)": "คีย์ API (เว้นว่างเพื่อใช้คีย์ที่บันทึกไว้)",
   "Abandoned": "ล้มเลิกแล้ว",

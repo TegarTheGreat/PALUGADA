@@ -235,6 +235,8 @@ export const DICTIONARY: Dictionary = {
   "Allowed by the owner every time its schedule does it": "Sahibi, zamanlaması bunu her yaptığında izin verdi",
   "Ran on a yes the owner gave its schedule": "Sahibin zamanlamaya verdiği onayla çalıştı",
   "A yes for a schedule taken back": "Bir zamanlamaya verilen onay geri alındı",
+  "Propose a schedule": "Bir zamanlama öner",
+  "Schedule made on the owner's yes to a proposal": "Bir öneriye sahibin onayıyla zamanlama oluşturuldu",
   "API key": "API anahtarı",
   "API key (left empty, the saved one)": "API anahtarı (boş bırakılırsa kayıtlı olan)",
   "Abandoned": "Vazgeçildi",

@@ -233,6 +233,8 @@ export const DICTIONARY: Dictionary = {
   "Allowed by the owner every time its schedule does it": "Chủ sở hữu cho phép mỗi lần lịch của nó thực hiện",
   "Ran on a yes the owner gave its schedule": "Đã chạy theo phê duyệt mà chủ sở hữu dành cho lịch của nó",
   "A yes for a schedule taken back": "Đã thu hồi phê duyệt dành cho lịch",
+  "Propose a schedule": "Đề xuất lịch chạy",
+  "Schedule made on the owner's yes to a proposal": "Lịch chạy được tạo theo phê duyệt của chủ sở hữu cho một đề xuất",
   "API key": "Khóa API",
   "API key (left empty, the saved one)": "Khóa API (để trống để dùng khóa đã lưu)",
   "Abandoned": "Đã từ bỏ",

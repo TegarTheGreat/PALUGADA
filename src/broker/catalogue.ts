@@ -159,6 +159,17 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
       'approves, with their device.',
   },
   {
+    // The tools research, gap #12. A run proposing that work recur.
+    name: 'schedule.propose',
+    adapter: 'platform',
+    tier: TIER.READ_ONLY,
+    summary: 'Proposes to the owner that some work run on a schedule: what, by which role, when, and why.',
+    calibration:
+      'Opens one item in the owner\'s inbox and changes nothing: the schedule ' +
+      'exists only when the owner approves it, as one the owner made would, ' +
+      'and a run may not propose one more often than hourly.',
+  },
+  {
     // A run asking the owner what only the owner can answer; the task waits.
     name: 'owner.ask',
     adapter: 'platform',

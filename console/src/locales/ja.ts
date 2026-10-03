@@ -204,6 +204,8 @@ export const DICTIONARY: Dictionary = {
   "Allowed by the owner every time its schedule does it": "スケジュールが実行するたびにオーナーが許可",
   "Ran on a yes the owner gave its schedule": "オーナーがスケジュールに与えた承認により実行",
   "A yes for a schedule taken back": "スケジュールへの承認を取り消しました",
+  "Propose a schedule": "スケジュールを提案",
+  "Schedule made on the owner's yes to a proposal": "提案へのオーナーの承認でスケジュールを作成",
   "API key": "API キー",
   "API key (left empty, the saved one)": "API キー（空欄なら保存済みのもの）",
   "Abandoned": "断念",

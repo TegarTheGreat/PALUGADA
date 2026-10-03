@@ -178,6 +178,12 @@ jobs:
           docker compose run --rm --no-deps app node scripts/smoke.ts
           docker compose up -d --wait --wait-timeout 120 app
 
+      # The companies' browser starts in the image with its sandbox, under
+      # the profile the compose file gives it: a page renders in a process
+      # in a user namespace of its own (scripts/browser-check.ts).
+      - name: The browser runs sandboxed in the image
+        run: docker compose exec -T app node scripts/browser-check.ts
+
       # A process whose parent exits is handed to PID 1; tini reaps it.
       - name: An orphan is reaped, not left a zombie
         run: |

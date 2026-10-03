@@ -69,6 +69,10 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - home:/home/node
+    # Docker's own seccomp profile, with what Chromium's sandbox needs to
+    # keep each page it renders apart (scripts/seccomp-chromium.ts says why).
+    security_opt:
+      - seccomp=./deploy/docker/seccomp-chromium.json
     depends_on:
       db:
         condition: service_healthy

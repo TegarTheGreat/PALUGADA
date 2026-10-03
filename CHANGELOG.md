@@ -312,6 +312,10 @@ The first version. What it holds, in the order an owner meets it.
   your phone, or answer a puzzle; the company's work waits while you hold
   it. A role that needs this asks with a card that opens the browser, and
   giving it back answers it (STATUS 2.122).
+- The image includes Chromium, so the browser works with the one-command
+  install and Compose, and runs it with Chromium's own sandbox: the compose
+  files give the container a seccomp profile that allows it. CI checks in
+  the image that pages render sandboxed (STATUS 2.123).
 - **Replay against the journal** is shown only for a task this deployment
   can replay. It was offered on every task and refused on every task a
   model or an agent CLI ran (STATUS 2.87).

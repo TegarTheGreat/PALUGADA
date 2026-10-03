@@ -615,10 +615,12 @@ A role that must use a website with no API you can get -- a marketplace's
 seller centre, a tax or licensing portal, a supplier's ordering page --
 needs a browser, not a page reader. Each company has one of its own.
 
-1. **A Chromium on the machine.** PALUGADA finds one where a package
-   manager puts it (`apt install chromium` on Debian and Ubuntu), or uses
-   the one `PALUGADA_CHROMIUM` names. The boot says which, or that there
-   is none ([configuration](../configuration.md)).
+1. **A Chromium.** The image has one, and the compose files give it what
+   it needs to run sandboxed. Running PALUGADA on a machine without
+   Docker, it finds one where a package manager puts it
+   (`apt install chromium` on Debian and Ubuntu), or uses the one
+   `PALUGADA_CHROMIUM` names. The boot says which, or that there is none
+   ([configuration](../configuration.md)).
 2. **Grant it.** On **Team**, **Divisions & roles**, open the division and
    use **Change a grant**: `browser.read` at tier 0, and `browser.act` at
    tier 2 if its roles should fill in forms. Add both to the role's

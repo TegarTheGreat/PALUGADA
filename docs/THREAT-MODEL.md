@@ -410,7 +410,12 @@ authority below tier 3.
 - Chromium itself. Its sandbox is on unless the operator turns it off
   (`PALUGADA_BROWSER_SANDBOX=off`, said at every boot); with it off, a page
   that breaks out of the renderer runs as the platform's user, with what
-  that user can read.
+  that user can read. In the image it is on: the compose files give the
+  container Docker's own seccomp profile with user namespaces allowed
+  (`deploy/docker/seccomp-chromium.json`), and CI checks that a page renders
+  in a namespace of its own. The cost is that any process in that container
+  -- an agent CLI among them -- may make a user namespace too, which is
+  more of the kernel to reach than Docker's default allows.
 
 - A compromised host, kernel, container runtime or Node process.
 - An operator with the database superuser or schema owner: they can drop the

@@ -57,6 +57,7 @@ file and without the repository:
 ```sh
 docker build -t palugada .
 docker run -d --name palugada -p 127.0.0.1:8787:8787 -v palugada-home:/home/node \
+  --security-opt seccomp=deploy/docker/seccomp-chromium.json \
   -e PALUGADA_SUPERUSER_URL='postgres://postgres:…@db:5432/postgres' \
   -e PALUGADA_OWNER_URL='postgres://palugada_owner:…@db:5432/palugada' \
   -e PALUGADA_APP_URL='postgres://palugada_app:…@db:5432/palugada' \
@@ -68,6 +69,17 @@ docker logs palugada | grep 'no owner yet'
 The last line is the link that makes you the owner
 ([getting started](getting-started.md#sign-in-for-the-first-time)); give the
 container `PALUGADA_OWNER_TOTP_REF` instead if you already have a secret.
+
+The image has Chromium, for the companies' browsers, and runs it with its
+sandbox, which keeps each page it renders in namespaces of its own. Docker's
+default seccomp profile does not let a container make those, so the image
+is given `deploy/docker/seccomp-chromium.json`: Docker's own profile with
+that one thing allowed (`scripts/seccomp-chromium.ts` says why, and what it
+is made from). Without it the browser does not start, and says so on the
+first page a role opens; `PALUGADA_BROWSER_SANDBOX=off` runs it without its
+sandbox instead, and `docker build --build-arg PALUGADA_BROWSER=0` builds
+the image without Chromium. On Kubernetes, the profile goes in the pod's
+`securityContext.seccompProfile` as a `Localhost` profile.
 Coolify and Dokploy have files of their own
 ([Coolify and Dokploy](coolify-dokploy.md)).
 

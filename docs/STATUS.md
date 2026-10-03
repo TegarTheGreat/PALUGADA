@@ -8049,6 +8049,50 @@ What changed:
   reach the one the work ran on (sticky sessions); pictures, not a video
   stream; a page's files neither uploaded nor downloaded.
 
+## 2.123 The image runs the browser, with Chromium's sandbox (§9 P2)
+
+2.121 and 2.122 needed a Chromium on the machine, and the image -- what the
+one-command install, Compose, Coolify and Dokploy all run -- had none. And
+a browser that reads strangers' pages is the one part of the platform most
+likely to meet an exploit, so it should run with the sandbox Chromium keeps
+each rendered page in; without it, a page that breaks out of its renderer
+runs as the platform's user, beside the master key.
+
+What changed:
+
+- **The image has Chromium**, Debian's (154, with Debian's security
+  updates), and `fonts-liberation`, whose letters are as wide as the ones
+  pages ask for: about 270 MB more. `--build-arg PALUGADA_BROWSER=0` leaves
+  them out, and the browser is unbound and the boot says so.
+- **It runs sandboxed.** Under Docker's default seccomp profile, Chromium
+  cannot make the user, PID and network namespaces its renderers go in,
+  and will not start without `--no-sandbox` -- tried here with Docker 29 as
+  the `node` user; Debian's setuid helper (`chromium-sandbox`) fails the same
+  way, since even root in a container cannot make them without
+  CAP_SYS_ADMIN. So the compose files give the container
+  `deploy/docker/seccomp-chromium.json`: Docker's own profile, from
+  moby/profiles at a pinned commit whose hash `scripts/seccomp-chromium.ts`
+  checks before it writes the file, with `clone` and `unshare` allowed --
+  what the kernel allows any unprivileged user outside a container.
+  `browser-sandbox.test.ts` holds the profile to that: the default refuses,
+  one rule is the platform's and it is the last, and Docker's refusals of
+  mount, setns, bpf, module loading and the rest stand.
+- **CI checks it where it runs**: the docker job starts the stack with the
+  profile and runs `scripts/browser-check.ts` inside the container, which
+  passes only when a page has rendered in a process in a user namespace of
+  its own -- not merely when a browser started. Run here against the image
+  built from this commit: four renderers, four in namespaces of their own;
+  the same check without the profile refuses with what to do.
+- **A refusal says what to do**: Chromium's own first sentence, then either
+  the profile to give the container, or, as root, to run the platform as
+  another user, or `PALUGADA_BROWSER_SANDBOX=off` where that is understood.
+- **Not done**: Coolify's path to the profile is the repository's, as its
+  build context is, and has not been tried on Coolify; a host whose
+  AppArmor forbids user namespaces (Ubuntu 23.10 and later, by default)
+  may still refuse them to the container, and the browser then says so on
+  the first page; CJK and other scripts DejaVu and Liberation do not cover
+  draw as boxes.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

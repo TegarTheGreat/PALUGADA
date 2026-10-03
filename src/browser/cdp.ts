@@ -116,11 +116,17 @@ export class Cdp {
       await cdp.send('Browser.getVersion', {}, undefined, 15_000);
     } catch (failure) {
       await cdp.close();
-      const said = cdp.#lastWords();
+      // Chromium's own first sentence, and what to do about it here.
+      const said = cdp.#lastWords().split(/(?<=[.!])\s/)[0] ?? '';
+      const remedy = /as root/i.test(said)
+        ? 'Chromium will not sandbox itself as root: run the platform as another user, or set PALUGADA_BROWSER_SANDBOX=off where that is understood'
+        : /sandbox/i.test(said)
+          ? 'Its sandbox needs user namespaces: in a container, give it deploy/docker/seccomp-chromium.json as its seccomp profile '
+            + '(docker-compose.yml does), or set PALUGADA_BROWSER_SANDBOX=off where that is understood'
+          : '';
       throw new PalugadaError('capability.unreachable',
-        `the browser at ${executable} did not start${said ? `: ${said}` : ''}${/sandbox/i.test(said)
-          ? '. Its sandbox needs user namespaces; give it them, or set PALUGADA_BROWSER_SANDBOX=off where that is understood'
-          : ''}`, { executable, cause: (failure as Error).message });
+        `the browser at ${executable} did not start${said ? `: ${said}` : ''}${remedy ? ` ${remedy}` : ''}`,
+        { executable, cause: (failure as Error).message });
     }
     return cdp;
   }

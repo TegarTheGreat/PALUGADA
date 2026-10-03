@@ -22,6 +22,15 @@ What makes this work without a terminal on the server:
 - **The platform's proxy is trusted for the caller's address**
   (`PALUGADA_BEHIND_PROXY=1`), and the console answers only to the domain you
   give it.
+- **The companies' browser runs sandboxed.** Each compose file gives the
+  container `deploy/docker/seccomp-chromium.json` as its seccomp profile,
+  read from the repository when it deploys; it lets Chromium keep the pages
+  it renders in namespaces of their own
+  ([Running the image by itself](operations.md#running-the-image-by-itself)).
+  Where the platform cannot give a container a profile from a file, the
+  browser says so the first time a role opens a page, and
+  `PALUGADA_BROWSER_SANDBOX=off` in the environment runs it without the
+  sandbox instead.
 
 Everything else -- the model, agent CLIs, channels, MCP servers -- is set in
 the console after you sign in, as on any other deployment.

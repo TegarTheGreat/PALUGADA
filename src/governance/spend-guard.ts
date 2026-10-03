@@ -116,8 +116,8 @@ export async function setSpendLimit(
 ): Promise<void> {
   await withControlPlane(async (tx) => {
     await tx.query(
-      `INSERT INTO spend_limits (company_id, money_max_cents) VALUES ($1, $2)
-       ON CONFLICT (company_id) DO UPDATE SET money_max_cents = EXCLUDED.money_max_cents`,
+      `INSERT INTO spend_limits (company_id, money_max_cents, set_at) VALUES ($1, $2, now())
+       ON CONFLICT (company_id) DO UPDATE SET money_max_cents = EXCLUDED.money_max_cents, set_at = now()`,
       [companyId, moneyMaxCents],
     );
   });

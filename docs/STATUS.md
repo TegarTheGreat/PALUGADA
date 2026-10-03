@@ -7536,6 +7536,49 @@ What changed:
   down with their note; and approving each on the Skills page withdraws the
   card after the last.
 
+## 2.114 The owner's first hour with a new company is guided (§9 P1 item 10)
+
+Recommended by the analysis of 3 October (§9, P1 item 10; Paperclip walks a
+new owner from an interview to a plan to a first task). A company started
+from the console opened on an Overview of zeros: no conversation, no first
+piece of work, nothing that said what to do next, and a CEO that could not
+speak until spoken to. Its schedules ran on UTC, so the Monday review came
+at 07:45 UTC.
+
+What changed:
+
+- **The CEO speaks first.** Starting a company records the CEO's opening
+  message in the language the owner reads (`firstHourOpener`,
+  `src/owner/first-hour.ts`): what it sells and to whom, how much it may
+  spend in a month, and what its first piece of work should be. The
+  console opens the conversation once the company is in the list. The
+  model is told what it asked, since a conversation sent to it still
+  starts with the owner.
+- **It interviews, then proposes.** While the first hour lasts, the CEO is
+  told to get those answers in at most three questions and then propose
+  together, as cards: the mission reworded in the owner's words, the
+  monthly ceiling, and one first piece of work that gives the owner
+  something real to read within the hour.
+- **Four steps on the Overview** (`GET /api/companies/:companyId/first-hour`,
+  0109): tell the CEO what it sells, set the monthly ceiling, give it its
+  first piece of work, read its first result -- each ticked off by what the
+  owner has done (a message to the CEO, a ceiling set, a task they gave,
+  one of theirs completed), each with the button that does it. It goes
+  when all four are done or the owner closes it
+  (`POST .../first-hour/close`), which also ends the interview. Every
+  company that existed before, and every restored one, is past its first
+  hour.
+- **A ceiling records when it was set** (`spend_limits.set_at`), so "set
+  the ceiling" is a choice somebody made, not the row a pause leaves.
+- **The owner's clock**: the console sends its browser's time zone when it
+  starts a company.
+- **Tested.** `first-hour.test.ts`: a company started through the API opens
+  with the CEO's message in Indonesian and four undone steps; a message, a
+  lowered ceiling, a task and its completion tick them off one by one and
+  close the list; closing another ticks nothing off; the CEO's model is
+  spoken to first by the owner, is told what it asked, interviews while
+  the first hour lasts and stops once it is closed.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

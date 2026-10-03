@@ -331,7 +331,7 @@ const SECTIONS: Section[] = [
     // company is currently paused for spending is a fact about the instance it
     // was paused on, and a restore that arrived already paused would be
     // reporting a ceiling it has not reached here.
-    sql: `SELECT id, money_max_cents, override_until, created_at
+    sql: `SELECT id, money_max_cents, override_until, created_at, set_at
             FROM spend_limits WHERE company_id IS NOT NULL`,
   },
   {

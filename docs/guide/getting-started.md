@@ -273,6 +273,10 @@ file PALUGADA_VENDORS names`, and works around it or asks you. See
 
 ## Give it its first piece of work
 
+The quickest way is to answer the CEO, whose conversation opens when the
+company is started: tell it what the company sells and what you want done
+first, and apply the card it proposes. To give the work yourself:
+
 1. On the **Work** page press **Give work**, or in the sidebar press **New**
    and choose **Give a role work**.
 2. Leave **Role** on the coordinator. Its description says it hands the work

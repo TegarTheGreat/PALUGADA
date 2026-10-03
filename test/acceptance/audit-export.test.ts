@@ -725,6 +725,7 @@ test('every column of every exported table travels, or is named as deliberately 
     // The destination company is created by the import, with the caller's
     // slug and a fresh id; the archive's own row is read for its name.
     'companies.frozen_at': 'a freeze is a fact about the instance it was pressed on',
+    'companies.first_hour_closed_at': 'a restored company is not a new one: the import closes its first hour',
     'companies.closing_at': 'a closing is the owner\'s decision about this copy; a restored one is not closing there',
     'companies.erase_after': 'the same closing',
     'companies.erase_attempts': 'how often erasing it failed here, which belongs to that closing',

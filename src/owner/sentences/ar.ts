@@ -301,4 +301,5 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'It turned these down, and they stay off:': 'رفض المراجِع هذه، وستبقى متوقفة:',
   'Approve to switch them all on, or deny to turn them all down. To decide one at a time, open the Skills page.': '«موافقة» تُفعّلها كلها، و«رفض» يرفضها كلها. ولتقرّر في كل واحدة على حدة، افتح صفحة «المهارات».',
   'Nothing changes; none of these skills is switched on.': 'لن يتغير شيء؛ لن تُفعَّل أي من هذه المهارات.',
+  'I am {ceo}, and I run {company} for you. Three things before we start: what does {company} sell, and to whom? How much may it spend in a month? And what should its first piece of work be -- or shall I suggest one?': 'أنا {ceo}، وأدير شركة {company} نيابةً عنك. قبل أن نبدأ، ثلاثة أمور: ماذا تبيع {company}، ولمن؟ وكم يمكنها أن تنفق في الشهر؟ وما أول عمل ينبغي أن تقوم به — أم أقترح عملًا؟',
 };

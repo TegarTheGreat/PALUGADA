@@ -270,6 +270,11 @@ The first version. What it holds, in the order an owner meets it.
   each with what the reviewer said, to switch on together or one by one on
   **Skills**. It was a card and a reviewer run for every skill, eleven of
   each before you had asked for anything (STATUS 2.113).
+- A new company starts with its CEO asking what it sells, what it may
+  spend in a month and what its first work should be, then proposing the
+  mission, the ceiling and that work as cards; the Overview lists four
+  steps to a first result and ticks each off as you do it. The company's
+  schedules run on your time zone (STATUS 2.114).
 - **Replay against the journal** is shown only for a task this deployment
   can replay. It was offered on every task and refused on every task a
   model or an agent CLI ran (STATUS 2.87).

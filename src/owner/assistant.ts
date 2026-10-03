@@ -24,9 +24,10 @@ import { withControlPlane, withTenant } from '../db/tenant.ts';
 import { recordCallOutsideTask } from '../reporting/cost.ts';
 import { wholeCents } from '../engine/pricing.ts';
 import { PalugadaError } from '../errors.ts';
-import { languageName } from '../domain/language.ts';
+import { deploymentLanguages, languageName } from '../domain/language.ts';
 import { renderPersona, type RolePersona } from '../domain/personas.ts';
 import { say } from './say.ts';
+import { firstHourBrief, firstHourOf, firstHourOpener } from './first-hour.ts';
 import { ASSISTANT_ACTIONS, ASSISTANT_CHECKS, NOT_FOR_THE_ASSISTANT, UNREADABLE, type AssistantAction } from './assistant-actions.ts';
 
 export type AssistantChannel = 'console' | 'telegram' | 'whatsapp';
@@ -372,6 +373,25 @@ async function speakerFor(companyId: string): Promise<Speaker> {
   };
 }
 
+/**
+ * A new company's CEO speaks first (the first hour, first-hour.ts): what it
+ * needs to know, in the language the owner reads, so the conversation the
+ * owner opens is already one. Nothing when the company has no CEO.
+ */
+export async function ceoOpensConversation(companyId: string): Promise<void> {
+  let speaker: Speaker;
+  try {
+    speaker = await speakerFor(companyId);
+  } catch (failure) {
+    if (failure instanceof PalugadaError && /has no CEO yet/.test(failure.message)) return;
+    throw failure;
+  }
+  const language = (await deploymentLanguages()).console ?? 'en';
+  await record('assistant', firstHourOpener(language, {
+    ceo: speaker.displayName ?? speaker.title ?? speaker.slug, company: speaker.company,
+  }), 'console', companyId);
+}
+
 /** Who a company's conversation is with, for the page: null when it has no CEO yet. */
 export async function speakerOf(companyId: string): Promise<Omit<Speaker, 'company' | 'companyId'> | null> {
   try {
@@ -458,14 +478,24 @@ export async function converse(options: AssistantOptions, text: string, channel:
     if (last && last.role === role && typeof last.content === 'string') last.content = `${last.content}\n\n${content}`;
     else messages.push({ role, content });
   }
-  // A conversation starts with the owner; an assistant line left first by a trimmed history is dropped.
-  while (messages[0]?.role === 'assistant') messages.shift();
+  // A conversation starts with the owner. What the CEO said before the
+  // owner's first line here -- its opening questions, or an answer a trimmed
+  // history left first -- is told to it rather than sent as a turn, so it
+  // knows what it asked.
+  const before_: string[] = [];
+  while (messages[0]?.role === 'assistant') {
+    const first = messages.shift()!;
+    if (typeof first.content === 'string') before_.push(first.content);
+  }
+  const firstHour = scope ? (await firstHourOf(scope)).open : false;
 
   const readable = options.reach.readable().filter((path) => !UNREADABLE.includes(path));
   const system = [
     speaker
       ? ceoPrompt(language, speaker, readable.filter((path) => path.startsWith('/api/companies/:companyId') || CEO_ALSO_READS.includes(path)))
       : systemPrompt(language, readable),
+    ...(speaker && firstHour ? ['', firstHourBrief(speaker.companyId)] : []),
+    ...(before_.length > 0 ? ['', 'Before the owner\'s first message here, you said:', before_.join('\n\n')] : []),
     // Telegram shows an answer as Markdown (a rich message), and nothing of
     // HTML: the channel takes every tag out, so a tag written is words lost.
     // And it is read on a phone.

@@ -147,6 +147,9 @@ function Console({ device, recovered, signOut }: { device: string; recovered: bo
   const [asking, setAsking] = useState(false);
   // The company whose CEO the owner is talking to, if any.
   const [talking, setTalking] = useState<Company | null>(null);
+  // A company just started, whose CEO has spoken first (its first hour):
+  // the conversation opens once the company is in the list.
+  const [greeting, setGreeting] = useState<string | null>(null);
   const [checklist, setChecklist] = useState(false);
   const [touring, setTouring] = useState(false);
   const [spot, setSpot] = useState<TourSpot | null>(null);
@@ -210,6 +213,14 @@ function Console({ device, recovered, signOut }: { device: string; recovered: bo
     if (routed?.ceo) setTalking(routed);
     else setAsking(true);
   }, [base.data]);
+
+  useEffect(() => {
+    if (!greeting) return;
+    const started = companies.find((one) => one.id === greeting);
+    if (!started) return;
+    setGreeting(null);
+    if (started.ceo) setTalking(started);
+  }, [greeting, companies]);
 
   const open = useCallback((page: CompanyPage, options: { section?: SettingsSection; item?: string | null; companyId?: string } = {}) => {
     const target = options.companyId ?? company?.id;
@@ -597,7 +608,7 @@ function Console({ device, recovered, signOut }: { device: string; recovered: bo
       </Drawer>
 
       <StartCompany opened={starting} close={() => setStarting(false)} languages={base.data?.languages ?? null}
-        started={(id) => { base.reload(); open('overview', { companyId: id }); }} />
+        started={(id) => { base.reload(); open('overview', { companyId: id }); setGreeting(id); }} />
       <RestoreCompany opened={restoring} close={() => setRestoring(false)} restored={(id) => { base.reload(); open('overview', { companyId: id }); }} />
 
       <GiveWork companyId={company?.id ?? null} opened={giving} close={() => setGiving(false)} />
@@ -820,6 +831,15 @@ function RestoreCompany({ opened, close, restored }: { opened: boolean; close: (
  * owner who wrote to the panel in Indonesian got a company whose agents
  * answered in English. Both start in the language the panel is in now.
  */
+/** The time zone the owner's browser is in, or null where it does not say. */
+function ownTimeZone(): string | null {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+  } catch {
+    return null;
+  }
+}
+
 function StartCompany({ opened, close, started, languages }: {
   opened: boolean; close: () => void; started: (id: string) => void; languages: Languages | null;
 }) {
@@ -846,6 +866,9 @@ function StartCompany({ opened, close, started, languages }: {
       const done = await requireFactor(t('Start {company}', { company: name }), async (proof) => {
         created = await api('POST', '/api/companies', {
           templateSlug: 'standard-company', companySlug: slug, name, proof,
+          // Its schedules run on the owner's clock, not UTC (the weekly
+          // review at 07:45 on Monday is the owner's Monday morning).
+          ...(ownTimeZone() ? { timezone: ownTimeZone() } : {}),
           ...(workLanguage ? { workLanguage } : {}),
           ...(talkLanguage ? { talkLanguage } : {}),
           // company-os: a strategist, a weekly review and the operating skills.

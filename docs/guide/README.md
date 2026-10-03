@@ -57,9 +57,21 @@ along the bottom and under **More**.
    another. Leave **Let it run itself** on if you want a strategist that
    reviews the week every Monday and proposes what to do next. Press
    **Start it** and confirm with a code, because creating a company writes
-   divisions, roles, grants and budgets. You land on the company's
-   **Overview**. Look at the stage card (no stage is set yet), the goal
-   ladder under **Goals**, and the budget for the period.
+   divisions, roles, grants and budgets. Its schedules run on your browser's
+   time zone. You land on the company's **Overview**, and the conversation
+   with its CEO opens: the CEO has already asked what the company sells and
+   to whom, how much it may spend in a month, and what its first piece of
+   work should be. Answer in a sentence or two; it asks at most three
+   questions, then puts the mission in your words, the monthly ceiling and
+   a first piece of work in front of you as cards to apply.
+
+   On the **Overview**, **Your first hour with** the company lists four
+   steps -- tell the CEO what it sells, set how much it may spend in a
+   month, give it its first piece of work, read its first result -- each
+   ticked off when you have done it, with the button that does it. It goes
+   when all four are done, or when you close it. Look also at the stage
+   card (no stage is set yet), the goal ladder under **Goals**, and the
+   budget for the period.
 
    While you are there, look at the foot of the sidebar. If the deployment
    is missing something optional, a **Finish setting up** card lists what it

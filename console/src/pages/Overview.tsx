@@ -28,6 +28,7 @@ import type { PageProps } from '../App.tsx';
 import { KpiStrip, LoadFailed, Loading, PageHeader, Section, StatusBadge } from '../components/ui.tsx';
 import { MetricLine } from '../components/Metrics.tsx';
 import { StageCard } from '../components/Stage.tsx';
+import { FirstHourCard } from '../components/FirstHour.tsx';
 import { TaskProgress } from './Work.tsx';
 import { rolePicture } from '../images.ts';
 
@@ -81,6 +82,8 @@ export function Overview({ ctx }: PageProps) {
   return (
     <Stack gap="lg">
       {header}
+
+      <FirstHourCard ctx={ctx} />
 
       <KpiStrip items={[
         { label: t('Needs you'), value: inbox.items.length, alert: inbox.items.length > 0, hint: t('Open the inbox'), onClick: () => ctx.open('inbox') },

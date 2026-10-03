@@ -432,8 +432,9 @@ export async function importCompany(
     let rows: Array<{ id: string }>;
     try {
       ({ rows } = await tx.query<{ id: string }>(
-        `INSERT INTO companies (slug, name, timezone, work_language, talk_language, stage, guardian)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+        // A restored company is not a new one: its first hour (0109) is over.
+        `INSERT INTO companies (slug, name, timezone, work_language, talk_language, stage, guardian, first_hour_closed_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, now()) RETURNING id`,
         [
           options.slug, options.name ?? String(source!.name ?? options.slug), String(source!.timezone ?? 'UTC'),
           // What the company works and talks in travels with it; an archive from

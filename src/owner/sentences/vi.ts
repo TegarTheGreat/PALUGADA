@@ -308,4 +308,5 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'It turned these down, and they stay off:': 'Những kỹ năng sau đã bị bác bỏ và vẫn tắt:',
   'Approve to switch them all on, or deny to turn them all down. To decide one at a time, open the Skills page.': 'Phê duyệt để bật tất cả, hoặc từ chối để bác bỏ tất cả. Để quyết định từng kỹ năng một, hãy mở mục Kỹ năng.',
   'Nothing changes; none of these skills is switched on.': 'Không có gì thay đổi; không kỹ năng nào trong số này được bật.',
+  'I am {ceo}, and I run {company} for you. Three things before we start: what does {company} sell, and to whom? How much may it spend in a month? And what should its first piece of work be -- or shall I suggest one?': 'Tôi là {ceo}, tôi điều hành {company} cho bạn. Ba điều trước khi bắt đầu: {company} bán gì, và bán cho ai? Mỗi tháng công ty được chi bao nhiêu? Và phần việc đầu tiên nên là gì — hay để tôi đề xuất một việc?',
 };

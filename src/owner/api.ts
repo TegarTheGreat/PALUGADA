@@ -163,9 +163,10 @@ import { beginCredentialSignIn, finishCredentialSignIn, hasClient, OAUTH_CREDENT
 import { LISTEN_PROVIDERS, listenProvider, transcribe, type Heard, type ListenBinding, type ListenProvider } from '../capabilities/listen.ts';
 import { EMBED_PROVIDERS, embed, embedProvider, type EmbedBinding, type EmbedProvider } from '../capabilities/embed.ts';
 import {
-  chatMayApply, chatPartners, chatScope, closeProposal, conversation, converse, forgetConversation, moveChat, patternFor, proposalById,
+  ceoOpensConversation, chatMayApply, chatPartners, chatScope, closeProposal, conversation, converse, forgetConversation, moveChat, patternFor, proposalById,
   speakerOf, type AssistantChannel, type AssistantProposal, type AssistantReach,
 } from './assistant.ts';
+import { closeFirstHour, firstHourOf } from './first-hour.ts';
 import { ASSISTANT_ACTIONS } from './assistant-actions.ts';
 import { PERSONAS, TITLES, personaFrom, titleFrom, type RolePersona } from '../domain/personas.ts';
 import { appointCeo } from '../governance/ceo.ts';
@@ -781,6 +782,9 @@ export class OwnerApi {
           for (const bundle of bundles) {
             await installBundle({ companyId: created.companyId, slug: bundle.slug, version: bundle.version });
           }
+          // Its first hour (first-hour.ts): the CEO asks what it needs to
+          // know before the owner has said anything.
+          await ceoOpensConversation(created.companyId);
           return {
             companyId: created.companyId,
             divisions: Object.keys(created.divisionIds),
@@ -899,6 +903,25 @@ export class OwnerApi {
               });
             }
           });
+        },
+      },
+
+      {
+        // The owner's first hour with a new company (first-hour.ts): four
+        // steps, each done when the owner has done it.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/first-hour',
+        handle: async ({ params }) => firstHourOf(params.companyId!),
+      },
+
+      {
+        // Closed by the owner: the Overview stops listing it and the CEO
+        // stops interviewing. Nothing the owner has not done is ticked off.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/first-hour/close',
+        handle: async ({ params }) => {
+          await closeFirstHour(params.companyId!);
+          return firstHourOf(params.companyId!);
         },
       },
 

@@ -300,4 +300,5 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'It turned these down, and they stay off:': '次のスキルは不採用になり、オフのままです：',
   'Approve to switch them all on, or deny to turn them all down. To decide one at a time, open the Skills page.': '承認するとすべて有効にし、却下するとすべて不採用にします。1 つずつ決めるには、「スキル」ページを開いてください。',
   'Nothing changes; none of these skills is switched on.': '何も変わりません。これらのスキルはどれも有効になりません。',
+  'I am {ceo}, and I run {company} for you. Three things before we start: what does {company} sell, and to whom? How much may it spend in a month? And what should its first piece of work be -- or shall I suggest one?': '{ceo} です。あなたに代わって {company} を運営します。始める前に 3 つ教えてください。{company} は何を誰に売りますか？ひと月にいくらまで使ってよいですか？そして、最初の仕事は何にしますか？それとも私から提案しましょうか？',
 };

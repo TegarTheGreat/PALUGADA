@@ -45,6 +45,10 @@ export async function mcpServer(options: { needsToken?: string; tokenIn?: { head
     started: 0,
     live: new Set<string>(),
     ended: [] as string[],
+    /** A status every request is answered with instead, for a server having a bad moment; 0 for none. */
+    failWith: 0,
+    /** The token it takes, which a test may change once a client is bound. */
+    needsToken: options.needsToken,
   };
   const server: Server = createServer((req: IncomingMessage, res) => {
     let raw = '';
@@ -55,10 +59,14 @@ export async function mcpServer(options: { needsToken?: string; tokenIn?: { head
       const presented = where.query
         ? new URL(req.url ?? '/', 'http://localhost').searchParams.get(where.query)
         : req.headers[(where.header ?? 'authorization').toLowerCase()];
-      const expected = where.query ? options.needsToken
-        : `${where.scheme ?? (where.header ? '' : 'Bearer')} ${options.needsToken}`.trim();
-      if (options.needsToken && presented !== expected) {
+      const expected = where.query ? state.needsToken
+        : `${where.scheme ?? (where.header ? '' : 'Bearer')} ${state.needsToken}`.trim();
+      if (state.needsToken && presented !== expected) {
         res.writeHead(401).end('{"error":"unauthorised"}');
+        return;
+      }
+      if (state.failWith) {
+        res.writeHead(state.failWith).end('not now');
         return;
       }
       const session = String(req.headers['mcp-session-id'] ?? '');

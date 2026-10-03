@@ -377,7 +377,7 @@ class McpConnection {
     }
     if (!response.ok && response.status !== 202) {
       const detail = (await response.text().catch(() => '')).slice(0, 300);
-      throw new Error(`the MCP server answered ${response.status}: ${detail}`);
+      throw new McpAnswered(response.status, `the MCP server answered ${response.status}: ${detail}`);
     }
     return response;
   }
@@ -406,6 +406,28 @@ class McpConnection {
 class SessionGone extends Error {}
 
 /** A 401: the server refused the token it was sent, or wanted one, and did nothing. */
+/** The server answered with an HTTP failure: its status says whether the moment passes (H2). */
+class McpAnswered extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+/**
+ * A failure that passes on its own (H2): the server busy or failing on its
+ * side, or nothing answering at all -- a refused connection, a timeout. Not
+ * a refused token, nor anything the server said in its own protocol.
+ */
+function passingFailure(failure: unknown): boolean {
+  if (failure instanceof McpAnswered) return failure.status === 429 || failure.status >= 500;
+  if (failure instanceof TypeError) return true;
+  const name = (failure as { name?: unknown } | null)?.name;
+  return name === 'TimeoutError' || name === 'AbortError';
+}
+
 export class McpUnauthorized extends Error {
   constructor(detail: string) {
     super(`the MCP server answered 401: ${detail || 'no reason given'}`);
@@ -721,7 +743,7 @@ export function mcpCapability(
         });
         return { ok: true };
       } catch (failure) {
-        return { ok: false, detail: (failure as Error).message };
+        return { ok: false, detail: (failure as Error).message, ...(passingFailure(failure) ? { transient: true } : {}) };
       }
     },
   };

@@ -1636,6 +1636,7 @@ export const DICTIONARY: Dictionary = {
   "Via": "Ngalangkungan",
   "Voice": "Soanten",
   "Waiting": "Ngantosan",
+  "Waiting for a service to answer again": "Ngantosan layanan ngawaler deui",
   "Waiting for cheaper hours": "Ngantosan jam anu langkung mirah",
   "Waiting for its work hours": "Ngantosan jam damelna",
   "Waiting for the model to answer": "Ngantosan modél ngawaler",

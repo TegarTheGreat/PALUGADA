@@ -1531,6 +1531,7 @@ export const DICTIONARY: Dictionary = {
   "Via": "Lewat",
   "Voice": "Suara",
   "Waiting": "Menunggu",
+  "Waiting for a service to answer again": "Menunggu sebuah layanan menjawab lagi",
   "Waiting for cheaper hours": "Menunggu jam yang lebih murah",
   "Waiting for its work hours": "Menunggu jam kerjanya",
   "Waiting for the model to answer": "Menunggu model menjawab",

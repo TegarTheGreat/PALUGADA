@@ -1635,6 +1635,7 @@ export const DICTIONARY: Dictionary = {
   "Via": "Qua",
   "Voice": "Giọng nói",
   "Waiting": "Đang chờ",
+  "Waiting for a service to answer again": "Đang chờ một dịch vụ trả lời lại",
   "Waiting for cheaper hours": "Đang chờ giờ rẻ hơn",
   "Waiting for its work hours": "Đang chờ đến giờ làm việc",
   "Waiting for the model to answer": "Đang chờ mô hình trả lời",

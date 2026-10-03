@@ -1608,6 +1608,7 @@ export const DICTIONARY: Dictionary = {
   "Via": "경로",
   "Voice": "목소리",
   "Waiting": "기다리는 중",
+  "Waiting for a service to answer again": "서비스가 다시 응답하기를 기다리는 중",
   "Waiting for cheaper hours": "더 저렴한 시간대를 기다리는 중",
   "Waiting for its work hours": "작업 시간대를 기다리는 중",
   "Waiting for the model to answer": "모델의 응답을 기다리는 중",

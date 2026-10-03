@@ -133,6 +133,11 @@ export interface Capability<I = unknown, O = unknown> {
   }): Promise<{
     ok: boolean;
     detail?: string;
+    /**
+     * The failure passes on its own: the vendor busy, failing on its side,
+     * or not answering (H2). The task waits for it rather than halting.
+     */
+    transient?: boolean;
   }>;
   /**
    * Reports what the call actually cost, once it has happened (F8.5).

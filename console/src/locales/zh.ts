@@ -1597,6 +1597,7 @@ export const DICTIONARY: Dictionary = {
   "Via": "途径",
   "Voice": "声音",
   "Waiting": "等待中",
+  "Waiting for a service to answer again": "正在等待某项服务恢复响应",
   "Waiting for cheaper hours": "正在等待更便宜的时段",
   "Waiting for its work hours": "正在等待它的工作时段",
   "Waiting for the model to answer": "正在等待模型回应",

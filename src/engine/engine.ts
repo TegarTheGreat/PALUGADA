@@ -150,6 +150,13 @@ export const MAX_RATE_LIMIT_PARKS = 5;
  */
 export const RETRY_WAITS_MS: readonly number[] = [10_000, 40_000, 160_000];
 export const MODEL_OUTAGE_WAITS_MS: readonly number[] = [30_000, 60_000, 120_000, 240_000, 480_000];
+/**
+ * How long a task waits for a capability whose vendor is having a moment
+ * (H2): a minute, doubling, five times -- about half an hour -- before the
+ * failure is one the owner hears about. Each look asks the vendor again,
+ * since a passing reading stands for a minute (`TRANSIENT_TTL_MS`).
+ */
+export const CAPABILITY_OUTAGE_WAITS_MS: readonly number[] = [60_000, 120_000, 240_000, 480_000, 960_000];
 
 export interface RunOutcome {
   status:
@@ -592,6 +599,14 @@ export class Engine {
     );
     if (!readiness.ready) {
       const named = readiness.failures.map((failure) => failure.capability).join(', ');
+      // A vendor's moment -- busy, failing on its side, not answering -- is
+      // waited for, not halted on (H2): it halted every task that needed the
+      // capability for a quarter of an hour, each to be run again by hand.
+      // A failure no retry fixes, a refused credential, halts as before.
+      if (readiness.failures.every((failure) => failure.transient)) {
+        const waited = await this.#waitForCapability(companyId, taskId, readiness.failures);
+        if (waited) return waited;
+      }
       await transition(companyId, taskId, 'halted', { haltReason: 'capability_unhealthy' });
       return {
         status: 'halted',
@@ -1418,6 +1433,51 @@ export class Engine {
       waitUntil, waitReason: how.event === 'task.waiting_slot' ? 'slot' : 'vendor',
     });
     return { status: 'waiting_window', reason: error.code, waitUntil };
+  }
+
+  /**
+   * H2, when a capability's vendor is having a moment: the task parks and
+   * looks again, waiting longer each time. When the waits in the last hour
+   * are spent it halts, and the owner is told once, with what the vendor
+   * said; null then, for the caller's halt.
+   */
+  async #waitForCapability(
+    companyId: string,
+    taskId: string,
+    failures: ReadonlyArray<{ capability: string; detail: string }>,
+  ): Promise<RunOutcome | null> {
+    const waits = await withTenant(companyId, async (tx) => {
+      const { rows } = await tx.query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM events
+          WHERE task_id = $1 AND type = 'task.capability_waited' AND occurred_at > now() - interval '1 hour'`,
+        [taskId],
+      );
+      return Number(rows[0]!.count);
+    });
+    if (waits < CAPABILITY_OUTAGE_WAITS_MS.length) {
+      const waitUntil = new Date(Date.now() + CAPABILITY_OUTAGE_WAITS_MS[waits]!);
+      await withTenant(companyId, (tx) => appendEvent(tx, {
+        companyId, taskId, type: 'task.capability_waited', actor: 'engine',
+        payload: {
+          capabilities: failures.map((failure) => failure.capability),
+          detail: failures.map((failure) => `${failure.capability}: ${failure.detail}`).join('; ').slice(0, 1_000),
+          waitUntil: waitUntil.toISOString(), wait: waits + 1,
+        },
+      }));
+      await transition(companyId, taskId, 'waiting_window', { waitUntil, waitReason: 'service' });
+      return { status: 'waiting_window', reason: 'capability.unhealthy', waitUntil };
+    }
+    const minutes = Math.round(CAPABILITY_OUTAGE_WAITS_MS.reduce((sum, wait) => sum + wait, 0) / 60_000);
+    const named = failures.map((failure) => failure.capability).join(', ');
+    await inbox.raiseIncident({
+      companyId,
+      taskId,
+      title: `${named} stayed unreachable, and the work that needs it stopped`,
+      detail:
+        `${failures.map((failure) => `${failure.capability}: ${failure.detail}`).join('; ')}. The task waited about ` +
+        `${minutes} minutes, looking again each time, and has stopped. Once the service answers, run it again.`,
+    });
+    return null;
   }
 
   /**

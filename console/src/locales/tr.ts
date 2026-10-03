@@ -1637,6 +1637,7 @@ export const DICTIONARY: Dictionary = {
   "Via": "Kanal",
   "Voice": "Ses",
   "Waiting": "Bekliyor",
+  "Waiting for a service to answer again": "Bir hizmetin yeniden yanıt vermesini bekliyor",
   "Waiting for cheaper hours": "Daha ucuz saatleri bekliyor",
   "Waiting for its work hours": "Çalışma saatlerini bekliyor",
   "Waiting for the model to answer": "Modelin yanıtını bekliyor",

@@ -1581,6 +1581,7 @@ export const DICTIONARY: Dictionary = {
   "Via": "माध्यम",
   "Voice": "आवाज़",
   "Waiting": "इंतज़ार में",
+  "Waiting for a service to answer again": "किसी सेवा के फिर से जवाब देने का इंतज़ार कर रहा है",
   "Waiting for cheaper hours": "सस्ते घंटों का इंतज़ार कर रहा है",
   "Waiting for its work hours": "अपने काम के घंटों का इंतज़ार कर रहा है",
   "Waiting for the model to answer": "मॉडल के जवाब का इंतज़ार कर रहा है",

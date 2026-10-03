@@ -139,7 +139,7 @@ export const STATUS_LABELS: Record<string, string> = {
   running: N('Running'),
   waiting_approval: N('Needs you'),
   waiting_review: N('In review'),
-  // Seven kinds of wait, not one schedule: `waitingFor` says which (N9).
+  // Several kinds of wait, not one schedule: `waitingFor` says which (N9).
   waiting_window: N('Waiting'),
   completed: N('Done'),
   failed: N('Failed'),
@@ -196,6 +196,7 @@ const WAIT_REASONS: Record<string, string> = {
   vendor: N('A service asked it to wait'),
   slot: N('Waiting its turn at a tool'),
   model: N('Waiting for the model to answer'),
+  service: N('Waiting for a service to answer again'),
   retry: N('Trying again shortly'),
 };
 

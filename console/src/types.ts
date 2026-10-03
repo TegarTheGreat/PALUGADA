@@ -243,7 +243,7 @@ export interface WorkItem {
   };
   /** What a task in `waiting_window` waits for; null in any other status (N9). */
   waiting: {
-    reason: 'child' | 'window' | 'cheap_hours' | 'vendor' | 'slot' | 'model' | 'retry' | null;
+    reason: 'child' | 'window' | 'cheap_hours' | 'vendor' | 'slot' | 'model' | 'service' | 'retry' | null;
     until: string | null;
     on: WaitingRole | null;
     needsYou: WaitingRole | null;

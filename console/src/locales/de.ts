@@ -1611,6 +1611,7 @@ export const DICTIONARY: Dictionary = {
   "Via": "Über",
   "Voice": "Stimme",
   "Waiting": "Wartet",
+  "Waiting for a service to answer again": "Wartet, bis ein Dienst wieder antwortet",
   "Waiting for cheaper hours": "Wartet auf günstigere Stunden",
   "Waiting for its work hours": "Wartet auf seine Arbeitszeiten",
   "Waiting for the model to answer": "Wartet auf die Antwort des Modells",

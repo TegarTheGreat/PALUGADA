@@ -1630,6 +1630,7 @@ export const DICTIONARY: Dictionary = {
   "Via": "Melalui",
   "Voice": "Suara",
   "Waiting": "Menunggu",
+  "Waiting for a service to answer again": "Menunggu satu perkhidmatan menjawab semula",
   "Waiting for cheaper hours": "Menunggu waktu yang lebih murah",
   "Waiting for its work hours": "Menunggu waktu kerjanya",
   "Waiting for the model to answer": "Menunggu model menjawab",

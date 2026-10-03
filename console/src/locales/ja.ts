@@ -1606,6 +1606,7 @@ export const DICTIONARY: Dictionary = {
   "Via": "経由",
   "Voice": "音声",
   "Waiting": "待ち",
+  "Waiting for a service to answer again": "サービスが再び応答するのを待っています",
   "Waiting for cheaper hours": "安い時間帯を待っています",
   "Waiting for its work hours": "作業時間帯を待っています",
   "Waiting for the model to answer": "モデルの応答を待っています",

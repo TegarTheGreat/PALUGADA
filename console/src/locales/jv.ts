@@ -1628,6 +1628,7 @@ export const DICTIONARY: Dictionary = {
   "Via": "Lumantar",
   "Voice": "Swanten",
   "Waiting": "Nengga",
+  "Waiting for a service to answer again": "Nengga layanan mangsuli malih",
   "Waiting for cheaper hours": "Nengga jam ingkang langkung mirah",
   "Waiting for its work hours": "Nengga jam kerjanipun",
   "Waiting for the model to answer": "Nengga modhèl mangsuli",

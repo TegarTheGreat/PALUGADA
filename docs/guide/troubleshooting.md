@@ -302,12 +302,24 @@ to cancel it.
 
 ### **A capability it needs is down**, and "Capability … failed preflight"
 
-**Cause.** A capability's health check failed: usually an expired or
-mis-scoped credential, an exhausted quota, or the provider being
-unreachable. No task that needs it starts until it passes.
+**Cause.** A capability's health check failed for a reason that does not
+pass by itself: usually an expired or mis-scoped credential, a quota used
+up, or a wrong address. The work that needed it is stopped rather than
+started. A service that is only busy, failing on its side or not answering
+does not stop work at first: the task shows **Waiting for a service to
+answer again** and looks again, longer each time, for about half an hour.
 
 **Fix.** Open the division on **Team**, read **Capability health**, and fix
-the credential; **Rotate a credential** repoints it.
+the credential; **Rotate a credential** repoints it. Then run the stopped
+work again.
+
+### "… stayed unreachable, and the work that needs it stopped"
+
+**Cause.** A service was busy or not answering for the whole half hour a
+task waited for it.
+
+**Fix.** Check the service's own status page. When it answers again, run
+the task again from its page.
 
 ### An agent says `… needs a vendor: connect one on This deployment, Services, or bind it in the file PALUGADA_VENDORS names`
 

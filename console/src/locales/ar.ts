@@ -1608,6 +1608,7 @@ export const DICTIONARY: Dictionary = {
   "Via": "عبر",
   "Voice": "الصوت",
   "Waiting": "قيد الانتظار",
+  "Waiting for a service to answer again": "ينتظر أن تعود خدمة إلى الرد",
   "Waiting for cheaper hours": "ينتظر ساعات أرخص",
   "Waiting for its work hours": "ينتظر ساعات عمله",
   "Waiting for the model to answer": "ينتظر ردّ النموذج",

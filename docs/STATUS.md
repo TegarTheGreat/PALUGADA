@@ -6529,6 +6529,45 @@ What changed:
   earlier opener's secret signs nobody in. `process.test.ts` claims a
   deployment started by `npm start` the same way.
 
+## 2.83 A vendor's bad moment is waited through, not halted on (F8.12, H2)
+
+Found by the audit of 30 September and still open on 2 October (H2). A
+capability's preflight (F8.12) failed on any answer of 400 or more and on
+any dropped connection (`src/capabilities/http.ts`, and the same in
+`mcp.ts`); the reading stood for fifteen minutes, and every task that needed
+the capability in that time was halted with `capability_unhealthy`, which is
+terminal -- each one to be run again by hand. One 503 from a vendor could
+stop a quarter of an hour of a company's work. The incident told the owner
+that "no task that needs it will start until it passes", as if they were
+waiting; they were not.
+
+F8.12 is about the failure no retry fixes, and a vendor answering 503 is
+not that failure.
+
+What changed:
+
+- **A preflight says which failures pass.** A capability's preflight may
+  mark a failure `transient`. The HTTP capability does so for 429, any 5xx
+  and a connection refused or timed out; MCP does so for the same, but not
+  for a 401 or anything the server said in its own protocol. A credential
+  that could not be resolved, or an address this platform refused, is not
+  transient.
+- **Kept for a minute** (0104). A passing failure's reading stands for one
+  minute, not fifteen, and raises no incident by itself.
+- **The task waits.** When every failure is passing, the task parks
+  ("Waiting for a service to answer again") and looks again after a minute,
+  then two, four, eight and sixteen -- about half an hour. If the service is
+  still not answering, the task halts as before and the owner gets one
+  incident saying what the service answered and that the work stopped.
+  Any lasting failure among them halts at once.
+- **The incident for a lasting failure says what happens**: the work is
+  stopped rather than started, and has to be run again once the cause is
+  fixed.
+- **Tested.** `preflight.test.ts`: a 503 parks the task with no incident,
+  and it runs once the vendor answers; down for good, it waits five times
+  and halts with one incident. `http-capability.test.ts` and
+  `mcp-client.test.ts` hold which answers pass and which do not.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

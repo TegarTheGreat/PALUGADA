@@ -129,6 +129,10 @@ The first version. What it holds, in the order an owner meets it.
   ends, and the card that said it was paused is withdrawn. The pause used
   to last until you lifted it by hand, into the next month and beyond
   (STATUS 2.80).
+- A service that is busy or not answering for a moment no longer halts the
+  work that needs it for a quarter of an hour: the task waits, looking
+  again, and stops with one incident only if the service stays down for
+  about half an hour (STATUS 2.83).
 
 ### The owner
 

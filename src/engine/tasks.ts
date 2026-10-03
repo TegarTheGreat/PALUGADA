@@ -675,7 +675,7 @@ export interface TransitionOptions {
 }
 
 /**
- * Why a task waits in `waiting_window` (N9). One status is seven different
+ * Why a task waits in `waiting_window` (N9). One status is eight different
  * waits, and the console called them all "Scheduled": on the live run of
  * 2 October a CEO whose sub-task was waiting on the owner two levels down
  * read as scheduled, and nothing said what it was waiting for.
@@ -686,9 +686,10 @@ export interface TransitionOptions {
  * - `vendor`: a service that said "not now"
  * - `slot`: its turn at a capability others are calling (F5.7)
  * - `model`: a model that did not answer (F13.6)
+ * - `service`: a capability's vendor having a moment, before it starts (H2)
  * - `retry`: the next attempt after one failed
  */
-export type WaitReason = 'child' | 'window' | 'cheap_hours' | 'vendor' | 'slot' | 'model' | 'retry';
+export type WaitReason = 'child' | 'window' | 'cheap_hours' | 'vendor' | 'slot' | 'model' | 'service' | 'retry';
 
 /** Moves a task to a new status, refusing transitions the PRD does not allow. */
 export async function transition(

@@ -1591,6 +1591,7 @@ export const DICTIONARY: Dictionary = {
   "Via": "Sa pamamagitan ng",
   "Voice": "Boses",
   "Waiting": "Naghihintay",
+  "Waiting for a service to answer again": "Naghihintay na sumagot muli ang isang serbisyo",
   "Waiting for cheaper hours": "Naghihintay sa mas murang oras",
   "Waiting for its work hours": "Naghihintay sa oras ng trabaho nito",
   "Waiting for the model to answer": "Naghihintay sumagot ang model",

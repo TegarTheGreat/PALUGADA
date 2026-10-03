@@ -7163,6 +7163,30 @@ What changed:
   the stopped notice says "Kehabisan anggaran", not "budget exhausted"; every
   new sentence is in the 20 dictionaries in `src/owner/sentences/`.
 
+## 2.102 Of two budget accounts on one scope, the same one pays every time (F1.6)
+
+Found while checking 2.99: its test failed on one full run in several. The
+owner may open a budget account on a division, project or role that already
+has one -- "Ramadan promotion" under the division's Operations account --
+and work there is charged to the narrowest account that covers it
+(`accountFor`, `src/engine/budget.ts`). Narrowest was decided by the kind of
+scope alone, so two accounts on one division tied, and the one charged was
+whichever row the database read first. Every charge writes its account's
+row again elsewhere in the table, so the same role's work could be charged
+to one account and then the other, and a schedule could draw on either.
+
+What changed:
+
+- **The tree decides a tie.** Of two accounts on the same scope, the deeper
+  in the tree is the narrower and pays; between two as deep, the older; and
+  the id last, so there is always one answer. Task creation, schedules and
+  the budget a role's page shows all ask `accountFor`, so all three agree.
+- **Tested.** `budget-inheritance.test.ts` opens two accounts beside each
+  other on one division and a third under one of them, rewrites each row in
+  turn, and asks which pays after every move: always the same, and a task
+  is charged to it. Before the change it gave the other account on some
+  runs.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

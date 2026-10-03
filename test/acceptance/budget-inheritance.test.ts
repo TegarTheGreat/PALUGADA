@@ -8,7 +8,7 @@
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { withTenant } from '../../src/db/tenant.ts';
+import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
 import { createRootTask, createSubTask, transition } from '../../src/engine/tasks.ts';
 import * as budget from '../../src/engine/budget.ts';
@@ -250,3 +250,45 @@ test('a scoped account opened without a money ceiling inherits its parent\'s (F1
   assert.notEqual(money.own, '0', 'the fixture\'s company account can spend');
 });
 
+
+/**
+ * Two accounts on one scope: which pays is decided, not left to the order
+ * rows happen to lie in. The owner can open an account on a division that
+ * already has one -- "Ramadan promotion" under Operations -- and the task was
+ * charged to whichever of the two the database read first, which moves every
+ * time a charge rewrites a row. The narrowest pays: the one deeper in the
+ * tree, and between two as deep, the older.
+ */
+test('of two accounts on one scope, the deeper pays, every time (F1.6)', async () => {
+  const fixture = await createCompany('budget-same-scope', { tokensMax: TOKENS_MAX });
+  const open = (label: string, parentAccountId: string) => withTenant(fixture.companyId, (tx) => budget.createAccount(tx, {
+    companyId: fixture.companyId, label, tokensMax: 10_000,
+    scope: { scopeType: 'division', scopeId: fixture.divisionId, parentAccountId },
+  }));
+  const scope = { companyId: fixture.companyId, roleId: fixture.roleId, divisionId: fixture.divisionId, projectId: fixture.projectId };
+  // Each update writes the row again somewhere else in the table, as every
+  // charge does, and asks again which account pays.
+  const payerAfterMoving = async (moved: string) => {
+    await withControlPlane((tx) => tx.query(
+      'UPDATE budget_accounts SET tokens_reserved = tokens_reserved WHERE id = $1', [moved]));
+    return withTenant(fixture.companyId, (tx) => budget.accountFor(tx, scope));
+  };
+
+  // Two as deep, both under the company's: the older.
+  const division = await open('ops', fixture.budgetAccountId);
+  const sibling = await open('Later beside ops', fixture.budgetAccountId);
+  for (const moved of [division, sibling, division]) {
+    assert.equal(await payerAfterMoving(moved), division);
+  }
+
+  // One under the other: the deeper.
+  const promotion = await open('Ramadan promotion', division);
+  for (const moved of [promotion, division, sibling, promotion, division]) {
+    assert.equal(await payerAfterMoving(moved), promotion);
+  }
+  const task = await createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId, roleId: fixture.roleId,
+    goalId: fixture.goalId, input: { goal: 'Plan the Ramadan promotion' }, createdBy: 'owner', reserveTokens: 1_000,
+  });
+  assert.equal(task.budgetAccountId, promotion, 'the task is charged to it');
+});

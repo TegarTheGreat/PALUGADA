@@ -111,6 +111,10 @@ The first version. What it holds, in the order an owner meets it.
   as F1.9 asks: an account that ran out has its allowance again on the
   first, and raising its ceiling gives it more before then. Before, spent
   tokens stayed spent for the account's whole life (STATUS 2.71).
+- Of two budget accounts on one division, project or role, the same one
+  pays every time: the one under the other, or else the older. Work was
+  charged to whichever the database read first, which changed as accounts
+  were charged (STATUS 2.102).
 - A task's bar counts the actions of its plan it has taken. It counted
   every step, model turns included, so a task that halted early could
   read "5/5" (STATUS 2.75).

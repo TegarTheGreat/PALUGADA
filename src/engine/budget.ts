@@ -92,6 +92,12 @@ export async function createAccount(
  * company's. A task charged to the company account when its division has one
  * would make the division's ceiling unenforceable, which is the failure this
  * lookup exists to prevent.
+ *
+ * Two accounts on one scope -- the owner opened "Ramadan promotion" on a
+ * division that has its own -- are told apart by the tree: the deeper is the
+ * narrower, and between two as deep, the older. Ordered by scope alone, the
+ * one charged was whichever row the database read first, and every charge
+ * rewrites a row and moves it.
  */
 export async function accountFor(
   tx: TenantClient,
@@ -107,7 +113,9 @@ export async function accountFor(
           OR  scope_type = 'company')
       ORDER BY CASE scope_type
                  WHEN 'role' THEN 0 WHEN 'division' THEN 1
-                 WHEN 'project' THEN 2 ELSE 3 END
+                 WHEN 'project' THEN 2 ELSE 3 END,
+               cardinality(app.budget_chain(id)) DESC,
+               created_at, id
       LIMIT 1`,
     [scope.companyId, scope.roleId ?? null, scope.divisionId ?? null, scope.projectId ?? null],
   );

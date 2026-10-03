@@ -15,9 +15,9 @@
  * implementation does not have to rediscover it.
  *
  * **No reading of contents.** The name is `files.list`, and listing is what it
- * does: names, sizes and times. A capability that also returned file contents
- * would be a different capability with a different tier, and the template
- * grants this one to divisions that were never assessed for that.
+ * does: names, sizes and times. Reading a file is `files.read`, below: a
+ * capability of its own, catalogued as a read of outside content, so a
+ * division is granted it on purpose rather than with the listing.
  *
  * **One directory per company, and the platform picks it.** The configured
  * root is the root for *every* company, so the company's own directory is a
@@ -190,6 +190,113 @@ export function filesList(options: FilesOptions): Capability<ListInput, ListOutp
         path: relative(base, real) || '.',
         entries,
         truncated: names.length > maxEntries,
+      };
+    },
+  };
+}
+
+export interface ReadInput {
+  /** Relative to the company's files. */
+  path: string;
+  /** Where in the text to begin, for a file longer than one reading. */
+  from?: number;
+}
+
+export interface ReadOutput {
+  path: string;
+  bytes: number;
+  text: string;
+  from: number;
+  /** Where the next reading begins, or null at the end. */
+  next: number | null;
+}
+
+/** The most text one reading returns, as with a page read from the web. */
+const READ_CHARS = 60_000;
+/** The largest file read at all: a reading pages through it, but reads it whole each time. */
+const READ_MAX_BYTES = 10 * 1024 * 1024;
+
+/**
+ * `files.read` -- a file in the company's files, as text (the tools research,
+ * recommendation 3).
+ *
+ * The same containment as `files.list`, for the same reason: the path is
+ * resolved with `realpath`, so a link is followed only to see where it goes,
+ * and anything that ends outside this company's directory is refused, as a
+ * file of another company is. Text is UTF-8, read strictly: a file that is
+ * not -- a picture, a recording -- is said to be not text rather than
+ * returned as noise. A long one is read a page at a time.
+ */
+export function filesRead(options: FilesOptions): Capability<ReadInput, ReadOutput> {
+  return {
+    name: 'files.read',
+    inputSchema: {
+      type: 'object',
+      required: ['path'],
+      properties: {
+        path: { type: 'string', minLength: 1, maxLength: 1_000, description: 'The file, under the company\'s files, as files.list names it: drafts/offer.md.' },
+        from: { type: 'integer', minimum: 0, description: 'Where to begin, for the next page of a long file: the next a reading gave.' },
+      },
+      additionalProperties: false,
+    },
+    adapter: 'platform:files',
+    defaultTier: 0,
+    describe: () => ({ moneyCents: 0 }),
+    async execute(input, ctx) {
+      const { open, realpath } = await import('node:fs/promises');
+      const { constants } = await import('node:fs');
+      const { join, resolve, sep, normalize, relative } = await import('node:path');
+      const base = await companyRoot(options.root, ctx.companyId);
+      const wanted = normalize(String(input.path ?? '')).replace(/^(\.\/)+/, '');
+      if (!wanted || wanted === '.') throw new PalugadaError('contract.violation', 'path is a file under the company\'s files, as files.list names it', { field: 'path' });
+      const target = resolve(join(base, wanted));
+      let real: string | null = null;
+      try {
+        real = await realpath(target);
+      } catch {
+        // Not there -- unless the path leads outside, which is said as that.
+      }
+      const inside = (path: string) => path === base || path.startsWith(base + sep);
+      if (!inside(target) || (real !== null && !inside(real))) {
+        throw new PalugadaError('capability.unreachable', `${wanted} is outside the company's files`, { path: wanted });
+      }
+      if (real === null) throw new PalugadaError('contract.violation', `there is no file ${wanted}: files.list says what there is`, { path: wanted });
+      // Opened without following a link, and checked as opened: a link put
+      // where the file was, after `realpath` looked, is not read through.
+      const handle = await open(real, constants.O_RDONLY | constants.O_NOFOLLOW).catch(() => {
+        throw new PalugadaError('capability.unreachable', `${wanted} is outside the company's files`, { path: wanted });
+      });
+      let info;
+      let bytes: Buffer;
+      try {
+        info = await handle.stat();
+        if (info.isDirectory()) throw new PalugadaError('contract.violation', `${wanted} is a folder: files.list lists it`, { path: wanted });
+        if (!info.isFile()) throw new PalugadaError('contract.violation', `${wanted} is not a file`, { path: wanted });
+        if (info.size > READ_MAX_BYTES) {
+          throw new PalugadaError('contract.violation', `${wanted} is ${Math.round(info.size / 1_048_576)} MB; files.read reads files up to 10 MB`, { path: wanted });
+        }
+        bytes = await handle.readFile();
+      } finally {
+        await handle.close();
+      }
+      let whole: string;
+      try {
+        whole = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes);
+        if (whole.includes('\u0000')) throw new Error('a NUL');
+      } catch {
+        throw new PalugadaError('contract.violation', `${wanted} is not text: files.read reads text in UTF-8`, { path: wanted });
+      }
+      const from = Math.floor(Number(input.from ?? 0));
+      if (!Number.isFinite(from) || from < 0 || (from > 0 && from >= whole.length)) {
+        throw new PalugadaError('contract.violation', `from is past the end: ${wanted} is ${whole.length} characters`, { field: 'from' });
+      }
+      const end = Math.min(whole.length, from + READ_CHARS);
+      return {
+        path: relative(base, real),
+        bytes: info.size,
+        text: whole.slice(from, end),
+        from,
+        next: end < whole.length ? end : null,
       };
     },
   };

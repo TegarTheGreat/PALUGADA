@@ -26,7 +26,7 @@ import { uptimeCheck, webFetch, type WebOptions } from './web.ts';
 import { webExtract, webSearch, type ExtractProvider, type SearchProvider, type ToolBinding } from './search.ts';
 import { imageGenerate, speechSynthesize, type ImageProvider, type MediaBinding, type SpeechProvider } from './media.ts';
 import { speechTranscribe, type ListenBinding } from './listen.ts';
-import { filesList, type FilesOptions } from './files.ts';
+import { filesList, filesRead, type FilesOptions } from './files.ts';
 import { docDraft, emailDraft, type DraftOptions } from './draft.ts';
 import { chatCapabilities, type ChatOptions } from './chat.ts';
 import { browserCapabilities, webExtractByBrowser } from './browser.ts';
@@ -96,6 +96,7 @@ export function platformCapabilities(
 
   if (options.files) {
     built.push(filesList(options.files) as unknown as Capability<never, never>);
+    built.push(filesRead(options.files) as unknown as Capability<never, never>);
   }
   if (options.search) built.push(webSearch(options.search) as unknown as Capability<never, never>);
   // A page is read by the provider the owner chose; with none, by this

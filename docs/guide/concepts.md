@@ -237,7 +237,7 @@ and fixes each one's tier, with the reason it is not the tier above or below.
   owner applies, so it can do nothing the owner could not do from the page,
   and nothing at all without them.
 - The platform implements the ones that need nobody's account: `web.fetch`,
-  `uptime.check`, `files.list`, `doc.draft`, `email.draft`, `memory.search`
+  `uptime.check`, `files.list`, `files.read`, `doc.draft`, `email.draft`, `memory.search`
   and `skill.read`; `mailbox.read` and `email.send` with a division's own
   mailbox; `web.search` and `web.extract` through the search
   provider you choose, and `web.extract` in the deployment's own browser

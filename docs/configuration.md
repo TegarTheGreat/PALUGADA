@@ -129,7 +129,7 @@ A secret the owner saved is named like any other, as a reference:
 | `PALUGADA_RUNTIME_HTTP_URL` | A runtime that answers over HTTP |
 | `PALUGADA_RUNTIME_IMAGE` | The Docker runtime, with no network |
 | `PALUGADA_SANDBOX_URL`, `_IMAGE` | A remote sandbox runtime |
-| `PALUGADA_FILES_ROOT` | The company's files, for `files.list` and drafting |
+| `PALUGADA_FILES_ROOT` | The company's files, for `files.list`, `files.read` and drafting. Each company's are in a folder of their own beneath it, named by its id |
 | `PALUGADA_PUSH_URL` | Push notifications for incidents and tier 3 approvals. `PALUGADA_PUSH_FORMAT=ntfy` with `PALUGADA_PUSH_TOPIC` posts in ntfy's shape; `PALUGADA_PUSH_TOKEN` (or `_TOKEN_REF`) is its token |
 | `PALUGADA_TELEGRAM_TOKEN`, `_CHAT`, `_WEBHOOK_SECRET` | Telegram with decision buttons. Point the bot's webhook at `<PALUGADA_APP_URL_PUBLIC>/api/channels/telegram`. The token and secret may be references instead, in `_TOKEN_REF` and `_WEBHOOK_SECRET_REF`; the console connects a bot for you. `PALUGADA_TELEGRAM_API` names a local Bot API server, for the owner's bot and every company's customer bot alike |
 | `PALUGADA_WHATSAPP_PHONE_ID`, `_TOKEN`, `_APP_SECRET`, `_VERIFY_TOKEN`, `_OWNER` | WhatsApp with decision buttons, through Meta's Cloud API: the business number's ID, a system user's token, the app secret that signs deliveries, the verify token the webhook is subscribed with, and the owner's number with its country code. Point the app's webhook at `<PALUGADA_APP_URL_PUBLIC>/api/channels/whatsapp`. `PALUGADA_WHATSAPP_TEMPLATE` (`name:language`) names an approved template for writing first after 24 hours of silence. The three secrets may be references instead, in `_REF`; the console connects a number for you. `PALUGADA_WHATSAPP_API` names another Graph API address, for the owner's number and every company's customer number alike |
@@ -327,7 +327,7 @@ bound next to the file's; one that no longer passes is left out with a
 note rather than stopping the start.
 
 **Capabilities.** PALUGADA implements the ones that need no vendor account:
-`web.fetch`, `uptime.check`, `files.list`, `doc.draft`, `email.draft`,
+`web.fetch`, `uptime.check`, `files.list`, `files.read`, `doc.draft`, `email.draft`,
 `memory.search` and `skill.read`, and `mailbox.read` and `email.send` with
 the mailbox each division is given on **Team** (a vendor entry for either
 is used instead). `web.search` and `web.extract` go to the

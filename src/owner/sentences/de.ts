@@ -157,6 +157,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Draft an email': 'E-Mail entwerfen',
   'Send an email': 'E-Mail senden',
   'List files': 'Dateien auflisten',
+  'Read a file': 'Eine Datei lesen',
   'Transfer money': 'Geld überweisen',
   'Propose a goal change': 'Zieländerung vorschlagen',
   'Make a picture': 'Bild erzeugen',

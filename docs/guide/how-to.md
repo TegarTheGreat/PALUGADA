@@ -388,6 +388,21 @@ what counts when that vendor is not connected: a run is told which of its
 role's tools are not connected, and cannot meet a criterion that only one of
 them could.
 
+## Let roles read the company's files
+
+With `PALUGADA_FILES_ROOT` set, each company has a folder of its own
+beneath it, named by its id: what its roles draft and make is kept there,
+and you can put files there yourself. A role lists it with `files.list` and
+reads a file with `files.read`, as text -- a draft another role wrote, a
+price list, a CSV of orders -- a long one a page at a time. It reads this
+company's folder and nothing beside it: a link that leads out is refused.
+What a file says is treated as written outside the company, since nothing
+records where it came from, so work that read one asks you before its next
+action at tier 2 or above. The standard template grants both to Operations
+and Delivery; give them to another division on **Team**. A file that is not
+text -- a picture, a recording, a PDF -- is not read yet; give a document to
+the company on **Documents** instead.
+
 ## Give a division its mailbox
 
 A division reads its mail with `mailbox.read` and sends with `email.send`

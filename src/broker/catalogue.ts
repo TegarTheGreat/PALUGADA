@@ -196,6 +196,18 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
     calibration: 'A named tier 0 example in the PRD section 8.8 table.',
   },
   {
+    name: 'files.read',
+    adapter: 'storage',
+    tier: TIER.READ_ONLY,
+    summary: 'Reads a file in the company\'s files as text.',
+    readsOutside: true,
+    calibration:
+      'Reading changes nothing, as listing does not. What a file says may have ' +
+      'come from anywhere -- the owner\'s own notes, a customer\'s attachment, a ' +
+      'draft written after reading a stranger\'s page -- and nothing records ' +
+      'which, so all of it reaches the model as content from outside (F8.9).',
+  },
+  {
     name: 'web.fetch',
     adapter: 'http',
     tier: TIER.READ_ONLY,

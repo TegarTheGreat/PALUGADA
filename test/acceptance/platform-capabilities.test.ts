@@ -578,7 +578,7 @@ test('the platform binds what it can and leaves the rest unbound (F8)', () => {
   });
   assert.deepEqual(
     full.map((capability) => capability.name).sort(),
-    ['doc.draft', 'email.draft', 'email.send', 'files.list', 'mailbox.read', 'uptime.check', 'web.fetch'],
+    ['doc.draft', 'email.draft', 'email.send', 'files.list', 'files.read', 'mailbox.read', 'uptime.check', 'web.fetch'],
   );
 
   // Every one of them declares the adapter it belongs to, which is what the

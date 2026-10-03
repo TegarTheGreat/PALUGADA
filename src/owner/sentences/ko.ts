@@ -155,6 +155,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Draft an email': '이메일 초안 작성',
   'Send an email': '이메일 보내기',
   'List files': '파일 목록 보기',
+  'Read a file': '파일 읽기',
   'Transfer money': '송금하기',
   'Propose a goal change': '목표 변경 제안',
   'Make a picture': '이미지 생성',

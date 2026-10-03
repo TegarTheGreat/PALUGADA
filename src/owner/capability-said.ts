@@ -36,6 +36,7 @@ export function capabilitySaid(language: string | null | undefined, name: string
     'email.draft': () => say(language, 'Draft an email'),
     'email.send': () => say(language, 'Send an email'),
     'files.list': () => say(language, 'List files'),
+    'files.read': () => say(language, 'Read a file'),
     'funds.transfer': () => say(language, 'Transfer money'),
     'goal.propose': () => say(language, 'Propose a goal change'),
     'image.generate': () => say(language, 'Make a picture'),

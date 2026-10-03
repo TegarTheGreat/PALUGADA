@@ -8292,6 +8292,43 @@ What changed:
   opened yet. OAuth sign-in to Gmail and Microsoft 365, rather than an app
   password, is the customers' mailbox's gap too.
 
+## 2.128 A role reads a file in the company's files (tools research, recommendation 3)
+
+Roles could list the company's files and not read one: a reviewer could
+see that a draft was there and not what it said, and a price list the owner
+left in the folder was a name. The research put `files.read` third.
+
+What changed:
+
+- **`files.read`, catalogued** at tier 0 and as a read of outside content
+  (F8.9): what a file says may have come from a customer or a stranger's
+  page by way of a draft, and nothing records which. Named "Read a file"
+  for the owner in every language.
+- **Bound beside `files.list`** when the deployment has a files root
+  (`src/capabilities/files.ts`), and granted with it to Operations and
+  Delivery in the standard template -- to the divisions, not to the roles'
+  tools, which F2.4 keeps to twelve.
+- **The same containment as `files.list`**: the path is resolved with
+  `realpath`, and anything that ends outside this company's directory --
+  `..`, a link to another company's file or to `/etc` -- is refused as
+  outside. The file is then opened without following a link and checked as
+  opened, so a link put where the file was after the path was resolved is
+  not read through.
+- **Text, read strictly.** UTF-8, its byte-order mark dropped; a file that
+  is not -- a picture, a recording, a PDF -- is said to be not text rather
+  than returned as noise. Up to 10 MB, 60,000 characters at a reading, and
+  `next` says where the following one begins.
+- **Tested.** `files-read.test.ts`: a draft and a CSV read as written; a
+  long file read in pages that join up; a parent directory, a link to
+  another company's file and one to `/etc/hostname`, and a path that climbs
+  out through a folder, all refused as outside; a missing file, a folder, a
+  picture and a start past the end each said; the catalogue's tier and
+  `readsOutside`; bound only with a root; granted where `files.list` is.
+- **Not done, next**: PDF, Word and Excel, which the research would convert
+  in the network-less container. They are to be read in the deployment's
+  sandboxed Chromium instead (2.123), so the platform's process still
+  parses no untrusted binary.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the
@@ -8334,11 +8371,11 @@ is a real Daytona or Modal machine answering; the `http` runtime also reports
 this backend, because "somewhere else, not ours" is what it means in F13.5's
 vocabulary, and it cannot verify the claim.
 
-**Thirty-five of the fifty-two catalogued capabilities are unbound on a bare
-boot -- thirty-one on a machine with a Chromium -- and that is the design
-rather than a gap.** The boot names every one. Eleven need configuration, not
-an account: `files.list`, `doc.draft` and `email.draft` a files root and a
-model; `web.search`, `image.generate`, `speech.synthesize` and
+**Thirty-six of the fifty-three catalogued capabilities are unbound on a bare
+boot -- thirty-two on a machine with a Chromium -- and that is the design
+rather than a gap.** The boot names every one. Twelve need configuration, not
+an account: `files.list` and `files.read` a files root, `doc.draft` and
+`email.draft` a files root and a model; `web.search`, `image.generate`, `speech.synthesize` and
 `speech.transcribe` a provider chosen under **Tools**; `web.extract` one of
 those or a Chromium; and `browser.read`, `browser.act` and
 `browser.handover` a Chromium. The other twenty-four need a deployment's own vendor entry,
@@ -8351,7 +8388,7 @@ uses this platform is not a decision a control plane gets to make.
 `mailbox.read` and `email.send` are the exception that proves it: a mailbox
 is one protocol whoever runs it, so the platform binds them to each
 division's own (2.127), and a vendor entry for either still takes the name.
-These counts were read from a boot when 2.127 was written; until then the
+These counts were read from a boot when 2.128 was written; until 2.127 the
 paragraph said thirty-nine, still counting `chat.read` and `chat.send`, which
 the platform has bound since 2.117.
 

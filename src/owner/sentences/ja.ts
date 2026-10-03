@@ -153,6 +153,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Draft an email': 'メールの下書きを作成',
   'Send an email': 'メールを送信',
   'List files': 'ファイルの一覧を取得',
+  'Read a file': 'ファイルを読む',
   'Transfer money': '送金する',
   'Propose a goal change': '目標の変更を提案',
   'Make a picture': '画像を生成',

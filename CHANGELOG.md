@@ -155,6 +155,11 @@ The first version. What it holds, in the order an owner meets it.
   once, with that occurrence left where it was; an off schedule can be tried
   this way and stays off, and a second press while the run is still going is
   refused and links to it (STATUS 2.61).
+- A schedule can be switched off and on again and removed from its row, and
+  a new one is set by days and a time in your own time zone, such as every
+  weekday at 07:00 WIB, rather than as cron in UTC. Saving one again no
+  longer turns it back on, and a new one cannot overwrite another under the
+  same short name (STATUS 2.86).
 - Signing in to an MCP server takes your code, as signing a division in for
   a key does: what the sign-in gives is what a saved server of that name
   uses from then on, and a session alone could change whose account that

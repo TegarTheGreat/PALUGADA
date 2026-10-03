@@ -146,6 +146,8 @@ export type ErrorCode =
    * ended. Carries that task, so the owner can open it instead.
    */
   | 'schedule.still_running'
+  /** "New schedule" under a short name another schedule of the company has (N11). */
+  | 'schedule.slug_taken'
   /**
    * A company is being made, or restored, under a short name another company
    * already has. The name is the company's handle in links and exports, so

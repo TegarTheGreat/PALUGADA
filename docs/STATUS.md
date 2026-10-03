@@ -6626,6 +6626,47 @@ What changed (`src/process-guard.ts`, installed by `runFromCommandLine`):
   it, the stop runs, and it exits 1; a stop that never finishes still ends
   the process.
 
+## 2.86 A schedule is turned off, on and removed, and set by day and time (F9.1, N11)
+
+Found by the audit of 30 September (T2-3) and in the code on 2 October
+(N11). A schedule had two routes, save and run now. The console showed
+"Off" with nothing to turn it on; a schedule turned off -- by denying the
+escalation that asks whether a repetitive one is still worth running, or by
+closing its goal -- could be revived only by typing it again under the same
+short name, which overwrote its brief, kept its old role, and turned it on,
+since saving said `enabled ?? true`. Nothing removed one. And a new one was
+asked for as cron, in UTC unless the owner found the zone list: an owner in
+Jakarta who wanted seven in the morning had to type `0 0 * * *`, or know to
+pick Asia/Jakarta and type `0 7 * * *`.
+
+What changed:
+
+- **Off and on** (`POST …/schedules/:id/enabled`). Turned on, its next run
+  is its next time from now: what it would have run while off is not owed,
+  and a week off is not a week of runs at once. `schedule.turned` records
+  it.
+- **Removed** (`POST …/schedules/:id/remove`). The work it made stays, as
+  work the owner can open, without its link to the schedule (0049).
+  `schedule.removed` records it.
+- **Saving again keeps it off.** Without `enabled`, a schedule saved again
+  keeps what it was; a new one is on.
+- **A new one cannot take a taken name.** "New schedule" sends `create`, and
+  a short name in use is refused with 409, naming it, rather than that
+  schedule overwritten.
+- **Days and a time, not cron.** The form asks how often it repeats --
+  every day, every weekday, one day of the week, every hour -- and at what
+  time, in half hours, and builds the cron; **Custom, as cron** remains for
+  anything else. The time zone starts as the browser's own, and each zone is
+  labelled with what its clock is called there ("Asia/Jakarta · WIB"). The
+  table says a schedule's time in words, "Every weekday at 07:00", with the
+  cron in its tooltip.
+- **Each row** has a switch for off and on, and a button to remove it after
+  asking. The assistant may propose either.
+- **Tested.** `schedule-control.test.ts`: off, a week passing runs nothing;
+  on again, the next run is ahead and nothing is caught up; saved again it
+  stays off; a new one under a taken name is refused and the old brief
+  kept; removed, its run is still there with no schedule.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

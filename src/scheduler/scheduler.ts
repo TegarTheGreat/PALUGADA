@@ -136,7 +136,17 @@ export interface ScheduleInput {
   timezone?: string;
   input?: Record<string, unknown>;
   reserveTokens?: number;
+  /**
+   * On or off. Omitted, a new schedule is on and one saved again keeps what
+   * it was (N11): saving said "on" whatever it was, so editing a schedule the
+   * owner had turned off turned it back on.
+   */
   enabled?: boolean;
+  /**
+   * A new schedule, not an edit (N11): a name already in use is refused
+   * rather than overwriting that schedule's brief and turning it on.
+   */
+  create?: boolean;
   /**
    * F9.5: the tasks this schedule creates may wait for cheap hours.
    *
@@ -280,6 +290,14 @@ export async function upsertSchedule(input: ScheduleInput, now = new Date()): Pr
         { companyId: input.companyId },
       );
     }
+    if (input.create) {
+      const { rows: taken } = await tx.query('SELECT 1 FROM schedules WHERE slug = $1', [input.slug]);
+      if (taken.length > 0) {
+        throw new PalugadaError('schedule.slug_taken',
+          `a schedule named ${input.slug} already exists: give this one another short name, or edit that one`,
+          { slug: input.slug });
+      }
+    }
 
     const { rows } = await tx.query<{ id: string }>(
       `INSERT INTO schedules
@@ -293,7 +311,7 @@ export async function upsertSchedule(input: ScheduleInput, now = new Date()): Pr
              timezone         = EXCLUDED.timezone,
              input            = EXCLUDED.input,
              reserve_tokens   = EXCLUDED.reserve_tokens,
-             enabled          = EXCLUDED.enabled,
+             enabled          = CASE WHEN $18::boolean IS NULL THEN schedules.enabled ELSE EXCLUDED.enabled END,
              next_run_at      = EXCLUDED.next_run_at,
              batchable        = EXCLUDED.batchable,
              goal_id          = EXCLUDED.goal_id,
@@ -321,9 +339,54 @@ export async function upsertSchedule(input: ScheduleInput, now = new Date()): Pr
         input.priority ?? DEFAULT_SCHEDULE_PRIORITY,
         input.overlap ?? 'skip',
         input.catchUpMinutes ?? null,
+        input.enabled ?? null,
       ],
     );
     return rows[0]!.id;
+  });
+}
+
+/**
+ * Turns a schedule off or on (N11). On again, its next run is its next time
+ * from now: the occurrences it was off for are not owed, and a week off is
+ * not a week of runs at once. Written on the control plane, as an owner's
+ * action is.
+ */
+export async function setScheduleEnabled(
+  companyId: string, scheduleId: string, enabled: boolean, now = new Date(),
+): Promise<void> {
+  await withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ slug: string; cron_expression: string; timezone: string }>(
+      'SELECT slug, cron_expression, timezone FROM schedules WHERE id = $1 AND company_id = $2 FOR UPDATE',
+      [scheduleId, companyId],
+    );
+    const schedule = rows[0];
+    if (!schedule) throw new PalugadaError('contract.violation', 'no such schedule in this company', { scheduleId });
+    await tx.query(
+      `UPDATE schedules
+          SET enabled = $2,
+              next_run_at = CASE WHEN $2 THEN $3 ELSE next_run_at END,
+              held_by_task_id = CASE WHEN $2 THEN NULL ELSE held_by_task_id END
+        WHERE id = $1`,
+      [scheduleId, enabled, nextOccurrence(schedule.cron_expression, schedule.timezone, now)],
+    );
+    await appendEvent(tx, {
+      companyId, type: 'schedule.turned', actor: 'owner', payload: { scheduleId, slug: schedule.slug, enabled },
+    });
+  });
+}
+
+/**
+ * Removes a schedule (N11). The work it made stays, as work the owner gave:
+ * a task keeps its run and journal, and only its link to the schedule goes
+ * (0049). A run still going finishes as it would have.
+ */
+export async function removeSchedule(companyId: string, scheduleId: string): Promise<void> {
+  await withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ slug: string }>(
+      'DELETE FROM schedules WHERE id = $1 AND company_id = $2 RETURNING slug', [scheduleId, companyId]);
+    if (!rows[0]) throw new PalugadaError('contract.violation', 'no such schedule in this company', { scheduleId });
+    await appendEvent(tx, { companyId, type: 'schedule.removed', actor: 'owner', payload: { scheduleId, slug: rows[0].slug } });
   });
 }
 

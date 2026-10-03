@@ -882,8 +882,14 @@ A remote sandbox is the same idea on a provider's machines:
 
 On **Team**, **Schedules**, press **New schedule**, choose the **Role** and
 **Project**, the goal it **Serves**, **What each run is asked to do**, a
-**Short name**, the **Cron** expression (minute, hour, day, month,
-weekday), the **Time zone** and the **Priority**, and press **Schedule it**.
+**Short name**, how often it **Repeats** -- every day, every weekday, one
+day of the week, or every hour -- and **At** what time, the **Time zone**
+(the one your browser is in to begin with, such as Asia/Jakarta, shown as
+WIB) and the **Priority**, and press **Schedule it**. For anything those
+cannot say, choose **Custom, as cron** and type the cron expression (minute,
+hour, day, month, weekday). A short name another schedule has is refused,
+rather than that schedule overwritten. The table says when each runs in
+words, such as "Every weekday at 07:00", with the cron in its tooltip.
 Each occurrence creates one task, in the schedule's own time zone. On the
 nights the clock changes, a schedule at fixed hours still runs once: at the
 first 01:30 when the clock goes back and shows 01:30 twice, and at the moment
@@ -912,10 +918,15 @@ Two more choices say what happens when a run cannot go at its time:
   the last one finishes** that waits past this is dropped too.
 
 Under **Next**, the table says when the last run did not happen and why,
-and how many were dropped. Saving a schedule again under the same short name
-replaces it, these two choices included; through the API they are
-`overlap` (`skip`, `queue` or `allow`) and `catchUpMinutes` (15 to 525600,
-or `null`).
+and how many were dropped. Through the API these two choices are `overlap`
+(`skip`, `queue` or `allow`) and `catchUpMinutes` (15 to 525600, or `null`);
+saving a schedule again under its short name, without `create`, edits it,
+and leaves it off if it was off.
+
+The switch on a schedule's row turns it off and on again. Turned on, its
+next run is its next time: the runs it would have made while off are not
+made all at once. The bin icon removes it, after asking; the work it
+already made stays, as work you can open.
 
 To see what a schedule does without waiting for its next occurrence, press
 **Run now** on its row. The dialog says how many tokens the run reserves from

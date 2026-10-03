@@ -8,13 +8,13 @@
  */
 import { useEffect, useState } from 'react';
 import {
-  Accordion, Alert, Anchor, Avatar, Badge, Box, Button, Card, Code, Divider, Drawer, Group, List, Modal, Paper, PasswordInput, Progress, Select, SimpleGrid, Spoiler, Stack, Table, Tabs, Text, TextInput, Textarea, ThemeIcon, Tooltip,
+  Accordion, ActionIcon, Alert, Anchor, Avatar, Badge, Box, Button, Card, Code, Divider, Drawer, Group, List, Modal, Paper, PasswordInput, Progress, Select, SimpleGrid, Spoiler, Stack, Switch, Table, Tabs, Text, TextInput, Textarea, ThemeIcon, Tooltip,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
   IconArrowsRight, IconCalendarTime, IconChartBar, IconCoin, IconCrown, IconFlag, IconFlask, IconHammer, IconHeadset, IconMessageCircle, IconPlus,
   IconRoute, IconLicense, IconSettings, IconShieldCheck, IconSparkles, IconTarget, IconTrendingUp, IconUserCircle, IconUsersGroup, IconWebhook, IconFolders,
-  IconKey, IconExternalLink, IconLogin, IconPlayerPlay,
+  IconKey, IconExternalLink, IconLogin, IconPlayerPlay, IconTrash,
 } from '@tabler/icons-react';
 import { useMediaQuery } from '@mantine/hooks';
 import { api, ApiError, explain } from '../api.ts';
@@ -23,7 +23,7 @@ import { useLoad } from '../hooks.ts';
 import type { Company, Division, Goal, PersonaPreset, PolicyRow, Role, Schedule, Structure } from '../types.ts';
 import { count, dateTime, goalKind, money, relative } from '../format.ts';
 import type { PageProps } from '../App.tsx';
-import { N, t, tp } from '../i18n.ts';
+import { N, locale, t, tp } from '../i18n.ts';
 import { LoadFailed, Loading, PageHeader, Section } from '../components/ui.tsx';
 import { ActionButton, ActionForm } from '../components/ActionForm.tsx';
 import { AssignWork } from '../components/AssignWork.tsx';
@@ -1265,6 +1265,63 @@ function GoalEditor({ companyId, goal, close, changed }: { companyId: string; go
 
 const ZONES = ['UTC', 'Asia/Jakarta', 'Asia/Makassar', 'Asia/Jayapura', 'Asia/Singapore', 'Europe/London', 'America/New_York', 'America/Los_Angeles'];
 
+/** The zone this browser is in: a new schedule's default, so an owner in Jakarta is asked in WIB, not UTC (N11). */
+function ownZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
+  }
+}
+
+/** A zone as the owner reads it: its name, and what the clock there is called -- "Asia/Jakarta · WIB". */
+function zoneLabel(zone: string): string {
+  try {
+    const named = new Intl.DateTimeFormat(locale(), { timeZone: zone, timeZoneName: 'short' })
+      .formatToParts(new Date()).find((part) => part.type === 'timeZoneName')?.value;
+    return named && named !== zone ? `${zone} · ${named}` : zone;
+  } catch {
+    return zone;
+  }
+}
+
+/** A weekday's name in the owner's language, Sunday being 0 as cron counts. */
+function weekday(day: number): string {
+  // 2023-01-01 was a Sunday.
+  return new Intl.DateTimeFormat(locale(), { weekday: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(2023, 0, 1 + day)));
+}
+
+/** Every half hour of a day, for the time a schedule runs at. */
+const TIMES = Array.from({ length: 48 }, (_, slot) => `${String(Math.floor(slot / 2)).padStart(2, '0')}:${slot % 2 ? '30' : '00'}`);
+
+/**
+ * The cron a choice of days and a time makes (N11): an owner picks "every
+ * weekday at 07:00", and only a schedule the choices cannot say needs cron.
+ */
+function cronFor(repeats: string, at: string, custom: string): string {
+  const [hour, minute] = at.split(':').map(Number) as [number, number];
+  if (repeats === 'daily') return `${minute} ${hour} * * *`;
+  if (repeats === 'weekdays') return `${minute} ${hour} * * 1-5`;
+  if (repeats === 'hourly') return `${minute} * * * *`;
+  if (/^[0-6]$/.test(repeats)) return `${minute} ${hour} * * ${repeats}`;
+  if (!custom.trim()) throw new Error(t('A custom schedule needs its cron.'));
+  return custom.trim();
+}
+
+/** A schedule's cron in words, where it is one of the shapes the form makes; null otherwise. */
+function cronSaid(cron: string): string | null {
+  const parts = cron.trim().split(/\s+/);
+  if (parts.length !== 5 || !/^\d+$/.test(parts[0]!) || parts[2] !== '*' || parts[3] !== '*') return null;
+  const minute = Number(parts[0]);
+  if (parts[1] === '*' && parts[4] === '*') return t('Every hour at minute {minute}', { minute: String(minute).padStart(2, '0') });
+  if (!/^\d+$/.test(parts[1]!)) return null;
+  const time = `${String(Number(parts[1])).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+  if (parts[4] === '*') return t('Every day at {time}', { time });
+  if (parts[4] === '1-5') return t('Weekdays at {time}', { time });
+  if (/^[0-6]$/.test(parts[4]!)) return t('Every {day} at {time}', { day: weekday(Number(parts[4])), time });
+  return null;
+}
+
 /** What a schedule does while its last run is still going (F9.1), as the table says it. */
 const OVERLAP_SAID: Record<Schedule['overlap'], string> = {
   skip: N('Skips a run while the last one is going'),
@@ -1308,6 +1365,37 @@ function Schedules({
   // budget account, so the press says how much before it spends it.
   const [running, setRunning] = useState<Schedule | null>(null);
   const [busy, setBusy] = useState(false);
+  // The schedule about to be removed, asked about first: removing is for good.
+  const [removing, setRemoving] = useState<Schedule | null>(null);
+
+  // Off and on again (N11). On, its next run is its next time.
+  const turn = async (schedule: Schedule, enabled: boolean) => {
+    try {
+      await api('POST', `/api/companies/${companyId}/schedules/${schedule.id}/enabled`, { enabled });
+      notifications.show({
+        color: 'teal',
+        message: enabled ? t('{slug} is on: its next run is its next time.', { slug: schedule.slug }) : t('{slug} is off.', { slug: schedule.slug }),
+      });
+      changed();
+    } catch (failure) {
+      notifications.show({ color: 'red', message: explain(failure) });
+    }
+  };
+
+  const remove = async (schedule: Schedule) => {
+    setBusy(true);
+    try {
+      await api('POST', `/api/companies/${companyId}/schedules/${schedule.id}/remove`);
+      notifications.show({ color: 'teal', message: t('{slug} is removed.', { slug: schedule.slug }) });
+      changed();
+    } catch (failure) {
+      notifications.show({ color: 'red', message: explain(failure) });
+    } finally {
+      setBusy(false);
+      setRemoving(null);
+    }
+  };
+  const zones = [...new Set([ownZone(), ...ZONES])];
 
   const runNow = async (schedule: Schedule) => {
     setBusy(true);
@@ -1360,23 +1448,39 @@ function Schedules({
                     <Text size="xs" c="dimmed">P{schedule.priority} · {t(OVERLAP_SAID[schedule.overlap])}</Text>
                     <Text size="xs" c="dimmed">{catchUpSaid(schedule.catchUpMinutes)}</Text>
                   </Table.Td>
-                  <Table.Td><Text size="sm" ff="monospace">{schedule.cron}</Text><Text size="xs" c="dimmed">{schedule.timezone}</Text></Table.Td>
+                  <Table.Td>
+                    {cronSaid(schedule.cron)
+                      ? <Tooltip label={schedule.cron}><Text size="sm">{cronSaid(schedule.cron)}</Text></Tooltip>
+                      : <Text size="sm" ff="monospace">{schedule.cron}</Text>}
+                    <Text size="xs" c="dimmed">{zoneLabel(schedule.timezone)}</Text>
+                  </Table.Td>
                   <Table.Td><Text size="sm">{schedule.roleSlug}</Text><Text size="xs" c="dimmed">{schedule.divisionName}</Text></Table.Td>
                   <Table.Td>
                     <Text size="sm">{relative(schedule.nextRunAt)}</Text>
                     {schedule.lastSkipped && <Text size="xs" c="dimmed">{skippedSaid(schedule.lastSkipped)}</Text>}
                   </Table.Td>
                   <Table.Td>
-                    {schedule.failure ? <Tooltip label={schedule.failure}><Badge color="red" variant="light">{t('Cannot fire')}</Badge></Tooltip>
-                      : !schedule.enabled ? <Badge color="gray" variant="light">{t('Off')}</Badge>
-                        : schedule.waitingFor
-                          ? <Tooltip label={t('Its last run is still going. This one runs when that one finishes.')}><Badge color="yellow" variant="light">{t('Waiting')}</Badge></Tooltip>
-                          : <Badge color="teal" variant="light">{t('On')}</Badge>}
+                    <Group gap="xs" wrap="nowrap">
+                      <Switch size="sm" checked={schedule.enabled} onChange={(event) => void turn(schedule, event.currentTarget.checked)}
+                        aria-label={t('Turn {slug} on or off', { slug: schedule.slug })} />
+                      {schedule.failure ? <Tooltip label={schedule.failure}><Badge color="red" variant="light">{t('Cannot fire')}</Badge></Tooltip>
+                        : !schedule.enabled ? <Badge color="gray" variant="light">{t('Off')}</Badge>
+                          : schedule.waitingFor
+                            ? <Tooltip label={t('Its last run is still going. This one runs when that one finishes.')}><Badge color="yellow" variant="light">{t('Waiting')}</Badge></Tooltip>
+                            : <Badge color="teal" variant="light">{t('On')}</Badge>}
+                    </Group>
                   </Table.Td>
                   <Table.Td ta="right">
-                    <Button size="compact-xs" variant="light" leftSection={<IconPlayerPlay size={12} />} onClick={() => setRunning(schedule)}>
-                      {t('Run now')}
-                    </Button>
+                    <Group gap="xs" justify="flex-end" wrap="nowrap">
+                      <Button size="compact-xs" variant="light" leftSection={<IconPlayerPlay size={12} />} onClick={() => setRunning(schedule)}>
+                        {t('Run now')}
+                      </Button>
+                      <Tooltip label={t('Remove')}>
+                        <ActionIcon size="sm" variant="subtle" color="red" aria-label={t('Remove {slug}', { slug: schedule.slug })} onClick={() => setRemoving(schedule)}>
+                          <IconTrash size={14} />
+                        </ActionIcon>
+                      </Tooltip>
+                    </Group>
                   </Table.Td>
                 </Table.Tr>
               ))}
@@ -1398,6 +1502,17 @@ function Schedules({
           </Stack>
         )}
       </Modal>
+      <Modal opened={removing !== null} onClose={() => { if (!busy) setRemoving(null); }} title={t('Remove {slug}', { slug: removing?.slug ?? '' })} centered>
+        {removing && (
+          <Stack>
+            <Text size="sm">{t('It will not run again. The work it already made stays, with what that work produced.')}</Text>
+            <Group justify="flex-end">
+              <Button variant="default" disabled={busy} onClick={() => setRemoving(null)}>{t('Cancel')}</Button>
+              <Button color="red" loading={busy} leftSection={<IconTrash size={16} />} onClick={() => void remove(removing)}>{t('Remove it')}</Button>
+            </Group>
+          </Stack>
+        )}
+      </Modal>
       <Modal opened={adding} onClose={() => setAdding(false)} title={t('New schedule')} centered size="lg">
         <ActionForm
           fields={[
@@ -1414,8 +1529,18 @@ function Schedules({
             { name: 'brief', label: t('What each run is asked to do'), type: 'textarea', required: true, wide: true,
               placeholder: t('Reconcile last week\'s invoices against the bank statement and list anything that does not match.') },
             { name: 'slug', label: t('Short name'), required: true, placeholder: 'weekly-invoices' },
-            { name: 'cronExpression', label: t('Cron'), required: true, placeholder: '0 3 * * *', description: t('minute hour day month weekday') },
-            { name: 'timezone', label: t('Time zone'), type: 'select', initial: 'UTC', options: ZONES.map((zone) => ({ value: zone, label: zone })) },
+            // Days and a time, not cron (N11); cron only for what these cannot say.
+            { name: 'repeats', label: t('Repeats'), type: 'select', required: true, initial: 'daily', options: [
+              { value: 'daily', label: t('Every day') },
+              { value: 'weekdays', label: t('Every weekday, Monday to Friday') },
+              ...[1, 2, 3, 4, 5, 6, 0].map((day) => ({ value: String(day), label: t('Every {day}', { day: weekday(day) }) })),
+              { value: 'hourly', label: t('Every hour') },
+              { value: 'custom', label: t('Custom, as cron') },
+            ] },
+            { name: 'at', label: t('At'), type: 'select', required: true, initial: '07:00',
+              description: t('Every hour runs at this time\'s minutes.'), options: TIMES.map((time) => ({ value: time, label: time })) },
+            { name: 'timezone', label: t('Time zone'), type: 'select', initial: zones[0]!, options: zones.map((zone) => ({ value: zone, label: zoneLabel(zone) })) },
+            { name: 'cronExpression', label: t('Cron, for a custom schedule'), placeholder: '0 3 * * *', description: t('minute hour day month weekday') },
             { name: 'priority', label: t('Priority'), type: 'select', initial: '2', options: [
               { value: '0', label: t('P0 · first') }, { value: '1', label: 'P1' }, { value: '2', label: t('P2 · normal') }, { value: '3', label: t('P3 · last') },
             ] },
@@ -1441,9 +1566,12 @@ function Schedules({
           ]}
           submit={(values) => {
             const role = structure.roles.find((one) => one.id === values.roleId);
-            const { brief, catchUpMinutes, ...rest } = values;
+            const { brief, catchUpMinutes, repeats, at, cronExpression, ...rest } = values;
             return api('POST', `/api/companies/${companyId}/schedules`, {
               ...rest,
+              cronExpression: cronFor(String(repeats), String(at), String(cronExpression ?? '')),
+              // A new one: a short name in use is refused, not that schedule overwritten (N11).
+              create: true,
               divisionId: role?.divisionId,
               // The standard roles take their work as `goal`.
               input: { goal: brief },

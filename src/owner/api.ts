@@ -127,7 +127,7 @@ import { assertValidCondition, type Condition } from '../policy/condition.ts';
 import { POLICY_EFFECTS, type PolicyEffect } from '../policy/engine.ts';
 import { setThresholds } from '../reporting/alerts.ts';
 import { pendingReviews } from '../review/review.ts';
-import { OVERLAP_POLICIES, runScheduleNow, upsertSchedule } from '../scheduler/scheduler.ts';
+import { OVERLAP_POLICIES, removeSchedule, runScheduleNow, setScheduleEnabled, upsertSchedule } from '../scheduler/scheduler.ts';
 import {
   addEvalCase,
   approveSkillVersion,
@@ -4632,6 +4632,8 @@ export class OwnerApi {
               : { reserveTokens: wholeNumber(body.reserveTokens, 'reserveTokens') }),
             ...(body.batchable === undefined ? {} : { batchable: body.batchable === true }),
             ...(body.enabled === undefined ? {} : { enabled: body.enabled !== false }),
+            // "New schedule", not an edit: a name in use is refused (N11).
+            ...(body.create === true ? { create: true } : {}),
             ...(body.priority === undefined ? {} : { priority: wholeNumber(body.priority, 'priority') }),
             // F9.1. Checked here for its shape; the range, and why it has a
             // floor, is the scheduler's to say (`assertScheduleTiming`). Null
@@ -4658,6 +4660,31 @@ export class OwnerApi {
         method: 'POST',
         pattern: '/api/companies/:companyId/schedules/:scheduleId/run',
         handle: async ({ params }) => ({ task: await runScheduleNow(params.companyId!, params.scheduleId!) }),
+      },
+
+      {
+        // N11: off and on again. The session suffices, as saving one does: on,
+        // it draws on its own account under its role's grants, and its next
+        // run is its next time, not the ones it was off for.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/schedules/:scheduleId/enabled',
+        handle: async ({ params, body }) => {
+          if (typeof body.enabled !== 'boolean') {
+            throw new PalugadaError('contract.violation', 'enabled must be true or false', { field: 'enabled' });
+          }
+          await setScheduleEnabled(params.companyId!, params.scheduleId!, body.enabled);
+          return { ok: true };
+        },
+      },
+
+      {
+        // N11: a schedule removed. The work it made stays.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/schedules/:scheduleId/remove',
+        handle: async ({ params }) => {
+          await removeSchedule(params.companyId!, params.scheduleId!);
+          return { ok: true };
+        },
       },
 
       {
@@ -5597,6 +5624,7 @@ function statusFor(code: string): number {
   if (code === 'owner.throttled') return 429;
   if (code === 'owner.claimed') return 409;
   if (code === 'schedule.still_running') return 409;
+  if (code === 'schedule.slug_taken') return 409;
   if (code === 'task.not_continuable') return 409;
   if (code === 'company.slug_taken') return 409;
   if (code === 'mfa.locked_out') return 429;

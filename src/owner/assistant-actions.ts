@@ -482,7 +482,9 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     what: 'Recurring work.',
     fields: {
       slug: 'short id', cronExpression: 'five-field cron', timezone: 'an IANA zone', roleId: 'who does it', goalId: 'the goal it serves',
-      input: '{ goal: "what to do each time" }', enabled: 'true or false', divisionId: 'the role\'s division', projectId: 'the project the work goes in',
+      input: '{ goal: "what to do each time" }', enabled: 'true or false; left out, a schedule saved again keeps what it was',
+      divisionId: 'the role\'s division', projectId: 'the project the work goes in',
+      create: 'true for a new schedule, so a short name in use is refused rather than that schedule overwritten',
     },
     factor: 'never',
   },
@@ -494,6 +496,17 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     what: 'Run a schedule once now, as its next occurrence would, without moving its next run; one that is off may be tried this way and stays off. '
       + 'Refused while a task it made has not ended. The schedules are in GET /api/companies/:companyId/schedules.',
     factor: 'never', chat: true,
+  },
+  {
+    pattern: '/api/companies/:companyId/schedules/:scheduleId/enabled',
+    what: 'Turn a schedule off, or on again; on again, its next run is its next time, not the runs it missed while off.',
+    fields: { enabled: 'true or false' },
+    factor: 'never', chat: true,
+  },
+  {
+    pattern: '/api/companies/:companyId/schedules/:scheduleId/remove',
+    what: 'Remove a schedule. The work it already made stays.',
+    factor: 'never',
   },
   {
     pattern: '/api/companies/:companyId/triggers',

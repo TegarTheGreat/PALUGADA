@@ -6276,6 +6276,30 @@ What changed:
   each; an unknown language is refused by name with no company made; with no
   panel language, both stay unset.
 
+## 2.75 A task's progress counts the actions of its plan (N9)
+
+Found on the live run of 2 October (N9). A task that had halted for its
+budget showed a full bar, "5/5", beside "Out of budget". The bar divided
+two different counts: every step the journal had committed -- each model
+turn and each tool call -- over the actions the task's plan named. A run that
+had thought five times had "done" a five-step plan whether or not it had
+taken one of its actions.
+
+What changed:
+
+- **The plan's own actions.** The work view counts, for each capability the
+  plan names and as often as it names it, the calls of it that succeeded
+  (`planDone`). The bar is that over the plan's steps. A capability the plan
+  names once and the run calls three times is one action of the plan; a
+  call that failed, and `plan.record` itself, are none.
+- **Finished, the bar is full** and the count still says how much of the
+  plan it took; stopped, it says where.
+- **The journal's count stays**, as steps, for a task with no plan.
+- **Tested.** `work-status.test.ts`: a plan of three with five model turns,
+  one unplanned read, two planned reads and a draft that failed reads 2/3,
+  running and halted; one capability called three times for a plan that
+  names it once reads 1/1; no plan, no count.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

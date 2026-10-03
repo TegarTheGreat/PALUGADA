@@ -934,6 +934,7 @@ export const DICTIONARY: Dictionary = {
   "Now: {role}, for {minutes} minutes, then you.": "当前：先交给 {role}，{minutes} 分钟后再交给您。",
   "Now: {step}": "当前：{step}",
   "Objective": "目标（O）",
+  "Of the actions its plan named, how many it has taken": "计划列出的操作中已完成的数量",
   "Off": "关闭",
   "Older": "更早",
   "On": "开启",

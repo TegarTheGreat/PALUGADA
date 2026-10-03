@@ -945,6 +945,7 @@ export const DICTIONARY: Dictionary = {
   "Now: {role}, for {minutes} minutes, then you.": "الآن: {role}، لمدة {minutes} د، ثم أنت.",
   "Now: {step}": "الآن: {step}",
   "Objective": "الهدف",
+  "Of the actions its plan named, how many it has taken": "كم أنجزت من الإجراءات التي سمّتها خطتها",
   "Off": "متوقف",
   "Older": "الأقدم",
   "On": "مفعّل",

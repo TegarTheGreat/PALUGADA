@@ -918,6 +918,7 @@ export const DICTIONARY: Dictionary = {
   "Now: {role}, for {minutes} minutes, then you.": "अभी: {role}, {minutes} मिनट तक, फिर आप।",
   "Now: {step}": "अभी: {step}",
   "Objective": "उद्देश्य",
+  "Of the actions its plan named, how many it has taken": "इसकी योजना में बताए गए कामों में से कितने यह कर चुका है",
   "Off": "बंद",
   "Older": "पुराने",
   "On": "चालू",

@@ -965,6 +965,7 @@ export const DICTIONARY: Dictionary = {
   "Now: {role}, for {minutes} minutes, then you.": "Sapunika: {role}, salami {minutes} menit, lajeng panjenengan.",
   "Now: {step}": "Sapunika: {step}",
   "Objective": "Gegayuhan",
+  "Of the actions its plan named, how many it has taken": "Pira saka tindakan sing disebut rencanané wis ditindakaké",
   "Off": "Mati",
   "Older": "Langkung lami",
   "On": "Urup",

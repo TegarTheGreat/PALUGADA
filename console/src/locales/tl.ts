@@ -928,6 +928,7 @@ export const DICTIONARY: Dictionary = {
   "Now: {role}, for {minutes} minutes, then you.": "Ngayon: {role}, nang {minutes} minuto, saka ikaw.",
   "Now: {step}": "Ngayon: {step}",
   "Objective": "Layunin",
+  "Of the actions its plan named, how many it has taken": "Ilan sa mga hakbang na binanggit ng plano nito ang nagawa na",
   "Off": "Naka-off",
   "Older": "Mas luma",
   "On": "Naka-on",

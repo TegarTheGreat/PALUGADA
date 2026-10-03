@@ -295,15 +295,25 @@ export interface WorkItem {
   parentTaskId: string | null;
   /**
    * How far it has got, from its own journal: steps committed, the step it
-   * is on or last took, how many actions its plan named, which worker holds
-   * it and when that worker last said it was alive. What an owner asks of a
-   * task that has been "running" for an hour is exactly these.
+   * is on or last took, how many actions its plan named and how many of
+   * those it has taken, which worker holds it and when that worker last said
+   * it was alive. What an owner asks of a task that has been "running" for
+   * an hour is exactly these.
    */
   progress: {
+    /** Every step the journal committed: model turns and tool calls alike. */
     stepsDone: number;
     currentStep: string | null;
     currentStepStatus: string | null;
     planSteps: number | null;
+    /**
+     * The actions of its plan it has taken: a tool call that succeeded for
+     * each step the plan named, a capability named twice needing two. Null
+     * with no plan. The bar is this over `planSteps`; it was `stepsDone`
+     * over it, and a halted run that had thought five times showed a
+     * five-step plan as done (N9).
+     */
+    planDone: number | null;
     worker: string | null;
     heartbeatAt: Date | null;
     deadlineAt: Date | null;
@@ -341,7 +351,8 @@ export async function workOf(
       priority: number; attempt: number; attempt_max: number; created_at: Date;
       started_at: Date | null; finished_at: Date | null; cost_cents: string;
       parent_task_id: string | null; output: unknown; steps_done: number; current_step: string | null;
-      current_step_status: string | null; plan_steps: number | null; lease_holder: string | null;
+      current_step_status: string | null; plan_steps: number | null; plan_done: number | null;
+      lease_holder: string | null;
       heartbeat_at: Date | null; deadline_at: Date | null; project_id: string; project_name: string;
       created_micros: string;
     }>(
@@ -357,6 +368,17 @@ export async function workOf(
               last.name AS current_step, last.status AS current_step_status,
               CASE WHEN jsonb_typeof(t.plan -> 'steps') = 'array'
                    THEN jsonb_array_length(t.plan -> 'steps') END AS plan_steps,
+              -- Each capability the plan names, as often as it names it,
+              -- against the calls of it that succeeded.
+              CASE WHEN jsonb_typeof(t.plan -> 'steps') = 'array' THEN (
+                SELECT coalesce(sum(LEAST(planned.times, (
+                         SELECT count(*) FROM task_steps j
+                          WHERE j.task_id = t.id AND j.kind = 'tool' AND j.status = 'committed'
+                            AND j.name = 'capability:' || planned.capability))), 0)::int
+                  FROM (SELECT step ->> 'capability' AS capability, count(*) AS times
+                          FROM jsonb_array_elements(t.plan -> 'steps') step
+                         GROUP BY 1) planned
+              ) END AS plan_done,
               (SELECT max(a.last_heartbeat_at) FROM agent_runs a WHERE a.task_id = t.id) AS heartbeat_at
          FROM tasks t
          JOIN roles r ON r.id = t.role_id
@@ -421,6 +443,7 @@ export async function workOf(
           currentStep: row.current_step,
           currentStepStatus: row.current_step_status,
           planSteps: row.plan_steps,
+          planDone: row.plan_done,
           worker: row.lease_holder,
           heartbeatAt: row.heartbeat_at,
           deadlineAt: row.deadline_at,

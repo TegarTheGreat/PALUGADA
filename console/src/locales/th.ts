@@ -967,6 +967,7 @@ export const DICTIONARY: Dictionary = {
   "Now: {role}, for {minutes} minutes, then you.": "ตอนนี้: {role} เป็นเวลา {minutes} นาที แล้วจึงถึงคุณ",
   "Now: {step}": "ขณะนี้: {step}",
   "Objective": "วัตถุประสงค์",
+  "Of the actions its plan named, how many it has taken": "ทำการกระทำที่แผนระบุไว้ไปแล้วกี่อย่าง",
   "Off": "ปิด",
   "Older": "เก่ากว่า",
   "On": "เปิด",

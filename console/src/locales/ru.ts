@@ -952,6 +952,7 @@ export const DICTIONARY: Dictionary = {
   "Now: {role}, for {minutes} minutes, then you.": "Сейчас: {role} в течение {minutes} мин, затем вы.",
   "Now: {step}": "Сейчас: {step}",
   "Objective": "Цель",
+  "Of the actions its plan named, how many it has taken": "Сколько действий из своего плана задача уже выполнила",
   "Off": "Выкл.",
   "Older": "Более ранние",
   "On": "Вкл.",

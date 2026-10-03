@@ -868,6 +868,7 @@ export const DICTIONARY: Dictionary = {
   "Now: {role}, for {minutes} minutes, then you.": "Sekarang: {role}, selama {minutes} menit, lalu Anda.",
   "Now: {step}": "Sekarang: {step}",
   "Objective": "Objektif",
+  "Of the actions its plan named, how many it has taken": "Berapa dari tindakan yang disebut rencananya sudah dikerjakan",
   "Off": "Mati",
   "Older": "Lebih lama",
   "On": "Aktif",

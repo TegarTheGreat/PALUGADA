@@ -945,6 +945,7 @@ export const DICTIONARY: Dictionary = {
   "Now: {role}, for {minutes} minutes, then you.": "현재: {role}이(가) {minutes}분 동안 맡은 뒤 본인에게 전달.",
   "Now: {step}": "현재: {step}",
   "Objective": "목표(O)",
+  "Of the actions its plan named, how many it has taken": "계획에 적은 작업 중 이미 한 작업 수",
   "Off": "끔",
   "Older": "이전",
   "On": "켬",

@@ -972,6 +972,7 @@ export const DICTIONARY: Dictionary = {
   "Now: {role}, for {minutes} minutes, then you.": "Hiện tại: {role}, trong {minutes} phút, sau đó đến bạn.",
   "Now: {step}": "Hiện tại: {step}",
   "Objective": "Mục tiêu",
+  "Of the actions its plan named, how many it has taken": "Đã làm được bao nhiêu trong số các việc kế hoạch đã nêu",
   "Off": "Tắt",
   "Older": "Cũ hơn",
   "On": "Bật",

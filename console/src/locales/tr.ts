@@ -974,6 +974,7 @@ export const DICTIONARY: Dictionary = {
   "Now: {role}, for {minutes} minutes, then you.": "Şimdi: {role}, {minutes} dakika boyunca, sonra siz.",
   "Now: {step}": "Şimdi: {step}",
   "Objective": "Amaç",
+  "Of the actions its plan named, how many it has taken": "Planında adı geçen işlerden kaçını yaptı",
   "Off": "Kapalı",
   "Older": "Daha eski",
   "On": "Açık",

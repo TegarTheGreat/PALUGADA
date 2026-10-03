@@ -211,6 +211,11 @@ export function Work({ ctx, route }: PageProps) {
  * How far one task has got, in a line: a bar when its plan named its steps,
  * the step it is on, and a heartbeat that goes amber when the worker has been
  * quiet for longer than a worker should be.
+ *
+ * The bar is the plan's actions taken over the plan's actions. It was every
+ * step the journal committed over them, and a halted task that had thought
+ * five times showed its five-step plan as "5/5" (N9). Finished, the bar is
+ * full and the count still says how much of the plan it took.
  */
 export function TaskProgress({ item, wide = false }: { item: WorkItem; wide?: boolean }) {
   const now = useNow(5_000);
@@ -218,7 +223,8 @@ export function TaskProgress({ item, wide = false }: { item: WorkItem; wide?: bo
   const live = LIVE.includes(item.status);
   const finished = item.status === 'completed';
   const planned = progress.planSteps && progress.planSteps > 0 ? progress.planSteps : null;
-  const percent = finished ? 100 : planned ? Math.min(100, (progress.stepsDone / planned) * 100) : null;
+  const taken = planned ? Math.min(progress.planDone ?? 0, planned) : 0;
+  const percent = finished ? 100 : planned ? (taken / planned) * 100 : null;
   const quiet = progress.heartbeatAt ? (now - new Date(progress.heartbeatAt).getTime()) / 1000 : null;
   const stale = live && quiet !== null && quiet > 120;
 
@@ -234,9 +240,13 @@ export function TaskProgress({ item, wide = false }: { item: WorkItem; wide?: bo
             animated={live && !stale}
             style={{ flex: 1 }}
           />
-          <Text size="xs" c="dimmed" className="tabular" style={{ whiteSpace: 'nowrap' }}>
-            {planned ? `${Math.min(progress.stepsDone, planned)}/${planned}` : '✓'}
-          </Text>
+          {planned ? (
+            <Tooltip label={t('Of the actions its plan named, how many it has taken')}>
+              <Text size="xs" c="dimmed" className="tabular" style={{ whiteSpace: 'nowrap' }}>{`${taken}/${planned}`}</Text>
+            </Tooltip>
+          ) : (
+            <Text size="xs" c="dimmed" className="tabular" style={{ whiteSpace: 'nowrap' }}>✓</Text>
+          )}
         </Group>
       ) : (
         <Text size="xs" c="dimmed">

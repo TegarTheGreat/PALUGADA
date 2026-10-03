@@ -235,6 +235,8 @@ export interface WorkItem {
     currentStep: string | null;
     currentStepStatus: string | null;
     planSteps: number | null;
+    /** The actions of its plan it has taken; null with no plan. */
+    planDone: number | null;
     worker: string | null;
     heartbeatAt: string | null;
     deadlineAt: string | null;

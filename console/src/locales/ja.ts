@@ -943,6 +943,7 @@ export const DICTIONARY: Dictionary = {
   "Now: {role}, for {minutes} minutes, then you.": "現在：{role} が {minutes} 分間対応し、その後あなたに届きます。",
   "Now: {step}": "現在：{step}",
   "Objective": "目標（O）",
+  "Of the actions its plan named, how many it has taken": "計画に挙げた作業のうち、済ませた数",
   "Off": "オフ",
   "Older": "以前",
   "On": "オン",

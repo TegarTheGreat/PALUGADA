@@ -949,6 +949,7 @@ export const DICTIONARY: Dictionary = {
   "Now: {role}, for {minutes} minutes, then you.": "Nu: {role}, gedurende {minutes} minuten, daarna jij.",
   "Now: {step}": "Nu: {step}",
   "Objective": "Doelstelling",
+  "Of the actions its plan named, how many it has taken": "Hoeveel van de handelingen uit zijn plan het al heeft gedaan",
   "Off": "Uit",
   "Older": "Ouder",
   "On": "Aan",

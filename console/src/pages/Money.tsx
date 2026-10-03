@@ -17,7 +17,7 @@ import { api, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { useLoad } from '../hooks.ts';
 import type { Account, CostPeriod, Spend, Structure } from '../types.ts';
-import { count, dateTime, day, money } from '../format.ts';
+import { centsFrom, count, currencyAffix, currencyName, dateTime, day, money, moneyDisplay, numberSeparators, roleLabel, typedFrom } from '../format.ts';
 import type { PageProps } from '../App.tsx';
 import { N, t } from '../i18n.ts';
 import { KpiStrip, LoadFailed, Loading, PageHeader, Section } from '../components/ui.tsx';
@@ -27,7 +27,8 @@ export function Money({ ctx }: PageProps) {
   const { companyId } = ctx;
   const view = useLoad(async () => {
     const [spend, cost, platform, accounts, structure]: [
-      Spend, { timeline: CostPeriod[] }, { companies: Array<{ slug: string; costCents: number; tokens: number }> },
+      Spend, { timeline: CostPeriod[] },
+      { companies: Array<{ slug: string; name: string; costCents: number; tokens: number }>; assistant: { costCents: number; tokens: number } },
       { accounts: Account[] }, Structure,
     ] = await Promise.all([
       api('GET', `/api/companies/${companyId}/spend`),
@@ -55,11 +56,22 @@ export function Money({ ctx }: PageProps) {
   const { spend, cost, platform, accounts, structure } = view.data;
   const used = spend.limitCents > 0 ? (spend.spentCents / spend.limitCents) * 100 : 0;
   const tone = used >= 100 ? 'red' : used >= 80 ? 'orange' : 'brand';
-  const topCompany = Math.max(1, ...platform.companies.map((row) => row.costCents));
+  const topCompany = Math.max(1, ...platform.companies.map((row) => row.costCents), platform.assistant.costCents);
+
+  // Read in the owner's currency (0106): said once, so a rupiah figure is
+  // never taken for what was charged.
+  const display = moneyDisplay();
 
   return (
     <Stack gap="lg">
       {header}
+      {display && (
+        <Text size="sm" c="dimmed">
+          {t('Amounts are in {currency}, at {rate} for one US dollar: the rate you set in your settings. PALUGADA counts in US dollars.', {
+            currency: currencyName(display.currency), rate: money(100),
+          })}
+        </Text>
+      )}
 
       <KpiStrip items={[
         { label: t('Spent this period'), value: money(spend.spentCents), hint: `${day(spend.periodStart)} – ${day(spend.periodEnd)}` },
@@ -89,10 +101,10 @@ export function Money({ ctx }: PageProps) {
             {cost.timeline.length === 0 ? <Text size="sm" c="dimmed">{t('Nothing spent yet.')}</Text> : (
               <BarChart
                 h={300}
-                data={cost.timeline.map((row) => ({ day: day(row.period), cost: row.costCents / 100, tokens: row.tokens }))}
+                data={cost.timeline.map((row) => ({ day: day(row.period), cost: row.costCents, tokens: row.tokens }))}
                 dataKey="day"
                 series={[{ name: 'cost', label: t('Cost'), color: 'brand.6' }]}
-                valueFormatter={(value) => value.toFixed(2)}
+                valueFormatter={(value) => money(value)}
                 gridAxis="y"
                 barProps={{ radius: 4 }}
               />
@@ -105,31 +117,43 @@ export function Money({ ctx }: PageProps) {
         title={t('Accounts')}
         description={t('A budget is a tree: a task draws on the narrowest account that covers it, and a spend counts against every account above.')}
       >
-        <Table.ScrollContainer minWidth={640}>
+        {/* On a phone, one account to a block: as a table, its money and its
+            Ceilings button were off to the right (§2.3 item 8). */}
+        <Stack gap="md" hiddenFrom="sm">
+          {accounts.map((account) => {
+            const tokenShare = account.tokensMax > 0 ? ((account.tokensSpent + account.tokensReserved) / account.tokensMax) * 100 : 0;
+            return (
+              <Stack key={account.id} gap={6}>
+                <Group justify="space-between" wrap="nowrap" align="flex-start">
+                  <div style={{ minWidth: 0 }}>
+                    <Text size="sm" fw={600}>{accountName(account)}</Text>
+                    <Text size="xs" c="dimmed">{scopeLabel(account.scopeType)}{account.scopeName ? ` · ${account.scopeName}` : ''}</Text>
+                  </div>
+                  <Button size="xs" variant={tokenShare > 90 ? 'light' : 'subtle'} color={tokenShare > 90 ? 'red' : undefined}
+                    leftSection={<IconAdjustments size={14} />} onClick={() => setAdjusting(account)} style={{ flexShrink: 0 }}>
+                    {t('Ceilings')}
+                  </Button>
+                </Group>
+                <TokenMeter account={account} />
+                <MoneyMeter account={account} />
+              </Stack>
+            );
+          })}
+        </Stack>
+        <Table.ScrollContainer minWidth={640} visibleFrom="sm">
           <Table verticalSpacing="sm">
             <Table.Thead><Table.Tr><Table.Th>{t('Account')}</Table.Th><Table.Th>{t('Tokens')}</Table.Th><Table.Th>{t('Money')}</Table.Th><Table.Th /></Table.Tr></Table.Thead>
             <Table.Tbody>
               {accounts.map((account) => {
                 const tokenShare = account.tokensMax > 0 ? ((account.tokensSpent + account.tokensReserved) / account.tokensMax) * 100 : 0;
-                const moneyShare = account.moneyMaxCents > 0 ? (account.moneySpentCents / account.moneyMaxCents) * 100 : 0;
                 return (
                   <Table.Tr key={account.id}>
                     <Table.Td>
-                      <Text size="sm" fw={600}>{account.label}</Text>
+                      <Text size="sm" fw={600}>{accountName(account)}</Text>
                       <Text size="xs" c="dimmed">{scopeLabel(account.scopeType)}{account.scopeName ? ` · ${account.scopeName}` : ''}</Text>
                     </Table.Td>
-                    <Table.Td w="32%">
-                      <Group justify="space-between" mb={4}><Text size="xs">{t('{spent} spent this month · {held} held', { spent: count(account.tokensSpent), held: count(account.tokensReserved) })}</Text><Text size="xs" c="dimmed">{count(account.tokensMax)}</Text></Group>
-                      <Progress value={Math.min(100, tokenShare)} color={tokenShare > 90 ? 'red' : 'brand'} size="sm" radius="xl" />
-                    </Table.Td>
-                    <Table.Td w="32%">
-                      {account.moneyMaxCents > 0 ? (
-                        <>
-                          <Group justify="space-between" mb={4}><Text size="xs">{money(account.moneySpentCents)}</Text><Text size="xs" c="dimmed">{money(account.moneyMaxCents)}</Text></Group>
-                          <Progress value={Math.min(100, moneyShare)} color={moneyShare > 90 ? 'red' : 'teal'} size="sm" radius="xl" />
-                        </>
-                      ) : <Badge variant="light" color="gray">{t('No money ceiling')}</Badge>}
-                    </Table.Td>
+                    <Table.Td w="32%"><TokenMeter account={account} /></Table.Td>
+                    <Table.Td w="32%"><MoneyMeter account={account} /></Table.Td>
                     <Table.Td ta="right">
                       <Button size="xs" variant={tokenShare > 90 ? 'light' : 'subtle'} color={tokenShare > 90 ? 'red' : undefined}
                         leftSection={<IconAdjustments size={14} />} onClick={() => setAdjusting(account)}>
@@ -148,14 +172,24 @@ export function Money({ ctx }: PageProps) {
         <Stack gap="sm">
           {platform.companies.map((row) => (
             <div key={row.slug}>
-              <Group justify="space-between"><Text size="sm" fw={600}>{row.slug}</Text><Text size="sm">{money(row.costCents)} <Text span c="dimmed" size="xs">· {t('{count} tokens', { count: count(row.tokens) })}</Text></Text></Group>
+              <Group justify="space-between"><Text size="sm" fw={600}>{row.name}</Text><Text size="sm">{money(row.costCents)} <Text span c="dimmed" size="xs">· {t('{count} tokens', { count: count(row.tokens) })}</Text></Text></Group>
               <Progress value={(row.costCents / topCompany) * 100} size="md" mt={4} radius="xl" />
             </div>
           ))}
+          {/* PALUGADA's own assistant is no company's, and costs money too (N8). */}
+          {platform.assistant.costCents > 0 && (
+            <div>
+              <Group justify="space-between">
+                <Text size="sm" fw={600} c="dimmed">{t("PALUGADA's assistant")}</Text>
+                <Text size="sm">{money(platform.assistant.costCents)} <Text span c="dimmed" size="xs">· {t('{count} tokens', { count: count(platform.assistant.tokens) })}</Text></Text>
+              </Group>
+              <Progress value={(platform.assistant.costCents / topCompany) * 100} size="md" mt={4} radius="xl" color="gray" />
+            </div>
+          )}
         </Stack>
       </Section>
 
-      <Modal opened={adjusting !== null} onClose={() => setAdjusting(null)} title={t('Ceilings of {account}', { account: adjusting?.label ?? '' })} centered>
+      <Modal opened={adjusting !== null} onClose={() => setAdjusting(null)} title={t('Ceilings of {account}', { account: adjusting ? accountName(adjusting) : '' })} centered>
         {adjusting && (
           <AccountCeilings companyId={companyId} account={adjusting} changed={() => { setAdjusting(null); view.reload(); }} />
         )}
@@ -166,18 +200,23 @@ export function Money({ ctx }: PageProps) {
           fields={[
             { name: 'label', label: t('Name'), required: true, placeholder: t('Growth experiments') },
             { name: 'tokensMax', label: t('Token ceiling'), type: 'number', required: true },
-            { name: 'moneyMaxCents', label: t('Money ceiling (cents)'), type: 'number' },
+            { name: 'moneyMax', label: t('Money ceiling'), type: 'money' },
             { name: 'scopeType', label: t('For'), type: 'select', description: t('Blank for the whole company'), options: [
               { value: 'project', label: t('A project') }, { value: 'division', label: t('A division') }, { value: 'role', label: t('A role') },
             ] },
             { name: 'scopeId', label: t('Which one'), type: 'select', options: [
               ...structure.projects.map((one) => ({ value: one.id, label: `${t('Project')} · ${one.name}` })),
               ...structure.divisions.map((one) => ({ value: one.id, label: `${t('Division')} · ${one.name}` })),
-              ...structure.roles.map((one) => ({ value: one.id, label: `${t('Role')} · ${one.slug}` })),
+              ...structure.roles.map((one) => ({ value: one.id, label: `${t('Role')} · ${roleLabel(one)}` })),
             ] },
-            { name: 'parentAccountId', label: t('The account above it'), type: 'select', options: accounts.map((one) => ({ value: one.id, label: one.label })) },
+            { name: 'parentAccountId', label: t('The account above it'), type: 'select', options: accounts.map((one) => ({ value: one.id, label: accountName(one) })) },
           ]}
-          submit={(values, proof) => api('POST', `/api/companies/${companyId}/budget-accounts`, { ...values, proof })}
+          submit={({ moneyMax, ...values }, proof) => api('POST', `/api/companies/${companyId}/budget-accounts`, {
+            ...values,
+            // Typed in dollars; kept, like every amount, in cents.
+            ...(moneyMax === undefined || moneyMax === '' ? {} : { moneyMaxCents: centsFrom(moneyMax) }),
+            proof,
+          })}
           factor={t('Open a budget account')}
           action={t('Open it')}
           success={t('Account opened.')}
@@ -192,6 +231,15 @@ const SCOPES: Record<string, string> = {
   company: N('Whole company'), project: N('Project'), division: N('Division'), role: N('Role'),
 };
 
+/**
+ * An account by what it covers: the name the owner gave it, its division's
+ * name, or the whole company (§2.3 item 7). A template labels accounts with
+ * the platform's codes, "company" and a division's short name.
+ */
+function accountName(account: Account): string {
+  return account.name ?? t('The whole company');
+}
+
 function scopeLabel(scope: string): string {
   const label = SCOPES[scope];
   return label ? t(label) : scope;
@@ -203,11 +251,11 @@ function scopeLabel(scope: string): string {
  */
 function CeilingForm({ companyId, spend, changed }: { companyId: string; spend: Spend; changed: () => void }) {
   const requireFactor = useFactor();
-  const [value, setValue] = useState<number | string>(spend.limitCents / 100);
+  const [value, setValue] = useState<number | string>(typedFrom(spend.limitCents));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const save = async () => {
-    const moneyMaxCents = Math.round(Number(value) * 100);
+    const moneyMaxCents = centsFrom(value);
     setError(null);
     setBusy(true);
     try {
@@ -229,7 +277,7 @@ function CeilingForm({ companyId, spend, changed }: { companyId: string; spend: 
   return (
     <Stack gap="xs">
       <Group align="flex-end" gap="xs" wrap="nowrap">
-        <NumberInput label={t('Monthly ceiling')} value={value} onChange={setValue} min={0} decimalScale={2} thousandSeparator style={{ flex: 1 }} />
+        <NumberInput label={t('Monthly ceiling')} {...currencyAffix()} value={value} onChange={setValue} min={0} decimalScale={2} {...numberSeparators()} style={{ flex: 1 }} />
         <Button loading={busy} onClick={() => void save()}>{t('Set')}</Button>
       </Group>
       <Text size="xs" c="dimmed">{t('Raising it asks for your authenticator; lowering it does not.')}</Text>
@@ -246,17 +294,17 @@ function CeilingForm({ companyId, spend, changed }: { companyId: string; spend: 
 function AccountCeilings({ companyId, account, changed }: { companyId: string; account: Account; changed: () => void }) {
   const requireFactor = useFactor();
   const [tokens, setTokens] = useState<number | string>(account.tokensMax);
-  const [ceiling, setCeiling] = useState<number | string>(account.moneyMaxCents / 100);
+  const [ceiling, setCeiling] = useState<number | string>(typedFrom(account.moneyMaxCents));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const save = async () => {
     const tokensMax = Math.round(Number(tokens));
-    const moneyMaxCents = Math.round(Number(ceiling) * 100);
+    const moneyMaxCents = centsFrom(ceiling);
     setError(null);
     setBusy(true);
     try {
       if (tokensMax > account.tokensMax || moneyMaxCents > account.moneyMaxCents) {
-        const done = await requireFactor(t('Raise the ceilings of {account}', { account: account.label }), (proof) =>
+        const done = await requireFactor(t('Raise the ceilings of {account}', { account: accountName(account) }), (proof) =>
           api('POST', `/api/companies/${companyId}/budget-accounts/${account.id}/limit`, { tokensMax, moneyMaxCents, proof }));
         if (!done) return;
       } else {
@@ -275,8 +323,8 @@ function AccountCeilings({ companyId, account, changed }: { companyId: string; a
       <Text size="sm" c="dimmed">
         {t('{spent} tokens spent this month and {held} held. The count starts again on the first of each month (UTC); raise the ceiling to give the account more before then.', { spent: count(account.tokensSpent), held: count(account.tokensReserved) })}
       </Text>
-      <NumberInput label={t('Token ceiling')} value={tokens} onChange={setTokens} min={0} thousandSeparator />
-      <NumberInput label={t('Money ceiling')} value={ceiling} onChange={setCeiling} min={0} decimalScale={2} thousandSeparator />
+      <NumberInput label={t('Token ceiling')} value={tokens} onChange={setTokens} min={0} {...numberSeparators()} />
+      <NumberInput label={t('Money ceiling')} {...currencyAffix()} value={ceiling} onChange={setCeiling} min={0} decimalScale={2} {...numberSeparators()} />
       <Text size="xs" c="dimmed">{t('Raising either asks for your authenticator; lowering does not.')}</Text>
       {error && <Alert color="red" variant="light">{error}</Alert>}
       <Group justify="flex-end">
@@ -317,3 +365,26 @@ function PauseControls({ companyId, changed }: { companyId: string; changed: () 
   );
 }
 
+
+/** An account's tokens this month against its ceiling. */
+function TokenMeter({ account }: { account: Account }) {
+  const share = account.tokensMax > 0 ? ((account.tokensSpent + account.tokensReserved) / account.tokensMax) * 100 : 0;
+  return (
+    <Stack gap={4}>
+      <Group justify="space-between" gap="xs"><Text size="xs">{t('{spent} spent this month · {held} held', { spent: count(account.tokensSpent), held: count(account.tokensReserved) })}</Text><Text size="xs" c="dimmed">{count(account.tokensMax)}</Text></Group>
+      <Progress value={Math.min(100, share)} color={share > 90 ? 'red' : 'brand'} size="sm" radius="xl" />
+    </Stack>
+  );
+}
+
+/** An account's money this month against its ceiling, when it has one. */
+function MoneyMeter({ account }: { account: Account }) {
+  if (account.moneyMaxCents <= 0) return <Badge variant="light" color="gray">{t('No money ceiling')}</Badge>;
+  const share = (account.moneySpentCents / account.moneyMaxCents) * 100;
+  return (
+    <Stack gap={4}>
+      <Group justify="space-between" gap="xs"><Text size="xs">{money(account.moneySpentCents)}</Text><Text size="xs" c="dimmed">{money(account.moneyMaxCents)}</Text></Group>
+      <Progress value={Math.min(100, share)} color={share > 90 ? 'red' : 'teal'} size="sm" radius="xl" />
+    </Stack>
+  );
+}

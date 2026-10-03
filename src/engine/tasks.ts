@@ -670,7 +670,26 @@ export interface TransitionOptions {
   writtenByModel?: boolean;
   /** When a task parked on a closed window may be picked up again (F9.2). */
   waitUntil?: Date | null;
+  /** Why it parks, when it moves to `waiting_window`; kept on the event that says so. */
+  waitReason?: WaitReason;
 }
+
+/**
+ * Why a task waits in `waiting_window` (N9). One status is eight different
+ * waits, and the console called them all "Scheduled": on the live run of
+ * 2 October a CEO whose sub-task was waiting on the owner two levels down
+ * read as scheduled, and nothing said what it was waiting for.
+ *
+ * - `child`: work it handed on, which `task.await` looks at again
+ * - `window`: the hours its work may be done in (F9.2)
+ * - `cheap_hours`: the cheaper hours batchable work waits for
+ * - `vendor`: a service that said "not now"
+ * - `slot`: its turn at a capability others are calling (F5.7)
+ * - `model`: a model that did not answer (F13.6)
+ * - `service`: a capability's vendor having a moment, before it starts (H2)
+ * - `retry`: the next attempt after one failed
+ */
+export type WaitReason = 'child' | 'window' | 'cheap_hours' | 'vendor' | 'slot' | 'model' | 'service' | 'retry';
 
 /** Moves a task to a new status, refusing transitions the PRD does not allow. */
 export async function transition(
@@ -866,8 +885,15 @@ export async function transitionWithin(
       actor: 'system',
       payload: options.haltReason
         ? { haltReason: options.haltReason, ...(options.detail ? { detail: options.detail.slice(0, 2_000) } : {}) }
-        : completed ?? {},
+        : to === 'waiting_window' && options.waitReason
+          ? { reason: options.waitReason }
+          : completed ?? {},
     });
+    // Why work was not done is the run writing to the owner (N9), held to the
+    // talk language where it is kept, as a summary is.
+    if (to === 'failed' && options.haltReason === 'not_done' && options.writtenByModel && options.detail) {
+      await noteTalkDrift(tx, { companyId, taskId, where: 'not_done', text: options.detail });
+    }
     if (to === 'completed') {
       // The summary is what the done notice and the Work page show the owner
       // of finished work: the run's own report to them. Checked once, here,

@@ -1,5 +1,5 @@
 /** The small pieces every page is built from. */
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import {
   Alert, Badge, Button, Card, Center, Group, Image, Paper, SimpleGrid, Skeleton, Stack, Text, ThemeIcon,
   Title, Tooltip, UnstyledButton,
@@ -76,6 +76,11 @@ function wordy(value: ReactNode): boolean {
   return typeof value === 'string' && !/\d/.test(value);
 }
 
+/** A number written out -- "US$200,00", "Rp3.300.000", "12" -- which is never broken across lines. */
+function figure(value: ReactNode): boolean {
+  return (typeof value === 'string' || typeof value === 'number') && /\d/.test(String(value));
+}
+
 export function KpiStrip({ items }: { items: Array<{ label: string; value: ReactNode; hint?: ReactNode; alert?: boolean; onClick?: () => void }> }) {
   return (
     <Paper withBorder radius="lg" shadow="xs">
@@ -89,7 +94,11 @@ export function KpiStrip({ items }: { items: Array<{ label: string; value: React
             data-first={index === 0 || undefined}
           >
             <Text size="xs" c="dimmed" fw={600}>{item.label}</Text>
-            <Text fz={wordy(item.value) ? 16 : 28} fw={750} lh={1.25} mt={4} c={item.alert ? 'red' : undefined} className="tabular kpi-value">{item.value}</Text>
+            <Text fz={wordy(item.value) ? 16 : 28} fw={750} lh={1.25} mt={4} c={item.alert ? 'red' : undefined} className="tabular kpi-value"
+              data-figure={figure(item.value) || undefined}
+              style={figure(item.value) ? { '--figure-length': String(String(item.value).length) } as CSSProperties : undefined}>
+              {item.value}
+            </Text>
             {item.hint && <Text size="xs" c="dimmed" mt={2}>{item.hint}</Text>}
           </UnstyledButton>
         ))}

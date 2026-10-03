@@ -13,7 +13,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActionIcon, Alert, AppShell, Avatar, Badge, Box, Button, Center, Divider, Drawer, FileInput, Group, Loader, Menu, Modal,
-  NavLink, Paper, Progress, ScrollArea, SimpleGrid, Stack, Switch, Text, TextInput, Tooltip, UnstyledButton,
+  NavLink, Paper, Progress, ScrollArea, Select, SimpleGrid, Stack, Switch, Text, TextInput, Tooltip, UnstyledButton,
   useComputedColorScheme, useDirection, useMantineColorScheme,
 } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
@@ -21,7 +21,7 @@ import { notifications } from '@mantine/notifications';
 import { Spotlight, spotlight, type SpotlightActionData } from '@mantine/spotlight';
 import {
   IconActivity, IconAlertOctagon, IconBrain, IconBuildingStore, IconCheck, IconChecklist, IconChevronDown,
-  IconCoin, IconDots, IconHistory, IconHome, IconInbox, IconKey, IconLanguage, IconLayoutDashboard, IconLogout, IconMap,
+  IconCoin, IconDots, IconHistory, IconHome, IconInbox, IconKey, IconLanguage, IconLayoutDashboard, IconLogout, IconMap, IconMessages, IconWorldWww,
   IconMoon, IconPlayerPlay, IconPlayerStop, IconPlus, IconSearch, IconSparkles, IconServer2, IconSettings, IconSitemap, IconSun,
 } from '@tabler/icons-react';
 import { api, explain, setToken, whenSignedOut } from './api.ts';
@@ -29,7 +29,7 @@ import { useFactor } from './factor.tsx';
 import { useLoad } from './hooks.ts';
 import { LANGUAGES, N, direction, isLanguage, language, setLanguage, t, useLanguage, type Language } from './i18n.ts';
 import { go, takeLinkedRoute, takeLinkedTalk, useRoute, type CompanyPage, type Route, type SettingsSection } from './router.ts';
-import type { Company, SearchHit, Structure } from './types.ts';
+import type { Company, SearchHit, Staff, Structure } from './types.ts';
 import { companyEmblem, OWNER_PICTURE, rolePicture } from './images.ts';
 import { SignIn } from './pages/SignIn.tsx';
 import { Home } from './pages/Home.tsx';
@@ -41,6 +41,8 @@ const DeploymentSettings = lazy(() => import('./pages/Deployment.tsx').then((mod
 const Decisions = lazy(() => import('./pages/Decisions.tsx').then((module) => ({ default: module.Decisions })));
 const Overview = lazy(() => import('./pages/Overview.tsx').then((module) => ({ default: module.Overview })));
 const Work = lazy(() => import('./pages/Work.tsx').then((module) => ({ default: module.Work })));
+const Customers = lazy(() => import('./pages/Customers.tsx').then((module) => ({ default: module.Customers })));
+const Browser = lazy(() => import('./pages/Browser.tsx').then((module) => ({ default: module.Browser })));
 const Organization = lazy(() => import('./pages/Organization.tsx').then((module) => ({ default: module.Organization })));
 const Memory = lazy(() => import('./pages/Memory.tsx').then((module) => ({ default: module.Memory })));
 const Money = lazy(() => import('./pages/Money.tsx').then((module) => ({ default: module.Money })));
@@ -49,12 +51,18 @@ const SettingsHub = lazy(() => import('./pages/SettingsHub.tsx').then((module) =
 import { AssignWork } from './components/AssignWork.tsx';
 import { Assistant } from './components/Assistant.tsx';
 import { Tour, type TourSpot } from './components/Tour.tsx';
+import { setMoneyDisplay, useMoneyDisplay } from './format.ts';
 
-/** The pages of one company, as the sidebar offers them. */
-const PAGES: Array<{ id: CompanyPage; label: string; icon: typeof IconInbox; group: 'decide' | 'company' | 'setup' }> = [
+/**
+ * The pages of one company, as the sidebar offers them. `owner` marks one a
+ * staff seat is not shown: the company's browser holds its sign-ins.
+ */
+const PAGES: Array<{ id: CompanyPage; label: string; icon: typeof IconInbox; group: 'decide' | 'company' | 'setup'; owner?: true }> = [
   { id: 'inbox', label: N('Inbox'), icon: IconInbox, group: 'decide' },
   { id: 'overview', label: N('Overview'), icon: IconLayoutDashboard, group: 'company' },
   { id: 'work', label: N('Work'), icon: IconActivity, group: 'company' },
+  { id: 'customers', label: N('Customers'), icon: IconMessages, group: 'company' },
+  { id: 'browser', label: N('Browser'), icon: IconWorldWww, group: 'company', owner: true },
   { id: 'team', label: N('Team'), icon: IconSitemap, group: 'company' },
   { id: 'memory', label: N('Memory'), icon: IconBrain, group: 'company' },
   { id: 'money', label: N('Money'), icon: IconCoin, group: 'company' },
@@ -66,7 +74,11 @@ export function App() {
   const [device, setDevice] = useState<string | null>(null);
   // Which kind of factor signed in: after a recovery code, the console asks for a new device.
   const [factor, setFactor] = useState<string | null>(null);
+  // A staff seat beside the owner (0110), or null for the owner: asked once
+  // signed in, before the console draws anything that is the owner's.
+  const [staff, setStaff] = useState<Staff | null>(null);
   const lang = useLanguage();
+  const reading = useMoneyDisplay();
   // Mantine mirrors its components from its own direction, set here as the
   // language changes; the page's `dir` is set with the language (i18n.ts).
   const { setDirection } = useDirection();
@@ -75,17 +87,26 @@ export function App() {
   useEffect(() => whenSignedOut(() => setDevice(null)), []);
 
   if (!device) {
-    return <SignIn key={lang} onSignedIn={(session) => { setToken(session.token); setDevice(session.factor === 'recovery' ? t('Recovery code') : session.device); setFactor(session.factor); }} />;
+    return <SignIn key={lang} onSignedIn={(session) => {
+      setToken(session.token);
+      void api('GET', '/api/me').then((me: { staff: Staff | null }) => {
+        setStaff(me.staff);
+        setFactor(session.factor);
+        setDevice(me.staff ? me.staff.name : session.factor === 'recovery' ? t('Recovery code') : session.device);
+      }, (failure: unknown) => notifications.show({ color: 'red', message: explain(failure) }));
+    }} />;
   }
   return (
     <Console
-      key={lang}
+      key={`${lang}:${reading}`}
       device={device}
+      staff={staff}
       recovered={factor === 'recovery'}
       signOut={async () => {
         await api('POST', '/api/auth/sign-out', {}).catch(() => undefined);
         setToken(null);
         setDevice(null);
+        setStaff(null);
       }}
     />
   );
@@ -103,6 +124,8 @@ export interface ConsoleContext {
   giveWork: () => void;
   /** Open the conversation with this company's CEO. */
   talk: () => void;
+  /** A staff seat signed in (0110), or null for the owner: a page leaves out what is the owner's. */
+  staff: Staff | null;
 }
 
 export interface PageProps {
@@ -126,7 +149,12 @@ export async function chooseLanguage(code: Language): Promise<void> {
   setLanguage(code);
 }
 
-function Console({ device, recovered, signOut }: { device: string; recovered: boolean; signOut: () => Promise<void> }) {
+function Console({ device, staff, recovered, signOut }: {
+  device: string; staff: Staff | null; recovered: boolean; signOut: () => Promise<void>;
+}) {
+  // A staff seat (0110): the owner's controls are not drawn for it. The API
+  // refuses them anyway; drawn, each would only be a refusal to press.
+  const owner = staff === null;
   const route = useRoute();
   const mobile = useMediaQuery('(max-width: 48em)') ?? false;
   const requireFactor = useFactor();
@@ -145,27 +173,33 @@ function Console({ device, recovered, signOut }: { device: string; recovered: bo
   const [asking, setAsking] = useState(false);
   // The company whose CEO the owner is talking to, if any.
   const [talking, setTalking] = useState<Company | null>(null);
+  // A company just started, whose CEO has spoken first (its first hour):
+  // the conversation opens once the company is in the list.
+  const [greeting, setGreeting] = useState<string | null>(null);
   const [checklist, setChecklist] = useState(false);
   const [touring, setTouring] = useState(false);
   const [spot, setSpot] = useState<TourSpot | null>(null);
   const spotted = (name: TourSpot) => (spot === name ? ' tour-spot' : '');
 
   const base = useLoad(async () => {
-    const [{ companies }, control, setup, languages]: [
+    const [{ companies }, control, setup, languages, money]: [
       { companies: Company[] }, { stopAll: boolean }, { notes: string[]; todo: string[]; version?: string }, Languages,
+      { currency: string | null; rate: number | null },
     ] = await Promise.all([
       api('GET', '/api/companies'),
-      api('GET', '/api/control'),
-      api('GET', '/api/control/setup'),
+      owner ? api('GET', '/api/control') : Promise.resolve({ stopAll: false }),
+      owner ? api('GET', '/api/control/setup') : Promise.resolve({ notes: [], todo: [] }),
       api('GET', '/api/control/languages'),
+      api('GET', '/api/control/money-display'),
     ]);
-    return { companies, stopAll: control.stopAll, setup, languages };
+    return { companies, stopAll: control.stopAll, setup, languages, money };
   }, [], { every: 30_000 });
 
   // The tour, once: asked for at sign-in rather than every thirty seconds,
   // and opened by itself only while the deployment says it was never
   // finished or skipped.
   useEffect(() => {
+    if (!owner) return;
     void api('GET', '/api/control/tour').then(
       (tour: { finishedAt: string | null }) => { if (tour.finishedAt === null) setTouring(true); },
       () => undefined,
@@ -180,6 +214,10 @@ function Console({ device, recovered, signOut }: { device: string; recovered: bo
   useEffect(() => {
     const chosen = base.data?.languages.console;
     if (isLanguage(chosen) && chosen !== language()) setLanguage(chosen);
+    // And the currency the owner reads money in (0106), which redraws the
+    // console as a language does when it changes.
+    const money = base.data?.money;
+    if (money) setMoneyDisplay(money.currency && money.rate ? { currency: money.currency, rate: money.rate } : null);
   }, [base.data]);
 
   const companies = base.data?.companies ?? [];
@@ -203,6 +241,14 @@ function Console({ device, recovered, signOut }: { device: string; recovered: bo
     else setAsking(true);
   }, [base.data]);
 
+  useEffect(() => {
+    if (!greeting) return;
+    const started = companies.find((one) => one.id === greeting);
+    if (!started) return;
+    setGreeting(null);
+    if (started.ceo) setTalking(started);
+  }, [greeting, companies]);
+
   const open = useCallback((page: CompanyPage, options: { section?: SettingsSection; item?: string | null; companyId?: string } = {}) => {
     const target = options.companyId ?? company?.id;
     if (!target) return;
@@ -219,7 +265,8 @@ function Console({ device, recovered, signOut }: { device: string; recovered: bo
     setOpenCount: (count: number) => setOpenCount((current) => (current[company.id] === count ? current : { ...current, [company.id]: count })),
     giveWork: () => setGiving(true),
     talk: () => setTalking(company),
-  } : null), [company, companies, open, refreshCompanies]);
+    staff,
+  } : null), [company, companies, open, refreshCompanies, staff]);
 
   // F10.7. Two controls, because they are two decisions: "stop" raises a flag
   // the engine reads at every step, so work stops cleanly and resumes when the
@@ -260,14 +307,14 @@ function Console({ device, recovered, signOut }: { device: string; recovered: bo
   };
 
   const spotlightActions: SpotlightActionData[] = [
-    { id: 'ask', label: t('Ask PALUGADA'), description: t('Say what you want; it sets things up with you'), leftSection: <IconSparkles size={18} />, onClick: () => setAsking(true) },
-    ...(company?.ceo ? [{
+    ...(owner ? [{ id: 'ask', label: t('Ask PALUGADA'), description: t('Say what you want; it sets things up with you'), leftSection: <IconSparkles size={18} />, onClick: () => setAsking(true) }] : []),
+    ...(owner && company?.ceo ? [{
       id: 'talk', label: t('Talk to {name}, CEO', { name: company.ceo.displayName ?? company.ceo.slug }),
       description: t('The one who runs {company} for you', { company: company.name }),
       leftSection: <Avatar size={18} radius="xl" src={rolePicture(company.ceo.slug, 'CEO')} alt="" />, onClick: () => setTalking(company),
     }] : []),
     { id: 'home', label: t('Home'), description: t('Every company at a glance'), leftSection: <IconHome size={18} />, onClick: () => go({ kind: 'home' }) },
-    ...PAGES.map((page) => ({
+    ...PAGES.filter((page) => owner || !page.owner).map((page) => ({
       id: `page-${page.id}`,
       label: t(page.label),
       description: company ? company.name : '',
@@ -296,7 +343,8 @@ function Console({ device, recovered, signOut }: { device: string; recovered: bo
   const [found, setFound] = useState<SearchHit[]>([]);
   useEffect(() => {
     const text = query.trim();
-    if (text.length < 2) {
+    // The search reads every company, so a staff seat jumps to pages only.
+    if (text.length < 2 || !owner) {
       setFound([]);
       return;
     }
@@ -386,20 +434,22 @@ function Console({ device, recovered, signOut }: { device: string; recovered: bo
           <Group gap="xs" wrap="nowrap" style={{ minWidth: 0 }}>
             <img className="brand-mark" src="/brand/palugada-app-icon.svg" alt="" width={30} height={30} />
             <CompanyMenu companies={companies} company={company} openCount={openCount} compact
-              pick={(id) => open(route.kind === 'company' ? route.page : 'inbox', { companyId: id })} start={() => setStarting(true)} />
+              pick={(id) => open(route.kind === 'company' ? route.page : 'inbox', { companyId: id })} start={owner ? () => setStarting(true) : null} />
           </Group>
           <Group gap={6} wrap="nowrap">
-            {company?.ceo && (
+            {owner && company?.ceo && (
               <ActionIcon variant="default" size="lg" radius="xl" onClick={() => setTalking(company)}
                 aria-label={t('Talk to {name}, CEO', { name: company.ceo.displayName ?? company.ceo.slug })}>
                 <Avatar size={26} radius="xl" src={rolePicture(company.ceo.slug, 'CEO')} alt="" />
               </ActionIcon>
             )}
-            <ActionIcon variant="light" size="lg" onClick={() => setAsking(true)} aria-label={t('Ask PALUGADA')}><IconSparkles size={18} /></ActionIcon>
+            {owner && <ActionIcon variant="light" size="lg" onClick={() => setAsking(true)} aria-label={t('Ask PALUGADA')}><IconSparkles size={18} /></ActionIcon>}
             <ActionIcon variant="subtle" size="lg" onClick={() => spotlight.open()} aria-label={t('Search')}><IconSearch size={18} /></ActionIcon>
-            <ActionIcon variant={stopAll ? 'filled' : 'light'} color={stopAll ? 'teal' : 'red'} size="lg" onClick={() => void toggleStop()} aria-label={stopAll ? t('Resume everything') : t('Stop everything')}>
-              {stopAll ? <IconPlayerPlay size={18} /> : <IconPlayerStop size={18} />}
-            </ActionIcon>
+            {owner && (
+              <ActionIcon variant={stopAll ? 'filled' : 'light'} color={stopAll ? 'teal' : 'red'} size="lg" onClick={() => void toggleStop()} aria-label={stopAll ? t('Resume everything') : t('Stop everything')}>
+                {stopAll ? <IconPlayerPlay size={18} /> : <IconPlayerStop size={18} />}
+              </ActionIcon>
+            )}
           </Group>
         </Group>
       </AppShell.Header>}
@@ -420,8 +470,8 @@ function Console({ device, recovered, signOut }: { device: string; recovered: bo
             </Tooltip>
           </Group>
           <CompanyMenu companies={companies} company={company} openCount={openCount}
-            pick={(id) => open(route.kind === 'company' ? route.page : 'inbox', { companyId: id })} start={() => setStarting(true)} />
-          <Menu position="bottom-start" width="target" shadow="md">
+            pick={(id) => open(route.kind === 'company' ? route.page : 'inbox', { companyId: id })} start={owner ? () => setStarting(true) : null} />
+          {owner && <Menu position="bottom-start" width="target" shadow="md">
             <Menu.Target>
               <Button fullWidth mt="sm" leftSection={<IconPlus size={16} />} justify="flex-start" className={spotted('new')}>{t('New')}</Button>
             </Menu.Target>
@@ -430,23 +480,25 @@ function Console({ device, recovered, signOut }: { device: string; recovered: bo
               <Menu.Item leftSection={<IconSitemap size={16} />} onClick={() => open('team')} disabled={!company}>{t('Schedule, goal or policy')}</Menu.Item>
               <Menu.Item leftSection={<IconBuildingStore size={16} />} onClick={() => setStarting(true)}>{t('Start a company')}</Menu.Item>
             </Menu.Dropdown>
-          </Menu>
-          {company?.ceo && (
+          </Menu>}
+          {owner && company?.ceo && (
             <Button fullWidth mt={6} variant="default" justify="flex-start" onClick={() => setTalking(company)}
               leftSection={<Avatar size={20} radius="xl" src={rolePicture(company.ceo.slug, 'CEO')} alt="" />}>
               <Text size="sm" fw={600} truncate>{t('Talk to {name}, CEO', { name: company.ceo.displayName ?? company.ceo.slug })}</Text>
             </Button>
           )}
-          <Button fullWidth mt={6} variant="light" leftSection={<IconSparkles size={16} />} justify="flex-start" onClick={() => setAsking(true)}>
-            {t('Ask PALUGADA')}
-          </Button>
+          {owner && (
+            <Button fullWidth mt={6} variant="light" leftSection={<IconSparkles size={16} />} justify="flex-start" onClick={() => setAsking(true)}>
+              {t('Ask PALUGADA')}
+            </Button>
+          )}
         </AppShell.Section>
 
         <AppShell.Section grow component={ScrollArea} mt="sm">
           <NavLink label={t('Home')} leftSection={<IconHome size={18} stroke={1.7} />} active={active === 'home'} onClick={() => go({ kind: 'home' })} className={`nav-link${spotted('home')}`} />
           {PAGES.filter((page) => page.group === 'decide').map(navLink)}
           {company && <div className="nav-section-label">{company.name}</div>}
-          {PAGES.filter((page) => page.group === 'company').map(navLink)}
+          {PAGES.filter((page) => page.group === 'company' && (owner || !page.owner)).map(navLink)}
         </AppShell.Section>
 
         <AppShell.Section>
@@ -460,15 +512,15 @@ function Console({ device, recovered, signOut }: { device: string; recovered: bo
               <Progress value={((setup.notes.length - setup.todo.length) / Math.max(1, setup.notes.length)) * 100} size="sm" mt={8} color="yellow" radius="xl" />
             </Paper>
           )}
-          {PAGES.filter((page) => page.group === 'setup').map(navLink)}
-          <NavLink
+          {owner && PAGES.filter((page) => page.group === 'setup').map(navLink)}
+          {owner && <NavLink
             label={t('This deployment')}
             leftSection={<IconServer2 size={18} stroke={1.7} />}
             active={active === 'deployment'}
             onClick={() => go({ kind: 'deployment', section: 'model' })}
             className="nav-link"
-          />
-          <Button
+          />}
+          {owner && <Button
             fullWidth
             mt="xs"
             color={stopAll ? 'teal' : 'red'}
@@ -478,7 +530,7 @@ function Console({ device, recovered, signOut }: { device: string; recovered: bo
             className={spotted('stop')}
           >
             {stopAll ? t('Resume everything') : t('Stop everything')}
-          </Button>
+          </Button>}
           <Divider my="sm" />
           <Menu position="top-start" width={240} shadow="md">
             <Menu.Target>
@@ -486,8 +538,8 @@ function Console({ device, recovered, signOut }: { device: string; recovered: bo
                 <Group gap="sm" wrap="nowrap">
                   <Avatar radius="xl" size={32} src={OWNER_PICTURE} alt="" />
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <Text size="sm" fw={600}>{t('Owner')}</Text>
-                    <Text size="xs" c="dimmed" truncate>{device}</Text>
+                    <Text size="sm" fw={600}>{staff ? staff.name : t('Owner')}</Text>
+                    <Text size="xs" c="dimmed" truncate>{staff ? (staff.kind === 'approver' ? t('Approver') : t('Viewer')) : device}</Text>
                   </div>
                   <IconDots size={16} />
                 </Group>
@@ -499,8 +551,8 @@ function Console({ device, recovered, signOut }: { device: string; recovered: bo
               <Menu.Item leftSection={colorScheme === 'dark' ? <IconSun size={16} /> : <IconMoon size={16} />} onClick={toggleColorScheme}>
                 {colorScheme === 'dark' ? t('Light theme') : t('Dark theme')}
               </Menu.Item>
-              <Menu.Item leftSection={<IconMap size={16} />} onClick={() => setTouring(true)}>{t('Take the tour')}</Menu.Item>
-              <Menu.Item color="red" leftSection={<IconAlertOctagon size={16} />} onClick={() => setCancelling(true)}>{t('Cancel every task…')}</Menu.Item>
+              {owner && <Menu.Item leftSection={<IconMap size={16} />} onClick={() => setTouring(true)}>{t('Take the tour')}</Menu.Item>}
+              {owner && <Menu.Item color="red" leftSection={<IconAlertOctagon size={16} />} onClick={() => setCancelling(true)}>{t('Cancel every task…')}</Menu.Item>}
               <Menu.Divider />
               <Menu.Item leftSection={<IconLogout size={16} />} onClick={() => void signOut()}>{t('Sign out')}</Menu.Item>
               {setup.version && <Menu.Label>{t('PALUGADA {version}', { version: setup.version })}</Menu.Label>}
@@ -540,8 +592,8 @@ function Console({ device, recovered, signOut }: { device: string; recovered: bo
             <Home
               companies={companies}
               openCompany={(id, page, item) => open(page, { companyId: id, item: item ?? null })}
-              startCompany={() => setStarting(true)}
-              restoreCompany={() => setRestoring(true)}
+              startCompany={owner ? () => setStarting(true) : null}
+              restoreCompany={owner ? () => setRestoring(true) : null}
               setup={setup}
             />
           ) : (
@@ -567,7 +619,7 @@ function Console({ device, recovered, signOut }: { device: string; recovered: bo
               {tab.label}
             </UnstyledButton>
           ))}
-          <UnstyledButton className="bottom-tab" data-active={['team', 'memory', 'history', 'settings', 'overview', 'deployment'].includes(active) || undefined} onClick={() => setMore(true)}>
+          <UnstyledButton className="bottom-tab" data-active={['team', 'memory', 'history', 'settings', 'overview', 'customers', 'browser', 'deployment'].includes(active) || undefined} onClick={() => setMore(true)}>
             <IconDots size={22} stroke={1.7} />
             {t('More')}
           </UnstyledButton>
@@ -576,9 +628,9 @@ function Console({ device, recovered, signOut }: { device: string; recovered: bo
 
       <Drawer opened={more} onClose={() => setMore(false)} position="bottom" size="auto" title={company?.name} radius="lg">
         <Stack gap={4} pb="md">
-          {PAGES.filter((page) => !['inbox', 'work', 'money'].includes(page.id)).map(navLink)}
-          <NavLink label={t('This deployment')} leftSection={<IconServer2 size={18} stroke={1.7} />} active={active === 'deployment'}
-            onClick={() => { setMore(false); go({ kind: 'deployment', section: 'model' }); }} />
+          {PAGES.filter((page) => !['inbox', 'work', 'money'].includes(page.id) && (owner || (page.group !== 'setup' && !page.owner))).map(navLink)}
+          {owner && <NavLink label={t('This deployment')} leftSection={<IconServer2 size={18} stroke={1.7} />} active={active === 'deployment'}
+            onClick={() => { setMore(false); go({ kind: 'deployment', section: 'model' }); }} />}
           <Divider my="xs" />
           {LANGUAGES.map((one) => (
             <NavLink key={one.code} label={one.name} leftSection={<IconLanguage size={18} />} active={one.code === language()} onClick={() => void pickLanguage(one.code)} />
@@ -588,7 +640,8 @@ function Console({ device, recovered, signOut }: { device: string; recovered: bo
         </Stack>
       </Drawer>
 
-      <StartCompany opened={starting} close={() => setStarting(false)} started={(id) => { base.reload(); open('overview', { companyId: id }); }} />
+      <StartCompany opened={starting} close={() => setStarting(false)} languages={base.data?.languages ?? null}
+        started={(id) => { base.reload(); open('overview', { companyId: id }); setGreeting(id); }} />
       <RestoreCompany opened={restoring} close={() => setRestoring(false)} restored={(id) => { base.reload(); open('overview', { companyId: id }); }} />
 
       <GiveWork companyId={company?.id ?? null} opened={giving} close={() => setGiving(false)} />
@@ -642,6 +695,8 @@ function CompanyPageView({ ctx, route }: PageProps) {
     case 'inbox': return <Decisions ctx={ctx} route={route} />;
     case 'overview': return <Overview ctx={ctx} route={route} />;
     case 'work': return <Work ctx={ctx} route={route} />;
+    case 'customers': return <Customers ctx={ctx} route={route} />;
+    case 'browser': return <Browser ctx={ctx} route={route} />;
     case 'team': return <Organization ctx={ctx} route={route} />;
     case 'memory': return <Memory ctx={ctx} route={route} />;
     case 'money': return <Money ctx={ctx} route={route} />;
@@ -657,7 +712,8 @@ function CompanyMenu({
   company: Company | null;
   openCount: Record<string, number>;
   pick: (id: string) => void;
-  start: () => void;
+  /** Null for a staff seat, which starts no company. */
+  start: (() => void) | null;
   compact?: boolean;
 }) {
   return (
@@ -691,7 +747,7 @@ function CompanyMenu({
           </Menu.Item>
         ))}
         <Menu.Divider />
-        <Menu.Item leftSection={<IconPlus size={16} />} onClick={start}>{t('Start a company')}</Menu.Item>
+        {start && <Menu.Item leftSection={<IconPlus size={16} />} onClick={start}>{t('Start a company')}</Menu.Item>}
       </Menu.Dropdown>
     </Menu>
   );
@@ -805,12 +861,39 @@ function RestoreCompany({ opened, close, restored }: { opened: boolean; close: (
   );
 }
 
-function StartCompany({ opened, close, started }: { opened: boolean; close: () => void; started: (id: string) => void }) {
+/**
+ * A company is asked its languages as it starts (N7). Left alone, it took the
+ * deployment's default, which is English until the owner finds Settings: an
+ * owner who wrote to the panel in Indonesian got a company whose agents
+ * answered in English. Both start in the language the panel is in now.
+ */
+/** The time zone the owner's browser is in, or null where it does not say. */
+function ownTimeZone(): string | null {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+  } catch {
+    return null;
+  }
+}
+
+function StartCompany({ opened, close, started, languages }: {
+  opened: boolean; close: () => void; started: (id: string) => void; languages: Languages | null;
+}) {
   const requireFactor = useFactor();
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
   const [runsItself, setRunsItself] = useState(true);
+  // Null until chosen: the panel's language, which the owner may change while
+  // the form is open.
+  const [work, setWork] = useState<string | null>(null);
+  const [talk, setTalk] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const supported = (languages?.supported ?? []).map((one) => ({
+    value: one.code, label: one.native === one.name ? one.name : `${one.native} · ${one.name}`,
+  }));
+  const panel = supported.some((one) => one.value === language()) ? language() : null;
+  const workLanguage = work ?? panel;
+  const talkLanguage = talk ?? panel;
 
   const submit = async () => {
     setError(null);
@@ -819,6 +902,11 @@ function StartCompany({ opened, close, started }: { opened: boolean; close: () =
       const done = await requireFactor(t('Start {company}', { company: name }), async (proof) => {
         created = await api('POST', '/api/companies', {
           templateSlug: 'standard-company', companySlug: slug, name, proof,
+          // Its schedules run on the owner's clock, not UTC (the weekly
+          // review at 07:45 on Monday is the owner's Monday morning).
+          ...(ownTimeZone() ? { timezone: ownTimeZone() } : {}),
+          ...(workLanguage ? { workLanguage } : {}),
+          ...(talkLanguage ? { talkLanguage } : {}),
           // company-os: a strategist, a weekly review and the operating skills.
           ...(runsItself ? { bundles: ['company-os'] } : {}),
         });
@@ -828,6 +916,8 @@ function StartCompany({ opened, close, started }: { opened: boolean; close: () =
       close();
       setName('');
       setSlug('');
+      setWork(null);
+      setTalk(null);
       if (created.companyId) started(created.companyId);
     } catch (failure) {
       setError(explain(failure));
@@ -846,6 +936,28 @@ function StartCompany({ opened, close, started }: { opened: boolean; close: () =
           setSlug(value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''));
         }} required />
         <TextInput label={t('Short name')} description={t('Used in links and exports')} value={slug} onChange={(e) => setSlug(e.currentTarget.value)} required />
+        {supported.length > 0 && (
+          <>
+            <Select
+              label={t('Work language')}
+              description={t('What it produces: documents, emails, content for customers, code comments.')}
+              data={supported}
+              value={workLanguage}
+              onChange={setWork}
+              searchable
+              allowDeselect={false}
+            />
+            <Select
+              label={t('Talk language')}
+              description={t('What its agents write to you and to each other: approvals, questions, reports, handoffs.')}
+              data={supported}
+              value={talkLanguage}
+              onChange={setTalk}
+              searchable
+              allowDeselect={false}
+            />
+          </>
+        )}
         <Switch
           checked={runsItself}
           onChange={(e) => setRunsItself(e.currentTarget.checked)}

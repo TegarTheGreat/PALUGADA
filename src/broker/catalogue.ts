@@ -207,6 +207,28 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
       'the risk it carries is injection, not irreversibility.',
   },
   {
+    name: 'browser.read',
+    adapter: 'browser',
+    tier: TIER.READ_ONLY,
+    summary: 'Opens and reads a page in the company\'s browser, signed in where the company is.',
+    readsOutside: true,
+    calibration:
+      'Opening a page and following its links changes nothing a person ' +
+      'reading it would not -- a link is a request to read. What it returns ' +
+      'is a stranger\'s page, so outside content (F8.9), and it is read through ' +
+      'the platform\'s proxy under the same rules as web.fetch (F12.9).',
+  },
+  {
+    name: 'browser.handover',
+    adapter: 'browser',
+    tier: TIER.READ_ONLY,
+    summary: 'Asks the owner to take the company\'s browser over: to sign in, to type a code, to answer a puzzle.',
+    calibration:
+      'Asking changes nothing: it is a question, as `owner.ask` is, answered at ' +
+      'the browser rather than in words. What the owner then does there is ' +
+      'theirs, with their device.',
+  },
+  {
     name: 'web.search',
     adapter: 'search',
     tier: TIER.READ_ONLY,
@@ -274,6 +296,17 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
       'checking an invoice before paying it is free and there is no incentive ' +
       'to skip the check.',
     needsCredential: true,
+  },
+  {
+    name: 'chat.read',
+    adapter: 'platform',
+    tier: TIER.READ_ONLY,
+    summary: 'Reads a conversation a customer started on one of the company\'s channels.',
+    readsOutside: true,
+    calibration:
+      'Reading changes nothing, and what it returns is a customer\'s own words, ' +
+      'so outside content (F8.9): the work that reads it asks the owner before ' +
+      'anything at tier 2.',
   },
   {
     name: 'crm.read',
@@ -433,6 +466,29 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
       'A named tier 2 example in the PRD section 8.8 table. Nothing unsends ' +
       'a message that has been read.',
     needsCredential: true,
+  },
+  {
+    name: 'chat.send',
+    adapter: 'platform',
+    tier: TIER.COSTLY,
+    summary: 'Replies to a customer in a conversation they started.',
+    calibration:
+      'The same as `email.send`: nothing unsends a message a customer has read. ' +
+      'It answers only a conversation a customer began, and the work it answers ' +
+      'began with a stranger\'s words, so the owner says yes to each reply.',
+  },
+  {
+    name: 'browser.act',
+    adapter: 'browser',
+    tier: TIER.COSTLY,
+    summary: 'Fills in and submits a page in the company\'s browser: types, chooses, ticks, clicks.',
+    readsOutside: true,
+    calibration:
+      'The same as `email.send`: a form submitted is not taken back -- an order ' +
+      'accepted, a listing changed, a return filed. Below tier 3 because what ' +
+      'it does is what the company\'s own sign-in may do on that site and the ' +
+      'site keeps its own record; the work that acts has read the page, so the ' +
+      'owner says yes to each act, every step on the card.',
   },
   {
     name: 'deploy.production',

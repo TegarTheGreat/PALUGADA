@@ -23,6 +23,8 @@ import { AnthropicClient } from '../../src/llm/anthropic.ts';
 import { modelAliasesFrom } from '../../src/llm/models.ts';
 import { ProviderFailure } from '../../src/runtime/wire.ts';
 import { outputFrom } from '../../src/runtime/agent-loop.ts';
+import { cancelTask, rerunTask } from '../../src/engine/owner-control.ts';
+import { buildContext } from '../../src/context/builder.ts';
 import { parsePriceTable } from '../../src/engine/pricing.ts';
 import { createCompanyFromTemplate } from '../../src/templates/company.ts';
 import { STANDARD_COMPANY_TEMPLATE, STANDARD_TEMPLATE_SLUG } from '../../src/templates/standard.ts';
@@ -164,6 +166,12 @@ test('a run stopped half-way resumes at the turn it reached, and asks neither th
   const conversation = resumed.requests[0]!.messages;
   assert.equal(conversation.length, 3);
   assert.equal((conversation[1]!.content as LlmBlock[])[1]!.type, 'tool_use');
+  // N13: what the first turn said is in the transcript once. A turn replayed
+  // from the journal was said again, with a new time, at every resume, until
+  // a CEO wrote that it had "repeated its orientation eight times".
+  const { transcriptOf } = await import('../../src/engine/transcript.ts');
+  const said = (await transcriptOf(fixture.companyId, task.id)).map((note) => note.body);
+  assert.deepEqual(said.filter((line) => line === 'Looking.'), ['Looking.']);
 });
 
 test('a refused tool is an answer the model works around; a wait for the owner ends the run (F8.1, F8.4)', async () => {
@@ -221,6 +229,55 @@ test('a refused tool is an answer the model works around; a wait for the owner e
     .runTask(fixture.companyId, parked.id, 'worker');
   assert.equal(later.status, 'waiting_window', later.reason);
   assert.equal(slow.requests.length, 1);
+});
+
+/**
+ * N6 (the audit of 30 September, open on 2 October). The owner asked a
+ * question on an approval card, the console said "Question sent to the
+ * agent", and no model ever read it: the run went back to work, replayed
+ * from its journal the turn that had asked for the action, made the same
+ * call, met the same open card, and waited again. The question sat in a
+ * context nobody built. Asking now reopens that turn, so the model is asked
+ * again with the question in front of it, and what it says is the answer on
+ * the card, which waits for the owner's decision again.
+ */
+test('a question on an approval card reaches the model, and its answer reaches the card (F10.3, N6)', async () => {
+  const fixture = await createCompany('model-asked');
+  const registry = new CapabilityRegistry();
+  registry.register({
+    name: 'domain.transfer', adapter: 'test:registrar', defaultTier: 3,
+    async execute() { throw new Error('never reached'); },
+    async verify() { return true; },
+  });
+  await registry.sync();
+  await grantCapability(fixture, 'domain.transfer');
+  await withTools(fixture, ['domain.transfer']);
+  const task = await newTask(fixture);
+  await planTask(fixture.companyId, task.id, [{ capability: 'domain.transfer' }]);
+  const run = (model: ScriptedModel) => new Engine({ broker: new CapabilityBroker(registry), workerId: 'model-worker', llm: model, handlers: new Map() })
+    .runTask(fixture.companyId, task.id, 'worker');
+  const { listOpen, decide } = await import('../../src/inbox/inbox.ts');
+  const transferCall = { type: 'tool_use' as const, id: 'call-1', name: 'domain__transfer', input: { domain: 'example.test' } };
+
+  const first = new ScriptedModel([{ content: [{ type: 'text', text: 'Moving the domain.' }, transferCall], stopReason: 'tool_use' }]);
+  assert.equal((await run(first)).status, 'waiting_approval');
+  const [card] = (await listOpen(fixture.companyId)).filter((item) => item.kind === 'approval');
+  await decide(fixture.companyId, card!.id, 'ask', 'Why move it now?');
+
+  const second = new ScriptedModel([
+    { content: [{ type: 'text', text: 'Because the registrar raises its price on Friday.' }, { ...transferCall, id: 'call-2' }], stopReason: 'tool_use' },
+  ]);
+  assert.equal((await run(second)).status, 'waiting_approval');
+  assert.equal(second.requests.length, 1, 'the model was asked again, not handed its earlier turn back');
+  assert.match(second.requests[0]!.system, /The owner has asked you a question[\s\S]*Why move it now\?/);
+
+  const [again, ...more] = (await listOpen(fixture.companyId)).filter((item) => item.kind === 'approval');
+  assert.equal(more.length, 0);
+  assert.equal(again!.id, card!.id, 'the same card');
+  assert.deepEqual(again!.asked, [{ question: 'Why move it now?', answer: 'Because the registrar raises its price on Friday.' }]);
+  const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ decision: string | null }>(
+    'SELECT decision FROM inbox_items WHERE id = $1', [card!.id]));
+  assert.equal(rows[0]!.decision, null, 'and it waits for the owner\'s decision again');
 });
 
 /**
@@ -332,6 +389,96 @@ test('a write the model tries again reaches the vendor under the key it was firs
   assert.equal(sent[1]!.key, sent[0]!.key, 'the same write, tried again, under the same key');
   assert.notEqual(sent[2]!.key, sent[0]!.key, 'a different write under its own');
   assert.match(sent[0]!.key, /^[0-9a-f]{32}$/);
+});
+
+/**
+ * N12, the analysis of 3 October: doing unfinished work again could do again
+ * what it had already done to the outside world. A rerun is a task of its
+ * own, so every write it made carried a key of its own (`callKey` is made
+ * from the task), and the run was told only that the attempt before it
+ * "ended halted" -- not that it had already written the note, sent the
+ * email. A rerun of work that did not finish now carries on from it: it is
+ * told what the attempts before it wrote, a write they made is answered
+ * from their record rather than made again, and one whose answer never came
+ * goes to the vendor under the key it was first sent with. Work that
+ * finished, asked for again, is new work: the owner saw it done.
+ */
+test('a rerun of unfinished work does not do again a write the attempt before it made, and is told what it did (N12)', async () => {
+  const fixture = await createCompany('model-rerun-writes');
+  const sent: Array<{ note: string; key: string }> = [];
+  let reads = 0;
+  const registry = new CapabilityRegistry();
+  registry.register<{ customerId: string }, { notes: number }>({
+    name: 'crm.read', adapter: 'test:crm', defaultTier: 0,
+    async execute() { reads += 1; return { notes: reads }; },
+  });
+  registry.register<{ customerId: string; note: string }, { id: string }>({
+    name: 'crm.note', adapter: 'test:crm', defaultTier: 1,
+    async execute(input, ctx) {
+      sent.push({ note: input.note, key: ctx.idempotencyKey });
+      // The vendor acted on the first "asked about the order"; its answer was lost.
+      if (input.note === 'Asked about the order.' && sent.filter((one) => one.note === input.note).length === 1) {
+        throw new Error('the CRM did not answer in time');
+      }
+      return { id: `note-${sent.length}` };
+    },
+    async verify() { return true; },
+  });
+  await registry.sync();
+  await grantCapability(fixture, 'crm.read');
+  await grantCapability(fixture, 'crm.note');
+  await withTools(fixture, ['crm.read', 'crm.note']);
+  const engine = (model: ScriptedModel) =>
+    new Engine({ broker: new CapabilityBroker(registry), workerId: 'model-worker', llm: model, handlers: new Map() });
+  const work = [
+    use('call-1', 'crm__read', { customerId: 'c-1' }),
+    use('call-2', 'crm__note', { customerId: 'c-1', note: 'Sent the price list.' }),
+    use('call-3', 'crm__note', { customerId: 'c-1', note: 'Asked about the order.' }),
+  ];
+
+  // The first attempt reads, writes a note, sends a second that never
+  // answers, and ends without finishing; the owner stops it.
+  const first = await newTask(fixture);
+  await engine(new ScriptedModel([...work, say('I could not finish.'), say('Still not.')]))
+    .runTask(fixture.companyId, first.id, 'worker');
+  await cancelTask(fixture.companyId, first.id, 'stuck');
+  assert.deepEqual(sent.map((one) => one.note), ['Sent the price list.', 'Asked about the order.']);
+
+  // Done again: the run is told what was written.
+  const second = await rerunTask(fixture.companyId, first.id, 'Finish it.');
+  const context = await withTenant(fixture.companyId, (tx) =>
+    buildContext(tx, { companyId: fixture.companyId, divisionId: fixture.divisionId, taskId: second }));
+  const told = context.sections.find((section) => section.title === 'What the earlier attempts at this work already did');
+  assert.ok(told, context.sections.map((section) => section.title).join(', '));
+  assert.equal(told.kind, 'earlier_attempts', 'among what the run is never given up for room');
+  assert.match(told.body, /crm\.note[^\n]*Sent the price list\.[^\n]*note-1/);
+  assert.doesNotMatch(told.body, /crm\.read/, 'a read changed nothing');
+
+  // It makes the same calls; the note already written is not written again.
+  const model = new ScriptedModel([
+    ...work,
+    (request) => say(answering(request.system, { summary: 'Both notes are on the customer.' })),
+  ]);
+  const again = await engine(model).runTask(fixture.companyId, second, 'worker');
+  assert.equal(again.status, 'completed', again.reason);
+  assert.equal(reads, 2, 'a read is read again: what it reads may have changed');
+  assert.deepEqual(sent.map((one) => one.note), ['Sent the price list.', 'Asked about the order.', 'Asked about the order.'],
+    'the note written before is answered from its record');
+  assert.match(JSON.stringify(model.requests[2]!.messages), /note-1/, 'and the run is given what it returned then');
+  assert.equal(sent[2]!.key, sent[1]!.key, 'the write whose answer never came goes again under its first key');
+  const { rows: notRepeated } = await withTenant(fixture.companyId, (tx) => tx.query<{ payload: { capability: string; fromTaskId: string } }>(
+    "SELECT payload FROM events WHERE task_id = $1 AND type = 'tool.not_repeated'", [second]));
+  assert.deepEqual(notRepeated.map((row) => [row.payload.capability, row.payload.fromTaskId]), [['crm.note', first.id]]);
+
+  // Finished work asked for again is new work: the owner saw it done.
+  const third = await rerunTask(fixture.companyId, second, 'Once more.');
+  const fresh = await engine(new ScriptedModel([
+    work[1]!,
+    (request) => say(answering(request.system, { summary: 'Wrote it again.' })),
+  ])).runTask(fixture.companyId, third, 'worker');
+  assert.equal(fresh.status, 'completed', fresh.reason);
+  assert.equal(sent.length, 4);
+  assert.notEqual(sent[3]!.key, sent[0]!.key);
 });
 
 test('a model that ends without an output is asked once, and then the attempt fails', async () => {

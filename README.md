@@ -62,7 +62,20 @@ It is **not** for you if you need many people working in it (there is one owner,
 
 ## Quickstart
 
-**With Docker** (Docker Compose, and Node 22.18+ for the setup):
+**In one command**, with nothing on the machine but Docker:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/TegarTheGreat/PALUGADA/main/install.sh | sh
+```
+
+It fetches PALUGADA into `~/palugada`, writes the database's passwords to
+its `.env`, starts it with Docker Compose, waits until the console answers,
+and prints a link: whoever opens it first becomes the owner, adds PALUGADA to
+their authenticator app there, and chooses the model in the console. Run the
+same command again to update; the passwords and the data stay, and the
+database is copied to `~/palugada/backups` first.
+
+**With Docker, step by step** (Docker Compose, and Node 22.18+ for the setup):
 
 ```sh
 git clone https://github.com/TegarTheGreat/PALUGADA.git && cd PALUGADA
@@ -352,6 +365,7 @@ without you merging it.
 - [docs/configuration.md](docs/configuration.md): installing, production and every setting.
 - [docs/STATUS.md](docs/STATUS.md): every requirement graded, with the defects found and fixed.
 - [CHANGELOG.md](CHANGELOG.md): what each version changed, for an owner or an operator.
+- [docs/RELEASING.md](docs/RELEASING.md): how a version is released, installed and rolled back, and the merge queue that keeps main green.
 - [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md): who can attack a deployment, what stops each in order, the test for each defence, and what is left.
 - [docs/PRD.md](docs/PRD.md): the specification (v2, in Indonesian); `F5.4` in the code refers to it.
 - [docs/RESEARCH-2026-09.md](docs/RESEARCH-2026-09.md) and [docs/COMPETITIVE-ANALYSIS-2026-09-30.md](docs/COMPETITIVE-ANALYSIS-2026-09-30.md): the comparisons with Slack, Buzz, auto-company, Paperclip and newer projects.

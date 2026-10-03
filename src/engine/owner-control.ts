@@ -406,6 +406,32 @@ export async function earlierAttempts(tx: TenantClient, taskId: string): Promise
   return chain;
 }
 
+/**
+ * The earlier attempts at this work that did not finish, nearest first: those
+ * before it, up to the last one that did (N12).
+ *
+ * What they did in the world still stands, and doing the work again means
+ * finishing it: a rerun is told what they wrote, is answered from their
+ * record when it makes the same write, and sends a write that never answered
+ * under the key it was first sent with. An attempt that finished is where
+ * this stops. The owner saw that work done, and asking for it again is
+ * asking for it to be done again -- the newsletter sent once more, the
+ * report written afresh.
+ */
+export async function unfinishedAttempts(tx: TenantClient, taskId: string): Promise<string[]> {
+  const earlier = await earlierAttempts(tx, taskId);
+  if (earlier.length === 0) return [];
+  const { rows } = await tx.query<{ id: string; status: TaskStatus }>(
+    'SELECT id, status FROM tasks WHERE id = ANY($1::uuid[])', [earlier]);
+  const status = new Map(rows.map((row) => [row.id, row.status]));
+  const unfinished: string[] = [];
+  for (const attempt of earlier) {
+    if (status.get(attempt) === 'completed') break;
+    unfinished.push(attempt);
+  }
+  return unfinished;
+}
+
 export type Verdict = 'good' | 'needs_work';
 
 /**

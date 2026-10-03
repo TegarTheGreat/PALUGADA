@@ -90,21 +90,22 @@ test('a deployment with no owner makes a link; whoever opens it adds the one aut
     assert.ok(String(opened.body.uri).startsWith('otpauth://totp/') && String(opened.body.uri).includes(`secret=${secret}`));
     const qr = opened.body.qr as string[];
     assert.ok(qr.length >= 21 && qr.every((row) => row.length === qr.length && /^[01]+$/.test(row)), 'a square of modules');
-    // Opened again -- a reload, the laptop and then the phone -- it is the same secret, so either scan works.
-    assert.equal((await call(owner.url, 'POST', '/api/auth/claim', { body: { code } })).body.secret, secret);
+    // The secret is this opening's, and the page that showed it says which (B3).
+    const offer = String(opened.body.offer);
+    assert.match(offer, /^[A-Za-z0-9_-]{22}$/);
     // Nothing is kept until the owner proves the app has it.
     const sealedNow = async () => (await withControlPlane((tx) => tx.query<{ ciphertext: Buffer }>('SELECT ciphertext FROM deployment_secrets'))).rows;
     assert.equal((await sealedNow()).length, 0);
 
     // A code from another secret proves nothing.
-    const wrong = await call(owner.url, 'POST', '/api/auth/claim/confirm', { body: { code, totp: owner.code(newTotpSecret('x').secret) } });
+    const wrong = await call(owner.url, 'POST', '/api/auth/claim/confirm', { body: { code, offer, totp: owner.code(newTotpSecret('x').secret) } });
     assert.equal(wrong.status, 401, JSON.stringify(wrong.body));
     assert.equal((await owner.mfa.enrolled()).length, 0, 'nothing is enrolled on a wrong code');
 
     // The code the phone shows: the authenticator is the owner's, and they are in.
     // The console names the authenticator in the owner's language; the
     // server's English default would show under "Owner" in every language.
-    const confirmed = await call(owner.url, 'POST', '/api/auth/claim/confirm', { body: { code, totp: owner.code(secret), label: ' Aplikasi autentikator ' } });
+    const confirmed = await call(owner.url, 'POST', '/api/auth/claim/confirm', { body: { code, offer, totp: owner.code(secret), label: ' Aplikasi autentikator ' } });
     assert.equal(confirmed.status, 200, JSON.stringify(confirmed.body));
     assert.equal(confirmed.body.device, 'Aplikasi autentikator');
     const token = String(confirmed.body.token);
@@ -122,7 +123,7 @@ test('a deployment with no owner makes a link; whoever opens it adds the one aut
 
     // The link is spent, and no new one is made: the deployment has an owner.
     assert.equal((await call(owner.url, 'POST', '/api/auth/claim', { body: { code } })).status, 401);
-    assert.equal((await call(owner.url, 'POST', '/api/auth/claim/confirm', { body: { code, totp: owner.code(secret) } })).status, 401);
+    assert.equal((await call(owner.url, 'POST', '/api/auth/claim/confirm', { body: { code, offer, totp: owner.code(secret) } })).status, 401);
     assert.equal(await openOwnerClaim(), null);
     assert.equal((await call(owner.url, 'GET', '/api/auth/challenge')).body.claimable, false);
   } finally {
@@ -151,11 +152,53 @@ test('a link lasts a day, and is worth nothing once the deployment has an owner 
     await owner.mfa.enrolTotp({ label: 'owner phone', secretRef: 'vault://owner/totp' });
 
     // Neither link can add a second owner now, even the one already opened.
-    const late = await call(owner.url, 'POST', '/api/auth/claim/confirm', { body: { code: first, totp: owner.code(String(opened.body.secret)) } });
+    const late = await call(owner.url, 'POST', '/api/auth/claim/confirm', {
+      body: { code: first, offer: opened.body.offer, totp: owner.code(String(opened.body.secret)) },
+    });
     assert.equal(late.status, 409, JSON.stringify(late.body));
     assert.match(String(late.body.error), /already has an owner/);
     assert.equal((await call(owner.url, 'POST', '/api/auth/claim', { body: { code: second } })).status, 409);
     assert.deepEqual((await owner.mfa.enrolled()).map((factor) => factor.label), ['owner phone']);
+  } finally {
+    await owner.close();
+  }
+});
+
+/**
+ * B3 (the audit of 30 September, open on 2 October). The secret a claim link
+ * offered was derived from the claim alone, so everyone who opened the link
+ * was shown the same one -- by design, so that a laptop and then a phone
+ * would agree. Whoever saw the link before the owner, in a log or over a
+ * shoulder, kept a copy of what became the owner's one authenticator, and
+ * could sign in and approve as the owner for as long as it stood, with
+ * nothing to show that anyone had.
+ */
+test('every opening of a claim link is shown its own secret, and only the page that showed one can make it the owner\'s (B3)', async () => {
+  const owner = await unownedConsole();
+  try {
+    const code = (await openOwnerClaim())!;
+    // Someone reads the link in the log and opens it first.
+    const theirs = (await call(owner.url, 'POST', '/api/auth/claim', { body: { code } })).body;
+    // Then the owner.
+    const mine = (await call(owner.url, 'POST', '/api/auth/claim', { body: { code } })).body;
+    assert.notEqual(mine.secret, theirs.secret, 'a secret of its own');
+    assert.notEqual(mine.offer, theirs.offer);
+
+    // A code from one opening does not confirm another's.
+    const crossed = await call(owner.url, 'POST', '/api/auth/claim/confirm', { body: { code, offer: mine.offer, totp: owner.code(String(theirs.secret)) } });
+    assert.equal(crossed.status, 401, JSON.stringify(crossed.body));
+    // Nor does a page that names no opening, or one made up.
+    for (const offer of [undefined, 'not-an-offer', 'A'.repeat(22)]) {
+      const refused = await call(owner.url, 'POST', '/api/auth/claim/confirm', { body: { code, offer, totp: owner.code(String(mine.secret)) } });
+      assert.equal(refused.status, 401, `${offer}: ${JSON.stringify(refused.body)}`);
+    }
+    assert.equal((await owner.mfa.enrolled()).length, 0);
+
+    // The owner's own: confirmed, and what the earlier opener holds signs nobody in.
+    const confirmed = await call(owner.url, 'POST', '/api/auth/claim/confirm', { body: { code, offer: mine.offer, totp: owner.code(String(mine.secret)) } });
+    assert.equal(confirmed.status, 200, JSON.stringify(confirmed.body));
+    assert.equal((await call(owner.url, 'POST', '/api/auth/sign-in', { body: { totp: owner.code(String(theirs.secret)) } })).status, 401);
+    assert.equal((await call(owner.url, 'POST', '/api/auth/sign-in', { body: { totp: owner.code(String(mine.secret)) } })).status, 200);
   } finally {
     await owner.close();
   }

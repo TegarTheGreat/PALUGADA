@@ -34,7 +34,8 @@ import { wrapUntrusted } from '../context/builder.ts';
 import { LEARNED_CONFIDENCE, learn, remember } from './store.ts';
 import { outsideContentIn } from '../engine/tasks.ts';
 import * as inbox from '../inbox/inbox.ts';
-import type { LlmClient } from '../llm/client.ts';
+import type { LlmClient, LlmResponse } from '../llm/client.ts';
+import { recordCallOutsideTask } from '../reporting/cost.ts';
 
 /** How many times a pattern must recur before it is worth proposing as an SOP. */
 export const DEFAULT_MIN_OCCURRENCES = 3;
@@ -152,6 +153,21 @@ async function advanceWatermark(
   );
 }
 
+/**
+ * A distillation call, in the company's traces (N8). The company's learning
+ * is its spending like its work is: the month's ceiling and the Money page
+ * did not see it, because only a task's calls were traced. Counted when the
+ * answer arrives, before it is judged: an answer that is no use cost the same.
+ */
+async function countCall(
+  input: { companyId: string; model: string }, response: LlmResponse, latencyMs: number,
+): Promise<void> {
+  await withTenant(input.companyId, (tx) => recordCallOutsideTask(tx, input.companyId, {
+    model: response.model ?? input.model, inputTokens: response.inputTokens, outputTokens: response.outputTokens,
+    costCents: response.costCents, latencyMs,
+  }));
+}
+
 /** Episodic to semantic: extracts durable facts from what happened (F4.4). */
 export async function distillEpisodicToSemantic(
   input: DistillEpisodicInput,
@@ -234,6 +250,7 @@ export async function distillEpisodicToSemantic(
     return false;
   });
 
+  const began = Date.now();
   const response = await input.llm.complete({
     model: input.model,
     system:
@@ -253,6 +270,7 @@ export async function distillEpisodicToSemantic(
       },
     ],
   });
+  await countCall(input, response, Date.now() - began);
 
   const parsed = parseFacts(response.content);
   const lastEvent = events[events.length - 1]!;
@@ -404,6 +422,7 @@ export async function distillSemanticToProcedural(
       return rows.filter((row) => row.goal || row.summary)
         .map((row) => `- For: ${row.goal ?? '(not said)'}\n  Produced: ${row.summary ?? '(not said)'}`).join('\n');
     });
+    const began = Date.now();
     const response = await input.llm.complete({
       model: input.model,
       system:
@@ -420,6 +439,7 @@ export async function distillSemanticToProcedural(
         },
       ],
     });
+    await countCall(input, response, Date.now() - began);
 
     const created = await withTenant(input.companyId, async (tx) => {
       const memoryId = await remember(tx, {

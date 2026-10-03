@@ -27,17 +27,18 @@ import {
 import { useHotkeys, useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import {
-  IconArrowLeft, IconCheck, IconClock, IconClockPause, IconHourglass, IconMessageQuestion, IconRoute, IconTarget, IconX,
+  IconArrowLeft, IconCheck, IconClock, IconClockPause, IconHourglass, IconMessageQuestion, IconRoute, IconTarget, IconWorldWww, IconX,
 } from '@tabler/icons-react';
 import { api, ApiError, explain, type Proof } from '../api.ts';
 import { useFactor } from '../factor.tsx';
-import { useLoad } from '../hooks.ts';
+import { useLivePulse, useLoad } from '../hooks.ts';
 import { go } from '../router.ts';
-import type { Digest, InboxItem, StandingApproval, Trace } from '../types.ts';
-import { dateTime, goalKind, money, relative } from '../format.ts';
+import type { Digest, InboxItem, Staff, StandingApproval, Trace } from '../types.ts';
+import { capabilitySaid, dateTime, goalKind, money, relative } from '../format.ts';
 import { t, tp } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
 import { EmptyState, KindBadge, KpiStrip, LoadFailed, Loading, PageHeader, TierBadge } from '../components/ui.tsx';
+import { ConversationOfTask } from '../components/ChatThread.tsx';
 import { rolePicture } from '../images.ts';
 import { TraceView } from '../components/Trace.tsx';
 
@@ -52,6 +53,32 @@ const KIND_COLOR: Record<string, string> = {
 /** Whether a batch may approve it: the server holds the same rule and has the last word. */
 const batchApprovable = (item: InboxItem) => item.tier !== 3 && !item.question && item.kind !== 'incident';
 
+/**
+ * What a card is about, in a line. A run's question is its question: the
+ * title made from it said "bookkeeper asks: ..." in English, whatever the
+ * owner reads (the analysis of 3 October, §2.3 item 7).
+ */
+const headline = (item: InboxItem) => {
+  if (item.question) return item.question;
+  // An action the broker asks about is titled by its code and its arguments
+  // ("record.delete: recordId cust-042"): it is named for what it does, and
+  // its arguments follow; the card lists them whole.
+  const action = described(item);
+  if (action !== null) return action ? `${capabilitySaid(item.capabilityName!)}: ${action}` : capabilitySaid(item.capabilityName!);
+  return item.title;
+};
+
+/** The arguments of a title the broker wrote as `capability: arguments`, or null when it is not one. */
+const described = (item: InboxItem): string | null => {
+  const name = item.capabilityName;
+  if (!name) return null;
+  if (item.title === name) return '';
+  return item.title.startsWith(`${name}:`) ? item.title.slice(name.length + 1).trim() : null;
+};
+
+/** Who is asking, by the name the owner gave the role; its short name is the platform's. */
+const whoAsks = (item: InboxItem) => item.roleName ?? item.roleSlug;
+
 /** Tier 3 first, then incidents, then oldest: what costs most to leave waiting. */
 function urgency(item: InboxItem): number {
   return item.tier === 3 ? 0 : item.kind === 'incident' ? 1 : 2;
@@ -59,6 +86,8 @@ function urgency(item: InboxItem): number {
 
 export function Decisions({ ctx, route }: PageProps) {
   const { companyId } = ctx;
+  // An item asked or withdrawn shows the moment it is.
+  const pulse = useLivePulse(companyId);
   const queue = useLoad(async () => {
     const [{ items }, digest, later, { standing }]: [
       { items: InboxItem[] }, Digest, { items: InboxItem[] }, { standing: StandingApproval[] },
@@ -69,7 +98,7 @@ export function Decisions({ ctx, route }: PageProps) {
       api('GET', `/api/companies/${companyId}/standing-approvals`),
     ]);
     return { items, digest, later: later.items, standing };
-  }, [companyId], { every: 15_000 });
+  }, [companyId], { every: 15_000, pulse });
   const [filter, setFilter] = useState<Filter>('all');
   const [missingLink, setMissingLink] = useState(false);
   const [choosing, setChoosing] = useState(false);
@@ -201,9 +230,11 @@ export function Decisions({ ctx, route }: PageProps) {
                       { value: 'escalation', label: t('Questions') },
                     ]}
                   />
-                  <Button size="compact-sm" variant={choosing ? 'light' : 'subtle'} onClick={() => (choosing ? stopChoosing() : setChoosing(true))}>
-                    {choosing ? t('Finish choosing') : t('Choose several')}
-                  </Button>
+                  {ctx.staff?.kind !== 'viewer' && (
+                    <Button size="compact-sm" variant={choosing ? 'light' : 'subtle'} onClick={() => (choosing ? stopChoosing() : setChoosing(true))}>
+                      {choosing ? t('Finish choosing') : t('Choose several')}
+                    </Button>
+                  )}
                 </Group>
                 {choosing && (
                   <Group justify="space-between" gap={6} mb="xs" px={4} wrap="nowrap">
@@ -241,7 +272,7 @@ export function Decisions({ ctx, route }: PageProps) {
                             <Checkbox checked={chosen.has(item.id)} readOnly tabIndex={-1} mt={2} style={{ pointerEvents: 'none' }} />
                           )}
                           <Box style={{ flex: 1, minWidth: 0 }}>
-                            <Text fw={600} size="sm" lineClamp={2}>{item.title}</Text>
+                            <Text fw={600} size="sm" lineClamp={2}>{headline(item)}</Text>
                             <Group gap={6} mt={6}>
                               <TierBadge tier={item.tier} />
                               <KindBadge kind={item.kind} />
@@ -262,7 +293,7 @@ export function Decisions({ ctx, route }: PageProps) {
                       {queue.data.later.map((item) => (
                         <Group key={item.id} justify="space-between" wrap="nowrap" gap="xs">
                           <Box style={{ minWidth: 0 }}>
-                            <Text size="sm" lineClamp={1}>{item.title}</Text>
+                            <Text size="sm" lineClamp={1}>{headline(item)}</Text>
                             <Text size="xs" c="dimmed">{t('Back {when}', { when: relative(item.snoozedUntil!) })}</Text>
                           </Box>
                           <Button size="compact-xs" variant="subtle" onClick={() => {
@@ -290,6 +321,7 @@ export function Decisions({ ctx, route }: PageProps) {
                   decided={() => decided(current.id)}
                   openTask={() => ctx.open('work', { item: current.taskId })}
                   openSkills={() => ctx.open('settings', { section: 'skills' })}
+                  seat={ctx.staff}
                 />
               ) : (
                 <Paper withBorder radius="lg" p="xl"><Text c="dimmed" ta="center">{t('Choose an item.')}</Text></Paper>
@@ -375,7 +407,7 @@ function BatchConfirm({ companyId, decision, items, close, done }: {
           <Stack gap={6}>
             {targets.map((item) => (
               <Group key={item.id} justify="space-between" wrap="nowrap" gap="sm">
-                <Text size="sm" lineClamp={1}>{item.title}</Text>
+                <Text size="sm" lineClamp={1}>{headline(item)}</Text>
                 <TierBadge tier={item.tier} />
               </Group>
             ))}
@@ -402,9 +434,11 @@ function BatchConfirm({ companyId, decision, items, close, done }: {
 }
 
 function Detail({
-  item, companyId, position, back, decided, openTask, openSkills,
+  item, companyId, position, back, decided, openTask, openSkills, seat,
 }: {
   item: InboxItem;
+  /** A staff seat reading the inbox (0110): a viewer decides nothing, and nobody but the owner decides tier 3. */
+  seat: Staff | null;
   companyId: string;
   position: string;
   back: (() => void) | undefined;
@@ -414,6 +448,7 @@ function Detail({
   openSkills: () => void;
 }) {
   const requireFactor = useFactor();
+  const decides = seat === null || (seat.kind === 'approver' && (item.tier ?? 0) < 3);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -433,7 +468,7 @@ function Detail({
     setError(null);
     try {
       const done = await requireFactor(
-        t('{capability} for {role}, {period}', { capability: item.capabilityName ?? '', role: item.roleSlug ?? '', period: label }),
+        t('{capability} for {role}, {period}', { capability: item.capabilityName ? capabilitySaid(item.capabilityName) : '', role: whoAsks(item) ?? '', period: label }),
         (proof) => send('approve', proof, hours),
       );
       if (!done) return;
@@ -526,8 +561,9 @@ function Detail({
 
   const expires = item.expiresAt ? new Date(item.expiresAt) : null;
   const soon = expires !== null && expires.getTime() - Date.now() < 6 * 3_600_000;
-  const asker = item.roleSlug
-    ? item.divisionName ? t('Asked by {role} in {division}', { role: item.roleSlug, division: item.divisionName }) : t('Asked by {role}', { role: item.roleSlug })
+  const who = whoAsks(item);
+  const asker = who
+    ? item.divisionName ? t('Asked by {role} in {division}', { role: who, division: item.divisionName }) : t('Asked by {role}', { role: who })
     : t('Raised by the platform');
 
   return (
@@ -555,7 +591,7 @@ function Detail({
             </Tooltip>
           )}
         </Group>
-        <Title order={3} fz={20} lh={1.3}>{item.title}</Title>
+        <Title order={3} fz={20} lh={1.3}>{item.question && who ? t('A question from {role}', { role: who }) : headline(item)}</Title>
         <Group gap={8} mt={8} wrap="nowrap">
           <Avatar size={26} radius="xl" src={item.roleSlug ? rolePicture(item.roleSlug) : '/brand/palugada-app-icon.svg'} alt="" />
           <Text size="sm" c="dimmed">{asker} · {relative(item.createdAt)}</Text>
@@ -563,9 +599,13 @@ function Detail({
       </Box>
       <Divider />
       <Stack p="lg" gap="md">
-        {item.actionSummary && item.actionSummary !== item.title && (
+        {/* The broker's line of arguments is not shown again: they are listed whole below. */}
+        {item.actionSummary && item.actionSummary !== item.title
+          && !(item.capabilityName && item.actionSummary.startsWith(`${item.capabilityName}:`) && argumentsOf(item.input).length > 0) && (
           <Block label={t('What will happen')}>{item.actionSummary}</Block>
         )}
+        {/* A reply to a customer, beside what the customer wrote (0111). */}
+        {item.capabilityName === 'chat.send' && item.taskId && <ConversationOfTask companyId={companyId} taskId={item.taskId} />}
         {/* Every argument, whole: the line above is cut to fit, and what is
             approved is what the action is given, not its name. */}
         {argumentsOf(item.input).length > 0 && (
@@ -583,6 +623,17 @@ function Detail({
         )}
         {item.rationale && <Block label={t('Why')}>{item.rationale}</Block>}
         {item.consequenceIfDenied && <Block label={t('If you refuse')}>{item.consequenceIfDenied}</Block>}
+        {/* What the owner asked here, and what the agent answered (N6). */}
+        {(item.asked ?? []).map((exchange, index) => (
+          <Paper key={index} withBorder radius="md" p="sm">
+            <Text size="xs" c="dimmed">{t('You asked')}</Text>
+            <Text size="sm" mb={6} style={{ whiteSpace: 'pre-wrap' }}>{exchange.question}</Text>
+            <Text size="xs" c="dimmed">{t('The agent answered')}</Text>
+            {exchange.answer === null
+              ? <Text size="sm" c="dimmed" fs="italic">{t('Not yet: the agent is reading your question.')}</Text>
+              : <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>{exchange.answer}</Text>}
+          </Paper>
+        ))}
 
         {item.goalChain.length > 0 && (
           <div>
@@ -602,7 +653,7 @@ function Detail({
 
         {!item.question && (
           <SimpleGrid cols={{ base: 1, xs: 2 }} spacing="sm">
-            {item.capabilityName && <Fact label={t('Capability')} value={item.capabilityName} />}
+            {item.capabilityName && <Fact label={t('Capability')} value={capabilitySaid(item.capabilityName)} />}
             <Fact label={t('Estimated cost')} value={item.estimatedCostCents > 0 ? money(item.estimatedCostCents) : t('None declared')} />
           </SimpleGrid>
         )}
@@ -612,7 +663,11 @@ function Detail({
             <Group gap={6}><IconRoute size={16} />{traceOpen ? t('Hide what happened') : t('What happened')}</Group>
           </Anchor>
           {item.taskId && <Anchor component="button" size="sm" onClick={openTask}>{t('Open the task')}</Anchor>}
-          {item.kind === 'skill_candidate' && <Anchor component="button" size="sm" onClick={openSkills}>{t('Read the skill')}</Anchor>}
+          {item.kind === 'skill_candidate' && !seat && (
+            <Anchor component="button" size="sm" onClick={openSkills}>
+              {(item.skillCount ?? 1) > 1 ? t('Read the skills') : t('Read the skill')}
+            </Anchor>
+          )}
         </Group>
         <Collapse expanded={traceOpen}>
           <Box>{trace ? <TraceView trace={trace} companyId={companyId} /> : <Text size="sm" c="dimmed">{t('Loading…')}</Text>}</Box>
@@ -625,6 +680,16 @@ function Detail({
           <Paper withBorder radius="md" p="md" bg="var(--mantine-color-blue-light)">
             <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb={4}>{t('The agent asks')}</Text>
             <Text size="sm" fw={600} mb="sm" style={{ whiteSpace: 'pre-wrap' }}>{item.question}</Text>
+            {/* Asked to be done at the company's browser (browser.handover): there, and giving it back answers this. */}
+            {item.browser && !seat && item.taskId && (
+              <Stack gap={4} mb="sm" align="flex-start">
+                <Button leftSection={<IconWorldWww size={16} />}
+                  onClick={() => go({ kind: 'company', companyId, page: 'browser', section: 'company', item: item.taskId })}>
+                  {t('Open the browser')}
+                </Button>
+                <Text size="xs" c="dimmed">{t('Take it over there, do what it asks, and give it back: that answers this.')}</Text>
+              </Stack>
+            )}
             {item.options && item.options.length > 0 && (
               <Stack gap={6} mb="sm">
                 {item.options.map((option) => (
@@ -655,7 +720,7 @@ function Detail({
           />
         )}
 
-        {item.kind === 'escalation' && !item.question && (
+        {decides && item.kind === 'escalation' && !item.question && (
           <Paper withBorder radius="md" p="sm" bg="var(--mantine-color-default-hover)">
             <Textarea
               label={t('Answer the agent instead')}
@@ -676,7 +741,13 @@ function Detail({
         {error && <Alert color="red" variant="light">{error}</Alert>}
       </Stack>
       <Divider />
-      {item.question ? (
+      {!decides ? (
+        <Text p="md" size="sm" c="dimmed" bg="var(--mantine-color-default-hover)">
+          {seat?.kind === 'approver'
+            ? t('Tier 3 is the owner\'s to decide: it stays in their inbox.')
+            : t('You can read this; deciding it is for the owner or an approver.')}
+        </Text>
+      ) : item.question ? (
         <Group p="md" justify="flex-end" wrap="wrap" gap="xs" bg="var(--mantine-color-default-hover)">
           <Button variant="default" leftSection={<IconX size={16} />} loading={busy === 'deny'} onClick={() => void decide('deny')}>
             {t('Stop the task')}
@@ -694,7 +765,7 @@ function Detail({
           <Button variant="default" leftSection={<IconX size={16} />} loading={busy === 'deny'} onClick={() => void decide('deny')}>
             {t('Deny')}
           </Button>
-          {item.allowFor ? (
+          {item.allowFor && !seat ? (
             <Group gap={0} wrap="nowrap">
               <Button variant="outline" color="teal" leftSection={<IconCheck size={16} />} loading={busy === 'approve'}
                 onClick={() => void decide('approve')} style={{ borderTopRightRadius: 0, borderBottomRightRadius: 0 }}>
@@ -708,7 +779,7 @@ function Detail({
                   </Button>
                 </Menu.Target>
                 <Menu.Dropdown>
-                  <Menu.Label>{t('Approve, and allow {capability} to {role} without asking for', { capability: item.capabilityName ?? '', role: item.roleSlug ?? '' })}</Menu.Label>
+                  <Menu.Label>{t('Approve, and allow {capability} to {role} without asking for', { capability: item.capabilityName ? capabilitySaid(item.capabilityName) : '', role: whoAsks(item) ?? '' })}</Menu.Label>
                   {ALLOW_FOR.map((choice) => (
                     <Menu.Item key={choice.hours} onClick={() => void approveFor(choice.hours, choice.label())}>{choice.label()}</Menu.Item>
                   ))}
@@ -747,7 +818,7 @@ function Standing({ companyId, standing, changed }: {
     setBusy(entry.id);
     try {
       await api('POST', `/api/companies/${companyId}/standing-approvals/${entry.id}/revoke`);
-      notifications.show({ message: t('Taken back. The next {capability} by {role} asks you again.', { capability: entry.capabilityName, role: entry.roleSlug }) });
+      notifications.show({ message: t('Taken back. The next {capability} by {role} asks you again.', { capability: capabilitySaid(entry.capabilityName), role: entry.roleName ?? entry.roleSlug }) });
       changed();
     } catch (failure) {
       notifications.show({ color: 'red', message: explain(failure) });
@@ -769,7 +840,7 @@ function Standing({ companyId, standing, changed }: {
           <Group key={entry.id} justify="space-between" wrap="nowrap" gap="sm">
             <Box style={{ minWidth: 0 }}>
               <Text size="sm" truncate>
-                <Text span fw={600}>{entry.capabilityName}</Text>{' · '}{entry.roleSlug}
+                <Text span fw={600}>{capabilitySaid(entry.capabilityName)}</Text>{' · '}{entry.roleName ?? entry.roleSlug}
               </Text>
               <Text size="xs" c="dimmed">
                 {t('Until {when}', { when: dateTime(entry.expiresAt) })}{' · '}{tp('used {count} time', 'used {count} times', entry.uses)}

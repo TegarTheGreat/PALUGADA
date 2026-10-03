@@ -515,8 +515,12 @@ test('a role holding a tier 2 tool waits for its own model and never falls back;
   const task = await newTask(fixture, {});
   const engine = engineWith(broker, adapter);
   const outcomes: string[] = [];
+  const { workOf } = await import('../../src/owner/views.ts');
   for (let run = 0; run <= MODEL_OUTAGE_WAITS_MS.length; run += 1) {
     outcomes.push((await engine.runTask(fixture.companyId, task.id, 'worker')).status);
+    if (run === 0) {
+      assert.equal((await workOf(fixture.companyId, { taskId: task.id })).items[0]!.waiting?.reason, 'model', 'it says it waits for the model (N9)');
+    }
   }
 
   assert.deepEqual(outcomes, [...MODEL_OUTAGE_WAITS_MS.map(() => 'waiting_window'), 'halted']);
@@ -1269,6 +1273,8 @@ test('an out-of-process run whose call finds every place taken parks, spending n
   const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ attempt: number }>(
     'SELECT attempt FROM tasks WHERE id = $1', [task.id]));
   assert.equal(rows[0]!.attempt, 0, 'waiting is not failing');
+  const { workOf } = await import('../../src/owner/views.ts');
+  assert.equal((await workOf(fixture.companyId, { taskId: task.id })).items[0]!.waiting?.reason, 'slot', 'and says it waits its turn (N9)');
 });
 
 test('an out-of-process run whose call the budget cannot pay for halts, as an in-process one does', async () => {
@@ -2851,6 +2857,65 @@ test('a runtime asks the owner, waits, and carries on with the answer (owner.ask
   assert.equal(asked.rowCount, 1, 'the same question is not asked twice');
 });
 
+/**
+ * N14, the analysis of 3 October (H4 of 30 September): a runtime in another
+ * process was replayed by the position of its steps. An agent CLI resumed
+ * after the owner's answer, or after a restart, starts again from its
+ * context, and goes on in its own order and its own words -- and the first
+ * call that did not match the step recorded at its place halted the task
+ * with `journal_divergence`. Its calls are now matched to the journal by what
+ * they are: one it already made is answered from the record, wherever it
+ * comes, and one it never made runs.
+ */
+test('an agent resumed in its own order and words carries on, and does not do again what it did (N14)', async () => {
+  const fixture = await createCompany('script-resume');
+  let written = 0;
+  let read = 0;
+  const registry = new CapabilityRegistry();
+  registry.register<{ zone: string }, { ok: boolean }>({
+    name: 'dns.write', adapter: 'test:dns', defaultTier: 2,
+    async execute() { written += 1; return { ok: true }; },
+    async verify() { return true; },
+  });
+  registry.register<{ zone: string }, { records: string[] }>({
+    name: 'dns.read', adapter: 'test:dns', defaultTier: 0,
+    async execute() { read += 1; return { records: ['192.0.2.10'] }; },
+  });
+  registerPlatformCapabilities(registry);
+  await registry.sync();
+  for (const name of ['dns.write', 'dns.read', 'plan.record', 'owner.ask']) await grantCapability(fixture, name);
+  await configureRole(fixture, { runtime: 'script', tools: ['plan.record', 'dns.write', 'dns.read', 'owner.ask'] });
+  const task = await newTask(fixture, { script: 'resume_reworded' });
+  const engine = engineWith(new CapabilityBroker(registry), scriptAdapter());
+
+  const first = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(first.status, 'waiting_approval', first.reason);
+  assert.equal(written, 1);
+  const { rows: items } = await withTenant(fixture.companyId, (tx) => tx.query<{ id: string }>(
+    "SELECT id FROM inbox_items WHERE task_id = $1 AND kind = 'escalation'", [task.id]));
+  await inbox.decide(fixture.companyId, items[0]!.id, 'approve', 'The new host, 192.0.2.10.', { channel: 'app' });
+
+  // Resumed, it asks again first, writes again, and reads a zone it names
+  // differently: none of it at the place the first run's step holds.
+  const second = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.equal(second.status, 'completed', second.reason);
+  const output = second.output as { answer: { output?: { answer: string } }; write: { output?: unknown } };
+  assert.equal(output.answer.output?.answer, 'The new host, 192.0.2.10.', JSON.stringify(second.output));
+  assert.deepEqual(output.write.output, { ok: true }, 'the write is answered from the record');
+  assert.equal(written, 1, 'and not made again');
+  assert.equal(read, 1, 'a call it never made runs');
+
+  const { rows: steps } = await withTenant(fixture.companyId, (tx) => tx.query<{ step_index: number; name: string; status: string }>(
+    'SELECT step_index, name, status FROM task_steps WHERE task_id = $1 ORDER BY step_index', [task.id]));
+  assert.deepEqual(steps.map((step) => [step.step_index, step.name, step.status]), [
+    [0, 'capability:plan.record', 'committed'],
+    [1, 'capability:dns.write', 'committed'],
+    [2, 'capability:owner.ask', 'committed'],
+    [3, 'capability:dns.read', 'committed'],
+  ], 'each call once, where it was first made');
+  assert.ok(!(await eventTypes(fixture.companyId, task.id)).includes('task.halted'));
+});
+
 test('a task asks the owner three things at most, and an unanswered question is said to be one', async () => {
   const fixture = await createCompany('ask-bounds');
   const task = await newTask(fixture, { script: 'done' });
@@ -2899,6 +2964,10 @@ test('a runtime hands work to another role and carries on with its result', asyn
     'SELECT id, status, deadline_at FROM tasks WHERE parent_task_id = $1', [parent.id]));
   assert.equal(children.length, 1);
   assert.ok(children[0]!.deadline_at, 'a delegated task has a deadline (F6.4)');
+  // And the owner reads what it waits for, not "Scheduled" (N9).
+  const { workOf } = await import('../../src/owner/views.ts');
+  const waiting = (await workOf(fixture.companyId, { taskId: parent.id })).items[0]!.waiting;
+  assert.deepEqual([waiting?.reason, waiting?.on?.taskId], ['child', children[0]!.id]);
 
   // The child runs as any task does, and the parent resumes to read it --
   // at once, not when its two-minute look comes round: a company whose

@@ -28,6 +28,64 @@ use an agent CLI instead. The platform's own loop offers each role its
 capabilities as tools; a model that cannot call them can only answer in
 words. See [Choose or change the model](how-to.md#choose-or-change-the-model).
 
+## Install in one command
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/TegarTheGreat/PALUGADA/main/install.sh | sh
+```
+
+This needs Docker with Compose and nothing else: no git, no Node. The script
+(`install.sh` at the top of the repository) does what the next section does
+by hand, without asking anything:
+
+- it downloads PALUGADA into `~/palugada` (`PALUGADA_DIR` changes where);
+- the first time, it writes `.env` with a new password for each of the
+  database's roles, readable by you alone;
+- it runs `docker compose up -d --build`, which builds the image, starts the
+  database, applies the migrations and starts the platform;
+- it waits until `http://127.0.0.1:8787/api/health` answers
+  (`PALUGADA_PORT` publishes another port);
+- it prints the link the platform prints while it has no owner. Open it
+  within a day: it asks you to add PALUGADA to your authenticator app, and
+  you are the owner. Then choose the model under **This deployment**,
+  **Model**, which the step-by-step setup would have asked.
+
+Run the same command again to update. It keeps `.env` and the data, copies
+the database and the code it is about to replace to `~/palugada/backups/`
+before anything changes, then fetches the newest PALUGADA and rebuilds; the
+migrations run as it starts. If a copy fails, nothing is updated. The copy
+holds the database and the code only: the key
+that seals what you type into the console's secret fields is the file
+`master.key` in the `home` volume, which an update leaves as it is. Keep a
+copy of it apart from the backups
+([operations](operations.md#rotating-the-master-key)).
+
+To install a release rather than the newest code, name its tag; the same
+command with another tag updates to it, or goes back to it
+([releases](../RELEASING.md#installing-a-release)):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/TegarTheGreat/PALUGADA/main/install.sh | PALUGADA_VERSION=v0.2.0 sh
+```
+
+The installer is kept beside what it installed, and does two more things:
+
+```sh
+sh ~/palugada/install.sh doctor     # what is well, what is not, and what to do
+sh ~/palugada/install.sh rollback   # back to the code the last update replaced
+```
+
+`doctor` checks Docker, `.env`, that the database and the platform are
+running, that the console answers and its worker goes round, that the
+browser runs sandboxed, the disk and the newest copy of the database. It
+mends what cannot lose anything -- `.env` made yours alone again, a stopped
+container started -- and names the rest with what to do; it exits with an
+error while anything is wrong. `rollback` takes a copy first, puts back the
+code of the last update's copy, and rebuilds; the data stays as it is,
+since the earlier version runs on a database a later one migrated, and it
+prints the command to take the data back too if that is what you want.
+Run it again to undo it.
+
 ## Install with Docker Compose
 
 ```sh
@@ -172,7 +230,10 @@ palugada: no owner yet: open https://palugada.example.com/#/claim/QMJW… within
 
 Open it. The page shows a new secret as a QR code and as a key; add it to
 your authenticator app, type the six-digit code the app then shows, and you
-are signed in as the owner. The link works once, for a day, and only while
+are signed in as the owner. Type the code on the same page that showed you
+the QR code: each opening of the link shows a secret of its own, so a
+reload, or someone else who opened the link, is shown a different one, and
+nobody who saw the link keeps a copy of yours. The link works once, for a day, and only while
 the deployment has no owner; each start prints a new one until then. Anyone
 who can read the log holds the machine already, but open it straight away
 all the same, since whoever opens it first becomes the owner. The code is
@@ -222,7 +283,12 @@ deployment ([how-to](how-to.md#export-and-import-a-company)).
 
 1. Type a **Name**. The **Short name** fills itself in from it; it is used in
    links and exports, and is lower-case letters, digits and hyphens.
-2. Decide on **Let it run itself** (on by default). It installs the
+2. Check its two languages. **Work language** is what it produces for
+   customers: documents, emails, posts. **Talk language** is what its agents
+   write to you and to each other. Both start in the language the console is
+   in; change either, for a company that sells in English and reports to you
+   in Indonesian, say. **Settings**, **Languages** changes them later.
+3. Decide on **Let it run itself** (on by default). It installs the
    `company-os` bundle: a Strategy division with a strategist who reviews the
    week every Monday morning in the company's time zone, proposes at most
    three bets, and never applies them; a Strategy review division with a
@@ -232,7 +298,7 @@ deployment ([how-to](how-to.md#export-and-import-a-company)).
    stage gates, the weekly review); and three company policies: every stage
    proposal goes to the critic first, no paid advertising before the launch
    stage, and nothing new started while winding down.
-3. Press **Start it**, then type a code in
+4. Press **Start it**, then type a code in
    **Confirm with your authenticator** and press **Confirm**.
 
 `company-os` arrives with the strategist's grants and its weekly review
@@ -264,6 +330,10 @@ file PALUGADA_VENDORS names`, and works around it or asks you. See
 [Connect a vendor](how-to.md#connect-a-vendor).
 
 ## Give it its first piece of work
+
+The quickest way is to answer the CEO, whose conversation opens when the
+company is started: tell it what the company sells and what you want done
+first, and apply the card it proposes. To give the work yourself:
 
 1. On the **Work** page press **Give work**, or in the sidebar press **New**
    and choose **Give a role work**.

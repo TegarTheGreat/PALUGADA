@@ -18,6 +18,8 @@ export type ErrorCode =
   | 'capability.busy'
   /** F12.9: the capability was asked to reach somewhere it may not. */
   | 'capability.unreachable'
+  /** The owner has not taken the company's browser over, or the hold lapsed: nothing is typed into it. */
+  | 'browser.not_held'
   /** The broker was built with no secret manager, so no credential can be resolved. */
   | 'credential.unavailable'
   /** F12.6: the credential does not declare a scope the capability needs. */
@@ -108,6 +110,8 @@ export type ErrorCode =
   | 'mfa.claim_invalid'
   /** F12.5: a claim of a deployment that already has an owner (0094). */
   | 'owner.claimed'
+  /** A staff seat asked for what is the owner's (0110). */
+  | 'staff.forbidden'
   | 'review.required'
   | 'window.closed'
   | 'approval.required'
@@ -146,6 +150,8 @@ export type ErrorCode =
    * ended. Carries that task, so the owner can open it instead.
    */
   | 'schedule.still_running'
+  /** "New schedule" under a short name another schedule of the company has (N11). */
+  | 'schedule.slug_taken'
   /**
    * A company is being made, or restored, under a short name another company
    * already has. The name is the company's handle in links and exports, so

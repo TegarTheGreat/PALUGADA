@@ -217,7 +217,11 @@ never asked to be it.
    **History** and searched with it.
 4. Press **Approve** or **Deny**. To send a question back instead, write it
    in the note and press **Ask a question**. The item stays open, and the
-   task reads your question on its next run before it proposes again.
+   agent is asked again with your question in front of it. Its answer
+   appears on the same card under **The agent answered**, beside **You
+   asked**, and the card waits for your decision again; if the question
+   changed what it proposes, the card is replaced by one for the new
+   action, carrying the question and answer with it.
 
 A tier 3 action asks for a code after you press **Approve**, every time. The
 code covers that one action: if the agent comes back with a different amount
@@ -299,9 +303,15 @@ Open the task from **Work** (or **Open the task** on an inbox item).
   and your optional note. A halted task is never retried by itself; this is
   how you retry it. The new task is told everything you said to the tasks
   it replaces: your notes, and your answers to their questions, however
-  many times the work was done again.
+  many times the work was done again. When the task it replaces did not
+  finish, the new one carries on from it: it is told what that one wrote
+  or sent, and the same write is answered from that record rather than
+  made twice. Work that finished, done again, is done again in full.
 - **Replay against the journal** runs the handler again with every side
-  effect answered from the record. Nothing leaves.
+  effect answered from the record. Nothing leaves. It is offered only for a
+  role this deployment runs as code in its own process; a role run by a
+  model, an agent CLI or a container is not replayed here, and the button
+  is not shown for it.
 
 To see how it was done, open **Every step**: each capability it called, by
 name, with its tier, the policies that applied and who approved it; **What
@@ -533,9 +543,13 @@ only the ones you allow, at the tier you choose.
 
    A server that signs in with OAuth says **It asks you to sign in**
    instead.
-   Give it a **Name**, press **Sign in**, then **Open the sign-in page**, and
-   sign in there in the new tab; the tab says when it is done, and the
-   console lists the server's tools with what the sign-in gave. PALUGADA
+   Give it a **Name**, press **Sign in**, confirm with a code, then **Open
+   the sign-in page**, and sign in there in the new tab; the tab says when it
+   is done, and the
+   console lists the server's tools with what the sign-in gave. The code is
+   asked because a saved server of that name signs in with what this sign-in
+   gives from then on; a server that cannot be signed in to says so first,
+   and no code is spent on it. PALUGADA
    registers itself with the server's authorization server when it allows
    that. One that does not, such as GitHub's, asks for the **Client ID** (and
    **Client secret**) of an app you register with it, coming back to the
@@ -597,8 +611,58 @@ that used it asks you before its next tier 2 action.
 
 ## Give roles a browser
 
-A role that must use a website -- sign in to a supplier's portal, fill a
-form -- needs a browser, not a page reader. It comes from an MCP server:
+A role that must use a website with no API you can get -- a marketplace's
+seller centre, a tax or licensing portal, a supplier's ordering page --
+needs a browser, not a page reader. Each company has one of its own.
+
+1. **A Chromium.** The image has one, and the compose files give it what
+   it needs to run sandboxed. Running PALUGADA on a machine without
+   Docker, it finds one where a package manager puts it
+   (`apt install chromium` on Debian and Ubuntu), or uses the one
+   `PALUGADA_CHROMIUM` names. The boot says which, or that there is none
+   ([configuration](../configuration.md)).
+2. **Grant it.** On **Team**, **Divisions & roles**, open the division and
+   use **Change a grant**: `browser.read` at tier 0, and `browser.act` at
+   tier 2 if its roles should fill in forms. Add both to the role's
+   **Tools**.
+3. **Give it work** that names the site: "Check today's orders on the
+   seller centre at https://seller.example.co.id and list the unpaid ones".
+
+What the role does, you can follow:
+
+- **Reading a page** (*Read a page in the browser*) opens it, or follows a
+  link from the last page, and reads its text and every link, button,
+  field, list and box on it. Nothing it reads is acted on without you: a
+  page is somebody else's words.
+- **Filling in a page** (*Fill in a page in the browser*) is a card in your
+  inbox for every form, with each step on it: `Nama: "Sari"` is what goes
+  in the field called Nama, `Kota → Bandung` a choice, `☑ Setuju` a box
+  ticked, `▸ Kirim` the button pressed, and `✓ OK` that the page's "Are you
+  sure?" is answered yes. Approve, and the steps are done on the page the
+  role read -- if it has changed, or an element is not the one named,
+  nothing is done.
+- **Signing in** is yours: a role never types a password. A role that
+  meets a sign-in asks you with a card -- *Ask you to take over the
+  browser* -- saying what to do. **Open the browser** on it shows that
+  work's page on **Browser**; **Take it over** with a code, and the
+  company's work waits while you hold it. Press on the picture to click,
+  type into the field the page selected, use the buttons for Enter, Tab
+  and the arrows, or open an address. **Give it back** when you are done:
+  the role goes on, signed in. What you type goes to the site and is kept
+  nowhere else; a hold you forget lapses after fifteen minutes.
+- The company's browser keeps what a site sets when you sign in (its
+  cookies), sealed like any secret, for every later task, across
+  restarts. Closing the company deletes them.
+- **Browser** also shows each piece of work's page while it runs, so you
+  can watch what a role is doing. It is yours alone: a staff seat does not
+  see it.
+
+Every request the browser makes goes through PALUGADA, under the same rules
+as `web.fetch`: nothing on this machine's network or the cloud's metadata
+service is reached, whatever a page links to or a role names. An internal
+site you want reachable is named in `PALUGADA_ALLOW_PRIVATE_HOSTS`.
+
+**Or a browser from an MCP server**, where the platform's is not wanted:
 
 - **Playwright**, on a machine of yours. Run
   `npx @playwright/mcp@0.0.82 --port 8931 --headless` where this deployment
@@ -612,12 +676,9 @@ form -- needs a browser, not a page reader. It comes from an MCP server:
 Each of a task's calls to the server share one session, so the page a role
 opened is still open for its next step, and for the read-back that checks
 it. The session ends when the task has been quiet for five minutes.
-
 Playwright says that navigating, clicking and typing are destructive, so
 each is tier 3 and asks you every time; reading the page
-(`browser_snapshot`) only reads, and can be tier 0. That is the price of a
-browser that can do anything a person can. To read pages without asking,
-use **Reading pages** under **Tools** instead.
+(`browser_snapshot`) only reads, and can be tier 0.
 
 ## Let roles search the web
 
@@ -878,8 +939,14 @@ A remote sandbox is the same idea on a provider's machines:
 
 On **Team**, **Schedules**, press **New schedule**, choose the **Role** and
 **Project**, the goal it **Serves**, **What each run is asked to do**, a
-**Short name**, the **Cron** expression (minute, hour, day, month,
-weekday), the **Time zone** and the **Priority**, and press **Schedule it**.
+**Short name**, how often it **Repeats** -- every day, every weekday, one
+day of the week, or every hour -- and **At** what time, the **Time zone**
+(the one your browser is in to begin with, such as Asia/Jakarta, shown as
+WIB) and the **Priority**, and press **Schedule it**. For anything those
+cannot say, choose **Custom, as cron** and type the cron expression (minute,
+hour, day, month, weekday). A short name another schedule has is refused,
+rather than that schedule overwritten. The table says when each runs in
+words, such as "Every weekday at 07:00", with the cron in its tooltip.
 Each occurrence creates one task, in the schedule's own time zone. On the
 nights the clock changes, a schedule at fixed hours still runs once: at the
 first 01:30 when the clock goes back and shows 01:30 twice, and at the moment
@@ -908,14 +975,20 @@ Two more choices say what happens when a run cannot go at its time:
   the last one finishes** that waits past this is dropped too.
 
 Under **Next**, the table says when the last run did not happen and why,
-and how many were dropped. Saving a schedule again under the same short name
-replaces it, these two choices included; through the API they are
-`overlap` (`skip`, `queue` or `allow`) and `catchUpMinutes` (15 to 525600,
-or `null`).
+and how many were dropped. Through the API these two choices are `overlap`
+(`skip`, `queue` or `allow`) and `catchUpMinutes` (15 to 525600, or `null`);
+saving a schedule again under its short name, without `create`, edits it,
+and leaves it off if it was off.
+
+The switch on a schedule's row turns it off and on again. Turned on, its
+next run is its next time: the runs it would have made while off are not
+made all at once. The bin icon removes it, after asking; the work it
+already made stays, as work you can open.
 
 To see what a schedule does without waiting for its next occurrence, press
 **Run now** on its row. The dialog says how many tokens the run reserves from
-the schedule's budget account; **Run it now** makes the same task an
+the schedule's budget account, and the most one run may spend -- its role's
+ceiling for a run, and more for work it hands to other roles; **Run it now** makes the same task an
 occurrence would -- the same role, project, goal, brief, priority and budget
 account, and for the weekly business review the week read from the company's
 records -- and the notification links to it. The schedule's **Next** does not
@@ -953,6 +1026,105 @@ work takes no tier 2 or higher action without you. **Close** refuses further
 events; opening it again takes a code. The trigger URL must be reachable by
 the sender, so it needs the HTTPS set-up in [operations](operations.md).
 
+## Let customers write to the company: Telegram
+
+A company can have a Telegram bot of its own that customers write to. Each
+message starts work for the role you choose, and every reply waits for your
+yes.
+
+1. In Telegram, open @BotFather, send `/newbot`, choose the bot's name and
+   username, and copy the token it gives you.
+2. On **Customers**, under **Connect a Telegram bot**, paste **The bot's
+   token**, choose **Who answers** and the goal it **Serves**, write **What
+   to do with each message**, and set **New conversations, at most, per
+   hour**.
+3. Press **Connect** and confirm with a code. The token is checked with
+   Telegram, sealed, and never shown again. The role is given what it needs
+   to read a conversation and reply: `chat.read` and `chat.send` on its
+   division, and both among its tools.
+4. Share the bot's link, `t.me/<username>`, with your customers.
+
+Telegram sends what customers write to `/api/chat-hooks/<id>` at this
+deployment's public address (`PALUGADA_APP_URL_PUBLIC`, with the HTTPS
+set-up in [operations](operations.md)), with a secret only it was given.
+Without a public address the bot is kept and cannot hear; set one and connect
+the bot again. Only a customer in their own chat with the bot is heard: a
+group the bot was added to, and other bots, start nothing.
+
+A message starts one piece of work, however often Telegram sends it, and a
+message written before anyone picked that work up joins it, so a customer
+who says hello and then asks in a second message gets one answer. Past the
+hour's limit a message is kept, shown with **Past the hour's limit**, and
+starts no work. What a customer writes reaches the role as data. The work
+began with a stranger's words, so each `chat.send` is a card in your inbox
+showing the conversation beside the reply; an approver seat can decide it
+too. A standing yes does not cover it.
+
+**Customers** lists the conversations, latest first, marked **Waiting for an
+answer** when the customer spoke last; open one to read it. **Close** takes
+the bot's webhook off and forgets its token, and what was said stays.
+Connecting the same bot again opens the same channel at a new address. A
+bot answers for one company at a time.
+
+## Let customers write to the company: WhatsApp
+
+A company's WhatsApp Business number can take customers' messages the same
+way, through Meta's Cloud API. It needs this deployment's public address
+(`PALUGADA_APP_URL_PUBLIC`), since Meta delivers there.
+
+1. In Meta for Developers, make an app with WhatsApp, add the business
+   number, and make a system user with a permanent token that may send for
+   it. Use an app of the company's own: Meta sends every number of an app to
+   one address, so the number PALUGADA reaches you on needs another app.
+2. On **Customers**, choose **WhatsApp**, and give the **Phone number ID**
+   (under WhatsApp, API Setup; not the number itself), the **Access token**
+   and the **App secret** (App settings, Basic), then who answers, the goal,
+   what to do with each message and the hour's limit.
+3. Press **Connect** and confirm with a code. The number is checked with
+   Meta, and the token and the app secret are sealed.
+4. Copy the **Callback URL** and the **Verify token** that appear -- the
+   verify token is shown only then -- into the app's WhatsApp,
+   Configuration, webhook, and subscribe to `messages`.
+5. Share the number's link, `wa.me/<number>`, with your customers.
+
+Only what Meta signed with the app secret is heard, and only messages to this
+number; a reaction or a status starts nothing. A picture, a voice note or a
+file is kept as what it was, with its caption. WhatsApp lets a business reply
+only within 24 hours of the customer's last message: a reply approved after
+that is refused, with the reason, before anything is sent, and waits for the
+customer to write again. **Close** forgets the token and the app secret;
+remove the webhook in the Meta app too.
+
+## Let customers write to the company: its mailbox
+
+The company's own mailbox -- Gmail, Google Workspace, Microsoft 365, or the
+one that came with a website -- can take customers' mail the same way. A
+worker reads it about once a minute over IMAP, and a reply goes out over
+SMTP from the same address, in the customer's thread and in the mailbox's
+own Sent mail.
+
+1. Where the provider asks for one, make an app password: in Gmail, turn
+   on 2-Step Verification, then Security, App passwords.
+2. On **Customers**, choose **Email**, and give **The mailbox's address**,
+   **The mailbox's password**, the **IMAP server** and the **SMTP server**
+   with their ports (Gmail: `imap.gmail.com` 993 and `smtp.gmail.com` 587),
+   then who answers, the goal, what to do with each message and the hour's
+   limit.
+3. Press **Connect** and confirm with a code. Both servers are signed in to
+   first, so a wrong password is said there and then; the password is
+   sealed.
+
+Only TLS is used: IMAP on its TLS port, SMTP on 465 or upgraded with
+STARTTLS (587), and a server that offers neither is refused. The mailbox is
+read from the moment it is connected: the mail it already holds is never
+taken for work. An auto-reply, a bounce, a mailing list and the mailbox's
+own mail start nothing, and a reply's quoted history is left out of what
+the role reads. Reading a message does not mark it read in your own mail
+app. When the mailbox cannot be read -- the password changed, the server is
+down -- **Customers** says why under the channel, and the mail waits on the
+server until it can be. A server with a private certificate is trusted with
+`PALUGADA_MAIL_CA`.
+
 ## Install a bundle
 
 1. Under **Settings**, **Bundles**, **Install a bundle**, type the
@@ -981,9 +1153,12 @@ To bring an installed bundle up to date, install the version this deployment
 ships over it. For `company-os`, 1.4.0 adds a critic in its own Strategy
 review division: it reads every stage proposal before you do, holds nothing
 that acts, and what it said reaches you whether it supports the move or
-stops it. What the bundle brings is updated or added in place. Roles,
-schedules, work in flight, and any grant an earlier version made stay; its
-skills arrive again as candidates.
+stops it. 1.5.0 gives the strategist and the critic a name and a title,
+Bayu, Chief Strategy Officer, and Citra, Strategy Critic, as every built-in
+bundle now does for its roles. What the bundle brings is updated or added
+in place. Roles, schedules, work in flight, and any grant an earlier
+version made stay, and so does a name or title you gave a role; its skills
+arrive again as candidates.
 
 The built-in bundles install as written when they are exactly what this
 version of PALUGADA ships: they are part of the platform, as trusted as its
@@ -1056,18 +1231,18 @@ the reason.
 - When the company is paused at 100%, **Lift the pause**, or give a time
   under **Or override until** and press **Override**. Both take a code.
 - **Open an account** adds a budget account for a project, a division or a
-  role: a **Name**, a **Token ceiling**, optionally a
-  **Money ceiling (cents)**, what it is **For**, **Which one**, and
-  **The account above it**. It takes a code.
-- An account's ceilings are for its whole life: tokens spent stay spent.
-  When one runs out -- its bar turns red and work is refused with "raise its
-  ceiling under Money" -- press **Ceilings** on its row and raise the
-  **Token ceiling** or the **Money ceiling**. Raising takes a code; lowering
-  does not.
+  role: a **Name**, a **Token ceiling**, optionally a **Money ceiling** in
+  US dollars (or the currency you read money in), what it is **For**,
+  **Which one**, and **The account above it**. It takes a code.
+- An account's ceilings are for a calendar month in UTC: on the first, what
+  it has spent starts again from nothing. When one runs out before then --
+  its bar turns red and work is refused with "raise its ceiling under
+  Money" -- press **Ceilings** on its row and raise the **Token ceiling** or
+  the **Money ceiling**. Raising takes a code; lowering does not.
 - Under **Settings**, **Company**, **Alert thresholds** sets when you are
-  told something is going wrong: **Daily cost, cents**,
-  **Failure rate, 0 to 1** and **Policy denials a day**. Each fires once per
-  condition per day.
+  told something is going wrong: **Daily cost** in US dollars (or the
+  currency you read money in), **Failure rate, 0 to 1** and **Policy denials
+  a day**. Each fires once per condition per day.
 
 ## Push notifications, Telegram, WhatsApp and email
 

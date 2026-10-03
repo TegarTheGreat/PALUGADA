@@ -13,7 +13,7 @@ import { notifications } from '@mantine/notifications';
 import { IconArrowRight, IconPlus, IconRotateClockwise, IconX } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
 import { useLoad } from '../hooks.ts';
-import { relative } from '../format.ts';
+import { relative, roleLabel } from '../format.ts';
 import { t } from '../i18n.ts';
 import { openGoals } from '../goals.ts';
 import type { Structure, Ticket } from '../types.ts';
@@ -217,7 +217,7 @@ function GiveTicket({ companyId, structure, ticket, close, done }: {
           <Text size="sm" fw={600}>{ticket.title}</Text>
           <Select label={t('Role')} value={chosenRole} onChange={setRoleId} allowDeselect={false} searchable
             description={chosenRole === ceo?.id ? t('The CEO hands it to whoever should do it') : undefined}
-            data={structure.roles.map((role) => ({ value: role.id, label: [role.displayName ?? role.slug, role.title].filter(Boolean).join(' · ') }))} />
+            data={structure.roles.map((role) => ({ value: role.id, label: roleLabel(role) }))} />
           <Select label={t('Serves')} value={chosenGoal} onChange={setGoalId} allowDeselect={false}
             data={goals.map((goal) => ({ value: goal.id, label: goal.statement }))} />
           {error && <Alert color="red" variant="light">{error}</Alert>}

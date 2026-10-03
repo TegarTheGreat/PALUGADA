@@ -27,9 +27,10 @@ import { createRootTask, type TaskRow } from '../engine/tasks.ts';
 import * as budget from '../engine/budget.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { raiseEscalationWithin } from '../inbox/inbox.ts';
+import { ownerReadingWithin, scheduleRepeatsCard } from '../owner/platform-cards.ts';
 import { TERMINAL_STATUSES, type TaskStatus } from '../domain/task.ts';
 import { assertTimeZone, instantsShowing, wallClockAt } from './windows.ts';
-import { buildWeekFacts } from '../reporting/week.ts';
+import { buildWeekFacts, weekHadWork } from '../reporting/week.ts';
 
 const { parseExpression } = cronParser;
 
@@ -136,7 +137,17 @@ export interface ScheduleInput {
   timezone?: string;
   input?: Record<string, unknown>;
   reserveTokens?: number;
+  /**
+   * On or off. Omitted, a new schedule is on and one saved again keeps what
+   * it was (N11): saving said "on" whatever it was, so editing a schedule the
+   * owner had turned off turned it back on.
+   */
   enabled?: boolean;
+  /**
+   * A new schedule, not an edit (N11): a name already in use is refused
+   * rather than overwriting that schedule's brief and turning it on.
+   */
+  create?: boolean;
   /**
    * F9.5: the tasks this schedule creates may wait for cheap hours.
    *
@@ -280,6 +291,14 @@ export async function upsertSchedule(input: ScheduleInput, now = new Date()): Pr
         { companyId: input.companyId },
       );
     }
+    if (input.create) {
+      const { rows: taken } = await tx.query('SELECT 1 FROM schedules WHERE slug = $1', [input.slug]);
+      if (taken.length > 0) {
+        throw new PalugadaError('schedule.slug_taken',
+          `a schedule named ${input.slug} already exists: give this one another short name, or edit that one`,
+          { slug: input.slug });
+      }
+    }
 
     const { rows } = await tx.query<{ id: string }>(
       `INSERT INTO schedules
@@ -293,7 +312,7 @@ export async function upsertSchedule(input: ScheduleInput, now = new Date()): Pr
              timezone         = EXCLUDED.timezone,
              input            = EXCLUDED.input,
              reserve_tokens   = EXCLUDED.reserve_tokens,
-             enabled          = EXCLUDED.enabled,
+             enabled          = CASE WHEN $18::boolean IS NULL THEN schedules.enabled ELSE EXCLUDED.enabled END,
              next_run_at      = EXCLUDED.next_run_at,
              batchable        = EXCLUDED.batchable,
              goal_id          = EXCLUDED.goal_id,
@@ -321,9 +340,54 @@ export async function upsertSchedule(input: ScheduleInput, now = new Date()): Pr
         input.priority ?? DEFAULT_SCHEDULE_PRIORITY,
         input.overlap ?? 'skip',
         input.catchUpMinutes ?? null,
+        input.enabled ?? null,
       ],
     );
     return rows[0]!.id;
+  });
+}
+
+/**
+ * Turns a schedule off or on (N11). On again, its next run is its next time
+ * from now: the occurrences it was off for are not owed, and a week off is
+ * not a week of runs at once. Written on the control plane, as an owner's
+ * action is.
+ */
+export async function setScheduleEnabled(
+  companyId: string, scheduleId: string, enabled: boolean, now = new Date(),
+): Promise<void> {
+  await withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ slug: string; cron_expression: string; timezone: string }>(
+      'SELECT slug, cron_expression, timezone FROM schedules WHERE id = $1 AND company_id = $2 FOR UPDATE',
+      [scheduleId, companyId],
+    );
+    const schedule = rows[0];
+    if (!schedule) throw new PalugadaError('contract.violation', 'no such schedule in this company', { scheduleId });
+    await tx.query(
+      `UPDATE schedules
+          SET enabled = $2,
+              next_run_at = CASE WHEN $2 THEN $3 ELSE next_run_at END,
+              held_by_task_id = CASE WHEN $2 THEN NULL ELSE held_by_task_id END
+        WHERE id = $1`,
+      [scheduleId, enabled, nextOccurrence(schedule.cron_expression, schedule.timezone, now)],
+    );
+    await appendEvent(tx, {
+      companyId, type: 'schedule.turned', actor: 'owner', payload: { scheduleId, slug: schedule.slug, enabled },
+    });
+  });
+}
+
+/**
+ * Removes a schedule (N11). The work it made stays, as work the owner gave:
+ * a task keeps its run and journal, and only its link to the schedule goes
+ * (0049). A run still going finishes as it would have.
+ */
+export async function removeSchedule(companyId: string, scheduleId: string): Promise<void> {
+  await withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ slug: string }>(
+      'DELETE FROM schedules WHERE id = $1 AND company_id = $2 RETURNING slug', [scheduleId, companyId]);
+    if (!rows[0]) throw new PalugadaError('contract.violation', 'no such schedule in this company', { scheduleId });
+    await appendEvent(tx, { companyId, type: 'schedule.removed', actor: 'owner', payload: { scheduleId, slug: rows[0].slug } });
   });
 }
 
@@ -462,6 +526,13 @@ export async function runDueSchedules(now = new Date()): Promise<FiredOccurrence
 
     let task: TaskRow;
     try {
+      // N10: a review of a week with nothing in it is passed over, said,
+      // and the schedule goes on to its next occurrence. The owner's "Run
+      // now" is not asked: they asked for it.
+      if (schedule.input.facts === 'week' && !(await weekHadWork(schedule.company_id, schedule.id, now))) {
+        await passOver(schedule, occurrence, now);
+        continue;
+      }
       // Inside the `try`, so a week that cannot be read is a failed
       // occurrence, recorded and tried again, like one that cannot be funded.
       task = await createScheduledTask(schedule, { createdBy: 'scheduler', idempotencyKey: key, now });
@@ -688,6 +759,33 @@ async function giveWay(schedule: DueSchedule, key: string, now: Date): Promise<b
   });
 }
 
+/**
+ * An occurrence with nothing to do (N10): the schedule moves on to its next,
+ * and says why it did not run, once. Guarded as an advance after a run is,
+ * so two workers passing over the same occurrence say it once between them.
+ */
+async function passOver(schedule: DueSchedule, occurrence: Date, now: Date): Promise<void> {
+  await withTenant(schedule.company_id, async (tx) => {
+    const next = nextOccurrence(schedule.cron_expression, schedule.timezone, now);
+    const { rowCount } = await tx.query(
+      `UPDATE schedules SET next_run_at = $3, fire_failed_for = NULL, fire_failure = NULL
+        WHERE id = $1 AND date_trunc('milliseconds', next_run_at) = $2`,
+      [schedule.id, occurrence, next],
+    );
+    if (rowCount !== 1) return;
+    await appendEvent(tx, {
+      companyId: schedule.company_id,
+      projectId: schedule.project_id,
+      type: 'schedule.nothing_to_review',
+      actor: 'scheduler',
+      payload: {
+        scheduleId: schedule.id, slug: schedule.slug,
+        occurrence: occurrence.toISOString(), nextRunAt: next.toISOString(),
+      },
+    });
+  });
+}
+
 /** What one run of a schedule is made from, whether the clock or the owner starts it. */
 type ScheduleWork = Pick<DueSchedule,
   | 'id' | 'company_id' | 'project_id' | 'division_id' | 'role_id' | 'budget_account_id'
@@ -869,15 +967,7 @@ async function askAboutRepetition(schedule: DueSchedule, justFired: string): Pro
       payload: { scheduleId: schedule.id, slug: schedule.slug, outputDigest: digest, runs: REPETITION_RUNS },
     });
     // With the record, so "noticed" never stands without the question.
-    await raiseEscalationWithin(tx, {
-      companyId: schedule.company_id,
-      scheduleId: schedule.id,
-      title: `Schedule ${schedule.slug} keeps producing the same result`,
-      detail:
-        `Its last ${REPETITION_RUNS} runs all completed with identical output. That is sometimes `
-        + 'exactly right -- a report that has nothing new to say -- and often a schedule that '
-        + 'stopped doing anything useful while still being paid for. Deny to turn it off; '
-        + 'approve to keep it running and not be asked about this result again.',
-    });
+    const card = scheduleRepeatsCard(await ownerReadingWithin(tx), { schedule: schedule.slug, runs: REPETITION_RUNS });
+    await raiseEscalationWithin(tx, { companyId: schedule.company_id, scheduleId: schedule.id, title: card.title, detail: card.detail });
   });
 }

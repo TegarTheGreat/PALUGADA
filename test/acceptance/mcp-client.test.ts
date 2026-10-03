@@ -188,6 +188,40 @@ test('a tool that changed since it was pinned is refused, at boot and at the cal
   }
 });
 
+/**
+ * H2: a server busy, failing on its side or not answering is a moment the
+ * task waits through; one that refuses what it is sent is not
+ * (src/broker/preflight.ts).
+ */
+test('an MCP server busy or not answering fails preflight as a moment; one that refuses is not (H2)', async () => {
+  const server = await mcpServer();
+  const registry = new CapabilityRegistry();
+  await bindMcpServers(registry, bindings(server.url), 'mcp.json');
+  const capability = registry.get('mcp.payments.create_payment_link')!;
+  const health = () => capability.preflight!({ companyId: 'c', divisionId: 'd' });
+  try {
+    assert.equal((await health()).ok, true);
+    for (const passing of [503, 429]) {
+      server.state.failWith = passing;
+      const failed = await health();
+      assert.deepEqual([failed.ok, failed.transient], [false, true], failed.detail);
+    }
+    server.state.failWith = 400;
+    const refused = await health();
+    assert.deepEqual([refused.ok, refused.transient === true], [false, false], refused.detail);
+    // A token it will not take is the failure no retry fixes.
+    server.state.failWith = 0;
+    server.state.needsToken = 'a token this client does not send';
+    const unauthorised = await health();
+    assert.deepEqual([unauthorised.ok, unauthorised.transient === true], [false, false], unauthorised.detail);
+    assert.match(unauthorised.detail ?? '', /401/);
+  } finally {
+    await server.close();
+  }
+  const gone = await health();
+  assert.deepEqual([gone.ok, gone.transient], [false, true], gone.detail);
+});
+
 test('a file that would let a server\'s tool past the rules is refused at boot', async () => {
   const server = await mcpServer();
   try {

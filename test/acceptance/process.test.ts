@@ -134,7 +134,9 @@ test('npm start with no owner prints a link that makes whoever opens it the owne
     const offered = await post(url, '/api/auth/claim', { code });
     assert.equal(offered.status, 200, JSON.stringify(offered.body));
     const secret = String(offered.body.secret);
-    const confirmed = await post(url, '/api/auth/claim/confirm', { code, totp: totpCode(decodeBase32(secret), stepFor(new Date())) });
+    const confirmed = await post(url, '/api/auth/claim/confirm', {
+      code, offer: offered.body.offer, totp: totpCode(decodeBase32(secret), stepFor(new Date())),
+    });
     assert.equal(confirmed.status, 200, JSON.stringify(confirmed.body));
     const control = await fetch(`${url}/api/control`, { headers: { authorization: `Bearer ${String(confirmed.body.token)}` } });
     assert.equal(control.status, 200);

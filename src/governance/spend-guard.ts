@@ -28,6 +28,7 @@
 import { appendEvent } from '../audit/event-log.ts';
 import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
 import * as inbox from '../inbox/inbox.ts';
+import { ownerReadingWithin, roleCalledWithin, roleSpendingFastCard, spendPausedCard, spendWarnedCard } from '../owner/platform-cards.ts';
 import { thresholdsFor } from '../reporting/alerts.ts';
 
 const HOUR_MS = 3_600_000;
@@ -115,8 +116,8 @@ export async function setSpendLimit(
 ): Promise<void> {
   await withControlPlane(async (tx) => {
     await tx.query(
-      `INSERT INTO spend_limits (company_id, money_max_cents) VALUES ($1, $2)
-       ON CONFLICT (company_id) DO UPDATE SET money_max_cents = EXCLUDED.money_max_cents`,
+      `INSERT INTO spend_limits (company_id, money_max_cents, set_at) VALUES ($1, $2, now())
+       ON CONFLICT (company_id) DO UPDATE SET money_max_cents = EXCLUDED.money_max_cents, set_at = now()`,
       [companyId, moneyMaxCents],
     );
   });
@@ -166,7 +167,7 @@ export async function overrideSpendPause(companyId: string, until: Date): Promis
   });
 }
 
-/** Clears a pause outright, for the start of a new period or an owner reset. */
+/** Clears a pause outright: the owner's reset, with their device. */
 export async function clearSpendPause(companyId: string): Promise<void> {
   await withControlPlane(async (tx) => {
     await tx.query(
@@ -174,8 +175,34 @@ export async function clearSpendPause(companyId: string): Promise<void> {
         WHERE company_id = $1`,
       [companyId],
     );
+    await withdrawPauseCard(tx, companyId, 'spend_resumed');
   });
 }
+
+/**
+ * The card that said the company is paused, withdrawn once it is not: left
+ * open, it asked the owner to lift a pause that had already gone.
+ */
+async function withdrawPauseCard(tx: TenantClient, companyId: string, reason: 'spend_resumed' | 'period_started'): Promise<void> {
+  const { rows } = await tx.query<{ id: string }>(
+    `UPDATE inbox_items SET status = 'withdrawn', closed_reason = $2
+      WHERE company_id = $1 AND kind = 'budget_alert' AND status = 'open' AND task_id IS NULL
+        AND (payload ? 'spendPause' OR title = $3)
+      RETURNING id`,
+    [companyId, reason, PAUSED_TITLE],
+  );
+  for (const item of rows) {
+    await appendEvent(tx, {
+      companyId, type: 'inbox.withdrawn', actor: 'system', payload: { inboxItemId: item.id, closedReason: reason },
+    });
+  }
+}
+
+/**
+ * The pause card's English title, matched as well as its payload for a card
+ * raised before the payload was kept -- all of which were in English.
+ */
+const PAUSED_TITLE = 'Monthly budget reached; the company is paused';
 
 /** Records that this alert has been raised for this period. False if already. */
 async function claimSlot(companyId: string, kind: string, day: Date): Promise<boolean> {
@@ -207,7 +234,30 @@ export async function evaluateSpendLimit(
   now = new Date(),
 ): Promise<SpendOutcome> {
   const spend = await periodSpend(companyId, now);
-  const already = await limitFor(companyId);
+  let already = await limitFor(companyId);
+
+  // The ceiling is a month's, and so is its pause (M6). One set in a month
+  // that has ended is lifted at the first look in the new one, with its
+  // override, and the card that said so withdrawn; spending already at the
+  // new month's ceiling pauses again below, for this month.
+  if (already.pausedAt && already.pausedAt < spend.periodStart) {
+    const pausedAt = already.pausedAt;
+    await withControlPlane(async (tx) => {
+      await tx.query(
+        `UPDATE spend_limits SET paused_at = NULL, pause_reason = NULL, override_until = NULL
+          WHERE company_id = $1 AND paused_at = $2`,
+        [companyId, pausedAt],
+      );
+      await appendEvent(tx, {
+        companyId,
+        type: 'budget.period_resumed',
+        actor: 'system',
+        payload: { pausedAt: pausedAt.toISOString(), periodStart: spend.periodStart.toISOString() },
+      });
+      await withdrawPauseCard(tx, companyId, 'period_started');
+    });
+    already = await limitFor(companyId);
+  }
 
   if (spend.fraction >= 1) {
     if (!already.pausedAt) {
@@ -230,12 +280,13 @@ export async function evaluateSpendLimit(
         });
       });
 
+      const card = spendPausedCard(await withTenant(companyId, ownerReadingWithin),
+        { spentCents: spend.cents, limitCents: spend.limitCents, since: spend.periodStart });
       await inbox.raiseBudgetAlert({
         companyId,
-        title: 'Monthly budget reached; the company is paused',
-        detail:
-          `${reason}. No new task will start and no external action will run until you ` +
-          'raise the ceiling or grant a temporary override.',
+        title: card.title,
+        payload: { spendPause: { periodStart: spend.periodStart.toISOString() } },
+        detail: card.detail,
       });
     }
     return { state: 'paused', spend };
@@ -243,13 +294,9 @@ export async function evaluateSpendLimit(
 
   if (spend.fraction >= 0.8) {
     if (await claimSlot(companyId, 'spend_period_warning', spend.periodStart)) {
-      await inbox.raiseBudgetAlert({
-        companyId,
-        title: 'Monthly budget is 80% spent',
-        detail:
-          `${spend.cents} of ${spend.limitCents} cents used in the period beginning ` +
-          `${spend.periodStart.toISOString().slice(0, 10)}. At 100% the company pauses.`,
-      });
+      const card = spendWarnedCard(await withTenant(companyId, ownerReadingWithin),
+        { spentCents: spend.cents, limitCents: spend.limitCents, since: spend.periodStart });
+      await inbox.raiseBudgetAlert({ companyId, title: card.title, detail: card.detail });
     }
     return { state: 'warned', spend };
   }
@@ -366,13 +413,11 @@ export async function evaluateCircuitBreakers(
       });
     });
 
-    await inbox.raiseIncident({
-      companyId,
-      title: `Role ${rate.slug} is paused for spending too fast`,
-      detail:
-        `${reason}. It is stopped before the monthly ceiling is reached, so there is money ` +
-        'left to work with once you have found out why. Lift the pause when you have.',
-    });
+    const card = await withTenant(companyId, async (tx) => roleSpendingFastCard(await ownerReadingWithin(tx), {
+      role: await roleCalledWithin(tx, { id: rate.roleId }), lastHourCents: rate.lastHourCents,
+      usualCents: rate.baselineHourlyCents, multiple: rate.multiple!,
+    }));
+    await inbox.raiseIncident({ companyId, title: card.title, detail: card.detail });
 
     tripped.push(rate);
   }

@@ -45,11 +45,15 @@ export interface InboxItem {
   createdAt: string;
   capabilityName: string | null;
   roleSlug: string | null;
+  /** The name the owner gave that role. */
+  roleName: string | null;
   divisionName: string | null;
   /** A question an agent asked with `owner.ask`: answered, not approved. */
   question: string | null;
   /** The answers it offered to choose from, when it offered some. */
   options: string[] | null;
+  /** A question answered at the company's browser: the card opens it, and giving the browser back answers it. */
+  browser?: boolean;
   goalChain: Array<{ kind: string; statement: string }>;
   /** When an item the owner put off comes back (0060). */
   snoozedUntil: string | null;
@@ -57,6 +61,13 @@ export interface InboxItem {
   input?: unknown;
   /** Whether it may be approved for a while (0083): a policy asked, at tier 2 or below. */
   allowFor?: boolean;
+  /** How many skills a skill card asks about: one, or all a bundle brought (B9). */
+  skillCount?: number | null;
+  /**
+   * What the owner asked on this card and what the agent answered, oldest
+   * first; a question still waiting for its answer is last, with none (N6).
+   */
+  asked?: Array<{ question: string; answer: string | null }>;
 }
 
 /** A yes the owner gave for a while (0083). */
@@ -64,6 +75,8 @@ export interface StandingApproval {
   id: string;
   roleId: string;
   roleSlug: string;
+  /** The name the owner gave the role; the console shows it in place of the code. */
+  roleName: string | null;
   capabilityName: string;
   grantedByItem: string;
   createdAt: string;
@@ -217,6 +230,8 @@ export interface WorkItem {
   /** What it produced, in one line, once it has; null before. */
   result: string | null;
   roleSlug: string;
+  /** The name the owner gave the role; the console shows it in place of the code. */
+  roleName: string | null;
   divisionName: string;
   projectId: string;
   projectName: string;
@@ -235,10 +250,19 @@ export interface WorkItem {
     currentStep: string | null;
     currentStepStatus: string | null;
     planSteps: number | null;
+    /** The actions of its plan it has taken; null with no plan. */
+    planDone: number | null;
     worker: string | null;
     heartbeatAt: string | null;
     deadlineAt: string | null;
   };
+  /** What a task in `waiting_window` waits for; null in any other status (N9). */
+  waiting: {
+    reason: 'child' | 'window' | 'cheap_hours' | 'vendor' | 'slot' | 'model' | 'service' | 'retry' | null;
+    until: string | null;
+    on: WaitingRole | null;
+    needsYou: WaitingRole | null;
+  } | null;
 }
 
 export interface ActivityItem {
@@ -253,6 +277,8 @@ export interface ActivityItem {
 export interface Account {
   id: string;
   label: string;
+  /** What the owner calls it: its division's name, the owner's own label, or null for the whole company. */
+  name: string | null;
   scopeType: string;
   scopeId: string | null;
   scopeName: string | null;
@@ -271,10 +297,14 @@ export interface Schedule {
   timezone: string;
   enabled: boolean;
   roleSlug: string;
+  /** The name the owner gave the role; the console shows it in place of the code. */
+  roleName: string | null;
   divisionName: string;
   priority: number;
   /** What each run reserves from its budget account. */
   reserveTokens: number;
+  /** The most one run may spend: its role's ceiling for a run (N10). */
+  runCeilingTokens: number;
   nextRunAt: string | null;
   lastRunAt: string | null;
   failure: string | null;
@@ -327,6 +357,8 @@ export interface TraceRun {
   agentRunId: string;
   taskId: string;
   roleSlug: string;
+  /** The name the owner gave the role; the console shows it in place of the code. */
+  roleName: string | null;
   status: string;
   attempt: number;
   startedAt: string;
@@ -446,6 +478,23 @@ export interface MemoryItem {
 }
 
 /** Something a task wrote down for a person to read: a document, an email. */
+/** One thing the company produced for a person to read, across every task (the gallery). */
+export interface GalleryItem {
+  taskId: string;
+  step: number;
+  capability: string;
+  title: string;
+  path: string;
+  excerpt: string;
+  words: number | null;
+  to: string | null;
+  at: string;
+  roleSlug: string;
+  roleName: string | null;
+  /** What the task that made it was asked to do. */
+  task: string;
+}
+
 export interface Deliverable {
   step: number;
   capability: string;
@@ -515,6 +564,9 @@ export interface HandoffRule {
   fromRoleSlug: string;
   toRoleId: string;
   toRoleSlug: string;
+  /** The names the owner gave the two roles; shown in place of their codes. */
+  fromRoleName: string | null;
+  toRoleName: string | null;
   brief: string;
   enabled: boolean;
   createdAt: string;
@@ -523,6 +575,57 @@ export interface HandoffRule {
 /** How a trigger's caller proves itself (0056). */
 export type TriggerScheme = 'bearer' | 'url' | 'github' | 'stripe' | 'slack' | 'standard';
 
+/** A customer channel (0111): a bot of the company's own, answered by one role. */
+export interface ChatChannel {
+  id: string;
+  kind: 'telegram' | 'whatsapp' | 'email';
+  /** The bot's username, the number or the address, as customers find it. */
+  account: string;
+  roleId: string;
+  roleName: string;
+  goalId: string;
+  instruction: string;
+  maxPerHour: number;
+  enabled: boolean;
+  chats: number;
+  lastMessageAt: string | null;
+  createdAt: string;
+  /** A mailbox: when it was last read, and why the last reading failed. */
+  checkedAt: string | null;
+  failure: string | null;
+}
+
+/** One customer's conversation on a channel. */
+export interface Chat {
+  id: string;
+  channelId: string;
+  kind: 'telegram' | 'whatsapp' | 'email';
+  account: string;
+  /** Whether a reply can still be sent on it. */
+  open: boolean;
+  customerName: string | null;
+  customerHandle: string | null;
+  lastMessageAt: string;
+  lastMessage: { direction: 'in' | 'out'; body: string; attachment: string | null } | null;
+  /** The customer spoke last. */
+  unanswered: boolean;
+}
+
+export interface ChatMessage {
+  id: string;
+  direction: 'in' | 'out';
+  body: string;
+  /** What arrived that is not text, by Telegram's word for it: photo, voice, document… */
+  attachment: string | null;
+  /** A mail's subject. */
+  subject: string | null;
+  outcome: 'started' | 'joined' | 'limited' | null;
+  taskId: string | null;
+  /** A reply the transport took; false for one whose send failed. */
+  sent: boolean;
+  at: string;
+}
+
 /** An inbound trigger (0054): a URL another service posts events to. */
 export interface Trigger {
   id: string;
@@ -530,6 +633,8 @@ export interface Trigger {
   publicId: string;
   roleId: string;
   roleSlug: string;
+  /** The name the owner gave the role; the console shows it in place of the code. */
+  roleName: string | null;
   goalId: string;
   instruction: string;
   maxPerHour: number;
@@ -597,4 +702,44 @@ export interface Ticket {
   createdAt: string;
   updatedAt: string;
   closedAt: string | null;
+}
+
+/** A piece of work a waiting task is held up by, and whose it is. */
+export interface WaitingRole {
+  taskId: string;
+  role: string;
+  roleName: string | null;
+}
+
+/** A staff seat signed in beside the owner (0110): who, what it may do, and its one company. */
+export interface Staff {
+  name: string;
+  kind: 'viewer' | 'approver';
+  companyId: string;
+}
+
+/** A tab of the company's browser, as the owner sees it. */
+export interface BrowserTab {
+  id: string;
+  /** The work it is, or null for the owner's own. */
+  taskId: string | null;
+  /** What that work is, in a line. */
+  work: string | null;
+  url: string;
+  title: string;
+}
+
+export interface BrowserView {
+  /** Whether this deployment has a browser at all. */
+  available: boolean;
+  held: { since: string; touchedAt: string } | null;
+  tabs: BrowserTab[];
+}
+
+export interface BrowserScreen {
+  image: string;
+  url: string;
+  title: string;
+  width: number;
+  height: number;
 }

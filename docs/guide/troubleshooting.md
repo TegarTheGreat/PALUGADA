@@ -3,12 +3,17 @@
 Symptoms, their causes, and what to do, for the messages PALUGADA actually
 prints. Messages from the server are quoted as the code writes them;
 `…` stands for the part that names your particular setting or value.
-Messages in the console are its English sentences.
+Messages in the console are its English sentences, and so are the cards
+PALUGADA raises in your inbox itself ("A task is waiting on nothing"): in
+another language the card says the same in your language.
 
 Two places to look first: the lines the platform prints when it starts,
 each beginning `palugada:` (the same list is the **Finish setting up** card
 in the console), and its JSON log lines on standard error
-([operations](operations.md#monitoring)).
+([operations](operations.md#monitoring)). Installed with the one command,
+`sh ~/palugada/install.sh doctor` looks at all of it for you, mends what is
+safe to mend, and says what to do about the rest
+([getting started](getting-started.md#install-in-one-command)).
 
 ## Installing
 
@@ -249,7 +254,7 @@ Look for the cause in this order:
 - **The budget account has no room.** A task is claimed only when its
   account can cover its reservation on top of what is already running.
   Check **Accounts** on **Money**, and raise the account's **Ceilings** if
-  it has spent them: tokens spent stay spent.
+  it has spent them: what it spent counts until the month ends (UTC).
 - **No worker is running.** `GET /api/health` answers 503 with `no tick has
   finished since …`, or not at all. Check the process and its logs.
 
@@ -267,8 +272,10 @@ task is cancelled with **Your approval was not given in time**.
 no external action runs.
 
 **Fix.** On **Money**, raise the **Monthly ceiling**, **Lift the pause**, or
-**Override** it until a time. Each takes a code. If spending was not
-expected, look at **Cost per day** and **Accounts** first.
+**Override** it until a time. Each takes a code. Or wait: the pause is the
+month's, and it lifts by itself at the start of the next one (UTC). If
+spending was not expected, look at **Cost per day** and **Accounts** first.
+Tasks it stopped stay stopped; open each and press **Continue**.
 
 If the spending is far above your provider's bill, the model has no price
 and is charged at the high fallback. Under **This deployment**, **Model**,
@@ -300,12 +307,24 @@ to cancel it.
 
 ### **A capability it needs is down**, and "Capability … failed preflight"
 
-**Cause.** A capability's health check failed: usually an expired or
-mis-scoped credential, an exhausted quota, or the provider being
-unreachable. No task that needs it starts until it passes.
+**Cause.** A capability's health check failed for a reason that does not
+pass by itself: usually an expired or mis-scoped credential, a quota used
+up, or a wrong address. The work that needed it is stopped rather than
+started. A service that is only busy, failing on its side or not answering
+does not stop work at first: the task shows **Waiting for a service to
+answer again** and looks again, longer each time, for about half an hour.
 
 **Fix.** Open the division on **Team**, read **Capability health**, and fix
-the credential; **Rotate a credential** repoints it.
+the credential; **Rotate a credential** repoints it. Then run the stopped
+work again.
+
+### "… stayed unreachable, and the work that needs it stopped"
+
+**Cause.** A service was busy or not answering for the whole half hour a
+task waited for it.
+
+**Fix.** Check the service's own status page. When it answers again, run
+the task again from its page.
 
 ### An agent says `… needs a vendor: connect one on This deployment, Services, or bind it in the file PALUGADA_VENDORS names`
 

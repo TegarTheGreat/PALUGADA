@@ -14,6 +14,9 @@ export async function consoleWithSettings(options: {
   telegram?: ConstructorParameters<typeof OwnerApi>[0]['telegram'];
   registry?: ConstructorParameters<typeof OwnerApi>[0]['registry'];
   credentialFor?: ConstructorParameters<typeof OwnerApi>[0]['credentialFor'];
+  /** The built console to serve beside the API, for a test that opens it in a browser. */
+  staticRoot?: string;
+  browsers?: ConstructorParameters<typeof OwnerApi>[0]['browsers'];
 } = {}) {
   const secrets = new InMemorySecretManager();
   const { secret } = newTotpSecret('owner phone');
@@ -32,6 +35,8 @@ export async function consoleWithSettings(options: {
     ...(options.telegram ? { telegram: options.telegram } : {}),
     ...(options.registry ? { registry: options.registry } : {}),
     ...(options.credentialFor ? { credentialFor: options.credentialFor } : {}),
+    ...(options.staticRoot ? { staticRoot: options.staticRoot } : {}),
+    ...(options.browsers ? { browsers: options.browsers } : {}),
     deploymentSettings: {
       baseEnv: options.baseEnv ?? {}, env: options.env ?? options.baseEnv ?? {}, settings: {},
       master: () => master, secrets: sealed, restart: () => undefined,
@@ -63,6 +68,6 @@ export async function consoleWithSettings(options: {
       });
       return String(((await response.json()) as { token: string }).token);
     },
-    close: () => api.close(),
+    close: (finishMs?: number) => api.close(finishMs),
   };
 }

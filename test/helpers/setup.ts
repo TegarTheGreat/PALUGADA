@@ -149,7 +149,10 @@ export async function resetData(): Promise<void> {
               agent_language = 'en',
               -- And the owner's tour (0064), so each file meets a console that
               -- has not been toured.
-              tour_finished_at = NULL`,
+              tour_finished_at = NULL,
+              -- And the currency the owner reads money in (0106).
+              display_currency = NULL,
+              display_rate = NULL`,
     );
   });
 }

@@ -19,6 +19,8 @@
  * both.
  */
 import { withTenant, withControlPlane, type TenantClient } from '../db/tenant.ts';
+import { randomUUID } from 'node:crypto';
+import { wholeCents } from '../engine/pricing.ts';
 
 export type CostDimension = 'project' | 'division' | 'role' | 'capability';
 
@@ -185,6 +187,7 @@ export async function costTimeline(
 export interface CompanyCost {
   companyId: string;
   slug: string;
+  name: string;
   costCents: number;
   tokens: number;
 }
@@ -202,23 +205,72 @@ export async function platformCost(window: CostWindow): Promise<CompanyCost[]> {
     const { rows } = await tx.query<{
       company_id: string;
       slug: string;
+      name: string;
       cost_cents: string;
       tokens: string;
     }>(
-      `SELECT c.id AS company_id, c.slug,
+      `SELECT c.id AS company_id, c.slug, c.name,
               coalesce(sum(tr.cost_cents), 0)::text AS cost_cents,
               coalesce(sum(tr.input_tokens + tr.output_tokens), 0)::text AS tokens
          FROM companies c
          LEFT JOIN llm_traces tr
            ON tr.company_id = c.id AND tr.occurred_at >= $1 AND tr.occurred_at < $2
-        GROUP BY 1, 2 ORDER BY 3 DESC`,
+        GROUP BY 1, 2, 3 ORDER BY 4 DESC`,
       [window.from, window.to],
     );
     return rows.map((row) => ({
       companyId: row.company_id,
       slug: row.slug,
+      // What the owner called it, for the money page to list it by.
+      name: row.name,
       costCents: Number(row.cost_cents),
       tokens: Number(row.tokens),
     }));
+  });
+}
+
+/** One model call, as a client reports it. */
+export interface ModelUse {
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  /** What the provider charged, in cents; a fraction is rounded up, as every charge is. */
+  costCents: number;
+  latencyMs?: number | undefined;
+}
+
+/**
+ * A model call a company made outside any task (N8): its CEO talking with
+ * the owner, its memory being distilled. Traced like a task's call, so the
+ * month's ceiling, the daily alert, the digest and the Money page -- every
+ * one of which sums `llm_traces` -- count it; on the live run of 2 October
+ * none of them saw three conversations with a CEO. No prompt is kept: the
+ * conversation is kept where the owner reads it, and a fact distilled where
+ * it is known.
+ */
+export async function recordCallOutsideTask(tx: TenantClient, companyId: string, use: ModelUse): Promise<void> {
+  await tx.query(
+    `INSERT INTO llm_traces (id, company_id, model, input_tokens, output_tokens, cost_cents, latency_ms)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [randomUUID(), companyId, use.model, use.inputTokens, use.outputTokens,
+      wholeCents(Math.max(0, use.costCents)), use.latencyMs ?? null],
+  );
+}
+
+/**
+ * What PALUGADA's own assistant cost in a window: it belongs to no company,
+ * so its answers keep what they cost (0102) and this adds them up, for the
+ * deployment's figure beside the companies'.
+ */
+export async function assistantCost(window: CostWindow): Promise<{ costCents: number; tokens: number }> {
+  return withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ cost_cents: string; tokens: string }>(
+      `SELECT coalesce(sum(cost_cents), 0)::text AS cost_cents,
+              coalesce(sum(input_tokens + output_tokens), 0)::text AS tokens
+         FROM assistant_messages
+        WHERE company_id IS NULL AND at >= $1 AND at < $2`,
+      [window.from, window.to],
+    );
+    return { costCents: Number(rows[0]?.cost_cents ?? 0), tokens: Number(rows[0]?.tokens ?? 0) };
   });
 }

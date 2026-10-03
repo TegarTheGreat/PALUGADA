@@ -16,11 +16,13 @@ import { notifications } from '@mantine/notifications';
 import type { Proof } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { t } from '../i18n.ts';
+import { currencyAffix, numberSeparators } from '../format.ts';
 
 export interface Field {
   name: string;
   label: string;
-  type?: 'text' | 'number' | 'textarea' | 'select' | 'datetime';
+  /** `money` is typed in US dollars, with the currency shown as `money` shows it. */
+  type?: 'text' | 'number' | 'money' | 'textarea' | 'select' | 'datetime';
   required?: boolean;
   placeholder?: string;
   description?: string;
@@ -108,6 +110,8 @@ export function ActionForm({
                 return <Textarea {...common} autosize minRows={3} value={value} onChange={(e) => set(field.name, e.currentTarget.value)} />;
               case 'number':
                 return <NumberInput {...common} value={value === '' ? '' : Number(value)} onChange={(v) => set(field.name, v === '' ? '' : String(v))} allowDecimal />;
+              case 'money':
+                return <NumberInput {...common} {...currencyAffix()} value={value === '' ? '' : Number(value)} onChange={(v) => set(field.name, v === '' ? '' : String(v))} min={0} decimalScale={2} {...numberSeparators()} />;
               case 'select':
                 return <Select {...common} data={field.options ?? []} value={value || null} onChange={(v) => set(field.name, v ?? '')} searchable clearable={!field.required} />;
               case 'datetime':

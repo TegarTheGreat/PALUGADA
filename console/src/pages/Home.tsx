@@ -47,8 +47,9 @@ export function Home({
 }: {
   companies: Company[];
   openCompany: (id: string, page: CompanyPage, item?: string | null) => void;
-  startCompany: () => void;
-  restoreCompany: () => void;
+  /** Null for a staff seat, which neither starts nor restores a company (0110). */
+  startCompany: (() => void) | null;
+  restoreCompany: (() => void) | null;
   setup: { notes: string[]; todo: string[] };
 }) {
   const view = useLoad(async () => Promise.all(companies.map(async (company): Promise<CompanyState> => {
@@ -77,12 +78,12 @@ export function Home({
           image="/illustrations/owner-and-agents.webp"
           title={t('Start your first company')}
           description={t('A company is a set of divisions and roles that work towards goals you set, within a budget you set. It starts from a template and you shape it from there.')}
-          action={(
+          action={startCompany && restoreCompany ? (
             <Group justify="center">
               <Button leftSection={<IconPlus size={16} />} onClick={startCompany}>{t('Start a company')}</Button>
               <Button variant="default" leftSection={<IconUpload size={16} />} onClick={restoreCompany}>{t('Restore from an export')}</Button>
             </Group>
-          )}
+          ) : undefined}
         />
       </Paper>
     );
@@ -186,7 +187,7 @@ export function Home({
                             <Text size="sm" fw={600} lineClamp={1}>{item.summary}</Text>
                             <Group gap={6} mt={2} mb={6}>
                               <StatusBadge status={item.status} />
-                              <Text size="xs" c="dimmed">{company.name} · {item.roleSlug}</Text>
+                              <Text size="xs" c="dimmed">{company.name} · {item.roleName ?? item.roleSlug}</Text>
                             </Group>
                             <TaskProgress item={item} />
                           </div>
@@ -207,7 +208,7 @@ export function Home({
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <Text size="sm" fw={600} lineClamp={1}>{item.summary}</Text>
                             {item.result && <Text size="xs" c="teal.8" lineClamp={2} mt={2}>{item.result}</Text>}
-                            <Text size="xs" c="dimmed" mt={4}>{company.name} · {item.roleSlug} · {relative(item.finishedAt ?? item.createdAt)}</Text>
+                            <Text size="xs" c="dimmed" mt={4}>{company.name} · {item.roleName ?? item.roleSlug} · {relative(item.finishedAt ?? item.createdAt)}</Text>
                           </div>
                         </Group>
                       </UnstyledButton>
@@ -222,10 +223,12 @@ export function Home({
           <div>
             <Group justify="space-between" mb="sm">
               <Text fw={700}>{t('Your companies')}</Text>
-              <Group gap="xs">
-                <Button variant="subtle" size="xs" color="gray" leftSection={<IconUpload size={14} />} onClick={restoreCompany}>{t('Restore from an export')}</Button>
-                <Button variant="subtle" size="xs" leftSection={<IconPlus size={14} />} onClick={startCompany}>{t('Start a company')}</Button>
-              </Group>
+              {startCompany && restoreCompany && (
+                <Group gap="xs">
+                  <Button variant="subtle" size="xs" color="gray" leftSection={<IconUpload size={14} />} onClick={restoreCompany}>{t('Restore from an export')}</Button>
+                  <Button variant="subtle" size="xs" leftSection={<IconPlus size={14} />} onClick={startCompany}>{t('Start a company')}</Button>
+                </Group>
+              )}
             </Group>
             <SimpleGrid cols={{ base: 1, sm: 2, xl: 3 }} spacing="lg">
               {states.map((state) => <CompanyCard key={state.company.id} state={state} open={(page) => openCompany(state.company.id, page)} />)}

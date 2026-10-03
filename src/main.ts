@@ -106,13 +106,17 @@ function metricsToken(raw: string | undefined): string | null {
   return raw.trim();
 }
 import { existsSync, realpathSync } from 'node:fs';
-import { readdir } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { hostname } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { consoleLinkFor, consoleTaskLinkFor } from './owner/notify.ts';
 import { metricsText } from './reporting/metrics.ts';
+import { guardProcess } from './process-guard.ts';
+import { Browsers } from './browser/browsers.ts';
+import { findChromium } from './browser/chromium.ts';
+import { sealedCookies } from './browser/cookies.ts';
 
 export interface DeploymentOptions {
   /**
@@ -739,12 +743,32 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   // the standard template grants need somebody's account, and a control plane
   // does not get to choose which mail provider every company that ever uses it
   // will have.
+  // A mail server with a private certificate, which a company's mailbox may be on.
+  const mailCa = env.PALUGADA_MAIL_CA ? await readFile(env.PALUGADA_MAIL_CA, 'utf8') : undefined;
+  const reachable = env.PALUGADA_ALLOW_PRIVATE_HOSTS
+    ? { allowPrivateHosts: env.PALUGADA_ALLOW_PRIVATE_HOSTS.split(',').map((h) => h.trim()) }
+    : {};
+  // The companies' browsers (§9 P2 item 20), with the Chromium this machine
+  // has or PALUGADA_CHROMIUM names; PALUGADA_BROWSER=off leaves them unbound.
+  // Started only when a role first opens a page.
+  const chromium = env.PALUGADA_BROWSER === 'off' ? null : findChromium(env);
+  const browsers = chromium
+    ? new Browsers({
+      executable: chromium,
+      sandbox: env.PALUGADA_BROWSER_SANDBOX !== 'off',
+      reachable,
+      cookies: sealedCookies({ master: () => master(true), previous: () => previousKeys }),
+    })
+    : null;
+  if (!browsers) {
+    notes.push(env.PALUGADA_BROWSER === 'off'
+      ? 'browser.read and browser.act are unbound: PALUGADA_BROWSER is off'
+      : 'browser.read and browser.act are unbound: no Chromium was found; install it, or set PALUGADA_CHROMIUM to one (F8)');
+  } else if (env.PALUGADA_BROWSER_SANDBOX === 'off') {
+    notes.push(`the browser at ${chromium} runs without its sandbox (PALUGADA_BROWSER_SANDBOX=off): a page that breaks out of Chromium's renderer reaches this process's user`);
+  }
   const bound = await registerPlatformCapabilities(registry, {
-    web: {
-      ...(env.PALUGADA_ALLOW_PRIVATE_HOSTS
-        ? { allowPrivateHosts: env.PALUGADA_ALLOW_PRIVATE_HOSTS.split(',').map((h) => h.trim()) }
-        : {}),
-    },
+    web: reachable,
     // Parenthesised: `??` binds tighter than `?:` here only by accident of
     // reading, and a root that silently did not reach the capability would
     // leave `files.list` unbound while the note said otherwise.
@@ -755,6 +779,16 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     ...(toolBindings.image ? { image: toolBindings.image } : {}),
     ...(toolBindings.speech ? { speech: toolBindings.speech } : {}),
     ...(toolBindings.listen ? { listen: toolBindings.listen } : {}),
+    // Each customer channel's keys are sealed in the deployment's store, and
+    // the Bot API and the Graph API are wherever the owner's own channels
+    // find them.
+    chat: {
+      secrets,
+      ...(env.PALUGADA_TELEGRAM_API ? { telegram: { apiBase: env.PALUGADA_TELEGRAM_API } } : {}),
+      ...(env.PALUGADA_WHATSAPP_API ? { whatsapp: { apiBase: env.PALUGADA_WHATSAPP_API } } : {}),
+      ...(mailCa ? { mail: { ca: mailCa } } : {}),
+    },
+    ...(browsers ? { browser: browsers } : {}),
   });
   notes.push(...toolBindings.notes);
   // A search for a role's documents reaches the provider through this: the
@@ -990,6 +1024,8 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // What a company keeps outside its rows, so an erasure removes that
     // too (0096): its directory in the files root, its charter's folder.
     erasure: { filesRoot, charters: charterRepository },
+    // Customers' mailboxes, read in the tick by whichever worker takes each.
+    mail: { secrets, ...(mailCa ? { ca: mailCa } : {}) },
     ...(otlp ? { telemetry: new OtlpExporter({ ...otlp, holder: workerId }) } : {}),
     ...(env.PALUGADA_APP_URL_PUBLIC
       ? {
@@ -1032,6 +1068,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   const api = new OwnerApi({
     mfa,
     charters: charterRepository,
+    ...(browsers ? { browsers } : {}),
     // The registry and the resolver, so F12.3's rotation can sweep the
     // division afterwards. Without both, a rotation through the console still
     // works and simply does not re-check -- which is better than a sweep that
@@ -1153,8 +1190,10 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
         clearTimeout(answered);
       }
       // Last, once no run can open another: a server holding a session for
-      // a task -- a browser, say -- is told it is over.
+      // a task -- a browser, say -- is told it is over, and the companies'
+      // own browsers seal their cookies and close.
       await closeMcpSessions();
+      await browsers?.close();
     },
   };
 }
@@ -1264,6 +1303,18 @@ export async function runFromCommandLine(env: NodeJS.ProcessEnv = process.env): 
     return configuration ? EXIT_CONFIG : 1;
   }
   announce(deployment);
+  // A failure nothing handled (L2): a stray rejection is said and the process
+  // goes on; an exception nothing caught stops the deployment as a signal
+  // does, then ends the process for the supervisor to start a clean one.
+  guardProcess({
+    write: (line) => { process.stderr.write(line); },
+    stop: async () => {
+      stopping = true;
+      await restarting;
+      await deployment.stop();
+    },
+    exit: (code) => { void closePools().catch(() => undefined).finally(() => process.exit(code)); },
+  });
 
   return new Promise<number>((resolveExit) => {
     const stop = (signal: NodeJS.Signals) => {

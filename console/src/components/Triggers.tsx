@@ -19,7 +19,7 @@ import { notifications } from '@mantine/notifications';
 import { IconCopy, IconPlus } from '@tabler/icons-react';
 import { api } from '../api.ts';
 import { useLoad } from '../hooks.ts';
-import { relative } from '../format.ts';
+import { relative, roleLabel } from '../format.ts';
 import { t } from '../i18n.ts';
 import type { Structure, Trigger, TriggerScheme } from '../types.ts';
 import { LoadFailed, Loading, Section } from './ui.tsx';
@@ -93,7 +93,7 @@ export function Triggers({ companyId, structure }: { companyId: string; structur
                     <Text size="xs" c="dimmed" lineClamp={2}>{trigger.instruction}</Text>
                     {trigger.secretRef && <Text size="xs" c="dimmed" ff="monospace">{trigger.secretRef}</Text>}
                   </Table.Td>
-                  <Table.Td><Text size="sm">{trigger.roleSlug}</Text></Table.Td>
+                  <Table.Td><Text size="sm">{trigger.roleName ?? trigger.roleSlug}</Text></Table.Td>
                   <Table.Td>
                     <Text size="sm" className="tabular">{trigger.deliveriesLastHour} / {trigger.maxPerHour}</Text>
                     {trigger.lastDeliveryAt && <Text size="xs" c="dimmed">{t('Last {when}', { when: relative(trigger.lastDeliveryAt) })}</Text>}
@@ -158,7 +158,7 @@ export function Triggers({ companyId, structure }: { companyId: string; structur
         <ActionForm
           fields={[
             { name: 'roleId', label: t('Role'), type: 'select', required: true, options: structure.roles.map((role) => ({
-              value: role.id, label: `${role.slug} · ${structure.divisions.find((d) => d.id === role.divisionId)?.name ?? ''}`,
+              value: role.id, label: `${roleLabel(role)} · ${structure.divisions.find((d) => d.id === role.divisionId)?.name ?? ''}`,
             })) },
             { name: 'goalId', label: t('Serves'), type: 'select', required: true, options: openGoals(structure.goals).map((goal) => ({ value: goal.id, label: goal.statement })) },
             { name: 'slug', label: t('Short name'), required: true, placeholder: 'new-orders' },

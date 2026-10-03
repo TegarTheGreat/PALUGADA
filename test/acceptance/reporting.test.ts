@@ -12,11 +12,8 @@ import { withTenant } from '../../src/db/tenant.ts';
 import { closePools } from '../../src/db/pool.ts';
 import { costBreakdown, costTimeline, platformCost } from '../../src/reporting/cost.ts';
 import { evaluateAlerts, setThresholds, thresholdsFor } from '../../src/reporting/alerts.ts';
-import {
-  buildDailyDigest,
-  buildWeeklyRetro,
-  renderDailyDigest,
-} from '../../src/reporting/digest.ts';
+import { buildDailyDigest, buildWeeklyRetro } from '../../src/reporting/digest.ts';
+import { renderDailyDigest } from '../../src/owner/digest-said.ts';
 import { traceFromInboxItem } from '../../src/reporting/trace.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { createRootTask, transition } from '../../src/engine/tasks.ts';
@@ -314,13 +311,21 @@ test('the daily digest fits one screen (F10.6)', async () => {
   assert.equal(digest.tasksFailed, 1);
   assert.equal(digest.tasksHalted, 1);
   assert.equal(digest.openIncidents, 1);
-  assert.deepEqual(digest.highlights, ['1 task(s) stopped: budget_exhausted']);
+  assert.deepEqual(digest.stopped, [{ reason: 'budget_exhausted', count: 1 }]);
 
-  const rendered = renderDailyDigest(digest);
+  const rendered = renderDailyDigest(digest, 'en');
   const lines = rendered.split('\n');
   assert.ok(lines.length <= 12, `the digest must fit one screen, got ${lines.length} lines`);
   assert.ok(lines.every((line) => line.length <= 100));
-  assert.match(rendered, /Spend: 2\.15/);
+  assert.match(rendered, /Spent: \$2\.15/, 'in dollars, and saying so');
+  assert.match(rendered, /Stopped \(1\): Out of budget/, 'a halt by what it means, not its code');
+
+  // The owner's language, as everything else the platform tells them
+  // (§2.3 item 7): the digest was English, with "budget_exhausted" in it.
+  const indonesian = renderDailyDigest(digest, 'id');
+  assert.match(indonesian, /US\$2,15/);
+  assert.match(indonesian, /Kehabisan anggaran/);
+  assert.doesNotMatch(indonesian, /budget_exhausted|Digest|Spent|Stopped/);
 });
 
 test('the digest reports what stopped, not what worked', async () => {
@@ -333,7 +338,7 @@ test('the digest reports what stopped, not what worked', async () => {
 
   const digest = await buildDailyDigest(fixture.companyId);
   assert.equal(digest.tasksCompleted, 6);
-  assert.deepEqual(digest.highlights, [], 'a quiet, successful day has nothing to highlight');
+  assert.deepEqual(digest.stopped, [], 'a quiet, successful day has nothing to highlight');
 });
 
 test('the weekly retro reports the learning signals (F9.4)', async () => {

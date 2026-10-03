@@ -64,6 +64,13 @@ const VERDICT_OUTPUT = {
 
 function role(input: {
   slug: string;
+  /**
+   * Who the role is, as the template's roles are: a name and a title. The
+   * owner chose roles from pickers that listed "strategist" and "critic"
+   * beside "Arka · CEO" (the analysis of 3 October, §2.3 item 10).
+   */
+  name: string;
+  title: string;
   division: string;
   prompt: string;
   tools: string[];
@@ -72,6 +79,8 @@ function role(input: {
 }) {
   return {
     slug: input.slug,
+    displayName: input.name,
+    title: input.title,
     division: input.division,
     systemPrompt: input.prompt,
     // A tier, which the deployment turns into its own model (F13.6). A model
@@ -88,7 +97,7 @@ function role(input: {
 
 export const CONTENT_OPS: Bundle = {
   slug: 'content-ops',
-  version: '1.2.0',
+  version: '1.3.0',
   name: 'Content operations',
   description: 'Researches, drafts and publishes written material.',
   body: {
@@ -96,6 +105,8 @@ export const CONTENT_OPS: Bundle = {
     roles: [
       role({
         slug: 'researcher',
+        name: 'Putri',
+        title: 'Researcher',
         division: 'content',
         prompt:
           'You gather what is known about a subject and say plainly what you could not ' +
@@ -109,6 +120,8 @@ export const CONTENT_OPS: Bundle = {
       }),
       role({
         slug: 'writer',
+        name: 'Gilang',
+        title: 'Writer',
         division: 'content',
         prompt:
           'You turn research into a draft. You do not publish; a different role reviews ' +
@@ -197,7 +210,7 @@ find the primary source, not a substitute for it.
 
 export const WEB_OPS: Bundle = {
   slug: 'web-ops',
-  version: '1.2.0',
+  version: '1.3.0',
   name: 'Web operations',
   description: 'Hosting, domains and deployment, with the tiers the catalogue calibrated.',
   body: {
@@ -205,6 +218,8 @@ export const WEB_OPS: Bundle = {
     roles: [
       role({
         slug: 'web-operator',
+        name: 'Wulan',
+        title: 'Web Operator',
         division: 'web',
         prompt:
           'You change hosting and DNS. Every change is planned before it is made and read ' +
@@ -287,7 +302,7 @@ the request, not applied it.
 
 export const QA_REVIEW: Bundle = {
   slug: 'qa-review',
-  version: '1.1.0',
+  version: '1.2.0',
   name: 'Adversarial review',
   description: 'The reviewer role F7 needs, holding nothing that writes.',
   body: {
@@ -295,6 +310,8 @@ export const QA_REVIEW: Bundle = {
     roles: [
       role({
         slug: 'qa-reviewer',
+        name: 'Yoga',
+        title: 'Quality Reviewer',
         division: 'review',
         prompt:
           'You judge a proposal against the criteria you were given and nothing else. ' +
@@ -375,7 +392,7 @@ Approving is a claim that you checked. "It looks fine" is not a review.
  */
 export const PALUGADA_DEV: Bundle = {
   slug: 'palugada-dev',
-  version: '1.2.0',
+  version: '1.3.0',
   name: 'Develop PALUGADA',
   description: 'A platform engineer and a reviewer that change PALUGADA itself, by pull request.',
   body: {
@@ -386,6 +403,8 @@ export const PALUGADA_DEV: Bundle = {
     roles: [
       role({
         slug: 'platform-engineer',
+        name: 'Adit',
+        title: 'Platform Engineer',
         division: 'platform',
         prompt:
           'You change PALUGADA, the platform you are running on. Read AGENTS.md at the root of ' +
@@ -402,6 +421,8 @@ export const PALUGADA_DEV: Bundle = {
       }),
       role({
         slug: 'platform-reviewer',
+        name: 'Rina',
+        title: 'Platform Reviewer',
         division: 'platform-review',
         prompt:
           'You review a change to PALUGADA before its branch is pushed. Read AGENTS.md, then the ' +
@@ -558,7 +579,7 @@ Approving is a claim that you checked. Say what you checked.
  */
 export const COMPANY_OS: Bundle = {
   slug: 'company-os',
-  version: '1.4.0',
+  version: '1.5.0',
   name: 'Company operating kit',
   description:
     'A strategist, a critic who reviews every stage move before the owner does, a weekly business ' +
@@ -575,6 +596,8 @@ export const COMPANY_OS: Bundle = {
     roles: [
       role({
         slug: 'strategist',
+        name: 'Bayu',
+        title: 'Chief Strategy Officer',
         division: 'strategy',
         prompt:
           'You decide what the company should do next and whether what it is doing is working. ' +
@@ -606,6 +629,8 @@ export const COMPANY_OS: Bundle = {
       }),
       role({
         slug: 'critic',
+        name: 'Citra',
+        title: 'Strategy Critic',
         division: 'strategy-review',
         prompt:
           'You challenge a proposal to move the company\'s stage before the owner sees it. Assume it ' +

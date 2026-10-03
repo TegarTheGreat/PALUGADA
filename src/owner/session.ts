@@ -1,11 +1,13 @@
 /**
  * How the owner proves they are the owner (PRD v2 F12.5, F10.10).
  *
- * PALUGADA has exactly one human (§5 principle 1), so this is not an identity
+ * PALUGADA has exactly one owner (§5 principle 1), so this is not an identity
  * system: there are no accounts, no roles and nothing to look up. The only
- * question is whether the person at the far end holds an enrolled device, and
- * `OwnerMfa` already answers that -- against RFC 6238 arithmetic or a P-256
- * signature, not against a caller's word.
+ * question is whether the person at the far end holds one of the owner's
+ * enrolled devices, and `OwnerMfa` already answers that -- against RFC 6238
+ * arithmetic or a P-256 signature, not against a caller's word. The staff
+ * seats beside the owner (0110) are not sessions of this kind: they have
+ * devices and sessions of their own (staff.ts), and nothing here reads them.
  *
  * So a session is exactly that answer, made durable for a while. Signing in is
  * presenting a second factor; the token that comes back says which factor it

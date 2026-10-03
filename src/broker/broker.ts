@@ -48,11 +48,12 @@ import { evaluate, type PolicyDecision } from '../policy/engine.ts';
 import type { ActionFacts } from '../policy/condition.ts';
 import { capabilityWindow, isWithin, localTimeIn, nextOpening } from '../scheduler/windows.ts';
 import * as inbox from '../inbox/inbox.ts';
+import { approvalReasonSaid, batchStoppedCard, ownerReadingWithin } from '../owner/platform-cards.ts';
 import { redactor } from '../secrets/manager.ts';
 import { fingerprintAction, isApproved, openReview } from '../review/review.ts';
 import { chargeEstimate, estimateFor, refundEstimate, settleActual } from './cost.ts';
 import { evaluateRoleFreeze, isRoleFrozen } from '../governance/role-freeze.ts';
-import { ancestryForTask, renderAncestry } from '../domain/goals.ts';
+import { ancestryForTask } from '../domain/goals.ts';
 import { checkAgainstPlan, readPlan, type TaskPlan } from '../engine/plan.ts';
 import { outsideContentIn } from '../engine/tasks.ts';
 import { Ajv, type ValidateFunction } from 'ajv';
@@ -153,7 +154,11 @@ const SUMMARY_LIMIT = 240;
  * allows -- a long text cut, a list joined -- and the whole input travels
  * with the item for the console to list.
  */
-function describeAction(name: string, input: unknown, limit: number): string {
+function describeAction(name: string, input: unknown, limit: number, summarize?: (input: never) => string): string {
+  if (summarize && input && typeof input === 'object') {
+    const line = `${name}: ${summarize(input as never).replace(/\s+/g, ' ').trim()}`;
+    return line.length > limit ? `${line.slice(0, limit - 1).trimEnd()}\u2026` : line;
+  }
   if (!input || typeof input !== 'object' || Array.isArray(input)) return name;
   let line = `${name}:`;
   let first = true;
@@ -496,12 +501,8 @@ export class CapabilityBroker {
       // an incident, not a statistic. It is the case the guard exists for, and
       // one the owner should see even though the action never happened.
       if (verdict.reason === 'plan.batch_mismatch') {
-        await inbox.raiseIncident({
-          companyId: ctx.companyId,
-          taskId: ctx.taskId,
-          title: `Batch guard stopped ${name}`,
-          detail: `${verdict.message} Nothing was sent, and no adapter was called.`,
-        });
+        const card = batchStoppedCard(await withTenant(ctx.companyId, ownerReadingWithin), { capability: name, record: verdict.message });
+        await inbox.raiseIncident({ companyId: ctx.companyId, taskId: ctx.taskId, title: card.title, detail: card.detail });
       }
       // After the record, so the count includes this denial: a threshold of
       // ten freezes on the tenth attempt rather than the eleventh.
@@ -643,6 +644,7 @@ export class CapabilityBroker {
     // each call judged first. It may send the call to the owner; nothing it
     // answers lets through a call that would otherwise have asked.
     let guardianAsks: string | null = null;
+    let guardianAllowedBefore = false;
     if (this.#guardian && tier <= 1 && policy.effect !== 'require_approval' && await holding(() => this.#guarding(ctx))) {
       const asked = fingerprintAction(name, input);
       const allowed = await holding(() => withTenant(ctx.companyId, (tx) => inbox.findGrantedApproval(tx, ctx.taskId, name, asked)));
@@ -650,11 +652,12 @@ export class CapabilityBroker {
         // Judged before and allowed by the owner: that yes is spent below,
         // and the guardian is not asked the same question twice.
         guardianAsks = 'it doubted this call before, and you allowed it once';
+        guardianAllowedBefore = true;
       } else {
         const shown = redactor.redactDeep(input) as unknown;
         const verdict = await holding(() => this.#guardian!.judge({
           companyId: ctx.companyId, projectId: ctx.projectId, taskId: ctx.taskId,
-          capability: name, tier, summary: describeAction(name, shown, SUMMARY_LIMIT), input: shown,
+          capability: name, tier, summary: describeAction(name, shown, SUMMARY_LIMIT, capability.summarize), input: shown,
         }));
         if (verdict.ask) guardianAsks = verdict.reason;
         // Stopped while the guardian was looking: the call is not made on
@@ -679,8 +682,9 @@ export class CapabilityBroker {
       // F10.2 asks the item to say why. The plan says what will happen; the
       // goal chain says what it is ultimately for. An owner reading this on a
       // phone gets both without following a link.
-      const { chain, interrupted } = await withTenant(ctx.companyId, async (tx) => ({
+      const { chain, interrupted, reading } = await withTenant(ctx.companyId, async (tx) => ({
         chain: await ancestryForTask(tx, ctx.taskId),
+        reading: await ownerReadingWithin(tx),
         // This very step spent a yes for this action and never said how it
         // went: the worker carrying it out stopped in the middle. The owner
         // is asked again, and told the first attempt may have acted.
@@ -690,31 +694,27 @@ export class CapabilityBroker {
       // the card is read on a phone and in a chat, and neither is a place for
       // a secret the adapter was handed.
       const shown = redactor.redactDeep(input) as unknown;
+      // To the owner, about the work in front of them: the task's id and the
+      // capability's code were the platform's words (§2.3 item 7), and the
+      // card names the action and links the work.
+      const said = approvalReasonSaid(reading, {
+        tier, interrupted, chain,
+        asked: policy.effect === 'require_approval' ? { by: 'policy', policies: policy.matched.map((m) => m.slug) }
+          : outside && !requiresOwnerApproval(tier) ? { by: 'outside', begun: outside === 'begun' }
+            : guardianAsks !== null
+              ? guardianAllowedBefore ? { by: 'guardian', allowedBefore: true } : { by: 'guardian', allowedBefore: false, reason: guardianAsks }
+              : { by: 'tier' },
+      });
       await inbox.requestApproval({
         actionFingerprint: fingerprint!,
         companyId: ctx.companyId,
         taskId: ctx.taskId,
         capabilityName: name,
         tier,
-        title: describeAction(name, shown, TITLE_LIMIT),
-        actionSummary: describeAction(name, shown, SUMMARY_LIMIT),
-        rationale:
-          (interrupted
-            ? 'You approved this once already, and the worker carrying it out stopped before it could say ' +
-              'whether it happened: it may already have happened. Check before approving it again.\n\n'
-            : '') +
-          `Task ${ctx.taskId} requested ${name} at tier ${tier}` +
-          (policy.effect === 'require_approval'
-            ? `, and policy ${policy.matched.map((m) => m.slug).join(', ')} requires your approval.`
-            : outside && !requiresOwnerApproval(tier)
-              ? outside === 'begun'
-                ? ', and the task began with content from outside the company (F8.9).'
-                : ', and the work read content from outside the company before asking (F8.9).'
-              : guardianAsks !== null
-                ? `, after the work read content from outside the company, and the guardian asked you first: ${guardianAsks}`
-                : ', which cannot be reversed.') +
-          (chain.length > 0 ? `\n\nWhat this is for — ${renderAncestry(chain)}` : ''),
-        consequenceIfDenied: 'The task halts and no external change is made.',
+        title: describeAction(name, shown, TITLE_LIMIT, capability.summarize),
+        actionSummary: describeAction(name, shown, SUMMARY_LIMIT, capability.summarize),
+        rationale: said.rationale,
+        consequenceIfDenied: said.consequence,
         estimatedCostCents: capability.estimatedCostCents ?? 0,
         // F10.2 asks an approval item to say why. The plan is most of the
         // answer, so it travels with the item rather than being a click away.

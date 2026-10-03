@@ -116,4 +116,6 @@ export type HaltReason =
   /** F5.1: the journal holds a different step where this one should be. */
   | 'journal_divergence'
   /** F5.14: the task lost its worker too many times; its work may be what kills it. */
-  | 'crash_loop';
+  | 'crash_loop'
+  /** Its run said it did not do what was asked, and why (`notDone`, N9). Ends `failed`. */
+  | 'not_done';

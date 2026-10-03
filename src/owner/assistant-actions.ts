@@ -203,6 +203,13 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     fields: { console: 'a language code such as id or en', agents: 'a language code' },
     factor: 'never',
   },
+  {
+    // How amounts are read, as the panel's language is: nothing is charged in it (0106).
+    pattern: '/api/control/money-display',
+    what: 'The currency the owner reads money in, and the rate to read it at. PALUGADA still counts in US dollars.',
+    fields: { currency: 'a three-letter code such as IDR, or null to read US dollars', rate: 'how many of it one US dollar buys' },
+    factor: 'never',
+  },
   { pattern: '/api/control/stop-all', what: 'Stop, or resume, all work in every company.', fields: { on: 'true to stop, false to resume' }, factor: 'always' },
   { pattern: '/api/control/cancel-everything', what: 'Cancel every task that is not finished, in every company.', factor: 'always' },
   {
@@ -274,7 +281,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   },
   {
     pattern: '/api/companies/:companyId/inbox/:itemId/answer',
-    what: 'Tell the task behind an escalation something, without deciding the item; a task waiting on the owner goes back to work.',
+    what: 'Tell the task behind an escalation something, without deciding the item; a task waiting on the owner goes back to work. A question a run asked the owner is answered by it, and closes.',
     fields: { answer: 'the answer' },
     factor: 'never',
   },
@@ -482,7 +489,9 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     what: 'Recurring work.',
     fields: {
       slug: 'short id', cronExpression: 'five-field cron', timezone: 'an IANA zone', roleId: 'who does it', goalId: 'the goal it serves',
-      input: '{ goal: "what to do each time" }', enabled: 'true or false', divisionId: 'the role\'s division', projectId: 'the project the work goes in',
+      input: '{ goal: "what to do each time" }', enabled: 'true or false; left out, a schedule saved again keeps what it was',
+      divisionId: 'the role\'s division', projectId: 'the project the work goes in',
+      create: 'true for a new schedule, so a short name in use is refused rather than that schedule overwritten',
     },
     factor: 'never',
   },
@@ -494,6 +503,17 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     what: 'Run a schedule once now, as its next occurrence would, without moving its next run; one that is off may be tried this way and stays off. '
       + 'Refused while a task it made has not ended. The schedules are in GET /api/companies/:companyId/schedules.',
     factor: 'never', chat: true,
+  },
+  {
+    pattern: '/api/companies/:companyId/schedules/:scheduleId/enabled',
+    what: 'Turn a schedule off, or on again; on again, its next run is its next time, not the runs it missed while off.',
+    fields: { enabled: 'true or false' },
+    factor: 'never', chat: true,
+  },
+  {
+    pattern: '/api/companies/:companyId/schedules/:scheduleId/remove',
+    what: 'Remove a schedule. The work it already made stays.',
+    factor: 'never',
   },
   {
     pattern: '/api/companies/:companyId/triggers',
@@ -509,6 +529,11 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
     what: 'Point a trigger at a new signing secret.', fields: { secretRef: 'the new reference' }, factor: 'never',
   },
   { pattern: '/api/companies/:companyId/triggers/:triggerId', what: 'Switch a trigger on or off.', fields: { enabled: 'true or false' }, factor: 'always' },
+  {
+    pattern: '/api/companies/:companyId/chat-channels/:channelId/close',
+    what: 'Close a customer channel: the bot is no longer heard and its token is forgotten. What was said stays, and connecting the same bot again opens it.',
+    factor: 'never',
+  },
   {
     pattern: '/api/companies/:companyId/budget-accounts/:accountId/limit',
     what: 'Change a budget account\'s ceilings; raising one takes the owner\'s device.',
@@ -618,15 +643,21 @@ export const NOT_FOR_THE_ASSISTANT: Readonly<Record<string, string>> = {
   '/api/auth/claim': 'claiming a deployment with no owner is done from the link its start printed, before there is anyone to assist',
   '/api/auth/claim/confirm': 'the same claim, confirmed with the owner\'s new authenticator',
   '/api/auth/sign-out': 'signing out is the owner\'s',
+  '/api/auth/join': 'an invite to a staff seat is opened by the person it was made for, before there is anyone to assist',
+  '/api/auth/join/confirm': 'the same invite, confirmed with that person\'s own authenticator',
+  '/api/companies/:companyId/staff': 'letting another person in is the owner\'s, with their device and by their own hand',
+  '/api/companies/:companyId/staff/:seatId/revoke': 'who is seated is the owner\'s to change, on the People page',
   '/api/auth/sign-out-everywhere': 'signing out is the owner\'s',
   '/api/mfa/authenticators/:authenticatorId/revoke': 'the owner\'s own second factor is changed only by hand',
   '/api/mfa/passkeys': 'the owner\'s own second factor is changed only by hand',
   '/api/mfa/recovery-codes': 'recovery codes are shown to the owner once, in Security, and are theirs to write down',
+  '/api/companies/:companyId/first-hour/close': 'the list on the owner\'s own Overview is closed by the owner, who is looking at it',
   '/api/channels/telegram': 'Telegram posts here, not a person',
   '/api/channels/whatsapp': 'Meta posts here, not a person',
-  '/api/control/mcp/oauth/start': 'signing in to a service is the owner\'s, in their own browser',
+  '/api/control/mcp/oauth/start': 'signing in to a service is the owner\'s, with their device and in their own browser',
   '/api/companies/:companyId/divisions/:divisionId/credentials/:alias/oauth/start': 'signing a division in for a key is the owner\'s, with their device and in their own browser',
   '/api/hooks/:publicId': 'other services post here, not a person',
+  '/api/chat-hooks/:publicId': 'Telegram and Meta post what customers write here, not a person',
   '/api/control/tour': 'the tour\'s own buttons',
   '/api/companies/:companyId/close': 'erasing a company is decided on its own settings page, with its name typed out, never on a card a model wrote',
   '/api/companies/:companyId/close/keep': 'taken back where it was decided, on the company\'s settings page',
@@ -635,6 +666,7 @@ export const NOT_FOR_THE_ASSISTANT: Readonly<Record<string, string>> = {
   '/api/control/channels/telegram/chats': 'Channels walks through it: the chat is found once the owner presses Start in the bot',
   '/api/control/channels/telegram': 'Channels walks through it, with the token and the chat found there',
   '/api/control/channels/whatsapp': 'Channels walks through it: the token and the app secret are pasted there, from Meta\'s own pages',
+  '/api/companies/:companyId/chat-channels': 'Customers walks through it: the bot\'s token or the number\'s keys are pasted there, from @BotFather or Meta',
   '/api/control/agents/:name/accept': 'running a CLI at a version nobody checked is the owner\'s call, made in Agent CLIs with their device',
   '/api/control/agents/:name/login': 'a plan sign-in is a page the owner opens and a code they paste back, in Agent CLIs',
   '/api/control/agents/:name/login/code': 'the code from the sign-in page is pasted in Agent CLIs',
@@ -653,6 +685,10 @@ export const NOT_FOR_THE_ASSISTANT: Readonly<Record<string, string>> = {
   '/api/companies/:companyId/conversation/clear': 'only the owner starts a conversation again',
   '/api/assistant/listen': 'the owner\'s own voice, written down',
   '/api/assistant/speak': 'an answer said aloud to the owner',
+  '/api/companies/:companyId/browser/take-over': 'taking the company\'s browser over is the owner\'s, with their device, on Browser',
+  '/api/companies/:companyId/browser/open': 'what the owner opens in the company\'s browser, they open by hand while they hold it',
+  '/api/companies/:companyId/browser/tabs/:tabId/input': 'what the owner presses and types in the company\'s browser is theirs alone',
+  '/api/companies/:companyId/browser/give-back': 'given back where it was taken, on Browser',
 };
 
 /** GET routes the assistant does not read: they hand over a whole company, or issue a challenge. */
@@ -663,4 +699,5 @@ export const UNREADABLE: readonly string[] = [
   '/api/mfa/passkeys/options',
   '/api/assistant',
   '/api/companies/:companyId/conversation',
+  '/api/companies/:companyId/browser/tabs/:tabId',
 ];

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { explain } from './api.ts';
+import { explain, live, type LiveEvent } from './api.ts';
 
 export interface Loaded<T> {
   data: T | null;
@@ -20,7 +20,7 @@ export interface Loaded<T> {
  * current one. A refresh keeps the old data on screen until the new arrives,
  * so a live page never flashes back to skeletons.
  */
-export function useLoad<T>(load: () => Promise<T>, deps: unknown[], options: { every?: number } = {}): Loaded<T> {
+export function useLoad<T>(load: () => Promise<T>, deps: unknown[], options: { every?: number; pulse?: number } = {}): Loaded<T> {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -60,6 +60,12 @@ export function useLoad<T>(load: () => Promise<T>, deps: unknown[], options: { e
 
   const reload = useCallback(() => setTick((value) => value + 1), []);
 
+  // A live event that touches what is drawn (`useLivePulse`): loaded again
+  // now, keeping what is on screen until the answer comes.
+  useEffect(() => {
+    if (options.pulse) reload();
+  }, [options.pulse, reload]);
+
   useEffect(() => {
     if (!options.every) return undefined;
     const timer = window.setInterval(() => {
@@ -69,6 +75,59 @@ export function useLoad<T>(load: () => Promise<T>, deps: unknown[], options: { e
   }, [options.every, reload]);
 
   return { data, error, loading, reload, updatedAt };
+}
+
+/**
+ * One live stream per company (GET /api/companies/:companyId/live), shared by
+ * every component listening to it and closed when the last one goes.
+ */
+const streams = new Map<string, { listeners: Set<(event: LiveEvent) => void>; stop: AbortController }>();
+
+function listen(companyId: string, listener: (event: LiveEvent) => void): () => void {
+  let stream = streams.get(companyId);
+  if (!stream) {
+    const opened = { listeners: new Set<(event: LiveEvent) => void>(), stop: new AbortController() };
+    stream = opened;
+    streams.set(companyId, opened);
+    void live('GET', `/api/companies/${companyId}/live`, (event) => {
+      for (const one of opened.listeners) one(event);
+    }, opened.stop.signal);
+  }
+  stream.listeners.add(listener);
+  return () => {
+    stream!.listeners.delete(listener);
+    if (stream!.listeners.size === 0) {
+      stream!.stop.abort();
+      streams.delete(companyId);
+    }
+  };
+}
+
+/**
+ * A number that grows when the company's live stream says something that
+ * touches what the caller draws -- for `useLoad`'s `pulse`, so a page shows
+ * work moving the moment it moves (the analysis of 3 October, §9 P1 item 11).
+ * A burst of events, a run's every step, makes one pulse.
+ */
+export function useLivePulse(companyId: string, touches: (event: LiveEvent) => boolean = () => true): number {
+  const [pulse, setPulse] = useState(0);
+  const wanted = useRef(touches);
+  wanted.current = touches;
+  useEffect(() => {
+    let soon: number | undefined;
+    const stop = listen(companyId, (event) => {
+      if (!wanted.current(event) || soon !== undefined) return;
+      soon = window.setTimeout(() => {
+        soon = undefined;
+        setPulse((value) => value + 1);
+      }, 400);
+    });
+    return () => {
+      stop();
+      if (soon !== undefined) window.clearTimeout(soon);
+    };
+  }, [companyId]);
+  return pulse;
 }
 
 /** A clock that ticks once a second, for "5s ago" labels. */

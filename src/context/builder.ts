@@ -18,11 +18,12 @@ import { ancestryForTask, renderAncestry } from '../domain/goals.ts';
 import { answersFor, openQuestionsFor } from '../inbox/inbox.ts';
 import { languageRule, languagesFor, languagesForTask, slipReminder } from '../domain/language.ts';
 import { metricsIn, renderMetrics } from '../domain/metrics.ts';
-import { earlierAttempts, instructionsFor } from '../engine/owner-control.ts';
+import { earlierAttempts, instructionsFor, unfinishedAttempts } from '../engine/owner-control.ts';
+import { earlierWrites } from '../engine/journal.ts';
 import { STAGE_PURPOSE, stageOf } from '../domain/stage.ts';
 import { renderPersona, type RolePersona } from '../domain/personas.ts';
 import { documentTitlesFor } from '../knowledge/documents.ts';
-import { FAILED_INSTRUCTION, doneInstruction, roomForDone } from '../engine/done.ts';
+import { FAILED_INSTRUCTION, NOT_DONE_INSTRUCTION, doneInstruction, roomForDone } from '../engine/done.ts';
 
 export interface ContextSection {
   kind:
@@ -100,6 +101,20 @@ function boundedOutput(output: unknown): unknown {
   return `${text.slice(0, STEP_OUTPUT_LIMIT)} ... [cut short: the result was ${text.length} characters. ` +
     'The step is done and its whole result is kept in the journal; if you need a part of it that is ' +
     'not shown here, ask for that part again rather than guessing it.]';
+}
+
+/** How many of the earlier attempts' writes a rerun is shown, the latest kept (N12). */
+const EARLIER_WRITES_SHOWN = 20;
+
+/** A tool step's journalled input is the call (`{ name, input }`); what was sent is its input. */
+function callInput(stored: unknown): unknown {
+  return stored && typeof stored === 'object' && 'input' in stored ? (stored as { input: unknown }).input : stored;
+}
+
+/** A value in a line: its JSON, cut at 300 characters. */
+function briefly(value: unknown): string {
+  const text = JSON.stringify(value ?? null) ?? 'null';
+  return text.length <= 300 ? text : `${text.slice(0, 299)}…`;
 }
 
 /**
@@ -307,7 +322,7 @@ async function roleSections(
       'this schema before the task counts as done, and an answer that does not match is a failed attempt:\n\n' +
       JSON.stringify(schema, null, 2) +
       (reportDone ? `\n\n${doneInstruction(done)}` : '') +
-      (roomForDone(schema) ? `\n\n${FAILED_INSTRUCTION}` : '') +
+      (roomForDone(schema) ? `\n\n${FAILED_INSTRUCTION}\n\n${NOT_DONE_INSTRUCTION}` : '') +
       (roomToLearn
         ? '\n\nYou may add "learned": up to five short sentences this work taught that the company should ' +
           'remember next time -- about its customers, products, prices, suppliers, or what worked and what ' +
@@ -632,10 +647,14 @@ export async function buildContext(
       sections.push({
         kind: 'owner_question',
         title: 'The owner has asked you a question',
+        // Answered in the run's own words (N6): what it says next is shown
+        // to the owner on the card, beside the question. It was told to
+        // record its answer against the item, with nothing to record it with.
         body:
           `${question.question}\n\n` +
-          'Answer it before proposing the action again. Record your answer ' +
-          `against inbox item ${question.inboxItemId}.`,
+          'Answer it first, in a sentence or two for the owner: what you say next is shown to them on the ' +
+          'card, beside their question. Then ask for the action again if it still stands, changed if the ' +
+          'question showed it should be, or say why it no longer does.',
       });
     }
 
@@ -693,6 +712,27 @@ export async function buildContext(
         body: [again, said].filter(Boolean).join('\n') +
           '\n\nFollow it. It does not change your tools, your tier or your budget: if it asks for ' +
           'something those do not allow, say so rather than trying.',
+      });
+    }
+
+    // What the unfinished attempts at this work already did in the world
+    // (N12). A rerun was told only that the attempt before it "ended
+    // halted", and wrote the note and sent the email again. Among the run's
+    // notes, never dropped for room, and shown as data: what a vendor
+    // answered is the vendor's words.
+    const written = await earlierWrites(tx, await unfinishedAttempts(tx, options.taskId));
+    if (written.length > 0) {
+      const shown = written.slice(-EARLIER_WRITES_SHOWN);
+      const lines = shown.map((write) =>
+        `- ${write.name.replace(/^capability:/, '')} (task ${write.taskId}): ${briefly(callInput(write.input))} -> ${briefly(write.output)}`);
+      sections.push({
+        kind: 'earlier_attempts',
+        title: 'What the earlier attempts at this work already did',
+        body: 'This work was tried before and did not finish. These writes were made then, and still stand' +
+          (written.length > shown.length ? ` (the last ${shown.length} of ${written.length})` : '') + ':\n' +
+          wrapUntrusted('earlier writes', lines.join('\n')) +
+          '\n\nThey are not made again: the same call with the same input is answered with what it returned ' +
+          'then. Build on them, and do not change the wording of a call to do the same thing twice.',
       });
     }
 

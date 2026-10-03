@@ -3747,7 +3747,8 @@ And what made connecting a service hard:
   authenticator; a key is never shown again.
 - Approval cards now say what the action would do, with every argument
   (L9), and the owner's answer to an escalation reaches the task and puts
-  it back to work (L18).
+  it back to work (L18). A run's own question answered this way stayed
+  open, and the run asked it again, until 2.90.
 
 - **There was no OAuth anywhere, so no hosted MCP server that signs in with
   it could be connected.** Linear's, Notion's, Sentry's, Atlassian's and
@@ -6248,6 +6249,1892 @@ What changed:
     second. The first took 6,424 ms before the change.
   - An Indonesian sentence around an address still reads as Indonesian.
 
+## 2.74 A company starts in its owner's language (N7)
+
+Found on the live run of 2 October (N7). The owner read the console in
+Indonesian and started a company; its CEO and every agent wrote English.
+Creation left the company's work and talk languages unset, so they followed
+the deployment's agent language, which was English, and nothing on the way
+asked. The only place to change them was **Settings**, **Languages**, which
+an owner finds after the first English reply rather than before it.
+
+What changed:
+
+- **Asked on the form.** **Start a company** shows **Work language** and
+  **Talk language**, both set to the language the console is in, and sends
+  them. An owner who changes nothing gets a company in the language they are
+  reading; one who sells in English and wants reports in Indonesian picks
+  each.
+- **Defaulted on the server too.** `POST /api/companies` takes
+  `workLanguage` and `talkLanguage`, checked like every other language
+  before the second factor is spent, so a wrong one costs no code and makes
+  nothing. Left out, each is the panel language the owner chose in
+  **Settings**. A panel that still follows the browser has no language on
+  the server, and then the deployment's default stands, as before: the
+  server does not guess a language it was never told.
+- **Tested.** `owner-api.test.ts`: a company started with nothing said takes
+  the panel's language; one started with two different languages keeps
+  each; an unknown language is refused by name with no company made; with no
+  panel language, both stay unset.
+
+## 2.75 A task's progress counts the actions of its plan (N9)
+
+Found on the live run of 2 October (N9). A task that had halted for its
+budget showed a full bar, "5/5", beside "Out of budget". The bar divided
+two different counts: every step the journal had committed -- each model
+turn and each tool call -- over the actions the task's plan named. A run that
+had thought five times had "done" a five-step plan whether or not it had
+taken one of its actions.
+
+What changed:
+
+- **The plan's own actions.** The work view counts, for each capability the
+  plan names and as often as it names it, the calls of it that succeeded
+  (`planDone`). The bar is that over the plan's steps. A capability the plan
+  names once and the run calls three times is one action of the plan; a
+  call that failed, and `plan.record` itself, are none.
+- **Finished, the bar is full** and the count still says how much of the
+  plan it took; stopped, it says where.
+- **The journal's count stays**, as steps, for a task with no plan.
+- **Tested.** `work-status.test.ts`: a plan of three with five model turns,
+  one unplanned read, two planned reads and a draft that failed reads 2/3,
+  running and halted; one capability called three times for a plan that
+  names it once reads 1/1; no plan, no count.
+
+## 2.76 A waiting task says what it waits for (N9)
+
+Found on the live run of 2 October (N9). The CEO's task, whose sub-task had
+a sub-task of its own waiting on the owner's answer, read "Scheduled" with a
+full bar. `waiting_window` is seven different waits -- work handed on, the
+hours a role may work, the cheaper hours batchable work waits for, a
+vendor's "not now", a turn at a busy capability, a model that did not
+answer, the next attempt -- and the console called them all one word, the
+one that suggests a plan rather than a wait.
+
+What changed:
+
+- **The reason is kept.** The engine records which wait it is on the
+  `task.waiting_window` event that parks the task (`WaitReason`,
+  `src/engine/tasks.ts`).
+- **And what is open below it.** The work view sends, for a waiting task,
+  the oldest work it handed on that is still open, and the nearest work at
+  any depth that waits on the owner: a question or an approval two levels
+  down is what the whole chain is waiting for.
+- **The console says so.** The status reads "Waiting", and under the
+  progress, on Work, Overview and Home: "Waiting until you answer Nadia" in
+  orange when the chain waits on the owner, "Waiting for Nadia" when it
+  waits on a role, or the kind of wait. The Overview's bucket is "Waiting"
+  too.
+- **Tested.** `work-status.test.ts` holds the three-level chain from the
+  live run, the answer clearing it, a window wait, and a wait recorded
+  before the reason was kept. `out-of-process-runtimes.test.ts` holds that
+  the engine records `child` for a real hand-off, `model` for a model that
+  did not answer and `slot` for a busy capability.
+
+## 2.77 Work its run did not do ends as not done (N9)
+
+Found on the live run of 2 October (N9). The owner asked for customer
+cust-042's data to be deleted. The run deleted nothing -- the platform had
+swallowed its question to the owner (N3, section 2.68), and without an
+answer it judged it had no authority -- and said so in its summary: "cust-042's
+data was NOT deleted". The task showed "Done" in green. The role's criteria
+were about answering customers, and a ticket met them; whether what was
+asked happened was nobody's question.
+
+What changed:
+
+- **A run may say so.** It is told: if what the task asked for was not done,
+  add `"notDone"` with why, for the owner; ask the owner first when their
+  answer would let it do the work.
+- **The task ends there.** `failed`, with the reason `not_done` and the
+  run's words on the event and in the output. Its report is not held to
+  criteria it is not claiming, and it is not tried again: another attempt
+  on the same facts reaches the same answer at the same price. A blank
+  `notDone` says nothing; `true` with no reason is still not done.
+- **The owner reads it.** The console shows "Not done" and, on the task,
+  "Why it was not done" with the run's words. The chat notice for work the
+  owner gave reads "Not done: …" with the run's reason, where it used to
+  read the halt code aloud. The reason is held to the company's talk
+  language, as a summary is.
+- **Tested.** `done-criteria.test.ts`: a run that says it did not delete is
+  failed with `not_done` after one request, with no attempt spent, its
+  reason on the event, the output and the work view; a blank `notDone`
+  completes as before. `owner-channels.test.ts`: the Indonesian notice reads
+  "Tidak dikerjakan: …" with the run's reason.
+
+## 2.78 Every model call is counted in what is spent (N8)
+
+Found on the live run of 2 October (N8) and in the code. Three conversations
+with a company's CEO, one of them thirty-nine seconds of several turns, left
+no row in `llm_traces`, and neither did memory distillation
+(`src/memory/distillation.ts`). The engine traces the calls of tasks, and
+these are not tasks -- while the month's ceiling, the daily cost alert, the
+digest and the Money page all sum `llm_traces`. Each of them was short by
+what the owner's conversations and the company's learning cost.
+
+What changed:
+
+- **A CEO's turns are its company's calls.** Each turn is a trace of the
+  company, outside any task, written as the answer arrives: a turn that led
+  to no answer, a reasoning turn asked again, a conversation the owner
+  stopped, all cost what they cost.
+- **So is distillation.** Each call, facts and procedures alike, is traced
+  when it answers, before the answer is judged.
+- **Neither draws on an account.** They are not work an account was
+  reserved for, and the owner's conversation is never refused for money.
+  The month's ceiling counts them, and a company paused at it stops
+  distilling until it is resumed; the watermark keeps its place.
+- **PALUGADA's own assistant** belongs to no company, and `llm_traces` is a
+  tenant table. An answer keeps what it cost (0102), and `GET
+  /api/control/cost` adds it up beside the companies; the Money page shows
+  it on its own line under **Every company**.
+- **Not changed:** the weekly digest's per-division breakdown joins traces
+  to tasks, so its divisions add up to less than the company's total by what
+  was spent outside tasks.
+- **Tested.** `metering.test.ts`: a CEO conversation of two turns is two
+  traces at what the model charged, rounded up, in that company and no
+  other; a turn before a failure still counts; the spend guard and the cost
+  timeline read the sum. PALUGADA's assistant charges no company and shows
+  in the deployment's figure. Distillation's calls are traced. A paused
+  company's worker distils nothing until resumed.
+
+## 2.79 Signing in to an MCP server takes the owner's device (B4)
+
+Found by the audit of 30 September and still open on 2 October (B4).
+`POST /api/control/mcp/oauth/start` asked for no second factor, while the
+same sign-in for a division's key does (section 2.25). The tokens a sign-in
+leaves are kept under the server's name when the owner's browser comes back
+(`keepTokens`, `src/capabilities/mcp-oauth.ts`), and a saved server of that
+name signs in with them from then on, replacing what it had. Anyone holding
+the owner's session -- a console left open, a stolen session token -- could
+sign a saved server in as an account of their own, and every role using its
+tools would then read and write there, with no code asked and nothing in
+the inbox.
+
+What changed:
+
+- **The device says yes.** The start asks for the owner's factor, after the
+  server is found and a client is registered and before the page to sign in
+  on is handed over. A server that cannot be signed in to -- one that names
+  another resource, offers no PKCE, calls itself something else, or
+  registers no client -- is refused first, so no code is spent on it. A
+  refused start leaves a sign-in no one holds the state of, which expires
+  in minutes.
+- **The console asks** with the dialog it uses everywhere else, titled
+  "Sign in to tracker"; what a server needs, a client ID for one, is still
+  shown on the form rather than in the dialog.
+- **The assistant** still cannot propose it, and now says why in the same
+  words as the division's sign-in: the owner's, with their device and in
+  their own browser.
+- **Tested.** `mcp-oauth.test.ts`: with the server signed in as the owner,
+  a start with no code and one with a wrong code are refused with no page
+  to sign in on, the saved grant is unchanged and nothing more is redeemed;
+  the refusals for a server that does not say who it is still come before
+  any code.
+
+## 2.80 A month's pause ends with its month (F1.7, M6)
+
+Found by the audit of 30 September and still open on 2 October (M6). The
+spend guard pauses a company when a month's spending reaches its ceiling
+(`evaluateSpendLimit`, `src/governance/spend-guard.ts`), and nothing lifted
+the pause when the month ended: in the new month the guard found spending
+under the ceiling and returned without touching `paused_at`. A company that
+ran out in October was still paused in November, every task it was given
+refused as `spend.paused`, until the owner found **Money** and lifted it by
+hand with a code. Its card, "Monthly budget reached; the company is
+paused", stayed open after any lift.
+
+What changed:
+
+- **The pause is the month's.** At the first look in a new month -- the
+  worker's watch stage, every tick -- a pause set in an earlier month is
+  lifted with any override it had, and `budget.period_resumed` says when it
+  was set and which month began. Spending already at the new month's
+  ceiling pauses the company again, for this month.
+- **Its card goes with it.** The pause's card now carries what it is about
+  (`spendPause`), and is withdrawn when the pause ends: `period_started` at
+  a new month, `spend_resumed` when the owner lifts it. One raised before
+  the payload was kept is found by its title.
+- **Not changed:** tasks the pause stopped stay stopped, as section 6.3
+  asks; each is continued from its page (section 2.69).
+- **Tested.** `spend-guard.test.ts`: paused last month, the company takes
+  work again at the first look this month, its card withdrawn and the event
+  written; a pause of this month survives the next look; the owner's lift
+  withdraws its card.
+
+## 2.81 A worker that was away judges nobody quiet (F5.12, B5)
+
+Found by the audit of 30 September and still open on 2 October (B5). A
+worker takes back the running tasks of one that has stopped saying it is
+alive (0079): quiet for a minute, on the database's clock. The asker left
+itself out, "it is alive, whatever its last beat says" -- and that was the
+defect. A worker that had been away itself, the database gone for a minute
+or its own loop stalled (the language check of section 2.73 stalled one for
+a minute and a half), came back to find every other worker's last word as
+old as its own, and took back their running tasks. Each live run lost its
+lease and stopped, and each loss counted towards the three that halt a task
+as a crash loop: one outage, three times over, could halt work that was
+never in danger.
+
+What changed:
+
+- **Since when, without a break** (0103). A heartbeat row keeps when its
+  worker began beating without a gap longer than two intervals. A gap that
+  long is the worker having been away, and the run starts again.
+- **Only an unbroken worker judges.** `silentHolders` answers only for a
+  worker whose own word is fresh and has been unbroken for as long as a
+  holder may be quiet. Back from an outage, every worker waits that minute,
+  in which the live ones write again; then only the one that never came
+  back is quiet. A worker that never wrote, or whose own word is stale,
+  judges nobody.
+- **Not changed:** a loss to a holder that really went quiet still counts
+  towards the crash loop, since a task that takes its worker down with it
+  is what the limit is for. A worker that dies is still found within about
+  a minute of its last word, and the lease stays the backstop.
+- **Tested.** `checkout-lease-lane.test.ts`: after five minutes with the
+  database away, the first worker back judges nobody and reclaims nothing;
+  a minute on, with the live worker having written again, only the dead one
+  is quiet; a worker with a stale word, or none, judges nobody. The test of
+  a quiet holder's tasks returned at once now has the asker unbroken, where
+  it had it five minutes stale -- the very state it should not judge from.
+
+## 2.82 Each opening of a claim link is shown its own secret (F12.5, B3)
+
+Found by the audit of 30 September and still open on 2 October (B3); a
+change to the label of the authenticator (f71d508) had not touched it. A
+deployment with no owner prints a claim link, and opening it shows the
+secret the owner adds to an authenticator app (section 2.48, 0094). The
+secret was derived from the master key and the claim alone, so that a
+laptop and then a phone would be shown the same one -- and so was everyone
+else who opened the link. Whoever saw it before the owner did, in a log
+shipped to a third party or over a shoulder, and opened it, kept a copy of
+what became the owner's one authenticator: they could sign in and approve
+tier 3 actions as the owner for as long as it stood, and nothing would show
+that anyone had.
+
+What changed:
+
+- **An opening's own secret.** Each opening is given a random value, 128
+  bits, and its secret is derived from the master key, the claim and that
+  value; nothing new is kept. The page sends the value back with the code
+  its app shows, and only the opening whose secret the app holds can make it
+  the owner's. A reload, or anyone else, is shown another.
+- **What does not change:** the claim is still whoever confirms first, as
+  the log's reader already holds the machine; what they can no longer do is
+  keep a copy of the owner's factor. The code in the log still gives no
+  secret by itself. A page from before this change sends no value and is
+  told to open the link again.
+- **Tested.** `owner-claim.test.ts`: two openings are shown different
+  secrets; a code from one does not confirm the other's, nor does a page
+  naming no opening or one made up; once the owner confirms theirs, the
+  earlier opener's secret signs nobody in. `process.test.ts` claims a
+  deployment started by `npm start` the same way.
+
+## 2.83 A vendor's bad moment is waited through, not halted on (F8.12, H2)
+
+Found by the audit of 30 September and still open on 2 October (H2). A
+capability's preflight (F8.12) failed on any answer of 400 or more and on
+any dropped connection (`src/capabilities/http.ts`, and the same in
+`mcp.ts`); the reading stood for fifteen minutes, and every task that needed
+the capability in that time was halted with `capability_unhealthy`, which is
+terminal -- each one to be run again by hand. One 503 from a vendor could
+stop a quarter of an hour of a company's work. The incident told the owner
+that "no task that needs it will start until it passes", as if they were
+waiting; they were not.
+
+F8.12 is about the failure no retry fixes, and a vendor answering 503 is
+not that failure.
+
+What changed:
+
+- **A preflight says which failures pass.** A capability's preflight may
+  mark a failure `transient`. The HTTP capability does so for 429, any 5xx
+  and a connection refused or timed out; MCP does so for the same, but not
+  for a 401 or anything the server said in its own protocol. A credential
+  that could not be resolved, or an address this platform refused, is not
+  transient.
+- **Kept for a minute** (0104). A passing failure's reading stands for one
+  minute, not fifteen, and raises no incident by itself.
+- **The task waits.** When every failure is passing, the task parks
+  ("Waiting for a service to answer again") and looks again after a minute,
+  then two, four, eight and sixteen -- about half an hour. If the service is
+  still not answering, the task halts as before and the owner gets one
+  incident saying what the service answered and that the work stopped.
+  Any lasting failure among them halts at once.
+- **The incident for a lasting failure says what happens**: the work is
+  stopped rather than started, and has to be run again once the cause is
+  fixed.
+- **Tested.** `preflight.test.ts`: a 503 parks the task with no incident,
+  and it runs once the vendor answers; down for good, it waits five times
+  and halts with one incident. `http-capability.test.ts` and
+  `mcp-client.test.ts` hold which answers pass and which do not.
+
+## 2.84 A task the worker could not start goes back at once (F5.12, M1)
+
+Found by the audit of 30 September and still open on 2 October (M1). A
+worker claims a task and hands it to the engine (`#runClaimed`,
+`src/worker.ts`). Anything the engine threw before the run's own handling
+began -- the database refusing a write while the contract was read, the
+task moved, or preflight recorded -- went past the worker, whose loop logged
+`place.failed` and went on. The task stayed checked out to a worker that was
+not running it, its lease unrenewed, for the fifteen minutes of a lease,
+with no reason in the console; then it came back as a lost worker.
+
+What changed:
+
+- **Given back with why.** The worker catches what the engine throws,
+  records it on the tick as a `run` failure, and gives the task back at once
+  (`giveBack`): pending again, the lease cleared, and `task.lease_expired`
+  saying "the worker could not start it" and what was thrown.
+- **Counted as a loss.** A task that can never start halts as a crash loop
+  after three, with an incident, rather than taking every worker's place in
+  turn. A database that is still away cannot take the task back either, and
+  the lease stays the backstop it always was.
+- **Not claimed again in the same tick.** The worker stops claiming for that
+  company until the next tick, as it does when a runtime is down; a place
+  sleeps before it looks again.
+- **Tested.** `worker.test.ts`: an engine that throws as it starts leaves
+  the task pending with no holder after one tick, one `run` error and the
+  reason on the event; it runs once the engine can; one that can never
+  start halts with `crash_loop` after three ticks.
+
+## 2.85 A failure nothing handled is said, not fatal by accident (L2)
+
+Found by the audit of 30 September and still open on 2 October (L2).
+Nothing in `src/` or `scripts/` listened for `unhandledRejection` or
+`uncaughtException`, so Node's default applied to both and the process died
+where it stood. One promise nobody awaited -- a notice to a chat, a sweep
+that lost the database for a moment -- took the console and the worker down
+together: every run cut off rather than handed back, each to come back only
+when its lease ran out, counted as a lost worker, and the only trace a
+stack on standard error.
+
+What changed (`src/process-guard.ts`, installed by `runFromCommandLine`):
+
+- **A rejection nothing awaited is said, and the process goes on.** It is
+  work whose failure nobody was waiting to hear; the rest of the process is
+  as sound as it was. The line names it as a bug, with its stack.
+- **An exception nothing caught stops the process the way a signal does**:
+  readiness says no, the console closes, the worker hands its runs back
+  (section 2.22), and the process exits 1 for the supervisor to start a
+  clean one. A throw that unwound a stack nobody expected leaves state
+  nobody can vouch for. A stop that does not finish in thirty seconds, or a
+  second exception while stopping, ends the process anyway.
+- **Redacted**: a failure's message can carry a credential, and every secret
+  the process has registered is masked in what is written.
+- **Tested.** `process-guard.test.ts`, in a process of its own: a rejection
+  is written, redacted, and the process carries on; a later exception stops
+  it, the stop runs, and it exits 1; a stop that never finishes still ends
+  the process.
+
+## 2.86 A schedule is turned off, on and removed, and set by day and time (F9.1, N11)
+
+Found by the audit of 30 September (T2-3) and in the code on 2 October
+(N11). A schedule had two routes, save and run now. The console showed
+"Off" with nothing to turn it on; a schedule turned off -- by denying the
+escalation that asks whether a repetitive one is still worth running, or by
+closing its goal -- could be revived only by typing it again under the same
+short name, which overwrote its brief, kept its old role, and turned it on,
+since saving said `enabled ?? true`. Nothing removed one. And a new one was
+asked for as cron, in UTC unless the owner found the zone list: an owner in
+Jakarta who wanted seven in the morning had to type `0 0 * * *`, or know to
+pick Asia/Jakarta and type `0 7 * * *`.
+
+What changed:
+
+- **Off and on** (`POST …/schedules/:id/enabled`). Turned on, its next run
+  is its next time from now: what it would have run while off is not owed,
+  and a week off is not a week of runs at once. `schedule.turned` records
+  it.
+- **Removed** (`POST …/schedules/:id/remove`). The work it made stays, as
+  work the owner can open, without its link to the schedule (0049).
+  `schedule.removed` records it.
+- **Saving again keeps it off.** Without `enabled`, a schedule saved again
+  keeps what it was; a new one is on.
+- **A new one cannot take a taken name.** "New schedule" sends `create`, and
+  a short name in use is refused with 409, naming it, rather than that
+  schedule overwritten.
+- **Days and a time, not cron.** The form asks how often it repeats --
+  every day, every weekday, one day of the week, every hour -- and at what
+  time, in half hours, and builds the cron; **Custom, as cron** remains for
+  anything else. The time zone starts as the browser's own, and each zone is
+  labelled with what its clock is called there ("Asia/Jakarta · WIB"). The
+  table says a schedule's time in words, "Every weekday at 07:00", with the
+  cron in its tooltip.
+- **Each row** has a switch for off and on, and a button to remove it after
+  asking. The assistant may propose either.
+- **Tested.** `schedule-control.test.ts`: off, a week passing runs nothing;
+  on again, the next run is ahead and nothing is caught up; saved again it
+  stays off; a new one under a taken name is refused and the old brief
+  kept; removed, its run is still there with no schedule.
+
+## 2.87 Replay is offered only where it can run (F11.4)
+
+Found by the audit of 30 September (Task 4, item 7). Every task's drawer
+offered **Replay against the journal**, and on a deployment started by
+`npm start` every press was refused: the route replays a role's in-process
+handler, `npm start` registers none, and a role run by a model, an agent
+CLI or a container is not replayed by this deployment at all (F5.9, F13).
+A button that can only be refused teaches the owner to stop pressing
+buttons.
+
+What changed:
+
+- **Said with the task.** `GET /api/companies/:id/tasks/:taskId` answers
+  `replayable`: true only when the task's role is one this deployment runs
+  as a handler in its own process.
+- **Shown only then.** The drawer offers the replay when it can run, and
+  not otherwise. The route still refuses by name, for a caller that asks
+  anyway.
+- **Tested.** `owner-api.test.ts`: a task whose role the deployment runs is
+  replayable and replays; one whose role it does not run is not, and its
+  replay is refused with why.
+
+## 2.88 What a run said is in its transcript once (N13)
+
+Found on the live run of 2 October (N13). "What it said" repeated the same
+lines with new times at every resume -- after an approval, a window, a
+handed-back run -- until the CEO itself wrote that it had "repeated its
+orientation eight times". The agent loop narrated every turn it went
+through, and a resumed run goes through its earlier turns again, replayed
+from the journal rather than asked of the model.
+
+What changed:
+
+- **Said once.** A turn is narrated only when the model wrote it now; one
+  the journal replays is not said again (`src/runtime/agent-loop.ts`).
+- **Not changed:** a tool call that failed is not committed, so a resumed
+  run makes it again, and a refused hand-off is refused again. It has no
+  effect beyond its own refusal, and section 2.66 removed the cause of the
+  twenty refusals on the live run; a call journalled as its refusal is a
+  change to what the journal promises, and is left for its own decision.
+- **Tested.** `model-runtime.test.ts`: a run stopped after its first turn
+  and resumed has that turn's words in its transcript once.
+
+## 2.89 A question on an approval card reaches the model, and its answer the card (F10.3, N6)
+
+Found by the audit of 30 September (Task 4, item 1) and still open on
+2 October (N6). The owner asked a question on an approval card; the console
+said "Question sent to the agent", and no model read it. The task went back
+to work, the agent loop replayed from its journal the turn that had asked
+for the action -- a model's turn is journalled by its number, and replayed
+without asking the model -- made the same call, met the same open card
+(`requestApproval` keeps one card per task and capability) and waited
+again. The question was in a context no model was given. And the run was
+told to "record your answer against inbox item …", with nothing to record
+it with. Only a role run by code in this process ever read a question,
+which is what the old tests covered.
+
+What changed:
+
+- **Asking reopens the turn** (`reopenForQuestionWithin`,
+  `src/engine/journal.ts`), in the transaction that records the question:
+  the model's turns after the last thing the run did in the world are asked
+  again. Tool steps before them stay committed, so nothing done is done
+  twice; the call waiting on the card was never committed.
+- **The run answers in its own words.** It is told to answer first, in a
+  sentence or two for the owner, then to ask for the action again if it
+  still stands, changed if it should be, or to say why not.
+- **The answer is kept on the card.** When the run asks for the action
+  again, what it said since the question is recorded with it on the card
+  (`asked`), and the card waits for the owner's decision again. If the
+  action changed, the new card carries the exchange; a run that said nothing
+  leaves the answer empty. The card shows **You asked** and **The agent
+  answered**, or that the agent is still reading.
+- **Tested.** `model-runtime.test.ts`: a run asks for a tier 3 transfer;
+  the owner asks why; the model is asked again with the question in its
+  context, answers and asks again; the same card holds the question and the
+  answer and is undecided.
+
+## 2.90 An answer to a run's question closes it, through every route (F10.3, B6)
+
+Found by the audit of 30 September (B6, L18) and still open on 3 October,
+by the API: a run's own question (`owner.ask`) answered through
+`POST /api/companies/:companyId/inbox/:itemId/answer` -- the route the
+owner's assistant uses -- was never answered. The route gives an
+escalation the owner's word without deciding it, which is right for an
+escalation about work: the words went to the task as an instruction and
+the task went back to work. But a run reads the answer to its question
+from the decided item (`askOwner`, `answersFor`). The item stayed open, the
+run that resumed asked the same question, found it open and parked again:
+`owner.answered`, then `task.waiting_approval` 2.6 seconds later, as often
+as it was answered. The console's and the chats' answer buttons decide the
+item, and were not affected.
+
+What changed:
+
+- **An answer to a run's own question decides it** (`answerEscalation`,
+  `src/inbox/inbox.ts`): approved, with the answer as the owner's note,
+  through `decide` -- the same record, the same channel on it, and the same
+  refusal when the item has expired or closed. Every other escalation is
+  answered as before and stays open.
+- **Said once.** The answer is not also written to the task as an
+  instruction, so the run does not read it twice, once as an answer and
+  once as an order.
+- **The assistant is told** that answering a run's question closes it.
+- **Tested.** `control-plane.test.ts`: a run asks; the owner answers through
+  `answerEscalation`; the item is decided with the answer, the task is
+  running, the run that asks again is given the answer and does not park,
+  and a second answer is refused as already decided.
+
+## 2.91 Doing unfinished work again does not do again what it already did (F5.2, N12)
+
+Found by the analysis of 3 October (N12), from the code. **Do it again**
+makes a new task, so every write the new task made carried a key of its
+own (`callKey` is made from the task) and its journal was empty. The run
+was told only that the attempt before it "ended halted" -- not that it had
+written the note, sent the email or posted the update. A rerun after a
+deadline, a hop limit or a stop could therefore make every write again,
+and tier 1 and 2 writes are not put to the owner on the way.
+
+What changed:
+
+- **Which attempts count** (`unfinishedAttempts`,
+  `src/engine/owner-control.ts`): the attempts before this one, back to
+  the last that finished. Work that finished, asked for again, is new work:
+  the owner saw it done, and asking again means doing it again -- the
+  report written afresh, the newsletter sent once more.
+- **The run is told what they wrote.** Among its notes, and never dropped
+  for room: each write those attempts committed -- a call the broker made at
+  tier 1 or above -- with what it was given and what it returned, as data,
+  the last twenty of them. A read is not listed: it changed nothing, and
+  what it read may have changed since.
+- **The same write is answered from their record** (`writtenBefore`,
+  `src/engine/journal.ts`; the engine's `callTool`). A call with the same
+  capability and the same input as a write they committed returns what it
+  returned then, is journalled in this task, and is recorded as
+  `tool.not_repeated`, which the task's history shows as "not done again:
+  an earlier attempt had already done it". Nothing reaches the vendor, and
+  nothing is charged. A read is made again.
+- **A write whose answer never came goes under the key it was first sent
+  with.** A tool call's key is now made from the first of the unfinished
+  attempts rather than from the rerun, so a vendor that acted on a call
+  whose answer was lost when the attempt stopped can tell the second for
+  the same write.
+- **Not changed:** a call worded differently is a different call. The run
+  is told not to reword a call to do the same thing twice; it is not
+  prevented from writing something new.
+- **Not covered:** what an earlier attempt handed to another role. A child
+  task is a task of its own, and the rerun's children start fresh: a
+  coordinator's rerun can still have a child do again what the earlier
+  attempt's child did. Open.
+- **Tested.** `model-runtime.test.ts`: an attempt reads, writes a note,
+  sends a second note whose answer is lost, and is stopped; done again, the
+  run is told of the first note, makes the same three calls, and the read
+  is made again, the first note is answered from the record, and the
+  second goes to the vendor under its first key. Done again once more after
+  finishing, the same note is written again under a key of its own.
+
+## 2.92 An agent resumed in its own order and words carries on (F5.1, N14)
+
+Found by the audit of 30 September (H4) and still open on 3 October (N14),
+from the code; the test written for it found it worse than described. A
+runtime in another process -- an agent CLI, an ACP agent, a container, an
+HTTP service, a script -- was replayed by the place of its steps, as a
+handler in this process is. But such a runtime is not replayed: resumed
+after the owner's answer or an approval, or after a restart, it starts
+again from what it is told and goes on in its own order and its own words.
+Its first call that did not match the step recorded at its place was
+refused as `journal.divergence` -- told to the agent as a failed tool call,
+which it worked around -- and a call that landed on the place of an
+unfinished step was written over it. In the test, the agent asked its
+question again first, was refused, wrote its answer over the question's
+step and finished: the task was shown as done, and the owner's answer was
+never read.
+
+What changed:
+
+- **Its steps are found by what they are** (`place`, in the engine's run).
+  For a runtime that is not `in-process`, each call is matched to the
+  journal as it stood when the run began: a call with the same name and
+  input as a step there is given that step -- a finished one first, each
+  step to one call -- and is answered from it if it finished, or made again
+  under its own key if it did not. Anything else goes after the last step,
+  and nothing is written over. A fallback to another model starts the
+  matching again, with what the failed attempt journalled.
+- **Unchanged for code in this process and the model loop.** A handler and
+  the model loop, which journals its own turns, make the same steps in the
+  same order when they run again; their steps are still their places, and a
+  handler that takes other steps still halts as `journal_divergence`.
+- **Not changed:** a call worded differently is a different call. A read
+  worded differently is read again; the same write worded differently would
+  be made again, which is why a resumed run is told what it already did
+  (F4.7) and, after a stop, what the attempt before it wrote (2.91).
+- **Tested.** `out-of-process-runtimes.test.ts`: a script runtime records a
+  plan, makes a tier 2 write and asks the owner; answered, it runs again,
+  asking first, writing again and reading a zone it names differently. It
+  is given the answer, the write is answered from the record and not made
+  again, the read runs, the task completes, and the journal holds each call
+  once, where it was first made.
+
+## 2.93 Retention reaches the work itself (F11.5, M10)
+
+Found by the audit of 30 September (M10) and still open on 3 October.
+Retention scrubbed prompts and replies at the prompt window and purged
+events, traces and the platform's bookkeeping at the company's windows
+(migrations 0007 and 0046). The work those records were about was never removed: every
+task, every journal step with what it was given and what it returned,
+every run and every card stayed for ever, past the windows that had removed
+everything said about them.
+
+What changed:
+
+- **Finished work goes past both windows** (`purgeExpiredWork`,
+  `src/retention/retention.ts`, run by every retention pass): a task
+  finished before the later of the event and trace windows, with what hangs
+  from it -- its steps, runs, cards, notes and the events and traces still
+  about it, which the database removes with it. The later window, because a
+  task takes its events and traces with it. A card that belonged to no task
+  goes at the event window once it is closed; an open one stays.
+- **Work something still points at stays,** however old, and what it points
+  at in turn:
+  - anything said about it since the cutoff, such as the owner's word on it
+    or a rerun asked for;
+  - a card about it still open in the owner's inbox;
+  - a parent of work that stays, since removing a task removes the tasks
+    under it;
+  - work that a task that stays was asked for again in place of, whose
+    answers and notes that task still reads (L6);
+  - work that handed on to a task that stays.
+- **Checked by the database too.** The purge runs under the same flag as an
+  event purge, and the database refuses to remove any event inside the
+  window, so a mistake in what is kept fails the pass rather than removing
+  recent history. What a memory, a measure, a ticket or a schedule
+  remembered of a task is kept, without the link.
+- **On the record** as `work_purged` (migration 0105).
+- **Indexes for the removal** (0105): removing a task makes the database
+  find every row that points at it, and nine tables that grow with the work
+  -- among them `inbox_items`, `llm_traces` by run, `owner_notifications`,
+  `task_handoffs` by successor and `memories` by source -- had no index on
+  the column it searches.
+- **Tested.** `retention-rotation.test.ts`: of twelve tasks finished 500 or
+  3 days ago, the three old ones nothing points at go with their steps,
+  runs, cards and events, and a parent of live work, work talked about
+  since, work with an open card, work done again since and work that handed
+  on since all stay; an old closed card with no task goes, and an old open
+  one stays; the purge is in the retention log.
+
+## 2.94 Every event and step on the owner's timelines is said in words (F11.2, §2.3 item 7)
+
+Found by the live run of the analysis of 3 October (§2.3, item 7: internal
+words shown to the owner). The task timeline (**What it did**) and
+**Lately** show the company's events, and 95 of the event types the server
+writes had no sentence: each was shown as its code made readable --
+"Content read outside", "Task running", "Budget halt raised" -- in English
+whatever the console's language. Beside each stood the code of whoever
+wrote it: "engine", "broker", "agent_run". The progress line and the trace
+named a task's steps the way the journal does: "Model:turn 2".
+
+What changed:
+
+- **A sentence for every event** (`EVENT_SENTENCES`,
+  `console/src/format.ts`), in all twenty languages: a task's moves ("Working
+  on it", "Back in the queue", "Task stopped"), the owner's own actions ("You
+  put an item off", "You gave your word on the result"), what the platform
+  checked ("Read back, and it matched", "The guardian checked an action"),
+  and what it refused ("An attempt to read another company's data was
+  refused"). A hook's refusal is said as a check's ("A check refused a tool
+  call"): the console never names hooks to the owner.
+- **Held by a test** (`test/documents/console-events.test.ts`): the server is
+  read for every event type it writes -- each `type:` or `event:` it gives,
+  a task's move to each status and a hook's refusal at each point, leaving
+  out the operator's log -- and each must have a sentence.
+- **Who acted, in words** (`actorSaid`): "You", "The agent", "A schedule" or
+  "The platform", on both timelines; the test refuses an actor shown as its
+  code.
+- **A step, in words** (`stepSaid`): "Thinking, turn 2", "Using crm.note",
+  "Waiting for writer", or the event's sentence, on the progress line and
+  in the trace.
+- **Still open in this item:** a card's title for a run's question uses the
+  role's short name ("bookkeeper asks:"), an approval names the capability
+  ("record.delete") and the account its path ("ops/growth"), and a halt's
+  detail is the engine's English. Each is its own change.
+
+## 2.95 A run's question is headed by who asks, by name, in the owner's language (F10.3, §2.3 item 7)
+
+Found by the live run of the analysis of 3 October (§2.3, item 7). A run's
+question (`owner.ask`) reached the owner as "bookkeeper asks: ...": the
+role's short name, which is the platform's, and English whatever the owner
+reads. The inbox named the asker by the same short name ("Asked by
+bookkeeper"), and a chat said the question twice, as the card's title and
+again as its summary.
+
+What changed:
+
+- **By the name the owner gave the role** (`roleName` on an inbox item; the
+  stored title, in `askOwner`), wherever the inbox names who asks, including
+  the "allow for a while" choices; the short name only where a role has no
+  name.
+- **The question is the card.** The inbox lists a run's question by the
+  question itself, and its card is headed "A question from Sari", in the
+  console's language.
+- **In the chats, in the owner's language** (`askerOf`, `src/owner/notify.ts`;
+  Telegram and WhatsApp): "*Sari bertanya:*" over the question, said once.
+  "{role} asks:" is in every dictionary in `src/owner/sentences/`.
+- **Tested.** `owner-channels.test.ts`: a role named Sari asks; the inbox
+  item names Sari, its record is titled by her name, and the Telegram card
+  is headed "Sari asks:" in English and "Sari bertanya:" in Indonesian, with
+  the question once and no English in the Indonesian.
+- **Still open in this item:** capability names ("record.delete") and the
+  account's path ("ops/growth"), and a role's short name elsewhere in the
+  console (Home, the schedule list, standing approvals).
+
+## 2.96 A capability is named for what it does, and an approval says why without the platform's words (F10.2, §2.3 item 7)
+
+Found by the live run of the analysis of 3 October (§2.3, item 7). An
+approval card was headed "record.delete: recordId cust-042", the timeline
+badged events "crm.note", the trace said "dns.update done", and the progress
+line "Using email.send": capabilities by their codes. The reason on every
+approval the broker raised began "Task 6f1c…-… requested record.delete at
+tier 3", and one about outside content ended with a requirement's number,
+"(F8.9)".
+
+What changed:
+
+- **A name for every capability in the catalogue** (`CAPABILITY_NAMES`,
+  `console/src/format.ts`), in all twenty languages: "Delete a record",
+  "Send an email", "Release to the live site", "Read the books". Held by
+  `test/documents/console-events.test.ts`, which reads the catalogue. A
+  capability from outside it -- a vendor's, an MCP server's tool -- keeps its
+  own name.
+- **Used wherever the owner reads one**: an approval card is headed by what
+  the action does, followed by its arguments ("Delete a record: recordId
+  cust-042"), and the line of arguments is not repeated above the full list
+  of them; the timeline's badges, the trace, the progress line ("Now: Send an
+  email"), the "allow for a while" choices and the standing approvals.
+- **The reason is said to the owner** (`src/broker/broker.ts`): "This work
+  asked for it at tier 3, which cannot be reversed." The card names the
+  action and links the work; the task's id and the capability's code are not
+  in it, nor the requirement's number.
+- **Tested.** `capability-broker.test.ts`: a tier 3 approval's reason is the
+  sentence above, without the task's id or the capability's code;
+  `triggers.test.ts`, without "(F8.9)"; and the documents test above.
+- **Still open in this item:** a chat's card is headed by the broker's title,
+  which names the capability by its code -- the chats' dictionaries do not
+  name capabilities yet -- and an account by its path ("ops/growth").
+
+## 2.97 No weekly review of an empty week, and "Run now" says what a run may spend (F9.1, N10)
+
+Found by the live run of the analysis of 3 October (N10). **Let it run
+itself**, on by default when a company is created, adds a strategist who
+reviews the week every Monday. On a company that had done nothing yet, the
+review read an empty week, went looking for something to say, and spent
+770 thousand tokens in three and a half minutes; the dialog in front of
+**Run now** had said it "reserves 1,000 tokens", which the owner read as
+what it would cost.
+
+What changed:
+
+- **An empty week is passed over** (`weekHadWork`, `src/reporting/week.ts`;
+  `passOver`, `src/scheduler/scheduler.ts`). When the clock fires a schedule
+  that asks for the week and nothing happened in it but the schedule's own
+  runs -- no task started or finished other than one of them or work under
+  one, no measure recorded -- no task is made, the schedule moves to its
+  next occurrence, and `schedule.nothing_to_review` says so once ("Schedule
+  skipped a run: nothing happened that week to review"). The owner's **Run
+  now** is not asked: it runs whatever the week holds.
+- **The dialog says the ceiling** (`runCeilingTokens` on a schedule; the
+  console's **Run now**): beside what a run reserves to start, the most one
+  run may spend -- its role's ceiling for a run -- and that work it hands to
+  other roles spends more.
+- **Unchanged:** **Let it run itself** stays on by default; on a company
+  with nothing done yet it now costs nothing until there is a week to
+  review.
+- **Tested.** `schedule-quiet-week.test.ts`: an empty week is passed over,
+  said once, and the schedule moves on; the schedule's own finished run
+  does not make a week worth reviewing; a week with finished work is
+  reviewed; the owner can run a review of an empty week; and a schedule
+  reports its role's ceiling for a run beside its reservation.
+
+## 2.98 Money says its currency (F11.3, §2.3 item 3)
+
+Found by the live run of the analysis of 3 October (§2.3, item 3). Every
+amount PALUGADA keeps is in US cents -- providers price models in dollars per
+million tokens, runtimes report dollars, the catalogue estimates in cents --
+and the console printed amounts with no currency: an Indonesian owner read
+"Batas 200,00" and "Terpakai 0,75" as rupiah. The cost chart beside them wrote
+"0.20" the English way, and an account's ceiling and the daily-cost alert
+were typed in cents.
+
+What changed:
+
+- **Every amount is written as US dollars**, the way the console's language
+  writes them (`money`, `console/src/format.ts`): "$0.75" in English,
+  "US$0,75" in Indonesian, "0,75 $" in German.
+- **The chart writes them the same way**, not with `toFixed`.
+- **Typed in dollars.** Opening an account takes its **Money ceiling** in
+  dollars, as the existing ceiling dialogs did, and the daily-cost alert its
+  **Daily cost**; each money input shows the currency where the language puts
+  it (`currencyAffix`, and a `money` field in `ActionForm`). They are kept in
+  cents, as before.
+- **Tested.** `test/documents/console-money.test.ts`: the console's own
+  formatting, in English, Indonesian and German; and the Money page writes no
+  figure with `toFixed` and asks for nothing in cents.
+- **Still open:** showing amounts in the owner's own currency too, at a rate
+  they set, and the daily digest in the chats, which is in English and writes
+  its spend without a currency.
+
+## 2.99 A budget account is named for what it covers (F1.6, §2.3 item 7)
+
+Found by the live run of the analysis of 3 October (§2.3, item 7). The
+accounts a template makes are labelled with the platform's codes -- the
+company's "company", each division's by its short name, "ops" -- and the
+**Money** page used those labels as the accounts' names. A role's budget
+said what it rolls up through as the first eight characters of each
+account's id, in a fixed-width font; and a budget halt told the owner "token
+akun company habis", an English code inside an Indonesian sentence.
+
+What changed:
+
+- **Named for what it covers** (`ACCOUNT_NAME`, `src/engine/budget.ts`): an
+  account a template labelled with a division's short name is called by the
+  division's name, the whole company's by nothing the platform writes -- the
+  reader says "The whole company" in their own language -- and one the owner
+  labelled keeps its label. Budget accounts carry it as `name`.
+- **The chain by name.** A role's budget returns `chainNames` beside `chain`,
+  and the console shows "Ramadan promotion → Operations → The whole company".
+- **The halt card in one language** (`budgetHaltWords`): "token akun
+  perusahaan habis". "company" is in every dictionary in
+  `src/owner/sentences/`.
+- **Tested.** `budget-names.test.ts`: on a company made from the standard
+  template, the company's account is unnamed, a division's is its division's
+  name, the owner's keeps its label, and a role's chain is named in order;
+  `budget-halt.test.ts`: a halt on the whole company's account says
+  "perusahaan" in Indonesian.
+
+## 2.100 The change log and the retention log say what happened, in the owner's language (§2.3 item 7)
+
+Found by the live run of the analysis of 3 October (§2.3, item 7), after
+2.94 put every event in words. Two lists were left that print codes. The
+change log on **Health** headed each entry with its subject -- "charter",
+"policy" -- badged it "updated", and said "by template" or "by owner" in
+English whatever the console's language. The retention log under a
+company's settings named each pass by its code: "prompts_scrubbed",
+"journal_scrubbed", "bookkeeping_purged". The events the governance log
+mirrors -- `charter.created`, `policy.deleted` and the rest, written from a
+template in `record` -- and the `company.created` a template writes by a
+raw insert were not found by the event scan, so the timeline showed them as
+their codes too.
+
+What changed:
+
+- **The change log in words.** An entry is headed by the sentence its event
+  has on the timeline -- "Charter changed", "Policy removed" -- and says who
+  did it as the timelines do: "You", "The company template", "The charter
+  repository" (`actorSaid`, `console/src/format.ts`).
+- **The retention log in words** (`retentionSaid`): "Old prompts cleared",
+  "Old model replies cleared from finished work", "Old finished work
+  removed". "Cleared" and "removed" are different words in every dictionary:
+  a cleared row is kept with its text blanked.
+- **Tested.** `console-events.test.ts` now finds the event types a statement
+  inserts into `events` itself and the governance log's mirror, and refuses
+  a page that shows `row.action` as its code; every new sentence is in the
+  20 dictionaries (`console-i18n.test.ts`).
+
+## 2.101 The chats' daily digest and why work stopped, in the owner's language (F10.6, §2.3 items 3 and 7)
+
+Found by the live run of the analysis of 3 October (§2.3, items 3 and 7).
+What PALUGADA says in a chat is in the owner's language (`say`,
+`src/owner/say.ts`), except two things it said every day. The daily digest
+was English whatever the owner read -- "Digest for", "Spend: 0.75", "Tasks:
+... halted" -- its money a bare figure an Indonesian owner reads as rupiah,
+and what stopped was the halt's code: "1 task(s) stopped: budget_exhausted".
+The notice that work the owner gave has stopped said why as the code read
+aloud: "Sebabnya: budget exhausted".
+
+What changed:
+
+- **Why, in words** (`haltSaid`, `src/owner/halt-said.ts`): every halt reason
+  has the sentence the console gives it on the task ("Out of budget",
+  "Kehabisan anggaran"), held as a record of every `HaltReason`, so a new
+  reason does not compile without one. A failure with no reason is "Task
+  failed".
+- **The digest in the owner's language** (`renderDailyDigest`,
+  `src/owner/digest-said.ts`). `buildDailyDigest` returns what stopped as
+  data (`stopped`, by reason and count) rather than English lines, and the
+  owner module says it: the spend in US dollars written the way the
+  language writes them ("US$2,15"), as the console does since 2.98, and
+  each halt by its sentence. A count stands after a label, because `say`
+  has no plural forms. The worker's digest and its retry both use the
+  panel's language.
+- **Tested.** `reporting.test.ts`: the digest says "Spent: $2.15" and
+  "Stopped (1): Out of budget" in English, and in Indonesian "US$2,15" and
+  "Kehabisan anggaran" with no English and no code; `owner-channels.test.ts`:
+  the stopped notice says "Kehabisan anggaran", not "budget exhausted"; every
+  new sentence is in the 20 dictionaries in `src/owner/sentences/`.
+
+## 2.102 Of two budget accounts on one scope, the same one pays every time (F1.6)
+
+Found while checking 2.99: its test failed on one full run in several. The
+owner may open a budget account on a division, project or role that already
+has one -- "Ramadan promotion" under the division's Operations account --
+and work there is charged to the narrowest account that covers it
+(`accountFor`, `src/engine/budget.ts`). Narrowest was decided by the kind of
+scope alone, so two accounts on one division tied, and the one charged was
+whichever row the database read first. Every charge writes its account's
+row again elsewhere in the table, so the same role's work could be charged
+to one account and then the other, and a schedule could draw on either.
+
+What changed:
+
+- **The tree decides a tie.** Of two accounts on the same scope, the deeper
+  in the tree is the narrower and pays; between two as deep, the older; and
+  the id last, so there is always one answer. Task creation, schedules and
+  the budget a role's page shows all ask `accountFor`, so all three agree.
+- **Tested.** `budget-inheritance.test.ts` opens two accounts beside each
+  other on one division and a third under one of them, rewrites each row in
+  turn, and asks which pays after every move: always the same, and a task
+  is charged to it. Before the change it gave the other account on some
+  runs.
+
+## 2.103 Why a task stopped is said in the owner's language, with what to do (§2.3 item 7)
+
+Found by the live run of the analysis of 3 October (§2.3, item 7): a task
+its budget stopped said, under **Why it stopped**, "shared budget exhausted"
+-- the platform's own record of the halt, in English whatever the console's
+language -- and the timeline printed it again, in red, under the event. Every
+halt did the same: "delegation depth 4 exceeds hop_max 3", "an ancestor task
+already runs this role with this input".
+
+What changed:
+
+- **What it means first** (`whyStopped`, `console/src/format.ts`). Every
+  reason a task can stop has a sentence that says what happened and, where
+  the owner can do something, what: "A service it needs failed its check,
+  usually because a credential expired or a quota ran out. Fix it under the
+  division's Capability health on Team, then do it again." The screens and
+  buttons are named as each dictionary already names them. The platform's
+  record is kept under **What the platform recorded**, closed. Work its run
+  did not do still says the run's own reason (N9), and a task stopped by its
+  budget keeps the card that says how to continue it rather than a second
+  box saying the same.
+- **A cancelled task says why too**: your approval not given in time, or the
+  work it was started for cancelled.
+- **The timeline** says a halt by its reason ("Out of budget") and keeps
+  what a service or a check refused with as it put it, since that is the
+  next thing to fix and cannot be translated (`eventDetail`).
+- **Tested.** `console-halts.test.ts` reads every `HaltReason` in
+  `src/domain/task.ts` and refuses one without an explanation, runs the
+  console's formatting in Indonesian to see the record kept apart from what
+  is said, and refuses a timeline that prints the record; every sentence is
+  in the 20 dictionaries (`console-i18n.test.ts`).
+
+## 2.104 A role is shown by its name and title, never by its code (§2.3 items 7 and 10)
+
+Found by the live run of the analysis of 3 October (§2.3, items 7 and 10).
+The template's roles are people -- "Arka, CEO", "Sari, Head of Data" -- but
+the console showed the platform's short name for a role wherever a view
+carried nothing else: "coordinator" on the work list, a task and **Lately**,
+"strategist" on a schedule, the role's code on triggers, handoffs, frozen
+roles, reviews waiting, standing approvals and the trace. The pickers the
+owner chose a role from -- a schedule's, a trigger's, a handoff's, an
+account's, a division's escalation, the work filter -- listed codes too, and
+the kit's strategist and critic had nothing else: a bundle's roles were
+installed with no name and no title. The money page listed every company by
+its short name.
+
+What changed:
+
+- **A bundle's roles arrive as people** (`src/bundles/bundle.ts`): a bundle
+  role's name and title are installed with it, as a template's are, and one
+  the owner gave stays when the bundle is installed again. Every built-in
+  role has both -- Bayu, Chief Strategy Officer; Citra, Strategy Critic;
+  Putri, Researcher; and the rest -- so the built-in bundles move to new
+  versions (company-os 1.5.0, content-ops 1.3.0, web-ops 1.3.0, qa-review
+  1.2.0, palugada-dev 1.3.0), which a deployment publishes when it starts.
+- **Every view names the role**: the work, schedules, triggers, handoffs,
+  reviews waiting, standing approvals, frozen roles and a task's trace carry
+  the name the owner gave the role beside its code, and the console shows
+  the name. A picker lists "name · title" (`roleLabel`,
+  `console/src/format.ts`), and a role's code only when it has neither.
+- **A company by its name** on the money page.
+- **Tested.** `role-names.test.ts` names a role and reads it back from each
+  of those views over the owner API; `bundles.test.ts` holds that every
+  built-in role has a name and a title, that installing the kit gives them,
+  and that installing it again keeps the owner's; `console-role-names.test.ts`
+  reads the console for a role's code put on the screen, in text, in a
+  sentence or in a picker.
+
+## 2.105 An approval in a chat names its action for what it does (§2.3 item 7)
+
+Found by the live run of the analysis of 3 October (§2.3, item 7), after
+2.96 named every capability in the console. An action the broker asks the
+owner about is titled with the capability's code and its arguments --
+"record.delete: recordId cust-042" -- and the console says "Delete a record:
+recordId cust-042" in the owner's language; but Telegram, WhatsApp, push,
+e-mail and the webhook chat sent the title as it was stored, so the phone
+said the code, in English, and the reply prompt asked "What do you want to
+ask about "record.delete: …"?".
+
+What changed:
+
+- **Named as the console names it** (`actionSaid`,
+  `src/owner/capability-said.ts`). Where the platform builds a card for any
+  channel -- a first delivery, a retry, the edit when an item closes -- a
+  title or summary written as `capability: arguments` has its capability
+  named in words in the owner's language; the arguments are the agent's
+  and stay as they are. The Telegram and WhatsApp prompts for a question or
+  an answer name it the same way. A capability the platform has no name for
+  keeps its code: nothing is guessed.
+- **One set of names.** The names are the console's, and
+  `console-events.test.ts` holds the two the same; each dictionary in
+  `src/owner/sentences/` has them as its console dictionary does. The test
+  that reads `say(...)` calls now reads a literal as JavaScript does, so
+  "a domain\'s records" is the sentence it names.
+- **Tested.** `owner-channels.test.ts`: an approval to delete a record
+  reaches Telegram and push as "Hapus data: recordId cust-042" for an
+  Indonesian owner, with no `record.delete` in it, and one for a
+  capability with no name keeps its code.
+
+## 2.106 The owner reads money in their own currency, at a rate they set (F11.3, §2.3 item 3, §9 P1 item 13)
+
+Recommended by the analysis of 3 October (§9, P1 item 13: "USD, with an
+option to show rupiah"). 2.98 made every amount say it is in US dollars,
+which ended the misreading of "0,75" as rupiah; but an owner who thinks in
+rupiah still converted every amount in their head, and typed every ceiling
+in a currency they do not think in.
+
+What changed:
+
+- **A currency to read money in** (0106, `src/domain/money-display.ts`): the
+  owner chooses a currency and the rate to read it at, under **Settings**,
+  **Languages**, **How you read money**. It is kept on `platform_control`
+  beside the panel's language and follows them to every device. Both or
+  neither; the currency must be one the platform knows and not the dollar,
+  the rate a positive number. `GET` and `POST /api/control/money-display`.
+- **Shown and typed in it.** Every amount the console writes is in that
+  currency at that rate (`money`, `console/src/format.ts`), whole units once
+  there are a hundred of them ("Rp12.375"); a ceiling and the daily-cost
+  alert are typed in it and kept in cents (`centsFrom`, `typedFrom`); the
+  cost chart is drawn in it. The **Money** page says which currency and
+  rate it is reading, and that PALUGADA counts in dollars.
+- **The chat's digest gives both**: "Terpakai: Rp35.475 (US$2,15)", since
+  the rate is only the owner's.
+- **Nothing is charged or stored in it**, and no rate is fetched: what the
+  owner reads depends on no service the platform does not run, and keeping
+  the rate current is the owner's.
+- **The owner's assistant may propose it**, as it proposes the panel's
+  language, for the owner to apply; no factor, since nothing is loosened.
+- **Tested.** `money-display.test.ts`: the choice is stored and read back,
+  an unknown currency, the dollar and a rate that is not above zero are
+  refused and leave the choice as it was, and the digest says rupiah and
+  dollars; `console-money.test.ts`: an amount is shown and typed in rupiah
+  at the rate and kept in cents, and the money and settings pages turn what
+  is typed into cents only through the rate.
+
+## 2.107 The work, the money and the overview fit a phone (§2.3 item 8, §9 P1 item 13)
+
+Found by the live run of the analysis of 3 October (§2.3, item 8), and
+measured again in Chromium at 390 pixels before the change. Most owners of a
+small business read PALUGADA on a phone. There, the work list showed 356 of
+its 820 pixels: what a task serves, its progress and its cost were off to
+the right in a box that scrolled sideways, which nobody discovers on a
+phone, and the task's name was cut to fifteen letters; the five filters
+above it ran off the screen, "Stopped" the one out of sight; the accounts
+on **Money** showed 316 of 640, their money and the **Ceilings** button
+hidden; the status of what is running on the overview was cut to
+"BERJA..."; and a figure on the money page broke inside the number,
+"US$200,0" over "0" -- "Rp3.300.0" over "00" for an owner reading rupiah.
+
+What changed:
+
+- **The work list on a phone** is one task to a row, with its name over two
+  lines and its status, cost, progress, role and time under it; the filters
+  are a list to choose from. The table stays on a wider screen.
+- **The accounts on a phone** are one to a block, the **Ceilings** button
+  beside the name and the tokens and the money under it, drawn by the same
+  meters as the table (`TokenMeter`, `MoneyMeter`).
+- **What is running** on the overview puts its progress under the task on
+  a phone, so the status beside the role is never cut.
+- **A figure is never broken.** On a phone a number in the strip of figures
+  stays on one line and is drawn as large as its card allows, from the
+  card's width and the number's length (`.kpi-value[data-figure]`); a figure
+  that is a word still wraps.
+- **Tested in a browser.** `console-phone.test.ts` signs in to the built
+  console in Chromium at 390 pixels, in Indonesian with amounts in rupiah,
+  and finds on the work, the money and the overview nothing wider than the
+  screen, nothing scrolling sideways, no badge cut and no figure broken.
+  Before the change it found the work table at 820 pixels, the accounts at
+  640, the filters scrolling and "Rp 3.300.000" on two lines. Chromium is
+  driven over its DevTools protocol with Node's own WebSocket
+  (`test/helpers/browser.ts`), so nothing is added to the dependencies; the
+  test skips where no Chromium is installed, and `PALUGADA_CHROMIUM` names
+  one.
+
+## 2.108 A number being typed is written the way the owner's language writes one (§2.3 item 3)
+
+Found by the phone check of 2.107. Every figure on the money page was
+written the owner's way -- "Rp 3.300.000" -- but the ceiling being typed
+beside it read "Rp 3,300,000": every number input grouped thousands with a
+comma and pointed decimals with a full stop, the English way, whatever the
+owner reads. An Indonesian owner reads "3,300" as three and three tenths.
+
+What changed:
+
+- **Grouped and pointed as the language does** (`numberSeparators`,
+  `console/src/format.ts`): every number input that groups thousands -- the
+  monthly ceiling, an account's ceilings, the daily-cost alert, the rate of
+  the currency the owner reads money in, a measure's start, target and
+  value -- takes the language's own separators.
+- **Tested.** `console-money.test.ts`: Indonesian groups with a full stop and
+  points with a comma, English the other way, and no page or component
+  groups a number by itself.
+
+## 2.109 The team page gives a role its title, not its code beside it (§2.3 item 7)
+
+Found by the phone check of 2.107, after 2.104. A role on **Team**, and its
+drawer, was subtitled with its title and its code -- "Head of Quality ·
+reviewer" -- and a role with no title by its model's tier. The subtitle is
+the title, and nothing when there is none. `console-role-names.test.ts`
+now also refuses a role's code put beside its name.
+
+## 2.110 A gallery of everything the company produced (§9 P1 item 12)
+
+Recommended by the analysis of 3 October (§9, P1 item 12; Paperclip keeps
+every artifact in one gallery). A document a role wrote or an email it sent
+was kept -- in the journal, as the step that committed it -- and shown on the
+task that made it, but nowhere else: finding last week's newsletter meant
+knowing which task wrote it.
+
+What changed:
+
+- **The gallery** (`galleryOf`, `src/owner/views.ts`; `GET
+  /api/companies/:companyId/gallery`): every draft and email the company's
+  tasks committed, newest first and thirty to a page, each with its title,
+  the start of what it says without its heading, its words or its
+  recipient, who wrote it by name, and what its task was asked. It is what a
+  task's deliverables are, read across every task, redacted on the way out.
+  The page marker is the owner's input on the way back, so it is read, not
+  trusted.
+- **Its own index** (0107): the steps a gallery shows, in its order, so a
+  page of it does not walk every step the company ever took.
+- **Results on Work**: a tab beside **Tasks** and **Tickets**, a card to a
+  piece, one to a row on a phone; pressing one reads the whole of it, with
+  **Copy the text** and **Open the task**.
+- **Tested.** `gallery.test.ts`: what two tasks committed comes back newest
+  first with who wrote it and its task; a draft that did not commit, a step
+  with no document and another company's work are not in it; it pages from
+  the last one shown; and a page marker it did not issue is refused.
+
+## 2.111 The owner watches the work as it happens, and stops it where they see it (§9 P1 item 11)
+
+Recommended by the analysis of 3 October (§9, P1 item 11; Paperclip and
+Buzz both show work live). The console asked again every five to fifteen
+seconds: a task finished, or waiting on the owner, sat as it was for as long
+before the screen said so, and what was running had no way to stop it
+except from inside its task.
+
+What changed:
+
+- **A live stream per company** (`GET /api/companies/:companyId/live`,
+  `text/event-stream`): from the moment the owner looks, each event of the
+  company is sent as it is written -- what happened and to which task,
+  never what it carried, which is read the ordinary way and redacted. Each
+  look reads a while back again and skips what it sent, since a transaction
+  that began earlier can commit its events after later ones; a quiet stream
+  says it is still there inside a proxy's idle limit; the API ends every
+  stream when it closes rather than waiting for them.
+- **The console reads it** with fetch, since an EventSource cannot carry the
+  session's token (`live`, `console/src/api.ts`): one stream per company,
+  shared by every panel, opened again after a drop, a little later each
+  time. A panel reloads what an event touches (`useLivePulse`,
+  `console/src/hooks.ts`), once for a burst: the overview, the work list,
+  the inbox, and a task's timeline, transcript and output for its own
+  events. The polling stays underneath, for a stream a proxy will not carry.
+- **Stop on what is running now**: each task under **Running now** on the
+  overview has a stop button that asks once -- "Cancel this task and
+  everything it started?" -- and cancels it.
+- **Tested.** `live.test.ts`: the stream refuses an owner not signed in,
+  sends a task's moves as they happen and each once, sends nothing of
+  another company and nothing an event carried, and ends when the API
+  closes. `console-live.test.ts`: in Chromium, a task finished in the
+  database moves under **Done** on the work list within four seconds,
+  sooner than the list asks again; with the stream turned off it does not.
+
+## 2.112 The platform's own inbox cards are said in the owner's language (§2.3 item 7)
+
+Recommended by the analysis of 3 October (§2.3, item 7). The cards the
+platform raises itself -- incidents, escalations, alerts, its approvals --
+were literals in English at each place they were raised, with the
+platform's codes inside them: "Role ops-coordinator is paused for spending
+too fast", "spent 3120 of 20000 cents in the period beginning 2026-10-01",
+"Task 9f3c... has been waiting_approval since 2026-10-02T03:14:00.000Z",
+"Move the company from validate to build?". An owner reading the console in
+Indonesian got English on the cards that matter most.
+
+What changed:
+
+- **Composed when raised, in the owner's language** (`src/owner/platform-cards.ts`):
+  the month's pause and its 80% warning, a role spending too fast or frozen
+  after refusals, a task waiting on nothing or taking its worker down, a
+  service or a model that stayed down, a write that read back differently,
+  a review that deadlocked or gave no verdict, a stage move proposed or
+  stopped by a reviewer, a goal change, a schedule repeating itself, a
+  capability failing its check, the batch guard, a run's question, and the
+  reason on the broker's and the role eval's approvals. Each reads the
+  owner's language, currency and clock from `platform_control` in the
+  transaction that raises it.
+- **Names, not codes**: a role by the name the owner gave it, a task by what
+  it was asked, a capability as the console names it, a stage as the
+  console names it, money in the owner's currency with the dollars after
+  it, a moment on the owner's clock and the month's first day as the
+  ceiling counts it. What a vendor, a check or another agent wrote -- an
+  error, a reviewer's note, the evidence of a proposal -- stays as written,
+  after the platform's own sentences.
+- **An escalation's notes too**: who was asked first and for how long, why
+  the role it was meant for could not be given it, and what that role did,
+  said by the role's name. The note is kept on the item as the owner read
+  it, so it can be taken off again in any language.
+- **The push digest** is headed by the digest's own first line, which is in
+  the owner's language, rather than "Digest for".
+- **Tested.** `platform-cards.test.ts` (acceptance): with the console in
+  Indonesian, rupiah at 16,500 and Jakarta's clock, the pause says "Rp
+  3.300.000 (US$200,00)" and no cents or ISO date; the rate card names the
+  role "Sari" and never its code; a stranded task is named by its goal at
+  10.14 Jakarta time, without its id or status code; a run's question and a
+  goal change are headed in Indonesian. `platform-cards.test.ts`
+  (documents): every call in `src/` that raises a card passes no literal
+  title, detail, rationale or consequence -- it named all twenty sites
+  before the change -- except `proposeStructuralChange`, which nothing
+  outside the tests reaches. The sentence scan in `owner-channels.test.ts`
+  now reads a sentence ending in a question mark as a sentence, not as a
+  ternary's condition.
+
+## 2.113 A bundle's skills are reviewed once and asked about on one card (B9)
+
+Found by the analysis of 3 October (step 4 of the first hour, defect B9). A
+company made from company-os opened with eleven skill cards in the owner's
+inbox, in English, before they had asked for anything, each after a
+reviewer run of its own -- about 198 thousand tokens on the first day's
+paperwork. The owner chose (3 October): one review of a bundle's skills
+together and one card for the bundle, with nothing switched on without their
+yes.
+
+What changed:
+
+- **One batch per install** (0108): the skills a bundle brings, their checks
+  and their quarantine marks are written in one transaction, each version
+  carrying the install's `batch` and the bundle's name, so a worker finds the
+  whole batch or none of it.
+- **One review**: each is still screened against its own checks (F15.5);
+  those that pass go to the reviewer as one task that reads every document
+  as data and answers for each by its slug (`SKILL_BATCH_REVIEW_CRITERIA`).
+  A skill the review gives no verdict on is turned down, as a review that
+  ends without one always was. A version proposed on its own is reviewed on
+  its own, as before.
+- **One card**, in the owner's language: "Skills the bundle "…" brings: 10",
+  each skill with what it is for and what the reviewer said of it, and the
+  ones it turned down with why. Approve switches on every one still waiting;
+  deny turns them all down with the owner's note. Any of them can be decided
+  on the Skills page instead; the card stays while one is undecided and goes
+  when none is. A single skill's card is said in the owner's language too.
+- **The console** links a bundle's card to **Read the skills**.
+- **Tested.** `skill-batches.test.ts`: company-os's eleven skills are
+  screened and given to one review; one card asks about the ten it approved,
+  in Indonesian, naming the eleventh and why; the owner's yes switches on
+  the ten except one turned down on the Skills page first; their no turns all
+  down with their note; and approving each on the Skills page withdraws the
+  card after the last.
+
+## 2.114 The owner's first hour with a new company is guided (§9 P1 item 10)
+
+Recommended by the analysis of 3 October (§9, P1 item 10; Paperclip walks a
+new owner from an interview to a plan to a first task). A company started
+from the console opened on an Overview of zeros: no conversation, no first
+piece of work, nothing that said what to do next, and a CEO that could not
+speak until spoken to. Its schedules ran on UTC, so the Monday review came
+at 07:45 UTC.
+
+What changed:
+
+- **The CEO speaks first.** Starting a company records the CEO's opening
+  message in the language the owner reads (`firstHourOpener`,
+  `src/owner/first-hour.ts`): what it sells and to whom, how much it may
+  spend in a month, and what its first piece of work should be. The
+  console opens the conversation once the company is in the list. The
+  model is told what it asked, since a conversation sent to it still
+  starts with the owner.
+- **It interviews, then proposes.** While the first hour lasts, the CEO is
+  told to get those answers in at most three questions and then propose
+  together, as cards: the mission reworded in the owner's words, the
+  monthly ceiling, and one first piece of work that gives the owner
+  something real to read within the hour.
+- **Four steps on the Overview** (`GET /api/companies/:companyId/first-hour`,
+  0109): tell the CEO what it sells, set the monthly ceiling, give it its
+  first piece of work, read its first result -- each ticked off by what the
+  owner has done (a message to the CEO, a ceiling set, a task they gave,
+  one of theirs completed), each with the button that does it. It goes
+  when all four are done or the owner closes it
+  (`POST .../first-hour/close`), which also ends the interview. Every
+  company that existed before, and every restored one, is past its first
+  hour.
+- **A ceiling records when it was set** (`spend_limits.set_at`), so "set
+  the ceiling" is a choice somebody made, not the row a pause leaves.
+- **The owner's clock**: the console sends its browser's time zone when it
+  starts a company.
+- **Tested.** `first-hour.test.ts`: a company started through the API opens
+  with the CEO's message in Indonesian and four undone steps; a message, a
+  lowered ceiling, a task and its completion tick them off one by one and
+  close the list; closing another ticks nothing off; the CEO's model is
+  spoken to first by the owner, is told what it asked, interviews while
+  the first hour lasts and stops once it is closed.
+
+## 2.115 PALUGADA installs, and updates, in one command (§9 P2)
+
+Recommended by the analysis of 3 October (§5.2 item 1, §9 P2; the owner
+chose it first among P2 on 3 October). Installing took git, Node,
+`npm install`, an interactive `npm run setup` and Docker; Paperclip installs
+with one command, with update and rollback, and Buzz offers a hosted one.
+
+What changed:
+
+- **`install.sh`**, run as `curl -fsSL …/install.sh | sh`, needs Docker
+  alone. It fetches PALUGADA into `~/palugada`, writes `.env` once with a
+  new password for each database role (readable by its user alone), runs
+  `docker compose up -d --build`, waits until `/api/health` answers, and
+  prints the claim link the platform prints while it has no owner, on the
+  port published here. The owner adds the authenticator app there and
+  chooses the model in the console, which `npm run setup` would have asked.
+- **Run again, it updates**: the same `.env`, the same volumes, and a copy
+  of the database in `backups/` before anything changes; if the copy
+  fails, nothing is updated.
+- **Safe under a pipe**: the script is one function called on its last line,
+  so the shell has read all of it before anything runs, and a command that
+  reads standard input cannot read the rest of the script.
+- **Tested.** `install.test.ts`, with Docker and curl as stand-ins that
+  record what they were asked: a first run writes four 36-character
+  passwords to a file of mode 600, builds, waits for the console and
+  prints the claim link on the published port; a second keeps the
+  passwords and copies the database before it builds; fed through a pipe
+  slowly, as a download arrives, it still runs to the end (the same test
+  fails against the script before it was one function); with a Docker
+  that does not answer it says so and writes nothing. The containers it
+  starts are what `npm run container:check` runs in CI.
+- **Not done**: a `doctor` that repairs, release channels and a rollback
+  command. A failed update is rolled back by hand from the copy
+  (`gzip -dc backups/… | docker compose exec -T db psql -U postgres palugada`
+  on an emptied database), which [operations](guide/operations.md) covers.
+
+## 2.116 Staff seats beside the one owner: a viewer, and an approver for tier 2 and below (§9 P2)
+
+Recommended by the analysis of 3 October (§9 P2 item 18: "viewer, and an
+approver for tier ≤2; tier 3 stays the owner's"), and chosen by the owner
+on 3 October. PALUGADA had one human, and a session could not tell people
+apart: any enrolled authenticator passed the owner's second factor and the
+tier 3 gate as the owner's. Paperclip and Buzz both have roles and invites.
+
+What changed:
+
+- **A seat is kept apart from the owner's factors** (0110,
+  `src/owner/staff.ts`). It has its own authenticator (its TOTP secret
+  sealed by reference, its steps used once) and its own sessions, in tables
+  only the control plane reads, and nothing that verifies the owner --
+  sign-in's second half, every `#requireFactor`, the tier 3 gate -- reads
+  them. A staff member's code offered as the owner's is refused as a wrong
+  code; at sign-in a seat's code is tried first, so a staff member signing
+  in never counts against the owner's lockout.
+- **A seat is one company's**, made by the owner with their device under
+  **Settings**, **People**, with an invite good for a week and spent by
+  joining. Like the owner's own claim, each opening of the invite is shown
+  a secret derived from the master key, the seat and a random value the
+  page carries, kept nowhere until a code from it is confirmed.
+- **Everything not listed is refused** (`src/owner/staff-policy.ts`): both
+  kinds read their company's pages and nothing of another company or of
+  the deployment; an approver also decides, answers and batch-decides the
+  inbox. `decide` refuses a seat any tier 3 item, yes or no, and any yes
+  for a while; the item records `decided_by_seat`, and its events are the
+  actor `staff` with the person's name. Ending a seat signs it out at once
+  and withdraws an unused invite.
+- **The console** asks `GET /api/me` who signed in, and for a seat leaves
+  out the owner's controls -- New, Talk to the CEO, Ask PALUGADA, Stop
+  everything, Settings, This deployment, the tour, the cross-company
+  search, and starting or restoring a company on Home -- and on a card it
+  may not decide, says why instead of drawing buttons. A seat's actions read as "A staff member" on the timelines.
+- **Tested.** `staff.test.ts`: a viewer joins, reads its company and no
+  other, and is refused the owner's routes; an approver decides tier 2 and
+  is refused tier 3 either way and a yes for a while, and the record names
+  them; a staff code is refused as the owner's factor and at the tier 3
+  gate inside the owner's session; ending a seat signs it out and spends an
+  unused invite. `console-staff.test.ts`: in Chromium, an approver joins
+  from the invite, sees one company without the owner's controls, approves
+  a tier 2 card and is shown that tier 3 is the owner's, where it lands and
+  on Home (with the shell's staff mode turned off, the console cannot even
+  load for the seat). The suite found Home still offering a seat **Start a
+  company** and **Restore from an export**, whichever page the seat landed
+  on first; the test now opens Home itself.
+  `staff-routes.test.ts`: every read is given to staff or kept from them
+  with a reason, and the approver's actions are the inbox's alone.
+- **Not done**: a seat in the Telegram or WhatsApp chats, a passkey for a
+  seat, and a seat over several companies.
+
+## 2.117 Customers write to the company on Telegram, and every reply waits for the owner (§9 P2)
+
+Recommended by the analysis of 3 October (§9 P2 item 19: "a mailbox and the
+customers' WhatsApp/Telegram, with a reply as a tier 2 action"), and chosen
+by the owner on 3 October. A company could answer its owner on Telegram and
+WhatsApp and could not answer a customer anywhere: `email.send` waited for
+a vendor, `mailbox.read` had no adapter, and nothing heard what a customer
+wrote.
+
+What changed:
+
+- **A conversation, whatever carries it** (0111, `src/chats/`): a
+  channel, one customer's chat on it, and what was said both ways. Telegram
+  is the first transport; WhatsApp and a mailbox are further kinds of the
+  same channel.
+- **The owner connects a bot of the company's own**, with their device, on
+  **Customers** (`POST /api/companies/:companyId/chat-channels`). The token
+  is checked with Telegram's `getMe` before anything is kept, then sealed
+  under a name of its own (`db://chat-…`, which a division's credential may
+  not name), and the secret Telegram is given with `setWebhook` is kept only
+  as its SHA-256. A bot answers for one company at a time; connecting it
+  again reopens the same channel at a new address with a new secret, and
+  the token it replaces is deleted. The role that answers gets `chat.read`
+  and `chat.send`, as grants on its division and as tools, each recorded as
+  a structural change the owner made.
+- **Only Telegram, and only a customer, is heard**
+  (`/api/chat-hooks/:publicId`): a delivery without the secret is refused
+  and recorded as `security.chat_refused`; a group the bot was added to and
+  another bot start nothing. A message is claimed by its id before anything
+  else, so Telegram sending it again starts nothing more; one written while
+  the conversation's work is still waiting for a worker joins that work;
+  past the channel's hour a message is kept and starts no work
+  (`chat.rate_limited`).
+- **What a customer writes is data, and every reply is the owner's.** The
+  message reaches the run in the untrusted envelope and the work is begun
+  from outside (F8.9), so `chat.send` (tier 2) asks the owner -- or an
+  approver seat -- each time, and a standing yes does not cover it. The run
+  is told to read the whole conversation with `chat.read` first and to
+  answer in the language the customer writes in, the company's when it
+  cannot tell. Both capabilities name the conversation the work began with
+  by themselves, and answer only a conversation a customer started.
+- **A reply is sent once.** `chat.send` keeps the reply under the broker's
+  key before it is sent, so a step resumed after its worker stopped finds
+  the reply it already sent (the owner is asked again, as for any yes a
+  stopped step spent, and nothing is sent twice). It is read back as
+  Telegram answered it, since a bot cannot fetch what it sent.
+- **The console**: **Customers** lists the conversations, latest first, with
+  those waiting for an answer marked, and each one whole; the channels,
+  with **Connect a Telegram bot** and **Close**. A card asking to send a
+  reply shows the conversation beside it. A seat reads both pages.
+- **Closing** takes the webhook off, deletes the token and leaves the
+  conversations. A closed company's erasure deletes its bots' tokens with
+  its divisions' keys. An export carries channels without their address,
+  secret or token, and their conversations whole; a restored channel waits
+  closed for the owner to connect the bot again.
+- **Tested.** `customer-chats.test.ts`, against a stub of the Bot API: a
+  connection needs the device and seals the token; a customer's message
+  starts work begun from outside, a resent one starts nothing, a second
+  joins the waiting work, a forged one is refused and recorded, a group is
+  ignored; the run reads the conversation, its reply waits for the owner
+  and is sent once, also when the step is done again; the owner reads it
+  all; closing lets the bot go; a token Telegram does not know, a role of
+  another company and a second company for the same bot are refused with
+  nothing kept; past the hour a message is kept without work; without a
+  public address the owner is told; a restore is closed, at a new address,
+  with its conversations. `company-closing.test.ts`: erasing a company
+  deletes its bot's token and only its.
+- **Not done**: WhatsApp and a mailbox (the next transports), pictures and
+  voice notes read by the run (they are kept as what they were, and the run
+  is told it cannot read them), and retention for conversations, which are
+  kept as long as the company is.
+
+## 2.118 Customers write on WhatsApp too (§9 P2)
+
+The second transport of 2.117, for the channel most Indonesian shops' customers
+use. A company's WhatsApp Business number, through Meta's Cloud API, keeps
+every rule of the Telegram bot and adds WhatsApp's own.
+
+What changed:
+
+- **A number is connected with its keys** (0112,
+  `POST /api/companies/:companyId/chat-channels` with `kind: whatsapp`): the
+  phone number ID, a system user's token and the Meta app's secret, checked
+  with Meta (the number's name and digits) before anything is kept, both
+  keys sealed under names of their own. Meta's webhook is set in the app,
+  not by an API call, so the answer is the callback address and a verify
+  token -- shown once, kept as its hash -- to paste there; Meta's check of
+  the subscription is answered on `GET /api/chat-hooks/:publicId`. Refused,
+  before anything is kept, when the deployment has no public address.
+- **Only Meta, and only this number, is heard** (`src/chats/whatsapp.ts`):
+  a delivery is checked against the app secret's HMAC over the bytes that
+  arrived; one for another number of the same app, a reaction, a status or
+  a type the platform does not know starts nothing. A picture, a voice note,
+  a video, a file, a sticker, a location or a contact is kept as the same
+  kind of thing Telegram's would be, with its caption. Several messages in
+  one delivery are taken in the order they came, so the second joins the
+  work the first started.
+- **A reply goes from the number, within WhatsApp's window**: `chat.send`
+  posts plain text with no link preview, and refuses a reply more than 24
+  hours after the customer's last message before anything is sent, since
+  WhatsApp accepts that call and reports the failure later in a status.
+- **The console** asks Telegram or WhatsApp when connecting, shows the
+  callback address and verify token to copy once, and shows a number as
+  customers dial it (`+62…`) and its `wa.me` link, where a bot is `@name`.
+- **Closing** deletes the token and the app secret; erasing a company
+  deletes both; an export carries the number's ID, never its keys.
+- **Tested.** `customer-whatsapp.test.ts`, against a stub of the Graph API: a
+  token Meta refuses is refused; a connection seals both keys and keeps the
+  verify token only as its hash; Meta's subscription check is answered for
+  the verify token alone; an unsigned or wrongly signed delivery is refused
+  and recorded; a message starts work begun from outside, a resend starts
+  nothing, a picture joins the waiting work, another number and a reaction
+  start nothing; the run reads both; the reply waits for the owner and goes
+  to the customer's number; a day after the customer last wrote, a reply is
+  refused before anything is sent; closing forgets both keys; without a
+  public address the connection is refused with nothing kept.
+  `console-customers.test.ts`: the number is shown as `+62…` with its link,
+  and the form asks for what Meta gives. `company-closing.test.ts`: erasing
+  a company deletes its number's token and app secret, and only its.
+- **Not done**: the mailbox (the next transport), a failure WhatsApp reports
+  later in a status (it is not yet shown on the reply), and a template to
+  write first after the window.
+
+## 2.119 Customers write to the company's own mailbox too (§9 P2)
+
+The third transport of 2.117, and the last item 19 names: "a mailbox". Every
+small business has one, and it is where a supplier, a bank and most
+customers outside chat write. `mailbox.read` has been catalogued with no
+adapter since the start, and still is: what customers write reaches the
+work through the channel and `chat.read`, as the other transports' does.
+
+What changed:
+
+- **A mailbox is connected with its servers and password** (0113,
+  `kind: email`): the address, the IMAP and SMTP hosts and ports, and the
+  password -- or the app password Gmail asks for -- which is sealed. Both
+  servers are signed in to before anything is kept, so a wrong password is
+  said while the owner is at the form, and the reading starts after the
+  inbox's last message: the mail the mailbox already holds is never taken
+  for work.
+- **The workers read it** (`src/chats/mail.ts`, the `mailboxes` stage of the
+  tick): each open mailbox about once a minute, claimed in the database so
+  two workers never read one at once, the new messages oldest first, twenty
+  at most a reading. A server that renumbers its messages (a new
+  UIDVALIDITY) is read from the start of now again. A reading that fails is
+  kept on the channel for the owner -- **Could not read the mailbox** -- and
+  said once as `chat.mailbox_failed`; the mail waits on the server.
+- **IMAP and SMTP, written here** (`imap.ts`, `smtp.ts`), like the other
+  transports, and over TLS only: IMAP on its TLS port, SMTP on 465 or
+  upgraded with STARTTLS, and refused when a server offers neither. A
+  message is fetched with `BODY.PEEK` (left unread in the owner's own
+  mail app) and only its first 256 KB.
+- **A message is read as a person reads it** (`mime.ts`): its sender's name
+  and address, its subject and text through encoded words, quoted-printable,
+  base64, charsets and multipart (plain text before HTML), what was attached
+  as the kinds the other transports use -- and without the history a reply
+  quotes ("On ... wrote:", Gmail's Indonesian "Pada ... menulis:", lines
+  quoted with ">"). An auto-reply, a bounce, a list and the mailbox's own
+  mail are not a customer and start nothing (RFC 3834's Auto-Submitted,
+  Precedence, List-Id, MAILER-DAEMON and no-reply addresses).
+- **A reply is a reply**: `chat.send` sends plain text from the mailbox's
+  address with "Re:" the customer's subject, In-Reply-To and References
+  naming their message, so it lands in their thread; its Message-ID is the
+  one their answer will name. The run sees each message's subject.
+- **Kept and carried** like the other channels: closing deletes the sealed
+  password; an export carries where the mailbox is and every message's
+  subject, never the password or the reading's position.
+- **Tested.** `customer-mail.test.ts`, against an IMAP server over TLS and an
+  SMTP server that requires STARTTLS, both written for the test with a
+  certificate made by openssl: a message is read with its sender, subject,
+  ISO-8859-1 quoted-printable text, attachment and without its quoted
+  history, an HTML-only one as its text, and an auto-reply, a bounce and a
+  list as no customer; a wrong password is refused with nothing kept; the
+  mailbox's history is left alone; a customer's mail starts work and the
+  others nothing; a mailbox is not read twice in a minute; the reply waits
+  for the owner and goes over STARTTLS as a reply in the thread; the answer
+  to it, quoting it, is read as what was written; a password changed at the
+  provider is shown on the channel and said once, and the mail that waited
+  is read once it is mended; export and restore; closing stops the reading.
+  A worker reads the mailboxes in its tick, and one kept to another
+  company does not.
+- **Not done**: OAuth sign-in for Gmail and Microsoft 365 (an app password
+  for now), an attachment's contents, and IMAP IDLE (a minute's delay).
+
+## 2.120 Releases are tagged, and a merge queue keeps main green (§9 P2)
+
+Recommended by the analysis of 3 October (§9 P2 item 21, "tagged releases
+and a merge queue"; the owner chose releases with the live browser). There
+had never been a release: `0.1.0 (not yet released)` since the first
+commit, an install that could only follow main, and no image anyone could
+pull. And nothing stopped two pull requests that each passed against an
+older main from breaking it together, which is how Buzz's main went red
+(#8036).
+
+What changed:
+
+- **A version is one number in three places**: `package.json` (with the
+  lockfile), which a running deployment reports; the newest CHANGELOG
+  section; and the tag. `release.test.ts` fails the suite when the first
+  two disagree, when a section other than the newest is undated, or when
+  the sections are out of order.
+- **`scripts/release.ts`** moves them together. `prepare <version>` dates the
+  unreleased section, sets both files and commits `Release <version>`, to be
+  merged like any change; `tag <version>`, on main afterwards, makes the
+  annotated tag, refusing a working tree with changes or a commit that does
+  not agree. Two steps because a pull request merged through a queue lands
+  as another commit, and a tag made before would name one main never held.
+- **A pushed tag is a release** (`.github/workflows/release.yml`): the tag,
+  both files and a dated section agree and the commit is on main; the whole
+  of CI runs on it, as a called workflow; then the image is pushed to
+  `ghcr.io/<owner>/palugada:<version>` and `:latest` with the docker CLI,
+  and the GitHub release is made with the CHANGELOG section as its notes.
+  Its only write permissions are in that last job, and every action is
+  pinned to a commit.
+- **The merge queue**: CI runs for `merge_group`, the candidate main would
+  become, and no longer twice for the queue's own branches. Turning the
+  queue on is a repository setting, which
+  [docs/RELEASING.md](RELEASING.md) gives with the required checks.
+- **The installer installs a release**: `PALUGADA_VERSION=v0.2.0` fetches
+  that tag instead of main, to update to it or to go back to it, and
+  anything that is not a tag's shape is refused before a download, since it
+  becomes part of a URL. Going back works because the platform starts on a
+  database a later version migrated (migrations only add).
+- **Tested.** `release.test.ts`: the repository's own version and sections
+  agree; `prepare` on a copy dates the section and moves both files, and
+  refuses a version that is not three numbers, one not after the last
+  release and a CHANGELOG with nothing unreleased; `check` refuses an
+  unreleased section and a tag that names another version; the notes are
+  the section; in a real git repository, `prepare` commits and tags nothing
+  (the test fails against a `prepare` that tagged), `tag` refuses a
+  changed tree and a version the commit does not hold, and makes an
+  annotated tag on the commit checked out; the workflows hold the triggers,
+  the checks and the pins. `install.test.ts`: a version fetches its tag's
+  tarball, and `main; touch pwned` is refused with nothing downloaded. Both workflows pass actionlint 1.7.12; neither has run on
+  GitHub yet.
+- **Not done**: the first release itself, which is the owner's to cut, and
+  the queue's repository setting, which is the owner's to turn on. The
+  release workflow has not run on GitHub, so the first tag is also its
+  first test.
+
+## 2.121 Each company has a browser of its own (§9 P2)
+
+Recommended by the analysis of 3 October (§9 P2 item 20, "a live browser
+that can be taken over, for marketplace seller centres and government
+portals") and the tools research of the same day (§6 item 2:
+`browser.read` at tier 0 and `browser.act` at tier 2, on Chromium); the
+owner chose it with releases. A small company in Indonesia runs on sites
+with no API it can get -- Shopee's and Tokopedia's seller centres, Coretax,
+OSS -- and a role could reach a browser only through an MCP server whose
+every click was tier 3, set by hand. This is the first half: the browser
+and what a role does with it. Watching it live and taking it over is the
+next.
+
+What changed:
+
+- **`browser.read`** (tier 0, outside content) opens a page, or follows a
+  link from the last reading in the same tab, and returns it as a person
+  sees it: its text without what is hidden (cut at 12,000 characters, and
+  saying so), and up to 150 links, buttons, fields, lists and boxes, each
+  with a ref, its kind, its name as a screen reader would give it, a
+  field's value (never a password's), a list's options, a box's state.
+- **`browser.act`** (tier 2, calibrated like `email.send`) does steps on
+  that page -- type, choose, tick, untick, click, press -- and reads it
+  again. Each act is a card: the work read a page, so F8.9 asks the owner,
+  and the card says each step in symbols that read the same in every
+  language, `Nama: "Sari"; Kota → Bandung; ☑ Setuju; ▸ Kirim`, from a new
+  `summarize()` a capability may give the broker where its arguments
+  listed one by one would not say it. Before anything is done, the tab
+  must still be on the page the steps were written for and each element
+  must be the one the step names; a step refused after others were done
+  stops there and the read-back counts the act as not done (F8.4). A
+  dialog is answered no unless the card said yes (`✓ OK`), a page's window
+  is closed, nothing is downloaded or uploaded, and a role never types a
+  password.
+- **One Chromium, on a pipe** (`src/browser/cdp.ts`): started when a role
+  first needs it and closed after ten minutes unused, driven over
+  `--remote-debugging-pipe` so no other process on the machine can reach
+  it, with Chromium's background calls switched off -- updates, Google's
+  suggestions, Chromium 141's check of its AI search mode, each seen
+  through the proxy until it was. Its sandbox is on unless the deployment
+  says `PALUGADA_BROWSER_SANDBOX=off`, which every boot repeats.
+- **Every request through the platform's proxy** (`egress.ts`), under the
+  rules `web.fetch` is held to (F12.9): a page's pictures, scripts,
+  fetches and redirects, not only the address a role named, with no
+  exception for loopback and with Chromium resolving no name itself, so a
+  name is checked where it is resolved and connected to as checked. A page
+  refused is said with its reason, not Chromium's error.
+- **One context per company** -- cookies, storage and cache of its own --
+  with a tab for each piece of work, four companies open at once and the
+  least lately used closed for a fifth; a page's script runs in a world of
+  its own, so the page cannot change what it reads.
+- **Sign-ins kept sealed** (`cookies.ts`): a company's cookies are sealed
+  under the master key after each use, as `browser-<company>`, which no
+  division's credential may name; they come back for the next task, after
+  a restart, on any replica, session cookies included. Not handed to the
+  redactor, which would hold every version for the life of the process;
+  written only while the company is there and not closing, so a browser
+  closing after an erasure cannot seal them again; and erased with the
+  company.
+- **The company's language and time zone** are what sites are told:
+  `Accept-Language`, the locale and the clock.
+- **Tested.** `browser.test.ts`, against a real Chromium and a seller centre
+  written for the test on 127.0.0.1 beside a secret on 127.0.0.2: a page is
+  read with its links and refs and without its hidden text, and the read
+  taints the work; a link that asks for a new tab is followed in the same
+  one, and a ref from an earlier page is refused; the page's picture and
+  fetch to the secret, the metadata address, `file:` and a redirect inside
+  are all refused, and the secret is never reached (the test fails with
+  loopback left to Chromium's own exception); a long page is cut and says
+  so. A form's act asks the owner with its steps on the card, sends
+  nothing before the yes, then types over what was in the field, chooses,
+  ticks and submits, reads the answer and is verified; acting again on the
+  answer page, on another page, with a name that is not the element's or
+  an option it does not have is refused with nothing sent; a confirm is
+  answered no, and yes when the act said so. A sign-in survives the
+  browser closing, is another company's in no way, is sealed without its
+  value in the clear, comes back after its company's browser was closed
+  for another's, and is not kept for a company that is closing.
+  `company-closing.test.ts`: an erasure deletes the company's cookies and
+  no other's (it fails without that line).
+- **Not done**: the owner watching the browser and taking it over to sign
+  in, which is the next section; frames, and lists a page draws itself
+  rather than as a `<select>` (clicked open instead); a page's local
+  storage, which a few sites keep a sign-in in; a browser shared between
+  replicas, which each have their own Chromium and the same sealed cookies.
+
+## 2.122 The owner watches the company's browser, and takes it over (§9 P2)
+
+The second half of 2.121, and what item 20 names: "a live browser that can
+be taken over". A seller centre and a tax portal want a person: a password,
+a code sent to the owner's phone, a puzzle. A role never types a password,
+so until now a role that met a sign-in could only stop.
+
+What changed:
+
+- **Browser**, a page of each company in the console, the owner's alone:
+  each piece of work's tab, named by the work, shown as a picture of the
+  page taken again about once a second while it is in front, at any width
+  down to a phone's.
+- **Taking it over** takes the owner's device (`/browser/take-over`): a
+  signed-in browser is the company's accounts. While the owner holds it,
+  the company's work waits -- `browser.read` and `browser.act` park as busy
+  and come back a minute later -- on every replica, because the hold is a
+  row (0114) rather than a flag in one process. What the owner presses on
+  the picture is pressed on the page at that point, a wheel scrolls it,
+  what they type is typed into the field the page selected, and Enter, Tab,
+  Backspace, Escape and the arrows are buttons. They can open an address in
+  the work's tab, under the same rules as any page. A hold nobody touches
+  for fifteen minutes lapses, so a console left open does not stop the
+  company.
+- **What the owner types goes to the page and nowhere else**: not an
+  event, not the journal, not a log. That they took the browser over and
+  gave it back is recorded (`browser.taken_over`, `browser.given_back`).
+- **Giving it back** seals what they signed in to for the company's work
+  (2.121), closes their own tab, and answers every role that asked.
+- **`browser.handover`** (tier 0) is how a role asks: a question, as
+  `owner.ask` is, whose card says what to do -- "Masuk ke seller centre:
+  kodenya dikirim ke HP Anda" -- and opens the browser on that work's page.
+  The work waits; giving the browser back answers it, and the role reads
+  the page again, signed in.
+- **Owner only**: a staff seat neither sees the page nor its pictures, and
+  the assistant neither takes the browser over nor reads its pictures.
+- **Tested.** `browser-live.test.ts`, against a real Chromium: a role finds
+  it is not signed in and asks; the owner sees the work's tab with its
+  title and work and a JPEG of 1280 by 800; input before a take-over is
+  refused (409), a take-over without the device too (403); while held the
+  role's read parks with a time to come back; the owner cannot open the
+  metadata address, opens the sign-in in the work's tab, types the address,
+  Tab, the password and Enter, and the site receives them; a click lands
+  where it was pressed and one off the page is refused; given back, the
+  role's question is answered and its next read is signed in; the password
+  is in no event and no card. A hold left alone fifteen minutes lapses and
+  the work goes on, and a hand-over needs a reason.
+  `console-browser.test.ts`, in the built console at a phone's width: the
+  card opens the browser on that work, whose picture is drawn within the
+  screen; the owner takes it over with a code and gives it back, which
+  answers the role.
+- **Not done**: the live view is the tabs of the process the console's
+  request reached, so with more than one replica the console needs to
+  reach the one the work ran on (sticky sessions); pictures, not a video
+  stream; a page's files neither uploaded nor downloaded.
+
+## 2.123 The image runs the browser, with Chromium's sandbox (§9 P2)
+
+2.121 and 2.122 needed a Chromium on the machine, and the image -- what the
+one-command install, Compose, Coolify and Dokploy all run -- had none. And
+a browser that reads strangers' pages is the one part of the platform most
+likely to meet an exploit, so it should run with the sandbox Chromium keeps
+each rendered page in; without it, a page that breaks out of its renderer
+runs as the platform's user, beside the master key.
+
+What changed:
+
+- **The image has Chromium**, Debian's (154, with Debian's security
+  updates), and `fonts-liberation`, whose letters are as wide as the ones
+  pages ask for: about 270 MB more. `--build-arg PALUGADA_BROWSER=0` leaves
+  them out, and the browser is unbound and the boot says so.
+- **It runs sandboxed.** Under Docker's default seccomp profile, Chromium
+  cannot make the user, PID and network namespaces its renderers go in,
+  and will not start without `--no-sandbox` -- tried here with Docker 29 as
+  the `node` user; Debian's setuid helper (`chromium-sandbox`) fails the same
+  way, since even root in a container cannot make them without
+  CAP_SYS_ADMIN. So the compose files give the container
+  `deploy/docker/seccomp-chromium.json`: Docker's own profile, from
+  moby/profiles at a pinned commit whose hash `scripts/seccomp-chromium.ts`
+  checks before it writes the file, with `clone` and `unshare` allowed --
+  what the kernel allows any unprivileged user outside a container.
+  `browser-sandbox.test.ts` holds the profile to that: the default refuses,
+  one rule is the platform's and it is the last, and Docker's refusals of
+  mount, setns, bpf, module loading and the rest stand.
+- **CI checks it where it runs**: the docker job starts the stack with the
+  profile and runs `scripts/browser-check.ts` inside the container, which
+  passes only when a page has rendered in a process in a user namespace of
+  its own -- not merely when a browser started. Run here against the image
+  built from this commit: four renderers, four in namespaces of their own;
+  the same check without the profile refuses with what to do.
+- **A refusal says what to do**: Chromium's own first sentence, then either
+  the profile to give the container, or, as root, to run the platform as
+  another user, or `PALUGADA_BROWSER_SANDBOX=off` where that is understood.
+- **Not done**: Coolify's path to the profile is the repository's, as its
+  build context is, and has not been tried on Coolify; a host whose
+  AppArmor forbids user namespaces (Ubuntu 23.10 and later, by default)
+  may still refuse them to the container, and the browser then says so on
+  the first page; CJK and other scripts DejaVu and Liberation do not cover
+  draw as boxes.
+
+## 2.124 The installer checks an install, mends it, and goes back a version (§9 P2)
+
+The rest of item 17: "a `doctor` and an `update` that can be rolled
+back". 2.115 left both out, and 2.120 gave releases a version to go back
+to; what an owner without a terminal habit needs is one command that says
+what is wrong, and one that undoes the last update.
+
+What changed:
+
+- **`install.sh doctor`**, from the copy the installer keeps beside what it
+  installed: Docker answers; `.env` is there and the owner's alone; the
+  database and the platform run; the console answers, with its version, and
+  says its worker goes round (`/api/health`, read even when it says no, for
+  what it says); the browser starts sandboxed (`browser-check.ts`, in the
+  container); the disk has 2 GB free; and which copy of the database is
+  newest. It mends only what cannot lose anything -- `.env` made the
+  owner's again, a stopped container started without a rebuild, then
+  waited for -- names the rest with what to do, and exits with an error
+  while anything is wrong. The published port is read from `.env`.
+- **An update keeps the code it replaces** as well as the database, both
+  under one moment's name in `backups/`, without `.env` or the copies
+  themselves; two in one second wait for the next rather than writing over
+  each other.
+- **`install.sh rollback`** takes a copy first, puts back the code of the
+  newest copy, rebuilds and waits for the console. The data stays: the
+  earlier version runs on a database a later one migrated, and taking it
+  back too loses what was done since, so the command for that is printed,
+  naming the copy from the same moment, not run. Run again, it undoes
+  itself.
+- **Tested.** `install.test.ts`, with Docker and curl as stand-ins: an
+  update keeps the code (with what was there, without `.env` or `backups/`)
+  and the database at one moment; rollback restores the earlier file,
+  keeps `.env`, rebuilds once, takes one more copy of the database, restores
+  none, and names the right copy to restore (it named the newest until the
+  moment's name stopped being shared between the two); rollback with
+  nothing to go back to changes nothing; an unknown word is refused; doctor
+  mends a loosened `.env` and a stopped platform, and names a console that
+  does not answer and a browser that cannot sandbox. Run here against a real
+  stack built from this branch: all well, a loosened `.env` mended, and a
+  stopped platform started and found answering.
+- **Not done**: installing without Docker, and a hosted instance.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the
@@ -6290,12 +8177,13 @@ is a real Daytona or Modal machine answering; the `http` runtime also reports
 this backend, because "somewhere else, not ours" is what it means in F13.5's
 vocabulary, and it cannot verify the claim.
 
-**Thirty-four of the forty-six catalogued capabilities are unbound on a bare
-boot, and that is the design rather than a gap.** The boot names every one.
-Eight need configuration, not an account: `files.list`, `doc.draft` and
-`email.draft` a files root and a model, and `web.search`, `web.extract`,
-`image.generate`, `speech.synthesize` and `speech.transcribe` a provider chosen
-under **Tools**. The other twenty-six need a deployment's own vendor entry,
+**Thirty-nine of the fifty-two catalogued capabilities are unbound on a bare
+boot -- thirty-six on a machine with a Chromium -- and that is the design
+rather than a gap.** The boot names every one. Eleven need configuration, not
+an account: `files.list`, `doc.draft` and `email.draft` a files root and a
+model; `web.search`, `web.extract`, `image.generate`, `speech.synthesize` and
+`speech.transcribe` a provider chosen under **Tools**; and `browser.read`,
+`browser.act` and `browser.handover` a Chromium. The other twenty-eight need a deployment's own vendor entry,
 six of which `config/vendors.example.json` shows. `dns.read`, `email.send`,
 `invoice.pay` and the rest are *names* in the catalogue: a tier, a schema, the
 scopes a credential must declare, and a `verify()` contract. What executes them

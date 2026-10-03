@@ -30,10 +30,18 @@
 import { appendEvent } from '../audit/event-log.ts';
 import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
 import * as inbox from '../inbox/inbox.ts';
+import { capabilityFailedCard, ownerReadingWithin } from '../owner/platform-cards.ts';
 import type { CapabilityRegistry } from './registry.ts';
 
 /** How long a passing check stands before it is taken again. */
 export const PREFLIGHT_TTL_MS = 15 * 60_000;
+
+/**
+ * How long a failure that passes on its own stands (H2): long enough not to
+ * probe a struggling vendor on every task, short enough that the task
+ * waiting for it is not held for a quarter of an hour by a moment.
+ */
+export const TRANSIENT_TTL_MS = 60_000;
 
 export interface PreflightContext {
   companyId: string;
@@ -60,6 +68,12 @@ export interface PreflightResult {
   ok: boolean;
   /** Optional, because a capability that simply works has nothing to add. */
   detail?: string | undefined;
+  /**
+   * The failure is one the vendor says passes on its own -- 429, a 5xx, no
+   * answer at all -- rather than one no retry fixes, such as a credential it
+   * refused (H2). The work waits for it instead of halting.
+   */
+  transient?: boolean | undefined;
 }
 
 export interface HealthRow {
@@ -67,6 +81,8 @@ export interface HealthRow {
   status: 'healthy' | 'unhealthy';
   detail: string;
   checkedAt: Date;
+  /** Unhealthy for a moment the vendor says will pass (H2). */
+  transient: boolean;
 }
 
 async function readHealth(
@@ -79,8 +95,9 @@ async function readHealth(
     status: 'healthy' | 'unhealthy';
     detail: string;
     checked_at: Date;
+    transient: boolean;
   }>(
-    `SELECT capability_name, status, detail, checked_at FROM capability_health
+    `SELECT capability_name, status, detail, checked_at, transient FROM capability_health
       WHERE division_id = $1 AND capability_name = $2`,
     [divisionId, capabilityName],
   );
@@ -91,6 +108,7 @@ async function readHealth(
     status: row.status,
     detail: row.detail,
     checkedAt: row.checked_at,
+    transient: row.transient,
   };
 }
 
@@ -104,8 +122,9 @@ export async function healthFor(
       status: 'healthy' | 'unhealthy';
       detail: string;
       checked_at: Date;
+      transient: boolean;
     }>(
-      `SELECT capability_name, status, detail, checked_at FROM capability_health
+      `SELECT capability_name, status, detail, checked_at, transient FROM capability_health
         WHERE division_id = $1 ORDER BY capability_name`,
       [divisionId],
     );
@@ -114,6 +133,7 @@ export async function healthFor(
       status: row.status,
       detail: row.detail,
       checkedAt: row.checked_at,
+      transient: row.transient,
     }));
   });
 }
@@ -131,7 +151,7 @@ export async function checkCapability(
   ctx: PreflightContext,
   capabilityName: string,
   options: { force?: boolean; now?: Date } = {},
-): Promise<{ ok: boolean; detail: string; reused: boolean; unregistered: boolean }> {
+): Promise<{ ok: boolean; detail: string; reused: boolean; unregistered: boolean; transient: boolean }> {
   const now = options.now ?? new Date();
   const capability = registry.get(capabilityName);
 
@@ -147,6 +167,7 @@ export async function checkCapability(
       detail: `capability ${capabilityName} is not registered in this process`,
       reused: false,
       unregistered: true,
+      transient: false,
     };
   }
 
@@ -156,12 +177,13 @@ export async function checkCapability(
 
   if (!options.force && previous) {
     const age = now.getTime() - previous.checkedAt.getTime();
-    if (age < PREFLIGHT_TTL_MS) {
+    if (age < (previous.transient ? TRANSIENT_TTL_MS : PREFLIGHT_TTL_MS)) {
       return {
         ok: previous.status === 'healthy',
         detail: previous.detail,
         reused: true,
         unregistered: false,
+        transient: previous.transient,
       };
     }
   }
@@ -180,15 +202,17 @@ export async function checkCapability(
     }
   }
 
+  const transient = !result.ok && result.transient === true;
   await withTenant(ctx.companyId, async (tx) => {
     await tx.query(
       `INSERT INTO capability_health
-         (company_id, division_id, capability_name, status, detail, checked_at)
-       VALUES ($1, $2, $3, $4, $5, $6)
+         (company_id, division_id, capability_name, status, detail, checked_at, transient)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (division_id, capability_name) DO UPDATE
          SET status = EXCLUDED.status,
              detail = EXCLUDED.detail,
-             checked_at = EXCLUDED.checked_at`,
+             checked_at = EXCLUDED.checked_at,
+             transient = EXCLUDED.transient`,
       [
         ctx.companyId,
         ctx.divisionId,
@@ -196,6 +220,7 @@ export async function checkCapability(
         result.ok ? 'healthy' : 'unhealthy',
         result.detail ?? '',
         now,
+        transient,
       ],
     );
 
@@ -213,25 +238,24 @@ export async function checkCapability(
 
   // Raised on the transition into unhealthy, not on every check. A capability
   // that stays broken for a day would otherwise file ninety-six identical
-  // incidents and bury the one that says something new.
-  if (!result.ok && previous?.status !== 'unhealthy') {
-    await inbox.raiseIncident({
-      companyId: ctx.companyId,
-      title: `Capability ${capabilityName} failed preflight`,
-      detail:
-        `${result.detail || 'no detail given'}. No task that needs it will start until it ` +
-        'passes. The usual causes are an expired or misscoped credential, an exhausted ' +
-        'quota, or the provider being unreachable.',
-    });
+  // incidents and bury the one that says something new. Not for a moment the
+  // vendor says will pass (H2): the work waits for it, and the engine raises
+  // one if it does not pass. One that turns into a lasting failure is new.
+  if (!result.ok && !transient && (previous?.status !== 'unhealthy' || previous.transient)) {
+    // Said as it is: the work is stopped, not waiting, and has to be run
+    // again once the cause is fixed (H2).
+    const card = capabilityFailedCard(await withTenant(ctx.companyId, ownerReadingWithin),
+      { capability: capabilityName, record: result.detail ?? '' });
+    await inbox.raiseIncident({ companyId: ctx.companyId, title: card.title, detail: card.detail });
   }
 
-  return { ok: result.ok, detail: result.detail ?? '', reused: false, unregistered: false };
+  return { ok: result.ok, detail: result.detail ?? '', reused: false, unregistered: false, transient };
 }
 
 export interface RoleReadiness {
   ready: boolean;
-  /** Capabilities the role declares that are registered and not usable. */
-  failures: Array<{ capability: string; detail: string }>;
+  /** Capabilities the role declares that are registered and not usable, and whether each is a passing moment. */
+  failures: Array<{ capability: string; detail: string; transient: boolean }>;
   /**
    * Capabilities the role declares that no adapter is bound to.
    *
@@ -263,7 +287,7 @@ export async function preflightForRole(
     return rows[0]?.tools ?? [];
   });
 
-  const failures: Array<{ capability: string; detail: string }> = [];
+  const failures: RoleReadiness['failures'] = [];
   const unregistered: string[] = [];
   for (const tool of tools) {
     const outcome = await checkCapability(registry, ctx, tool, options);
@@ -271,7 +295,7 @@ export async function preflightForRole(
       unregistered.push(tool);
       continue;
     }
-    if (!outcome.ok) failures.push({ capability: tool, detail: outcome.detail });
+    if (!outcome.ok) failures.push({ capability: tool, detail: outcome.detail, transient: outcome.transient });
   }
 
   return { ready: failures.length === 0, failures, unregistered };

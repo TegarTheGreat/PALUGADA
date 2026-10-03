@@ -21,6 +21,7 @@
 import { appendEvent } from '../audit/event-log.ts';
 import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
 import * as inbox from '../inbox/inbox.ts';
+import { goalChangeCard, ownerReadingWithin } from '../owner/platform-cards.ts';
 import { PalugadaError } from '../errors.ts';
 import { noteTalkDrift } from './language.ts';
 
@@ -255,18 +256,16 @@ export async function proposeGoalChange(input: {
     // what changes the goal (inbox.decide), so it takes the owner's device,
     // as their own edit of the ladder does.
     const change: GoalChange = { goalId: current.id, from: { statement: current.statement, status: current.status }, to };
+    const card = goalChangeCard(await ownerReadingWithin(tx), {
+      kind: current.kind, statement: current.statement, status: current.status, to, reason: rationale,
+    });
     const inboxItemId = await inbox.raiseEscalationWithin(tx, {
       companyId: input.companyId,
       tier: 3,
-      title: `Proposed change to the ${current.kind} "${current.slug}"`,
-      detail:
-        `Currently: ${current.statement}${current.status === 'active' ? '' : ` (${current.status})`}\n` +
-        (to.statement ? `Proposed: ${to.statement}\n` : '') +
-        (to.status ? `Proposed status: ${to.status}\n` : '') +
-        `Reason given: ${rationale}\n\n` +
-        'Approving it changes the goal; until then the work carries on under the goal as it is.',
+      title: card.title,
+      detail: card.detail,
       payload: { goalChange: change, ...(input.taskId ? { proposedByTask: input.taskId } : {}) },
-      consequenceIfDenied: 'The goal stays as it is.',
+      consequenceIfDenied: card.consequence,
     });
     // The reason and the new words are the run's, to the owner. The slip is
     // the proposing task's, so its role is reminded, though the item is not

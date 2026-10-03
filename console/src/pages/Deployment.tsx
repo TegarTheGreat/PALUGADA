@@ -19,7 +19,7 @@ import {
   IconWorldSearch,
 } from '@tabler/icons-react';
 import { useEffect, useMemo, useState } from 'react';
-import { api, explain } from '../api.ts';
+import { ApiError, api, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { useLoad } from '../hooks.ts';
 import { dateTime } from '../format.ts';
@@ -2052,17 +2052,33 @@ function McpServerForm({ saved, presets, callback, onDone, onCancel }: {
       setProblem(t('Give it a name first: the sign-in is kept under it.'));
       return;
     }
+    // With the owner's device (B4): the tokens it leaves are the ones a saved
+    // server of this name signs in with. A server that cannot be signed in to
+    // is refused before the code is checked, so the code is not spent, and
+    // what it needs is shown here rather than in the dialog.
+    let opened: string | null = null;
     try {
-      const started: { authorizeUrl: string } = await api('POST', '/api/control/mcp/oauth/start', {
-        name: name.trim(), url: url.trim(),
-        ...(clientId.trim() ? { clientId: clientId.trim(), clientSecret: clientSecret.trim() || undefined } : {}),
+      await requireFactor(t('Sign in to {name}', { name: name.trim() }), async (proof) => {
+        try {
+          const started: { authorizeUrl: string } = await api('POST', '/api/control/mcp/oauth/start', {
+            name: name.trim(), url: url.trim(), proof,
+            ...(clientId.trim() ? { clientId: clientId.trim(), clientSecret: clientSecret.trim() || undefined } : {}),
+          });
+          opened = started.authorizeUrl;
+        } catch (failure) {
+          // The code was wrong or spent: the dialog says so, and asks again.
+          if (failure instanceof ApiError && (failure.code?.startsWith('mfa.') || failure.code === 'approval.channel_forbidden')) {
+            throw failure;
+          }
+          const said = explain(failure);
+          if (/registers no client itself/.test(said)) setClientNeeded(true);
+          setProblem(said);
+        }
       });
-      setAuthorizeUrl(started.authorizeUrl);
     } catch (failure) {
-      const said = explain(failure);
-      if (/registers no client itself/.test(said)) setClientNeeded(true);
-      setProblem(said);
+      setProblem(explain(failure));
     }
+    if (opened) setAuthorizeUrl(opened);
   };
 
   // While the owner signs in in the other tab: asked every few seconds

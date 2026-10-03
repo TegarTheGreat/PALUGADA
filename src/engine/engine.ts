@@ -16,7 +16,7 @@ import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError, isPalugadaError } from '../errors.ts';
 import { createSubTask, getTask, transition, type TaskRow } from './tasks.ts';
 import { validateContract } from './contracts.ts';
-import { checkDone, checkFailedWrites, roomForDone } from './done.ts';
+import { checkDone, checkFailedWrites, roomForDone, saidNotDone } from './done.ts';
 import { narrator } from './transcript.ts';
 import { processLedger } from './process-ledger.ts';
 import { containChildResult, type ChildResult } from './containment.ts';
@@ -24,7 +24,9 @@ import { taskCostCents } from '../reporting/cost.ts';
 import { isTerminal } from '../domain/task.ts';
 import { DEFAULT_PRICE_TABLE, estimateCents, wholeCents, type PriceTable } from './pricing.ts';
 import { checkUsage } from '../runtime/wire.ts';
-import { journalOf, reopenFinalTurns, runStep, type StepKind } from './journal.ts';
+import { journalOf, reopenFinalTurns, runStep, writtenBefore, type StepKind } from './journal.ts';
+import { hashInput } from './hash.ts';
+import { unfinishedAttempts } from './owner-control.ts';
 import { keepBriefing } from './briefing.ts';
 import { LeaseKeeper } from './lease-keeper.ts';
 import { setLongTimeout, sleep, type LongTimer } from '../timers.ts';
@@ -50,6 +52,7 @@ import {
 } from './checkout.ts';
 import * as budget from './budget.ts';
 import * as inbox from '../inbox/inbox.ts';
+import { modelFailedCard, ownerReadingWithin, serviceUnreachableCard, writeUnverifiedCard } from '../owner/platform-cards.ts';
 import type { CapabilityBroker } from '../broker/broker.ts';
 import type { LlmClient } from '../llm/client.ts';
 
@@ -150,6 +153,13 @@ export const MAX_RATE_LIMIT_PARKS = 5;
  */
 export const RETRY_WAITS_MS: readonly number[] = [10_000, 40_000, 160_000];
 export const MODEL_OUTAGE_WAITS_MS: readonly number[] = [30_000, 60_000, 120_000, 240_000, 480_000];
+/**
+ * How long a task waits for a capability whose vendor is having a moment
+ * (H2): a minute, doubling, five times -- about half an hour -- before the
+ * failure is one the owner hears about. Each look asks the vendor again,
+ * since a passing reading stands for a minute (`TRANSIENT_TTL_MS`).
+ */
+export const CAPABILITY_OUTAGE_WAITS_MS: readonly number[] = [60_000, 120_000, 240_000, 480_000, 960_000];
 
 export interface RunOutcome {
   status:
@@ -566,7 +576,7 @@ export class Engine {
             payload: { opensAt: opensAt.toISOString() },
           });
         });
-        await transition(companyId, taskId, 'waiting_window', { waitUntil: opensAt });
+        await transition(companyId, taskId, 'waiting_window', { waitUntil: opensAt, waitReason: 'cheap_hours' });
         return { status: 'waiting_window', reason: 'waiting for cheap hours', waitUntil: opensAt };
       }
     }
@@ -592,6 +602,14 @@ export class Engine {
     );
     if (!readiness.ready) {
       const named = readiness.failures.map((failure) => failure.capability).join(', ');
+      // A vendor's moment -- busy, failing on its side, not answering -- is
+      // waited for, not halted on (H2): it halted every task that needed the
+      // capability for a quarter of an hour, each to be run again by hand.
+      // A failure no retry fixes, a refused credential, halts as before.
+      if (readiness.failures.every((failure) => failure.transient)) {
+        const waited = await this.#waitForCapability(companyId, taskId, readiness.failures);
+        if (waited) return waited;
+      }
       await transition(companyId, taskId, 'halted', { haltReason: 'capability_unhealthy' });
       return {
         status: 'halted',
@@ -672,6 +690,10 @@ export class Engine {
     // randomness inside a handler is a defect.
     let stepIndex = 0;
 
+    // N12: the attempts at this work that did not finish, when this run does
+    // it again. What they wrote stands, and is not written again.
+    const lineage = await withTenant(companyId, (tx) => unfinishedAttempts(tx, taskId));
+
     // F5.12: the lease is kept while the run is in flight, not only when a
     // step commits. One step can be long -- a child task awaited, an agent CLI
     // thinking with no tool call to show for it -- and a lease renewed only at
@@ -744,6 +766,40 @@ export class Engine {
     let parked: PalugadaError | null = null;
     let ended: PalugadaError | null = null;
 
+    // N14: where a step goes in the journal. A handler in this process, and
+    // the model loop, which journals its own turns, make the same steps in
+    // the same order when they run again, so a step is its place. A runtime
+    // in another process does not: an agent CLI resumed after the owner's
+    // answer, or after a restart, starts again from what it was told, and
+    // goes on in its own order and its own words. Replayed by place, its
+    // first call that did not match the step recorded there was refused as
+    // a divergence -- and one that did not match an unfinished step was
+    // written over it. Its steps are found by what they are instead: a call
+    // it made before, with the same input, is given that step (one each,
+    // a finished one first), and anything else goes after the last.
+    const byContent = runtime.runtime !== 'in-process';
+    let recorded: Promise<Array<{ index: number; name: string; inputHash: string; committed: boolean }>> | null = null;
+    let taken = new Set<number>();
+    let nextIndex = 0;
+    const place = async (name: string, input: unknown): Promise<number> => {
+      if (!byContent) return stepIndex++;
+      recorded ??= withTenant(companyId, async (tx) => {
+        const { rows } = await tx.query<{ step_index: number; name: string; input_hash: string; status: string }>(
+          'SELECT step_index, name, input_hash, status FROM task_steps WHERE task_id = $1 ORDER BY step_index',
+          [taskId]);
+        nextIndex = rows.length === 0 ? 0 : rows[rows.length - 1]!.step_index + 1;
+        return rows.map((row) => ({
+          index: row.step_index, name: row.name, inputHash: row.input_hash, committed: row.status === 'committed',
+        }));
+      });
+      const steps = await recorded;
+      const hash = hashInput(input);
+      const free = steps.filter((one) => !taken.has(one.index) && one.name === name && one.inputHash === hash);
+      const index = (free.find((one) => one.committed) ?? free[0])?.index ?? nextIndex++;
+      taken.add(index);
+      return index;
+    };
+
     // `placed` is told the index the step is journalled at, as soon as it has
     // one: a tool call's caller hands it on to the run, which cites it.
     const step = async <T,>(
@@ -758,10 +814,10 @@ export class Engine {
         // Before the side effect, not only after it: a worker that has lost
         // the task must not send the email and then find out.
         await lease.confirm();
-        const index = stepIndex++;
+        const index = await place(name, input);
         placed?.(index);
         const { value } = await runStep(
-          { companyId, taskId },
+          { companyId, taskId, keyTaskId: lineage.at(-1) },
           {
             stepIndex: index,
             name,
@@ -837,6 +893,20 @@ export class Engine {
       }
       try {
         return await step(`capability:${name}`, 'tool', { name, input }, async (key) => {
+            // N12: a write an unfinished attempt before this one already
+            // made with this very call is answered from its record. The
+            // rerun was a task of its own, and made it again.
+            const before = lineage.length === 0 ? null : await withTenant(companyId, async (tx) => {
+              const found = await writtenBefore(tx, lineage, `capability:${name}`, { name, input });
+              if (found) {
+                await appendEvent(tx, {
+                  companyId, projectId: task.projectId, taskId, type: 'tool.not_repeated', actor: 'engine',
+                  payload: { capability: name, fromTaskId: found.taskId, stepIndex: found.stepIndex },
+                });
+              }
+              return found;
+            });
+            if (before) return before.output as O;
             const result = await this.#options.broker.invoke<I, O>(
               {
                 companyId, projectId: task.projectId, divisionId: task.divisionId,
@@ -1172,6 +1242,8 @@ export class Engine {
           companyId, task, roleSlug, runtime, agentRunId,
           startAttempt: () => {
             stepIndex = 0;
+            recorded = null;
+            taken = new Set();
             chargedCents = 0;
           },
         },
@@ -1181,20 +1253,24 @@ export class Engine {
       // task's output: the action it was waiting for has not happened.
       if (parked) throw parked;
       if (ended) throw ended;
+      // N9: what the run says it did not do. Said, its report is not held to
+      // the criteria below: it is not claiming them.
+      let notDone: string | null = null;
       try {
         // F6.2, F6.3: validated before the task is marked complete, because a
         // downstream task triggered by `task.completed` has no other guarantee
         // about what it is about to read.
         validateContract('output', task.roleId, roleSlug, contract.output, output);
+        notDone = saidNotDone(output);
         // F2.8: a model's run says how it met each of its role's criteria,
         // and a step its evidence cites is held to this task's journal. What
         // it verified is not kept here: the owner's view weighs the same
         // report against the same journal when it is read (owner/views.ts).
-        if (writtenBy !== 'code' && contract.done.length > 0 && roomForDone(contract.output)) {
+        if (notDone === null && writtenBy !== 'code' && contract.done.length > 0 && roomForDone(contract.output)) {
           checkDone(contract.done, output, await withTenant(companyId, (tx) => journalOf(tx, taskId)));
         }
         // And to the writes that failed in this run and were never put right.
-        if (writtenBy !== 'code' && roomForDone(contract.output)) {
+        if (notDone === null && writtenBy !== 'code' && roomForDone(contract.output)) {
           checkFailedWrites(await withTenant(companyId, (tx) => unrecoveredWrites(tx, taskId, agentRunId)), output);
         }
       } catch (rejected) {
@@ -1202,6 +1278,25 @@ export class Engine {
         // answer would otherwise write it again from the journal.
         await reopenFinalTurns(companyId, taskId, (rejected as Error).message);
         throw rejected;
+      }
+
+      // Not done, by its own word (N9): the task ends with its reason, as work
+      // that did not happen rather than work finished. Not tried again: another
+      // attempt on the same facts reaches the same answer at the same price,
+      // and the owner, a parent waiting on it, or "Run again" decides what
+      // next. Not past the post_run hook either, which judges an output about
+      // to count as done.
+      if (notDone !== null) {
+        await this.#finishAgentRun(companyId, agentRunId, 'failed');
+        const settled = await withTenant(companyId, (tx) => getTask(tx, taskId));
+        if (settled && isTerminal(settled.status)) {
+          return { status: settled.status as RunOutcome['status'], reason: settled.haltReason ?? 'already settled' };
+        }
+        await transition(companyId, taskId, 'failed', {
+          output, haltReason: 'not_done', detail: notDone, writtenByModel: writtenBy !== 'code',
+        });
+        await this.#onHalt(companyId, task, 'not_done', new Error(notDone || 'not done'), agentRunId);
+        return { status: 'failed', reason: 'not_done' };
       }
 
       // F14: the post_run point. After the schema, because a hook asked to
@@ -1391,8 +1486,48 @@ export class Engine {
         },
       });
     });
-    await transition(companyId, taskId, 'waiting_window', { waitUntil });
+    await transition(companyId, taskId, 'waiting_window', {
+      waitUntil, waitReason: how.event === 'task.waiting_slot' ? 'slot' : 'vendor',
+    });
     return { status: 'waiting_window', reason: error.code, waitUntil };
+  }
+
+  /**
+   * H2, when a capability's vendor is having a moment: the task parks and
+   * looks again, waiting longer each time. When the waits in the last hour
+   * are spent it halts, and the owner is told once, with what the vendor
+   * said; null then, for the caller's halt.
+   */
+  async #waitForCapability(
+    companyId: string,
+    taskId: string,
+    failures: ReadonlyArray<{ capability: string; detail: string }>,
+  ): Promise<RunOutcome | null> {
+    const waits = await withTenant(companyId, async (tx) => {
+      const { rows } = await tx.query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM events
+          WHERE task_id = $1 AND type = 'task.capability_waited' AND occurred_at > now() - interval '1 hour'`,
+        [taskId],
+      );
+      return Number(rows[0]!.count);
+    });
+    if (waits < CAPABILITY_OUTAGE_WAITS_MS.length) {
+      const waitUntil = new Date(Date.now() + CAPABILITY_OUTAGE_WAITS_MS[waits]!);
+      await withTenant(companyId, (tx) => appendEvent(tx, {
+        companyId, taskId, type: 'task.capability_waited', actor: 'engine',
+        payload: {
+          capabilities: failures.map((failure) => failure.capability),
+          detail: failures.map((failure) => `${failure.capability}: ${failure.detail}`).join('; ').slice(0, 1_000),
+          waitUntil: waitUntil.toISOString(), wait: waits + 1,
+        },
+      }));
+      await transition(companyId, taskId, 'waiting_window', { waitUntil, waitReason: 'service' });
+      return { status: 'waiting_window', reason: 'capability.unhealthy', waitUntil };
+    }
+    const minutes = Math.round(CAPABILITY_OUTAGE_WAITS_MS.reduce((sum, wait) => sum + wait, 0) / 60_000);
+    const card = serviceUnreachableCard(await withTenant(companyId, ownerReadingWithin), { failures, minutes });
+    await inbox.raiseIncident({ companyId, taskId, title: card.title, detail: card.detail });
+    return null;
   }
 
   /**
@@ -1425,19 +1560,14 @@ export class Engine {
           payload: { model, error: error.message, waitUntil: waitUntil.toISOString(), wait: waits + 1 },
         });
       });
-      await transition(companyId, taskId, 'waiting_window', { waitUntil });
+      await transition(companyId, taskId, 'waiting_window', { waitUntil, waitReason: 'model' });
       return { status: 'waiting_window', reason: 'model.unavailable', waitUntil };
     }
     const minutes = Math.round(MODEL_OUTAGE_WAITS_MS.reduce((sum, wait) => sum + wait, 0) / 60_000);
-    await inbox.raiseIncident({
-      companyId,
-      taskId,
-      title: `Model ${model} failed and the run was not moved`,
-      detail: `${error.message} It was tried ${waits + 1} times over about ${minutes} minutes. ` + (
-        error.details.reason === 'tier_2_or_above'
-          ? 'This role can take actions that cannot be undone, so the run was not silently moved to a different model.'
-          : 'No fallback model is left for this role.'),
+    const card = modelFailedCard(await withTenant(companyId, ownerReadingWithin), {
+      model, tries: waits + 1, minutes, irreversible: error.details.reason === 'tier_2_or_above', record: error.message,
     });
+    await inbox.raiseIncident({ companyId, taskId, title: card.title, detail: card.detail });
     return null;
   }
 
@@ -1486,7 +1616,7 @@ export class Engine {
     if (code === 'window.closed') {
       const reopensAt = (error as PalugadaError).details.reopensAt;
       const waitUntil = typeof reopensAt === 'string' ? new Date(reopensAt) : null;
-      await transition(companyId, taskId, 'waiting_window', { waitUntil });
+      await transition(companyId, taskId, 'waiting_window', { waitUntil, waitReason: 'window' });
       return { status: 'waiting_window', reason: code, waitUntil };
     }
 
@@ -1497,7 +1627,7 @@ export class Engine {
     if (code === 'task.waiting_child') {
       const at = (error as PalugadaError).details.reopensAt;
       const waitUntil = typeof at === 'string' ? new Date(at) : new Date(Date.now() + 60_000);
-      await transition(companyId, taskId, 'waiting_window', { waitUntil });
+      await transition(companyId, taskId, 'waiting_window', { waitUntil, waitReason: 'child' });
       return { status: 'waiting_window', reason: code, waitUntil };
     }
 
@@ -1581,11 +1711,8 @@ export class Engine {
       if (haltReason === 'verification_failed') {
         // F8.4: a write that reports success but reads back differently is an
         // incident, not a retry.
-        await inbox.raiseIncident({
-          companyId, taskId,
-          title: 'External write failed verification',
-          detail: (error as Error).message,
-        });
+        const card = writeUnverifiedCard(await withTenant(companyId, ownerReadingWithin), { record: (error as Error).message });
+        await inbox.raiseIncident({ companyId, taskId, title: card.title, detail: card.detail });
       }
       // Section 6.3: a task its budget stopped goes to the owner. A month's
       // money running out halts the same way and has its own item, raised by
@@ -1624,7 +1751,7 @@ export class Engine {
     // every attempt before it passed (`RETRY_WAITS_MS`). Parked as every
     // other wait is, with the time it wakes at, which the queue keeps to.
     const wait = RETRY_WAITS_MS[Math.min(task?.attempt ?? 0, RETRY_WAITS_MS.length - 1)]!;
-    await transition(companyId, taskId, 'waiting_window', { waitUntil: new Date(Date.now() + wait) });
+    await transition(companyId, taskId, 'waiting_window', { waitUntil: new Date(Date.now() + wait), waitReason: 'retry' });
     await clearLease(companyId, taskId, this.#workerId);
     return { status: 'failed', reason: 'retryable' };
   }

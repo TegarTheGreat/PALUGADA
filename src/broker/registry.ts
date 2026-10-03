@@ -109,6 +109,14 @@ export interface Capability<I = unknown, O = unknown> {
     batchSize?: number;
   };
   /**
+   * The action in a line, for the owner's card, where its arguments listed
+   * one by one would not say it: `browser.act`'s steps are a list of
+   * objects, which the broker's own line can only count. Given the input as
+   * the card keeps it, redacted, and put after the capability's name as the
+   * arguments would have been.
+   */
+  summarize?(input: I): string;
+  /**
    * Reports whether the capability is usable right now (F8.12).
    *
    * Credentials, quota, connectivity -- whatever would make the first real
@@ -133,6 +141,11 @@ export interface Capability<I = unknown, O = unknown> {
   }): Promise<{
     ok: boolean;
     detail?: string;
+    /**
+     * The failure passes on its own: the vendor busy, failing on its side,
+     * or not answering (H2). The task waits for it rather than halting.
+     */
+    transient?: boolean;
   }>;
   /**
    * Reports what the call actually cost, once it has happened (F8.5).

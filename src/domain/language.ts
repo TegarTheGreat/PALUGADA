@@ -367,6 +367,7 @@ const TALK = {
   goal_proposal: 'a proposal to change a goal',
   stage_proposal: 'a proposal to move the company to another stage',
   review: "a review of another role's proposal",
+  not_done: 'why work was not done',
 } as const;
 
 /**

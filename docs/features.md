@@ -235,6 +235,19 @@ freeze, raise a ceiling, rewrite what a model call cost, or delete history.
   Standard Webhooks are checked exactly as they sign; what they send (JSON, a
   form or text) is data, and work that began outside takes no tier 2 action
   without the owner.
+- Customers can write to a company on a Telegram bot, a WhatsApp Business
+  number or its own mailbox (read over IMAP, answered over SMTP), which the
+  owner connects with their device: each message starts work for the role
+  they chose (a second, written before anyone picked the first up, joins
+  it), what the customer wrote is data, and every reply is a tier 2 card
+  the owner -- or an approver -- answers with the conversation beside it.
+- Each company has a browser of its own, for sites with no API: a role reads
+  pages as a person sees them and fills in a form only after the owner's
+  yes, with every field and button on the card; sign-ins are sealed between
+  uses, and every request the browser makes goes through the platform's own
+  address checks. The owner watches each work's page live and takes the
+  browser over with their device to sign in, which a role may ask for and
+  never does itself.
 - A company has a stage -- explore, validate, build, launch, grow, wind down
   -- that the owner sets and policies read: no paid reach before launch is a
   rule, not a hope. The strategist proposes a move with the evidence; the
@@ -287,6 +300,8 @@ src/
   runtime/      the adapter protocol and the runtimes
   owner/        console API, sign-in, second factor, push, Telegram
   inbox/        approvals, incidents, escalations
+  chats/        customers' conversations, and the Telegram, WhatsApp and mailbox transports
+  browser/      each company's browser: Chromium on a pipe, its proxy, its sealed cookies
   scheduler/    cron, windows, wake queue
   memory/       scoped memory and distillation
   skills/  eval/  bundles/  gateway/  governance/  policy/  review/

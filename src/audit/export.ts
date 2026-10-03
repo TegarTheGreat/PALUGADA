@@ -182,6 +182,26 @@ const SECTIONS: Section[] = [
             FROM tickets ORDER BY created_at`,
   },
   {
+    // 0111. A customer channel without its keys: the address and the
+    // secret's hash are this instance's, and where the token is sealed is
+    // the deployment's. A restored channel waits closed for the owner to
+    // connect the bot again. Its conversations travel whole.
+    name: 'chat_channels',
+    sql: `SELECT id, kind, account, account_id, mail, project_id, division_id, role_id, goal_id, instruction, max_per_hour,
+                 enabled, created_at
+            FROM chat_channels ORDER BY created_at`,
+  },
+  {
+    name: 'chats',
+    sql: `SELECT id, channel_id, external_id, customer_name, customer_handle, last_message_at, created_at
+            FROM chats ORDER BY created_at`,
+  },
+  {
+    name: 'chat_messages',
+    sql: `SELECT id, chat_id, direction, external_id, body, attachment, subject, outcome, task_id, idempotency_key, created_at
+            FROM chat_messages ORDER BY created_at`,
+  },
+  {
     name: 'task_steps',
     sql: `SELECT task_id, step_index, name, kind, status, idempotency_key, input_hash,
                  output, error, attempt, started_at, committed_at, input
@@ -269,7 +289,7 @@ const SECTIONS: Section[] = [
     name: 'skill_versions',
     sql: `SELECT id, skill_id, version, body, author, changelog, state,
                  review_request_id, reviewed_at, approved_at, activated_at,
-                 rejected_reason, created_at, review_task_id, review_note
+                 rejected_reason, created_at, review_task_id, review_note, batch, batch_name
             FROM skill_versions ORDER BY skill_id, version`,
   },
   {
@@ -331,7 +351,7 @@ const SECTIONS: Section[] = [
     // company is currently paused for spending is a fact about the instance it
     // was paused on, and a restore that arrived already paused would be
     // reporting a ceiling it has not reached here.
-    sql: `SELECT id, money_max_cents, override_until, created_at
+    sql: `SELECT id, money_max_cents, override_until, created_at, set_at
             FROM spend_limits WHERE company_id IS NOT NULL`,
   },
   {

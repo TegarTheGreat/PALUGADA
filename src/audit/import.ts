@@ -157,6 +157,17 @@ const SECTIONS: ImportSection[] = [
     force: { enabled: false },
   },
   { name: 'trigger_deliveries', table: 'trigger_deliveries', references: ['trigger_id', 'task_id'] },
+  {
+    // A customer channel is not left open by a restore: it arrives closed,
+    // at a new address, with no token, and the owner connects the bot again
+    // (0111). What its customers said comes with it.
+    name: 'chat_channels',
+    table: 'chat_channels',
+    references: ['project_id', 'division_id', 'role_id', 'goal_id'],
+    force: { enabled: false },
+  },
+  { name: 'chats', table: 'chats', references: ['channel_id'] },
+  { name: 'chat_messages', table: 'chat_messages', references: ['chat_id', 'task_id'] },
   { name: 'handoff_rules', table: 'handoff_rules', references: ['from_role_id', 'to_role_id'] },
   { name: 'metric_observations', table: 'metric_observations', references: ['metric_id', 'task_id'] },
   { name: 'documents', table: 'documents', references: ['division_id'] },
@@ -432,8 +443,9 @@ export async function importCompany(
     let rows: Array<{ id: string }>;
     try {
       ({ rows } = await tx.query<{ id: string }>(
-        `INSERT INTO companies (slug, name, timezone, work_language, talk_language, stage, guardian)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+        // A restored company is not a new one: its first hour (0109) is over.
+        `INSERT INTO companies (slug, name, timezone, work_language, talk_language, stage, guardian, first_hour_closed_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, now()) RETURNING id`,
         [
           options.slug, options.name ?? String(source!.name ?? options.slug), String(source!.timezone ?? 'UTC'),
           // What the company works and talks in travels with it; an archive from

@@ -699,6 +699,48 @@ test('the owner answers an escalation without deciding it, and the task carries 
   await assert.rejects(inbox.answerEscalation(fixture.companyId, itemId, '   '), /an answer cannot be empty/);
 });
 
+/**
+ * B6, the audit of 30 September, still open on 3 October: a run's own
+ * question (`owner.ask`) answered through `/answer` -- the route the
+ * assistant uses -- was never answered. The words went to the task as an
+ * instruction and the item stayed open, so the run that resumed asked the
+ * same question, found it open, and parked again: `owner.answered`, then
+ * `task.waiting_approval` 2.6 seconds later, for ever. The console and the
+ * chats answer a question by deciding it, which is what the run reads; the
+ * route now does the same.
+ */
+test('an answer to a run\'s own question closes it, and the run that resumes reads it rather than asking again (B6)', async () => {
+  const fixture = await createCompany('owner-answers-question');
+  const task = await newTask(fixture);
+  await transition(fixture.companyId, task.id, 'running');
+  const question = 'Which three customers should hear about the new price first?';
+  const asked = await inbox.askOwner({ companyId: fixture.companyId, taskId: task.id, question });
+  assert.equal(asked.state, 'waiting');
+  assert.equal((await withTenant(fixture.companyId, (tx) => getTask(tx, task.id)))!.status, 'waiting_approval');
+
+  await inbox.answerEscalation(fixture.companyId, asked.inboxItemId, 'Sari, Budi and the Wijaya shop.');
+
+  const item = await withTenant(fixture.companyId, async (tx) => (await tx.query<{
+    status: string; decision: string | null; owner_note: string | null;
+  }>('SELECT status, decision, owner_note FROM inbox_items WHERE id = $1', [asked.inboxItemId])).rows[0]!);
+  assert.deepEqual(item, { status: 'decided', decision: 'approve', owner_note: 'Sari, Budi and the Wijaya shop.' },
+    'answered is decided: the answer is the question\'s');
+  assert.equal((await withTenant(fixture.companyId, (tx) => getTask(tx, task.id)))!.status, 'running', 'the task is back at work');
+
+  // The run resumes and asks again, replaying its own step: it is told.
+  const again = await inbox.askOwner({ companyId: fixture.companyId, taskId: task.id, question });
+  assert.deepEqual(again, { state: 'answered', inboxItemId: asked.inboxItemId, answer: 'Sari, Budi and the Wijaya shop.' });
+  assert.equal((await withTenant(fixture.companyId, (tx) => getTask(tx, task.id)))!.status, 'running', 'and does not park again');
+
+  // Said once, as the owner's decision, and not again as an instruction the
+  // run would read beside the answer.
+  const { rows } = await withTenant(fixture.companyId, (tx) => tx.query<{ type: string; actor: string }>(
+    "SELECT type, actor FROM events WHERE task_id = $1 AND type IN ('owner.decided', 'owner.answered', 'owner.instructed') ORDER BY occurred_at",
+    [task.id]));
+  assert.deepEqual(rows, [{ type: 'owner.decided', actor: 'owner' }]);
+  await assert.rejects(inbox.answerEscalation(fixture.companyId, asked.inboxItemId, 'Also Dewi.'), /is closed: it was already decided/);
+});
+
 /* ------------------------------------------------------------- F2.1, F2.9 --- */
 
 test('a division has an escalation policy, and a default when it has not set one (F2.1)', async () => {

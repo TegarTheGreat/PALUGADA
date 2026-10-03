@@ -92,6 +92,12 @@ export async function createAccount(
  * company's. A task charged to the company account when its division has one
  * would make the division's ceiling unenforceable, which is the failure this
  * lookup exists to prevent.
+ *
+ * Two accounts on one scope -- the owner opened "Ramadan promotion" on a
+ * division that has its own -- are told apart by the tree: the deeper is the
+ * narrower, and between two as deep, the older. Ordered by scope alone, the
+ * one charged was whichever row the database read first, and every charge
+ * rewrites a row and moves it.
  */
 export async function accountFor(
   tx: TenantClient,
@@ -107,7 +113,9 @@ export async function accountFor(
           OR  scope_type = 'company')
       ORDER BY CASE scope_type
                  WHEN 'role' THEN 0 WHEN 'division' THEN 1
-                 WHEN 'project' THEN 2 ELSE 3 END
+                 WHEN 'project' THEN 2 ELSE 3 END,
+               cardinality(app.budget_chain(id)) DESC,
+               created_at, id
       LIMIT 1`,
     [scope.companyId, scope.roleId ?? null, scope.divisionId ?? null, scope.projectId ?? null],
   );
@@ -175,6 +183,20 @@ export async function startNewPeriods(companyId: string): Promise<number> {
     return started[0]!.n;
   });
 }
+
+/**
+ * What an account is called, for the owner (§2.3 item 7). An account a
+ * template made is labelled with the platform's codes -- "company", a
+ * division's short name -- and is named for what it covers instead: its
+ * division's name, or null for the whole company, which the reader says in
+ * their own language. One the owner labelled keeps its label. `a` is the
+ * account; the division it covers is looked up by its id.
+ */
+export const ACCOUNT_NAME = `CASE
+  WHEN a.scope_type = 'company' AND a.label = 'company' THEN NULL
+  WHEN a.scope_type = 'division' THEN coalesce(
+    (SELECT CASE WHEN dv.slug = a.label THEN dv.name END FROM divisions dv WHERE dv.id = a.scope_id), a.label)
+  ELSE a.label END`;
 
 export async function chainFor(tx: TenantClient, accountId: string): Promise<string[]> {
   const { rows } = await tx.query<{ chain: string[] | null }>(

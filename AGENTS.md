@@ -33,6 +33,8 @@ in code and tests refer to it. `docs/STATUS.md` grades every requirement.
 | `src/context/builder.ts` | what every run is told, in order: charters, language, skills, memory, goals, working memory |
 | `src/domain/` | goals, languages, the task state machine |
 | `src/inbox/` | approvals, incidents, escalations |
+| `src/chats/` | customers' conversations: the channels they write on, what arrives, and the Telegram, WhatsApp and mailbox transports |
+| `src/browser/` | each company's browser: Chromium on a pipe, the proxy every request goes through, its sealed cookies, the owner's hold on it, and what runs in a page |
 | `src/memory/` | scoped memory and distillation |
 | `src/knowledge/` | the company's documents, kept whole and searched by passage |
 | `src/bundles/` | bundles, including the built-in ones in `builtin.ts` |
@@ -115,9 +117,19 @@ Each of these is a test, and each exists because the mistake was made once.
   names ships in `console/public`. `test/documents/console-images.test.ts`.
 - **The console stores nothing in the browser.** The session lives in memory;
   preferences live in the owner API.
+- **The console fits a phone.** Drawn in Chromium at 390 pixels, the work,
+  the money and the overview have nothing wider than the screen, nothing
+  that scrolls sideways, no badge cut and no figure broken.
+  `test/acceptance/console-phone.test.ts`, which skips where no Chromium is
+  installed; `PALUGADA_CHROMIUM` names one.
 - **Every column of an exported table is exported**, or listed with a reason
   in `test/acceptance/audit-export.test.ts`.
 - **Every requirement in the PRD appears in `docs/STATUS.md`.**
+- **A version is one number everywhere**: `package.json`, its lockfile and
+  the newest section of `CHANGELOG.md`. A change an owner or an operator
+  would notice adds its line to that section; releasing it is
+  `node scripts/release.ts`, as `docs/RELEASING.md` says.
+  `test/documents/release.test.ts`.
 - **Nothing in `src/` is exported and reachable only from tests.**
   `test/documents/reachability.test.ts` keeps an inventory.
 - **Tests run one file at a time** (`--test-concurrency=1`): they share one

@@ -27,7 +27,7 @@
  * serialiser did, and a signature nobody can reproduce is a signature nobody
  * checks.
  */
-import { createHash, createPublicKey, verify } from 'node:crypto';
+import { createHash, createPublicKey, randomUUID, verify } from 'node:crypto';
 import { withControlPlane, withTenant } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
@@ -46,6 +46,7 @@ import { assertValidCondition, type Condition } from '../policy/condition.ts';
 import { POLICY_EFFECTS, type PolicyEffect } from '../policy/engine.ts';
 import { putPolicy } from '../governance/store.ts';
 import { ensureCeo } from '../governance/ceo.ts';
+import { titleFrom } from '../domain/personas.ts';
 import { MAX_IN_FLIGHT } from '../broker/in-flight.ts';
 
 export interface BundleSkill {
@@ -413,18 +414,22 @@ export async function installBundle(input: {
         );
       }
       const heartbeat = body.schedules.find((schedule) => schedule.roleSlug === role.slug);
+      // Who the role is arrives with it, as a template's roles do; a name or a
+      // title the owner gave stays when the bundle is installed again.
       await tx.query(
         `INSERT INTO roles
            (company_id, division_id, slug, system_prompt, model, tools,
             input_schema, output_schema, max_tokens_per_run, done_criteria,
-            heartbeat_minutes)
-         VALUES ($1,$2,$3,$4,$5,$6::text[],$7,$8,$9,$10::text[],$11)
+            heartbeat_minutes, display_name, title)
+         VALUES ($1,$2,$3,$4,$5,$6::text[],$7,$8,$9,$10::text[],$11,$12,$13)
          ON CONFLICT (company_id, slug) DO UPDATE
            SET system_prompt = EXCLUDED.system_prompt,
                model = EXCLUDED.model,
                tools = EXCLUDED.tools,
                done_criteria = EXCLUDED.done_criteria,
-               heartbeat_minutes = EXCLUDED.heartbeat_minutes`,
+               heartbeat_minutes = EXCLUDED.heartbeat_minutes,
+               display_name = COALESCE(roles.display_name, EXCLUDED.display_name),
+               title = COALESCE(roles.title, EXCLUDED.title)`,
         [
           input.companyId,
           divisionId,
@@ -437,6 +442,8 @@ export async function installBundle(input: {
           role.maxTokensPerRun ?? 40_000,
           role.doneCriteria ?? ['the run returns an output matching its schema'],
           heartbeat?.heartbeatMinutes ?? 240,
+          role.displayName?.trim() || null,
+          role.title?.trim() ? titleFrom(role.title) : null,
         ],
       );
       roleSlugs.push(role.slug);
@@ -503,8 +510,7 @@ export async function installBundle(input: {
   const skills = await installSkills(
     input.companyId,
     body,
-    input.slug,
-    input.version,
+    { slug: input.slug, version: input.version, name: stored.name },
     quarantined,
   );
 
@@ -635,67 +641,70 @@ export function forgetBundleHooks(pipeline: HookPipeline, companyId: string): vo
 async function installSkills(
   companyId: string,
   body: BundleBody,
-  bundleSlug: string,
-  bundleVersion: string,
+  bundle: { slug: string; version: string; name: string },
   quarantined: boolean,
 ): Promise<string[]> {
-  const { addEvalCase, proposeSkillVersion } = await import('../skills/skills.ts');
-  const installed: string[] = [];
+  if (body.skills.length === 0) return [];
+  const { addEvalCaseWithin, proposeSkillVersionWithin } = await import('../skills/skills.ts');
+  // One batch, in one transaction (B9): the skills a bundle brings are read
+  // by one review and put to the owner on one card, so a worker must find
+  // all of them or none -- never the first few, to be given a review of
+  // their own while the rest are still being written.
+  const batch = { id: randomUUID(), name: bundle.name };
 
-  for (const skill of body.skills) {
-    const divisionId =
-      skill.scope === 'division' && skill.division
-        ? await withTenant(companyId, async (tx) => {
-            const { rows } = await tx.query<{ id: string }>(
-              'SELECT id FROM divisions WHERE company_id = $1 AND slug = $2',
-              [companyId, skill.division],
-            );
-            return rows[0]?.id ?? null;
-          })
-        : null;
+  return withTenant(companyId, async (tx) => {
+    const installed: string[] = [];
+    for (const skill of body.skills) {
+      let divisionId: string | null = null;
+      if (skill.scope === 'division' && skill.division) {
+        const { rows } = await tx.query<{ id: string }>(
+          'SELECT id FROM divisions WHERE company_id = $1 AND slug = $2',
+          [companyId, skill.division],
+        );
+        divisionId = rows[0]?.id ?? null;
+      }
 
-    const proposed = await proposeSkillVersion({
-      companyId,
-      slug: skill.slug,
-      scopeType: skill.scope,
-      scopeId: divisionId,
-      source: skill.source,
-      author: 'bundle',
-      changelog: `Installed from bundle ${bundleSlug}.`,
-    });
+      const proposed = await proposeSkillVersionWithin(tx, {
+        companyId,
+        slug: skill.slug,
+        scopeType: skill.scope,
+        scopeId: divisionId,
+        source: skill.source,
+        author: 'bundle',
+        changelog: `Installed from bundle ${bundle.slug}.`,
+        batch,
+      });
 
-    // F15.4: the evals travel with the skill, so it is activatable at all.
-    for (const evalCase of skill.evals) {
-      await addEvalCase(companyId, proposed.skillId, evalCase);
-    }
+      // F15.4: the evals travel with the skill, so it is activatable at all.
+      for (const evalCase of skill.evals) {
+        await addEvalCaseWithin(tx, companyId, proposed.skillId, evalCase);
+      }
 
-    // F15.8, F12.10: a skill from a bundle nobody vouched for came from
-    // outside this company, and it entered saying otherwise. `proposeSkillVersion`
-    // defaults to `internal`, so an unsigned bundle's skills arrived
-    // indistinguishable from ones the company wrote -- and once approved they
-    // would be live with no origin recorded and no quarantine for the owner to
-    // lift, which is the one gate F15.8 gives external knowledge.
-    //
-    // Quarantine only where the database allows it (0026 keeps a quarantined
-    // skill to one division). A wider one cannot carry the flag, and does not
-    // need to: it is still a candidate, so F15.3's review and the owner's
-    // approval stand between it and any context pack.
-    if (quarantined) {
-      await withTenant(companyId, async (tx) => {
+      // F15.8, F12.10: a skill from a bundle nobody vouched for came from
+      // outside this company, and it entered saying otherwise. `proposeSkillVersion`
+      // defaults to `internal`, so an unsigned bundle's skills arrived
+      // indistinguishable from ones the company wrote -- and once approved they
+      // would be live with no origin recorded and no quarantine for the owner to
+      // lift, which is the one gate F15.8 gives external knowledge.
+      //
+      // Quarantine only where the database allows it (0026 keeps a quarantined
+      // skill to one division). A wider one cannot carry the flag, and does not
+      // need to: it is still a candidate, so F15.3's review and the owner's
+      // approval stand between it and any context pack.
+      if (quarantined) {
         await tx.query(
           `UPDATE skills
               SET provenance = 'external',
                   origin = $2,
                   quarantined = (scope_type = 'division')
             WHERE id = $1`,
-          [proposed.skillId, `bundle:${bundleSlug}@${bundleVersion}`],
+          [proposed.skillId, `bundle:${bundle.slug}@${bundle.version}`],
         );
-      });
+      }
+      installed.push(skill.slug);
     }
-    installed.push(skill.slug);
-  }
-
-  return installed;
+    return installed;
+  });
 }
 
 /**

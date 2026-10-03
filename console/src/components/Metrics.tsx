@@ -15,7 +15,7 @@ import { IconAlertTriangle, IconCircleCheck, IconPlus } from '@tabler/icons-reac
 import { api, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { locale, t } from '../i18n.ts';
-import { relative } from '../format.ts';
+import { numberSeparators, relative } from '../format.ts';
 import type { Goal, Metric } from '../types.ts';
 
 /** A metric's value as its unit reads. */
@@ -108,8 +108,8 @@ function ChangeMetric({ companyId, metric, opened, close, done }: {
       <Stack>
         <TextInput label={t('What is measured')} value={name} onChange={(e) => setName(e.currentTarget.value)} />
         <SimpleGrid cols={2}>
-          <NumberInput label={t('Where it starts')} value={baseline} onChange={setBaseline} allowDecimal thousandSeparator />
-          <NumberInput label={t('Target')} value={target} onChange={setTarget} allowDecimal thousandSeparator />
+          <NumberInput label={t('Where it starts')} value={baseline} onChange={setBaseline} allowDecimal {...numberSeparators()} />
+          <NumberInput label={t('Target')} value={target} onChange={setTarget} allowDecimal {...numberSeparators()} />
         </SimpleGrid>
         <TextInput label={t('By')} type="date" value={dueOn} onChange={(e) => setDueOn(e.currentTarget.value)} />
         {error && <Alert color="red" variant="light">{error}</Alert>}
@@ -150,7 +150,7 @@ function RecordValue({ companyId, metric, opened, close, done }: {
   return (
     <Modal opened={opened} onClose={close} title={metric.name} centered>
       <Stack>
-        <NumberInput label={t('Value now')} value={value} onChange={setValue} allowDecimal thousandSeparator />
+        <NumberInput label={t('Value now')} value={value} onChange={setValue} allowDecimal {...numberSeparators()} />
         <TextInput label={t('Where it comes from')} placeholder={t('e.g. the bank statement for September')} value={note} onChange={(e) => setNote(e.currentTarget.value)} />
         {error && <Alert color="red" variant="light">{error}</Alert>}
         <Group justify="flex-end">
@@ -204,8 +204,8 @@ export function AddMetric({ companyId, goal, opened, close, done }: {
           <Select label={t('Better is')} value={direction} onChange={setDirection} allowDeselect={false} data={[
             { value: 'up', label: t('Higher') }, { value: 'down', label: t('Lower') },
           ]} />
-          <NumberInput label={t('Where it starts')} value={baseline} onChange={setBaseline} allowDecimal thousandSeparator />
-          <NumberInput label={t('Target')} value={target} onChange={setTarget} allowDecimal thousandSeparator required />
+          <NumberInput label={t('Where it starts')} value={baseline} onChange={setBaseline} allowDecimal {...numberSeparators()} />
+          <NumberInput label={t('Target')} value={target} onChange={setTarget} allowDecimal {...numberSeparators()} required />
           <TextInput label={t('By')} type="date" value={dueOn} onChange={(e) => setDueOn(e.currentTarget.value)} />
           <TextInput label={t('Read from')} description={t('The capability whose answer is this number, if there is one')} placeholder="ledger.read" value={source} onChange={(e) => setSource(e.currentTarget.value)} />
         </SimpleGrid>

@@ -40,7 +40,7 @@
 import { withControlPlane } from './db/tenant.ts';
 import { Engine, type RunOutcome } from './engine/engine.ts';
 import {
-  HEARTBEAT_EVERY_MS, beat, claimTask, haltPastDeadlines, reclaimExpiredLeases, reclaimOrphans, releaseTask,
+  HEARTBEAT_EVERY_MS, beat, claimTask, giveBack, haltPastDeadlines, reclaimExpiredLeases, reclaimOrphans, releaseTask,
   liveHolders, silentHolders, stopBeating,
 } from './engine/checkout.ts';
 import { getTask } from './engine/tasks.ts';
@@ -52,7 +52,7 @@ import { runDueSchedules } from './scheduler/scheduler.ts';
 import { drainWakes, scheduleHeartbeats } from './scheduler/wake.ts';
 import { settleCompletedReviews } from './review/review.ts';
 import { evaluateAlerts } from './reporting/alerts.ts';
-import { evaluateCircuitBreakers, evaluateSpendLimit } from './governance/spend-guard.ts';
+import { evaluateCircuitBreakers, evaluateSpendLimit, isSpendPaused } from './governance/spend-guard.ts';
 import { startNewPeriods } from './engine/budget.ts';
 import * as inbox from './inbox/inbox.ts';
 import { runRetention } from './retention/retention.ts';
@@ -71,7 +71,10 @@ import {
   type OwnerChannel,
   type NotifiableItem,
 } from './owner/notify.ts';
-import { buildDailyDigest, renderDailyDigest } from './reporting/digest.ts';
+import { buildDailyDigest } from './reporting/digest.ts';
+import { renderDailyDigest } from './owner/digest-said.ts';
+import { deploymentLanguages } from './domain/language.ts';
+import { moneyDisplay } from './domain/money-display.ts';
 import {
   distillEpisodicToSemantic,
   distillSemanticToProcedural,
@@ -81,6 +84,8 @@ import type { LlmClient } from './llm/client.ts';
 import { sleep } from './timers.ts';
 import { eraseDueCompanies, removeWhatErasuresLeft, type ErasureDisk } from './governance/closing.ts';
 import type { OtlpExporter } from './reporting/otlp.ts';
+import { pollMailboxes, type MailOptions } from './chats/mail.ts';
+import type { SecretManager } from './secrets/manager.ts';
 
 export interface WorkerOptions {
   engine: Engine;
@@ -187,6 +192,12 @@ export interface WorkerOptions {
    * writer of JSON lines, which is what a log collector reads.
    */
   log?: (entry: Record<string, unknown>) => void;
+  /**
+   * Customers' mailboxes (0113): where their passwords are sealed, and a
+   * certificate authority to trust besides the system's. Omitted, no
+   * mailbox is read.
+   */
+  mail?: MailOptions & { secrets: SecretManager };
 }
 
 export interface TickReport {
@@ -226,6 +237,8 @@ export interface TickReport {
   erased: number;
   /** Spans sent to the OpenTelemetry collector this tick (0090). */
   traced: number;
+  /** Customers' mail that reached the company's work this tick (0113). */
+  mail: number;
   /** Set when the platform stop is in effect: the tick did nothing else. */
   stopped: boolean;
   errors: Array<{ stage: string; message: string }>;
@@ -292,6 +305,7 @@ function emptyReport(): TickReport {
     embedded: 0,
     erased: 0,
     traced: 0,
+    mail: 0,
     stopped: false, errors: [],
   };
 }
@@ -317,7 +331,7 @@ export interface WorkerCounts {
 
 export function madeProgress(report: TickReport): boolean {
   const ran = report.ran.some((run) => run.status !== 'runtime_unavailable');
-  return ran || report.reclaimed > 0 || report.scheduled > 0;
+  return ran || report.reclaimed > 0 || report.scheduled > 0 || report.mail > 0;
 }
 
 export class Worker {
@@ -508,6 +522,21 @@ export class Worker {
       report.scheduled += (await runDueSchedules(now)).length;
     });
 
+    // Customers' mail (0113): each open mailbox that is due, read about once
+    // a minute by whichever worker takes it first. Before the runs, so what a
+    // customer wrote is work this tick can start. A mailbox that fails says
+    // why on its channel, for the owner; here, for the operator's log.
+    const mail = this.#options.mail;
+    if (mail) {
+      await this.#stage(report, 'mailboxes', async () => {
+        const read = await pollMailboxes({
+          ...mail, now, ...(this.#options.companyId ? { companyId: this.#options.companyId } : {}),
+        });
+        report.mail += read.received;
+        if (read.failed > 0) this.#options.log?.({ level: 'warn', event: 'mailboxes.failed', failed: read.failed });
+      });
+    }
+
     for (const company of companies) {
       // One runtime failing its health check tells every later stage in this
       // tick the same thing, so the wake stage and the claim stage share the
@@ -531,7 +560,7 @@ export class Worker {
         while (next < claimed.length && !runtimeDown) {
           const status = await this.#runClaimed(report, company, claimed[next]!);
           next += 1;
-          if (status === 'runtime_unavailable') runtimeDown = true;
+          if (status === 'runtime_unavailable' || status === 'not_started') runtimeDown = true;
         }
         // Claims this tick will not run -- the runtime went down under them --
         // go straight back rather than holding their lanes and budget until
@@ -554,7 +583,7 @@ export class Worker {
           // budget failing one health check. Stopping is also right for the
           // others: a runtime that is down is down for every task that names
           // it, and the next tick is when to find out it came back.
-          if (status === 'runtime_unavailable') {
+          if (status === 'runtime_unavailable' || status === 'not_started') {
             runtimeDown = true;
             break;
           }
@@ -739,7 +768,7 @@ export class Worker {
             this.#say(report);
             // A runtime that is down puts its task back; trying again at once
             // would spend this place on the same refusal.
-            ran = status !== null && status !== 'runtime_unavailable';
+            ran = status !== null && status !== 'runtime_unavailable' && status !== 'not_started';
             break;
           }
         }
@@ -794,12 +823,17 @@ export class Worker {
    * a claim that carried a stale slug would run the task as something it is
    * not.
    */
-  /** Returns the outcome so the claim loop can decide whether to keep going. */
+  /**
+   * Returns the outcome so the claim loop can decide whether to keep going:
+   * `not_started` when the engine could not start the task, which stops this
+   * tick's claims as a runtime that is down does -- claiming again at once
+   * would take the same task back into the same failure.
+   */
   async #runClaimed(
     report: TickReport,
     companyId: string,
     taskId: string,
-  ): Promise<RunOutcome['status'] | null> {
+  ): Promise<RunOutcome['status'] | 'not_started' | null> {
     const roleSlug = await withTenant(companyId, async (tx) => {
       const task = await getTask(tx, taskId);
       if (!task) return null;
@@ -814,6 +848,19 @@ export class Worker {
     let outcome: RunOutcome;
     try {
       outcome = await this.#options.engine.runTask(companyId, taskId, roleSlug);
+    } catch (error) {
+      // What the engine threw before its run's own handling began -- the
+      // database refusing a write as the contract was read or the task moved
+      // (M1). Left, the task stayed checked out to this worker, which was not
+      // running it, unrenewed for a whole lease with no reason anywhere. Given
+      // back now, with why, and counted as a loss: a task that can never start
+      // halts as a crash loop with an incident rather than taking every
+      // worker's place in turn. If the database is still away, the lease is
+      // the backstop it always was.
+      const message = (error as Error).message;
+      this.#failed(report, 'run', `task ${taskId}: ${message}`);
+      await giveBack(companyId, taskId, this.id, `the worker could not start it: ${message}`).catch(() => undefined);
+      return 'not_started';
     } finally {
       this.#busy -= 1;
     }
@@ -912,6 +959,11 @@ export class Worker {
         this.#learnedAt.set(company, now.getTime());
         return;
       }
+      // Learning is spending, now that it is counted (N8): a company paused
+      // at its month's ceiling does not go on paying a model to distil. Not
+      // marked as learned, so it reads its history once resumed; the
+      // watermark has kept its place.
+      if (await isSpendPaused(company, now)) return;
 
       const scopes = await withTenant(company, async (tx) => {
         // Every division, and the company's oldest project to attribute the
@@ -1013,7 +1065,7 @@ export class Worker {
           const digest = await buildDailyDigest(company, yesterday);
           const sent = await dispatchDigest(company, owed, {
             day: digest.day,
-            text: renderDailyDigest(digest),
+            text: renderDailyDigest(digest, (await deploymentLanguages()).console, await moneyDisplay()),
           });
           report.digests += sent.delivered;
         }

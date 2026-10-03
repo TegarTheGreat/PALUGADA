@@ -6,12 +6,12 @@
  */
 import { useState } from 'react';
 import {
-  Alert, Avatar, Badge, Grid, Group, Paper, Stack, Table, Text, TextInput, Timeline,
+  Alert, Avatar, Grid, Group, Paper, Stack, Table, Text, TextInput, Timeline,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { api } from '../api.ts';
 import { useLoad } from '../hooks.ts';
-import { dateTime } from '../format.ts';
+import { actorSaid, dateTime, eventSentence } from '../format.ts';
 import type { PageProps } from '../App.tsx';
 import { t } from '../i18n.ts';
 import { LoadFailed, Loading, Section } from '../components/ui.tsx';
@@ -22,8 +22,8 @@ export function Health({ ctx }: PageProps) {
   const { companyId } = ctx;
   const view = useLoad(async () => {
     const [control, reviews, governance]: [
-      { frozenRoles: Array<{ roleId: string; slug: string; frozenAt: string; reason: string | null }> },
-      { reviews: Array<{ reviewerRoleSlug: string; reviewTaskId: string }> },
+      { frozenRoles: Array<{ roleId: string; slug: string; displayName: string | null; frozenAt: string; reason: string | null }> },
+      { reviews: Array<{ reviewerRoleSlug: string; reviewerRoleName: string | null; reviewTaskId: string }> },
       { log: Array<{ subject: string; action: string; actor: string }> },
     ] = await Promise.all([
       api('GET', `/api/control?companyId=${companyId}`),
@@ -52,11 +52,11 @@ export function Health({ ctx }: PageProps) {
                       <Group gap="sm" wrap="nowrap">
                         <Avatar size={34} radius="xl" src={rolePicture(role.slug)} alt="" />
                         <div>
-                          <Text size="sm" fw={600}>{role.slug}</Text>
+                          <Text size="sm" fw={600}>{role.displayName ?? role.slug}</Text>
                           <Text size="xs" c="dimmed">{role.reason ?? t('Repeatedly denied')} · {dateTime(role.frozenAt)}</Text>
                         </div>
                       </Group>
-                      <ActionButton size="xs" variant="light" label={t('Resume')} factor={t('Resume {role}', { role: role.slug })}
+                      <ActionButton size="xs" variant="light" label={t('Resume')} factor={t('Resume {role}', { role: role.displayName ?? role.slug })}
                         run={(proof) => api('POST', `/api/control/company/${companyId}/role/${role.roleId}/resume`, { proof })}
                         done={view.reload} />
                     </Group>
@@ -72,7 +72,7 @@ export function Health({ ctx }: PageProps) {
               <Table verticalSpacing={6}>
                 <Table.Tbody>
                   {reviews.map((row) => (
-                    <Table.Tr key={row.reviewTaskId}><Table.Td><Text size="sm" fw={600}>{row.reviewerRoleSlug}</Text></Table.Td><Table.Td><Text size="xs" c="dimmed" ff="monospace">{row.reviewTaskId.slice(0, 8)}</Text></Table.Td></Table.Tr>
+                    <Table.Tr key={row.reviewTaskId}><Table.Td><Text size="sm" fw={600}>{row.reviewerRoleName ?? row.reviewerRoleSlug}</Text></Table.Td><Table.Td><Text size="xs" c="dimmed" ff="monospace">{row.reviewTaskId.slice(0, 8)}</Text></Table.Td></Table.Tr>
                   ))}
                 </Table.Tbody>
               </Table>
@@ -109,8 +109,8 @@ export function Health({ ctx }: PageProps) {
         {log.length === 0 ? <Text size="sm" c="dimmed">{t('Nothing has changed yet.')}</Text> : (
           <Timeline bulletSize={12} lineWidth={2} active={log.length}>
             {log.slice(-30).reverse().map((row, index) => (
-              <Timeline.Item key={`${row.subject}-${index}`} title={<Text size="sm" fw={600}>{row.subject}</Text>}>
-                <Group gap={6}><Badge size="xs" variant="light">{row.action}</Badge><Text size="xs" c="dimmed">by {row.actor}</Text></Group>
+              <Timeline.Item key={`${row.subject}-${index}`} title={<Text size="sm" fw={600}>{eventSentence(`${row.subject}.${row.action}`)}</Text>}>
+                <Text size="xs" c="dimmed">{actorSaid(row.actor)}</Text>
               </Timeline.Item>
             ))}
           </Timeline>

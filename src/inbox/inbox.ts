@@ -16,6 +16,7 @@ import { withTenant, withControlPlane, type TenantClient } from '../db/tenant.ts
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
 import { createRootTask, getTask, transitionWithin } from '../engine/tasks.ts';
+import { reopenForQuestionWithin } from '../engine/journal.ts';
 import { releaseReservations } from '../engine/owner-control.ts';
 import { TERMINAL_STATUSES, isTerminal } from '../domain/task.ts';
 import { notifyAfterFor } from '../scheduler/windows.ts';
@@ -26,6 +27,10 @@ import { approveCandidate, rejectCandidate } from '../memory/store.ts';
 import { setStageWithin, stageOf, type Stage } from '../domain/stage.ts';
 import { deploymentLanguages, noteTalkDrift } from '../domain/language.ts';
 import { budgetHaltWords } from '../owner/budget-halt.ts';
+import {
+  askedFirstSaid, handledSaid, handoffFailedSaid, ownerReadingWithin, roleCalledWithin, runQuestionCard, skillCard, skillsCard,
+} from '../owner/platform-cards.ts';
+import { ACCOUNT_NAME } from '../engine/budget.ts';
 
 /** What a stage proposal's item carries (`stage.propose`). */
 interface StageChange {
@@ -97,11 +102,15 @@ export interface InboxItem {
   capabilityName: string | null;
   /** Who is asking: the role and division of the task behind the item. */
   roleSlug: string | null;
+  /** The name the owner gave that role, which is what the owner calls it (§2.3 item 7). */
+  roleName: string | null;
   divisionName: string | null;
   /** A question a run put to the owner with `owner.ask`, which the owner answers rather than approves. */
   question: string | null;
   /** The answers the run offered to choose from, when it offered some. */
   options: string[] | null;
+  /** A question answered at the company's browser (`browser.handover`): its card opens the browser. */
+  browser?: boolean;
   /**
    * What an approval's action was called with, redacted as the payload keeps
    * it: the card lists it, so the owner approves the arguments and not only
@@ -121,6 +130,37 @@ export interface InboxItem {
    * (0083): an approval a policy asked for, at tier 2 or below, by a role.
    */
   allowFor: boolean;
+  /** How many skills a skill card asks about: one, or a bundle's (B9). Null on any other card. */
+  skillCount: number | null;
+  /**
+   * What the owner asked on this card and what the run answered, oldest
+   * first; a question still waiting for its answer is last, with none (N6).
+   */
+  asked: Exchange[];
+}
+
+/** A question the owner asked on an approval card, and what the run answered; null until it has (N6). */
+export interface Exchange {
+  question: string;
+  answer: string | null;
+}
+
+/**
+ * What a run said after the owner asked about a card: the lines of its
+ * transcript since the question, which is its answer. Null when it said
+ * nothing and simply asked for the action again.
+ */
+async function answerSince(tx: TenantClient, taskId: string, itemId: string): Promise<string | null> {
+  const { rows } = await tx.query<{ body: string }>(
+    `SELECT n.body FROM run_notes n
+      WHERE n.task_id = $1
+        AND n.said_at > (SELECT max(e.occurred_at) FROM events e
+                          WHERE e.task_id = $1 AND e.type = 'owner.asked' AND e.payload->>'inboxItemId' = $2)
+      ORDER BY n.said_at, n.seq`,
+    [taskId, itemId],
+  );
+  const said = rows.map((row) => row.body).join('\n').trim();
+  return said ? said.slice(0, 2_000) : null;
 }
 
 export async function requestApproval(input: ApprovalInput): Promise<string> {
@@ -135,6 +175,8 @@ export async function requestApproval(input: ApprovalInput): Promise<string> {
   // an owner quick enough to answer it moved a task that was not waiting --
   // which the state machine refused, *after* the decision had been recorded.
   return withTenant(input.companyId, async (tx) => {
+    // What the owner asked about this action, and what the run answered (N6).
+    let asked: Exchange[] = [];
     // The task first, as every writer here takes it: task, then its items.
     if (input.taskId) {
       await tx.query('SELECT 1 FROM tasks WHERE id = $1 FOR NO KEY UPDATE', [input.taskId]);
@@ -150,14 +192,29 @@ export async function requestApproval(input: ApprovalInput): Promise<string> {
       // describing the first proposal would have the owner approve something
       // other than what would run. That item is withdrawn as superseded and
       // the new proposal is asked about in its place.
-      const { rows } = await tx.query<{ id: string; action_fingerprint: string | null }>(
-        `SELECT id, action_fingerprint FROM inbox_items
+      const { rows } = await tx.query<{
+        id: string; action_fingerprint: string | null; decision: string | null; owner_note: string | null;
+        payload: { asked?: Exchange[] };
+      }>(
+        `SELECT id, action_fingerprint, decision, owner_note, payload FROM inbox_items
           WHERE task_id = $1 AND kind = 'approval' AND status = 'open'
             AND capability_name IS NOT DISTINCT FROM $2
           ORDER BY created_at LIMIT 1`,
         [input.taskId, input.capabilityName],
       );
       const open = rows[0] ?? null;
+      // The owner asked about this card, and the run has come back to the
+      // action (N6): what it said since the question is its answer, kept on
+      // the card with the question, and the card waits for the owner's
+      // decision again -- on this card, or on the one that supersedes it.
+      asked = [...(open?.payload.asked ?? [])];
+      if (open?.decision === 'ask') {
+        asked.push({ question: open.owner_note ?? '', answer: await answerSince(tx, input.taskId, open.id) });
+        await appendEvent(tx, {
+          companyId: input.companyId, taskId: input.taskId, type: 'approval.answered', actor: 'broker',
+          payload: { inboxItemId: open.id, answered: asked.at(-1)!.answer !== null },
+        });
+      }
       const superseded = open !== null && input.actionFingerprint !== undefined
         && open.action_fingerprint !== null && open.action_fingerprint !== input.actionFingerprint;
       if (open && superseded) {
@@ -175,6 +232,14 @@ export async function requestApproval(input: ApprovalInput): Promise<string> {
         });
       }
       const existing = open && !superseded ? open.id : null;
+      if (existing && open?.decision === 'ask') {
+        await tx.query(
+          `UPDATE inbox_items SET decision = NULL, decided_at = NULL, decided_via = NULL,
+                  payload = payload || jsonb_build_object('asked', $2::jsonb)
+            WHERE id = $1`,
+          [existing, JSON.stringify(asked)],
+        );
+      }
       if (existing) {
         // Only if the task is actually somewhere it can wait from. A task
         // already parked on this item needs no second transition, and one that
@@ -199,7 +264,7 @@ export async function requestApproval(input: ApprovalInput): Promise<string> {
         input.companyId, input.taskId ?? null, input.title ?? input.actionSummary, input.actionSummary,
         input.rationale, input.tier, input.estimatedCostCents ?? 0,
         input.consequenceIfDenied, input.capabilityName,
-        JSON.stringify(input.payload ?? {}), ttl, notifyAfter,
+        JSON.stringify({ ...(input.payload ?? {}), ...(asked.length > 0 ? { asked } : {}) }), ttl, notifyAfter,
         input.actionFingerprint ?? null,
       ],
     );
@@ -436,6 +501,9 @@ export async function raiseEscalationWithin(tx: TenantClient, input: EscalationI
   // simply waits. Without a named role the escalation has no home, and F2.1's
   // own default for that case is the owner, now.
   const handledBy = policy?.roleSlug ? policy : null;
+  const askedFirst = handledBy?.roleSlug
+    ? askedFirstSaid(await ownerReadingWithin(tx), { role: await roleCalledWithin(tx, { slug: handledBy.roleSlug }), minutes: handledBy.afterMinutes })
+    : null;
   const divisionHasUntil = handledBy
     ? new Date(Date.now() + handledBy.afterMinutes * 60_000)
     : windowOpens;
@@ -451,10 +519,7 @@ export async function raiseEscalationWithin(tx: TenantClient, input: EscalationI
       input.companyId, input.taskId ?? null, input.title,
       // The owner is told who was supposed to handle it. An escalation that
       // reaches them without saying whose it was is one they have to trace.
-      handledBy
-        ? `${input.detail}\n\n${handledBy.roleSlug} was asked first and has had ` +
-          `${handledBy.afterMinutes} minutes.`
-        : input.detail,
+      askedFirst ? `${input.detail}\n\n${askedFirst}` : input.detail,
       input.tier ?? null, notifyAfter,
       // The recorded grace period is the one that was actually granted, so
       // an item whose division names nobody does not read as though four
@@ -465,6 +530,9 @@ export async function raiseEscalationWithin(tx: TenantClient, input: EscalationI
               divisionId: input.divisionId,
               escalationRole: handledBy.roleSlug,
               afterMinutes: handledBy.afterMinutes,
+              // As the owner read it, so it can be taken off again if the
+              // role cannot be given the escalation after all.
+              askedFirst,
             }
           : input.divisionId
             ? { divisionId: input.divisionId, escalationRole: null }
@@ -518,7 +586,7 @@ export async function handEscalations(companyId: string): Promise<number> {
   // still being worked on filled it, and fifty of those hid every new one.
   const { rows: waiting } = await withTenant(companyId, (tx) => tx.query<{
     id: string; task_id: string | null; title: string; rationale: string; notify_after: Date;
-    payload: { escalationRole: string; afterMinutes?: number };
+    payload: { escalationRole: string; afterMinutes?: number; askedFirst?: string | null };
   }>(
     `SELECT id, task_id, title, rationale, notify_after, payload FROM inbox_items
       WHERE kind = 'escalation' AND status = 'open'
@@ -550,7 +618,7 @@ export async function handEscalations(companyId: string): Promise<number> {
 
 async function handOver(companyId: string, item: {
   id: string; task_id: string | null; title: string; rationale: string; notify_after: Date;
-  payload: { escalationRole: string; afterMinutes?: number };
+  payload: { escalationRole: string; afterMinutes?: number; askedFirst?: string | null };
 }): Promise<boolean> {
   const role = item.payload.escalationRole;
   const found = await withTenant(companyId, async (tx) => {
@@ -571,8 +639,12 @@ async function handOver(companyId: string, item: {
     };
   });
 
-  const toOwnerNow = async (why: string) => {
-    const said = `\n\n${role} was asked first and has had ${item.payload.afterMinutes ?? 0} minutes.`;
+  const toOwnerNow = async (failed: Parameters<typeof handoffFailedSaid>[1]['why']) => {
+    const why = await withTenant(companyId, async (tx) => handoffFailedSaid(await ownerReadingWithin(tx),
+      { role: await roleCalledWithin(tx, { slug: role }), why: failed }));
+    // The note said when the item was raised; one raised before it was kept
+    // said it in English.
+    const said = `\n\n${item.payload.askedFirst ?? `${role} was asked first and has had ${item.payload.afterMinutes ?? 0} minutes.`}`;
     const rationale = `${item.rationale.endsWith(said) ? item.rationale.slice(0, -said.length) : item.rationale}\n\n${why}`;
     await withTenant(companyId, (tx) => tx.query(
       `UPDATE inbox_items SET rationale = $2, notify_after = least(notify_after, now()),
@@ -583,10 +655,8 @@ async function handOver(companyId: string, item: {
     return false;
   };
 
-  if (!found.role) return toOwnerNow(`${role} is not a role in this company, so this came to you at once.`);
-  if (!found.goalId || !found.projectId) {
-    return toOwnerNow(`${role} could not be given this: the company has no active goal or project to hang it from.`);
-  }
+  if (!found.role) return toOwnerNow({ kind: 'no_role' });
+  if (!found.goalId || !found.projectId) return toOwnerNow({ kind: 'nowhere' });
 
   const until = item.notify_after.toISOString();
   let taskId: string;
@@ -606,7 +676,7 @@ async function handOver(companyId: string, item: {
   } catch (error) {
     // A frozen role, a paused company, a role that cannot be given work: each
     // is a reason nobody will handle it, which is a reason to tell the owner.
-    return toOwnerNow(`${role} could not be given this (${(error as Error).message}), so this came to you at once.`);
+    return toOwnerNow({ kind: 'refused', record: (error as Error).message });
   }
 
   await withTenant(companyId, (tx) => tx.query(
@@ -624,9 +694,12 @@ async function noteHandling(companyId: string, item: {
     // Only finished tasks are asked about, and a finished task stays finished.
     const task = await getTask(tx, item.payload.handedTaskId!);
     if (!task) return;
-    const said = typeof task.output?.summary === 'string' && task.output.summary.trim()
-      ? task.output.summary.trim().slice(0, HANDLED_NOTE_LIMIT)
-      : `the task ended ${task.status}${task.haltReason ? ` (${task.haltReason})` : ''} without an account of itself.`;
+    const said = handledSaid(await ownerReadingWithin(tx), {
+      role: await roleCalledWithin(tx, { slug: item.payload.escalationRole }),
+      summary: typeof task.output?.summary === 'string' && task.output.summary.trim()
+        ? task.output.summary.trim().slice(0, HANDLED_NOTE_LIMIT) : null,
+      status: task.status, haltReason: task.haltReason ?? null,
+    });
     // Guarded on the marker, so a second pass -- or a second worker -- adds
     // the note once.
     await tx.query(
@@ -634,7 +707,7 @@ async function noteHandling(companyId: string, item: {
           SET rationale = rationale || $2,
               payload = payload || jsonb_build_object('handledOutcome', $3::text)
         WHERE id = $1 AND NOT payload ? 'handledOutcome'`,
-      [item.id, `\n\n${item.payload.escalationRole}: ${said}`, task.status],
+      [item.id, `\n\n${said}`, task.status],
     );
   });
 }
@@ -675,6 +748,12 @@ export async function askOwner(input: {
    * instead of writing it. Two to six, each short and different.
    */
   options?: string[] | null;
+  /**
+   * A question the owner answers at the company's browser rather than in
+   * words (`browser.handover`): the card opens the browser, and giving the
+   * browser back answers it.
+   */
+  browser?: boolean;
 }): Promise<AgentQuestion> {
   const question = input.question.trim();
   const options = input.options ? input.options.map((option) => String(option ?? '').trim()) : null;
@@ -691,8 +770,8 @@ export async function askOwner(input: {
   }
   return withTenant(input.companyId, async (tx) => {
     // The task before the item, the order every other writer takes them in.
-    const task = await tx.query<{ status: string; role: string }>(
-      `SELECT t.status, r.slug AS role FROM tasks t JOIN roles r ON r.id = t.role_id
+    const task = await tx.query<{ status: string; role: string; role_name: string | null }>(
+      `SELECT t.status, r.slug AS role, r.display_name AS role_name FROM tasks t JOIN roles r ON r.id = t.role_id
         WHERE t.id = $1 FOR NO KEY UPDATE OF t`, [input.taskId]);
     if (!task.rows[0]) {
       throw new PalugadaError('contract.violation', 'no such task in this company', { taskId: input.taskId });
@@ -731,16 +810,21 @@ export async function askOwner(input: {
       );
     }
 
+    // By the name the owner gave the role, which is what they call it; the
+    // short name is the platform's (§2.3 item 7). The question is the title
+    // and the item's own field; the detail is only what the run said depends
+    // on it, so the card does not say the question twice.
+    const card = runQuestionCard(await ownerReadingWithin(tx),
+      { role: task.rows[0]!.role_name ?? task.rows[0]!.role, question, why: input.why?.trim() || null });
     const id = await raiseEscalationWithin(tx, {
       companyId: input.companyId,
       taskId: input.taskId,
-      title: `${task.rows[0]!.role} asks: ${question.length > 140 ? `${question.slice(0, 139)}…` : question}`,
-      // The question is the title and the item's own field; the detail is
-      // only what the run said depends on it, so the card does not say the
-      // question twice.
-      detail: input.why?.trim() || 'The run did not say more than the question.',
-      consequenceIfDenied: 'The task is stopped, and nothing it was going to do happens.',
-      payload: { askedBy: 'agent', question, role: task.rows[0]!.role, ...(options ? { options } : {}) },
+      title: card.title,
+      detail: card.detail,
+      consequenceIfDenied: card.consequence,
+      payload: {
+        askedBy: 'agent', question, role: task.rows[0]!.role, ...(options ? { options } : {}), ...(input.browser ? { browser: true } : {}),
+      },
     });
     // Everything on the card is the run's own words to the owner: the
     // question, what depends on it and the answers it offers. Checked here,
@@ -856,25 +940,58 @@ export async function proposeSkillWithin(tx: TenantClient, input: {
   reviewerSaid: string | null;
   notifyAfter: Date;
 }): Promise<string> {
+  const card = skillCard(await ownerReadingWithin(tx), {
+    slug: input.slug, version: input.version, author: input.author, changelog: input.changelog, reviewerSaid: input.reviewerSaid,
+  });
   const { rows } = await tx.query<{ id: string }>(
     `INSERT INTO inbox_items
        (company_id, kind, title, action_summary, rationale, consequence_if_denied,
         payload, notify_after)
-     VALUES ($1,'skill_candidate',$2,$3,$4,
-             'Nothing changes; the current version of the skill stays in force.',
-             $5,$6)
+     VALUES ($1,'skill_candidate',$2,$3,$4,$5,$6,$7)
      RETURNING id`,
     [
       input.companyId,
-      `Skill ${input.slug} v${input.version}`,
+      card.title,
       input.summary,
-      `Proposed by ${input.author}.\n\n${input.changelog}` +
-        (input.reviewerSaid ? `\n\nThe reviewer approved it: ${input.reviewerSaid}` : '\n\nThe reviewer approved it.'),
+      card.detail,
+      card.consequence,
       JSON.stringify({
         skillVersionId: input.skillVersionId,
         slug: input.slug,
         version: input.version,
         author: input.author,
+      }),
+      input.notifyAfter,
+    ],
+  );
+  return rows[0]!.id;
+}
+
+/**
+ * Asks the owner about the skills one bundle brought, once (B9): every
+ * version the reviewer approved, on one card. A yes switches on each that is
+ * still waiting, a no turns each down, and any of them can be decided on the
+ * Skills page instead -- the card goes when none is left.
+ */
+export async function proposeSkillsWithin(tx: TenantClient, input: {
+  companyId: string;
+  bundle: string;
+  skills: Array<{ versionId: string; slug: string; version: number; summary: string; reviewerSaid: string | null }>;
+  refused: Array<{ slug: string; reason: string | null }>;
+  notifyAfter: Date;
+}): Promise<string> {
+  const card = skillsCard(await ownerReadingWithin(tx), { bundle: input.bundle, skills: input.skills, refused: input.refused });
+  const { rows } = await tx.query<{ id: string }>(
+    `INSERT INTO inbox_items
+       (company_id, kind, title, action_summary, rationale, consequence_if_denied, payload, notify_after)
+     VALUES ($1,'skill_candidate',$2,$3,$4,$5,$6,$7)
+     RETURNING id`,
+    [
+      input.companyId, card.title, card.summary, card.detail, card.consequence,
+      JSON.stringify({
+        bundle: input.bundle,
+        skillVersionIds: input.skills.map((skill) => skill.versionId),
+        skills: input.skills.map((skill) => ({ versionId: skill.versionId, slug: skill.slug, version: skill.version })),
       }),
       input.notifyAfter,
     ],
@@ -893,6 +1010,8 @@ export async function raiseBudgetAlert(input: {
   companyId: string;
   title: string;
   detail: string;
+  /** What the alert is about, for whatever closes it: `spendPause` for the month's pause (M6). */
+  payload?: Record<string, unknown>;
 }): Promise<string> {
   const notifyAfter = await notifyAfterFor('budget_alert', {});
 
@@ -900,10 +1019,10 @@ export async function raiseBudgetAlert(input: {
     const { rows } = await tx.query<{ id: string }>(
       `INSERT INTO inbox_items
          (company_id, kind, title, action_summary, rationale, consequence_if_denied,
-          notify_after)
-       VALUES ($1,'budget_alert',$2,$2,$3,'',$4)
+          notify_after, payload)
+       VALUES ($1,'budget_alert',$2,$2,$3,'',$4,$5)
        RETURNING id`,
-      [input.companyId, input.title, input.detail, notifyAfter],
+      [input.companyId, input.title, input.detail, notifyAfter, JSON.stringify(input.payload ?? {})],
     );
     return rows[0]!.id;
   });
@@ -933,17 +1052,17 @@ export async function raiseBudgetHalt(companyId: string, taskId: string): Promis
     if (raised.rows.length > 0) return null;
     const task = await getTask(tx, taskId);
     if (!task?.budgetAccountId) return null;
-    const { rows: accounts } = await tx.query<{ id: string; label: string; tokens_spent: string; tokens_max: string }>(
-      `SELECT id, label, tokens_spent, tokens_max FROM budget_accounts
-        WHERE id = ANY(app.budget_chain($1))
-        ORDER BY tokens_max - tokens_spent - tokens_reserved, id
+    const { rows: accounts } = await tx.query<{ id: string; name: string | null; tokens_spent: string; tokens_max: string }>(
+      `SELECT a.id, ${ACCOUNT_NAME} AS name, a.tokens_spent, a.tokens_max FROM budget_accounts a
+        WHERE a.id = ANY(app.budget_chain($1))
+        ORDER BY a.tokens_max - a.tokens_spent - a.tokens_reserved, a.id
         LIMIT 1`,
       [task.budgetAccountId],
     );
     const account = accounts[0];
     if (!account) return null;
     const words = budgetHaltWords(language, {
-      account: account.label,
+      account: account.name,
       work: workOf(task.input),
       spent: Number(account.tokens_spent),
       max: Number(account.tokens_max),
@@ -997,17 +1116,22 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
       title: string; action_summary: string; rationale: string; tier: number | null;
       estimated_cost_cents: number; consequence_if_denied: string;
       task_id: string | null; expires_at: Date | null; created_at: Date;
-      capability_name: string | null; role_slug: string | null; division_name: string | null;
+      capability_name: string | null; role_slug: string | null; role_name: string | null; division_name: string | null;
       question: string | null; options: string[] | null; snoozed_until: Date | null; input: unknown;
-      allow_for: boolean;
+      allow_for: boolean; asked: Exchange[] | null; asking: string | null; skill_count: number | null; browser: boolean;
     }>(
       `SELECT i.id, i.kind, i.status, i.title, i.action_summary, i.rationale, i.tier, i.snoozed_until,
               (${ALLOW_FOR_SQL}) AS allow_for,
               i.estimated_cost_cents, i.consequence_if_denied, i.task_id, i.expires_at,
-              i.created_at, i.capability_name, r.slug AS role_slug, d.name AS division_name,
+              i.created_at, i.capability_name, r.slug AS role_slug, r.display_name AS role_name, d.name AS division_name,
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->>'question' END AS question,
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'options' END AS options,
-              CASE WHEN i.kind = 'approval' THEN i.payload->'input' END AS input
+              coalesce(i.payload->>'askedBy' = 'agent' AND i.payload->>'browser' = 'true', false) AS browser,
+              CASE WHEN i.kind = 'approval' THEN i.payload->'input' END AS input,
+              i.payload->'asked' AS asked,
+              CASE WHEN i.decision = 'ask' THEN coalesce(i.owner_note, '') END AS asking,
+              CASE WHEN i.kind = 'skill_candidate'
+                   THEN coalesce(jsonb_array_length(i.payload->'skillVersionIds'), 1) END AS skill_count
          FROM inbox_items i
          LEFT JOIN tasks t ON t.id = i.task_id
          LEFT JOIN roles r ON r.id = t.role_id
@@ -1027,13 +1151,18 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
         estimatedCostCents: r.estimated_cost_cents,
         consequenceIfDenied: r.consequence_if_denied,
         taskId: r.task_id, expiresAt: r.expires_at, createdAt: r.created_at,
-        capabilityName: r.capability_name, roleSlug: r.role_slug, divisionName: r.division_name,
+        capabilityName: r.capability_name, roleSlug: r.role_slug, roleName: r.role_name, divisionName: r.division_name,
         question: r.question,
         options: r.options,
+        ...(r.browser ? { browser: true } : {}),
         input: r.input ?? null,
         goalChain: chain.map((goal) => ({ kind: goal.kind, statement: goal.statement })),
         snoozedUntil: r.snoozed_until,
         allowFor: r.allow_for,
+        skillCount: r.skill_count,
+        // What the owner asked and the run answered, and a question still
+        // waiting for its answer last (N6).
+        asked: [...(r.asked ?? []), ...(r.asking !== null ? [{ question: r.asking, answer: null }] : [])],
       });
     }
     return items;
@@ -1307,6 +1436,12 @@ export interface DecideOptions {
    * tier 2 or below, from one to 168 hours, with the owner's second factor.
    */
   allowForHours?: number;
+  /**
+   * A staff seat deciding, not the owner (0110). A seat decides nothing at
+   * tier 3 -- yes or no -- and gives no yes for a while; who decided is
+   * written on the item and its record.
+   */
+  seat?: { id: string; name: string } | null;
 }
 
 /** The longest the owner may allow a capability for without being asked: a week. */
@@ -1317,6 +1452,8 @@ export interface StandingApproval {
   id: string;
   roleId: string;
   roleSlug: string;
+  /** The name the owner gave the role, shown in place of its code. */
+  roleName: string | null;
   capabilityName: string;
   grantedByItem: string;
   createdAt: Date;
@@ -1361,6 +1498,18 @@ export async function decide(
         : null,
     };
   });
+  // A seat beside the owner (0110): tier 3 is the owner's whichever way it
+  // is answered, and a yes for a while loosens a control, which is too.
+  if (options.seat) {
+    if ((tier ?? 0) >= 3) {
+      throw new PalugadaError('staff.forbidden',
+        'tier 3 is the owner\'s to decide, yes or no: it stays in their inbox', { inboxItemId: itemId });
+    }
+    if (options.allowForHours !== undefined) {
+      throw new PalugadaError('staff.forbidden',
+        'allowing an action for a while loosens a control, which is the owner\'s to do', { inboxItemId: itemId });
+    }
+  }
   // Past its deadline, the owner's silence has already answered: the sweep
   // that says so runs once a tick, and an answer landing in between was
   // honoured -- a late yes overturning a no nobody was asked to confirm.
@@ -1513,10 +1662,11 @@ export async function decide(
               decided_at = now(),
               owner_note = $3,
               decided_via = $4,
+              decided_by_seat = $5,
               status = CASE WHEN $2 = 'ask' THEN 'open' ELSE 'decided' END
         WHERE id = $1 AND status = 'open' AND (expires_at IS NULL OR expires_at > now())
         RETURNING task_id, kind, payload`,
-      [itemId, decision, note, channel],
+      [itemId, decision, note, channel, options.seat?.id ?? null],
     );
     const row = rows[0];
     if (!row) throw await notOpen(tx, itemId);
@@ -1525,7 +1675,7 @@ export async function decide(
       companyId,
       taskId: row.task_id ?? undefined,
       type: 'owner.decided',
-      actor: 'owner',
+      actor: options.seat ? 'staff' : 'owner',
       // F10.8, and F12.5's audit half: which device the owner used is part of
       // what was decided. An approval that names the authenticator can be
       // matched to the row in `owner_authentications` that authorised it; one
@@ -1542,6 +1692,7 @@ export async function decide(
           : {}),
         ...(options.batch ? { batch: options.batch } : {}),
         ...(granting ? { allowForHours } : {}),
+        ...(options.seat ? { staff: { seatId: options.seat.id, name: options.seat.name } } : {}),
       },
     });
 
@@ -1588,13 +1739,21 @@ export async function decide(
     // used to do neither -- the decision was recorded and the skill stayed a
     // candidate, with nothing left in the inbox to say so.
     if (row.kind === 'skill_candidate' && decision !== 'ask') {
+      // Imported here: skills.ts raises this item, so a static import each
+      // way would be a cycle for no benefit.
+      const skills = await import('../skills/skills.ts');
       const versionId = String(row.payload.skillVersionId ?? '');
       if (versionId) {
-        // Imported here: skills.ts raises this item, so a static import each
-        // way would be a cycle for no benefit.
-        const skills = await import('../skills/skills.ts');
         if (decision === 'approve') await skills.activateSkillVersionWithin(tx, companyId, versionId);
         else await skills.rejectSkillVersionWithin(tx, companyId, versionId, note);
+      }
+      // A bundle's card (B9): each still waiting. One decided on the Skills
+      // page since stays as it was decided there.
+      const versionIds = Array.isArray(row.payload.skillVersionIds) ? (row.payload.skillVersionIds as unknown[]).map(String) : [];
+      for (const id of versionIds) {
+        if (!await skills.awaitsOwnerWithin(tx, id)) continue;
+        if (decision === 'approve') await skills.activateSkillVersionWithin(tx, companyId, id);
+        else await skills.rejectSkillVersionWithin(tx, companyId, id, note);
       }
     }
 
@@ -1668,6 +1827,11 @@ export async function decide(
         actor: 'owner',
         payload: { inboxItemId: itemId, question: note },
       });
+      // And the model is asked again, with the question in front of it (N6):
+      // replayed, the turn that asked for the action asked for it again and
+      // nobody read the question. What it says is the answer on this card
+      // (`requestApproval`).
+      if (row.kind === 'approval') await reopenForQuestionWithin(tx, row.task_id, note ?? '');
     }
     // Through `running` for a question too, because that is the only edge out
     // of waiting_approval and the task genuinely is running again -- with a
@@ -1806,8 +1970,11 @@ export async function decideMany(
   await withTenant(companyId, (tx) => appendEvent(tx, {
     companyId,
     type: 'owner.decided_batch',
-    actor: 'owner',
-    payload: { batch, decision, decided: outcome.decided.length, skipped: outcome.skipped.length },
+    actor: options.seat ? 'staff' : 'owner',
+    payload: {
+      batch, decision, decided: outcome.decided.length, skipped: outcome.skipped.length,
+      ...(options.seat ? { staff: { seatId: options.seat.id, name: options.seat.name } } : {}),
+    },
   }));
   return outcome;
 }
@@ -1911,23 +2078,41 @@ async function notOpen(tx: TenantClient, itemId: string): Promise<PalugadaError>
  * answer is now the owner's word to the task, read by its next run the way
  * any instruction is; a task waiting on the owner goes back to work; and
  * the item stays open, because the owner has said something, not decided.
+ *
+ * A run's own question (`owner.ask`) is the exception: answering it is all
+ * there is to decide. Left open, the run that resumed asked it again, found
+ * it open and parked, for ever (B6) -- what it reads is the decided item
+ * (`askOwner`, `answersFor`). So the answer decides it, as the console and
+ * the chats answer one.
  */
 export async function answerEscalation(
   companyId: string,
   itemId: string,
   answer: string,
+  options: { channel?: DecisionChannel; seat?: { id: string; name: string } | null } = {},
 ): Promise<void> {
   const text = String(answer ?? '').trim();
   if (!text) throw new PalugadaError('contract.violation', 'an answer cannot be empty', { field: 'answer' });
+  const { rows: asked } = await withTenant(companyId, (tx) => tx.query<{ question: boolean; tier: number | null }>(
+    "SELECT payload->>'askedBy' = 'agent' AS question, tier FROM inbox_items WHERE id = $1", [itemId]));
+  // A seat answers nothing at tier 3 (0110), as it decides nothing there.
+  if (options.seat && (asked[0]?.tier ?? 0) >= 3) {
+    throw new PalugadaError('staff.forbidden', 'tier 3 is the owner\'s to answer: it stays in their inbox', { inboxItemId: itemId });
+  }
+  if (asked[0]?.question) {
+    await decide(companyId, itemId, 'approve', text, { channel: options.channel ?? 'api', seat: options.seat ?? null });
+    return;
+  }
   await withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{ task_id: string | null }>(
       `UPDATE inbox_items
           SET payload = payload || jsonb_build_object(
                 'answers', coalesce(payload->'answers', '[]'::jsonb) ||
-                           jsonb_build_array(jsonb_build_object('from', 'owner', 'answer', $2::text, 'at', now())))
+                           jsonb_build_array(jsonb_build_object('from', $3::text, 'answer', $2::text, 'at', now())))
         WHERE id = $1 AND status = 'open'
         RETURNING task_id`,
-      [itemId, text],
+      // Who answered: the owner, or the seat by its name (0110).
+      [itemId, text, options.seat?.name ?? 'owner'],
     );
     const row = rows[0];
     if (!row) throw await notOpen(tx, itemId);
@@ -1936,8 +2121,8 @@ export async function answerEscalation(
       companyId,
       taskId: row.task_id ?? undefined,
       type: 'owner.answered',
-      actor: 'owner',
-      payload: { inboxItemId: itemId, answer: text },
+      actor: options.seat ? 'staff' : 'owner',
+      payload: { inboxItemId: itemId, answer: text, ...(options.seat ? { staff: { seatId: options.seat.id, name: options.seat.name } } : {}) },
     });
     if (!row.task_id) return;
     // The same record an instruction makes, so the run reads it where it
@@ -1946,8 +2131,8 @@ export async function answerEscalation(
       companyId,
       taskId: row.task_id,
       type: 'owner.instructed',
-      actor: 'owner',
-      payload: { text, inboxItemId: itemId },
+      actor: options.seat ? 'staff' : 'owner',
+      payload: { text, inboxItemId: itemId, ...(options.seat ? { staff: { seatId: options.seat.id, name: options.seat.name } } : {}) },
     });
     const task = await getTask(tx, row.task_id);
     if (task && WAITING_STATUSES.has(task.status)) {
@@ -2080,17 +2265,17 @@ export async function stopEverything(): Promise<number> {
 export async function standingApprovals(companyId: string): Promise<StandingApproval[]> {
   return withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
-      id: string; role_id: string; role_slug: string; capability_name: string; granted_by_item: string;
+      id: string; role_id: string; role_slug: string; role_name: string | null; capability_name: string; granted_by_item: string;
       created_at: Date; expires_at: Date; uses: number; last_used_at: Date | null;
     }>(
-      `SELECT s.id, s.role_id, r.slug AS role_slug, s.capability_name, s.granted_by_item,
+      `SELECT s.id, s.role_id, r.slug AS role_slug, r.display_name AS role_name, s.capability_name, s.granted_by_item,
               s.created_at, s.expires_at, s.uses, s.last_used_at
          FROM standing_approvals s JOIN roles r ON r.id = s.role_id
         WHERE s.revoked_at IS NULL AND s.expires_at > now()
         ORDER BY s.expires_at, s.id`,
     );
     return rows.map((row) => ({
-      id: row.id, roleId: row.role_id, roleSlug: row.role_slug, capabilityName: row.capability_name,
+      id: row.id, roleId: row.role_id, roleSlug: row.role_slug, roleName: row.role_name, capabilityName: row.capability_name,
       grantedByItem: row.granted_by_item, createdAt: row.created_at, expiresAt: row.expires_at,
       uses: row.uses, lastUsedAt: row.last_used_at,
     }));

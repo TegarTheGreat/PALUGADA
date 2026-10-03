@@ -57,6 +57,7 @@ file and without the repository:
 ```sh
 docker build -t palugada .
 docker run -d --name palugada -p 127.0.0.1:8787:8787 -v palugada-home:/home/node \
+  --security-opt seccomp=deploy/docker/seccomp-chromium.json \
   -e PALUGADA_SUPERUSER_URL='postgres://postgres:…@db:5432/postgres' \
   -e PALUGADA_OWNER_URL='postgres://palugada_owner:…@db:5432/palugada' \
   -e PALUGADA_APP_URL='postgres://palugada_app:…@db:5432/palugada' \
@@ -68,6 +69,17 @@ docker logs palugada | grep 'no owner yet'
 The last line is the link that makes you the owner
 ([getting started](getting-started.md#sign-in-for-the-first-time)); give the
 container `PALUGADA_OWNER_TOTP_REF` instead if you already have a secret.
+
+The image has Chromium, for the companies' browsers, and runs it with its
+sandbox, which keeps each page it renders in namespaces of its own. Docker's
+default seccomp profile does not let a container make those, so the image
+is given `deploy/docker/seccomp-chromium.json`: Docker's own profile with
+that one thing allowed (`scripts/seccomp-chromium.ts` says why, and what it
+is made from). Without it the browser does not start, and says so on the
+first page a role opens; `PALUGADA_BROWSER_SANDBOX=off` runs it without its
+sandbox instead, and `docker build --build-arg PALUGADA_BROWSER=0` builds
+the image without Chromium. On Kubernetes, the profile goes in the pod's
+`securityContext.seccompProfile` as a `Localhost` profile.
 Coolify and Dokploy have files of their own
 ([Coolify and Dokploy](coolify-dokploy.md)).
 
@@ -324,6 +336,14 @@ palugada: configuration refused: the database is 2 migrations behind this code (
 What each version changed is in `CHANGELOG.md`; which version is running
 is on `/api/health` (`"version"`), in the metrics as `palugada_build_info`,
 and at the foot of the owner's menu.
+A released version is a tag (`v0.2.0`): `git fetch --tags && git checkout v0.2.0`
+in place of `git pull` below runs it, and its image is
+`ghcr.io/tegarthegreat/palugada:0.2.0` ([releasing](../RELEASING.md)).
+
+Installed with the one command, running it again updates, with the database
+and the code copied first, and `sh ~/palugada/install.sh rollback` goes back
+to the code the last update replaced, leaving the data as it is
+([getting started](getting-started.md#install-in-one-command)).
 
 On this machine, take a backup, then:
 
@@ -386,12 +406,24 @@ and the compose file wait before they kill. The task's timeline says it was
 handed back; no attempt is charged, it does not count as a lost worker, and
 the next worker to come up resumes it at the step it reached.
 
+A failure nothing in the code handled is answered in two ways. A promise
+nothing awaited is written to standard error as `palugada: a failure nothing
+handled, and the process goes on: …`, and the process goes on. An exception
+nothing caught is written as `palugada: an exception nothing caught, so the
+process stops: …`; the process then stops as it does on SIGTERM, runs handed
+back, and exits 1 for the supervisor to start it again. Either line is a bug
+worth reporting. Secrets the process knows are redacted from both.
+
 A process killed outright loses no work either, but it is slower. Every
 worker writes to `worker_heartbeats` every fifteen seconds; when a worker
 has been quiet for a minute, the next sweep by any other worker -- or by the
 same process restarted -- returns its tasks to the queue, and they resume
 from the last committed step. Each counts as a lost worker towards the
-crash-loop limit of three. The lease of fifteen minutes stays the backstop
+crash-loop limit of three. Only a worker that has itself been writing there
+without a break for a minute judges another quiet: after the database was
+away, or a worker's own loop stalled, every worker's last word is old, and
+the others are given the minute to write again before their running tasks
+are taken. The lease of fifteen minutes stays the backstop
 for a holder that never wrote there. A write that was in flight when the
 process died is sent again under the key it first had, so a vendor that
 honours the key makes it once.
@@ -631,7 +663,9 @@ database:
   for a minute (`worker_heartbeats`), or when their leases run out if it
   never wrote there; the next worker resumes from the last committed step
   and repeats no action. The heartbeat is compared on the database's clock,
-  so machines whose clocks disagree cannot make a live worker look dead. A task that loses its worker three times is halted
+  so machines whose clocks disagree cannot make a live worker look dead, and
+  a worker that was away itself judges nobody until it has been back for a
+  minute, so a database outage cannot either. A task that loses its worker three times is halted
   as a crash loop and raised to you as an incident, rather than taking a
   third worker down.
 - A schedule's occurrence creates one task however many workers see it, and
@@ -665,8 +699,10 @@ shipped runs one app container on one published port.
   application role and ten as the control plane, and migrations open one
   more. Size PostgreSQL's connection limit for about twenty a process.
 - **Database size.** The event log grows with the work and is kept at least
-  a year; prompts at least ninety days. Set the windows under **Settings**,
-  **Company**, **Retention**.
+  a year; prompts at least ninety days. Finished work -- tasks, their
+  journals, runs and cards -- goes once both the event and trace windows
+  have passed it. Set the windows under **Settings**, **Company**,
+  **Retention**.
 - **Agent CLIs.** Each run is a separate process tree with a directory of
   its own on the machine that runs it. Size that machine's memory for the
   number of runs it may have at once.

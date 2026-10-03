@@ -35,7 +35,11 @@ import { withTenant } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { redactor } from '../secrets/manager.ts';
 import { channelDelivery, type ChannelDelivery, type Decision } from '../inbox/inbox.ts';
-import { buildDailyDigest, renderDailyDigest } from '../reporting/digest.ts';
+import { buildDailyDigest } from '../reporting/digest.ts';
+import { renderDailyDigest } from './digest-said.ts';
+import { moneyDisplay } from '../domain/money-display.ts';
+import { haltSaid } from './halt-said.ts';
+import { actionSaid } from './capability-said.ts';
 import { notifyAfterFor } from '../scheduler/windows.ts';
 
 /** One item, as a transport needs to see it. */
@@ -72,6 +76,18 @@ export function consoleTaskLinkFor(publicUrl: string, task: { companyId: string;
  */
 const CHANNEL_SUMMARY = "CASE WHEN i.kind = 'budget_alert' AND i.rationale <> '' THEN i.rationale ELSE i.action_summary END";
 
+/**
+ * Who asks a run's question (`owner.ask`), by the name the owner gave the
+ * role, for a heading in the owner's language. The title said "bookkeeper
+ * asks: ...", the role's short name and English whatever the owner reads
+ * (the analysis of 3 October, §2.3 item 7). Null for anything else.
+ */
+export function askerOf(item: string): string {
+  return `CASE WHEN ${item}.payload->>'askedBy' = 'agent' THEN (
+            SELECT coalesce(r.display_name, r.slug) FROM tasks t JOIN roles r ON r.id = t.role_id
+             WHERE t.id = ${item}.task_id) END`;
+}
+
 export interface NotifiableItem {
   id: string;
   companyId: string;
@@ -88,6 +104,8 @@ export interface NotifiableItem {
   language?: string;
   /** A question a run asked with `owner.ask`: the owner answers it rather than approving it. */
   question?: string | null;
+  /** Who asked it, by name (`askerOf`). */
+  asker?: string | null;
   /** The answers it offered to choose from, if any. */
   options?: string[] | null;
   /** When silence refuses it, for an item that waits only so long. */
@@ -230,12 +248,15 @@ export async function undelivered(
       language: string | null;
       question: string | null;
       options: string[] | null;
+      asker: string | null;
       expires_at: Date | null;
+      capability_name: string | null;
     }>(
       `SELECT i.id, i.kind, i.tier, i.title, ${CHANNEL_SUMMARY} AS action_summary, i.consequence_if_denied, i.expires_at,
-              (SELECT console_language FROM platform_control) AS language,
+              i.capability_name, (SELECT console_language FROM platform_control) AS language,
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->>'question' END AS question,
-              CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'options' END AS options
+              CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'options' END AS options,
+              ${askerOf('i')} AS asker
          FROM inbox_items i
     LEFT JOIN owner_notifications n
            ON n.inbox_item_id = i.id AND n.channel = $2 AND n.company_id = $1
@@ -260,13 +281,15 @@ export async function undelivered(
         companyId,
         kind: row.kind,
         tier: row.tier,
-        title: row.title,
-        actionSummary: row.action_summary,
+        // An action the broker asks about, named for what it does (§2.3 item 7).
+        title: actionSaid(row.language, row.title, row.capability_name),
+        actionSummary: actionSaid(row.language, row.action_summary, row.capability_name),
         consequenceIfDenied: row.consequence_if_denied,
         delivery,
         url: null,
         language: row.language ?? 'en',
         question: row.question,
+        asker: row.asker,
         options: row.options,
         expiresAt: row.expires_at,
       }];
@@ -434,9 +457,11 @@ export async function dispatchDoneNotices(
   for (const channel of takers) {
     const due = await withTenant(companyId, async (tx) => (await tx.query<{
       id: string; status: 'completed' | 'failed' | 'halted'; goal: string | null; summary: string | null;
-      halt_reason: string | null; role: string; language: string | null;
+      halt_reason: string | null; not_done: string | null; role: string; language: string | null;
     }>(
       `SELECT t.id, t.status, t.input->>'goal' AS goal, t.output->>'summary' AS summary, t.halt_reason,
+              CASE WHEN jsonb_typeof(t.output->'notDone') = 'string' THEN t.output->>'notDone'
+                   ELSE t.output->>'summary' END AS not_done,
               r.slug AS role, (SELECT console_language FROM platform_control) AS language
          FROM tasks t JOIN roles r ON r.id = t.role_id
         WHERE t.created_by = 'owner' AND t.parent_task_id IS NULL
@@ -469,13 +494,21 @@ export async function dispatchDoneNotices(
 
       const language = task.language ?? 'en';
       const goal = (task.goal ?? say(language, 'a task')).slice(0, 200);
+      // Work its run said it did not do (N9) is not "stopped": it ended, and
+      // the run's own reason is the news.
+      const notDone = task.status === 'failed' && task.halt_reason === 'not_done';
       const headline = task.status === 'completed'
         ? say(language, 'Done: {goal}', { goal })
-        : say(language, 'Stopped before finishing: {goal}', { goal });
+        : notDone
+          ? say(language, 'Not done: {goal}', { goal })
+          : say(language, 'Stopped before finishing: {goal}', { goal });
       const detail = task.status === 'completed'
         ? (task.summary ?? '').slice(0, 500)
-        // A halt reason is a code; `budget_exhausted` read aloud is "budget exhausted".
-        : say(language, 'Why: {reason}', { reason: (task.halt_reason ?? task.status).replace(/_/g, ' ') });
+        : notDone
+          ? (task.not_done ?? '').slice(0, 500)
+          // Why, as the task says it in the console: the halt's code read
+          // aloud ("budget exhausted") was English in every language.
+          : say(language, 'Why: {reason}', { reason: haltSaid(language, task.halt_reason) });
       const text = redactor.redact([headline, detail, `— ${task.role}`].filter(Boolean).join('\n'));
       try {
         const sent = await channel.deliverNotice!({
@@ -667,8 +700,9 @@ export async function retryDigests(
   let delivered = 0;
 
   const due = await withTenant(companyId, async (tx) => {
-    const { rows } = await tx.query<{ channel: string; digest_day: string }>(
-      `SELECT channel, to_char(digest_day, 'YYYY-MM-DD') AS digest_day
+    const { rows } = await tx.query<{ channel: string; digest_day: string; language: string | null }>(
+      `SELECT channel, to_char(digest_day, 'YYYY-MM-DD') AS digest_day,
+              (SELECT console_language FROM platform_control) AS language
          FROM owner_notifications
         WHERE company_id = $1
           AND digest_day IS NOT NULL
@@ -695,7 +729,7 @@ export async function retryDigests(
       await channel.deliverDigest({
         companyId,
         day: row.digest_day,
-        text: redactor.redact(renderDailyDigest(digest)),
+        text: redactor.redact(renderDailyDigest(digest, row.language, await moneyDisplay())),
       });
       await withTenant(companyId, async (tx) => {
         await tx.query(
@@ -742,12 +776,14 @@ export async function retryFailed(
     const { rows } = await tx.query<{
       id: string; kind: string; tier: number | null; title: string;
       action_summary: string; consequence_if_denied: string | null; delivery: string;
-      language: string | null; question: string | null; options: string[] | null; expires_at: Date | null;
+      language: string | null; question: string | null; options: string[] | null; asker: string | null;
+      expires_at: Date | null; capability_name: string | null;
     }>(
       `SELECT i.id, i.kind, i.tier, i.title, ${CHANNEL_SUMMARY} AS action_summary, i.consequence_if_denied, i.expires_at,
-              n.delivery, (SELECT console_language FROM platform_control) AS language,
+              i.capability_name, n.delivery, (SELECT console_language FROM platform_control) AS language,
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->>'question' END AS question,
-              CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'options' END AS options
+              CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'options' END AS options,
+              ${askerOf('i')} AS asker
          FROM owner_notifications n
          JOIN inbox_items i ON i.id = n.inbox_item_id
         WHERE n.company_id = $1
@@ -782,13 +818,14 @@ export async function retryFailed(
       companyId,
       kind: row.kind,
       tier: row.tier,
-      title: row.title,
-      actionSummary: row.action_summary,
+      title: actionSaid(row.language, row.title, row.capability_name),
+      actionSummary: actionSaid(row.language, row.action_summary, row.capability_name),
       consequenceIfDenied: row.consequence_if_denied,
       delivery: row.delivery as Exclude<ChannelDelivery, 'none'>,
       url: null,
       language: row.language ?? 'en',
       question: row.question,
+      asker: row.asker,
       options: row.options,
       expiresAt: row.expires_at,
     };
@@ -867,9 +904,9 @@ export async function retractClosed(
     const { rows } = await tx.query<{
       id: string; kind: string; title: string; status: ClosedItem['status'];
       decision: string | null; closed_reason: string | null;
-      external_ref: string | null; retract_attempts: number; language: string | null;
+      external_ref: string | null; retract_attempts: number; language: string | null; capability_name: string | null;
     }>(
-      `SELECT i.id, i.kind, i.title, i.status, i.decision, i.closed_reason,
+      `SELECT i.id, i.kind, i.title, i.status, i.decision, i.closed_reason, i.capability_name,
               n.external_ref, n.retract_attempts,
               (SELECT console_language FROM platform_control) AS language
          FROM owner_notifications n
@@ -909,7 +946,7 @@ export async function retractClosed(
       id: row.id,
       companyId,
       kind: row.kind,
-      title: row.title,
+      title: actionSaid(row.language, row.title, row.capability_name),
       status: row.status,
       decision: row.decision,
       closedReason: row.closed_reason,

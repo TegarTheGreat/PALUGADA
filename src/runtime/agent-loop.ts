@@ -48,6 +48,13 @@ export const TOOL_RESULT_LIMIT = 20_000;
  * whole run, if that is smaller.
  */
 const TURN_ALLOWANCE = 8_192;
+
+/**
+ * The least room a turn is given to write in. A turn the budget could fund
+ * only with less is not asked: it could not say anything useful, and the
+ * conversation it sends would be paid for regardless.
+ */
+const LEAST_ROOM = 512;
 const TURN_ALLOWANCE_CEILING = 32_768;
 
 /**
@@ -118,9 +125,24 @@ export async function runAgentLoop(
   for (let turn = 0; turn < MAX_TURNS; turn += 1) {
     if (services.signal.aborted) throw services.signal.reason ?? new Error('the run was stopped');
     const recorded = await services.step<RecordedTurn>(`model:turn ${turn + 1}`, 'llm', { turn }, async () => {
+      // Asked here, inside the step, so a turn replayed from the journal --
+      // which calls nothing -- is never refused for want of money: a task the
+      // owner continued after raising its ceiling replays its turns for free.
+      let room = allowance;
+      if (services.tokensLeft) {
+        const left = await services.tokensLeft();
+        const sending = Math.ceil(JSON.stringify({ system, messages, tools }).length / 4);
+        if (left - sending < LEAST_ROOM) {
+          throw new PalugadaError('budget.exceeded',
+            `the budget has ${left} tokens left, and this turn would send about ${sending} before the model wrote ` +
+              `anything: raise the account's ceiling to go on`,
+            { tokensLeft: left, sending });
+        }
+        room = Math.min(allowance, left - sending);
+      }
       const started = Date.now();
       const reply = await client.turn(
-        { model, system, messages, tools, maxTokens: allowance },
+        { model, system, messages, tools, maxTokens: room },
         services.signal,
       );
       // Charged before the turn is kept: the engine throws when the budget
@@ -138,9 +160,9 @@ export async function runAgentLoop(
       // Thrown inside the step, so the step is not committed: the next
       // attempt asks the model again. Returned, it would be journalled, and
       // every retry would replay the same silence without asking anyone.
-      if (saidNothing(reply.content) && reply.stopReason === 'max_tokens' && allowance >= ceiling) {
+      if (saidNothing(reply.content) && reply.stopReason === 'max_tokens' && room >= ceiling) {
         throw new Error(
-          `the model said nothing in ${allowance} tokens, the largest output allowance a turn gets here: `
+          `the model said nothing in ${room} tokens, the largest output allowance a turn gets here: `
             + 'a reasoning model spent it thinking. Lower its reasoning effort, or give the role a model '
             + 'that answers within it',
         );

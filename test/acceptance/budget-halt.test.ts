@@ -19,6 +19,7 @@ import { Engine } from '../../src/engine/engine.ts';
 import { CapabilityBroker } from '../../src/broker/broker.ts';
 import { CapabilityRegistry } from '../../src/broker/registry.ts';
 import { AdapterRegistry } from '../../src/runtime/protocol.ts';
+import type { LlmTurn, LlmTurnRequest, ToolUsingLlmClient } from '../../src/llm/client.ts';
 import * as inbox from '../../src/inbox/inbox.ts';
 import { createCompany, type Fixture } from '../helpers/fixtures.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
@@ -175,4 +176,54 @@ test('only a budget halt is continued; anything else is done again', async () =>
     (error: unknown) => isPalugadaError(error, 'task.not_continuable') && /deadline_passed/.test((error as Error).message));
   const live = await poorTask(fixture, 'Write the note');
   await assert.rejects(continueHalted(fixture.companyId, live.id), (error: unknown) => isPalugadaError(error, 'task.not_continuable'));
+});
+
+/** A model that answers with nothing but thinking, and records what it was asked. */
+class ThinkingModel implements ToolUsingLlmClient {
+  readonly requests: LlmTurnRequest[] = [];
+  async turn(request: LlmTurnRequest): Promise<LlmTurn> {
+    this.requests.push(structuredClone(request));
+    return { content: [], stopReason: 'max_tokens', inputTokens: 12_000, outputTokens: request.maxTokens ?? 0, costCents: 1, model: 'thinker-1' };
+  }
+  async complete(): Promise<never> {
+    throw new Error('not used');
+  }
+}
+
+async function longTask(fixture: Fixture) {
+  // About ten thousand tokens of brief, so a turn sends at least that much.
+  return createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    roleId: fixture.roleId, budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId,
+    input: { goal: `Plan the launch. ${'Every detail of the menu, the prices and the posts. '.repeat(780)}` },
+    createdBy: 'owner', reserveTokens: 1_000,
+  });
+}
+
+test('a turn the budget could not pay for is not asked of the model at all (B1)', async () => {
+  // The provider bills a call whether or not the budget then refuses to
+  // record it, so finding out after the call is finding out after paying.
+  const fixture = await createCompany('budget-no-call', { tokensMax: 6_000 });
+  const model = new ThinkingModel();
+  const engine = new Engine({ broker: new CapabilityBroker(new CapabilityRegistry()), workerId: 'think-worker', llm: model, handlers: new Map() });
+  const task = await longTask(fixture);
+  const outcome = await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.deepEqual([outcome.status, outcome.reason], ['halted', 'budget_exhausted']);
+  assert.equal(model.requests.length, 0, 'no call the budget could not pay for');
+  assert.equal((await inbox.listOpen(fixture.companyId)).length, 1, 'and the owner is told');
+});
+
+test('a turn is given no more room to write than the budget has left (B1)', async () => {
+  // The live run of 30 September: each empty turn of a reasoning model was
+  // asked again with twice the room, and each time the whole conversation
+  // was sent again, until a division's tokens were gone in one task.
+  const fixture = await createCompany('budget-room', { tokensMax: 15_000 });
+  const model = new ThinkingModel();
+  const engine = new Engine({ broker: new CapabilityBroker(new CapabilityRegistry()), workerId: 'think-worker', llm: model, handlers: new Map() });
+  const task = await longTask(fixture);
+  await engine.runTask(fixture.companyId, task.id, 'worker');
+  assert.ok(model.requests.length >= 1);
+  const first = model.requests[0]!.maxTokens!;
+  assert.ok(first < 8_192, `the first turn may write ${first}, less than its usual 8192: the budget has less than that left after what it sends`);
+  assert.ok(first >= 512, 'and still enough to say something');
 });

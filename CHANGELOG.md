@@ -99,6 +99,9 @@ The first version. What it holds, in the order an owner meets it.
   chat as news with a link; budget alerts reach the chat now too. Raise the
   ceiling on Money, then press **Continue** on the task: the same task goes
   on from where it stopped instead of starting again (STATUS 2.69).
+- A model turn the budget cannot pay for is not asked. Each turn is given no
+  more room to write than the budget has left, so a reasoning model that
+  keeps thinking stops at the ceiling instead of past it (STATUS 2.70).
 
 ### The owner
 

@@ -269,7 +269,9 @@ test('a runtime is lent what it needs and no more', async () => {
   // than the runtime's: the adapter writes down the process group it spawns,
   // so a worker killed outright leaves a record, and it reaches neither a
   // process on the other side of a pipe nor an in-process handler, whose
-  // context is built without it.
+  // context is built without it. `tokensLeft` (STATUS 2.70) answers one
+  // number -- what this run may still be charged -- so a model call the
+  // budget cannot pay for is not made; it reads nothing else.
   const fixture = await createCompany('runtime-services');
   await useRuntime(fixture, 'spy');
   const { adapter, seen } = spyAdapter();
@@ -279,8 +281,8 @@ test('a runtime is lent what it needs and no more', async () => {
   assert.deepEqual(
     Object.keys(seen.services!).sort(),
     process.platform === 'linux'
-      ? ['awaitChild', 'callTool', 'narrate', 'processes', 'reportUsage', 'signal', 'step']
-      : ['awaitChild', 'callTool', 'narrate', 'reportUsage', 'signal', 'step'],
+      ? ['awaitChild', 'callTool', 'narrate', 'processes', 'reportUsage', 'signal', 'step', 'tokensLeft']
+      : ['awaitChild', 'callTool', 'narrate', 'reportUsage', 'signal', 'step', 'tokensLeft'],
   );
 });
 

@@ -6079,7 +6079,48 @@ comment said a halted task "becomes an owner inbox item instead".
     `link_only`.
 - **Not done.** The token ceiling is still lifetime (L11), and a
   reasoning model's retries are not yet bounded by what is left (B1). Both
-  come next.
+  come next; the second is 2.70.
+
+## 2.70 A model turn is asked only when the budget can pay for it (F5.4, B1)
+
+Found on the live run of 30 September (B1) and seen again on 2 October.
+Each empty turn of a reasoning model was asked again with twice the room:
+8,192, then 16,384, then about 20,000. Every turn sent the whole
+conversation again, about 20,000 tokens of input. One marketing task counted
+325,000 tokens and spent a division's lifetime allowance. The budget found
+out only after each call, when the engine charged it. The provider bills a
+call whether or not the budget then refuses to record it, so finding out
+after the call was finding out after paying.
+
+- **Asked first.** A runtime may now ask `tokensLeft()` (`RunServices`,
+  `src/runtime/protocol.ts`). The engine answers with the task's own
+  reservation plus the least that any account in its chain has free, which is
+  what `budget_spend` would allow.
+- **Before every turn** (`runAgentLoop`, `src/runtime/agent-loop.ts`), the
+  in-process loop estimates what the turn sends, at four characters a token
+  of its system prompt, messages and tools.
+  - If what is left, less that, is under 512 tokens, the turn is not asked.
+    The run ends `budget.exceeded`, so the task halts `budget_exhausted` and
+    reaches the owner (2.69).
+  - Otherwise the turn may write no more than what is left. The doubling for
+    an empty turn still applies, but never past the budget.
+- **Only when it calls.** The check runs inside the journalled step, so a
+  turn replayed from the journal, which calls nothing, is never refused. A
+  task the owner continued after raising its ceiling replays its earlier
+  turns for free.
+- **The silence check names the room the turn had.** It now names the room
+  the turn was actually given. Before, it named the allowance, which the
+  budget may since have cut.
+- **Tested.** `budget-halt.test.ts`, with a model that only thinks:
+  - A task whose first turn would send about ten thousand tokens, with six
+    thousand left, halts without the model being asked once, and the owner
+    is told.
+  - With fifteen thousand left, the first turn may write less than its usual
+    8,192 and at least 512.
+  - Both failed before: the model was asked, and given 8,192.
+- **Not done.** Agent CLIs and other runtimes in another process call their
+  models themselves and cannot be asked first; for them the charge after the
+  call is still the limit.
 
 ## 3. Decisions, deviations, and what is unverified
 

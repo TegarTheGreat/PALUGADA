@@ -567,7 +567,8 @@ console into.
 - **History** keeps every decision with your note, and every item that
   closed without one.
 - A task's **What it did** and **What it said** show its events and its
-  transcript, and **Replay against the journal** runs it again with every
+  transcript, and **Replay against the journal** -- for a role this
+  deployment runs as code in its own process -- runs it again with every
   side effect answered from the record, so nothing leaves.
 - Retention is the only thing that deletes, and it records what it removed.
   Events are kept at least a year and prompts at least ninety days

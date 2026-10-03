@@ -3311,6 +3311,9 @@ test('the owner can replay a task the deployment ran (F11.4, F5.9)', async () =>
     const report = replayed.body.report as { steps: unknown[]; divergences: unknown[] };
     assert.equal(report.divergences.length, 0);
     assert.ok(report.steps.length >= 1, 'no step was served from the journal');
+    // And the console is told it can be: the button is offered for this task.
+    const detail = await call(deployment.url, 'GET', `/api/companies/${fixture.companyId}/tasks/${task.id}`, { token });
+    assert.equal(detail.body.replayable, true);
   } finally {
     await deployment.stop();
   }
@@ -3357,6 +3360,12 @@ test('a replay of a role this deployment does not run says so (F11.4)', async ()
     // that role's handler" are different problems with different fixes.
     assert.equal(answer.status, 400, JSON.stringify(answer.body));
     assert.match(String(answer.body.error), /no handler for role/);
+    // A button that can only be refused is not offered: the replay of a role
+    // run by a model, a CLI or a container is not this deployment's to do,
+    // and on a deployment started by `npm start` that is every role.
+    const detail = await call(deployment.url, 'GET', `/api/companies/${fixture.companyId}/tasks/${task.id}`, { token });
+    assert.equal(detail.status, 200, JSON.stringify(detail.body));
+    assert.equal(detail.body.replayable, false);
   } finally {
     await deployment.stop();
   }

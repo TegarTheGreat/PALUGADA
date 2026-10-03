@@ -6667,6 +6667,28 @@ What changed:
   stays off; a new one under a taken name is refused and the old brief
   kept; removed, its run is still there with no schedule.
 
+## 2.87 Replay is offered only where it can run (F11.4)
+
+Found by the audit of 30 September (Task 4, item 7). Every task's drawer
+offered **Replay against the journal**, and on a deployment started by
+`npm start` every press was refused: the route replays a role's in-process
+handler, `npm start` registers none, and a role run by a model, an agent
+CLI or a container is not replayed by this deployment at all (F5.9, F13).
+A button that can only be refused teaches the owner to stop pressing
+buttons.
+
+What changed:
+
+- **Said with the task.** `GET /api/companies/:id/tasks/:taskId` answers
+  `replayable`: true only when the task's role is one this deployment runs
+  as a handler in its own process.
+- **Shown only then.** The drawer offers the replay when it can run, and
+  not otherwise. The route still refuses by name, for a caller that asks
+  anyway.
+- **Tested.** `owner-api.test.ts`: a task whose role the deployment runs is
+  replayable and replays; one whose role it does not run is not, and its
+  replay is refused with why.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

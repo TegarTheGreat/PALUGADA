@@ -168,6 +168,9 @@ The first version. What it holds, in the order an owner meets it.
   and only the page that showed it can make it yours. Everyone who opened
   the link used to be shown the same one, so whoever saw it first kept a
   copy of your authenticator (STATUS 2.82).
+- **Replay against the journal** is shown only for a task this deployment
+  can replay. It was offered on every task and refused on every task a
+  model or an agent CLI ran (STATUS 2.87).
 
 ### Operating it
 

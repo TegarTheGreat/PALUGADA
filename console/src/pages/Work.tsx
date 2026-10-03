@@ -290,6 +290,11 @@ export function TaskDrawer({ companyId, task, close, changed, openTask }: {
   }, [companyId, task?.id], { every: task && LIVE.includes(task.status) ? 10_000 : undefined });
   const [replay, setReplay] = useState<string | null>(null);
   const [replaying, setReplaying] = useState(false);
+  const replayable = useLoad(async () => {
+    if (!task) return false;
+    const answer: { replayable?: boolean } = await api('GET', `/api/companies/${companyId}/tasks/${task.id}`);
+    return answer.replayable === true;
+  }, [companyId, task?.id]);
 
   // Nothing is repeated: the replay has no broker, no model client and no
   // adapter wired in at all, so a task that bought a domain cannot buy it again.
@@ -374,13 +379,17 @@ export function TaskDrawer({ companyId, task, close, changed, openTask }: {
               </Timeline>
             )}
           </div>
-          <div>
-            <Button variant="light" leftSection={<IconPlayerPlay size={16} />} loading={replaying} onClick={() => void runReplay()}>
-              {t('Replay against the journal')}
-            </Button>
-            <Text size="xs" c="dimmed" mt={6}>{t('Runs the handler again with every side effect answered from the record. Nothing leaves.')}</Text>
-            {replay && <Code block mt="sm" style={{ maxHeight: 280, overflow: 'auto' }}>{replay}</Code>}
-          </div>
+          {/* Offered only where it can run: a role this deployment runs as a
+              handler in its own process (F11.4). */}
+          {replayable.data === true && (
+            <div>
+              <Button variant="light" leftSection={<IconPlayerPlay size={16} />} loading={replaying} onClick={() => void runReplay()}>
+                {t('Replay against the journal')}
+              </Button>
+              <Text size="xs" c="dimmed" mt={6}>{t('Runs the handler again with every side effect answered from the record. Nothing leaves.')}</Text>
+              {replay && <Code block mt="sm" style={{ maxHeight: 280, overflow: 'auto' }}>{replay}</Code>}
+            </div>
+          )}
           <Text size="xs" c="dimmed">{t('Task {id}', { id: task.id })}</Text>
         </Stack>
       )}

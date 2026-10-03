@@ -301,7 +301,10 @@ Open the task from **Work** (or **Open the task** on an inbox item).
   it replaces: your notes, and your answers to their questions, however
   many times the work was done again.
 - **Replay against the journal** runs the handler again with every side
-  effect answered from the record. Nothing leaves.
+  effect answered from the record. Nothing leaves. It is offered only for a
+  role this deployment runs as code in its own process; a role run by a
+  model, an agent CLI or a container is not replayed here, and the button
+  is not shown for it.
 
 To see how it was done, open **Every step**: each capability it called, by
 name, with its tier, the policies that applied and who approved it; **What

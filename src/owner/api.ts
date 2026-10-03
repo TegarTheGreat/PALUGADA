@@ -2975,7 +2975,12 @@ export class OwnerApi {
             throw new PalugadaError('contract.violation', 'no such task in this company', { taskId: params.taskId });
           }
           const item = (await workOf(params.companyId!, { taskId: params.taskId!, limit: 1 })).items[0] ?? null;
-          return { task, item };
+          // Whether a replay can run here: only for a role this deployment
+          // runs as an in-process handler. The console offered it on every
+          // task, and on a deployment started by `npm start` -- which runs
+          // none -- every press was refused (F11.4).
+          const replayable = Boolean(item && this.#options.replayHandlers?.has(item.roleSlug));
+          return { task, item, replayable };
         },
       },
 

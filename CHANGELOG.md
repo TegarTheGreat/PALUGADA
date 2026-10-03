@@ -177,6 +177,9 @@ The first version. What it holds, in the order an owner meets it.
   takes the running tasks of every other worker as if they had died; it
   gives them the minute to say they are alive first. One outage could halt
   live work as a crash loop (STATUS 2.81).
+- A task the worker could not start -- the database refusing a write as it
+  began -- goes back on the queue at once with the reason, instead of
+  sitting as running for fifteen minutes with none (STATUS 2.84).
 - Tenants separated by forced row-level security, composite keys between
   tenant tables, and an application role with only the grants its code uses.
 - Health, Prometheus metrics with their own token, and traces to an

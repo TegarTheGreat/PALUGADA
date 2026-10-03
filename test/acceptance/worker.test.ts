@@ -294,6 +294,53 @@ test('a failing stage is recorded and the tick continues', async () => {
  * Both were exported and tested and called by nothing, which meant a real
  * installation had no built-in bundles and never read its charters off disk.
  */
+/**
+ * M1 (the audit of 30 September, open on 2 October). A worker claims a task
+ * and hands it to the engine; anything the engine threw before the run's own
+ * handling began -- the database refusing a write as it loaded the contract
+ * or moved the task -- went up past the worker, which logged it and went on.
+ * The task stayed checked out to a worker that was not running it, its lease
+ * unrenewed, for fifteen minutes with no reason anywhere, and then came back
+ * counted as a lost worker.
+ */
+test('a task the engine could not start is handed back at once with why, and halts if it never can (M1)', async () => {
+  const fixture = await createCompany('worker-unstartable');
+  const engine = new Engine({
+    broker: new CapabilityBroker(baseRegistry()),
+    llm: new RecordingLlmClient(),
+    handlers: new Map([['worker', async () => ({ done: true })]]),
+    workerId: 'unstartable-worker',
+  });
+  let failing = true;
+  const runTask = engine.runTask.bind(engine);
+  engine.runTask = async (...args: Parameters<Engine['runTask']>) => {
+    if (failing) throw new Error('the database refused the write');
+    return runTask(...args);
+  };
+  const worker = new Worker({ engine, companyId: fixture.companyId, maxRunsPerTick: 1 });
+
+  const task = await newTask(fixture);
+  const report = await worker.tick();
+  assert.deepEqual(report.errors.map((error) => error.stage), ['run']);
+  assert.match(report.errors[0]!.message, /the database refused the write/);
+  const back = (await withTenant(fixture.companyId, (tx) => getTask(tx, task.id)))!;
+  assert.deepEqual([back.status, back.leaseHolder], ['pending', null], 'back on the queue now, not in fifteen minutes');
+  const { rows: said } = await withTenant(fixture.companyId, (tx) => tx.query<{ payload: { quiet: string } }>(
+    "SELECT payload FROM events WHERE task_id = $1 AND type = 'task.lease_expired'", [task.id]));
+  assert.match(said[0]!.payload.quiet, /could not start it: the database refused the write/);
+
+  // The next look, with the database back, runs it.
+  failing = false;
+  assert.equal((await worker.tick()).ran[0]?.status, 'completed');
+
+  // One that can never start stops taking workers after three tries, and the owner hears.
+  failing = true;
+  const doomed = await newTask(fixture);
+  for (let look = 0; look < 3; look += 1) await worker.tick();
+  const stopped = (await withTenant(fixture.companyId, (tx) => getTask(tx, doomed.id)))!;
+  assert.deepEqual([stopped.status, stopped.haltReason], ['halted', 'crash_loop']);
+});
+
 test('seeding publishes the built-in bundles and the standard template (F16.5)', async () => {
   const report = await seed();
 

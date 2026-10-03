@@ -40,7 +40,7 @@
 import { withControlPlane } from './db/tenant.ts';
 import { Engine, type RunOutcome } from './engine/engine.ts';
 import {
-  HEARTBEAT_EVERY_MS, beat, claimTask, haltPastDeadlines, reclaimExpiredLeases, reclaimOrphans, releaseTask,
+  HEARTBEAT_EVERY_MS, beat, claimTask, giveBack, haltPastDeadlines, reclaimExpiredLeases, reclaimOrphans, releaseTask,
   liveHolders, silentHolders, stopBeating,
 } from './engine/checkout.ts';
 import { getTask } from './engine/tasks.ts';
@@ -531,7 +531,7 @@ export class Worker {
         while (next < claimed.length && !runtimeDown) {
           const status = await this.#runClaimed(report, company, claimed[next]!);
           next += 1;
-          if (status === 'runtime_unavailable') runtimeDown = true;
+          if (status === 'runtime_unavailable' || status === 'not_started') runtimeDown = true;
         }
         // Claims this tick will not run -- the runtime went down under them --
         // go straight back rather than holding their lanes and budget until
@@ -554,7 +554,7 @@ export class Worker {
           // budget failing one health check. Stopping is also right for the
           // others: a runtime that is down is down for every task that names
           // it, and the next tick is when to find out it came back.
-          if (status === 'runtime_unavailable') {
+          if (status === 'runtime_unavailable' || status === 'not_started') {
             runtimeDown = true;
             break;
           }
@@ -739,7 +739,7 @@ export class Worker {
             this.#say(report);
             // A runtime that is down puts its task back; trying again at once
             // would spend this place on the same refusal.
-            ran = status !== null && status !== 'runtime_unavailable';
+            ran = status !== null && status !== 'runtime_unavailable' && status !== 'not_started';
             break;
           }
         }
@@ -794,12 +794,17 @@ export class Worker {
    * a claim that carried a stale slug would run the task as something it is
    * not.
    */
-  /** Returns the outcome so the claim loop can decide whether to keep going. */
+  /**
+   * Returns the outcome so the claim loop can decide whether to keep going:
+   * `not_started` when the engine could not start the task, which stops this
+   * tick's claims as a runtime that is down does -- claiming again at once
+   * would take the same task back into the same failure.
+   */
   async #runClaimed(
     report: TickReport,
     companyId: string,
     taskId: string,
-  ): Promise<RunOutcome['status'] | null> {
+  ): Promise<RunOutcome['status'] | 'not_started' | null> {
     const roleSlug = await withTenant(companyId, async (tx) => {
       const task = await getTask(tx, taskId);
       if (!task) return null;
@@ -814,6 +819,19 @@ export class Worker {
     let outcome: RunOutcome;
     try {
       outcome = await this.#options.engine.runTask(companyId, taskId, roleSlug);
+    } catch (error) {
+      // What the engine threw before its run's own handling began -- the
+      // database refusing a write as the contract was read or the task moved
+      // (M1). Left, the task stayed checked out to this worker, which was not
+      // running it, unrenewed for a whole lease with no reason anywhere. Given
+      // back now, with why, and counted as a loss: a task that can never start
+      // halts as a crash loop with an incident rather than taking every
+      // worker's place in turn. If the database is still away, the lease is
+      // the backstop it always was.
+      const message = (error as Error).message;
+      this.#failed(report, 'run', `task ${taskId}: ${message}`);
+      await giveBack(companyId, taskId, this.id, `the worker could not start it: ${message}`).catch(() => undefined);
+      return 'not_started';
     } finally {
       this.#busy -= 1;
     }

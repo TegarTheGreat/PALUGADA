@@ -6568,6 +6568,35 @@ What changed:
   and halts with one incident. `http-capability.test.ts` and
   `mcp-client.test.ts` hold which answers pass and which do not.
 
+## 2.84 A task the worker could not start goes back at once (F5.12, M1)
+
+Found by the audit of 30 September and still open on 2 October (M1). A
+worker claims a task and hands it to the engine (`#runClaimed`,
+`src/worker.ts`). Anything the engine threw before the run's own handling
+began -- the database refusing a write while the contract was read, the
+task moved, or preflight recorded -- went past the worker, whose loop logged
+`place.failed` and went on. The task stayed checked out to a worker that was
+not running it, its lease unrenewed, for the fifteen minutes of a lease,
+with no reason in the console; then it came back as a lost worker.
+
+What changed:
+
+- **Given back with why.** The worker catches what the engine throws,
+  records it on the tick as a `run` failure, and gives the task back at once
+  (`giveBack`): pending again, the lease cleared, and `task.lease_expired`
+  saying "the worker could not start it" and what was thrown.
+- **Counted as a loss.** A task that can never start halts as a crash loop
+  after three, with an incident, rather than taking every worker's place in
+  turn. A database that is still away cannot take the task back either, and
+  the lease stays the backstop it always was.
+- **Not claimed again in the same tick.** The worker stops claiming for that
+  company until the next tick, as it does when a runtime is down; a place
+  sleeps before it looks again.
+- **Tested.** `worker.test.ts`: an engine that throws as it starts leaves
+  the task pending with no holder after one tick, one `run` error and the
+  reason on the event; it runs once the engine can; one that can never
+  start halts with `crash_loop` after three ticks.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

@@ -135,11 +135,23 @@ effect.
 | `running` | A worker is running it | **Running** |
 | `waiting_approval` | Waiting for your decision | **Waiting** |
 | `waiting_review` | Waiting for another role's review | **Waiting** |
-| `waiting_window` | Allowed, but not at this hour; resumes when the window opens | **Waiting** |
+| `waiting_window` | Waiting for something other than your decision: work it handed on, its work hours, cheaper hours, a service that said not now, its turn at a busy tool, the model, or its next attempt. The line under its progress says which | **Waiting** |
 | `completed` | Done, and its output fitted the contract | **Done** |
-| `failed` | Ran out of attempts | **Stopped** |
+| `failed` | Ran out of attempts, or its run said it did not do what was asked (**Not done**) | **Stopped** |
 | `halted` | Stopped itself for a reason that another attempt would not fix | **Stopped** |
 | `cancelled` | You, an expired approval, or a freeze ended it | **Stopped** |
+
+Under a task, the bar counts the actions its plan named that it has taken:
+a plan of five actions with two done reads 2/5, wherever it stopped. A task
+waiting on work it handed on names the role it is waiting for, and when
+something below it, at any depth, is waiting for your answer, it says so in
+orange: "Waiting until you answer Nadia".
+
+A run that did not do what it was asked -- it could not, or it needed a
+decision it could not get -- says so, and the task ends as **Not done** with
+the run's reason, shown on the task and sent to your chat for work you gave.
+It is not tried again, since another attempt on the same facts would reach
+the same answer. Answer what it needed, then use **Do it again**.
 
 A halted task is never retried silently. Its reason is one of: a contract
 violation, a policy denial, the budget, the hop limit, the deadline, a failed

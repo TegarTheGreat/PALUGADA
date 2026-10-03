@@ -434,9 +434,11 @@ export async function dispatchDoneNotices(
   for (const channel of takers) {
     const due = await withTenant(companyId, async (tx) => (await tx.query<{
       id: string; status: 'completed' | 'failed' | 'halted'; goal: string | null; summary: string | null;
-      halt_reason: string | null; role: string; language: string | null;
+      halt_reason: string | null; not_done: string | null; role: string; language: string | null;
     }>(
       `SELECT t.id, t.status, t.input->>'goal' AS goal, t.output->>'summary' AS summary, t.halt_reason,
+              CASE WHEN jsonb_typeof(t.output->'notDone') = 'string' THEN t.output->>'notDone'
+                   ELSE t.output->>'summary' END AS not_done,
               r.slug AS role, (SELECT console_language FROM platform_control) AS language
          FROM tasks t JOIN roles r ON r.id = t.role_id
         WHERE t.created_by = 'owner' AND t.parent_task_id IS NULL
@@ -469,13 +471,20 @@ export async function dispatchDoneNotices(
 
       const language = task.language ?? 'en';
       const goal = (task.goal ?? say(language, 'a task')).slice(0, 200);
+      // Work its run said it did not do (N9) is not "stopped": it ended, and
+      // the run's own reason is the news.
+      const notDone = task.status === 'failed' && task.halt_reason === 'not_done';
       const headline = task.status === 'completed'
         ? say(language, 'Done: {goal}', { goal })
-        : say(language, 'Stopped before finishing: {goal}', { goal });
+        : notDone
+          ? say(language, 'Not done: {goal}', { goal })
+          : say(language, 'Stopped before finishing: {goal}', { goal });
       const detail = task.status === 'completed'
         ? (task.summary ?? '').slice(0, 500)
-        // A halt reason is a code; `budget_exhausted` read aloud is "budget exhausted".
-        : say(language, 'Why: {reason}', { reason: (task.halt_reason ?? task.status).replace(/_/g, ' ') });
+        : notDone
+          ? (task.not_done ?? '').slice(0, 500)
+          // A halt reason is a code; `budget_exhausted` read aloud is "budget exhausted".
+          : say(language, 'Why: {reason}', { reason: (task.halt_reason ?? task.status).replace(/_/g, ' ') });
       const text = redactor.redact([headline, detail, `— ${task.role}`].filter(Boolean).join('\n'));
       try {
         const sent = await channel.deliverNotice!({

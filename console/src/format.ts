@@ -179,6 +179,8 @@ const HALT_REASONS: Record<string, string> = {
   company_frozen: N('The company is frozen'),
   journal_divergence: N('Its record did not match on replay'),
   crash_loop: N('It kept stopping the worker running it'),
+  // Its run said so, with why (N9): the reason is on the task.
+  not_done: N('Not done'),
 };
 
 export function haltReason(code: string): string {

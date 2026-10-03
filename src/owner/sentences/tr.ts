@@ -13,6 +13,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Incident: {title}': 'Aksaklık: {title}',
   'Done: {goal}': 'Tamamlandı: {goal}',
   'Stopped before finishing: {goal}': 'Bitmeden durdu: {goal}',
+  'Not done: {goal}': 'Yapılmadı: {goal}',
   'Why: {reason}': 'Neden: {reason}',
   'a task': 'bir görev',
   'Approval needed: {title}': 'Onay gerekiyor: {title}',

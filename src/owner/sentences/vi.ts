@@ -13,6 +13,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Incident: {title}': 'Sự cố: {title}',
   'Done: {goal}': 'Đã xong: {goal}',
   'Stopped before finishing: {goal}': 'Đã dừng trước khi xong: {goal}',
+  'Not done: {goal}': 'Không làm được: {goal}',
   'Why: {reason}': 'Lý do: {reason}',
   'a task': 'một nhiệm vụ',
   'Approval needed: {title}': 'Cần phê duyệt: {title}',

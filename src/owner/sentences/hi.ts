@@ -12,6 +12,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Incident: {title}': 'घटना: {title}',
   'Done: {goal}': 'पूरा हुआ: {goal}',
   'Stopped before finishing: {goal}': 'पूरा होने से पहले रुका: {goal}',
+  'Not done: {goal}': 'नहीं हुआ: {goal}',
   'Why: {reason}': 'कारण: {reason}',
   'a task': 'एक कार्य',
   'Approval needed: {title}': 'स्वीकृति चाहिए: {title}',

@@ -16,7 +16,7 @@ import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError, isPalugadaError } from '../errors.ts';
 import { createSubTask, getTask, transition, type TaskRow } from './tasks.ts';
 import { validateContract } from './contracts.ts';
-import { checkDone, checkFailedWrites, roomForDone } from './done.ts';
+import { checkDone, checkFailedWrites, roomForDone, saidNotDone } from './done.ts';
 import { narrator } from './transcript.ts';
 import { processLedger } from './process-ledger.ts';
 import { containChildResult, type ChildResult } from './containment.ts';
@@ -1181,20 +1181,24 @@ export class Engine {
       // task's output: the action it was waiting for has not happened.
       if (parked) throw parked;
       if (ended) throw ended;
+      // N9: what the run says it did not do. Said, its report is not held to
+      // the criteria below: it is not claiming them.
+      let notDone: string | null = null;
       try {
         // F6.2, F6.3: validated before the task is marked complete, because a
         // downstream task triggered by `task.completed` has no other guarantee
         // about what it is about to read.
         validateContract('output', task.roleId, roleSlug, contract.output, output);
+        notDone = saidNotDone(output);
         // F2.8: a model's run says how it met each of its role's criteria,
         // and a step its evidence cites is held to this task's journal. What
         // it verified is not kept here: the owner's view weighs the same
         // report against the same journal when it is read (owner/views.ts).
-        if (writtenBy !== 'code' && contract.done.length > 0 && roomForDone(contract.output)) {
+        if (notDone === null && writtenBy !== 'code' && contract.done.length > 0 && roomForDone(contract.output)) {
           checkDone(contract.done, output, await withTenant(companyId, (tx) => journalOf(tx, taskId)));
         }
         // And to the writes that failed in this run and were never put right.
-        if (writtenBy !== 'code' && roomForDone(contract.output)) {
+        if (notDone === null && writtenBy !== 'code' && roomForDone(contract.output)) {
           checkFailedWrites(await withTenant(companyId, (tx) => unrecoveredWrites(tx, taskId, agentRunId)), output);
         }
       } catch (rejected) {
@@ -1202,6 +1206,25 @@ export class Engine {
         // answer would otherwise write it again from the journal.
         await reopenFinalTurns(companyId, taskId, (rejected as Error).message);
         throw rejected;
+      }
+
+      // Not done, by its own word (N9): the task ends with its reason, as work
+      // that did not happen rather than work finished. Not tried again: another
+      // attempt on the same facts reaches the same answer at the same price,
+      // and the owner, a parent waiting on it, or "Run again" decides what
+      // next. Not past the post_run hook either, which judges an output about
+      // to count as done.
+      if (notDone !== null) {
+        await this.#finishAgentRun(companyId, agentRunId, 'failed');
+        const settled = await withTenant(companyId, (tx) => getTask(tx, taskId));
+        if (settled && isTerminal(settled.status)) {
+          return { status: settled.status as RunOutcome['status'], reason: settled.haltReason ?? 'already settled' };
+        }
+        await transition(companyId, taskId, 'failed', {
+          output, haltReason: 'not_done', detail: notDone, writtenByModel: writtenBy !== 'code',
+        });
+        await this.#onHalt(companyId, task, 'not_done', new Error(notDone || 'not done'), agentRunId);
+        return { status: 'failed', reason: 'not_done' };
       }
 
       // F14: the post_run point. After the schema, because a hook asked to

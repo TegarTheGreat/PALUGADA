@@ -6330,6 +6330,37 @@ What changed:
   the engine records `child` for a real hand-off, `model` for a model that
   did not answer and `slot` for a busy capability.
 
+## 2.77 Work its run did not do ends as not done (N9)
+
+Found on the live run of 2 October (N9). The owner asked for customer
+cust-042's data to be deleted. The run deleted nothing -- the platform had
+swallowed its question to the owner (N3, section 2.68), and without an
+answer it judged it had no authority -- and said so in its summary: "cust-042's
+data was NOT deleted". The task showed "Done" in green. The role's criteria
+were about answering customers, and a ticket met them; whether what was
+asked happened was nobody's question.
+
+What changed:
+
+- **A run may say so.** It is told: if what the task asked for was not done,
+  add `"notDone"` with why, for the owner; ask the owner first when their
+  answer would let it do the work.
+- **The task ends there.** `failed`, with the reason `not_done` and the
+  run's words on the event and in the output. Its report is not held to
+  criteria it is not claiming, and it is not tried again: another attempt
+  on the same facts reaches the same answer at the same price. A blank
+  `notDone` says nothing; `true` with no reason is still not done.
+- **The owner reads it.** The console shows "Not done" and, on the task,
+  "Why it was not done" with the run's words. The chat notice for work the
+  owner gave reads "Not done: …" with the run's reason, where it used to
+  read the halt code aloud. The reason is held to the company's talk
+  language, as a summary is.
+- **Tested.** `done-criteria.test.ts`: a run that says it did not delete is
+  failed with `not_done` after one request, with no attempt spent, its
+  reason on the event, the output and the work view; a blank `notDone`
+  completes as before. `owner-channels.test.ts`: the Indonesian notice reads
+  "Tidak dikerjakan: …" with the run's reason.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

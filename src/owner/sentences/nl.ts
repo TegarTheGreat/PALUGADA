@@ -12,6 +12,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Incident: {title}': 'Incident: {title}',
   'Done: {goal}': 'Klaar: {goal}',
   'Stopped before finishing: {goal}': 'Gestopt voor het klaar was: {goal}',
+  'Not done: {goal}': 'Niet gedaan: {goal}',
   'Why: {reason}': 'Reden: {reason}',
   'a task': 'een taak',
   'Approval needed: {title}': 'Goedkeuring nodig: {title}',

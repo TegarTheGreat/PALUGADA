@@ -1616,6 +1616,43 @@ test('the owner hears in the chat that work they gave has finished, once, in the
   }
 });
 
+/*
+ * N9: work its run said it did not do is not "stopped" with a code read
+ * aloud. The owner reads that it was not done, and the run's own reason.
+ */
+test('work the owner gave that was not done is said to be not done, with the run\'s reason', async () => {
+  const fixture = await createCompany('not-done-notice');
+  const { createRootTask, transition } = await import('../../src/engine/tasks.ts');
+  const { dispatchDoneNotices } = await import('../../src/owner/notify.ts');
+  const { setOwnerWindow } = await import('../../src/scheduler/windows.ts');
+  const { withControlPlane } = await import('../../src/db/tenant.ts');
+  const hour = new Date().getUTCHours();
+  await setOwnerWindow({ timezone: 'UTC', startHour: hour, endHour: (hour + 2) % 24 });
+  await withControlPlane((tx) => tx.query("UPDATE platform_control SET console_language = 'id'"));
+  const task = await createRootTask({
+    companyId: fixture.companyId, projectId: fixture.projectId, divisionId: fixture.divisionId,
+    roleId: fixture.roleId, budgetAccountId: fixture.budgetAccountId, goalId: fixture.goalId,
+    input: { goal: 'Hapus data pelanggan cust-042' }, createdBy: 'owner', reserveTokens: 1_000,
+  });
+  await transition(fixture.companyId, task.id, 'running');
+  const why = 'Menghapus data pelanggan perlu persetujuan Anda, dan saya belum mendapatkannya.';
+  await transition(fixture.companyId, task.id, 'failed', {
+    haltReason: 'not_done', detail: why, output: { summary: 'Data cust-042 tidak dihapus.', notDone: why },
+  });
+
+  const vendor = await fakeVendor(() => ({ status: 200, body: { ok: true, result: { message_id: 11 } } }));
+  try {
+    assert.deepEqual(await dispatchDoneNotices(fixture.companyId, [telegram({ url: vendor.url })]), { delivered: 1 });
+    // As read, without Telegram's escapes.
+    const text = String(vendor.calls[0]!.body.text).replace(/\\/g, '');
+    assert.match(text, /Tidak dikerjakan: Hapus data pelanggan cust-042/);
+    assert.ok(text.includes(why), text);
+    assert.doesNotMatch(text, /not done|Sebabnya/, 'not a code read aloud');
+  } finally {
+    await vendor.close();
+  }
+});
+
 test('a push channel does not carry work-done news, and a failed notice is tried again later', async () => {
   const fixture = await createCompany('done-notice-push');
   const { createRootTask, transition } = await import('../../src/engine/tasks.ts');

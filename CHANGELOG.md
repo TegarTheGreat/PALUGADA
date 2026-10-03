@@ -118,6 +118,9 @@ The first version. What it holds, in the order an owner meets it.
   work hours, a model, a vendor, or the next attempt, and in orange when
   something below it waits on your answer. The word "Scheduled" is gone
   (STATUS 2.76).
+- Work a run did not do ends as "Not done", with the run's reason on the
+  task and in the chat, rather than "Done" in green. It is not tried again
+  on the same facts (STATUS 2.77).
 
 ### The owner
 

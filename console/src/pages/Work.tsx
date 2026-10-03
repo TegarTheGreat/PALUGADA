@@ -306,7 +306,11 @@ export function TaskDrawer({ companyId, task, close, changed, openTask }: {
     }
   };
 
-  const halted = task?.status === 'halted' ? events.data?.findLast((event) => event.type === 'task.halted') : undefined;
+  // Why it stopped, or -- for work its run said it did not do (N9) -- the
+  // run's own reason, which is what the owner needs to decide what next.
+  const notDone = task?.status === 'failed' && task.haltReason === 'not_done';
+  const ending = task?.status === 'halted' ? 'task.halted' : notDone ? 'task.failed' : null;
+  const halted = ending ? events.data?.findLast((event) => event.type === ending) : undefined;
   const haltDetail = typeof halted?.payload.detail === 'string' ? halted.payload.detail : null;
 
   return (
@@ -315,7 +319,11 @@ export function TaskDrawer({ companyId, task, close, changed, openTask }: {
         <Stack gap="lg">
           <div>
             <Group gap="xs" mb={6}><StatusBadge status={task.status} />{task.haltReason && <Badge color="red" variant="light">{haltReason(task.haltReason)}</Badge>}</Group>
-            {haltDetail && <Alert color="red" variant="light" mb="sm" title={t('Why it stopped')}>{haltDetail}</Alert>}
+            {haltDetail && (
+              <Alert color={notDone ? 'orange' : 'red'} variant="light" mb="sm" title={notDone ? t('Why it was not done') : t('Why it stopped')}>
+                {haltDetail}
+              </Alert>
+            )}
             <Text fw={700} size="lg">{task.summary}</Text>
             <Group gap="xs" mt={4} wrap="nowrap">
               <Avatar size={28} radius="xl" src={rolePicture(task.roleSlug)} alt="" />

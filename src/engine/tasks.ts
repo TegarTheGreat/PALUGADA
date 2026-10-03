@@ -888,6 +888,11 @@ export async function transitionWithin(
           ? { reason: options.waitReason }
           : completed ?? {},
     });
+    // Why work was not done is the run writing to the owner (N9), held to the
+    // talk language where it is kept, as a summary is.
+    if (to === 'failed' && options.haltReason === 'not_done' && options.writtenByModel && options.detail) {
+      await noteTalkDrift(tx, { companyId, taskId, where: 'not_done', text: options.detail });
+    }
     if (to === 'completed') {
       // The summary is what the done notice and the Work page show the owner
       // of finished work: the run's own report to them. Checked once, here,

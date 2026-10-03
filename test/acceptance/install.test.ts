@@ -15,7 +15,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, rmSync, existsSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -40,12 +40,19 @@ case "$*" in
   # As the real one may, it reads what it is given on standard input.
   "compose exec -T db pg_dump -U postgres -d palugada") cat > /dev/null; echo "-- PostgreSQL database dump" ;;
   "compose logs --no-color app") echo "app-1  | palugada: no owner yet: open http://localhost:8787/#/claim/k3y within a day to add your authenticator app" ;;
+  "compose ps --status running --services") if [ -f "${home}/running" ]; then cat "${home}/running"; else printf 'db\napp\n'; fi ;;
+  "compose exec -T app node scripts/browser-check.ts") echo "/usr/bin/chromium: the page rendered yes; 4 renderers, 4 in a user namespace of its own"; [ -f "${home}/browser-fails" ] && exit 1 ;;
 esac
 exit 0
 `);
-  // A download is the checkout's tarball, wherever it is asked for.
+  // A download is the checkout's tarball, wherever it is asked for; the
+  // health of the platform, read without -o, is what the test wrote.
   writeFileSync(join(bin, 'curl'), `#!/bin/sh
 echo "curl $*" >> "${log}"
+case "$*" in
+  *-o*) ;;
+  *api/health*) [ -f "${home}/health.json" ] || exit 7; cat "${home}/health.json"; exit 0 ;;
+esac
 while [ $# -gt 0 ]; do [ "$1" = "-o" ] && cp "${tarball}" "$2"; shift; done
 exit 0
 `);
@@ -57,7 +64,7 @@ exit 0
     ...(options.version === undefined ? { PALUGADA_SOURCE: tarball } : { PALUGADA_VERSION: options.version }),
     PALUGADA_PORT: '8788', PALUGADA_WAIT_SECONDS: '10',
   };
-  const run = () => spawnSync(SHELL, [join(ROOT, 'install.sh')], { encoding: 'utf8', env });
+  const run = (...args: string[]) => spawnSync(SHELL, [join(ROOT, 'install.sh'), ...args], { encoding: 'utf8', env });
   /**
    * Piped, as `curl ... | sh` runs it, and arriving a little at a time as a
    * download does: the shell runs what it has read while the rest is still
@@ -112,7 +119,7 @@ test('run again, it updates: the same passwords, and the database copied first',
   assert.equal(second.status, 0, second.stderr);
   assert.equal(readFileSync(join(place.dir, '.env'), 'utf8'), env, 'a new password would lock the platform out of its own database');
   assert.match(place.calls(), /^docker compose exec -T db pg_dump -U postgres -d palugada$/m);
-  const copies = readdirSync(join(place.dir, 'backups'));
+  const copies = readdirSync(join(place.dir, 'backups')).filter((name) => name.endsWith('.sql.gz'));
   assert.equal(copies.length, 1);
   assert.match(copies[0]!, /^palugada-\d{8}T\d{6}Z\.sql\.gz$/);
   assert.match(execFileSync('gzip', ['-dc', join(place.dir, 'backups', copies[0]!)], { encoding: 'utf8' }), /PostgreSQL database dump/);
@@ -154,4 +161,74 @@ test('PALUGADA_VERSION installs that release instead of the main branch, and a v
   assert.notEqual(refusedRun.status, 0);
   assert.match(refusedRun.stderr, /PALUGADA_VERSION is a release's tag, as v0\.2\.0/);
   assert.doesNotMatch(odd.calls(), /^curl/m, 'nothing is downloaded');
+});
+
+test('an update keeps the code it replaced, and rollback brings it back without touching the data', () => {
+  const place = bench();
+  assert.equal(place.run().status, 0);
+  writeFileSync(join(place.dir, 'marker.txt'), 'the version before');
+  writeFileSync(join(place.home, 'db-running'), '');
+  const update = place.run();
+  assert.equal(update.status, 0, update.stderr);
+  const kept = readdirSync(join(place.dir, 'backups')).sort();
+  assert.equal(kept.length, 2, kept.join(', '));
+  const stamp = /^palugada-(\d{8}T\d{6}Z)\.code\.tar\.gz$/.exec(kept[0]!)?.[1];
+  assert.ok(stamp, kept[0]);
+  assert.equal(kept[1], `palugada-${stamp}.sql.gz`, 'the code and the database, from the same moment');
+  const entries = execFileSync('tar', ['-tzf', join(place.dir, 'backups', kept[0]!)], { encoding: 'utf8' }).split('\n');
+  assert.ok(entries.includes('./marker.txt') && entries.includes('./docker-compose.yml'), 'the code as it was');
+  assert.ok(!entries.some((entry) => entry === './.env' || entry.startsWith('./backups')), 'without the passwords or the copies');
+
+  writeFileSync(join(place.dir, 'marker.txt'), 'the version after');
+  const env = readFileSync(join(place.dir, '.env'), 'utf8');
+  const builds = place.calls().match(/compose up -d --build/g)!.length;
+  const dumps = place.calls().match(/pg_dump/g)!.length;
+  const back = place.run('rollback');
+  assert.equal(back.status, 0, back.stderr);
+  assert.equal(readFileSync(join(place.dir, 'marker.txt'), 'utf8'), 'the version before');
+  assert.equal(readFileSync(join(place.dir, '.env'), 'utf8'), env);
+  assert.equal(place.calls().match(/compose up -d --build/g)!.length, builds + 1, 'built and started again');
+  assert.equal(place.calls().match(/pg_dump/g)!.length, dumps + 1, 'with a copy of the database taken first');
+  assert.doesNotMatch(place.calls(), /psql/, 'the data is left as it is: migrations only add');
+  // How to take the data back too, if that is what is wanted.
+  assert.ok(back.stdout.includes(`gzip -dc backups/palugada-${stamp}.sql.gz`), back.stdout);
+});
+
+test('rollback with nothing to go back to says so and changes nothing', () => {
+  const place = bench();
+  assert.equal(place.run().status, 0);
+  const before = place.calls();
+  const refused = place.run('rollback');
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /no earlier version to go back to/);
+  assert.equal(place.calls().replace(before, '').match(/compose up/g), null);
+  const odd = place.run('repair');
+  assert.notEqual(odd.status, 0);
+  assert.match(odd.stderr, /install, doctor or rollback/);
+});
+
+test('doctor says what is well, mends what is safe to mend, and names what is not', () => {
+  const place = bench();
+  assert.equal(place.run().status, 0);
+  writeFileSync(join(place.home, 'health.json'),
+    '{"ok":true,"database":"ok","version":"0.1.0","worker":{"lastTickAt":"2026-10-03T08:15:02.114Z"}}');
+  // Someone loosened .env, and the app is not running.
+  chmodSync(join(place.dir, '.env'), 0o644);
+  writeFileSync(join(place.home, 'running'), 'db\n');
+  const checked = place.run('doctor');
+  assert.equal(checked.status, 0, checked.stdout + checked.stderr);
+  assert.equal(statSync(join(place.dir, '.env')).mode & 0o777, 0o600, '.env is the owner\'s alone again');
+  assert.match(place.calls(), /^docker compose up -d$/m, 'what was stopped is started, not rebuilt');
+  assert.match(checked.stdout, /mended: \.env/);
+  assert.match(checked.stdout, /mended: started app/);
+  assert.match(checked.stdout, /ok: the console answers, version 0\.1\.0/);
+  assert.match(checked.stdout, /ok: the browser runs sandboxed/);
+
+  // A platform that does not answer, and a browser that cannot sandbox, are named, with what to do.
+  rmSync(join(place.home, 'health.json'));
+  writeFileSync(join(place.home, 'browser-fails'), '');
+  const sick = place.run('doctor');
+  assert.notEqual(sick.status, 0);
+  assert.match(sick.stdout, /problem: the console does not answer .*docker compose logs --tail 40 app/);
+  assert.match(sick.stdout, /problem: the browser/);
 });

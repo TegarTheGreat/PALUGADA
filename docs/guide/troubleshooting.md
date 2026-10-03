@@ -10,7 +10,10 @@ another language the card says the same in your language.
 Two places to look first: the lines the platform prints when it starts,
 each beginning `palugada:` (the same list is the **Finish setting up** card
 in the console), and its JSON log lines on standard error
-([operations](operations.md#monitoring)).
+([operations](operations.md#monitoring)). Installed with the one command,
+`sh ~/palugada/install.sh doctor` looks at all of it for you, mends what is
+safe to mend, and says what to do about the rest
+([getting started](getting-started.md#install-in-one-command)).
 
 ## Installing
 

@@ -8093,6 +8093,48 @@ What changed:
   the first page; CJK and other scripts DejaVu and Liberation do not cover
   draw as boxes.
 
+## 2.124 The installer checks an install, mends it, and goes back a version (§9 P2)
+
+The rest of item 17: "a `doctor` and an `update` that can be rolled
+back". 2.115 left both out, and 2.120 gave releases a version to go back
+to; what an owner without a terminal habit needs is one command that says
+what is wrong, and one that undoes the last update.
+
+What changed:
+
+- **`install.sh doctor`**, from the copy the installer keeps beside what it
+  installed: Docker answers; `.env` is there and the owner's alone; the
+  database and the platform run; the console answers, with its version, and
+  says its worker goes round (`/api/health`, read even when it says no, for
+  what it says); the browser starts sandboxed (`browser-check.ts`, in the
+  container); the disk has 2 GB free; and which copy of the database is
+  newest. It mends only what cannot lose anything -- `.env` made the
+  owner's again, a stopped container started without a rebuild, then
+  waited for -- names the rest with what to do, and exits with an error
+  while anything is wrong. The published port is read from `.env`.
+- **An update keeps the code it replaces** as well as the database, both
+  under one moment's name in `backups/`, without `.env` or the copies
+  themselves; two in one second wait for the next rather than writing over
+  each other.
+- **`install.sh rollback`** takes a copy first, puts back the code of the
+  newest copy, rebuilds and waits for the console. The data stays: the
+  earlier version runs on a database a later one migrated, and taking it
+  back too loses what was done since, so the command for that is printed,
+  naming the copy from the same moment, not run. Run again, it undoes
+  itself.
+- **Tested.** `install.test.ts`, with Docker and curl as stand-ins: an
+  update keeps the code (with what was there, without `.env` or `backups/`)
+  and the database at one moment; rollback restores the earlier file,
+  keeps `.env`, rebuilds once, takes one more copy of the database, restores
+  none, and names the right copy to restore (it named the newest until the
+  moment's name stopped being shared between the two); rollback with
+  nothing to go back to changes nothing; an unknown word is refused; doctor
+  mends a loosened `.env` and a stopped platform, and names a console that
+  does not answer and a browser that cannot sandbox. Run here against a real
+  stack built from this branch: all well, a loosened `.env` mended, and a
+  stopped platform started and found answering.
+- **Not done**: installing without Docker, and a hosted instance.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

@@ -340,6 +340,11 @@ A released version is a tag (`v0.2.0`): `git fetch --tags && git checkout v0.2.0
 in place of `git pull` below runs it, and its image is
 `ghcr.io/tegarthegreat/palugada:0.2.0` ([releasing](../RELEASING.md)).
 
+Installed with the one command, running it again updates, with the database
+and the code copied first, and `sh ~/palugada/install.sh rollback` goes back
+to the code the last update replaced, leaving the data as it is
+([getting started](getting-started.md#install-in-one-command)).
+
 On this machine, take a backup, then:
 
 ```sh

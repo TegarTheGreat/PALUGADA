@@ -51,9 +51,10 @@ by hand, without asking anything:
   **Model**, which the step-by-step setup would have asked.
 
 Run the same command again to update. It keeps `.env` and the data, copies
-the database to `~/palugada/backups/` before anything changes, then fetches
-the newest PALUGADA and rebuilds; the migrations run as it starts. If the
-copy fails, nothing is updated. The copy holds the database only: the key
+the database and the code it is about to replace to `~/palugada/backups/`
+before anything changes, then fetches the newest PALUGADA and rebuilds; the
+migrations run as it starts. If a copy fails, nothing is updated. The copy
+holds the database and the code only: the key
 that seals what you type into the console's secret fields is the file
 `master.key` in the `home` volume, which an update leaves as it is. Keep a
 copy of it apart from the backups
@@ -66,6 +67,24 @@ command with another tag updates to it, or goes back to it
 ```sh
 curl -fsSL https://raw.githubusercontent.com/TegarTheGreat/PALUGADA/main/install.sh | PALUGADA_VERSION=v0.2.0 sh
 ```
+
+The installer is kept beside what it installed, and does two more things:
+
+```sh
+sh ~/palugada/install.sh doctor     # what is well, what is not, and what to do
+sh ~/palugada/install.sh rollback   # back to the code the last update replaced
+```
+
+`doctor` checks Docker, `.env`, that the database and the platform are
+running, that the console answers and its worker goes round, that the
+browser runs sandboxed, the disk and the newest copy of the database. It
+mends what cannot lose anything -- `.env` made yours alone again, a stopped
+container started -- and names the rest with what to do; it exits with an
+error while anything is wrong. `rollback` takes a copy first, puts back the
+code of the last update's copy, and rebuilds; the data stays as it is,
+since the earlier version runs on a database a later one migrated, and it
+prints the command to take the data back too if that is what you want.
+Run it again to undo it.
 
 ## Install with Docker Compose
 

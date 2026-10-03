@@ -7,10 +7,19 @@ lists everything that is built.
 
 ## The owner
 
-There is one human in PALUGADA, and it is you. There are no user accounts, no
-passwords and no staff roles: you sign in with a code from your authenticator
-app, and holding that authenticator is what makes you the owner. One
-deployment can run many companies, and you own all of them.
+There is one owner in PALUGADA, and it is you. There are no user accounts
+and no passwords: you sign in with a code from your authenticator app, and
+holding that authenticator is what makes you the owner. One deployment can
+run many companies, and you own all of them.
+
+You can seat other people beside you, each for one company, under
+**Settings**, **People**. A **viewer** follows the company's work; an
+**approver** also approves or denies what waits at tier 2 and below. You
+make an invite with your device and send them the link; opening it, they
+add PALUGADA to their own authenticator app and sign in with its codes.
+Their code is never yours: tier 3, settings, keys, devices and anything
+that loosens a control stay yours, and **End the seat** signs them out at
+once.
 
 Two rules run through the whole console. Anything that tightens a control (a
 stop, a freeze, a lower ceiling, a kill switch) takes only your session,

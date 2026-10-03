@@ -7615,6 +7615,55 @@ What changed:
   (`gzip -dc backups/… | docker compose exec -T db psql -U postgres palugada`
   on an emptied database), which [operations](guide/operations.md) covers.
 
+## 2.116 Staff seats beside the one owner: a viewer, and an approver for tier 2 and below (§9 P2)
+
+Recommended by the analysis of 3 October (§9 P2 item 18: "viewer, and an
+approver for tier ≤2; tier 3 stays the owner's"), and chosen by the owner
+on 3 October. PALUGADA had one human, and a session could not tell people
+apart: any enrolled authenticator passed the owner's second factor and the
+tier 3 gate as the owner's. Paperclip and Buzz both have roles and invites.
+
+What changed:
+
+- **A seat is kept apart from the owner's factors** (0110,
+  `src/owner/staff.ts`). It has its own authenticator (its TOTP secret
+  sealed by reference, its steps used once) and its own sessions, in tables
+  only the control plane reads, and nothing that verifies the owner --
+  sign-in's second half, every `#requireFactor`, the tier 3 gate -- reads
+  them. A staff member's code offered as the owner's is refused as a wrong
+  code; at sign-in a seat's code is tried first, so a staff member signing
+  in never counts against the owner's lockout.
+- **A seat is one company's**, made by the owner with their device under
+  **Settings**, **People**, with an invite good for a week and spent by
+  joining. Like the owner's own claim, each opening of the invite is shown
+  a secret derived from the master key, the seat and a random value the
+  page carries, kept nowhere until a code from it is confirmed.
+- **Everything not listed is refused** (`src/owner/staff-policy.ts`): both
+  kinds read their company's pages and nothing of another company or of
+  the deployment; an approver also decides, answers and batch-decides the
+  inbox. `decide` refuses a seat any tier 3 item, yes or no, and any yes
+  for a while; the item records `decided_by_seat`, and its events are the
+  actor `staff` with the person's name. Ending a seat signs it out at once
+  and withdraws an unused invite.
+- **The console** asks `GET /api/me` who signed in, and for a seat leaves
+  out the owner's controls -- New, Talk to the CEO, Ask PALUGADA, Stop
+  everything, Settings, This deployment, the tour, the cross-company
+  search -- and on a card it may not decide, says why instead of drawing
+  buttons. A seat's actions read as "A staff member" on the timelines.
+- **Tested.** `staff.test.ts`: a viewer joins, reads its company and no
+  other, and is refused the owner's routes; an approver decides tier 2 and
+  is refused tier 3 either way and a yes for a while, and the record names
+  them; a staff code is refused as the owner's factor and at the tier 3
+  gate inside the owner's session; ending a seat signs it out and spends an
+  unused invite. `console-staff.test.ts`: in Chromium, an approver joins
+  from the invite, sees one company without the owner's controls, approves
+  a tier 2 card and is shown that tier 3 is the owner's (with the shell's
+  staff mode turned off, the console cannot even load for the seat).
+  `staff-routes.test.ts`: every read is given to staff or kept from them
+  with a reason, and the approver's actions are the inbox's alone.
+- **Not done**: a seat in the Telegram or WhatsApp chats, a passkey for a
+  seat, and a seat over several companies.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

@@ -33,7 +33,7 @@ import { api, ApiError, explain, type Proof } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { useLivePulse, useLoad } from '../hooks.ts';
 import { go } from '../router.ts';
-import type { Digest, InboxItem, StandingApproval, Trace } from '../types.ts';
+import type { Digest, InboxItem, Staff, StandingApproval, Trace } from '../types.ts';
 import { capabilitySaid, dateTime, goalKind, money, relative } from '../format.ts';
 import { t, tp } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
@@ -229,9 +229,11 @@ export function Decisions({ ctx, route }: PageProps) {
                       { value: 'escalation', label: t('Questions') },
                     ]}
                   />
-                  <Button size="compact-sm" variant={choosing ? 'light' : 'subtle'} onClick={() => (choosing ? stopChoosing() : setChoosing(true))}>
-                    {choosing ? t('Finish choosing') : t('Choose several')}
-                  </Button>
+                  {ctx.staff?.kind !== 'viewer' && (
+                    <Button size="compact-sm" variant={choosing ? 'light' : 'subtle'} onClick={() => (choosing ? stopChoosing() : setChoosing(true))}>
+                      {choosing ? t('Finish choosing') : t('Choose several')}
+                    </Button>
+                  )}
                 </Group>
                 {choosing && (
                   <Group justify="space-between" gap={6} mb="xs" px={4} wrap="nowrap">
@@ -318,6 +320,7 @@ export function Decisions({ ctx, route }: PageProps) {
                   decided={() => decided(current.id)}
                   openTask={() => ctx.open('work', { item: current.taskId })}
                   openSkills={() => ctx.open('settings', { section: 'skills' })}
+                  seat={ctx.staff}
                 />
               ) : (
                 <Paper withBorder radius="lg" p="xl"><Text c="dimmed" ta="center">{t('Choose an item.')}</Text></Paper>
@@ -430,9 +433,11 @@ function BatchConfirm({ companyId, decision, items, close, done }: {
 }
 
 function Detail({
-  item, companyId, position, back, decided, openTask, openSkills,
+  item, companyId, position, back, decided, openTask, openSkills, seat,
 }: {
   item: InboxItem;
+  /** A staff seat reading the inbox (0110): a viewer decides nothing, and nobody but the owner decides tier 3. */
+  seat: Staff | null;
   companyId: string;
   position: string;
   back: (() => void) | undefined;
@@ -442,6 +447,7 @@ function Detail({
   openSkills: () => void;
 }) {
   const requireFactor = useFactor();
+  const decides = seat === null || (seat.kind === 'approver' && (item.tier ?? 0) < 3);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -654,7 +660,7 @@ function Detail({
             <Group gap={6}><IconRoute size={16} />{traceOpen ? t('Hide what happened') : t('What happened')}</Group>
           </Anchor>
           {item.taskId && <Anchor component="button" size="sm" onClick={openTask}>{t('Open the task')}</Anchor>}
-          {item.kind === 'skill_candidate' && (
+          {item.kind === 'skill_candidate' && !seat && (
             <Anchor component="button" size="sm" onClick={openSkills}>
               {(item.skillCount ?? 1) > 1 ? t('Read the skills') : t('Read the skill')}
             </Anchor>
@@ -701,7 +707,7 @@ function Detail({
           />
         )}
 
-        {item.kind === 'escalation' && !item.question && (
+        {decides && item.kind === 'escalation' && !item.question && (
           <Paper withBorder radius="md" p="sm" bg="var(--mantine-color-default-hover)">
             <Textarea
               label={t('Answer the agent instead')}
@@ -722,7 +728,13 @@ function Detail({
         {error && <Alert color="red" variant="light">{error}</Alert>}
       </Stack>
       <Divider />
-      {item.question ? (
+      {!decides ? (
+        <Text p="md" size="sm" c="dimmed" bg="var(--mantine-color-default-hover)">
+          {seat?.kind === 'approver'
+            ? t('Tier 3 is the owner\'s to decide: it stays in their inbox.')
+            : t('You can read this; deciding it is for the owner or an approver.')}
+        </Text>
+      ) : item.question ? (
         <Group p="md" justify="flex-end" wrap="wrap" gap="xs" bg="var(--mantine-color-default-hover)">
           <Button variant="default" leftSection={<IconX size={16} />} loading={busy === 'deny'} onClick={() => void decide('deny')}>
             {t('Stop the task')}
@@ -740,7 +752,7 @@ function Detail({
           <Button variant="default" leftSection={<IconX size={16} />} loading={busy === 'deny'} onClick={() => void decide('deny')}>
             {t('Deny')}
           </Button>
-          {item.allowFor ? (
+          {item.allowFor && !seat ? (
             <Group gap={0} wrap="nowrap">
               <Button variant="outline" color="teal" leftSection={<IconCheck size={16} />} loading={busy === 'approve'}
                 onClick={() => void decide('approve')} style={{ borderTopRightRadius: 0, borderBottomRightRadius: 0 }}>

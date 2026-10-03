@@ -402,6 +402,8 @@ export function capabilitySaid(name: string): string {
 /** Who wrote an event, as the owner says it: never the part of the platform that did. */
 const ACTORS: Record<string, string> = {
   owner: N('You'),
+  // A seat beside the owner deciding or answering (0110); its name is on the record.
+  staff: N('A staff member'),
   agent_run: N('The agent'),
   scheduler: N('A schedule'),
   // Who wrote a charter, in the governance log (`CharterAuthor`).

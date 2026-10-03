@@ -89,6 +89,7 @@ const UNREACHABLE: Record<string, string> = {
   proposeStructuralChange: 'console: F3.9 a change cannot be proposed',
 
   // F10: the owner surface itself.
+  STAFF_HIDDEN: 'helper: the reads kept from a staff seat, with why, for the test that asks every read was decided',
 
   // F4: memory.
 

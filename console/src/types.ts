@@ -657,3 +657,10 @@ export interface WaitingRole {
   role: string;
   roleName: string | null;
 }
+
+/** A staff seat signed in beside the owner (0110): who, what it may do, and its one company. */
+export interface Staff {
+  name: string;
+  kind: 'viewer' | 'approver';
+  companyId: string;
+}

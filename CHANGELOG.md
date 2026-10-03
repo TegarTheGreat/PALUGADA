@@ -279,6 +279,12 @@ The first version. What it holds, in the order an owner meets it.
   `curl -fsSL https://raw.githubusercontent.com/TegarTheGreat/PALUGADA/main/install.sh | sh`.
   It prints the link that makes you the owner. Run it again to update; the
   database is copied to `~/palugada/backups` first (STATUS 2.115).
+- You can seat other people for a company under **Settings**, **People**: a
+  viewer follows its work, an approver also approves or denies what waits
+  at tier 2 and below. They join from a link with their own authenticator
+  app, never yours; tier 3, settings, keys and devices stay yours, the
+  record names who decided, and ending a seat signs them out at once
+  (STATUS 2.116).
 - **Replay against the journal** is shown only for a task this deployment
   can replay. It was offered on every task and refused on every task a
   model or an agent CLI ran (STATUS 2.87).

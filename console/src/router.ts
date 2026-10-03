@@ -14,7 +14,7 @@ import { useEffect, useState } from 'react';
 export const COMPANY_PAGES = ['inbox', 'overview', 'work', 'team', 'memory', 'money', 'history', 'settings'] as const;
 export type CompanyPage = (typeof COMPANY_PAGES)[number];
 
-export const SETTINGS_SECTIONS = ['company', 'language', 'safeguards', 'skills', 'bundles', 'devices', 'security'] as const;
+export const SETTINGS_SECTIONS = ['company', 'language', 'safeguards', 'skills', 'bundles', 'devices', 'people', 'security'] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
 export const DEPLOYMENT_SECTIONS = ['model', 'agents', 'tools', 'channels', 'services', 'mcp', 'erasures'] as const;

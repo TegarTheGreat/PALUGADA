@@ -1424,6 +1424,12 @@ export interface DecideOptions {
    * tier 2 or below, from one to 168 hours, with the owner's second factor.
    */
   allowForHours?: number;
+  /**
+   * A staff seat deciding, not the owner (0110). A seat decides nothing at
+   * tier 3 -- yes or no -- and gives no yes for a while; who decided is
+   * written on the item and its record.
+   */
+  seat?: { id: string; name: string } | null;
 }
 
 /** The longest the owner may allow a capability for without being asked: a week. */
@@ -1480,6 +1486,18 @@ export async function decide(
         : null,
     };
   });
+  // A seat beside the owner (0110): tier 3 is the owner's whichever way it
+  // is answered, and a yes for a while loosens a control, which is too.
+  if (options.seat) {
+    if ((tier ?? 0) >= 3) {
+      throw new PalugadaError('staff.forbidden',
+        'tier 3 is the owner\'s to decide, yes or no: it stays in their inbox', { inboxItemId: itemId });
+    }
+    if (options.allowForHours !== undefined) {
+      throw new PalugadaError('staff.forbidden',
+        'allowing an action for a while loosens a control, which is the owner\'s to do', { inboxItemId: itemId });
+    }
+  }
   // Past its deadline, the owner's silence has already answered: the sweep
   // that says so runs once a tick, and an answer landing in between was
   // honoured -- a late yes overturning a no nobody was asked to confirm.
@@ -1632,10 +1650,11 @@ export async function decide(
               decided_at = now(),
               owner_note = $3,
               decided_via = $4,
+              decided_by_seat = $5,
               status = CASE WHEN $2 = 'ask' THEN 'open' ELSE 'decided' END
         WHERE id = $1 AND status = 'open' AND (expires_at IS NULL OR expires_at > now())
         RETURNING task_id, kind, payload`,
-      [itemId, decision, note, channel],
+      [itemId, decision, note, channel, options.seat?.id ?? null],
     );
     const row = rows[0];
     if (!row) throw await notOpen(tx, itemId);
@@ -1644,7 +1663,7 @@ export async function decide(
       companyId,
       taskId: row.task_id ?? undefined,
       type: 'owner.decided',
-      actor: 'owner',
+      actor: options.seat ? 'staff' : 'owner',
       // F10.8, and F12.5's audit half: which device the owner used is part of
       // what was decided. An approval that names the authenticator can be
       // matched to the row in `owner_authentications` that authorised it; one
@@ -1661,6 +1680,7 @@ export async function decide(
           : {}),
         ...(options.batch ? { batch: options.batch } : {}),
         ...(granting ? { allowForHours } : {}),
+        ...(options.seat ? { staff: { seatId: options.seat.id, name: options.seat.name } } : {}),
       },
     });
 
@@ -1938,8 +1958,11 @@ export async function decideMany(
   await withTenant(companyId, (tx) => appendEvent(tx, {
     companyId,
     type: 'owner.decided_batch',
-    actor: 'owner',
-    payload: { batch, decision, decided: outcome.decided.length, skipped: outcome.skipped.length },
+    actor: options.seat ? 'staff' : 'owner',
+    payload: {
+      batch, decision, decided: outcome.decided.length, skipped: outcome.skipped.length,
+      ...(options.seat ? { staff: { seatId: options.seat.id, name: options.seat.name } } : {}),
+    },
   }));
   return outcome;
 }
@@ -2054,14 +2077,18 @@ export async function answerEscalation(
   companyId: string,
   itemId: string,
   answer: string,
-  options: { channel?: DecisionChannel } = {},
+  options: { channel?: DecisionChannel; seat?: { id: string; name: string } | null } = {},
 ): Promise<void> {
   const text = String(answer ?? '').trim();
   if (!text) throw new PalugadaError('contract.violation', 'an answer cannot be empty', { field: 'answer' });
-  const { rows: asked } = await withTenant(companyId, (tx) => tx.query<{ question: boolean }>(
-    "SELECT payload->>'askedBy' = 'agent' AS question FROM inbox_items WHERE id = $1", [itemId]));
+  const { rows: asked } = await withTenant(companyId, (tx) => tx.query<{ question: boolean; tier: number | null }>(
+    "SELECT payload->>'askedBy' = 'agent' AS question, tier FROM inbox_items WHERE id = $1", [itemId]));
+  // A seat answers nothing at tier 3 (0110), as it decides nothing there.
+  if (options.seat && (asked[0]?.tier ?? 0) >= 3) {
+    throw new PalugadaError('staff.forbidden', 'tier 3 is the owner\'s to answer: it stays in their inbox', { inboxItemId: itemId });
+  }
   if (asked[0]?.question) {
-    await decide(companyId, itemId, 'approve', text, { channel: options.channel ?? 'api' });
+    await decide(companyId, itemId, 'approve', text, { channel: options.channel ?? 'api', seat: options.seat ?? null });
     return;
   }
   await withTenant(companyId, async (tx) => {
@@ -2069,10 +2096,11 @@ export async function answerEscalation(
       `UPDATE inbox_items
           SET payload = payload || jsonb_build_object(
                 'answers', coalesce(payload->'answers', '[]'::jsonb) ||
-                           jsonb_build_array(jsonb_build_object('from', 'owner', 'answer', $2::text, 'at', now())))
+                           jsonb_build_array(jsonb_build_object('from', $3::text, 'answer', $2::text, 'at', now())))
         WHERE id = $1 AND status = 'open'
         RETURNING task_id`,
-      [itemId, text],
+      // Who answered: the owner, or the seat by its name (0110).
+      [itemId, text, options.seat?.name ?? 'owner'],
     );
     const row = rows[0];
     if (!row) throw await notOpen(tx, itemId);
@@ -2081,8 +2109,8 @@ export async function answerEscalation(
       companyId,
       taskId: row.task_id ?? undefined,
       type: 'owner.answered',
-      actor: 'owner',
-      payload: { inboxItemId: itemId, answer: text },
+      actor: options.seat ? 'staff' : 'owner',
+      payload: { inboxItemId: itemId, answer: text, ...(options.seat ? { staff: { seatId: options.seat.id, name: options.seat.name } } : {}) },
     });
     if (!row.task_id) return;
     // The same record an instruction makes, so the run reads it where it
@@ -2091,8 +2119,8 @@ export async function answerEscalation(
       companyId,
       taskId: row.task_id,
       type: 'owner.instructed',
-      actor: 'owner',
-      payload: { text, inboxItemId: itemId },
+      actor: options.seat ? 'staff' : 'owner',
+      payload: { text, inboxItemId: itemId, ...(options.seat ? { staff: { seatId: options.seat.id, name: options.seat.name } } : {}) },
     });
     const task = await getTask(tx, row.task_id);
     if (task && WAITING_STATUSES.has(task.status)) {

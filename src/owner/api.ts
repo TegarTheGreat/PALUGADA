@@ -167,6 +167,8 @@ import {
   speakerOf, type AssistantChannel, type AssistantProposal, type AssistantReach,
 } from './assistant.ts';
 import { closeFirstHour, firstHourOf } from './first-hour.ts';
+import { seatRequest, StaffSeats, type StaffSession } from './staff.ts';
+import { staffMay } from './staff-policy.ts';
 import { ASSISTANT_ACTIONS } from './assistant-actions.ts';
 import { PERSONAS, TITLES, personaFrom, titleFrom, type RolePersona } from '../domain/personas.ts';
 import { appointCeo } from '../governance/ceo.ts';
@@ -351,7 +353,10 @@ export interface OwnerApiOptions {
 interface Handler {
   (context: {
     request: IncomingMessage;
+    /** The owner's session; null for an open route, or a staff seat's request. */
     session: OwnerSession | null;
+    /** A staff seat's session (0110), already held to what its seat may reach (staff-policy.ts). */
+    staff: StaffSession | null;
     body: Record<string, unknown>;
     /** The body's bytes as they arrived, for a route that reads them itself. */
     raw: Buffer;
@@ -440,6 +445,7 @@ export class OwnerApi {
   readonly #options: OwnerApiOptions;
   readonly #sessions: OwnerSessions;
   readonly #claims: OwnerClaims;
+  readonly #staff: StaffSeats;
   readonly #routes: Route[];
   readonly #signInThrottle = new SignInThrottle();
   readonly #agentJobs = new AgentJobs();
@@ -463,6 +469,11 @@ export class OwnerApi {
       mfa: options.mfa,
       sessions: this.#sessions,
       master: () => options.deploymentSettings?.master(true) ?? null,
+    });
+    // Staff seats (0110): sealed like the claim, and read by the same store.
+    this.#staff = new StaffSeats({
+      master: () => options.deploymentSettings?.master(true) ?? null,
+      secrets: () => options.deploymentSettings?.secrets ?? null,
     });
     this.#routes = this.#buildRoutes();
   }
@@ -688,7 +699,16 @@ export class OwnerApi {
           this.#signInThrottle.check(address);
           let session: Awaited<ReturnType<OwnerSessions['signIn']>>;
           try {
-            session = await this.#sessions.signIn(proofFrom(body));
+            // A staff seat's code first (0110): a seat's sign-in must not be
+            // counted against the owner's factor, whose lockout is global.
+            // A code no seat's app shows goes on to the owner's.
+            const proof = proofFrom(body);
+            const seated = 'totp' in proof ? await this.#staff.signIn(proof.totp) : null;
+            if (seated) {
+              this.#signInThrottle.succeeded(address);
+              return { token: seated.token, expiresAt: seated.expiresAt.toISOString(), staff: staffOf(seated) };
+            }
+            session = await this.#sessions.signIn(proof);
           } catch (failure) {
             this.#signInThrottle.failed(address, failure);
             throw failure;
@@ -699,6 +719,7 @@ export class OwnerApi {
             expiresAt: session.expiresAt.toISOString(),
             device: session.factor.label,
             factor: session.factor.kind,
+            staff: null,
           };
         },
       },
@@ -706,9 +727,59 @@ export class OwnerApi {
       {
         method: 'POST',
         pattern: '/api/auth/sign-out',
-        handle: async ({ session }) => {
-          await this.#sessions.signOut(session!.token);
+        handle: async ({ session, staff }) => {
+          if (staff) await this.#staff.signOut(staff.token);
+          else await this.#sessions.signOut(session!.token);
           return { ok: true };
+        },
+      },
+
+      {
+        // Who is signed in: the owner, or a staff seat and what it may do (0110).
+        method: 'GET',
+        pattern: '/api/me',
+        handle: async ({ staff }) => ({ owner: staff === null, staff: staff ? staffOf(staff) : null }),
+      },
+
+      {
+        // An invite to a staff seat, opened (staff.ts): open and throttled
+        // like the owner's claim, since the code in the link is the
+        // credential. Answers with a secret for the person's app.
+        method: 'POST',
+        pattern: '/api/auth/join',
+        open: true,
+        handle: async ({ body, request }) => {
+          const address = addressOf(request, this.#options.behindProxy === true);
+          this.#signInThrottle.check(address);
+          try {
+            return await this.#staff.open(String(body.code ?? ''), `staff@${hostLabel(request)}`);
+          } catch (failure) {
+            this.#signInThrottle.failed(address, failure);
+            throw failure;
+          }
+        },
+      },
+
+      {
+        // The code the person's app then shows: the seat is theirs, and they
+        // are signed in to it.
+        method: 'POST',
+        pattern: '/api/auth/join/confirm',
+        open: true,
+        handle: async ({ body, request }) => {
+          const address = addressOf(request, this.#options.behindProxy === true);
+          this.#signInThrottle.check(address);
+          let seated: StaffSession;
+          try {
+            seated = await this.#staff.confirm(String(body.code ?? ''), String(body.offer ?? ''), String(body.totp ?? ''));
+          } catch (failure) {
+            this.#signInThrottle.failed(address, failure);
+            throw failure;
+          }
+          this.#signInThrottle.succeeded(address);
+          return {
+            token: seated.token, expiresAt: seated.expiresAt.toISOString(), device: seated.seat.name, factor: 'totp', staff: staffOf(seated),
+          };
         },
       },
 
@@ -717,7 +788,10 @@ export class OwnerApi {
       {
         method: 'GET',
         pattern: '/api/companies',
-        handle: async () => ({ companies: await companies() }),
+        // A staff seat sees its own company and no other (0110).
+        handle: async ({ staff }) => ({
+          companies: (await companies()).filter((company) => !staff || company.id === staff.seat.companyId),
+        }),
       },
 
       {
@@ -903,6 +977,35 @@ export class OwnerApi {
               });
             }
           });
+        },
+      },
+
+      {
+        // Who is seated in this company beside the owner (0110).
+        method: 'GET',
+        pattern: '/api/companies/:companyId/staff',
+        handle: async ({ params }) => ({ seats: await this.#staff.list(params.companyId!) }),
+      },
+
+      {
+        // A seat, made with the owner's device: letting another person in is
+        // the loosening of all loosenings. Answers with the invite for them.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/staff',
+        handle: async ({ params, body }) => {
+          const request = seatRequest(body);
+          await this.#requireFactor(body.proof, `seat ${request.name}`, params.companyId!);
+          return this.#staff.create(params.companyId!, request);
+        },
+      },
+
+      {
+        // Ended at once, with its sessions: a tightening, so the session's.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/staff/:seatId/revoke',
+        handle: async ({ params }) => {
+          await this.#staff.revoke(params.companyId!, params.seatId!);
+          return { ok: true };
         },
       },
 
@@ -1104,7 +1207,7 @@ export class OwnerApi {
       {
         method: 'POST',
         pattern: '/api/companies/:companyId/inbox/:itemId/decide',
-        handle: async ({ params, body, session }) => {
+        handle: async ({ params, body, session, staff }) => {
           const decision = String(body.decision ?? '');
           if (decision !== 'approve' && decision !== 'deny' && decision !== 'ask') {
             throw new PalugadaError(
@@ -1140,6 +1243,8 @@ export class OwnerApi {
               // 0083: `decide` checks it, and asks for the factor it needs.
               ...(body.allowForHours === undefined || body.allowForHours === null
                 ? {} : { allowForHours: Number(body.allowForHours) }),
+              // A staff seat's decision: `decide` holds it to tier 2 and below.
+              seat: staff ? { id: staff.seat.id, name: staff.seat.name } : null,
             },
           );
           void session;
@@ -1186,9 +1291,9 @@ export class OwnerApi {
         pattern: '/api/companies/:companyId/inbox/batch',
         // `decideMany` checks the decision and the list; checking them here too
         // would be a second rule to keep in step with the first.
-        handle: async ({ params, body }) => inbox.decideMany(
+        handle: async ({ params, body, staff }) => inbox.decideMany(
           params.companyId!, body.itemIds as string[], body.decision as 'approve' | 'deny', String(body.note ?? ''),
-          { channel: 'app', assurance: 'session' },
+          { channel: 'app', assurance: 'session', seat: staff ? { id: staff.seat.id, name: staff.seat.name } : null },
         ),
       },
 
@@ -3956,8 +4061,9 @@ export class OwnerApi {
         // A run's own question is decided by its answer (B6).
         method: 'POST',
         pattern: '/api/companies/:companyId/inbox/:itemId/answer',
-        handle: async ({ params, body }) => {
-          await inbox.answerEscalation(params.companyId!, params.itemId!, String(body.answer ?? ''), { channel: 'app' });
+        handle: async ({ params, body, staff }) => {
+          await inbox.answerEscalation(params.companyId!, params.itemId!, String(body.answer ?? ''),
+            { channel: 'app', seat: staff ? { id: staff.seat.id, name: staff.seat.name } : null });
           return { ok: true };
         },
       },
@@ -5156,7 +5262,7 @@ export class OwnerApi {
     if (!match || match.route.open || match.route.raw) {
       throw new PalugadaError('contract.violation', `${method} ${url.pathname} is not a route of this console`, {});
     }
-    const answer = await match.route.handle({ request, session, body, raw: Buffer.alloc(0), params: match.params, query: url.searchParams });
+    const answer = await match.route.handle({ request, session, staff: null, body, raw: Buffer.alloc(0), params: match.params, query: url.searchParams });
     if (answer instanceof WithStatus) {
       if (answer.status >= 400) {
         throw new PalugadaError('contract.violation', String((answer.body as { error?: unknown } | null)?.error ?? `answered ${answer.status}`), {});
@@ -5557,12 +5663,20 @@ export class OwnerApi {
     }
 
     let session: OwnerSession | null = null;
+    let staff: StaffSession | null = null;
     if (!match.route.open) {
       session = await this.#sessions.verify(bearer(req));
-      if (!session) {
+      // Not the owner's: a staff seat's (0110), held to its list before its
+      // request is read at all.
+      if (!session) staff = await this.#staff.verify(bearer(req));
+      if (!session && !staff) {
         // 401 rather than 404: the owner whose session expired should be told
         // to sign in, not told the console has moved.
         send(res, 401, { error: 'sign in first', code: 'owner.unauthenticated' });
+        return;
+      }
+      if (staff && !staffMay(staff.seat, req.method ?? 'GET', match.route.pattern, match.params)) {
+        send(res, 403, { error: 'that is the owner\'s, not a staff seat\'s', code: 'staff.forbidden' });
         return;
       }
     }
@@ -5583,6 +5697,7 @@ export class OwnerApi {
       const answer = await match.route.handle({
         request: req,
         session,
+        staff,
         body,
         raw,
         params: match.params,
@@ -5787,6 +5902,11 @@ const CONTENT_TYPES: Record<string, string> = {
  * thing for each: "sign in" is not "you may not", and neither is "that code is
  * wrong". An owner who cannot tell them apart cannot act on any of them.
  */
+/** What the console is told about a staff seat signed in: who, and what it may do. */
+function staffOf(session: StaffSession): { name: string; kind: string; companyId: string } {
+  return { name: session.seat.name, kind: session.seat.kind, companyId: session.seat.companyId };
+}
+
 function statusFor(code: string): number {
   if (code === 'owner.unauthenticated') return 401;
   if (code === 'owner.throttled') return 429;
@@ -5797,7 +5917,7 @@ function statusFor(code: string): number {
   if (code === 'company.slug_taken') return 409;
   if (code === 'mfa.locked_out') return 429;
   if (code.startsWith('mfa.')) return 401;
-  if (code === 'approval.channel_forbidden' || code === 'policy.denied') return 403;
+  if (code === 'approval.channel_forbidden' || code === 'policy.denied' || code === 'staff.forbidden') return 403;
   if (code === 'capability.rate_limited' || code === 'capability.busy' || code === 'hook.rate_limited') return 429;
   if (code === 'hook.unknown') return 404;
   if (code === 'hook.refused') return 401;

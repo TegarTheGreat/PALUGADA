@@ -108,6 +108,8 @@ export type ErrorCode =
   | 'mfa.claim_invalid'
   /** F12.5: a claim of a deployment that already has an owner (0094). */
   | 'owner.claimed'
+  /** A staff seat asked for what is the owner's (0110). */
+  | 'staff.forbidden'
   | 'review.required'
   | 'window.closed'
   | 'approval.required'

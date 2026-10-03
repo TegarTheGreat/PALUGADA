@@ -5956,6 +5956,47 @@ The CEO could not report it, the rerun the CEO proposed could not read it
   and an unfinished one without; the piece names its parent; a task the
   owner gave names none.
 
+## 2.68 Only a plain question about wiring a tool in is answered for the owner (F10.3)
+
+Found on the same live run (N3, and B2 of the recheck of 30 September).
+`owner.ask` answers some questions itself (L7, 2.26): one about setting up a
+tool nothing is bound to, which the owner cannot answer from the inbox. The
+test for "about setting it up" was a list of words, and it caught two
+questions only the owner could answer:
+
+- "Siapa pelanggan yang harus saya hubungi lewat email?", whom to contact,
+  matched "hubung…" and "email". The customer was never written to.
+- A responder's "Should I delete cust-042's record now?", offered with four
+  answers, matched because it said three other tools "are not connected".
+  The record the owner had asked to be deleted was not, and the task showed
+  as done.
+
+What changed (`setupAsked`, `src/broker/platform-capabilities.ts`):
+
+- **Only words that mean wiring a service in.** Kept: bind, configure,
+  integrate, install, API key, credential, and in Indonesian hubungkan,
+  sambungkan, konfigurasi, integrasi, kredensial, kunci API.
+  - Dropped: states ("connected", "bound"), which a question about something
+    else mentions in passing.
+  - Also dropped: everyday words, because each has a work meaning. "hubungi"
+    is to contact, "pasang" to put a price on a post, "set up" a call, and a
+    "vendor" sells coffee beans. "provider" and "connect" went with them.
+- **Never a question with answers to choose from.** Offering choices is
+  asking the owner to decide, whatever else the question mentions.
+- **Why the balance moved.** A setup question that reaches the owner costs
+  them a card they cannot answer from the inbox. A decision answered for
+  them costs the work, and on a live run it cost a deletion the owner asked
+  for. So anything short of a plain question about wiring a tool in is now
+  put to the owner.
+- **Tested.** `control-plane.test.ts`:
+  - L7's own question is still answered. So are an Indonesian setup question
+    and one naming the tool by its full name.
+  - Five questions reach the owner, none recorded as answered by the
+    platform: the two from the live run, word for word; a price to put on a
+    post; a call to set up; and a setup question offered with answers to
+    choose from.
+  - The new test failed against the old list.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

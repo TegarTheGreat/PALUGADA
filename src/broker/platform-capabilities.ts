@@ -618,10 +618,16 @@ export const QUESTION_MAX = 1_000;
  * where it stopped.
  */
 /**
- * Words that make a question one about setting a tool up rather than about
- * the work, in English and Indonesian (L7).
+ * Words that ask how to set a tool up, in English and Indonesian (L7).
+ *
+ * Only words that mean wiring a service in. A state ("connected", "bound",
+ * "terhubung") is what a question about something else mentions in passing,
+ * and everyday verbs mean the work: "hubungi" is to contact a customer,
+ * "pasang" to put a price on a post, "set up" a call, and a "vendor" sells
+ * coffee beans. On a live run (N3) those answered for the owner a question
+ * about whom to write to and a decision to delete a customer's record.
  */
-const SETUP_WORDS = /\b(bind|bound|binding|connect\w*|integrat\w*|vendor|provider|set\s?up|configure|install\w*|api\s?key|credential|hubung\w*|sambung\w*|pasang|integrasi|konfigurasi)\b/i;
+const SETUP_WORDS = /\b(bind|binding|configure|configuring|configuration|integrate|integrating|integration|install|installing|api\s?key|credentials?|hubungkan|menghubungkan|sambungkan|menyambungkan|konfigurasi|mengonfigurasi|integrasi|kredensial|kunci\s?api)\b/i;
 
 /** Whether a question names a capability, by its name or the service before its dot (`crm` of `crm.note`). */
 function names(question: string, capability: string): boolean {
@@ -632,12 +638,20 @@ function names(question: string, capability: string): boolean {
 /**
  * The role's tools that nothing in this deployment is bound to, and that a
  * question asks how to set up: what the platform answers itself (L7).
+ *
+ * Never a question with answers to choose from: offering choices is asking
+ * the owner to decide, whatever else the question mentions. Answering one
+ * wrongly for the owner costs far more than asking them one they cannot
+ * answer, so anything short of a plain question about wiring a tool in is
+ * put to them.
  */
 async function setupAsked(
   ctx: { companyId: string; taskId: string },
   question: string,
+  options: unknown,
   bound: (name: string) => boolean,
 ): Promise<string[]> {
+  if (Array.isArray(options) && options.length > 0) return [];
   if (!SETUP_WORDS.test(question)) return [];
   const tools = await withTenant(ctx.companyId, async (tx) => {
     const { rows } = await tx.query<{ tools: string[] | null }>(
@@ -678,7 +692,7 @@ export function ownerAskCapability(bound?: (name: string) => boolean): Capabilit
       if (question.length > QUESTION_MAX) {
         throw new PalugadaError('contract.violation', `a question is at most ${QUESTION_MAX} characters`, { field: 'question' });
       }
-      const unbound = bound ? await setupAsked(ctx, question, bound) : [];
+      const unbound = bound ? await setupAsked(ctx, question, input.options, bound) : [];
       if (unbound.length > 0) {
         await withTenant(ctx.companyId, (tx) => appendEvent(tx, {
           companyId: ctx.companyId, taskId: ctx.taskId, type: 'task.question_answered_by_platform', actor: 'system',

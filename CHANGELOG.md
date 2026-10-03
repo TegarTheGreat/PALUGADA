@@ -89,6 +89,11 @@ The first version. What it holds, in the order an owner meets it.
   whole stays on the task that did it. A task shows the work it handed on,
   with what each piece came to and a button to open it, so the plan asked of
   the CEO is one press from the CEO's task (STATUS 2.67).
+- An agent's question reaches you unless it plainly asks how to wire in a
+  tool nobody connected. A question that only mentions such a tool, or
+  that offers answers to choose from, is yours. Before, "whom should I
+  email?" in Indonesian, and a decision to delete a customer's record, were
+  answered by the platform instead of you (STATUS 2.68).
 
 ### The owner
 

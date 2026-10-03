@@ -522,6 +522,73 @@ test('a question about connecting a tool nobody bound is answered by the platfor
   await assert.rejects(ask.execute({ question: 'Which customers should the CRM note be about?' }, ctx),
     (error: unknown) => isPalugadaError(error) && error.code === 'owner.asked');
   assert.equal((await inbox.listOpen(fixture.companyId)).length, 1);
+
+  // Setting it up, in Indonesian, and naming the tool by its full name.
+  for (const question of [
+    'Layanan CRM mana yang harus saya hubungkan supaya bisa menambah catatan?',
+    'Which API key should I configure for crm.note?',
+  ]) {
+    assert.equal((await ask.execute({ question }, { ...ctx, idempotencyKey: question })).answered, true, question);
+  }
+  assert.equal((await inbox.listOpen(fixture.companyId)).length, 1, 'still nothing more was put to the owner');
+});
+
+/**
+ * The live run of 2 October (N3, B2): the platform answered for the owner
+ * questions that only the owner could answer. "Siapa pelanggan yang harus
+ * saya hubungi lewat email?" -- whom to contact -- matched "hubung…" and
+ * "email"; a responder's "Should I delete cust-042's record now?", offered
+ * with four answers, matched because it said three other tools "are not
+ * connected". The customer was never written to, and the record the owner
+ * asked to be deleted was not, with the task shown as done. Mentioning a
+ * tool is not asking how to set it up, and a question with answers to
+ * choose from is a decision.
+ */
+test('a question that only mentions a tool nobody bound, or offers answers to choose from, is put to the owner (N3)', async () => {
+  const fixture = await createCompany('owner-ask-mentions');
+  await withTenant(fixture.companyId, (tx) => tx.query(
+    "UPDATE roles SET tools = ARRAY['owner.ask', 'email.draft', 'email.send', 'social.publish', 'mailbox.read', 'crm.read', 'crm.note', 'record.delete'] WHERE id = $1",
+    [fixture.roleId]));
+  const registry = new CapabilityRegistry();
+  registerPlatformCapabilities(registry);
+  const ask = registry.get('owner.ask')! as unknown as {
+    execute(input: unknown, ctx: unknown): Promise<{ answered: boolean; answer?: string }>;
+  };
+  // A task each: a task may ask the owner only so many questions.
+  const tasks: string[] = [];
+  const asked = async (input: { question: string; options?: string[] }) => {
+    const task = await newTask(fixture);
+    await transition(fixture.companyId, task.id, 'running');
+    tasks.push(task.id);
+    try {
+      await ask.execute(input, {
+        companyId: fixture.companyId, divisionId: fixture.divisionId, taskId: task.id,
+        idempotencyKey: input.question, signal: new AbortController().signal, credential: async () => '',
+      });
+      return false;
+    } catch (error) {
+      if (isPalugadaError(error) && error.code === 'owner.asked') return true;
+      throw error;
+    }
+  };
+
+  assert.equal(await asked({ question: 'Siapa pelanggan yang harus saya hubungi lewat email?' }), true, 'whom to contact');
+  assert.equal(await asked({ question: 'Berapa harga yang harus saya pasang di postingan social media?' }), true, 'what price to put');
+  assert.equal(await asked({ question: 'Should I set up a call with the supplier by email instead?' }), true, 'a call is not a tool');
+  assert.equal(await asked({
+    question: 'Should I delete cust-042\'s record now? mailbox.read, crm.read and crm.note are not connected, so I cannot read the record first.',
+    options: ['Delete it now', 'Wait until the CRM is connected', 'Do not delete', 'I do not know of any retention duty'],
+  }), true, 'a decision, whatever else it mentions');
+  assert.equal(await asked({
+    question: 'Which CRM vendor should I bind for crm.note?',
+    options: ['HubSpot', 'Pipedrive'],
+  }), true, 'answers to choose from are the owner\'s to choose between');
+
+  const open = await inbox.listOpen(fixture.companyId);
+  assert.equal(open.length, 5);
+  const events = await withTenant(fixture.companyId, (tx) => tx.query(
+    "SELECT 1 FROM events WHERE task_id = ANY($1::uuid[]) AND type = 'task.question_answered_by_platform'", [tasks]));
+  assert.equal(events.rows.length, 0, 'none of them was answered for the owner');
 });
 
 test('the owner can ask a question inside the same task (F10.3)', async () => {

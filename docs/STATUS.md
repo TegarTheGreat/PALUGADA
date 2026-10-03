@@ -8581,6 +8581,50 @@ What changed:
   this one. Two runs go at once in a process and more wait their turn;
   nothing is kept between runs but the files they wrote.
 
+## 2.133 Outside text cannot forge a turn, or close its envelope with a look-alike (tools research, §5 idea 10)
+
+Everything from outside -- a page, a mail, a tool's answer, a customer's
+message, a webhook, a document's passage -- reaches a model inside the
+envelope `wrapUntrusted` draws (F8.9), which says it is data and escapes a
+copy of its own fence. Two ways round it were open, both named by the
+research from OpenClaw's prompt-injection notes:
+
+- **Chat-template tokens written as text.** A model of the owner's own
+  behind an OpenAI-compatible server -- Ollama, vLLM, llama.cpp, which
+  PALUGADA speaks to -- may tokenize `<|im_start|>` in a page as the real
+  token, and the page then ends the user's turn and opens a system one of
+  its own, inside the envelope. Hosted providers escape them; a self-hosted
+  stack may not. Now removed, each replaced by `[REMOVED_SPECIAL_TOKEN]`:
+  every `<|word|>` (ChatML and Qwen, Llama 3 and 4, Phi, GPT-OSS), DeepSeek's
+  full-width `<｜…｜>`, Llama 2's and Mistral's bracketed ones, Gemma's turn
+  markers, and `<s>`/`</s>` -- OpenClaw's list, widened to the families'
+  whole spelling rather than a list of their tokens. In the source's name
+  too, since a document's title is outside content.
+- **A fence spelled in look-alikes.** Only an exact copy was escaped; one in
+  full-width letters or brackets, with a zero-width character inside,
+  spaced, or in lower case, read the same to a model and went through. Now
+  folded before it is looked for, and escaped like the exact one.
+- **The one outside text that reached a model unwrapped.** What a role hands
+  `doc.draft` and `email.draft` to draw on is often what it read -- a
+  customer's mail, a page -- and it went to the drafting model as it was.
+  It is in the envelope now, and the tokens are removed from the brief, the
+  kind, the subject and the address too, which a role may have copied from
+  what it read.
+
+Text that only looks like either is left: spaced pipes, a pipe, an HTML tag,
+a comparison, a bracketed note. The fold is native regular expressions, one
+character for one, so a page of 2.4 MB is wrapped in about 25 ms, and text
+built to make the match backtrack costs it one pass. Tested in
+`charter-context.test.ts`: forty-one tokens across seven families removed with
+the words around them kept and the removal said, a token in a source's name,
+ordinary text untouched, and seven look-alike fences escaped with only the
+two real ones left; `platform-capabilities.test.ts`, a draft's material sent
+to the model framed as data and without the tokens a mail carried.
+
+**Not done.** A model's own reply is not scrubbed of scaffolding it leaked
+before the owner reads it, which OpenClaw also does; what reaches the owner
+here is the run's structured output, not its raw text.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

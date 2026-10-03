@@ -351,6 +351,11 @@ The first version. What it holds, in the order an owner meets it.
   container there. Because its code can reach nothing, it may sit beside
   Finance's keys and invoices, and the bookkeeper has it, with **Describe a
   picture** for receipts (STATUS 2.132).
+- Outside text -- a page, a mail, a customer's message -- can no longer
+  forge a turn for a model you run yourself (Ollama, vLLM, llama.cpp) with
+  chat-template tokens such as `<|im_start|>`, nor close the untrusted
+  envelope with a look-alike of its fence: both are removed before any
+  model reads it (STATUS 2.133).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

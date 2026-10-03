@@ -7790,6 +7790,67 @@ What changed:
   later in a status (it is not yet shown on the reply), and a template to
   write first after the window.
 
+## 2.119 Customers write to the company's own mailbox too (§9 P2)
+
+The third transport of 2.117, and the last item 19 names: "a mailbox". Every
+small business has one, and it is where a supplier, a bank and most
+customers outside chat write. `mailbox.read` has been catalogued with no
+adapter since the start, and still is: what customers write reaches the
+work through the channel and `chat.read`, as the other transports' does.
+
+What changed:
+
+- **A mailbox is connected with its servers and password** (0113,
+  `kind: email`): the address, the IMAP and SMTP hosts and ports, and the
+  password -- or the app password Gmail asks for -- which is sealed. Both
+  servers are signed in to before anything is kept, so a wrong password is
+  said while the owner is at the form, and the reading starts after the
+  inbox's last message: the mail the mailbox already holds is never taken
+  for work.
+- **The workers read it** (`src/chats/mail.ts`, the `mailboxes` stage of the
+  tick): each open mailbox about once a minute, claimed in the database so
+  two workers never read one at once, the new messages oldest first, twenty
+  at most a reading. A server that renumbers its messages (a new
+  UIDVALIDITY) is read from the start of now again. A reading that fails is
+  kept on the channel for the owner -- **Could not read the mailbox** -- and
+  said once as `chat.mailbox_failed`; the mail waits on the server.
+- **IMAP and SMTP, written here** (`imap.ts`, `smtp.ts`), like the other
+  transports, and over TLS only: IMAP on its TLS port, SMTP on 465 or
+  upgraded with STARTTLS, and refused when a server offers neither. A
+  message is fetched with `BODY.PEEK` (left unread in the owner's own
+  mail app) and only its first 256 KB.
+- **A message is read as a person reads it** (`mime.ts`): its sender's name
+  and address, its subject and text through encoded words, quoted-printable,
+  base64, charsets and multipart (plain text before HTML), what was attached
+  as the kinds the other transports use -- and without the history a reply
+  quotes ("On ... wrote:", Gmail's Indonesian "Pada ... menulis:", lines
+  quoted with ">"). An auto-reply, a bounce, a list and the mailbox's own
+  mail are not a customer and start nothing (RFC 3834's Auto-Submitted,
+  Precedence, List-Id, MAILER-DAEMON and no-reply addresses).
+- **A reply is a reply**: `chat.send` sends plain text from the mailbox's
+  address with "Re:" the customer's subject, In-Reply-To and References
+  naming their message, so it lands in their thread; its Message-ID is the
+  one their answer will name. The run sees each message's subject.
+- **Kept and carried** like the other channels: closing deletes the sealed
+  password; an export carries where the mailbox is and every message's
+  subject, never the password or the reading's position.
+- **Tested.** `customer-mail.test.ts`, against an IMAP server over TLS and an
+  SMTP server that requires STARTTLS, both written for the test with a
+  certificate made by openssl: a message is read with its sender, subject,
+  ISO-8859-1 quoted-printable text, attachment and without its quoted
+  history, an HTML-only one as its text, and an auto-reply, a bounce and a
+  list as no customer; a wrong password is refused with nothing kept; the
+  mailbox's history is left alone; a customer's mail starts work and the
+  others nothing; a mailbox is not read twice in a minute; the reply waits
+  for the owner and goes over STARTTLS as a reply in the thread; the answer
+  to it, quoting it, is read as what was written; a password changed at the
+  provider is shown on the channel and said once, and the mail that waited
+  is read once it is mended; export and restore; closing stops the reading.
+  A worker reads the mailboxes in its tick, and one kept to another
+  company does not.
+- **Not done**: OAuth sign-in for Gmail and Microsoft 365 (an app password
+  for now), an attachment's contents, and IMAP IDLE (a minute's delay).
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

@@ -35,7 +35,7 @@ import { languageName, languagesFor } from '../domain/language.ts';
 import { createRootTask } from '../engine/tasks.ts';
 import { enqueueWake } from '../scheduler/wake.ts';
 
-export const CHAT_KINDS = ['telegram', 'whatsapp'] as const;
+export const CHAT_KINDS = ['telegram', 'whatsapp', 'email'] as const;
 export type ChatKind = (typeof CHAT_KINDS)[number];
 
 /** A message as its transport delivered it, read into the platform's words. */
@@ -50,6 +50,8 @@ export interface InboundMessage {
   text: string;
   /** What arrived that is not text, by the transport's word for it. */
   attachment: string | null;
+  /** A mail's subject. */
+  subject?: string | null;
 }
 
 /** An open channel, as a delivery to it is checked and recorded. */
@@ -95,6 +97,9 @@ export interface ChannelView {
   chats: number;
   lastMessageAt: Date | null;
   createdAt: Date;
+  /** A mailbox: when it was last read, and why the last reading failed. */
+  checkedAt: Date | null;
+  failure: string | null;
 }
 
 export interface ChatView {
@@ -117,6 +122,8 @@ export interface MessageView {
   direction: 'in' | 'out';
   body: string;
   attachment: string | null;
+  /** A mail's subject. */
+  subject: string | null;
   /** In: what the message did -- started work, joined it, or was held by the hour's limit. */
   outcome: 'started' | 'joined' | 'limited' | null;
   taskId: string | null;
@@ -207,9 +214,9 @@ export async function receiveMessage(channel: OpenChannel, message: InboundMessa
     }
     await tx.query('UPDATE chats SET last_message_at = now() WHERE id = $1', [chatId]);
     const record = (outcome: 'started' | 'joined' | 'limited', taskId: string | null) => tx.query<{ id: string }>(
-      `INSERT INTO chat_messages (company_id, chat_id, direction, external_id, body, attachment, outcome, task_id)
-       VALUES ($1, $2, 'in', $3, $4, $5, $6, $7) RETURNING id`,
-      [channel.companyId, chatId, message.id, message.text, message.attachment, outcome, taskId],
+      `INSERT INTO chat_messages (company_id, chat_id, direction, external_id, body, attachment, outcome, task_id, subject)
+       VALUES ($1, $2, 'in', $3, $4, $5, $6, $7, $8) RETURNING id`,
+      [channel.companyId, chatId, message.id, message.text, message.attachment, outcome, taskId, message.subject ?? null],
     );
     // Work this conversation already has, that no worker has picked up: the
     // run will read the whole conversation when it starts, this message too.
@@ -247,7 +254,7 @@ export async function receiveMessage(channel: OpenChannel, message: InboundMessa
 
   const { chatId } = decided;
   const languages = await withTenant(channel.companyId, (tx) => languagesFor(tx, channel.companyId));
-  const said = message.text
+  const said = (message.subject ? `Subject: ${message.subject}\n\n` : '') + message.text
     + (message.attachment ? `${message.text ? '\n' : ''}[sent a ${message.attachment}, which cannot be read here]` : '');
   const task = await createRootTask({
     companyId: channel.companyId,
@@ -258,7 +265,7 @@ export async function receiveMessage(channel: OpenChannel, message: InboundMessa
     input: {
       goal: channel.instruction,
       chat: { id: chatId, channel: channel.kind, customer: message.customerName ?? message.customerHandle ?? null },
-      event: wrapUntrusted(`${channel.kind}:@${channel.account}`, said),
+      event: wrapUntrusted(`${channel.kind}:${channel.account}`, said),
       reply: 'Read the whole conversation with chat.read before you answer: the customer may have written again '
         + 'since this message. Answer with chat.send, in the language the customer writes in -- '
         + `${languageName(languages.work)} when you cannot tell. The owner says yes to every answer before it is sent.`,
@@ -344,27 +351,31 @@ export async function openChannel(companyId: string, input: {
   kind: ChatKind; account: string; roleId: string; goalId: string; divisionId: string; projectId: string;
   instruction: string; maxPerHour: number; tokenRef: string; webhookHash: string;
   accountId?: string | null; secretRef?: string | null;
+  /** A mailbox: where it is, and where its reading starts. */
+  mail?: Record<string, unknown> | null; pollState?: { uidValidity: number; lastUid: number } | null;
 }): Promise<{ id: string; publicId: string; replacedRefs: string[] }> {
   return withControlPlane(async (tx) => {
     const { rows: before } = await tx.query<{ id: string; token_ref: string | null; secret_ref: string | null }>(
       'SELECT id, token_ref, secret_ref FROM chat_channels WHERE company_id = $1 AND kind = $2 AND account = $3 FOR UPDATE',
       [companyId, input.kind, input.account]);
     const values = [input.projectId, input.divisionId, input.roleId, input.goalId, input.instruction, input.maxPerHour,
-      input.tokenRef, input.webhookHash, input.accountId ?? null, input.secretRef ?? null];
+      input.tokenRef, input.webhookHash, input.accountId ?? null, input.secretRef ?? null,
+      input.mail ? JSON.stringify(input.mail) : null, input.pollState ? JSON.stringify(input.pollState) : null];
     let opened: { id: string; public_id: string };
     try {
       opened = before[0]
         ? (await tx.query<{ id: string; public_id: string }>(
           `UPDATE chat_channels
               SET project_id = $2, division_id = $3, role_id = $4, goal_id = $5, instruction = $6, max_per_hour = $7,
-                  token_ref = $8, webhook_hash = $9, account_id = $10, secret_ref = $11, enabled = true,
+                  token_ref = $8, webhook_hash = $9, account_id = $10, secret_ref = $11, mail = $12, poll_state = $13,
+                  polled_at = NULL, poll_failure = NULL, enabled = true,
                   public_id = replace(gen_random_uuid()::text, '-', '')
             WHERE id = $1 RETURNING id, public_id`,
           [before[0].id, ...values])).rows[0]!
         : (await tx.query<{ id: string; public_id: string }>(
           `INSERT INTO chat_channels (company_id, kind, account, project_id, division_id, role_id, goal_id, instruction,
-                                      max_per_hour, token_ref, webhook_hash, account_id, secret_ref)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id, public_id`,
+                                      max_per_hour, token_ref, webhook_hash, account_id, secret_ref, mail, poll_state)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id, public_id`,
           [companyId, input.kind, input.account, ...values])).rows[0]!;
     } catch (failure) {
       // Another company connected the same bot between the check and here.
@@ -416,9 +427,10 @@ export async function channelsOf(companyId: string): Promise<ChannelView[]> {
     const { rows } = await tx.query<{
       id: string; kind: ChatKind; account: string; role_id: string; role_name: string; goal_id: string; instruction: string;
       max_per_hour: number; enabled: boolean; chats: number; last_at: Date | null; created_at: Date;
+      polled_at: Date | null; poll_failure: string | null;
     }>(
       `SELECT c.id, c.kind, c.account, c.role_id, coalesce(r.display_name, r.title, r.slug) AS role_name, c.goal_id,
-              c.instruction, c.max_per_hour, c.enabled, c.created_at,
+              c.instruction, c.max_per_hour, c.enabled, c.created_at, c.polled_at, c.poll_failure,
               (SELECT count(*)::int FROM chats h WHERE h.channel_id = c.id) AS chats,
               (SELECT max(h.last_message_at) FROM chats h WHERE h.channel_id = c.id) AS last_at
          FROM chat_channels c JOIN roles r ON r.id = c.role_id
@@ -427,7 +439,7 @@ export async function channelsOf(companyId: string): Promise<ChannelView[]> {
     return rows.map((row) => ({
       id: row.id, kind: row.kind, account: row.account, roleId: row.role_id, roleName: row.role_name, goalId: row.goal_id,
       instruction: row.instruction, maxPerHour: row.max_per_hour, enabled: row.enabled, chats: row.chats,
-      lastMessageAt: row.last_at, createdAt: row.created_at,
+      lastMessageAt: row.last_at, createdAt: row.created_at, checkedAt: row.polled_at, failure: row.poll_failure,
     }));
   });
 }
@@ -505,10 +517,10 @@ export async function chatWith(tx: TenantClient, chatId: string, limit = MESSAGE
   if (!rows[0]) return null;
   const { rows: messages } = await tx.query<{
     id: string; direction: 'in' | 'out'; body: string; attachment: string | null; outcome: MessageView['outcome'];
-    task_id: string | null; external_id: string | null; created_at: Date;
+    task_id: string | null; external_id: string | null; created_at: Date; subject: string | null;
   }>(
     `SELECT * FROM (
-       SELECT id, direction, body, attachment, outcome, task_id, external_id, created_at
+       SELECT id, direction, body, attachment, outcome, task_id, external_id, created_at, subject
          FROM chat_messages WHERE chat_id = $1 ORDER BY created_at DESC LIMIT $2
      ) recent ORDER BY created_at`,
     [chatId, limit],
@@ -516,7 +528,7 @@ export async function chatWith(tx: TenantClient, chatId: string, limit = MESSAGE
   return {
     chat: chatView(rows[0]),
     messages: messages.map((row) => ({
-      id: row.id, direction: row.direction, body: row.body, attachment: row.attachment, outcome: row.outcome,
+      id: row.id, direction: row.direction, body: row.body, attachment: row.attachment, subject: row.subject, outcome: row.outcome,
       taskId: row.task_id, sent: row.direction === 'in' || row.external_id !== null, at: row.created_at,
     })),
   };

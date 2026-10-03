@@ -219,6 +219,7 @@ const EVENT_SENTENCES: Record<string, string> = {
   'chat.received': N('A customer wrote'),
   'chat.rate_limited': N("A customer wrote past the channel's hourly limit, and no work was started"),
   'security.chat_refused': N('A customer channel refused a delivery without its secret'),
+  'chat.mailbox_failed': N('A customer mailbox could not be read'),
   'agent_run.orphaned': N('A run was left behind by a worker that stopped'),
   'alert.raised': N('An alert was raised'),
   'approval.answered': N('The agent answered your question on an approval'),

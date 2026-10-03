@@ -84,6 +84,8 @@ import type { LlmClient } from './llm/client.ts';
 import { sleep } from './timers.ts';
 import { eraseDueCompanies, removeWhatErasuresLeft, type ErasureDisk } from './governance/closing.ts';
 import type { OtlpExporter } from './reporting/otlp.ts';
+import { pollMailboxes, type MailOptions } from './chats/mail.ts';
+import type { SecretManager } from './secrets/manager.ts';
 
 export interface WorkerOptions {
   engine: Engine;
@@ -190,6 +192,12 @@ export interface WorkerOptions {
    * writer of JSON lines, which is what a log collector reads.
    */
   log?: (entry: Record<string, unknown>) => void;
+  /**
+   * Customers' mailboxes (0113): where their passwords are sealed, and a
+   * certificate authority to trust besides the system's. Omitted, no
+   * mailbox is read.
+   */
+  mail?: MailOptions & { secrets: SecretManager };
 }
 
 export interface TickReport {
@@ -229,6 +237,8 @@ export interface TickReport {
   erased: number;
   /** Spans sent to the OpenTelemetry collector this tick (0090). */
   traced: number;
+  /** Customers' mail that reached the company's work this tick (0113). */
+  mail: number;
   /** Set when the platform stop is in effect: the tick did nothing else. */
   stopped: boolean;
   errors: Array<{ stage: string; message: string }>;
@@ -295,6 +305,7 @@ function emptyReport(): TickReport {
     embedded: 0,
     erased: 0,
     traced: 0,
+    mail: 0,
     stopped: false, errors: [],
   };
 }
@@ -320,7 +331,7 @@ export interface WorkerCounts {
 
 export function madeProgress(report: TickReport): boolean {
   const ran = report.ran.some((run) => run.status !== 'runtime_unavailable');
-  return ran || report.reclaimed > 0 || report.scheduled > 0;
+  return ran || report.reclaimed > 0 || report.scheduled > 0 || report.mail > 0;
 }
 
 export class Worker {
@@ -510,6 +521,21 @@ export class Worker {
     await this.#stage(report, 'schedules', async () => {
       report.scheduled += (await runDueSchedules(now)).length;
     });
+
+    // Customers' mail (0113): each open mailbox that is due, read about once
+    // a minute by whichever worker takes it first. Before the runs, so what a
+    // customer wrote is work this tick can start. A mailbox that fails says
+    // why on its channel, for the owner; here, for the operator's log.
+    const mail = this.#options.mail;
+    if (mail) {
+      await this.#stage(report, 'mailboxes', async () => {
+        const read = await pollMailboxes({
+          ...mail, now, ...(this.#options.companyId ? { companyId: this.#options.companyId } : {}),
+        });
+        report.mail += read.received;
+        if (read.failed > 0) this.#options.log?.({ level: 'warn', event: 'mailboxes.failed', failed: read.failed });
+      });
+    }
 
     for (const company of companies) {
       // One runtime failing its health check tells every later stage in this

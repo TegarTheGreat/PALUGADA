@@ -23,14 +23,14 @@ export function attachmentSaid(kind: string): string {
   }
 }
 
-/** A channel as customers find it: a bot's username, or a number to dial. */
+/** A channel as customers find it: a bot's username, a number to dial, an address. */
 export function channelSaid(kind: Chat['kind'], account: string): string {
-  return kind === 'whatsapp' ? `+${account}` : `@${account}`;
+  return kind === 'whatsapp' ? `+${account}` : kind === 'email' ? account : `@${account}`;
 }
 
-/** How the customer is reached: their username on Telegram, their number on WhatsApp. */
+/** How the customer is reached: their username, their number, their address. */
 export function handleSaid(kind: Chat['kind'], handle: string): string {
-  return kind === 'whatsapp' ? `+${handle}` : `@${handle}`;
+  return kind === 'whatsapp' ? `+${handle}` : kind === 'email' ? handle : `@${handle}`;
 }
 
 /** Who the customer is, as they named themselves. */
@@ -53,6 +53,7 @@ export function ChatThread({ messages }: { messages: ChatMessage[] }) {
               withBorder={theirs}
               bg={theirs ? undefined : 'var(--mantine-color-blue-light)'}
             >
+              {message.subject && <Text size="xs" fw={600} style={{ overflowWrap: 'anywhere' }}>{message.subject}</Text>}
               {message.body && <Text size="sm" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{message.body}</Text>}
               {message.attachment && <Text size="sm" c="dimmed" fs="italic">{attachmentSaid(message.attachment)}</Text>}
               <Group gap={6} mt={2} justify={theirs ? 'flex-start' : 'flex-end'}>

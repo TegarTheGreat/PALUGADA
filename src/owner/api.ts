@@ -110,6 +110,7 @@ import {
   assertAccountFree, channelsOf, chatWith, chatsOf, checkChannel, closeChannel, hashSecret, openChannel,
 } from '../chats/chats.ts';
 import { receiveChatHook, verifyChatHook } from '../chats/hook.ts';
+import { checkMailbox, mailSettings, type MailOptions } from '../chats/mail.ts';
 import { GOAL_STATUSES, applyGoalChange, createGoal, readGoal } from '../domain/goals.ts';
 import {
   addDivision,
@@ -3354,8 +3355,9 @@ export class OwnerApi {
         handle: async ({ params, body }) => {
           const companyId = params.companyId!;
           if (body.kind === 'whatsapp') return this.#connectWhatsApp(companyId, body);
+          if (body.kind === 'email') return this.#connectMailbox(companyId, body);
           if (body.kind !== 'telegram') {
-            throw new PalugadaError('contract.violation', `a customer channel is telegram or whatsapp; got ${String(body.kind)}`, { field: 'kind' });
+            throw new PalugadaError('contract.violation', `a customer channel is telegram, whatsapp or email; got ${String(body.kind)}`, { field: 'kind' });
           }
           // Telegram's webhook is set here when this deployment has a public
           // address; without one the channel is kept and cannot hear, and
@@ -5369,6 +5371,57 @@ export class OwnerApi {
       callbackUrl: `${publicUrl.replace(/\/+$/, '')}/api/chat-hooks/${opened.publicId}`,
       verifyToken,
     };
+  }
+
+  /**
+   * A company's own mailbox (0113): read by the workers over IMAP from now
+   * on, answered over SMTP. Both servers are signed in to before anything is
+   * kept, so a wrong password is said while the owner is looking at the
+   * form; and the reading starts after the inbox's last message, so its
+   * history is never taken for work.
+   */
+  async #connectMailbox(companyId: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const deployment = this.#deploymentSettings();
+    const address = typeof body.address === 'string' ? body.address.trim().toLowerCase() : '';
+    if (!emailAddress(address)) {
+      throw new PalugadaError('contract.violation', 'the address is the mailbox customers write to, such as halo@tokokopi.id', { field: 'address' });
+    }
+    const settings = mailSettings(body, address);
+    const password = typeof body.password === 'string' ? body.password : '';
+    if (!password || /[\r\n]/.test(password)) {
+      throw new PalugadaError('contract.violation', 'paste the mailbox\'s password, or an app password where the provider asks for one (Gmail does)', { field: 'password' });
+    }
+    const where = await checkChannel(companyId, {
+      roleId: body.roleId, goalId: body.goalId, instruction: body.instruction, maxPerHour: body.maxPerHour,
+    });
+    await assertAccountFree(companyId, 'email', address);
+    const pollState = await checkMailbox(settings, password, await this.#mailOptions());
+    await this.#requireFactor(body.proof, 'let customers write to the company', companyId);
+    const master = deployment.master(true);
+    if (!master) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
+    const sealed = `chat-${randomBytes(8).toString('hex')}`;
+    await putSecret(sealed, password, master);
+    let opened: Awaited<ReturnType<typeof openChannel>>;
+    try {
+      opened = await openChannel(companyId, {
+        kind: 'email', account: address, ...where, tokenRef: `db://${sealed}`, webhookHash: '',
+        mail: { ...settings }, pollState,
+      });
+    } catch (failure) {
+      await deleteSecret(sealed).catch(() => undefined);
+      throw failure;
+    }
+    for (const ref of opened.replacedRefs) await deleteSecret(ref.slice('db://'.length));
+    await this.#answerCustomers(companyId, where.divisionId, where.roleId, address);
+    return { channel: (await channelsOf(companyId)).find((one) => one.id === opened.id), webhook: 'polled' };
+  }
+
+  /** A certificate authority to trust for a mail server with a private one (`PALUGADA_MAIL_CA`, a PEM file). */
+  async #mailOptions(): Promise<MailOptions> {
+    const path = this.#deploymentSettings().baseEnv.PALUGADA_MAIL_CA;
+    if (!path) return {};
+    const { readFile } = await import('node:fs/promises');
+    return { ca: await readFile(path, 'utf8') };
   }
 
   #botApi(): { apiBase?: string } {

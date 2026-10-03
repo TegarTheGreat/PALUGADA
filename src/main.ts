@@ -106,7 +106,7 @@ function metricsToken(raw: string | undefined): string | null {
   return raw.trim();
 }
 import { existsSync, realpathSync } from 'node:fs';
-import { readdir } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { hostname } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -740,6 +740,8 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   // the standard template grants need somebody's account, and a control plane
   // does not get to choose which mail provider every company that ever uses it
   // will have.
+  // A mail server with a private certificate, which a company's mailbox may be on.
+  const mailCa = env.PALUGADA_MAIL_CA ? await readFile(env.PALUGADA_MAIL_CA, 'utf8') : undefined;
   const bound = await registerPlatformCapabilities(registry, {
     web: {
       ...(env.PALUGADA_ALLOW_PRIVATE_HOSTS
@@ -763,6 +765,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
       secrets,
       ...(env.PALUGADA_TELEGRAM_API ? { telegram: { apiBase: env.PALUGADA_TELEGRAM_API } } : {}),
       ...(env.PALUGADA_WHATSAPP_API ? { whatsapp: { apiBase: env.PALUGADA_WHATSAPP_API } } : {}),
+      ...(mailCa ? { mail: { ca: mailCa } } : {}),
     },
   });
   notes.push(...toolBindings.notes);
@@ -999,6 +1002,8 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // What a company keeps outside its rows, so an erasure removes that
     // too (0096): its directory in the files root, its charter's folder.
     erasure: { filesRoot, charters: charterRepository },
+    // Customers' mailboxes, read in the tick by whichever worker takes each.
+    mail: { secrets, ...(mailCa ? { ca: mailCa } : {}) },
     ...(otlp ? { telemetry: new OtlpExporter({ ...otlp, holder: workerId }) } : {}),
     ...(env.PALUGADA_APP_URL_PUBLIC
       ? {

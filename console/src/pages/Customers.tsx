@@ -17,7 +17,7 @@ import {
   Stack, Table, Text, Textarea, TextInput, ThemeIcon, UnstyledButton,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconBrandTelegram, IconBrandWhatsapp, IconExternalLink, IconMessageCircle, IconUser } from '@tabler/icons-react';
+import { IconAlertTriangle, IconBrandTelegram, IconBrandWhatsapp, IconExternalLink, IconMail, IconMessageCircle, IconUser } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { useLoad } from '../hooks.ts';
@@ -31,11 +31,13 @@ import { ChatThread, attachmentSaid, channelSaid, customerSaid, handleSaid } fro
 
 /** A transport by its mark, never by a picture drawn from a name. */
 function KindIcon({ kind, size }: { kind: Chat['kind']; size: number }) {
+  if (kind === 'email') return <IconMail size={size} />;
   return kind === 'whatsapp' ? <IconBrandWhatsapp size={size} /> : <IconBrandTelegram size={size} />;
 }
 
 /** Where customers find an open channel: a bot's link, or a number's. */
 function shareSaid(channel: ChatChannel): string {
+  if (channel.kind === 'email') return t('Customers can write to {address}', { address: channel.account });
   return channel.kind === 'whatsapp'
     ? t('Share the number with your customers: wa.me/{number}', { number: channel.account })
     : t('Share the bot\'s link with your customers: t.me/{account}', { account: channel.account });
@@ -74,7 +76,7 @@ export function Customers({ ctx, route }: PageProps) {
             title={t('No customer has written yet')}
             description={channels.some((one) => one.enabled)
               ? shareSaid(channels.find((one) => one.enabled)!)
-              : t('Connect a Telegram bot below, and what customers write to it comes here.')}
+              : t('Connect a channel below, and what customers write on it comes here.')}
           />
         ) : (
           <Stack gap={4}>
@@ -141,6 +143,8 @@ function Channels({ companyId, channels, owner, changed }: {
   const [token, setToken] = useState('');
   const [phoneNumberId, setPhoneNumberId] = useState('');
   const [appSecret, setAppSecret] = useState('');
+  const [mailbox, setMailbox] = useState({ address: '', imapHost: '', imapPort: 993, smtpHost: '', smtpPort: 587 });
+  const [password, setPassword] = useState('');
   const [roleId, setRoleId] = useState<string | null>(null);
   const [goalId, setGoalId] = useState<string | null>(null);
   const [instruction, setInstruction] = useState('');
@@ -160,12 +164,14 @@ function Channels({ companyId, channels, owner, changed }: {
         made = await api('POST', `/api/companies/${companyId}/chat-channels`, {
           kind, token: token.trim(), roleId, goalId, instruction: instruction.trim(), maxPerHour, proof,
           ...(kind === 'whatsapp' ? { phoneNumberId: phoneNumberId.trim(), appSecret: appSecret.trim() } : {}),
+          ...(kind === 'email' ? { ...mailbox, address: mailbox.address.trim(), password } : {}),
         });
       });
       if (!done || !made) return;
       setOutcome(made);
       setToken('');
       setAppSecret('');
+      setPassword('');
       changed();
     } catch (failure) {
       setError(explain(failure));
@@ -204,6 +210,12 @@ function Channels({ companyId, channels, owner, changed }: {
                       <Text size="sm" fw={600}>{channelSaid(channel.kind, channel.account)}</Text>
                     </Group>
                     <Text size="xs" c="dimmed" lineClamp={2}>{channel.instruction}</Text>
+                    {channel.enabled && channel.failure && (
+                      <Group gap={4} wrap="nowrap" mt={4}>
+                        <IconAlertTriangle size={14} color="var(--mantine-color-red-6)" style={{ flexShrink: 0 }} />
+                        <Text size="xs" c="red" style={{ overflowWrap: 'anywhere' }}>{t('Could not read the mailbox: {reason}', { reason: channel.failure })}</Text>
+                      </Group>
+                    )}
                   </Table.Td>
                   <Table.Td><Text size="sm">{channel.roleName}</Text></Table.Td>
                   <Table.Td>
@@ -232,12 +244,12 @@ function Channels({ companyId, channels, owner, changed }: {
       {owner && (
         <Paper withBorder radius="md" p="md">
           <Group justify="space-between" mb="sm" gap="sm">
-            <Text fw={600}>{kind === 'whatsapp' ? t('Connect a WhatsApp number') : t('Connect a Telegram bot')}</Text>
+            <Text fw={600}>{kind === 'email' ? t('Connect a mailbox') : kind === 'whatsapp' ? t('Connect a WhatsApp number') : t('Connect a Telegram bot')}</Text>
             <SegmentedControl
               size="xs"
               value={kind}
               onChange={(value) => { setKind(value as Chat['kind']); setOutcome(null); setError(null); }}
-              data={[{ value: 'telegram', label: t('Telegram') }, { value: 'whatsapp', label: t('WhatsApp') }]}
+              data={[{ value: 'telegram', label: t('Telegram') }, { value: 'whatsapp', label: t('WhatsApp') }, { value: 'email', label: t('Email') }]}
             />
           </Group>
           <Stack gap="sm">
@@ -252,6 +264,27 @@ function Channels({ companyId, channels, owner, changed }: {
                   onChange={(event) => setToken(event.currentTarget.value)}
                   autoComplete="off"
                 />
+              </>
+            ) : kind === 'email' ? (
+              <>
+                <TextInput label={t('The mailbox\'s address')} type="email" autoComplete="off" value={mailbox.address}
+                  onChange={(event) => { const address = event.currentTarget.value; setMailbox((was) => ({ ...was, address })); }} />
+                <PasswordInput label={t('The mailbox\'s password')} autoComplete="new-password" value={password}
+                  description={t('An app password where the provider asks for one, as Gmail does. It is checked with the mail servers, then kept sealed; nobody sees it again.')}
+                  onChange={(event) => setPassword(event.currentTarget.value)} />
+                <Group grow align="flex-start" wrap="wrap">
+                  <TextInput label={t('IMAP server')} placeholder="imap.gmail.com" value={mailbox.imapHost} style={{ minWidth: 180 }}
+                    onChange={(event) => { const imapHost = event.currentTarget.value; setMailbox((was) => ({ ...was, imapHost })); }} />
+                  <NumberInput label={t('Port')} min={1} max={65535} value={mailbox.imapPort} maw={110}
+                    onChange={(value) => setMailbox((was) => ({ ...was, imapPort: typeof value === 'number' ? value : 993 }))} />
+                </Group>
+                <Group grow align="flex-start" wrap="wrap">
+                  <TextInput label={t('SMTP server')} placeholder="smtp.gmail.com" value={mailbox.smtpHost} style={{ minWidth: 180 }}
+                    onChange={(event) => { const smtpHost = event.currentTarget.value; setMailbox((was) => ({ ...was, smtpHost })); }} />
+                  <NumberInput label={t('Port')} min={1} max={65535} value={mailbox.smtpPort} maw={110}
+                    onChange={(value) => setMailbox((was) => ({ ...was, smtpPort: typeof value === 'number' ? value : 587 }))} />
+                </Group>
+                <Text size="xs" c="dimmed">{t('For Gmail: imap.gmail.com, port 993, and smtp.gmail.com, port 587.')}</Text>
               </>
             ) : (
               <>
@@ -304,7 +337,9 @@ function Channels({ companyId, channels, owner, changed }: {
             </Text>
             {error && <Alert color="red" variant="light">{error}</Alert>}
             {outcome && (
-              outcome.webhook === 'manual' && outcome.callbackUrl && outcome.verifyToken ? (
+              outcome.webhook === 'polled' ? (
+                <Alert color="teal" variant="light">{t('{address} is connected. It is read about once a minute, from now on; the mail it already holds is left alone.', { address: outcome.channel.account })}</Alert>
+              ) : outcome.webhook === 'manual' && outcome.callbackUrl && outcome.verifyToken ? (
                 // Shown once: the verify token is kept only as its hash.
                 <Alert color="teal" variant="light">
                   <Stack gap="xs">
@@ -330,8 +365,10 @@ function Channels({ companyId, channels, owner, changed }: {
               <Button
                 leftSection={<KindIcon kind={kind} size={16} />}
                 loading={busy}
-                disabled={!token.trim() || !roleId || !goalId || !instruction.trim()
-                  || (kind === 'whatsapp' && (!phoneNumberId.trim() || !appSecret.trim()))}
+                disabled={!roleId || !goalId || !instruction.trim()
+                  || (kind === 'email'
+                    ? !mailbox.address.trim() || !password || !mailbox.imapHost.trim() || !mailbox.smtpHost.trim()
+                    : !token.trim() || (kind === 'whatsapp' && (!phoneNumberId.trim() || !appSecret.trim())))}
                 onClick={() => void connect()}
               >
                 {t('Connect')}

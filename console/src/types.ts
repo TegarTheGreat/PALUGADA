@@ -576,8 +576,8 @@ export type TriggerScheme = 'bearer' | 'url' | 'github' | 'stripe' | 'slack' | '
 /** A customer channel (0111): a bot of the company's own, answered by one role. */
 export interface ChatChannel {
   id: string;
-  kind: 'telegram' | 'whatsapp';
-  /** The bot's username, as customers find it. */
+  kind: 'telegram' | 'whatsapp' | 'email';
+  /** The bot's username, the number or the address, as customers find it. */
   account: string;
   roleId: string;
   roleName: string;
@@ -588,13 +588,16 @@ export interface ChatChannel {
   chats: number;
   lastMessageAt: string | null;
   createdAt: string;
+  /** A mailbox: when it was last read, and why the last reading failed. */
+  checkedAt: string | null;
+  failure: string | null;
 }
 
 /** One customer's conversation on a channel. */
 export interface Chat {
   id: string;
   channelId: string;
-  kind: 'telegram' | 'whatsapp';
+  kind: 'telegram' | 'whatsapp' | 'email';
   account: string;
   /** Whether a reply can still be sent on it. */
   open: boolean;
@@ -612,6 +615,8 @@ export interface ChatMessage {
   body: string;
   /** What arrived that is not text, by Telegram's word for it: photo, voice, document… */
   attachment: string | null;
+  /** A mail's subject. */
+  subject: string | null;
   outcome: 'started' | 'joined' | 'limited' | null;
   taskId: string | null;
   /** A reply the transport took; false for one whose send failed. */

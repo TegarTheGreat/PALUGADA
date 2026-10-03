@@ -23,6 +23,8 @@ import type { BotApi } from '../owner/telegram.ts';
 import { chatOfTask, chatWith } from '../chats/chats.ts';
 import { sendToCustomer } from '../chats/telegram.ts';
 import { sendFromNumber, WHATSAPP_REPLY_WINDOW_HOURS, type GraphApi } from '../chats/whatsapp.ts';
+import { sendFromMailbox, type MailOptions, type MailSettings } from '../chats/mail.ts';
+import { composeReply, replySubject } from '../chats/smtp.ts';
 
 export interface ChatOptions {
   /** Where each channel's token is sealed (`db://chat-…`). */
@@ -31,6 +33,8 @@ export interface ChatOptions {
   telegram?: BotApi;
   /** Where Meta's Graph API is, likewise. */
   whatsapp?: GraphApi;
+  /** For a mailbox: a certificate authority to trust besides the system's. */
+  mail?: MailOptions;
 }
 
 /** The longest reply Telegram or WhatsApp takes in one message. */
@@ -57,7 +61,7 @@ export interface ChatReadResult {
   account: string;
   customer: string | null;
   handle: string | null;
-  messages: Array<{ from: 'customer' | 'company'; text: string; attachment?: string; at: string }>;
+  messages: Array<{ from: 'customer' | 'company'; text: string; attachment?: string; subject?: string; at: string }>;
 }
 
 export function chatRead(): Capability<{ chatId?: string; limit?: number }, ChatReadResult> {
@@ -91,6 +95,7 @@ export function chatRead(): Capability<{ chatId?: string; limit?: number }, Chat
             from: message.direction === 'in' ? 'customer' as const : 'company' as const,
             text: message.body,
             ...(message.attachment ? { attachment: `${message.attachment}, which cannot be read here` } : {}),
+            ...(message.subject ? { subject: message.subject } : {}),
             at: message.at.toISOString(),
           })),
         };
@@ -131,18 +136,24 @@ export function chatSend(options: ChatOptions): Capability<{ text: string; chatI
         const chatId = await chatFor(tx, ctx, input.chatId);
         const { rows: [chat] } = await tx.query<{
           external_id: string; kind: string; account: string; enabled: boolean; token_ref: string | null;
-          account_id: string | null; last_in: Date | null;
+          account_id: string | null; last_in: Date | null; mail: MailSettings | null;
+          last_subject: string | null; last_id: string | null;
         }>(
-          `SELECT h.external_id, c.kind, c.account, c.enabled, c.token_ref, c.account_id,
-                  (SELECT max(m.created_at) FROM chat_messages m WHERE m.chat_id = h.id AND m.direction = 'in') AS last_in
-             FROM chats h JOIN chat_channels c ON c.id = h.channel_id WHERE h.id = $1`,
+          `SELECT h.external_id, c.kind, c.account, c.enabled, c.token_ref, c.account_id, c.mail,
+                  last.created_at AS last_in, last.subject AS last_subject, last.external_id AS last_id
+             FROM chats h JOIN chat_channels c ON c.id = h.channel_id
+             LEFT JOIN LATERAL (
+               SELECT m.created_at, m.subject, m.external_id FROM chat_messages m
+                WHERE m.chat_id = h.id AND m.direction = 'in' ORDER BY m.created_at DESC LIMIT 1
+             ) last ON true
+            WHERE h.id = $1`,
           [chatId]);
         if (!chat) throw new PalugadaError('contract.violation', 'no such conversation in this company', { field: 'chatId' });
         const { rows: [before] } = await tx.query<{ id: string; external_id: string | null }>(
           "SELECT id, external_id FROM chat_messages WHERE chat_id = $1 AND direction = 'out' AND idempotency_key = $2",
           [chatId, ctx.idempotencyKey]);
         if (before?.external_id) return { done: { messageId: before.id, externalId: before.external_id, sent: false } };
-        const named = chat.kind === 'whatsapp' ? `+${chat.account}` : `@${chat.account}`;
+        const named = chat.kind === 'whatsapp' ? `+${chat.account}` : chat.kind === 'email' ? chat.account : `@${chat.account}`;
         if (!chat.enabled || !chat.token_ref) {
           throw new PalugadaError('contract.violation',
             `the channel ${named} is closed; the owner connects it again on Customers before anything is sent`,
@@ -161,18 +172,37 @@ export function chatSend(options: ChatOptions): Capability<{ text: string; chatI
         // Kept before it is sent, under the step's key. A row with no
         // transport id is an attempt that may or may not have reached the
         // customer; Telegram cannot be asked which, so it is sent again.
+        // A mail is a reply in the customer's thread: "Re:" their subject.
+        const subject = chat.kind === 'email' ? replySubject(chat.last_subject) : null;
         const messageId = before?.id ?? (await tx.query<{ id: string }>(
-          `INSERT INTO chat_messages (company_id, chat_id, direction, body, task_id, idempotency_key)
-           VALUES ($1, $2, 'out', $3, $4, $5) RETURNING id`,
-          [ctx.companyId, chatId, text, ctx.taskId, ctx.idempotencyKey])).rows[0]!.id;
-        return { send: { chatId, messageId, chat: chat.external_id, tokenRef: chat.token_ref, kind: chat.kind, accountId: chat.account_id } };
+          `INSERT INTO chat_messages (company_id, chat_id, direction, body, task_id, idempotency_key, subject)
+           VALUES ($1, $2, 'out', $3, $4, $5, $6) RETURNING id`,
+          [ctx.companyId, chatId, text, ctx.taskId, ctx.idempotencyKey, subject])).rows[0]!.id;
+        return {
+          send: {
+            chatId, messageId, chat: chat.external_id, tokenRef: chat.token_ref, kind: chat.kind, accountId: chat.account_id,
+            account: chat.account, mail: chat.mail, subject, inReplyTo: chat.last_id,
+          },
+        };
       });
       if ('done' in ready) return ready.done!;
       const { chatId, messageId, chat, tokenRef, kind, accountId } = ready.send;
       const token = await options.secrets.resolve(tokenRef);
-      const externalId = kind === 'whatsapp'
-        ? await sendFromNumber(token, accountId ?? '', chat, text, options.whatsapp ?? {})
-        : await sendToCustomer(token, chat, text, options.telegram ?? {});
+      let externalId: string;
+      if (kind === 'email' && ready.send.mail) {
+        // The message's own Message-ID is what a customer's answer names, so
+        // it is the reply's id here.
+        const reply = composeReply({
+          from: ready.send.account, to: chat, subject: ready.send.subject ?? 'Re:', text,
+          inReplyTo: ready.send.inReplyTo?.startsWith('<') ? ready.send.inReplyTo : null,
+        });
+        await sendFromMailbox(ready.send.mail, token, { from: ready.send.account, to: chat, raw: reply.raw }, options.mail ?? {});
+        externalId = reply.messageId;
+      } else {
+        externalId = kind === 'whatsapp'
+          ? await sendFromNumber(token, accountId ?? '', chat, text, options.whatsapp ?? {})
+          : await sendToCustomer(token, chat, text, options.telegram ?? {});
+      }
       await withTenant(ctx.companyId, async (tx) => {
         await tx.query('UPDATE chat_messages SET external_id = $2 WHERE id = $1', [messageId, externalId]);
         await tx.query('UPDATE chats SET last_message_at = now() WHERE id = $1', [chatId]);

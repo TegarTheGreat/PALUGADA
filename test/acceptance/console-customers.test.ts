@@ -128,7 +128,7 @@ test('the owner reads a customer\'s conversation, and sees it beside the reply t
   }
 });
 
-test('a WhatsApp number is shown as customers dial it, and connecting one asks for what Meta gives', { skip: browser ? false : 'no Chromium to draw the console in' }, async () => {
+test('a WhatsApp number is shown as customers dial it, and connecting one or a mailbox asks for what each needs', { skip: browser ? false : 'no Chromium to draw the console in' }, async () => {
   assert.ok(existsSync(`${BUILT}/index.html`), 'the console is built first (npm run console:build)');
   const fixture = await createCompany('console-customers-wa');
   await withControlPlane((tx) => tx.query("UPDATE companies SET name = 'Toko Kopi Senja' WHERE id = $1", [fixture.companyId]));
@@ -164,6 +164,8 @@ test('a WhatsApp number is shown as customers dial it, and connecting one asks f
     assert.ok(!String(await page.evaluate('document.body.innerText')).includes('@6281234567890'), 'a number is not a username');
     await page.evaluate(`[...document.querySelectorAll('label')].find((one) => one.innerText.trim() === 'WhatsApp').click()`);
     await page.waitFor(`document.body.innerText.includes('Phone number ID') && document.body.innerText.includes('App secret')`, 'the WhatsApp form');
+    await page.evaluate(`[...document.querySelectorAll('label')].find((one) => one.innerText.trim() === 'Email').click()`);
+    await page.waitFor(`document.body.innerText.includes('IMAP server') && document.body.innerText.includes('SMTP server') && document.body.innerText.includes("The mailbox's password")`, 'the mailbox form');
     const wide = await page.evaluate('document.documentElement.scrollWidth - window.innerWidth');
     assert.ok(Number(wide) <= 0, `Customers is ${String(wide)} pixels wider than a phone`);
   } finally {

@@ -1048,6 +1048,36 @@ that is refused, with the reason, before anything is sent, and waits for the
 customer to write again. **Close** forgets the token and the app secret;
 remove the webhook in the Meta app too.
 
+## Let customers write to the company: its mailbox
+
+The company's own mailbox -- Gmail, Google Workspace, Microsoft 365, or the
+one that came with a website -- can take customers' mail the same way. A
+worker reads it about once a minute over IMAP, and a reply goes out over
+SMTP from the same address, in the customer's thread and in the mailbox's
+own Sent mail.
+
+1. Where the provider asks for one, make an app password: in Gmail, turn
+   on 2-Step Verification, then Security, App passwords.
+2. On **Customers**, choose **Email**, and give **The mailbox's address**,
+   **The mailbox's password**, the **IMAP server** and the **SMTP server**
+   with their ports (Gmail: `imap.gmail.com` 993 and `smtp.gmail.com` 587),
+   then who answers, the goal, what to do with each message and the hour's
+   limit.
+3. Press **Connect** and confirm with a code. Both servers are signed in to
+   first, so a wrong password is said there and then; the password is
+   sealed.
+
+Only TLS is used: IMAP on its TLS port, SMTP on 465 or upgraded with
+STARTTLS (587), and a server that offers neither is refused. The mailbox is
+read from the moment it is connected: the mail it already holds is never
+taken for work. An auto-reply, a bounce, a mailing list and the mailbox's
+own mail start nothing, and a reply's quoted history is left out of what
+the role reads. Reading a message does not mark it read in your own mail
+app. When the mailbox cannot be read -- the password changed, the server is
+down -- **Customers** says why under the channel, and the mail waits on the
+server until it can be. A server with a private certificate is trusted with
+`PALUGADA_MAIL_CA`.
+
 ## Install a bundle
 
 1. Under **Settings**, **Bundles**, **Install a bundle**, type the

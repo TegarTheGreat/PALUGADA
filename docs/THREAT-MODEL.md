@@ -189,6 +189,12 @@ refer to `docs/PRD.md`.
    words. A WhatsApp number is Meta's to vouch for. What `crm.read` returns
    is outside content, and the application role adds a note and never
    rewrites one.
+5f. An entry in the books written by work that had read outside content is
+   kept `outside` (0119), and `ledger.read` returns its memo fenced as data
+   and marks the work that reads it, as a lesson is (6). Every entry
+   balances, checked by the database at commit; the application role
+   inserts and never updates one, and adds no line to an entry another
+   transaction kept.
 6. A lesson from tainted work is stored `outside` and shown later as data
    (0071, `keepLessons` in `src/engine/tasks.ts`).
 7. `web.fetch`, vendor and MCP calls refuse private and metadata addresses,
@@ -526,6 +532,7 @@ All under `test/acceptance/` unless named.
 | The guardian: judged only after outside content, only tightens, fails closed | `guardian.test.ts` |
 | A reply on its own: the owner's device, its own conversation, marked passages, no new figure or address, six an hour, a check that fails closed | `answers-alone.test.ts` |
 | Customer records: filed by address or by a whole number, another company's never found, a note never rewritten | `customer-records.test.ts` |
+| The books: every entry balances at commit, none rewritten or added to, an outside memo read as data | `books.test.ts` |
 | Taint through sub-tasks, searches and briefings | `tool-io.test.ts` |
 | A division's credential is not the deployment's secret | `credentials.test.ts` |
 | The browser: every request through the proxy, one context per company, cookies sealed and erased, acts only as approved | `browser.test.ts`, `company-closing.test.ts` |

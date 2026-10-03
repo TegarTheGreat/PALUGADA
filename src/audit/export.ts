@@ -193,6 +193,21 @@ const SECTIONS: Section[] = [
             FROM chat_channels ORDER BY created_at`,
   },
   {
+    // The books (0119): the accounts, and the entries with their lines, the
+    // reversed before what reverses them.
+    name: 'ledger_accounts',
+    sql: `SELECT id, code, name, kind, system_key, created_at, archived_at FROM ledger_accounts ORDER BY code`,
+  },
+  {
+    name: 'journal_entries',
+    sql: `SELECT id, entry_date, memo, currency, written_by, task_id, outside, reverses, created_at
+            FROM journal_entries ORDER BY created_at, id`,
+  },
+  {
+    name: 'journal_lines',
+    sql: `SELECT id, entry_id, account_id, debit_cents, credit_cents FROM journal_lines ORDER BY entry_id, id`,
+  },
+  {
     // The company's customer records (0118): the people, what was noted
     // about them, and the deals with them.
     name: 'contacts',

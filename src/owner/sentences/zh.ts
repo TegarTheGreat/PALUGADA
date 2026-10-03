@@ -270,6 +270,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Proposed: {statement}': '提议：{statement}',
   'Proposed status: {status}': '提议的状态：{status}',
   'Reason given: {reason}': '给出的理由：{reason}',
+  'Record an entry in the books': '在账簿中记录分录',
   'Record a customer or a deal': '记录客户或交易',
   'Not sent on its own: {reason}': '未自行发送：{reason}',
   'it answers a conversation other than the one this work began with': '它回复的是另一段对话，而不是开始这项工作的对话',

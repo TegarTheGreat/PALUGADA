@@ -8905,6 +8905,69 @@ request to do an office's work, as 2.137 did.
   export restored with its notes and deals. The binding, the tiers and the
   template.
 
+## 2.139 The company keeps its own books, by double entry
+
+The third step of the owner's choice of 3 October ("support first, then the
+business records"). `ledger.read` was catalogued and bound to nothing, and
+the bookkeeper's done criteria said the ledger balances against what was
+issued and paid "where ledger.read is connected", which on every
+deployment it was not.
+
+- **A chart of accounts and entries that balance** (0119,
+  `src/records/books.ts`). The books open the first time they are looked
+  at, with cash and bank, accounts receivable, accounts payable, taxes owed,
+  owner's equity, sales and expenses under the codes 1100 to 5100, each
+  known to the platform by a key, so it finds them whatever the owner calls
+  them; the owner adds their own. An entry is a day, a memo, one currency
+  and two to forty lines, each a debit or a credit of whole cents on an
+  account. It is refused, with what is wrong, when it does not balance,
+  names an account the books do not have (the refusal lists them), puts a
+  debit and a credit on one line, or names a day the calendar has not.
+- **The database holds the rule, whatever wrote the entry.** A constraint
+  trigger checks at commit that an entry has two lines and its debits equal
+  its credits; the application role inserts entries and lines and updates
+  neither, and a line it writes must belong to an entry of the same
+  transaction, so nothing is added to an entry once kept. A restore, on the
+  control plane, writes entries as they were.
+- **A mistake is reversed, not rewritten.** A reversing entry, dated the day
+  it is made, carries the lines the other way round and names what it
+  undoes; an entry is reversed once, and a reversal is not reversed.
+- **Balances on their natural side**, per currency: an asset or an expense
+  by its debits, a liability, equity or income by its credits. Profit
+  between two days is income less expenses, per currency.
+- **`ledger.read` and `ledger.record`, bound by the platform**
+  (`src/capabilities/books.ts`, adapter `platform:books`) as a fallback an
+  accounting service takes over. `ledger.read` is tier 0, as the catalogue
+  made it so that checking the books before paying is free: balances as of
+  a day, the latest entries (within days, on an account), or profit.
+  `ledger.record` is new in the catalogue, tier 1 and read back. An entry
+  written by work that had read outside content is kept `outside`, and
+  `ledger.read` returns its memo fenced as data and marks the work reading
+  it (F8.9), as `memory.search` does a lesson.
+- **The bookkeeper holds `ledger.record`** (twelve tools), its charter says
+  to record what came in and went out with it, and Finance is granted it.
+- **Books, a page of its own** beside Customers: this month's income,
+  expenses and profit, the accounts with their balances, the latest
+  entries with their lines, marked when reversed, a reversal, or written by
+  an agent; the owner adds an account, records an entry with a running
+  check that the debits equal the credits, and reverses one. A seat reads
+  the books. The owner's assistant may propose each change.
+- **Export**: the accounts, the entries and their lines travel, and are
+  restored in one transaction, which is when they balance.
+- **The threat model** says what the books hold to (5f).
+- **Tested** in `books.test.ts`: the chart opened; capital, a purchase and
+  a cash sale recorded, the balances on their sides, and the month's profit
+  and an empty month; an unbalanced entry, an unknown account, a line both
+  ways, 30 February and a single line refused with their reasons; an
+  unbalanced entry written straight to the database refused at commit; the
+  application role refused rewriting an entry or a line and adding lines to
+  a kept entry. An entry recorded by work begun from outside read back as
+  data by other work, which is then marked. The owner's routes: the books
+  opened on a first look, an account added and a taken code, a bad code and
+  an unknown kind refused, an entry, a mistake reversed once and a reversal
+  not reversed, the balances and the entries in order; an export restored
+  balancing. The binding, the tiers and the template.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the
@@ -8947,15 +9010,15 @@ is a real Daytona or Modal machine answering; the `http` runtime also reports
 this backend, because "somewhere else, not ours" is what it means in F13.5's
 vocabulary, and it cannot verify the claim.
 
-**Thirty-six of the fifty-seven catalogued capabilities are unbound on a bare
-boot -- thirty-two on a machine with a Chromium -- and that is the design
+**Thirty-five of the fifty-eight catalogued capabilities are unbound on a bare
+boot -- thirty-one on a machine with a Chromium -- and that is the design
 rather than a gap.** The boot names every one. Fourteen need configuration, not
 an account: `files.list` and `files.read` a files root, `doc.draft` and
 `email.draft` a files root and a model; `web.search`, `image.generate`, `speech.synthesize`,
 `speech.transcribe` and `image.describe` a provider chosen under **Tools**; `web.extract` one of
 those or a Chromium; `browser.read`, `browser.act` and
 `browser.handover` a Chromium; and `code.compute` a files root and an image
-built from `deploy/compute`, with a docker to run it. The other twenty-two need a deployment's own vendor entry,
+built from `deploy/compute`, with a docker to run it. The other twenty-one need a deployment's own vendor entry,
 six of which `config/vendors.example.json` shows. `dns.read`, `invoice.pay`
 and the rest are *names* in the catalogue: a tier, a schema, the scopes a
 credential must declare, and a `verify()` contract. What executes them is a
@@ -8966,8 +9029,9 @@ uses this platform is not a decision a control plane gets to make.
 is one protocol whoever runs it, so the platform binds them to each
 division's own (2.127), and a vendor entry for either still takes the name.
 So is the customer record: `crm.read`, `crm.note` and `crm.record` are the
-company's own tables until a CRM is connected (2.138).
-These counts were brought up to date when 2.138 was written, from the
+company's own tables until a CRM is connected (2.138), and the books:
+`ledger.read` and `ledger.record` (2.139).
+These counts were brought up to date when 2.139 was written, from the
 catalogue and what the platform binds, after a boot read them for 2.136; until 2.127 the
 paragraph said thirty-nine, still counting `chat.read` and `chat.send`, which
 the platform has bound since 2.117.

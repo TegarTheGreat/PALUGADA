@@ -269,6 +269,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Proposed: {statement}': 'Diusulkeun: {statement}',
   'Proposed status: {status}': 'Status anu diusulkeun: {status}',
   'Reason given: {reason}': 'Alesan anu dipasihkeun: {reason}',
+  'Record an entry in the books': 'Nyatet éntri dina pembukuan',
   'Record a customer or a deal': 'Nyatet palanggan atanapi kasapukan',
   'Not sent on its own: {reason}': 'Teu dikintun nyalira: {reason}',
   'it answers a conversation other than the one this work began with': 'waleran ieu kanggo obrolan séjén, sanés anu ngamimitian padamelan ieu',

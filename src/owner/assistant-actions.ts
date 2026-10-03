@@ -541,6 +541,26 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   },
   { pattern: '/api/companies/:companyId/triggers/:triggerId', what: 'Switch a trigger on or off.', fields: { enabled: 'true or false' }, factor: 'always' },
   {
+    pattern: '/api/companies/:companyId/books/accounts',
+    what: 'Add an account to the books: a code no other account has, a name, and its kind.',
+    fields: { code: 'up to eight digits, such as 5200', name: 'its name, such as Rent', kind: 'asset, liability, equity, income or expense' },
+    factor: 'never',
+  },
+  {
+    pattern: '/api/companies/:companyId/books/entries',
+    what: 'Record an entry in the books: accounts debited and credited, by code from GET /api/companies/:companyId/books, the debits equal to the credits.',
+    fields: {
+      date: 'YYYY-MM-DD', memo: 'what it was', currency: 'three letters, such as IDR',
+      lines: 'list of { account, debitCents } or { account, creditCents }, in the smallest unit',
+    },
+    factor: 'never',
+  },
+  {
+    pattern: '/api/companies/:companyId/books/entries/:entryId/reverse',
+    what: 'Undo an entry with a reversing one dated today; both stay in the books. Once per entry, and never a reversal.',
+    factor: 'never',
+  },
+  {
     pattern: '/api/companies/:companyId/contacts',
     what: 'Keep someone the company deals with: a customer, a supplier, a lead. GET /api/companies/:companyId/contacts?q= finds the ones kept.',
     fields: { name: 'their name', organisation: 'optional', email: 'optional', phone: 'optional, with + and the country code when it has one' },

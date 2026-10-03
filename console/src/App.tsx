@@ -21,7 +21,7 @@ import { notifications } from '@mantine/notifications';
 import { Spotlight, spotlight, type SpotlightActionData } from '@mantine/spotlight';
 import {
   IconActivity, IconAlertOctagon, IconBrain, IconBuildingStore, IconCheck, IconChecklist, IconChevronDown,
-  IconCoin, IconDots, IconHistory, IconHome, IconInbox, IconKey, IconLanguage, IconLayoutDashboard, IconLogout, IconMap, IconMessages, IconWorldWww,
+  IconBook2, IconCoin, IconDots, IconHistory, IconHome, IconInbox, IconKey, IconLanguage, IconLayoutDashboard, IconLogout, IconMap, IconMessages, IconWorldWww,
   IconMoon, IconPlayerPlay, IconPlayerStop, IconPlus, IconSearch, IconSparkles, IconServer2, IconSettings, IconSitemap, IconSun,
 } from '@tabler/icons-react';
 import { api, explain, setToken, whenSignedOut } from './api.ts';
@@ -42,6 +42,7 @@ const Decisions = lazy(() => import('./pages/Decisions.tsx').then((module) => ({
 const Overview = lazy(() => import('./pages/Overview.tsx').then((module) => ({ default: module.Overview })));
 const Work = lazy(() => import('./pages/Work.tsx').then((module) => ({ default: module.Work })));
 const Customers = lazy(() => import('./pages/Customers.tsx').then((module) => ({ default: module.Customers })));
+const Books = lazy(() => import('./pages/Books.tsx').then((module) => ({ default: module.Books })));
 const Browser = lazy(() => import('./pages/Browser.tsx').then((module) => ({ default: module.Browser })));
 const Organization = lazy(() => import('./pages/Organization.tsx').then((module) => ({ default: module.Organization })));
 const Memory = lazy(() => import('./pages/Memory.tsx').then((module) => ({ default: module.Memory })));
@@ -62,6 +63,7 @@ const PAGES: Array<{ id: CompanyPage; label: string; icon: typeof IconInbox; gro
   { id: 'overview', label: N('Overview'), icon: IconLayoutDashboard, group: 'company' },
   { id: 'work', label: N('Work'), icon: IconActivity, group: 'company' },
   { id: 'customers', label: N('Customers'), icon: IconMessages, group: 'company' },
+  { id: 'books', label: N('Books'), icon: IconBook2, group: 'company' },
   { id: 'browser', label: N('Browser'), icon: IconWorldWww, group: 'company', owner: true },
   { id: 'team', label: N('Team'), icon: IconSitemap, group: 'company' },
   { id: 'memory', label: N('Memory'), icon: IconBrain, group: 'company' },
@@ -619,7 +621,7 @@ function Console({ device, staff, recovered, signOut }: {
               {tab.label}
             </UnstyledButton>
           ))}
-          <UnstyledButton className="bottom-tab" data-active={['team', 'memory', 'history', 'settings', 'overview', 'customers', 'browser', 'deployment'].includes(active) || undefined} onClick={() => setMore(true)}>
+          <UnstyledButton className="bottom-tab" data-active={['team', 'memory', 'history', 'settings', 'overview', 'customers', 'books', 'browser', 'deployment'].includes(active) || undefined} onClick={() => setMore(true)}>
             <IconDots size={22} stroke={1.7} />
             {t('More')}
           </UnstyledButton>
@@ -696,6 +698,7 @@ function CompanyPageView({ ctx, route }: PageProps) {
     case 'overview': return <Overview ctx={ctx} route={route} />;
     case 'work': return <Work ctx={ctx} route={route} />;
     case 'customers': return <Customers ctx={ctx} route={route} />;
+    case 'books': return <Books ctx={ctx} route={route} />;
     case 'browser': return <Browser ctx={ctx} route={route} />;
     case 'team': return <Organization ctx={ctx} route={route} />;
     case 'memory': return <Memory ctx={ctx} route={route} />;

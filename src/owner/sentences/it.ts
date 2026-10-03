@@ -271,6 +271,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Proposed: {statement}': 'Proposta: {statement}',
   'Proposed status: {status}': 'Stato proposto: {status}',
   'Reason given: {reason}': 'Motivo indicato: {reason}',
+  'Record an entry in the books': 'Registrare una scrittura nei libri',
   'Record a customer or a deal': 'Registra un cliente o una trattativa',
   'Not sent on its own: {reason}': 'Non inviata da sola: {reason}',
   'it answers a conversation other than the one this work began with': 'risponde a una conversazione diversa da quella con cui è iniziato questo lavoro',

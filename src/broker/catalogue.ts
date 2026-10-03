@@ -332,6 +332,16 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
     needsCredential: true,
   },
   {
+    name: 'ledger.record',
+    adapter: 'accounting',
+    tier: TIER.REVERSIBLE_WRITE,
+    summary: 'Records an entry in the books: accounts debited and credited, balancing.',
+    calibration:
+      'Internal: nobody outside the company sees an entry, and a wrong one is ' +
+      'undone by a reversing entry that stays beside it. It moves no money; ' +
+      'recording that money moved is not moving it, which is `invoice.pay`.',
+  },
+  {
     name: 'chat.read',
     adapter: 'platform',
     tier: TIER.READ_ONLY,

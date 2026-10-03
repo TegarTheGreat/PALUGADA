@@ -47,6 +47,7 @@ export function capabilitySaid(language: string | null | undefined, name: string
     'invoice.issue': () => say(language, 'Issue an invoice'),
     'invoice.pay': () => say(language, 'Pay an invoice'),
     'ledger.read': () => say(language, 'Read the books'),
+    'ledger.record': () => say(language, 'Record an entry in the books'),
     'mailbox.read': () => say(language, 'Read the mailbox'),
     'memory.search': () => say(language, 'Search what the company knows'),
     'metric.record': () => say(language, 'Record a measure'),

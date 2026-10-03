@@ -689,6 +689,37 @@ export interface ContactDetail {
   chats: Array<{ id: string; kind: Chat['kind']; account: string; lastMessageAt: string }>;
 }
 
+/** An account in the company's books (0119), with what it holds on its natural side, per currency. */
+export interface BookAccount {
+  id: string;
+  code: string;
+  name: string;
+  kind: 'asset' | 'liability' | 'equity' | 'income' | 'expense';
+  systemKey: string | null;
+  archivedAt: string | null;
+  balances: Array<{ currency: string; cents: number }>;
+}
+
+export interface JournalEntry {
+  id: string;
+  date: string;
+  memo: string;
+  currency: string;
+  writtenBy: 'owner' | 'agent';
+  taskId: string | null;
+  outside: boolean;
+  reverses: string | null;
+  reversedBy: string | null;
+  createdAt: string;
+  lines: Array<{ account: string; name: string; debitCents: number; creditCents: number }>;
+}
+
+export interface Books {
+  accounts: BookAccount[];
+  entries: JournalEntry[];
+  month: { from: string; to: string; profit: Array<{ currency: string; incomeCents: number; expenseCents: number; profitCents: number }> };
+}
+
 /** An inbound trigger (0054): a URL another service posts events to. */
 export interface Trigger {
   id: string;

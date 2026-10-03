@@ -159,6 +159,11 @@ const SECTIONS: ImportSection[] = [
   { name: 'trigger_deliveries', table: 'trigger_deliveries', references: ['trigger_id', 'task_id'] },
   { name: 'documents', table: 'documents', references: ['division_id'] },
   { name: 'document_passages', table: 'document_passages', references: ['document_id'] },
+  // The books (0119): an entry that reverses another after it, and the lines
+  // with their entries in this one transaction, which is when they balance.
+  { name: 'ledger_accounts', table: 'ledger_accounts', references: [] },
+  { name: 'journal_entries', table: 'journal_entries', references: ['task_id', 'reverses'] },
+  { name: 'journal_lines', table: 'journal_lines', references: ['entry_id', 'account_id'] },
   // The customer records (0118), before the conversations that name them.
   { name: 'contacts', table: 'contacts', references: [] },
   { name: 'contact_notes', table: 'contact_notes', references: ['contact_id', 'task_id'] },

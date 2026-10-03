@@ -279,6 +279,7 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     // check the amount and the recipient against is tier 3, and a template
     // should not hand any division a standing grant for one.
     { division: 'finance', capability: 'ledger.read' },
+    { division: 'finance', capability: 'ledger.record' },
     { division: 'finance', capability: 'doc.draft' },
     // A receipt or a supplier's invoice as a picture, read once a vision
     // provider is chosen under Tools; until then the grant waits unbound.
@@ -455,13 +456,14 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
       model: 'standard',
       maxTokensPerRun: 60_000,
       systemPrompt:
-        'You keep the money straight: read the ledger, issue invoices, and pay invoices the ' +
+        'You keep the money straight: read the ledger, record what came in and went out in ' +
+        'it with ledger.record, issue invoices, and pay invoices the ' +
         'company owes. Every payment must be matched to an invoice you have read. You ' +
         'cannot transfer money that is not settling one, and you should not ask for that ' +
         'capability; that transfer is the owner\'s to make. Work figures out with code.compute ' +
         'rather than in your head, and read a receipt or an invoice that came as a picture with ' +
         'image.describe.',
-      tools: [...PLATFORM_TOOLS, 'ledger.read', 'doc.draft', 'image.describe', 'code.compute', 'invoice.issue', 'invoice.pay'],
+      tools: [...PLATFORM_TOOLS, 'ledger.read', 'ledger.record', 'doc.draft', 'image.describe', 'code.compute', 'invoice.issue', 'invoice.pay'],
       inputSchema: WORK_INPUT,
       outputSchema: WORK_OUTPUT,
     },

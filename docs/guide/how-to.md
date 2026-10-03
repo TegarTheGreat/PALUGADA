@@ -1225,6 +1225,33 @@ These are the company's own tables. Connect a CRM of your own under
 **Services** or in a vendor file and it takes `crm.read`, `crm.note` and
 `crm.record` over; the records kept here stay, and travel with an export.
 
+## Keep the books
+
+**Books** holds the company's own books, by double entry. They open the
+first time you look, with seven accounts: Cash and bank (1100), Accounts
+receivable (1200), Accounts payable (2100), Taxes owed (2200), Owner's
+equity (3100), Sales (4100) and Expenses (5100). **Add an account** adds
+your own -- a code of up to eight digits no other account has, a name, and
+whether it is an asset, a liability, equity, income or an expense.
+
+**Record an entry** takes a date, a memo, a currency and two lines or more,
+each a debit or a credit on an account; it is kept only when the debits
+equal the credits, and the database refuses one that does not, whatever
+wrote it. An entry is never changed: **Reverse** undoes a mistake with an
+entry the other way round, dated today, and both stay -- once per entry.
+Each account shows what it holds on its natural side (an asset or an
+expense by its debits, the rest by their credits), per currency, and the
+top of the page this month's income, expenses and profit.
+
+The bookkeeper keeps the same books: `ledger.read` reads the balances, the
+entries or the profit between two days, and `ledger.record` records an
+entry, refused with what is wrong when it does not balance or names an
+account the books do not have. An entry written by work that read
+something from outside -- a customer's mail, a receipt a stranger sent --
+is read back as data. Connect an accounting service under **Services** or
+in a vendor file and it takes both names over; the books kept here stay,
+and travel with an export.
+
 ## Let a channel answer on its own
 
 A shop answers the same questions all day: what a coffee costs, when it

@@ -271,6 +271,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Proposed: {statement}': 'प्रस्तावित: {statement}',
   'Proposed status: {status}': 'प्रस्तावित स्थिति: {status}',
   'Reason given: {reason}': 'बताया गया कारण: {reason}',
+  'Record an entry in the books': 'बहीखातों में प्रविष्टि दर्ज करें',
   'Record a customer or a deal': 'ग्राहक या सौदा दर्ज करें',
   'Not sent on its own: {reason}': 'खुद नहीं भेजा गया: {reason}',
   'it answers a conversation other than the one this work began with': 'यह जवाब किसी दूसरी बातचीत का है, उसका नहीं जिससे यह काम शुरू हुआ',

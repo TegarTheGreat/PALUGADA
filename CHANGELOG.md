@@ -385,6 +385,12 @@ The first version. What it holds, in the order an owner meets it.
   agents read the record of the customer they answer, note what they told
   them and record details and deals. A CRM you connect takes over
   (STATUS 2.138).
+- The company keeps its own **books**, by double entry, on a page of their
+  own: a chart of accounts, entries that must balance -- the database
+  refuses one that does not -- and a reversal for a mistake rather than an
+  edit; balances per currency and this month's profit. The bookkeeper reads
+  and records the same books. An accounting service you connect takes over
+  (STATUS 2.139).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

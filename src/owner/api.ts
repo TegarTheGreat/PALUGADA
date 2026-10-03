@@ -109,6 +109,7 @@ import {
 import {
   assertAccountFree, channelsOf, chatWith, chatsOf, checkChannel, closeChannel, hashSecret, openChannel, setAnswersAlone,
 } from '../chats/chats.ts';
+import { addAccount, balancesOf, entriesOf, entryInput, postEntry, profitOf, reverseEntry } from '../records/books.ts';
 import {
   addContact, archiveContact, changeContact, contactFields, contactWith, dealInput, listContacts, noteContact, recordDeal,
 } from '../records/contacts.ts';
@@ -3495,6 +3496,52 @@ export class OwnerApi {
           await setAnswersAlone(companyId, params.channelId!, body.on);
           return { answersAlone: body.on };
         },
+      },
+
+      /* ------------------------------------------------------- 0119 --- */
+
+      {
+        // The books (0119): every account with what it holds, and the latest
+        // entries. Opened the first time they are looked at.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/books',
+        handle: async ({ params }) => withTenant(params.companyId!, async (tx) => {
+          // This month so far, in the deployment's calendar.
+          const to = new Date().toISOString().slice(0, 10);
+          const from = `${to.slice(0, 7)}-01`;
+          return {
+            accounts: await balancesOf(tx, params.companyId!),
+            entries: (await entriesOf(tx, params.companyId!, { limit: 200 })).entries,
+            month: { from, to, profit: await profitOf(tx, params.companyId!, from, to) },
+          };
+        }),
+      },
+
+      {
+        // The owner's own accounts and entries, with the session: they move
+        // no money, and a wrong entry is undone by a reversing one.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/books/accounts',
+        handle: async ({ params, body }) => ({
+          accountId: await withTenant(params.companyId!, (tx) => addAccount(tx, params.companyId!, body)),
+        }),
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/books/entries',
+        handle: async ({ params, body }) => {
+          const entry = entryInput(body);
+          return { entryId: await withTenant(params.companyId!, (tx) => postEntry(tx, params.companyId!, entry, 'owner')) };
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/books/entries/:entryId/reverse',
+        handle: async ({ params }) => ({
+          entryId: await withTenant(params.companyId!, (tx) => reverseEntry(tx, params.companyId!, params.entryId!, 'owner')),
+        }),
       },
 
       /* ------------------------------------------------------- 0118 --- */

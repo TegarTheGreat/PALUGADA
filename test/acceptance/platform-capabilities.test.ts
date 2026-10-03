@@ -580,9 +580,12 @@ test('an email draft survives a model that ignored the format (F8.2)', () => {
  */
 test('the platform binds what it can and leaves the rest unbound (F8)', () => {
   // The mailbox pair needs nothing of the deployment: the mailbox is each
-  // division's key (`mailbox.ts`). Nor does the customer record, which is
-  // the company's own tables until a CRM is connected (`crm.ts`, 0118).
-  const always = ['crm.note', 'crm.read', 'crm.record', 'email.send', 'mailbox.read', 'uptime.check', 'web.fetch'];
+  // division's key (`mailbox.ts`). Nor do the customer record and the
+  // books, which are the company's own tables until a CRM or an accounting
+  // service is connected (`crm.ts`, 0118; `books.ts`, 0119).
+  const always = [
+    'crm.note', 'crm.read', 'crm.record', 'email.send', 'ledger.read', 'ledger.record', 'mailbox.read', 'uptime.check', 'web.fetch',
+  ];
   assert.deepEqual(platformCapabilities().map((capability) => capability.name).sort(), always);
 
   // A model with nowhere to write is not enough: §8.8 makes a draft a tier 1

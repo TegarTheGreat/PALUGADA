@@ -178,6 +178,17 @@ refer to `docs/PRD.md`.
    in plain words that the model misses goes out; each reply on its own is
    marked in the conversation with what it answered from, and the owner
    turns the channel off with their session.
+5e. A customer's first message files them under a record (0118): the one the
+   owner keeps with that mail address, or with that number -- every digit
+   when it was written with its country code, and otherwise only the
+   national digits with one to three of a country code before them. A
+   mail's From can be forged, so a stranger can be filed under a kept
+   customer and the work answering them reads that customer's record; the
+   forger never sees a reply, which goes to the address forged, and
+   anything else outward asks the owner, since the work read a customer's
+   words. A WhatsApp number is Meta's to vouch for. What `crm.read` returns
+   is outside content, and the application role adds a note and never
+   rewrites one.
 6. A lesson from tainted work is stored `outside` and shown later as data
    (0071, `keepLessons` in `src/engine/tasks.ts`).
 7. `web.fetch`, vendor and MCP calls refuse private and metadata addresses,
@@ -514,6 +525,7 @@ All under `test/acceptance/` unless named.
 | A role's tools, for every runtime in another process | `out-of-process-runtimes.test.ts` |
 | The guardian: judged only after outside content, only tightens, fails closed | `guardian.test.ts` |
 | A reply on its own: the owner's device, its own conversation, marked passages, no new figure or address, six an hour, a check that fails closed | `answers-alone.test.ts` |
+| Customer records: filed by address or by a whole number, another company's never found, a note never rewritten | `customer-records.test.ts` |
 | Taint through sub-tasks, searches and briefings | `tool-io.test.ts` |
 | A division's credential is not the deployment's secret | `credentials.test.ts` |
 | The browser: every request through the proxy, one context per company, cookies sealed and erased, acts only as approved | `browser.test.ts`, `company-closing.test.ts` |

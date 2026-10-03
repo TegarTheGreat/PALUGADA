@@ -491,6 +491,16 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
     needsCredential: true,
   },
   {
+    name: 'crm.record',
+    adapter: 'crm',
+    tier: TIER.REVERSIBLE_WRITE,
+    summary: 'Records a customer\'s details, or someone new, and opens or moves a deal with them.',
+    calibration:
+      'Internal: nobody outside the company sees a record change, and each ' +
+      'change keeps what the fields were on the owner\'s timeline, so it is ' +
+      'undone by hand. A deal marked won moves no money; an invoice does.',
+  },
+  {
     name: 'code.compute',
     adapter: 'container',
     tier: TIER.REVERSIBLE_WRITE,

@@ -267,6 +267,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Proposed: {statement}': '提案：{statement}',
   'Proposed status: {status}': '提案するステータス：{status}',
   'Reason given: {reason}': '示された理由：{reason}',
+  'Record a customer or a deal': '顧客や商談を記録',
   'Not sent on its own: {reason}': '自動では送信されませんでした: {reason}',
   'it answers a conversation other than the one this work began with': 'この作業が始まった会話とは別の会話への返信です',
   'it named no passage of a document for customers': '顧客向け文書の箇所を一つも示していません',

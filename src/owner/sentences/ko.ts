@@ -269,6 +269,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Proposed: {statement}': '제안: {statement}',
   'Proposed status: {status}': '제안된 상태: {status}',
   'Reason given: {reason}': '제시된 이유: {reason}',
+  'Record a customer or a deal': '고객이나 거래 기록',
   'Not sent on its own: {reason}': '스스로 보내지 않음: {reason}',
   'it answers a conversation other than the one this work began with': '이 작업이 시작된 대화가 아닌 다른 대화에 대한 답이에요',
   'it named no passage of a document for customers': '고객용 문서의 어떤 부분도 밝히지 않았어요',

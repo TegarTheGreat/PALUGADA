@@ -263,6 +263,7 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     { division: 'growth', capability: 'speech.synthesize' },
     { division: 'growth', capability: 'crm.read' },
     { division: 'growth', capability: 'crm.note' },
+    { division: 'growth', capability: 'crm.record' },
     { division: 'growth', capability: 'doc.draft' },
     { division: 'growth', capability: 'email.draft' },
     { division: 'growth', capability: 'email.send', rateLimitPerHour: 20 },
@@ -297,6 +298,7 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     { division: 'support', capability: 'image.describe' },
     { division: 'support', capability: 'crm.read' },
     { division: 'support', capability: 'crm.note' },
+    { division: 'support', capability: 'crm.record' },
     { division: 'support', capability: 'ticket.create' },
     { division: 'support', capability: 'email.draft' },
     { division: 'support', capability: 'email.send', rateLimitPerHour: 60 },
@@ -478,13 +480,15 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
       systemPrompt:
         'You answer customers who have already written in. Read the mailbox and the ' +
         'customer record before replying, record what you told them, and open a ticket ' +
-        'when the answer needs somebody else. If a reply would commit the company to ' +
+        'when the answer needs somebody else. Keep their details and what they want to buy ' +
+        'on the record with crm.record. If a reply would commit the company to ' +
         'anything -- a refund, a date, a discount -- do not send it: hand it off.',
       tools: [
         ...PLATFORM_TOOLS,
         'mailbox.read',
         'crm.read',
         'crm.note',
+        'crm.record',
         'ticket.create',
         'email.draft',
         'email.send',

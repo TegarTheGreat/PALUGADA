@@ -109,6 +109,9 @@ import {
 import {
   assertAccountFree, channelsOf, chatWith, chatsOf, checkChannel, closeChannel, hashSecret, openChannel, setAnswersAlone,
 } from '../chats/chats.ts';
+import {
+  addContact, archiveContact, changeContact, contactFields, contactWith, dealInput, listContacts, noteContact, recordDeal,
+} from '../records/contacts.ts';
 import { receiveChatHook, verifyChatHook } from '../chats/hook.ts';
 import { checkMailbox, mailSettings, type MailOptions } from '../chats/mail.ts';
 import { GOAL_STATUSES, applyGoalChange, createGoal, readGoal } from '../domain/goals.ts';
@@ -3494,6 +3497,75 @@ export class OwnerApi {
         },
       },
 
+      /* ------------------------------------------------------- 0118 --- */
+
+      {
+        // The people the company deals with (0118): the latest touched first,
+        // the archived last; with `?q=`, those whose name, organisation,
+        // address or number has the words.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/contacts',
+        handle: async ({ params, query }) => ({
+          contacts: await listContacts(params.companyId!, (query.get('q') ?? '').slice(0, 200)),
+        }),
+      },
+
+      {
+        method: 'GET',
+        pattern: '/api/companies/:companyId/contacts/:contactId',
+        handle: async ({ params }) => {
+          const found = await withTenant(params.companyId!, (tx) => contactWith(tx, params.contactId!));
+          if (!found) throw new PalugadaError('contract.violation', 'no such contact in this company', { contactId: params.contactId });
+          return found;
+        },
+      },
+
+      {
+        // The owner's own records: kept, changed and archived with the
+        // session, as a document is. They grant and spend nothing.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/contacts',
+        handle: async ({ params, body }) => {
+          const fields = contactFields({ name: body.name, ...pick(body, ['organisation', 'email', 'phone']) });
+          return { contactId: await withTenant(params.companyId!, (tx) => addContact(tx, params.companyId!, fields, 'owner')) };
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/contacts/:contactId',
+        handle: async ({ params, body }) => {
+          const fields = contactFields(pick(body, ['name', 'organisation', 'email', 'phone']));
+          if (body.archived !== undefined && typeof body.archived !== 'boolean') {
+            throw new PalugadaError('contract.violation', 'archived is true or false', { field: 'archived' });
+          }
+          await withTenant(params.companyId!, async (tx) => {
+            await changeContact(tx, params.companyId!, params.contactId!, fields, 'owner');
+            if (typeof body.archived === 'boolean') await archiveContact(tx, params.companyId!, params.contactId!, body.archived);
+          });
+          return { ok: true };
+        },
+      },
+
+      {
+        method: 'POST',
+        pattern: '/api/companies/:companyId/contacts/:contactId/notes',
+        handle: async ({ params, body }) => ({
+          noteId: await withTenant(params.companyId!, (tx) =>
+            noteContact(tx, params.companyId!, params.contactId!, requireText(body.body, 'body'), 'owner')),
+        }),
+      },
+
+      {
+        // A deal opened with a contact, or one of theirs moved on.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/contacts/:contactId/deals',
+        handle: async ({ params, body }) => {
+          const deal = dealInput(pick(body, ['id', 'title', 'stage', 'value', 'expectedOn']));
+          return { dealId: await withTenant(params.companyId!, (tx) => recordDeal(tx, params.companyId!, params.contactId!, deal, 'owner')) };
+        },
+      },
+
       {
         // The company's conversations with customers, the latest first; with
         // `?task=`, the one a piece of work answers, which a card asking for
@@ -6865,6 +6937,11 @@ function oneOf<T extends string>(value: unknown, allowed: readonly T[], field: s
 function projectWorkLanguage(value: unknown): string | null | undefined {
   if (value === undefined || value === null) return value;
   return languageCode(value, 'workLanguage');
+}
+
+/** The fields of a body that were given, and none other: a record changes only what the owner sent. */
+function pick(body: Record<string, unknown>, fields: readonly string[]): Record<string, unknown> {
+  return Object.fromEntries(fields.filter((field) => body[field] !== undefined).map((field) => [field, body[field]]));
 }
 
 /** A string that has to be there. `String(undefined)` is "undefined", and it fits. */

@@ -541,6 +541,38 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   },
   { pattern: '/api/companies/:companyId/triggers/:triggerId', what: 'Switch a trigger on or off.', fields: { enabled: 'true or false' }, factor: 'always' },
   {
+    pattern: '/api/companies/:companyId/contacts',
+    what: 'Keep someone the company deals with: a customer, a supplier, a lead. GET /api/companies/:companyId/contacts?q= finds the ones kept.',
+    fields: { name: 'their name', organisation: 'optional', email: 'optional', phone: 'optional, with + and the country code when it has one' },
+    factor: 'never',
+    chat: true,
+  },
+  {
+    pattern: '/api/companies/:companyId/contacts/:contactId',
+    what: 'Change a person\'s record, or archive it (archived: true) so it leaves the list and what runs find, or put it back (false).',
+    fields: { name: 'optional', organisation: 'optional, or null', email: 'optional, or null', phone: 'optional, or null', archived: 'optional true or false' },
+    factor: 'never',
+  },
+  {
+    pattern: '/api/companies/:companyId/contacts/:contactId/notes',
+    what: 'Note something about a person, as the next one to serve them needs it.',
+    fields: { body: 'the note' },
+    factor: 'never',
+    chat: true,
+  },
+  {
+    pattern: '/api/companies/:companyId/contacts/:contactId/deals',
+    what: 'Open a deal with a person, or move one of theirs on (with its id).',
+    fields: {
+      id: 'optional: the deal to change, from GET /api/companies/:companyId/contacts/:contactId',
+      title: 'what is being sold; needed for a new deal',
+      stage: 'optional: lead, qualified, proposal, won or lost',
+      value: 'optional: { amountCents, currency } in the smallest unit, currency as three letters such as IDR',
+      expectedOn: 'optional: YYYY-MM-DD',
+    },
+    factor: 'never',
+  },
+  {
     pattern: '/api/companies/:companyId/chat-channels/:channelId/answers-alone',
     what: 'Let a customer channel answer on its own (on: true), or stop it (false). On, a reply that answers from passages of documents marked for customers, says no figure or address they do not, and passes a model\'s check goes without a card, six an hour per conversation at most; refunds, prices of its own, complaints, the law, personal data and promises still come to the owner. Turning it on takes the owner\'s device.',
     fields: { on: 'true or false' },

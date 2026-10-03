@@ -34,8 +34,9 @@ export function handleSaid(kind: Chat['kind'], handle: string): string {
 }
 
 /** Who the customer is, as they named themselves. */
-export function customerSaid(chat: Pick<Chat, 'customerName' | 'customerHandle' | 'kind'>): string {
-  return chat.customerName ?? (chat.customerHandle ? handleSaid(chat.kind, chat.customerHandle) : t('A customer'));
+/** The customer by the name on their record, which the owner may have changed, else as they named themselves. */
+export function customerSaid(chat: Pick<Chat, 'customerName' | 'customerHandle' | 'kind'> & { contactName?: string | null }): string {
+  return chat.contactName ?? chat.customerName ?? (chat.customerHandle ? handleSaid(chat.kind, chat.customerHandle) : t('A customer'));
 }
 
 export function ChatThread({ messages }: { messages: ChatMessage[] }) {

@@ -274,6 +274,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Proposed: {statement}': 'ที่เสนอ: {statement}',
   'Proposed status: {status}': 'สถานะที่เสนอ: {status}',
   'Reason given: {reason}': 'เหตุผลที่ให้มา: {reason}',
+  'Record a customer or a deal': 'บันทึกลูกค้าหรือดีล',
   'Not sent on its own: {reason}': 'ไม่ได้ส่งเอง: {reason}',
   'it answers a conversation other than the one this work began with': 'คำตอบนี้ตอบบทสนทนาอื่น ไม่ใช่บทสนทนาที่เริ่มงานนี้',
   'it named no passage of a document for customers': 'คำตอบนี้ไม่ได้ระบุส่วนใดของเอกสารสำหรับลูกค้า',

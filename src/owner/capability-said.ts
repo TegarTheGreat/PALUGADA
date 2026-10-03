@@ -24,6 +24,7 @@ export function capabilitySaid(language: string | null | undefined, name: string
     'code.execute': () => say(language, 'Run code'),
     'crm.note': () => say(language, 'Add a note to a customer'),
     'crm.read': () => say(language, 'Read customer records'),
+    'crm.record': () => say(language, 'Record a customer or a deal'),
     'deploy.production': () => say(language, 'Release to the live site'),
     'deploy.staging': () => say(language, 'Release to the test site'),
     'dns.nameservers': () => say(language, 'Change a domain\'s nameservers'),

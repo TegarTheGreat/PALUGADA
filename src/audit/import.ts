@@ -157,6 +157,12 @@ const SECTIONS: ImportSection[] = [
     force: { enabled: false },
   },
   { name: 'trigger_deliveries', table: 'trigger_deliveries', references: ['trigger_id', 'task_id'] },
+  { name: 'documents', table: 'documents', references: ['division_id'] },
+  { name: 'document_passages', table: 'document_passages', references: ['document_id'] },
+  // The customer records (0118), before the conversations that name them.
+  { name: 'contacts', table: 'contacts', references: [] },
+  { name: 'contact_notes', table: 'contact_notes', references: ['contact_id', 'task_id'] },
+  { name: 'deals', table: 'deals', references: ['contact_id'] },
   {
     // A customer channel is not left open by a restore: it arrives closed,
     // at a new address, with no token, and the owner connects the bot again
@@ -166,12 +172,11 @@ const SECTIONS: ImportSection[] = [
     references: ['project_id', 'division_id', 'role_id', 'goal_id'],
     force: { enabled: false },
   },
-  { name: 'chats', table: 'chats', references: ['channel_id'] },
-  { name: 'chat_messages', table: 'chat_messages', references: ['chat_id', 'task_id'] },
+  { name: 'chats', table: 'chats', references: ['channel_id', 'contact_id'] },
+  // A reply that went on its own names the documents it answered from (0117).
+  { name: 'chat_messages', table: 'chat_messages', references: ['chat_id', 'task_id'], remapJson: ['grounds'] },
   { name: 'handoff_rules', table: 'handoff_rules', references: ['from_role_id', 'to_role_id'] },
   { name: 'metric_observations', table: 'metric_observations', references: ['metric_id', 'task_id'] },
-  { name: 'documents', table: 'documents', references: ['division_id'] },
-  { name: 'document_passages', table: 'document_passages', references: ['document_id'] },
   {
     name: 'tickets',
     table: 'tickets',

@@ -630,6 +630,9 @@ export interface Chat {
   lastMessage: { direction: 'in' | 'out'; body: string; attachment: string | null } | null;
   /** The customer spoke last. */
   unanswered: boolean;
+  /** Their record (0118), and the name on it. */
+  contactId: string | null;
+  contactName: string | null;
 }
 
 export interface ChatMessage {
@@ -647,6 +650,43 @@ export interface ChatMessage {
   at: string;
   /** A reply that went without the owner (0117): the documents it answered from, by title. */
   answeredAlone?: { from: string[] };
+}
+
+/** Someone the company deals with (0118). */
+export interface Contact {
+  id: string;
+  name: string;
+  organisation: string | null;
+  email: string | null;
+  phone: string | null;
+  createdBy: 'owner' | 'agent' | 'chat';
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+  openDeals: number;
+  chats: number;
+}
+
+export type DealStage = 'lead' | 'qualified' | 'proposal' | 'won' | 'lost';
+
+export interface Deal {
+  id: string;
+  title: string;
+  stage: DealStage;
+  /** In the smallest unit of its own currency. */
+  value: { amountCents: number; currency: string } | null;
+  expectedOn: string | null;
+  createdBy: 'owner' | 'agent';
+  createdAt: string;
+  updatedAt: string;
+  closedAt: string | null;
+}
+
+export interface ContactDetail {
+  contact: Contact;
+  notes: Array<{ id: string; body: string; by: 'owner' | 'agent'; taskId: string | null; at: string }>;
+  deals: Deal[];
+  chats: Array<{ id: string; kind: Chat['kind']; account: string; lastMessageAt: string }>;
 }
 
 /** An inbound trigger (0054): a URL another service posts events to. */

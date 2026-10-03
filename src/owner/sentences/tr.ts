@@ -272,6 +272,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Proposed: {statement}': 'Önerilen: {statement}',
   'Proposed status: {status}': 'Önerilen durum: {status}',
   'Reason given: {reason}': 'Belirtilen neden: {reason}',
+  'Record a customer or a deal': 'Bir müşteriyi ya da anlaşmayı kaydet',
   'Not sent on its own: {reason}': 'Kendi başına gönderilmedi: {reason}',
   'it answers a conversation other than the one this work began with': 'yanıt, bu işin başladığı konuşmadan başka bir konuşmaya veriliyor',
   'it named no passage of a document for customers': 'yanıt, müşteriler için bir belgenin hiçbir bölümünü belirtmedi',

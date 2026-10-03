@@ -275,6 +275,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Proposed: {statement}': 'Đề xuất: {statement}',
   'Proposed status: {status}': 'Trạng thái đề xuất: {status}',
   'Reason given: {reason}': 'Lý do được đưa ra: {reason}',
+  'Record a customer or a deal': 'Ghi nhận khách hàng hoặc thương vụ',
   'Not sent on its own: {reason}': 'Không tự gửi: {reason}',
   'it answers a conversation other than the one this work began with': 'câu trả lời dành cho một cuộc trò chuyện khác, không phải cuộc đã bắt đầu công việc này',
   'it named no passage of a document for customers': 'câu trả lời không nêu đoạn nào của tài liệu cho khách hàng',

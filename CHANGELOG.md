@@ -378,6 +378,13 @@ The first version. What it holds, in the order an owner meets it.
   a price of its own, a complaint, the law, personal data, a promise.
   Anything else is your card, saying why it did not go; the conversation
   marks what went on its own and from what (STATUS 2.137).
+- The company keeps its own **customer records**: on **Customers**,
+  **Contacts**, everyone it deals with, what was noted about them and the
+  deals with them, by stage and worth. A customer who writes is filed under
+  the person you keep with that address or number, or kept as someone new;
+  agents read the record of the customer they answer, note what they told
+  them and record details and deals. A CRM you connect takes over
+  (STATUS 2.138).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

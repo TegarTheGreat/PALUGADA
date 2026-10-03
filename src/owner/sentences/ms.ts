@@ -270,6 +270,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Proposed: {statement}': 'Dicadangkan: {statement}',
   'Proposed status: {status}': 'Status yang dicadangkan: {status}',
   'Reason given: {reason}': 'Sebab yang diberikan: {reason}',
+  'Record a customer or a deal': 'Rekod pelanggan atau urus niaga',
   'Not sent on its own: {reason}': 'Tidak dihantar secara automatik: {reason}',
   'it answers a conversation other than the one this work began with': 'balasan ini untuk perbualan lain, bukan yang memulakan kerja ini',
   'it named no passage of a document for customers': 'balasan ini tidak menyebut mana-mana bahagian dokumen untuk pelanggan',

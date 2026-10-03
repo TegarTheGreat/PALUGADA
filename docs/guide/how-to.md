@@ -1193,6 +1193,38 @@ down -- **Customers** says why under the channel, and the mail waits on the
 server until it can be. A server with a private certificate is trusted with
 `PALUGADA_MAIL_CA`.
 
+## Keep the customer records
+
+**Customers**, **Contacts** lists everyone the company deals with. A customer
+who writes on a channel is kept there the first time they write: found by
+their address when the owner already keeps it (whatever its case), or by
+their number -- written with its country code, every digit must match;
+written for its own country, `0812 3456 7890` is the same as a WhatsApp from
+`62 812 3456 7890` -- and otherwise kept as a new person, named as they named
+themselves. A Telegram customer is kept anew for each bot, since Telegram
+gives nothing you would have written down.
+
+**Add a person** keeps anyone else: a supplier, a lead. Open someone to
+change their details, **Archive** them (they leave the list and what runs
+find, and their conversations keep them), add a **Note**, or open a **Deal**
+-- what is being sold, its stage (**Lead**, **Qualified**, **Proposal**,
+**Won**, **Lost**), what it is worth in any currency, and when it is expected
+to close; change the stage from the list. Their conversations are listed
+under them, and open where the conversations do.
+
+The agents keep the same records: `crm.read` reads what the company knows of
+the customer a piece of work answers, or finds people by name, organisation,
+address or number; `crm.note` adds what they were told; `crm.record` keeps
+their details, someone new, or a deal. The standard company's responder
+holds all three, and Support and Growth are granted them. A note is kept as
+written: it is added, never rewritten. What is in a record is partly what a
+customer said, so work that reads it asks you before anything at tier 2, as
+work that read their message does.
+
+These are the company's own tables. Connect a CRM of your own under
+**Services** or in a vendor file and it takes `crm.read`, `crm.note` and
+`crm.record` over; the records kept here stay, and travel with an export.
+
 ## Let a channel answer on its own
 
 A shop answers the same questions all day: what a coffee costs, when it

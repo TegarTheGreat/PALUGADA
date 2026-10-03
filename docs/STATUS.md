@@ -8832,6 +8832,79 @@ times.
   policy that asks; six sent in all. And no model: nothing on its own.
   `tenant-isolation.test.ts` holds the application role from both marks.
 
+## 2.138 The company keeps its own customer records
+
+The second step the owner chose on 3 October ("support first, then the
+business records"). `crm.read` and `crm.note` were catalogued from the start
+and bound to nothing: the responder and the marketer were told to keep the
+customer record, and there was none, so what a customer was told lived in a
+run's output and went with it. Every customer conversation was a stranger
+the first time, every time. The PRD names no CRM; this answers the owner's
+request to do an office's work, as 2.137 did.
+
+- **Contacts, notes and deals** (0118, `src/records/contacts.ts`). A
+  contact is a name, an organisation, a mail address and a number, made by
+  the owner, a run, or a customer's first message. Notes are kept as
+  written: the application role may add one and may not update one. A deal
+  is a title, a stage -- lead, qualified, proposal, won, lost; won or lost is
+  closed, moved back is open again -- a value in the smallest unit of any
+  currency, and the date it is expected to close. Each table is the
+  company's, with row security forced and references carrying the company.
+  A change keeps on the owner's timeline what each field was.
+- **A conversation knows its customer.** A customer's first message on a
+  channel files them under the contact the owner keeps with that address
+  (whatever its case) or that number, or a new one named as they named
+  themselves (`chats.contact_id`). A number written with its country code
+  must match in every digit; one written for its own country matches
+  without its leading zero on the end of the number written from, and only
+  when what is left is a country code of one to three digits. A Telegram
+  customer is new for each bot: Telegram gives nothing the owner would have
+  written down. A name the customer changes later does not rename the
+  record. The work a message starts is told the contact.
+- **`crm.read`, `crm.note` and `crm.record`, bound by the platform**
+  (`src/capabilities/crm.ts`, adapter `platform:records`) as a fallback: a
+  CRM the owner connects takes the names over (2.127's `fallback`). With
+  nothing named, each works on the customer the work answers. `crm.read` is
+  tier 0 and reads outside content, as the catalogue always said: one
+  contact whole -- details, the last ten notes, the deals, the
+  conversations -- or up to ten found by words in a name, an organisation,
+  an address or a number. `crm.note` and `crm.record` are tier 1, each read
+  back; `crm.record` is new in the catalogue, and keeps details, someone new
+  (`contact: "new"` with a name) or a deal. A malformed address, number,
+  stage, value or date is refused with what is accepted; another company's
+  contact is not found.
+- **The responder holds `crm.record`** (twelve tools), and its charter says
+  to keep details and what customers want to buy on the record; Support and
+  Growth are granted it.
+- **On Customers, Contacts**: find by name, organisation, address or
+  number; add a person; open one to change their details, archive or put
+  them back, note something, open a deal or move one's stage, and open their
+  conversations. A conversation is named by its record. A seat reads the
+  records and changes none. The owner's assistant may propose each change.
+- **Export**: contacts, notes, deals and each conversation's contact
+  travel, the records imported before the conversations that name them.
+  Documents are now imported before the conversations too, so the grounds
+  of a reply that went on its own (2.137) name the restored documents.
+- **The threat model** says what a forged mail's From can do (5e): file a
+  stranger under a kept customer, whose record the work then reads, while
+  the reply goes to the address forged.
+- **Counts**: the catalogue holds fifty-seven, and a bare boot leaves
+  thirty-six unbound (section 3).
+- **Tested** in `customer-records.test.ts`: a Telegram customer becoming a
+  contact once, the work told it, a later name not renaming it, another
+  customer and a nameless one; a mail found by its address in another case,
+  a WhatsApp number found from a national number the owner wrote, a number
+  that only ends the same not found, and a stranger kept with their number;
+  the owner seeing both conversations on the record. A run reading the
+  customer it answers as outside content, recording details and a deal,
+  noting, closing the deal won, finding by words, keeping someone new, and
+  refused a bad address, number, value, stage, nameless newcomer, unknown
+  contact and another company's contact. The owner's routes: a blank name
+  and a bad address refused, details, a note, a deal opened and lost, the
+  search, archiving, the application role refused rewriting a note, and an
+  export restored with its notes and deals. The binding, the tiers and the
+  template.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the
@@ -8874,15 +8947,15 @@ is a real Daytona or Modal machine answering; the `http` runtime also reports
 this backend, because "somewhere else, not ours" is what it means in F13.5's
 vocabulary, and it cannot verify the claim.
 
-**Thirty-eight of the fifty-six catalogued capabilities are unbound on a bare
-boot -- thirty-four on a machine with a Chromium -- and that is the design
+**Thirty-six of the fifty-seven catalogued capabilities are unbound on a bare
+boot -- thirty-two on a machine with a Chromium -- and that is the design
 rather than a gap.** The boot names every one. Fourteen need configuration, not
 an account: `files.list` and `files.read` a files root, `doc.draft` and
 `email.draft` a files root and a model; `web.search`, `image.generate`, `speech.synthesize`,
 `speech.transcribe` and `image.describe` a provider chosen under **Tools**; `web.extract` one of
 those or a Chromium; `browser.read`, `browser.act` and
 `browser.handover` a Chromium; and `code.compute` a files root and an image
-built from `deploy/compute`, with a docker to run it. The other twenty-four need a deployment's own vendor entry,
+built from `deploy/compute`, with a docker to run it. The other twenty-two need a deployment's own vendor entry,
 six of which `config/vendors.example.json` shows. `dns.read`, `invoice.pay`
 and the rest are *names* in the catalogue: a tier, a schema, the scopes a
 credential must declare, and a `verify()` contract. What executes them is a
@@ -8892,7 +8965,10 @@ uses this platform is not a decision a control plane gets to make.
 `mailbox.read` and `email.send` are the exception that proves it: a mailbox
 is one protocol whoever runs it, so the platform binds them to each
 division's own (2.127), and a vendor entry for either still takes the name.
-These counts were read from a boot when 2.136 was written; until 2.127 the
+So is the customer record: `crm.read`, `crm.note` and `crm.record` are the
+company's own tables until a CRM is connected (2.138).
+These counts were brought up to date when 2.138 was written, from the
+catalogue and what the platform binds, after a boot read them for 2.136; until 2.127 the
 paragraph said thirty-nine, still counting `chat.read` and `chat.send`, which
 the platform has bound since 2.117.
 

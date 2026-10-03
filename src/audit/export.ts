@@ -193,8 +193,24 @@ const SECTIONS: Section[] = [
             FROM chat_channels ORDER BY created_at`,
   },
   {
+    // The company's customer records (0118): the people, what was noted
+    // about them, and the deals with them.
+    name: 'contacts',
+    sql: `SELECT id, name, organisation, email, phone, created_by, created_at, updated_at, archived_at
+            FROM contacts ORDER BY created_at`,
+  },
+  {
+    name: 'contact_notes',
+    sql: `SELECT id, contact_id, body, written_by, task_id, created_at FROM contact_notes ORDER BY created_at`,
+  },
+  {
+    name: 'deals',
+    sql: `SELECT id, contact_id, title, stage, value_cents, currency, expected_on, created_by, created_at, updated_at, closed_at
+            FROM deals ORDER BY created_at`,
+  },
+  {
     name: 'chats',
-    sql: `SELECT id, channel_id, external_id, customer_name, customer_handle, last_message_at, created_at
+    sql: `SELECT id, channel_id, external_id, customer_name, customer_handle, last_message_at, created_at, contact_id
             FROM chats ORDER BY created_at`,
   },
   {

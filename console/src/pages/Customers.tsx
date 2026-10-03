@@ -2,20 +2,22 @@
  * Customers (0111, src/chats/): the company's conversations with the people
  * it serves, and the channels they write on.
  *
- * A channel is a Telegram bot of the company's own, which the owner makes in
- * @BotFather and connects here with their device: every message to it starts
- * work for the role they choose, or joins the work that conversation already
- * has waiting. What a customer writes is data to that work, and every reply
+ * A channel is a Telegram bot or a WhatsApp Business number of the
+ * company's own, which the owner connects here with their device: every
+ * message to it starts work for the role they choose, or joins the work that
+ * conversation already has waiting. A WhatsApp number's webhook is set in
+ * its Meta app, so connecting one shows the address and a verify token to
+ * paste there, once. What a customer writes is data to that work, and every reply
  * waits for the owner's yes, because the work began with a stranger's words
  * (F8.9). The conversations are read here, the latest first.
  */
 import { useState } from 'react';
 import {
-  Alert, Badge, Button, Drawer, Group, NumberInput, Paper, PasswordInput, Select, Stack, Table, Text, Textarea,
-  ThemeIcon, UnstyledButton,
+  Alert, Anchor, Badge, Button, Code, CopyButton, Drawer, Group, NumberInput, Paper, PasswordInput, SegmentedControl, Select,
+  Stack, Table, Text, Textarea, TextInput, ThemeIcon, UnstyledButton,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconBrandTelegram, IconMessageCircle, IconUser } from '@tabler/icons-react';
+import { IconBrandTelegram, IconBrandWhatsapp, IconExternalLink, IconMessageCircle, IconUser } from '@tabler/icons-react';
 import { api, explain } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { useLoad } from '../hooks.ts';
@@ -25,7 +27,19 @@ import { t } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
 import type { Chat, ChatChannel, ChatMessage, Structure } from '../types.ts';
 import { EmptyState, LoadFailed, Loading, PageHeader, Section } from '../components/ui.tsx';
-import { ChatThread, attachmentSaid, customerSaid } from '../components/ChatThread.tsx';
+import { ChatThread, attachmentSaid, channelSaid, customerSaid, handleSaid } from '../components/ChatThread.tsx';
+
+/** A transport by its mark, never by a picture drawn from a name. */
+function KindIcon({ kind, size }: { kind: Chat['kind']; size: number }) {
+  return kind === 'whatsapp' ? <IconBrandWhatsapp size={size} /> : <IconBrandTelegram size={size} />;
+}
+
+/** Where customers find an open channel: a bot's link, or a number's. */
+function shareSaid(channel: ChatChannel): string {
+  return channel.kind === 'whatsapp'
+    ? t('Share the number with your customers: wa.me/{number}', { number: channel.account })
+    : t('Share the bot\'s link with your customers: t.me/{account}', { account: channel.account });
+}
 
 export function Customers({ ctx, route }: PageProps) {
   const { companyId } = ctx;
@@ -59,7 +73,7 @@ export function Customers({ ctx, route }: PageProps) {
           <EmptyState
             title={t('No customer has written yet')}
             description={channels.some((one) => one.enabled)
-              ? t('Share the bot\'s link with your customers: t.me/{account}', { account: channels.find((one) => one.enabled)!.account })
+              ? shareSaid(channels.find((one) => one.enabled)!)
               : t('Connect a Telegram bot below, and what customers write to it comes here.')}
           />
         ) : (
@@ -73,7 +87,7 @@ export function Customers({ ctx, route }: PageProps) {
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <Group gap={6} wrap="wrap">
                       <Text size="sm" fw={600}>{customerSaid(chat)}</Text>
-                      <Text size="xs" c="dimmed">@{chat.account} · {relative(chat.lastMessageAt)}</Text>
+                      <Text size="xs" c="dimmed">{channelSaid(chat.kind, chat.account)} · {relative(chat.lastMessageAt)}</Text>
                       {chat.unanswered && <Badge size="xs" variant="light">{t('Waiting for an answer')}</Badge>}
                     </Group>
                     {chat.lastMessage && (
@@ -109,8 +123,8 @@ function Conversation({ companyId, chatId }: { companyId: string; chatId: string
     <Stack gap="md">
       <Group gap="xs">
         <Text fw={700}>{customerSaid(chat)}</Text>
-        {chat.customerHandle && chat.customerName && <Text size="sm" c="dimmed">@{chat.customerHandle}</Text>}
-        <Badge variant="outline" color="gray" leftSection={<IconBrandTelegram size={12} />}>@{chat.account}</Badge>
+        {chat.customerHandle && chat.customerName && <Text size="sm" c="dimmed">{handleSaid(chat.kind, chat.customerHandle)}</Text>}
+        <Badge variant="outline" color="gray" leftSection={<KindIcon kind={chat.kind} size={12} />}>{channelSaid(chat.kind, chat.account)}</Badge>
       </Group>
       {!chat.open && <Alert color="gray" variant="light">{t('This channel is closed: nothing more is heard or sent on it.')}</Alert>}
       <ChatThread messages={messages} />
@@ -123,29 +137,35 @@ function Channels({ companyId, channels, owner, changed }: {
 }) {
   const requireFactor = useFactor();
   const structure = useLoad<Structure>(() => api('GET', `/api/companies/${companyId}/structure`), [companyId]);
+  const [kind, setKind] = useState<Chat['kind']>('telegram');
   const [token, setToken] = useState('');
+  const [phoneNumberId, setPhoneNumberId] = useState('');
+  const [appSecret, setAppSecret] = useState('');
   const [roleId, setRoleId] = useState<string | null>(null);
   const [goalId, setGoalId] = useState<string | null>(null);
   const [instruction, setInstruction] = useState('');
   const [maxPerHour, setMaxPerHour] = useState<number>(60);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [outcome, setOutcome] = useState<{ account: string; webhook: string } | null>(null);
+  const [outcome, setOutcome] = useState<{
+    channel: ChatChannel; webhook: string; callbackUrl?: string; verifyToken?: string;
+  } | null>(null);
 
   const connect = async () => {
     setError(null);
     setBusy(true);
     try {
-      let made: { channel: ChatChannel; webhook: string } | null = null;
+      let made: NonNullable<typeof outcome> | null = null;
       const done = await requireFactor(t('Let customers write to the company'), async (proof) => {
         made = await api('POST', `/api/companies/${companyId}/chat-channels`, {
-          kind: 'telegram', token: token.trim(), roleId, goalId, instruction: instruction.trim(), maxPerHour, proof,
+          kind, token: token.trim(), roleId, goalId, instruction: instruction.trim(), maxPerHour, proof,
+          ...(kind === 'whatsapp' ? { phoneNumberId: phoneNumberId.trim(), appSecret: appSecret.trim() } : {}),
         });
       });
       if (!done || !made) return;
-      const answer = made as { channel: ChatChannel; webhook: string };
-      setOutcome({ account: answer.channel.account, webhook: answer.webhook });
+      setOutcome(made);
       setToken('');
+      setAppSecret('');
       changed();
     } catch (failure) {
       setError(explain(failure));
@@ -157,7 +177,7 @@ function Channels({ companyId, channels, owner, changed }: {
   const close = async (channel: ChatChannel) => {
     try {
       await api('POST', `/api/companies/${companyId}/chat-channels/${channel.id}/close`, {});
-      notifications.show({ message: t('@{account} is closed. Nothing more is heard on it, and its token is forgotten.', { account: channel.account }) });
+      notifications.show({ message: t('{channel} is closed. Nothing more is heard on it, and its token is forgotten.', { channel: channelSaid(channel.kind, channel.account) }) });
       changed();
     } catch (failure) {
       notifications.show({ color: 'red', message: explain(failure) });
@@ -169,7 +189,7 @@ function Channels({ companyId, channels, owner, changed }: {
   return (
     <Section
       title={t('Channels')}
-      description={t('A Telegram bot of the company\'s own. Make one in @BotFather with /newbot, and paste the token it gives you here.')}
+      description={t('A Telegram bot or a WhatsApp Business number of the company\'s own. Each message to it starts work for the role you choose.')}
       padding="lg"
     >
       {channels.length > 0 && (
@@ -180,8 +200,8 @@ function Channels({ companyId, channels, owner, changed }: {
                 <Table.Tr key={channel.id}>
                   <Table.Td>
                     <Group gap={6} wrap="nowrap">
-                      <IconBrandTelegram size={16} />
-                      <Text size="sm" fw={600}>@{channel.account}</Text>
+                      <KindIcon kind={channel.kind} size={16} />
+                      <Text size="sm" fw={600}>{channelSaid(channel.kind, channel.account)}</Text>
                     </Group>
                     <Text size="xs" c="dimmed" lineClamp={2}>{channel.instruction}</Text>
                   </Table.Td>
@@ -211,16 +231,41 @@ function Channels({ companyId, channels, owner, changed }: {
 
       {owner && (
         <Paper withBorder radius="md" p="md">
-          <Text fw={600} mb="sm">{t('Connect a Telegram bot')}</Text>
-          <Stack gap="sm">
-            <PasswordInput
-              label={t('The bot\'s token')}
-              description={t('From @BotFather. It is checked with Telegram, then kept sealed; nobody sees it again.')}
-              placeholder="7012345678:…"
-              value={token}
-              onChange={(event) => setToken(event.currentTarget.value)}
-              autoComplete="off"
+          <Group justify="space-between" mb="sm" gap="sm">
+            <Text fw={600}>{kind === 'whatsapp' ? t('Connect a WhatsApp number') : t('Connect a Telegram bot')}</Text>
+            <SegmentedControl
+              size="xs"
+              value={kind}
+              onChange={(value) => { setKind(value as Chat['kind']); setOutcome(null); setError(null); }}
+              data={[{ value: 'telegram', label: t('Telegram') }, { value: 'whatsapp', label: t('WhatsApp') }]}
             />
+          </Group>
+          <Stack gap="sm">
+            {kind === 'telegram' ? (
+              <>
+                <Text size="sm" c="dimmed">{t('A Telegram bot of the company\'s own. Make one in @BotFather with /newbot, and paste the token it gives you here.')}</Text>
+                <PasswordInput
+                  label={t('The bot\'s token')}
+                  description={t('From @BotFather. It is checked with Telegram, then kept sealed; nobody sees it again.')}
+                  placeholder="7012345678:…"
+                  value={token}
+                  onChange={(event) => setToken(event.currentTarget.value)}
+                  autoComplete="off"
+                />
+              </>
+            ) : (
+              <>
+                <Text size="sm" c="dimmed">
+                  {t('1. In Meta for Developers, make an app with WhatsApp, add your business number, and make a system user with a permanent token that may send for it.')}{' '}
+                  <Anchor href="https://developers.facebook.com/docs/whatsapp/cloud-api/get-started" target="_blank" rel="noreferrer" size="sm">{t('Cloud API')} <IconExternalLink size={12} /></Anchor>
+                </Text>
+                <TextInput label={t('Phone number ID')} description={t('Under WhatsApp, API Setup. Not the number itself.')} value={phoneNumberId}
+                  onChange={(event) => setPhoneNumberId(event.currentTarget.value)} inputMode="numeric" />
+                <PasswordInput label={t('Access token')} value={token} onChange={(event) => setToken(event.currentTarget.value)} autoComplete="off" />
+                <PasswordInput label={t('App secret')} description={t('App settings, Basic. It proves a delivery is from Meta.')} value={appSecret}
+                  onChange={(event) => setAppSecret(event.currentTarget.value)} autoComplete="off" />
+              </>
+            )}
             <Group grow align="flex-start" wrap="wrap">
               <Select
                 label={t('Who answers')}
@@ -259,17 +304,34 @@ function Channels({ companyId, channels, owner, changed }: {
             </Text>
             {error && <Alert color="red" variant="light">{error}</Alert>}
             {outcome && (
-              outcome.webhook === 'set'
-                ? <Alert color="teal" variant="light">{t('Customers can write to @{account} now: t.me/{account}', { account: outcome.account })}</Alert>
+              outcome.webhook === 'manual' && outcome.callbackUrl && outcome.verifyToken ? (
+                // Shown once: the verify token is kept only as its hash.
+                <Alert color="teal" variant="light">
+                  <Stack gap="xs">
+                    <Text size="sm">{t('{channel} is kept. In its Meta app, under WhatsApp, Configuration, set the webhook to these two and subscribe to messages. The verify token is shown only now.', { channel: channelSaid(outcome.channel.kind, outcome.channel.account) })}</Text>
+                    {[{ label: t('Callback URL'), value: outcome.callbackUrl }, { label: t('Verify token'), value: outcome.verifyToken }].map((field) => (
+                      <Group key={field.label} gap="xs" wrap="nowrap">
+                        <Text size="xs" c="dimmed" w={96} style={{ flexShrink: 0 }}>{field.label}</Text>
+                        <Code style={{ overflowWrap: 'anywhere', flex: 1 }}>{field.value}</Code>
+                        <CopyButton value={field.value}>
+                          {({ copied, copy }) => <Button size="compact-xs" variant="subtle" onClick={copy}>{copied ? t('Copied') : t('Copy')}</Button>}
+                        </CopyButton>
+                      </Group>
+                    ))}
+                  </Stack>
+                </Alert>
+              ) : outcome.webhook === 'set'
+                ? <Alert color="teal" variant="light">{t('Customers can write to @{account} now: t.me/{account}', { account: outcome.channel.account })}</Alert>
                 : outcome.webhook === 'no_public_address'
-                  ? <Alert color="orange" variant="light">{t('@{account} is kept, but Telegram cannot reach this deployment: it has no public address. Set one (PALUGADA_APP_URL_PUBLIC) and connect the bot again.', { account: outcome.account })}</Alert>
-                  : <Alert color="orange" variant="light">{t('@{account} is kept, but Telegram refused to send its messages here: {reason}', { account: outcome.account, reason: outcome.webhook })}</Alert>
+                  ? <Alert color="orange" variant="light">{t('@{account} is kept, but Telegram cannot reach this deployment: it has no public address. Set one (PALUGADA_APP_URL_PUBLIC) and connect the bot again.', { account: outcome.channel.account })}</Alert>
+                  : <Alert color="orange" variant="light">{t('@{account} is kept, but Telegram refused to send its messages here: {reason}', { account: outcome.channel.account, reason: outcome.webhook })}</Alert>
             )}
             <Group>
               <Button
-                leftSection={<IconBrandTelegram size={16} />}
+                leftSection={<KindIcon kind={kind} size={16} />}
                 loading={busy}
-                disabled={!token.trim() || !roleId || !goalId || !instruction.trim()}
+                disabled={!token.trim() || !roleId || !goalId || !instruction.trim()
+                  || (kind === 'whatsapp' && (!phoneNumberId.trim() || !appSecret.trim()))}
                 onClick={() => void connect()}
               >
                 {t('Connect')}

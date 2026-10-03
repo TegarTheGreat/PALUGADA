@@ -23,9 +23,19 @@ export function attachmentSaid(kind: string): string {
   }
 }
 
+/** A channel as customers find it: a bot's username, or a number to dial. */
+export function channelSaid(kind: Chat['kind'], account: string): string {
+  return kind === 'whatsapp' ? `+${account}` : `@${account}`;
+}
+
+/** How the customer is reached: their username on Telegram, their number on WhatsApp. */
+export function handleSaid(kind: Chat['kind'], handle: string): string {
+  return kind === 'whatsapp' ? `+${handle}` : `@${handle}`;
+}
+
 /** Who the customer is, as they named themselves. */
-export function customerSaid(chat: Pick<Chat, 'customerName' | 'customerHandle'>): string {
-  return chat.customerName ?? (chat.customerHandle ? `@${chat.customerHandle}` : t('A customer'));
+export function customerSaid(chat: Pick<Chat, 'customerName' | 'customerHandle' | 'kind'>): string {
+  return chat.customerName ?? (chat.customerHandle ? handleSaid(chat.kind, chat.customerHandle) : t('A customer'));
 }
 
 export function ChatThread({ messages }: { messages: ChatMessage[] }) {
@@ -77,7 +87,7 @@ export function ConversationOfTask({ companyId, taskId }: { companyId: string; t
   return (
     <Box>
       <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb={6}>
-        {t('The conversation with {customer}, on @{account}', { customer: customerSaid(chat), account: chat.account })}
+        {t('The conversation with {customer}, on {channel}', { customer: customerSaid(chat), channel: channelSaid(chat.kind, chat.account) })}
       </Text>
       <ChatThread messages={messages.slice(-6)} />
     </Box>

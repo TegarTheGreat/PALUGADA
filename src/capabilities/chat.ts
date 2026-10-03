@@ -22,15 +22,18 @@ import type { SecretManager } from '../secrets/manager.ts';
 import type { BotApi } from '../owner/telegram.ts';
 import { chatOfTask, chatWith } from '../chats/chats.ts';
 import { sendToCustomer } from '../chats/telegram.ts';
+import { sendFromNumber, WHATSAPP_REPLY_WINDOW_HOURS, type GraphApi } from '../chats/whatsapp.ts';
 
 export interface ChatOptions {
   /** Where each channel's token is sealed (`db://chat-…`). */
   secrets: SecretManager;
   /** Where the Bot API is, for a deployment that points it elsewhere. */
   telegram?: BotApi;
+  /** Where Meta's Graph API is, likewise. */
+  whatsapp?: GraphApi;
 }
 
-/** The longest reply Telegram takes in one message. */
+/** The longest reply Telegram or WhatsApp takes in one message. */
 const REPLY_MAX = 4_096;
 
 const CHAT_ID = {
@@ -128,8 +131,10 @@ export function chatSend(options: ChatOptions): Capability<{ text: string; chatI
         const chatId = await chatFor(tx, ctx, input.chatId);
         const { rows: [chat] } = await tx.query<{
           external_id: string; kind: string; account: string; enabled: boolean; token_ref: string | null;
+          account_id: string | null; last_in: Date | null;
         }>(
-          `SELECT h.external_id, c.kind, c.account, c.enabled, c.token_ref
+          `SELECT h.external_id, c.kind, c.account, c.enabled, c.token_ref, c.account_id,
+                  (SELECT max(m.created_at) FROM chat_messages m WHERE m.chat_id = h.id AND m.direction = 'in') AS last_in
              FROM chats h JOIN chat_channels c ON c.id = h.channel_id WHERE h.id = $1`,
           [chatId]);
         if (!chat) throw new PalugadaError('contract.violation', 'no such conversation in this company', { field: 'chatId' });
@@ -137,9 +142,20 @@ export function chatSend(options: ChatOptions): Capability<{ text: string; chatI
           "SELECT id, external_id FROM chat_messages WHERE chat_id = $1 AND direction = 'out' AND idempotency_key = $2",
           [chatId, ctx.idempotencyKey]);
         if (before?.external_id) return { done: { messageId: before.id, externalId: before.external_id, sent: false } };
+        const named = chat.kind === 'whatsapp' ? `+${chat.account}` : `@${chat.account}`;
         if (!chat.enabled || !chat.token_ref) {
           throw new PalugadaError('contract.violation',
-            `the channel @${chat.account} is closed; the owner connects it again on Customers before anything is sent`,
+            `the channel ${named} is closed; the owner connects it again on Customers before anything is sent`,
+            { field: 'chatId' });
+        }
+        // WhatsApp accepts a reply past its window and reports the failure
+        // later, in a status, where nobody is waiting for it: refused here,
+        // with the reason, before anything is sent.
+        const window = WHATSAPP_REPLY_WINDOW_HOURS * 3_600_000;
+        if (chat.kind === 'whatsapp' && (!chat.last_in || Date.now() - chat.last_in.getTime() > window)) {
+          throw new PalugadaError('contract.violation',
+            `WhatsApp takes a reply only within ${WHATSAPP_REPLY_WINDOW_HOURS} hours of the customer's last message, and this `
+              + `customer last wrote ${chat.last_in ? chat.last_in.toISOString() : 'never'}; the reply waits for them to write again`,
             { field: 'chatId' });
         }
         // Kept before it is sent, under the step's key. A row with no
@@ -149,12 +165,14 @@ export function chatSend(options: ChatOptions): Capability<{ text: string; chatI
           `INSERT INTO chat_messages (company_id, chat_id, direction, body, task_id, idempotency_key)
            VALUES ($1, $2, 'out', $3, $4, $5) RETURNING id`,
           [ctx.companyId, chatId, text, ctx.taskId, ctx.idempotencyKey])).rows[0]!.id;
-        return { send: { chatId, messageId, chat: chat.external_id, tokenRef: chat.token_ref } };
+        return { send: { chatId, messageId, chat: chat.external_id, tokenRef: chat.token_ref, kind: chat.kind, accountId: chat.account_id } };
       });
       if ('done' in ready) return ready.done!;
-      const { chatId, messageId, chat, tokenRef } = ready.send;
+      const { chatId, messageId, chat, tokenRef, kind, accountId } = ready.send;
       const token = await options.secrets.resolve(tokenRef);
-      const externalId = await sendToCustomer(token, chat, text, options.telegram ?? {});
+      const externalId = kind === 'whatsapp'
+        ? await sendFromNumber(token, accountId ?? '', chat, text, options.whatsapp ?? {})
+        : await sendToCustomer(token, chat, text, options.telegram ?? {});
       await withTenant(ctx.companyId, async (tx) => {
         await tx.query('UPDATE chat_messages SET external_id = $2 WHERE id = $1', [messageId, externalId]);
         await tx.query('UPDATE chats SET last_message_at = now() WHERE id = $1', [chatId]);

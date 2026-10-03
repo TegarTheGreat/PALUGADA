@@ -187,8 +187,8 @@ const SECTIONS: Section[] = [
     // the deployment's. A restored channel waits closed for the owner to
     // connect the bot again. Its conversations travel whole.
     name: 'chat_channels',
-    sql: `SELECT id, kind, account, project_id, division_id, role_id, goal_id, instruction, max_per_hour, enabled,
-                 created_at
+    sql: `SELECT id, kind, account, account_id, project_id, division_id, role_id, goal_id, instruction, max_per_hour,
+                 enabled, created_at
             FROM chat_channels ORDER BY created_at`,
   },
   {

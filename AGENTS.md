@@ -33,7 +33,7 @@ in code and tests refer to it. `docs/STATUS.md` grades every requirement.
 | `src/context/builder.ts` | what every run is told, in order: charters, language, skills, memory, goals, working memory |
 | `src/domain/` | goals, languages, the task state machine |
 | `src/inbox/` | approvals, incidents, escalations |
-| `src/chats/` | customers' conversations: the channels they write on, what arrives, and the Telegram transport |
+| `src/chats/` | customers' conversations: the channels they write on, what arrives, and the Telegram and WhatsApp transports |
 | `src/memory/` | scoped memory and distillation |
 | `src/knowledge/` | the company's documents, kept whole and searched by passage |
 | `src/bundles/` | bundles, including the built-in ones in `builtin.ts` |

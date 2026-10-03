@@ -756,9 +756,14 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     ...(toolBindings.image ? { image: toolBindings.image } : {}),
     ...(toolBindings.speech ? { speech: toolBindings.speech } : {}),
     ...(toolBindings.listen ? { listen: toolBindings.listen } : {}),
-    // Each customer channel's token is sealed in the deployment's store, and
-    // the Bot API is wherever the owner's own Telegram finds it.
-    chat: { secrets, ...(env.PALUGADA_TELEGRAM_API ? { telegram: { apiBase: env.PALUGADA_TELEGRAM_API } } : {}) },
+    // Each customer channel's keys are sealed in the deployment's store, and
+    // the Bot API and the Graph API are wherever the owner's own channels
+    // find them.
+    chat: {
+      secrets,
+      ...(env.PALUGADA_TELEGRAM_API ? { telegram: { apiBase: env.PALUGADA_TELEGRAM_API } } : {}),
+      ...(env.PALUGADA_WHATSAPP_API ? { whatsapp: { apiBase: env.PALUGADA_WHATSAPP_API } } : {}),
+    },
   });
   notes.push(...toolBindings.notes);
   // A search for a role's documents reaches the provider through this: the

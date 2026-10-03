@@ -127,3 +127,47 @@ test('the owner reads a customer\'s conversation, and sees it beside the reply t
     await api.close();
   }
 });
+
+test('a WhatsApp number is shown as customers dial it, and connecting one asks for what Meta gives', { skip: browser ? false : 'no Chromium to draw the console in' }, async () => {
+  assert.ok(existsSync(`${BUILT}/index.html`), 'the console is built first (npm run console:build)');
+  const fixture = await createCompany('console-customers-wa');
+  await withControlPlane((tx) => tx.query("UPDATE companies SET name = 'Toko Kopi Senja' WHERE id = $1", [fixture.companyId]));
+  const graph = createServer((_req, res) => {
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ display_phone_number: '+62 812-3456-7890', verified_name: 'Toko Kopi Senja', id: '106540352242922' }));
+  });
+  await new Promise<void>((resolve) => graph.listen(0, '127.0.0.1', resolve));
+  servers.push(graph);
+  const api = await consoleWithSettings({
+    staticRoot: BUILT,
+    baseEnv: { PALUGADA_WHATSAPP_API: `http://127.0.0.1:${(graph.address() as AddressInfo).port}`, PALUGADA_APP_URL_PUBLIC: 'https://palugada.example' },
+  });
+  const registry = new CapabilityRegistry();
+  for (const capability of chatCapabilities({ secrets: api.secrets })) registry.register(capability);
+  await registry.sync();
+  const page = await openPage(browser as string, { width: 390, height: 844 });
+  try {
+    const owner = await api.signIn();
+    const made = await api.call('POST', `/api/companies/${fixture.companyId}/chat-channels`, owner, {
+      kind: 'whatsapp', phoneNumberId: '106540352242922', token: 'EAAGcustomerChannelSystemUserToken', appSecret: '0123456789abcdef0123456789abcdef',
+      roleId: fixture.roleId, goalId: fixture.goalId, instruction: 'Jawab pertanyaan pelanggan.', proof: { totp: api.code() },
+    });
+    assert.equal(made.status, 200, JSON.stringify(made.body));
+
+    await page.goto(api.url);
+    await page.waitFor(`document.querySelector('input[autocomplete="one-time-code"]')`, 'the sign-in');
+    await page.evaluate(`document.querySelector('input[autocomplete="one-time-code"]').focus()`);
+    await page.type(api.code());
+    await page.waitFor(`!document.querySelector('input[autocomplete="one-time-code"]') && document.body.innerText.includes('Toko Kopi Senja')`, 'the console');
+    await page.evaluate(`location.hash = '#/c/${fixture.companyId}/customers'`);
+    await page.waitFor(`document.body.innerText.includes('+6281234567890') && document.body.innerText.includes('wa.me/6281234567890')`, 'the number and its link');
+    assert.ok(!String(await page.evaluate('document.body.innerText')).includes('@6281234567890'), 'a number is not a username');
+    await page.evaluate(`[...document.querySelectorAll('label')].find((one) => one.innerText.trim() === 'WhatsApp').click()`);
+    await page.waitFor(`document.body.innerText.includes('Phone number ID') && document.body.innerText.includes('App secret')`, 'the WhatsApp form');
+    const wide = await page.evaluate('document.documentElement.scrollWidth - window.innerWidth');
+    assert.ok(Number(wide) <= 0, `Customers is ${String(wide)} pixels wider than a phone`);
+  } finally {
+    await page.close();
+    await api.close();
+  }
+});

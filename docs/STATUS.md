@@ -7739,6 +7739,57 @@ What changed:
   is told it cannot read them), and retention for conversations, which are
   kept as long as the company is.
 
+## 2.118 Customers write on WhatsApp too (§9 P2)
+
+The second transport of 2.117, for the channel most Indonesian shops' customers
+use. A company's WhatsApp Business number, through Meta's Cloud API, keeps
+every rule of the Telegram bot and adds WhatsApp's own.
+
+What changed:
+
+- **A number is connected with its keys** (0112,
+  `POST /api/companies/:companyId/chat-channels` with `kind: whatsapp`): the
+  phone number ID, a system user's token and the Meta app's secret, checked
+  with Meta (the number's name and digits) before anything is kept, both
+  keys sealed under names of their own. Meta's webhook is set in the app,
+  not by an API call, so the answer is the callback address and a verify
+  token -- shown once, kept as its hash -- to paste there; Meta's check of
+  the subscription is answered on `GET /api/chat-hooks/:publicId`. Refused,
+  before anything is kept, when the deployment has no public address.
+- **Only Meta, and only this number, is heard** (`src/chats/whatsapp.ts`):
+  a delivery is checked against the app secret's HMAC over the bytes that
+  arrived; one for another number of the same app, a reaction, a status or
+  a type the platform does not know starts nothing. A picture, a voice note,
+  a video, a file, a sticker, a location or a contact is kept as the same
+  kind of thing Telegram's would be, with its caption. Several messages in
+  one delivery are taken in the order they came, so the second joins the
+  work the first started.
+- **A reply goes from the number, within WhatsApp's window**: `chat.send`
+  posts plain text with no link preview, and refuses a reply more than 24
+  hours after the customer's last message before anything is sent, since
+  WhatsApp accepts that call and reports the failure later in a status.
+- **The console** asks Telegram or WhatsApp when connecting, shows the
+  callback address and verify token to copy once, and shows a number as
+  customers dial it (`+62…`) and its `wa.me` link, where a bot is `@name`.
+- **Closing** deletes the token and the app secret; erasing a company
+  deletes both; an export carries the number's ID, never its keys.
+- **Tested.** `customer-whatsapp.test.ts`, against a stub of the Graph API: a
+  token Meta refuses is refused; a connection seals both keys and keeps the
+  verify token only as its hash; Meta's subscription check is answered for
+  the verify token alone; an unsigned or wrongly signed delivery is refused
+  and recorded; a message starts work begun from outside, a resend starts
+  nothing, a picture joins the waiting work, another number and a reaction
+  start nothing; the run reads both; the reply waits for the owner and goes
+  to the customer's number; a day after the customer last wrote, a reply is
+  refused before anything is sent; closing forgets both keys; without a
+  public address the connection is refused with nothing kept.
+  `console-customers.test.ts`: the number is shown as `+62…` with its link,
+  and the form asks for what Meta gives. `company-closing.test.ts`: erasing
+  a company deletes its number's token and app secret, and only its.
+- **Not done**: the mailbox (the next transport), a failure WhatsApp reports
+  later in a status (it is not yet shown on the reply), and a template to
+  write first after the window.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

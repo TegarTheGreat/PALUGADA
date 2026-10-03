@@ -35,7 +35,7 @@ import { languageName, languagesFor } from '../domain/language.ts';
 import { createRootTask } from '../engine/tasks.ts';
 import { enqueueWake } from '../scheduler/wake.ts';
 
-export const CHAT_KINDS = ['telegram'] as const;
+export const CHAT_KINDS = ['telegram', 'whatsapp'] as const;
 export type ChatKind = (typeof CHAT_KINDS)[number];
 
 /** A message as its transport delivered it, read into the platform's words. */
@@ -64,7 +64,15 @@ export interface OpenChannel {
   goalId: string;
   instruction: string;
   maxPerHour: number;
+  /**
+   * The hash of what the transport proves itself with: Telegram's secret
+   * header, or WhatsApp's verify token when the webhook is subscribed.
+   */
   webhookHash: string;
+  /** WhatsApp: the number's id in the Cloud API, which every delivery names. */
+  accountId: string | null;
+  /** WhatsApp: where the Meta app's secret, which signs every delivery, is sealed. */
+  secretRef: string | null;
 }
 
 export interface Received {
@@ -131,9 +139,10 @@ export async function channelAt(publicId: string): Promise<OpenChannel | null> {
     const { rows } = await tx.query<{
       id: string; company_id: string; kind: ChatKind; account: string; project_id: string; division_id: string;
       role_id: string; goal_id: string; instruction: string; max_per_hour: number; webhook_hash: string;
+      account_id: string | null; secret_ref: string | null;
     }>(
       `SELECT id, company_id, kind, account, project_id, division_id, role_id, goal_id, instruction, max_per_hour,
-              webhook_hash
+              webhook_hash, account_id, secret_ref
          FROM chat_channels WHERE public_id = $1 AND enabled`,
       [publicId],
     );
@@ -142,7 +151,7 @@ export async function channelAt(publicId: string): Promise<OpenChannel | null> {
     return {
       id: row.id, companyId: row.company_id, kind: row.kind, account: row.account, projectId: row.project_id,
       divisionId: row.division_id, roleId: row.role_id, goalId: row.goal_id, instruction: row.instruction,
-      maxPerHour: row.max_per_hour, webhookHash: row.webhook_hash,
+      maxPerHour: row.max_per_hour, webhookHash: row.webhook_hash, accountId: row.account_id, secretRef: row.secret_ref,
     };
   });
 }
@@ -329,32 +338,33 @@ export async function assertAccountFree(companyId: string, kind: ChatKind, accou
 /**
  * Opens the channel: a new one, or the company's closed one for the same
  * account, again -- with its conversations, at a new address. Returns where
- * the token it replaces was sealed, for the caller to delete.
+ * the keys it replaces were sealed, for the caller to delete.
  */
 export async function openChannel(companyId: string, input: {
   kind: ChatKind; account: string; roleId: string; goalId: string; divisionId: string; projectId: string;
   instruction: string; maxPerHour: number; tokenRef: string; webhookHash: string;
-}): Promise<{ id: string; publicId: string; replacedTokenRef: string | null }> {
+  accountId?: string | null; secretRef?: string | null;
+}): Promise<{ id: string; publicId: string; replacedRefs: string[] }> {
   return withControlPlane(async (tx) => {
-    const { rows: before } = await tx.query<{ id: string; token_ref: string | null }>(
-      'SELECT id, token_ref FROM chat_channels WHERE company_id = $1 AND kind = $2 AND account = $3 FOR UPDATE',
+    const { rows: before } = await tx.query<{ id: string; token_ref: string | null; secret_ref: string | null }>(
+      'SELECT id, token_ref, secret_ref FROM chat_channels WHERE company_id = $1 AND kind = $2 AND account = $3 FOR UPDATE',
       [companyId, input.kind, input.account]);
     const values = [input.projectId, input.divisionId, input.roleId, input.goalId, input.instruction, input.maxPerHour,
-      input.tokenRef, input.webhookHash];
+      input.tokenRef, input.webhookHash, input.accountId ?? null, input.secretRef ?? null];
     let opened: { id: string; public_id: string };
     try {
       opened = before[0]
         ? (await tx.query<{ id: string; public_id: string }>(
           `UPDATE chat_channels
               SET project_id = $2, division_id = $3, role_id = $4, goal_id = $5, instruction = $6, max_per_hour = $7,
-                  token_ref = $8, webhook_hash = $9, enabled = true,
+                  token_ref = $8, webhook_hash = $9, account_id = $10, secret_ref = $11, enabled = true,
                   public_id = replace(gen_random_uuid()::text, '-', '')
             WHERE id = $1 RETURNING id, public_id`,
           [before[0].id, ...values])).rows[0]!
         : (await tx.query<{ id: string; public_id: string }>(
           `INSERT INTO chat_channels (company_id, kind, account, project_id, division_id, role_id, goal_id, instruction,
-                                      max_per_hour, token_ref, webhook_hash)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id, public_id`,
+                                      max_per_hour, token_ref, webhook_hash, account_id, secret_ref)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id, public_id`,
           [companyId, input.kind, input.account, ...values])).rows[0]!;
     } catch (failure) {
       // Another company connected the same bot between the check and here.
@@ -369,25 +379,34 @@ export async function openChannel(companyId: string, input: {
       companyId, type: 'chat.channel_connected', actor: 'owner',
       payload: { channelId: opened.id, kind: input.kind, account: input.account, roleId: input.roleId, reopened: Boolean(before[0]) },
     });
-    return { id: opened.id, publicId: opened.public_id, replacedTokenRef: before[0]?.token_ref ?? null };
+    const replacedRefs = [before[0]?.token_ref, before[0]?.secret_ref].filter((ref): ref is string => Boolean(ref));
+    return { id: opened.id, publicId: opened.public_id, replacedRefs };
   });
 }
 
-/** Closes a channel. Returns its kind and where its token was sealed, for the caller to let the bot go and delete it. */
-export async function closeChannel(companyId: string, channelId: string): Promise<{ kind: ChatKind; account: string; tokenRef: string | null }> {
+/**
+ * Closes a channel. Returns its kind and where its keys were sealed, for the
+ * caller to let the account go and delete them.
+ */
+export async function closeChannel(companyId: string, channelId: string): Promise<{
+  kind: ChatKind; account: string; tokenRef: string | null; sealedRefs: string[];
+}> {
   return withControlPlane(async (tx) => {
-    const { rows } = await tx.query<{ kind: ChatKind; account: string; token_ref: string | null }>(
-      'SELECT kind, account, token_ref FROM chat_channels WHERE id::text = $1 AND company_id = $2 FOR UPDATE',
+    const { rows } = await tx.query<{ kind: ChatKind; account: string; token_ref: string | null; secret_ref: string | null }>(
+      'SELECT kind, account, token_ref, secret_ref FROM chat_channels WHERE id::text = $1 AND company_id = $2 FOR UPDATE',
       [channelId, companyId]);
     const channel = rows[0];
     if (!channel) throw new PalugadaError('contract.violation', 'no such channel in this company', { channelId });
     await tx.query(
-      "UPDATE chat_channels SET enabled = false, token_ref = NULL, webhook_hash = '' WHERE id = $1", [channelId]);
+      "UPDATE chat_channels SET enabled = false, token_ref = NULL, secret_ref = NULL, webhook_hash = '' WHERE id = $1", [channelId]);
     await appendEvent(tx, {
       companyId, type: 'chat.channel_closed', actor: 'owner',
       payload: { channelId, kind: channel.kind, account: channel.account },
     });
-    return { kind: channel.kind, account: channel.account, tokenRef: channel.token_ref };
+    return {
+      kind: channel.kind, account: channel.account, tokenRef: channel.token_ref,
+      sealedRefs: [channel.token_ref, channel.secret_ref].filter((ref): ref is string => Boolean(ref)),
+    };
   });
 }
 

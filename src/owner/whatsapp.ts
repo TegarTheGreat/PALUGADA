@@ -95,7 +95,7 @@ export interface DeliveryOutcome {
 }
 
 /** Where Meta's Graph API is, at a version Meta supports until 2027. */
-const GRAPH_API = 'https://graph.facebook.com/v23.0';
+export const GRAPH_API = 'https://graph.facebook.com/v23.0';
 
 /** WhatsApp refuses a reply button's title over 20 characters, a list row's over 24, its description over 72. */
 const BUTTON_TITLE_MAX = 20;

@@ -576,7 +576,7 @@ export type TriggerScheme = 'bearer' | 'url' | 'github' | 'stripe' | 'slack' | '
 /** A customer channel (0111): a bot of the company's own, answered by one role. */
 export interface ChatChannel {
   id: string;
-  kind: 'telegram';
+  kind: 'telegram' | 'whatsapp';
   /** The bot's username, as customers find it. */
   account: string;
   roleId: string;
@@ -594,7 +594,7 @@ export interface ChatChannel {
 export interface Chat {
   id: string;
   channelId: string;
-  kind: 'telegram';
+  kind: 'telegram' | 'whatsapp';
   account: string;
   /** Whether a reply can still be sent on it. */
   open: boolean;

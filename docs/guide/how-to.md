@@ -1019,6 +1019,35 @@ the bot's webhook off and forgets its token, and what was said stays.
 Connecting the same bot again opens the same channel at a new address. A
 bot answers for one company at a time.
 
+## Let customers write to the company: WhatsApp
+
+A company's WhatsApp Business number can take customers' messages the same
+way, through Meta's Cloud API. It needs this deployment's public address
+(`PALUGADA_APP_URL_PUBLIC`), since Meta delivers there.
+
+1. In Meta for Developers, make an app with WhatsApp, add the business
+   number, and make a system user with a permanent token that may send for
+   it. Use an app of the company's own: Meta sends every number of an app to
+   one address, so the number PALUGADA reaches you on needs another app.
+2. On **Customers**, choose **WhatsApp**, and give the **Phone number ID**
+   (under WhatsApp, API Setup; not the number itself), the **Access token**
+   and the **App secret** (App settings, Basic), then who answers, the goal,
+   what to do with each message and the hour's limit.
+3. Press **Connect** and confirm with a code. The number is checked with
+   Meta, and the token and the app secret are sealed.
+4. Copy the **Callback URL** and the **Verify token** that appear -- the
+   verify token is shown only then -- into the app's WhatsApp,
+   Configuration, webhook, and subscribe to `messages`.
+5. Share the number's link, `wa.me/<number>`, with your customers.
+
+Only what Meta signed with the app secret is heard, and only messages to this
+number; a reaction or a status starts nothing. A picture, a voice note or a
+file is kept as what it was, with its caption. WhatsApp lets a business reply
+only within 24 hours of the customer's last message: a reply approved after
+that is refused, with the reason, before anything is sent, and waits for the
+customer to write again. **Close** forgets the token and the app secret;
+remove the webhook in the Meta app too.
+
 ## Install a bundle
 
 1. Under **Settings**, **Bundles**, **Install a bundle**, type the

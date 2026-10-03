@@ -45,7 +45,9 @@ const API_ONLY: Record<string, string> = {
   'POST /api/hooks/:publicId':
     'machine: another service posts its events here, authenticated by the trigger\'s token',
   'POST /api/chat-hooks/:publicId':
-    'machine: Telegram posts what a customer writes to the company\'s bot here, authenticated by the channel\'s webhook secret',
+    'machine: Telegram or Meta posts what a customer writes to the company here, authenticated by the channel\'s secret or Meta\'s signature',
+  'GET /api/chat-hooks/:publicId':
+    'machine: Meta checks a customer number\'s webhook subscription here, with the channel\'s verify token',
   'GET /api/oauth/callback':
     'machine: an authorization server sends the owner\'s browser back here with a code, checked against the state the console began',
   'GET /api/health':

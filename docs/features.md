@@ -235,8 +235,8 @@ freeze, raise a ceiling, rewrite what a model call cost, or delete history.
   Standard Webhooks are checked exactly as they sign; what they send (JSON, a
   form or text) is data, and work that began outside takes no tier 2 action
   without the owner.
-- Customers can write to a company on a Telegram bot of its own, which the
-  owner connects with their device: each message starts work for the role
+- Customers can write to a company on a Telegram bot or a WhatsApp Business
+  number of its own, which the owner connects with their device: each message starts work for the role
   they chose (a second, written before anyone picked the first up, joins
   it), what the customer wrote is data, and every reply is a tier 2 card
   the owner -- or an approver -- answers with the conversation beside it.
@@ -292,7 +292,7 @@ src/
   runtime/      the adapter protocol and the runtimes
   owner/        console API, sign-in, second factor, push, Telegram
   inbox/        approvals, incidents, escalations
-  chats/        customers' conversations, and the Telegram transport
+  chats/        customers' conversations, and the Telegram and WhatsApp transports
   scheduler/    cron, windows, wake queue
   memory/       scoped memory and distillation
   skills/  eval/  bundles/  gateway/  governance/  policy/  review/

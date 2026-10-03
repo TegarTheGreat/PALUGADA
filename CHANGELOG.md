@@ -291,6 +291,11 @@ The first version. What it holds, in the order an owner meets it.
   which you or an approver say yes to; and **Customers** lists every
   conversation. Closing a channel forgets the bot's token and keeps what
   was said (STATUS 2.117).
+- Customers can also write to a company's WhatsApp Business number,
+  connected on **Customers** with Meta's keys: only what Meta signed is
+  heard, replies go from the number after your yes, and a reply past
+  WhatsApp's 24-hour window is refused with the reason before it is sent
+  (STATUS 2.118).
 - **Replay against the journal** is shown only for a task this deployment
   can replay. It was offered on every task and refused on every task a
   model or an agent CLI ran (STATUS 2.87).

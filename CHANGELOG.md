@@ -243,6 +243,10 @@ The first version. What it holds, in the order an owner meets it.
   **Settings**, **Languages**, **How you read money**, and every amount is
   shown and typed in it, with the daily digest giving both. PALUGADA still
   counts in US dollars and fetches no rate (STATUS 2.106).
+- On a phone, the work list, the accounts on **Money** and what is running
+  on the overview fit the screen: nothing is off to the side in a box that
+  scrolls sideways, no status is cut, and a figure is never broken inside
+  the number (STATUS 2.107).
 - **Replay against the journal** is shown only for a task this deployment
   can replay. It was offered on every task and refused on every task a
   model or an agent CLI ran (STATUS 2.87).

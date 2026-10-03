@@ -7320,6 +7320,45 @@ What changed:
   at the rate and kept in cents, and the money and settings pages turn what
   is typed into cents only through the rate.
 
+## 2.107 The work, the money and the overview fit a phone (§2.3 item 8, §9 P1 item 13)
+
+Found by the live run of the analysis of 3 October (§2.3, item 8), and
+measured again in Chromium at 390 pixels before the change. Most owners of a
+small business read PALUGADA on a phone. There, the work list showed 356 of
+its 820 pixels: what a task serves, its progress and its cost were off to
+the right in a box that scrolled sideways, which nobody discovers on a
+phone, and the task's name was cut to fifteen letters; the five filters
+above it ran off the screen, "Stopped" the one out of sight; the accounts
+on **Money** showed 316 of 640, their money and the **Ceilings** button
+hidden; the status of what is running on the overview was cut to
+"BERJA..."; and a figure on the money page broke inside the number,
+"US$200,0" over "0" -- "Rp3.300.0" over "00" for an owner reading rupiah.
+
+What changed:
+
+- **The work list on a phone** is one task to a row, with its name over two
+  lines and its status, cost, progress, role and time under it; the filters
+  are a list to choose from. The table stays on a wider screen.
+- **The accounts on a phone** are one to a block, the **Ceilings** button
+  beside the name and the tokens and the money under it, drawn by the same
+  meters as the table (`TokenMeter`, `MoneyMeter`).
+- **What is running** on the overview puts its progress under the task on
+  a phone, so the status beside the role is never cut.
+- **A figure is never broken.** On a phone a number in the strip of figures
+  stays on one line and is drawn as large as its card allows, from the
+  card's width and the number's length (`.kpi-value[data-figure]`); a figure
+  that is a word still wraps.
+- **Tested in a browser.** `console-phone.test.ts` signs in to the built
+  console in Chromium at 390 pixels, in Indonesian with amounts in rupiah,
+  and finds on the work, the money and the overview nothing wider than the
+  screen, nothing scrolling sideways, no badge cut and no figure broken.
+  Before the change it found the work table at 820 pixels, the accounts at
+  640, the filters scrolling and "Rp 3.300.000" on two lines. Chromium is
+  driven over its DevTools protocol with Node's own WebSocket
+  (`test/helpers/browser.ts`), so nothing is added to the dependencies; the
+  test skips where no Chromium is installed, and `PALUGADA_CHROMIUM` names
+  one.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

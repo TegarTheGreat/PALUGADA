@@ -115,6 +115,11 @@ Each of these is a test, and each exists because the mistake was made once.
   names ships in `console/public`. `test/documents/console-images.test.ts`.
 - **The console stores nothing in the browser.** The session lives in memory;
   preferences live in the owner API.
+- **The console fits a phone.** Drawn in Chromium at 390 pixels, the work,
+  the money and the overview have nothing wider than the screen, nothing
+  that scrolls sideways, no badge cut and no figure broken.
+  `test/acceptance/console-phone.test.ts`, which skips where no Chromium is
+  installed; `PALUGADA_CHROMIUM` names one.
 - **Every column of an exported table is exported**, or listed with a reason
   in `test/acceptance/audit-export.test.ts`.
 - **Every requirement in the PRD appears in `docs/STATUS.md`.**

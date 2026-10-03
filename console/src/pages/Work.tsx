@@ -11,7 +11,7 @@
 import { useEffect, useState } from 'react';
 import {
   Alert, Avatar, Badge, Button, Code, CopyButton, Drawer, Group, Modal, Paper, Progress, ScrollArea, SegmentedControl, SimpleGrid,
-  Select, Spoiler, Stack, Table, Tabs, Text, Textarea, ThemeIcon, Timeline, Tooltip,
+  Select, Spoiler, Stack, Table, Tabs, Text, Textarea, ThemeIcon, Timeline, Tooltip, UnstyledButton,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
@@ -81,6 +81,13 @@ export function Work({ ctx, route }: PageProps) {
 
   const counts = work.data?.counts;
   const label = (group: WorkGroup, text: string) => (counts ? `${text} · ${counts[group]}` : text);
+  const filters = [
+    { value: 'all', label: t('All') },
+    { value: 'active', label: label('active', t('Running')) },
+    { value: 'waiting', label: label('waiting', t('Waiting')) },
+    { value: 'done', label: label('done', t('Done')) },
+    { value: 'stopped', label: label('stopped', t('Stopped')) },
+  ];
   // A task named in the address that is not on the pages loaded -- a
   // ticket's work, a decision's task -- is fetched by itself.
   const listed = items.find((item) => item.id === route.item) ?? null;
@@ -108,18 +115,17 @@ export function Work({ ctx, route }: PageProps) {
       </Tabs>
 
       {view === 'tickets' ? <Tickets companyId={companyId} openTask={(id) => { setView('tasks'); openTask(id); }} /> : (<>
+      {/* The same choice as a list on a phone, where five segments ran off
+          the screen and "Stopped" was the one out of sight (§2.3 item 8). */}
       <SegmentedControl
         value={filter}
         onChange={(value) => setFilter(value as Filter)}
-        data={[
-          { value: 'all', label: t('All') },
-          { value: 'active', label: label('active', t('Running')) },
-          { value: 'waiting', label: label('waiting', t('Waiting')) },
-          { value: 'done', label: label('done', t('Done')) },
-          { value: 'stopped', label: label('stopped', t('Stopped')) },
-        ]}
+        data={filters}
         style={{ alignSelf: 'flex-start', maxWidth: '100%', overflowX: 'auto' }}
+        visibleFrom="sm"
       />
+      <Select value={filter} onChange={(value) => value && setFilter(value as Filter)} data={filters}
+        allowDeselect={false} hiddenFrom="sm" aria-label={t('Tasks')} />
       {structure.data && (
         <Group gap="sm" wrap="wrap">
           <Select size="xs" w={200} placeholder={t('Every project')} clearable value={project} onChange={setProject}
@@ -141,8 +147,37 @@ export function Work({ ctx, route }: PageProps) {
               description={t('No task is in this state right now.')}
               action={<Button variant="light" onClick={ctx.giveWork}>{t('Give a role something to do')}</Button>}
             />
-          ) : (
-            <Table.ScrollContainer minWidth={820}>
+          ) : (<>
+            {/* On a phone, one task to a row, everything about it under its
+                name: as a table, what it serves, its progress and its cost
+                were off to the right in a box nobody scrolls sideways (§2.3
+                item 8). */}
+            <Stack gap={0} hiddenFrom="sm">
+              {items.map((item) => (
+                <UnstyledButton key={item.id} className="clickable-row work-row" onClick={() => openTask(item.id)} p="sm">
+                  <Group gap="sm" wrap="nowrap" align="flex-start">
+                    <Avatar size={34} radius="xl" src={rolePicture(item.roleSlug)} alt="" mt={2} />
+                    <Stack gap={4} style={{ minWidth: 0, flex: 1 }}>
+                      <Text size="sm" fw={600} lineClamp={2}>{item.summary}</Text>
+                      {item.result && (
+                        <Group gap={4} wrap="nowrap">
+                          <IconCornerDownRight size={12} color="var(--mantine-color-teal-7)" style={{ flexShrink: 0 }} />
+                          <Text size="xs" c="teal.8" lineClamp={2}>{item.result}</Text>
+                        </Group>
+                      )}
+                      <Group gap={6} wrap="wrap">
+                        <StatusBadge status={item.status} />
+                        {item.haltReason && <Text size="xs" c="red">{haltReason(item.haltReason)}</Text>}
+                        <Text size="xs" c="dimmed" className="tabular">{money(item.costCents)}</Text>
+                      </Group>
+                      <TaskProgress item={item} />
+                      <Text size="xs" c="dimmed">{item.roleName ?? item.roleSlug} · {item.divisionName} · {relative(item.startedAt ?? item.createdAt)}</Text>
+                    </Stack>
+                  </Group>
+                </UnstyledButton>
+              ))}
+            </Stack>
+            <Table.ScrollContainer minWidth={820} visibleFrom="sm">
               <Table verticalSpacing="sm" horizontalSpacing="md" highlightOnHover>
                 <Table.Thead>
                   <Table.Tr>
@@ -187,7 +222,7 @@ export function Work({ ctx, route }: PageProps) {
                 </Table.Tbody>
               </Table>
             </Table.ScrollContainer>
-          )}
+          </>)}
           {next && (
             <Group justify="center" p="sm">
               <Button variant="subtle" onClick={() => void loadOlder()}>{t('Show older')}</Button>

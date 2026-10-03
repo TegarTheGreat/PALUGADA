@@ -117,31 +117,43 @@ export function Money({ ctx }: PageProps) {
         title={t('Accounts')}
         description={t('A budget is a tree: a task draws on the narrowest account that covers it, and a spend counts against every account above.')}
       >
-        <Table.ScrollContainer minWidth={640}>
+        {/* On a phone, one account to a block: as a table, its money and its
+            Ceilings button were off to the right (§2.3 item 8). */}
+        <Stack gap="md" hiddenFrom="sm">
+          {accounts.map((account) => {
+            const tokenShare = account.tokensMax > 0 ? ((account.tokensSpent + account.tokensReserved) / account.tokensMax) * 100 : 0;
+            return (
+              <Stack key={account.id} gap={6}>
+                <Group justify="space-between" wrap="nowrap" align="flex-start">
+                  <div style={{ minWidth: 0 }}>
+                    <Text size="sm" fw={600}>{accountName(account)}</Text>
+                    <Text size="xs" c="dimmed">{scopeLabel(account.scopeType)}{account.scopeName ? ` · ${account.scopeName}` : ''}</Text>
+                  </div>
+                  <Button size="xs" variant={tokenShare > 90 ? 'light' : 'subtle'} color={tokenShare > 90 ? 'red' : undefined}
+                    leftSection={<IconAdjustments size={14} />} onClick={() => setAdjusting(account)} style={{ flexShrink: 0 }}>
+                    {t('Ceilings')}
+                  </Button>
+                </Group>
+                <TokenMeter account={account} />
+                <MoneyMeter account={account} />
+              </Stack>
+            );
+          })}
+        </Stack>
+        <Table.ScrollContainer minWidth={640} visibleFrom="sm">
           <Table verticalSpacing="sm">
             <Table.Thead><Table.Tr><Table.Th>{t('Account')}</Table.Th><Table.Th>{t('Tokens')}</Table.Th><Table.Th>{t('Money')}</Table.Th><Table.Th /></Table.Tr></Table.Thead>
             <Table.Tbody>
               {accounts.map((account) => {
                 const tokenShare = account.tokensMax > 0 ? ((account.tokensSpent + account.tokensReserved) / account.tokensMax) * 100 : 0;
-                const moneyShare = account.moneyMaxCents > 0 ? (account.moneySpentCents / account.moneyMaxCents) * 100 : 0;
                 return (
                   <Table.Tr key={account.id}>
                     <Table.Td>
                       <Text size="sm" fw={600}>{accountName(account)}</Text>
                       <Text size="xs" c="dimmed">{scopeLabel(account.scopeType)}{account.scopeName ? ` · ${account.scopeName}` : ''}</Text>
                     </Table.Td>
-                    <Table.Td w="32%">
-                      <Group justify="space-between" mb={4}><Text size="xs">{t('{spent} spent this month · {held} held', { spent: count(account.tokensSpent), held: count(account.tokensReserved) })}</Text><Text size="xs" c="dimmed">{count(account.tokensMax)}</Text></Group>
-                      <Progress value={Math.min(100, tokenShare)} color={tokenShare > 90 ? 'red' : 'brand'} size="sm" radius="xl" />
-                    </Table.Td>
-                    <Table.Td w="32%">
-                      {account.moneyMaxCents > 0 ? (
-                        <>
-                          <Group justify="space-between" mb={4}><Text size="xs">{money(account.moneySpentCents)}</Text><Text size="xs" c="dimmed">{money(account.moneyMaxCents)}</Text></Group>
-                          <Progress value={Math.min(100, moneyShare)} color={moneyShare > 90 ? 'red' : 'teal'} size="sm" radius="xl" />
-                        </>
-                      ) : <Badge variant="light" color="gray">{t('No money ceiling')}</Badge>}
-                    </Table.Td>
+                    <Table.Td w="32%"><TokenMeter account={account} /></Table.Td>
+                    <Table.Td w="32%"><MoneyMeter account={account} /></Table.Td>
                     <Table.Td ta="right">
                       <Button size="xs" variant={tokenShare > 90 ? 'light' : 'subtle'} color={tokenShare > 90 ? 'red' : undefined}
                         leftSection={<IconAdjustments size={14} />} onClick={() => setAdjusting(account)}>
@@ -353,3 +365,26 @@ function PauseControls({ companyId, changed }: { companyId: string; changed: () 
   );
 }
 
+
+/** An account's tokens this month against its ceiling. */
+function TokenMeter({ account }: { account: Account }) {
+  const share = account.tokensMax > 0 ? ((account.tokensSpent + account.tokensReserved) / account.tokensMax) * 100 : 0;
+  return (
+    <Stack gap={4}>
+      <Group justify="space-between" gap="xs"><Text size="xs">{t('{spent} spent this month · {held} held', { spent: count(account.tokensSpent), held: count(account.tokensReserved) })}</Text><Text size="xs" c="dimmed">{count(account.tokensMax)}</Text></Group>
+      <Progress value={Math.min(100, share)} color={share > 90 ? 'red' : 'brand'} size="sm" radius="xl" />
+    </Stack>
+  );
+}
+
+/** An account's money this month against its ceiling, when it has one. */
+function MoneyMeter({ account }: { account: Account }) {
+  if (account.moneyMaxCents <= 0) return <Badge variant="light" color="gray">{t('No money ceiling')}</Badge>;
+  const share = (account.moneySpentCents / account.moneyMaxCents) * 100;
+  return (
+    <Stack gap={4}>
+      <Group justify="space-between" gap="xs"><Text size="xs">{money(account.moneySpentCents)}</Text><Text size="xs" c="dimmed">{money(account.moneyMaxCents)}</Text></Group>
+      <Progress value={Math.min(100, share)} color={share > 90 ? 'red' : 'teal'} size="sm" radius="xl" />
+    </Stack>
+  );
+}

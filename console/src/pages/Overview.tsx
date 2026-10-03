@@ -11,7 +11,7 @@
 // The charts' styles come with the page that draws them, not with every page.
 import '@mantine/charts/styles.css';
 import {
-  Anchor, Avatar, Badge, Grid, Group, Paper, Progress, RingProgress, SimpleGrid, Stack, Table, Text,
+  Anchor, Avatar, Badge, Box, Grid, Group, Paper, Progress, RingProgress, SimpleGrid, Stack, Table, Text,
   Timeline, UnstyledButton,
 } from '@mantine/core';
 import { AreaChart } from '@mantine/charts';
@@ -123,16 +123,19 @@ export function Overview({ ctx }: PageProps) {
                       <Table.Td>
                         <Group gap="sm" wrap="nowrap">
                           <Avatar size={34} radius="xl" src={rolePicture(item.roleSlug)} alt="" />
-                          <div style={{ minWidth: 0 }}>
+                          <div style={{ minWidth: 0, flex: 1 }}>
                             <Text size="sm" fw={600} lineClamp={1}>{item.summary}</Text>
                             <Group gap={6}>
                               <StatusBadge status={item.status} />
                               <Text size="xs" c="dimmed">{item.roleName ?? item.roleSlug} · {relative(item.startedAt ?? item.createdAt)}</Text>
                             </Group>
+                            {/* Under it on a phone, where a column beside it
+                                left the status cut to "BERJA..." (§2.3 item 8). */}
+                            <Box hiddenFrom="sm" mt={6}><TaskProgress item={item} /></Box>
                           </div>
                         </Group>
                       </Table.Td>
-                      <Table.Td w={200}><TaskProgress item={item} /></Table.Td>
+                      <Table.Td w={200} visibleFrom="sm"><TaskProgress item={item} /></Table.Td>
                     </Table.Tr>
                   ))}
                 </Table.Tbody>

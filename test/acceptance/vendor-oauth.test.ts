@@ -24,6 +24,7 @@ import { DivisionSecrets, redactor } from '../../src/secrets/manager.ts';
 import { createCompany, grantCapability } from '../helpers/fixtures.ts';
 import { consoleWithSettings } from '../helpers/owner-console.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
+import { settingsVersion } from '../../src/settings/store.ts';
 
 before(ensureSchema);
 beforeEach(resetData);
@@ -172,11 +173,16 @@ test('a division signs in for a vendor key from the console: the app once, PKCE,
     // It ran out within five minutes, so the first use refreshes it -- once,
     // though two calls ask at the same moment -- and the call goes through
     // with the new token.
+    const version = await settingsVersion();
     const credential = brokerOf.credentialFor(fixture.companyId, fixture.divisionId);
     const [one, two] = await Promise.all([credential('calendar', 'calendar.read'), credential('calendar', 'calendar.read')]);
     assert.equal(one, 'access-2');
     assert.equal(two, 'access-2');
     assert.equal(acme.tokenRequests.filter((form) => form.get('grant_type') === 'refresh_token').length, 1, 'refreshed once');
+    // N4: a refresh is not the owner changing a setting. Every replica polls
+    // the settings version and restarts when it moves, so a refresh that
+    // moved it restarted the deployment about once an hour per sign-in.
+    assert.equal(await settingsVersion(), version, 'the refresh restarts nothing');
     const read = await registry.get('calendar.read')!.execute({} as never, {
       companyId: fixture.companyId, divisionId: fixture.divisionId, taskId: '00000000-0000-0000-0000-000000000001',
       idempotencyKey: 'k1', signal: new AbortController().signal, credential: (alias: string) => credential(alias, 'calendar.read'),

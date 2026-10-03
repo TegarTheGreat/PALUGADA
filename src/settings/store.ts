@@ -106,18 +106,39 @@ function assertSecretName(name: string): void {
 }
 
 /** Seals a value and keeps it under a name, replacing what was there. */
-export async function putSecret(name: string, value: string, master: MasterKey): Promise<void> {
+export async function putSecret(
+  name: string,
+  value: string,
+  master: MasterKey,
+  options: { renewal?: boolean } = {},
+): Promise<void> {
   assertSecretName(name);
   if (value === '') throw new PalugadaError('contract.violation', 'a secret is not empty', { name });
   const { nonce, ciphertext, tag } = seal(name, value, master);
-  await withControlPlane((tx) => tx.query(
-    `INSERT INTO deployment_secrets (name, nonce, ciphertext, tag, key_id)
-     VALUES ($1, $2, $3, $4, $5)
-     ON CONFLICT (name) DO UPDATE
-       SET nonce = EXCLUDED.nonce, ciphertext = EXCLUDED.ciphertext, tag = EXCLUDED.tag,
-           key_id = EXCLUDED.key_id, updated_at = now()`,
-    [name, nonce, ciphertext, tag, master.id],
-  ));
+  await withControlPlane(async (tx) => {
+    // A renewal -- a token refreshed because the last one ran out -- replaces
+    // the value and leaves `updated_at` as the owner last set it. Every
+    // replica restarts when `settingsVersion` moves, and a refresh moving it
+    // restarted the whole deployment about once an hour for each signed-in
+    // division (N4). Readers resolve a secret at each use, so a renewed one
+    // is in force without a start. A renewal of a secret that is not there
+    // is a new secret, and is written as one.
+    if (options.renewal) {
+      const { rowCount } = await tx.query(
+        'UPDATE deployment_secrets SET nonce = $2, ciphertext = $3, tag = $4, key_id = $5 WHERE name = $1',
+        [name, nonce, ciphertext, tag, master.id],
+      );
+      if (rowCount === 1) return;
+    }
+    await tx.query(
+      `INSERT INTO deployment_secrets (name, nonce, ciphertext, tag, key_id)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (name) DO UPDATE
+         SET nonce = EXCLUDED.nonce, ciphertext = EXCLUDED.ciphertext, tag = EXCLUDED.tag,
+             key_id = EXCLUDED.key_id, updated_at = now()`,
+      [name, nonce, ciphertext, tag, master.id],
+    );
+  });
   redactor.register(value);
 }
 
@@ -255,14 +276,26 @@ export async function readSettings(): Promise<Settings> {
 }
 
 /** Replaces one area's settings; null takes the area back to the environment. */
-export async function writeSetting(key: string, value: object | null): Promise<void> {
-  await withControlPlane((tx) => (value === null
-    ? tx.query('DELETE FROM deployment_settings WHERE key = $1', [key])
-    : tx.query(
+export async function writeSetting(key: string, value: object | null, options: { renewal?: boolean } = {}): Promise<void> {
+  await withControlPlane(async (tx) => {
+    if (value === null) {
+      await tx.query('DELETE FROM deployment_settings WHERE key = $1', [key]);
+      return;
+    }
+    // A renewal leaves `updated_at`, as `putSecret` does: what a token
+    // refresh records about itself (when it was refreshed, when the new one
+    // runs out) is not the owner changing a setting.
+    if (options.renewal) {
+      const { rowCount } = await tx.query(
+        'UPDATE deployment_settings SET value = $2 WHERE key = $1', [key, JSON.stringify(value)]);
+      if (rowCount === 1) return;
+    }
+    await tx.query(
       `INSERT INTO deployment_settings (key, value) VALUES ($1, $2)
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
       [key, JSON.stringify(value)],
-    )));
+    );
+  });
 }
 
 /**

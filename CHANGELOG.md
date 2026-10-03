@@ -131,6 +131,10 @@ The first version. What it holds, in the order an owner meets it.
 
 ### Operating it
 
+- A refreshed OAuth token, for a vendor key or an MCP server, no longer
+  restarts the deployment. Each refresh moved the settings version that
+  every replica watches, so a division signed in to Google restarted all of
+  them about once an hour (STATUS 2.72).
 - Tenants separated by forced row-level security, composite keys between
   tenant tables, and an application role with only the grants its code uses.
 - Health, Prometheus metrics with their own token, and traces to an

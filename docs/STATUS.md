@@ -6170,6 +6170,52 @@ ceiling dialog said so: "Spent tokens stay spent".
   - `startNewPeriods` starts the passed month once and then finds nothing.
   - All three failed before the migration.
 
+## 2.72 A token refresh restarts nothing (N4)
+
+Found by the code audit of 2 October (N4), read in the code and not yet run
+against a live sign-in. Every replica polls `settingsVersion()` every 30
+seconds and starts again when it moves (`src/main.ts`). The version is the
+latest `updated_at` of the deployment's settings and of its secrets.
+
+The automatic token refreshes wrote both:
+
+- A vendor's OAuth grant renewed before it runs out (`vendor-oauth.ts`) was
+  sealed again with `putSecret`, which set `updated_at = now()`.
+- An MCP server's token renewed on a 401 (`mcp-oauth.ts`) did the same, and
+  also rewrote the `mcp_oauth` setting with its new `refreshedAt`.
+
+So one division signed in to Google restarted the whole deployment about
+once an hour. Each restart stopped the console and handed back runs in
+flight. A run on a CLI role risks a `journal_divergence` halt when it comes
+back.
+
+- **A renewal is not a change of settings.** `putSecret` and `writeSetting`
+  (`src/settings/store.ts`) take `{ renewal: true }`.
+  - A renewal replaces the value and leaves `updated_at` as the owner last
+    set it, so the version does not move.
+  - A renewal of something that is not there yet is written as new, and
+    does move the version.
+- **Who renews.** Vendor grant refreshes, and MCP refreshes (`keepTokens`
+  from `refreshMcpAccess`), renew. An MCP *sign-in* is still the owner's
+  change, because a replica binds the server's tools when it starts.
+- **Why nothing goes stale.** Both readers resolve the token at each use:
+  - MCP through the deployment's secret manager, which reads the database
+    every time.
+  - Vendor credentials through a cache of 60 seconds, while a grant is
+    renewed 5 minutes before it runs out, so a replica's cached old token is
+    still good until it is next read.
+  The restart used to flush those caches by accident; nothing relied on it.
+- **Tested.**
+  - `vendor-oauth.test.ts`: the settings version is the same before and after
+    the refresh two calls share.
+  - `mcp-oauth.test.ts`: the version moves on the sign-in and stays put
+    across a refresh on a 401.
+  - Both refresh assertions failed before.
+- **Not done.** Pasting or rotating a division's key in the console is the
+  owner's change and still moves the version, so replicas start again,
+  though division keys are read at each use too. That is rare and the
+  owner's own doing; the restart on every refresh was neither.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

@@ -343,6 +343,14 @@ The first version. What it holds, in the order an owner meets it.
   card's **Give the … key** opens the division's keys on **Team**, and
   saving it there answers the role, which is never shown the key. A role
   can ask only for a key its own division's capabilities use (STATUS 2.131).
+- A role granted **Calculate in Python** works figures out on the company's
+  files it names -- a month's sales from a spreadsheet, a chart -- in a
+  container with no network, and what it writes is kept under `computed/`.
+  Set `PALUGADA_COMPUTE_IMAGE` to an image built from `deploy/compute` on a
+  machine with docker or podman; `npm run compute:check` proves the
+  container there. Because its code can reach nothing, it may sit beside
+  Finance's keys and invoices, and the bookkeeper has it, with **Describe a
+  picture** for receipts (STATUS 2.132).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).

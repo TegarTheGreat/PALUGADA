@@ -2283,6 +2283,7 @@ export const DICTIONARY: Dictionary = {
   "Mistral Small, reads documents well": "Mistral Small, pandai membaca dokumen",
   "Ollama, llama.cpp or vLLM, OpenAI-compatible": "Ollama, llama.cpp, atau vLLM, kompatibel dengan OpenAI",
   "Describe a picture": "Jelaskan gambar",
+  "Calculate in Python": "Hitung dengan Python",
   "Llama 4, very fast and cheap": "Llama 4, sangat cepat dan murah",
   "Give the {alias} key": "Berikan kunci {alias}",
   "It is sealed as you save it; the role is told it is there, never what it is.": "Kunci disegel saat Anda menyimpannya; peran hanya diberi tahu bahwa kunci itu ada, tidak pernah isinya.",

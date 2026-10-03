@@ -2343,6 +2343,7 @@ export const DICTIONARY: Dictionary = {
   "Mistral Small, reads documents well": "Mistral Small, mahusay magbasa ng dokumento",
   "Ollama, llama.cpp or vLLM, OpenAI-compatible": "Ollama, llama.cpp o vLLM, compatible sa OpenAI",
   "Describe a picture": "Ilarawan ang isang larawan",
+  "Calculate in Python": "Magkalkula gamit ang Python",
   "Llama 4, very fast and cheap": "Llama 4, napakabilis at mura",
   "Give the {alias} key": "Ibigay ang {alias} key",
   "It is sealed as you save it; the role is told it is there, never what it is.": "Sine-seal ito sa pag-save mo; sinasabihan lang ang role na naroon na ito, hindi kailanman kung ano ito.",

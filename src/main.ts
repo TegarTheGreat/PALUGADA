@@ -59,6 +59,7 @@ import { useMeaning } from './knowledge/meaning.ts';
 import type { TaskHandler } from './runtime/in-process.ts';
 import { registerPlatformCapabilities } from './capabilities/platform.ts';
 import { toolBindingsFrom } from './capabilities/tools.ts';
+import { computeFrom } from './capabilities/compute.ts';
 import { bindVendorSettings, registerVendorCapabilities } from './capabilities/vendors.ts';
 import { STANDARD_CATALOGUE } from './broker/catalogue.ts';
 import { seed } from './seed.ts';
@@ -738,6 +739,10 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   const filesRoot = options.filesRoot ?? env.PALUGADA_FILES_ROOT ?? null;
   // Searching and reading pages, through the providers the owner chose.
   const toolBindings = toolBindingsFrom(env, (reference) => secrets.resolve(reference), filesRoot);
+  // Figures worked out in Python, in a container that reaches no network:
+  // the operator's, since it needs a docker this process can reach.
+  const compute = computeFrom(env, filesRoot);
+  if (compute.note) notes.push(compute.note);
 
   // The five capabilities the platform implements itself. The other twenty
   // the standard template grants need somebody's account, and a control plane
@@ -793,6 +798,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     },
     ...(browsers ? { browser: browsers } : {}),
     ...(mailCa ? { mail: { ca: mailCa } } : {}),
+    ...(compute.options ? { compute: compute.options } : {}),
   });
   // With no page reader bound, the browser reads pages: say so where the
   // note would have said they cannot be read.

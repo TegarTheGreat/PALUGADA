@@ -2363,6 +2363,7 @@ export const DICTIONARY: Dictionary = {
   "Mistral Small, reads documents well": "Mistral Small, lee bien los documentos",
   "Ollama, llama.cpp or vLLM, OpenAI-compatible": "Ollama, llama.cpp o vLLM, compatible con OpenAI",
   "Describe a picture": "Describir una imagen",
+  "Calculate in Python": "Calcular con Python",
   "Llama 4, very fast and cheap": "Llama 4, muy rápido y barato",
   "Give the {alias} key": "Dar la clave {alias}",
   "It is sealed as you save it; the role is told it is there, never what it is.": "Se sella al guardarla; al rol se le dice que está, nunca cuál es.",

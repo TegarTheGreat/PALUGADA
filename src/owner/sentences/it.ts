@@ -159,6 +159,7 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'List files': 'Elenca i file',
   'Read a file': 'Leggi un file',
   'Describe a picture': 'Descrivi un\'immagine',
+  'Calculate in Python': 'Calcolare con Python',
   'Transfer money': 'Trasferisci denaro',
   'Propose a goal change': 'Proponi una modifica a un obiettivo',
   'Make a picture': 'Crea un\'immagine',

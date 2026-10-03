@@ -159,16 +159,23 @@ test('a binding cannot disagree about executing untrusted code', () => {
   );
 });
 
-test('exactly one capability executes untrusted code, and it needs no credential', () => {
+test('two capabilities execute untrusted code, neither needs a credential, and only the contained one reaches no network', () => {
   const executing = STANDARD_CATALOGUE.filter((entry) => entry.executesUntrustedCode);
   assert.deepEqual(
-    executing.map((entry) => entry.name),
-    ['code.execute'],
+    executing.map((entry) => entry.name).sort(),
+    ['code.compute', 'code.execute'],
   );
-  assert.notEqual(
-    executing[0]!.needsCredential,
-    true,
-    'a capability that runs foreign code must not be the one holding a secret',
+  for (const entry of executing) {
+    assert.notEqual(
+      entry.needsCredential,
+      true,
+      `${entry.name}: a capability that runs foreign code must not be the one holding a secret`,
+    );
+  }
+  // The sandbox's code can open a socket; only the container's cannot (0115).
+  assert.deepEqual(
+    STANDARD_CATALOGUE.filter((entry) => entry.networkIsolated).map((entry) => entry.name),
+    ['code.compute'],
   );
 });
 

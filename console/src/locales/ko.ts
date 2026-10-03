@@ -2360,6 +2360,7 @@ export const DICTIONARY: Dictionary = {
   "Mistral Small, reads documents well": "Mistral Small, 문서를 잘 읽어요",
   "Ollama, llama.cpp or vLLM, OpenAI-compatible": "Ollama, llama.cpp, vLLM 등 OpenAI 호환 서버",
   "Describe a picture": "이미지 설명하기",
+  "Calculate in Python": "Python으로 계산하기",
   "Llama 4, very fast and cheap": "Llama 4, 매우 빠르고 저렴",
   "Give the {alias} key": "{alias} 키 주기",
   "It is sealed as you save it; the role is told it is there, never what it is.": "저장하는 즉시 봉인돼요. 역할에는 키가 있다는 것만 알려지고, 내용은 절대 알려지지 않아요.",

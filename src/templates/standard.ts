@@ -279,6 +279,12 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     // A receipt or a supplier's invoice as a picture, read once a vision
     // provider is chosen under Tools; until then the grant waits unbound.
     { division: 'finance', capability: 'image.describe' },
+    // Figures worked out in Python on the company's files, in a container
+    // that reaches no network: F8.10 lets it sit beside Finance's keys and
+    // its invoices for that reason (0115). Unbound until the operator gives
+    // it an image. Never in the lab, whose code reaches the network: what
+    // this one reads, that one could post.
+    { division: 'finance', capability: 'code.compute' },
     { division: 'finance', capability: 'invoice.issue', rateLimitPerHour: 10 },
     { division: 'finance', capability: 'invoice.pay', rateLimitPerHour: 5 },
 
@@ -442,8 +448,10 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
         'You keep the money straight: read the ledger, issue invoices, and pay invoices the ' +
         'company owes. Every payment must be matched to an invoice you have read. You ' +
         'cannot transfer money that is not settling one, and you should not ask for that ' +
-        'capability; that transfer is the owner\'s to make.',
-      tools: [...PLATFORM_TOOLS, 'ledger.read', 'doc.draft', 'invoice.issue', 'invoice.pay'],
+        'capability; that transfer is the owner\'s to make. Work figures out with code.compute ' +
+        'rather than in your head, and read a receipt or an invoice that came as a picture with ' +
+        'image.describe.',
+      tools: [...PLATFORM_TOOLS, 'ledger.read', 'doc.draft', 'image.describe', 'code.compute', 'invoice.issue', 'invoice.pay'],
       inputSchema: WORK_INPUT,
       outputSchema: WORK_OUTPUT,
     },

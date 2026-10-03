@@ -8484,6 +8484,103 @@ What changed:
   for from the same place, which the card leads to, but the card does not
   start the sign-in itself.
 
+## 2.132 A role works figures out in Python, where its code reaches nothing (tools research, recommendation 6)
+
+A month's sales from a spreadsheet, a cash-flow forecast, a chart for the
+owner: arithmetic a model gets wrong in its head and a few lines of pandas
+get right. The only code a role could run was `code.execute`, in the
+sandbox, which does not isolate the network -- so F8.10 keeps it out of any
+division with a key or a tier 2 grant, which is every division with figures
+worth working out. The research put a contained one sixth.
+
+What changed:
+
+- **`code.compute`, catalogued** at tier 1 as code supplied at call time that
+  reaches no network, and as a read of outside content: the files it reads
+  may have come from anyone. Named "Calculate in Python" for the owner in
+  every language.
+- **Run in a container with no network** (`src/capabilities/compute.ts`), the
+  flags of the `docker` backend's (2.46) and for the same reason:
+  `--network none`, a read-only image with a 256 MB scratch, no
+  capabilities, no new privileges, nobody's user, 1 GB of memory, one CPU
+  and 128 processes; nothing mounted, no credential, none of this process's
+  environment, `--pull never` so nothing is fetched mid-run, and
+  `--log-driver none` so a company's figures are not copied into the
+  daemon's logs. The files the role names are read with `files.read`'s
+  containment and handed over stdin under `in/`; what the code writes to
+  `out/` comes back the same way and is kept under
+  `computed/<date>-<id>/`, never over anything, each file read back by its
+  digest (F8.4). The program that runs the code
+  (`src/capabilities/compute-runner.py`) is handed over with each call, so
+  the image (`deploy/compute`: Python 3.13, pandas, numpy, openpyxl,
+  matplotlib, pinned) is only libraries, and upgrading PALUGADA does not
+  mean rebuilding it.
+- **Its own time, then removal.** The code runs for the seconds it asked
+  for, 60 unless it said, five minutes at most, and is stopped inside the
+  container, which still answers. A container that has not answered by its
+  grace, or whose run was stopped, is removed by name at once: ending the
+  docker client does not end its container, and whatever the client left
+  running may hold its pipes open, which is how the first version of the
+  test hung.
+- **Nothing half-kept, and said.** Code that fails, runs past its time or
+  runs out of memory keeps nothing it wrote, and the role is told which,
+  with what it printed. So does a link in `out/` (which would hand back
+  what it pointed at), a name with a control character or a leading dot,
+  more than 20 files or more than 16 MB. What the container hands back is
+  checked again here, since code running as the same user could have
+  replaced the program that hands it back.
+- **F8.10 for code that reaches nothing** (0115). The refusal exists because
+  the sandbox cannot stop code posting a key or reaching a tier 2 effect
+  somewhere; code with no network can post nothing anywhere. So
+  `capabilities.network_isolated` records the claim beside the flag it
+  qualifies -- a check makes it impossible without that flag -- and the two
+  functions 0008 wrote now ask about untrusted code that can reach the
+  network. The registry refuses a binding whose claim differs from the
+  catalogue's, so only the platform's container can make it; a vendor
+  entry or an MCP server cannot. `code.execute` is refused beside a key or a
+  tier 2 grant exactly as before.
+- **Bound by the operator**: `PALUGADA_COMPUTE_IMAGE`, with the company's
+  files, on a machine whose docker or podman this process can run
+  (`PALUGADA_COMPUTE_DOCKER`, else `PALUGADA_RUNTIME_DOCKER`). The boot says
+  which is missing. The image PALUGADA ships in has no docker, so in the
+  Compose deployments it stays unbound; `docs/configuration.md` says to
+  prefer rootless podman or a docker host of its own, since whatever can use
+  the system's Docker daemon can become root on the machine.
+- **The template grants it to Finance**, beside its keys and invoices, and
+  the bookkeeper has it in its tools, with `image.describe` for receipts --
+  which 2.130 granted to Finance and left off the bookkeeper's tools, where
+  there was room for both. Never in the lab, whose code reaches the network:
+  what this one reads, that one could post.
+- **Tested.** `code-compute.test.ts`, against a docker client that logs what
+  it is asked and plays the container with this machine's Python: a sum of
+  a CSV printed and two files kept, nested, 0600, read back, and a changed
+  one failing the read-back; the argv, flag by flag, with nothing mounted,
+  no `--env`, and the client handed none of this process's environment; a
+  traceback, a loop stopped at one second, and nothing kept from either; a
+  link, a newline in a name, a hidden file, 21 files and 17 MB, each said
+  and nothing kept; an answer forged in the runner's place -- a parent
+  directory, an absolute path, a file that is also a folder, a name twice,
+  21 files -- refused the same way; another company's file by a link, a parent directory
+  and a climb out, a missing file and 21 files named, refused before any
+  container starts; a container that never answers removed by its name
+  after its grace, a stopped run's removed too, a missing image and a
+  missing docker said plainly; the catalogue, a vendor binding refused, the
+  boot's notes; the database letting it beside a key and a tier 2 grant in
+  either order while still refusing `code.execute` there, and refusing
+  isolation claimed for something that is not code; the template.
+  `npm run compute:check`, in CI's docker job and run here against Docker
+  29: as nobody, a read-only image, no name resolved, no internet, nothing
+  on the host, only `lo`, no capabilities in its bounding set, no new
+  privileges, 1 GiB and 128 processes, none of the orchestrator's
+  environment, pandas summing the spreadsheet, a chart drawn and kept and
+  read back, an endless loop stopped at two seconds, and no container left.
+  Also run here: a missing image says how to build it, and a gigabyte array
+  is ended by the memory limit and said so.
+- **Not done.** The code cannot install a library: what the image has is
+  what there is, and a company that needs another builds its own image on
+  this one. Two runs go at once in a process and more wait their turn;
+  nothing is kept between runs but the files they wrote.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the
@@ -8526,14 +8623,15 @@ is a real Daytona or Modal machine answering; the `http` runtime also reports
 this backend, because "somewhere else, not ours" is what it means in F13.5's
 vocabulary, and it cannot verify the claim.
 
-**Thirty-seven of the fifty-four catalogued capabilities are unbound on a bare
-boot -- thirty-three on a machine with a Chromium -- and that is the design
-rather than a gap.** The boot names every one. Thirteen need configuration, not
+**Thirty-eight of the fifty-five catalogued capabilities are unbound on a bare
+boot -- thirty-four on a machine with a Chromium -- and that is the design
+rather than a gap.** The boot names every one. Fourteen need configuration, not
 an account: `files.list` and `files.read` a files root, `doc.draft` and
 `email.draft` a files root and a model; `web.search`, `image.generate`, `speech.synthesize`,
 `speech.transcribe` and `image.describe` a provider chosen under **Tools**; `web.extract` one of
-those or a Chromium; and `browser.read`, `browser.act` and
-`browser.handover` a Chromium. The other twenty-four need a deployment's own vendor entry,
+those or a Chromium; `browser.read`, `browser.act` and
+`browser.handover` a Chromium; and `code.compute` a files root and an image
+built from `deploy/compute`, with a docker to run it. The other twenty-four need a deployment's own vendor entry,
 six of which `config/vendors.example.json` shows. `dns.read`, `invoice.pay`
 and the rest are *names* in the catalogue: a tier, a schema, the scopes a
 credential must declare, and a `verify()` contract. What executes them is a
@@ -8543,7 +8641,7 @@ uses this platform is not a decision a control plane gets to make.
 `mailbox.read` and `email.send` are the exception that proves it: a mailbox
 is one protocol whoever runs it, so the platform binds them to each
 division's own (2.127), and a vendor entry for either still takes the name.
-These counts were read from a boot when 2.130 was written; until 2.127 the
+These counts were read from a boot when 2.132 was written; until 2.127 the
 paragraph said thirty-nine, still counting `chat.read` and `chat.send`, which
 the platform has bound since 2.117.
 

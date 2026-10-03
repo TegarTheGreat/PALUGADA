@@ -188,6 +188,13 @@ export interface Capability<I = unknown, O = unknown> {
    */
   executesUntrustedCode?: boolean;
   /**
+   * Whether that code reaches no network at all (0115): run where it can
+   * post nothing anywhere, so F8.10 lets it share a division with a
+   * credential and a tier 2 grant. Checked against the catalogue as the flag
+   * above is, so a binding that does not keep the promise cannot make it.
+   */
+  networkIsolated?: boolean;
+  /**
    * F12.6: the provider scopes this capability needs to do its job.
    *
    * Declared by the adapter, because the adapter is the only thing that knows
@@ -256,10 +263,10 @@ export class CapabilityRegistry {
     await withControlPlane(async (tx) => {
       for (const declaration of unbound) {
         await tx.query(
-          `INSERT INTO capabilities (name, adapter, default_tier, has_verify, executes_untrusted_code, required_scopes)
-           VALUES ($1, 'unbound', $2, false, $3, '{}')
+          `INSERT INTO capabilities (name, adapter, default_tier, has_verify, executes_untrusted_code, network_isolated, required_scopes)
+           VALUES ($1, 'unbound', $2, false, $3, $4, '{}')
            ON CONFLICT (name) DO NOTHING`,
-          [declaration.name, declaration.tier, declaration.executesUntrustedCode ?? false],
+          [declaration.name, declaration.tier, declaration.executesUntrustedCode ?? false, declaration.networkIsolated ?? false],
         );
       }
     });
@@ -273,8 +280,8 @@ export class CapabilityRegistry {
         await tx.query(
           `INSERT INTO capabilities
              (name, adapter, default_tier, estimated_cost_cents, has_verify,
-              executes_untrusted_code, required_scopes, input_schema)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+              executes_untrusted_code, network_isolated, required_scopes, input_schema)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
            ON CONFLICT (name) DO UPDATE
              SET adapter = EXCLUDED.adapter,
                  input_schema = EXCLUDED.input_schema,
@@ -282,7 +289,8 @@ export class CapabilityRegistry {
                  estimated_cost_cents = EXCLUDED.estimated_cost_cents,
                  has_verify = EXCLUDED.has_verify,
                  required_scopes = EXCLUDED.required_scopes,
-                 executes_untrusted_code = EXCLUDED.executes_untrusted_code`,
+                 executes_untrusted_code = EXCLUDED.executes_untrusted_code,
+                 network_isolated = EXCLUDED.network_isolated`,
           [
             capability.name,
             capability.adapter,
@@ -290,6 +298,7 @@ export class CapabilityRegistry {
             capability.estimatedCostCents ?? 0,
             typeof capability.verify === 'function',
             capability.executesUntrustedCode ?? false,
+            capability.networkIsolated ?? false,
             [...(capability.requiredScopes ?? [])],
             JSON.stringify(capability.inputSchema ?? { type: 'object' }),
           ],

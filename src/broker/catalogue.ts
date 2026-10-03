@@ -54,6 +54,17 @@ export interface CapabilityDeclaration {
    */
   executesUntrustedCode?: boolean;
   /**
+   * Whether the code it runs can reach no network at all (0115).
+   *
+   * Only with `executesUntrustedCode`: what F8.10 guards against is code
+   * posting a credential or reaching a tier 2 effect somewhere, and code in a
+   * container with `--network none`, handed no credential, can post nothing
+   * anywhere. So the database lets such a capability share a division with
+   * both. Checked against the binding like the flag it qualifies, so only an
+   * implementation that keeps the promise can claim it.
+   */
+  networkIsolated?: boolean;
+  /**
    * Whether what it returns was written outside the company (F8.9): a web
    * page, an email, a customer's record, an invitation, somebody else's pull
    * request. Work that has read it carries that provenance, and the broker
@@ -469,6 +480,27 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
     needsCredential: true,
   },
   {
+    name: 'code.compute',
+    adapter: 'container',
+    tier: TIER.REVERSIBLE_WRITE,
+    summary:
+      'Runs Python supplied at call time on the company files it names, in a ' +
+      'container with no network, and keeps what the code wrote in the ' +
+      'company\'s files.',
+    calibration:
+      'Tier 1 because all it can reach is the company\'s own files: it reads ' +
+      'the ones it is handed, and writes new ones in a folder of its own, which ' +
+      'deleting the folder undoes. The container has no network and no ' +
+      'credential, so code that was talked into anything can post nothing ' +
+      'anywhere -- which is what F8.10 guards against, and why this may sit ' +
+      'beside a credential and a tier 2 grant where `code.execute` may not. ' +
+      'What it read came from the company\'s files, and nothing records where ' +
+      'their words came from, so what it returns is outside content.',
+    executesUntrustedCode: true,
+    networkIsolated: true,
+    readsOutside: true,
+  },
+  {
     name: 'email.draft',
     adapter: 'mail',
     tier: TIER.REVERSIBLE_WRITE,
@@ -687,6 +719,7 @@ export function assertCalibrated(capability: {
   name: string;
   defaultTier: Tier;
   executesUntrustedCode?: boolean;
+  networkIsolated?: boolean;
 }): void {
   const declared = BY_NAME.get(capability.name);
   if (!declared) return;
@@ -708,6 +741,17 @@ export function assertCalibrated(capability: {
       'capability.miscalibrated',
       `capability ${capability.name} must declare executesUntrustedCode = ` +
         `${declared.executesUntrustedCode ?? false} to match the catalogue`,
+      { name: capability.name },
+    );
+  }
+  // The same both ways: a binding that claimed isolation it does not keep
+  // would let the database put its code beside a credential, and one that
+  // dropped the claim would refuse the divisions the catalogue allows.
+  if ((capability.networkIsolated ?? false) !== (declared.networkIsolated ?? false)) {
+    throw new PalugadaError(
+      'capability.miscalibrated',
+      `capability ${capability.name} must declare networkIsolated = ` +
+        `${declared.networkIsolated ?? false} to match the catalogue`,
       { name: capability.name },
     );
   }

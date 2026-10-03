@@ -378,6 +378,7 @@ const CAPABILITY_NAMES: Record<string, string> = {
   'files.list': N('List files'),
   'files.read': N('Read a file'),
   'image.describe': N('Describe a picture'),
+  'code.compute': N('Calculate in Python'),
   'funds.transfer': N('Transfer money'),
   'goal.propose': N('Propose a goal change'),
   'image.generate': N('Make a picture'),

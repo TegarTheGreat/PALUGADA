@@ -32,6 +32,7 @@ import { docDraft, emailDraft, type DraftOptions } from './draft.ts';
 import { chatCapabilities, type ChatOptions } from './chat.ts';
 import { browserCapabilities, webExtractByBrowser } from './browser.ts';
 import { mailboxCapabilities } from './mailbox.ts';
+import { codeCompute, type ComputeOptions } from './compute.ts';
 import type { MailOptions } from '../chats/mail.ts';
 import type { Browsers } from '../browser/browsers.ts';
 
@@ -80,6 +81,12 @@ export interface PlatformCapabilityOptions {
    * bound either way: the mailbox is each division's key.
    */
   mail?: MailOptions;
+  /**
+   * Python on the company's files, in a container that reaches no network:
+   * the image and the docker that runs it. Omitted, `code.compute` stays
+   * unbound.
+   */
+  compute?: ComputeOptions;
 }
 
 /**
@@ -111,6 +118,7 @@ export function platformCapabilities(
   if (options.speech) built.push(speechSynthesize(options.speech) as unknown as Capability<never, never>);
   if (options.listen) built.push(speechTranscribe(options.listen) as unknown as Capability<never, never>);
   if (options.vision) built.push(imageDescribe(options.vision) as unknown as Capability<never, never>);
+  if (options.compute) built.push(codeCompute(options.compute) as unknown as Capability<never, never>);
   if (options.chat) built.push(...chatCapabilities(options.chat));
   if (options.browser) built.push(...browserCapabilities(options.browser));
   // A division's own mailbox; a service bound for either name replaces it.

@@ -2358,6 +2358,7 @@ export const DICTIONARY: Dictionary = {
   "Mistral Small, reads documents well": "Mistral Small。文書の読み取りが得意",
   "Ollama, llama.cpp or vLLM, OpenAI-compatible": "Ollama、llama.cpp、vLLM（OpenAI 互換）",
   "Describe a picture": "画像を説明する",
+  "Calculate in Python": "Python で計算する",
   "Llama 4, very fast and cheap": "Llama 4。非常に高速で安価",
   "Give the {alias} key": "{alias} のキーを渡す",
   "It is sealed as you save it; the role is told it is there, never what it is.": "保存した時点で封印されます。ロールに伝わるのはキーがあることだけで、中身は決して伝わりません。",

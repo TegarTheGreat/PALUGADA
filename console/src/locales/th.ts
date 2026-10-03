@@ -2382,6 +2382,7 @@ export const DICTIONARY: Dictionary = {
   "Mistral Small, reads documents well": "Mistral Small อ่านเอกสารได้ดี",
   "Ollama, llama.cpp or vLLM, OpenAI-compatible": "Ollama, llama.cpp หรือ vLLM ที่รองรับ OpenAI",
   "Describe a picture": "อธิบายภาพ",
+  "Calculate in Python": "คำนวณด้วย Python",
   "Llama 4, very fast and cheap": "Llama 4 เร็วมากและถูก",
   "Give the {alias} key": "ให้คีย์ {alias}",
   "It is sealed as you save it; the role is told it is there, never what it is.": "คีย์จะถูกปิดผนึกทันทีที่บันทึก บทบาทจะรู้เพียงว่ามีคีย์แล้ว ไม่มีวันรู้ว่าคีย์คืออะไร",

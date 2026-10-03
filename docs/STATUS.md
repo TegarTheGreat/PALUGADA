@@ -6216,6 +6216,38 @@ back.
   though division keys are read at each use too. That is rare and the
   owner's own doing; the restart on every refresh was neither.
 
+## 2.73 The language check reads a bounded sample, with a pattern that cannot backtrack (N5)
+
+Found by the code audit of 2 October (N5) and measured.
+- **The pattern.** The detector takes e-mail addresses out of what it judges
+  (`ownWords`, `src/domain/language.ts`) with `\S+@\S+\.\S+`. On text with
+  many `@` and no dot that backtracks in cubic time:
+
+  | Input | Time |
+  |---|---|
+  | 4,000 characters of `a@a@` | 6.5 s |
+  | 10,000 characters of `a@a@` | 99 s |
+  | 600 Instagram handles joined by commas | 8.1 s |
+- **What passes through it.** Since 2.64, ticket bodies of up to 8 KB, briefs
+  handed on, stage evidence, reviewers' reasons and plans all do; drafts did
+  already, at any length.
+- **What it cost.** While it ran, the worker's heartbeat stalled, and another
+  replica could take its runs as dead (B5).
+
+What changed:
+
+- **A pattern that cannot backtrack.** An address is now a run without `@`
+  or space, an `@`, and a run with a dot in it: `[^\s@]+@[^\s@]+\.[^\s@]+`.
+- **A bounded sample.** The detector reads the first 6,000 characters. A
+  language shows itself well within that, and every pattern is cheaper on a
+  bounded text. A single 50,000-character word with an `@` and no dot was
+  still quadratic under the new pattern alone (1.8 s); with the sample it
+  takes milliseconds.
+- **Tested.** `languages.test.ts`:
+  - The three inputs above, and that long word, each judged in under a
+    second. The first took 6,424 ms before the change.
+  - An Indonesian sentence around an address still reads as Indonesian.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

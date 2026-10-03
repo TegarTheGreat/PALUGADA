@@ -251,16 +251,29 @@ export function detectable(code: string): boolean {
 }
 
 /**
+ * How much of a text the detector reads. A language shows itself in the first
+ * few thousand characters, and every pattern below is cheaper the shorter the
+ * text: a ticket body, a brief or a draft of any length is judged in the
+ * same short time.
+ */
+const LANGUAGE_SAMPLE = 6_000;
+
+/**
  * The text an agent wrote itself, with what it merely quoted taken out: code,
  * links, addresses, and anything in quotation marks or quoted with `>`.
  * Quoting a customer's English email in an Indonesian report is not drift.
+ *
+ * An address is a run without `@` or space, an `@`, and a run with a dot in
+ * it. It was `\S+@\S+\.\S+`, which backtracks in cubic time on text with
+ * many `@` and no dot: four thousand characters of "a@a@" took 6.5 seconds,
+ * ten thousand 99, with the worker's heartbeat stalled while it ran (N5).
  */
 function ownWords(text: string): string {
-  return text
+  return text.slice(0, LANGUAGE_SAMPLE)
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/`[^`\n]*`/g, ' ')
     .replace(/https?:\/\/\S+/g, ' ')
-    .replace(/\S+@\S+\.\S+/g, ' ')
+    .replace(/[^\s@]+@[^\s@]+\.[^\s@]+/g, ' ')
     .replace(/"[^"\n]*"|“[^”\n]*”|«[^»\n]*»|„[^“\n]*“/g, ' ')
     .split('\n')
     .filter((line) => !line.trimStart().startsWith('>'))

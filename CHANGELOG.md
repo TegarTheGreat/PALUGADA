@@ -135,6 +135,9 @@ The first version. What it holds, in the order an owner meets it.
   restarts the deployment. Each refresh moved the settings version that
   every replica watches, so a division signed in to Google restarted all of
   them about once an hour (STATUS 2.72).
+- The language check on what agents write no longer freezes the worker on
+  text full of `@`, such as a list of Instagram handles; four thousand
+  characters of it took 6.5 seconds (STATUS 2.73).
 - Tenants separated by forced row-level security, composite keys between
   tenant tables, and an application role with only the grants its code uses.
 - Health, Prometheus metrics with their own token, and traces to an

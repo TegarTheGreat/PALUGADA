@@ -52,6 +52,8 @@ export interface InboxItem {
   question: string | null;
   /** The answers it offered to choose from, when it offered some. */
   options: string[] | null;
+  /** A question answered at the company's browser: the card opens it, and giving the browser back answers it. */
+  browser?: boolean;
   goalChain: Array<{ kind: string; statement: string }>;
   /** When an item the owner put off comes back (0060). */
   snoozedUntil: string | null;
@@ -714,4 +716,30 @@ export interface Staff {
   name: string;
   kind: 'viewer' | 'approver';
   companyId: string;
+}
+
+/** A tab of the company's browser, as the owner sees it. */
+export interface BrowserTab {
+  id: string;
+  /** The work it is, or null for the owner's own. */
+  taskId: string | null;
+  /** What that work is, in a line. */
+  work: string | null;
+  url: string;
+  title: string;
+}
+
+export interface BrowserView {
+  /** Whether this deployment has a browser at all. */
+  available: boolean;
+  held: { since: string; touchedAt: string } | null;
+  tabs: BrowserTab[];
+}
+
+export interface BrowserScreen {
+  image: string;
+  url: string;
+  title: string;
+  width: number;
+  height: number;
 }

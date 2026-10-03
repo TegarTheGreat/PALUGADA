@@ -303,4 +303,5 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Reply to a customer': 'Balas pelanggan',
   'Read a page in the browser': 'Baca halaman di browser',
   'Fill in a page in the browser': 'Isi halaman di browser',
+  'Ask you to take over the browser': 'Meminta Anda mengambil alih browser',
 };

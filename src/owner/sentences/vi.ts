@@ -313,4 +313,5 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Reply to a customer': 'Trả lời khách hàng',
   'Read a page in the browser': 'Đọc một trang trong trình duyệt',
   'Fill in a page in the browser': 'Điền một trang trong trình duyệt',
+  'Ask you to take over the browser': 'Nhờ bạn tiếp quản trình duyệt',
 };

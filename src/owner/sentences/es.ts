@@ -308,4 +308,5 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Reply to a customer': 'Responder a un cliente',
   'Read a page in the browser': 'Leer una página en el navegador',
   'Fill in a page in the browser': 'Rellenar una página en el navegador',
+  'Ask you to take over the browser': 'Pedirle que tome el control del navegador',
 };

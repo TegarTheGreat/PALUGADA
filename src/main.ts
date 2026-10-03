@@ -1068,6 +1068,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   const api = new OwnerApi({
     mfa,
     charters: charterRepository,
+    ...(browsers ? { browsers } : {}),
     // The registry and the resolver, so F12.3's rotation can sweep the
     // division afterwards. Without both, a rotation through the console still
     // works and simply does not re-check -- which is better than a sweep that

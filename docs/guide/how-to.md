@@ -639,10 +639,21 @@ What the role does, you can follow:
   sure?" is answered yes. Approve, and the steps are done on the page the
   role read -- if it has changed, or an element is not the one named,
   nothing is done.
-- **Signing in** is yours: a role never types a password. The company's
-  browser keeps what a site sets when someone signs in (its cookies),
-  sealed like any secret, for every later task, across restarts.
-  Closing the company deletes them.
+- **Signing in** is yours: a role never types a password. A role that
+  meets a sign-in asks you with a card -- *Ask you to take over the
+  browser* -- saying what to do. **Open the browser** on it shows that
+  work's page on **Browser**; **Take it over** with a code, and the
+  company's work waits while you hold it. Press on the picture to click,
+  type into the field the page selected, use the buttons for Enter, Tab
+  and the arrows, or open an address. **Give it back** when you are done:
+  the role goes on, signed in. What you type goes to the site and is kept
+  nowhere else; a hold you forget lapses after fifteen minutes.
+- The company's browser keeps what a site sets when you sign in (its
+  cookies), sealed like any secret, for every later task, across
+  restarts. Closing the company deletes them.
+- **Browser** also shows each piece of work's page while it runs, so you
+  can watch what a role is doing. It is yours alone: a staff seat does not
+  see it.
 
 Every request the browser makes goes through PALUGADA, under the same rules
 as `web.fetch`: nothing on this machine's network or the cloud's metadata

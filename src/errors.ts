@@ -18,6 +18,8 @@ export type ErrorCode =
   | 'capability.busy'
   /** F12.9: the capability was asked to reach somewhere it may not. */
   | 'capability.unreachable'
+  /** The owner has not taken the company's browser over, or the hold lapsed: nothing is typed into it. */
+  | 'browser.not_held'
   /** The broker was built with no secret manager, so no credential can be resolved. */
   | 'credential.unavailable'
   /** F12.6: the credential does not declare a scope the capability needs. */

@@ -34,7 +34,7 @@ in code and tests refer to it. `docs/STATUS.md` grades every requirement.
 | `src/domain/` | goals, languages, the task state machine |
 | `src/inbox/` | approvals, incidents, escalations |
 | `src/chats/` | customers' conversations: the channels they write on, what arrives, and the Telegram, WhatsApp and mailbox transports |
-| `src/browser/` | each company's browser: Chromium on a pipe, the proxy every request goes through, its sealed cookies, and what runs in a page |
+| `src/browser/` | each company's browser: Chromium on a pipe, the proxy every request goes through, its sealed cookies, the owner's hold on it, and what runs in a page |
 | `src/memory/` | scoped memory and distillation |
 | `src/knowledge/` | the company's documents, kept whole and searched by passage |
 | `src/bundles/` | bundles, including the built-in ones in `builtin.ts` |

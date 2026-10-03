@@ -157,6 +157,11 @@ refer to `docs/PRD.md`.
    every request a page makes -- pictures, scripts, redirects -- through the
    platform's proxy (`src/browser/egress.ts`), with Chromium resolving no
    name itself and no exception for loopback.
+7b. The owner's own hand in the browser takes their device, holds the
+   company's work off the browser while it lasts, and lapses when left; what
+   they type goes to the page and to no event, journal or log
+   (`src/browser/holds.ts`, the `/browser` routes). A staff seat neither sees
+   nor takes the browser, and the assistant does not take it over.
 7a. A browser act does only what its card shows: on the page the role read,
    to the elements it named, each checked by its name before anything is
    done; a dialog is answered no unless the card said yes; a role never
@@ -456,4 +461,5 @@ All under `test/acceptance/` unless named.
 | Taint through sub-tasks, searches and briefings | `tool-io.test.ts` |
 | A division's credential is not the deployment's secret | `credentials.test.ts` |
 | The browser: every request through the proxy, one context per company, cookies sealed and erased, acts only as approved | `browser.test.ts`, `company-closing.test.ts` |
+| The owner at the browser: device to take it over, work held off, input kept nowhere, hold lapses | `browser-live.test.ts`, `console-browser.test.ts` |
 | Health page says whether, not why | `operability.test.ts` |

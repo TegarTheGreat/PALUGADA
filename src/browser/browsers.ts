@@ -105,6 +105,35 @@ export interface ActResult extends PageReading {
   dialogs: Dialog[];
 }
 
+/** A tab as the owner sees it: whose it is, and where it is. */
+export interface TabView {
+  /** Chromium's id for it, which the owner names it by. */
+  id: string;
+  /** The work it is, or null for the owner's own. */
+  taskId: string | null;
+  url: string;
+  title: string;
+}
+
+/** What the owner sends a tab while they hold the browser: where they pressed, scrolled or typed on its picture. */
+export type OwnerInput =
+  | { kind: 'click'; x: number; y: number }
+  | { kind: 'scroll'; dy: number; dx?: number; x?: number; y?: number }
+  | { kind: 'key'; key: string }
+  | { kind: 'text'; text: string };
+
+export interface Screen {
+  /** The tab's picture, JPEG, base64. */
+  image: string;
+  url: string;
+  title: string;
+  width: number;
+  height: number;
+}
+
+/** The owner's own tab, apart from any work's. */
+const OWNER_TAB = 'owner';
+
 export const MAX_STEPS = 20;
 const TABS_PER_COMPANY = 8;
 const NAVIGATE_MS = 30_000;
@@ -384,6 +413,113 @@ export class Browsers {
     await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', ...common }, tab.sessionId);
   }
 
+  /* ------------------------------------------------------- the owner's --- */
+
+  /** The company's tabs in this process, without starting anything. */
+  async tabs(companyId: string): Promise<TabView[]> {
+    const context = this.#contexts.get(companyId);
+    const cdp = this.#cdp;
+    if (!context || !cdp || cdp.closed) return [];
+    const views: TabView[] = [];
+    for (const tab of context.tabs.values()) {
+      const info = await cdp.send<{ targetInfo: { url: string; title: string } }>('Target.getTargetInfo', { targetId: tab.targetId })
+        .catch(() => null);
+      if (!info) continue;
+      views.push({ id: tab.targetId, taskId: tab.taskId === OWNER_TAB ? null : tab.taskId, url: info.targetInfo.url, title: info.targetInfo.title });
+    }
+    return views;
+  }
+
+  #tabById(companyId: string, tabId: string): Tab {
+    const tab = [...(this.#contexts.get(companyId)?.tabs.values() ?? [])].find((one) => one.targetId === tabId);
+    if (!tab) throw new PalugadaError('contract.violation', 'that tab is not open any more', { tabId });
+    return tab;
+  }
+
+  /** A tab's picture, as it is now. */
+  async screen(companyId: string, tabId: string): Promise<Screen> {
+    const tab = this.#tabById(companyId, tabId);
+    const cdp = this.#live();
+    const { data } = await cdp.send<{ data: string }>('Page.captureScreenshot', { format: 'jpeg', quality: 60 }, tab.sessionId);
+    const { targetInfo } = await cdp.send<{ targetInfo: { url: string; title: string } }>('Target.getTargetInfo', { targetId: tab.targetId });
+    const viewport = this.#settings.viewport ?? { width: 1280, height: 800 };
+    return { image: data, url: targetInfo.url, title: targetInfo.title, ...viewport };
+  }
+
+  /** Opens a page for the owner: in a work's tab, or in their own, under the same rules as any page. */
+  async open(companyId: string, url: string, tabId?: string): Promise<TabView> {
+    const taskId = tabId ? this.#tabById(companyId, tabId).taskId : OWNER_TAB;
+    return this.#withTab({ companyId, taskId }, async (tab) => {
+      await this.#navigate(tab, url, Date.now());
+      const { targetInfo } = await this.#live().send<{ targetInfo: { url: string; title: string } }>('Target.getTargetInfo', { targetId: tab.targetId });
+      return { id: tab.targetId, taskId: taskId === OWNER_TAB ? null : taskId, url: targetInfo.url, title: targetInfo.title };
+    });
+  }
+
+  /** What the owner pressed, scrolled or typed on a tab's picture, done on the tab. */
+  async input(companyId: string, tabId: string, input: OwnerInput): Promise<void> {
+    const viewport = this.#settings.viewport ?? { width: 1280, height: 800 };
+    const onPage = (x: unknown, y: unknown) => typeof x === 'number' && typeof y === 'number'
+      && x >= 0 && y >= 0 && x < viewport.width && y < viewport.height;
+    switch (input.kind) {
+      case 'click':
+        if (!onPage(input.x, input.y)) {
+          throw new PalugadaError('contract.violation',
+            `a click is a point on the page: x from 0 to ${viewport.width - 1}, y from 0 to ${viewport.height - 1}`, { field: 'x' });
+        }
+        break;
+      case 'scroll':
+        if (typeof input.dy !== 'number' || Math.abs(input.dy) > 10_000 || (input.dx !== undefined && Math.abs(input.dx) > 10_000)) {
+          throw new PalugadaError('contract.violation', 'a scroll is dy, and dx, in pixels, at most 10000 either way', { field: 'dy' });
+        }
+        break;
+      case 'key':
+        if (!(typeof input.key === 'string' && input.key in KEYS)) {
+          throw new PalugadaError('contract.violation', `a key is one of ${Object.keys(KEYS).join(', ')}`, { field: 'key' });
+        }
+        break;
+      case 'text':
+        if (typeof input.text !== 'string' || input.text.length === 0 || input.text.length > 1_000) {
+          throw new PalugadaError('contract.violation', 'text is 1 to 1000 characters', { field: 'text' });
+        }
+        break;
+      default:
+        throw new PalugadaError('contract.violation', 'an input is a click, a scroll, a key or text', { field: 'kind' });
+    }
+    const { taskId } = this.#tabById(companyId, tabId);
+    await this.#withTab({ companyId, taskId }, async (tab) => {
+      const cdp = this.#live();
+      if (input.kind === 'click') {
+        const at = { x: input.x, y: input.y };
+        await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...at }, tab.sessionId);
+        await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...at, button: 'left', buttons: 1, clickCount: 1 }, tab.sessionId);
+        await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...at, button: 'left', buttons: 0, clickCount: 1 }, tab.sessionId);
+      } else if (input.kind === 'scroll') {
+        await cdp.send('Input.dispatchMouseEvent', {
+          type: 'mouseWheel', x: onPage(input.x, input.y) ? input.x : viewport.width / 2, y: onPage(input.x, input.y) ? input.y : viewport.height / 2,
+          deltaX: input.dx ?? 0, deltaY: input.dy,
+        }, tab.sessionId);
+      } else if (input.kind === 'key') {
+        await this.#press(tab, input.key);
+      } else {
+        await cdp.send('Input.insertText', { text: input.text }, tab.sessionId);
+      }
+      // What the input started -- a form sent, a page opened -- a moment to begin.
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      await this.#until(tab, () => !tab.loading, 10_000);
+    });
+  }
+
+  /** The owner is done: what they signed in to is sealed, and their own tab closed. */
+  async ownerDone(companyId: string): Promise<void> {
+    const context = this.#contexts.get(companyId);
+    if (!context) return;
+    await this.#save(context).catch(() => undefined);
+    await context.saving;
+    const own = context.tabs.get(OWNER_TAB);
+    if (own && own.busy === 0) await this.#closeTab(context, own);
+  }
+
   /* ----------------------------------------------------- the page itself --- */
 
   /** Runs an expression in the page script's world; once more if the document changed under it. */
@@ -650,6 +786,9 @@ export class Browsers {
     // Files are neither given to a page that asks for one nor taken from one that offers it.
     await cdp.send('Page.setInterceptFileChooserDialog', { enabled: true }, sessionId).catch(() => undefined);
     await cdp.send('Emulation.setDeviceMetricsOverride', { ...viewport, deviceScaleFactor: 1, mobile: false }, sessionId);
+    // A page behaves as the one in front: a tab in the background is not
+    // given focus, and a field marked to take it would not.
+    await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true }, sessionId).catch(() => undefined);
     await cdp.send('Emulation.setUserAgentOverride', {
       userAgent: this.#userAgent, acceptLanguage: context.acceptLanguage, platform: 'Linux x86_64',
     }, sessionId);

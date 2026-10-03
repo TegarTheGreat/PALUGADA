@@ -219,6 +219,16 @@ export const STANDARD_CATALOGUE: readonly CapabilityDeclaration[] = [
       'the platform\'s proxy under the same rules as web.fetch (F12.9).',
   },
   {
+    name: 'browser.handover',
+    adapter: 'browser',
+    tier: TIER.READ_ONLY,
+    summary: 'Asks the owner to take the company\'s browser over: to sign in, to type a code, to answer a puzzle.',
+    calibration:
+      'Asking changes nothing: it is a question, as `owner.ask` is, answered at ' +
+      'the browser rather than in words. What the owner then does there is ' +
+      'theirs, with their device.',
+  },
+  {
     name: 'web.search',
     adapter: 'search',
     tier: TIER.READ_ONLY,

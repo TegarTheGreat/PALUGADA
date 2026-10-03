@@ -11,7 +11,7 @@
  */
 import { useEffect, useState } from 'react';
 
-export const COMPANY_PAGES = ['inbox', 'overview', 'work', 'customers', 'team', 'memory', 'money', 'history', 'settings'] as const;
+export const COMPANY_PAGES = ['inbox', 'overview', 'work', 'customers', 'browser', 'team', 'memory', 'money', 'history', 'settings'] as const;
 export type CompanyPage = (typeof COMPANY_PAGES)[number];
 
 export const SETTINGS_SECTIONS = ['company', 'language', 'safeguards', 'skills', 'bundles', 'devices', 'people', 'security'] as const;

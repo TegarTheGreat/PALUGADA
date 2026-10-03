@@ -685,6 +685,10 @@ export const NOT_FOR_THE_ASSISTANT: Readonly<Record<string, string>> = {
   '/api/companies/:companyId/conversation/clear': 'only the owner starts a conversation again',
   '/api/assistant/listen': 'the owner\'s own voice, written down',
   '/api/assistant/speak': 'an answer said aloud to the owner',
+  '/api/companies/:companyId/browser/take-over': 'taking the company\'s browser over is the owner\'s, with their device, on Browser',
+  '/api/companies/:companyId/browser/open': 'what the owner opens in the company\'s browser, they open by hand while they hold it',
+  '/api/companies/:companyId/browser/tabs/:tabId/input': 'what the owner presses and types in the company\'s browser is theirs alone',
+  '/api/companies/:companyId/browser/give-back': 'given back where it was taken, on Browser',
 };
 
 /** GET routes the assistant does not read: they hand over a whole company, or issue a challenge. */
@@ -695,4 +699,5 @@ export const UNREADABLE: readonly string[] = [
   '/api/mfa/passkeys/options',
   '/api/assistant',
   '/api/companies/:companyId/conversation',
+  '/api/companies/:companyId/browser/tabs/:tabId',
 ];

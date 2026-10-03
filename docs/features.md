@@ -245,7 +245,9 @@ freeze, raise a ceiling, rewrite what a model call cost, or delete history.
   pages as a person sees them and fills in a form only after the owner's
   yes, with every field and button on the card; sign-ins are sealed between
   uses, and every request the browser makes goes through the platform's own
-  address checks.
+  address checks. The owner watches each work's page live and takes the
+  browser over with their device to sign in, which a role may ask for and
+  never does itself.
 - A company has a stage -- explore, validate, build, launch, grow, wind down
   -- that the owner sets and policies read: no paid reach before launch is a
   rule, not a hope. The strategist proposes a move with the evidence; the

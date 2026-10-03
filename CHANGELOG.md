@@ -307,6 +307,11 @@ The first version. What it holds, in the order an owner meets it.
   sealed for later work, every request goes through PALUGADA's own checks,
   and a role never types a password. It needs a Chromium on the machine
   (STATUS 2.121).
+- **Browser** shows each piece of work's page as it is, and you can take
+  it over with your device to sign in somewhere, type a code a site sent to
+  your phone, or answer a puzzle; the company's work waits while you hold
+  it. A role that needs this asks with a card that opens the browser, and
+  giving it back answers it (STATUS 2.122).
 - **Replay against the journal** is shown only for a task this deployment
   can replay. It was offered on every task and refused on every task a
   model or an agent CLI ran (STATUS 2.87).

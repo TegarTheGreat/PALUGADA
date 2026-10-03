@@ -49,7 +49,7 @@ test('the console renders every string as text, never as markup', async () => {
 test('every page in the navigation has a component behind it, and the reverse', async () => {
   const app = await readFile(join(CONSOLE, 'src', 'App.tsx'), 'utf8');
   const router = await readFile(join(CONSOLE, 'src', 'router.ts'), 'utf8');
-  const listed = [...app.matchAll(/\{ id: '([a-z]+)', label: N\('[^']+'\), icon: \w+, group: '(decide|company|setup)' \}/g)]
+  const listed = [...app.matchAll(/\{ id: '([a-z]+)', label: N\('[^']+'\), icon: \w+, group: '(decide|company|setup)'(?:, owner: true)? \}/g)]
     .map((match) => match[1]!);
   assert.ok(listed.length >= 8, `only ${listed.length} pages were found; the scan is broken`);
   const routed = [...app.matchAll(/case '([a-z]+)': return <(\w+) ctx=\{ctx\} route=\{route\} \/>;/g)];

@@ -27,7 +27,7 @@ import {
 import { useHotkeys, useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import {
-  IconArrowLeft, IconCheck, IconClock, IconClockPause, IconHourglass, IconMessageQuestion, IconRoute, IconTarget, IconX,
+  IconArrowLeft, IconCheck, IconClock, IconClockPause, IconHourglass, IconMessageQuestion, IconRoute, IconTarget, IconWorldWww, IconX,
 } from '@tabler/icons-react';
 import { api, ApiError, explain, type Proof } from '../api.ts';
 import { useFactor } from '../factor.tsx';
@@ -680,6 +680,16 @@ function Detail({
           <Paper withBorder radius="md" p="md" bg="var(--mantine-color-blue-light)">
             <Text size="xs" fw={700} tt="uppercase" c="dimmed" mb={4}>{t('The agent asks')}</Text>
             <Text size="sm" fw={600} mb="sm" style={{ whiteSpace: 'pre-wrap' }}>{item.question}</Text>
+            {/* Asked to be done at the company's browser (browser.handover): there, and giving it back answers this. */}
+            {item.browser && !seat && item.taskId && (
+              <Stack gap={4} mb="sm" align="flex-start">
+                <Button leftSection={<IconWorldWww size={16} />}
+                  onClick={() => go({ kind: 'company', companyId, page: 'browser', section: 'company', item: item.taskId })}>
+                  {t('Open the browser')}
+                </Button>
+                <Text size="xs" c="dimmed">{t('Take it over there, do what it asks, and give it back: that answers this.')}</Text>
+              </Stack>
+            )}
             {item.options && item.options.length > 0 && (
               <Stack gap={6} mb="sm">
                 {item.options.map((option) => (

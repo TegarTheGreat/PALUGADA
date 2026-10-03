@@ -7993,6 +7993,62 @@ What changed:
   storage, which a few sites keep a sign-in in; a browser shared between
   replicas, which each have their own Chromium and the same sealed cookies.
 
+## 2.122 The owner watches the company's browser, and takes it over (§9 P2)
+
+The second half of 2.121, and what item 20 names: "a live browser that can
+be taken over". A seller centre and a tax portal want a person: a password,
+a code sent to the owner's phone, a puzzle. A role never types a password,
+so until now a role that met a sign-in could only stop.
+
+What changed:
+
+- **Browser**, a page of each company in the console, the owner's alone:
+  each piece of work's tab, named by the work, shown as a picture of the
+  page taken again about once a second while it is in front, at any width
+  down to a phone's.
+- **Taking it over** takes the owner's device (`/browser/take-over`): a
+  signed-in browser is the company's accounts. While the owner holds it,
+  the company's work waits -- `browser.read` and `browser.act` park as busy
+  and come back a minute later -- on every replica, because the hold is a
+  row (0114) rather than a flag in one process. What the owner presses on
+  the picture is pressed on the page at that point, a wheel scrolls it,
+  what they type is typed into the field the page selected, and Enter, Tab,
+  Backspace, Escape and the arrows are buttons. They can open an address in
+  the work's tab, under the same rules as any page. A hold nobody touches
+  for fifteen minutes lapses, so a console left open does not stop the
+  company.
+- **What the owner types goes to the page and nowhere else**: not an
+  event, not the journal, not a log. That they took the browser over and
+  gave it back is recorded (`browser.taken_over`, `browser.given_back`).
+- **Giving it back** seals what they signed in to for the company's work
+  (2.121), closes their own tab, and answers every role that asked.
+- **`browser.handover`** (tier 0) is how a role asks: a question, as
+  `owner.ask` is, whose card says what to do -- "Masuk ke seller centre:
+  kodenya dikirim ke HP Anda" -- and opens the browser on that work's page.
+  The work waits; giving the browser back answers it, and the role reads
+  the page again, signed in.
+- **Owner only**: a staff seat neither sees the page nor its pictures, and
+  the assistant neither takes the browser over nor reads its pictures.
+- **Tested.** `browser-live.test.ts`, against a real Chromium: a role finds
+  it is not signed in and asks; the owner sees the work's tab with its
+  title and work and a JPEG of 1280 by 800; input before a take-over is
+  refused (409), a take-over without the device too (403); while held the
+  role's read parks with a time to come back; the owner cannot open the
+  metadata address, opens the sign-in in the work's tab, types the address,
+  Tab, the password and Enter, and the site receives them; a click lands
+  where it was pressed and one off the page is refused; given back, the
+  role's question is answered and its next read is signed in; the password
+  is in no event and no card. A hold left alone fifteen minutes lapses and
+  the work goes on, and a hand-over needs a reason.
+  `console-browser.test.ts`, in the built console at a phone's width: the
+  card opens the browser on that work, whose picture is drawn within the
+  screen; the owner takes it over with a code and gives it back, which
+  answers the role.
+- **Not done**: the live view is the tabs of the process the console's
+  request reached, so with more than one replica the console needs to
+  reach the one the work ran on (sticky sessions); pictures, not a video
+  stream; a page's files neither uploaded nor downloaded.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the
@@ -8035,13 +8091,13 @@ is a real Daytona or Modal machine answering; the `http` runtime also reports
 this backend, because "somewhere else, not ours" is what it means in F13.5's
 vocabulary, and it cannot verify the claim.
 
-**Thirty-eight of the fifty-one catalogued capabilities are unbound on a bare
+**Thirty-nine of the fifty-two catalogued capabilities are unbound on a bare
 boot -- thirty-six on a machine with a Chromium -- and that is the design
-rather than a gap.** The boot names every one. Ten need configuration, not an
-account: `files.list`, `doc.draft` and `email.draft` a files root and a model;
-`web.search`, `web.extract`, `image.generate`, `speech.synthesize` and
-`speech.transcribe` a provider chosen under **Tools**; and `browser.read` and
-`browser.act` a Chromium. The other twenty-eight need a deployment's own vendor entry,
+rather than a gap.** The boot names every one. Eleven need configuration, not
+an account: `files.list`, `doc.draft` and `email.draft` a files root and a
+model; `web.search`, `web.extract`, `image.generate`, `speech.synthesize` and
+`speech.transcribe` a provider chosen under **Tools**; and `browser.read`,
+`browser.act` and `browser.handover` a Chromium. The other twenty-eight need a deployment's own vendor entry,
 six of which `config/vendors.example.json` shows. `dns.read`, `email.send`,
 `invoice.pay` and the rest are *names* in the catalogue: a tier, a schema, the
 scopes a credential must declare, and a `verify()` contract. What executes them

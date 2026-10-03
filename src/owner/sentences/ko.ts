@@ -307,4 +307,5 @@ export const SENTENCES: Readonly<Record<string, string>> = {
   'Reply to a customer': '고객에게 답장하기',
   'Read a page in the browser': '브라우저에서 페이지 읽기',
   'Fill in a page in the browser': '브라우저에서 페이지 작성하기',
+  'Ask you to take over the browser': '브라우저를 넘겨받아 달라고 요청하기',
 };

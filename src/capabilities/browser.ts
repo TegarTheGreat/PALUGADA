@@ -12,6 +12,9 @@
  * "Sari"; Kota → Bandung; ☑ Setuju; ▸ Kirim`.
  */
 import type { Capability } from '../broker/registry.ts';
+import { PalugadaError } from '../errors.ts';
+import { askOwner } from '../inbox/inbox.ts';
+import { assertNotHeld } from '../browser/holds.ts';
 import { checkSteps, MAX_STEPS, STEP_KINDS, type ActInput, type ActResult, type ActStep, type Browsers, type PageReading } from '../browser/browsers.ts';
 import { KEYS } from '../browser/page.ts';
 
@@ -72,7 +75,10 @@ export function browserRead(browsers: Browsers): Capability<{ url?: string; link
         + 'button, field, list and box on it with a ref. With neither, reads the page this work has open again.',
     },
     describe: (input) => ({ moneyCents: 0, urlHost: hostOf(input.url) }),
-    execute: (input, ctx) => browsers.read({ companyId: ctx.companyId, taskId: ctx.taskId }, input, ctx.signal),
+    async execute(input, ctx) {
+      await assertNotHeld(ctx.companyId, 'browser.read');
+      return browsers.read({ companyId: ctx.companyId, taskId: ctx.taskId }, input, ctx.signal);
+    },
   };
 }
 
@@ -113,6 +119,7 @@ export function browserAct(browsers: Browsers): Capability<ActInput, ActResult> 
     summarize: (input) => actSaid(input),
     async execute(input, ctx) {
       checkSteps(input);
+      await assertNotHeld(ctx.companyId, 'browser.act');
       return browsers.act({ companyId: ctx.companyId, taskId: ctx.taskId }, input, ctx.signal);
     },
     // Read back: every step done, and the page after the last read again.
@@ -122,6 +129,53 @@ export function browserAct(browsers: Browsers): Capability<ActInput, ActResult> 
   };
 }
 
+/** The longest reason a role gives for handing the browser over. */
+const REASON_MAX = 300;
+
+/**
+ * `browser.handover`: what a role cannot do on a page -- sign in, type the
+ * code a site sent to the owner's phone, answer a puzzle -- it asks the
+ * owner to do, as a question whose card opens the company's browser. The
+ * work waits; when the owner gives the browser back, the question is
+ * answered and the work resumes on the page they left.
+ */
+export function browserHandover(): Capability<{ reason: string }, { answered: boolean; answer?: string; note?: string }> {
+  return {
+    name: 'browser.handover',
+    adapter: 'platform:browser',
+    defaultTier: 0,
+    inputSchema: {
+      type: 'object',
+      required: ['reason'],
+      properties: {
+        reason: { type: 'string', minLength: 1, maxLength: REASON_MAX, description: 'What the owner is to do on the page, in their language: "Sign in to the seller centre; the code goes to your phone."' },
+      },
+      additionalProperties: false,
+      description: 'Asks the owner to take the company\'s browser over on this work\'s page, for what a role never does: '
+        + 'sign in, type a code sent to their phone, answer a puzzle. Waits until they give it back; then read the page again.',
+    },
+    describe: () => ({ moneyCents: 0 }),
+    async execute(input, ctx) {
+      const reason = String(input.reason ?? '').trim();
+      if (!reason || reason.length > REASON_MAX) {
+        throw new PalugadaError('contract.violation', `a reason is 1 to ${REASON_MAX} characters: what the owner is to do on the page`, { field: 'reason' });
+      }
+      const asked = await askOwner({ companyId: ctx.companyId, taskId: ctx.taskId, question: reason, browser: true });
+      if (asked.state === 'answered') return { answered: true, answer: asked.answer };
+      if (asked.state === 'unanswered') {
+        return { answered: false, note: 'The owner closed this without taking the browser over. Carry on without the page, and say what is left.' };
+      }
+      throw new PalugadaError('owner.asked', 'the owner has been asked to take the browser over; this task waits until they give it back', {
+        inboxItemId: asked.inboxItemId,
+      });
+    },
+  };
+}
+
 export function browserCapabilities(browsers: Browsers): Array<Capability<never, never>> {
-  return [browserRead(browsers) as unknown as Capability<never, never>, browserAct(browsers) as unknown as Capability<never, never>];
+  return [
+    browserRead(browsers) as unknown as Capability<never, never>,
+    browserAct(browsers) as unknown as Capability<never, never>,
+    browserHandover() as unknown as Capability<never, never>,
+  ];
 }

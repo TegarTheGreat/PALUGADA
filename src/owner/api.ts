@@ -223,7 +223,10 @@ import {
   galleryOf,
   eventsAfter,
   databaseNow,
+  summarise,
 } from './views.ts';
+import type { Browsers, OwnerInput } from '../browser/browsers.ts';
+import { giveBack, holdOf, takeOver, touchHold } from '../browser/holds.ts';
 
 export interface OwnerApiOptions {
   mfa: OwnerMfa;
@@ -256,6 +259,11 @@ export interface OwnerApiOptions {
    * one. Better to rotate without the check than to file a false alarm.
    */
   registry?: CapabilityRegistry;
+  /**
+   * The companies' browsers (`src/browser/`), which the owner watches and
+   * takes over. Absent, the console says this deployment has none.
+   */
+  browsers?: Browsers;
   /**
    * The operator's price list, which what the owner says a model costs is
    * laid over (L12). Absent, the conservative fallback alone.
@@ -3457,6 +3465,99 @@ export class OwnerApi {
       },
 
       {
+        // The company's browser as the owner sees it: whether this
+        // deployment has one, whether they hold it, and each tab -- whose
+        // work it is and where it is. The tabs of this process: with more
+        // than one replica, of the one this request reached.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/browser',
+        handle: async ({ params }) => {
+          const companyId = params.companyId!;
+          const held = await holdOf(companyId);
+          const browsers = this.#options.browsers;
+          if (!browsers) return { available: false, held, tabs: [] };
+          const tabs = await browsers.tabs(companyId);
+          const ids = tabs.map((tab) => tab.taskId).filter((id): id is string => id !== null);
+          const work = new Map(ids.length === 0 ? [] : (await withTenant(companyId, (tx) => tx.query<{ id: string; input: unknown }>(
+            'SELECT id, input FROM tasks WHERE id = ANY($1::uuid[])', [ids]))).rows.map((row) => [row.id, summarise(row.input)]));
+          return { available: true, held, tabs: tabs.map((tab) => ({ ...tab, work: tab.taskId ? work.get(tab.taskId) ?? null : null })) };
+        },
+      },
+
+      {
+        // A tab's picture as it is now, which the console asks for again
+        // every second or so while the owner looks.
+        method: 'GET',
+        pattern: '/api/companies/:companyId/browser/tabs/:tabId',
+        handle: async ({ params }) => {
+          const screen = await this.#browsers().screen(params.companyId!, params.tabId!);
+          return { ...screen, image: `data:image/jpeg;base64,${screen.image}` };
+        },
+      },
+
+      {
+        // With the device: a signed-in browser is the company's accounts,
+        // and while the owner holds it the company's work waits.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/browser/take-over',
+        handle: async ({ params, body }) => {
+          this.#browsers();
+          await this.#requireFactor(body.proof, 'take the company\'s browser over', params.companyId!);
+          return { held: await takeOver(params.companyId!) };
+        },
+      },
+
+      {
+        // A page opened by the owner, in a work's tab or their own, under
+        // the rules any page is held to. Only while they hold the browser.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/browser/open',
+        handle: async ({ params, body }) => {
+          const companyId = params.companyId!;
+          const browsers = this.#browsers();
+          await touchHold(companyId);
+          const tabId = typeof body.tabId === 'string' && body.tabId ? body.tabId : undefined;
+          return browsers.open(companyId, requireText(body.url, 'url'), tabId);
+        },
+      },
+
+      {
+        // Where the owner pressed, scrolled or typed on the tab's picture.
+        // What they type goes to the page and nowhere else: not an event,
+        // not a log.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/browser/tabs/:tabId/input',
+        handle: async ({ params, body }) => {
+          const companyId = params.companyId!;
+          const browsers = this.#browsers();
+          await touchHold(companyId);
+          await browsers.input(companyId, params.tabId!, body as unknown as OwnerInput);
+          return { done: true };
+        },
+      },
+
+      {
+        // Given back: what the owner signed in to is sealed for the
+        // company's work, and every role that asked for it goes on.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/browser/give-back',
+        handle: async ({ params }) => {
+          const companyId = params.companyId!;
+          await this.#options.browsers?.ownerDone(companyId);
+          await giveBack(companyId);
+          const { rows: asked } = await withTenant(companyId, (tx) => tx.query<{ id: string }>(
+            `SELECT id FROM inbox_items
+              WHERE kind = 'escalation' AND status = 'open' AND payload->>'askedBy' = 'agent' AND payload->>'browser' = 'true'
+              ORDER BY created_at`));
+          for (const item of asked) {
+            await inbox.answerEscalation(companyId, item.id,
+              'The owner gave the browser back. Read the page again: it is where they left it.', { channel: 'app' });
+          }
+          return { answered: asked.length };
+        },
+      },
+
+      {
         method: 'GET',
         pattern: '/api/companies/:companyId/handoffs',
         handle: async ({ params }) => ({ handoffs: await handoffRulesOf(params.companyId!) }),
@@ -5890,6 +5991,15 @@ export class OwnerApi {
     return { version: published.version, unchanged: false, file };
   }
 
+  /** The deployment's browsers, or why there are none. */
+  #browsers(): Browsers {
+    if (!this.#options.browsers) {
+      throw new PalugadaError('contract.violation',
+        'this deployment has no browser: install Chromium on its machine, or set PALUGADA_CHROMIUM to one', {});
+    }
+    return this.#options.browsers;
+  }
+
   async #requireFactor(
     proof: unknown,
     purpose: string,
@@ -6202,6 +6312,7 @@ function statusFor(code: string): number {
   if (code === 'schedule.slug_taken') return 409;
   if (code === 'task.not_continuable') return 409;
   if (code === 'company.slug_taken') return 409;
+  if (code === 'browser.not_held') return 409;
   if (code === 'mfa.locked_out') return 429;
   if (code.startsWith('mfa.')) return 401;
   if (code === 'approval.channel_forbidden' || code === 'policy.denied' || code === 'staff.forbidden') return 403;

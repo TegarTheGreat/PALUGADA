@@ -21,7 +21,7 @@ import { notifications } from '@mantine/notifications';
 import { Spotlight, spotlight, type SpotlightActionData } from '@mantine/spotlight';
 import {
   IconActivity, IconAlertOctagon, IconBrain, IconBuildingStore, IconCheck, IconChecklist, IconChevronDown,
-  IconCoin, IconDots, IconHistory, IconHome, IconInbox, IconKey, IconLanguage, IconLayoutDashboard, IconLogout, IconMap, IconMessages,
+  IconCoin, IconDots, IconHistory, IconHome, IconInbox, IconKey, IconLanguage, IconLayoutDashboard, IconLogout, IconMap, IconMessages, IconWorldWww,
   IconMoon, IconPlayerPlay, IconPlayerStop, IconPlus, IconSearch, IconSparkles, IconServer2, IconSettings, IconSitemap, IconSun,
 } from '@tabler/icons-react';
 import { api, explain, setToken, whenSignedOut } from './api.ts';
@@ -42,6 +42,7 @@ const Decisions = lazy(() => import('./pages/Decisions.tsx').then((module) => ({
 const Overview = lazy(() => import('./pages/Overview.tsx').then((module) => ({ default: module.Overview })));
 const Work = lazy(() => import('./pages/Work.tsx').then((module) => ({ default: module.Work })));
 const Customers = lazy(() => import('./pages/Customers.tsx').then((module) => ({ default: module.Customers })));
+const Browser = lazy(() => import('./pages/Browser.tsx').then((module) => ({ default: module.Browser })));
 const Organization = lazy(() => import('./pages/Organization.tsx').then((module) => ({ default: module.Organization })));
 const Memory = lazy(() => import('./pages/Memory.tsx').then((module) => ({ default: module.Memory })));
 const Money = lazy(() => import('./pages/Money.tsx').then((module) => ({ default: module.Money })));
@@ -52,12 +53,16 @@ import { Assistant } from './components/Assistant.tsx';
 import { Tour, type TourSpot } from './components/Tour.tsx';
 import { setMoneyDisplay, useMoneyDisplay } from './format.ts';
 
-/** The pages of one company, as the sidebar offers them. */
-const PAGES: Array<{ id: CompanyPage; label: string; icon: typeof IconInbox; group: 'decide' | 'company' | 'setup' }> = [
+/**
+ * The pages of one company, as the sidebar offers them. `owner` marks one a
+ * staff seat is not shown: the company's browser holds its sign-ins.
+ */
+const PAGES: Array<{ id: CompanyPage; label: string; icon: typeof IconInbox; group: 'decide' | 'company' | 'setup'; owner?: true }> = [
   { id: 'inbox', label: N('Inbox'), icon: IconInbox, group: 'decide' },
   { id: 'overview', label: N('Overview'), icon: IconLayoutDashboard, group: 'company' },
   { id: 'work', label: N('Work'), icon: IconActivity, group: 'company' },
   { id: 'customers', label: N('Customers'), icon: IconMessages, group: 'company' },
+  { id: 'browser', label: N('Browser'), icon: IconWorldWww, group: 'company', owner: true },
   { id: 'team', label: N('Team'), icon: IconSitemap, group: 'company' },
   { id: 'memory', label: N('Memory'), icon: IconBrain, group: 'company' },
   { id: 'money', label: N('Money'), icon: IconCoin, group: 'company' },
@@ -309,7 +314,7 @@ function Console({ device, staff, recovered, signOut }: {
       leftSection: <Avatar size={18} radius="xl" src={rolePicture(company.ceo.slug, 'CEO')} alt="" />, onClick: () => setTalking(company),
     }] : []),
     { id: 'home', label: t('Home'), description: t('Every company at a glance'), leftSection: <IconHome size={18} />, onClick: () => go({ kind: 'home' }) },
-    ...PAGES.map((page) => ({
+    ...PAGES.filter((page) => owner || !page.owner).map((page) => ({
       id: `page-${page.id}`,
       label: t(page.label),
       description: company ? company.name : '',
@@ -493,7 +498,7 @@ function Console({ device, staff, recovered, signOut }: {
           <NavLink label={t('Home')} leftSection={<IconHome size={18} stroke={1.7} />} active={active === 'home'} onClick={() => go({ kind: 'home' })} className={`nav-link${spotted('home')}`} />
           {PAGES.filter((page) => page.group === 'decide').map(navLink)}
           {company && <div className="nav-section-label">{company.name}</div>}
-          {PAGES.filter((page) => page.group === 'company').map(navLink)}
+          {PAGES.filter((page) => page.group === 'company' && (owner || !page.owner)).map(navLink)}
         </AppShell.Section>
 
         <AppShell.Section>
@@ -614,7 +619,7 @@ function Console({ device, staff, recovered, signOut }: {
               {tab.label}
             </UnstyledButton>
           ))}
-          <UnstyledButton className="bottom-tab" data-active={['team', 'memory', 'history', 'settings', 'overview', 'deployment'].includes(active) || undefined} onClick={() => setMore(true)}>
+          <UnstyledButton className="bottom-tab" data-active={['team', 'memory', 'history', 'settings', 'overview', 'customers', 'browser', 'deployment'].includes(active) || undefined} onClick={() => setMore(true)}>
             <IconDots size={22} stroke={1.7} />
             {t('More')}
           </UnstyledButton>
@@ -623,7 +628,7 @@ function Console({ device, staff, recovered, signOut }: {
 
       <Drawer opened={more} onClose={() => setMore(false)} position="bottom" size="auto" title={company?.name} radius="lg">
         <Stack gap={4} pb="md">
-          {PAGES.filter((page) => !['inbox', 'work', 'money'].includes(page.id) && (owner || page.group !== 'setup')).map(navLink)}
+          {PAGES.filter((page) => !['inbox', 'work', 'money'].includes(page.id) && (owner || (page.group !== 'setup' && !page.owner))).map(navLink)}
           {owner && <NavLink label={t('This deployment')} leftSection={<IconServer2 size={18} stroke={1.7} />} active={active === 'deployment'}
             onClick={() => { setMore(false); go({ kind: 'deployment', section: 'model' }); }} />}
           <Divider my="xs" />
@@ -691,6 +696,7 @@ function CompanyPageView({ ctx, route }: PageProps) {
     case 'overview': return <Overview ctx={ctx} route={route} />;
     case 'work': return <Work ctx={ctx} route={route} />;
     case 'customers': return <Customers ctx={ctx} route={route} />;
+    case 'browser': return <Browser ctx={ctx} route={route} />;
     case 'team': return <Organization ctx={ctx} route={route} />;
     case 'memory': return <Memory ctx={ctx} route={route} />;
     case 'money': return <Money ctx={ctx} route={route} />;

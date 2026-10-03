@@ -109,6 +109,8 @@ export interface InboxItem {
   question: string | null;
   /** The answers the run offered to choose from, when it offered some. */
   options: string[] | null;
+  /** A question answered at the company's browser (`browser.handover`): its card opens the browser. */
+  browser?: boolean;
   /**
    * What an approval's action was called with, redacted as the payload keeps
    * it: the card lists it, so the owner approves the arguments and not only
@@ -746,6 +748,12 @@ export async function askOwner(input: {
    * instead of writing it. Two to six, each short and different.
    */
   options?: string[] | null;
+  /**
+   * A question the owner answers at the company's browser rather than in
+   * words (`browser.handover`): the card opens the browser, and giving the
+   * browser back answers it.
+   */
+  browser?: boolean;
 }): Promise<AgentQuestion> {
   const question = input.question.trim();
   const options = input.options ? input.options.map((option) => String(option ?? '').trim()) : null;
@@ -814,7 +822,9 @@ export async function askOwner(input: {
       title: card.title,
       detail: card.detail,
       consequenceIfDenied: card.consequence,
-      payload: { askedBy: 'agent', question, role: task.rows[0]!.role, ...(options ? { options } : {}) },
+      payload: {
+        askedBy: 'agent', question, role: task.rows[0]!.role, ...(options ? { options } : {}), ...(input.browser ? { browser: true } : {}),
+      },
     });
     // Everything on the card is the run's own words to the owner: the
     // question, what depends on it and the answers it offers. Checked here,
@@ -1108,7 +1118,7 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
       task_id: string | null; expires_at: Date | null; created_at: Date;
       capability_name: string | null; role_slug: string | null; role_name: string | null; division_name: string | null;
       question: string | null; options: string[] | null; snoozed_until: Date | null; input: unknown;
-      allow_for: boolean; asked: Exchange[] | null; asking: string | null; skill_count: number | null;
+      allow_for: boolean; asked: Exchange[] | null; asking: string | null; skill_count: number | null; browser: boolean;
     }>(
       `SELECT i.id, i.kind, i.status, i.title, i.action_summary, i.rationale, i.tier, i.snoozed_until,
               (${ALLOW_FOR_SQL}) AS allow_for,
@@ -1116,6 +1126,7 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
               i.created_at, i.capability_name, r.slug AS role_slug, r.display_name AS role_name, d.name AS division_name,
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->>'question' END AS question,
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->'options' END AS options,
+              coalesce(i.payload->>'askedBy' = 'agent' AND i.payload->>'browser' = 'true', false) AS browser,
               CASE WHEN i.kind = 'approval' THEN i.payload->'input' END AS input,
               i.payload->'asked' AS asked,
               CASE WHEN i.decision = 'ask' THEN coalesce(i.owner_note, '') END AS asking,
@@ -1143,6 +1154,7 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
         capabilityName: r.capability_name, roleSlug: r.role_slug, roleName: r.role_name, divisionName: r.division_name,
         question: r.question,
         options: r.options,
+        ...(r.browser ? { browser: true } : {}),
         input: r.input ?? null,
         goalChain: chain.map((goal) => ({ kind: goal.kind, statement: goal.statement })),
         snoozedUntil: r.snoozed_until,

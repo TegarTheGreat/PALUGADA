@@ -220,6 +220,8 @@ const EVENT_SENTENCES: Record<string, string> = {
   'chat.rate_limited': N("A customer wrote past the channel's hourly limit, and no work was started"),
   'security.chat_refused': N('A customer channel refused a delivery without its secret'),
   'chat.mailbox_failed': N('A customer mailbox could not be read'),
+  'browser.taken_over': N('You took the company\'s browser over'),
+  'browser.given_back': N('You gave the company\'s browser back'),
   'agent_run.orphaned': N('A run was left behind by a worker that stopped'),
   'alert.raised': N('An alert was raised'),
   'approval.answered': N('The agent answered your question on an approval'),
@@ -353,6 +355,7 @@ export function stepSaid(name: string): string {
 const CAPABILITY_NAMES: Record<string, string> = {
   'ads.campaign.start': N('Start an ad campaign'),
   'browser.act': N('Fill in a page in the browser'),
+  'browser.handover': N('Ask you to take over the browser'),
   'browser.read': N('Read a page in the browser'),
   'calendar.hold': N('Block time on the calendar'),
   'calendar.read': N('Read the calendar'),

@@ -15,6 +15,7 @@ export function capabilitySaid(language: string | null | undefined, name: string
   const said: Record<string, () => string> = {
     'ads.campaign.start': () => say(language, 'Start an ad campaign'),
     'browser.act': () => say(language, 'Fill in a page in the browser'),
+    'browser.handover': () => say(language, 'Ask you to take over the browser'),
     'browser.read': () => say(language, 'Read a page in the browser'),
     'calendar.hold': () => say(language, 'Block time on the calendar'),
     'calendar.read': () => say(language, 'Read the calendar'),

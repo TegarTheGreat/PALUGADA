@@ -53,11 +53,17 @@ test('an approver joins from the invite, sees one company without the owner\'s c
     await page.type(totpCode(decodeBase32(secret), stepFor(new Date())));
     await page.waitFor(`document.body.innerText.includes('Toko Kopi Senja') && document.body.innerText.includes('Approver')`, 'the console, as Budi');
 
-    const text = String(await page.evaluate('document.body.innerText'));
-    for (const owners of ['Stop everything', 'Ask PALUGADA', 'This deployment', 'Start a company']) {
-      assert.ok(!text.includes(owners), `"${owners}" is the owner's`);
+    // Wherever the seat lands, and on Home, which lists every company it may see.
+    const owners = ['Stop everything', 'Ask PALUGADA', 'This deployment', 'Start a company', 'Restore from an export'];
+    for (const at of ['', '#/home']) {
+      if (at) {
+        await page.evaluate(`location.hash = '${at}'`);
+        await page.waitFor(`document.body.innerText.includes('Toko Kopi Senja') && document.body.innerText.includes('Your companies')`, 'Home, as Budi');
+      }
+      const text = String(await page.evaluate('document.body.innerText'));
+      for (const one of owners) assert.ok(!text.includes(one), `"${one}" is the owner's${at ? ', on Home' : ''}`);
+      assert.ok(!text.includes('staff-console-other'), 'nor is another company shown');
     }
-    assert.ok(!text.includes('staff-console-other'), 'nor is another company shown');
 
     await page.evaluate(`location.hash = '#/c/${fixture.companyId}/inbox'`);
     await page.waitFor(`document.body.innerText.includes('A reply to Ana.')`, 'the card');

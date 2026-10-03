@@ -7648,8 +7648,8 @@ What changed:
 - **The console** asks `GET /api/me` who signed in, and for a seat leaves
   out the owner's controls -- New, Talk to the CEO, Ask PALUGADA, Stop
   everything, Settings, This deployment, the tour, the cross-company
-  search -- and on a card it may not decide, says why instead of drawing
-  buttons. A seat's actions read as "A staff member" on the timelines.
+  search, and starting or restoring a company on Home -- and on a card it
+  may not decide, says why instead of drawing buttons. A seat's actions read as "A staff member" on the timelines.
 - **Tested.** `staff.test.ts`: a viewer joins, reads its company and no
   other, and is refused the owner's routes; an approver decides tier 2 and
   is refused tier 3 either way and a yes for a while, and the record names
@@ -7657,8 +7657,11 @@ What changed:
   gate inside the owner's session; ending a seat signs it out and spends an
   unused invite. `console-staff.test.ts`: in Chromium, an approver joins
   from the invite, sees one company without the owner's controls, approves
-  a tier 2 card and is shown that tier 3 is the owner's (with the shell's
-  staff mode turned off, the console cannot even load for the seat).
+  a tier 2 card and is shown that tier 3 is the owner's, where it lands and
+  on Home (with the shell's staff mode turned off, the console cannot even
+  load for the seat). The suite found Home still offering a seat **Start a
+  company** and **Restore from an export**, whichever page the seat landed
+  on first; the test now opens Home itself.
   `staff-routes.test.ts`: every read is given to staff or kept from them
   with a reason, and the approver's actions are the inbox's alone.
 - **Not done**: a seat in the Telegram or WhatsApp chats, a passkey for a

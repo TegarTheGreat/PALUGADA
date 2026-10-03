@@ -585,8 +585,8 @@ function Console({ device, staff, recovered, signOut }: {
             <Home
               companies={companies}
               openCompany={(id, page, item) => open(page, { companyId: id, item: item ?? null })}
-              startCompany={() => setStarting(true)}
-              restoreCompany={() => setRestoring(true)}
+              startCompany={owner ? () => setStarting(true) : null}
+              restoreCompany={owner ? () => setRestoring(true) : null}
               setup={setup}
             />
           ) : (

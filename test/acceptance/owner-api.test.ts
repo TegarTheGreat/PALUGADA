@@ -1305,14 +1305,15 @@ test('a fresh deployment starts the standard company, and can let it run itself'
     assert.ok(slugs.includes('coordinator') && slugs.includes('strategist'), slugs.join(', '));
 
     // A capability waiting for its vendor is granted, and says so when called.
+    // (Not `email.send`: the platform binds it to a division's own mailbox.)
     const unbound = await withControlPlane((tx) => tx.query<{ adapter: string; has_grant: boolean }>(
       `SELECT c.adapter, EXISTS (SELECT 1 FROM capability_grants g WHERE g.capability_name = c.name AND g.company_id = $1) AS has_grant
-         FROM capabilities c WHERE c.name = 'email.send'`, [companyId]));
+         FROM capabilities c WHERE c.name = 'invoice.issue'`, [companyId]));
     assert.deepEqual(unbound.rows[0], { adapter: 'unbound', has_grant: true });
     const broker = new CapabilityBroker(new CapabilityRegistry());
     await assert.rejects(
-      broker.invoke({ companyId, projectId: companyId, divisionId: companyId, roleId: companyId, taskId: companyId, idempotencyKey: 'x' }, 'email.send', {}),
-      /email\.send needs a vendor: connect one on This deployment, Services, or bind it in the file PALUGADA_VENDORS names/,
+      broker.invoke({ companyId, projectId: companyId, divisionId: companyId, roleId: companyId, taskId: companyId, idempotencyKey: 'x' }, 'invoice.issue', {}),
+      /invoice\.issue needs a vendor: connect one on This deployment, Services, or bind it in the file PALUGADA_VENDORS names/,
     );
   } finally {
     await deployment.stop();

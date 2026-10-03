@@ -34,6 +34,8 @@ import { DeploymentSecretManager, masterKeyFrom, type MasterKey } from '../../sr
 import { Browsers, type ActResult, type PageReading } from '../../src/browser/browsers.ts';
 import { browserSecretName, sealedCookies } from '../../src/browser/cookies.ts';
 import { browserCapabilities } from '../../src/capabilities/browser.ts';
+import { platformCapabilities } from '../../src/capabilities/platform.ts';
+import { extractProvider } from '../../src/capabilities/search.ts';
 import { createCompany, grantCapability, planTask, type Fixture } from '../helpers/fixtures.ts';
 import { chromium } from '../helpers/browser.ts';
 import { ensureSchema, resetData, closeSetup } from '../helpers/setup.ts';
@@ -102,6 +104,15 @@ async function sites() {
           <script>fetch('${secret}/fetched').catch(() => {});</script>`));
       case '/help':
         return send(page('Bantuan', '<p>Hubungi kami di WhatsApp.</p>'));
+      case '/artikel':
+        // A page as most are: a menu, a header and a footer around what it says.
+        return send(page('Resep Kopi Susu', `
+          <header><nav><a href="/">Beranda</a> <a href="/menu">Menu</a></nav></header>
+          <main><article><h1>Resep Kopi Susu</h1>${cookies ? `<p>Kuki: ${cookies}</p>` : ''}<p>Campur kopi dengan susu dan gula aren.</p>
+            <aside>Baca juga: teh tarik</aside></article></main>
+          <footer>Hak cipta Toko Kopi Senja</footer>
+          <script>document.querySelector('article p').insertAdjacentHTML('afterend', '<p>Disajikan dingin.</p>');</script>`),
+          { 'set-cookie': 'pelacak=1; Max-Age=86400; Path=/' });
       case '/masuk':
         // A sign-in: one cookie for the session, and one remembered for a day.
         return send(page('Masuk', '<p>Selamat datang, Sari.</p>'), {
@@ -358,4 +369,48 @@ test('a sign-in is the company\'s own, sealed between uses, and outlives the bro
   const { rows: closing } = await withControlPlane((tx) => tx.query(
     'SELECT 1 FROM deployment_secrets WHERE name = $1', [browserSecretName(other.companyId)]));
   assert.equal(closing.length, 0, 'nothing is sealed for a company on its way out');
+});
+
+test('without a provider chosen, web.extract reads a page in the deployment\'s own browser, under the same rules', { skip: SKIP }, async () => {
+  const shop = await createCompany('browser-extract');
+  const { site, secretHits } = await sites();
+  const store = sealedStore();
+  const made = browsers(store);
+  const extract = platformCapabilities({ browser: made }).find((one) => one.name === 'web.extract') as unknown as
+    Capability<{ url: string }, { provider: string; url: string; title: string; text: string; truncated: boolean }> | undefined;
+  assert.ok(extract, 'bound to the browser when no provider is chosen');
+  assert.equal(extract.adapter, 'extract:browser');
+  // A provider the owner chose is used instead.
+  const jina = { provider: extractProvider('jina')!, url: null, key: async () => null };
+  assert.equal(platformCapabilities({ browser: made, extract: jina }).find((one) => one.name === 'web.extract')!.adapter, 'extract:jina');
+
+  const ctx = {
+    companyId: shop.companyId, divisionId: shop.divisionId, taskId: shop.goalId, idempotencyKey: 'extract',
+    signal: new AbortController().signal, credential: async () => { throw new Error('none'); },
+  };
+  // The company is signed in somewhere; a page read for it goes without that.
+  await made.read({ companyId: shop.companyId, taskId: shop.goalId }, { url: `${site}/masuk` });
+  const signedIn = await withControlPlane((tx) => tx.query<{ ciphertext: Buffer }>(
+    'SELECT ciphertext FROM deployment_secrets WHERE name = $1', [browserSecretName(shop.companyId)]));
+  assert.equal(signedIn.rows.length, 1);
+  const tabsBefore = await made.tabs(shop.companyId);
+
+  for (const time of ['first', 'second']) {
+    const read = await extract.execute({ url: `${site}/artikel` }, ctx);
+    assert.equal(read.provider, 'This deployment\'s browser');
+    assert.deepEqual([read.url, read.title, read.truncated], [`${site}/artikel`, 'Resep Kopi Susu', false]);
+    assert.match(read.text, /Campur kopi dengan susu dan gula aren\./);
+    assert.match(read.text, /Disajikan dingin\./, 'what the page\'s script wrote, as a person sees it');
+    for (const around of ['Beranda', 'Hak cipta', 'Baca juga']) assert.doesNotMatch(read.text, new RegExp(around), `${around} is around the page, not on it`);
+    // Neither the company's sign-in nor what the page left the time before.
+    assert.doesNotMatch(read.text, /Kuki/, `the ${time} reading was sent no cookie`);
+  }
+  await assert.rejects(extract.execute({ url: 'http://169.254.169.254/latest/meta-data/' }, ctx),
+    (error: unknown) => isPalugadaError(error, 'capability.unreachable') && /inside this network/.test((error as Error).message));
+  assert.deepEqual(secretHits, []);
+  // Nothing the pages gave was kept for the company, and no tab of theirs is left.
+  const after = await withControlPlane((tx) => tx.query<{ ciphertext: Buffer }>(
+    'SELECT ciphertext FROM deployment_secrets WHERE name LIKE \'browser-%\''));
+  assert.deepEqual(after.rows, signedIn.rows);
+  assert.deepEqual(await made.tabs(shop.companyId), tabsBefore);
 });

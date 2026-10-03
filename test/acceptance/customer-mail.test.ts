@@ -12,6 +12,9 @@
  */
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
+import type { AddressInfo } from 'node:net';
+import { createServer as createTlsServer } from 'node:tls';
 import { closePools } from '../../src/db/pool.ts';
 import { withControlPlane, withTenant } from '../../src/db/tenant.ts';
 import { isPalugadaError } from '../../src/errors.ts';
@@ -312,5 +315,33 @@ test('a worker reads the mailboxes in its tick, and a worker kept to another com
     await api.close();
     await imap.close();
     await smtp.close();
+  }
+});
+
+test('a mail server\'s private certificate authority is trusted besides the system\'s, not instead of them', { skip: cert ? false : 'no openssl to make a certificate with' }, async () => {
+  // Two authorities: one the machine trusts (as NODE_EXTRA_CA_CERTS adds to
+  // the system's), and one PALUGADA_MAIL_CA names for a private server. A
+  // mailbox on a public certificate must still connect with the second set.
+  const system = certificate()!;
+  const server = createTlsServer({ key: system.key, cert: system.cert }, (socket) => socket.end());
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const port = (server.address() as AddressInfo).port;
+    const imap = new URL('../../src/chats/imap.ts', import.meta.url).href;
+    const script = `import { secureSocket } from ${JSON.stringify(imap)};
+      try {
+        const socket = await secureSocket('127.0.0.1', ${port}, { ca: ${JSON.stringify(cert!.cert)} });
+        socket.destroy();
+        console.log('trusted');
+      } catch (error) {
+        console.log(error.message);
+      }`;
+    const said = await new Promise<string>((resolve, reject) => {
+      execFile(process.execPath, ['--input-type=module', '-e', script], { env: { ...process.env, NODE_EXTRA_CA_CERTS: system.certPath } },
+        (error, stdout, stderr) => (error ? reject(new Error(stderr || error.message)) : resolve(stdout.trim())));
+    });
+    assert.equal(said, 'trusted');
+  } finally {
+    server.close();
   }
 });

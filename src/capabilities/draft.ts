@@ -34,6 +34,7 @@ import { companyRoot } from './files.ts';
 import type { LlmClient } from '../llm/client.ts';
 import { withTenant } from '../db/tenant.ts';
 import { driftFrom, languageCode, languageName, languagesForTask, noteDrift } from '../domain/language.ts';
+import { withoutTemplateTokens, wrapUntrusted } from '../context/builder.ts';
 
 export interface DraftOptions {
   llm: LlmClient;
@@ -85,6 +86,15 @@ const DOC_SYSTEM = [
   'second gets fixed.',
 ].join('\n');
 
+/**
+ * What a role hands a draft to draw on: often what it read -- a customer's
+ * mail, a page -- so it reaches the model as outside data (F8.9), in the
+ * envelope every other outside text is in.
+ */
+function drawnOn(context: unknown): string {
+  return wrapUntrusted('the material the role handed in to draw on', String(context));
+}
+
 export function docDraft(options: DraftOptions): Capability<DocDraftInput, DocDraftOutput> {
   const model = options.model ?? 'draft-model';
   // Keyed by the idempotency key, not a single variable. A capability object is
@@ -113,9 +123,9 @@ export function docDraft(options: DraftOptions): Capability<DocDraftInput, DocDr
         model,
         system: DOC_SYSTEM,
         content: [
-          input.kind ? `Kind: ${input.kind}` : null,
-          `Brief: ${String(input.brief ?? '').trim()}`,
-          input.context ? `Context:\n${input.context}` : null,
+          input.kind ? `Kind: ${withoutTemplateTokens(String(input.kind))}` : null,
+          `Brief: ${withoutTemplateTokens(String(input.brief ?? '').trim())}`,
+          input.context ? `Context:\n${drawnOn(input.context)}` : null,
         ].filter(Boolean).join('\n\n'),
         maxTokens: options.maxTokens ?? 2_000,
       }, input.language, 'doc.draft');
@@ -215,10 +225,10 @@ export function emailDraft(options: DraftOptions): Capability<EmailDraftInput, E
         model,
         system: EMAIL_SYSTEM,
         content: [
-          `To: ${String(input.to ?? '').trim()}`,
-          input.subject ? `Suggested subject: ${input.subject}` : null,
-          `Brief: ${String(input.brief ?? '').trim()}`,
-          input.context ? `Context:\n${input.context}` : null,
+          `To: ${withoutTemplateTokens(String(input.to ?? '').trim())}`,
+          input.subject ? `Suggested subject: ${withoutTemplateTokens(String(input.subject))}` : null,
+          `Brief: ${withoutTemplateTokens(String(input.brief ?? '').trim())}`,
+          input.context ? `Context:\n${drawnOn(input.context)}` : null,
         ].filter(Boolean).join('\n\n'),
         maxTokens: options.maxTokens ?? 1_200,
       }, input.language, 'email.draft');

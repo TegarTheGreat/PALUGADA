@@ -25,6 +25,10 @@ import { sendToCustomer } from '../chats/telegram.ts';
 import { sendFromNumber, WHATSAPP_REPLY_WINDOW_HOURS, type GraphApi } from '../chats/whatsapp.ts';
 import { sendFromMailbox, type MailOptions, type MailSettings } from '../chats/mail.ts';
 import { composeReply, replySubject } from '../chats/smtp.ts';
+import { AnswerCheck } from '../chats/answer-check.ts';
+import { passagesNamed, type PassageRef } from '../knowledge/documents.ts';
+import type { LlmClient } from '../llm/client.ts';
+import type { Clearance } from '../broker/registry.ts';
 
 export interface ChatOptions {
   /** Where each channel's token is sealed (`db://chat-…`). */
@@ -35,6 +39,50 @@ export interface ChatOptions {
   whatsapp?: GraphApi;
   /** For a mailbox: a certificate authority to trust besides the system's. */
   mail?: MailOptions;
+  /**
+   * The model that checks a reply a channel would send on its own (STATUS
+   * 2.137). Without one, nothing is answered on its own.
+   */
+  answers?: { llm: LlmClient; model?: string };
+}
+
+/** A reply on its own names this many passages at most. */
+const SOURCES_MAX = 5;
+/** Answers on its own in one conversation within an hour, past which the owner is asked. */
+const ALONE_PER_HOUR = 6;
+/** What a reply on its own is checked against of what the customer wrote: their latest messages. */
+const CUSTOMER_MESSAGES = 10;
+
+const SOURCES = {
+  type: 'array',
+  maxItems: SOURCES_MAX,
+  items: {
+    type: 'object',
+    required: ['document', 'place'],
+    properties: {
+      document: { type: 'string', pattern: '^[0-9a-f-]{36}$' },
+      place: { type: 'integer', minimum: 1 },
+    },
+    additionalProperties: false,
+  },
+  description: 'The passages of documents marked for customers this reply answers from, as memory.search gives them '
+    + '(document and place). Where the channel answers on its own, a reply that names them, says nothing they do not '
+    + 'and decides nothing that is the owner\'s goes without waiting for the owner.',
+};
+
+/** Every figure in a text, its digits alone: "Rp 18.000" and "18000" are one figure, as are "08.00" and "0800". */
+function figuresOf(text: string): Array<{ said: string; digits: string }> {
+  return [...text.matchAll(/\d(?:[\d.,:]*\d)?/g)].map((match) => ({ said: match[0], digits: match[0].replace(/[.,:]/g, '') }));
+}
+
+/**
+ * Every mail address and link in a text, a bare domain among them --
+ * "bit.ly/promo" is a link a customer can follow as surely as one with
+ * https:// in front.
+ */
+function addressesOf(text: string): string[] {
+  return [...text.matchAll(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+|\bhttps?:\/\/[^\s<>"]+|\bwww\.[^\s<>"]+|\b(?:[a-z0-9-]+\.)+[a-z]{2,24}\b(?:\/[^\s<>"]*)?/gi)]
+    .map((match) => match[0].replace(/[.,;:!?)]+$/, ''));
 }
 
 /** The longest reply Telegram or WhatsApp takes in one message. */
@@ -112,7 +160,8 @@ export interface ChatSendResult {
   sent: boolean;
 }
 
-export function chatSend(options: ChatOptions): Capability<{ text: string; chatId?: string }, ChatSendResult> {
+export function chatSend(options: ChatOptions): Capability<{ text: string; chatId?: string; sources?: PassageRef[] }, ChatSendResult> {
+  const check = options.answers ? new AnswerCheck(options.answers.llm, options.answers.model ? { model: options.answers.model } : {}) : null;
   return {
     name: 'chat.send',
     inputSchema: {
@@ -121,12 +170,69 @@ export function chatSend(options: ChatOptions): Capability<{ text: string; chatI
       properties: {
         text: { type: 'string', minLength: 1, maxLength: REPLY_MAX, description: 'The reply, as the customer will read it: plain text.' },
         chatId: CHAT_ID,
+        sources: SOURCES,
       },
       additionalProperties: false,
     },
     adapter: 'platform',
     defaultTier: 2,
     describe: () => ({ moneyCents: 0 }),
+    /**
+     * Whether this reply may go without the owner (STATUS 2.137): where the
+     * owner let the channel answer on its own, to the customer who wrote,
+     * from passages of documents the owner marked for customers -- read
+     * again here -- with no figure or address those passages and the
+     * customer did not give, six an hour at most, and the check's yes.
+     */
+    async clearsOutside(input, ctx): Promise<Clearance> {
+      const text = String(input.text ?? '').trim();
+      const found = await withTenant(ctx.companyId, async (tx) => {
+        const own = await chatOfTask(tx, ctx.taskId);
+        const chatId = input.chatId ?? own;
+        if (!chatId) return { why: 'off' } as const;
+        const { rows: [channel] } = await tx.query<{ answers_alone: boolean }>(
+          'SELECT c.answers_alone FROM chats h JOIN chat_channels c ON c.id = h.channel_id WHERE h.id = $1', [chatId]);
+        if (!channel?.answers_alone) return { why: 'off' } as const;
+        if (!own || chatId !== own) return { why: 'other_conversation' } as const;
+        const refs = Array.isArray(input.sources) ? input.sources.slice(0, SOURCES_MAX) : [];
+        const passages = refs.length > 0 ? await passagesNamed(tx, ctx.divisionId, refs) : [];
+        if (passages.length === 0 || passages.length !== refs.length) return { why: 'no_sources' } as const;
+        if (passages.some((passage) => !passage.forCustomers)) return { why: 'not_for_customers' } as const;
+        const { rows: said } = await tx.query<{ body: string }>(
+          `SELECT body FROM (SELECT body, created_at FROM chat_messages WHERE chat_id = $1 AND direction = 'in'
+                              ORDER BY created_at DESC LIMIT $2) latest ORDER BY created_at`,
+          [chatId, CUSTOMER_MESSAGES]);
+        const { rows: [recent] } = await tx.query<{ n: number }>(
+          `SELECT count(*)::int AS n FROM chat_messages
+            WHERE chat_id = $1 AND direction = 'out' AND grounds IS NOT NULL AND created_at > now() - interval '1 hour'`,
+          [chatId]);
+        return { passages, customer: said.map((row) => row.body).join('\n'), recent: recent?.n ?? 0 };
+      });
+      if ('why' in found) return { cleared: false, why: found.why };
+
+      // What the reply says that nothing it answers from said: refused here,
+      // before any model is asked, whatever a model would have made of it.
+      const known = `${found.passages.map((passage) => `${passage.heading ?? ''}\n${passage.body}`).join('\n')}\n${found.customer}`;
+      const knownFigures = new Set(figuresOf(known).map((figure) => figure.digits));
+      const stray = figuresOf(text).find((figure) => !knownFigures.has(figure.digits));
+      if (stray) return { cleared: false, why: 'figures', detail: stray.said.slice(0, 40) };
+      const lowered = known.toLowerCase();
+      const address = addressesOf(text).find((one) => !lowered.includes(one.toLowerCase()));
+      if (address) return { cleared: false, why: 'addresses', detail: address.slice(0, 120) };
+      if (found.recent >= ALONE_PER_HOUR) return { cleared: false, why: 'too_many' };
+      if (!check) return { cleared: false, why: 'check_failed' };
+
+      const verdict = await check.check({
+        companyId: ctx.companyId, taskId: ctx.taskId, customer: found.customer, reply: text,
+        passages: found.passages.map((passage) => ({ title: passage.title, heading: passage.heading, body: passage.body })),
+      });
+      if (verdict.failed) return { cleared: false, why: 'check_failed' };
+      if (!verdict.send) return { cleared: false, why: verdict.category };
+      return {
+        cleared: true,
+        record: { grounds: found.passages.map((passage) => ({ document: passage.documentId, title: passage.title, place: passage.passage })) },
+      };
+    },
     async execute(input, ctx) {
       const text = String(input.text ?? '').trim();
       if (!text || text.length > REPLY_MAX) {
@@ -174,10 +280,12 @@ export function chatSend(options: ChatOptions): Capability<{ text: string; chatI
         // customer; Telegram cannot be asked which, so it is sent again.
         // A mail is a reply in the customer's thread: "Re:" their subject.
         const subject = chat.kind === 'email' ? replySubject(chat.last_subject) : null;
+        // A reply that went on its own keeps what it answered from (0117).
+        const grounds = (ctx.clearance as { grounds?: unknown } | undefined)?.grounds ?? null;
         const messageId = before?.id ?? (await tx.query<{ id: string }>(
-          `INSERT INTO chat_messages (company_id, chat_id, direction, body, task_id, idempotency_key, subject)
-           VALUES ($1, $2, 'out', $3, $4, $5, $6) RETURNING id`,
-          [ctx.companyId, chatId, text, ctx.taskId, ctx.idempotencyKey, subject])).rows[0]!.id;
+          `INSERT INTO chat_messages (company_id, chat_id, direction, body, task_id, idempotency_key, subject, grounds)
+           VALUES ($1, $2, 'out', $3, $4, $5, $6, $7) RETURNING id`,
+          [ctx.companyId, chatId, text, ctx.taskId, ctx.idempotencyKey, subject, grounds ? JSON.stringify(grounds) : null])).rows[0]!.id;
         return {
           send: {
             chatId, messageId, chat: chat.external_id, tokenRef: chat.token_ref, kind: chat.kind, accountId: chat.account_id,

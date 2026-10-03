@@ -166,7 +166,9 @@ every role already has -- returns the passages its question points at, so a
 run quoting a cafe reads the payment terms rather than guessing them. What
 it reads there is shown to it as data, never as instructions. **Archive**
 takes a document out of every search and keeps its text; **Put it back**
-returns it.
+returns it. **Customers may be told this** marks a document a customer
+channel may answer from on its own
+([Let a channel answer on its own](#let-a-channel-answer-on-its-own)).
 
 **Found by meaning, too.** By default a passage is found by the words it
 shares with the question: "refund policy" does not find a document that
@@ -286,6 +288,14 @@ For an escalation that is not a question, such as a stuck division,
 **Answer the agent instead** sends your reply and puts the task back on the
 queue without deciding the item.
 
+A role whose capability needs a key its division does not hold -- a
+mailbox, a CRM's key -- asks for it the same way, naming the key. The item
+then shows **Give the … key**: it opens the division on **Team**, at
+**Keys for services**, where you give it as any key is given, with a code.
+Saving it answers the question and the task goes on; the role is told the
+key is there, never what it is. A role can ask only for a key one of its
+own division's capabilities signs in with.
+
 ## Steer, stop or rerun a task
 
 Open the task from **Work** (or **Open the task** on an inbox item).
@@ -388,10 +398,54 @@ what counts when that vendor is not connected: a run is told which of its
 role's tools are not connected, and cannot meet a criterion that only one of
 them could.
 
+## Let roles read the company's files
+
+With `PALUGADA_FILES_ROOT` set, each company has a folder of its own
+beneath it, named by its id: what its roles draft and make is kept there,
+and you can put files there yourself. A role lists it with `files.list` and
+reads a file with `files.read`, as text -- a draft another role wrote, a
+price list, a CSV of orders -- a long one a page at a time. It reads this
+company's folder and nothing beside it: a link that leads out is refused.
+What a file says is treated as written outside the company, since nothing
+records where it came from, so work that read one asks you before its next
+action at tier 2 or above. The standard template grants both to Operations
+and Delivery; give them to another division on **Team**. A file that is not
+text is read as it is; a PDF, a Word document or an Excel workbook is read
+as text in the deployment's own browser, sheet by sheet with dates as dates,
+when it has one (the image does). A picture or a recording is not read. A
+scan is a picture of a page and has no text to read: give its text to the
+company on **Documents** instead.
+
+## Give a division its mailbox
+
+A division reads its mail with `mailbox.read` and sends with `email.send`
+from a mailbox it is given: Gmail, Google Workspace, Microsoft 365, the one
+that came with a website, or your own server. Each division has its own, so
+Growth can send from sales@ and Support read support@.
+
+1. Where the provider asks for one, make an app password: in Gmail, turn
+   on 2-Step Verification, then Security, App passwords.
+2. Open the division on **Team**. Under **Keys for services**, the
+   capabilities that need it say they need the `mailbox` key.
+3. Give **The mailbox's address**, **The mailbox's password**, the **IMAP
+   server** and the **SMTP server** with their ports (Gmail:
+   `imap.gmail.com` 993 and `smtp.gmail.com` 587), press **Save** and
+   confirm with a code. Both servers are signed in to first, so a wrong
+   password is said there and then; nothing is kept until they take it.
+   **Change the mailbox** gives it another, the same way.
+
+Reading a message does not mark it read in your own mail app, and nothing
+a role does can move, flag or delete one. A letter is sent from the
+mailbox's address, named for the company; one that answers mail a role read
+waits for your yes, with who it is to and what it is about on the card. A
+copy in Sent is the provider's to keep: Gmail keeps one, many hosts do not.
+The standard template grants both to Support, and `email.send` to Growth.
+A vendor entry for `email.send`, below, is used instead of the mailbox.
+
 ## Connect a vendor
 
-Capabilities that need somebody's account, such as `email.send`,
-`invoice.issue` or `dns.update`, are bound to a vendor by an entry: a
+Capabilities that need somebody's account, such as `email.send` on a
+sending service, `invoice.issue` or `dns.update`, are bound to a vendor by an entry: a
 method, a URL, headers and a body template, where the result is found, how
 to read it back, and which credential it uses. No code. The entries in
 [config/vendors.example.json](../../config/vendors.example.json) are offered
@@ -684,7 +738,9 @@ each is tier 3 and asks you every time; reading the page
 
 A role finds pages with `web.search` and reads one as clean text with
 `web.extract`. Both go to a provider you choose: its index, its price, and
-where the queries go.
+where the queries go. Until you choose one for reading pages, a deployment
+with a Chromium reads them in its own browser, and the address goes to
+nobody else.
 
 1. Open **This deployment**, **Tools**.
 2. Under **Web search**, choose a **Provider**. Those under **Free to start,
@@ -696,8 +752,9 @@ where the queries go.
    it would give a role are shown, and nothing is saved.
 4. Press **Save** and confirm with a code. PALUGADA starts itself again, and
    `web.search` is bound.
-5. Do the same under **Reading pages** for `web.extract`. Jina Reader reads
-   twenty pages a minute without a key.
+5. Do the same under **Reading pages** for `web.extract`, or leave it for
+   the deployment's browser to read them. Jina Reader reads twenty pages a
+   minute without a key; a Firecrawl of your own is **Your own server**.
 
 The standard template grants both to Delivery and Growth, and the planner
 searches before it plans; give them to another role on **Team**. What a
@@ -733,6 +790,16 @@ The standard template grants both to Growth. Its marketer's twelve tools
 are full, so add `image.generate` or `speech.synthesize` to a role on
 **Team** in place of one it uses less. Each call reserves the provider's
 price for one picture or one clip before it runs.
+
+**Reading pictures** lets a role granted `image.describe` read a picture in
+the company's files -- a receipt a customer photographed, a supplier's
+invoice, a screenshot -- and copy its words. Choose a provider the same way:
+Google Gemini has a generous free tier, and a vision model of your own
+(Ollama with `qwen2.5vl`, llama.cpp, vLLM) keeps the pictures on your
+machine. **Picture** and **Ask about it** try it on a picture you choose,
+kept nowhere. The standard template grants it to Finance and Support; add
+it to a role's tools on **Team**. A picture is sent whole to the provider,
+up to 5 MB, and what it says is treated as written outside the company.
 
 ## Choose or change the model
 
@@ -1030,7 +1097,8 @@ the sender, so it needs the HTTPS set-up in [operations](operations.md).
 
 A company can have a Telegram bot of its own that customers write to. Each
 message starts work for the role you choose, and every reply waits for your
-yes.
+yes -- unless you let the channel answer on its own from the documents you
+publish for customers ([below](#let-a-channel-answer-on-its-own)).
 
 1. In Telegram, open @BotFather, send `/newbot`, choose the bot's name and
    username, and copy the token it gives you.
@@ -1124,6 +1192,44 @@ app. When the mailbox cannot be read -- the password changed, the server is
 down -- **Customers** says why under the channel, and the mail waits on the
 server until it can be. A server with a private certificate is trusted with
 `PALUGADA_MAIL_CA`.
+
+## Let a channel answer on its own
+
+A shop answers the same questions all day: what a coffee costs, when it
+opens, whether it delivers. A channel can answer those without you, from
+documents you mark for customers, while everything else still waits for
+your yes.
+
+1. On **Memory**, **Documents**, open the menu, the price list, the opening
+   hours, and press **Customers may be told this**. Leave the margins, the
+   supplier's terms and anything internal unmarked: a reply on its own
+   answers only from marked documents. **Keep it from customers** takes the
+   mark off.
+2. On **Customers**, under the channel, turn on **Answers on its own** and
+   confirm with a code. The role that answers is given `memory.search`, and
+   each message's work is told to find the passages and name them.
+
+A reply then goes without a card only when all of this holds, and otherwise
+it is your card as before, saying why it did not go on its own:
+
+- it answers the customer whose message started the work;
+- it names passages of documents marked for customers, which are read again
+  from the company's own records;
+- every figure, address and link in it is in those passages or in what the
+  customer wrote -- a price of its own is refused before any model is asked;
+- that conversation has had fewer than six answers on its own in the hour;
+- a model shown the passages, the customer's words and the reply finds every
+  statement in the passages, and nothing that is yours to decide: money
+  back, a price or terms of its own, a serious complaint, the law, anyone's
+  personal data, a promise. A model that cannot answer is a no, and without
+  a model nothing goes on its own.
+
+A policy that asks you about `chat.send` is still asked, however well a reply
+is grounded. Each check is a model call charged to the work's budget, on
+the work's timeline as **A reply to a customer was checked against documents
+for customers**. In the conversation, a reply that went on its own says
+**Sent on its own, from** and the documents. Turning **Answers on its own**
+off needs no code.
 
 ## Install a bundle
 

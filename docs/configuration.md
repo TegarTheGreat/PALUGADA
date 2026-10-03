@@ -129,19 +129,21 @@ A secret the owner saved is named like any other, as a reference:
 | `PALUGADA_RUNTIME_HTTP_URL` | A runtime that answers over HTTP |
 | `PALUGADA_RUNTIME_IMAGE` | The Docker runtime, with no network |
 | `PALUGADA_SANDBOX_URL`, `_IMAGE` | A remote sandbox runtime |
-| `PALUGADA_FILES_ROOT` | The company's files, for `files.list` and drafting |
+| `PALUGADA_FILES_ROOT` | The company's files, for `files.list`, `files.read`, drafting and `code.compute`. Each company's are in a folder of their own beneath it, named by its id |
+| `PALUGADA_COMPUTE_IMAGE` | Python for `code.compute`: an image built from `deploy/compute` (`docker build --tag palugada/compute:1 deploy/compute`). A role's code runs in a container of it with no network, as nobody, on a read-only root, with the company's files it names copied in, and what it writes is kept under `computed/`. It needs `PALUGADA_FILES_ROOT`, and a docker this process can run: the image PALUGADA ships in has none, so in the Compose deployments it stays unbound. Prefer rootless podman or rootless Docker, or a docker host of its own reached through `DOCKER_HOST`: whatever can use the system's Docker daemon can become root on the machine. `npm run compute:check` proves the container where it will run |
+| `PALUGADA_COMPUTE_DOCKER` | The docker client for `code.compute`, when it is not `docker` on `PATH` (`podman` works); `PALUGADA_RUNTIME_DOCKER` when unset |
 | `PALUGADA_PUSH_URL` | Push notifications for incidents and tier 3 approvals. `PALUGADA_PUSH_FORMAT=ntfy` with `PALUGADA_PUSH_TOPIC` posts in ntfy's shape; `PALUGADA_PUSH_TOKEN` (or `_TOKEN_REF`) is its token |
 | `PALUGADA_TELEGRAM_TOKEN`, `_CHAT`, `_WEBHOOK_SECRET` | Telegram with decision buttons. Point the bot's webhook at `<PALUGADA_APP_URL_PUBLIC>/api/channels/telegram`. The token and secret may be references instead, in `_TOKEN_REF` and `_WEBHOOK_SECRET_REF`; the console connects a bot for you. `PALUGADA_TELEGRAM_API` names a local Bot API server, for the owner's bot and every company's customer bot alike |
 | `PALUGADA_WHATSAPP_PHONE_ID`, `_TOKEN`, `_APP_SECRET`, `_VERIFY_TOKEN`, `_OWNER` | WhatsApp with decision buttons, through Meta's Cloud API: the business number's ID, a system user's token, the app secret that signs deliveries, the verify token the webhook is subscribed with, and the owner's number with its country code. Point the app's webhook at `<PALUGADA_APP_URL_PUBLIC>/api/channels/whatsapp`. `PALUGADA_WHATSAPP_TEMPLATE` (`name:language`) names an approved template for writing first after 24 hours of silence. The three secrets may be references instead, in `_REF`; the console connects a number for you. `PALUGADA_WHATSAPP_API` names another Graph API address, for the owner's number and every company's customer number alike |
 | `PALUGADA_SLACK_WEBHOOK`, `PALUGADA_DISCORD_WEBHOOK` | A Slack or Discord incoming webhook the owner is told things on, or a reference to one in `_WEBHOOK_REF` |
 | `PALUGADA_EMAIL_PROVIDER`, `PALUGADA_EMAIL_KEY`, `PALUGADA_EMAIL_FROM`, `PALUGADA_EMAIL_TO` | Email to the owner through `resend`, `postmark` or `sendgrid`: its API key (or a reference in `PALUGADA_EMAIL_KEY_REF`), an address the service lets the account send from, and the owner's |
 | `PALUGADA_APP_URL_PUBLIC` | Where the console is reached from the owner's phone. Notifications link there, and a sign-in to an MCP server that uses OAuth comes back to `<PALUGADA_APP_URL_PUBLIC>/api/oauth/callback`; without it, the sign-in works only from a console opened on this machine at `localhost`. A company's customer bot is told to send what customers write to `<PALUGADA_APP_URL_PUBLIC>/api/chat-hooks/<id>`; without it the bot is kept and cannot hear |
-| `PALUGADA_MAIL_CA` | A PEM file of a certificate authority to trust, besides the system's, for a company's mailbox on a server with a private certificate. A mailbox is read and answered only over TLS |
+| `PALUGADA_MAIL_CA` | A PEM file of a certificate authority to trust, besides the system's, for a mailbox on a server with a private certificate: the one customers write to, and the ones divisions read and send from. A mailbox is read and answered only over TLS |
 | `PALUGADA_ALLOWED_HOSTS` | The host names the console answers to, comma-separated. Defaults to the hosts of the public URL and origins. Loopback is always allowed |
 | `PALUGADA_BEHIND_PROXY` | `1` when the console is reached through a reverse proxy: the caller's address, which the sign-in throttle counts by, is then the last one the proxy added to `X-Forwarded-For`. Leave it unset otherwise, since without a proxy that header is whatever the caller wrote |
 | `PALUGADA_RP_ID`, `PALUGADA_ORIGIN` | Where passkeys are made and used: the relying party a device signs for, and the address the console is opened at. Each defaults to `PALUGADA_APP_URL_PUBLIC` (its host name, and its origin); set one only when it differs, such as `PALUGADA_RP_ID=example.com` for a passkey that works across a domain. Without either and without a public URL, passkeys cannot be made, and the owner signs in and approves with an authenticator code. A browser offers passkeys only over HTTPS, or on `localhost` |
 | `PALUGADA_ALLOW_PRIVATE_HOSTS` | An internal host that `web.fetch` and the companies' browsers may reach |
-| `PALUGADA_CHROMIUM` | The Chromium (or Chrome) the companies' browsers run on, for `browser.read` and `browser.act`. Without it, one is looked for where a package manager or Playwright puts it; with none, both are unbound and the boot says so. `PALUGADA_BROWSER=off` leaves them unbound however one is found |
+| `PALUGADA_CHROMIUM` | The Chromium (or Chrome) the companies' browsers run on, for `browser.read` and `browser.act`, and the one `web.extract` and `files.read` read pages and documents in. Without it, one is looked for where a package manager or Playwright puts it; with none, both are unbound and the boot says so. `PALUGADA_BROWSER=off` leaves them unbound however one is found |
 | `PALUGADA_BROWSER_SANDBOX` | `off` runs Chromium without its own sandbox, which needs user namespaces: as root, or in a container that is not given them, it will not start otherwise. The image's container is given them by `deploy/docker/seccomp-chromium.json`, which every compose file names. Off, a page that breaks out of Chromium's renderer reaches this process's user, so it is said at every boot |
 
 **Runtimes.** A role's work is done by the runtime it names. With a model
@@ -327,8 +329,10 @@ bound next to the file's; one that no longer passes is left out with a
 note rather than stopping the start.
 
 **Capabilities.** PALUGADA implements the ones that need no vendor account:
-`web.fetch`, `uptime.check`, `files.list`, `doc.draft`, `email.draft`,
-`memory.search` and `skill.read`. `web.search` and `web.extract` go to the
+`web.fetch`, `uptime.check`, `files.list`, `files.read`, `doc.draft`, `email.draft`,
+`memory.search` and `skill.read`, and `mailbox.read` and `email.send` with
+the mailbox each division is given on **Team** (a vendor entry for either
+is used instead). `web.search` and `web.extract` go to the
 provider the owner chooses in the console (**This deployment**, **Tools**),
 or the one these name:
 
@@ -337,7 +341,8 @@ or the one these name:
 | `PALUGADA_SEARCH_PROVIDER` | Where `web.search` goes: `brave`, `tavily`, `exa`, `firecrawl`, `perplexity`, `parallel`, `keenable`, `jina`, `serpapi`, `serper`, or your own `searxng` or `firecrawl-self-hosted` |
 | `PALUGADA_SEARCH_URL` | Your own server's address, for `searxng` and `firecrawl-self-hosted` |
 | `PALUGADA_SEARCH_KEY_REF` | The provider's key, as a secret reference. `tavily`, `firecrawl` and `keenable` answer without one, at a rate-limited free tier |
-| `PALUGADA_EXTRACT_PROVIDER` | Where `web.extract` goes: `jina`, `firecrawl`, `tavily`, `exa`, `parallel` or `keenable` |
+| `PALUGADA_EXTRACT_PROVIDER` | Where `web.extract` goes: `jina`, `firecrawl`, `tavily`, `exa`, `parallel`, `keenable`, or your own `firecrawl-self-hosted`. Unset, a deployment with a Chromium reads pages in its own browser |
+| `PALUGADA_EXTRACT_URL` | Your own server's address, for `firecrawl-self-hosted` |
 | `PALUGADA_EXTRACT_KEY_REF` | Its key. `jina` (20 pages a minute), `firecrawl`, `tavily` and `keenable` answer without one |
 
 `image.generate`, `speech.synthesize` and `speech.transcribe` are chosen the same way; the last two also let the owner speak to the assistant and hear it, which needs no files. What they
@@ -346,9 +351,10 @@ make is a file, written under the company's own directory in
 
 | Variable | What it is |
 |---|---|
-| `PALUGADA_IMAGE_PROVIDER` | Where `image.generate` goes: `openai`, `fal`, `openrouter`, `deepinfra`, `xai` or `gemini` |
-| `PALUGADA_IMAGE_KEY_REF` | Its key, as a secret reference; each of them needs one |
-| `PALUGADA_IMAGE_MODEL` | A model other than the one each suggests, such as `fal-ai/flux-2/klein/9b` for `fal` |
+| `PALUGADA_IMAGE_PROVIDER` | Where `image.generate` goes: `openai`, `fal`, `openrouter`, `deepinfra`, `xai`, `gemini`, or your own `comfyui` |
+| `PALUGADA_IMAGE_URL` | Your ComfyUI's address, such as `http://127.0.0.1:8188`. It takes no key, so keep it on a private network |
+| `PALUGADA_IMAGE_KEY_REF` | Its key, as a secret reference; each of the hosted ones needs one |
+| `PALUGADA_IMAGE_MODEL` | A model other than the one each suggests, such as `fal-ai/flux-2/klein/9b` for `fal`; for `comfyui`, a checkpoint it has (`sd_xl_base_1.0.safetensors` unless given). ComfyUI is sent its own default workflow, sized for SDXL, and the picture is previewed there rather than saved in its output folder |
 | `PALUGADA_SPEECH_PROVIDER` | Where `speech.synthesize` goes: `openai`, `elevenlabs`, `xai`, `gemini`, `deepinfra`, or your own `piper` |
 | `PALUGADA_SPEECH_URL` | Your Piper server's address (`python3 -m piper.http_server`) |
 | `PALUGADA_SPEECH_KEY_REF` | Its key; `piper` takes none |
@@ -358,6 +364,10 @@ make is a file, written under the company's own directory in
 | `PALUGADA_LISTEN_URL` | Your own server's address, for `speaches` and `whisper-cpp` (start whisper.cpp's server with `--convert`, so it takes the browser's WebM) |
 | `PALUGADA_LISTEN_KEY_REF` | Its key; `speaches` takes one only if yours asks, `whisper-cpp` none |
 | `PALUGADA_LISTEN_MODEL` | A model other than the one each suggests |
+| `PALUGADA_VISION_PROVIDER` | What reads a picture for `image.describe`: `openai`, `gemini`, `anthropic`, `openrouter`, `groq`, `mistral`, or your own `openai-compatible` server (Ollama, llama.cpp, vLLM). The pictures are the company's files, so it needs `PALUGADA_FILES_ROOT` |
+| `PALUGADA_VISION_URL` | Your own server's address, for `openai-compatible`, such as `http://localhost:11434/v1` |
+| `PALUGADA_VISION_KEY_REF` | Its key; your own server takes one only if it asks |
+| `PALUGADA_VISION_MODEL` | A model other than the one each suggests; for your own server, the one it serves (`qwen2.5vl` unless given) |
 | `PALUGADA_EMBED_PROVIDER` | What finds the company's documents by meaning as well as by words: `openai`, `gemini`, `mistral`, `voyage`, `jina`, or your own `ollama` or `openai-compatible` server |
 | `PALUGADA_EMBED_URL` | Your own server's address, for `ollama` (`http://localhost:11434/v1`) and `openai-compatible` |
 | `PALUGADA_EMBED_KEY_REF` | Its key; `ollama` takes none |

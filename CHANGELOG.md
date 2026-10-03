@@ -320,6 +320,67 @@ The first version. What it holds, in the order an owner meets it.
   your install, mends what is safe to mend, and says what to do about the
   rest; `sh ~/palugada/install.sh rollback` goes back to the code the last
   update replaced, which each update now keeps (STATUS 2.124).
+- With no provider chosen under **Tools** for **Reading pages**, a role
+  reads a page in the deployment's own browser, without any company's
+  sign-ins, and the address goes to nobody else; a Firecrawl you run can
+  be chosen there too (STATUS 2.125).
+- A division reads and sends mail from its own mailbox -- Gmail with an app
+  password, a hosting provider's, your own server -- given on **Team** in
+  the division's keys. Reading leaves mail unread in your own mail app;
+  sending is tier 2, so a reply to mail a role read waits for your yes. A
+  service bound for `email.send`, such as Resend, is still the one used
+  (STATUS 2.127).
+- A role granted **Read a file** reads a file in the company's files -- a
+  draft, a CSV, a PDF, a Word document, an Excel workbook -- as text, a page
+  at a time, and nothing outside them. Documents are read in the
+  deployment's own sandboxed browser, never by the server itself
+  (STATUS 2.128, 2.129).
+- **Reading pictures**, under **Tools**: a role granted **Describe a
+  picture** reads a receipt, an invoice or a screenshot in the company's
+  files and copies its words, through OpenAI, Gemini, Claude, OpenRouter,
+  Groq, Mistral or a vision model of your own (STATUS 2.130).
+- A role that needs a key its division does not hold asks you for it: the
+  card's **Give the … key** opens the division's keys on **Team**, and
+  saving it there answers the role, which is never shown the key. A role
+  can ask only for a key its own division's capabilities use (STATUS 2.131).
+- A role granted **Calculate in Python** works figures out on the company's
+  files it names -- a month's sales from a spreadsheet, a chart -- in a
+  container with no network, and what it writes is kept under `computed/`.
+  Set `PALUGADA_COMPUTE_IMAGE` to an image built from `deploy/compute` on a
+  machine with docker or podman; `npm run compute:check` proves the
+  container there. Because its code can reach nothing, it may sit beside
+  Finance's keys and invoices, and the bookkeeper has it, with **Describe a
+  picture** for receipts (STATUS 2.132).
+- Outside text -- a page, a mail, a customer's message -- can no longer
+  forge a turn for a model you run yourself (Ollama, vLLM, llama.cpp) with
+  chat-template tokens such as `<|im_start|>`, nor close the untrusted
+  envelope with a look-alike of its fence: both are removed before any
+  model reads it (STATUS 2.133).
+- **ComfyUI** is a picture provider under **Tools**, for a company with a
+  GPU of its own: its address, and a checkpoint it has as the model. No key,
+  nothing paid per picture, and nothing left in ComfyUI's output folder
+  (STATUS 2.134).
+- An approval in work a schedule made can be given for **every time that
+  schedule does exactly this**, for ninety days, with your device: the same
+  action to the byte, from the same schedule unchanged, runs without a card,
+  even when the work read outside mail. Listed under **Allowed for a
+  schedule**, and taken back with one press (STATUS 2.135).
+- A role that sees the same work owed again and again **proposes a
+  schedule**: what each run does, which role, when, and why, with the next
+  runs in your time. Your yes makes it and starts it; nothing more often than
+  hourly. The CEO of a new company has it (STATUS 2.136).
+- A customer channel can **answer on its own** from the documents you mark
+  **for customers** -- a menu, prices, opening hours -- once you turn it on
+  with your device. A reply goes without a card only to the customer who
+  wrote, naming the passages it answers from, with no figure, address or
+  link they do not give, six an hour per conversation at most, and after a
+  model finds every statement in them and nothing that is yours: a refund,
+  a price of its own, a complaint, the law, personal data, a promise.
+  Anything else is your card, saying why it did not go; the conversation
+  marks what went on its own and from what (STATUS 2.137).
+- `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
+  documented: set, it had stopped mailboxes on public certificates from
+  connecting (STATUS 2.126).
 - **Replay against the journal** is shown only for a task this deployment
   can replay. It was offered on every task and refused on every task a
   model or an agent CLI ran (STATUS 2.87).

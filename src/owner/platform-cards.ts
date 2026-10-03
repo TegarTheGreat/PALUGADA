@@ -430,6 +430,32 @@ export function goalChangeCard(reading: OwnerReading, facts: {
   };
 }
 
+/**
+ * A run's proposal that some work recur (`schedule.propose`): what, who,
+ * when -- the expression as written and the next runs in the owner's own
+ * time, which say it in any language -- and why.
+ */
+export function scheduleProposalCard(reading: OwnerReading, facts: {
+  name: string; role: string; proposer: string; instruction: string; cron: string; timezone: string; next: Date[]; reason: string;
+}): Card & { consequence: string } {
+  const { language } = reading;
+  const runs = facts.next.map((at) => at.toLocaleString(language ?? 'en', {
+    weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: reading.timezone,
+  })).join('; ');
+  return {
+    title: say(language, '{role} proposes the schedule {name}', { role: facts.proposer, name: facts.name }),
+    detail: [
+      say(language, 'Each run: {instruction}', { instruction: facts.instruction }),
+      say(language, 'Done by: {role}', { role: facts.role }),
+      say(language, 'When: {cron} ({timezone}); the next runs are {runs}', { cron: facts.cron, timezone: facts.timezone, runs }),
+      say(language, 'Reason given: {reason}', { reason: facts.reason }),
+      '',
+      say(language, 'Approving it makes the schedule and starts it; it can be turned off or changed under Team, Schedules.'),
+    ].join('\n'),
+    consequence: say(language, 'No schedule is made.'),
+  };
+}
+
 /* ---------------------------------------------------------------- goals --- */
 
 function goalKindSaid(language: string | null, kind: string): string {
@@ -469,6 +495,8 @@ export type ApprovalAsked =
 /** What an approval card says about why it was asked, and what a no does. */
 export function approvalReasonSaid(reading: OwnerReading, facts: {
   tier: number; asked: ApprovalAsked; interrupted: boolean; chain: ReadonlyArray<Pick<Goal, 'kind' | 'status' | 'statement'>>;
+  /** Why the capability's own check did not let it go on its own (STATUS 2.137). */
+  checked?: { why: string; detail?: string };
 }): { rationale: string; consequence: string } {
   const { language } = reading;
   const tier = number(reading, facts.tier);
@@ -490,10 +518,32 @@ export function approvalReasonSaid(reading: OwnerReading, facts: {
         ? [say(language, 'You approved this once already, and the worker carrying it out stopped before it could say whether it happened: it may already have happened. Check before approving it again.')]
         : []),
       why,
+      ...(facts.checked ? [say(language, 'Not sent on its own: {reason}', { reason: checkedSaid(language, facts.checked) })] : []),
       ...(facts.chain.length > 0 ? [say(language, 'What this is for — {goals}', { goals: ancestrySaid(language, facts.chain) })] : []),
     ].join('\n\n'),
     consequence: say(language, 'The task halts and no external change is made.'),
   };
+}
+
+/** Why a reply to a customer did not go on its own (`chat.send`'s check), in the owner's words. */
+function checkedSaid(language: string | null, checked: { why: string; detail?: string }): string {
+  const detail = checked.detail ?? '';
+  switch (checked.why) {
+    case 'other_conversation': return say(language, 'it answers a conversation other than the one this work began with');
+    case 'no_sources': return say(language, 'it named no passage of a document for customers');
+    case 'not_for_customers': return say(language, 'it answers from a document not marked for customers');
+    case 'figures': return say(language, 'it says a figure the documents and the customer did not: {detail}', { detail });
+    case 'addresses': return say(language, 'it gives an address or link the documents and the customer did not: {detail}', { detail });
+    case 'too_many': return say(language, 'there have been six answers on its own in this conversation in the last hour');
+    case 'refund': return say(language, 'the check found it is about a refund');
+    case 'price': return say(language, 'the check found it offers a price or terms of its own');
+    case 'complaint': return say(language, 'the check found it answers a serious complaint');
+    case 'legal': return say(language, 'the check found it touches the law');
+    case 'personal_data': return say(language, 'the check found it gives or asks for personal data');
+    case 'commitment': return say(language, 'the check found it promises something the documents do not');
+    case 'check_failed': return say(language, 'the check could not judge it');
+    default: return say(language, 'the check found something in it the documents do not say');
+  }
 }
 
 /* --------------------------------------------------------- role changes --- */

@@ -27,13 +27,13 @@ import {
 import { useHotkeys, useMediaQuery } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import {
-  IconArrowLeft, IconCheck, IconClock, IconClockPause, IconHourglass, IconMessageQuestion, IconRoute, IconTarget, IconWorldWww, IconX,
+  IconArrowLeft, IconCheck, IconClock, IconClockPause, IconHourglass, IconKey, IconMessageQuestion, IconRepeat, IconRoute, IconTarget, IconWorldWww, IconX,
 } from '@tabler/icons-react';
 import { api, ApiError, explain, type Proof } from '../api.ts';
 import { useFactor } from '../factor.tsx';
 import { useLivePulse, useLoad } from '../hooks.ts';
 import { go } from '../router.ts';
-import type { Digest, InboxItem, Staff, StandingApproval, Trace } from '../types.ts';
+import type { Digest, InboxItem, ScheduleApproval, Staff, StandingApproval, Trace } from '../types.ts';
 import { capabilitySaid, dateTime, goalKind, money, relative } from '../format.ts';
 import { t, tp } from '../i18n.ts';
 import type { PageProps } from '../App.tsx';
@@ -89,15 +89,15 @@ export function Decisions({ ctx, route }: PageProps) {
   // An item asked or withdrawn shows the moment it is.
   const pulse = useLivePulse(companyId);
   const queue = useLoad(async () => {
-    const [{ items }, digest, later, { standing }]: [
-      { items: InboxItem[] }, Digest, { items: InboxItem[] }, { standing: StandingApproval[] },
+    const [{ items }, digest, later, { standing, schedules }]: [
+      { items: InboxItem[] }, Digest, { items: InboxItem[] }, { standing: StandingApproval[]; schedules: ScheduleApproval[] },
     ] = await Promise.all([
       api('GET', `/api/companies/${companyId}/inbox`),
       api('GET', `/api/companies/${companyId}/digest`),
       api('GET', `/api/companies/${companyId}/inbox?snoozed=1`),
       api('GET', `/api/companies/${companyId}/standing-approvals`),
     ]);
-    return { items, digest, later: later.items, standing };
+    return { items, digest, later: later.items, standing, schedules };
   }, [companyId], { every: 15_000, pulse });
   const [filter, setFilter] = useState<Filter>('all');
   const [missingLink, setMissingLink] = useState(false);
@@ -201,6 +201,9 @@ export function Decisions({ ctx, route }: PageProps) {
 
       {queue.data.standing.length > 0 && !(narrow && current) && (
         <Standing companyId={companyId} standing={queue.data.standing} changed={queue.reload} />
+      )}
+      {queue.data.schedules.length > 0 && !(narrow && current) && (
+        <ForSchedules companyId={companyId} schedules={queue.data.schedules} changed={queue.reload} />
       )}
 
       {queue.data.items.length === 0 ? (
@@ -456,10 +459,30 @@ function Detail({
   const [traceOpen, setTraceOpen] = useState(false);
   const [answer, setAnswer] = useState('');
 
-  const send = (decision: string, proof?: Proof, allowForHours?: number) =>
+  const send = (decision: string, proof?: Proof, allowForHours?: number, forSchedule?: boolean) =>
     api('POST', `/api/companies/${companyId}/inbox/${item.id}/decide`, {
-      decision, note, ...(proof ? { proof } : {}), ...(allowForHours ? { allowForHours } : {}),
+      decision, note, ...(proof ? { proof } : {}), ...(allowForHours ? { allowForHours } : {}), ...(forSchedule ? { forSchedule } : {}),
     });
+
+  // 0116: yes, and every time this schedule does exactly this. It loosens a
+  // control for months, so it always takes the owner's device.
+  const approveForSchedule = async (schedule: string) => {
+    setBusy('approve');
+    setError(null);
+    try {
+      const done = await requireFactor(
+        t('{capability}, every time {schedule} does exactly this', { capability: item.capabilityName ? capabilitySaid(item.capabilityName) : '', schedule }),
+        (proof) => send('approve', proof, undefined, true),
+      );
+      if (!done) return;
+      notifications.show({ color: 'teal', message: t('Approved, and allowed every time {schedule} does exactly this, for ninety days.', { schedule }) });
+      decided();
+    } catch (failure) {
+      setError(explain(failure));
+    } finally {
+      setBusy(null);
+    }
+  };
 
   // 0083: yes, and the same to this role for a while. It loosens a rule, so
   // it always takes the owner's device; the dialog opens straight away.
@@ -690,6 +713,16 @@ function Detail({
                 <Text size="xs" c="dimmed">{t('Take it over there, do what it asks, and give it back: that answers this.')}</Text>
               </Stack>
             )}
+            {/* Asked for a key (owner.ask with key): given in the division's keys, and saving it answers this. */}
+            {item.key && !seat && (
+              <Stack gap={4} mb="sm" align="flex-start">
+                <Button leftSection={<IconKey size={16} />}
+                  onClick={() => go({ kind: 'company', companyId, page: 'team', section: 'company', item: item.key!.divisionId })}>
+                  {t('Give the {alias} key', { alias: item.key.alias })}
+                </Button>
+                <Text size="xs" c="dimmed">{t('It is sealed as you save it; the role is told it is there, never what it is.')}</Text>
+              </Stack>
+            )}
             {item.options && item.options.length > 0 && (
               <Stack gap={6} mb="sm">
                 {item.options.map((option) => (
@@ -765,7 +798,7 @@ function Detail({
           <Button variant="default" leftSection={<IconX size={16} />} loading={busy === 'deny'} onClick={() => void decide('deny')}>
             {t('Deny')}
           </Button>
-          {item.allowFor && !seat ? (
+          {(item.allowFor || item.forSchedule) && !seat ? (
             <Group gap={0} wrap="nowrap">
               <Button variant="outline" color="teal" leftSection={<IconCheck size={16} />} loading={busy === 'approve'}
                 onClick={() => void decide('approve')} style={{ borderTopRightRadius: 0, borderBottomRightRadius: 0 }}>
@@ -773,16 +806,30 @@ function Detail({
               </Button>
               <Menu position="top-end" withinPortal>
                 <Menu.Target>
-                  <Button variant="outline" color="teal" px={8} aria-label={t('Approve for a while')}
+                  <Button variant="outline" color="teal" px={8}
+                    aria-label={item.allowFor ? t('Approve for a while') : t('Approve every time its schedule does it')}
                     style={{ borderTopLeftRadius: 0, borderBottomLeftRadius: 0, borderLeftWidth: 0 }}>
-                    <IconHourglass size={16} />
+                    {item.allowFor ? <IconHourglass size={16} /> : <IconRepeat size={16} />}
                   </Button>
                 </Menu.Target>
                 <Menu.Dropdown>
-                  <Menu.Label>{t('Approve, and allow {capability} to {role} without asking for', { capability: item.capabilityName ? capabilitySaid(item.capabilityName) : '', role: whoAsks(item) ?? '' })}</Menu.Label>
-                  {ALLOW_FOR.map((choice) => (
-                    <Menu.Item key={choice.hours} onClick={() => void approveFor(choice.hours, choice.label())}>{choice.label()}</Menu.Item>
-                  ))}
+                  {item.allowFor && (
+                    <>
+                      <Menu.Label>{t('Approve, and allow {capability} to {role} without asking for', { capability: item.capabilityName ? capabilitySaid(item.capabilityName) : '', role: whoAsks(item) ?? '' })}</Menu.Label>
+                      {ALLOW_FOR.map((choice) => (
+                        <Menu.Item key={choice.hours} onClick={() => void approveFor(choice.hours, choice.label())}>{choice.label()}</Menu.Item>
+                      ))}
+                    </>
+                  )}
+                  {item.allowFor && item.forSchedule && <Menu.Divider />}
+                  {item.forSchedule && (
+                    <>
+                      <Menu.Label>{t('Approve, and allow exactly this without asking')}</Menu.Label>
+                      <Menu.Item leftSection={<IconRepeat size={14} />} onClick={() => void approveForSchedule(item.forSchedule!.slug)}>
+                        {t('Every time {schedule} does it', { schedule: item.forSchedule.slug })}
+                      </Menu.Item>
+                    </>
+                  )}
                 </Menu.Dropdown>
               </Menu>
             </Group>
@@ -842,6 +889,57 @@ function Standing({ companyId, standing, changed }: {
               <Text size="sm" truncate>
                 <Text span fw={600}>{capabilitySaid(entry.capabilityName)}</Text>{' · '}{entry.roleName ?? entry.roleSlug}
               </Text>
+              <Text size="xs" c="dimmed">
+                {t('Until {when}', { when: dateTime(entry.expiresAt) })}{' · '}{tp('used {count} time', 'used {count} times', entry.uses)}
+              </Text>
+            </Box>
+            <Button size="compact-sm" variant="default" loading={busy === entry.id} onClick={() => void revoke(entry)}>
+              {t('Take back')}
+            </Button>
+          </Group>
+        ))}
+      </Stack>
+    </Paper>
+  );
+}
+
+/**
+ * The yeses the owner gave a schedule for one exact action (0116), each taken
+ * back with one press: a tightening, so no device is asked for.
+ */
+function ForSchedules({ companyId, schedules, changed }: {
+  companyId: string; schedules: ScheduleApproval[]; changed: () => void;
+}) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const revoke = async (entry: ScheduleApproval) => {
+    setBusy(entry.id);
+    try {
+      await api('POST', `/api/companies/${companyId}/schedule-approvals/${entry.id}/revoke`);
+      notifications.show({ message: t('Taken back. The next time {schedule} does it, you are asked again.', { schedule: entry.scheduleSlug }) });
+      changed();
+    } catch (failure) {
+      notifications.show({ color: 'red', message: explain(failure) });
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <Paper withBorder radius="lg" p="md">
+      <Group gap="xs" mb="xs">
+        <IconRepeat size={18} />
+        <Text fw={600}>{t('Allowed for a schedule')}</Text>
+      </Group>
+      <Text size="xs" c="dimmed" mb="sm">
+        {t('Each runs without a card when its schedule, as it is now, does exactly that action again. Anything else, a schedule that was changed, and tier 3 still ask.')}
+      </Text>
+      <Stack gap={6}>
+        {schedules.map((entry) => (
+          <Group key={entry.id} justify="space-between" wrap="nowrap" gap="sm">
+            <Box style={{ minWidth: 0 }}>
+              <Text size="sm" truncate>
+                <Text span fw={600}>{capabilitySaid(entry.capabilityName)}</Text>{' · '}{entry.scheduleSlug}
+              </Text>
+              <Text size="xs" truncate>{entry.actionSummary}</Text>
               <Text size="xs" c="dimmed">
                 {t('Until {when}', { when: dateTime(entry.expiresAt) })}{' · '}{tp('used {count} time', 'used {count} times', entry.uses)}
               </Text>

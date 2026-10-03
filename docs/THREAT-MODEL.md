@@ -111,7 +111,7 @@ refer to `docs/PRD.md`.
 
 **Reach.** What a `readsOutside` capability returns (`src/broker/catalogue.ts`:
 `web.fetch`, `web.search`, `web.extract`, `repo.read`, `mailbox.read`,
-`calendar.read`, `crm.read`, `speech.transcribe`, `chat.read`,
+`calendar.read`, `crm.read`, `speech.transcribe`, `image.describe`, `chat.read`,
 `browser.read`, `browser.act`; every MCP tool, `src/capabilities/mcp.ts`;
 `ticket.list`), and any task a hook starts.
 
@@ -149,6 +149,35 @@ refer to `docs/PRD.md`.
    parent's, including what the parent's other sub-tasks read, and a task
    the owner makes from a ticket a run filed carries the ticket's words. A
    yes for a while never covers a call in tainted work, at any tier.
+5c. A yes for a schedule (0116) does cover tainted work, and only because it
+   is narrower than the taint: one schedule as it was defined when the yes
+   was given (a digest of its role, division, project, goal, account,
+   instruction and timing), one capability, and one action to the byte (the
+   same fingerprint as 4). What was read cannot have shaped an action every
+   byte of which the owner already approved; change one byte -- a recipient,
+   a word, an amount -- or the schedule, and the owner is asked. Never tier
+   3, never past ninety days, only with the owner's device, and only the
+   owner's console writes one (the application role counts uses).
+5d. A reply to a customer may go without the owner although the work began
+   with the customer's words (0117, `chat.send`'s `clearsOutside`), inside
+   bounds the capability checks before any model is asked: the owner turned
+   the channel on with their device; the reply goes to the conversation the
+   work began with; it names passages of documents the owner marked for
+   customers, read again from the company's records (the application role
+   cannot set the mark, nor the channel's switch); every figure, address and
+   link in it is in those passages or in what the customer wrote; six an hour
+   per conversation at most. Then a model shown the passages, the customer's
+   words fenced as data and the reply must say "send" with the one category
+   that sends; a refund, a price of its own, a complaint, the law, personal
+   data or a promise is the owner's card, and a model that cannot answer is
+   a no. The broker asks only at tier 2 and only where nothing else asks --
+   no policy, no guardian, no tier 3 -- so a policy the owner wrote is still
+   asked. What an injection in a customer's message can still do is choose
+   among what the owner published, and word it: it cannot add a figure, an
+   address or a link, nor reach anyone but that customer. A false statement
+   in plain words that the model misses goes out; each reply on its own is
+   marked in the conversation with what it answered from, and the owner
+   turns the channel off with their session.
 6. A lesson from tainted work is stored `outside` and shown later as data
    (0071, `keepLessons` in `src/engine/tasks.ts`).
 7. `web.fetch`, vendor and MCP calls refuse private and metadata addresses,
@@ -156,7 +185,19 @@ refer to `docs/PRD.md`.
    (`src/capabilities/reachable.ts`). A company's browser does the same for
    every request a page makes -- pictures, scripts, redirects -- through the
    platform's proxy (`src/browser/egress.ts`), with Chromium resolving no
-   name itself and no exception for loopback.
+   name itself and no exception for loopback. `web.extract` with no
+   provider chosen reads in that browser too, under the same proxy, in a
+   context made for the one reading and thrown away after it: no company's
+   sign-ins go with it, and nothing a page leaves reaches the next.
+   A PDF, a Word document or a workbook `files.read` reads is parsed in
+   that browser too, in a page of a context of its own set offline, never
+   in the platform's process (`src/browser/documents.ts`); a ZIP is
+   unpacked there counting what comes out, and refused past 32 MB.
+   A division's mailbox (`src/capabilities/mailbox.ts`) connects only to
+   the servers the owner gave in its key; a role chooses folders and words
+   to search for, never a host. Those words reach the server quoted or as
+   counted literals, and a line break in one is refused, so a role cannot
+   add an IMAP command; the folder is opened read-only.
 7b. The owner's own hand in the browser takes their device, holds the
    company's work off the browser while it lasts, and lapses when left; what
    they type goes to the page and to no event, journal or log
@@ -189,6 +230,15 @@ refer to `docs/PRD.md`.
 - A company's browser holds its sign-ins. A role with `browser.read` can open
   any page those sign-ins reach, at tier 0; what it may change there is
   `browser.act`, at tier 2.
+- A role may ask the owner for a key (`owner.ask` with `key`), and the card
+  leads to where keys are given. It may name only a key one of its own
+  division's capabilities signs in with, and is told when it is there,
+  never its value; a run persuaded to ask for anything else is refused
+  before the owner sees a card. What remains is the owner trusting a
+  convincing card: it says which capabilities the key is for.
+- A division's mailbox key reaches every message in the mailbox, and
+  `mailbox.read` is tier 0: a role granted it can read any of them, codes
+  a site sent included. What it may send is `email.send`, at tier 2.
 
 ### 2.3 A compromised or misbehaving runtime
 
@@ -463,6 +513,7 @@ All under `test/acceptance/` unless named.
 | Migration contents unchanged | `process.test.ts` |
 | A role's tools, for every runtime in another process | `out-of-process-runtimes.test.ts` |
 | The guardian: judged only after outside content, only tightens, fails closed | `guardian.test.ts` |
+| A reply on its own: the owner's device, its own conversation, marked passages, no new figure or address, six an hour, a check that fails closed | `answers-alone.test.ts` |
 | Taint through sub-tasks, searches and briefings | `tool-io.test.ts` |
 | A division's credential is not the deployment's secret | `credentials.test.ts` |
 | The browser: every request through the proxy, one context per company, cookies sealed and erased, acts only as approved | `browser.test.ts`, `company-closing.test.ts` |

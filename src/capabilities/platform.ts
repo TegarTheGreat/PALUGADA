@@ -11,7 +11,8 @@
  * be defaulted: `files.list` needs to be told which directory is the company's
  * (the default would be this process's working directory, which is the
  * repository), and the drafting pair needs a model client. A deployment that
- * passes neither gets the two web capabilities, which need nothing.
+ * passes neither gets the two web capabilities, which need nothing, and
+ * `mailbox.read` and `email.send`, whose mailbox is each division's key.
  *
  * `unbound()` is the other half and is what `scripts/smoke.ts` prints: the
  * names a template grants that nothing implements. A company granted a
@@ -25,10 +26,14 @@ import { uptimeCheck, webFetch, type WebOptions } from './web.ts';
 import { webExtract, webSearch, type ExtractProvider, type SearchProvider, type ToolBinding } from './search.ts';
 import { imageGenerate, speechSynthesize, type ImageProvider, type MediaBinding, type SpeechProvider } from './media.ts';
 import { speechTranscribe, type ListenBinding } from './listen.ts';
-import { filesList, type FilesOptions } from './files.ts';
+import { imageDescribe, type VisionBinding } from './vision.ts';
+import { filesList, filesRead, type FilesOptions } from './files.ts';
 import { docDraft, emailDraft, type DraftOptions } from './draft.ts';
 import { chatCapabilities, type ChatOptions } from './chat.ts';
-import { browserCapabilities } from './browser.ts';
+import { browserCapabilities, webExtractByBrowser } from './browser.ts';
+import { mailboxCapabilities } from './mailbox.ts';
+import { codeCompute, type ComputeOptions } from './compute.ts';
+import type { MailOptions } from '../chats/mail.ts';
 import type { Browsers } from '../browser/browsers.ts';
 
 export interface PlatformCapabilityOptions {
@@ -46,7 +51,10 @@ export interface PlatformCapabilityOptions {
   /** Omitted means the drafting pair stays unbound. */
   llm?: LlmClient;
   draftModel?: string;
-  /** The search and reading providers the owner chose; omitted, `web.search` and `web.extract` stay unbound. */
+  /**
+   * The search and reading providers the owner chose; omitted, `web.search`
+   * stays unbound, and `web.extract` is the browser's when there is one.
+   */
   search?: ToolBinding<SearchProvider>;
   extract?: ToolBinding<ExtractProvider>;
   /** Pictures and speech, kept in the company's files. */
@@ -54,6 +62,8 @@ export interface PlatformCapabilityOptions {
   speech?: MediaBinding<SpeechProvider>;
   /** Recordings in the company's files, written down. */
   listen?: ListenBinding & { root: string };
+  /** Pictures in the company's files, described. */
+  vision?: VisionBinding & { root: string };
   /**
    * Customers' conversations (0111): where each channel's token is sealed.
    * Omitted, `chat.read` and `chat.send` stay unbound.
@@ -62,8 +72,21 @@ export interface PlatformCapabilityOptions {
   /**
    * The companies' browsers (`src/browser/`): a Chromium this deployment
    * found or was given. Omitted, `browser.read` and `browser.act` stay unbound.
+   * Given, it also reads pages for `web.extract` when no provider is chosen.
    */
   browser?: Browsers;
+  /**
+   * Where to trust a mail server with a private certificate, for
+   * `mailbox.read` and `email.send` on a division's own mailbox. They are
+   * bound either way: the mailbox is each division's key.
+   */
+  mail?: MailOptions;
+  /**
+   * Python on the company's files, in a container that reaches no network:
+   * the image and the docker that runs it. Omitted, `code.compute` stays
+   * unbound.
+   */
+  compute?: ComputeOptions;
 }
 
 /**
@@ -83,14 +106,23 @@ export function platformCapabilities(
 
   if (options.files) {
     built.push(filesList(options.files) as unknown as Capability<never, never>);
+    // A PDF, a Word document or a workbook is read in the browser, when there is one.
+    built.push(filesRead(options.files, options.browser) as unknown as Capability<never, never>);
   }
   if (options.search) built.push(webSearch(options.search) as unknown as Capability<never, never>);
+  // A page is read by the provider the owner chose; with none, by this
+  // deployment's browser when it has one, which sends the address nowhere.
   if (options.extract) built.push(webExtract(options.extract) as unknown as Capability<never, never>);
+  else if (options.browser) built.push(webExtractByBrowser(options.browser) as unknown as Capability<never, never>);
   if (options.image) built.push(imageGenerate(options.image) as unknown as Capability<never, never>);
   if (options.speech) built.push(speechSynthesize(options.speech) as unknown as Capability<never, never>);
   if (options.listen) built.push(speechTranscribe(options.listen) as unknown as Capability<never, never>);
+  if (options.vision) built.push(imageDescribe(options.vision) as unknown as Capability<never, never>);
+  if (options.compute) built.push(codeCompute(options.compute) as unknown as Capability<never, never>);
   if (options.chat) built.push(...chatCapabilities(options.chat));
   if (options.browser) built.push(...browserCapabilities(options.browser));
+  // A division's own mailbox; a service bound for either name replaces it.
+  built.push(...mailboxCapabilities(options.mail ?? {}));
 
   // The drafting pair needs both: a model to compose with and a place to put
   // the result. §8.8 calibrates them at tier 1 because a draft is a write, and

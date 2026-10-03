@@ -63,6 +63,11 @@ export function ChatThread({ messages }: { messages: ChatMessage[] }) {
                 )}
                 {!message.sent && <Badge size="xs" color="red" variant="light">{t('Not sent')}</Badge>}
               </Group>
+              {message.answeredAlone && (
+                <Text size="xs" c="dimmed" ta="right" style={{ overflowWrap: 'anywhere' }}>
+                  {t('Sent on its own, from {documents}', { documents: message.answeredAlone.from.join(', ') })}
+                </Text>
+              )}
             </Paper>
           </Group>
         );

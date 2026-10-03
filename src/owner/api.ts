@@ -51,7 +51,7 @@ import { PalugadaError } from '../errors.ts';
 import { withControlPlane, withTenant, type TenantClient } from '../db/tenant.ts';
 import * as inbox from '../inbox/inbox.ts';
 import { briefingOf, traceFromInboxItem, traceOfTask } from '../reporting/trace.ts';
-import { addDocument, archiveDocument, listDocuments, readDocument } from '../knowledge/documents.ts';
+import { addDocument, archiveDocument, listDocuments, readDocument, setForCustomers } from '../knowledge/documents.ts';
 import { buildDailyDigest, buildWeeklyRetro } from '../reporting/digest.ts';
 import {
   clearStopAll,
@@ -107,7 +107,7 @@ import {
   createTrigger, receiveHook, rotateTriggerToken, setTriggerEnabled, triggersOf, type TriggerScheme,
 } from '../scheduler/triggers.ts';
 import {
-  assertAccountFree, channelsOf, chatWith, chatsOf, checkChannel, closeChannel, hashSecret, openChannel,
+  assertAccountFree, channelsOf, chatWith, chatsOf, checkChannel, closeChannel, hashSecret, openChannel, setAnswersAlone,
 } from '../chats/chats.ts';
 import { receiveChatHook, verifyChatHook } from '../chats/hook.ts';
 import { checkMailbox, mailSettings, type MailOptions } from '../chats/mail.ts';
@@ -159,6 +159,7 @@ import {
   type RoleChange,
 } from '../eval/role-eval.ts';
 import { CapabilityRegistry } from '../broker/registry.ts';
+import { keysAskedFor } from '../broker/keys.ts';
 import { McpUnauthorized, accessFor, assertPlainHttpIsLocal, bindMcpServers, currentPins, offeredTools, type TokenIn } from '../capabilities/mcp.ts';
 import { beginSignIn, discoverSignIn, finishSignIn, forgetSignIn, mcpSecretName, oauthGrantsIn } from '../capabilities/mcp-oauth.ts';
 import { MCP_PRESETS } from '../capabilities/mcp-presets.ts';
@@ -166,6 +167,7 @@ import { DEFAULT_PRICE_TABLE, parsePriceTable, rateFor, withConsolePrices, type 
 import { MODELS_DEV_URL, lookupPrices } from '../engine/models-dev.ts';
 import { beginCredentialSignIn, finishCredentialSignIn, hasClient, OAUTH_CREDENTIALS, type CredentialSignIn } from '../capabilities/vendor-oauth.ts';
 import { LISTEN_PROVIDERS, listenProvider, transcribe, type Heard, type ListenBinding, type ListenProvider } from '../capabilities/listen.ts';
+import { DEFAULT_QUESTION, describePicture, pictureKind, VISION_PROVIDERS, visionProvider, type Picture, type VisionProvider } from '../capabilities/vision.ts';
 import { EMBED_PROVIDERS, embed, embedProvider, type EmbedBinding, type EmbedProvider } from '../capabilities/embed.ts';
 import {
   ceoOpensConversation, chatMayApply, chatPartners, chatScope, closeProposal, conversation, converse, forgetConversation, moveChat, patternFor, proposalById,
@@ -1256,6 +1258,8 @@ export class OwnerApi {
               // 0083: `decide` checks it, and asks for the factor it needs.
               ...(body.allowForHours === undefined || body.allowForHours === null
                 ? {} : { allowForHours: Number(body.allowForHours) }),
+              // 0116: every time the card's schedule does exactly this.
+              ...(body.forSchedule === true ? { forSchedule: true } : {}),
               // A staff seat's decision: `decide` holds it to tier 2 and below.
               seat: staff ? { id: staff.seat.id, name: staff.seat.name } : null,
             },
@@ -1266,10 +1270,24 @@ export class OwnerApi {
       },
 
       {
-        // 0083: the yeses the owner gave for a while, still in force.
+        // 0083: the yeses the owner gave for a while, still in force; and
+        // 0116's, given to a schedule for one exact action.
         method: 'GET',
         pattern: '/api/companies/:companyId/standing-approvals',
-        handle: async ({ params }) => ({ standing: await inbox.standingApprovals(params.companyId!) }),
+        handle: async ({ params }) => ({
+          standing: await inbox.standingApprovals(params.companyId!),
+          schedules: await inbox.scheduleApprovals(params.companyId!),
+        }),
+      },
+
+      {
+        // Taking one back is a tightening, so the session is enough.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/schedule-approvals/:approvalId/revoke',
+        handle: async ({ params }) => {
+          await inbox.revokeScheduleApproval(params.companyId!, params.approvalId!);
+          return { ok: true };
+        },
       },
 
       {
@@ -2248,7 +2266,7 @@ export class OwnerApi {
             kinds,
             providers: {
               search: SEARCH_PROVIDERS, extract: EXTRACT_PROVIDERS, image: IMAGE_PROVIDERS, speech: SPEECH_PROVIDERS, listen: LISTEN_PROVIDERS,
-              embed: EMBED_PROVIDERS,
+              embed: EMBED_PROVIDERS, vision: VISION_PROVIDERS,
             },
             filesRoot: Boolean(deployment.baseEnv.PALUGADA_FILES_ROOT),
             applies: deployment.restart ? 'now' : 'next_start',
@@ -2261,12 +2279,13 @@ export class OwnerApi {
         // used for this call and saved nowhere.
         method: 'POST',
         pattern: '/api/control/tools/:kind/test',
-        // A recording to try Listening with is larger than a search.
+        // A recording to try Listening with, or a picture to try Seeing
+        // with, is larger than a search.
         maxBodyBytes: 16 * 1024 * 1024,
         handle: async ({ params, body }) => {
           const { kind, binding } = await this.#toolCandidate(params.kind!, body);
           try {
-            const signal = AbortSignal.timeout(kind === 'image' || kind === 'speech' || kind === 'listen' ? 120_000 : 30_000);
+            const signal = AbortSignal.timeout(kind === 'image' || kind === 'speech' || kind === 'listen' || kind === 'vision' ? 120_000 : 30_000);
             if (kind === 'embed') {
               // One sentence, to show the provider answers and how long its vectors are.
               const model = typeof body.model === 'string' && body.model.trim() ? body.model.trim() : null;
@@ -2277,6 +2296,12 @@ export class OwnerApi {
               // A clip the owner recorded on the page, heard once and kept nowhere.
               const text = await transcribe({ ...binding as ToolBinding<ListenProvider>, model: typeof body.model === 'string' && body.model.trim() ? body.model.trim() : null },
                 audioFrom(body), typeof body.language === 'string' ? body.language : null, signal);
+              return { problem: null, text };
+            }
+            if (kind === 'vision') {
+              // A picture the owner chose on the page, looked at once and kept nowhere.
+              const text = await describePicture({ ...binding as ToolBinding<VisionProvider>, model: typeof body.model === 'string' && body.model.trim() ? body.model.trim() : null },
+                pictureFrom(body), typeof body.question === 'string' && body.question.trim() ? body.question.trim().slice(0, 1_000) : DEFAULT_QUESTION, signal);
               return { problem: null, text };
             }
             if (kind === 'image' || kind === 'speech') {
@@ -2321,8 +2346,9 @@ export class OwnerApi {
           }
           const tools = { ...((await readSettings()).tools as Partial<Record<ToolKind, ToolSetting>> | undefined) };
           const text = (field: string) => (typeof body[field] === 'string' && (body[field] as string).trim() ? (body[field] as string).trim().slice(0, 120) : null);
-          const model = kind === 'image' || kind === 'speech' || kind === 'listen' || kind === 'embed' ? text('model') : null;
-          const voice = kind === 'speech' ? text('voice') : null;
+          // A model and a voice for the kinds that have one, as TOOL_KINDS says.
+          const model = 'model' in TOOL_KINDS[kind] ? text('model') : null;
+          const voice = 'voice' in TOOL_KINDS[kind] ? text('voice') : null;
           tools[kind] = {
             provider: provider.id, ...(url ? { url } : {}), ...(typed || keep ? { keySecret: secret } : {}),
             ...(model ? { model } : {}), ...(voice ? { voice } : {}),
@@ -2591,8 +2617,9 @@ export class OwnerApi {
           const presets = await vendorPresets();
           const taken: Record<string, string> = {};
           for (const preset of presets) {
+            // A binding that gives way to a service is not one that takes its name.
             const bound = this.#options.registry?.get(preset.name);
-            if (bound && !saved.some((one) => one.name === preset.name)) taken[preset.name] = bound.adapter;
+            if (bound && !bound.fallback && !saved.some((one) => one.name === preset.name)) taken[preset.name] = bound.adapter;
           }
           return { presets, saved, taken };
         },
@@ -3443,6 +3470,31 @@ export class OwnerApi {
       },
 
       {
+        // A channel answering on its own (0117): a reply grounded in the
+        // documents the owner marked for customers goes without a card when
+        // chat.send's check finds it so. Turning it on loosens a control, so
+        // the device; turning it off tightens one, so the session. On, the
+        // role that answers is given memory.search first, without which it
+        // could find no passage to answer from.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/chat-channels/:channelId/answers-alone',
+        handle: async ({ params, body }) => {
+          const companyId = params.companyId!;
+          if (typeof body.on !== 'boolean') throw new PalugadaError('contract.violation', 'on is true or false', { field: 'on' });
+          if (body.on) {
+            const channel = (await channelsOf(companyId)).find((one) => one.id === params.channelId);
+            if (!channel) throw new PalugadaError('contract.violation', 'no such channel in this company', { channelId: params.channelId });
+            await this.#requireFactor(body.proof, 'let a channel answer customers on its own', companyId);
+            const divisionId = await withTenant(companyId, async (tx) => (await tx.query<{ division_id: string }>(
+              'SELECT division_id FROM roles WHERE id = $1', [channel.roleId])).rows[0]!.division_id);
+            await this.#answerCustomers(companyId, divisionId, channel.roleId, channel.account, ['chat.read', 'chat.send', 'memory.search']);
+          }
+          await setAnswersAlone(companyId, params.channelId!, body.on);
+          return { answersAlone: body.on };
+        },
+      },
+
+      {
         // The company's conversations with customers, the latest first; with
         // `?task=`, the one a piece of work answers, which a card asking for
         // a reply shows beside the reply.
@@ -4156,10 +4208,12 @@ export class OwnerApi {
               createdAt: row.created_at.toISOString(),
               rotatedAt: row.rotated_at?.toISOString() ?? null,
               ...(signIns.has(row.alias) ? { signIn: signIns.get(row.alias) } : {}),
+              ...(asked.get(row.alias)?.form ? { form: asked.get(row.alias)!.form!.kind } : {}),
             })),
             needs: [...asked].filter(([alias]) => !have.has(alias)).map(([alias, need]) => ({
               alias, capabilities: need.capabilities, scopes: need.scopes,
               ...(signIns.has(alias) ? { signIn: signIns.get(alias) } : {}),
+              ...(need.form ? { form: need.form.kind } : {}),
             })),
             callback,
           };
@@ -4183,7 +4237,7 @@ export class OwnerApi {
               'an alias is lower-case letters, digits, - and _, starting with a letter: the name the service asks for, such as email or crm',
               { field: 'alias' });
           }
-          const value = typeof body.value === 'string' ? body.value.trim() : '';
+          let value = typeof body.value === 'string' ? body.value.trim() : '';
           if (value.length < 8 || value.length > 8_192) {
             throw new PalugadaError('contract.violation', 'paste the whole key the service gave you', { field: 'value' });
           }
@@ -4192,9 +4246,19 @@ export class OwnerApi {
           if (value.startsWith('{"oauth2"')) {
             throw new PalugadaError('contract.violation', 'a key that is signed in for is made by signing in, not pasted', { field: 'value' });
           }
-          await withControlPlane((tx) => assertDivisionOf(tx, companyId, divisionId));
+          const granted = await withControlPlane(async (tx) => {
+            await assertDivisionOf(tx, companyId, divisionId);
+            const { rows } = await tx.query<{ capability_name: string }>(
+              'SELECT capability_name FROM capability_grants WHERE company_id = $1 AND division_id = $2', [companyId, divisionId]);
+            return rows.map((row) => row.capability_name);
+          });
+          // A key asked for in a form -- a mailbox -- is held to its shape
+          // before the device, and taken by its service before it is sealed.
+          const form = keysAskedFor(this.#options.registry, granted).get(alias)?.form;
+          if (form) value = form.parse(value);
           await this.#requireFactor(body.proof, `save the ${alias} key`, companyId);
           if (!deployment.master(true)) throw new PalugadaError('credential.unavailable', 'this deployment cannot seal a secret', {});
+          if (form) await form.check(value);
           return this.#keepDivisionKey({ companyId, divisionId, alias, value, prefix: CREDENTIAL_SECRETS });
         },
       },
@@ -4498,6 +4562,20 @@ export class OwnerApi {
           ...(body.divisionId ? { divisionId: requireText(body.divisionId, 'divisionId') } : {}),
           ...(typeof body.fileName === 'string' ? { fileName: body.fileName } : {}),
         }),
+      },
+
+      {
+        // Which documents customers may be told (0117): a channel that
+        // answers on its own answers only from these. The session is enough:
+        // what a marked document lets go alone, the session could already
+        // approve card by card, and the channel's switch is the device's.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/documents/:documentId/for-customers',
+        handle: async ({ params, body }) => {
+          if (typeof body.on !== 'boolean') throw new PalugadaError('contract.violation', 'on is true or false', { field: 'on' });
+          await setForCustomers(params.companyId!, params.documentId!, body.on);
+          return { forCustomers: body.on };
+        },
       },
 
       {
@@ -5394,12 +5472,13 @@ export class OwnerApi {
    * structural change the owner made (F2.9, F3.9) -- with the device the
    * channel was connected with. What it has already is left as it is.
    */
-  async #answerCustomers(companyId: string, divisionId: string, roleId: string, channel: string): Promise<void> {
-    const wanted = ['chat.read', 'chat.send'];
+  async #answerCustomers(
+    companyId: string, divisionId: string, roleId: string, channel: string, wanted: readonly string[] = ['chat.read', 'chat.send'],
+  ): Promise<void> {
     const { granted, tools } = await withTenant(companyId, async (tx) => ({
       granted: (await tx.query<{ capability_name: string }>(
         'SELECT capability_name FROM capability_grants WHERE division_id = $1 AND capability_name = ANY($2::text[])',
-        [divisionId, wanted])).rows.map((row) => row.capability_name),
+        [divisionId, [...wanted]])).rows.map((row) => row.capability_name),
       tools: (await tx.query<{ tools: string[] }>('SELECT tools FROM roles WHERE id = $1', [roleId])).rows[0]?.tools ?? [],
     }));
     for (const capabilityName of wanted.filter((name) => !granted.includes(name))) {
@@ -5750,6 +5829,17 @@ export class OwnerApi {
       throw failure;
     }
     if (previous?.startsWith(`db://${CREDENTIAL_SECRETS}`)) await deleteSecret(previous.slice('db://'.length));
+    // Every role that asked for this key (`owner.ask` with `key`) is told it
+    // is there -- that it is, never what it is -- and its work goes on.
+    const { rows: asked } = await withTenant(companyId, (tx) => tx.query<{ id: string }>(
+      `SELECT id FROM inbox_items
+        WHERE kind = 'escalation' AND status = 'open' AND payload->>'askedBy' = 'agent'
+          AND payload->'key'->>'alias' = $1 AND payload->'key'->>'divisionId' = $2
+        ORDER BY created_at`, [alias, divisionId]));
+    for (const item of asked) {
+      await inbox.answerEscalation(companyId, item.id,
+        `The owner gave the ${alias} key. Call the capability that needed it again: it signs in with it now.`, { channel: 'app' });
+    }
     return { alias, version };
   }
 
@@ -5897,11 +5987,11 @@ export class OwnerApi {
     const id = typeof body.provider === 'string' ? body.provider : '';
     const lists = {
       search: SEARCH_PROVIDERS, extract: EXTRACT_PROVIDERS, image: IMAGE_PROVIDERS, speech: SPEECH_PROVIDERS, listen: LISTEN_PROVIDERS,
-      embed: EMBED_PROVIDERS,
+      embed: EMBED_PROVIDERS, vision: VISION_PROVIDERS,
     } as const;
     const provider = kind === 'search' ? searchProvider(id) : kind === 'extract' ? extractProvider(id)
       : kind === 'image' ? imageProvider(id) : kind === 'speech' ? speechProvider(id)
-        : kind === 'embed' ? embedProvider(id) : listenProvider(id);
+        : kind === 'embed' ? embedProvider(id) : kind === 'vision' ? visionProvider(id) : listenProvider(id);
     if (!provider) {
       const known = lists[kind].map((one) => one.id);
       throw new PalugadaError('contract.violation', `provider is one of ${known.join(', ')}; got ${id || 'nothing'}`, { field: 'provider' });
@@ -5922,7 +6012,7 @@ export class OwnerApi {
     if (provider.key === 'required' && !typed && !keep) {
       throw new PalugadaError('contract.violation', `${provider.name} needs a key`, { field: 'key' });
     }
-    const binding: ToolBinding<SearchProvider | ExtractProvider | ImageProvider | SpeechProvider | ListenProvider | EmbedProvider> = {
+    const binding: ToolBinding<SearchProvider | ExtractProvider | ImageProvider | SpeechProvider | ListenProvider | EmbedProvider | VisionProvider> = {
       provider,
       url,
       key: async () => (typed ?? (keep ? deployment.secrets.resolve(`db://tool-${kind}`) : null)),
@@ -6460,6 +6550,16 @@ function audioFrom(body: Record<string, unknown>): Heard {
   return { bytes: Buffer.from(audio, 'base64'), mime };
 }
 
+/** A picture the owner chose to try Seeing with: a `data:` address, held to being one of the kinds a provider takes. */
+function pictureFrom(body: Record<string, unknown>): Picture {
+  const image = typeof body.image === 'string' ? body.image.replace(/^data:[^;]*;base64,/, '') : '';
+  if (!image) throw new PalugadaError('contract.violation', 'choose a picture to try it with', { field: 'image' });
+  const bytes = Buffer.from(image, 'base64');
+  const mime = pictureKind(bytes);
+  if (!mime) throw new PalugadaError('contract.violation', 'that is not a picture: a PNG, JPEG, WebP or GIF is', { field: 'image' });
+  return { bytes, mime };
+}
+
 /** What a route answered, in a sentence the conversation keeps: short, and never a secret, which no route returns. */
 function outcomeOf(result: unknown): string {
   const text = JSON.stringify(result) ?? '';
@@ -6470,33 +6570,6 @@ function outcomeOf(result: unknown): string {
 /** The services the owner connected in the console. */
 function vendorsIn(settings: Record<string, unknown>): VendorSpec[] {
   return ((settings.vendors as { capabilities?: VendorSpec[] } | undefined)?.capabilities) ?? [];
-}
-
-/**
- * The keys a division's granted capabilities ask for, by alias: which
- * capabilities use each, and the scopes they need of it (F12.6).
- */
-function keysAskedFor(
-  registry: CapabilityRegistry | undefined,
-  granted: readonly string[],
-): Map<string, { capabilities: string[]; scopes: string[]; signIn?: CredentialSignIn }> {
-  const asked = new Map<string, { capabilities: string[]; scopes: string[]; signIn?: CredentialSignIn }>();
-  for (const name of [...granted].sort()) {
-    const capability = registry?.get(name);
-    if (!capability?.credentialAlias) continue;
-    const entry: { capabilities: string[]; scopes: string[]; signIn?: CredentialSignIn } = asked.get(capability.credentialAlias) ?? { capabilities: [], scopes: [] };
-    entry.capabilities.push(name);
-    for (const scope of capability.requiredScopes ?? []) if (!entry.scopes.includes(scope)) entry.scopes.push(scope);
-    // One sign-in for the key, asking for every scope its capabilities need
-    // of the same provider.
-    if (capability.signIn && (!entry.signIn || entry.signIn.provider === capability.signIn.provider)) {
-      entry.signIn = entry.signIn
-        ? { ...entry.signIn, scopes: [...new Set([...entry.signIn.scopes, ...capability.signIn.scopes])] }
-        : capability.signIn;
-    }
-    asked.set(capability.credentialAlias, entry);
-  }
-  return asked;
 }
 
 /** Where a credential's value lives, said without saying the value. */

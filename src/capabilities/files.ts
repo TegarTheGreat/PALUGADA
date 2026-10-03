@@ -15,9 +15,9 @@
  * implementation does not have to rediscover it.
  *
  * **No reading of contents.** The name is `files.list`, and listing is what it
- * does: names, sizes and times. A capability that also returned file contents
- * would be a different capability with a different tier, and the template
- * grants this one to divisions that were never assessed for that.
+ * does: names, sizes and times. Reading a file is `files.read`, below: a
+ * capability of its own, catalogued as a read of outside content, so a
+ * division is granted it on purpose rather than with the listing.
  *
  * **One directory per company, and the platform picks it.** The configured
  * root is the root for *every* company, so the company's own directory is a
@@ -30,6 +30,8 @@
  */
 import { PalugadaError } from '../errors.ts';
 import type { Capability } from '../broker/registry.ts';
+import type { Browsers, DocumentKind } from '../browser/browsers.ts';
+import { UNPACKED_MAX } from '../browser/documents.ts';
 
 export interface FilesOptions {
   /**
@@ -190,6 +192,189 @@ export function filesList(options: FilesOptions): Capability<ListInput, ListOutp
         path: relative(base, real) || '.',
         entries,
         truncated: names.length > maxEntries,
+      };
+    },
+  };
+}
+
+export interface ReadInput {
+  /** Relative to the company's files. */
+  path: string;
+  /** Where in the text to begin, for a file longer than one reading. */
+  from?: number;
+}
+
+export interface ReadOutput {
+  path: string;
+  /** What the file was: text as it is, or a document read as text. */
+  kind: 'text' | DocumentKind;
+  bytes: number;
+  text: string;
+  from: number;
+  /** Where the next reading begins, or null at the end. */
+  next: number | null;
+}
+
+/**
+ * A file under one company's files, read as `files.read` and
+ * `image.describe` read one: the path resolved, and refused when it ends
+ * outside the company's directory -- `..`, a link to another company's file
+ * or to `/etc` -- as `files.list` refuses a folder; then opened without
+ * following a link and checked as opened, so a link put where the file was
+ * after the path was resolved is not read through. At most `maxBytes`, and
+ * `limit` says so when it is more.
+ */
+export async function readCompanyFile(
+  root: string, companyId: string, path: unknown, maxBytes: number, limit: string,
+): Promise<{ path: string; real: string; bytes: Buffer; size: number; mtimeMs: number }> {
+  const { open, realpath } = await import('node:fs/promises');
+  const { constants } = await import('node:fs');
+  const { join, resolve, sep, normalize, relative } = await import('node:path');
+  const base = await companyRoot(root, companyId);
+  const wanted = normalize(String(path ?? '')).replace(/^(\.\/)+/, '');
+  if (!wanted || wanted === '.') throw new PalugadaError('contract.violation', 'path is a file under the company\'s files, as files.list names it', { field: 'path' });
+  const target = resolve(join(base, wanted));
+  let real: string | null = null;
+  try {
+    real = await realpath(target);
+  } catch {
+    // Not there -- unless the path leads outside, which is said as that.
+  }
+  const inside = (where: string) => where === base || where.startsWith(base + sep);
+  if (!inside(target) || (real !== null && !inside(real))) {
+    throw new PalugadaError('capability.unreachable', `${wanted} is outside the company's files`, { path: wanted });
+  }
+  if (real === null) throw new PalugadaError('contract.violation', `there is no file ${wanted}: files.list says what there is`, { path: wanted });
+  const handle = await open(real, constants.O_RDONLY | constants.O_NOFOLLOW).catch(() => {
+    throw new PalugadaError('capability.unreachable', `${wanted} is outside the company's files`, { path: wanted });
+  });
+  try {
+    const info = await handle.stat();
+    if (info.isDirectory()) throw new PalugadaError('contract.violation', `${wanted} is a folder: files.list lists it`, { path: wanted });
+    if (!info.isFile()) throw new PalugadaError('contract.violation', `${wanted} is not a file`, { path: wanted });
+    if (info.size > maxBytes) {
+      throw new PalugadaError('contract.violation', `${wanted} is ${Math.round(info.size / 1_048_576)} MB; ${limit}`, { path: wanted });
+    }
+    return { path: relative(base, real), real, bytes: await handle.readFile(), size: info.size, mtimeMs: info.mtimeMs };
+  } finally {
+    await handle.close();
+  }
+}
+
+/** The most text one reading returns, as with a page read from the web. */
+const READ_CHARS = 60_000;
+/** The largest file read at all: a reading pages through it, but reads it whole each time. */
+const READ_MAX_BYTES = 10 * 1024 * 1024;
+
+/** A document read in the browser is kept a while, so its next page is not another reading. */
+const CONVERTED_KEPT = 16;
+const CONVERTED_MS = 10 * 60_000;
+
+const DOCUMENT_SAID: Record<DocumentKind, string> = { pdf: 'a PDF', word: 'a Word document', excel: 'an Excel workbook' };
+
+/**
+ * A document by what its bytes say, before anything reads them as text: a
+ * PDF may be ASCII from end to end. Word and Excel are ZIP files, told apart
+ * by the name they are saved under.
+ */
+function documentKind(bytes: Buffer, name: string): DocumentKind | null {
+  if (bytes.subarray(0, 1024).includes('%PDF-')) return 'pdf';
+  if (bytes.length >= 4 && bytes.readUInt32LE(0) === 0x04034b50) {
+    if (/\.(docx|docm)$/i.test(name)) return 'word';
+    if (/\.(xlsx|xlsm)$/i.test(name)) return 'excel';
+  }
+  return null;
+}
+
+/**
+ * `files.read` -- a file in the company's files, as text (the tools research,
+ * recommendation 3).
+ *
+ * The same containment as `files.list`, for the same reason: the path is
+ * resolved with `realpath`, so a link is followed only to see where it goes,
+ * and anything that ends outside this company's directory is refused, as a
+ * file of another company is. Text is UTF-8, read strictly: a file that is
+ * not -- a picture, a recording -- is said to be not text rather than
+ * returned as noise. A long one is read a page at a time.
+ *
+ * A PDF, a Word document and an Excel workbook are read as text in the
+ * deployment's browser (`Browsers.convert`), never in this process: they are
+ * untrusted binaries, and the browser reads each in a sandboxed page with no
+ * network. Without a browser they are said to need one.
+ */
+export function filesRead(options: FilesOptions, browser?: Browsers): Capability<ReadInput, ReadOutput> {
+  const converted = new Map<string, { kind: DocumentKind; text: string; at: number }>();
+  return {
+    name: 'files.read',
+    inputSchema: {
+      type: 'object',
+      required: ['path'],
+      properties: {
+        path: { type: 'string', minLength: 1, maxLength: 1_000, description: 'The file, under the company\'s files, as files.list names it: drafts/offer.md.' },
+        from: { type: 'integer', minimum: 0, description: 'Where to begin, for the next page of a long file: the next a reading gave.' },
+      },
+      additionalProperties: false,
+    },
+    adapter: 'platform:files',
+    defaultTier: 0,
+    describe: () => ({ moneyCents: 0 }),
+    async execute(input, ctx) {
+      const opened = await readCompanyFile(options.root, ctx.companyId, input.path, READ_MAX_BYTES, 'files.read reads files up to 10 MB');
+      const { path: wanted, real, bytes } = opened;
+      async function convertedText(document: DocumentKind): Promise<string> {
+        const said = DOCUMENT_SAID[document];
+        if (!browser) {
+          throw new PalugadaError('capability.unreachable',
+            `${wanted} is ${said}: this deployment reads them in its browser, and has none (install Chromium, or set PALUGADA_CHROMIUM)`, { path: wanted });
+        }
+        const key = `${real}:${opened.size}:${opened.mtimeMs}`;
+        const kept = converted.get(key);
+        if (kept && Date.now() - kept.at < CONVERTED_MS) return kept.text;
+        const answer = await browser.convert(document, bytes, ctx.signal);
+        if ('failure' in answer) {
+          const why = {
+            'no-reader': `${wanted} is a PDF, and this deployment's console was built without its PDF reader: build it again (npm run console:build)`,
+            'too-large': `${wanted} is too large once unpacked: files.read unpacks up to ${UNPACKED_MAX / 1_048_576} MB of a document, and reads up to 5 million characters`,
+            unreadable: `${wanted} is not ${said} that can be read`,
+            encrypted: `${wanted} is locked with a password`,
+            'no-text': `${wanted} has no text in it -- it may be a scan`,
+            'too-slow': `${wanted} took over a minute to read, and was left`,
+          }[answer.failure];
+          throw new PalugadaError(answer.failure === 'no-reader' ? 'capability.unreachable' : 'contract.violation', why, { path: wanted });
+        }
+        for (const [old, entry] of converted) if (Date.now() - entry.at >= CONVERTED_MS) converted.delete(old);
+        while (converted.size >= CONVERTED_KEPT) converted.delete(converted.keys().next().value!);
+        converted.set(key, { kind: document, text: answer.text, at: Date.now() });
+        return answer.text;
+      }
+
+      let whole: string;
+      let kind: ReadOutput['kind'] = 'text';
+      const document = documentKind(bytes, wanted);
+      if (document) {
+        kind = document;
+        whole = await convertedText(document);
+      } else {
+        try {
+          whole = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes);
+          if (whole.includes('\u0000')) throw new Error('a NUL');
+        } catch {
+          throw new PalugadaError('contract.violation', `${wanted} is not text, nor a PDF, Word or Excel file: files.read reads those`, { path: wanted });
+        }
+      }
+      const from = Math.floor(Number(input.from ?? 0));
+      if (!Number.isFinite(from) || from < 0 || (from > 0 && from >= whole.length)) {
+        throw new PalugadaError('contract.violation', `from is past the end: ${wanted} is ${whole.length} characters`, { field: 'from' });
+      }
+      const end = Math.min(whole.length, from + READ_CHARS);
+
+      return {
+        path: wanted,
+        kind,
+        bytes: opened.size,
+        text: whole.slice(from, end),
+        from,
+        next: end < whole.length ? end : null,
       };
     },
   };

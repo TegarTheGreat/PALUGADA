@@ -29,6 +29,7 @@ import { Cdp } from './cdp.ts';
 import { keepable, type CookieStore, type StoredCookie } from './cookies.ts';
 import { startEgress, type Egress } from './egress.ts';
 import { ELEMENTS_MAX, KEYS, PAGE_SCRIPT, TEXT_MAX, WORLD } from './page.ts';
+import { CONVERT_SCRIPT, type ConversionFailure } from './documents.ts';
 
 export interface BrowserSettings {
   /** Chromium, or Chrome. */
@@ -42,6 +43,12 @@ export interface BrowserSettings {
   maxCompanies?: number;
   /** A tab, a company's browser and Chromium itself are closed after this long unused. */
   idleMs?: number;
+  /**
+   * The folder holding pdf.js (`pdf.min.mjs` and `pdf.worker.min.mjs`), which
+   * the console's build puts in `console/dist/reader`; without it, a PDF is
+   * not read (`convert`).
+   */
+  reader?: string;
   viewport?: { width: number; height: number };
 }
 
@@ -131,8 +138,27 @@ export interface Screen {
   height: number;
 }
 
+/** A page's text without what is around it, as `extract` reads it. */
+export interface ArticleReading {
+  url: string;
+  title: string;
+  text: string;
+  /** How many characters there were beyond the most asked for. */
+  more: number;
+}
+
 /** The owner's own tab, apart from any work's. */
 const OWNER_TAB = 'owner';
+
+/** Pages `extract` reads at once; each is a context of its own while it does. */
+const EXTRACTS_AT_ONCE = 4;
+
+/** Documents `convert` reads at once, and how long one may take. */
+const CONVERSIONS_AT_ONCE = 2;
+const CONVERT_MS = 60_000;
+
+/** What `convert` reads: a PDF, a Word document, an Excel workbook. */
+export type DocumentKind = 'pdf' | 'word' | 'excel';
 
 export const MAX_STEPS = 20;
 const TABS_PER_COMPANY = 8;
@@ -225,6 +251,12 @@ export class Browsers {
   readonly #opening = new Map<string, Promise<Context>>();
   readonly #sessions = new Map<string, Tab>();
   readonly #queues = new Map<string, Promise<void>>();
+  /** The contexts `extract` made, each for one reading. */
+  readonly #readers = new Set<string>();
+  #extracting = 0;
+  #converting = 0;
+  /** pdf.js, read once from `reader`, as the page imports it; null when it is not there. */
+  #pdfjs: Promise<{ lib: string; worker: string } | null> | null = null;
   readonly #reaper: NodeJS.Timeout;
   #lastUsed = Date.now();
   #closed = false;
@@ -295,6 +327,127 @@ export class Browsers {
     const reading = await this.#call<PageReading & { moreElements: number }>(tab, `__palugada.read(${TEXT_MAX}, ${ELEMENTS_MAX})`);
     const { moreElements, ...rest } = reading;
     return moreElements > 0 ? { ...rest, moreElements } : rest;
+  }
+
+  /**
+   * A page's text, read as `web.extract` reads one, in a browser that is
+   * nobody's: a context made for this one reading and thrown away after it,
+   * so no company's sign-ins go with it and nothing the page left is kept
+   * or seen by the next. Its address is held to the same rules as any.
+   */
+  async extract(at: { companyId: string }, url: string, maxText: number, signal?: AbortSignal): Promise<ArticleReading> {
+    if (this.#closed) throw new PalugadaError('capability.unreachable', 'the browser is shutting down', {});
+    if (this.#extracting >= EXTRACTS_AT_ONCE) {
+      throw new PalugadaError('capability.busy', `the browser is reading ${EXTRACTS_AT_ONCE} pages already; this waits for one of them`,
+        { capability: 'web.extract', limit: EXTRACTS_AT_ONCE, notBefore: new Date(Date.now() + 30_000).toISOString() });
+    }
+    this.#extracting += 1;
+    this.#lastUsed = Date.now();
+    let context: Context | null = null;
+    try {
+      const cdp = await this.#ready();
+      const { browserContextId } = await cdp.send<{ browserContextId: string }>('Target.createBrowserContext', {
+        proxyServer: this.#egress!.server, proxyBypassList: '<-loopback>', disposeOnDetach: false,
+      });
+      const locale = await this.#localeOf(at.companyId);
+      context = {
+        companyId: '', id: browserContextId, tabs: new Map(), lastUsed: Date.now(), busy: 1,
+        saved: '[]', saving: Promise.resolve(), ...locale,
+      };
+      this.#readers.add(browserContextId);
+      await cdp.send('Browser.setDownloadBehavior', { behavior: 'deny', browserContextId });
+      const tab = await this.#tab(context, 'extract', `extract/${browserContextId}`);
+      const since = Date.now();
+      await this.#navigate(tab, url, since, signal);
+      const page = await this.#call<ArticleReading>(tab, `__palugada.article(${Math.max(1, Math.floor(maxText))})`);
+      const refused = this.#egress?.refusalFor(page.url, since);
+      if (refused) {
+        throw new PalugadaError('capability.unreachable', `${new URL(page.url).host} was not opened: ${refused}`, { url: page.url });
+      }
+      return page;
+    } finally {
+      if (context) {
+        for (const tab of context.tabs.values()) this.#sessions.delete(tab.sessionId);
+        this.#readers.delete(context.id);
+        await this.#cdp?.send('Target.disposeBrowserContext', { browserContextId: context.id }).catch(() => undefined);
+      }
+      this.#extracting -= 1;
+      this.#lastUsed = Date.now();
+    }
+  }
+
+  /**
+   * A document's text, read in a page of a context made for it, set offline
+   * and disposed of after (`documents.ts` says why it is read there and not
+   * here). The answer is the text, or why there is none, which the caller
+   * says with the file's name.
+   */
+  async convert(kind: DocumentKind, bytes: Buffer, signal?: AbortSignal): Promise<{ text: string } | { failure: ConversionFailure | 'no-reader' }> {
+    if (this.#closed) throw new PalugadaError('capability.unreachable', 'the browser is shutting down', {});
+    const libraries = kind === 'pdf' ? await this.#pdfLibraries() : null;
+    if (kind === 'pdf' && !libraries) return { failure: 'no-reader' };
+    if (this.#converting >= CONVERSIONS_AT_ONCE) {
+      throw new PalugadaError('capability.busy', `the browser is reading ${CONVERSIONS_AT_ONCE} documents already; this waits for one of them`,
+        { capability: 'files.read', limit: CONVERSIONS_AT_ONCE, notBefore: new Date(Date.now() + 30_000).toISOString() });
+    }
+    if (signal?.aborted) throw signal.reason ?? new Error('the work was stopped');
+    this.#converting += 1;
+    this.#lastUsed = Date.now();
+    let contextId: string | null = null;
+    const dispose = async () => {
+      if (!contextId) return;
+      const id = contextId;
+      contextId = null;
+      this.#readers.delete(id);
+      await this.#cdp?.send('Target.disposeBrowserContext', { browserContextId: id }).catch(() => undefined);
+    };
+    const stop = () => { void dispose(); };
+    signal?.addEventListener('abort', stop, { once: true });
+    try {
+      const cdp = await this.#ready();
+      ({ browserContextId: contextId } = await cdp.send<{ browserContextId: string }>('Target.createBrowserContext', {
+        proxyServer: this.#egress!.server, proxyBypassList: '<-loopback>', disposeOnDetach: false,
+      }));
+      this.#readers.add(contextId!);
+      await cdp.send('Browser.setDownloadBehavior', { behavior: 'deny', browserContextId: contextId });
+      const { targetId } = await cdp.send<{ targetId: string }>('Target.createTarget', { url: 'about:blank', browserContextId: contextId });
+      const { sessionId } = await cdp.send<{ sessionId: string }>('Target.attachToTarget', { targetId, flatten: true });
+      // Offline as well as behind the proxy: a document has nothing to fetch.
+      await cdp.send('Network.enable', {}, sessionId);
+      await cdp.send('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 }, sessionId);
+      const expression = `(${CONVERT_SCRIPT})(${JSON.stringify(kind)}, ${JSON.stringify(bytes.toString('base64'))}, ${JSON.stringify(libraries)})`;
+      let answer: { result: { value?: unknown } };
+      try {
+        answer = await cdp.send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }, sessionId, CONVERT_MS);
+      } catch (failure) {
+        if (signal?.aborted) throw signal.reason ?? failure;
+        if (/did not answer/.test((failure as Error).message)) return { failure: 'too-slow' };
+        throw failure;
+      }
+      const value = answer.result.value as { text?: unknown; failure?: unknown } | undefined;
+      if (typeof value?.text === 'string') return { text: value.text };
+      return { failure: (typeof value?.failure === 'string' ? value.failure : 'unreadable') as ConversionFailure };
+    } finally {
+      signal?.removeEventListener('abort', stop);
+      await dispose();
+      this.#converting -= 1;
+      this.#lastUsed = Date.now();
+    }
+  }
+
+  async #pdfLibraries(): Promise<{ lib: string; worker: string } | null> {
+    this.#pdfjs ??= (async () => {
+      if (!this.#settings.reader) return null;
+      const { readFile } = await import('node:fs/promises');
+      const { join } = await import('node:path');
+      try {
+        const [lib, worker] = await Promise.all(['pdf.min.mjs', 'pdf.worker.min.mjs'].map((name) => readFile(join(this.#settings.reader!, name))));
+        return { lib: lib!.toString('base64'), worker: worker!.toString('base64') };
+      } catch {
+        return null;
+      }
+    })();
+    return this.#pdfjs;
   }
 
   /* ------------------------------------------------------------- acting --- */
@@ -673,7 +826,8 @@ export class Browsers {
     // A window a page opened despite everything is closed.
     cdp.on('Target.targetCreated', (params) => {
       const info = params.targetInfo as { targetId: string; type: string; openerId?: string; browserContextId?: string };
-      const ours = [...this.#contexts.values()].some((context) => context.id === info.browserContextId);
+      const ours = [...this.#contexts.values()].some((context) => context.id === info.browserContextId)
+        || (info.browserContextId !== undefined && this.#readers.has(info.browserContextId));
       if (info.type === 'page' && info.openerId && ours) void cdp.send('Target.closeTarget', { targetId: info.targetId }).catch(() => undefined);
     });
     const gone = (sessionId: string | undefined) => {
@@ -734,8 +888,7 @@ export class Browsers {
       }
       await this.#closeContext(idle);
     }
-    const { rows: [company] } = await withControlPlane((tx) => tx.query<{ work_language: string | null; timezone: string | null }>(
-      'SELECT work_language, timezone FROM companies WHERE id = $1', [companyId]));
+    const locale = await this.#localeOf(companyId);
     const { browserContextId } = await cdp.send<{ browserContextId: string }>('Target.createBrowserContext', {
       // Through the proxy, loopback included: Chromium's own exception for
       // it is taken away with `<-loopback>`.
@@ -744,14 +897,20 @@ export class Browsers {
     await cdp.send('Browser.setDownloadBehavior', { behavior: 'deny', browserContextId });
     const cookies = await this.#settings.cookies.load(companyId);
     await this.#restore(cdp, browserContextId, cookies);
-    const language = languageOf(company?.work_language ?? null);
     const context: Context = {
       companyId, id: browserContextId, tabs: new Map(), lastUsed: Date.now(), busy: 0,
-      saved: JSON.stringify(keepable(cookies)), saving: Promise.resolve(),
-      acceptLanguage: language.header, locale: language.locale, timezone: company?.timezone ?? null,
+      saved: JSON.stringify(keepable(cookies)), saving: Promise.resolve(), ...locale,
     };
     this.#contexts.set(companyId, context);
     return context;
+  }
+
+  /** What a site is told of the company: the language it works in and where its day is. */
+  async #localeOf(companyId: string): Promise<Pick<Context, 'acceptLanguage' | 'locale' | 'timezone'>> {
+    const { rows: [company] } = await withControlPlane((tx) => tx.query<{ work_language: string | null; timezone: string | null }>(
+      'SELECT work_language, timezone FROM companies WHERE id = $1', [companyId]));
+    const language = languageOf(company?.work_language ?? null);
+    return { acceptLanguage: language.header, locale: language.locale, timezone: company?.timezone ?? null };
   }
 
   /** Cookies back into a context; one Chromium will not take is left out rather than losing the rest. */
@@ -838,7 +997,8 @@ export class Browsers {
       }
       if (context.busy === 0 && context.tabs.size === 0 && now - context.lastUsed > this.#idleMs) await this.#closeContext(context);
     }
-    if (this.#cdp && this.#contexts.size === 0 && this.#opening.size === 0 && now - this.#lastUsed > this.#idleMs) {
+    if (this.#cdp && this.#contexts.size === 0 && this.#opening.size === 0 && this.#extracting === 0 && this.#converting === 0
+      && now - this.#lastUsed > this.#idleMs) {
       const cdp = this.#cdp;
       this.#cdp = null;
       await cdp.close();

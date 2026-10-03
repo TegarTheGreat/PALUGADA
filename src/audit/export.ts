@@ -163,9 +163,10 @@ const SECTIONS: Section[] = [
             FROM metric_observations ORDER BY observed_at`,
   },
   {
-    // The company's documents (0075), whole and in passages.
+    // The company's documents (0075), whole and in passages, with the
+    // owner's mark of which customers may be told (0117).
     name: 'documents',
-    sql: `SELECT id, division_id, title, body, file_name, source, created_at, archived_at
+    sql: `SELECT id, division_id, title, body, file_name, source, created_at, archived_at, for_customers
             FROM documents ORDER BY created_at`,
   },
   {
@@ -198,7 +199,9 @@ const SECTIONS: Section[] = [
   },
   {
     name: 'chat_messages',
-    sql: `SELECT id, chat_id, direction, external_id, body, attachment, subject, outcome, task_id, idempotency_key, created_at
+    // With what a reply that went on its own answered from (0117).
+    sql: `SELECT id, chat_id, direction, external_id, body, attachment, subject, outcome, task_id, idempotency_key, created_at,
+                 grounds
             FROM chat_messages ORDER BY created_at`,
   },
   {

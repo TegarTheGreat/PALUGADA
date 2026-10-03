@@ -69,7 +69,7 @@ export function mailSettings(body: Record<string, unknown>, address: string): Ma
  * A refusal said for the owner: the mailbox's own words -- at sign-in, that
  * it did not take the password -- or that it could not be reached.
  */
-function failureSaid(failure: unknown, settings: MailSettings, side: 'IMAP' | 'SMTP', signingIn = true): PalugadaError {
+export function failureSaid(failure: unknown, settings: MailSettings, side: 'IMAP' | 'SMTP', signingIn = true): PalugadaError {
   if (failure instanceof PalugadaError) return failure;
   const server = `${side} at ${side === 'IMAP' ? settings.imapHost : settings.smtpHost}`;
   if (failure instanceof MailRefused) {
@@ -110,10 +110,10 @@ export async function checkMailbox(settings: MailSettings, password: string, opt
 
 /** Sends one message from the mailbox. */
 export async function sendFromMailbox(
-  settings: MailSettings, password: string, message: { from: string; to: string; raw: Buffer }, options: MailOptions = {},
-): Promise<void> {
+  settings: MailSettings, password: string, message: { from: string; to: string | string[]; raw: Buffer }, options: MailOptions = {},
+): Promise<string | null> {
   try {
-    await smtpSession({ host: settings.smtpHost, port: settings.smtpPort, username: settings.username, password, ...options }, message);
+    return await smtpSession({ host: settings.smtpHost, port: settings.smtpPort, username: settings.username, password, ...options }, message);
   } catch (failure) {
     if (failure instanceof MailRefused) {
       throw new PalugadaError('contract.violation', `the mail server refused the reply: ${failure.message}`, { transport: 'email' });
@@ -136,9 +136,10 @@ async function claimDue(now: Date, everyMs: number, companyId: string | undefine
       id: string; company_id: string; kind: ChatKind; account: string; project_id: string; division_id: string;
       role_id: string; goal_id: string; instruction: string; max_per_hour: number; webhook_hash: string;
       mail: MailSettings; token_ref: string; poll_state: DueMailbox['pollState']; poll_failure: string | null;
+      answers_alone: boolean;
     }>(
       `SELECT id, company_id, kind, account, project_id, division_id, role_id, goal_id, instruction, max_per_hour,
-              webhook_hash, mail, token_ref, poll_state, poll_failure
+              webhook_hash, mail, token_ref, poll_state, poll_failure, answers_alone
          FROM chat_channels
         WHERE kind = 'email' AND enabled AND (polled_at IS NULL OR polled_at <= $1::timestamptz - make_interval(secs => $2))
           AND ($3::uuid IS NULL OR company_id = $3)
@@ -154,7 +155,7 @@ async function claimDue(now: Date, everyMs: number, companyId: string | undefine
       id: row.id, companyId: row.company_id, kind: row.kind, account: row.account, projectId: row.project_id,
       divisionId: row.division_id, roleId: row.role_id, goalId: row.goal_id, instruction: row.instruction,
       maxPerHour: row.max_per_hour, webhookHash: row.webhook_hash, accountId: null, secretRef: null,
-      mail: row.mail, tokenRef: row.token_ref, pollState: row.poll_state, pollFailure: row.poll_failure,
+      answersAlone: row.answers_alone, mail: row.mail, tokenRef: row.token_ref, pollState: row.poll_state, pollFailure: row.poll_failure,
     }));
   });
 }

@@ -147,8 +147,9 @@ What each step does:
 - `npm run db:migrate` applies the schema in `db/migrations/`, one numbered
   file at a time, each in its own transaction.
 - `npm run console:build` builds the console into `console/dist`, which the
-  server serves. Without it the server answers the API and nothing else, and
-  says so when it starts.
+  server serves, with the PDF reader the companies' browsers use beside it
+  (`console/dist/reader`). Without it the server answers the API and nothing
+  else, and says so when it starts.
 - `npm start` reads `.env` and starts the worker and the console together on
   `http://127.0.0.1:8787`. It prints what it configured and what it did not,
   one line each starting with `palugada:`, and ends with

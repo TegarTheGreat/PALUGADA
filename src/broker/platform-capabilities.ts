@@ -42,7 +42,9 @@ import { PalugadaError, isPalugadaError } from '../errors.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { hashInput } from '../engine/hash.ts';
 import { noteTalkDrift } from '../domain/language.ts';
+import { proposeSchedule } from '../scheduler/proposals.ts';
 import type { Capability } from './registry.ts';
+import { keysAskedFor } from './keys.ts';
 
 export interface MemorySearchInput {
   query: string;
@@ -58,7 +60,13 @@ export interface MemorySearchInput {
 export interface MemorySearchResult {
   facts: Array<{ body: string; confidence: number; source: string; unverified: boolean; outside?: boolean }>;
   /** Passages of the company's documents the query's words point at (0075). */
-  documents: Array<{ title: string; heading: string | null; passage: string }>;
+  documents: Array<{
+    title: string; heading: string | null; passage: string;
+    /** The document and the passage's place in it, by which a reply to a customer names what it answers from. */
+    document: string; place: number;
+    /** Whether customers may be told it (0117). */
+    forCustomers: boolean;
+  }>;
   /** True when the limit cut the answer short, so the caller can ask again. */
   truncated: boolean;
 }
@@ -144,6 +152,11 @@ export function memorySearchCapability(): Capability<MemorySearchInput, MemorySe
         documents: passages.map((found) => ({
           title: found.title,
           heading: found.heading,
+          // Where it is, so a reply to a customer can name what it answers
+          // from; and whether customers may be told it (0117).
+          document: found.documentId,
+          place: found.passage,
+          forCustomers: found.forCustomers === true,
           passage: wrapUntrusted(`document:${found.title}`, found.body),
         })),
         facts: facts.slice(0, limit).map((memory) => ({
@@ -410,17 +423,21 @@ export function ticketListCapability(): Capability<{ status?: string; limit?: nu
 
 export function registerPlatformCapabilities(registry: {
   register(capability: Capability<never, never>): void;
-  get?(name: string): unknown;
+  get?(name: string): Capability<never, never> | undefined;
 }): void {
   registry.register(memorySearchCapability() as unknown as Capability<never, never>);
   registry.register(skillReadCapability() as unknown as Capability<never, never>);
   registry.register(planRecordCapability() as unknown as Capability<never, never>);
   registry.register(metricRecordCapability() as unknown as Capability<never, never>);
-  registry.register(ownerAskCapability(registry.get ? (name) => Boolean(registry.get!(name)) : undefined) as unknown as Capability<never, never>);
+  registry.register(ownerAskCapability(
+    registry.get ? (name) => Boolean(registry.get!(name)) : undefined,
+    registry.get ? { get: (name) => registry.get!(name) } : undefined,
+  ) as unknown as Capability<never, never>);
   registry.register(taskDelegateCapability() as unknown as Capability<never, never>);
   registry.register(taskAwaitCapability() as unknown as Capability<never, never>);
   registry.register(stageProposeCapability() as unknown as Capability<never, never>);
   registry.register(goalProposeCapability() as unknown as Capability<never, never>);
+  registry.register(scheduleProposeCapability() as unknown as Capability<never, never>);
   registry.register(ticketCreateCapability() as unknown as Capability<never, never>);
   registry.register(ticketListCapability() as unknown as Capability<never, never>);
 }
@@ -588,6 +605,54 @@ export function goalProposeCapability(): Capability<GoalProposeInput, { proposed
   };
 }
 
+export interface ScheduleProposeInput {
+  /** A short name for it: lower-case letters, digits and dashes. */
+  name: string;
+  /** When, as a five-field cron expression. */
+  cron: string;
+  /** The zone the cron is read in; the owner's when not given. */
+  timezone?: string;
+  /** Another role of this company that should do it, by its slug; this one when not given. */
+  role?: string;
+  /** What each run does: the instruction each run is given. */
+  instruction: string;
+  /** The evidence that the work recurs, for the owner. */
+  why: string;
+}
+
+/**
+ * `schedule.propose`: ask the owner to make some work recur (the tools
+ * research, gap #12). Tier 0 for the reason `goal.propose` is: it opens one
+ * item and changes nothing, and the schedule exists when the owner says yes.
+ */
+export function scheduleProposeCapability(): Capability<ScheduleProposeInput, { proposed: boolean; inboxItemId: string; note?: string }> {
+  return {
+    name: 'schedule.propose',
+    inputSchema: {
+      type: 'object',
+      required: ['name', 'cron', 'instruction', 'why'],
+      properties: {
+        name: { type: 'string', minLength: 1, maxLength: 63, description: 'A short name: lower-case letters, digits and dashes, such as weekly-sales.' },
+        cron: { type: 'string', minLength: 9, maxLength: 120, description: 'When, as five cron fields: "0 9 * * 1" is Mondays at nine. At most once an hour.' },
+        timezone: { type: 'string', maxLength: 64, description: 'An IANA zone such as Asia/Jakarta; the owner\'s when not given.' },
+        role: { type: 'string', maxLength: 64, description: 'Another role that should do it, by its slug; you, when not given.' },
+        instruction: { type: 'string', minLength: 1, maxLength: 2_000, description: 'What each run does, as the instruction it is given.' },
+        why: { type: 'string', minLength: 1, maxLength: 1_000, description: 'The evidence that this work recurs, for the owner, with where it came from.' },
+      },
+      additionalProperties: false,
+    },
+    adapter: 'platform',
+    defaultTier: TIER.READ_ONLY,
+    describe: () => ({ moneyCents: 0 }),
+    async execute(input, ctx) {
+      return proposeSchedule({
+        companyId: ctx.companyId, taskId: ctx.taskId,
+        name: input.name, cron: input.cron, timezone: input.timezone, role: input.role, instruction: input.instruction, why: input.why,
+      });
+    },
+  };
+}
+
 export interface OwnerAskInput {
   /** One question, answerable by the owner alone. */
   question: string;
@@ -595,6 +660,12 @@ export interface OwnerAskInput {
   why?: string;
   /** Two to six answers to choose from, when there are that few: the owner presses one. */
   options?: string[];
+  /**
+   * The key one of the division's capabilities signs in with, when that is
+   * what is asked for: the owner gives it where keys are given, and the run
+   * is told it is there, never what it is.
+   */
+  key?: string;
 }
 
 export interface OwnerAskResult {
@@ -663,14 +734,51 @@ async function setupAsked(
 }
 
 /**
+ * The key a run asks for, held to what its division's capabilities sign in
+ * with (the tools research, recommendation 7): a key nothing in the division
+ * uses is refused before the owner sees anything, so a run talked into
+ * asking for "the AWS key" asks nobody; a key the division holds is not
+ * asked for again.
+ */
+async function keyAsked(
+  ctx: { companyId: string; divisionId: string },
+  alias: string,
+  registry: { get(name: string): Capability<never, never> | undefined },
+): Promise<{ held: true; capabilities: string[] } | { held: false; capabilities: string[] }> {
+  if (!/^[a-z][a-z0-9_-]{0,39}$/.test(alias)) {
+    throw new PalugadaError('contract.violation', 'key is the name a capability gives the key it signs in with, such as crm or mailbox', { field: 'key' });
+  }
+  const { granted, held } = await withTenant(ctx.companyId, async (tx) => {
+    const grants = await tx.query<{ capability_name: string }>(
+      'SELECT capability_name FROM capability_grants WHERE division_id = $1', [ctx.divisionId]);
+    const keys = await tx.query<{ alias: string }>('SELECT alias FROM credentials WHERE division_id = $1', [ctx.divisionId]);
+    return { granted: grants.rows.map((row) => row.capability_name), held: new Set(keys.rows.map((row) => row.alias)) };
+  });
+  const asked = keysAskedFor(registry, granted);
+  const need = asked.get(alias);
+  if (!need) {
+    throw new PalugadaError('contract.violation',
+      `no capability this division may use signs in with a key named ${alias}`
+        + (asked.size > 0 ? `; the keys its capabilities ask for: ${[...asked.keys()].join(', ')}` : '; none of them asks for a key'),
+      { field: 'key' });
+  }
+  return { held: held.has(alias), capabilities: need.capabilities };
+}
+
+/**
  * `bound` says whether a capability is bound in this deployment. Given, a
  * question about setting up a tool nothing is bound to -- "which CRM vendor
  * should I bind?" -- is answered here rather than put to the owner (L7):
  * the owner connects a service on This deployment, Services, and an answer
  * typed into an inbox item connects nothing. The run is told so and carries
  * on; the owner is asked only what they can answer.
+ *
+ * `registry` lets a run ask for a key by name (`key`): see `keyAsked`.
  */
-export function ownerAskCapability(bound?: (name: string) => boolean): Capability<OwnerAskInput, OwnerAskResult> {
+export function ownerAskCapability(
+  bound?: (name: string) => boolean,
+  registry?: { get(name: string): Capability<never, never> | undefined },
+): Capability<OwnerAskInput, OwnerAskResult> {
   return {
     name: 'owner.ask',
     inputSchema: {
@@ -680,6 +788,7 @@ export function ownerAskCapability(bound?: (name: string) => boolean): Capabilit
         question: { type: 'string', minLength: 1, description: 'One question only the owner can answer.' },
         why: { type: 'string', description: 'What depends on the answer.' },
         options: { type: 'array', minItems: 2, maxItems: 6, items: { type: 'string', minLength: 1 }, description: 'Two to six answers the owner can press.' },
+        key: { type: 'string', maxLength: 40, description: 'When a capability says this division holds no key it signs in with: that key\'s name. The owner gives it; you are told when it is there, never what it is.' },
       },
     },
     adapter: 'platform',
@@ -693,7 +802,21 @@ export function ownerAskCapability(bound?: (name: string) => boolean): Capabilit
       if (question.length > QUESTION_MAX) {
         throw new PalugadaError('contract.violation', `a question is at most ${QUESTION_MAX} characters`, { field: 'question' });
       }
-      const unbound = bound ? await setupAsked(ctx, question, input.options, bound) : [];
+      let key: { alias: string; divisionId: string; capabilities: string[] } | null = null;
+      if (input.key !== undefined) {
+        if (!registry) throw new PalugadaError('contract.violation', 'this deployment cannot say which keys a division needs', { field: 'key' });
+        const alias = String(input.key).trim();
+        const asked = await keyAsked(ctx, alias, registry);
+        if (asked.held) {
+          return {
+            answered: true,
+            answer: `This division holds the ${alias} key: call ${asked.capabilities.join(' or ')} again. If it is refused, `
+              + 'say so: the owner may need to give it again.',
+          };
+        }
+        key = { alias, divisionId: ctx.divisionId, capabilities: asked.capabilities };
+      }
+      const unbound = bound && !key ? await setupAsked(ctx, question, input.options, bound) : [];
       if (unbound.length > 0) {
         await withTenant(ctx.companyId, (tx) => appendEvent(tx, {
           companyId: ctx.companyId, taskId: ctx.taskId, type: 'task.question_answered_by_platform', actor: 'system',
@@ -713,6 +836,7 @@ export function ownerAskCapability(bound?: (name: string) => boolean): Capabilit
         question,
         why: typeof input.why === 'string' ? input.why : null,
         options: Array.isArray(input.options) ? input.options.map(String) : null,
+        ...(key ? { key } : {}),
       });
       if (asked.state === 'answered') return { answered: true, answer: asked.answer };
       if (asked.state === 'unanswered') {
@@ -1014,5 +1138,5 @@ export function taskAwaitCapability(): Capability<{ childId: string }, TaskAwait
 /** The names this module implements, for a caller that needs to know. */
 export const PLATFORM_CAPABILITIES = [
   'memory.search', 'skill.read', 'plan.record', 'metric.record', 'owner.ask', 'task.delegate', 'task.await',
-  'stage.propose', 'goal.propose',
+  'stage.propose', 'goal.propose', 'schedule.propose',
 ] as const;

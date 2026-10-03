@@ -214,12 +214,16 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     { division: 'ops', capability: 'uptime.check' },
     { division: 'ops', capability: 'metrics.read' },
     { division: 'ops', capability: 'files.list' },
+    { division: 'ops', capability: 'files.read' },
     { division: 'ops', capability: 'calendar.read' },
     { division: 'ops', capability: 'calendar.hold' },
     { division: 'ops', capability: 'doc.draft' },
     { division: 'ops', capability: 'ticket.create' },
     // The backlog the CEO hands on: tickets the planner and support file.
     { division: 'ops', capability: 'ticket.list' },
+    // Work owed again and again, proposed as a schedule the owner says yes
+    // to rather than asked for by hand each time.
+    { division: 'ops', capability: 'schedule.propose' },
     ...HAND_ON.map((capability) => ({ division: 'ops', capability })),
 
     // Delivery plans; it does not deploy. The separation is what makes the
@@ -231,6 +235,7 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     { division: 'delivery', capability: 'web.search' },
     { division: 'delivery', capability: 'web.extract' },
     { division: 'delivery', capability: 'files.list' },
+    { division: 'delivery', capability: 'files.read' },
     { division: 'delivery', capability: 'doc.draft' },
     { division: 'delivery', capability: 'ticket.create' },
     ...HAND_ON.map((capability) => ({ division: 'delivery', capability })),
@@ -274,12 +279,22 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
     // should not hand any division a standing grant for one.
     { division: 'finance', capability: 'ledger.read' },
     { division: 'finance', capability: 'doc.draft' },
+    // A receipt or a supplier's invoice as a picture, read once a vision
+    // provider is chosen under Tools; until then the grant waits unbound.
+    { division: 'finance', capability: 'image.describe' },
+    // Figures worked out in Python on the company's files, in a container
+    // that reaches no network: F8.10 lets it sit beside Finance's keys and
+    // its invoices for that reason (0115). Unbound until the operator gives
+    // it an image. Never in the lab, whose code reaches the network: what
+    // this one reads, that one could post.
+    { division: 'finance', capability: 'code.compute' },
     { division: 'finance', capability: 'invoice.issue', rateLimitPerHour: 10 },
     { division: 'finance', capability: 'invoice.pay', rateLimitPerHour: 5 },
 
     // Support answers people who are already customers, so its send limit is
     // higher than Growth's and its reach is narrower.
     { division: 'support', capability: 'mailbox.read' },
+    { division: 'support', capability: 'image.describe' },
     { division: 'support', capability: 'crm.read' },
     { division: 'support', capability: 'crm.note' },
     { division: 'support', capability: 'ticket.create' },
@@ -315,15 +330,20 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
         'with task.await, and report what came back. The other roles file what is owed and not yet ' +
         'anyone\'s as tickets: read them with ticket.list, and hand one on with task.delegate and its ' +
         'ticketId, so it closes when the work is done. Do the work yourself only when it is ' +
-        'operations: checking that services are up, reading the metrics, reading the calendar ' +
-        'and writing things down. When a division escalates something to you, fix the cause ' +
+        'operations: checking that services are up and writing things down. When the same work ' +
+        'is owed again and again, propose a schedule for it with schedule.propose -- which role, ' +
+        'when, what each run does, and the evidence -- rather than waiting to be asked each time; ' +
+        'the owner\'s yes makes it. When a division escalates something to you, fix the cause ' +
         'or hand it to the role that can; you cannot decide for the owner. You do not contact ' +
         'anyone outside the company and you do not ship anything.',
       tools: [
         ...PLATFORM_TOOLS,
         ...HAND_ON,
         'uptime.check',
-        'metrics.read',
+        // `metrics.read` made way for `schedule.propose`, as it did for the
+        // strategist's `goal.propose`: it answers nothing until a vendor is
+        // bound, and the division still holds it to trade back on Team.
+        'schedule.propose',
         // Not `web.fetch`, `files.list`, `calendar.read` or `calendar.hold`:
         // F2.4's twelve is a budget, and routing work is worth more places
         // than those -- the backlog the other roles file first of all. The
@@ -436,8 +456,10 @@ export const STANDARD_COMPANY_TEMPLATE: CompanyTemplate = {
         'You keep the money straight: read the ledger, issue invoices, and pay invoices the ' +
         'company owes. Every payment must be matched to an invoice you have read. You ' +
         'cannot transfer money that is not settling one, and you should not ask for that ' +
-        'capability; that transfer is the owner\'s to make.',
-      tools: [...PLATFORM_TOOLS, 'ledger.read', 'doc.draft', 'invoice.issue', 'invoice.pay'],
+        'capability; that transfer is the owner\'s to make. Work figures out with code.compute ' +
+        'rather than in your head, and read a receipt or an invoice that came as a picture with ' +
+        'image.describe.',
+      tools: [...PLATFORM_TOOLS, 'ledger.read', 'doc.draft', 'image.describe', 'code.compute', 'invoice.issue', 'invoice.pay'],
       inputSchema: WORK_INPUT,
       outputSchema: WORK_OUTPUT,
     },

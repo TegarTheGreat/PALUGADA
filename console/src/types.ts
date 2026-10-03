@@ -54,6 +54,8 @@ export interface InboxItem {
   options: string[] | null;
   /** A question answered at the company's browser: the card opens it, and giving the browser back answers it. */
   browser?: boolean;
+  /** A key a role asked for (owner.ask with key): its card opens the division's keys, and giving it answers this. */
+  key?: { alias: string; divisionId: string; capabilities: string[] };
   goalChain: Array<{ kind: string; statement: string }>;
   /** When an item the owner put off comes back (0060). */
   snoozedUntil: string | null;
@@ -61,6 +63,8 @@ export interface InboxItem {
   input?: unknown;
   /** Whether it may be approved for a while (0083): a policy asked, at tier 2 or below. */
   allowFor?: boolean;
+  /** The schedule whose work asked, when it may be approved every time that schedule does exactly this (0116). */
+  forSchedule?: { slug: string } | null;
   /** How many skills a skill card asks about: one, or all a bundle brought (B9). */
   skillCount?: number | null;
   /**
@@ -78,6 +82,21 @@ export interface StandingApproval {
   /** The name the owner gave the role; the console shows it in place of the code. */
   roleName: string | null;
   capabilityName: string;
+  grantedByItem: string;
+  createdAt: string;
+  expiresAt: string;
+  uses: number;
+  lastUsedAt: string | null;
+}
+
+/** A yes the owner gave a schedule for one exact action (0116). */
+export interface ScheduleApproval {
+  id: string;
+  scheduleId: string;
+  scheduleSlug: string;
+  capabilityName: string;
+  /** The action, as the card that was approved said it. */
+  actionSummary: string;
   grantedByItem: string;
   createdAt: string;
   expiresAt: string;
@@ -593,6 +612,8 @@ export interface ChatChannel {
   /** A mailbox: when it was last read, and why the last reading failed. */
   checkedAt: string | null;
   failure: string | null;
+  /** Whether a reply grounded in documents for customers goes without the owner (0117). */
+  answersAlone: boolean;
 }
 
 /** One customer's conversation on a channel. */
@@ -624,6 +645,8 @@ export interface ChatMessage {
   /** A reply the transport took; false for one whose send failed. */
   sent: boolean;
   at: string;
+  /** A reply that went without the owner (0117): the documents it answered from, by title. */
+  answeredAlone?: { from: string[] };
 }
 
 /** An inbound trigger (0054): a URL another service posts events to. */

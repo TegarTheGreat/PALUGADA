@@ -54,14 +54,69 @@ function words(text: string): string[] {
 export interface Imap {
   port: number;
   /** The inbox, oldest first; add to it to deliver mail. */
-  messages: Array<{ uid: number; raw: string }>;
+  messages: Array<{ uid: number; raw: string; flags: Set<string>; arrived: Date }>;
   uidValidity: number;
   /** Who signed in, and with what. */
   logins: Array<{ user: string; password: string }>;
+  /** Every command after sign-in, as the client sent it, literals in place. */
+  commands: string[];
   /** Set to refuse every sign-in, as a server does after the password changed. */
   refuse: boolean;
-  deliver(raw: string): number;
+  deliver(raw: string, options?: { seen?: boolean; arrived?: Date }): number;
   close(): Promise<void>;
+}
+
+/** A header's encoded words (RFC 2047) undone, as a server searching it does. */
+function decoded(value: string): string {
+  return value.replace(/=\?([^?]+)\?([BbQq])\?([^?]*)\?=/g, (_whole, _charset: string, kind: string, text: string) => (kind.toUpperCase() === 'B'
+    ? Buffer.from(text, 'base64').toString('utf8')
+    : Buffer.from(text.replace(/_/g, ' ').replace(/=([0-9A-Fa-f]{2})/g, (_hex, code: string) => String.fromCharCode(parseInt(code, 16))), 'latin1').toString('utf8')));
+}
+
+/** One header of a raw message, unfolded and decoded. */
+function headerOf(raw: string, name: string): string {
+  const head = raw.split(/\r?\n\r?\n/)[0] ?? '';
+  const found = new RegExp(`^${name}:([^\\r\\n]*(?:\\r?\\n[ \\t][^\\r\\n]*)*)`, 'im').exec(head);
+  return found ? decoded(found[1]!.replace(/\r?\n[ \t]+/g, ' ').trim()) : '';
+}
+
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+/**
+ * UID SEARCH's keys, as many as a client reading a mailbox asks with: ALL,
+ * a UID range, FROM, SUBJECT, SINCE, UNSEEN, and CHARSET before them.
+ */
+function matching(messages: Imap['messages'], keys: string[]): number[] | null {
+  let found = [...messages];
+  for (let i = 0; i < keys.length; i += 1) {
+    const key = keys[i]!.toUpperCase();
+    if (key === 'CHARSET') { i += 1; continue; }
+    if (key === 'ALL') continue;
+    if (key === 'UNSEEN') { found = found.filter((one) => !one.flags.has('\\Seen')); continue; }
+    if (key === 'UID') {
+      const from = Number(/^(\d+):\*$/.exec(keys[i + 1] ?? '')?.[1] ?? 1);
+      i += 1;
+      const at = found.filter((one) => one.uid >= from);
+      // `n:*` names the last message even when none is at n or above, as servers do.
+      found = at.length > 0 ? at : found.slice(-1);
+      continue;
+    }
+    if (key === 'FROM' || key === 'SUBJECT') {
+      const wanted = (keys[i + 1] ?? '').toLowerCase();
+      i += 1;
+      found = found.filter((one) => headerOf(one.raw, key === 'FROM' ? 'From' : 'Subject').toLowerCase().includes(wanted));
+      continue;
+    }
+    if (key === 'SINCE') {
+      const [day, month, year] = (keys[i + 1] ?? '').split('-');
+      i += 1;
+      const since = Date.UTC(Number(year), MONTHS.indexOf((month ?? '').toLowerCase()), Number(day));
+      found = found.filter((one) => one.arrived.getTime() >= since);
+      continue;
+    }
+    return null;
+  }
+  return found.map((one) => one.uid);
 }
 
 export async function imapServer(certificate: Certificate, account: { user: string; password: string }): Promise<Imap> {
@@ -70,10 +125,11 @@ export async function imapServer(certificate: Certificate, account: { user: stri
     messages: [],
     uidValidity: 777,
     logins: [],
+    commands: [],
     refuse: false,
-    deliver(raw: string) {
+    deliver(raw: string, options = {}) {
       const uid = (state.messages.at(-1)?.uid ?? 100) + 1;
-      state.messages.push({ uid, raw });
+      state.messages.push({ uid, raw, flags: new Set(options.seen ? ['\\Seen'] : []), arrived: options.arrived ?? new Date() });
       return uid;
     },
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
@@ -81,17 +137,40 @@ export async function imapServer(certificate: Certificate, account: { user: stri
   const server = createTlsServer({ key: certificate.key, cert: certificate.cert }, (socket) => {
     let buffer = '';
     let authed = false;
+    // A command whose line ended in a literal, `{n}`: what came before it,
+    // and how many bytes of the literal are still to come.
+    let pending = '';
+    let literal = 0;
     const say = (line: string) => socket.write(`${line}\r\n`);
     say('* OK IMAP4rev1 test server ready');
     socket.on('error', () => undefined);
     socket.on('data', (chunk: Buffer) => {
       buffer += chunk.toString('latin1');
-      let at: number;
-      while ((at = buffer.indexOf('\r\n')) >= 0) {
-        const line = buffer.slice(0, at);
+      for (;;) {
+        if (literal > 0) {
+          if (buffer.length < literal) return;
+          const text = Buffer.from(buffer.slice(0, literal), 'latin1').toString('utf8');
+          buffer = buffer.slice(literal);
+          literal = 0;
+          pending += `"${text.replace(/[\\"]/g, '\\$&')}"`;
+          continue;
+        }
+        const at = buffer.indexOf('\r\n');
+        if (at < 0) return;
+        let line = pending + buffer.slice(0, at);
         buffer = buffer.slice(at + 2);
+        const announced = /\{(\d+)\}$/.exec(line);
+        if (announced && !/\bFETCH\b/i.test(line)) {
+          pending = line.slice(0, announced.index);
+          literal = Number(announced[1]);
+          say('+ Ready for literal data');
+          continue;
+        }
+        pending = '';
+        line = line.replace(/\{(\d+)\}$/, '');
         const [tag, command, ...rest] = words(line);
         const verb = (command ?? '').toUpperCase();
+        if (authed) state.commands.push(rest.length > 0 ? `${verb} ${rest.join(' ')}` : verb);
         if (verb === 'CAPABILITY') {
           say('* CAPABILITY IMAP4rev1 AUTH=PLAIN');
           say(`${tag} OK CAPABILITY completed`);
@@ -106,25 +185,35 @@ export async function imapServer(certificate: Certificate, account: { user: stri
           }
         } else if (!authed && verb !== 'LOGOUT') {
           say(`${tag} BAD Sign in first`);
-        } else if (verb === 'SELECT') {
+        } else if (verb === 'SELECT' || verb === 'EXAMINE') {
+          // One mailbox, the inbox, by any spelling of its name.
+          if ((rest[0] ?? '').toUpperCase() !== 'INBOX') {
+            say(`${tag} NO [NONEXISTENT] Unknown Mailbox: ${rest[0] ?? ''}`);
+            continue;
+          }
           say(`* ${state.messages.length} EXISTS`);
           say(`* OK [UIDVALIDITY ${state.uidValidity}] UIDs valid`);
           say(`* OK [UIDNEXT ${(state.messages.at(-1)?.uid ?? 100) + 1}] Predicted next UID`);
-          say(`${tag} OK [READ-WRITE] SELECT completed`);
+          say(`${tag} OK [${verb === 'EXAMINE' ? 'READ-ONLY' : 'READ-WRITE'}] ${verb} completed`);
         } else if (verb === 'UID' && (rest[0] ?? '').toUpperCase() === 'SEARCH') {
-          // UID a:* -- and, as servers do, the last message when none is at a or above.
-          const from = Number(/^(\d+):\*$/.exec(rest[2] ?? '')?.[1] ?? 1);
-          const found = state.messages.filter((message) => message.uid >= from).map((message) => message.uid);
-          const last = state.messages.at(-1);
-          say(`* SEARCH${(found.length > 0 ? found : last ? [last.uid] : []).map((uid) => ` ${uid}`).join('')}`);
+          const found = matching(state.messages, rest.slice(1));
+          if (found === null) {
+            say(`${tag} BAD Could not parse command`);
+            continue;
+          }
+          say(`* SEARCH${found.map((uid) => ` ${uid}`).join('')}`);
           say(`${tag} OK SEARCH completed`);
         } else if (verb === 'UID' && (rest[0] ?? '').toUpperCase() === 'FETCH') {
           const uid = Number(rest[1]);
           const index = state.messages.findIndex((message) => message.uid === uid);
-          const partial = /BODY\.PEEK\[\]<0\.(\d+)>/i.exec(line);
+          const partial = /BODY(\.PEEK)?\[\]<0\.(\d+)>/i.exec(line);
           if (index >= 0) {
-            const body = Buffer.from(state.messages[index]!.raw, 'utf8').subarray(0, partial ? Number(partial[1]) : undefined);
-            socket.write(`* ${index + 1} FETCH (UID ${uid} BODY[]${partial ? '<0>' : ''} {${body.length}}\r\n`);
+            const message = state.messages[index]!;
+            // BODY[] without PEEK marks the message read, as a server does.
+            if (!/BODY\.PEEK\[/i.test(line)) message.flags.add('\\Seen');
+            const flags = /\bFLAGS\b/i.test(line) ? ` FLAGS (${[...message.flags].join(' ')})` : '';
+            const body = Buffer.from(message.raw, 'utf8').subarray(0, partial ? Number(partial[2]) : undefined);
+            socket.write(`* ${index + 1} FETCH (UID ${uid}${flags} BODY[]${partial ? '<0>' : ''} {${body.length}}\r\n`);
             socket.write(body);
             socket.write(')\r\n');
           }

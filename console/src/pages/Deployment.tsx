@@ -9,13 +9,13 @@
  * which is exactly when an owner needs it.
  */
 import {
-  Accordion, Alert, Anchor, Autocomplete, Avatar, Badge, Button, Code, CopyButton, Grid, Group, NavLink, Paper, PasswordInput, Radio,
+  Accordion, Alert, Anchor, Autocomplete, Avatar, Badge, Button, Code, CopyButton, FileInput, Grid, Group, NavLink, Paper, PasswordInput, Radio,
   Checkbox, SegmentedControl, Select, SimpleGrid, Stack, Switch, Table, Text, Textarea, TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
   IconApi, IconBell, IconBrain, IconCheck, IconCopy, IconDownload, IconExternalLink, IconKey, IconListSearch, IconMicrophone, IconPlayerStopFilled, IconPlug,
-  IconPlugConnected, IconPlus, IconTerminal2, IconTrash,
+  IconPhoto, IconPlugConnected, IconPlus, IconTerminal2, IconTrash,
   IconWorldSearch,
 } from '@tabler/icons-react';
 import { useEffect, useMemo, useState } from 'react';
@@ -880,7 +880,7 @@ function AgentCard({ agent, reload }: { agent: AgentRow; reload: () => void }) {
   );
 }
 
-type ToolKind = 'search' | 'extract' | 'image' | 'speech' | 'listen' | 'embed';
+type ToolKind = 'search' | 'extract' | 'image' | 'speech' | 'listen' | 'vision' | 'embed';
 
 interface ToolProvider {
   id: string;
@@ -915,10 +915,11 @@ interface ToolsView {
 
 const TOOL_TEXT: Record<ToolKind, { title: string; hint: string }> = {
   search: { title: N('Web search'), hint: N('Lets a role find pages: a title, an address and a snippet of each. Its queries go to the provider you choose.') },
-  extract: { title: N('Reading pages'), hint: N('Lets a role read one page as clean text, fetched by the provider rather than by this server.') },
+  extract: { title: N('Reading pages'), hint: N('Lets a role read one page as clean text. With no provider chosen, this deployment\'s own browser reads it, if it has one, and the address goes to nobody else.') },
   image: { title: N('Making pictures'), hint: N('Lets a role draw a picture from a description. It is kept in the company\'s files, and the role\'s draft names it.') },
   speech: { title: N('Speaking'), hint: N('Lets a role turn text into a voice recording, kept in the company\'s files.') },
   listen: { title: N('Listening'), hint: N('Writes down what is said: what you say to the assistant, and recordings in the company\'s files for a role.') },
+  vision: { title: N('Reading pictures'), hint: N('Lets a role read a picture in the company\'s files -- a receipt, a screenshot, a product photo -- and copy its words. The picture goes to the provider you choose.') },
   embed: { title: N('Meaning'), hint: N('Finds the company\'s documents by what they mean, not only by the words a question shares with them. Each passage is sent to the provider once, in the background.') },
 };
 
@@ -939,10 +940,12 @@ const TOOL_ABOUT: Record<string, string> = {
   'extract:firecrawl': N('A free tier without a key'),
   'extract:tavily': N('A free tier without a key'),
   'extract:keenable': N('A free tier without a key, shared by IP'),
+  'extract:firecrawl-self-hosted': N('A Firecrawl you run'),
   'image:openai': N('GPT Image'),
   'image:fal': N('FLUX and other open models, fast and cheap'),
   'image:openrouter': N('Image models from several labs, one key'),
   'image:deepinfra': N('FLUX schnell, a fraction of a cent'),
+  'image:comfyui': N('Your own GPU, any checkpoint you have'),
   'speech:openai': N('Thirteen voices, in most languages'),
   'speech:elevenlabs': N('The most natural voices'),
   'speech:xai': N('Grok\'s voices'),
@@ -957,6 +960,13 @@ const TOOL_ABOUT: Record<string, string> = {
   'listen:deepinfra': N('Whisper, a fraction of a cent'),
   'listen:speaches': N('Whisper on your own machine, OpenAI-compatible'),
   'listen:whisper-cpp': N('Its server, started with --convert so it takes any audio'),
+  'vision:openai': N('GPT, reads most scripts and handwriting'),
+  'vision:gemini': N('A generous free tier'),
+  'vision:anthropic': N('Careful with documents and tables'),
+  'vision:openrouter': N('Vision models from several labs, one key'),
+  'vision:groq': N('Llama 4, very fast and cheap'),
+  'vision:mistral': N('Mistral Small, reads documents well'),
+  'vision:openai-compatible': N('Ollama, llama.cpp or vLLM, OpenAI-compatible'),
   'embed:openai': N('text-embedding-3, cheap and good in most languages'),
   'embed:gemini': N('Gemini embedding; free on its free tier'),
   'embed:mistral': N('Mistral embed, hosted in Europe'),
@@ -973,6 +983,7 @@ const TOOL_PROBE: Record<ToolKind, { label: string; value: string }> = {
   image: { label: N('Try a picture of'), value: N('A lighthouse at dawn, flat illustration') },
   speech: { label: N('Try saying'), value: N('Good morning. Here is what happened overnight.') },
   listen: { label: N('Try it: say a few words'), value: '' },
+  vision: { label: N('Ask about it'), value: N('What is the total on this receipt?') },
   embed: { label: N('Try a sentence'), value: N('What is our refund policy?') },
 };
 
@@ -982,7 +993,7 @@ function ToolSettings() {
   if (!view.data) return <Loading rows={5} />;
   return (
     <Stack gap="lg">
-      {(['search', 'extract', 'image', 'speech', 'listen', 'embed'] as const).map((kind) => (
+      {(['search', 'extract', 'image', 'speech', 'listen', 'vision', 'embed'] as const).map((kind) => (
         <ToolCard key={kind} kind={kind} state={view.data!.kinds[kind]} providers={view.data!.providers[kind]}
           filesRoot={view.data!.filesRoot} reload={view.reload} />
       ))}
@@ -1011,8 +1022,10 @@ function ToolCard({ kind, state, providers, filesRoot, reload }: {
     dimensions?: number;
   } | null>(null);
   const recorder = useRecorder();
+  // The picture Reading pictures is tried on, as the page read it.
+  const [picture, setPicture] = useState<string | null>(null);
   // Which of the tools has a model to choose; speaking also has a voice.
-  const hasModel = kind === 'image' || kind === 'speech' || kind === 'listen' || kind === 'embed';
+  const hasModel = kind !== 'search' && kind !== 'extract';
   const keyKept = state.keySet && state.provider === providerId && key === '';
 
   const options = [
@@ -1025,7 +1038,20 @@ function ToolCard({ kind, state, providers, filesRoot, reload }: {
     provider: providerId, url: url.trim() || undefined, key: key.trim() || undefined,
     ...(hasModel ? { model: model.trim() || undefined } : {}), ...(kind === 'speech' ? { voice: voice.trim() || undefined } : {}),
   });
-  const tried = { search: { query: probe }, extract: { url: probe }, image: { prompt: probe }, speech: { text: probe }, listen: {}, embed: { text: probe } }[kind];
+  const tried = {
+    search: { query: probe }, extract: { url: probe }, image: { prompt: probe }, speech: { text: probe }, listen: {},
+    vision: { image: picture, question: probe }, embed: { text: probe },
+  }[kind];
+  const choosePicture = (file: File | null) => {
+    setResult(null);
+    if (!file) {
+      setPicture(null);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setPicture(typeof reader.result === 'string' ? reader.result : null);
+    reader.readAsDataURL(file);
+  };
 
   /** Listening is tried with the owner's own voice: tap to record, tap again to send it. */
   const listenTest = async () => {
@@ -1085,6 +1111,9 @@ function ToolCard({ kind, state, providers, filesRoot, reload }: {
         {(kind === 'image' || kind === 'speech') && !filesRoot && (
           <Alert color="orange" variant="light">{t('What it makes is kept in each company\'s files, and this deployment has none: set PALUGADA_FILES_ROOT and start it again.')}</Alert>
         )}
+        {kind === 'vision' && !filesRoot && (
+          <Alert color="orange" variant="light">{t('The pictures it reads are each company\'s files, and this deployment has none: set PALUGADA_FILES_ROOT and start it again.')}</Alert>
+        )}
         <Select label={t('Provider')} placeholder={t('Choose a provider')} data={options} value={providerId} searchable
           onChange={(next) => { setProviderId(next); setResult(null); setKey(''); setModel(''); setVoice(''); }} />
         {provider && (
@@ -1134,6 +1163,15 @@ function ToolCard({ kind, state, providers, filesRoot, reload }: {
                   {recorder.recording ? t('Stop, and write it down') : t(TOOL_PROBE.listen.label)}
                 </Button>
               </Group>
+            ) : kind === 'vision' ? (
+              <Stack gap="xs">
+                <FileInput label={t('Picture')} accept="image/png,image/jpeg,image/webp,image/gif" clearable
+                  leftSection={<IconPhoto size={16} />} onChange={choosePicture} />
+                <Group align="flex-end" gap="sm" wrap="nowrap">
+                  <TextInput style={{ flex: 1 }} label={t(TOOL_PROBE.vision.label)} value={probe} onChange={(event) => setProbe(event.currentTarget.value)} />
+                  <Button variant="default" leftSection={<IconPlugConnected size={16} />} loading={testing} disabled={!ready || !picture} onClick={() => void test()}>{t('Test it')}</Button>
+                </Group>
+              </Stack>
             ) : (
               <Group align="flex-end" gap="sm" wrap="nowrap">
                 <TextInput style={{ flex: 1 }} label={t(TOOL_PROBE[kind].label)} value={probe} onChange={(event) => setProbe(event.currentTarget.value)} />

@@ -8135,6 +8135,703 @@ What changed:
   stopped platform started and found answering.
 - **Not done**: installing without Docker, and a hosted instance.
 
+## 2.125 With no reader chosen, the deployment's browser reads pages (tools research, recommendation 4)
+
+`docs/RESEARCH-TOOLS-2026-10-03.md` found that every `web.extract` went to
+a third party that saw the address, and recommended a local reader and a
+self-hosted Firecrawl. A deployment with a Chromium (2.121, 2.123) already
+has the local reader: it reads a page as a person sees it, scripts and
+all, which a library parsing the HTML does not, and adds no dependency.
+
+What changed:
+
+- **`web.extract` is the browser's** when no provider is bound and the
+  deployment has a Chromium (`webExtractByBrowser`,
+  `src/capabilities/browser.ts`): same name, schema and output, adapter
+  `extract:browser`, tier 0, `readsOutside`. A provider the owner chose is
+  used instead, and one chosen but not usable (no key, no address) leaves
+  the browser reading and says why at boot, where the note used to say the
+  capability was unbound.
+- **What a page says, without what is around it.** `__palugada.article`
+  (`src/browser/page.ts`) reads the one `article`, else `main`, else the
+  body, as `innerText`, with menus, asides, forms, dialogs and anything
+  hidden from a screen reader left out -- and the header and footer too
+  when it reads the whole body -- by hiding them for the moment of the
+  reading and putting each element's own style back. At most 60,000
+  characters, as with a provider, and `truncated` says when there were
+  more.
+- **Nobody's browser.** `Browsers.extract` makes a context for the one
+  reading, through the same proxy and under the same address rules, and
+  disposes of it after: no company's sign-ins are sent, nothing the page
+  sets is sealed, nothing reaches the next reading, and no tab is left
+  for the owner's **Browser**. The site is told the company's language
+  and time zone, as the company's browser tells it. Four read at once;
+  a fifth waits as a busy capability does.
+- **A Firecrawl you run** reads pages too (`firecrawl-self-hosted`, with
+  `PALUGADA_EXTRACT_URL`), as it already searched.
+- **The console** says under **Tools**, **Reading pages**, that with no
+  provider the deployment's own browser reads pages when it has one.
+- **Tested.** `browser.test.ts`: bound to the browser with no provider and
+  to Jina with one; an article page read without its menu, footer and
+  aside, with what its script wrote; read twice for a company signed in
+  elsewhere, and sent no cookie either time; a metadata address refused as
+  inside this network; the company's sealed sign-in unchanged and its tabs
+  as they were. `web-search.test.ts`: the self-hosted Firecrawl goes to the
+  owner's server; boot with the browser off says `web.extract` is unbound,
+  and with a Chromium says the browser reads pages and binds it.
+- **Not done**: the research's Readability provider, which the browser
+  makes unnecessary where there is a Chromium. A deployment with neither a
+  Chromium nor a provider still has no `web.extract`, and says so at boot.
+
+## 2.126 A mail server's private authority is trusted besides the system's
+
+`PALUGADA_MAIL_CA` (2.119) is documented as an authority to trust
+"besides the system's", for a company's mailbox on a server with a private
+certificate. It was trusted instead of them: Node's `tls.connect` replaces
+its own authorities with a `ca` it is given, so with the setting made, every
+mailbox on a public certificate -- Gmail, a hosting provider's -- failed to
+connect with "self-signed certificate" or "unable to get local issuer".
+Found while reading the transport for 2.127.
+
+What changed: `secureSocket` (`src/chats/imap.ts`) names Node's default
+authorities (`getCACertificates('default')`, which also holds any the
+machine adds with `NODE_EXTRA_CA_CERTS`) together with the private one.
+Tested in `customer-mail.test.ts` in a child process, where one authority
+is the machine's and another is given as the private one: the server the
+machine's authority signed was refused before and is reached now.
+
+## 2.127 A division reads and sends mail from its own mailbox (tools research, recommendation 1)
+
+The research ranked mail first: every company does it, and two of the
+three mail capabilities had nothing behind them while the third needed a
+sending service's account and a domain set up with it. `mailbox.read` had
+been catalogued without an adapter since the start (2.119 said so), and
+`email.send` waited for a vendor entry.
+
+What changed:
+
+- **`mailbox.read` and `email.send` are bound by the platform**
+  (`src/capabilities/mailbox.ts`), over IMAP and SMTP, signed in with the
+  division's `mailbox` key -- so Sales can hold sales@ and Support support@.
+  The key is sealed and rotated like any (F12.3), declared with the scopes
+  `mail:read` and `mail:send` its capabilities need (F12.6), and resolved
+  at each call, so a password changed in the console is used at the next.
+- **The key is a form, not a paste.** A capability may now say its key is
+  given in a form (`credentialForm`): the console shows the mailbox's
+  address, password and two servers -- the same form, moved into
+  `MailboxFields.tsx`, that connects a customers' mailbox -- and the owner
+  API holds the value to its shape before the device is asked for, then
+  signs in to both servers before anything is sealed. A wrong password is
+  said there and then, and nothing is kept. A held mailbox is changed in
+  the same form.
+- **Reading leaves the mailbox as it was.** A folder is opened with
+  EXAMINE, read-only, and each message fetched with BODY.PEEK and its
+  flags, so a role can list the newest mail -- sender, subject, date,
+  unread or not, how it begins, what is attached -- search it by sender,
+  subject, day and unread, and read one whole, and the owner's own mail
+  app still shows it unread. No command a role can cause moves, flags or
+  deletes anything. A word to search for goes quoted when it is ASCII and
+  as a counted UTF-8 literal when it is not, so a subject in Indonesian is
+  found; a line break in one is refused, since it would end the search and
+  start a command of the role's choosing. What it reads is from outside
+  (F8.9).
+- **Sending is tier 2.** The letter is plain text from the mailbox's own
+  address, named for the company, to at most ten people and ten more on
+  Cc, as a reply in a thread when it names the message it answers. Work
+  that read the mailbox asks the owner first, with a card that says who it
+  is to and what it is about; recipients count as a batch (F8.13); a policy
+  can match the recipients' domain. Its read-back is the one SMTP has, the
+  server's `250` for those recipients. Its Message-ID is made from the
+  call's idempotency key, so a call made again after a crash is the same
+  letter to a mail client.
+- **A preflight that does not hold up work.** With a key, each checks
+  that its server takes it (F8.12), so a password the provider stopped
+  taking halts work with a reason the owner can act on, and a server not
+  answering waits rather than halts (H2). Without one it passes: the
+  standard Support and Growth roles carry these tools, and their other
+  work is not stopped for a mailbox nobody has given yet; the call says
+  the division has none.
+- **A binding that gives way.** A capability may now be bound only until
+  something else binds its name (`fallback`). A vendor file, a service
+  connected in the console and the console's check before saving one all
+  refused a second binding of a name, so a deployment whose vendor file
+  binds `email.send` to Resend would no longer have started; it starts,
+  and Resend is used. The browser's `web.extract` (2.125) is the same, and
+  had the same flaw in its unpushed form. **Services** no longer says
+  either name is bound by something else, and the boot's "bound by the
+  platform" is written after the services, naming only what the platform
+  still binds.
+- **`readMail` reads a message's date** as an instant, and the SMTP client
+  takes several recipients and returns the server's acceptance.
+- **Tested.** `mailbox.test.ts`, against the IMAP and SMTP test servers
+  (which learned EXAMINE, search keys, UTF-8 literals and flags): the key
+  asked for as a form by both capabilities with both scopes; a pasted
+  string and a bad host refused before the device; a refused password
+  sealing nothing; the sealed shape; the preflight passing, failing on a
+  refused password and not on its own, and passing a division with none.
+  Reading: newest first with sender, subject, date, unread and attachment;
+  a limit with how many more; by sender, by a subject outside ASCII, by
+  day and unread; one message whole; an unknown uid and folder said in the
+  server's words; nothing marked read; no SELECT, STORE, EXPUNGE, COPY or
+  MOVE sent; the task marked as having read from outside; a line break in a
+  search word or a folder refused before the server is asked anything.
+  Sending, after reading a customer's order: a header injection, an
+  address with a name, eleven recipients refused before any card; the card
+  naming recipients and subject; nothing sent before the owner's yes; the
+  letter's From, To, Cc, In-Reply-To, Message-ID, subject and text as
+  asked, and no Bcc. And a vendor file, a console service and the
+  console's check each taking `email.send` and `web.extract` from the
+  platform, while `web.fetch` stays its own. `console-mailbox.test.ts`
+  gives a division its mailbox on **Team** in a browser at a phone's
+  width, with the device, and finds it sealed with its scopes.
+- **Not done.** `email.draft` still writes a draft into the company's
+  files with a model (2.15); a draft in the mailbox's own Drafts folder
+  (IMAP APPEND) would be a second meaning for one name, and is left until
+  it is decided which the name means. Attachments are named, not read or
+  sent. A folder name outside ASCII (IMAP's modified UTF-7) cannot be
+  opened yet. OAuth sign-in to Gmail and Microsoft 365, rather than an app
+  password, is the customers' mailbox's gap too.
+
+## 2.128 A role reads a file in the company's files (tools research, recommendation 3)
+
+Roles could list the company's files and not read one: a reviewer could
+see that a draft was there and not what it said, and a price list the owner
+left in the folder was a name. The research put `files.read` third.
+
+What changed:
+
+- **`files.read`, catalogued** at tier 0 and as a read of outside content
+  (F8.9): what a file says may have come from a customer or a stranger's
+  page by way of a draft, and nothing records which. Named "Read a file"
+  for the owner in every language.
+- **Bound beside `files.list`** when the deployment has a files root
+  (`src/capabilities/files.ts`), and granted with it to Operations and
+  Delivery in the standard template -- to the divisions, not to the roles'
+  tools, which F2.4 keeps to twelve.
+- **The same containment as `files.list`**: the path is resolved with
+  `realpath`, and anything that ends outside this company's directory --
+  `..`, a link to another company's file or to `/etc` -- is refused as
+  outside. The file is then opened without following a link and checked as
+  opened, so a link put where the file was after the path was resolved is
+  not read through.
+- **Text, read strictly.** UTF-8, its byte-order mark dropped; a file that
+  is not -- a picture, a recording, a PDF -- is said to be not text rather
+  than returned as noise. Up to 10 MB, 60,000 characters at a reading, and
+  `next` says where the following one begins.
+- **Tested.** `files-read.test.ts`: a draft and a CSV read as written; a
+  long file read in pages that join up; a parent directory, a link to
+  another company's file and one to `/etc/hostname`, and a path that climbs
+  out through a folder, all refused as outside; a missing file, a folder, a
+  picture and a start past the end each said; the catalogue's tier and
+  `readsOutside`; bound only with a root; granted where `files.list` is.
+- **Not done, next**: PDF, Word and Excel, which the research would convert
+  in the network-less container. They are to be read in the deployment's
+  sandboxed Chromium instead (2.123), so the platform's process still
+  parses no untrusted binary.
+
+## 2.129 A role reads a PDF, a Word document or a workbook, in the sandboxed browser
+
+What 2.128 left: the documents a small company keeps -- a supplier's
+invoice as a PDF, an offer in Word, the month's orders in Excel. The
+research would parse them in the `--network none` container; that needs
+Docker inside the deployment, and the deployment already has a better
+boundary for a hostile file: Chromium's sandbox (2.123), which renders
+strangers' pages all day.
+
+What changed:
+
+- **`Browsers.convert`** reads one document in a page of a context made
+  for it, set offline as well as behind the proxy, and disposed of after;
+  two at a time, a minute each (`src/browser/browsers.ts`). The parsing is
+  `src/browser/documents.ts`, which runs only in that page: a document
+  that breaks it has broken into a sandboxed renderer with no files, no
+  network and nothing of the platform's.
+- **A PDF** is read with pdf.js -- the console's own dependency, copied by
+  its build into `console/dist/reader` (`console/vite.config.ts`), so the
+  server adds none; the build config reading the files from disk gave the
+  console `@types/node` as a dev dependency, which the image's console
+  stage, with no repository root above it, did not otherwise have --
+  imported into the page as `data:` modules and run on
+  the page's own thread, so nothing is fetched; lines as lines, pages as
+  paragraphs, as the console reads one. A locked one and a scan say so.
+- **A Word document** is its paragraphs, tabs and breaks kept, deleted text
+  and field codes left out, and its tables row by row with cells by tabs.
+  **A workbook** is each sheet under its name, its cells by tabs where they
+  stand, shared and inline strings, booleans, and dates as dates: Excel's
+  own date formats and any of the workbook's whose code has a day, month,
+  year or hour, in the 1900 or the 1904 system.
+- **A ZIP is read with what the browser has**: the central directory by
+  hand and each entry inflated with `DecompressionStream`, counted as it
+  comes, so a file that claims or turns out to unpack past 32 MB is refused
+  rather than believed; an encrypted entry is said to be locked. At most 5
+  million characters of text, and 2,000 pages.
+- **`files.read`** tells a document by its bytes before it reads anything
+  as text -- a PDF may be ASCII throughout -- and Word from Excel by the
+  name; it keeps a document's text ten minutes, so its next page is not
+  another conversion, and says `kind`. Without a browser a document is
+  said to need one.
+- **The image's check reads a PDF** (`scripts/browser-check.ts`, which CI's
+  docker job and `install.sh doctor` run), so a build that left out the
+  reader, or a sandbox that stops pdf.js, fails there.
+- **Tested.** `files-read.test.ts`, with documents written byte by byte
+  (`test/helpers/documents.ts`): a two-page PDF with an accented word read
+  line by line; a Word document's paragraphs, a tab and a table; a
+  workbook's two sheets with dates, numbers, a blank and a name with an
+  ampersand; the second reading not converted again; a ZIP that unpacks to
+  64 MB, a broken PDF, a page with no text and a ZIP that is not a
+  workbook each refused with what it was; a PDF with no browser said to
+  need one.
+- **Not done.** PowerPoint, OpenDocument and the old binary `.doc` and
+  `.xls`; text in a picture or a scanned page, which is `image.describe`'s
+  (recommendation 5); a workbook's formulas are read as the values Excel
+  last saved, and one never saved by Excel has none.
+
+## 2.130 A role reads a picture, through a vision model the owner chooses (tools research, recommendation 5)
+
+A receipt a customer photographed, a supplier's invoice sent as a picture,
+a screenshot, a scan: none could be read, and 2.129 had to say that a scan
+has no text to give. The research put `image.describe` fifth: both
+projects it studied ship one, and it can run on a local model.
+
+What changed:
+
+- **`image.describe`, catalogued** at tier 0 and as a read of outside
+  content (F8.9), and named "Describe a picture" for the owner in every
+  language.
+- **A Tools kind of its own, Reading pictures** (`src/capabilities/vision.ts`,
+  `PALUGADA_VISION_*`), like Listening: OpenAI, Google Gemini, Anthropic,
+  OpenRouter, Groq, Mistral, and a vision model of the owner's own behind
+  OpenAI's interface -- Ollama, llama.cpp, vLLM -- so a picture need not
+  leave the owner's machine. Each request is its reference's, checked in
+  October 2026 (the docs read for Groq's and Mistral's, whose picture is a
+  string where the others' is an object; OpenRouter's list of models read
+  for the default), the key where the reference puts it. The picture goes
+  inside the request as a `data:` address, never as a link a provider would
+  fetch.
+- **Read as `files.read` reads a file.** The containment moved into one
+  function both use (`readCompanyFile`), so they cannot drift apart; a
+  PNG, JPEG, WebP or GIF is told by its bytes, whatever it is called; up
+  to 5 MB, Anthropic's limit for one picture; nothing is sent for a path
+  outside the company's files or a file that is not a picture.
+- **Asked nothing, it is asked for what a business needs**: what the
+  picture shows, and every word and number in it, laid out as on the
+  receipt or the table. A role may ask its own question, in any language.
+- **The console's card** has a model, and a try on a picture the owner
+  chooses with a question, sent once and kept nowhere; without a files
+  root it says the pictures are the company's files. Saving a model is now
+  read from which kinds have one, so a new kind cannot be left out of it
+  again, as this one first was.
+- **The template grants it to Finance and Support**, unbound until a
+  provider is chosen.
+- **Tested.** `vision.test.ts`: every provider sent the picture, its kind,
+  the question and its model where its reference says, with the key where
+  it reads it and never in the address, over HTTPS or to the owner's own
+  server; Mistral's picture a string; a JPEG, a WebP and a GIF told by
+  their bytes; a link to another company's file, a parent directory and a
+  climb out refused as outside, a text file as not a picture, 6 MB as too
+  large, and nothing sent for any of them; the catalogue's tier and
+  `readsOutside`; the boot's notes without a provider, without a key and
+  without files; and the owner trying a server of their own on a picture,
+  a file that is not a picture refused, and the choice saved with the
+  device and bound.
+- **Not done.** A picture inside a PDF or a Word document is not read; a
+  scanned PDF is still said to have no text (2.129), and is read by saving
+  its pages as pictures. The provider is paid per picture at its own price;
+  each call reserves a cent before it runs, and nothing for a model of the
+  owner's own.
+
+## 2.131 A role asks the owner for a key, and never sees it (tools research, recommendation 7)
+
+A capability whose key the division did not hold failed with "division
+<id> has no credential aliased crm", and the run could only tell the owner
+so in words, which the owner then had to act on somewhere else. The
+research proposed `credential.request`, after OpenClaw's `secrets`: a
+masked field in the inbox, and an alias for the role.
+
+What changed:
+
+- **`owner.ask` takes a `key`** (`src/broker/platform-capabilities.ts`)
+  rather than a capability of its own: every role has `owner.ask`, and a new
+  tool would have cost each role one of the twelve F2.4 allows. The
+  research's "masked field" is the one the console already has: the card
+  leads to it.
+- **Only a key the division needs.** The name is checked against what its
+  granted capabilities sign in with -- the same answer the console gives
+  under the division's keys (`keysAskedFor`, moved to `src/broker/keys.ts`
+  for both) -- so a run talked into asking for "the AWS key" is refused
+  before the owner sees a card, and told which keys its capabilities do
+  ask for. A key the division holds is not asked for again.
+- **The card leads to where keys are given.** It says **Give the crm key**
+  and opens the division on **Team** with its keys showing (the page now
+  opens a division named in its address); the value is sealed as any key
+  is, declared with what its capabilities need. Saving it -- pasted or
+  signed in -- answers every open question that asked for that key in that
+  division, and the work goes on. The role is told it is there, never what
+  it is.
+- **The failure says how to ask.** A capability with no key now says
+  `this division holds no crm key: ask the owner for it with owner.ask,
+  naming key "crm"`, and so does a mailbox not yet given (2.127).
+- **Tested.** `key-request.test.ts`: the capability's failure says how to
+  ask; the card opened with the key, its division and the capabilities
+  that need it; the key given through the console's route answering the
+  question without its value; the run told it is there and the capability
+  signing in with it; a held key not asked for; a key nothing in the
+  division uses, and a name that is not one, refused with nothing reaching
+  the owner; and in a browser at a phone's width, the card's button
+  opening the division's keys, the key given with the device, and the
+  question answered.
+- **Not done.** A key whose capability signs in with OAuth is signed in
+  for from the same place, which the card leads to, but the card does not
+  start the sign-in itself.
+
+## 2.132 A role works figures out in Python, where its code reaches nothing (tools research, recommendation 6)
+
+A month's sales from a spreadsheet, a cash-flow forecast, a chart for the
+owner: arithmetic a model gets wrong in its head and a few lines of pandas
+get right. The only code a role could run was `code.execute`, in the
+sandbox, which does not isolate the network -- so F8.10 keeps it out of any
+division with a key or a tier 2 grant, which is every division with figures
+worth working out. The research put a contained one sixth.
+
+What changed:
+
+- **`code.compute`, catalogued** at tier 1 as code supplied at call time that
+  reaches no network, and as a read of outside content: the files it reads
+  may have come from anyone. Named "Calculate in Python" for the owner in
+  every language.
+- **Run in a container with no network** (`src/capabilities/compute.ts`), the
+  flags of the `docker` backend's (2.46) and for the same reason:
+  `--network none`, a read-only image with a 256 MB scratch, no
+  capabilities, no new privileges, nobody's user, 1 GB of memory, one CPU
+  and 128 processes; nothing mounted, no credential, none of this process's
+  environment, `--pull never` so nothing is fetched mid-run, and
+  `--log-driver none` so a company's figures are not copied into the
+  daemon's logs. The files the role names are read with `files.read`'s
+  containment and handed over stdin under `in/`; what the code writes to
+  `out/` comes back the same way and is kept under
+  `computed/<date>-<id>/`, never over anything, each file read back by its
+  digest (F8.4). The program that runs the code
+  (`src/capabilities/compute-runner.py`) is handed over with each call, so
+  the image (`deploy/compute`: Python 3.13, pandas, numpy, openpyxl,
+  matplotlib, pinned) is only libraries, and upgrading PALUGADA does not
+  mean rebuilding it.
+- **Its own time, then removal.** The code runs for the seconds it asked
+  for, 60 unless it said, five minutes at most, and is stopped inside the
+  container, which still answers. A container that has not answered by its
+  grace, or whose run was stopped, is removed by name at once: ending the
+  docker client does not end its container, and whatever the client left
+  running may hold its pipes open, which is how the first version of the
+  test hung.
+- **Nothing half-kept, and said.** Code that fails, runs past its time or
+  runs out of memory keeps nothing it wrote, and the role is told which,
+  with what it printed. So does a link in `out/` (which would hand back
+  what it pointed at), a name with a control character or a leading dot,
+  more than 20 files or more than 16 MB. What the container hands back is
+  checked again here, since code running as the same user could have
+  replaced the program that hands it back.
+- **F8.10 for code that reaches nothing** (0115). The refusal exists because
+  the sandbox cannot stop code posting a key or reaching a tier 2 effect
+  somewhere; code with no network can post nothing anywhere. So
+  `capabilities.network_isolated` records the claim beside the flag it
+  qualifies -- a check makes it impossible without that flag -- and the two
+  functions 0008 wrote now ask about untrusted code that can reach the
+  network. The registry refuses a binding whose claim differs from the
+  catalogue's, so only the platform's container can make it; a vendor
+  entry or an MCP server cannot. `code.execute` is refused beside a key or a
+  tier 2 grant exactly as before.
+- **Bound by the operator**: `PALUGADA_COMPUTE_IMAGE`, with the company's
+  files, on a machine whose docker or podman this process can run
+  (`PALUGADA_COMPUTE_DOCKER`, else `PALUGADA_RUNTIME_DOCKER`). The boot says
+  which is missing. The image PALUGADA ships in has no docker, so in the
+  Compose deployments it stays unbound; `docs/configuration.md` says to
+  prefer rootless podman or a docker host of its own, since whatever can use
+  the system's Docker daemon can become root on the machine.
+- **The template grants it to Finance**, beside its keys and invoices, and
+  the bookkeeper has it in its tools, with `image.describe` for receipts --
+  which 2.130 granted to Finance and left off the bookkeeper's tools, where
+  there was room for both. Never in the lab, whose code reaches the network:
+  what this one reads, that one could post.
+- **Tested.** `code-compute.test.ts`, against a docker client that logs what
+  it is asked and plays the container with this machine's Python: a sum of
+  a CSV printed and two files kept, nested, 0600, read back, and a changed
+  one failing the read-back; the argv, flag by flag, with nothing mounted,
+  no `--env`, and the client handed none of this process's environment; a
+  traceback, a loop stopped at one second, and nothing kept from either; a
+  link, a newline in a name, a hidden file, 21 files and 17 MB, each said
+  and nothing kept; an answer forged in the runner's place -- a parent
+  directory, an absolute path, a file that is also a folder, a name twice,
+  21 files -- refused the same way; another company's file by a link, a parent directory
+  and a climb out, a missing file and 21 files named, refused before any
+  container starts; a container that never answers removed by its name
+  after its grace, a stopped run's removed too, a missing image and a
+  missing docker said plainly; the catalogue, a vendor binding refused, the
+  boot's notes; the database letting it beside a key and a tier 2 grant in
+  either order while still refusing `code.execute` there, and refusing
+  isolation claimed for something that is not code; the template.
+  `npm run compute:check`, in CI's docker job and run here against Docker
+  29: as nobody, a read-only image, no name resolved, no internet, nothing
+  on the host, only `lo`, no capabilities in its bounding set, no new
+  privileges, 1 GiB and 128 processes, none of the orchestrator's
+  environment, pandas summing the spreadsheet, a chart drawn and kept and
+  read back, an endless loop stopped at two seconds, and no container left.
+  Also run here: a missing image says how to build it, and a gigabyte array
+  is ended by the memory limit and said so.
+- **Not done.** The code cannot install a library: what the image has is
+  what there is, and a company that needs another builds its own image on
+  this one. Two runs go at once in a process and more wait their turn;
+  nothing is kept between runs but the files they wrote.
+
+## 2.133 Outside text cannot forge a turn, or close its envelope with a look-alike (tools research, §5 idea 10)
+
+Everything from outside -- a page, a mail, a tool's answer, a customer's
+message, a webhook, a document's passage -- reaches a model inside the
+envelope `wrapUntrusted` draws (F8.9), which says it is data and escapes a
+copy of its own fence. Two ways round it were open, both named by the
+research from OpenClaw's prompt-injection notes:
+
+- **Chat-template tokens written as text.** A model of the owner's own
+  behind an OpenAI-compatible server -- Ollama, vLLM, llama.cpp, which
+  PALUGADA speaks to -- may tokenize `<|im_start|>` in a page as the real
+  token, and the page then ends the user's turn and opens a system one of
+  its own, inside the envelope. Hosted providers escape them; a self-hosted
+  stack may not. Now removed, each replaced by `[REMOVED_SPECIAL_TOKEN]`:
+  every `<|word|>` (ChatML and Qwen, Llama 3 and 4, Phi, GPT-OSS), DeepSeek's
+  full-width `<｜…｜>`, Llama 2's and Mistral's bracketed ones, Gemma's turn
+  markers, and `<s>`/`</s>` -- OpenClaw's list, widened to the families'
+  whole spelling rather than a list of their tokens. In the source's name
+  too, since a document's title is outside content.
+- **A fence spelled in look-alikes.** Only an exact copy was escaped; one in
+  full-width letters or brackets, with a zero-width character inside,
+  spaced, or in lower case, read the same to a model and went through. Now
+  folded before it is looked for, and escaped like the exact one.
+- **The one outside text that reached a model unwrapped.** What a role hands
+  `doc.draft` and `email.draft` to draw on is often what it read -- a
+  customer's mail, a page -- and it went to the drafting model as it was.
+  It is in the envelope now, and the tokens are removed from the brief, the
+  kind, the subject and the address too, which a role may have copied from
+  what it read.
+
+Text that only looks like either is left: spaced pipes, a pipe, an HTML tag,
+a comparison, a bracketed note. The fold is native regular expressions, one
+character for one, so a page of 2.4 MB is wrapped in about 25 ms, and text
+built to make the match backtrack costs it one pass. Tested in
+`charter-context.test.ts`: forty-one tokens across seven families removed with
+the words around them kept and the removal said, a token in a source's name,
+ordinary text untouched, and seven look-alike fences escaped with only the
+two real ones left; `platform-capabilities.test.ts`, a draft's material sent
+to the model framed as data and without the tokens a mail carried.
+
+**Not done.** A model's own reply is not scrubbed of scaffolding it leaked
+before the owner reads it, which OpenClaw also does; what reaches the owner
+here is the run's structured output, not its raw text.
+
+## 2.134 Pictures on the owner's own GPU, through ComfyUI (tools research, gap #10)
+
+Every `image.generate` provider was a hosted one, paid per picture and sent
+every prompt. The research named ComfyUI, which OpenClaw drives locally,
+as the one to add for a company with a GPU of its own.
+
+- **`comfyui`, under Tools, in "Your own server"**: an address and,
+  optionally, a checkpoint as the model (`sd_xl_base_1.0.safetensors`
+  unless given). No key: ComfyUI has none, so it belongs on a private
+  network. Nothing is reserved for a picture.
+- **Spoken to as its own server says** (`server.py`, read in October 2026):
+  ComfyUI's default workflow posted to `/prompt` in the API's form -- the
+  checkpoint, the prompt and a negative, a canvas of the shape asked for
+  sized for SDXL, twenty steps of Euler, a random seed -- then
+  `/history/<id>` looked at each second until the picture is there, then
+  the picture fetched from `/view` and kept in the company's files, read
+  back like any other. The workflow ends in `PreviewImage`, not
+  `SaveImage`, so nothing piles up in the owner's output folder. A provider
+  can now wait for a picture made later, ending early when the run is
+  stopped and after three minutes in any case.
+- **Its refusals in words**: a workflow refused before it ran says what
+  ComfyUI said -- most often a checkpoint it does not have, and then to set
+  the model under Tools to one it has -- and a run that failed says its
+  exception, such as running out of GPU memory.
+- **Licence.** ComfyUI is GPL-3.0, which the research had not checked;
+  PALUGADA only speaks to it over HTTP and ships none of it.
+- **Tested** in `media.test.ts`, against a ComfyUI that answers as its routes
+  do: the workflow's checkpoint, prompt, size, seed and preview, the history
+  polled until the picture, the picture fetched where the history says and
+  kept, the owner's own checkpoint used when named, a missing checkpoint and
+  a failed run said in words.
+- **Not done.** A workflow of the owner's own (FLUX's needs other nodes and
+  settings) is not taken; the default one serves SD 1.5 and SDXL
+  checkpoints, which are most of what is shared.
+
+## 2.135 A yes for exactly what a schedule does, every time it does it (tools research, §5 idea 3)
+
+A schedule that reads the suppliers' mailbox each morning and sends the same
+confirmation to the same supplier asked the owner every morning. Its work
+read content from outside, so F8.9 asks before a tier 2 action, and the yes
+for a while (0083) never reaches such work, because what was read could have
+shaped the action. The research borrowed OpenClaw's standing grants for
+automations: bound to the exact job and the exact operation, failing closed
+when either changes by a byte.
+
+What changed:
+
+- **"Every time this schedule does it", on the card** (0116). An approval at
+  tier 2 or below, in work a schedule made -- the task it started, or one
+  that task handed on -- offers it in the approve menu beside "for a while",
+  whyever the card was raised: a policy, the guardian, or content from
+  outside. With the owner's device, in the app; never from a seat beside
+  the owner; never with "for a while" in the same answer.
+- **Narrower than the taint it covers.** The yes is for one schedule as it is
+  defined when it is given -- a digest of its role, division, project, goal,
+  account, instruction and timing -- one capability, and one action to the
+  byte, the fingerprint every card already has. An action every byte of
+  which the owner approved was not shaped by what was read; another
+  recipient, another word, an edited schedule, or work no schedule made, and
+  the owner is asked. Put back as it was, a schedule is the one the yes was
+  for again. The threat model says so (5c).
+- **Bounded.** Never tier 3 (F10.10). Ninety days at most, then the owner
+  is asked again; the database refuses longer. Only the owner's console
+  writes one, on the control plane; the application role reads it and
+  counts its uses. Each use is recorded with the yes it ran on, and the
+  call's record names it.
+- **Listed and taken back** beside the yeses for a while, under "Allowed for
+  a schedule": what, which schedule, the action as the card said it, until
+  when, how often used, and **Take back**, a tightening with no device.
+- **In every language**, the menu, the list and the three events.
+- **Tested.** `schedule-approvals.test.ts`: the offer on a card from tainted
+  scheduled work that 0083 refuses; the device asked for, and the chat
+  channel refused; the next run's identical send, and a sub-task's, without
+  a card, recorded with the yes it ran on; another recipient, a changed
+  word and unscheduled work asked; an edited schedule asked and the same
+  schedule put back not; taken back and asked again; tier 3, unscheduled
+  work, a seat, a no, both kinds at once, past ninety days and an agent
+  writing one, each refused; the console's routes; and on a phone, the menu,
+  the device, the list and taking it back.
+- **Not done.** Mining the history of the owner's answers for rules to
+  propose (§5 idea 4) is not built.
+
+## 2.136 A role proposes a schedule, and the owner's yes makes it (tools research, gap #12)
+
+A role that saw the same work owed again and again -- Monday's sales asked
+for three Mondays running -- could only say so in prose, which the owner
+then turned into a schedule by hand on Team. Hermes has `cronjob_manage`
+and OpenClaw `cron`; the research put the agent's half of that here, as a
+proposal like `goal.propose`.
+
+- **`schedule.propose`, tier 0** (`src/scheduler/proposals.ts`): a short
+  name, a cron, a zone (the owner's when not given), the role that does it
+  (the proposer when not named), what each run does, and why. Named
+  "Propose a schedule" for the owner in every language.
+- **Checked as the owner's own schedule would be, before the owner sees
+  it**: a cron that parses in a zone that exists, a role of this company
+  (the refusal names the slugs), a name of lower-case letters, digits and
+  dashes that no schedule has, an instruction and a reason. And from a run,
+  nothing more often than hourly: a schedule spends on its own, and a
+  minute's is the owner's to make. One card per name; asked again, the run
+  is told it is waiting.
+- **The card, in the owner's language**: who proposes it, what each run
+  does, who does it, the cron as written with its zone, the next three runs
+  in the owner's own time, and the reason given. Not tied to the task, as a
+  goal proposal is not: a no costs the company none of the work that
+  proposed it.
+- **The owner's yes is the schedule**, made in the same transaction as the
+  decision -- on, its first run its next time -- under the proposing task's
+  goal and project and the named role's division. A name taken since, by
+  the owner or another proposal, refuses the yes and leaves the card to
+  deny or to approve once the name is free; the owner's schedule is never
+  overwritten. A no makes nothing. A seat beside the owner, which reads
+  schedules and makes none, may say no and not yes.
+- **The coordinator holds it** in the standard company, in place of
+  `metrics.read`, as the strategist's `goal.propose` replaced it: it answers
+  nothing until a vendor is bound, and Operations still holds the grant to
+  trade back on Team. Its charter says when to use it.
+- **Translations made consistent**: the Dutch and Chinese words for
+  "schedule" in 2.135's menu and list are now the console's own.
+- **Tested** in `schedule-proposals.test.ts`: proposing makes nothing; the
+  card in Indonesian with the times in the owner's zone; one card per name;
+  the yes makes the schedule with the role, goal, cron, zone and
+  instruction, on and next in the future, recorded, and the proposer still
+  running; an invalid cron, every fifteen minutes, an unknown zone, a bad
+  name, an unknown role, a blank instruction or reason, and a taken name,
+  each refused with nothing reaching the owner; another role named; a no
+  making nothing; a name taken since refusing the yes without touching the
+  owner's schedule, and the yes going through once it is free; a seat's
+  yes refused; the catalogue and the template.
+
+## 2.137 A customer channel answers on its own, from what the owner published for customers
+
+Chosen by the owner on 3 October, as the first step to a company that does
+an office's work ("support first, then the business records"), with
+"answers from approved knowledge" as the bound. Until now every reply to a
+customer waited for the owner (2.117): the work began with a stranger's
+words, so `chat.send` in it asked whatever policy said (F8.9). A shop that
+is asked the price of a coffee forty times a day had to say yes forty
+times.
+
+- **Two marks, both the owner's** (0117). A channel's `answers_alone`, off
+  until the owner turns it on with their device on **Customers** (off again
+  with the session), written on the control plane as the rest of a channel
+  is. A document's `for_customers`, set on **Documents** with the session --
+  what a marked document lets go, the session could already approve card
+  by card -- and, like the switch, not writable by the application role:
+  migration 0117 takes its `UPDATE` on `documents` back to `archived_at`.
+  Turning a channel on gives its role `memory.search`, granted and among its
+  tools, so it can find what to answer from.
+- **A capability's own check, asked by the broker** (`clearsOutside` in
+  `src/broker/registry.ts`). Only at tier 2, only where the work's reading
+  from outside is all that asks -- no policy, no guardian, no tier 3 -- and
+  only after every yes the owner gave has been looked for. Cleared, the call
+  goes without a card, recorded as `approval.cleared_by_check` and on its
+  `tool.called`; not cleared, the owner's card says why
+  ("Not sent on its own: ..."), in their language.
+- **`chat.send`'s check** (`src/capabilities/chat.ts`), in order, each a no
+  that names itself on the card: the channel answers on its own; the reply
+  goes to the conversation the work began with; it names (new `sources`,
+  at most five) passages of documents marked for customers, read again
+  here, unarchived and the division's, every one found; each figure in it
+  -- digits alone, so "Rp 18.000" and "18000" are one -- and each mail
+  address and link, a bare `bit.ly/...` among them, is in those passages or
+  in the customer's last ten messages; fewer than six replies on their own in that conversation in
+  the hour. Then the model.
+- **The model's check** (`src/chats/answer-check.ts`, the standard tier). It
+  is shown the passages as the company keeps them, the customer's words and
+  the reply, both fenced as data, and answers with a verdict: send only with
+  `supported`; `refund`, `price`, `complaint`, `legal`, `personal_data`,
+  `commitment` and `unsupported` are the owner's. No answer in thirty
+  seconds, a provider error, or an answer that is not a verdict is a no;
+  with no model configured nothing goes on its own. Each check is charged
+  to the work's budget account, traced in `llm_traces`, and recorded as
+  `chat.answer_checked` with its category and reason.
+- **The owner sees what went alone.** A reply that went on its own keeps its
+  grounds (`chat_messages.grounds`: each document, its title and the
+  passage), and the conversation shows "Sent on its own, from" and the
+  documents. `memory.search`'s document results now carry the document,
+  its place and whether it is for customers, which is what `sources`
+  names. The run is told how a reply goes on its own where it reads its
+  work, only when its channel does.
+- **The owner's assistant** may propose both: marking a document, and
+  turning a channel on, which takes the device when applied.
+- **Export**: a document's mark and a message's grounds travel; whether a
+  channel answers on its own does not -- a restored channel arrives closed
+  and waits for the owner.
+- **The threat model** says what this lets through and what it cannot (5d):
+  an injection in a customer's message can choose among, and word, what the
+  owner published, and cannot add a figure, an address or a link, or reach
+  anyone else. A false statement in plain words that the model misses goes
+  out; that is the bound the owner accepts by turning a channel on, and
+  why it is per channel and off by default. Its duplicated 5b is now 5b and
+  5c.
+- **Tested** in `answers-alone.test.ts`, against a fake Bot API: the switch
+  refused without the device and taken with it; the role given
+  `memory.search`; the marks listed; the run told; `memory.search` giving
+  what to cite; a grounded reply sent without a card, the check shown the
+  published passage and the customer's words fenced and nothing of an
+  unmarked document, `chat.answer_checked` then `approval.cleared_by_check`,
+  and the thread marking it with the document's title; off again with the
+  session and an ordinary card. Then each bound, each a card with its
+  reason: no sources, an unmarked document, a figure of its own (15.000), an
+  address and a bare link of its own, a refund found by the check, a check that answered
+  with no verdict, another conversation, the seventh in an hour, and a
+  policy that asks; six sent in all. And no model: nothing on its own.
+  `tenant-isolation.test.ts` holds the application role from both marks.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the
@@ -8177,19 +8874,27 @@ is a real Daytona or Modal machine answering; the `http` runtime also reports
 this backend, because "somewhere else, not ours" is what it means in F13.5's
 vocabulary, and it cannot verify the claim.
 
-**Thirty-nine of the fifty-two catalogued capabilities are unbound on a bare
-boot -- thirty-six on a machine with a Chromium -- and that is the design
-rather than a gap.** The boot names every one. Eleven need configuration, not
-an account: `files.list`, `doc.draft` and `email.draft` a files root and a
-model; `web.search`, `web.extract`, `image.generate`, `speech.synthesize` and
-`speech.transcribe` a provider chosen under **Tools**; and `browser.read`,
-`browser.act` and `browser.handover` a Chromium. The other twenty-eight need a deployment's own vendor entry,
-six of which `config/vendors.example.json` shows. `dns.read`, `email.send`,
-`invoice.pay` and the rest are *names* in the catalogue: a tier, a schema, the
-scopes a credential must declare, and a `verify()` contract. What executes them
-is a deployment's own adapter, because `email.send` against Resend and against
-SES are different programs and choosing one for every company that ever uses
-this platform is not a decision a control plane gets to make.
+**Thirty-eight of the fifty-six catalogued capabilities are unbound on a bare
+boot -- thirty-four on a machine with a Chromium -- and that is the design
+rather than a gap.** The boot names every one. Fourteen need configuration, not
+an account: `files.list` and `files.read` a files root, `doc.draft` and
+`email.draft` a files root and a model; `web.search`, `image.generate`, `speech.synthesize`,
+`speech.transcribe` and `image.describe` a provider chosen under **Tools**; `web.extract` one of
+those or a Chromium; `browser.read`, `browser.act` and
+`browser.handover` a Chromium; and `code.compute` a files root and an image
+built from `deploy/compute`, with a docker to run it. The other twenty-four need a deployment's own vendor entry,
+six of which `config/vendors.example.json` shows. `dns.read`, `invoice.pay`
+and the rest are *names* in the catalogue: a tier, a schema, the scopes a
+credential must declare, and a `verify()` contract. What executes them is a
+deployment's own adapter, because `invoice.pay` against one bank and against
+another are different programs and choosing one for every company that ever
+uses this platform is not a decision a control plane gets to make.
+`mailbox.read` and `email.send` are the exception that proves it: a mailbox
+is one protocol whoever runs it, so the platform binds them to each
+division's own (2.127), and a vendor entry for either still takes the name.
+These counts were read from a boot when 2.136 was written; until 2.127 the
+paragraph said thirty-nine, still counting `chat.read` and `chat.send`, which
+the platform has bound since 2.117.
 
 It was twenty-five, and five of those were unbound for the wrong reason -- the
 same one this repository already got wrong about MFA. `web.fetch`,

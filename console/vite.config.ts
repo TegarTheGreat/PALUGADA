@@ -1,11 +1,38 @@
-import { defineConfig } from 'vite';
+// This file runs in Node, at build time: `@types/node` is a dev dependency
+// of the console for it alone, since the console's own code runs in a
+// browser and its tsconfig names no Node types.
+import { readFileSync } from 'node:fs';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
+
+/**
+ * pdf.js, as the deployment's browser reads a company's PDFs with it
+ * (src/browser/documents.ts): the library and its worker copied whole into
+ * `dist/reader/`, which the image ships beside the console. The console's
+ * own dependency, so the server adds none, and the version the owner's
+ * browser reads PDFs with is the one the deployment's does.
+ */
+function reader(): Plugin {
+  return {
+    name: 'palugada-reader',
+    apply: 'build',
+    generateBundle() {
+      for (const name of ['pdf.min.mjs', 'pdf.worker.min.mjs']) {
+        this.emitFile({
+          type: 'asset',
+          fileName: `reader/${name}`,
+          source: readFileSync(new URL(`./node_modules/pdfjs-dist/build/${name}`, import.meta.url)),
+        });
+      }
+    },
+  };
+}
 
 // The console is served by the owner API from `dist/`, under a content
 // security policy that allows scripts and styles from its own origin only.
 // So: one origin, relative asset paths, no inline scripts, no CDN.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), reader()],
   base: '/',
   build: {
     outDir: 'dist',

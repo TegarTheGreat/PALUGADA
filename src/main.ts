@@ -59,6 +59,7 @@ import { useMeaning } from './knowledge/meaning.ts';
 import type { TaskHandler } from './runtime/in-process.ts';
 import { registerPlatformCapabilities } from './capabilities/platform.ts';
 import { toolBindingsFrom } from './capabilities/tools.ts';
+import { computeFrom } from './capabilities/compute.ts';
 import { bindVendorSettings, registerVendorCapabilities } from './capabilities/vendors.ts';
 import { STANDARD_CATALOGUE } from './broker/catalogue.ts';
 import { seed } from './seed.ts';
@@ -738,6 +739,10 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
   const filesRoot = options.filesRoot ?? env.PALUGADA_FILES_ROOT ?? null;
   // Searching and reading pages, through the providers the owner chose.
   const toolBindings = toolBindingsFrom(env, (reference) => secrets.resolve(reference), filesRoot);
+  // Figures worked out in Python, in a container that reaches no network:
+  // the operator's, since it needs a docker this process can reach.
+  const compute = computeFrom(env, filesRoot);
+  if (compute.note) notes.push(compute.note);
 
   // The five capabilities the platform implements itself. The other twenty
   // the standard template grants need somebody's account, and a control plane
@@ -757,6 +762,8 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
       executable: chromium,
       sandbox: env.PALUGADA_BROWSER_SANDBOX !== 'off',
       reachable,
+      // pdf.js, which the console's build copies beside it, for a company's PDFs.
+      reader: fileURLToPath(new URL('../console/dist/reader', import.meta.url)),
       cookies: sealedCookies({ master: () => master(true), previous: () => previousKeys }),
     })
     : null;
@@ -779,6 +786,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     ...(toolBindings.image ? { image: toolBindings.image } : {}),
     ...(toolBindings.speech ? { speech: toolBindings.speech } : {}),
     ...(toolBindings.listen ? { listen: toolBindings.listen } : {}),
+    ...(toolBindings.vision ? { vision: toolBindings.vision } : {}),
     // Each customer channel's keys are sealed in the deployment's store, and
     // the Bot API and the Graph API are wherever the owner's own channels
     // find them.
@@ -787,10 +795,20 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
       ...(env.PALUGADA_TELEGRAM_API ? { telegram: { apiBase: env.PALUGADA_TELEGRAM_API } } : {}),
       ...(env.PALUGADA_WHATSAPP_API ? { whatsapp: { apiBase: env.PALUGADA_WHATSAPP_API } } : {}),
       ...(mailCa ? { mail: { ca: mailCa } } : {}),
+      // A channel the owner lets answer on its own has each such reply
+      // checked by a model (STATUS 2.137); with none, nothing goes on its own.
+      ...(llm ? { answers: { llm } } : {}),
     },
     ...(browsers ? { browser: browsers } : {}),
+    ...(mailCa ? { mail: { ca: mailCa } } : {}),
+    ...(compute.options ? { compute: compute.options } : {}),
   });
-  notes.push(...toolBindings.notes);
+  // With no page reader bound, the browser reads pages: say so where the
+  // note would have said they cannot be read.
+  const unread = 'web.extract is unbound: ';
+  notes.push(...toolBindings.notes.map((note) => (browsers && note.startsWith(unread)
+    ? `web.extract reads pages in this deployment's browser, as no provider is bound: ${note.slice(unread.length)}`
+    : note)));
   // A search for a role's documents reaches the provider through this: the
   // binding is the deployment's, and the search runs inside a capability.
   useMeaning(toolBindings.embed ?? null);
@@ -810,7 +828,10 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     // with nowhere to write is not the capability the catalogue calibrated.
     notes.push('doc.draft and email.draft are unbound: they need PALUGADA_FILES_ROOT too (F8)');
   }
-  notes.push(`bound by the platform: ${[...PLATFORM_CAPABILITIES, ...bound].join(', ')}`);
+  // What the platform bound, to compare with what is bound once the services
+  // are: a name it binds only until a service does (`fallback`) may be
+  // taken from it below.
+  const platformBound = new Map(bound.map((name) => [name, registry.get(name)]));
 
   // The twenty, from the operator's file.
   //
@@ -864,6 +885,7 @@ export async function start(options: DeploymentOptions = {}): Promise<Deployment
     }
   }
   if (fromConsole.length > 0) notes.push(`bound from the console: ${fromConsole.join(', ')}`);
+  notes.push(`bound by the platform: ${[...PLATFORM_CAPABILITIES, ...bound.filter((name) => registry.get(name) === platformBound.get(name))].join(', ')}`);
 
   // Once, after everything is registered.
   //

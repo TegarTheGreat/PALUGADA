@@ -42,7 +42,19 @@ export interface CapabilityContext {
    * token.
    */
   credential(alias: string): Promise<string>;
+  /**
+   * What the capability's own check (`clearsOutside`) found when it let this
+   * call go without the owner; absent when the owner, a policy or nothing at
+   * all let it through. The capability defines its shape.
+   */
+  clearance?: unknown;
 }
+
+/** What a capability's own check says about a call the owner would otherwise be asked about (F8.9). */
+export type Clearance =
+  | { cleared: true; record: unknown }
+  /** `why` is a code the owner's card words; `off` means the check was not asked for at all and adds nothing to the card. */
+  | { cleared: false; why: string; detail?: string };
 
 export interface Capability<I = unknown, O = unknown> {
   name: string;
@@ -69,6 +81,28 @@ export interface Capability<I = unknown, O = unknown> {
    * key they paste: a vendor entry's `signIn` (`vendor-oauth.ts`).
    */
   signIn?: CredentialSignIn;
+  /**
+   * A key that is more than one string to paste: the form the console shows
+   * for it, and what the value must pass before it is sealed. A mailbox is
+   * an address, a password and two servers, and a password the servers
+   * refuse is said when the owner gives it, not at the first call.
+   */
+  credentialForm?: {
+    kind: 'mailbox';
+    /** The value in its one shape, or a refusal saying what is wrong: before the owner's device is asked for. */
+    parse(value: string): string;
+    /** That the service takes it, or a refusal in its words: after the device, before anything is sealed. */
+    check(value: string): Promise<void>;
+  };
+  /**
+   * Bound only until something else binds the name: a vendor file, a
+   * service the owner connects in the console. The platform binds
+   * `email.send` to a division's own mailbox and `web.extract` to its own
+   * browser so that they work with nothing else set up, and gives way to a
+   * service the owner chose for them rather than refusing it as a second
+   * binding.
+   */
+  fallback?: boolean;
   /**
    * Whether what it returns was written outside the company (F8.9), for a
    * capability the catalogue does not know -- a tool from an MCP server --
@@ -156,6 +190,18 @@ export interface Capability<I = unknown, O = unknown> {
    */
   actualCostCents?(input: I, result: O, ctx: CapabilityContext): Promise<number | null>;
   /**
+   * Whether this call may go without the owner although the work read
+   * content from outside (F8.9), by a check of the capability's own.
+   *
+   * Asked only at tier 2, only where nothing else asks -- no policy, no tier
+   * 3, no guardian -- and only after every yes the owner gave has been looked
+   * for. The check is the capability's because only it knows what bounds its
+   * effect: `chat.send` answers the customer who wrote, from passages the
+   * owner published for customers (STATUS 2.137). A capability that does not
+   * declare one is asked about as before.
+   */
+  clearsOutside?(input: I, ctx: CapabilityContext): Promise<Clearance>;
+  /**
    * Whether the capability runs code supplied at call time (F8.10).
    *
    * Declared here rather than inferred from the adapter name, because the
@@ -165,6 +211,13 @@ export interface Capability<I = unknown, O = unknown> {
    * something.
    */
   executesUntrustedCode?: boolean;
+  /**
+   * Whether that code reaches no network at all (0115): run where it can
+   * post nothing anywhere, so F8.10 lets it share a division with a
+   * credential and a tier 2 grant. Checked against the catalogue as the flag
+   * above is, so a binding that does not keep the promise cannot make it.
+   */
+  networkIsolated?: boolean;
   /**
    * F12.6: the provider scopes this capability needs to do its job.
    *
@@ -234,10 +287,10 @@ export class CapabilityRegistry {
     await withControlPlane(async (tx) => {
       for (const declaration of unbound) {
         await tx.query(
-          `INSERT INTO capabilities (name, adapter, default_tier, has_verify, executes_untrusted_code, required_scopes)
-           VALUES ($1, 'unbound', $2, false, $3, '{}')
+          `INSERT INTO capabilities (name, adapter, default_tier, has_verify, executes_untrusted_code, network_isolated, required_scopes)
+           VALUES ($1, 'unbound', $2, false, $3, $4, '{}')
            ON CONFLICT (name) DO NOTHING`,
-          [declaration.name, declaration.tier, declaration.executesUntrustedCode ?? false],
+          [declaration.name, declaration.tier, declaration.executesUntrustedCode ?? false, declaration.networkIsolated ?? false],
         );
       }
     });
@@ -251,8 +304,8 @@ export class CapabilityRegistry {
         await tx.query(
           `INSERT INTO capabilities
              (name, adapter, default_tier, estimated_cost_cents, has_verify,
-              executes_untrusted_code, required_scopes, input_schema)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+              executes_untrusted_code, network_isolated, required_scopes, input_schema)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
            ON CONFLICT (name) DO UPDATE
              SET adapter = EXCLUDED.adapter,
                  input_schema = EXCLUDED.input_schema,
@@ -260,7 +313,8 @@ export class CapabilityRegistry {
                  estimated_cost_cents = EXCLUDED.estimated_cost_cents,
                  has_verify = EXCLUDED.has_verify,
                  required_scopes = EXCLUDED.required_scopes,
-                 executes_untrusted_code = EXCLUDED.executes_untrusted_code`,
+                 executes_untrusted_code = EXCLUDED.executes_untrusted_code,
+                 network_isolated = EXCLUDED.network_isolated`,
           [
             capability.name,
             capability.adapter,
@@ -268,6 +322,7 @@ export class CapabilityRegistry {
             capability.estimatedCostCents ?? 0,
             typeof capability.verify === 'function',
             capability.executesUntrustedCode ?? false,
+            capability.networkIsolated ?? false,
             [...(capability.requiredScopes ?? [])],
             JSON.stringify(capability.inputSchema ?? { type: 'object' }),
           ],

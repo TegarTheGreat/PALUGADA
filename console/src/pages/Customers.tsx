@@ -9,12 +9,14 @@
  * its Meta app, so connecting one shows the address and a verify token to
  * paste there, once. What a customer writes is data to that work, and every reply
  * waits for the owner's yes, because the work began with a stranger's words
- * (F8.9). The conversations are read here, the latest first.
+ * (F8.9) -- unless the owner, with their device, lets a channel answer on its
+ * own from the documents they marked for customers (STATUS 2.137). The
+ * conversations are read here, the latest first.
  */
 import { useState } from 'react';
 import {
   Alert, Anchor, Badge, Button, Code, CopyButton, Drawer, Group, NumberInput, Paper, PasswordInput, SegmentedControl, Select,
-  Stack, Table, Text, Textarea, TextInput, ThemeIcon, UnstyledButton,
+  Stack, Switch, Table, Text, Textarea, TextInput, ThemeIcon, UnstyledButton,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconAlertTriangle, IconBrandTelegram, IconBrandWhatsapp, IconExternalLink, IconMail, IconMessageCircle, IconUser } from '@tabler/icons-react';
@@ -28,6 +30,7 @@ import type { PageProps } from '../App.tsx';
 import type { Chat, ChatChannel, ChatMessage, Structure } from '../types.ts';
 import { EmptyState, LoadFailed, Loading, PageHeader, Section } from '../components/ui.tsx';
 import { ChatThread, attachmentSaid, channelSaid, customerSaid, handleSaid } from '../components/ChatThread.tsx';
+import { EMPTY_MAILBOX, MailboxFields, mailboxFilled, mailboxSent, type Mailbox } from '../components/MailboxFields.tsx';
 
 /** A transport by its mark, never by a picture drawn from a name. */
 function KindIcon({ kind, size }: { kind: Chat['kind']; size: number }) {
@@ -59,7 +62,7 @@ export function Customers({ ctx, route }: PageProps) {
     <PageHeader
       crumbs={[ctx.company.name]}
       title={t('Customers')}
-      description={t('What customers write to the company, and what it answered. Each message starts work for the role you chose; every reply waits for your yes.')}
+      description={t('What customers write to the company, and what it answered. Each message starts work for the role you chose; a reply waits for your yes unless its channel answers on its own.')}
       live={view.updatedAt}
     />
   );
@@ -143,8 +146,7 @@ function Channels({ companyId, channels, owner, changed }: {
   const [token, setToken] = useState('');
   const [phoneNumberId, setPhoneNumberId] = useState('');
   const [appSecret, setAppSecret] = useState('');
-  const [mailbox, setMailbox] = useState({ address: '', imapHost: '', imapPort: 993, smtpHost: '', smtpPort: 587 });
-  const [password, setPassword] = useState('');
+  const [mailbox, setMailbox] = useState<Mailbox>(EMPTY_MAILBOX);
   const [roleId, setRoleId] = useState<string | null>(null);
   const [goalId, setGoalId] = useState<string | null>(null);
   const [instruction, setInstruction] = useState('');
@@ -164,19 +166,42 @@ function Channels({ companyId, channels, owner, changed }: {
         made = await api('POST', `/api/companies/${companyId}/chat-channels`, {
           kind, token: token.trim(), roleId, goalId, instruction: instruction.trim(), maxPerHour, proof,
           ...(kind === 'whatsapp' ? { phoneNumberId: phoneNumberId.trim(), appSecret: appSecret.trim() } : {}),
-          ...(kind === 'email' ? { ...mailbox, address: mailbox.address.trim(), password } : {}),
+          ...(kind === 'email' ? mailboxSent(mailbox) : {}),
         });
       });
       if (!done || !made) return;
       setOutcome(made);
       setToken('');
       setAppSecret('');
-      setPassword('');
+      setMailbox((was) => ({ ...was, password: '' }));
       changed();
     } catch (failure) {
       setError(explain(failure));
     } finally {
       setBusy(false);
+    }
+  };
+
+  // On loosens a control, so the device; off tightens one, so the session.
+  const answersAlone = async (channel: ChatChannel, on: boolean) => {
+    const name = channelSaid(channel.kind, channel.account);
+    try {
+      if (on) {
+        const done = await requireFactor(t('Let a channel answer customers on its own'), async (proof) => {
+          await api('POST', `/api/companies/${companyId}/chat-channels/${channel.id}/answers-alone`, { on: true, proof });
+        });
+        if (!done) return;
+      } else {
+        await api('POST', `/api/companies/${companyId}/chat-channels/${channel.id}/answers-alone`, { on: false });
+      }
+      notifications.show({
+        message: on
+          ? t('{channel} answers on its own from documents marked for customers.', { channel: name })
+          : t('Every reply on {channel} waits for your yes again.', { channel: name }),
+      });
+      changed();
+    } catch (failure) {
+      notifications.show({ color: 'red', message: explain(failure) });
     }
   };
 
@@ -210,6 +235,18 @@ function Channels({ companyId, channels, owner, changed }: {
                       <Text size="sm" fw={600}>{channelSaid(channel.kind, channel.account)}</Text>
                     </Group>
                     <Text size="xs" c="dimmed" lineClamp={2}>{channel.instruction}</Text>
+                    {owner && channel.enabled ? (
+                      <Switch
+                        mt={6}
+                        size="xs"
+                        checked={channel.answersAlone}
+                        onChange={(event) => void answersAlone(channel, event.currentTarget.checked)}
+                        label={t('Answers on its own')}
+                        description={t('From documents marked for customers, checked before it goes. Refunds, prices of its own, complaints and the law still come to you.')}
+                      />
+                    ) : channel.answersAlone && (
+                      <Badge mt={6} size="xs" variant="light" color="teal">{t('Answers on its own')}</Badge>
+                    )}
                     {channel.enabled && channel.failure && (
                       <Group gap={4} wrap="nowrap" mt={4}>
                         <IconAlertTriangle size={14} color="var(--mantine-color-red-6)" style={{ flexShrink: 0 }} />
@@ -266,26 +303,7 @@ function Channels({ companyId, channels, owner, changed }: {
                 />
               </>
             ) : kind === 'email' ? (
-              <>
-                <TextInput label={t('The mailbox\'s address')} type="email" autoComplete="off" value={mailbox.address}
-                  onChange={(event) => { const address = event.currentTarget.value; setMailbox((was) => ({ ...was, address })); }} />
-                <PasswordInput label={t('The mailbox\'s password')} autoComplete="new-password" value={password}
-                  description={t('An app password where the provider asks for one, as Gmail does. It is checked with the mail servers, then kept sealed; nobody sees it again.')}
-                  onChange={(event) => setPassword(event.currentTarget.value)} />
-                <Group grow align="flex-start" wrap="wrap">
-                  <TextInput label={t('IMAP server')} placeholder="imap.gmail.com" value={mailbox.imapHost} style={{ minWidth: 180 }}
-                    onChange={(event) => { const imapHost = event.currentTarget.value; setMailbox((was) => ({ ...was, imapHost })); }} />
-                  <NumberInput label={t('Port')} min={1} max={65535} value={mailbox.imapPort} maw={110}
-                    onChange={(value) => setMailbox((was) => ({ ...was, imapPort: typeof value === 'number' ? value : 993 }))} />
-                </Group>
-                <Group grow align="flex-start" wrap="wrap">
-                  <TextInput label={t('SMTP server')} placeholder="smtp.gmail.com" value={mailbox.smtpHost} style={{ minWidth: 180 }}
-                    onChange={(event) => { const smtpHost = event.currentTarget.value; setMailbox((was) => ({ ...was, smtpHost })); }} />
-                  <NumberInput label={t('Port')} min={1} max={65535} value={mailbox.smtpPort} maw={110}
-                    onChange={(value) => setMailbox((was) => ({ ...was, smtpPort: typeof value === 'number' ? value : 587 }))} />
-                </Group>
-                <Text size="xs" c="dimmed">{t('For Gmail: imap.gmail.com, port 993, and smtp.gmail.com, port 587.')}</Text>
-              </>
+              <MailboxFields value={mailbox} onChange={setMailbox} />
             ) : (
               <>
                 <Text size="sm" c="dimmed">
@@ -367,7 +385,7 @@ function Channels({ companyId, channels, owner, changed }: {
                 loading={busy}
                 disabled={!roleId || !goalId || !instruction.trim()
                   || (kind === 'email'
-                    ? !mailbox.address.trim() || !password || !mailbox.imapHost.trim() || !mailbox.smtpHost.trim()
+                    ? !mailboxFilled(mailbox)
                     : !token.trim() || (kind === 'whatsapp' && (!phoneNumberId.trim() || !appSecret.trim())))}
                 onClick={() => void connect()}
               >

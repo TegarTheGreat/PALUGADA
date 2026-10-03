@@ -210,6 +210,12 @@ jobs:
           npm ci --omit=dev --no-audit --no-fund
           npm run container:check
 
+      # The tools research's sixth recommendation on a real daemon: a role's
+      # Python, built into deploy/compute, sums a spreadsheet with no network,
+      # as nobody, on a read-only image, and is stopped at its time.
+      - name: A role's Python runs where it reaches nothing
+        run: npm run compute:check
+
       - name: What the containers said
         if: failure()
         run: docker compose logs

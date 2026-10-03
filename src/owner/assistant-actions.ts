@@ -274,7 +274,7 @@ export const ASSISTANT_ACTIONS: readonly AssistantAction[] = [
   },
   {
     pattern: '/api/companies/:companyId/inbox/:itemId/answer',
-    what: 'Tell the task behind an escalation something, without deciding the item; a task waiting on the owner goes back to work.',
+    what: 'Tell the task behind an escalation something, without deciding the item; a task waiting on the owner goes back to work. A question a run asked the owner is answered by it, and closes.',
     fields: { answer: 'the answer' },
     factor: 'never',
   },

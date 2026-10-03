@@ -3747,7 +3747,8 @@ And what made connecting a service hard:
   authenticator; a key is never shown again.
 - Approval cards now say what the action would do, with every argument
   (L9), and the owner's answer to an escalation reaches the task and puts
-  it back to work (L18).
+  it back to work (L18). A run's own question answered this way stayed
+  open, and the run asked it again, until 2.90.
 
 - **There was no OAuth anywhere, so no hosted MCP server that signs in with
   it could be connected.** Linear's, Notion's, Sentry's, Atlassian's and
@@ -6744,6 +6745,37 @@ What changed:
   the owner asks why; the model is asked again with the question in its
   context, answers and asks again; the same card holds the question and the
   answer and is undecided.
+
+## 2.90 An answer to a run's question closes it, through every route (F10.3, B6)
+
+Found by the audit of 30 September (B6, L18) and still open on 3 October,
+by the API: a run's own question (`owner.ask`) answered through
+`POST /api/companies/:companyId/inbox/:itemId/answer` -- the route the
+owner's assistant uses -- was never answered. The route gives an
+escalation the owner's word without deciding it, which is right for an
+escalation about work: the words went to the task as an instruction and
+the task went back to work. But a run reads the answer to its question
+from the decided item (`askOwner`, `answersFor`). The item stayed open, the
+run that resumed asked the same question, found it open and parked again:
+`owner.answered`, then `task.waiting_approval` 2.6 seconds later, as often
+as it was answered. The console's and the chats' answer buttons decide the
+item, and were not affected.
+
+What changed:
+
+- **An answer to a run's own question decides it** (`answerEscalation`,
+  `src/inbox/inbox.ts`): approved, with the answer as the owner's note,
+  through `decide` -- the same record, the same channel on it, and the same
+  refusal when the item has expired or closed. Every other escalation is
+  answered as before and stays open.
+- **Said once.** The answer is not also written to the task as an
+  instruction, so the run does not read it twice, once as an answer and
+  once as an order.
+- **The assistant is told** that answering a run's question closes it.
+- **Tested.** `control-plane.test.ts`: a run asks; the owner answers through
+  `answerEscalation`; the item is decided with the answer, the task is
+  running, the run that asks again is given the answer and does not park,
+  and a second answer is refused as already decided.
 
 ## 3. Decisions, deviations, and what is unverified
 

@@ -1978,14 +1978,27 @@ async function notOpen(tx: TenantClient, itemId: string): Promise<PalugadaError>
  * answer is now the owner's word to the task, read by its next run the way
  * any instruction is; a task waiting on the owner goes back to work; and
  * the item stays open, because the owner has said something, not decided.
+ *
+ * A run's own question (`owner.ask`) is the exception: answering it is all
+ * there is to decide. Left open, the run that resumed asked it again, found
+ * it open and parked, for ever (B6) -- what it reads is the decided item
+ * (`askOwner`, `answersFor`). So the answer decides it, as the console and
+ * the chats answer one.
  */
 export async function answerEscalation(
   companyId: string,
   itemId: string,
   answer: string,
+  options: { channel?: DecisionChannel } = {},
 ): Promise<void> {
   const text = String(answer ?? '').trim();
   if (!text) throw new PalugadaError('contract.violation', 'an answer cannot be empty', { field: 'answer' });
+  const { rows: asked } = await withTenant(companyId, (tx) => tx.query<{ question: boolean }>(
+    "SELECT payload->>'askedBy' = 'agent' AS question FROM inbox_items WHERE id = $1", [itemId]));
+  if (asked[0]?.question) {
+    await decide(companyId, itemId, 'approve', text, { channel: options.channel ?? 'api' });
+    return;
+  }
   await withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{ task_id: string | null }>(
       `UPDATE inbox_items

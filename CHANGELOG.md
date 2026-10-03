@@ -174,6 +174,9 @@ The first version. What it holds, in the order an owner meets it.
 - A question you ask on an approval card reaches the agent, and its answer
   appears on the same card for you to decide on. The agent never read it:
   it repeated its request and the card waited again (STATUS 2.89).
+- An answer to an agent's question given through the owner's assistant now
+  answers it. The question stayed open, so the agent asked it again and
+  waited, however often it was answered (STATUS 2.90).
 - **Replay against the journal** is shown only for a task this deployment
   can replay. It was offered on every task and refused on every task a
   model or an agent CLI ran (STATUS 2.87).

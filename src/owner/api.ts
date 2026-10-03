@@ -3821,10 +3821,11 @@ export class OwnerApi {
       {
         // The owner's answer to an escalation, without deciding it: told to
         // the task, which goes back to work if it was waiting on the owner.
+        // A run's own question is decided by its answer (B6).
         method: 'POST',
         pattern: '/api/companies/:companyId/inbox/:itemId/answer',
         handle: async ({ params, body }) => {
-          await inbox.answerEscalation(params.companyId!, params.itemId!, String(body.answer ?? ''));
+          await inbox.answerEscalation(params.companyId!, params.itemId!, String(body.answer ?? ''), { channel: 'app' });
           return { ok: true };
         },
       },

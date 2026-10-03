@@ -12,6 +12,7 @@
  *     never into an execution (F10.4).
  */
 import { randomUUID } from 'node:crypto';
+import { hashInput } from '../engine/hash.ts';
 import { withTenant, withControlPlane, type TenantClient } from '../db/tenant.ts';
 import { appendEvent } from '../audit/event-log.ts';
 import { PalugadaError } from '../errors.ts';
@@ -132,6 +133,12 @@ export interface InboxItem {
    * (0083): an approval a policy asked for, at tier 2 or below, by a role.
    */
   allowFor: boolean;
+  /**
+   * The schedule whose work asked, when the owner may approve this and allow
+   * it every time that schedule does exactly this (0116): an approval at tier
+   * 2 or below, in work a schedule made. Null on any other card.
+   */
+  forSchedule: { slug: string } | null;
   /** How many skills a skill card asks about: one, or a bundle's (B9). Null on any other card. */
   skillCount: number | null;
   /**
@@ -1124,6 +1131,14 @@ function workOf(input: Record<string, unknown>): string {
 const ALLOW_FOR_SQL = `i.kind = 'approval' AND i.tier <= 2 AND i.capability_name IS NOT NULL
   AND i.payload->>'reason' = 'policy' AND t.role_id IS NOT NULL`;
 
+/**
+ * Whether an approval may be answered for every time its schedule does
+ * exactly this (0116), over `inbox_items i`: tier 2 or below, an action with
+ * its fingerprint, in work a schedule made -- whyever it was asked.
+ */
+const FOR_SCHEDULE_SQL = `(i.kind = 'approval' AND i.tier <= 2 AND i.capability_name IS NOT NULL
+  AND i.action_fingerprint IS NOT NULL AND i.task_id IS NOT NULL AND app.task_schedule(i.task_id) IS NOT NULL)`;
+
 export async function listOpen(companyId: string, options: { snoozed?: boolean } = {}): Promise<InboxItem[]> {
   return withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
@@ -1134,10 +1149,12 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
       capability_name: string | null; role_slug: string | null; role_name: string | null; division_name: string | null;
       question: string | null; options: string[] | null; snoozed_until: Date | null; input: unknown;
       allow_for: boolean; asked: Exchange[] | null; asking: string | null; skill_count: number | null; browser: boolean;
-      key: AskedKey | null;
+      key: AskedKey | null; for_schedule: string | null;
     }>(
       `SELECT i.id, i.kind, i.status, i.title, i.action_summary, i.rationale, i.tier, i.snoozed_until,
               (${ALLOW_FOR_SQL}) AS allow_for,
+              CASE WHEN ${FOR_SCHEDULE_SQL}
+                   THEN (SELECT s.slug FROM schedules s WHERE s.id = app.task_schedule(i.task_id)) END AS for_schedule,
               i.estimated_cost_cents, i.consequence_if_denied, i.task_id, i.expires_at,
               i.created_at, i.capability_name, r.slug AS role_slug, r.display_name AS role_name, d.name AS division_name,
               CASE WHEN i.payload->>'askedBy' = 'agent' THEN i.payload->>'question' END AS question,
@@ -1177,6 +1194,7 @@ export async function listOpen(companyId: string, options: { snoozed?: boolean }
         goalChain: chain.map((goal) => ({ kind: goal.kind, statement: goal.statement })),
         snoozedUntil: r.snoozed_until,
         allowFor: r.allow_for,
+        forSchedule: r.for_schedule ? { slug: r.for_schedule } : null,
         skillCount: r.skill_count,
         // What the owner asked and the run answered, and a question still
         // waiting for its answer last (N6).
@@ -1455,6 +1473,12 @@ export interface DecideOptions {
    */
   allowForHours?: number;
   /**
+   * Approve, and allow this exact action every time the card's schedule does
+   * it, for ninety days (0116). Only for a card at tier 2 or below in work a
+   * schedule made, with the owner's second factor.
+   */
+  forSchedule?: boolean;
+  /**
    * A staff seat deciding, not the owner (0110). A seat decides nothing at
    * tier 3 -- yes or no -- and gives no yes for a while; who decided is
    * written on the item and its record.
@@ -1492,20 +1516,23 @@ export async function decide(
   // tier 3 action. The safe default is the one that refuses.
   let assurance: OwnerAssurance = options.assurance ?? 'none';
   // F10.10: read the tier before the update, so a refusal changes nothing.
-  const { tier, stageChange, goalChange, overdue, standing } = await withTenant(companyId, async (tx) => {
+  const { tier, stageChange, goalChange, overdue, standing, scheduled } = await withTenant(companyId, async (tx) => {
     const { rows } = await tx.query<{
       tier: number | null; stage_change: StageChange | null; goal_change: GoalChange | null; overdue: boolean;
       allow_for: boolean; capability_name: string | null; role_id: string | null;
+      schedule_id: string | null; action_fingerprint: string | null;
     }>(
       `SELECT i.tier, i.payload->'stageChange' AS stage_change,
               CASE WHEN i.kind = 'escalation' THEN i.payload->'goalChange' END AS goal_change,
               (i.expires_at IS NOT NULL AND i.expires_at <= now()) AS overdue,
-              (${ALLOW_FOR_SQL}) AS allow_for, i.capability_name, t.role_id
+              (${ALLOW_FOR_SQL}) AS allow_for, i.capability_name, t.role_id,
+              CASE WHEN ${FOR_SCHEDULE_SQL} THEN app.task_schedule(i.task_id) END AS schedule_id, i.action_fingerprint
          FROM inbox_items i LEFT JOIN tasks t ON t.id = i.task_id
         WHERE i.id = $1 AND i.status = 'open'`,
       [itemId],
     );
     const row = rows[0];
+    const schedule = row?.schedule_id ? await scheduleDefinition(tx, row.schedule_id) : null;
     return {
       tier: row?.tier ?? null,
       stageChange: row?.stage_change ?? null,
@@ -1513,6 +1540,9 @@ export async function decide(
       overdue: row?.overdue ?? false,
       standing: row?.allow_for && row.capability_name && row.role_id
         ? { capabilityName: row.capability_name, roleId: row.role_id }
+        : null,
+      scheduled: schedule && row?.capability_name && row.action_fingerprint
+        ? { ...schedule, capabilityName: row.capability_name, fingerprint: row.action_fingerprint }
         : null,
     };
   });
@@ -1527,6 +1557,10 @@ export async function decide(
       throw new PalugadaError('staff.forbidden',
         'allowing an action for a while loosens a control, which is the owner\'s to do', { inboxItemId: itemId });
     }
+    if (options.forSchedule) {
+      throw new PalugadaError('staff.forbidden',
+        'allowing an action every time a schedule does it loosens a control, which is the owner\'s to do', { inboxItemId: itemId });
+    }
   }
   // Past its deadline, the owner's silence has already answered: the sweep
   // that says so runs once a tick, and an answer landing in between was
@@ -1535,6 +1569,12 @@ export async function decide(
   if (overdue) {
     await expireOverdue(companyId);
     throw await withTenant(companyId, (tx) => notOpen(tx, itemId));
+  }
+  // A yes is for a while (0083) or for a schedule (0116), never both: two
+  // loosenings with two different bounds are not one decision.
+  if (options.allowForHours !== undefined && options.forSchedule) {
+    throw new PalugadaError('contract.violation',
+      'a yes is given for a while or every time its schedule does it, not both', { field: 'forSchedule' });
   }
   // A yes for a while (0083) is checked before any factor is spent on it:
   // a refusal here leaves the card, and the owner's code, as they were.
@@ -1571,6 +1611,33 @@ export async function decide(
     }
   }
 
+  // Every time the card's schedule does exactly this (0116), checked the
+  // same way: before any factor is spent, so a refusal changes nothing.
+  const forSchedule = options.forSchedule === true;
+  if (forSchedule) {
+    if (decision !== 'approve') {
+      throw new PalugadaError('contract.violation', 'only a yes can be given for every time a schedule does something', { field: 'forSchedule' });
+    }
+    if (!scheduled) {
+      throw new PalugadaError(
+        'contract.violation',
+        'only an action at tier 2 or below that a schedule\'s work asked about can be allowed every time its schedule does it; '
+          + 'a tier 3 action is approved one at a time (F10.10)',
+        { inboxItemId: itemId },
+      );
+    }
+    // It loosens a control for months, so it takes the owner's device.
+    if (!TIER_3_CHANNELS.has(channel)) {
+      throw new PalugadaError('approval.channel_forbidden',
+        `allowing this every time ${scheduled.slug} does it happens in the app, not over ${channel}`, { inboxItemId: itemId, channel });
+    }
+    if (!options.mfa || !options.proof) {
+      throw new PalugadaError('approval.channel_forbidden',
+        `allowing this every time ${scheduled.slug} does it needs a second factor; none was presented (PRD F12.5)`,
+        { inboxItemId: itemId, reason: options.mfa ? 'no_proof' : 'no_verifier' });
+    }
+  }
+
   // Approving a stage proposal moves the company, which the application role
   // may not write (0047), so that one decision is made on the control plane --
   // still one transaction, so the answer and the move happen together. The
@@ -1584,7 +1651,7 @@ export async function decide(
   // transaction as the decision it came with.
   const granting = allowForHours !== undefined;
   const transaction = <T>(fn: (tx: TenantClient) => Promise<T>) =>
-    moving || redirecting || granting ? withControlPlane(fn) : withTenant(companyId, fn);
+    moving || redirecting || granting || forSchedule ? withControlPlane(fn) : withTenant(companyId, fn);
 
   let factor: VerifiedFactor | null = null;
   if (decision === 'approve' && (tier ?? 0) >= 3) {
@@ -1643,8 +1710,8 @@ export async function decide(
     // Derived, never taken from the caller. This is the whole fix.
     assurance = 'mfa';
   }
-  if (granting) {
-    const asking = { purpose: 'approval.standing', subjectId: itemId, companyId };
+  if (granting || forSchedule) {
+    const asking = { purpose: granting ? 'approval.standing' : 'approval.schedule', subjectId: itemId, companyId };
     factor = 'totp' in options.proof!
       ? await options.mfa!.verifyTotp(options.proof.totp, asking)
       : await options.mfa!.verifyWebAuthn(options.proof!.webauthn, asking);
@@ -1710,6 +1777,7 @@ export async function decide(
           : {}),
         ...(options.batch ? { batch: options.batch } : {}),
         ...(granting ? { allowForHours } : {}),
+        ...(forSchedule ? { forSchedule: scheduled!.slug } : {}),
         ...(options.seat ? { staff: { seatId: options.seat.id, name: options.seat.name } } : {}),
       },
     });
@@ -1730,6 +1798,27 @@ export async function decide(
         payload: {
           standingApprovalId: granted[0]!.id, inboxItemId: itemId, roleId: standing!.roleId,
           capability: standing!.capabilityName, expiresAt: granted[0]!.expires_at.toISOString(),
+        },
+      });
+    }
+
+    // 0116: this exact action, every time this schedule as it is now does it.
+    if (forSchedule) {
+      const { rows: granted } = await tx.query<{ id: string; expires_at: Date }>(
+        `INSERT INTO schedule_approvals
+           (company_id, schedule_id, schedule_definition, capability_name, action_fingerprint, granted_by_item, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, now() + make_interval(days => $7))
+         RETURNING id, expires_at`,
+        [companyId, scheduled!.id, scheduled!.definition, scheduled!.capabilityName, scheduled!.fingerprint, itemId, SCHEDULE_APPROVAL_DAYS],
+      );
+      await appendEvent(tx, {
+        companyId,
+        taskId: row.task_id ?? undefined,
+        type: 'approval.schedule_granted',
+        actor: 'owner',
+        payload: {
+          scheduleApprovalId: granted[0]!.id, inboxItemId: itemId, scheduleId: scheduled!.id, schedule: scheduled!.slug,
+          capability: scheduled!.capabilityName, expiresAt: granted[0]!.expires_at.toISOString(),
         },
       });
     }
@@ -2345,4 +2434,125 @@ export async function useStanding(
     [roleId, capabilityName],
   );
   return rows[0] ? { id: rows[0].id, grantedByItem: rows[0].granted_by_item } : null;
+}
+
+/** How long a yes for a schedule stands (0116): a season, and then the owner is asked again. */
+export const SCHEDULE_APPROVAL_DAYS = 90;
+
+/**
+ * A schedule as a yes for it is bound to (0116): what the work is and when
+ * it runs -- role, division, project, goal, account, instruction, timing --
+ * as a digest, so an edited schedule is a different one. Its id and slug,
+ * for the record and the owner.
+ */
+async function scheduleDefinition(tx: TenantClient, scheduleId: string): Promise<{ id: string; slug: string; definition: string } | null> {
+  const { rows } = await tx.query<{
+    id: string; slug: string; project_id: string; division_id: string; role_id: string; budget_account_id: string;
+    goal_id: string | null; input: unknown; cron_expression: string; timezone: string;
+  }>(
+    `SELECT id, slug, project_id, division_id, role_id, budget_account_id, goal_id, input, cron_expression, timezone
+       FROM schedules WHERE id = $1`,
+    [scheduleId],
+  );
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    id: row.id,
+    slug: row.slug,
+    definition: hashInput({
+      projectId: row.project_id, divisionId: row.division_id, roleId: row.role_id, budgetAccountId: row.budget_account_id,
+      goalId: row.goal_id, input: row.input, cron: row.cron_expression, timezone: row.timezone,
+    }),
+  };
+}
+
+/** A yes the owner gave a schedule for one exact action (0116), as the console lists it. */
+export interface ScheduleApproval {
+  id: string;
+  scheduleId: string;
+  scheduleSlug: string;
+  capabilityName: string;
+  /** The action, as the card that was approved said it. */
+  actionSummary: string;
+  grantedByItem: string;
+  createdAt: Date;
+  expiresAt: Date;
+  uses: number;
+  lastUsedAt: Date | null;
+}
+
+/** The yeses for a schedule still in force, soonest to end first (0116). */
+export async function scheduleApprovals(companyId: string): Promise<ScheduleApproval[]> {
+  return withTenant(companyId, async (tx) => {
+    const { rows } = await tx.query<{
+      id: string; schedule_id: string; slug: string; capability_name: string; action_summary: string; granted_by_item: string;
+      created_at: Date; expires_at: Date; uses: number; last_used_at: Date | null;
+    }>(
+      `SELECT a.id, a.schedule_id, s.slug, a.capability_name, i.action_summary, a.granted_by_item,
+              a.created_at, a.expires_at, a.uses, a.last_used_at
+         FROM schedule_approvals a
+         JOIN schedules s ON s.id = a.schedule_id
+         JOIN inbox_items i ON i.id = a.granted_by_item
+        WHERE a.revoked_at IS NULL AND a.expires_at > now()
+        ORDER BY a.expires_at, a.id`,
+    );
+    return rows.map((row) => ({
+      id: row.id, scheduleId: row.schedule_id, scheduleSlug: row.slug, capabilityName: row.capability_name,
+      actionSummary: row.action_summary, grantedByItem: row.granted_by_item, createdAt: row.created_at,
+      expiresAt: row.expires_at, uses: row.uses, lastUsedAt: row.last_used_at,
+    }));
+  });
+}
+
+/**
+ * Takes a yes for a schedule back (0116). A tightening, so no factor: the
+ * next time the schedule does it, the owner is asked again.
+ */
+export async function revokeScheduleApproval(companyId: string, approvalId: string): Promise<void> {
+  await withControlPlane(async (tx) => {
+    const { rows } = await tx.query<{ id: string; capability_name: string; schedule_id: string }>(
+      `UPDATE schedule_approvals SET revoked_at = now()
+        WHERE id = $1 AND company_id = $2 AND revoked_at IS NULL
+        RETURNING id, capability_name, schedule_id`,
+      [approvalId, companyId],
+    );
+    if (!rows[0]) {
+      throw new PalugadaError('contract.violation',
+        `no yes for a schedule ${approvalId} is in force for this company`, { scheduleApprovalId: approvalId });
+    }
+    await appendEvent(tx, {
+      companyId,
+      type: 'approval.schedule_revoked',
+      actor: 'owner',
+      payload: { scheduleApprovalId: approvalId, capability: rows[0].capability_name, scheduleId: rows[0].schedule_id },
+    });
+  });
+}
+
+/**
+ * A yes that covers this exact action in this task's schedule, as the
+ * schedule is defined now, counted as used; or null (0116). What the broker
+ * asks before raising a card below tier 3, whyever the card would be raised.
+ */
+export async function useScheduleApproval(
+  tx: TenantClient,
+  taskId: string,
+  capabilityName: string,
+  fingerprint: string,
+): Promise<{ id: string; grantedByItem: string; scheduleId: string } | null> {
+  const { rows: found } = await tx.query<{ schedule_id: string | null }>('SELECT app.task_schedule($1) AS schedule_id', [taskId]);
+  const scheduleId = found[0]?.schedule_id ?? null;
+  if (!scheduleId) return null;
+  const schedule = await scheduleDefinition(tx, scheduleId);
+  if (!schedule) return null;
+  const { rows } = await tx.query<{ id: string; granted_by_item: string }>(
+    `UPDATE schedule_approvals SET uses = uses + 1, last_used_at = now()
+      WHERE id = (SELECT id FROM schedule_approvals
+                   WHERE schedule_id = $1 AND schedule_definition = $2 AND capability_name = $3 AND action_fingerprint = $4
+                     AND revoked_at IS NULL AND expires_at > now()
+                   ORDER BY expires_at DESC LIMIT 1)
+      RETURNING id, granted_by_item`,
+    [scheduleId, schedule.definition, capabilityName, fingerprint],
+  );
+  return rows[0] ? { id: rows[0].id, grantedByItem: rows[0].granted_by_item, scheduleId } : null;
 }

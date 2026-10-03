@@ -137,6 +137,15 @@ refer to `docs/PRD.md`.
 5. A standing approval (0083) never covers tainted work, tier 3, another role
    or another capability: the broker requires no taint, and `decide` accepts
    one only on a card a policy raised.
+5b. A yes for a schedule (0116) does cover tainted work, and only because it
+   is narrower than the taint: one schedule as it was defined when the yes
+   was given (a digest of its role, division, project, goal, account,
+   instruction and timing), one capability, and one action to the byte (the
+   same fingerprint as 4). What was read cannot have shaped an action every
+   byte of which the owner already approved; change one byte -- a recipient,
+   a word, an amount -- or the schedule, and the owner is asked. Never tier
+   3, never past ninety days, only with the owner's device, and only the
+   owner's console writes one (the application role counts uses).
 5a. A company that turns the guardian on (0092, `src/broker/guardian.ts`) has
    each tier 0 or 1 call in tainted work judged by a model first, which may
    send it to the owner and cannot let anything through. It is shown the

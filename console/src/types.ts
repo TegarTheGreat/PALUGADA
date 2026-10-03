@@ -63,6 +63,8 @@ export interface InboxItem {
   input?: unknown;
   /** Whether it may be approved for a while (0083): a policy asked, at tier 2 or below. */
   allowFor?: boolean;
+  /** The schedule whose work asked, when it may be approved every time that schedule does exactly this (0116). */
+  forSchedule?: { slug: string } | null;
   /** How many skills a skill card asks about: one, or all a bundle brought (B9). */
   skillCount?: number | null;
   /**
@@ -80,6 +82,21 @@ export interface StandingApproval {
   /** The name the owner gave the role; the console shows it in place of the code. */
   roleName: string | null;
   capabilityName: string;
+  grantedByItem: string;
+  createdAt: string;
+  expiresAt: string;
+  uses: number;
+  lastUsedAt: string | null;
+}
+
+/** A yes the owner gave a schedule for one exact action (0116). */
+export interface ScheduleApproval {
+  id: string;
+  scheduleId: string;
+  scheduleSlug: string;
+  capabilityName: string;
+  /** The action, as the card that was approved said it. */
+  actionSummary: string;
   grantedByItem: string;
   createdAt: string;
   expiresAt: string;

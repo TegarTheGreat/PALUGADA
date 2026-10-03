@@ -8660,6 +8660,53 @@ as the one to add for a company with a GPU of its own.
   settings) is not taken; the default one serves SD 1.5 and SDXL
   checkpoints, which are most of what is shared.
 
+## 2.135 A yes for exactly what a schedule does, every time it does it (tools research, §5 idea 3)
+
+A schedule that reads the suppliers' mailbox each morning and sends the same
+confirmation to the same supplier asked the owner every morning. Its work
+read content from outside, so F8.9 asks before a tier 2 action, and the yes
+for a while (0083) never reaches such work, because what was read could have
+shaped the action. The research borrowed OpenClaw's standing grants for
+automations: bound to the exact job and the exact operation, failing closed
+when either changes by a byte.
+
+What changed:
+
+- **"Every time this schedule does it", on the card** (0116). An approval at
+  tier 2 or below, in work a schedule made -- the task it started, or one
+  that task handed on -- offers it in the approve menu beside "for a while",
+  whyever the card was raised: a policy, the guardian, or content from
+  outside. With the owner's device, in the app; never from a seat beside
+  the owner; never with "for a while" in the same answer.
+- **Narrower than the taint it covers.** The yes is for one schedule as it is
+  defined when it is given -- a digest of its role, division, project, goal,
+  account, instruction and timing -- one capability, and one action to the
+  byte, the fingerprint every card already has. An action every byte of
+  which the owner approved was not shaped by what was read; another
+  recipient, another word, an edited schedule, or work no schedule made, and
+  the owner is asked. Put back as it was, a schedule is the one the yes was
+  for again. The threat model says so (5b).
+- **Bounded.** Never tier 3 (F10.10). Ninety days at most, then the owner
+  is asked again; the database refuses longer. Only the owner's console
+  writes one, on the control plane; the application role reads it and
+  counts its uses. Each use is recorded with the yes it ran on, and the
+  call's record names it.
+- **Listed and taken back** beside the yeses for a while, under "Allowed for
+  a schedule": what, which schedule, the action as the card said it, until
+  when, how often used, and **Take back**, a tightening with no device.
+- **In every language**, the menu, the list and the three events.
+- **Tested.** `schedule-approvals.test.ts`: the offer on a card from tainted
+  scheduled work that 0083 refuses; the device asked for, and the chat
+  channel refused; the next run's identical send, and a sub-task's, without
+  a card, recorded with the yes it ran on; another recipient, a changed
+  word and unscheduled work asked; an edited schedule asked and the same
+  schedule put back not; taken back and asked again; tier 3, unscheduled
+  work, a seat, a no, both kinds at once, past ninety days and an agent
+  writing one, each refused; the console's routes; and on a phone, the menu,
+  the device, the list and taking it back.
+- **Not done.** Mining the history of the owner's answers for rules to
+  propose (§5 idea 4) is not built.
+
 ## 3. Decisions, deviations, and what is unverified
 
 Nothing here is blocking any more. What follows is the reasoning behind the

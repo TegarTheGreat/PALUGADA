@@ -742,8 +742,30 @@ export class CapabilityBroker {
     // that did read something was covered by a yes the owner gave for clean
     // work -- with less scrutiny than the same call with no policy, which the
     // guardian would have looked at (the review of 51e870a).
+    // The owner's yes for this exact action every time this schedule does it
+    // (0116): below tier 3, whyever the card would be raised -- a policy, the
+    // guardian, or content from outside, since an action every byte of which
+    // the owner approved was not shaped by what was read. Counted as used,
+    // and the record says which yes it ran on.
+    let forSchedule: { id: string; grantedByItem: string; scheduleId: string } | null = null;
+    if (needsOwner && !grantedApproval && !requiresOwnerApproval(tier)) {
+      forSchedule = await holding(() => withTenant(ctx.companyId, async (tx) => {
+        const found = await inbox.useScheduleApproval(tx, ctx.taskId, name, fingerprint!);
+        if (found) {
+          await appendEvent(tx, {
+            companyId: ctx.companyId,
+            projectId: ctx.projectId,
+            taskId: ctx.taskId,
+            type: 'approval.schedule_used',
+            actor: 'broker',
+            payload: { capability: name, scheduleApprovalId: found.id, scheduleId: found.scheduleId, inboxItemId: found.grantedByItem },
+          });
+        }
+        return found;
+      }));
+    }
     let standing: { id: string; grantedByItem: string } | null = null;
-    if (needsOwner && !grantedApproval && !requiresOwnerApproval(tier) && policy.effect === 'require_approval'
+    if (needsOwner && !grantedApproval && !forSchedule && !requiresOwnerApproval(tier) && policy.effect === 'require_approval'
         && (outside ?? await holding(() => withTenant(ctx.companyId, (tx) => outsideContentIn(tx, ctx.taskId)))) === null) {
       standing = await holding(() => withTenant(ctx.companyId, async (tx) => {
         const found = await inbox.useStanding(tx, ctx.roleId, name);
@@ -760,7 +782,7 @@ export class CapabilityBroker {
         return found;
       }));
     }
-    if (needsOwner && !grantedApproval && !standing) await askOwner();
+    if (needsOwner && !grantedApproval && !standing && !forSchedule) await askOwner();
 
     const controller = new AbortController();
     const signal = ctx.signal ?? controller.signal;
@@ -785,6 +807,7 @@ export class CapabilityBroker {
           observedPolicies: policy.observed.map((m) => m.slug),
           ...(grantedApproval ? { approvedBy: grantedApproval } : {}),
           ...(standing ? { approvedBy: standing.grantedByItem, standingApprovalId: standing.id } : {}),
+          ...(forSchedule ? { approvedBy: forSchedule.grantedByItem, scheduleApprovalId: forSchedule.id } : {}),
         },
       });
     }).catch(async (error: unknown) => {

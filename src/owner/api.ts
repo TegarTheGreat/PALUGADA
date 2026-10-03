@@ -1258,6 +1258,8 @@ export class OwnerApi {
               // 0083: `decide` checks it, and asks for the factor it needs.
               ...(body.allowForHours === undefined || body.allowForHours === null
                 ? {} : { allowForHours: Number(body.allowForHours) }),
+              // 0116: every time the card's schedule does exactly this.
+              ...(body.forSchedule === true ? { forSchedule: true } : {}),
               // A staff seat's decision: `decide` holds it to tier 2 and below.
               seat: staff ? { id: staff.seat.id, name: staff.seat.name } : null,
             },
@@ -1268,10 +1270,24 @@ export class OwnerApi {
       },
 
       {
-        // 0083: the yeses the owner gave for a while, still in force.
+        // 0083: the yeses the owner gave for a while, still in force; and
+        // 0116's, given to a schedule for one exact action.
         method: 'GET',
         pattern: '/api/companies/:companyId/standing-approvals',
-        handle: async ({ params }) => ({ standing: await inbox.standingApprovals(params.companyId!) }),
+        handle: async ({ params }) => ({
+          standing: await inbox.standingApprovals(params.companyId!),
+          schedules: await inbox.scheduleApprovals(params.companyId!),
+        }),
+      },
+
+      {
+        // Taking one back is a tightening, so the session is enough.
+        method: 'POST',
+        pattern: '/api/companies/:companyId/schedule-approvals/:approvalId/revoke',
+        handle: async ({ params }) => {
+          await inbox.revokeScheduleApproval(params.companyId!, params.approvalId!);
+          return { ok: true };
+        },
       },
 
       {

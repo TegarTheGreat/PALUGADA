@@ -360,6 +360,11 @@ The first version. What it holds, in the order an owner meets it.
   GPU of its own: its address, and a checkpoint it has as the model. No key,
   nothing paid per picture, and nothing left in ComfyUI's output folder
   (STATUS 2.134).
+- An approval in work a schedule made can be given for **every time that
+  schedule does exactly this**, for ninety days, with your device: the same
+  action to the byte, from the same schedule unchanged, runs without a card,
+  even when the work read outside mail. Listed under **Allowed for a
+  schedule**, and taken back with one press (STATUS 2.135).
 - `PALUGADA_MAIL_CA` is trusted besides the system's authorities, as
   documented: set, it had stopped mailboxes on public certificates from
   connecting (STATUS 2.126).
